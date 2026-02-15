@@ -25,6 +25,23 @@ import { codingTools } from "./tools";
 import { OpenRouterAdapter } from "../../src/models/openrouter";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Timeline
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+type TimelineEntry =
+  | { kind: "user"; text: string }
+  | { kind: "agent_text"; text: string; elapsed?: number }
+  | {
+      kind: "tool";
+      id: string;
+      name: string;
+      toolInput: any;
+      status: "running" | "success" | "error";
+      output?: string;
+      elapsed?: number;
+    };
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // In-memory store (with tasks + permissions)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -97,7 +114,7 @@ class MemoryStore implements StoreAdapter {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Agent bridge: subscriber → React state
+// Agent bridge: subscriber -> React state + timeline
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 class AgentBridge {
@@ -106,6 +123,9 @@ class AgentBridge {
   turns = 0;
   tokensIn = 0;
   tokensOut = 0;
+  timeline: TimelineEntry[] = [];
+  tasks: Task[] = [];
+  private _toolId = 0;
   private listeners = new Set<() => void>();
 
   subscribe(fn: () => void) {
@@ -139,15 +159,69 @@ class AgentBridge {
     this.tokensOut += tOut;
     this.emit();
   }
+
+  // ── Timeline methods ─────────────────────────────────────────────────────
+
+  pushUser(text: string) {
+    this.timeline.push({ kind: "user", text });
+    this.emit();
+  }
+
+  /** Commit any accumulated streaming text to the timeline as a permanent entry. */
+  flushStreamToTimeline(elapsed?: number) {
+    if (this.streamText.trim()) {
+      this.timeline.push({
+        kind: "agent_text",
+        text: this.streamText.trim(),
+        elapsed,
+      });
+    }
+    this.streamText = "";
+    this.emit();
+  }
+
+  /** Push a "tool running" entry. Auto-flushes any pending streaming text first. */
+  pushToolRunning(name: string, toolInput: any): string {
+    this.flushStreamToTimeline();
+    const id = `tool_${++this._toolId}`;
+    this.timeline.push({
+      kind: "tool",
+      id,
+      name,
+      toolInput,
+      status: "running",
+    });
+    this.emit();
+    return id;
+  }
+
+  /** Update a tool entry from "running" to "success" or "error". */
+  updateTool(
+    id: string,
+    status: "success" | "error",
+    output: string,
+    elapsed: number,
+  ) {
+    const entry = this.timeline.find(
+      (e) => e.kind === "tool" && e.id === id,
+    );
+    if (entry && entry.kind === "tool") {
+      entry.status = status;
+      entry.output = output;
+      entry.elapsed = elapsed;
+      this.emit();
+    }
+  }
+
+  /** Replace the current task list. */
+  setTasks(tasks: Task[]) {
+    this.tasks = tasks;
+    this.emit();
+  }
 }
 
 class BridgeSubscriber implements SubscriberAdapter {
-  private taskSlotId: string | null = null;
-
-  constructor(
-    private bridge: AgentBridge,
-    private dm: Displaymanager,
-  ) {}
+  constructor(private bridge: AgentBridge) {}
 
   async record(event_type: string, data: any) {
     switch (event_type) {
@@ -161,16 +235,11 @@ class BridgeSubscriber implements SubscriberAdapter {
         this.bridge.setThinking(false);
         break;
       case "tool_use_result":
-        // When the internal task tool fires, push a task_list display slot
         if (
           data.tool_name === "glove_update_tasks" &&
           data.result?.status === "success"
         ) {
-          if (this.taskSlotId) this.dm.removeSlot(this.taskSlotId);
-          this.taskSlotId = await this.dm.pushAndForget({
-            renderer: "task_list",
-            input: { tasks: data.result.data.tasks },
-          });
+          this.bridge.setTasks(data.result.data.tasks);
         }
         break;
     }
@@ -370,12 +439,16 @@ const InputPrompt: FC<{
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Display slot renderers
+// Timeline renderers
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function ToolRunningSlot({ data }: { data: { name: string; toolInput: any } }) {
-  const icon = toolIcon(data.name);
-  const inputStr = formatToolInput(data.name, data.toolInput);
+function ToolRunningView({
+  entry,
+}: {
+  entry: TimelineEntry & { kind: "tool" };
+}) {
+  const icon = toolIcon(entry.name);
+  const inputStr = formatToolInput(entry.name, entry.toolInput);
 
   return (
     <Box flexDirection="column" marginLeft={2}>
@@ -383,7 +456,7 @@ function ToolRunningSlot({ data }: { data: { name: string; toolInput: any } }) {
         <Text>
           {icon}{" "}
         </Text>
-        <Text bold>{data.name}</Text>
+        <Text bold>{entry.name}</Text>
         <Text dimColor> {inputStr}</Text>
         <Text color="cyan">
           {" "}
@@ -394,18 +467,14 @@ function ToolRunningSlot({ data }: { data: { name: string; toolInput: any } }) {
   );
 }
 
-function ToolResultSlot({ data }: {
-  data: {
-    name: string;
-    toolInput: any;
-    output: string;
-    status: "success" | "error";
-    elapsed: number;
-  };
+function ToolResultView({
+  entry,
+}: {
+  entry: TimelineEntry & { kind: "tool" };
 }) {
-  const icon = toolIcon(data.name);
-  const inputStr = formatToolInput(data.name, data.toolInput);
-  const isError = data.status === "error";
+  const icon = toolIcon(entry.name);
+  const inputStr = formatToolInput(entry.name, entry.toolInput);
+  const isError = entry.status === "error";
 
   return (
     <Box flexDirection="column" marginLeft={2}>
@@ -413,16 +482,18 @@ function ToolResultSlot({ data }: {
         <Text>
           {icon}{" "}
         </Text>
-        <Text bold>{data.name}</Text>
+        <Text bold>{entry.name}</Text>
         <Text dimColor> {inputStr}</Text>
         {isError ? (
           <Text color="red"> {"\u{2717}"}</Text>
         ) : (
           <Text color="green"> {"\u{2713}"}</Text>
         )}
-        <Text dimColor> {formatMs(data.elapsed)}</Text>
+        {entry.elapsed != null && (
+          <Text dimColor> {formatMs(entry.elapsed)}</Text>
+        )}
       </Box>
-      {data.output && (
+      {entry.output && (
         <Box
           marginLeft={2}
           borderStyle="single"
@@ -430,13 +501,32 @@ function ToolResultSlot({ data }: {
           paddingX={1}
         >
           <Text dimColor={!isError} color={isError ? "red" : undefined}>
-            {truncateLines(data.output, 10)}
+            {truncateLines(entry.output, 10)}
           </Text>
         </Box>
       )}
     </Box>
   );
 }
+
+function TimelineEntryView({ entry }: { entry: TimelineEntry }) {
+  switch (entry.kind) {
+    case "user":
+      return <UserMessage text={entry.text} />;
+    case "agent_text":
+      return <AgentMessage text={entry.text} elapsed={entry.elapsed} />;
+    case "tool":
+      return entry.status === "running" ? (
+        <ToolRunningView entry={entry} />
+      ) : (
+        <ToolResultView entry={entry} />
+      );
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Display slot renderers (task list + permissions only)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const TASK_STATUS_ICONS: Record<TaskStatus, string> = {
   pending: "\u{25CB}",
@@ -450,15 +540,13 @@ const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   completed: "green",
 };
 
-function TaskListSlot({ data }: { data: { tasks: Task[] } }) {
-  if (!data.tasks.length) return null;
-
+function TaskListView({ tasks }: { tasks: Task[] }) {
   return (
     <Box flexDirection="column" marginLeft={2} marginY={1}>
       <Text bold dimColor>
         Tasks
       </Text>
-      {data.tasks.map((task) => (
+      {tasks.map((task) => (
         <Box key={task.id} marginLeft={1}>
           <Text color={TASK_STATUS_COLORS[task.status]}>
             {TASK_STATUS_ICONS[task.status]}{" "}
@@ -520,14 +608,8 @@ function PermissionPromptSlot({
   );
 }
 
-function CodingSlotView({ slot, dm }: { slot: Slot<any>; dm: Displaymanager }) {
+function SlotView({ slot, dm }: { slot: Slot<any>; dm: Displaymanager }) {
   switch (slot.renderer) {
-    case "tool_running":
-      return <ToolRunningSlot data={slot.input} />;
-    case "tool_result":
-      return <ToolResultSlot data={slot.input} />;
-    case "task_list":
-      return <TaskListSlot data={slot.input} />;
     case "permission_request":
       return <PermissionPromptSlot slot={slot} dm={dm} />;
     default:
@@ -553,9 +635,6 @@ const App: FC<{
   const state = useAgentBridge(bridge);
 
   const [mode, setMode] = useState<"idle" | "thinking">("idle");
-  const [history, setHistory] = useState<
-    Array<{ role: "user" | "agent"; text: string; elapsed?: number }>
-  >([]);
   const [error, setError] = useState<string | null>(null);
   const runningRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -589,32 +668,21 @@ const App: FC<{
       const controller = new AbortController();
       abortRef.current = controller;
 
-      setHistory((h) => [...h, { role: "user", text }]);
+      bridge.pushUser(text);
       setMode("thinking");
       setError(null);
       bridge.resetStream();
       bridge.setThinking(true);
-      await dm.clearStack();
 
       const startTime = Date.now();
 
       try {
-        const result: any = await processRequest(text, controller.signal);
-        const elapsed = Date.now() - startTime;
-
-        const messages = result?.messages ?? [];
-        const last = messages.filter((m: any) => m.sender === "agent").pop();
-        const finalText = state.streamText || last?.text;
-
-        if (finalText) {
-          setHistory((h) => [...h, { role: "agent", text: finalText, elapsed }]);
-        }
+        await processRequest(text, controller.signal);
+        bridge.flushStreamToTimeline(Date.now() - startTime);
       } catch (err: any) {
         if (err instanceof AbortError || err.name === "AbortError") {
-          setHistory((h) => [
-            ...h,
-            { role: "agent", text: "(aborted)", elapsed: Date.now() - startTime },
-          ]);
+          bridge.flushStreamToTimeline();
+          bridge.timeline.push({ kind: "agent_text", text: "(aborted)" });
         } else {
           setError(err.message);
         }
@@ -626,28 +694,27 @@ const App: FC<{
       setMode("idle");
       runningRef.current = false;
     },
-    [bridge, dm, processRequest, exit, state.streamText],
+    [bridge, dm, processRequest, exit],
   );
 
   return (
     <Box flexDirection="column">
       <Header />
 
-      {/* Conversation history */}
-      {history.map((msg, i) =>
-        msg.role === "user" ? (
-          <UserMessage key={i} text={msg.text} />
-        ) : (
-          <AgentMessage key={i} text={msg.text} elapsed={msg.elapsed} />
-        ),
-      )}
-
-      {/* Display manager slots (tools, tasks, permissions) */}
-      {stack.map((slot) => (
-        <CodingSlotView key={slot.id} slot={slot} dm={dm} />
+      {/* Timeline: user messages, agent text, and tool activity interleaved */}
+      {state.timeline.map((entry, i) => (
+        <TimelineEntryView key={i} entry={entry} />
       ))}
 
-      {/* Streaming text */}
+      {/* Task list (persists across requests, updates in place) */}
+      {state.tasks.length > 0 && <TaskListView tasks={state.tasks} />}
+
+      {/* Display manager slots (permission prompts) */}
+      {stack.map((slot) => (
+        <SlotView key={slot.id} slot={slot} dm={dm} />
+      ))}
+
+      {/* Streaming text (not yet committed to timeline) */}
       {state.streamText && mode === "thinking" && (
         <StreamingText text={state.streamText} />
       )}
@@ -685,24 +752,46 @@ const SYSTEM_PROMPT = `You are an expert coding assistant with access to the loc
 - **bash**: Run any shell command (requires permission)
 - **glove_update_tasks**: Plan and track tasks for the current session
 
+## Task Management
+You MUST use glove_update_tasks to track your work. The user sees the task list in real time.
+
+- **Before starting work**: Create a task list breaking the request into clear steps.
+- **Before each step**: Call glove_update_tasks to mark that task as "in_progress" (set exactly one task to in_progress at a time).
+- **After each step**: Call glove_update_tasks to mark the task as "completed" and the next one as "in_progress".
+- **When done**: All tasks should be "completed".
+
+The task list is visible to the user at all times. Each call to glove_update_tasks sends the FULL updated list — include every task with its current status. Keep task descriptions short and specific.
+
+Example flow:
+1. Call glove_update_tasks with 3 tasks, first one "in_progress", rest "pending"
+2. Do the first task
+3. Call glove_update_tasks — first "completed", second "in_progress", third "pending"
+4. Do the second task
+5. Call glove_update_tasks — first two "completed", third "in_progress"
+6. Do the third task
+7. Call glove_update_tasks — all three "completed"
+
 ## Workflow
-1. For non-trivial requests, plan your approach first using glove_update_tasks to create a task list
-2. Explore first with list_dir and read_file before changing anything
-3. Use edit_file for modifications — always read_file first for exact content
-4. Run code with bash after writing it to verify it works
-5. On failure: read error → fix → retry
-6. Update task status as you complete each step
+1. Understand the request — ask if anything is unclear
+2. Plan with glove_update_tasks
+3. Explore first with list_dir and read_file before changing anything
+4. Use edit_file for modifications — always read_file first for exact content
+5. Verify with bash (run code, tests, etc.)
+6. On failure: read error, fix, retry
 
 Working directory: ${process.cwd()}
-all generated code should live under the lab folder
-
+All generated code should live under the lab folder.
 `;
 
-function buildAgent(dm: Displaymanager, subscriber: SubscriberAdapter) {
+function buildAgent(
+  dm: Displaymanager,
+  subscriber: SubscriberAdapter,
+  bridge: AgentBridge,
+) {
   const glove = new Glove({
     store: new MemoryStore("coding-session"),
     model: new OpenRouterAdapter({
-      model: "moonshotai/kimi-k2.5",
+      model: "minimax/minimax-m2.5",
       maxTokens: 8192,
       stream: true,
       apiKey: process.env.OPENROUTER_API_KEY,
@@ -722,39 +811,26 @@ function buildAgent(dm: Displaymanager, subscriber: SubscriberAdapter) {
       description: tool.description,
       inputSchema: tool.input_schema,
       requiresPermission: DESTRUCTIVE_TOOLS.has(tool.name),
-      async do(input, display) {
+      async do(input) {
         const start = Date.now();
-        const runningId = await display.pushAndForget({
-          renderer: "tool_running",
-          input: { name: tool.name, toolInput: input },
-        });
+        const entryId = bridge.pushToolRunning(tool.name, input);
 
         try {
           const result = await tool.run(input);
-          display.removeSlot(runningId);
-          await display.pushAndForget({
-            renderer: "tool_result",
-            input: {
-              name: tool.name,
-              toolInput: input,
-              output: String(result),
-              status: "success" as const,
-              elapsed: Date.now() - start,
-            },
-          });
+          bridge.updateTool(
+            entryId,
+            "success",
+            String(result),
+            Date.now() - start,
+          );
           return result;
         } catch (err: any) {
-          display.removeSlot(runningId);
-          await display.pushAndForget({
-            renderer: "tool_result",
-            input: {
-              name: tool.name,
-              toolInput: input,
-              output: err.message,
-              status: "error" as const,
-              elapsed: Date.now() - start,
-            },
-          });
+          bridge.updateTool(
+            entryId,
+            "error",
+            err.message,
+            Date.now() - start,
+          );
           throw err;
         }
       },
@@ -772,8 +848,8 @@ function buildAgent(dm: Displaymanager, subscriber: SubscriberAdapter) {
 function main() {
   const dm = new Displaymanager();
   const bridge = new AgentBridge();
-  const subscriber = new BridgeSubscriber(bridge, dm);
-  const agent = buildAgent(dm, subscriber);
+  const subscriber = new BridgeSubscriber(bridge);
+  const agent = buildAgent(dm, subscriber, bridge);
 
   const processRequest = async (msg: string, signal?: AbortSignal) => {
     return agent.processRequest(msg, signal);

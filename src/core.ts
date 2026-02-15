@@ -434,9 +434,21 @@ export class Observer {
 
     const summaryText = result.messages.filter((m)=> m.sender == "agent").map(m => m.text)?.join("\n") || "No summary was generated"
 
+    // Preserve current task state across compaction
+    const currentTasks = await this.context.getTasks();
+    let taskBlock = "";
+    if (currentTasks.length > 0) {
+      const taskLines = currentTasks.map(
+        (t) => `- [${t.status}] ${t.content}`
+      );
+      taskBlock =
+        `\n\n[Current task list — you MUST call glove_update_tasks to update these as you continue]\n` +
+        taskLines.join("\n") + "\n";
+    }
+
     const summaryMessage: Message = {
       sender: "user",
-      text: `[Conversation summary from compaction]\n\n${summaryText}\n\n` +
+      text: `[Conversation summary from compaction]\n\n${summaryText}${taskBlock}\n\n` +
       `[End of summary - the conversation continues from here]`
     }
 

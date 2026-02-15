@@ -1,8 +1,32 @@
 import z from "zod";
-import { readFile, writeFile, readdir, mkdir } from "fs/promises";
+import { readFile, writeFile, readdir, mkdir, lstat } from "fs/promises";
 import { exec } from "child_process";
 import { join, resolve, relative } from "path";
 import type { Tool } from "../../src/core";
+
+function execAsync(
+  cmd: string,
+  opts?: { cwd?: string; timeout?: number; maxBuffer?: number },
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  return new Promise((resolve) => {
+    exec(
+      cmd,
+      {
+        maxBuffer: opts?.maxBuffer ?? 1024 * 1024 * 5,
+        timeout: opts?.timeout,
+        cwd: opts?.cwd,
+        shell: "/bin/bash",
+      },
+      (error, stdout, stderr) => {
+        resolve({
+          stdout: stdout ?? "",
+          stderr: stderr ?? "",
+          code: error ? (error.code ?? 1) : 0,
+        });
+      },
+    );
+  });
+}
 
 // ─── ReadFile ─────────────────────────────────────────────────────────────────
 
@@ -351,6 +375,350 @@ IMPORTANT: Commands that require interactive input will hang — avoid them.`,
   },
 };
 
+// ─── Glob ────────────────────────────────────────────────────────────────────
+
+export const globTool: Tool<{
+  pattern: string;
+  path?: string;
+  max_results?: number;
+}> = {
+  name: "glob",
+  description: `Find files matching a glob pattern. Uses 'find' under the hood.
+Useful for locating files by name or extension across a directory tree.
+Examples: "*.ts", "src/**/*.test.ts", "package.json"
+Skips node_modules, .git, dist, and other common ignore directories.`,
+  input_schema: z.object({
+    pattern: z
+      .string()
+      .describe('Glob pattern to match, e.g. "*.ts" or "**/*.test.js"'),
+    path: z
+      .string()
+      .optional()
+      .describe("Root directory to search from. Defaults to current directory"),
+    max_results: z
+      .number()
+      .optional()
+      .describe("Maximum number of results. Defaults to 100"),
+  }),
+  async run(input) {
+    const maxResults = input.max_results ?? 100;
+    const searchPath = input.path ?? ".";
+    const { stdout } = await execAsync(
+      `find ${JSON.stringify(searchPath)} ` +
+        `-not -path '*/node_modules/*' -not -path '*/.git/*' ` +
+        `-not -path '*/dist/*' -not -path '*/__pycache__/*' ` +
+        `-not -path '*/.next/*' -not -path '*/.cache/*' ` +
+        `-name ${JSON.stringify(input.pattern)} -type f 2>/dev/null | head -n ${maxResults}`,
+    );
+
+    const files = stdout.trim().split("\n").filter(Boolean);
+    if (files.length === 0) {
+      return `No files matching "${input.pattern}" found in ${searchPath}`;
+    }
+    return `Found ${files.length} file(s):\n${files.join("\n")}`;
+  },
+};
+
+// ─── Grep (enhanced) ─────────────────────────────────────────────────────────
+
+export const grepTool: Tool<{
+  pattern: string;
+  path: string;
+  output_mode?: "content" | "files" | "count";
+  context_lines?: number;
+  case_insensitive?: boolean;
+  file_glob?: string;
+}> = {
+  name: "grep",
+  description: `Search for a regex pattern across files. More powerful than 'search' with output modes.
+
+Output modes:
+- "content" (default): Show matching lines with file paths, line numbers, and optional context
+- "files": Show only file paths that contain a match
+- "count": Show match count per file
+
+Skips binary files, node_modules, and .git.`,
+  input_schema: z.object({
+    pattern: z.string().describe("Regex pattern to search for"),
+    path: z
+      .string()
+      .describe("Directory or file to search in. Use '.' for current directory"),
+    output_mode: z
+      .enum(["content", "files", "count"])
+      .optional()
+      .describe('Output mode: "content", "files", or "count". Defaults to "content"'),
+    context_lines: z
+      .number()
+      .optional()
+      .describe("Number of context lines to show around each match (only for content mode)"),
+    case_insensitive: z
+      .boolean()
+      .optional()
+      .describe("Case insensitive search. Defaults to false"),
+    file_glob: z
+      .string()
+      .optional()
+      .describe("File pattern filter, e.g. '*.ts' or '*.py'"),
+  }),
+  async run(input) {
+    const mode = input.output_mode ?? "content";
+
+    const flags: string[] = ["--line-number", "--no-heading"];
+    if (input.case_insensitive) flags.push("-i");
+    if (input.file_glob) flags.push(`--glob '${input.file_glob}'`);
+
+    switch (mode) {
+      case "files":
+        flags.push("--files-with-matches");
+        break;
+      case "count":
+        flags.push("--count");
+        break;
+      case "content":
+        if (input.context_lines != null) flags.push(`-C ${input.context_lines}`);
+        break;
+    }
+
+    const rgCmd = `rg ${flags.join(" ")} -- ${JSON.stringify(input.pattern)} ${JSON.stringify(input.path)} 2>/dev/null`;
+    const { stdout, code } = await execAsync(rgCmd);
+
+    if (code !== 0 || !stdout.trim()) {
+      // Fallback to grep
+      const gFlags: string[] = ["-rn"];
+      if (input.case_insensitive) gFlags.push("-i");
+      if (input.file_glob) gFlags.push(`--include='${input.file_glob}'`);
+      if (mode === "files") gFlags.push("-l");
+      if (mode === "count") gFlags.push("-c");
+      if (mode === "content" && input.context_lines != null)
+        gFlags.push(`-C ${input.context_lines}`);
+
+      const grepCmd = `grep ${gFlags.join(" ")} -- ${JSON.stringify(input.pattern)} ${JSON.stringify(input.path)} 2>/dev/null`;
+      const fallback = await execAsync(grepCmd);
+
+      if (!fallback.stdout.trim()) {
+        return `No matches found for "${input.pattern}" in ${input.path}`;
+      }
+      return fallback.stdout.trim();
+    }
+
+    return stdout.trim();
+  },
+};
+
+// ─── FileInfo ────────────────────────────────────────────────────────────────
+
+export const fileInfoTool: Tool<{ path: string }> = {
+  name: "file_info",
+  description: `Get metadata about a file or directory: size, modification date, type, permissions, and line count (for files).`,
+  input_schema: z.object({
+    path: z.string().describe("Path to the file or directory"),
+  }),
+  async run(input) {
+    const info = await lstat(input.path);
+    const type = info.isDirectory()
+      ? "directory"
+      : info.isSymbolicLink()
+        ? "symlink"
+        : "file";
+
+    const lines: string[] = [
+      `Path: ${input.path}`,
+      `Type: ${type}`,
+      `Size: ${info.size} bytes`,
+      `Modified: ${info.mtime.toISOString()}`,
+      `Created: ${info.birthtime.toISOString()}`,
+      `Permissions: ${(info.mode & 0o777).toString(8)}`,
+    ];
+
+    if (type === "file") {
+      try {
+        const content = await readFile(input.path, "utf-8");
+        lines.push(`Lines: ${content.split("\n").length}`);
+      } catch {
+        // binary file or read error
+      }
+    }
+
+    return lines.join("\n");
+  },
+};
+
+// ─── Git Status ──────────────────────────────────────────────────────────────
+
+export const gitStatusTool: Tool<Record<string, never>> = {
+  name: "git_status",
+  description: `Show the current git working tree status: modified, staged, and untracked files.`,
+  input_schema: z.object({}),
+  async run() {
+    const { stdout, stderr, code } = await execAsync("git status --short 2>&1");
+    if (code !== 0) {
+      return `git error: ${stderr || stdout}`;
+    }
+    return stdout.trim() || "Working tree clean";
+  },
+};
+
+// ─── Git Diff ────────────────────────────────────────────────────────────────
+
+export const gitDiffTool: Tool<{
+  file?: string;
+  staged?: boolean;
+}> = {
+  name: "git_diff",
+  description: `Show git diff output. By default shows unstaged changes.
+Set staged=true to see staged (--cached) changes.
+Optionally specify a file path to limit the diff.`,
+  input_schema: z.object({
+    file: z
+      .string()
+      .optional()
+      .describe("Specific file to diff. Omit for all changes"),
+    staged: z
+      .boolean()
+      .optional()
+      .describe("Show staged changes (--cached). Defaults to false"),
+  }),
+  async run(input) {
+    const parts = ["git", "diff"];
+    if (input.staged) parts.push("--cached");
+    if (input.file) parts.push(JSON.stringify(input.file));
+
+    const { stdout, stderr, code } = await execAsync(parts.join(" ") + " 2>&1");
+    if (code !== 0) {
+      return `git error: ${stderr || stdout}`;
+    }
+    return stdout.trim() || "No differences";
+  },
+};
+
+// ─── Git Log ─────────────────────────────────────────────────────────────────
+
+export const gitLogTool: Tool<{
+  max_count?: number;
+  file?: string;
+  oneline?: boolean;
+}> = {
+  name: "git_log",
+  description: `Show git commit history. Returns recent commits with hash, author, date, and message.
+Use oneline=true for a compact single-line-per-commit format.`,
+  input_schema: z.object({
+    max_count: z
+      .number()
+      .optional()
+      .describe("Maximum number of commits to show. Defaults to 20"),
+    file: z
+      .string()
+      .optional()
+      .describe("Show commits affecting this file only"),
+    oneline: z
+      .boolean()
+      .optional()
+      .describe("Compact one-line format. Defaults to false"),
+  }),
+  async run(input) {
+    const count = input.max_count ?? 20;
+    const parts = ["git", "log", `--max-count=${count}`];
+    if (input.oneline) {
+      parts.push("--oneline");
+    } else {
+      parts.push('--format=%h %an %ad %s', "--date=short");
+    }
+    if (input.file) parts.push("--", JSON.stringify(input.file));
+
+    const { stdout, stderr, code } = await execAsync(parts.join(" ") + " 2>&1");
+    if (code !== 0) {
+      return `git error: ${stderr || stdout}`;
+    }
+    return stdout.trim() || "No commits found";
+  },
+};
+
+// ─── Plan ─────────────────────────────────────────────────────────────────────
+
+export const planTool: Tool<{
+  title: string;
+  steps: string[];
+  summary?: string;
+}> = {
+  name: "plan",
+  description: `Present a plan to the user for approval before executing.
+Use this tool when the user asks you to plan first, or when a task involves multiple steps or significant changes and you want to confirm your approach.
+
+The plan is displayed as a titled list of concrete steps. The user can:
+- **Approve**: You should proceed with execution
+- **Reject**: Stop and ask what they'd like instead
+- **Modify**: Revise the plan based on their feedback and present it again
+
+Returns a JSON object: { "action": "approve" | "reject" | "modify", "feedback"?: "..." }`,
+  input_schema: z.object({
+    title: z.string().describe("Short title summarizing the plan"),
+    steps: z
+      .array(z.string())
+      .describe("Ordered list of concrete steps to execute"),
+    summary: z
+      .string()
+      .optional()
+      .describe("Optional brief summary of the overall approach"),
+  }),
+  async run(input, handOver) {
+    if (!handOver) {
+      return JSON.stringify({
+        action: "approve",
+        note: "No interactive display available — auto-approved",
+      });
+    }
+
+    const result = await handOver({
+      renderer: "plan_approval",
+      title: input.title,
+      steps: input.steps,
+      summary: input.summary,
+    });
+
+    return JSON.stringify(result);
+  },
+};
+
+// ─── Ask Question ─────────────────────────────────────────────────────────────
+
+export const askQuestionTool: Tool<{
+  questions: Array<{ question: string; options?: string[] }>;
+}> = {
+  name: "ask_question",
+  description: `Ask the user one or more questions and wait for their responses.
+Use this when you need clarification, choices between alternatives, or any input from the user before proceeding.
+
+Each question can optionally include quick-select options. The user always has a free-text field as well.
+
+Returns a JSON array of answers in the same order as the questions.`,
+  input_schema: z.object({
+    questions: z
+      .array(
+        z.object({
+          question: z.string().describe("The question to ask"),
+          options: z
+            .array(z.string())
+            .optional()
+            .describe("Optional quick-select choices"),
+        }),
+      )
+      .min(1)
+      .describe("One or more questions to ask the user"),
+  }),
+  async run(input, handOver) {
+    if (!handOver) {
+      return "No interactive display available — cannot ask questions";
+    }
+
+    const result = await handOver({
+      renderer: "ask_question",
+      questions: input.questions,
+    });
+
+    return JSON.stringify(result);
+  },
+};
+
 // ─── Export all ───────────────────────────────────────────────────────────────
 
 export const codingTools = [
@@ -360,4 +728,16 @@ export const codingTools = [
   listDirTool,
   searchTool,
   bashTool,
+];
+
+export const allTools = [
+  ...codingTools,
+  globTool,
+  grepTool,
+  fileInfoTool,
+  gitStatusTool,
+  gitDiffTool,
+  gitLogTool,
+  planTool,
+  askQuestionTool,
 ];
