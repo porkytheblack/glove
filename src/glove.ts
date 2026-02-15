@@ -7,17 +7,19 @@
 import z from "zod";
 import { Agent, Context, Executor, HandOverFunction, Message, ModelAdapter, ModelPromptResult, Observer, PromptMachine, StoreAdapter, SubscriberAdapter, Tool } from "./core";
 import { DisplayManagerAdapter } from "./display-manager";
+import { createTaskTool } from "./tools/task-tool";
 
 
 interface GloveFoldArgs<I> {
   name: string,
   description: string
   inputSchema: z.ZodType<I>,
+  requiresPermission?: boolean,
   do: (input: I, display: DisplayManagerAdapter) => Promise<unknown>,
 }
 
 interface IGloveRunnable {
-  processRequest: (request: string) => Promise<ModelPromptResult | Message>
+  processRequest: (request: string, signal?: AbortSignal) => Promise<ModelPromptResult | Message>
   readonly displayManager: DisplayManagerAdapter
 }
 
@@ -42,7 +44,7 @@ interface GloveConfig {
   systemPrompt: string,
   maxRetries?: number,
   maxConsecutiveErrors?: number,
-  compaction_config: CompactionConfig
+  compaction_config: CompactionConfig,
 }
 
 
@@ -65,7 +67,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
 
     this.context = new Context(this.store)
     this.promptMachine = new PromptMachine(config.model, this.context,config.systemPrompt)
-    this.executor = new Executor(config.maxRetries)
+    this.executor = new Executor(config.maxRetries, this.store)
 
     this.observer = new Observer(this.store, this.context, this.promptMachine, config.compaction_config?.compaction_instructions, config.compaction_config?.max_turns, config.compaction_config?.compaction_context_limit)
 
@@ -76,6 +78,11 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       this.observer,
       this.promptMachine
     )
+
+    // Auto-register task tool when the store supports tasks
+    if (this.store.getTasks && this.store.addTasks) {
+      this.executor.registerTool(createTaskTool(this.context));
+    }
   }
 
   fold<I>(args: GloveFoldArgs<I>) {
@@ -87,12 +94,13 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       name: args.name,
       description: args.description,
       input_schema: args.inputSchema,
+      requiresPermission: args.requiresPermission,
       async run(input: I) {
         const result = await args.do(input, displayManager)
 
         return result
       }
-      
+
     }
 
     this.executor.registerTool(tool)
@@ -114,21 +122,22 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   }
 
 
-  async processRequest(request: string) {
+  async processRequest(request: string, signal?: AbortSignal) {
     if (!this.built) throw new Error("Call build before processRequest");
 
     const handOver: HandOverFunction = async (input: unknown)=> {
+      const obj = input as Record<string, unknown>;
+      const renderer = (typeof obj?.renderer === 'string') ? obj.renderer : 'generic';
       return this.displayManager.pushAndWait({
-        renderer: 'generic',
+        renderer,
         input,
-        id: ``
       })
     }
 
     return this.agent.ask({
       sender: "user",
       text: request
-    }, handOver)
+    }, handOver, signal)
   }
 
   

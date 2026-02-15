@@ -233,6 +233,7 @@ export class OpenRouterAdapter implements ModelAdapter {
   async prompt(
     request: PromptRequest,
     notify: NotifySubscribersFunction,
+    signal?: AbortSignal,
   ): Promise<ModelPromptResult> {
     // System prompt is a message in the OpenAI format
     const messages: OpenAIMessage[] = [];
@@ -252,20 +253,21 @@ export class OpenRouterAdapter implements ModelAdapter {
     };
 
     if (this.useStreaming) {
-      return this.promptStreaming(params, notify);
+      return this.promptStreaming(params, notify, signal);
     }
 
-    return this.promptSync(params, notify);
+    return this.promptSync(params, notify, signal);
   }
 
   private async promptSync(
     params: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
     notify: NotifySubscribersFunction,
+    signal?: AbortSignal,
   ): Promise<ModelPromptResult> {
     const response = await this.client.chat.completions.create({
       ...params,
       stream: false,
-    });
+    }, signal ? { signal } : undefined);
 
     const choice = response.choices[0];
     if (!choice) {
@@ -290,12 +292,13 @@ export class OpenRouterAdapter implements ModelAdapter {
   private async promptStreaming(
     params: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
     notify: NotifySubscribersFunction,
+    signal?: AbortSignal,
   ): Promise<ModelPromptResult> {
     const stream = await this.client.chat.completions.create({
       ...params,
       stream: true,
       stream_options: { include_usage: true },
-    });
+    }, signal ? { signal } : undefined);
 
     let fullText = "";
     // OpenAI streams tool call arguments as string fragments across chunks.

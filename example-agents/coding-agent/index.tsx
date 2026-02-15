@@ -14,6 +14,10 @@ import {
   type StoreAdapter,
   type SubscriberAdapter,
   type Message,
+  type Task,
+  type TaskStatus,
+  type PermissionStatus,
+  AbortError,
 } from "../../src/core";
 import { Displaymanager, type Slot } from "../../src/display-manager";
 import { Glove } from "../../src/glove";
@@ -21,7 +25,7 @@ import { codingTools } from "./tools";
 import { OpenRouterAdapter } from "../../src/models/openrouter";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// In-memory store
+// In-memory store (with tasks + permissions)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 class MemoryStore implements StoreAdapter {
@@ -29,6 +33,8 @@ class MemoryStore implements StoreAdapter {
   private messages: Array<Message> = [];
   private tokenCount = 0;
   private turnCount = 0;
+  private tasks: Array<Task> = [];
+  private permissions = new Map<string, PermissionStatus>();
 
   constructor(id: string) {
     this.identifier = id;
@@ -62,6 +68,32 @@ class MemoryStore implements StoreAdapter {
     this.messages = [];
     this.tokenCount = 0;
   }
+
+  // Tasks
+  async getTasks() {
+    return this.tasks;
+  }
+
+  async addTasks(tasks: Array<Task>) {
+    this.tasks = tasks;
+  }
+
+  async updateTask(
+    taskId: string,
+    updates: Partial<Pick<Task, "status" | "content" | "activeForm">>,
+  ) {
+    const task = this.tasks.find((t) => t.id === taskId);
+    if (task) Object.assign(task, updates);
+  }
+
+  // Permissions
+  async getPermission(toolName: string): Promise<PermissionStatus> {
+    return this.permissions.get(toolName) ?? "unset";
+  }
+
+  async setPermission(toolName: string, status: PermissionStatus) {
+    this.permissions.set(toolName, status);
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -78,7 +110,9 @@ class AgentBridge {
 
   subscribe(fn: () => void) {
     this.listeners.add(fn);
-    return () => { this.listeners.delete(fn); };
+    return () => {
+      this.listeners.delete(fn);
+    };
   }
 
   private emit() {
@@ -108,7 +142,12 @@ class AgentBridge {
 }
 
 class BridgeSubscriber implements SubscriberAdapter {
-  constructor(private bridge: AgentBridge) {}
+  private taskSlotId: string | null = null;
+
+  constructor(
+    private bridge: AgentBridge,
+    private dm: Displaymanager,
+  ) {}
 
   async record(event_type: string, data: any) {
     switch (event_type) {
@@ -120,6 +159,19 @@ class BridgeSubscriber implements SubscriberAdapter {
         break;
       case "model_response_complete":
         this.bridge.setThinking(false);
+        break;
+      case "tool_use_result":
+        // When the internal task tool fires, push a task_list display slot
+        if (
+          data.tool_name === "glove_update_tasks" &&
+          data.result?.status === "success"
+        ) {
+          if (this.taskSlotId) this.dm.removeSlot(this.taskSlotId);
+          this.taskSlotId = await this.dm.pushAndForget({
+            renderer: "task_list",
+            input: { tasks: data.result.data.tasks },
+          });
+        }
         break;
     }
   }
@@ -156,16 +208,17 @@ function useDisplayManager(dm: Displaymanager) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const TOOL_ICONS: Record<string, string> = {
-  read_file: "📖",
-  write_file: "✏️",
-  edit_file: "🔧",
-  list_dir: "📂",
-  search: "🔍",
-  bash: "💻",
+  read_file: "\u{1F4D6}",
+  write_file: "\u{270F}\u{FE0F}",
+  edit_file: "\u{1F527}",
+  list_dir: "\u{1F4C2}",
+  search: "\u{1F50D}",
+  bash: "\u{1F4BB}",
+  glove_update_tasks: "\u{1F4CB}",
 };
 
 function toolIcon(name: string) {
-  return TOOL_ICONS[name] ?? "⚙️";
+  return TOOL_ICONS[name] ?? "\u{2699}\u{FE0F}";
 }
 
 function formatMs(ms: number): string {
@@ -200,6 +253,8 @@ function formatToolInput(name: string, input: any): string {
       return `/${input.pattern}/ in ${input.path}`;
     case "bash":
       return truncateStr(input.command, 60);
+    case "glove_update_tasks":
+      return `${input.todos?.length ?? 0} task(s)`;
     default:
       return truncateStr(JSON.stringify(input), 80);
   }
@@ -213,12 +268,12 @@ const Header: FC = () => (
   <Box flexDirection="column" marginBottom={1}>
     <Box>
       <Text bold color="cyan">
-        ⚡ Coding Agent
+        {"\u{26A1}"} Coding Agent
       </Text>
     </Box>
-    <Text dimColor>📁 {process.cwd()}</Text>
+    <Text dimColor>{"\u{1F4C1}"} {process.cwd()}</Text>
     <Text dimColor>
-      {"─".repeat(Math.min(process.stdout.columns || 80, 80))}
+      {"\u{2500}".repeat(Math.min(process.stdout.columns || 80, 80))}
     </Text>
   </Box>
 );
@@ -226,7 +281,7 @@ const Header: FC = () => (
 const UserMessage: FC<{ text: string }> = ({ text }) => (
   <Box marginBottom={0} marginTop={1}>
     <Text bold color="green">
-      {"❯ "}
+      {"\u{276F} "}
     </Text>
     <Text>{text}</Text>
   </Box>
@@ -239,7 +294,7 @@ const AgentMessage: FC<{ text: string; elapsed?: number }> = ({
   <Box flexDirection="column" marginTop={0} marginBottom={0} marginLeft={2}>
     <Text>{text}</Text>
     {elapsed != null && (
-      <Text dimColor>⏱ {formatMs(elapsed)}</Text>
+      <Text dimColor>{"\u{23F1}"} {formatMs(elapsed)}</Text>
     )}
   </Box>
 );
@@ -256,14 +311,14 @@ const ThinkingIndicator: FC = () => (
 const StreamingText: FC<{ text: string }> = ({ text }) => (
   <Box marginLeft={2}>
     <Text>{text}</Text>
-    <Text dimColor>▌</Text>
+    <Text dimColor>{"\u{258C}"}</Text>
   </Box>
 );
 
 const ErrorDisplay: FC<{ message: string }> = ({ message }) => (
   <Box marginLeft={2} marginBottom={1}>
     <Text color="red" bold>
-      ✗ Error:{" "}
+      {"\u{2717}"} Error:{" "}
     </Text>
     <Text color="red">{message}</Text>
   </Box>
@@ -275,10 +330,10 @@ const StatusBar: FC<{ bridge: AgentBridge }> = ({ bridge }) => {
   const width = Math.min(process.stdout.columns || 80, 80);
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text dimColor>{"─".repeat(width)}</Text>
+      <Text dimColor>{"\u{2500}".repeat(width)}</Text>
       <Text dimColor>
         {"  "}
-        {state.turns} turns · {state.tokensIn.toLocaleString()} in ·{" "}
+        {state.turns} turns {"\u{00B7}"} {state.tokensIn.toLocaleString()} in {"\u{00B7}"}{" "}
         {state.tokensOut.toLocaleString()} out
       </Text>
     </Box>
@@ -302,7 +357,7 @@ const InputPrompt: FC<{
   return (
     <Box marginTop={1}>
       <Text bold color="green">
-        {"❯ "}
+        {"\u{276F} "}
       </Text>
       <TextInput
         value={value}
@@ -361,9 +416,9 @@ function ToolResultSlot({ data }: {
         <Text bold>{data.name}</Text>
         <Text dimColor> {inputStr}</Text>
         {isError ? (
-          <Text color="red"> ✗</Text>
+          <Text color="red"> {"\u{2717}"}</Text>
         ) : (
-          <Text color="green"> ✓</Text>
+          <Text color="green"> {"\u{2713}"}</Text>
         )}
         <Text dimColor> {formatMs(data.elapsed)}</Text>
       </Box>
@@ -383,12 +438,98 @@ function ToolResultSlot({ data }: {
   );
 }
 
-function CodingSlotView({ slot }: { slot: Slot<any> }) {
+const TASK_STATUS_ICONS: Record<TaskStatus, string> = {
+  pending: "\u{25CB}",
+  in_progress: "\u{25C9}",
+  completed: "\u{2713}",
+};
+
+const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
+  pending: "gray",
+  in_progress: "cyan",
+  completed: "green",
+};
+
+function TaskListSlot({ data }: { data: { tasks: Task[] } }) {
+  if (!data.tasks.length) return null;
+
+  return (
+    <Box flexDirection="column" marginLeft={2} marginY={1}>
+      <Text bold dimColor>
+        Tasks
+      </Text>
+      {data.tasks.map((task) => (
+        <Box key={task.id} marginLeft={1}>
+          <Text color={TASK_STATUS_COLORS[task.status]}>
+            {TASK_STATUS_ICONS[task.status]}{" "}
+          </Text>
+          <Text
+            dimColor={task.status === "completed"}
+            strikethrough={task.status === "completed"}
+          >
+            {task.status === "in_progress" ? task.activeForm : task.content}
+          </Text>
+          {task.status === "in_progress" && (
+            <Text color="cyan">
+              {" "}
+              <Spinner type="dots" />
+            </Text>
+          )}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+function PermissionPromptSlot({
+  slot,
+  dm,
+}: {
+  slot: Slot<any>;
+  dm: Displaymanager;
+}) {
+  const { toolName, toolInput } = slot.input;
+  const icon = toolIcon(toolName);
+  const inputStr = formatToolInput(toolName, toolInput);
+
+  useInput((input, key) => {
+    if (input === "y" || input === "Y") {
+      dm.resolve(slot.id, true);
+    } else if (input === "n" || input === "N" || (key.ctrl && input === "c")) {
+      dm.resolve(slot.id, false);
+    }
+  });
+
+  return (
+    <Box flexDirection="column" marginLeft={2} marginY={1}>
+      <Box>
+        <Text color="yellow">{"\u{1F512}"} Permission required</Text>
+      </Box>
+      <Box marginLeft={2}>
+        <Text>
+          {icon}{" "}
+        </Text>
+        <Text bold>{toolName}</Text>
+        <Text dimColor> {inputStr}</Text>
+      </Box>
+      <Box marginLeft={2}>
+        <Text color="yellow">Allow this tool to run? </Text>
+        <Text bold>[y/n]</Text>
+      </Box>
+    </Box>
+  );
+}
+
+function CodingSlotView({ slot, dm }: { slot: Slot<any>; dm: Displaymanager }) {
   switch (slot.renderer) {
     case "tool_running":
       return <ToolRunningSlot data={slot.input} />;
     case "tool_result":
       return <ToolResultSlot data={slot.input} />;
+    case "task_list":
+      return <TaskListSlot data={slot.input} />;
+    case "permission_request":
+      return <PermissionPromptSlot slot={slot} dm={dm} />;
     default:
       return (
         <Box marginLeft={2}>
@@ -405,7 +546,7 @@ function CodingSlotView({ slot }: { slot: Slot<any> }) {
 const App: FC<{
   dm: Displaymanager;
   bridge: AgentBridge;
-  processRequest: (msg: string) => Promise<any>;
+  processRequest: (msg: string, signal?: AbortSignal) => Promise<any>;
 }> = ({ dm, bridge, processRequest }) => {
   const { exit } = useApp();
   const stack = useDisplayManager(dm);
@@ -417,13 +558,19 @@ const App: FC<{
   >([]);
   const [error, setError] = useState<string | null>(null);
   const runningRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   useInput((input, key) => {
-    if (input === "q" && mode === "idle") {
-      exit();
-      process.exit(0);
-    }
     if (key.ctrl && input === "c") {
+      if (mode === "thinking" && abortRef.current) {
+        abortRef.current.abort();
+      } else {
+        exit();
+        process.exit(0);
+      }
+      return;
+    }
+    if (input === "q" && mode === "idle") {
       exit();
       process.exit(0);
     }
@@ -439,6 +586,9 @@ const App: FC<{
       if (runningRef.current) return;
       runningRef.current = true;
 
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       setHistory((h) => [...h, { role: "user", text }]);
       setMode("thinking");
       setError(null);
@@ -449,7 +599,7 @@ const App: FC<{
       const startTime = Date.now();
 
       try {
-        const result: any = await processRequest(text);
+        const result: any = await processRequest(text, controller.signal);
         const elapsed = Date.now() - startTime;
 
         const messages = result?.messages ?? [];
@@ -460,9 +610,17 @@ const App: FC<{
           setHistory((h) => [...h, { role: "agent", text: finalText, elapsed }]);
         }
       } catch (err: any) {
-        setError(err.message);
+        if (err instanceof AbortError || err.name === "AbortError") {
+          setHistory((h) => [
+            ...h,
+            { role: "agent", text: "(aborted)", elapsed: Date.now() - startTime },
+          ]);
+        } else {
+          setError(err.message);
+        }
       }
 
+      abortRef.current = null;
       bridge.setThinking(false);
       bridge.resetStream();
       setMode("idle");
@@ -484,9 +642,9 @@ const App: FC<{
         ),
       )}
 
-      {/* Display manager slots (tool running/results) */}
+      {/* Display manager slots (tools, tasks, permissions) */}
       {stack.map((slot) => (
-        <CodingSlotView key={slot.id} slot={slot} />
+        <CodingSlotView key={slot.id} slot={slot} dm={dm} />
       ))}
 
       {/* Streaming text */}
@@ -514,21 +672,26 @@ const App: FC<{
 // Build agent
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+const DESTRUCTIVE_TOOLS = new Set(["write_file", "edit_file", "bash"]);
+
 const SYSTEM_PROMPT = `You are an expert coding assistant with access to the local file system and a bash shell.
 
 ## Tools
 - **read_file**: Read file contents with optional line ranges
-- **write_file**: Create or overwrite files
-- **edit_file**: Surgical string replacement in files
+- **write_file**: Create or overwrite files (requires permission)
+- **edit_file**: Surgical string replacement in files (requires permission)
 - **list_dir**: Explore directory structure
 - **search**: Regex search across files
-- **bash**: Run any shell command
+- **bash**: Run any shell command (requires permission)
+- **glove_update_tasks**: Plan and track tasks for the current session
 
 ## Workflow
-1. Explore first with list_dir and read_file before changing anything
-2. Use edit_file for modifications — always read_file first for exact content
-3. Run code with bash after writing it to verify it works
-4. On failure: read error → fix → retry
+1. For non-trivial requests, plan your approach first using glove_update_tasks to create a task list
+2. Explore first with list_dir and read_file before changing anything
+3. Use edit_file for modifications — always read_file first for exact content
+4. Run code with bash after writing it to verify it works
+5. On failure: read error → fix → retry
+6. Update task status as you complete each step
 
 Working directory: ${process.cwd()}
 all generated code should live under the lab folder
@@ -558,6 +721,7 @@ function buildAgent(dm: Displaymanager, subscriber: SubscriberAdapter) {
       name: tool.name,
       description: tool.description,
       inputSchema: tool.input_schema,
+      requiresPermission: DESTRUCTIVE_TOOLS.has(tool.name),
       async do(input, display) {
         const start = Date.now();
         const runningId = await display.pushAndForget({
@@ -608,11 +772,11 @@ function buildAgent(dm: Displaymanager, subscriber: SubscriberAdapter) {
 function main() {
   const dm = new Displaymanager();
   const bridge = new AgentBridge();
-  const subscriber = new BridgeSubscriber(bridge);
+  const subscriber = new BridgeSubscriber(bridge, dm);
   const agent = buildAgent(dm, subscriber);
 
-  const processRequest = async (msg: string) => {
-    return agent.processRequest(msg);
+  const processRequest = async (msg: string, signal?: AbortSignal) => {
+    return agent.processRequest(msg, signal);
   };
 
   render(<App dm={dm} bridge={bridge} processRequest={processRequest} />);

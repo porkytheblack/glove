@@ -231,6 +231,7 @@ export class AnthropicAdapter implements ModelAdapter {
   async prompt(
     request: PromptRequest,
     notify: NotifySubscribersFunction,
+    signal?: AbortSignal,
   ): Promise<ModelPromptResult> {
     const messages = formatMessages(request.messages);
     const tools =
@@ -245,20 +246,21 @@ export class AnthropicAdapter implements ModelAdapter {
     };
 
     if (this.useStreaming) {
-      return this.promptStreaming(params, notify);
+      return this.promptStreaming(params, notify, signal);
     }
 
-    return this.promptSync(params, notify);
+    return this.promptSync(params, notify, signal);
   }
 
   private async promptSync(
     params: Anthropic.MessageCreateParams,
     notify: NotifySubscribersFunction,
+    signal?: AbortSignal,
   ): Promise<ModelPromptResult> {
     const response = await this.client.messages.create({
       ...params,
       stream: false,
-    });
+    }, signal ? { signal } : undefined);
 
     const message = parseResponse(response.content);
 
@@ -278,8 +280,13 @@ export class AnthropicAdapter implements ModelAdapter {
   private async promptStreaming(
     params: Anthropic.MessageCreateParams,
     notify: NotifySubscribersFunction,
+    signal?: AbortSignal,
   ): Promise<ModelPromptResult> {
-    const stream = this.client.messages.stream(params);
+    const stream = this.client.messages.stream(params, signal ? { signal } : undefined);
+
+    if (signal) {
+      signal.addEventListener("abort", () => stream.abort(), { once: true });
+    }
 
     stream.on("text", (text) => {
       notify("text_delta", { text });

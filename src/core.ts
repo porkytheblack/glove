@@ -18,6 +18,32 @@ export interface SubscriberAdapter {
   record: (event_type: string, data: any) => Promise<void>;
 }
 
+// ─── Tasks ────────────────────────────────────────────────────────────────────
+
+export type TaskStatus = "pending" | "in_progress" | "completed";
+
+export interface Task {
+  id: string;
+  content: string;      // imperative: "Run tests"
+  activeForm: string;   // continuous: "Running tests"
+  status: TaskStatus;
+}
+
+// ─── Permissions ──────────────────────────────────────────────────────────────
+
+export type PermissionStatus = "granted" | "denied" | "unset";
+
+// ─── Abort ────────────────────────────────────────────────────────────────────
+
+export class AbortError extends Error {
+  constructor(message?: string) {
+    super(message ?? "Operation aborted");
+    this.name = "AbortError";
+  }
+}
+
+// ─── Core types ───────────────────────────────────────────────────────────────
+
 export interface ToolResult {
   tool_name: string;
   call_id?: string;
@@ -32,6 +58,7 @@ export interface Tool<I> {
   name: string;
   description: string;
   input_schema: z.ZodType<I>;
+  requiresPermission?: boolean;
   run(
     input: I,
     handOver?: (request: unknown) => Promise<unknown>,
@@ -70,6 +97,7 @@ export interface ModelAdapter {
   prompt(
     request: PromptRequest,
     notify: NotifySubscribersFunction,
+    signal?: AbortSignal,
   ): Promise<ModelPromptResult>;
 
   setSystemPrompt(systemPrompt: string): void
@@ -93,7 +121,14 @@ export interface StoreAdapter {
 
   resetHistory(): Promise<void> // reset the conversation history the adapter will probabaly do something like creating an entirely new conversation
 
+  // Tasks (optional)
+  getTasks?(): Promise<Array<Task>>
+  addTasks?(tasks: Array<Task>): Promise<void>
+  updateTask?(taskId: string, updates: Partial<Pick<Task, "status" | "content" | "activeForm">>): Promise<void>
 
+  // Permissions (optional)
+  getPermission?(toolName: string): Promise<PermissionStatus>
+  setPermission?(toolName: string, status: PermissionStatus): Promise<void>
 }
 
 export class Context {
@@ -110,7 +145,20 @@ export class Context {
     await this.store.appendMessages(msgs)
   }
 
+  async getTasks(): Promise<Array<Task>> {
+    if (!this.store.getTasks) return [];
+    return await this.store.getTasks();
+  }
 
+  async addTasks(tasks: Array<Task>): Promise<void> {
+    if (!this.store.addTasks) return;
+    await this.store.addTasks(tasks);
+  }
+
+  async updateTask(taskId: string, updates: Partial<Pick<Task, "status" | "content" | "activeForm">>): Promise<void> {
+    if (!this.store.updateTask) return;
+    await this.store.updateTask(taskId, updates);
+  }
 }
 
 export class PromptMachine {
@@ -136,13 +184,14 @@ export class PromptMachine {
     );
   };
 
-  async run(messages: Array<Message>, tools?: Array<Tool<unknown>>) {
+  async run(messages: Array<Message>, tools?: Array<Tool<unknown>>, signal?: AbortSignal) {
     const result = await this.model.prompt(
       {
         messages,
         tools,
       },
       this.notifySubscribers,
+      signal,
     );
     return result;
   }
@@ -157,8 +206,28 @@ export class Executor {
   subscribers: Array<SubscriberAdapter> = [];
   MAX_RETRIES: number = 3
 
-  constructor(MAX_RETRIES?: number) {
+  private store?: StoreAdapter;
+
+  constructor(MAX_RETRIES?: number, store?: StoreAdapter) {
     this.MAX_RETRIES = MAX_RETRIES ?? 3
+    this.store = store;
+  }
+
+  private async checkPermission(tool: Tool<any>, input: unknown, handOver?: HandOverFunction): Promise<boolean> {
+    if (!tool.requiresPermission) return true;
+    if (!this.store?.getPermission || !this.store?.setPermission) return true;
+
+    const status = await this.store.getPermission(tool.name);
+    if (status === "granted") return true;
+    if (status === "denied") return false;
+
+    // status is "unset" — ask the user via handOver
+    if (!handOver) return true;
+
+    const result = await handOver({ renderer: 'permission_request', toolName: tool.name, toolInput: input });
+    const allowed = Boolean(result);
+    await this.store.setPermission(tool.name, allowed ? "granted" : "denied");
+    return allowed;
   }
 
   registerTool(tool: Tool<any>) {
@@ -178,12 +247,14 @@ export class Executor {
     this.toolCallStack.push(call);
   }
 
-  async executeToolStack(handOver?: HandOverFunction) {
+  async executeToolStack(handOver?: HandOverFunction, signal?: AbortSignal) {
     // can send error report back to the agent when it fails
 
     const toolResults: Array<ToolResult> = [];
 
     for (const call of this.toolCallStack) {
+      if (signal?.aborted) break;
+
       let tool = this.tools.find(
         (t) => t.name.toLowerCase() == call.tool_name.toLowerCase(),
       );
@@ -199,6 +270,21 @@ export class Executor {
         });
         await this.notifySubscribers("tool_use_result", toolResults?.at(-1));
 
+        continue;
+      }
+
+      const permitted = await this.checkPermission(tool, call.input_args, handOver);
+      if (!permitted) {
+        toolResults.push({
+          tool_name: call.tool_name,
+          call_id: call.id,
+          result: {
+            status: "error",
+            message: `Permission denied for tool "${call.tool_name}". The user has not granted permission to run this tool.`,
+            data: null,
+          },
+        });
+        await this.notifySubscribers("tool_use_result", toolResults?.at(-1));
         continue;
       }
 
@@ -222,6 +308,7 @@ export class Executor {
 
       let toolRunEffect = Effect.tryPromise({
         try: async () => {
+          if (signal?.aborted) throw new AbortError();
           const result = await tool.run(parsed_input.data, handOver);
           return result
         },
@@ -230,7 +317,10 @@ export class Executor {
         }
       })
 
-      let retriedEffect = Effect.retry(toolRunEffect, { times: this.MAX_RETRIES })
+      let retriedEffect = Effect.retry(toolRunEffect, {
+        times: this.MAX_RETRIES,
+        while: () => !signal?.aborted,
+      })
       let toolResult = await Effect.runPromise(Effect.either(retriedEffect))
 
       Either.match(toolResult, {
@@ -379,10 +469,12 @@ export class Agent {
     this.prompt_machine = prompt_machine;
   }
 
-  async ask(message: Message, handOver?: HandOverFunction) {
+  async ask(message: Message, handOver?: HandOverFunction, signal?: AbortSignal) {
     await this.context.appendMessages([message]);
 
     while (true) {
+      if (signal?.aborted) throw new AbortError();
+
       let messages = await this.context.getMessages();
 
       let current_turn_count = await this.observer.getCurrentTurns();
@@ -394,7 +486,11 @@ export class Agent {
       let results = await this.prompt_machine.run(
         messages,
         this.executor.tools,
+        signal,
       );
+
+      if (signal?.aborted) throw new AbortError();
+
       await this.context.appendMessages(results.messages);
       await this.observer.addTokensConsumed(results.tokens_in);
       await this.observer.turnComplete();
@@ -411,7 +507,9 @@ export class Agent {
         }
       }
 
-      let tool_results = await this.executor.executeToolStack(handOver);
+      let tool_results = await this.executor.executeToolStack(handOver, signal);
+
+      if (signal?.aborted) throw new AbortError();
 
       // Append tool_results to context BEFORE compaction so the history
       // always contains matched tool_use / tool_result pairs.  If we
