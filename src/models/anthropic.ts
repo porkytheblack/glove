@@ -9,31 +9,22 @@ import type {
   ModelPromptResult,
   ModelAdapter,
   NotifySubscribersFunction,
-} from "../core"; // adjust path to wherever your core module lives
+} from "../core";
 
-// ─── Adapter config ───────────────────────────────────────────────────────────
+// ─── Config ───────────────────────────────────────────────────────────────────
 
 export interface AnthropicAdapterConfig {
-  /** Model ID, e.g. "claude-sonnet-4-5-20250929", "claude-opus-4-6" */
-  model: string;
-  /** Max tokens per response (default: 8192) */
-  maxTokens?: number;
-  /** System prompt prepended to every request */
-  systemPrompt?: string;
-  /** API key. Falls back to ANTHROPIC_API_KEY env var */
   apiKey?: string;
-  /** Stream tokens to notify function (default: false) */
+  model: string;
+  maxTokens?: number;
   stream?: boolean;
 }
 
-// ─── Format conversion: Ozone → Anthropic ─────────────────────────────────────
+// ─── Format conversion: Glove → Anthropic ─────────────────────────────────────
 
 type AnthropicMessage = Anthropic.MessageParam;
 type AnthropicTool = Anthropic.Tool;
 
-/**
- * Convert Ozone Tool[] to Anthropic tool definitions.
- */
 function formatTools(tools: Array<Tool<unknown>>): Array<AnthropicTool> {
   return tools.map((tool) => ({
     name: tool.name,
@@ -42,9 +33,6 @@ function formatTools(tools: Array<Tool<unknown>>): Array<AnthropicTool> {
   }));
 }
 
-/**
- * Format a ToolResult's content into a string for Anthropic.
- */
 function formatToolResultContent(tr: ToolResult): string {
   if (tr.result.status === "error") {
     const detail = tr.result.data ? JSON.stringify(tr.result.data) : "";
@@ -55,19 +43,11 @@ function formatToolResultContent(tr: ToolResult): string {
     : JSON.stringify(tr.result.data);
 }
 
-/**
- * Convert an Ozone Message → Anthropic MessageParam.
- *
- * Three cases:
- * 1. User message with tool_results → tool_result content blocks
- * 2. Agent message with tool_calls → text + tool_use content blocks
- * 3. Plain text → string content
- */
 function formatMessage(msg: Message): AnthropicMessage {
   const role: "user" | "assistant" =
     msg.sender === "agent" ? "assistant" : "user";
 
-  // Case 1: tool results flowing back to the model
+  // tool results flowing back to the model
   if (role === "user" && msg.tool_results?.length) {
     return {
       role: "user",
@@ -80,7 +60,7 @@ function formatMessage(msg: Message): AnthropicMessage {
     };
   }
 
-  // Case 2: assistant message that made tool calls
+  // assistant message that made tool calls
   if (role === "assistant" && msg.tool_calls?.length) {
     const content: Array<
       Anthropic.TextBlockParam | Anthropic.ToolUseBlockParam
@@ -102,16 +82,12 @@ function formatMessage(msg: Message): AnthropicMessage {
     return { role: "assistant", content };
   }
 
-  // Case 3: plain text
+  // plain text
   return { role, content: msg.text };
 }
 
-/**
- * Convert full message history, merging consecutive same-role messages
- * and sanitizing tool_use / tool_result pairing.
- */
 function formatMessages(messages: Array<Message>): Array<AnthropicMessage> {
-  // ── Step 1: Convert & merge consecutive same-role messages ──────
+  // convert & merge consecutive same-role messages
   const merged: Array<AnthropicMessage> = [];
 
   for (const msg of messages) {
@@ -133,7 +109,7 @@ function formatMessages(messages: Array<Message>): Array<AnthropicMessage> {
     }
   }
 
-  // ── Step 2: Deduplicate tool_result blocks by tool_use_id ───────
+  // deduplicate tool_result blocks by tool_use_id
   for (const msg of merged) {
     if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
 
@@ -146,8 +122,7 @@ function formatMessages(messages: Array<Message>): Array<AnthropicMessage> {
     });
   }
 
-  // ── Step 3: Ensure every tool_use has a matching tool_result ────
-  // Collect all tool_use IDs from assistant messages
+  // ensure every tool_use has a matching tool_result
   for (let i = 0; i < merged.length; i++) {
     const msg = merged[i];
     if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
@@ -158,10 +133,8 @@ function formatMessages(messages: Array<Message>): Array<AnthropicMessage> {
 
     if (toolUseIds.length === 0) continue;
 
-    // The next message must be a user message with matching tool_results
     const next = merged[i + 1];
     if (!next || next.role !== "user") {
-      // Insert a synthetic tool_result message
       merged.splice(i + 1, 0, {
         role: "user",
         content: toolUseIds.map((id) => ({
@@ -173,7 +146,6 @@ function formatMessages(messages: Array<Message>): Array<AnthropicMessage> {
       continue;
     }
 
-    // Check which IDs are missing from the next user message
     const nextContent = Array.isArray(next.content)
       ? (next.content as any[])
       : [];
@@ -181,12 +153,11 @@ function formatMessages(messages: Array<Message>): Array<AnthropicMessage> {
     const existingIds = new Set(
       nextContent
         .filter((b: any) => b.type === "tool_result")
-        .map((b: any) => b.tool_use_id)
+        .map((b: any) => b.tool_use_id),
     );
 
     const missing = toolUseIds.filter((id) => !existingIds.has(id));
     if (missing.length > 0) {
-      // Append missing tool_result blocks
       const patches = missing.map((id) => ({
         type: "tool_result" as const,
         tool_use_id: id,
@@ -207,7 +178,7 @@ function formatMessages(messages: Array<Message>): Array<AnthropicMessage> {
   return merged;
 }
 
-// ─── Parse Anthropic response → Ozone Message ────────────────────────────────
+// ─── Parse Anthropic response → Glove Message ────────────────────────────────
 
 function parseResponse(content: Anthropic.ContentBlock[]): Message {
   const textParts: string[] = [];
@@ -225,7 +196,6 @@ function parseResponse(content: Anthropic.ContentBlock[]): Message {
           id: block.id,
         });
         break;
-      // thinking, redacted_thinking, etc. — skip
     }
   }
 
@@ -236,7 +206,7 @@ function parseResponse(content: Anthropic.ContentBlock[]): Message {
   };
 }
 
-// ─── The Adapter ──────────────────────────────────────────────────────────────
+// ─── Adapter ──────────────────────────────────────────────────────────────────
 
 export class AnthropicAdapter implements ModelAdapter {
   name: string;
@@ -250,14 +220,17 @@ export class AnthropicAdapter implements ModelAdapter {
     this.name = `anthropic:${config.model}`;
     this.model = config.model;
     this.maxTokens = config.maxTokens ?? 8192;
-    this.systemPrompt = config.systemPrompt;
     this.useStreaming = config.stream ?? false;
     this.client = new Anthropic({ apiKey: config.apiKey });
   }
 
+  setSystemPrompt(systemPrompt: string) {
+    this.systemPrompt = systemPrompt;
+  }
+
   async prompt(
     request: PromptRequest,
-    notify: NotifySubscribersFunction
+    notify: NotifySubscribersFunction,
   ): Promise<ModelPromptResult> {
     const messages = formatMessages(request.messages);
     const tools =
@@ -280,10 +253,13 @@ export class AnthropicAdapter implements ModelAdapter {
 
   private async promptSync(
     params: Anthropic.MessageCreateParams,
-    notify: NotifySubscribersFunction
+    notify: NotifySubscribersFunction,
   ): Promise<ModelPromptResult> {
-    const response = await this.client.messages.create({...params, stream: false});
-    
+    const response = await this.client.messages.create({
+      ...params,
+      stream: false,
+    });
+
     const message = parseResponse(response.content);
 
     await notify("model_response", {
@@ -301,7 +277,7 @@ export class AnthropicAdapter implements ModelAdapter {
 
   private async promptStreaming(
     params: Anthropic.MessageCreateParams,
-    notify: NotifySubscribersFunction
+    notify: NotifySubscribersFunction,
   ): Promise<ModelPromptResult> {
     const stream = this.client.messages.stream(params);
 

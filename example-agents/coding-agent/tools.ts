@@ -1,8 +1,8 @@
 import z from "zod";
-import { readFile, writeFile, readdir, stat, access, mkdir } from "fs/promises";
+import { readFile, writeFile, readdir, mkdir } from "fs/promises";
 import { exec } from "child_process";
 import { join, resolve, relative } from "path";
-import type { Tool } from "../../core";
+import type { Tool } from "../../src/core";
 
 // ─── ReadFile ─────────────────────────────────────────────────────────────────
 
@@ -103,7 +103,7 @@ Tips:
     old_string: z
       .string()
       .describe(
-        "The exact string to find and replace. Must appear exactly once in the file"
+        "The exact string to find and replace. Must appear exactly once in the file",
       ),
     new_string: z
       .string()
@@ -116,29 +116,27 @@ Tips:
 
     if (occurrences === 0) {
       throw new Error(
-        `old_string not found in ${input.path}. Use read_file to see the current file content and make sure your string matches exactly.`
+        `old_string not found in ${input.path}. Use read_file to see the current file content and make sure your string matches exactly.`,
       );
     }
 
     if (occurrences > 1) {
       throw new Error(
-        `old_string found ${occurrences} times in ${input.path}. It must appear exactly once. Include more surrounding context to make it unique.`
+        `old_string found ${occurrences} times in ${input.path}. It must appear exactly once. Include more surrounding context to make it unique.`,
       );
     }
 
     const newContent = content.replace(input.old_string, input.new_string);
     await writeFile(input.path, newContent, "utf-8");
 
-    // Show a preview around the edit
     const lines = newContent.split("\n");
     const editStart = content.indexOf(input.old_string);
-    const lineNumber =
-      content.substring(0, editStart).split("\n").length;
+    const lineNumber = content.substring(0, editStart).split("\n").length;
 
     const previewStart = Math.max(0, lineNumber - 3);
     const previewEnd = Math.min(
       lines.length,
-      lineNumber + input.new_string.split("\n").length + 2
+      lineNumber + input.new_string.split("\n").length + 2,
     );
 
     const preview = lines
@@ -192,7 +190,6 @@ Use max_depth to control how deep to recurse (default: 2).`,
         return;
       }
 
-      // Sort: directories first, then files, alphabetically
       entries.sort((a, b) => {
         if (a.isDirectory() && !b.isDirectory()) return -1;
         if (!a.isDirectory() && b.isDirectory()) return 1;
@@ -202,7 +199,6 @@ Use max_depth to control how deep to recurse (default: 2).`,
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
 
-        // Skip hidden and ignored
         if (entry.name.startsWith(".") || IGNORE.has(entry.name)) continue;
 
         const isLast = i === entries.length - 1;
@@ -246,7 +242,7 @@ Searches recursively. Skips binary files, node_modules, and .git.`,
       .string()
       .optional()
       .describe(
-        "Optional file extension filter like '*.ts' or '*.py'. Searches all text files by default"
+        "Optional file extension filter like '*.ts' or '*.py'. Searches all text files by default",
       ),
     max_results: z
       .number()
@@ -257,7 +253,6 @@ Searches recursively. Skips binary files, node_modules, and .git.`,
     const maxResults = input.max_results ?? 50;
 
     return new Promise<string>((resolve) => {
-      // Try ripgrep first, fall back to grep
       const globArg = input.file_glob ? `--glob '${input.file_glob}'` : "";
       const rgCmd = `rg --line-number --no-heading --max-count ${maxResults} ${globArg} '${input.pattern}' '${input.path}' 2>/dev/null`;
       const grepCmd = `grep -rn --max-count=${maxResults} ${input.file_glob ? `--include='${input.file_glob}'` : ""} '${input.pattern}' '${input.path}' 2>/dev/null`;
@@ -266,17 +261,16 @@ Searches recursively. Skips binary files, node_modules, and .git.`,
         if (!rgErr && rgOut.trim()) {
           const lines = rgOut.trim().split("\n");
           resolve(
-            `Found ${lines.length} match(es):\n${lines.slice(0, maxResults).join("\n")}`
+            `Found ${lines.length} match(es):\n${lines.slice(0, maxResults).join("\n")}`,
           );
           return;
         }
 
-        // Fallback to grep
         exec(grepCmd, { maxBuffer: 1024 * 1024 }, (grepErr, grepOut) => {
           if (!grepErr && grepOut.trim()) {
             const lines = grepOut.trim().split("\n");
             resolve(
-              `Found ${lines.length} match(es):\n${lines.slice(0, maxResults).join("\n")}`
+              `Found ${lines.length} match(es):\n${lines.slice(0, maxResults).join("\n")}`,
             );
             return;
           }
@@ -328,7 +322,7 @@ IMPORTANT: Commands that require interactive input will hang — avoid them.`,
         {
           cwd: input.working_dir,
           timeout,
-          maxBuffer: 1024 * 1024 * 5, // 5MB
+          maxBuffer: 1024 * 1024 * 5,
           shell: "/bin/bash",
         },
         (error, stdout, stderr) => {
@@ -351,7 +345,7 @@ IMPORTANT: Commands that require interactive input will hang — avoid them.`,
           }
 
           resolve(parts.join("\n\n") || "Command produced no output");
-        }
+        },
       );
     });
   },
