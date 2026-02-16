@@ -1,0 +1,386 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #0a0a0a;
+  --surface: #141414;
+  --border: #262626;
+  --text: #ededed;
+  --text-muted: #888;
+  --user-bg: #1a3a5c;
+  --agent-bg: #1e1e1e;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --success: #22c55e;
+  --error: #ef4444;
+  --warning: #f59e0b;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100dvh;
+}
+
+main {
+  height: 100dvh;
+  display: flex;
+  justify-content: center;
+}
+
+/* ─── Chat container ───────────────────────────────────────────────────────── */
+
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  max-width: 720px;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-header h1 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.stats {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ─── Messages ─────────────────────────────────────────────────────────────── */
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--text-muted);
+  text-align: center;
+  gap: 8px;
+}
+
+.empty-state .hint {
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.message {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  line-height: 1.5;
+  font-size: 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.user-message {
+  align-self: flex-end;
+  background: var(--user-bg);
+  border-bottom-right-radius: 4px;
+}
+
+.agent-message {
+  align-self: flex-start;
+  background: var(--agent-bg);
+  border-bottom-left-radius: 4px;
+}
+
+.streaming .message-content {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
+/* ─── Tool entries ─────────────────────────────────────────────────────────── */
+
+.tool-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  align-self: flex-start;
+}
+
+.tool-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--border);
+}
+
+.tool-badge.success { color: var(--success); }
+.tool-badge.error   { color: var(--error); }
+.tool-badge.running { animation: pulse 1s ease-in-out infinite; }
+
+.tool-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.tool-output {
+  margin-left: 4px;
+  opacity: 0.8;
+}
+
+.tool-output::before {
+  content: "-> ";
+}
+
+.thinking {
+  font-size: 13px;
+  color: var(--text-muted);
+  animation: pulse 1.5s ease-in-out infinite;
+  padding: 4px 0;
+}
+
+/* ─── Slots (shared) ──────────────────────────────────────────────────────── */
+
+.slot {
+  align-self: flex-start;
+  width: 100%;
+  max-width: 480px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.slot-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.slot-question {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+
+.slot-message {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.slot-content {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.slot-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.btn-approve,
+.btn-reject {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn-approve {
+  background: var(--success);
+  color: #fff;
+}
+
+.btn-reject {
+  background: var(--border);
+  color: var(--text-muted);
+}
+
+.btn-approve:hover,
+.btn-reject:hover {
+  opacity: 0.85;
+}
+
+/* ─── Select slot ──────────────────────────────────────────────────────────── */
+
+.slot-select {
+  border-color: var(--accent);
+  border-style: dashed;
+}
+
+.slot-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.slot-option-btn {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.slot-option-btn:hover {
+  border-color: var(--accent);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+/* ─── Confirm slot ─────────────────────────────────────────────────────────── */
+
+.slot-confirm {
+  border-color: var(--warning);
+  border-style: dashed;
+}
+
+/* ─── Plan slot ────────────────────────────────────────────────────────────── */
+
+.slot-plan {
+  border-color: var(--accent);
+}
+
+.plan-steps {
+  list-style: none;
+  counter-reset: step;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+}
+
+.plan-step {
+  counter-increment: step;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 13px;
+}
+
+.plan-step::before {
+  content: counter(step);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+
+.plan-step strong {
+  color: var(--text);
+}
+
+.plan-step span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* ─── Card slot ────────────────────────────────────────────────────────────── */
+
+.slot-card {
+  border-left-width: 3px;
+  border-left-style: solid;
+}
+
+.slot-card-info    { border-left-color: var(--accent); }
+.slot-card-success { border-left-color: var(--success); }
+.slot-card-warning { border-left-color: var(--warning); }
+
+/* ─── Input ────────────────────────────────────────────────────────────────── */
+
+.chat-input {
+  display: flex;
+  gap: 8px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-input input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.chat-input input:focus {
+  border-color: var(--accent);
+}
+
+.chat-input input:disabled {
+  opacity: 0.5;
+}
+
+.chat-input button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.chat-input button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.chat-input button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.abort-btn {
+  background: var(--error) !important;
+}
+
+.abort-btn:hover {
+  opacity: 0.9;
+}

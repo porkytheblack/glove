@@ -127,7 +127,7 @@ function formatMessage(msg: Message): OpenAIMessage[] {
   return [{ role, content: msg.text }];
 }
 
-function formatMessages(messages: Array<Message>): OpenAIMessage[] {
+export function formatMessages(messages: Array<Message>): OpenAIMessage[] {
   const flat: OpenAIMessage[] = [];
   for (const msg of messages) {
     flat.push(...formatMessage(msg));

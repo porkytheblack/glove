@@ -6,3 +6,6 @@ cool-stuff
 lab
 .glove
 dist
+.env.local
+.next
+out

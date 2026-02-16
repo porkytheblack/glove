@@ -4,6 +4,16 @@
   "description": "Core agent framework",
   "type": "module",
   "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./core": "./src/core.ts",
+    "./glove": "./src/glove.ts",
+    "./display-manager": "./src/display-manager.ts",
+    "./tools/task-tool": "./src/tools/task-tool.ts",
+    "./models/anthropic": "./src/models/anthropic.ts",
+    "./models/openai-compat": "./src/models/openai-compat.ts",
+    "./models/providers": "./src/models/providers.ts"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
     "@types/node": "^25.2.3",

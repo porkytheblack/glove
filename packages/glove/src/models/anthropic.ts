@@ -139,7 +139,7 @@ function formatMessage(msg: Message): AnthropicMessage {
   return { role, content: msg.text };
 }
 
-function formatMessages(messages: Array<Message>): Array<AnthropicMessage> {
+export function formatAnthropicMessages(messages: Array<Message>): Array<AnthropicMessage> {
   // convert & merge consecutive same-role messages
   const merged: Array<AnthropicMessage> = [];
 
@@ -286,7 +286,7 @@ export class AnthropicAdapter implements ModelAdapter {
     notify: NotifySubscribersFunction,
     signal?: AbortSignal,
   ): Promise<ModelPromptResult> {
-    const messages = formatMessages(request.messages);
+    const messages = formatAnthropicMessages(request.messages);
     const tools =
       request.tools?.length ? formatTools(request.tools) : undefined;
 
