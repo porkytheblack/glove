@@ -1,0 +1,23 @@
+{
+  "name": "@glove/core",
+  "version": "1.0.0",
+  "description": "Core agent framework",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.74.0",
+    "@types/node": "^25.2.3",
+    "better-sqlite3": "^12.6.2",
+    "chalk": "^5.6.2",
+    "dotenv": "^17.2.4",
+    "effect": "^3.19.16",
+    "openai": "^6.22.0",
+    "ora": "^9.3.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/ora": "^3.2.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,4 +1,8 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+dotenv.config({ path: join(dirname(fileURLToPath(import.meta.url)), ".env") });
+
 import {
   useState,
   useEffect,
@@ -18,11 +22,12 @@ import {
   type TaskStatus,
   type PermissionStatus,
   AbortError,
-} from "../../src/core";
-import { Displaymanager, type Slot } from "../../src/display-manager";
-import { Glove } from "../../src/glove";
+  Displaymanager,
+  type Slot,
+  Glove,
+  OpenRouterAdapter,
+} from "@glove/core";
 import { codingTools } from "./tools";
-import { OpenRouterAdapter } from "../../src/models/openrouter";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Timeline

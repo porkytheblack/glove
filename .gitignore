@@ -2,7 +2,7 @@ node_modules
 .env
 micro
 trash
-example-agents
 cool-stuff
 lab
 .glove
+dist

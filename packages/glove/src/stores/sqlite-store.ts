@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { existsSync } from "fs";
 import type {
   StoreAdapter,
   Message,
@@ -354,6 +355,7 @@ export class SqliteStore implements StoreAdapter {
   static listSessions(
     dbPath: string,
   ): Array<{ sessionId: string; name: string; createdAt: string; workingDir: string }> {
+    if (!existsSync(dbPath)) return [];
     const db = new Database(dbPath, { readonly: true });
     try {
       // Table might not exist yet

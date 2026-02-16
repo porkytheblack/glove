@@ -1,43 +1,20 @@
 {
-  "name": "glove",
+  "name": "glove-monorepo",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "private": true,
   "type": "module",
   "scripts": {
-    "weather:agent": "npx tsx ./example-agents/weather-agent/index.tsx",
-    "coding:agent": "npx tsx ./example-agents/coding-agent/index.tsx",
-    "coding:server": "npx tsx ./example-agents/coding-agent/server.ts",
-    "coding:client": "cd example-agents/coding-agent/client && npx vite dev"
+    "weather:agent": "tsx examples/weather-agent/index.tsx",
+    "coding:agent": "tsx examples/coding-agent/index.tsx",
+    "coding:server": "tsx examples/coding-agent/server.ts",
+    "coding:client": "pnpm --filter @glove/coding-agent-client dev"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "packageManager": "pnpm@10.28.2",
   "pnpm": {
     "onlyBuiltDependencies": ["better-sqlite3"]
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/ora": "^3.2.0",
-    "@types/react": "^19.2.14",
-    "@types/ws": "^8.18.1",
-    "typescript": "^5.9.3"
-  },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.74.0",
-    "@types/node": "^25.2.3",
-    "better-sqlite3": "^12.6.2",
-    "chalk": "^5.6.2",
-    "dotenv": "^17.2.4",
-    "effect": "^3.19.16",
-    "ink": "^6.7.0",
-    "ink-spinner": "^5.0.0",
-    "ink-text-input": "^6.0.0",
-    "keypress": "^0.2.1",
-    "openai": "^6.22.0",
-    "ora": "^9.3.0",
-    "react": "^19.2.4",
-    "zod": "^4.3.6"
+    "typescript": "^5.9.3",
+    "tsx": "^4.19.0"
   }
 }

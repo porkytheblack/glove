@@ -1,4 +1,8 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+dotenv.config({ path: join(dirname(fileURLToPath(import.meta.url)), ".env") });
+
 import { useState, useEffect, useCallback } from "react";
 import { render, Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
@@ -9,10 +13,11 @@ import {
   type StoreAdapter,
   type SubscriberAdapter,
   type Message,
-} from "../../src/core";
-import { Displaymanager, type Slot } from "../../src/display-manager";
-import { AnthropicAdapter } from "../../src/models/anthropic";
-import { Glove } from "../../src/glove";
+  Displaymanager,
+  type Slot,
+  AnthropicAdapter,
+  Glove,
+} from "@glove/core";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // In-memory store

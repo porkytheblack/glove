@@ -18,7 +18,6 @@
     "declarationMap": true,
     "sourceMap": true,
     "skipLibCheck": true,
-    "isolatedModules": true,
-    "jsx": "react-jsx"
+    "isolatedModules": true
   }
 }
