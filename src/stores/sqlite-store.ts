@@ -89,6 +89,16 @@ export class SqliteStore implements StoreAdapter {
         "ALTER TABLE sessions ADD COLUMN working_dir TEXT NOT NULL DEFAULT ''",
       );
     }
+
+    // Migrate messages table — add content column for multimodal parts
+    const msgColumns = this.db
+      .prepare("PRAGMA table_info(messages)")
+      .all() as Array<{ name: string }>;
+    const msgNames = new Set(msgColumns.map((c) => c.name));
+
+    if (!msgNames.has("content")) {
+      this.db.exec("ALTER TABLE messages ADD COLUMN content TEXT");
+    }
   }
 
   private ensureSession() {
@@ -104,7 +114,7 @@ export class SqliteStore implements StoreAdapter {
   async getMessages(): Promise<Array<Message>> {
     const rows = this.db
       .prepare(
-        `SELECT sender, msg_id, text, tool_results, tool_calls
+        `SELECT sender, msg_id, text, tool_results, tool_calls, content
          FROM messages WHERE session_id = ? ORDER BY id`,
       )
       .all(this.identifier) as Array<{
@@ -113,6 +123,7 @@ export class SqliteStore implements StoreAdapter {
       text: string;
       tool_results: string | null;
       tool_calls: string | null;
+      content: string | null;
     }>;
 
     return rows.map((row) => {
@@ -123,14 +134,15 @@ export class SqliteStore implements StoreAdapter {
       if (row.msg_id) msg.id = row.msg_id;
       if (row.tool_results) msg.tool_results = JSON.parse(row.tool_results);
       if (row.tool_calls) msg.tool_calls = JSON.parse(row.tool_calls);
+      if (row.content) msg.content = JSON.parse(row.content);
       return msg;
     });
   }
 
   async appendMessages(msgs: Array<Message>): Promise<void> {
     const insert = this.db.prepare(
-      `INSERT INTO messages (session_id, sender, msg_id, text, tool_results, tool_calls)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO messages (session_id, sender, msg_id, text, tool_results, tool_calls, content)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
 
     const tx = this.db.transaction((messages: Array<Message>) => {
@@ -142,6 +154,7 @@ export class SqliteStore implements StoreAdapter {
           msg.text,
           msg.tool_results ? JSON.stringify(msg.tool_results) : null,
           msg.tool_calls ? JSON.stringify(msg.tool_calls) : null,
+          msg.content ? JSON.stringify(msg.content) : null,
         );
       }
     });
@@ -190,7 +203,7 @@ export class SqliteStore implements StoreAdapter {
         .run(this.identifier);
       this.db
         .prepare(
-          `UPDATE sessions SET token_count = 0 WHERE session_id = ?`,
+          `UPDATE sessions SET token_count = 0, turn_count = 0 WHERE session_id = ?`,
         )
         .run(this.identifier);
     });

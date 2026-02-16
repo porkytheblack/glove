@@ -71,10 +71,24 @@ export interface ToolCall {
   id?: string;
 }
 
+export interface ContentPart {
+  type: "text" | "image" | "video" | "document";
+  /** For text parts */
+  text?: string;
+  /** For media parts (image, video, document) */
+  source?: {
+    type: "base64" | "url";
+    media_type: string;
+    data?: string;
+    url?: string;
+  };
+}
+
 export interface Message {
   sender: "user" | "agent";
   id?: string;
   text: string;
+  content?: Array<ContentPart>;
   tool_results?: Array<ToolResult>;
   tool_calls?: Array<ToolCall>;
 }
@@ -484,15 +498,22 @@ export class Agent {
   async ask(message: Message, handOver?: HandOverFunction, signal?: AbortSignal) {
     await this.context.appendMessages([message]);
 
+    // Per-request turn counter to prevent runaway loops.
+    // The observer's session-level counter is still incremented for stats.
+    let requestTurns = 0;
+
     while (true) {
       if (signal?.aborted) throw new AbortError();
 
       let messages = await this.context.getMessages();
 
-      let current_turn_count = await this.observer.getCurrentTurns();
-
-      if (current_turn_count >= this.observer.MAX_TURNS) {
-        return message;
+      if (requestTurns >= this.observer.MAX_TURNS) {
+        const errorMsg: Message = {
+          sender: "agent",
+          text: `Reached the maximum number of turns (${this.observer.MAX_TURNS}) for this request. Please send a new message to continue.`,
+        };
+        await this.context.appendMessages([errorMsg]);
+        return { messages: [errorMsg], tokens_in: 0, tokens_out: 0 } as ModelPromptResult;
       }
 
       let results = await this.prompt_machine.run(
@@ -506,12 +527,17 @@ export class Agent {
       await this.context.appendMessages(results.messages);
       await this.observer.addTokensConsumed(results.tokens_in);
       await this.observer.turnComplete();
+      requestTurns++;
 
       const messages_with_tool_calls = results.messages.filter(
         (m) => (m.tool_calls?.length ?? 0) > 0,
       );
 
-      if (messages_with_tool_calls.length == 0) return results;
+      if (messages_with_tool_calls.length == 0) {
+        // Auto-complete any in_progress tasks when the agent's turn ends
+        await this.autoCompleteTasks();
+        return results;
+      }
 
       for (const message of messages_with_tool_calls) {
         for (const tool_call of message.tool_calls ?? []) {
@@ -537,5 +563,18 @@ export class Agent {
 
       await this.observer.tryCompaction();
     }
+  }
+
+  private async autoCompleteTasks() {
+    const tasks = await this.context.getTasks();
+    if (tasks.length === 0) return;
+
+    const hasIncomplete = tasks.some((t) => t.status === "in_progress");
+    if (!hasIncomplete) return;
+
+    const updated = tasks.map((t) =>
+      t.status === "in_progress" ? { ...t, status: "completed" as const } : t,
+    );
+    await this.context.addTasks(updated);
   }
 }

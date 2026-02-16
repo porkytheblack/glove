@@ -545,12 +545,14 @@ export const fileInfoTool: Tool<{ path: string }> = {
 
 // ─── Git Status ──────────────────────────────────────────────────────────────
 
-export const gitStatusTool: Tool<Record<string, never>> = {
+export const gitStatusTool: Tool<{ cwd?: string }> = {
   name: "git_status",
   description: `Show the current git working tree status: modified, staged, and untracked files.`,
-  input_schema: z.object({}),
-  async run() {
-    const { stdout, stderr, code } = await execAsync("git status --short 2>&1");
+  input_schema: z.object({
+    cwd: z.string().optional().describe("Working directory for git commands"),
+  }),
+  async run(input) {
+    const { stdout, stderr, code } = await execAsync("git status --short 2>&1", { cwd: input.cwd });
     if (code !== 0) {
       return `git error: ${stderr || stdout}`;
     }
@@ -563,6 +565,7 @@ export const gitStatusTool: Tool<Record<string, never>> = {
 export const gitDiffTool: Tool<{
   file?: string;
   staged?: boolean;
+  cwd?: string;
 }> = {
   name: "git_diff",
   description: `Show git diff output. By default shows unstaged changes.
@@ -577,13 +580,14 @@ Optionally specify a file path to limit the diff.`,
       .boolean()
       .optional()
       .describe("Show staged changes (--cached). Defaults to false"),
+    cwd: z.string().optional().describe("Working directory for git commands"),
   }),
   async run(input) {
     const parts = ["git", "diff"];
     if (input.staged) parts.push("--cached");
     if (input.file) parts.push(JSON.stringify(input.file));
 
-    const { stdout, stderr, code } = await execAsync(parts.join(" ") + " 2>&1");
+    const { stdout, stderr, code } = await execAsync(parts.join(" ") + " 2>&1", { cwd: input.cwd });
     if (code !== 0) {
       return `git error: ${stderr || stdout}`;
     }
@@ -597,6 +601,7 @@ export const gitLogTool: Tool<{
   max_count?: number;
   file?: string;
   oneline?: boolean;
+  cwd?: string;
 }> = {
   name: "git_log",
   description: `Show git commit history. Returns recent commits with hash, author, date, and message.
@@ -614,6 +619,7 @@ Use oneline=true for a compact single-line-per-commit format.`,
       .boolean()
       .optional()
       .describe("Compact one-line format. Defaults to false"),
+    cwd: z.string().optional().describe("Working directory for git commands"),
   }),
   async run(input) {
     const count = input.max_count ?? 20;
@@ -625,7 +631,7 @@ Use oneline=true for a compact single-line-per-commit format.`,
     }
     if (input.file) parts.push("--", JSON.stringify(input.file));
 
-    const { stdout, stderr, code } = await execAsync(parts.join(" ") + " 2>&1");
+    const { stdout, stderr, code } = await execAsync(parts.join(" ") + " 2>&1", { cwd: input.cwd });
     if (code !== 0) {
       return `git error: ${stderr || stdout}`;
     }
@@ -730,7 +736,8 @@ export const codingTools = [
   bashTool,
 ];
 
-export const allTools = [
+/** Non-interactive tools only — for server use where plan/ask_question are registered via DisplayManager */
+export const baseTools = [
   ...codingTools,
   globTool,
   grepTool,
@@ -738,6 +745,10 @@ export const allTools = [
   gitStatusTool,
   gitDiffTool,
   gitLogTool,
+];
+
+export const allTools = [
+  ...baseTools,
   planTool,
   askQuestionTool,
 ];

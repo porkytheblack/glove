@@ -5,7 +5,7 @@
 // how do you achieve undos? include something in the do, that can be undone
 
 import z from "zod";
-import { Agent, Context, Executor, HandOverFunction, Message, ModelAdapter, ModelPromptResult, Observer, PromptMachine, StoreAdapter, SubscriberAdapter, Tool } from "./core";
+import { Agent, ContentPart, Context, Executor, HandOverFunction, Message, ModelAdapter, ModelPromptResult, Observer, PromptMachine, StoreAdapter, SubscriberAdapter, Tool } from "./core";
 import { DisplayManagerAdapter } from "./display-manager";
 import { createTaskTool } from "./tools/task-tool";
 
@@ -19,7 +19,8 @@ interface GloveFoldArgs<I> {
 }
 
 interface IGloveRunnable {
-  processRequest: (request: string, signal?: AbortSignal) => Promise<ModelPromptResult | Message>
+  processRequest: (request: string | ContentPart[], signal?: AbortSignal) => Promise<ModelPromptResult | Message>
+  setModel: (model: ModelAdapter) => void
   readonly displayManager: DisplayManagerAdapter
 }
 
@@ -122,7 +123,16 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   }
 
 
-  async processRequest(request: string, signal?: AbortSignal) {
+  /**
+   * Hot-swap the model adapter for this session.
+   * Only safe to call when no request is in progress.
+   */
+  setModel(model: ModelAdapter) {
+    model.setSystemPrompt(this.promptMachine.systemPrompt);
+    this.promptMachine.model = model;
+  }
+
+  async processRequest(request: string | ContentPart[], signal?: AbortSignal) {
     if (!this.built) throw new Error("Call build before processRequest");
 
     const handOver: HandOverFunction = async (input: unknown)=> {
@@ -134,10 +144,22 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       })
     }
 
-    return this.agent.ask({
-      sender: "user",
-      text: request
-    }, handOver, signal)
+    let message: Message;
+    if (typeof request === "string") {
+      message = { sender: "user", text: request };
+    } else {
+      // Extract text from content parts for the text field (fallback/summary)
+      const textParts = request
+        .filter((p) => p.type === "text" && p.text)
+        .map((p) => p.text!);
+      message = {
+        sender: "user",
+        text: textParts.join("\n") || "[multimodal message]",
+        content: request,
+      };
+    }
+
+    return this.agent.ask(message, handOver, signal)
   }
 
   

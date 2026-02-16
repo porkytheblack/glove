@@ -14,12 +14,14 @@ import type {
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-export interface OpenRouterAdapterConfig {
+export interface OpenAICompatAdapterConfig {
   apiKey?: string;
   model: string;
   maxTokens?: number;
   stream?: boolean;
-  baseURL?: string;
+  baseURL: string;
+  /** Display name prefix, e.g. "openai", "gemini". Defaults to "openai-compat" */
+  provider?: string;
 }
 
 // ─── Format conversion: Glove → OpenAI ──────────────────────────────────────
@@ -76,7 +78,6 @@ function formatContentParts(
         }
         break;
       case "document":
-        // OpenAI doesn't have a native document block — describe it as text
         result.push({
           type: "text",
           text: `[Document attachment: ${part.source?.media_type ?? "document"}]`,
@@ -87,14 +88,10 @@ function formatContentParts(
   return result;
 }
 
-// A single Glove Message may expand to multiple OpenAI messages because
-// tool results are separate { role: "tool" } messages in the OpenAI format
-// (unlike Anthropic where they are content blocks inside a user message).
 function formatMessage(msg: Message): OpenAIMessage[] {
   const role: "user" | "assistant" =
     msg.sender === "agent" ? "assistant" : "user";
 
-  // tool results → individual { role: "tool" } messages
   if (role === "user" && msg.tool_results?.length) {
     return msg.tool_results.map((tr) => ({
       role: "tool" as const,
@@ -103,7 +100,6 @@ function formatMessage(msg: Message): OpenAIMessage[] {
     }));
   }
 
-  // assistant message that made tool calls
   if (role === "assistant" && msg.tool_calls?.length) {
     return [
       {
@@ -124,27 +120,22 @@ function formatMessage(msg: Message): OpenAIMessage[] {
     ];
   }
 
-  // multimodal content — only user messages support content part arrays in OpenAI
   if (msg.content?.length && role === "user") {
     return [{ role: "user" as const, content: formatContentParts(msg.content) }];
   }
 
-  // plain text
   return [{ role, content: msg.text }];
 }
 
 function formatMessages(messages: Array<Message>): OpenAIMessage[] {
-  // Stage 1: flatten — each Glove message may produce multiple OpenAI messages
   const flat: OpenAIMessage[] = [];
   for (const msg of messages) {
     flat.push(...formatMessage(msg));
   }
 
-  // Stage 2: merge consecutive user messages (never merge tool or assistant)
   const merged: OpenAIMessage[] = [];
   for (const msg of flat) {
     const prev = merged[merged.length - 1];
-
     if (prev && prev.role === "user" && msg.role === "user") {
       const prevText =
         typeof prev.content === "string" ? prev.content : String(prev.content);
@@ -156,7 +147,6 @@ function formatMessages(messages: Array<Message>): OpenAIMessage[] {
     }
   }
 
-  // Stage 3: deduplicate tool result messages by tool_call_id
   const seenToolCallIds = new Set<string>();
   const deduped: OpenAIMessage[] = [];
   for (const msg of merged) {
@@ -168,8 +158,6 @@ function formatMessages(messages: Array<Message>): OpenAIMessage[] {
     deduped.push(msg);
   }
 
-  // Stage 4: repair orphaned tool_calls — every assistant message with
-  // tool_calls must be followed by matching { role: "tool" } messages
   const repaired: OpenAIMessage[] = [];
   for (let i = 0; i < deduped.length; i++) {
     repaired.push(deduped[i]);
@@ -186,7 +174,6 @@ function formatMessages(messages: Array<Message>): OpenAIMessage[] {
       ),
     );
 
-    // look ahead through immediately-following tool messages
     const foundIds = new Set<string>();
     let j = i + 1;
     while (j < deduped.length && deduped[j].role === "tool") {
@@ -196,7 +183,6 @@ function formatMessages(messages: Array<Message>): OpenAIMessage[] {
       j++;
     }
 
-    // insert synthetic results for any missing IDs
     for (const id of expectedIds) {
       if (!foundIds.has(id)) {
         repaired.push({
@@ -244,7 +230,7 @@ function parseResponse(
 
 // ─── Adapter ─────────────────────────────────────────────────────────────────
 
-export class OpenRouterAdapter implements ModelAdapter {
+export class OpenAICompatAdapter implements ModelAdapter {
   name: string;
   private client: OpenAI;
   private model: string;
@@ -252,14 +238,15 @@ export class OpenRouterAdapter implements ModelAdapter {
   private systemPrompt?: string;
   private useStreaming: boolean;
 
-  constructor(config: OpenRouterAdapterConfig) {
-    this.name = `openrouter:${config.model}`;
+  constructor(config: OpenAICompatAdapterConfig) {
+    const provider = config.provider ?? "openai-compat";
+    this.name = `${provider}:${config.model}`;
     this.model = config.model;
     this.maxTokens = config.maxTokens ?? 4096;
     this.useStreaming = config.stream ?? false;
     this.client = new OpenAI({
-      apiKey: config.apiKey ?? process.env.OPENROUTER_API_KEY,
-      baseURL: config.baseURL ?? "https://openrouter.ai/api/v1",
+      apiKey: config.apiKey,
+      baseURL: config.baseURL,
     });
   }
 
@@ -272,7 +259,6 @@ export class OpenRouterAdapter implements ModelAdapter {
     notify: NotifySubscribersFunction,
     signal?: AbortSignal,
   ): Promise<ModelPromptResult> {
-    // System prompt is a message in the OpenAI format
     const messages: OpenAIMessage[] = [];
     if (this.systemPrompt) {
       messages.push({ role: "system", content: this.systemPrompt });
@@ -338,8 +324,6 @@ export class OpenRouterAdapter implements ModelAdapter {
     }, signal ? { signal } : undefined);
 
     let fullText = "";
-    // OpenAI streams tool call arguments as string fragments across chunks.
-    // We accumulate them keyed by the tool_call index within the response.
     const toolCallAccumulator = new Map<
       number,
       { id: string; name: string; arguments: string }
@@ -350,7 +334,6 @@ export class OpenRouterAdapter implements ModelAdapter {
     let finishReason: string | null = null;
 
     for await (const chunk of stream) {
-      // Usage arrives in the final chunk when stream_options.include_usage is set
       if (chunk.usage) {
         tokensIn = chunk.usage.prompt_tokens ?? 0;
         tokensOut = chunk.usage.completion_tokens ?? 0;
@@ -365,13 +348,11 @@ export class OpenRouterAdapter implements ModelAdapter {
 
       const delta = choice.delta;
 
-      // text content delta
       if (delta?.content) {
         fullText += delta.content;
         notify("text_delta", { text: delta.content });
       }
 
-      // tool call deltas — arrive incrementally
       if (delta?.tool_calls) {
         for (const tcDelta of delta.tool_calls) {
           const idx = tcDelta.index;
@@ -392,7 +373,6 @@ export class OpenRouterAdapter implements ModelAdapter {
       }
     }
 
-    // assemble completed tool calls from accumulated deltas
     const toolCalls: ToolCall[] = [];
     for (const [, acc] of toolCallAccumulator) {
       const parsedArgs = safeJsonParse(acc.arguments);

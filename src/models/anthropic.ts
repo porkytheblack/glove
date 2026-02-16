@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import z from "zod";
 import type {
   Message,
+  ContentPart,
   ToolResult,
   ToolCall,
   Tool,
@@ -43,6 +44,53 @@ function formatToolResultContent(tr: ToolResult): string {
     : JSON.stringify(tr.result.data);
 }
 
+function formatContentParts(parts: ContentPart[]): Anthropic.ContentBlockParam[] {
+  const blocks: Anthropic.ContentBlockParam[] = [];
+  for (const part of parts) {
+    switch (part.type) {
+      case "text":
+        if (part.text) blocks.push({ type: "text", text: part.text });
+        break;
+      case "image":
+        if (part.source) {
+          blocks.push({
+            type: "image",
+            source: part.source.type === "url"
+              ? { type: "url" as const, url: part.source.url! }
+              : {
+                  type: "base64" as const,
+                  media_type: part.source.media_type as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+                  data: part.source.data!,
+                },
+          });
+        }
+        break;
+      case "document":
+        if (part.source) {
+          blocks.push({
+            type: "document",
+            source: part.source.type === "url"
+              ? { type: "url" as const, url: part.source.url! }
+              : {
+                  type: "base64" as const,
+                  media_type: part.source.media_type as "application/pdf",
+                  data: part.source.data!,
+                },
+          });
+        }
+        break;
+      case "video":
+        // Anthropic doesn't natively support video — include as text note
+        blocks.push({
+          type: "text",
+          text: `[Video attachment: ${part.source?.media_type ?? "video"}]`,
+        });
+        break;
+    }
+  }
+  return blocks;
+}
+
 function formatMessage(msg: Message): AnthropicMessage {
   const role: "user" | "assistant" =
     msg.sender === "agent" ? "assistant" : "user";
@@ -80,6 +128,11 @@ function formatMessage(msg: Message): AnthropicMessage {
     }
 
     return { role: "assistant", content };
+  }
+
+  // multimodal content
+  if (msg.content?.length) {
+    return { role, content: formatContentParts(msg.content) };
   }
 
   // plain text
