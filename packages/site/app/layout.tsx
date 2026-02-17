@@ -19,7 +19,7 @@ const jetbrainsMono = JetBrains_Mono({
   display: "swap",
 });
 
-const siteUrl = "https://glove.dev";
+const siteUrl = "https://glove.dterminal.net";
 const description = "Agentic runtime for building applications as conversations.";
 
 export const metadata: Metadata = {
