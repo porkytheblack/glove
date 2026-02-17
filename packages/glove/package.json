@@ -3,20 +3,58 @@
   "version": "1.0.0",
   "description": "Core agent framework",
   "type": "module",
-  "main": "src/index.ts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./core": "./src/core.ts",
-    "./glove": "./src/glove.ts",
-    "./display-manager": "./src/display-manager.ts",
-    "./tools/task-tool": "./src/tools/task-tool.ts",
-    "./models/anthropic": "./src/models/anthropic.ts",
-    "./models/openai-compat": "./src/models/openai-compat.ts",
-    "./models/providers": "./src/models/providers.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "import": "./dist/core.js"
+    },
+    "./glove": {
+      "types": "./dist/glove.d.ts",
+      "import": "./dist/glove.js"
+    },
+    "./display-manager": {
+      "types": "./dist/display-manager.d.ts",
+      "import": "./dist/display-manager.js"
+    },
+    "./tools/task-tool": {
+      "types": "./dist/tools/task-tool.d.ts",
+      "import": "./dist/tools/task-tool.js"
+    },
+    "./models/anthropic": {
+      "types": "./dist/models/anthropic.d.ts",
+      "import": "./dist/models/anthropic.js"
+    },
+    "./models/openai-compat": {
+      "types": "./dist/models/openai-compat.d.ts",
+      "import": "./dist/models/openai-compat.js"
+    },
+    "./models/providers": {
+      "types": "./dist/models/providers.d.ts",
+      "import": "./dist/models/providers.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
-    "@types/node": "^25.2.3",
     "better-sqlite3": "^12.6.2",
     "chalk": "^5.6.2",
     "dotenv": "^17.2.4",
@@ -27,6 +65,7 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.2.3",
     "@types/ora": "^3.2.0",
     "typescript": "^5.9.3"
   }

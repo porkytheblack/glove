@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "pnpm --filter glove-core build && pnpm --filter glove-react build && pnpm --filter glove-next build",
+    "typecheck": "pnpm -r --filter './packages/*' typecheck",
     "weather:agent": "tsx examples/weather-agent/index.tsx",
     "coding:agent": "tsx examples/coding-agent/index.tsx",
     "coding:server": "tsx examples/coding-agent/server.ts",
@@ -11,10 +13,13 @@
   },
   "packageManager": "pnpm@10.28.2",
   "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3"]
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
-    "tsx": "^4.19.0"
+    "tsup": "^8.5.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
   }
 }
