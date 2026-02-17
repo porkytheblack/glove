@@ -203,12 +203,12 @@ Glove supports multiple providers through a unified adapter interface:
 
 | Provider | Env Variable | Default Model |
 |----------|-------------|---------------|
-| `openai` | `OPENAI_API_KEY` | `gpt-4o` |
+| `openai` | `OPENAI_API_KEY` | `gpt-4.1` |
 | `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
-| `openrouter` | `OPENROUTER_API_KEY` | `openai/gpt-4o` |
-| `gemini` | `GEMINI_API_KEY` | `gemini-2.0-flash` |
-| `minimax` | `MINIMAX_API_KEY` | `MiniMax-Text-01` |
-| `kimi` | `MOONSHOT_API_KEY` | `moonshot-v1-auto` |
+| `openrouter` | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4` |
+| `gemini` | `GEMINI_API_KEY` | `gemini-2.5-flash` |
+| `minimax` | `MINIMAX_API_KEY` | `MiniMax-M2.5` |
+| `kimi` | `MOONSHOT_API_KEY` | `kimi-k2.5` |
 | `glm` | `ZHIPUAI_API_KEY` | `glm-4-plus` |
 
 ```typescript
@@ -216,7 +216,7 @@ import { createAdapter } from "glove-core/models/providers";
 
 const model = createAdapter({
   provider: "openai",
-  model: "gpt-4o",
+  model: "gpt-4.1",
   stream: true,
 });
 ```
@@ -301,6 +301,28 @@ pnpm coding:agent
 pnpm coding:server
 pnpm coding:client
 ```
+
+## Claude Code Skill
+
+This repo includes an [Agent Skill](https://agentskills.io) that gives Claude Code (and other compatible agents) deep knowledge of the Glove framework — architecture, API reference, patterns from the examples, and common gotchas.
+
+### Install with npx skills
+
+```bash
+npx skills add porkytheblack/glove -a claude-code
+```
+
+Or install globally (available in all projects):
+
+```bash
+npx skills add porkytheblack/glove -a claude-code -g
+```
+
+Once installed, Claude Code automatically uses the skill when you work with Glove code. You can also invoke it directly with `/glove`.
+
+### Manual install
+
+Copy the `.claude/skills/glove/` directory into your project's `.claude/skills/` folder.
 
 ## Development
 
