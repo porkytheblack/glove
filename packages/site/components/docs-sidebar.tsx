@@ -46,6 +46,12 @@ const sections: NavSection[] = [
       { label: "Next.js", href: "/docs/next" },
     ],
   },
+  {
+    title: "Resources",
+    items: [
+      { label: "Agent Skill", href: "/docs/agent-skill" },
+    ],
+  },
 ];
 
 export function DocsSidebar() {
