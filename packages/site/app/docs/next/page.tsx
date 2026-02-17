@@ -74,12 +74,12 @@ function PropTable({
 export default function NextPage() {
   return (
     <div className="docs-content">
-      <h1>@glove/next</h1>
+      <h1>glove-next</h1>
 
       <p>
         API reference for the Next.js integration package. Provides a
         server-side handler that turns any Next.js App Router API route into a
-        streaming chat endpoint compatible with <code>@glove/react</code>.
+        streaming chat endpoint compatible with <code>glove-react</code>.
       </p>
 
       {/* ================================================================== */}
@@ -102,7 +102,7 @@ export default function NextPage() {
 
       <CodeBlock
         filename="app/api/chat/route.ts"
-        code={`import { createChatHandler } from "@glove/next";
+        code={`import { createChatHandler } from "glove-next";
 
 export const POST = createChatHandler({
   provider: "anthropic",
@@ -164,7 +164,7 @@ export const POST = createChatHandler({
       <h2 id="supported-providers">Supported Providers</h2>
 
       <p>
-        Any provider registered in <code>@glove/core</code> can be used. Each
+        Any provider registered in <code>glove-core</code> can be used. Each
         provider maps to an SDK format (either OpenAI-compatible or
         Anthropic-compatible), which determines which SDK is loaded at runtime.
       </p>
@@ -220,7 +220,7 @@ export const POST = createChatHandler({
       <p>
         The handler expects a JSON <code>POST</code> body matching the{" "}
         <code>RemotePromptRequest</code> shape. This is what{" "}
-        <code>@glove/react</code>&apos;s <code>createEndpointModel</code>{" "}
+        <code>glove-react</code>&apos;s <code>createEndpointModel</code>{" "}
         sends automatically.
       </p>
 
@@ -271,7 +271,7 @@ export const POST = createChatHandler({
         The handler streams responses back as Server-Sent Events. Each event
         is a <code>RemoteStreamEvent</code>, sent as a JSON-encoded{" "}
         <code>data:</code> line. The client-side <code>parseSSEStream</code>{" "}
-        utility in <code>@glove/react</code> deserializes these events
+        utility in <code>glove-react</code> deserializes these events
         automatically.
       </p>
 
@@ -281,7 +281,7 @@ export const POST = createChatHandler({
         code={`type RemoteStreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
-  | { type: "done"; tokens_in: number; tokens_out: number };`}
+  | { type: "done"; message: Message; tokens_in: number; tokens_out: number };`}
         language="typescript"
       />
 
@@ -300,8 +300,8 @@ export const POST = createChatHandler({
           ],
           [
             "done",
-            "tokens_in: number, tokens_out: number",
-            "The stream is complete. Contains the final token usage counts.",
+            "message: Message, tokens_in: number, tokens_out: number",
+            "The stream is complete. Contains the final Message object and token usage counts.",
           ],
         ]}
       />
@@ -317,7 +317,7 @@ data: {"type":"text_delta","text":", how"}
 
 data: {"type":"text_delta","text":" can I help?"}
 
-data: {"type":"done","tokens_in":42,"tokens_out":8}`}
+data: {"type":"done","message":{"sender":"agent","text":"Hello, how can I help?"},"tokens_in":42,"tokens_out":8}`}
         language="text"
       />
 
@@ -327,15 +327,15 @@ data: {"type":"done","tokens_in":42,"tokens_out":8}`}
       <h2 id="full-example">Full Working Example</h2>
 
       <p>
-        A complete setup with <code>@glove/next</code> on the server and{" "}
-        <code>@glove/react</code> on the client.
+        A complete setup with <code>glove-next</code> on the server and{" "}
+        <code>glove-react</code> on the client.
       </p>
 
       <h3>Server: API Route</h3>
 
       <CodeBlock
         filename="app/api/chat/route.ts"
-        code={`import { createChatHandler } from "@glove/next";
+        code={`import { createChatHandler } from "glove-next";
 
 export const POST = createChatHandler({
   provider: "openai",
@@ -348,7 +348,7 @@ export const POST = createChatHandler({
 
       <CodeBlock
         filename="lib/glove.ts"
-        code={`import { GloveClient } from "@glove/react";
+        code={`import { GloveClient } from "glove-react";
 import { z } from "zod";
 
 export const gloveClient = new GloveClient({
@@ -381,7 +381,7 @@ export const gloveClient = new GloveClient({
         filename="app/providers.tsx"
         code={`"use client";
 
-import { GloveProvider } from "@glove/react";
+import { GloveProvider } from "glove-react";
 import { gloveClient } from "@/lib/glove";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -394,7 +394,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         filename="app/chat.tsx"
         code={`"use client";
 
-import { useGlove } from "@glove/react";
+import { useGlove } from "glove-react";
 import { useRef, FormEvent } from "react";
 
 export default function Chat() {

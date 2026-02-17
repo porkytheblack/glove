@@ -1,5 +1,5 @@
-import type { Task, ContentPart, SubscriberAdapter, StoreAdapter, ModelAdapter } from "@glove/core/core";
-import type { Slot } from "@glove/core/display-manager";
+import type { Task, ContentPart, SubscriberAdapter, StoreAdapter, ModelAdapter } from "glove-core/core";
+import type { Slot } from "glove-core/display-manager";
 import type z from "zod";
 import type { ReactNode } from "react";
 

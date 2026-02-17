@@ -130,25 +130,25 @@ export default function IntroPage() {
 
       <ul>
         <li>
-          <code>@glove/react</code> &mdash; React hooks and components.{" "}
+          <code>glove-react</code> &mdash; React hooks and components.{" "}
           <strong>Start here</strong> if you&apos;re building a React/Next.js
-          app. Includes <code>@glove/core</code> as a dependency.
+          app. Includes <code>glove-core</code> as a dependency.
         </li>
         <li>
-          <code>@glove/next</code> &mdash; One-line server handler for
+          <code>glove-next</code> &mdash; One-line server handler for
           Next.js API routes. Connects to OpenAI, Anthropic, and{" "}
           <a href="/docs/next#supported-providers">other providers</a>.
         </li>
         <li>
-          <code>@glove/core</code> &mdash; The runtime engine. Agent loop,
+          <code>glove-core</code> &mdash; The runtime engine. Agent loop,
           tool execution, display manager. You rarely import this directly
-          &mdash; <code>@glove/react</code> re-exports what you need.
+          &mdash; <code>glove-react</code> re-exports what you need.
         </li>
       </ul>
 
       <p>
         <strong>Most projects need just two packages:</strong>{" "}
-        <code>@glove/react</code> and <code>@glove/next</code>.
+        <code>glove-react</code> and <code>glove-next</code>.
       </p>
 
       <h2>Ready to build?</h2>

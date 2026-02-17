@@ -23,7 +23,7 @@ const catalog: CatalogEntry[] = [
     pattern: "pushAndWait",
     description: "Present a set of options and collect the user's selection.",
     source: `import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const askPreference: ToolConfig = {
   name: "ask_preference",
@@ -112,7 +112,7 @@ export const askPreference: ToolConfig = {
     pattern: "pushAndWait",
     description: "Prompt the user for free-text input with an optional label.",
     source: `import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 import { useState } from "react";
 
 export const textInput: ToolConfig = {
@@ -216,7 +216,7 @@ export const textInput: ToolConfig = {
     description:
       "Render a dynamic form with multiple fields and collect validated input.",
     source: `import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 import { useState, useCallback } from "react";
 
 export const collectForm: ToolConfig = {
@@ -363,7 +363,7 @@ export const collectForm: ToolConfig = {
     description:
       "Present a yes/no confirmation before proceeding with an action.",
     source: `import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const confirmAction: ToolConfig = {
   name: "confirm_action",
@@ -468,7 +468,7 @@ export const confirmAction: ToolConfig = {
     description:
       "Show a multi-step plan and ask the user to approve before execution.",
     source: `import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const approvePlan: ToolConfig = {
   name: "approve_plan",
@@ -627,7 +627,7 @@ export const approvePlan: ToolConfig = {
     pattern: "pushAndForget",
     description: "Display a persistent information card with title and content.",
     source: `import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 const variantBorderColor: Record<string, string> = {
   info: "var(--accent, #9ED4B8)",
@@ -723,7 +723,7 @@ export const showInfoCard: ToolConfig = {
     pattern: "pushAndWait",
     description: "Present suggested next actions the user can pick from.",
     source: `import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const suggestOptions: ToolConfig = {
   name: "suggest_options",

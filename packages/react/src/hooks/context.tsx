@@ -9,7 +9,7 @@ const GloveClientContext = createContext<GloveClient | null>(null);
  * Provides a `GloveClient` to the component tree.
  *
  * ```tsx
- * import { GloveClient, GloveProvider } from "@glove/react";
+ * import { GloveClient, GloveProvider } from "glove-react";
  *
  * const client = new GloveClient({ endpoint: "/api/chat" });
  *

@@ -1,5 +1,5 @@
 {
-  "name": "@glove/react",
+  "name": "glove-react",
   "version": "1.0.0",
   "description": "React bindings for Glove agent framework",
   "type": "module",
@@ -9,7 +9,7 @@
     "./adapters": "./src/adapters/index.ts"
   },
   "dependencies": {
-    "@glove/core": "workspace:*",
+    "glove-core": "workspace:*",
     "zod": "^4.3.6"
   },
   "peerDependencies": {

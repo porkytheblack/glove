@@ -17,7 +17,7 @@ import {
   type Slot,
   AnthropicAdapter,
   Glove,
-} from "@glove/core";
+} from "glove-core";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // In-memory store

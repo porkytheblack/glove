@@ -84,7 +84,7 @@ function PropTable({
 export default function CorePage() {
   return (
     <div className="docs-content">
-      <h1>@glove/core</h1>
+      <h1>glove-core</h1>
 
       <p>
         Complete API reference for the core runtime package. Contains the agent
@@ -104,7 +104,7 @@ export default function CorePage() {
       </p>
 
       <CodeBlock
-        code={`import { Glove } from "@glove/core";
+        code={`import { Glove } from "glove-core";
 import { z } from "zod";
 
 const agent = new Glove({
@@ -290,7 +290,7 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
       </p>
 
       <CodeBlock
-        code={`import { DisplayManager } from "@glove/core";
+        code={`import { DisplayManager } from "glove-core";
 
 const dm = new DisplayManager();
 
@@ -492,7 +492,7 @@ dm.subscribe((stack) => {
       </p>
 
       <CodeBlock
-        code={`import { Context } from "@glove/core";
+        code={`import { Context } from "glove-core";
 
 const ctx = new Context(store);
 const messages = await ctx.getMessages();
@@ -551,7 +551,7 @@ await ctx.appendMessages([{ sender: "user", text: "Hello" }]);`}
       </p>
 
       <CodeBlock
-        code={`import { PromptMachine } from "@glove/core";
+        code={`import { PromptMachine } from "glove-core";
 
 const pm = new PromptMachine(model, ctx, "You are a helpful assistant.");
 pm.addSubscriber(subscriber);
@@ -598,7 +598,7 @@ const result = await pm.run(messages, tools);`}
       </p>
 
       <CodeBlock
-        code={`import { Executor } from "@glove/core";
+        code={`import { Executor } from "glove-core";
 
 const executor = new Executor(3, store);
 executor.registerTool(myTool);
@@ -672,7 +672,7 @@ const results = await executor.executeToolStack();`}
       </p>
 
       <CodeBlock
-        code={`import { Observer } from "@glove/core";
+        code={`import { Observer } from "glove-core";
 
 const observer = new Observer(
   store,
@@ -776,7 +776,7 @@ await observer.tryCompaction();`}
       </p>
 
       <CodeBlock
-        code={`import { Agent } from "@glove/core";
+        code={`import { Agent } from "glove-core";
 
 const agent = new Agent(store, executor, context, observer, promptMachine);
 const result = await agent.ask(userMessage);`}
@@ -817,7 +817,7 @@ const result = await agent.ask(userMessage);`}
       </p>
 
       <CodeBlock
-        code={`import { AbortError } from "@glove/core";
+        code={`import { AbortError } from "glove-core";
 
 try {
   await agent.processRequest("Hello", signal);
@@ -1213,7 +1213,7 @@ try {
       <p>
         The core tool interface used by the <code>Executor</code>. This is the
         runtime representation, distinct from <code>ToolConfig</code> in{" "}
-        <code>@glove/react</code> which adds the <code>render</code> property.
+        <code>glove-react</code> which adds the <code>render</code> property.
       </p>
 
       <PropTable
@@ -1408,7 +1408,7 @@ try {
       </p>
 
       <CodeBlock
-        code={`import { createTaskTool } from "@glove/core";
+        code={`import { createTaskTool } from "glove-core";
 
 const taskTool = createTaskTool(context);
 // taskTool.name === "glove_update_tasks"`}
@@ -1448,12 +1448,12 @@ const taskTool = createTaskTool(context);
       <h2 id="providers">Providers</h2>
 
       <p>
-        The <code>@glove/core/models/providers</code> module exports factory
+        The <code>glove-core/models/providers</code> module exports factory
         functions for creating model adapters from supported providers.
       </p>
 
       <CodeBlock
-        code={`import { createAdapter, getAvailableProviders } from "@glove/core/models/providers";
+        code={`import { createAdapter, getAvailableProviders } from "glove-core/models/providers";
 
 const model = createAdapter({
   provider: "anthropic",

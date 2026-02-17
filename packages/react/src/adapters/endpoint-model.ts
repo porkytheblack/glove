@@ -5,7 +5,7 @@ import type {
   NotifySubscribersFunction,
   Message,
   Tool,
-} from "@glove/core/core";
+} from "glove-core/core";
 import { parseSSEStream } from "../sse";
 import type { RemotePromptRequest, SerializedTool } from "./remote-model";
 import z from "zod";

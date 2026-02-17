@@ -1,5 +1,5 @@
 {
-  "name": "@glove/coding-agent-client",
+  "name": "glove-coding-agent-client",
   "private": true,
   "type": "module",
   "scripts": {

@@ -1,5 +1,5 @@
 {
-  "name": "@glove/nextjs-agent",
+  "name": "glove-nextjs-agent",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,9 +9,9 @@
     "start": "next start"
   },
   "dependencies": {
-    "@glove/core": "workspace:*",
-    "@glove/next": "workspace:*",
-    "@glove/react": "workspace:*",
+    "glove-core": "workspace:*",
+    "glove-next": "workspace:*",
+    "glove-react": "workspace:*",
     "next": "^15.3.3",
     "openai": "^6.22.0",
     "react": "^19.0.0",

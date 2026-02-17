@@ -36,7 +36,7 @@ export const preview = {
 // ─── Source (copy-pasteable ToolConfig) ───────────────────────────────────────
 
 export const source = `import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const approvePlan: ToolConfig = {
   name: "approve_plan",

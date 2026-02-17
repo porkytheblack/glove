@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { useGlove } from "@glove/react";
+import { useGlove } from "glove-react";
 
 // ─── Chat component ──────────────────────────────────────────────────────────
 

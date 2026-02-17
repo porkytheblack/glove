@@ -75,7 +75,7 @@ export default async function TravelPlannerPage() {
       <CodeBlock
         filename="terminal"
         language="bash"
-        code={`pnpm add @glove/core @glove/react @glove/next zod`}
+        code={`pnpm add glove-core glove-react glove-next zod`}
       />
 
       <p>
@@ -85,7 +85,7 @@ export default async function TravelPlannerPage() {
       <CodeBlock
         filename="app/api/chat/route.ts"
         language="typescript"
-        code={`import { createChatHandler } from "@glove/next";
+        code={`import { createChatHandler } from "glove-next";
 
 export const POST = createChatHandler({
   provider: "openai",    // or "anthropic"
@@ -112,7 +112,7 @@ export const POST = createChatHandler({
         filename="lib/tools/ask-preference.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const askPreference: ToolConfig = {
   name: "ask_preference",
@@ -202,7 +202,7 @@ export const askPreference: ToolConfig = {
         filename="lib/tools/show-info.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const showInfo: ToolConfig = {
   name: "show_info",
@@ -286,7 +286,7 @@ export const showInfo: ToolConfig = {
         filename="lib/tools/propose-itinerary.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const proposeItinerary: ToolConfig = {
   name: "propose_itinerary",
@@ -404,7 +404,7 @@ export const proposeItinerary: ToolConfig = {
         language="tsx"
         code={`import { z } from "zod";
 import { useState, useCallback } from "react";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const collectForm: ToolConfig = {
   name: "collect_form",
@@ -519,7 +519,7 @@ export const collectForm: ToolConfig = {
         filename="lib/tools/confirm-booking.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const confirmBooking: ToolConfig = {
   name: "confirm_booking",
@@ -588,7 +588,7 @@ export const confirmBooking: ToolConfig = {
       <CodeBlock
         filename="lib/glove.ts"
         language="typescript"
-        code={`import { GloveClient } from "@glove/react";
+        code={`import { GloveClient } from "glove-react";
 import { askPreference } from "./tools/ask-preference";
 import { showInfo } from "./tools/show-info";
 import { proposeItinerary } from "./tools/propose-itinerary";
@@ -644,7 +644,7 @@ an option picker, card, or plan would be clearer.\`,
         code={`"use client";
 
 import { useState } from "react";
-import { useGlove } from "@glove/react";
+import { useGlove } from "glove-react";
 
 export default function TravelPlanner() {
   const {
@@ -852,7 +852,7 @@ export default function TravelPlanner() {
         </li>
         <li>
           <a href="/docs/showcase/terminal-agent">Build a Terminal Agent</a>{" "}
-          — use <code>@glove/core</code> directly without React
+          — use <code>glove-core</code> directly without React
         </li>
         <li>
           <a href="/tools">Tool Registry</a> — browse pre-built tools you can

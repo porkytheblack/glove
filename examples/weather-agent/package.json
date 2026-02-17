@@ -1,5 +1,5 @@
 {
-  "name": "@glove/weather-agent",
+  "name": "glove-weather-agent",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
     "start": "tsx index.tsx"
   },
   "dependencies": {
-    "@glove/core": "workspace:*",
+    "glove-core": "workspace:*",
     "chalk": "^5.6.2",
     "dotenv": "^17.2.4",
     "ink": "^6.7.0",

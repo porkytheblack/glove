@@ -109,13 +109,13 @@ export default async function EcommerceStorePage() {
       <CodeBlock
         filename="terminal"
         language="bash"
-        code={`pnpm add @glove/core @glove/react @glove/next zod`}
+        code={`pnpm add glove-core glove-react glove-next zod`}
       />
 
       <CodeBlock
         filename="app/api/chat/route.ts"
         language="typescript"
-        code={`import { createChatHandler } from "@glove/next";
+        code={`import { createChatHandler } from "glove-next";
 
 export const POST = createChatHandler({
   provider: "openai",
@@ -241,7 +241,7 @@ export async function POST(req: Request) {
         filename="lib/tools/browse-products.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const browseProducts: ToolConfig = {
   name: "browse_products",
@@ -371,7 +371,7 @@ export const browseProducts: ToolConfig = {
         language="tsx"
         code={`import { z } from "zod";
 import { useState, useCallback } from "react";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const pickVariant: ToolConfig = {
   name: "pick_variant",
@@ -550,7 +550,7 @@ export const pickVariant: ToolConfig = {
         filename="lib/tools/show-cart.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const showCart: ToolConfig = {
   name: "show_cart",
@@ -672,7 +672,7 @@ export const showCart: ToolConfig = {
         language="tsx"
         code={`import { z } from "zod";
 import { useState, useCallback } from "react";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const collectShipping: ToolConfig = {
   name: "collect_shipping",
@@ -800,7 +800,7 @@ export const collectShipping: ToolConfig = {
         filename="lib/tools/confirm-order.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const confirmOrder: ToolConfig = {
   name: "confirm_order",
@@ -1020,7 +1020,7 @@ export const confirmOrder: ToolConfig = {
       <CodeBlock
         filename="lib/glove.ts"
         language="typescript"
-        code={`import { GloveClient } from "@glove/react";
+        code={`import { GloveClient } from "glove-react";
 import { browseProducts } from "./tools/browse-products";
 import { pickVariant } from "./tools/pick-variant";
 import { showCart } from "./tools/show-cart";
@@ -1071,7 +1071,7 @@ Rules:
         code={`"use client";
 
 import { useState } from "react";
-import { useGlove } from "@glove/react";
+import { useGlove } from "glove-react";
 
 export default function ShoppingAssistant() {
   const {
@@ -1314,7 +1314,7 @@ export default function ShoppingAssistant() {
         </li>
         <li>
           <a href="/docs/showcase/terminal-agent">Build a Terminal Agent</a>{" "}
-          — use <code>@glove/core</code> directly without React or Next.js
+          — use <code>glove-core</code> directly without React or Next.js
         </li>
         <li>
           <a href="/docs/display-stack">The Display Stack</a> — deep dive into{" "}

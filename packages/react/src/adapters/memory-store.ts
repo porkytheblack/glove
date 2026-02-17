@@ -3,7 +3,7 @@ import type {
   Message,
   Task,
   PermissionStatus,
-} from "@glove/core/core";
+} from "glove-core/core";
 
 /**
  * In-memory `StoreAdapter` for simple use cases where persistence isn't needed.

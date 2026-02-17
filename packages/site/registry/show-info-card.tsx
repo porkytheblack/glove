@@ -32,7 +32,7 @@ const variantBorderColor: Record<string, string> = {
 // ─── Source (copy-pasteable ToolConfig) ───────────────────────────────────────
 
 export const source = `import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 const variantBorderColor: Record<string, string> = {
   info: "var(--accent, #9ED4B8)",

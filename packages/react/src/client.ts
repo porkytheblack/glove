@@ -1,6 +1,6 @@
-import type { ModelAdapter, StoreAdapter } from "@glove/core/core";
+import type { ModelAdapter, StoreAdapter } from "glove-core/core";
 import type { ToolConfig, CompactionConfig } from "./types";
-import type { SubscriberAdapter } from "@glove/core/core";
+import type { SubscriberAdapter } from "glove-core/core";
 import { MemoryStore } from "./adapters/memory-store";
 import { createEndpointModel } from "./adapters/endpoint-model";
 

@@ -1,5 +1,5 @@
 {
-  "name": "@glove/next",
+  "name": "glove-next",
   "version": "1.0.0",
   "description": "Next.js handlers for Glove agent framework",
   "type": "module",
@@ -8,7 +8,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@glove/core": "workspace:*"
+    "glove-core": "workspace:*"
   },
   "peerDependencies": {
     "openai": ">=6.0.0",

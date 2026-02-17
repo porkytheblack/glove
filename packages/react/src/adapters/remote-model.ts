@@ -5,7 +5,7 @@ import type {
   ModelPromptResult,
   NotifySubscribersFunction,
   Tool,
-} from "@glove/core/core";
+} from "glove-core/core";
 import z from "zod";
 
 // ─── Public types ────────────────────────────────────────────────────────────

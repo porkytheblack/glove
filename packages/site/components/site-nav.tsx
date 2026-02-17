@@ -33,7 +33,7 @@ export function SiteNav() {
         <Link href="/tools">Registry</Link>
         <Link href="/docs/getting-started">Docs</Link>
         <a
-          href="https://github.com/dterminal/glove"
+          href="https://github.com/porkytheblack/glove"
           target="_blank"
           rel="noopener noreferrer"
           className="nav-cta"

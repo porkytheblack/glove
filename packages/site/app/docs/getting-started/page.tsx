@@ -87,7 +87,7 @@ export default async function GettingStartedPage() {
       <CodeBlock
         filename="terminal"
         language="bash"
-        code={`pnpm add @glove/core @glove/react @glove/next zod`}
+        code={`pnpm add glove-core glove-react glove-next zod`}
       />
 
       <p>Or with npm:</p>
@@ -95,7 +95,7 @@ export default async function GettingStartedPage() {
       <CodeBlock
         filename="terminal"
         language="bash"
-        code={`npm install @glove/core @glove/react @glove/next zod`}
+        code={`npm install glove-core glove-react glove-next zod`}
       />
 
       <p>
@@ -104,13 +104,13 @@ export default async function GettingStartedPage() {
 
       <ul>
         <li>
-          <code>@glove/react</code> — React hooks and components for your UI (<a href="/docs/react">API reference</a>)
+          <code>glove-react</code> — React hooks and components for your UI (<a href="/docs/react">API reference</a>)
         </li>
         <li>
-          <code>@glove/next</code> — server handler that connects to AI providers (<a href="/docs/next">API reference</a>)
+          <code>glove-next</code> — server handler that connects to AI providers (<a href="/docs/next">API reference</a>)
         </li>
         <li>
-          <code>@glove/core</code> — the runtime engine (included as a dependency of <code>@glove/react</code>)
+          <code>glove-core</code> — the runtime engine (included as a dependency of <code>glove-react</code>)
         </li>
         <li>
           <code>zod</code> — validates tool inputs at runtime
@@ -122,7 +122,7 @@ export default async function GettingStartedPage() {
 
       <p>
         Create an API route that handles chat requests. The{" "}
-        <code>createChatHandler</code> function from <code>@glove/next</code>{" "}
+        <code>createChatHandler</code> function from <code>glove-next</code>{" "}
         does this in one line — it connects to your AI provider and streams
         responses back:
       </p>
@@ -130,7 +130,7 @@ export default async function GettingStartedPage() {
       <CodeBlock
         filename="app/api/chat/route.ts"
         language="typescript"
-        code={`import { createChatHandler } from "@glove/next";
+        code={`import { createChatHandler } from "glove-next";
 
 // This creates a POST endpoint that streams AI responses
 export const POST = createChatHandler({
@@ -168,7 +168,7 @@ export const POST = createChatHandler({
       <CodeBlock
         filename="lib/glove.ts"
         language="typescript"
-        code={`import { GloveClient } from "@glove/react";
+        code={`import { GloveClient } from "glove-react";
 import { z } from "zod";
 
 export const gloveClient = new GloveClient({
@@ -224,7 +224,7 @@ export const gloveClient = new GloveClient({
         language="tsx"
         code={`"use client";
 
-import { GloveProvider } from "@glove/react";
+import { GloveProvider } from "glove-react";
 import { gloveClient } from "@/lib/glove";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -270,7 +270,7 @@ export default function RootLayout({
         code={`"use client";
 
 import { useState } from "react";
-import { useGlove } from "@glove/react";
+import { useGlove } from "glove-react";
 
 export default function Chat() {
   // useGlove gives you everything you need:

@@ -84,7 +84,7 @@ function PropTable({
 export default function ReactPage() {
   return (
     <div className="docs-content">
-      <h1>@glove/react</h1>
+      <h1>glove-react</h1>
 
       <p>
         Complete API reference for the React bindings package. Provides a
@@ -102,7 +102,7 @@ export default function ReactPage() {
       </p>
 
       <CodeBlock
-        code={`import { GloveClient } from "@glove/react";
+        code={`import { GloveClient } from "glove-react";
 
 const client = new GloveClient({
   endpoint: "/api/chat",
@@ -222,7 +222,7 @@ const client = new GloveClient({
       </p>
 
       <CodeBlock
-        code={`import { GloveProvider } from "@glove/react";
+        code={`import { GloveProvider } from "glove-react";
 
 function App() {
   return (
@@ -261,7 +261,7 @@ function App() {
       </p>
 
       <CodeBlock
-        code={`import { useGlove } from "@glove/react";
+        code={`import { useGlove } from "glove-react";
 
 function Chat() {
   const {
@@ -397,7 +397,7 @@ function Chat() {
           [
             "sendMessage(text, images?)",
             "void",
-            "Send a user message to the agent. Optionally include images as ContentPart[]. No-op if busy is true.",
+            "Send a user message to the agent. Optionally include images as Array<{ data: string; media_type: string }>. No-op if busy is true.",
           ],
           [
             "abort()",
@@ -432,7 +432,7 @@ function Chat() {
       </p>
 
       <CodeBlock
-        code={`import { useGloveClient } from "@glove/react";
+        code={`import { useGloveClient } from "glove-react";
 
 function DebugPanel() {
   const client = useGloveClient();
@@ -496,7 +496,7 @@ function DebugPanel() {
 
       <CodeBlock
         code={`import { z } from "zod";
-import type { ToolConfig } from "@glove/react";
+import type { ToolConfig } from "glove-react";
 
 const weatherTool: ToolConfig<{ city: string }> = {
   name: "get_weather",
@@ -593,9 +593,9 @@ const weatherTool: ToolConfig<{ city: string }> = {
 
       <CodeBlock
         code={`type TimelineEntry =
-  | { kind: "user"; text: string; images?: ContentPart[] }
+  | { kind: "user"; text: string; images?: string[] }
   | { kind: "agent_text"; text: string }
-  | { kind: "tool"; id: string; name: string; input: unknown; status: string; output?: unknown };`}
+  | { kind: "tool"; id: string; name: string; input: unknown; status: "running" | "success" | "error"; output?: string };`}
         language="typescript"
       />
 
@@ -605,7 +605,7 @@ const weatherTool: ToolConfig<{ city: string }> = {
           [
             '"user"',
             "text, images?",
-            "A user message. May include optional image content parts.",
+            "A user message. May include optional image data URLs (string[]).",
           ],
           [
             '"agent_text"',
@@ -721,7 +721,7 @@ const weatherTool: ToolConfig<{ city: string }> = {
       </p>
 
       <CodeBlock
-        code={`import { MemoryStore } from "@glove/react";
+        code={`import { MemoryStore } from "glove-react";
 
 const store = new MemoryStore("session-1");`}
         language="typescript"
@@ -753,7 +753,7 @@ const store = new MemoryStore("session-1");`}
       </p>
 
       <CodeBlock
-        code={`import { createRemoteStore } from "@glove/react";
+        code={`import { createRemoteStore } from "glove-react";
 
 const store = createRemoteStore("session-123", {
   async getMessages(sessionId) {
@@ -858,7 +858,7 @@ const store = createRemoteStore("session-123", {
       </p>
 
       <CodeBlock
-        code={`import { createRemoteModel } from "@glove/react";
+        code={`import { createRemoteModel } from "glove-react";
 
 const model = createRemoteModel("my-model", {
   async prompt(request) {
@@ -957,7 +957,7 @@ const model = createRemoteModel("my-model", {
         code={`type RemoteStreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
-  | { type: "done"; tokens_in: number; tokens_out: number };`}
+  | { type: "done"; message: Message; tokens_in: number; tokens_out: number };`}
         language="typescript"
       />
 
@@ -976,8 +976,8 @@ const model = createRemoteModel("my-model", {
           ],
           [
             '"done"',
-            "tokens_in, tokens_out",
-            "The stream is complete. Includes final token counts.",
+            "message, tokens_in, tokens_out",
+            "The stream is complete. Includes the final Message object and token counts.",
           ],
         ]}
       />
@@ -1005,11 +1005,11 @@ const model = createRemoteModel("my-model", {
         endpoint via SSE (Server-Sent Events). This is the default model
         adapter when using <code>GloveClient</code> with an{" "}
         <code>endpoint</code> URL. Compatible with endpoints created by{" "}
-        <code>@glove/next</code>&apos;s <code>createChatHandler</code>.
+        <code>glove-next</code>&apos;s <code>createChatHandler</code>.
       </p>
 
       <CodeBlock
-        code={`import { createEndpointModel } from "@glove/react";
+        code={`import { createEndpointModel } from "glove-react";
 
 const model = createEndpointModel("/api/chat");`}
         language="typescript"
@@ -1033,7 +1033,7 @@ const model = createEndpointModel("/api/chat");`}
       </p>
 
       <CodeBlock
-        code={`import { parseSSEStream } from "@glove/react";
+        code={`import { parseSSEStream } from "glove-react";
 
 const response = await fetch("/api/chat", { method: "POST", body: "..." });
 
@@ -1056,9 +1056,9 @@ for await (const event of parseSSEStream(response)) {
       <h2 id="re-exported-types">Re-exported Types</h2>
 
       <p>
-        The following types are re-exported from <code>@glove/core</code> for
+        The following types are re-exported from <code>glove-core</code> for
         convenience. See the{" "}
-        <a href="/docs/core">@glove/core reference</a> for full details.
+        <a href="/docs/core">glove-core reference</a> for full details.
       </p>
 
       <PropTable
@@ -1066,12 +1066,12 @@ for await (const event of parseSSEStream(response)) {
         rows={[
           [
             "Task",
-            "@glove/core",
+            "glove-core",
             "A tracked task with id, content, activeForm, and status.",
           ],
           [
             "ContentPart",
-            "@glove/core",
+            "glove-core",
             "A multimodal content part (text, image, video, document).",
           ],
           [
@@ -1081,17 +1081,17 @@ for await (const event of parseSSEStream(response)) {
           ],
           [
             "StoreAdapter",
-            "@glove/core",
+            "glove-core",
             "Interface for conversation persistence backends.",
           ],
           [
             "ModelAdapter",
-            "@glove/core",
+            "glove-core",
             "Interface for language model providers.",
           ],
           [
             "SubscriberAdapter",
-            "@glove/core",
+            "glove-core",
             "Interface for event observers (logging, streaming, analytics).",
           ],
         ]}

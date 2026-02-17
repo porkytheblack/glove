@@ -134,13 +134,13 @@ export default async function CodingAgentPage() {
       <CodeBlock
         filename="terminal"
         language="bash"
-        code={`pnpm add @glove/core @glove/react @glove/next zod`}
+        code={`pnpm add glove-core glove-react glove-next zod`}
       />
 
       <CodeBlock
         filename="app/api/chat/route.ts"
         language="typescript"
-        code={`import { createChatHandler } from "@glove/next";
+        code={`import { createChatHandler } from "glove-next";
 
 // This is the LLM proxy — it does NOT execute tools.
 // It sends tool schemas to the AI and streams back responses.
@@ -306,7 +306,7 @@ export async function POST(req: Request) {
         filename="lib/tools/read-file.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig } from "@glove/react";
+import type { ToolConfig } from "glove-react";
 
 export const readFileTool: ToolConfig = {
   name: "read_file",
@@ -341,7 +341,7 @@ export const readFileTool: ToolConfig = {
         filename="lib/tools/search-code.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const searchCode: ToolConfig = {
   name: "search_code",
@@ -438,7 +438,7 @@ export const searchCode: ToolConfig = {
         filename="lib/tools/propose-plan.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const proposePlan: ToolConfig = {
   name: "propose_plan",
@@ -555,7 +555,7 @@ export const proposePlan: ToolConfig = {
         filename="lib/tools/edit-file.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const editFile: ToolConfig = {
   name: "edit_file",
@@ -721,7 +721,7 @@ export const editFile: ToolConfig = {
         filename="lib/tools/run-command.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const runCommand: ToolConfig = {
   name: "run_command",
@@ -873,7 +873,7 @@ export const runCommand: ToolConfig = {
       <CodeBlock
         filename="lib/glove.ts"
         language="typescript"
-        code={`import { GloveClient } from "@glove/react";
+        code={`import { GloveClient } from "glove-react";
 import { readFileTool } from "./tools/read-file";
 import { searchCode } from "./tools/search-code";
 import { proposePlan } from "./tools/propose-plan";
@@ -923,7 +923,7 @@ Rules:
         code={`"use client";
 
 import { useState } from "react";
-import { useGlove } from "@glove/react";
+import { useGlove } from "glove-react";
 
 export default function CodingAgent() {
   const {

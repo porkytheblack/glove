@@ -1,4 +1,4 @@
-import type { Message } from "@glove/core/core";
+import type { Message } from "glove-core/core";
 
 /** Serialized tool definition from the client (JSON Schema, no Zod/run fns) */
 export interface SerializedTool {

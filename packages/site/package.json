@@ -1,5 +1,5 @@
 {
-  "name": "@glove/site",
+  "name": "glove-site",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "start": "next start"
   },
   "dependencies": {
-    "@glove/react": "workspace:*",
+    "glove-react": "workspace:*",
     "next": "^15.3.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

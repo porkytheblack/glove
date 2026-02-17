@@ -17,9 +17,6 @@ importers:
 
   examples/coding-agent:
     dependencies:
-      '@glove/core':
-        specifier: workspace:*
-        version: link:../../packages/glove
       '@types/node':
         specifier: ^25.2.3
         version: 25.2.3
@@ -29,6 +26,9 @@ importers:
       dotenv:
         specifier: ^17.2.4
         version: 17.3.1
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
       ink:
         specifier: ^6.7.0
         version: 6.7.0(@types/react@19.2.14)(react@19.2.4)
@@ -100,13 +100,13 @@ importers:
 
   examples/nextjs-agent:
     dependencies:
-      '@glove/core':
+      glove-core:
         specifier: workspace:*
         version: link:../../packages/glove
-      '@glove/next':
+      glove-next:
         specifier: workspace:*
         version: link:../../packages/next
-      '@glove/react':
+      glove-react:
         specifier: workspace:*
         version: link:../../packages/react
       next:
@@ -137,15 +137,15 @@ importers:
 
   examples/weather-agent:
     dependencies:
-      '@glove/core':
-        specifier: workspace:*
-        version: link:../../packages/glove
       chalk:
         specifier: ^5.6.2
         version: 5.6.2
       dotenv:
         specifier: ^17.2.4
         version: 17.3.1
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
       ink:
         specifier: ^6.7.0
         version: 6.7.0(@types/react@19.2.14)(react@19.2.4)
@@ -214,7 +214,7 @@ importers:
 
   packages/next:
     dependencies:
-      '@glove/core':
+      glove-core:
         specifier: workspace:*
         version: link:../glove
     devDependencies:
@@ -233,7 +233,7 @@ importers:
 
   packages/react:
     dependencies:
-      '@glove/core':
+      glove-core:
         specifier: workspace:*
         version: link:../glove
       react:
@@ -252,7 +252,7 @@ importers:
 
   packages/site:
     dependencies:
-      '@glove/react':
+      glove-react:
         specifier: workspace:*
         version: link:../react
       next:

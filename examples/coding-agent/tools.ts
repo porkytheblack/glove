@@ -2,7 +2,7 @@ import z from "zod";
 import { readFile, writeFile, readdir, mkdir, lstat } from "fs/promises";
 import { exec } from "child_process";
 import { join, resolve, relative } from "path";
-import type { Tool } from "@glove/core";
+import type { Tool } from "glove-core";
 
 function execAsync(
   cmd: string,

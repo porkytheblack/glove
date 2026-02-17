@@ -6,16 +6,16 @@ import type {
   ModelAdapter,
   SubscriberAdapter,
   ContentPart,
-} from "@glove/core/core";
-import { Glove } from "@glove/core/glove";
-import { Displaymanager } from "@glove/core/display-manager";
+} from "glove-core/core";
+import { Glove } from "glove-core/glove";
+import { Displaymanager } from "glove-core/display-manager";
 import type {
   GloveState,
   ToolConfig,
   CompactionConfig,
   SlotRenderProps,
 } from "../types";
-import type { Slot } from "@glove/core/display-manager";
+import type { Slot } from "glove-core/display-manager";
 import { MemoryStore } from "../adapters/memory-store";
 import { createEndpointModel } from "../adapters/endpoint-model";
 import { useGloveClient } from "./context";

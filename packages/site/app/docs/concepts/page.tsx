@@ -141,7 +141,7 @@ export default function ConceptsPage() {
       <h2 id="colocated-renderers">Colocated Renderers</h2>
 
       <p>
-        When you define a tool in <code>@glove/react</code>, you can include a{" "}
+        When you define a tool in <code>glove-react</code>, you can include a{" "}
         <code>render</code> function alongside the <code>do</code> function.
         This means the tool&apos;s logic and its UI live together in the same
         object — no separate component files, no string-based lookups.

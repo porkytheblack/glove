@@ -623,7 +623,7 @@ export default function LandingPage() {
         <p>Glove is open source and ready to build on.</p>
         <div className="cta-actions">
           <a
-            href="https://github.com/dterminal/glove"
+            href="https://github.com/porkytheblack/glove"
             target="_blank"
             rel="noopener noreferrer"
             className="btn-primary"

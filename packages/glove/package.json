@@ -1,5 +1,5 @@
 {
-  "name": "@glove/core",
+  "name": "glove-core",
   "version": "1.0.0",
   "description": "Core agent framework",
   "type": "module",

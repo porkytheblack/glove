@@ -1,6 +1,6 @@
-import { GloveClient } from "@glove/react";
-import type { SlotRenderProps, ToolConfig } from "@glove/react";
-import type { DisplayManagerAdapter } from "@glove/core/display-manager";
+import { GloveClient } from "glove-react";
+import type { SlotRenderProps, ToolConfig } from "glove-react";
+import type { DisplayManagerAdapter } from "glove-core/display-manager";
 import { z } from "zod";
 
 // ─── Tools ───────────────────────────────────────────────────────────────────

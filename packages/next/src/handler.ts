@@ -1,6 +1,6 @@
-import { providers, type ProviderDef } from "@glove/core/models/providers";
-import { formatMessages } from "@glove/core/models/openai-compat";
-import type { Message } from "@glove/core/core";
+import { providers, type ProviderDef } from "glove-core/models/providers";
+import { formatMessages } from "glove-core/models/openai-compat";
+import type { Message } from "glove-core/core";
 import type { ChatHandlerConfig, RemotePromptRequest, SerializedTool } from "./types";
 import { createSSEStream, SSE_HEADERS } from "./sse";
 
@@ -34,7 +34,7 @@ function toAnthropicTools(tools?: SerializedTool[]) {
  *
  * ```ts
  * // app/api/chat/route.ts
- * import { createChatHandler } from "@glove/next";
+ * import { createChatHandler } from "glove-next";
  *
  * export const POST = createChatHandler({
  *   provider: "openai",
@@ -42,11 +42,11 @@ function toAnthropicTools(tools?: SerializedTool[]) {
  * });
  * ```
  *
- * Supports all providers from `@glove/core/models/providers`:
+ * Supports all providers from `glove-core/models/providers`:
  * openai, anthropic, openrouter, gemini, minimax, kimi, glm.
  *
  * The handler receives `RemotePromptRequest` and streams `RemoteStreamEvent`s
- * compatible with `@glove/react`'s `useGlove({ endpoint })` mode.
+ * compatible with `glove-react`'s `useGlove({ endpoint })` mode.
  */
 export function createChatHandler(
   config: ChatHandlerConfig,
@@ -214,7 +214,7 @@ function createAnthropicHandler(
 
     // Dynamically import the Anthropic message formatter
     const { formatAnthropicMessages } = await import(
-      "@glove/core/models/anthropic"
+      "glove-core/models/anthropic"
     );
     const messages = formatAnthropicMessages(body.messages as Message[]);
     const tools = toAnthropicTools(body.tools);

@@ -20,7 +20,7 @@ import {
   SqliteStore,
   createAdapter,
   getAvailableProviders,
-} from "@glove/core";
+} from "glove-core";
 import { baseTools, planTool, askQuestionTool } from "./tools";
 import type { ServerEvent, ClientCommand, HistoryTimelineEntry } from "./protocol";
 

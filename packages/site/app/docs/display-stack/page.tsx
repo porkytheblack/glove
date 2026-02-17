@@ -52,7 +52,7 @@ export default async function DisplayStackPage() {
       <h2>Adding a renderer to a tool</h2>
 
       <p>
-        In <code>@glove/react</code>, tools can define their UI inline with a{" "}
+        In <code>glove-react</code>, tools can define their UI inline with a{" "}
         <code>render</code> function. The tool definition and its component live
         together — no separate files, no string-based lookups.
       </p>
@@ -66,7 +66,7 @@ export default async function DisplayStackPage() {
         filename="lib/tools/weather.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig } from "@glove/react";
+import type { ToolConfig } from "glove-react";
 
 export const weatherTool: ToolConfig = {
   name: "get_weather",
@@ -124,7 +124,7 @@ export const weatherTool: ToolConfig = {
         code={`"use client";
 
 import { useState } from "react";
-import { useGlove } from "@glove/react";
+import { useGlove } from "glove-react";
 
 export default function Chat() {
   const {
@@ -204,7 +204,7 @@ export default function Chat() {
         filename="lib/tools/confirm.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const confirmAction: ToolConfig = {
   name: "confirm_action",
@@ -281,7 +281,7 @@ export const confirmAction: ToolConfig = {
         filename="lib/tools/show-results.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 
 export const searchProducts: ToolConfig = {
   name: "search_products",
@@ -361,7 +361,7 @@ export const searchProducts: ToolConfig = {
       <CodeBlock
         filename="lib/glove.ts"
         language="typescript"
-        code={`import { GloveClient } from "@glove/react";
+        code={`import { GloveClient } from "glove-react";
 import { weatherTool } from "./tools/weather";
 import { confirmAction } from "./tools/confirm";
 import { searchProducts } from "./tools/show-results";
@@ -491,7 +491,7 @@ export const gloveClient = new GloveClient({
         </li>
         <li>
           <a href="/docs/showcase/terminal-agent">Build a Terminal Agent</a>{" "}
-          — use <code>@glove/core</code> directly for a REPL-based coding agent
+          — use <code>glove-core</code> directly for a REPL-based coding agent
         </li>
         <li>
           <a href="/docs/react#tool-display">ToolDisplay API reference</a>{" "}

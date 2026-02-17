@@ -28,7 +28,7 @@ export const preview = {
 // ─── Source (copy-pasteable ToolConfig) ───────────────────────────────────────
 
 export const source = `import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "@glove/react";
+import type { ToolConfig, SlotRenderProps } from "glove-react";
 import { useState, useCallback } from "react";
 
 export const collectForm: ToolConfig = {

@@ -26,7 +26,7 @@ import {
   type Slot,
   Glove,
   OpenRouterAdapter,
-} from "@glove/core";
+} from "glove-core";
 import { codingTools } from "./tools";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

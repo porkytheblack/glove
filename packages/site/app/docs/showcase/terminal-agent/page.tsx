@@ -8,13 +8,13 @@ export default async function TerminalAgentPage() {
       <p>
         In this tutorial you will build an AI coding assistant that runs
         entirely in your terminal — no React, no Next.js. Just{" "}
-        <code>@glove/core</code> and Node.js. The agent reads files, edits
+        <code>glove-core</code> and Node.js. The agent reads files, edits
         code, runs shell commands, and proposes plans — all through a REPL
         with streaming output and interactive prompts.
       </p>
 
       <p>
-        The other showcase tutorials use <code>@glove/react</code> to render
+        The other showcase tutorials use <code>glove-react</code> to render
         tools as React components. This tutorial shows that the same core
         engine powers terminal UIs too. The display stack still works — instead
         of rendering React components, you render terminal prompts. The{" "}
@@ -73,8 +73,8 @@ export default async function TerminalAgentPage() {
         <thead>
           <tr>
             <th>Concern</th>
-            <th>React (<code>@glove/react</code>)</th>
-            <th>Terminal (<code>@glove/core</code>)</th>
+            <th>React (<code>glove-react</code>)</th>
+            <th>Terminal (<code>glove-core</code>)</th>
           </tr>
         </thead>
         <tbody>
@@ -120,12 +120,12 @@ export default async function TerminalAgentPage() {
         language="bash"
         code={`mkdir my-terminal-agent && cd my-terminal-agent
 pnpm init
-pnpm add @glove/core zod
+pnpm add glove-core zod
 pnpm add -D tsx`}
       />
 
       <p>
-        <code>@glove/core</code> includes the Anthropic SDK, OpenAI SDK, and
+        <code>glove-core</code> includes the Anthropic SDK, OpenAI SDK, and
         SQLite driver as dependencies. <code>tsx</code> lets you run TypeScript
         directly without a build step.
       </p>
@@ -167,7 +167,7 @@ pnpm add -D tsx`}
         code={`import z from "zod";
 import { readFile, writeFile } from "fs/promises";
 import { exec } from "child_process";
-import type { DisplayManagerAdapter } from "@glove/core";
+import type { DisplayManagerAdapter } from "glove-core";
 
 // ─── read_file ───────────────────────────────────────────────────────────────
 
@@ -311,7 +311,7 @@ export const planDef = {
       <CodeBlock
         filename="subscriber.ts"
         language="typescript"
-        code={`import type { SubscriberAdapter } from "@glove/core";
+        code={`import type { SubscriberAdapter } from "glove-core";
 
 export class TerminalSubscriber implements SubscriberAdapter {
   async record(event_type: string, data: any) {
@@ -363,7 +363,7 @@ export class TerminalSubscriber implements SubscriberAdapter {
         filename="prompt-handler.ts"
         language="typescript"
         code={`import * as readline from "node:readline/promises";
-import type { DisplayManagerAdapter, Slot } from "@glove/core";
+import type { DisplayManagerAdapter, Slot } from "glove-core";
 
 export function setupPromptHandler(
   dm: DisplayManagerAdapter,
@@ -462,7 +462,7 @@ async function handleSlot(
         filename="agent.ts"
         language="typescript"
         code={`import * as readline from "node:readline/promises";
-import { Glove, SqliteStore, Displaymanager, AnthropicAdapter } from "@glove/core";
+import { Glove, SqliteStore, Displaymanager, AnthropicAdapter } from "glove-core";
 import { readFileDef, editFileDef, bashDef, planDef } from "./tools";
 import { TerminalSubscriber } from "./subscriber";
 import { setupPromptHandler } from "./prompt-handler";
@@ -726,7 +726,7 @@ repl().catch(console.error);`}
       <CodeBlock
         filename="agent.ts (alternative model)"
         language="typescript"
-        code={`import { OpenAICompatAdapter } from "@glove/core";
+        code={`import { OpenAICompatAdapter } from "glove-core";
 
 const model = new OpenAICompatAdapter({
   model: "gpt-4o-mini",

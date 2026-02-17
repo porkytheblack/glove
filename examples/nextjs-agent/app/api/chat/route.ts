@@ -1,4 +1,4 @@
-import { createChatHandler } from "@glove/next";
+import { createChatHandler } from "glove-next";
 
 export const POST = createChatHandler({
   provider: "openrouter",

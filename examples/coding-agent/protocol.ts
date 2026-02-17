@@ -1,4 +1,4 @@
-import type { Task, ToolResult, ContentPart } from "@glove/core";
+import type { Task, ToolResult, ContentPart } from "glove-core";
 
 // ─── Server → Client events ─────────────────────────────────────────────────
 
