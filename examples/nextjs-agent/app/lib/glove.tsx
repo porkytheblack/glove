@@ -236,5 +236,5 @@ Guidelines:
 export const gloveClient = new GloveClient({
   endpoint: "/api/chat",
   systemPrompt,
-  tools,
+  tools
 });

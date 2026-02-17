@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Glove — Agentic Runtime for Applications</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0A0F0D;
+      --bg-elevated: #111916;
+      --bg-surface: #17201C;
+      --border: #243029;
+      --border-subtle: #1A2320;
+      --text-primary: #E4EBE7;
+      --text-secondary: #8A9C92;
+      --text-tertiary: #576B61;
+      --accent: #9ED4B8;
+      --accent-soft: #7BBFA0;
+      --accent-dim: rgba(158, 212, 184, 0.08);
+      --accent-glow: rgba(158, 212, 184, 0.04);
+      --success: #8CC494;
+      --mono: 'JetBrains Mono', monospace;
+      --sans: 'DM Sans', -apple-system, sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; font-size: 16px; }
+    body { font-family: var(--sans); background: var(--bg); color: var(--text-primary); line-height: 1.6; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+    ::selection { background: rgba(158, 212, 184, 0.2); color: var(--text-primary); }
+
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; padding: 1.25rem 2rem; display: flex; align-items: center; justify-content: space-between; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); background: rgba(10, 15, 13, 0.85); border-bottom: 1px solid var(--border-subtle); }
+    .nav-brand { display: flex; align-items: center; gap: 0.65rem; text-decoration: none; color: var(--text-primary); }
+    .nav-logo { width: 22px; height: 22px; }
+    .nav-wordmark { font-size: 1.05rem; font-weight: 500; letter-spacing: -0.01em; }
+    .nav-links { display: flex; align-items: center; gap: 2rem; }
+    .nav-links a { color: var(--text-secondary); text-decoration: none; font-size: 0.875rem; font-weight: 400; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--text-primary); }
+    .nav-cta { padding: 0.5rem 1.25rem; background: var(--accent) !important; color: var(--bg) !important; border-radius: 6px; font-weight: 500 !important; font-size: 0.825rem !important; transition: opacity 0.2s; }
+    .nav-cta:hover { opacity: 0.88; }
+
+    .hero { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 8rem 2rem 6rem; position: relative; }
+    .hero::before { content: ''; position: absolute; top: -100px; left: 50%; transform: translateX(-50%); width: 700px; height: 700px; background: radial-gradient(ellipse, rgba(158, 212, 184, 0.035) 0%, transparent 65%); pointer-events: none; }
+    .hero-icon { width: 64px; height: 64px; margin-bottom: 2.5rem; opacity: 0.85; animation: fadeUp 0.8s ease both; }
+    .hero h1 { font-size: clamp(2.5rem, 6vw, 4.25rem); font-weight: 300; letter-spacing: -0.035em; line-height: 1.15; max-width: 720px; margin-bottom: 1.5rem; animation: fadeUp 0.8s ease 0.1s both; }
+    .hero h1 strong { font-weight: 500; color: var(--accent); }
+    .hero-sub { font-size: 1.1rem; color: var(--text-secondary); max-width: 500px; line-height: 1.7; font-weight: 300; margin-bottom: 3rem; animation: fadeUp 0.8s ease 0.2s both; }
+    .hero-actions { display: flex; gap: 1rem; animation: fadeUp 0.8s ease 0.3s both; }
+    .btn-primary { padding: 0.75rem 2rem; background: var(--accent); color: var(--bg); border: none; border-radius: 8px; font-family: var(--sans); font-size: 0.9rem; font-weight: 500; cursor: pointer; text-decoration: none; transition: opacity 0.2s; }
+    .btn-primary:hover { opacity: 0.88; }
+    .btn-secondary { padding: 0.75rem 2rem; background: transparent; color: var(--text-secondary); border: 1px solid var(--border); border-radius: 8px; font-family: var(--sans); font-size: 0.9rem; font-weight: 400; cursor: pointer; text-decoration: none; transition: all 0.2s; }
+    .btn-secondary:hover { border-color: var(--text-tertiary); color: var(--text-primary); }
+
+    section { padding: 6rem 2rem; max-width: 1080px; margin: 0 auto; }
+    .section-label { font-family: var(--mono); font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1.25rem; }
+    .section-title { font-size: clamp(1.75rem, 3.5vw, 2.25rem); font-weight: 400; letter-spacing: -0.025em; line-height: 1.3; max-width: 640px; margin-bottom: 1rem; }
+    .section-desc { font-size: 1.05rem; color: var(--text-secondary); max-width: 560px; line-height: 1.7; font-weight: 300; }
+
+    #idea { border-top: 1px solid var(--border-subtle); }
+    .idea-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; margin-top: 4rem; }
+    .idea-block { padding: 2rem; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--bg-elevated); transition: border-color 0.3s; }
+    .idea-block:hover { border-color: var(--border); }
+    .idea-block h3 { font-size: 1rem; font-weight: 500; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
+    .idea-block h3 .num { font-family: var(--mono); font-size: 0.7rem; color: var(--accent-soft); width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 6px; }
+    .idea-block p { font-size: 0.925rem; color: var(--text-secondary); line-height: 1.7; font-weight: 300; }
+
+    #architecture { border-top: 1px solid var(--border-subtle); }
+    .arch-stack { margin-top: 4rem; display: flex; flex-direction: column; gap: 1px; background: var(--border-subtle); border-radius: 12px; overflow: hidden; }
+    .arch-layer { display: grid; grid-template-columns: 200px 1fr; background: var(--bg-elevated); padding: 2rem; gap: 2rem; align-items: start; transition: background 0.3s; }
+    .arch-layer:hover { background: var(--bg-surface); }
+    .arch-layer-name { font-family: var(--mono); font-size: 0.8rem; font-weight: 500; color: var(--accent); padding-top: 0.15rem; }
+    .arch-layer-desc { font-size: 0.925rem; color: var(--text-secondary); line-height: 1.7; font-weight: 300; }
+    .arch-layer-desc strong { color: var(--text-primary); font-weight: 500; }
+
+    #display-stack { border-top: 1px solid var(--border-subtle); }
+    .stack-flow { margin-top: 4rem; display: flex; flex-direction: column; }
+    .stack-step { display: grid; grid-template-columns: 56px 1fr 280px; gap: 2rem; padding: 2rem 0; border-bottom: 1px solid var(--border-subtle); align-items: start; }
+    .stack-step:last-child { border-bottom: none; }
+    .step-num { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 0.7rem; color: var(--text-tertiary); flex-shrink: 0; }
+    .step-num.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+    .step-content h4 { font-size: 0.95rem; font-weight: 500; margin-bottom: 0.35rem; }
+    .step-content p { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.6; font-weight: 300; }
+    .step-code { font-family: var(--mono); font-size: 0.75rem; color: var(--accent); background: var(--accent-dim); border: 1px solid rgba(158,212,184,0.12); border-radius: 6px; padding: 0.4rem 0.75rem; margin-top: 0.75rem; display: inline-block; }
+    .step-stack { background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+    .step-stack-header { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border-subtle); font-family: var(--mono); font-size: 0.65rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; }
+    .step-stack-body { padding: 0.75rem; min-height: 60px; display: flex; flex-direction: column; gap: 0.4rem; }
+    .step-stack-empty { font-size: 0.75rem; color: var(--text-tertiary); font-style: italic; padding: 0.5rem 0; }
+    .step-slot { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.65rem; border-radius: 5px; font-size: 0.75rem; font-family: var(--mono); }
+    .step-slot.forget { background: var(--accent-dim); border: 1px solid rgba(158,212,184,0.1); color: var(--text-secondary); }
+    .step-slot.waiting { background: rgba(158,212,184,0.12); border: 1px solid rgba(158,212,184,0.22); color: var(--accent); animation: pulse 2s ease-in-out infinite; }
+    .step-slot.resolved { background: rgba(140,196,148,0.08); border: 1px solid rgba(140,196,148,0.15); color: var(--success); }
+    .slot-status { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; }
+    @keyframes pulse { 0%,100% { border-color: rgba(158,212,184,0.22); } 50% { border-color: rgba(158,212,184,0.4); } }
+
+    #code { border-top: 1px solid var(--border-subtle); }
+    .code-block { margin-top: 3rem; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 12px; overflow: hidden; }
+    .code-block-header { padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border-subtle); font-family: var(--mono); font-size: 0.7rem; color: var(--text-tertiary); display: flex; align-items: center; justify-content: space-between; }
+    .code-block pre { padding: 1.5rem; overflow-x: auto; font-family: var(--mono); font-size: 0.8rem; line-height: 1.8; color: var(--text-secondary); }
+    .code-block .kw { color: var(--accent); }
+    .code-block .str { color: #A8C89A; }
+    .code-block .fn { color: var(--text-primary); }
+    .code-block .cm { color: var(--text-tertiary); }
+    .code-block .op { color: var(--text-tertiary); }
+
+    #adapters { border-top: 1px solid var(--border-subtle); }
+    .adapter-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--border-subtle); border-radius: 12px; overflow: hidden; margin-top: 4rem; }
+    .adapter-card { background: var(--bg-elevated); padding: 2rem; transition: background 0.3s; }
+    .adapter-card:hover { background: var(--bg-surface); }
+    .adapter-card h3 { font-family: var(--mono); font-size: 0.8rem; font-weight: 500; color: var(--accent); margin-bottom: 0.75rem; }
+    .adapter-card p { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.7; font-weight: 300; }
+
+    #tradeoffs { border-top: 1px solid var(--border-subtle); }
+    .tradeoff-list { margin-top: 3rem; display: flex; flex-direction: column; gap: 2rem; }
+    .tradeoff { display: grid; grid-template-columns: 140px 1fr; gap: 2rem; }
+    .tradeoff-label { font-family: var(--mono); font-size: 0.8rem; color: var(--text-tertiary); padding-top: 0.15rem; }
+    .tradeoff-text { font-size: 0.925rem; color: var(--text-secondary); line-height: 1.7; font-weight: 300; }
+
+    .cta-section { text-align: center; padding: 8rem 2rem; border-top: 1px solid var(--border-subtle); max-width: 1080px; margin: 0 auto; }
+    .cta-section h2 { font-size: clamp(1.75rem, 3vw, 2.25rem); font-weight: 300; letter-spacing: -0.02em; margin-bottom: 1rem; }
+    .cta-section p { color: var(--text-secondary); font-size: 1rem; font-weight: 300; margin-bottom: 2.5rem; }
+    .cta-actions { display: flex; justify-content: center; gap: 1rem; }
+
+    footer { padding: 3rem 2rem; border-top: 1px solid var(--border-subtle); max-width: 1080px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+    .footer-brand { display: flex; flex-direction: column; gap: 0.5rem; }
+    .footer-brand-name { font-size: 0.9rem; font-weight: 500; }
+    .footer-tagline { font-size: 0.8rem; color: var(--text-tertiary); font-weight: 300; }
+    .footer-right { display: flex; align-items: center; gap: 1.5rem; font-size: 0.8rem; color: var(--text-tertiary); }
+    .footer-right a { color: var(--text-secondary); text-decoration: none; transition: color 0.2s; }
+    .footer-right a:hover { color: var(--text-primary); }
+
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+    .reveal { opacity: 0; transform: translateY(20px); transition: opacity 0.6s ease, transform 0.6s ease; }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+
+    @media (max-width: 768px) {
+      nav { padding: 1rem 1.25rem; }
+      .nav-links a:not(.nav-cta) { display: none; }
+      .hero { padding: 7rem 1.5rem 4rem; }
+      .hero-actions { flex-direction: column; width: 100%; max-width: 320px; }
+      .hero-actions a { text-align: center; }
+      section { padding: 4rem 1.5rem; }
+      .idea-grid { grid-template-columns: 1fr; gap: 1rem; }
+      .arch-layer { grid-template-columns: 1fr; gap: 0.75rem; }
+      .stack-step { grid-template-columns: 1fr; gap: 1rem; }
+      .step-num { display: none; }
+      .step-stack { max-width: 100%; }
+      .adapter-grid { grid-template-columns: 1fr; }
+      .tradeoff { grid-template-columns: 1fr; gap: 0.5rem; }
+      footer { flex-direction: column; gap: 1.5rem; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <a href="/" class="nav-brand">
+      <svg class="nav-logo" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M410.08 393.32C410.08 393.447 410.105 393.573 410.153 393.69C410.202 393.807 410.273 393.913 410.362 394.002C410.451 394.092 410.557 394.162 410.673 394.21C410.79 394.257 410.914 394.281 411.04 394.28L422.48 394.22C422.626 394.22 422.766 394.162 422.869 394.059C422.972 393.956 423.03 393.816 423.03 393.67L422.1 203.44C422.099 203.381 422.109 203.323 422.131 203.269C422.153 203.214 422.186 203.164 422.228 203.122C422.27 203.081 422.32 203.047 422.375 203.024C422.431 203.002 422.49 202.99 422.55 202.99L479.35 202.88C479.631 202.88 479.901 202.992 480.1 203.19C480.298 203.389 480.41 203.659 480.41 203.94L480.76 393.79C480.76 393.904 480.805 394.013 480.886 394.094C480.967 394.175 481.076 394.22 481.19 394.22L493.3 394.16C493.449 394.157 493.592 394.096 493.697 393.99C493.801 393.883 493.86 393.739 493.86 393.59L493.45 172.81C493.45 172.593 493.536 172.384 493.69 172.23C493.844 172.076 494.053 171.99 494.27 171.99L546.6 171.73C546.674 171.73 546.745 171.759 546.798 171.812C546.85 171.865 546.88 171.936 546.88 172.01L547.29 394C547.29 394.217 547.376 394.426 547.53 394.58C547.684 394.734 547.893 394.82 548.11 394.82L559.31 394.8C559.543 394.8 559.767 394.706 559.932 394.539C560.097 394.372 560.19 394.146 560.19 393.91L559.84 203.7C559.84 203.498 559.921 203.305 560.066 203.163C560.21 203.02 560.406 202.94 560.61 202.94L617.16 202.83C617.36 202.83 617.552 202.91 617.694 203.052C617.836 203.194 617.917 203.388 617.92 203.59L618.46 497.93C618.459 498.009 618.48 498.087 618.523 498.153C618.565 498.22 618.627 498.273 618.699 498.305C618.772 498.338 618.854 498.349 618.934 498.338C619.013 498.326 619.089 498.292 619.15 498.24L710.7 416.63C710.966 416.396 711.296 416.256 711.64 416.23C712.093 416.197 713.19 416.98 714.93 418.58C726.357 429.047 738.423 439.817 751.13 450.89C752.057 451.697 752.843 452.367 753.49 452.9C753.881 453.221 754.13 453.685 754.183 454.19C754.235 454.695 754.087 455.201 753.77 455.6C748.957 461.66 744.16 467.85 739.38 474.17C730.767 485.563 722.277 496.827 713.91 507.96C704.103 521.013 694.037 534.443 683.71 548.25C682.31 550.123 681.463 551.257 681.17 551.65C651.197 591.923 635.867 612.51 635.18 613.41C633.727 615.303 626.6 624.933 613.8 642.3C612.853 643.587 611.92 644.223 611 644.21C593.94 643.94 576.01 644.48 560.67 644.48C557.17 644.48 507.53 644.427 411.75 644.32C410.983 644.32 410.13 644.353 409.19 644.42C408.676 644.453 408.163 644.342 407.709 644.1C407.255 643.858 406.878 643.494 406.62 643.05C403.013 636.843 400.117 631.393 397.93 626.7C394.94 620.29 392.01 614.85 389 608.75C382.72 595.99 376.747 583.813 371.08 572.22C368.85 567.67 364.77 560.45 362.06 554.23C362.014 554.138 361.99 554.035 361.99 553.93L362 269.83C362 269.637 362.039 269.445 362.115 269.267C362.192 269.09 362.303 268.929 362.444 268.797C362.584 268.664 362.75 268.561 362.932 268.494C363.114 268.428 363.307 268.399 363.5 268.41C378.36 269.18 393.79 268.85 408.23 268.58C408.441 268.575 408.651 268.612 408.847 268.689C409.043 268.766 409.222 268.881 409.373 269.028C409.524 269.176 409.644 269.352 409.726 269.546C409.808 269.74 409.85 269.949 409.85 270.16L410.08 393.32Z" fill="currentColor"/>
+        <path d="M406.91 658.31C406.91 658.22 406.946 658.133 407.01 658.07C407.073 658.006 407.16 657.97 407.25 657.97C462.983 657.857 503.02 657.817 527.36 657.85C559.72 657.9 574.5 657.57 611.92 657.12C612.178 657.117 612.435 657.166 612.674 657.263C612.913 657.36 613.131 657.504 613.315 657.686C613.499 657.869 613.646 658.085 613.746 658.325C613.846 658.564 613.899 658.82 613.9 659.08L614.06 747.46C614.06 747.776 613.946 748.08 613.738 748.318C613.53 748.555 613.243 748.709 612.93 748.75C612.257 748.837 610.613 748.88 608 748.88C574.107 748.9 508.023 748.873 409.75 748.8C407.817 748.8 406.85 747.943 406.85 746.23C406.903 718.95 406.923 689.643 406.91 658.31Z" fill="currentColor"/>
+      </svg>
+      <span class="nav-wordmark">Glove</span>
+    </a>
+    <div class="nav-links">
+      <a href="#idea">Idea</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#code">Code</a>
+      <a href="#" class="nav-cta">GitHub</a>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <svg class="hero-icon" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M410.08 393.32C410.08 393.447 410.105 393.573 410.153 393.69C410.202 393.807 410.273 393.913 410.362 394.002C410.451 394.092 410.557 394.162 410.673 394.21C410.79 394.257 410.914 394.281 411.04 394.28L422.48 394.22C422.626 394.22 422.766 394.162 422.869 394.059C422.972 393.956 423.03 393.816 423.03 393.67L422.1 203.44C422.099 203.381 422.109 203.323 422.131 203.269C422.153 203.214 422.186 203.164 422.228 203.122C422.27 203.081 422.32 203.047 422.375 203.024C422.431 203.002 422.49 202.99 422.55 202.99L479.35 202.88C479.631 202.88 479.901 202.992 480.1 203.19C480.298 203.389 480.41 203.659 480.41 203.94L480.76 393.79C480.76 393.904 480.805 394.013 480.886 394.094C480.967 394.175 481.076 394.22 481.19 394.22L493.3 394.16C493.449 394.157 493.592 394.096 493.697 393.99C493.801 393.883 493.86 393.739 493.86 393.59L493.45 172.81C493.45 172.593 493.536 172.384 493.69 172.23C493.844 172.076 494.053 171.99 494.27 171.99L546.6 171.73C546.674 171.73 546.745 171.759 546.798 171.812C546.85 171.865 546.88 171.936 546.88 172.01L547.29 394C547.29 394.217 547.376 394.426 547.53 394.58C547.684 394.734 547.893 394.82 548.11 394.82L559.31 394.8C559.543 394.8 559.767 394.706 559.932 394.539C560.097 394.372 560.19 394.146 560.19 393.91L559.84 203.7C559.84 203.498 559.921 203.305 560.066 203.163C560.21 203.02 560.406 202.94 560.61 202.94L617.16 202.83C617.36 202.83 617.552 202.91 617.694 203.052C617.836 203.194 617.917 203.388 617.92 203.59L618.46 497.93C618.459 498.009 618.48 498.087 618.523 498.153C618.565 498.22 618.627 498.273 618.699 498.305C618.772 498.338 618.854 498.349 618.934 498.338C619.013 498.326 619.089 498.292 619.15 498.24L710.7 416.63C710.966 416.396 711.296 416.256 711.64 416.23C712.093 416.197 713.19 416.98 714.93 418.58C726.357 429.047 738.423 439.817 751.13 450.89C752.057 451.697 752.843 452.367 753.49 452.9C753.881 453.221 754.13 453.685 754.183 454.19C754.235 454.695 754.087 455.201 753.77 455.6C748.957 461.66 744.16 467.85 739.38 474.17C730.767 485.563 722.277 496.827 713.91 507.96C704.103 521.013 694.037 534.443 683.71 548.25C682.31 550.123 681.463 551.257 681.17 551.65C651.197 591.923 635.867 612.51 635.18 613.41C633.727 615.303 626.6 624.933 613.8 642.3C612.853 643.587 611.92 644.223 611 644.21C593.94 643.94 576.01 644.48 560.67 644.48C557.17 644.48 507.53 644.427 411.75 644.32C410.983 644.32 410.13 644.353 409.19 644.42C408.676 644.453 408.163 644.342 407.709 644.1C407.255 643.858 406.878 643.494 406.62 643.05C403.013 636.843 400.117 631.393 397.93 626.7C394.94 620.29 392.01 614.85 389 608.75C382.72 595.99 376.747 583.813 371.08 572.22C368.85 567.67 364.77 560.45 362.06 554.23C362.014 554.138 361.99 554.035 361.99 553.93L362 269.83C362 269.637 362.039 269.445 362.115 269.267C362.192 269.09 362.303 268.929 362.444 268.797C362.584 268.664 362.75 268.561 362.932 268.494C363.114 268.428 363.307 268.399 363.5 268.41C378.36 269.18 393.79 268.85 408.23 268.58C408.441 268.575 408.651 268.612 408.847 268.689C409.043 268.766 409.222 268.881 409.373 269.028C409.524 269.176 409.644 269.352 409.726 269.546C409.808 269.74 409.85 269.949 409.85 270.16L410.08 393.32Z" fill="var(--accent)"/>
+      <path d="M406.91 658.31C406.91 658.22 406.946 658.133 407.01 658.07C407.073 658.006 407.16 657.97 407.25 657.97C462.983 657.857 503.02 657.817 527.36 657.85C559.72 657.9 574.5 657.57 611.92 657.12C612.178 657.117 612.435 657.166 612.674 657.263C612.913 657.36 613.131 657.504 613.315 657.686C613.499 657.869 613.646 658.085 613.746 658.325C613.846 658.564 613.899 658.82 613.9 659.08L614.06 747.46C614.06 747.776 613.946 748.08 613.738 748.318C613.53 748.555 613.243 748.709 612.93 748.75C612.257 748.837 610.613 748.88 608 748.88C574.107 748.9 508.023 748.873 409.75 748.8C407.817 748.8 406.85 747.943 406.85 746.23C406.903 718.95 406.923 689.643 406.91 658.31Z" fill="var(--accent)"/>
+    </svg>
+    <h1>Build entire apps as <strong>conversations.</strong></h1>
+    <p class="hero-sub">Define tools. Define renderers. Let the agent handle the rest.</p>
+    <div class="hero-actions">
+      <a href="#code" class="btn-primary">Get Started</a>
+      <a href="#idea" class="btn-secondary">How It Works</a>
+    </div>
+  </section>
+
+  <section id="idea">
+    <p class="section-label">The idea</p>
+    <h2 class="section-title">What if every app was a single chat interface?</h2>
+    <p class="section-desc">Traditional apps encode user flows in UI — pages, routes, navigation hierarchies. Glove replaces that wiring with an agent. The developer defines capabilities. The agent does the orchestration.</p>
+    <div class="idea-grid">
+      <div class="idea-block reveal"><h3><span class="num">01</span> Tools are the backend</h3><p>Every action your app can take — search, checkout, track an order — is a tool. The agent decides when to call them based on what the user asks for.</p></div>
+      <div class="idea-block reveal"><h3><span class="num">02</span> Renderers are the UI</h3><p>Product grids, forms, confirmation dialogs — they're all renderers on a display stack. Tools push them. The agent orchestrates which ones appear and when.</p></div>
+      <div class="idea-block reveal"><h3><span class="num">03</span> The conversation is navigation</h3><p>No routes, no page transitions, no navigation state machines. The user says what they want. The agent figures out the path to get there.</p></div>
+      <div class="idea-block reveal"><h3><span class="num">04</span> Human-in-the-loop is native</h3><p>Tools can pause and wait for user input. Permission requests, form submissions, confirmations — all first-class primitives, not afterthoughts.</p></div>
+    </div>
+  </section>
+
+  <section id="architecture">
+    <p class="section-label">Architecture</p>
+    <h2 class="section-title">Five components. One runtime.</h2>
+    <p class="section-desc">Built on adapters — interfaces that decouple the runtime from specific implementations. Swap models, stores, or UI frameworks without changing application logic.</p>
+    <div class="arch-stack reveal">
+      <div class="arch-layer"><span class="arch-layer-name">Agent</span><span class="arch-layer-desc"><strong>The agentic loop.</strong> Takes a message, prompts the model, executes tool calls, feeds results back, repeats until the model responds with text.</span></div>
+      <div class="arch-layer"><span class="arch-layer-name">Prompt Machine</span><span class="arch-layer-desc"><strong>The model wrapper.</strong> Manages system prompts, dispatches requests, notifies subscribers. The model itself is swappable via the ModelAdapter interface.</span></div>
+      <div class="arch-layer"><span class="arch-layer-name">Executor</span><span class="arch-layer-desc"><strong>The tool runner.</strong> Validates inputs with Zod, retries with Effect, manages permissions through the hand-over pattern. Tools are registered at build time.</span></div>
+      <div class="arch-layer"><span class="arch-layer-name">Observer</span><span class="arch-layer-desc"><strong>The session watcher.</strong> Tracks turns, token consumption, and triggers context compaction when conversations get too long. Sessions run indefinitely.</span></div>
+      <div class="arch-layer"><span class="arch-layer-name">Display Manager</span><span class="arch-layer-desc"><strong>The UI state machine.</strong> Manages the display stack — what the user sees. Framework-agnostic. This is what makes Glove an application runtime, not a chatbot backend.</span></div>
+    </div>
+  </section>
+
+  <section id="display-stack">
+    <p class="section-label">The display stack</p>
+    <h2 class="section-title">See it in action.</h2>
+    <p class="section-desc">A user asks to buy running shoes. Here's what happens inside the runtime — step by step.</p>
+    <div class="stack-flow reveal">
+      <div class="stack-step">
+        <div class="step-num">1</div>
+        <div class="step-content"><h4>User sends a message</h4><p>"Find me running shoes under 100 bucks"</p><p style="margin-top:0.5rem;">The agent interprets the intent and calls the <code style="font-family:var(--mono);font-size:0.8em;color:var(--accent);">search_products</code> tool.</p></div>
+        <div class="step-stack"><div class="step-stack-header">Display stack</div><div class="step-stack-body"><span class="step-stack-empty">empty</span></div></div>
+      </div>
+      <div class="stack-step">
+        <div class="step-num active">2</div>
+        <div class="step-content"><h4>Tool pushes a renderer</h4><p>The search tool finds results and pushes a product grid to the display stack. The tool doesn't wait — it returns immediately.</p><span class="step-code">pushAndForget({ renderer: "product_grid" })</span></div>
+        <div class="step-stack"><div class="step-stack-header">Display stack</div><div class="step-stack-body"><div class="step-slot forget"><span>product_grid</span><span class="slot-status">rendered</span></div></div></div>
+      </div>
+      <div class="stack-step">
+        <div class="step-num">3</div>
+        <div class="step-content"><h4>User continues the conversation</h4><p>"Add the Nike ones to my cart and check out"</p><p style="margin-top:0.5rem;">The agent calls <code style="font-family:var(--mono);font-size:0.8em;color:var(--accent);">add_to_cart</code>, then <code style="font-family:var(--mono);font-size:0.8em;color:var(--accent);">checkout</code>.</p></div>
+        <div class="step-stack"><div class="step-stack-header">Display stack</div><div class="step-stack-body"><div class="step-slot forget"><span>product_grid</span><span class="slot-status">rendered</span></div><div class="step-slot forget"><span>cart_summary</span><span class="slot-status">rendered</span></div></div></div>
+      </div>
+      <div class="stack-step">
+        <div class="step-num active">4</div>
+        <div class="step-content"><h4>Tool pauses for input</h4><p>The checkout tool needs payment details. It pushes a payment form and <strong>waits</strong>. The tool's execution is suspended until the user submits.</p><span class="step-code">pushAndWait({ renderer: "payment_form" })</span></div>
+        <div class="step-stack"><div class="step-stack-header">Display stack</div><div class="step-stack-body"><div class="step-slot forget"><span>product_grid</span><span class="slot-status">rendered</span></div><div class="step-slot forget"><span>cart_summary</span><span class="slot-status">rendered</span></div><div class="step-slot waiting"><span>payment_form</span><span class="slot-status">waiting</span></div></div></div>
+      </div>
+      <div class="stack-step">
+        <div class="step-num">5</div>
+        <div class="step-content"><h4>User submits, tool resumes</h4><p>The form resolves with payment data. The checkout tool picks up where it left off, creates the order, and pushes a confirmation.</p><span class="step-code">resolve(slot_id, paymentData)</span></div>
+        <div class="step-stack"><div class="step-stack-header">Display stack</div><div class="step-stack-body"><div class="step-slot resolved"><span>order_confirmation</span><span class="slot-status">done</span></div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="code">
+    <p class="section-label">Developer experience</p>
+    <h2 class="section-title">Define capabilities. Ship applications.</h2>
+    <p class="section-desc">The builder API registers tools and renderers. Each <code style="font-family:var(--mono);font-size:0.9em;color:var(--accent);">fold</code> is a capability — a name, a schema, and a function.</p>
+    <div class="code-block reveal">
+      <div class="code-block-header"><span>app.ts</span><span>TypeScript</span></div>
+      <pre><span class="kw">const</span> app = <span class="kw">new</span> <span class="fn">Glove</span>({
+  store, model, displayManager,
+  systemPrompt: <span class="str">"You are a shopping assistant..."</span>,
+  compaction_config: { <span class="op">...</span> },
+})
+  .<span class="fn">fold</span>({
+    name: <span class="str">"search_products"</span>,
+    description: <span class="str">"Search the product catalog"</span>,
+    inputSchema: z.<span class="fn">object</span>({ query: z.<span class="fn">string</span>() }),
+    <span class="kw">async</span> <span class="fn">do</span>(input, display) {
+      <span class="kw">const</span> results = <span class="kw">await</span> catalog.<span class="fn">search</span>(input.query);
+      <span class="kw">await</span> display.<span class="fn">pushAndForget</span>({
+        renderer: <span class="str">"product_grid"</span>,
+        input: results,
+      });
+      <span class="kw">return</span> results;
+    },
+  })
+  .<span class="fn">fold</span>({
+    name: <span class="str">"checkout"</span>,
+    description: <span class="str">"Start the checkout process"</span>,
+    inputSchema: z.<span class="fn">object</span>({ cartId: z.<span class="fn">string</span>() }),
+    <span class="kw">async</span> <span class="fn">do</span>(input, display) {
+      <span class="kw">const</span> cart = <span class="kw">await</span> carts.<span class="fn">get</span>(input.cartId);
+      <span class="cm">// Pauses until the user submits payment</span>
+      <span class="kw">const</span> payment = <span class="kw">await</span> display.<span class="fn">pushAndWait</span>({
+        renderer: <span class="str">"payment_form"</span>,
+        input: cart,
+      });
+      <span class="kw">return await</span> orders.<span class="fn">create</span>(cart, payment);
+    },
+  })
+  .<span class="fn">build</span>();
+
+<span class="cm">// That's it. The agent handles the rest.</span>
+<span class="kw">await</span> app.<span class="fn">processRequest</span>(<span class="str">"find me running shoes under 100"</span>);</pre>
+    </div>
+  </section>
+
+  <section id="adapters">
+    <p class="section-label">Adapters</p>
+    <h2 class="section-title">Swap anything. Change nothing.</h2>
+    <p class="section-desc">Every layer is an interface. The runtime doesn't care what's behind it.</p>
+    <div class="adapter-grid reveal">
+      <div class="adapter-card"><h3>ModelAdapter</h3><p>The AI provider. Anthropic, OpenAI, local models, or mocks for testing. Anything that takes messages and returns responses.</p></div>
+      <div class="adapter-card"><h3>StoreAdapter</h3><p>The persistence layer. Messages, tokens, turns. In-memory, SQLite, Postgres — wherever your state lives.</p></div>
+      <div class="adapter-card"><h3>DisplayManagerAdapter</h3><p>The UI state layer. Manages the display stack. Framework-agnostic — React, Vue, Svelte, terminal UI. Bind however you want.</p></div>
+      <div class="adapter-card"><h3>SubscriberAdapter</h3><p>The event bus. Logging, analytics, real-time streaming, debugging. Plug in whatever you need to observe.</p></div>
+    </div>
+  </section>
+
+  <section id="tradeoffs">
+    <p class="section-label">Trade-offs</p>
+    <h2 class="section-title">Honest about what this costs.</h2>
+    <div class="tradeoff-list reveal">
+      <div class="tradeoff"><span class="tradeoff-label">Latency</span><span class="tradeoff-text">Every interaction round-trips through an LLM. 50ms becomes 1–2 seconds. Acceptable for complex workflows. For high-frequency actions, renderers can trigger tools directly — bypassing the agent for deterministic operations.</span></div>
+      <div class="tradeoff"><span class="tradeoff-label">Determinism</span><span class="tradeoff-text">A button always does what it says. Natural language probably does what you mean. The gap is real. Critical paths need deterministic fallbacks — renderer-initiated actions that skip the model entirely.</span></div>
+      <div class="tradeoff"><span class="tradeoff-label">Cost</span><span class="tradeoff-text">Every turn consumes tokens. Compaction helps with context limits but not cumulative cost. Fewer, more capable tools mean fewer round-trips. Design tools intentionally.</span></div>
+    </div>
+  </section>
+
+  <div class="cta-section">
+    <h2>Define capabilities. Ship applications.</h2>
+    <p>Glove is open source and ready to build on.</p>
+    <div class="cta-actions">
+      <a href="#" class="btn-primary">View on GitHub</a>
+      <a href="#" class="btn-secondary">Read the Docs</a>
+    </div>
+  </div>
+
+  <footer>
+    <div class="footer-brand">
+      <span class="footer-brand-name">Glove</span>
+      <span class="footer-tagline">Agentic runtime for applications.</span>
+    </div>
+    <div class="footer-right">
+      <span>A product by</span>
+      <a href="https://dterminal.net" style="font-family:var(--mono);font-size:0.75rem;">dterminal</a>
+      <span>© 2026</span>
+    </div>
+  </footer>
+
+  <script>
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => { if (entry.isIntersecting) entry.target.classList.add('visible'); });
+    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>
