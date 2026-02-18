@@ -20,18 +20,31 @@ export { parseSSEStream } from "./sse";
 
 export type {
   TimelineEntry,
+  ToolEntry,
   GloveState,
   GloveStats,
   ToolConfig,
   CompactionConfig,
   SlotRenderProps,
+  ToolResultRenderProps,
   ToolDisplay,
+  TypedDisplay,
   Task,
   ContentPart,
   Slot,
+  ToolResultData,
   StoreAdapter,
   ModelAdapter,
   SubscriberAdapter,
+  EnhancedSlot,
+  SlotDisplayStrategy,
+  RenderStrategy,
+  MessageRenderProps,
+  ToolStatusRenderProps,
+  StreamingRenderProps,
+  InputRenderProps,
+  SlotContainerRenderProps,
+  GloveHandle,
 } from "./types";
 
 // ─── Client ─────────────────────────────────────────────────────────────────
@@ -46,3 +59,11 @@ export {
   type UseGloveReturn,
 } from "./hooks/use-glove";
 export { GloveProvider, useGloveClient } from "./hooks/context";
+
+// ─── Render ──────────────────────────────────────────────────────────────────
+
+export { Render, type RenderProps } from "./render";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+export { defineTool } from "./define-tool";

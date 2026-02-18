@@ -44,14 +44,19 @@ export class AbortError extends Error {
 
 // ─── Core types ───────────────────────────────────────────────────────────────
 
+export interface ToolResultData {
+  data: unknown,
+  status: "error" | "success"
+  message?: string
+  // contains information that won't be sent to the modal but is required for rendering this from history. e.g for a payment form. as data(viewable by the modal, we might not wanna show the address etc and share that with the model) but maybe we want the user to still view all their details on reload of the chat
+  // the renderData property is where data that fits this criteria can live. will need a post renderer
+  renderData?: unknown
+}
+
 export interface ToolResult {
   tool_name: string;
   call_id?: string;
-  result: {
-    data: unknown;
-    status: "error" | "success";
-    message?: string;
-  };
+  result: ToolResultData
 }
 
 export interface Tool<I> {
@@ -62,7 +67,7 @@ export interface Tool<I> {
   run(
     input: I,
     handOver?: (request: unknown) => Promise<unknown>,
-  ): Promise<unknown>;
+  ): Promise<ToolResultData>;
 }
 
 export interface ToolCall {
@@ -352,14 +357,11 @@ export class Executor {
 
           this.notifySubscribers("tool_use_result", toolResults?.at(-1));
         },
-        onRight: (value) => {
+        onRight: (value: ToolResultData) => {
           toolResults.push({
             tool_name: call.tool_name,
             call_id: call.id,
-            result: {
-              status: "success",
-              data: value,
-            },
+            result: value,
           });
 
           this.notifySubscribers("tool_use_result", toolResults?.at(-1));

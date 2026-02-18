@@ -1,18 +1,84 @@
 "use client";
 
-import { useState, useRef, useMemo, useCallback } from "react";
-import { useGlove } from "glove-react";
+import React, {
+  useState,
+  useRef,
+  useMemo,
+  useCallback,
+  useEffect,
+  type ReactNode,
+} from "react";
+import { useGlove, Render } from "glove-react";
+import type {
+  MessageRenderProps,
+  StreamingRenderProps,
+  ToolStatusRenderProps,
+} from "glove-react";
 import { createCoffeeTools, type CartOps } from "../lib/tools";
 import { getProductById, type CartItem } from "../lib/products";
 import { ChatHeader } from "./chat-header";
 import { ChatInput } from "./chat-input";
 import { EmptyState } from "./empty-state";
-import { MessageList } from "./message-list";
+import { CoffeeIcon } from "./icons";
+
+// ─── Custom renderers ───────────────────────────────────────────────────────
+
+function renderMessage({ entry }: MessageRenderProps): ReactNode {
+  if (entry.kind === "user") {
+    return (
+      <div className="message-user">
+        <div className="message-user-bubble">{entry.text}</div>
+      </div>
+    );
+  }
+  return (
+    <div className="message-agent">
+      <div className="agent-avatar">
+        <CoffeeIcon color="#3d5a3d" size={14} />
+      </div>
+      <div className="agent-text">{entry.text}</div>
+    </div>
+  );
+}
+
+function renderStreaming({ text }: StreamingRenderProps): ReactNode {
+  return (
+    <div className="message-agent">
+      <div className="agent-avatar">
+        <CoffeeIcon color="#3d5a3d" size={14} />
+      </div>
+      <div className="agent-text streaming">{text}</div>
+    </div>
+  );
+}
+
+function renderToolStatus({ entry }: ToolStatusRenderProps): ReactNode {
+  return (
+    <div className="tool-entry">
+      <div className={`tool-badge ${entry.status}`}>
+        {entry.status === "running"
+          ? "..."
+          : entry.status === "success"
+            ? "ok"
+            : "err"}
+      </div>
+      <span className="tool-name">{entry.name}</span>
+      {entry.output && (
+        <span className="tool-output">
+          {entry.output.length > 60
+            ? entry.output.slice(0, 60) + "..."
+            : entry.output}
+        </span>
+      )}
+    </div>
+  );
+}
 
 // ─── Chat orchestrator ──────────────────────────────────────────────────────
 
 export default function Chat() {
   const [input, setInput] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // ── Cart state ────────────────────────────────────────────────────────
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -44,16 +110,17 @@ export default function Chat() {
   const tools = useMemo(() => createCoffeeTools(cartOps), [cartOps]);
 
   // ── Glove hook ────────────────────────────────────────────────────────
-  const {
-    timeline,
-    streamingText,
-    busy,
-    stats,
-    slots,
-    sendMessage,
-    abort,
-    renderSlot,
-  } = useGlove({ tools });
+  const glove = useGlove({ tools });
+  const { timeline, streamingText, busy, stats, slots, sendMessage, abort } =
+    glove;
+
+  // ── Auto-scroll ─────────────────────────────────────────────────────
+  useEffect(() => {
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [timeline, streamingText, slots]);
 
   // ── Handlers ──────────────────────────────────────────────────────────
   const handleSubmit = useCallback(
@@ -86,13 +153,31 @@ export default function Chat() {
           </div>
         </div>
       ) : (
-        <MessageList
-          timeline={timeline}
-          slots={slots}
-          streamingText={streamingText}
-          busy={busy}
-          renderSlot={renderSlot}
-        />
+        <div ref={scrollRef} className="chat-messages">
+          <Render
+            glove={glove}
+            strategy="interleaved"
+            renderMessage={renderMessage}
+            renderStreaming={renderStreaming}
+            renderToolStatus={renderToolStatus}
+            renderInput={() => null}
+            className="chat-messages-inner"
+          />
+
+          {/* Typing indicator */}
+          {busy && !streamingText && slots.length === 0 && (
+            <div className="typing-indicator">
+              <div className="agent-avatar">
+                <CoffeeIcon color="#3d5a3d" size={14} />
+              </div>
+              <div className="typing-dots">
+                <div className="typing-dot" />
+                <div className="typing-dot" />
+                <div className="typing-dot" />
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       <ChatInput

@@ -24,13 +24,17 @@ export function createAddToCartTool(cartOps: CartOps): ToolConfig {
         quantity: number;
       };
       const product = getProductById(product_id);
-      if (!product) return "Product not found.";
+      if (!product)
+        return { status: "error" as const, data: "Product not found." };
 
       cartOps.add(product_id, quantity);
       const cart = cartOps.get();
       const totalItems = cart.reduce((s, i) => s + i.qty, 0);
       const totalPrice = cart.reduce((s, i) => s + i.price * i.qty, 0);
-      return `Added ${quantity}x ${product.name} to bag. Cart: ${totalItems} item(s), ${formatPrice(totalPrice)}.`;
+      return {
+        status: "success" as const,
+        data: `Added ${quantity}x ${product.name} to bag. Cart: ${totalItems} item(s), ${formatPrice(totalPrice)}.`,
+      };
     },
   };
 }

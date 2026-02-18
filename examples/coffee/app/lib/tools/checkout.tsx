@@ -1,36 +1,182 @@
 import React, { useState } from "react";
-import type { SlotRenderProps, ToolConfig } from "glove-react";
+import { defineTool } from "glove-react";
 import { z } from "zod";
 import { SAGE, CREAM, type CartOps } from "../theme";
 import { formatPrice, GRIND_OPTIONS, type CartItem } from "../products";
 
 // ─── checkout — full checkout form (pushAndWait) ────────────────────────────
 
-export function createCheckoutTool(cartOps: CartOps): ToolConfig {
-  return {
+const displaySchema = z.object({
+  items: z.array(z.any()),
+});
+
+const resolveSchema = z.union([
+  z.object({ grind: z.string(), email: z.string() }),
+  z.null(),
+]);
+
+export function createCheckoutTool(cartOps: CartOps) {
+  return defineTool({
     name: "checkout",
     description:
       "Present the checkout form with the current cart, grind selection, and email input. Blocks until the user submits or cancels. Only call when the user is ready to checkout.",
     inputSchema: z.object({}),
+    displayPropsSchema: displaySchema,
+    resolveSchema,
+    displayStrategy: "hide-on-complete",
     async do(_input, display) {
       const cart = cartOps.get();
       if (cart.length === 0) return "Cannot checkout — the bag is empty.";
 
-      const result = (await display.pushAndWait({
-        input: { items: cart },
-      })) as { grind: string; email: string } | null;
-
+      const result = await display.pushAndWait({ items: cart });
       if (!result)
-        return "User cancelled checkout and wants to continue shopping.";
+        return {
+          status: "success" as const,
+          data: "User cancelled checkout and wants to continue shopping.",
+          renderData: { cancelled: true },
+        };
 
+      const total = cart.reduce((s, i) => s + i.price * i.qty, 0);
       cartOps.clear();
-      return `Order placed! Grind: ${result.grind}, Email: ${result.email}. Cart cleared. Total items ordered: ${cart.length}.`;
+      return {
+        status: "success" as const,
+        data: `Order placed! Grind: ${result.grind}. Cart cleared. Total items ordered: ${cart.length}.`,
+        renderData: {
+          grind: result.grind,
+          email: result.email,
+          items: cart,
+          total,
+        },
+      };
     },
-    render({ data, resolve }: SlotRenderProps) {
-      const { items } = data as { items: CartItem[] };
-      return <CheckoutForm items={items} onSubmit={resolve} />;
+    render({ props, resolve }) {
+      return (
+        <CheckoutForm
+          items={props.items as CartItem[]}
+          onSubmit={resolve}
+        />
+      );
     },
-  };
+    renderResult({ data }) {
+      const result = data as
+        | { cancelled: true }
+        | { grind: string; email: string; items: CartItem[]; total: number };
+
+      if ("cancelled" in result) {
+        return (
+          <div
+            style={{
+              padding: 16,
+              background: CREAM[50],
+              border: `1px solid ${SAGE[100]}`,
+              marginTop: 12,
+              maxWidth: 360,
+            }}
+          >
+            <p
+              style={{
+                fontFamily: "'DM Sans', sans-serif",
+                fontSize: 13,
+                color: SAGE[400],
+                margin: 0,
+                fontStyle: "italic",
+              }}
+            >
+              Checkout cancelled — continued shopping.
+            </p>
+          </div>
+        );
+      }
+
+      return (
+        <div
+          style={{
+            background: CREAM[50],
+            border: `1px solid ${SAGE[100]}`,
+            borderLeft: "3px solid #4ade80",
+            padding: 16,
+            marginTop: 12,
+            maxWidth: 360,
+          }}
+        >
+          <p
+            style={{
+              fontFamily: "'DM Sans', sans-serif",
+              fontSize: 14,
+              fontWeight: 600,
+              color: SAGE[900],
+              margin: "0 0 8px",
+            }}
+          >
+            Order Confirmed
+          </p>
+          {result.items.map((item) => (
+            <div
+              key={item.id}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                padding: "4px 0",
+                fontFamily: "'DM Sans', sans-serif",
+                fontSize: 12,
+                color: SAGE[600],
+              }}
+            >
+              <span>
+                {item.name} x{item.qty}
+              </span>
+              <span style={{ fontFamily: "'DM Mono', monospace" }}>
+                {formatPrice(item.price * item.qty)}
+              </span>
+            </div>
+          ))}
+          <div
+            style={{
+              marginTop: 8,
+              paddingTop: 8,
+              borderTop: `1px solid ${SAGE[100]}`,
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "'DM Sans', sans-serif",
+                fontSize: 12,
+                color: SAGE[500],
+              }}
+            >
+              Grind: {result.grind}
+            </div>
+            <div
+              style={{
+                fontFamily: "'DM Sans', sans-serif",
+                fontSize: 12,
+                color: SAGE[500],
+              }}
+            >
+              Confirmation: {result.email}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginTop: 4,
+                fontFamily: "'DM Mono', monospace",
+                fontSize: 13,
+                fontWeight: 600,
+                color: SAGE[900],
+              }}
+            >
+              <span>Total</span>
+              <span>{formatPrice(result.total)}</span>
+            </div>
+          </div>
+        </div>
+      );
+    },
+  });
 }
 
 // ─── CheckoutForm ────────────────────────────────────────────────────────────

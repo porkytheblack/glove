@@ -39,7 +39,7 @@ export function createTaskTool(context: Context): Tool<TaskToolInput> {
 
       await context.addTasks(updatedTasks);
 
-      return { status: "success", tasks: updatedTasks };
+      return { status: "success" as const, data: { tasks: updatedTasks } };
     },
   };
 }
