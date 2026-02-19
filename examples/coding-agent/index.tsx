@@ -86,9 +86,9 @@ class MemoryStore implements StoreAdapter {
     this.turnCount++;
   }
 
-  async resetHistory() {
-    this.messages = [];
+  async resetCounters() {
     this.tokenCount = 0;
+    this.turnCount = 0;
   }
 
   // Tasks

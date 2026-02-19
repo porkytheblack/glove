@@ -242,10 +242,29 @@ export default function ConceptsPage() {
 
       <p>
         Glove handles this automatically: when the conversation gets too long,
-        it summarizes everything so far and starts a fresh context with the
-        summary. This is called <strong>compaction</strong>. Task state is
-        preserved across compaction boundaries, so sessions can run
-        indefinitely without losing track of what they were doing.
+        it summarizes everything so far and injects the summary as a new
+        message. This is called <strong>compaction</strong>. The store
+        preserves the full message history — compaction never deletes
+        messages. Instead, it calls <code>resetCounters()</code> on the store
+        to reset token and turn counts, and appends a compaction summary
+        message marked with{" "}
+        <code>is_compaction: true</code>.
+      </p>
+
+      <p>
+        When the agent loop calls <code>Context.getMessages()</code>, the
+        result is split at the last compaction boundary — the model only sees
+        messages from the most recent compaction onward. This keeps the
+        context window small and focused while the underlying store retains
+        every message ever exchanged.
+      </p>
+
+      <p>
+        Because full history is preserved, the frontend can read directly from
+        the store to display the complete conversation — including messages
+        from before compaction — even though the model never sees them. Task
+        state is also preserved across compaction boundaries, so sessions can
+        run indefinitely without losing track of what they were doing.
       </p>
 
       <p>

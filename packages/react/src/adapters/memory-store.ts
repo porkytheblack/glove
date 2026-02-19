@@ -56,8 +56,7 @@ export class MemoryStore implements StoreAdapter {
 
   // ─── Reset ───────────────────────────────────────────────────────────────────
 
-  async resetHistory(): Promise<void> {
-    this.messages = [];
+  async resetCounters(): Promise<void> {
     this.tokenCount = 0;
     this.turnCount = 0;
   }

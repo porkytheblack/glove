@@ -197,18 +197,12 @@ export class SqliteStore implements StoreAdapter {
 
   // ─── Reset ───────────────────────────────────────────────────────────────
 
-  async resetHistory(): Promise<void> {
-    const tx = this.db.transaction(() => {
-      this.db
-        .prepare(`DELETE FROM messages WHERE session_id = ?`)
-        .run(this.identifier);
-      this.db
-        .prepare(
-          `UPDATE sessions SET token_count = 0, turn_count = 0 WHERE session_id = ?`,
-        )
-        .run(this.identifier);
-    });
-    tx();
+  async resetCounters(): Promise<void> {
+    this.db
+      .prepare(
+        `UPDATE sessions SET token_count = 0, turn_count = 0 WHERE session_id = ?`,
+      )
+      .run(this.identifier);
   }
 
   // ─── Tasks ───────────────────────────────────────────────────────────────

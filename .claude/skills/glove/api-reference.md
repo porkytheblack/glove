@@ -70,7 +70,7 @@ interface StoreAdapter {
   addTokens(count: number): Promise<void>;
   getTurnCount(): Promise<number>;
   incrementTurn(): Promise<void>;
-  resetHistory(): Promise<void>;
+  resetCounters(): Promise<void>;  // Reset token/turn counts without deleting messages
   // Optional — enables built-in task tool when present:
   getTasks?(): Promise<Task[]>;
   addTasks?(tasks: Task[]): Promise<void>;
@@ -150,6 +150,7 @@ interface Message {
   content?: ContentPart[];
   tool_results?: ToolResult[];
   tool_calls?: ToolCall[];
+  is_compaction?: boolean;  // true for compaction summary messages
 }
 ```
 
@@ -442,7 +443,7 @@ import { createRemoteStore } from "glove-react";
 const store = createRemoteStore("session-id", {
   getMessages: async (sid) => fetch(`/api/${sid}/messages`).then(r => r.json()),
   appendMessages: async (sid, msgs) => fetch(`/api/${sid}/messages`, { method: "POST", body: JSON.stringify(msgs) }),
-  // Optional: getTokenCount, addTokens, getTurnCount, incrementTurn, resetHistory, getTasks, addTasks, updateTask, getPermission, setPermission
+  // Optional: getTokenCount, addTokens, getTurnCount, incrementTurn, resetCounters, getTasks, addTasks, updateTask, getPermission, setPermission
 });
 ```
 

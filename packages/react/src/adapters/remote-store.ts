@@ -26,7 +26,7 @@ export interface RemoteStoreActions {
   addTokens?: (sessionId: string, count: number) => Promise<void>;
   getTurnCount?: (sessionId: string) => Promise<number>;
   incrementTurn?: (sessionId: string) => Promise<void>;
-  resetHistory?: (sessionId: string) => Promise<void>;
+  resetCounters?: (sessionId: string) => Promise<void>;
 
   // Tasks
   getTasks?: (sessionId: string) => Promise<Task[]>;
@@ -122,12 +122,13 @@ export function createRemoteStore(
 
     // ─── Reset ─────────────────────────────────────────────────────────────
 
-    async resetHistory() {
-      if (actions.resetHistory) {
-        await actions.resetHistory(sessionId);
+    async resetCounters() {
+      if (actions.resetCounters) {
+        await actions.resetCounters(sessionId);
+      } else {
+        tokenCount = 0;
+        turnCount = 0;
       }
-      tokenCount = 0;
-      turnCount = 0;
     },
 
     // ─── Tasks ─────────────────────────────────────────────────────────────

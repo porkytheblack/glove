@@ -988,8 +988,17 @@ const askPreference = defineTool({
 
       <p>
         Controls automatic context window compaction. When the conversation
-        exceeds limits, it is summarized and the history is replaced with the
-        summary to free up context space.
+        exceeds configured limits, the model generates a summary of the
+        conversation so far. The full message history is preserved in the
+        store — compaction does not delete any messages. Instead, the
+        summary is appended as a new message marked with{" "}
+        <code>is_compaction: true</code>, and token/turn counters are reset
+        via <code>resetCounters()</code>. When the agent builds its next
+        prompt, <code>Context.getMessages()</code> calls{" "}
+        <code>splitAtLastCompaction()</code> to find the last compaction
+        summary and returns only messages from that point onward. This
+        means the model sees a compact context while the store retains the
+        complete history for auditing, replay, or export.
       </p>
 
       <PropTable
@@ -1043,6 +1052,9 @@ const store = new MemoryStore("session-1");`}
       <p>
         Implements the full <code>StoreAdapter</code> interface: messages, token
         counts, turn counts, tasks, and permissions are all stored in memory.
+        The <code>resetCounters()</code> method resets token and turn counts to
+        zero without clearing messages, which is used during compaction to
+        preserve the full conversation history.
       </p>
 
       {/* ------------------------------------------------------------------ */}
@@ -1118,9 +1130,9 @@ const store = createRemoteStore("session-123", {
             "Increment the turn counter by one.",
           ],
           [
-            "resetHistory?",
+            "resetCounters?",
             "(sessionId: string) => Promise<void>",
-            "Clear the conversation history (used during compaction).",
+            "Reset token and turn counters to zero without clearing messages. Called during compaction after the summary message is appended.",
           ],
           [
             "getTasks?",
@@ -1672,7 +1684,7 @@ function Chat() {
           [
             "StoreAdapter",
             "glove-core",
-            "Interface for conversation persistence backends.",
+            "Interface for conversation persistence backends. Includes resetCounters() for compaction support.",
           ],
           [
             "ModelAdapter",

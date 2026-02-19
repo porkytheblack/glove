@@ -102,7 +102,7 @@ The main `glove-core` barrel includes native dependencies (better-sqlite3). For 
 The core defines four pluggable adapter interfaces:
 
 - **`ModelAdapter`** — LLM provider (`prompt`, `setSystemPrompt`)
-- **`StoreAdapter`** — Persistence layer (`getMessages`, `appendMessages`, `getTokenCount`, etc.)
+- **`StoreAdapter`** — Persistence layer (`getMessages`, `appendMessages`, `getTokenCount`, `resetCounters`, etc.). Full message history is preserved across compaction — `resetCounters()` resets token and turn counts without deleting messages.
 - **`DisplayManagerAdapter`** — UI slot management (`pushAndWait`, `pushAndForget`, `subscribe`)
 - **`SubscriberAdapter`** — Event observer (`record` receives `text_delta`, `tool_use`, `tool_use_result`, `model_response_complete`)
 

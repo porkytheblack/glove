@@ -514,7 +514,7 @@ await ctx.appendMessages([{ sender: "user", text: "Hello" }]);`}
           [
             "getMessages()",
             "Promise<Message[]>",
-            "Retrieve all messages from the store.",
+            "Retrieve messages for the model. Applies splitAtLastCompaction internally: finds the last message with is_compaction set to true and returns only messages from that point onward. This means the model sees the compaction summary plus any subsequent messages, not the full raw history. To access the complete unfiltered history, use the store's getMessages() directly.",
           ],
           [
             "appendMessages(msgs: Message[])",
@@ -668,7 +668,14 @@ const results = await executor.executeToolStack();`}
 
       <p>
         Monitors the context window size and triggers compaction when limits
-        are exceeded. Tracks turn counts and token consumption.
+        are exceeded. Tracks turn counts and token consumption. Compaction
+        is history-preserving: messages are never deleted from the store.
+        Instead, a compaction summary is appended with{" "}
+        <code>is_compaction: true</code>, and{" "}
+        <code>resetCounters()</code> resets the token and turn counts.
+        The model only sees post-compaction messages because{" "}
+        <code>Context.getMessages()</code> applies{" "}
+        <code>splitAtLastCompaction()</code> internally.
       </p>
 
       <CodeBlock
@@ -759,7 +766,7 @@ await observer.tryCompaction();`}
           [
             "tryCompaction()",
             "Promise<void>",
-            "Check if compaction is needed (turns or tokens exceeded) and perform it if so. Summarizes the conversation, resets the history, and replaces it with the summary.",
+            "Check if compaction is needed (turns or tokens exceeded) and perform it if so. Summarizes the conversation and appends the summary as a new message with is_compaction set to true. Calls resetCounters() to reset token and turn counts without deleting messages. The full message history is preserved in the store for frontend display, while Context.getMessages() uses splitAtLastCompaction to ensure the model only sees messages from the latest compaction onward.",
           ],
         ]}
       />
@@ -935,7 +942,7 @@ try {
   addTokens(count: number): Promise<void>;
   getTurnCount(): Promise<number>;
   incrementTurn(): Promise<void>;
-  resetHistory(): Promise<void>;
+  resetCounters(): Promise<void>;
   // Optional:
   getTasks?(): Promise<Task[]>;
   addTasks?(tasks: Task[]): Promise<void>;
@@ -985,9 +992,9 @@ try {
             "Increment the turn counter.",
           ],
           [
-            "resetHistory()",
+            "resetCounters()",
             "Promise<void>",
-            "Clear the conversation history. Used during compaction.",
+            "Reset token and turn counts to zero without deleting messages. Called during compaction to reset thresholds while preserving the full message history in the store.",
           ],
           [
             "getTasks?()",
@@ -1101,6 +1108,7 @@ try {
   content?: ContentPart[];
   tool_results?: ToolResult[];
   tool_calls?: ToolCall[];
+  is_compaction?: boolean;
 }`}
         language="typescript"
       />
@@ -1137,6 +1145,11 @@ try {
             "tool_calls?",
             "ToolCall[]",
             "Tool calls the model wants to execute (present in agent messages).",
+          ],
+          [
+            "is_compaction?",
+            "boolean",
+            "When true, marks this message as a compaction summary. Context.getMessages() uses this flag to split the history at the last compaction point, so the model only sees messages from the most recent compaction onward.",
           ],
         ]}
       />
@@ -1427,6 +1440,16 @@ try {
       {/* COMPACTION CONFIG                                                   */}
       {/* ================================================================== */}
       <h2 id="compaction-config">CompactionConfig</h2>
+
+      <p>
+        Compaction is history-preserving. When triggered, the full conversation
+        is summarized and the summary is appended as a new message with{" "}
+        <code>is_compaction: true</code>. No messages are deleted from the
+        store, so frontends can still display the complete history. The model
+        only sees messages from the last compaction point onward, courtesy of{" "}
+        <code>splitAtLastCompaction()</code> in{" "}
+        <code>Context.getMessages()</code>.
+      </p>
 
       <PropTable
         headers={["Property", "Type", "Description"]}

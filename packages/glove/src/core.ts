@@ -1,5 +1,6 @@
 import { Effect, Either } from "effect";
 import z from "zod";
+import { splitAtLastCompaction } from "./utils";
 
 // call model
 // model may return tool call requests or text
@@ -96,6 +97,7 @@ export interface Message {
   content?: Array<ContentPart>;
   tool_results?: Array<ToolResult>;
   tool_calls?: Array<ToolCall>;
+  is_compaction?: boolean;
 }
 
 export interface PromptRequest {
@@ -138,7 +140,7 @@ export interface StoreAdapter {
 
   incrementTurn(): Promise<void>
 
-  resetHistory(): Promise<void> // reset the conversation history the adapter will probabaly do something like creating an entirely new conversation
+  resetCounters(): Promise<void> // reset token and turn counts without deleting messages
 
   // Tasks (optional)
   getTasks?(): Promise<Array<Task>>
@@ -157,7 +159,9 @@ export class Context {
   }
 
   async getMessages() {
-    return await this.store.getMessages()
+    const storedMessages = await this.store.getMessages()
+    const afterCompaction = splitAtLastCompaction(storedMessages)
+    return afterCompaction
   }
 
   async appendMessages(msgs: Array<Message>) {
@@ -443,7 +447,7 @@ export class Observer {
 
     const combinedMessages = [...history, compactionRequest]
 
-    await this.store.resetHistory()
+    await this.store.resetCounters()
 
     const result = await this.prompt.run(combinedMessages);
 
@@ -465,7 +469,8 @@ export class Observer {
     const summaryMessage: Message = {
       sender: "user",
       text: `[Conversation summary from compaction]\n\n${summaryText}${taskBlock}\n\n` +
-      `[End of summary - the conversation continues from here]`
+        `[End of summary - the conversation continues from here]`,
+      is_compaction: true
     }
 
     await this.context.appendMessages([summaryMessage])

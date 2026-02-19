@@ -34,7 +34,7 @@ Runs tools. Validates inputs against Zod schemas, handles retries via Effect, ma
 
 ### The Observer
 
-Watches the session. Tracks turn counts, token consumption, and triggers context compaction when the conversation gets too long. Compaction summarises the conversation history and resets the context window so long-running sessions don't degrade.
+Watches the session. Tracks turn counts, token consumption, and triggers context compaction when the conversation gets too long. Compaction summarises the conversation history and appends the summary as a new message marked with `is_compaction: true`. The store preserves the full message history — compaction calls `resetCounters()` to reset token and turn counts rather than deleting messages. `Context.getMessages()` splits at the last compaction so the model only sees recent context, while the full history remains available for frontend display.
 
 ### The Display Manager
 
@@ -147,9 +147,9 @@ Both mechanisms work through `pushAndWait` — the tool's execution suspends unt
 
 ## Context Compaction
 
-Long-running sessions accumulate tokens. The `Observer` watches token consumption and, when it crosses a configurable threshold, triggers compaction: the full conversation history is sent to the model with a summarisation prompt, the store is reset, and the summary is injected as the new conversation start. Task state is preserved across compaction boundaries.
+Long-running sessions accumulate tokens. The `Observer` watches token consumption and, when it crosses a configurable threshold, triggers compaction: the full conversation history is sent to the model with a summarisation prompt, and the summary is appended as a new message marked with `is_compaction: true`. The store calls `resetCounters()` to reset token and turn counts — the full message history is never deleted. `Context.getMessages()` splits at the last compaction boundary so the model only sees messages from the most recent compaction onward. Task state is preserved across compaction boundaries.
 
-This means sessions can run indefinitely without degrading. The agent always has a clean, focused context window.
+This means sessions can run indefinitely without degrading. The agent always has a clean, focused context window, and the frontend can read the complete conversation history directly from the store.
 
 ---
 
