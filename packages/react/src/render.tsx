@@ -280,8 +280,12 @@ export function Render({
             }
 
             if (entry.kind === "tool") {
+              // Skip renderResult when the tool has an active visible slot —
+              // the slot's render() is already showing the live UI.
+              // renderResult is only used as a history fallback (e.g. on reload).
+              const hasActiveSlot = toolHasSlot(entry.id);
               const toolResult =
-                entry.renderData !== undefined
+                entry.renderData !== undefined && !hasActiveSlot
                   ? renderToolResult(entry)
                   : null;
               return (

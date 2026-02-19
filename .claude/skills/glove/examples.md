@@ -8,8 +8,8 @@ Real patterns drawn from the example implementations in `examples/`.
 |---------|------|-------|-------------|
 | `examples/weather-agent` | Terminal CLI | Ink + glove-core | Local MemoryStore, AnthropicAdapter, pushAndWait for input, pushAndForget for display |
 | `examples/coding-agent` | Full-stack | Node server + React SPA | SqliteStore, WebSocket bridge, 14 tools, permission system, planning workflow |
-| `examples/nextjs-agent` | Web app | Next.js + glove-react | GloveClient, createChatHandler, colocated renderers, trip planning |
-| `examples/coffee` | Web app | Next.js + glove-react | E-commerce flow, cart state, product catalog, checkout |
+| `examples/nextjs-agent` | Web app | Next.js + glove-react | `defineTool`, `<Render>`, `renderResult`, `displayStrategy`, trip planning |
+| `examples/coffee` | Web app | Next.js + glove-react | `defineTool`, `<Render>`, `renderResult`, `displayStrategy`, e-commerce flow, cart state |
 
 ---
 
@@ -26,41 +26,54 @@ export const POST = createChatHandler({
 });
 ```
 
-**Client — GloveClient with tools:**
-```typescript
+**Client — GloveClient with `defineTool`:**
+```tsx
 // app/lib/glove.tsx
-import { GloveClient } from "glove-react";
+import { GloveClient, defineTool } from "glove-react";
 import { z } from "zod";
+
+const inputSchema = z.object({
+  question: z.string(),
+  options: z.array(z.object({ label: z.string(), value: z.string() })),
+});
+
+const askPreference = defineTool({
+  name: "ask_preference",
+  description: "Ask user to pick from options",
+  inputSchema,
+  displayPropsSchema: inputSchema,
+  resolveSchema: z.string(),
+  displayStrategy: "hide-on-complete",
+  async do(input, display) {
+    const selected = await display.pushAndWait(input);
+    return {
+      status: "success" as const,
+      data: `User selected: ${selected}`,
+      renderData: { question: input.question, selected },
+    };
+  },
+  render({ props, resolve }) {
+    return (
+      <div>
+        <p>{props.question}</p>
+        {props.options.map(opt => (
+          <button key={opt.value} onClick={() => resolve(opt.value)}>
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    );
+  },
+  renderResult({ data }) {
+    const { question, selected } = data as { question: string; selected: string };
+    return <div><p>{question}</p><span>Selected: {selected}</span></div>;
+  },
+});
 
 export const gloveClient = new GloveClient({
   endpoint: "/api/chat",
   systemPrompt: "You are a helpful assistant...",
-  tools: [
-    {
-      name: "ask_preference",
-      description: "Ask user to pick from options",
-      inputSchema: z.object({
-        question: z.string(),
-        options: z.array(z.object({ label: z.string(), value: z.string() })),
-      }),
-      async do(input, display) {
-        return await display.pushAndWait({ input });
-      },
-      render({ data, resolve }) {
-        const { question, options } = data as any;
-        return (
-          <div>
-            <p>{question}</p>
-            {options.map((opt: any) => (
-              <button key={opt.value} onClick={() => resolve(opt.value)}>
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        );
-      },
-    },
-  ],
+  tools: [askPreference],
 });
 ```
 
@@ -270,46 +283,252 @@ const agent = glove.build();
 
 ---
 
-## Pattern: Colocated Renderers with pushAndWait + pushAndForget
+## Pattern: Type-Safe Tools with `defineTool`
 
-From the coffee example — a tool that shows products AND waits for selection:
+Use `defineTool` for tools with display UI. It provides typed `props`, typed `resolve`, and typed `display.pushAndWait`:
 
 ```tsx
-const showProducts: ToolConfig = {
-  name: "show_products",
-  description: "Display product cards for browsing",
-  inputSchema: z.object({
-    product_ids: z.array(z.string()),
-    prompt: z.string().optional(),
-  }),
+import { defineTool } from "glove-react";
+import { z } from "zod";
+
+const inputSchema = z.object({
+  question: z.string(),
+  options: z.array(z.object({ label: z.string(), value: z.string() })),
+});
+
+const askPreferenceTool = defineTool({
+  name: "ask_preference",
+  description: "Present options for user selection",
+  inputSchema,
+  displayPropsSchema: inputSchema,         // Same shape as input for this tool
+  resolveSchema: z.string(),               // User returns a string value
+  displayStrategy: "hide-on-complete",     // Hide after user responds
   async do(input, display) {
-    const products = getProducts(input.product_ids);
-    // Blocks until user picks a product or action
-    return await display.pushAndWait({ input: { products, prompt: input.prompt } });
+    const selected = await display.pushAndWait(input);  // TypedDisplay — typed!
+    const option = input.options.find(o => o.value === selected);
+    return {
+      status: "success" as const,
+      data: `User selected: ${selected}`,          // Sent to AI model
+      renderData: { question: input.question, selected: option },  // Client-only
+    };
   },
-  render({ data, resolve }) {
-    const { products, prompt } = data as any;
+  render({ props, resolve }) {  // props is typed from displayPropsSchema
     return (
       <div>
-        {prompt && <p>{prompt}</p>}
-        <div style={{ display: "flex", gap: 12, overflowX: "auto" }}>
-          {products.map((p: any) => (
-            <div key={p.id} style={{ border: "1px solid #333", padding: 12, borderRadius: 8 }}>
-              <h4>{p.name}</h4>
-              <p>{p.origin} — ${p.price}</p>
-              <button onClick={() => resolve({ productId: p.id, action: "select" })}>
-                Select
-              </button>
-              <button onClick={() => resolve({ productId: p.id, action: "add" })}>
-                Add to bag
-              </button>
-            </div>
-          ))}
-        </div>
+        <p>{props.question}</p>
+        {props.options.map(opt => (
+          <button key={opt.value} onClick={() => resolve(opt.value)}>
+            {opt.label}
+          </button>
+        ))}
       </div>
     );
   },
+  renderResult({ data }) {  // Renders from history using renderData
+    const { question, selected } = data as {
+      question: string;
+      selected: { label: string; value: string };
+    };
+    return (
+      <div>
+        <p>{question}</p>
+        <span style={{ fontWeight: 600 }}>{selected.label}</span>
+      </div>
+    );
+  },
+});
+```
+
+Tools without display stay as raw `ToolConfig`:
+
+```typescript
+const getDateTool: ToolConfig = {
+  name: "get_date",
+  description: "Get today's date",
+  inputSchema: z.object({}),
+  async do() {
+    return { status: "success", data: new Date().toLocaleDateString() };
+  },
 };
+```
+
+---
+
+## Pattern: Headless Rendering with `<Render>`
+
+The `<Render>` component replaces manual `timeline.map()` / `slots.map(renderSlot)` rendering:
+
+```tsx
+import { useGlove, Render } from "glove-react";
+import type { MessageRenderProps, StreamingRenderProps, ToolStatusRenderProps } from "glove-react";
+
+function renderMessage({ entry }: MessageRenderProps) {
+  return (
+    <div className={entry.kind === "user" ? "user-msg" : "agent-msg"}>
+      {entry.text}
+    </div>
+  );
+}
+
+function renderToolStatus({ entry, hasSlot }: ToolStatusRenderProps) {
+  if (hasSlot) return null;  // Hide when slot/renderResult is showing
+  return <div className="tool-pill">{entry.name}: {entry.status}</div>;
+}
+
+export default function Chat() {
+  const glove = useGlove();
+
+  return (
+    <Render
+      glove={glove}
+      strategy="interleaved"
+      renderMessage={renderMessage}
+      renderToolStatus={renderToolStatus}
+      renderStreaming={({ text }) => <div className="streaming">{text}</div>}
+      renderInput={({ send, busy }) => (
+        <input
+          disabled={busy}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { send(e.currentTarget.value); e.currentTarget.value = ""; }
+          }}
+        />
+      )}
+    />
+  );
+}
+```
+
+**`<Render>` automatically:**
+- Filters slot visibility based on `displayStrategy`
+- Renders `renderResult` for completed tools with `renderData`
+- Interleaves slots inline next to their tool call entry
+
+---
+
+## Pattern: Display Strategies
+
+Control when slots are visible:
+
+```tsx
+// hide-on-complete — for interactive tools (forms, pickers, confirmations)
+defineTool({
+  displayStrategy: "hide-on-complete",
+  async do(input, display) {
+    const result = await display.pushAndWait(input);  // Slot visible while waiting
+    // After resolve, slot is hidden. renderResult takes over from history.
+    return { status: "success", data: "...", renderData: { result } };
+  },
+  renderResult({ data }) { /* compact read-only view */ },
+});
+
+// hide-on-new — for status panels that should only show the latest
+defineTool({
+  displayStrategy: "hide-on-new",
+  async do(input, display) {
+    await display.pushAndForget(input);  // Previous cart slot is auto-hidden
+    return { status: "success", data: "...", renderData: input };
+  },
+});
+
+// stay (default) — for persistent info cards
+defineTool({
+  displayStrategy: "stay",  // or omit — "stay" is the default
+  async do(input, display) {
+    await display.pushAndForget(input);  // Card stays visible forever
+    return { status: "success", data: "...", renderData: input };
+  },
+});
+```
+
+---
+
+## Pattern: renderData + renderResult for History
+
+The `renderData` / `renderResult` pattern enables rendering tool results from history (e.g. after page reload):
+
+```tsx
+defineTool({
+  name: "checkout",
+  displayStrategy: "hide-on-complete",
+  async do(input, display) {
+    const cart = getCart();
+    const result = await display.pushAndWait({ items: cart });
+    if (!result) return { status: "success", data: "Cancelled", renderData: { cancelled: true } };
+
+    // Email stays in renderData (client-only) — NOT sent to the AI model
+    return {
+      status: "success",
+      data: `Order placed. ${cart.length} items.`,      // AI sees this
+      renderData: { email: result.email, items: cart },  // Client-only
+    };
+  },
+  renderResult({ data }) {
+    const d = data as any;
+    if (d.cancelled) return <p>Checkout cancelled</p>;
+    return <div>Order confirmed — {d.email}</div>;
+  },
+});
+```
+
+**Data flow:**
+1. `do()` returns `{ status, data, renderData }`
+2. `data` → sent to AI model (via model adapter)
+3. `renderData` → stripped by model adapter, stored in message history
+4. On reload, `renderResult({ data: renderData })` renders the history view
+
+---
+
+## Pattern: Colocated Renderers with pushAndWait + pushAndForget
+
+From the coffee example — a tool that shows products AND waits for selection, using `defineTool`:
+
+```tsx
+const inputSchema = z.object({
+  product_ids: z.array(z.string()),
+  prompt: z.string().optional(),
+});
+
+const resolveSchema = z.object({
+  productId: z.string(),
+  action: z.enum(["select", "add"]),
+});
+
+const showProductsTool = defineTool({
+  name: "show_products",
+  description: "Display product cards for browsing",
+  inputSchema,
+  displayPropsSchema: inputSchema,
+  resolveSchema,
+  displayStrategy: "hide-on-complete",
+  async do(input, display) {
+    const selected = await display.pushAndWait(input);
+    const product = getProductById(selected.productId);
+    return {
+      status: "success" as const,
+      data: `User ${selected.action === "add" ? "added" : "selected"} ${product.name}`,
+      renderData: { productName: product.name, action: selected.action, price: product.price },
+    };
+  },
+  render({ props, resolve }) {
+    const products = getProductsByIds(props.product_ids);
+    return (
+      <div style={{ display: "flex", gap: 12, overflowX: "auto" }}>
+        {products.map(p => (
+          <div key={p.id}>
+            <h4>{p.name}</h4>
+            <p>{p.origin} — ${p.price}</p>
+            <button onClick={() => resolve({ productId: p.id, action: "select" })}>Select</button>
+            <button onClick={() => resolve({ productId: p.id, action: "add" })}>Add to bag</button>
+          </div>
+        ))}
+      </div>
+    );
+  },
+  renderResult({ data }) {
+    const { action, productName, price } = data as any;
+    return <div>{action === "add" ? "Added" : "Selected"} {productName} — ${price}</div>;
+  },
+});
 ```
 
 ---

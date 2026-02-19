@@ -16,7 +16,7 @@ import type {
 } from "glove-react";
 import { createCoffeeTools, type CartOps } from "../lib/tools";
 import { getProductById, type CartItem } from "../lib/products";
-import { ChatHeader } from "./chat-header";
+import { RightPanel } from "./right-panel";
 import { ChatInput } from "./chat-input";
 import { EmptyState } from "./empty-state";
 import { CoffeeIcon } from "./icons";
@@ -76,9 +76,20 @@ function renderToolStatus({ entry }: ToolStatusRenderProps): ReactNode {
 
 // ─── Chat orchestrator ──────────────────────────────────────────────────────
 
-export default function Chat() {
+interface ChatProps {
+  sessionId: string;
+  onFirstMessage?: (sessionId: string, text: string) => void;
+}
+
+export default function Chat({ sessionId, onFirstMessage }: ChatProps) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const namedRef = useRef(false);
+
+  // Reset named tracking when session changes
+  useEffect(() => {
+    namedRef.current = false;
+  }, [sessionId]);
 
   // ── Cart state ────────────────────────────────────────────────────────
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -109,8 +120,8 @@ export default function Chat() {
   // ── Tools (stable, created once) ──────────────────────────────────────
   const tools = useMemo(() => createCoffeeTools(cartOps), [cartOps]);
 
-  // ── Glove hook ────────────────────────────────────────────────────────
-  const glove = useGlove({ tools });
+  // ── Glove hook — sessionId drives store resolution ──────────────────
+  const glove = useGlove({ tools, sessionId });
   const { timeline, streamingText, busy, stats, slots, sendMessage, abort } =
     glove;
 
@@ -130,63 +141,80 @@ export default function Chat() {
       if (!text || busy) return;
       setInput("");
       sendMessage(text);
+
+      // Auto-name the session after the first user message
+      if (!namedRef.current && onFirstMessage) {
+        namedRef.current = true;
+        const name = text.length > 40 ? text.slice(0, 40) + "..." : text;
+        onFirstMessage(sessionId, name);
+      }
     },
-    [input, busy, sendMessage],
+    [input, busy, sendMessage, sessionId, onFirstMessage],
   );
 
   const handleSuggestion = useCallback(
     (text: string) => {
       if (busy) return;
       sendMessage(text);
+
+      if (!namedRef.current && onFirstMessage) {
+        namedRef.current = true;
+        const name = text.length > 40 ? text.slice(0, 40) + "..." : text;
+        onFirstMessage(sessionId, name);
+      }
     },
-    [busy, sendMessage],
+    [busy, sendMessage, sessionId, onFirstMessage],
   );
 
   return (
-    <div className="chat-container">
-      <ChatHeader cart={cart} stats={stats} />
-
-      {timeline.length === 0 && !busy ? (
-        <div className="chat-messages">
-          <div className="chat-messages-inner">
-            <EmptyState onSuggestion={handleSuggestion} />
-          </div>
-        </div>
-      ) : (
-        <div ref={scrollRef} className="chat-messages">
-          <Render
-            glove={glove}
-            strategy="interleaved"
-            renderMessage={renderMessage}
-            renderStreaming={renderStreaming}
-            renderToolStatus={renderToolStatus}
-            renderInput={() => null}
-            className="chat-messages-inner"
-          />
-
-          {/* Typing indicator */}
-          {busy && !streamingText && slots.length === 0 && (
-            <div className="typing-indicator">
-              <div className="agent-avatar">
-                <CoffeeIcon color="#3d5a3d" size={14} />
-              </div>
-              <div className="typing-dots">
-                <div className="typing-dot" />
-                <div className="typing-dot" />
-                <div className="typing-dot" />
-              </div>
+    <>
+      {/* ── Chat column ──────────────────────────────────── */}
+      <div className="chat-main">
+        {timeline.length === 0 && !busy ? (
+          <div className="chat-messages">
+            <div className="chat-messages-inner">
+              <EmptyState onSuggestion={handleSuggestion} />
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        ) : (
+          <div ref={scrollRef} className="chat-messages">
+            <Render
+              glove={glove}
+              strategy="interleaved"
+              renderMessage={renderMessage}
+              renderStreaming={renderStreaming}
+              renderToolStatus={renderToolStatus}
+              renderInput={() => null}
+              className="chat-messages-inner"
+            />
 
-      <ChatInput
-        input={input}
-        setInput={setInput}
-        busy={busy}
-        onSubmit={handleSubmit}
-        onAbort={abort}
-      />
-    </div>
+            {/* Typing indicator */}
+            {busy && !streamingText && slots.length === 0 && (
+              <div className="typing-indicator">
+                <div className="agent-avatar">
+                  <CoffeeIcon color="#3d5a3d" size={14} />
+                </div>
+                <div className="typing-dots">
+                  <div className="typing-dot" />
+                  <div className="typing-dot" />
+                  <div className="typing-dot" />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <ChatInput
+          input={input}
+          setInput={setInput}
+          busy={busy}
+          onSubmit={handleSubmit}
+          onAbort={abort}
+        />
+      </div>
+
+      {/* ── Right panel ──────────────────────────────────── */}
+      <RightPanel cart={cart} timeline={timeline} stats={stats} />
+    </>
   );
 }

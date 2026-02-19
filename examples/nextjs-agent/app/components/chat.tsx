@@ -1,37 +1,125 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { useGlove } from "glove-react";
+import { useState, useRef, useEffect, useCallback, type ReactNode } from "react";
+import { useGlove, Render } from "glove-react";
+import type {
+  MessageRenderProps,
+  StreamingRenderProps,
+  ToolStatusRenderProps,
+  InputRenderProps,
+} from "glove-react";
 
-// ─── Chat component ──────────────────────────────────────────────────────────
+// ─── Render callbacks ───────────────────────────────────────────────────────
+
+function renderMessage({ entry }: MessageRenderProps): ReactNode {
+  if (entry.kind === "user") {
+    return (
+      <div className="message user-message">
+        <div className="message-content">{entry.text}</div>
+      </div>
+    );
+  }
+  return (
+    <div className="message agent-message">
+      <div className="message-content">{entry.text}</div>
+    </div>
+  );
+}
+
+function renderStreaming({ text }: StreamingRenderProps): ReactNode {
+  return (
+    <div className="message agent-message streaming">
+      <div className="message-content">{text}</div>
+    </div>
+  );
+}
+
+function renderToolStatus({ entry, hasSlot }: ToolStatusRenderProps): ReactNode {
+  // Hide the tool status pill when there is a renderResult or active slot
+  // showing for this tool — keeps things clean
+  if (hasSlot) return null;
+
+  return (
+    <div className="tool-entry">
+      <div className={`tool-badge ${entry.status}`}>
+        {entry.status === "running"
+          ? "..."
+          : entry.status === "success"
+            ? "ok"
+            : "err"}
+      </div>
+      <div className="tool-info">
+        <span className="tool-name">{entry.name}</span>
+        {entry.output && (
+          <span className="tool-output">{entry.output}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Chat component ─────────────────────────────────────────────────────────
 
 export default function Chat() {
   const [input, setInput] = useState("");
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const {
-    timeline,
-    streamingText,
-    busy,
-    stats,
-    slots,
-    sendMessage,
-    abort,
-    renderSlot,
-  } = useGlove();
+  const glove = useGlove();
+  const { timeline, streamingText, busy, stats, slots, sendMessage, abort } =
+    glove;
 
   // Auto-scroll on new content
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: "smooth",
+    });
   }, [timeline, streamingText, slots]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const text = input.trim();
-    if (!text || busy) return;
-    setInput("");
-    sendMessage(text);
-  };
+  const handleSend = useCallback(
+    (text: string) => {
+      if (!text.trim() || busy) return;
+      setInput("");
+      sendMessage(text.trim());
+    },
+    [busy, sendMessage],
+  );
+
+  const renderInput = useCallback(
+    ({ send, busy: isBusy, abort: doAbort }: InputRenderProps): ReactNode => {
+      return (
+        <form
+          className="chat-input"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const text = input.trim();
+            if (!text || isBusy) return;
+            setInput("");
+            send(text);
+          }}
+        >
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Type a message..."
+            disabled={isBusy}
+            autoFocus
+          />
+          {isBusy ? (
+            <button type="button" onClick={doAbort} className="abort-btn">
+              Stop
+            </button>
+          ) : (
+            <button type="submit" disabled={!input.trim()}>
+              Send
+            </button>
+          )}
+        </form>
+      );
+    },
+    [input],
+  );
 
   return (
     <div className="chat-container">
@@ -45,8 +133,8 @@ export default function Chat() {
       </header>
 
       {/* Timeline + Slots */}
-      <div className="chat-messages">
-        {timeline.length === 0 && !busy && (
+      {timeline.length === 0 && !busy ? (
+        <div className="chat-messages">
           <div className="empty-state">
             <p>Where are we headed?</p>
             <p className="hint">
@@ -54,83 +142,28 @@ export default function Chat() {
               &quot;Help me plan a 5-day Italy road trip for two&quot;
             </p>
           </div>
-        )}
+        </div>
+      ) : (
+        <div ref={scrollRef} className="chat-messages">
+          <Render
+            glove={glove}
+            strategy="interleaved"
+            renderMessage={renderMessage}
+            renderStreaming={renderStreaming}
+            renderToolStatus={renderToolStatus}
+            renderInput={() => null}
+            style={{ display: "flex", flexDirection: "column", gap: 12 }}
+          />
 
-        {timeline.map((entry, i) => {
-          switch (entry.kind) {
-            case "user":
-              return (
-                <div key={i} className="message user-message">
-                  <div className="message-content">{entry.text}</div>
-                </div>
-              );
-
-            case "agent_text":
-              return (
-                <div key={i} className="message agent-message">
-                  <div className="message-content">{entry.text}</div>
-                </div>
-              );
-
-            case "tool":
-              return (
-                <div key={i} className="tool-entry">
-                  <div className={`tool-badge ${entry.status}`}>
-                    {entry.status === "running"
-                      ? "..."
-                      : entry.status === "success"
-                        ? "ok"
-                        : "err"}
-                  </div>
-                  <div className="tool-info">
-                    <span className="tool-name">{entry.name}</span>
-                    {entry.output && (
-                      <span className="tool-output">{entry.output}</span>
-                    )}
-                  </div>
-                </div>
-              );
-          }
-        })}
-
-        {/* Active display slots — rendered by colocated tool renderers */}
-        {slots.map(renderSlot)}
-
-        {/* Streaming text */}
-        {streamingText && (
-          <div className="message agent-message streaming">
-            <div className="message-content">{streamingText}</div>
-          </div>
-        )}
-
-        {/* Busy indicator (only when no streaming and no waiting slots) */}
-        {busy && !streamingText && slots.length === 0 && (
-          <div className="thinking">Thinking...</div>
-        )}
-
-        <div ref={bottomRef} />
-      </div>
+          {/* Busy indicator (only when no streaming and no waiting slots) */}
+          {busy && !streamingText && slots.length === 0 && (
+            <div className="thinking">Thinking...</div>
+          )}
+        </div>
+      )}
 
       {/* Input */}
-      <form className="chat-input" onSubmit={handleSubmit}>
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Type a message..."
-          disabled={busy}
-          autoFocus
-        />
-        {busy ? (
-          <button type="button" onClick={abort} className="abort-btn">
-            Stop
-          </button>
-        ) : (
-          <button type="submit" disabled={!input.trim()}>
-            Send
-          </button>
-        )}
-      </form>
+      {renderInput({ send: handleSend, busy, abort })}
     </div>
   );
 }

@@ -386,8 +386,8 @@ function Chat() {
           ],
           [
             "slots",
-            "Slot<unknown>[]",
-            "Active display stack slots pushed by tools via pushAndWait or pushAndForget.",
+            "EnhancedSlot[]",
+            "Active display stack slots with metadata (toolName, displayStrategy, status).",
           ],
           [
             "stats",
@@ -418,6 +418,11 @@ function Chat() {
             "renderSlot(slot)",
             "ReactNode",
             "Render a slot using its associated renderer. Returns null if no renderer is registered for the slot's renderer key.",
+          ],
+          [
+            "renderToolResult(entry)",
+            "ReactNode",
+            "Render a completed tool result from the timeline using renderResult. Uses renderData to show a read-only view. Returns null if no renderResult is registered.",
           ],
         ]}
       />
@@ -478,13 +483,23 @@ function DebugPanel() {
           ],
           [
             "do",
-            "(input: I, display: ToolDisplay) => Promise<unknown>",
-            "The tool's implementation. Receives validated input and a display adapter for pushing UI slots. Return value is sent back to the model as the tool result.",
+            "(input: I, display: ToolDisplay) => Promise<ToolResultData>",
+            "The tool's implementation. Receives validated input and a display adapter for pushing UI slots. Returns ToolResultData with { status, data, renderData? }. data is sent to the AI; renderData stays client-only.",
           ],
           [
             "render?",
             "(props: SlotRenderProps) => ReactNode",
             "Optional React component for rendering this tool's display slots. When provided, the framework auto-registers a renderer keyed by the tool name.",
+          ],
+          [
+            "renderResult?",
+            "(props: ToolResultRenderProps) => ReactNode",
+            "Secondary renderer for showing tool results from history. Receives renderData from the tool result.",
+          ],
+          [
+            "displayStrategy?",
+            "SlotDisplayStrategy",
+            "Controls slot visibility lifecycle. See SlotDisplayStrategy.",
           ],
           [
             "requiresPermission?",
@@ -509,6 +524,136 @@ const weatherTool: ToolConfig<{ city: string }> = {
 };`}
         language="typescript"
       />
+
+      {/* ------------------------------------------------------------------ */}
+      <h2 id="define-tool">defineTool</h2>
+
+      <p>
+        Type-safe tool definition helper that provides typed{" "}
+        <code>props</code> in <code>render()</code>, typed{" "}
+        <code>resolve</code> in <code>render()</code>, and typed{" "}
+        <code>display.pushAndWait()</code> /{" "}
+        <code>display.pushAndForget()</code>. Preferred over raw{" "}
+        <code>ToolConfig</code> for tools with display UI.
+      </p>
+
+      <h3>Signature</h3>
+
+      <CodeBlock
+        code={`function defineTool<I extends z.ZodType, D extends z.ZodType, R extends z.ZodType = z.ZodVoid>(
+  config: DefineToolConfig<I, D, R>
+): ToolConfig<z.infer<I>>`}
+        language="typescript"
+      />
+
+      <h3>DefineToolConfig</h3>
+
+      <PropTable
+        headers={["Property", "Type", "Description"]}
+        rows={[
+          [
+            "name",
+            "string",
+            "Unique tool name.",
+          ],
+          [
+            "description",
+            "string",
+            "Description for the AI.",
+          ],
+          [
+            "inputSchema",
+            "z.ZodType<I>",
+            "Zod schema for tool input.",
+          ],
+          [
+            "displayPropsSchema?",
+            "z.ZodType<D>",
+            "Zod schema for display props passed to render. Optional, but recommended for tools with display UI.",
+          ],
+          [
+            "resolveSchema?",
+            "z.ZodType<R>",
+            "Zod schema for the resolve value. Defaults to z.ZodVoid.",
+          ],
+          [
+            "displayStrategy?",
+            "SlotDisplayStrategy",
+            "Controls slot visibility lifecycle. See SlotDisplayStrategy.",
+          ],
+          [
+            "requiresPermission?",
+            "boolean",
+            "When true, checks store for permission before executing.",
+          ],
+          [
+            "do",
+            "(input: z.infer<I>, display: TypedDisplay<z.infer<D>, z.infer<R>>) => Promise<unknown>",
+            "Tool implementation. Return value auto-wrapped into ToolResultData if raw.",
+          ],
+          [
+            "render?",
+            "(props: { props: z.infer<D>; resolve: (value: z.infer<R>) => void; reject: (reason?: string) => void }) => ReactNode",
+            "Renders display slots with typed props and resolve.",
+          ],
+          [
+            "renderResult?",
+            '(props: { data: unknown; output?: string; status: "success" | "error" }) => ReactNode',
+            "Renders completed tool results from history using renderData.",
+          ],
+        ]}
+      />
+
+      <h3>Example</h3>
+
+      <CodeBlock
+        code={`import { defineTool } from "glove-react";
+import { z } from "zod";
+
+const askPreference = defineTool({
+  name: "ask_preference",
+  description: "Ask the user to pick a preference.",
+  inputSchema: z.object({
+    question: z.string(),
+    options: z.array(z.string()),
+  }),
+  displayPropsSchema: z.object({
+    question: z.string(),
+    options: z.array(z.string()),
+  }),
+  resolveSchema: z.object({ choice: z.string() }),
+  displayStrategy: "hide-on-complete",
+
+  async do(input, display) {
+    const result = await display.pushAndWait({
+      question: input.question,
+      options: input.options,
+    });
+    return { status: "success", data: \`User chose: \${result.choice}\` };
+  },
+
+  render({ props, resolve }) {
+    return (
+      <div>
+        <p>{props.question}</p>
+        {props.options.map((opt) => (
+          <button key={opt} onClick={() => resolve({ choice: opt })}>
+            {opt}
+          </button>
+        ))}
+      </div>
+    );
+  },
+});`}
+        language="tsx"
+      />
+
+      <p>
+        <strong>Note:</strong> <code>defineTool</code>&apos;s{" "}
+        <code>displayPropsSchema</code> is optional but recommended for tools
+        with display UI. Tools without display should use raw{" "}
+        <code>ToolConfig</code> instead.
+      </p>
 
       {/* ------------------------------------------------------------------ */}
       <h2 id="tool-display">ToolDisplay</h2>
@@ -560,6 +705,31 @@ const weatherTool: ToolConfig<{ city: string }> = {
       />
 
       {/* ------------------------------------------------------------------ */}
+      <h2 id="typed-display">TypedDisplay</h2>
+
+      <p>
+        Typed display adapter provided to <code>defineTool</code>&apos;s{" "}
+        <code>do()</code> function. Eliminates the <code>renderer</code> field
+        and provides full type safety.
+      </p>
+
+      <PropTable
+        headers={["Method", "Returns", "Description"]}
+        rows={[
+          [
+            "pushAndWait(input: D)",
+            "Promise<R>",
+            "Push a slot and block until resolved. Input typed by displayPropsSchema, return typed by resolveSchema.",
+          ],
+          [
+            "pushAndForget(input: D)",
+            "Promise<string>",
+            "Push a slot without blocking. Returns slot ID. Input typed by displayPropsSchema.",
+          ],
+        ]}
+      />
+
+      {/* ------------------------------------------------------------------ */}
       <h2 id="slot-render-props">SlotRenderProps</h2>
 
       <p>
@@ -580,6 +750,40 @@ const weatherTool: ToolConfig<{ city: string }> = {
             "(value: unknown) => void",
             "Call this to resolve the slot. For pushAndWait slots, the value is returned to the tool. For pushAndForget slots, this removes the slot from the stack.",
           ],
+          [
+            "reject",
+            "(reason?: string) => void",
+            "Call this to reject the slot. For pushAndWait slots, this causes the tool's await to throw.",
+          ],
+        ]}
+      />
+
+      {/* ------------------------------------------------------------------ */}
+      <h2 id="tool-result-render-props">ToolResultRenderProps</h2>
+
+      <p>
+        Props passed to a tool&apos;s <code>renderResult</code> function when
+        rendering completed tool results from history.
+      </p>
+
+      <PropTable
+        headers={["Property", "Type", "Description"]}
+        rows={[
+          [
+            "data",
+            "T",
+            "The renderData from the tool result's ToolResultData. Client-only, never sent to AI.",
+          ],
+          [
+            "output?",
+            "string",
+            "The string output of the tool.",
+          ],
+          [
+            "status",
+            '"success" | "error"',
+            "The tool execution status.",
+          ],
         ]}
       />
 
@@ -595,7 +799,7 @@ const weatherTool: ToolConfig<{ city: string }> = {
         code={`type TimelineEntry =
   | { kind: "user"; text: string; images?: string[] }
   | { kind: "agent_text"; text: string }
-  | { kind: "tool"; id: string; name: string; input: unknown; status: "running" | "success" | "error"; output?: string };`}
+  | { kind: "tool"; id: string; name: string; input: unknown; status: "running" | "success" | "error"; output?: string; renderData?: unknown };`}
         language="typescript"
       />
 
@@ -614,8 +818,106 @@ const weatherTool: ToolConfig<{ city: string }> = {
           ],
           [
             '"tool"',
-            "id, name, input, status, output?",
-            "A tool invocation. Shows the tool name, its input arguments, execution status, and optional output.",
+            "id, name, input, status, output?, renderData?",
+            "A tool invocation. Shows the tool name, its input arguments, execution status, optional output, and optional client-only renderData.",
+          ],
+        ]}
+      />
+
+      {/* ------------------------------------------------------------------ */}
+      <h2 id="tool-entry">ToolEntry</h2>
+
+      <p>
+        Convenience type that extracts the tool variant from{" "}
+        <code>TimelineEntry</code>.
+      </p>
+
+      <CodeBlock
+        code={`type ToolEntry = Extract<TimelineEntry, { kind: "tool" }>;`}
+        language="typescript"
+      />
+
+      {/* ------------------------------------------------------------------ */}
+      <h2 id="slot-display-strategy">SlotDisplayStrategy</h2>
+
+      <p>
+        Controls how a tool&apos;s display slots behave over time. Set via{" "}
+        <code>displayStrategy</code> on <code>ToolConfig</code> or{" "}
+        <code>defineTool</code>.
+      </p>
+
+      <CodeBlock
+        code={`type SlotDisplayStrategy = "stay" | "hide-on-complete" | "hide-on-new";`}
+        language="typescript"
+      />
+
+      <PropTable
+        headers={["Kind", "Behavior", "Use"]}
+        rows={[
+          [
+            '"stay"',
+            "Slot always visible (default)",
+            "Info cards, persistent results",
+          ],
+          [
+            '"hide-on-complete"',
+            "Hidden when slot is resolved/rejected",
+            "Forms, confirmations, pickers",
+          ],
+          [
+            '"hide-on-new"',
+            "Hidden when newer slot from same tool appears",
+            "Cart summaries, status panels",
+          ],
+        ]}
+      />
+
+      {/* ------------------------------------------------------------------ */}
+      <h2 id="enhanced-slot">EnhancedSlot</h2>
+
+      <p>
+        Extended slot type with metadata. Returned by{" "}
+        <code>useGlove</code>&apos;s <code>slots</code> array.
+      </p>
+
+      <CodeBlock
+        code={`interface EnhancedSlot extends Slot<unknown> {
+  toolName: string;
+  toolCallId: string;
+  createdAt: number;
+  displayStrategy: SlotDisplayStrategy;
+  status: "pending" | "resolved" | "rejected";
+}`}
+        language="typescript"
+      />
+
+      <PropTable
+        headers={["Property", "Type", "Description"]}
+        rows={[
+          [
+            "toolName",
+            "string",
+            "Name of the tool that created this slot.",
+          ],
+          [
+            "toolCallId",
+            "string",
+            "ID of the tool call that created this slot.",
+          ],
+          [
+            "createdAt",
+            "number",
+            "Timestamp when the slot was created.",
+          ],
+          [
+            "displayStrategy",
+            "SlotDisplayStrategy",
+            "Visibility strategy for this slot.",
+          ],
+          [
+            "status",
+            '"pending" | "resolved" | "rejected"',
+            "Current resolution status.",
           ],
         ]}
       />
@@ -650,8 +952,8 @@ const weatherTool: ToolConfig<{ city: string }> = {
           ["tasks", "Task[]", "Current task list maintained by the agent."],
           [
             "slots",
-            "Slot<unknown>[]",
-            "Active display stack slots awaiting render.",
+            "EnhancedSlot[]",
+            "Active display stack slots with metadata (toolName, displayStrategy, status).",
           ],
           [
             "stats",
@@ -1053,6 +1355,294 @@ for await (const event of parseSSEStream(response)) {
       />
 
       {/* ------------------------------------------------------------------ */}
+      <h2 id="glove-handle">GloveHandle</h2>
+
+      <p>
+        The interface consumed by the <code>&lt;Render&gt;</code> component.
+        This is a subset of <code>UseGloveReturn</code> that includes only the
+        properties needed for rendering.
+      </p>
+
+      <PropTable
+        headers={["Property", "Type", "Description"]}
+        rows={[
+          [
+            "timeline",
+            "TimelineEntry[]",
+            "Ordered conversation timeline entries.",
+          ],
+          [
+            "streamingText",
+            "string",
+            "Current streaming text buffer. Empty when idle.",
+          ],
+          [
+            "busy",
+            "boolean",
+            "Whether the agent is currently processing a request.",
+          ],
+          [
+            "slots",
+            "EnhancedSlot[]",
+            "Active display stack slots with metadata.",
+          ],
+          [
+            "sendMessage(text, images?)",
+            "void",
+            "Send a user message to the agent.",
+          ],
+          [
+            "abort()",
+            "void",
+            "Abort the current agent request.",
+          ],
+          [
+            "renderSlot(slot)",
+            "ReactNode",
+            "Render a slot using its associated renderer.",
+          ],
+          [
+            "renderToolResult(entry)",
+            "ReactNode",
+            "Render a completed tool result using renderResult.",
+          ],
+          [
+            "resolveSlot(slotId, value)",
+            "void",
+            "Resolve a pushAndWait slot with a value.",
+          ],
+          [
+            "rejectSlot(slotId, reason?)",
+            "void",
+            "Reject a pushAndWait slot with an optional reason.",
+          ],
+        ]}
+      />
+
+      {/* ------------------------------------------------------------------ */}
+      <h2 id="render-component">Render</h2>
+
+      <p>
+        Headless render component that replaces manual{" "}
+        <code>timeline.map()</code> / <code>slots.map(renderSlot)</code>{" "}
+        rendering. Handles slot visibility filtering, renderResult rendering
+        for completed tools, and slot interleaving.
+      </p>
+
+      <CodeBlock
+        code={`import { Render } from "glove-react";`}
+        language="typescript"
+      />
+
+      <h3>RenderProps</h3>
+
+      <PropTable
+        headers={["Prop", "Type", "Description"]}
+        rows={[
+          [
+            "glove",
+            "GloveHandle",
+            "Required. Return value of useGlove().",
+          ],
+          [
+            "strategy?",
+            "RenderStrategy",
+            'Where slots appear relative to conversation. Default: "interleaved".',
+          ],
+          [
+            "renderMessage?",
+            "(props: MessageRenderProps) => ReactNode",
+            "Render a user or agent_text entry.",
+          ],
+          [
+            "renderToolStatus?",
+            "(props: ToolStatusRenderProps) => ReactNode",
+            "Render a tool status indicator. Default: hidden.",
+          ],
+          [
+            "renderStreaming?",
+            "(props: StreamingRenderProps) => ReactNode",
+            "Render the streaming text buffer.",
+          ],
+          [
+            "renderInput?",
+            "(props: InputRenderProps) => ReactNode",
+            "Render the input area.",
+          ],
+          [
+            "renderSlotContainer?",
+            "(props: SlotContainerRenderProps) => ReactNode",
+            "Override slot container for slots-before/slots-after. Default: vertical stack.",
+          ],
+          [
+            "as?",
+            "keyof JSX.IntrinsicElements",
+            'Wrapper element. Default: "div".',
+          ],
+          [
+            "className?",
+            "string",
+            "className on wrapper.",
+          ],
+          [
+            "style?",
+            "CSSProperties",
+            "style on wrapper.",
+          ],
+        ]}
+      />
+
+      <h3>RenderStrategy</h3>
+
+      <CodeBlock
+        code={`type RenderStrategy = "interleaved" | "slots-before" | "slots-after" | "slots-only";`}
+        language="typescript"
+      />
+
+      <h3>MessageRenderProps</h3>
+
+      <PropTable
+        headers={["Property", "Type", "Description"]}
+        rows={[
+          [
+            "entry",
+            'Extract<TimelineEntry, { kind: "user" | "agent_text" }>',
+            "The timeline entry being rendered.",
+          ],
+          [
+            "index",
+            "number",
+            "Index of this entry in the timeline.",
+          ],
+          [
+            "isLast",
+            "boolean",
+            "True when this is the last entry in the timeline and no streaming text is active.",
+          ],
+        ]}
+      />
+
+      <h3>ToolStatusRenderProps</h3>
+
+      <PropTable
+        headers={["Property", "Type", "Description"]}
+        rows={[
+          [
+            "entry",
+            "ToolEntry",
+            "The tool timeline entry.",
+          ],
+          [
+            "index",
+            "number",
+            "Index of this entry in the timeline.",
+          ],
+          [
+            "hasSlot",
+            "boolean",
+            "True when this tool call has an associated visible display slot.",
+          ],
+        ]}
+      />
+
+      <h3>StreamingRenderProps</h3>
+
+      <PropTable
+        headers={["Property", "Type", "Description"]}
+        rows={[
+          [
+            "text",
+            "string",
+            "The accumulated streaming text buffer.",
+          ],
+        ]}
+      />
+
+      <h3>InputRenderProps</h3>
+
+      <PropTable
+        headers={["Property", "Type", "Description"]}
+        rows={[
+          [
+            "send",
+            "(text: string, images?: Array<{ data: string; media_type: string }>) => void",
+            "Send a user message. Mapped from useGlove's sendMessage.",
+          ],
+          [
+            "busy",
+            "boolean",
+            "Whether the agent is currently processing.",
+          ],
+          [
+            "abort",
+            "() => void",
+            "Abort the current request.",
+          ],
+        ]}
+      />
+
+      <h3>SlotContainerRenderProps</h3>
+
+      <PropTable
+        headers={["Property", "Type", "Description"]}
+        rows={[
+          [
+            "slots",
+            "EnhancedSlot[]",
+            "The visible slots to render.",
+          ],
+          [
+            "renderSlot",
+            "(slot: EnhancedSlot) => ReactNode",
+            "Render a single slot.",
+          ],
+        ]}
+      />
+
+      <h3>Example</h3>
+
+      <CodeBlock
+        code={`import { Render, useGlove } from "glove-react";
+
+function Chat() {
+  const glove = useGlove();
+
+  return (
+    <Render
+      glove={glove}
+      strategy="interleaved"
+      renderMessage={({ entry }) => (
+        <div className={entry.kind === "user" ? "user-msg" : "agent-msg"}>
+          {entry.text}
+        </div>
+      )}
+      renderToolStatus={({ entry, hasSlot }) => (
+        <div className="tool-status">
+          <span>{entry.name}: {entry.status}</span>
+          {hasSlot && <span> (has UI)</span>}
+        </div>
+      )}
+      renderStreaming={({ text }) => (
+        <div className="streaming">{text}</div>
+      )}
+      renderInput={({ busy, send }) => (
+        <form onSubmit={(e) => {
+          e.preventDefault();
+          const input = e.currentTarget.elements.namedItem("msg") as HTMLInputElement;
+          send(input.value);
+          input.value = "";
+        }}>
+          <input name="msg" disabled={busy} placeholder="Type a message..." />
+          <button type="submit" disabled={busy}>Send</button>
+        </form>
+      )}
+    />
+  );
+}`}
+        language="tsx"
+      />
+
+      {/* ------------------------------------------------------------------ */}
       <h2 id="re-exported-types">Re-exported Types</h2>
 
       <p>
@@ -1093,6 +1683,11 @@ for await (const event of parseSSEStream(response)) {
             "SubscriberAdapter",
             "glove-core",
             "Interface for event observers (logging, streaming, analytics).",
+          ],
+          [
+            "ToolResultData",
+            "glove-core",
+            "Return type for tool implementations with { status, data, renderData? }. data is sent to the AI; renderData stays client-only.",
           ],
         ]}
       />

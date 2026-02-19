@@ -90,6 +90,14 @@ export default function ConceptsPage() {
         definition.
       </p>
 
+      <p>
+        For tools with display UI, use <code>defineTool</code> from{" "}
+        <code>glove-react</code> — it provides typed display props, typed
+        resolve values, and colocated <code>renderResult</code> for history
+        rendering. See the{" "}
+        <a href="/docs/display-stack">Display Stack guide</a> for examples.
+      </p>
+
       <h2 id="the-display-stack">The Display Stack</h2>
 
       <p>
@@ -130,6 +138,17 @@ export default function ConceptsPage() {
       </p>
 
       <p>
+        Tools can also control when their display slots are visible using{" "}
+        <strong>display strategies</strong>:{" "}
+        <code>&quot;stay&quot;</code> (always visible),{" "}
+        <code>&quot;hide-on-complete&quot;</code> (hidden after the user
+        responds), and <code>&quot;hide-on-new&quot;</code> (hidden when a
+        newer slot from the same tool appears). The{" "}
+        <code>&lt;Render&gt;</code> component from <code>glove-react</code>{" "}
+        handles this visibility logic automatically.
+      </p>
+
+      <p>
         On the React side, the{" "}
         <a href="/docs/react#useglove">useGlove hook</a> exposes{" "}
         <code>slots</code> (the current stack) and{" "}
@@ -153,6 +172,16 @@ export default function ConceptsPage() {
         the tool&apos;s name to match the slot to the renderer. The{" "}
         <a href="/docs/react#useglove">useGlove hook</a> builds the renderer
         map and provides <code>renderSlot()</code> to your component.
+      </p>
+
+      <p>
+        For type-safe colocated renderers, use <code>defineTool</code>{" "}
+        instead of raw <code>ToolConfig</code>. It adds typed{" "}
+        <code>props</code> and <code>resolve</code> in the{" "}
+        <code>render</code> function, plus a <code>renderResult</code>{" "}
+        function for showing read-only views from history. See the{" "}
+        <a href="/docs/react#define-tool">React API reference</a> for
+        details.
       </p>
 
       <h2 id="adapters">Adapters</h2>

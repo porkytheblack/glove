@@ -35,7 +35,7 @@ Works with OpenAI, Anthropic, Google Gemini, OpenRouter, and more.
 | Package | Description | npm |
 |---------|-------------|-----|
 | [`glove-core`](packages/glove) | Core agent framework — builder, tools, model adapters, stores | [![npm](https://img.shields.io/npm/v/glove-core)](https://www.npmjs.com/package/glove-core) |
-| [`glove-react`](packages/react) | React hooks and client bindings | [![npm](https://img.shields.io/npm/v/glove-react)](https://www.npmjs.com/package/glove-react) |
+| [`glove-react`](packages/react) | React hooks, `<Render>` component, `defineTool`, client bindings | [![npm](https://img.shields.io/npm/v/glove-react)](https://www.npmjs.com/package/glove-react) |
 | [`glove-next`](packages/next) | Next.js API route handlers (SSE streaming) | [![npm](https://img.shields.io/npm/v/glove-next)](https://www.npmjs.com/package/glove-next) |
 
 ## Quick Start
@@ -279,11 +279,11 @@ Glove is built on five adapter interfaces. Swap any layer without changing appli
 
 ## Examples
 
-The repo includes two example agents:
+The repo includes four example agents:
 
 ### Weather Agent
 
-A simple terminal agent with weather lookup and activity suggestions.
+A simple terminal agent with weather lookup and activity suggestions using Ink.
 
 ```bash
 pnpm weather:agent
@@ -300,6 +300,22 @@ pnpm coding:agent
 # Server + web UI
 pnpm coding:server
 pnpm coding:client
+```
+
+### Next.js Trip Planner
+
+A trip planning agent using `defineTool`, `<Render>`, `renderResult`, and display strategies.
+
+```bash
+cd examples/nextjs-agent && pnpm dev
+```
+
+### Coffee Shop
+
+An e-commerce coffee ordering experience with product catalog, cart, and checkout — built with `defineTool`, `<Render>`, and display strategies.
+
+```bash
+cd examples/coffee && pnpm dev
 ```
 
 ## Claude Code Skill

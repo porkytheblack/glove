@@ -109,6 +109,77 @@ export const weatherTool: ToolConfig = {
       </p>
 
       {/* ------------------------------------------------------------------ */}
+      <h2>Using defineTool (recommended)</h2>
+
+      <p>
+        <code>defineTool</code> from <code>glove-react</code> is the
+        recommended way to create tools with display UI. It provides type
+        safety for display props and resolve values. Here is the same weather
+        tool rewritten with <code>defineTool</code>:
+      </p>
+
+      <CodeBlock
+        filename="lib/tools/weather.tsx"
+        language="tsx"
+        code={`import { defineTool } from "glove-react";
+import { z } from "zod";
+
+const inputSchema = z.object({
+  city: z.string().describe("The city to get weather for"),
+});
+
+export const weatherTool = defineTool({
+  name: "get_weather",
+  description: "Get the current weather for a city.",
+  inputSchema,
+  displayPropsSchema: z.object({
+    city: z.string(),
+    temperature: z.string(),
+    condition: z.string(),
+  }),
+  displayStrategy: "stay", // Card stays visible (default)
+  async do(input, display) {
+    const weather = await fetchWeather(input.city);
+    await display.pushAndForget(weather); // typed!
+    return {
+      status: "success" as const,
+      data: weather,
+      renderData: weather, // client-only, for renderResult
+    };
+  },
+  render({ props }) {
+    return (
+      <div style={{ padding: 16, border: "1px solid #333", borderRadius: 8 }}>
+        <h3>{props.city}</h3>
+        <p>{props.temperature} — {props.condition}</p>
+      </div>
+    );
+  },
+  renderResult({ data }) {
+    const { city, temperature, condition } = data as {
+      city: string; temperature: string; condition: string;
+    };
+    return (
+      <div style={{ padding: 16, border: "1px solid #333", borderRadius: 8 }}>
+        <h3>{city}</h3>
+        <p>{temperature} — {condition}</p>
+      </div>
+    );
+  },
+});`}
+      />
+
+      <p>
+        The <code>defineTool</code> version provides typed{" "}
+        <code>props</code> in <code>render()</code>, typed{" "}
+        <code>resolve</code> in <code>render()</code> for pushAndWait tools,
+        and typed <code>display.pushAndWait()</code> /{" "}
+        <code>display.pushAndForget()</code>. See the{" "}
+        <a href="/docs/react#define-tool">React API reference</a> for full
+        details.
+      </p>
+
+      {/* ------------------------------------------------------------------ */}
       <h2>Rendering slots in your app</h2>
 
       <p>
@@ -183,6 +254,49 @@ export default function Chat() {
         That&apos;s all the wiring you need. Every tool with a{" "}
         <code>render</code> function will now show its UI automatically when the
         AI calls it.
+      </p>
+
+      {/* ------------------------------------------------------------------ */}
+      <h2>Using the &lt;Render&gt; component</h2>
+
+      <p>
+        <code>&lt;Render&gt;</code> is a headless component that replaces
+        manual <code>timeline.map()</code> / <code>slots.map(renderSlot)</code>{" "}
+        rendering:
+      </p>
+
+      <CodeBlock
+        filename="app/page.tsx"
+        language="tsx"
+        code={`import { useGlove, Render } from "glove-react";
+
+export default function Chat() {
+  const glove = useGlove();
+
+  return (
+    <Render
+      glove={glove}
+      strategy="interleaved"
+      renderMessage={({ entry }) => (
+        <div>
+          <strong>{entry.kind === "user" ? "You" : "Assistant"}:</strong> {entry.text}
+        </div>
+      )}
+      renderStreaming={({ text }) => (
+        <div style={{ opacity: 0.7 }}><strong>Assistant:</strong> {text}</div>
+      )}
+    />
+  );
+}`}
+      />
+
+      <p>
+        <code>&lt;Render&gt;</code> automatically handles slot visibility based
+        on <code>displayStrategy</code>, renders{" "}
+        <code>renderResult</code> for completed tools, and interleaves slots
+        inline next to their tool call. See the{" "}
+        <a href="/docs/react#render-component">React API reference</a> for all
+        props.
       </p>
 
       {/* ------------------------------------------------------------------ */}
@@ -419,7 +533,7 @@ export const gloveClient = new GloveClient({
       <p>
         The <code>render</code> function receives a{" "}
         <a href="/docs/react#slot-render-props">SlotRenderProps</a> object with
-        two properties:
+        three properties:
       </p>
 
       <ul>
@@ -434,6 +548,11 @@ export const gloveClient = new GloveClient({
           <code>resolve()</code> becomes the return value in the{" "}
           <code>do</code> function. For <code>pushAndForget</code> slots,
           calling <code>resolve()</code> removes the slot from the stack.
+        </li>
+        <li>
+          <code>reject</code> — a function that rejects the slot. For{" "}
+          <code>pushAndWait</code> slots, this causes the promise in the{" "}
+          <code>do</code> function to reject. Use this for cancellation flows.
         </li>
       </ul>
 
@@ -473,6 +592,104 @@ export const gloveClient = new GloveClient({
       </table>
 
       {/* ------------------------------------------------------------------ */}
+      <h2>Display Strategies</h2>
+
+      <p>
+        Tools can control when their display slots are visible using{" "}
+        <code>displayStrategy</code>:
+      </p>
+
+      <ul>
+        <li>
+          <code>&quot;stay&quot;</code> (default) — Slot is always visible.
+          Use for persistent info cards and results.
+        </li>
+        <li>
+          <code>&quot;hide-on-complete&quot;</code> — Slot is hidden when
+          resolved or rejected. Use for forms, confirmations, and pickers.
+          The <code>renderResult</code> function takes over to show a compact
+          read-only view from history.
+        </li>
+        <li>
+          <code>&quot;hide-on-new&quot;</code> — Slot is hidden when a newer
+          slot from the same tool appears. Use for cart summaries or status
+          panels that should only show the latest version.
+        </li>
+      </ul>
+
+      <table className="pattern-table">
+        <thead>
+          <tr>
+            <th>Strategy</th>
+            <th>Slot visible</th>
+            <th>Use cases</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>&quot;stay&quot;</code></td>
+            <td>Always</td>
+            <td>Weather cards, search results, product grids</td>
+          </tr>
+          <tr>
+            <td><code>&quot;hide-on-complete&quot;</code></td>
+            <td>Until resolved / rejected</td>
+            <td>Confirmations, forms, preference pickers, approval dialogs</td>
+          </tr>
+          <tr>
+            <td><code>&quot;hide-on-new&quot;</code></td>
+            <td>Until a newer slot from the same tool appears</td>
+            <td>Cart summaries, status panels, progress indicators</td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* ------------------------------------------------------------------ */}
+      <h2>renderData and renderResult</h2>
+
+      <p>
+        When a tool completes, it often needs to leave behind a read-only view
+        of what happened. The <code>renderData</code> and{" "}
+        <code>renderResult</code> pattern makes this possible:
+      </p>
+
+      <ol>
+        <li>
+          The <code>do()</code> function returns{" "}
+          <code>{"{ status, data, renderData }"}</code> —{" "}
+          <code>data</code> is sent to the AI model, <code>renderData</code>{" "}
+          stays client-only (model adapters explicitly strip it).
+        </li>
+        <li>
+          When the conversation is reloaded from history,{" "}
+          <code>renderResult({"{ data: renderData }"})</code> renders a
+          read-only view.
+        </li>
+        <li>
+          This is essential for tools using{" "}
+          <code>&quot;hide-on-complete&quot;</code> — after the slot is hidden,{" "}
+          <code>renderResult</code> shows what happened.
+        </li>
+      </ol>
+
+      <CodeBlock
+        filename="lib/tools/confirm.tsx"
+        language="tsx"
+        code={`async do(input, display) {
+  const confirmed = await display.pushAndWait(input);
+  return {
+    status: "success" as const,
+    data: confirmed ? "User confirmed" : "User cancelled",
+    renderData: { confirmed }, // client-only
+  };
+},
+renderResult({ data }) {
+  const { confirmed } = data as { confirmed: boolean };
+  return <div>{confirmed ? "Confirmed" : "Cancelled"}</div>;
+},`}
+      />
+
+      {/* ------------------------------------------------------------------ */}
       <h2>Next steps</h2>
 
       <ul>
@@ -505,6 +722,22 @@ export const gloveClient = new GloveClient({
         <li>
           <a href="/tools">Tool Registry</a> — browse and copy pre-built tools
           with renderers
+        </li>
+        <li>
+          <a href="/docs/react#define-tool">defineTool API reference</a>{" "}
+          — full type signatures and options for <code>defineTool</code>
+        </li>
+        <li>
+          <a href="/docs/react#render-component">
+            &lt;Render&gt; component
+          </a>{" "}
+          — all props and strategies for the headless render component
+        </li>
+        <li>
+          <a href="/docs/react#slot-display-strategy">
+            Display strategies reference
+          </a>{" "}
+          — detailed behavior for each display strategy
         </li>
       </ul>
     </div>

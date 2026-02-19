@@ -105,16 +105,19 @@ export const POST = createChatHandler({
 
       <p>
         This is <code>pushAndWait</code> — the tool pauses until the user
-        clicks an option.
+        clicks an option. We use <code>defineTool</code> to get full type
+        safety — the <code>displayPropsSchema</code> types what the render
+        function receives, and the <code>resolveSchema</code> types what{" "}
+        <code>resolve()</code> accepts. No more <code>as</code> casts.
       </p>
 
       <CodeBlock
         filename="lib/tools/ask-preference.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "glove-react";
+import { defineTool } from "glove-react";
 
-export const askPreference: ToolConfig = {
+export const askPreference = defineTool({
   name: "ask_preference",
   description:
     "Present the user with a set of options to choose from. " +
@@ -132,22 +135,29 @@ export const askPreference: ToolConfig = {
       .describe("2-6 options to present"),
   }),
 
+  displayPropsSchema: z.object({
+    question: z.string(),
+    options: z.array(z.object({ label: z.string(), value: z.string() })),
+  }),
+  resolveSchema: z.string(),
+  displayStrategy: "hide-on-complete",
+
   async do(input, display) {
     // Tool PAUSES here — execution resumes when the user clicks
-    const selected = await display.pushAndWait({ input });
-    return \`User selected: \${selected}\`;
+    const selected = await display.pushAndWait(input);
+    return {
+      status: "success" as const,
+      data: \`User selected: \${selected}\`,
+      renderData: { question: input.question, selected },
+    };
   },
 
-  render({ data, resolve }: SlotRenderProps) {
-    const { question, options } = data as {
-      question: string;
-      options: { label: string; value: string }[];
-    };
+  render({ props, resolve }) {
     return (
       <div style={{ padding: 16, border: "1px dashed #9ED4B8", borderRadius: 12 }}>
-        <p style={{ fontWeight: 500, marginBottom: 12 }}>{question}</p>
+        <p style={{ fontWeight: 500, marginBottom: 12 }}>{props.question}</p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {options.map((opt) => (
+          {props.options.map((opt) => (
             <button
               key={opt.value}
               onClick={() => resolve(opt.value)}
@@ -167,7 +177,25 @@ export const askPreference: ToolConfig = {
       </div>
     );
   },
-};`}
+
+  renderResult({ data }) {
+    const { question, selected } = data as { question: string; selected: string };
+    return (
+      <div
+        style={{
+          padding: "8px 14px",
+          borderRadius: 8,
+          background: "#0a0a0a",
+          border: "1px solid #262626",
+          fontSize: 13,
+          color: "#9ED4B8",
+        }}
+      >
+        {question}: <strong>{selected}</strong>
+      </div>
+    );
+  },
+});`}
       />
 
       <p>
@@ -175,6 +203,13 @@ export const askPreference: ToolConfig = {
         options come from the AI as tool arguments). Your tool decides{" "}
         <em>how</em> to present it (buttons in a row). The AI gets back the
         selected value and uses it to inform the next step.
+      </p>
+
+      <p>
+        Because we set <code>displayStrategy: &quot;hide-on-complete&quot;</code>,
+        the picker disappears once the user clicks an option. In its place, the{" "}
+        <code>renderResult</code> function shows a compact summary of what they
+        chose — so the conversation history stays clean.
       </p>
 
       <p>
@@ -195,16 +230,17 @@ export const askPreference: ToolConfig = {
 
       <p>
         This is <code>pushAndForget</code> — the tool shows UI and keeps
-        running.
+        running. Since the card should remain visible, we use{" "}
+        <code>displayStrategy: &quot;stay&quot;</code>.
       </p>
 
       <CodeBlock
         filename="lib/tools/show-info.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "glove-react";
+import { defineTool } from "glove-react";
 
-export const showInfo: ToolConfig = {
+export const showInfo = defineTool({
   name: "show_info",
   description:
     "Display a persistent info card. Use for destination highlights, " +
@@ -221,24 +257,27 @@ export const showInfo: ToolConfig = {
       .describe("info = general, success = confirmed, warning = alert"),
   }),
 
+  displayPropsSchema: z.object({
+    title: z.string(),
+    content: z.string(),
+    variant: z.enum(["info", "success", "warning"]),
+  }),
+  displayStrategy: "stay",
+
   async do(input, display) {
-    const { variant, ...rest } = input;
     // pushAndForget — card appears, tool keeps running
     await display.pushAndForget({
-      input: { ...rest, variant: variant ?? "info" },
+      title: input.title,
+      content: input.content,
+      variant: input.variant ?? "info",
     });
-    return \`Displayed card: \${input.title}\`;
+    return { status: "success" as const, data: \`Displayed card: \${input.title}\` };
   },
 
-  render({ data }: SlotRenderProps) {
-    const { title, content, variant } = data as {
-      title: string;
-      content: string;
-      variant: string;
-    };
+  render({ props }) {
     const accentColor =
-      variant === "success" ? "#22c55e" :
-      variant === "warning" ? "#f59e0b" : "#9ED4B8";
+      props.variant === "success" ? "#22c55e" :
+      props.variant === "warning" ? "#f59e0b" : "#9ED4B8";
 
     return (
       <div
@@ -249,8 +288,8 @@ export const showInfo: ToolConfig = {
           background: "#141414",
         }}
       >
-        <p style={{ fontWeight: 600, marginBottom: 8 }}>{title}</p>
-        {content.split("\\n").map((line, i) => (
+        <p style={{ fontWeight: 600, marginBottom: 8 }}>{props.title}</p>
+        {props.content.split("\\n").map((line, i) => (
           <p key={i} style={{ color: "#888", fontSize: 13, lineHeight: 1.6 }}>
             {line}
           </p>
@@ -258,7 +297,7 @@ export const showInfo: ToolConfig = {
       </div>
     );
   },
-};`}
+});`}
       />
 
       <p>
@@ -279,16 +318,18 @@ export const showInfo: ToolConfig = {
 
       <p>
         This is <code>pushAndWait</code> again, but with richer UI — a
-        numbered step list with Approve/Reject buttons.
+        numbered step list with Approve/Reject buttons. The{" "}
+        <code>resolveSchema</code> is <code>z.boolean()</code> because the
+        user either approves or rejects.
       </p>
 
       <CodeBlock
         filename="lib/tools/propose-itinerary.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "glove-react";
+import { defineTool } from "glove-react";
 
-export const proposeItinerary: ToolConfig = {
+export const proposeItinerary = defineTool({
   name: "propose_itinerary",
   description:
     "Present a structured itinerary with numbered steps for user approval. " +
@@ -306,24 +347,30 @@ export const proposeItinerary: ToolConfig = {
       .describe("Ordered list of itinerary steps"),
   }),
 
-  async do(input, display) {
-    const approved = await display.pushAndWait({ input });
+  displayPropsSchema: z.object({
+    title: z.string(),
+    steps: z.array(z.object({ title: z.string(), description: z.string() })),
+  }),
+  resolveSchema: z.boolean(),
+  displayStrategy: "hide-on-complete",
 
-    return approved
-      ? "Itinerary approved by user."
-      : "Itinerary rejected — ask what they would like to change.";
+  async do(input, display) {
+    const approved = await display.pushAndWait(input);
+
+    return {
+      status: "success" as const,
+      data: approved
+        ? "Itinerary approved by user."
+        : "Itinerary rejected — ask what they would like to change.",
+    };
   },
 
-  render({ data, resolve }: SlotRenderProps) {
-    const { title, steps } = data as {
-      title: string;
-      steps: { title: string; description: string }[];
-    };
+  render({ props, resolve }) {
     return (
       <div style={{ padding: 16, border: "1px solid #9ED4B8", borderRadius: 12 }}>
-        <p style={{ fontWeight: 600, marginBottom: 12 }}>{title}</p>
+        <p style={{ fontWeight: 600, marginBottom: 12 }}>{props.title}</p>
         <ol style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
-          {steps.map((step, i) => (
+          {props.steps.map((step, i) => (
             <li
               key={i}
               style={{
@@ -378,7 +425,7 @@ export const proposeItinerary: ToolConfig = {
       </div>
     );
   },
-};`}
+});`}
       />
 
       <p>
@@ -404,9 +451,9 @@ export const proposeItinerary: ToolConfig = {
         language="tsx"
         code={`import { z } from "zod";
 import { useState, useCallback } from "react";
-import type { ToolConfig, SlotRenderProps } from "glove-react";
+import { defineTool } from "glove-react";
 
-export const collectForm: ToolConfig = {
+export const collectForm = defineTool({
   name: "collect_form",
   description:
     "Render a dynamic form with multiple fields and collect input. " +
@@ -426,18 +473,27 @@ export const collectForm: ToolConfig = {
       .describe("List of form fields"),
   }),
 
+  displayPropsSchema: z.object({
+    title: z.string(),
+    fields: z.array(
+      z.object({
+        name: z.string(),
+        label: z.string(),
+        type: z.enum(["text", "number", "email"]),
+        required: z.boolean().optional(),
+      }),
+    ),
+  }),
+  resolveSchema: z.record(z.string()),
+  displayStrategy: "hide-on-complete",
+
   async do(input, display) {
     // Tool pauses until the user fills out and submits the form
-    const result = await display.pushAndWait({ input });
-    return JSON.stringify(result);
+    const result = await display.pushAndWait(input);
+    return { status: "success" as const, data: JSON.stringify(result) };
   },
 
-  render({ data, resolve }: SlotRenderProps) {
-    const { title, fields } = data as {
-      title: string;
-      fields: { name: string; label: string; type: string; required?: boolean }[];
-    };
-
+  render({ props, resolve }) {
     // Regular React hooks — render is a React component
     const [values, setValues] = useState<Record<string, string>>({});
     const update = useCallback(
@@ -445,15 +501,15 @@ export const collectForm: ToolConfig = {
         setValues((prev) => ({ ...prev, [name]: val })),
       [],
     );
-    const canSubmit = fields
+    const canSubmit = props.fields
       .filter((f) => f.required)
       .every((f) => (values[f.name] ?? "").trim() !== "");
 
     return (
       <div style={{ padding: 16, border: "1px dashed #9ED4B8", borderRadius: 12 }}>
-        <p style={{ fontWeight: 600, marginBottom: 14 }}>{title}</p>
+        <p style={{ fontWeight: 600, marginBottom: 14 }}>{props.title}</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {fields.map((field) => (
+          {props.fields.map((field) => (
             <div key={field.name}>
               <label style={{ display: "block", fontSize: 12, color: "#888", marginBottom: 4 }}>
                 {field.label}
@@ -495,7 +551,7 @@ export const collectForm: ToolConfig = {
       </div>
     );
   },
-};`}
+});`}
       />
 
       <p>
@@ -519,9 +575,9 @@ export const collectForm: ToolConfig = {
         filename="lib/tools/confirm-booking.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "glove-react";
+import { defineTool } from "glove-react";
 
-export const confirmBooking: ToolConfig = {
+export const confirmBooking = defineTool({
   name: "confirm_booking",
   description:
     "Show a confirmation dialog before finalizing a booking. " +
@@ -531,17 +587,27 @@ export const confirmBooking: ToolConfig = {
     message: z.string().describe("Details about the booking"),
   }),
 
+  displayPropsSchema: z.object({
+    title: z.string(),
+    message: z.string(),
+  }),
+  resolveSchema: z.boolean(),
+  displayStrategy: "hide-on-complete",
+
   async do(input, display) {
-    const confirmed = await display.pushAndWait({ input });
-    return confirmed ? "User confirmed." : "User cancelled.";
+    const confirmed = await display.pushAndWait(input);
+    return {
+      status: "success" as const,
+      data: confirmed ? "User confirmed." : "User cancelled.",
+      renderData: { confirmed },
+    };
   },
 
-  render({ data, resolve }: SlotRenderProps) {
-    const { title, message } = data as { title: string; message: string };
+  render({ props, resolve }) {
     return (
       <div style={{ padding: 16, border: "1px dashed #f59e0b", borderRadius: 12 }}>
-        <p style={{ fontWeight: 600, marginBottom: 8 }}>{title}</p>
-        <p style={{ color: "#888", marginBottom: 12, lineHeight: 1.5 }}>{message}</p>
+        <p style={{ fontWeight: 600, marginBottom: 8 }}>{props.title}</p>
+        <p style={{ color: "#888", marginBottom: 12, lineHeight: 1.5 }}>{props.message}</p>
         <div style={{ display: "flex", gap: 8 }}>
           <button
             onClick={() => resolve(true)}
@@ -573,7 +639,25 @@ export const confirmBooking: ToolConfig = {
       </div>
     );
   },
-};`}
+
+  renderResult({ data }) {
+    const { confirmed } = data as { confirmed: boolean };
+    return (
+      <div
+        style={{
+          padding: "8px 14px",
+          borderRadius: 8,
+          background: "#0a0a0a",
+          border: \`1px solid \${confirmed ? "#22c55e" : "#ef4444"}\`,
+          fontSize: 13,
+          color: confirmed ? "#22c55e" : "#ef4444",
+        }}
+      >
+        Booking {confirmed ? "confirmed" : "cancelled"}
+      </div>
+    );
+  },
+});`}
       />
 
       {/* ------------------------------------------------------------------ */}
@@ -633,9 +717,12 @@ an option picker, card, or plan would be clearer.\`,
       <h2>8. Build the chat UI</h2>
 
       <p>
-        The chat component renders the conversation timeline and the display
-        stack. The <code>slots</code> array contains every active slot, and{" "}
-        <code>renderSlot</code> turns each one into its tool&apos;s component.
+        The chat component uses the <code>&lt;Render&gt;</code> component to
+        display the conversation, tool slots, and input area. Instead of
+        manually mapping over timeline entries and slots,{" "}
+        <code>&lt;Render&gt;</code> handles display strategy filtering,
+        interleaving slots inline with messages, and rendering{" "}
+        <code>renderResult</code> for completed tools — all automatically.
       </p>
 
       <CodeBlock
@@ -643,80 +730,70 @@ an option picker, card, or plan would be clearer.\`,
         language="tsx"
         code={`"use client";
 
-import { useState } from "react";
-import { useGlove } from "glove-react";
+import { useRef } from "react";
+import { useGlove, Render } from "glove-react";
 
 export default function TravelPlanner() {
-  const {
-    timeline,
-    streamingText,
-    busy,
-    sendMessage,
-    slots,
-    renderSlot,
-  } = useGlove();
-  const [input, setInput] = useState("");
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!input.trim() || busy) return;
-    sendMessage(input.trim());
-    setInput("");
-  }
+  const glove = useGlove();
+  const inputRef = useRef<HTMLInputElement>(null);
 
   return (
     <div style={{ maxWidth: 600, margin: "2rem auto" }}>
       <h1>Trip Planner</h1>
 
-      {/* Conversation */}
-      <div>
-        {timeline.map((entry, i) => {
-          if (entry.kind === "user")
-            return <div key={i} style={{ margin: "1rem 0" }}><strong>You:</strong> {entry.text}</div>;
-          if (entry.kind === "agent_text")
-            return <div key={i} style={{ margin: "1rem 0" }}><strong>Planner:</strong> {entry.text}</div>;
-          if (entry.kind === "tool")
-            return (
-              <div key={i} style={{ margin: "0.5rem 0", fontSize: "0.85rem", color: "#888" }}>
-                {entry.name} — {entry.status}
-              </div>
-            );
-          return null;
-        })}
-      </div>
-
-      {streamingText && (
-        <div style={{ opacity: 0.7 }}><strong>Planner:</strong> {streamingText}</div>
-      )}
-
-      {/* Display stack — option pickers, itineraries, forms, cards */}
-      {slots.length > 0 && (
-        <div style={{ margin: "1rem 0", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          {slots.map(renderSlot)}
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} style={{ display: "flex", gap: "0.5rem" }}>
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Where do you want to go?"
-          disabled={busy}
-          style={{ flex: 1, padding: "0.5rem" }}
-        />
-        <button type="submit" disabled={busy}>Send</button>
-      </form>
+      <Render
+        glove={glove}
+        strategy="interleaved"
+        renderMessage={({ entry }) => (
+          <div style={{ margin: "1rem 0" }}>
+            <strong>{entry.kind === "user" ? "You" : "Planner"}:</strong>{" "}
+            {entry.text}
+          </div>
+        )}
+        renderStreaming={({ text }) => (
+          <div style={{ opacity: 0.7 }}>
+            <strong>Planner:</strong> {text}
+          </div>
+        )}
+        renderInput={({ send, busy }) => (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const val = inputRef.current?.value?.trim();
+              if (!val || busy) return;
+              send(val);
+              if (inputRef.current) inputRef.current.value = "";
+            }}
+            style={{ display: "flex", gap: "0.5rem" }}
+          >
+            <input
+              ref={inputRef}
+              placeholder="Where do you want to go?"
+              disabled={busy}
+              style={{ flex: 1, padding: "0.5rem" }}
+            />
+            <button type="submit" disabled={busy}>
+              Send
+            </button>
+          </form>
+        )}
+      />
     </div>
   );
 }`}
       />
 
       <p>
-        That is the entire UI. The five lines that render{" "}
-        <code>slots.map(renderSlot)</code> are doing all the heavy lifting —
-        every tool with a <code>render</code> function automatically shows its
-        UI when the AI calls it. Option pickers, itinerary cards, forms, and
-        confirmation dialogs all appear in the same spot, driven by the AI.
+        That is the entire UI. The <code>&lt;Render&gt;</code> component
+        handles all the heavy lifting — every tool with a{" "}
+        <code>render</code> function automatically shows its UI when the AI
+        calls it. Option pickers, itinerary cards, forms, and confirmation
+        dialogs all appear inline within the conversation, driven by the AI.
+        When a tool completes and has{" "}
+        <code>displayStrategy: &quot;hide-on-complete&quot;</code>, its
+        interactive UI disappears and the <code>renderResult</code> view takes
+        its place — keeping the conversation history clean without losing
+        context.
       </p>
 
       {/* ------------------------------------------------------------------ */}
@@ -806,6 +883,7 @@ export default function TravelPlanner() {
           <tr>
             <th>Tool</th>
             <th>Pattern</th>
+            <th>Display Strategy</th>
             <th>Why</th>
           </tr>
         </thead>
@@ -813,26 +891,31 @@ export default function TravelPlanner() {
           <tr>
             <td><code>ask_preference</code></td>
             <td><code>pushAndWait</code></td>
+            <td><code>hide-on-complete</code></td>
             <td>AI needs the user&apos;s choice before continuing</td>
           </tr>
           <tr>
             <td><code>show_info</code></td>
             <td><code>pushAndForget</code></td>
+            <td><code>stay</code></td>
             <td>Shows data, AI doesn&apos;t need to wait</td>
           </tr>
           <tr>
             <td><code>propose_itinerary</code></td>
             <td><code>pushAndWait</code></td>
+            <td><code>hide-on-complete</code></td>
             <td>AI needs approval before proceeding</td>
           </tr>
           <tr>
             <td><code>collect_form</code></td>
             <td><code>pushAndWait</code></td>
+            <td><code>hide-on-complete</code></td>
             <td>AI needs form data to continue</td>
           </tr>
           <tr>
             <td><code>confirm_booking</code></td>
             <td><code>pushAndWait</code></td>
+            <td><code>hide-on-complete</code></td>
             <td>Final gate before irreversible action</td>
           </tr>
         </tbody>
@@ -859,9 +942,23 @@ export default function TravelPlanner() {
           drop into your app
         </li>
         <li>
-          <a href="/docs/react">React API Reference</a> — full API for{" "}
-          <code>useGlove</code>, <code>ToolConfig</code>, and{" "}
-          <code>SlotRenderProps</code>
+          <a href="/docs/react#define-tool">
+            <code>defineTool</code> Reference
+          </a>{" "}
+          — full API for type-safe tool definitions
+        </li>
+        <li>
+          <a href="/docs/react#render-component">
+            <code>&lt;Render&gt;</code> Reference
+          </a>{" "}
+          — rendering strategies and customization
+        </li>
+        <li>
+          <a href="/docs/display-stack#display-strategies">
+            Display Strategies
+          </a>{" "}
+          — <code>stay</code>, <code>hide-on-complete</code>, and{" "}
+          <code>hide-on-new</code> explained
         </li>
       </ul>
     </div>
