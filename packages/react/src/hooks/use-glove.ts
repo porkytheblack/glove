@@ -6,6 +6,7 @@ import type {
   ModelAdapter,
   SubscriberAdapter,
   ContentPart,
+  Message,
 } from "glove-core/core";
 import { Glove } from "glove-core/glove";
 import { Displaymanager } from "glove-core/display-manager";
@@ -14,6 +15,10 @@ import type {
   ToolConfig,
   CompactionConfig,
   SlotRenderProps,
+  ToolResultRenderProps,
+  TimelineEntry,
+  EnhancedSlot,
+  SlotDisplayStrategy,
 } from "../types";
 import type { Slot } from "glove-core/display-manager";
 import { MemoryStore } from "../adapters/memory-store";
@@ -48,10 +53,15 @@ export interface UseGloveReturn extends GloveState {
   ) => void;
   abort: () => void;
   resolveSlot: (slotId: string, value: unknown) => void;
-  rejectSlot: (slotId: string, reason?: any) => void;
+  rejectSlot: (slotId: string, reason?: string) => void;
   /** Renders a slot using the colocated `render` from its tool. Returns `null`
    *  if no renderer is registered for the slot's renderer key. */
-  renderSlot: (slot: Slot<unknown>) => ReactNode;
+  renderSlot: (slot: EnhancedSlot) => ReactNode;
+  /** Renders a completed tool result from the timeline using `renderResult`.
+   *  Uses `renderData` to show a read-only view (e.g. after reload when the
+   *  interactive pushAndWait slot is gone). Returns `null` if no `renderResult`
+   *  is registered or if the entry has no `renderData`. */
+  renderToolResult: (entry: TimelineEntry & { kind: "tool" }) => ReactNode;
 }
 
 // ─── Internal subscriber ─────────────────────────────────────────────────────
@@ -67,9 +77,14 @@ class ReactSubscriber implements SubscriberAdapter {
   private streamBuffer = "";
   private toolIdCounter = 0;
   private setState: Dispatch<SetStateAction<GloveState>>;
+  private _currentToolCall: { id: string; name: string } | null = null;
 
   constructor(setState: Dispatch<SetStateAction<GloveState>>) {
     this.setState = setState;
+  }
+
+  getCurrentToolCall(): { id: string; name: string } | null {
+    return this._currentToolCall;
   }
 
   getStreamBuffer(): string {
@@ -103,6 +118,9 @@ class ReactSubscriber implements SubscriberAdapter {
         break;
 
       case "tool_use": {
+        // Track current tool call for slot enhancement
+        this._currentToolCall = { id: data.id ?? `tool_${this.toolIdCounter + 1}`, name: data.name };
+
         // Flush pending text before the tool entry
         const flushed = this.streamBuffer.trim();
         this.streamBuffer = "";
@@ -124,6 +142,8 @@ class ReactSubscriber implements SubscriberAdapter {
       }
 
       case "tool_use_result":
+        this._currentToolCall = null;
+
         this.setState((s) => {
           const timeline = s.timeline.map((entry) =>
             entry.kind === "tool" && entry.id === data.call_id
@@ -134,6 +154,9 @@ class ReactSubscriber implements SubscriberAdapter {
                     data.result.data != null
                       ? String(data.result.data)
                       : data.result.message,
+                  ...(data.result.renderData !== undefined
+                    ? { renderData: data.result.renderData }
+                    : {}),
                 }
               : entry,
           );
@@ -165,6 +188,81 @@ class ReactSubscriber implements SubscriberAdapter {
         break;
     }
   }
+}
+
+// ─── Message → Timeline conversion ───────────────────────────────────────────
+
+/**
+ * Converts stored messages into timeline entries for hydrating the UI on reload.
+ * Matches tool_calls with their tool_results to reconstruct completed tool entries
+ * (including `renderData` for post-renderers).
+ */
+function messagesToTimeline(messages: Message[]): TimelineEntry[] {
+  // Build a lookup of call_id → tool result for matching
+  const resultsByCallId = new Map<string, { status: string; data: unknown; message?: string; renderData?: unknown }>();
+  for (const msg of messages) {
+    if (!msg.tool_results) continue;
+    for (const tr of msg.tool_results) {
+      if (tr.call_id) {
+        resultsByCallId.set(tr.call_id, tr.result);
+      }
+    }
+  }
+
+  const timeline: TimelineEntry[] = [];
+
+  for (const msg of messages) {
+    if (msg.sender === "user") {
+      // Skip synthetic "tool results" messages
+      if (msg.tool_results) continue;
+
+      const images = msg.content
+        ?.filter((p) => p.type === "image" && p.source)
+        .map((p) =>
+          p.source!.type === "url"
+            ? p.source!.url!
+            : `data:${p.source!.media_type};base64,${p.source!.data}`,
+        );
+
+      timeline.push({
+        kind: "user",
+        text: msg.text,
+        ...(images?.length ? { images } : {}),
+      });
+    } else if (msg.sender === "agent") {
+      // Agent text (before any tool calls)
+      if (msg.text) {
+        timeline.push({ kind: "agent_text", text: msg.text });
+      }
+
+      // Tool calls
+      if (msg.tool_calls) {
+        for (const tc of msg.tool_calls) {
+          const result = tc.id ? resultsByCallId.get(tc.id) : undefined;
+          const entry: TimelineEntry = {
+            kind: "tool",
+            id: tc.id ?? `tool_${Math.random().toString(36).slice(2)}`,
+            name: tc.tool_name,
+            input: tc.input_args,
+            status: result
+              ? (result.status as "success" | "error")
+              : "running",
+            output: result
+              ? result.data != null
+                ? String(result.data)
+                : result.message
+              : undefined,
+            ...(result?.renderData !== undefined
+              ? { renderData: result.renderData }
+              : {}),
+          };
+          timeline.push(entry);
+        }
+      }
+    }
+  }
+
+  return timeline;
 }
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
@@ -239,6 +337,26 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
   const subscriberRef = useRef<ReactSubscriber | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Slot metadata: tracks enhanced info for each slot by ID
+  const slotMetaRef = useRef(new Map<string, {
+    toolName: string;
+    toolCallId: string;
+    createdAt: number;
+    displayStrategy: SlotDisplayStrategy;
+  }>());
+
+  // Display strategy map: toolName → displayStrategy
+  const displayStrategiesRef = useRef(new Map<string, SlotDisplayStrategy>());
+  useEffect(() => {
+    const map = new Map<string, SlotDisplayStrategy>();
+    if (tools) {
+      for (const tool of tools) {
+        if (tool.displayStrategy) map.set(tool.name, tool.displayStrategy);
+      }
+    }
+    displayStrategiesRef.current = map;
+  }, [tools]);
+
   // ── Build Glove instance (once, or when key config changes) ──────────────
 
   useEffect(() => {
@@ -293,9 +411,42 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
     const runnable = builder.build();
     gloveRef.current = runnable;
 
-    // Subscribe to DisplayManager for slot updates
+    // Subscribe to DisplayManager for slot updates — enhance raw slots
     const unsubDm = dm.subscribe(async (stack: Slot<unknown>[]) => {
-      setState((s) => ({ ...s, slots: [...stack] }));
+      const activeIds = new Set(stack.map((s) => s.id));
+
+      // Enhance new slots with metadata
+      for (const rawSlot of stack) {
+        if (!slotMetaRef.current.has(rawSlot.id)) {
+          const currentCall = reactSub.getCurrentToolCall();
+          slotMetaRef.current.set(rawSlot.id, {
+            toolName: currentCall?.name ?? rawSlot.renderer,
+            toolCallId: currentCall?.id ?? "",
+            createdAt: Date.now(),
+            displayStrategy: displayStrategiesRef.current.get(rawSlot.renderer) ?? "stay",
+          });
+        }
+      }
+
+      // Clean up metadata for removed slots
+      for (const [id] of slotMetaRef.current) {
+        if (!activeIds.has(id)) slotMetaRef.current.delete(id);
+      }
+
+      // Build enhanced slot array
+      const enhanced: EnhancedSlot[] = stack.map((rawSlot) => {
+        const meta = slotMetaRef.current.get(rawSlot.id)!;
+        return {
+          ...rawSlot,
+          toolName: meta.toolName,
+          toolCallId: meta.toolCallId,
+          createdAt: meta.createdAt,
+          displayStrategy: meta.displayStrategy,
+          status: "pending" as const,
+        };
+      });
+
+      setState((s) => ({ ...s, slots: enhanced }));
     });
 
     return () => {
@@ -304,6 +455,7 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
       gloveRef.current = null;
       dmRef.current = null;
       subscriberRef.current = null;
+      slotMetaRef.current.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store, systemPrompt]);
@@ -422,7 +574,7 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
     dmRef.current?.resolve(slotId, value);
   }, []);
 
-  const rejectSlot = useCallback((slotId: string, reason?: any) => {
+  const rejectSlot = useCallback((slotId: string, reason?: string) => {
     dmRef.current?.reject(slotId, reason);
   }, []);
 
@@ -438,18 +590,58 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
     return map;
   }, [tools]);
 
+  const resultRenderers = useMemo(() => {
+    const map = new Map<string, (props: ToolResultRenderProps) => ReactNode>();
+    if (tools) {
+      for (const tool of tools) {
+        if (tool.renderResult) map.set(tool.name, tool.renderResult);
+      }
+    }
+    return map;
+  }, [tools]);
+
   const renderSlot = useCallback(
-    (slot: Slot<unknown>): ReactNode => {
+    (slot: EnhancedSlot): ReactNode => {
       const Renderer = renderers.get(slot.renderer);
       if (!Renderer) return null;
       return createElement(Renderer, {
         key: slot.id,
         data: slot.input,
         resolve: (value: unknown) => dmRef.current?.resolve(slot.id, value),
+        reject: (reason?: string) => dmRef.current?.reject(slot.id, reason),
       });
     },
     [renderers],
   );
+
+  const renderToolResult = useCallback(
+    (entry: TimelineEntry & { kind: "tool" }): ReactNode => {
+      if (entry.renderData === undefined) return null;
+      const Renderer = resultRenderers.get(entry.name);
+      if (!Renderer) return null;
+      return createElement(Renderer, {
+        key: entry.id,
+        data: entry.renderData,
+        output: entry.output,
+        status: entry.status as "success" | "error",
+      });
+    },
+    [resultRenderers],
+  );
+
+  // ── Timeline hydration from store ────────────────────────────────────────
+
+  useEffect(() => {
+    let cancelled = false;
+
+    store.getMessages().then((messages: Message[]) => {
+      if (cancelled || messages.length === 0) return;
+      setState((s) => ({ ...s, timeline: messagesToTimeline(messages) }));
+    });
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store]);
 
   return {
     ...state,
@@ -458,5 +650,6 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
     resolveSlot,
     rejectSlot,
     renderSlot,
+    renderToolResult,
   };
 }

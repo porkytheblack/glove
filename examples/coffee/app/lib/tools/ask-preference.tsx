@@ -1,35 +1,44 @@
 import React from "react";
-import type { SlotRenderProps, ToolConfig } from "glove-react";
+import { defineTool } from "glove-react";
 import { z } from "zod";
 import { SAGE, CREAM } from "../theme";
 
 // ─── ask_preference — multi-choice selector (pushAndWait) ───────────────────
 
-export function createAskPreferenceTool(): ToolConfig {
-  return {
+const inputSchema = z.object({
+  question: z.string().describe("The question to display"),
+  options: z
+    .array(
+      z.object({
+        label: z.string().describe("Display text"),
+        value: z.string().describe("Value returned when selected"),
+      }),
+    )
+    .describe("2-6 options to present"),
+});
+
+export function createAskPreferenceTool() {
+  return defineTool({
     name: "ask_preference",
     description:
       "Present the user with a set of options to choose from. Blocks until they pick one. Use for brew method, roast preference, mood, or any multiple-choice question.",
-    inputSchema: z.object({
-      question: z.string().describe("The question to display"),
-      options: z
-        .array(
-          z.object({
-            label: z.string().describe("Display text"),
-            value: z.string().describe("Value returned when selected"),
-          }),
-        )
-        .describe("2-6 options to present"),
-    }),
+    inputSchema,
+    displayPropsSchema: inputSchema,
+    resolveSchema: z.string(),
+    displayStrategy: "hide-on-complete",
     async do(input, display) {
-      const selected = await display.pushAndWait({ input });
-      return `User selected: ${selected}`;
-    },
-    render({ data, resolve }: SlotRenderProps) {
-      const { question, options } = data as {
-        question: string;
-        options: { label: string; value: string }[];
+      const selected = await display.pushAndWait(input);
+      const selectedOption = input.options.find((o) => o.value === selected);
+      return {
+        status: "success" as const,
+        data: `User selected: ${selected}`,
+        renderData: {
+          question: input.question,
+          selected: selectedOption ?? { label: selected, value: selected },
+        },
       };
+    },
+    render({ props, resolve }) {
       return (
         <div
           style={{
@@ -48,10 +57,10 @@ export function createAskPreferenceTool(): ToolConfig {
               margin: "0 0 14px",
             }}
           >
-            {question}
+            {props.question}
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {options.map((opt) => (
+            {props.options.map((opt) => (
               <button
                 key={opt.value}
                 onClick={() => resolve(opt.value)}
@@ -84,5 +93,45 @@ export function createAskPreferenceTool(): ToolConfig {
         </div>
       );
     },
-  };
+    renderResult({ data }) {
+      const { question, selected } = data as {
+        question: string;
+        selected: { label: string; value: string };
+      };
+      return (
+        <div
+          style={{
+            padding: 20,
+            background: CREAM[50],
+            border: `1px dashed ${SAGE[300]}`,
+            marginTop: 12,
+          }}
+        >
+          <p
+            style={{
+              fontFamily: "'DM Sans', sans-serif",
+              fontSize: 14,
+              fontWeight: 500,
+              color: SAGE[800],
+              margin: "0 0 14px",
+            }}
+          >
+            {question}
+          </p>
+          <div
+            style={{
+              display: "inline-block",
+              padding: "8px 16px",
+              background: SAGE[900],
+              color: CREAM[50],
+              fontFamily: "'DM Sans', sans-serif",
+              fontSize: 13,
+            }}
+          >
+            {selected.label}
+          </div>
+        </div>
+      );
+    },
+  });
 }

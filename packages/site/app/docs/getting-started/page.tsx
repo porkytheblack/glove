@@ -135,7 +135,7 @@ export default async function GettingStartedPage() {
 // This creates a POST endpoint that streams AI responses
 export const POST = createChatHandler({
   provider: "openai",    // or "anthropic"
-  model: "gpt-4o-mini",  // or "claude-sonnet-4-20250514"
+  model: "gpt-4.1-mini",  // or "claude-sonnet-4-20250514"
 });`}
       />
 
@@ -358,6 +358,73 @@ export default function Chat() {
 }`}
       />
 
+      <h3>Using the Render component</h3>
+
+      <p>
+        The manual mapping above is great for learning, but <code>glove-react</code>{" "}
+        includes a <code>&lt;Render&gt;</code> component that handles the timeline,
+        streaming text, and input for you. Here is the same UI with less boilerplate:
+      </p>
+
+      <CodeBlock
+        filename="app/page.tsx"
+        language="tsx"
+        code={`"use client";
+
+import { useGlove, Render } from "glove-react";
+
+export default function Chat() {
+  const glove = useGlove();
+
+  return (
+    <div style={{ maxWidth: 600, margin: "2rem auto", fontFamily: "sans-serif" }}>
+      <h1>Weather Chat</h1>
+      <Render
+        glove={glove}
+        renderMessage={({ entry }) => (
+          <div style={{ margin: "1rem 0" }}>
+            <strong>{entry.kind === "user" ? "You" : "Assistant"}:</strong> {entry.text}
+          </div>
+        )}
+        renderStreaming={({ text }) => (
+          <div style={{ margin: "1rem 0", opacity: 0.7 }}>
+            <strong>Assistant:</strong> {text}
+          </div>
+        )}
+        renderInput={({ send, busy }) => (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const input = e.currentTarget.elements.namedItem("msg") as HTMLInputElement;
+              if (!input.value.trim() || busy) return;
+              send(input.value.trim());
+              input.value = "";
+            }}
+            style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}
+          >
+            <input
+              name="msg"
+              placeholder="Ask about the weather..."
+              disabled={busy}
+              style={{ flex: 1, padding: "0.5rem" }}
+            />
+            <button type="submit" disabled={busy}>Send</button>
+          </form>
+        )}
+      />
+    </div>
+  );
+}`}
+      />
+
+      <p>
+        <code>&lt;Render&gt;</code> also handles display stack slots, display
+        strategies, and tool result rendering automatically — features you will
+        use when you start building with the{" "}
+        <a href="/docs/display-stack">display stack</a>. For now, both
+        approaches work identically.
+      </p>
+
       {/* ------------------------------------------------------------------ */}
       <h2>6. Run it</h2>
 
@@ -398,6 +465,10 @@ export default function Chat() {
           <a href="/docs/react#glove-client">GloveClient</a>,{" "}
           <a href="/docs/react#useglove">useGlove</a>, and{" "}
           <a href="/docs/react#tool-config">ToolConfig</a>
+        </li>
+        <li>
+          <a href="/docs/react#define-tool">defineTool</a> — type-safe tool
+          definitions with typed display props and resolve values
         </li>
         <li>
           <a href="/tools">Tool Registry</a> — browse pre-built tools you can

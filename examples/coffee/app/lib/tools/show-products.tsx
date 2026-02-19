@@ -1,5 +1,5 @@
 import React from "react";
-import type { SlotRenderProps, ToolConfig } from "glove-react";
+import { defineTool } from "glove-react";
 import { z } from "zod";
 import { SAGE, CREAM, type CartOps } from "../theme";
 import { formatPrice, getProductById, getProductsByIds, type Product } from "../products";
@@ -7,51 +7,67 @@ import { IntensityBar } from "./shared";
 
 // ─── show_products — product carousel (pushAndWait) ─────────────────────────
 
-export function createShowProductsTool(cartOps: CartOps): ToolConfig {
-  return {
+const inputSchema = z.object({
+  product_ids: z
+    .array(z.string())
+    .describe(
+      'Array of product IDs to show. Use ["all"] to show the full catalog. Available IDs: ethiopian-yirgacheffe, colombian-huila, kenyan-aa, sumatra-mandheling, guatemala-antigua, rwanda-kivu',
+    ),
+  prompt: z
+    .string()
+    .optional()
+    .describe("Optional text shown above the products"),
+});
+
+const resolveSchema = z.object({
+  productId: z.string(),
+  action: z.enum(["select", "add"]),
+});
+
+export function createShowProductsTool(cartOps: CartOps) {
+  return defineTool({
     name: "show_products",
     description:
       'Display a carousel of coffee products for the user to browse and select from. Blocks until the user picks a product. Pass product_ids as an array of IDs or "all" for the full catalog.',
-    inputSchema: z.object({
-      product_ids: z
-        .array(z.string())
-        .describe(
-          'Array of product IDs to show. Use ["all"] to show the full catalog. Available IDs: ethiopian-yirgacheffe, colombian-huila, kenyan-aa, sumatra-mandheling, guatemala-antigua, rwanda-kivu',
-        ),
-      prompt: z
-        .string()
-        .optional()
-        .describe("Optional text shown above the products"),
-    }),
+    inputSchema,
+    displayPropsSchema: inputSchema,
+    resolveSchema,
+    displayStrategy: "hide-on-complete",
     async do(input, display) {
-      const selected = (await display.pushAndWait({ input })) as {
-        productId: string;
-        action: string;
-      };
+      const selected = await display.pushAndWait(input);
       const product = getProductById(selected.productId);
       if (!product) return "Product not found.";
 
-      if (selected.action === "add") {
-        cartOps.add(selected.productId);
-        const cart = cartOps.get();
-        const total = cart.reduce((s, i) => s + i.price * i.qty, 0);
-        return `User added ${product.name} to their bag. Cart now has ${cart.length} item(s), total ${formatPrice(total)}.`;
-      }
-      return `User selected ${product.name} (${product.origin}, ${product.roast} roast, ${formatPrice(product.price)}).`;
-    },
-    render({ data, resolve }: SlotRenderProps) {
-      const { product_ids, prompt } = data as {
-        product_ids: string[];
-        prompt?: string;
+      const resultText =
+        selected.action === "add"
+          ? (() => {
+              cartOps.add(selected.productId);
+              const cart = cartOps.get();
+              const total = cart.reduce((s, i) => s + i.price * i.qty, 0);
+              return `User added ${product.name} to their bag. Cart now has ${cart.length} item(s), total ${formatPrice(total)}.`;
+            })()
+          : `User selected ${product.name} (${product.origin}, ${product.roast} roast, ${formatPrice(product.price)}).`;
+
+      return {
+        status: "success" as const,
+        data: resultText,
+        renderData: {
+          productId: selected.productId,
+          action: selected.action,
+          productName: product.name,
+          price: product.price,
+        },
       };
-      const resolvedIds = product_ids.includes("all")
+    },
+    render({ props, resolve }) {
+      const resolvedIds = props.product_ids.includes("all")
         ? ("all" as const)
-        : product_ids;
+        : props.product_ids;
       const products = getProductsByIds(resolvedIds);
 
       return (
         <div style={{ marginTop: 12 }}>
-          {prompt && (
+          {props.prompt && (
             <p
               style={{
                 fontFamily: "'DM Sans', sans-serif",
@@ -61,7 +77,7 @@ export function createShowProductsTool(cartOps: CartOps): ToolConfig {
                 fontStyle: "italic",
               }}
             >
-              {prompt}
+              {props.prompt}
             </p>
           )}
           <div
@@ -89,7 +105,58 @@ export function createShowProductsTool(cartOps: CartOps): ToolConfig {
         </div>
       );
     },
-  };
+    renderResult({ data }) {
+      const { action, productName, price } = data as {
+        action: string;
+        productName: string;
+        price: number;
+      };
+      return (
+        <div
+          style={{
+            padding: 16,
+            background: CREAM[50],
+            border: `1px solid ${SAGE[100]}`,
+            marginTop: 12,
+            maxWidth: 360,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <div
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: action === "add" ? "#4ade80" : SAGE[400],
+              flexShrink: 0,
+            }}
+          />
+          <span
+            style={{
+              fontFamily: "'DM Sans', sans-serif",
+              fontSize: 13,
+              color: SAGE[700],
+            }}
+          >
+            {action === "add" ? "Added" : "Selected"}{" "}
+            <strong>{productName}</strong>
+            {" — "}
+            <span
+              style={{
+                fontFamily: "'DM Mono', monospace",
+                fontSize: 12,
+                color: SAGE[500],
+              }}
+            >
+              {formatPrice(price)}
+            </span>
+          </span>
+        </div>
+      );
+    },
+  });
 }
 
 // ─── ProductCard ─────────────────────────────────────────────────────────────

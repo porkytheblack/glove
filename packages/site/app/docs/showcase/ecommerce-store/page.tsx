@@ -233,17 +233,30 @@ export async function POST(req: Request) {
       </p>
 
       <p>
-        This is <code>pushAndWait</code> — the tool pauses until the user picks
-        a product.
+        Using <code>defineTool</code>, the display props and resolve value are
+        fully typed through Zod schemas. The <code>displayStrategy</code> is set
+        to <code>&quot;hide-on-complete&quot;</code> so the product grid
+        disappears after the user makes a selection. A{" "}
+        <code>renderResult</code> callback shows a compact summary of the
+        selected product in its place.
       </p>
 
       <CodeBlock
         filename="lib/tools/browse-products.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "glove-react";
+import { defineTool } from "glove-react";
 
-export const browseProducts: ToolConfig = {
+const productSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  price: z.number(),
+  description: z.string(),
+  sizes: z.array(z.string()),
+  colors: z.array(z.string()),
+});
+
+export const browseProducts = defineTool({
   name: "browse_products",
   description:
     "Search the product catalog by category and show results as " +
@@ -255,6 +268,11 @@ export const browseProducts: ToolConfig = {
       .string()
       .describe("Product category, e.g. 'running shoes', 'sneakers'"),
   }),
+  displayPropsSchema: z.object({
+    products: z.array(productSchema),
+  }),
+  resolveSchema: productSchema,
+  displayStrategy: "hide-on-complete",
 
   async do(input, display) {
     // Fetch from server — product data lives server-side
@@ -266,28 +284,21 @@ export const browseProducts: ToolConfig = {
     const { products } = await res.json();
 
     if (!products.length) {
-      return "No products found in that category.";
+      return { status: "success" as const, data: "No products found in that category." };
     }
 
     // Show product grid and wait for selection
-    const selected = await display.pushAndWait({
-      input: { products },
-    });
+    const selected = await display.pushAndWait({ products });
 
-    return JSON.stringify(selected);
+    return {
+      status: "success" as const,
+      data: JSON.stringify(selected),
+      renderData: { productName: selected.name },
+    };
   },
 
-  render({ data, resolve }: SlotRenderProps) {
-    const { products } = data as {
-      products: {
-        id: string;
-        name: string;
-        price: number;
-        description: string;
-        sizes: string[];
-        colors: string[];
-      }[];
-    };
+  render({ props, resolve }) {
+    const { products } = props;
     return (
       <div style={{ padding: 16, border: "1px solid #262626", borderRadius: 12 }}>
         <p style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>
@@ -345,7 +356,16 @@ export const browseProducts: ToolConfig = {
       </div>
     );
   },
-};`}
+
+  renderResult({ data }) {
+    const { productName } = data as { productName: string };
+    return (
+      <div style={{ fontSize: 13, color: "#888", padding: "4px 0" }}>
+        Selected: {productName}
+      </div>
+    );
+  },
+});`}
       />
 
       <p>
@@ -355,6 +375,12 @@ export const browseProducts: ToolConfig = {
         to the <code>do</code> function, which returns it to the AI as JSON. The
         AI now knows the product name, price, available sizes, and colors — it
         has everything it needs to call <code>pick_variant</code> next.
+      </p>
+
+      <p>
+        After selection, the <code>&quot;hide-on-complete&quot;</code> strategy
+        removes the product grid, and <code>renderResult</code> shows a compact
+        &ldquo;Selected: Nike Air Zoom Pegasus&rdquo; label in its place.
       </p>
 
       {/* ------------------------------------------------------------------ */}
@@ -371,9 +397,17 @@ export const browseProducts: ToolConfig = {
         language="tsx"
         code={`import { z } from "zod";
 import { useState, useCallback } from "react";
-import type { ToolConfig, SlotRenderProps } from "glove-react";
+import { defineTool } from "glove-react";
 
-export const pickVariant: ToolConfig = {
+const variantResult = z.object({
+  productName: z.string(),
+  price: z.number(),
+  size: z.string(),
+  color: z.string(),
+  quantity: z.number(),
+});
+
+export const pickVariant = defineTool({
   name: "pick_variant",
   description:
     "Show a size, color, and quantity selector for a product. " +
@@ -384,19 +418,27 @@ export const pickVariant: ToolConfig = {
     sizes: z.array(z.string()).describe("Available sizes"),
     colors: z.array(z.string()).describe("Available colors"),
   }),
+  displayPropsSchema: z.object({
+    productName: z.string(),
+    price: z.number(),
+    sizes: z.array(z.string()),
+    colors: z.array(z.string()),
+  }),
+  resolveSchema: variantResult,
+  displayStrategy: "hide-on-complete",
 
   async do(input, display) {
-    const variant = await display.pushAndWait({ input });
-    return JSON.stringify(variant);
+    const variant = await display.pushAndWait({
+      productName: input.productName,
+      price: input.price,
+      sizes: input.sizes,
+      colors: input.colors,
+    });
+    return { status: "success" as const, data: JSON.stringify(variant) };
   },
 
-  render({ data, resolve }: SlotRenderProps) {
-    const { productName, price, sizes, colors } = data as {
-      productName: string;
-      price: number;
-      sizes: string[];
-      colors: string[];
-    };
+  render({ props, resolve }) {
+    const { productName, price, sizes, colors } = props;
 
     const [size, setSize] = useState("");
     const [color, setColor] = useState("");
@@ -519,7 +561,7 @@ export const pickVariant: ToolConfig = {
       </div>
     );
   },
-};`}
+});`}
       />
 
       <p>
@@ -527,7 +569,8 @@ export const pickVariant: ToolConfig = {
         quantity. The <code>render</code> function is a full React component.
         When the user clicks &ldquo;Add to Cart,&rdquo;{" "}
         <code>resolve()</code> sends the complete variant back to the{" "}
-        <code>do</code> function, which returns it to the AI as JSON.
+        <code>do</code> function, which returns it to the AI as JSON. The{" "}
+        <code>resolveSchema</code> ensures the resolved value is type-safe.
       </p>
 
       <p>
@@ -546,54 +589,57 @@ export const pickVariant: ToolConfig = {
         &ldquo;Would you like to add anything else?&rdquo;
       </p>
 
+      <p>
+        Since the cart is display-only, there is no <code>resolveSchema</code>.
+        The <code>displayStrategy</code> is{" "}
+        <code>&quot;hide-on-new&quot;</code> so that when the AI calls{" "}
+        <code>show_cart</code> again with updated items, the previous cart card
+        is automatically hidden.
+      </p>
+
       <CodeBlock
         filename="lib/tools/show-cart.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "glove-react";
+import { defineTool } from "glove-react";
 
-export const showCart: ToolConfig = {
+const cartItemSchema = z.object({
+  name: z.string(),
+  size: z.string(),
+  color: z.string(),
+  quantity: z.number(),
+  price: z.number(),
+});
+
+export const showCart = defineTool({
   name: "show_cart",
   description:
     "Display the current shopping cart as a persistent card. " +
     "Shows items, quantities, prices, and total. " +
     "Does not block — the AI can continue talking.",
   inputSchema: z.object({
-    items: z
-      .array(
-        z.object({
-          name: z.string(),
-          size: z.string(),
-          color: z.string(),
-          quantity: z.number(),
-          price: z.number(),
-        }),
-      )
-      .describe("Cart items"),
+    items: z.array(cartItemSchema).describe("Cart items"),
   }),
+  displayPropsSchema: z.object({
+    items: z.array(cartItemSchema),
+    subtotal: z.number(),
+  }),
+  displayStrategy: "hide-on-new",
 
   async do(input, display) {
     const subtotal = input.items.reduce(
-      (sum: number, item: any) => sum + item.price * item.quantity,
+      (sum, item) => sum + item.price * item.quantity,
       0,
     );
-    await display.pushAndForget({
-      input: { items: input.items, subtotal },
-    });
-    return \`Cart displayed. \${input.items.length} item(s), subtotal $\${subtotal}.\`;
+    await display.pushAndForget({ items: input.items, subtotal });
+    return {
+      status: "success" as const,
+      data: \`Cart displayed. \${input.items.length} item(s), subtotal $\${subtotal}.\`,
+    };
   },
 
-  render({ data }: SlotRenderProps) {
-    const { items, subtotal } = data as {
-      items: {
-        name: string;
-        size: string;
-        color: string;
-        quantity: number;
-        price: number;
-      }[];
-      subtotal: number;
-    };
+  render({ props }) {
+    const { items, subtotal } = props;
     return (
       <div
         style={{
@@ -604,7 +650,7 @@ export const showCart: ToolConfig = {
         }}
       >
         <p style={{ fontWeight: 600, marginBottom: 10 }}>
-          🛒 Cart ({items.length} item{items.length !== 1 ? "s" : ""})
+          Cart ({items.length} item{items.length !== 1 ? "s" : ""})
         </p>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {items.map((item, i) => (
@@ -646,7 +692,7 @@ export const showCart: ToolConfig = {
       </div>
     );
   },
-};`}
+});`}
       />
 
       <p>
@@ -672,9 +718,17 @@ export const showCart: ToolConfig = {
         language="tsx"
         code={`import { z } from "zod";
 import { useState, useCallback } from "react";
-import type { ToolConfig, SlotRenderProps } from "glove-react";
+import { defineTool } from "glove-react";
 
-export const collectShipping: ToolConfig = {
+const shippingAddress = z.object({
+  name: z.string(),
+  email: z.string(),
+  address: z.string(),
+  city: z.string(),
+  zip: z.string(),
+});
+
+export const collectShipping = defineTool({
   name: "collect_shipping",
   description:
     "Collect the user's shipping address. Blocks until they submit. " +
@@ -685,14 +739,21 @@ export const collectShipping: ToolConfig = {
       .optional()
       .describe("Optional message to display above the form"),
   }),
+  displayPropsSchema: z.object({
+    message: z.string().optional(),
+  }),
+  resolveSchema: shippingAddress,
+  displayStrategy: "hide-on-complete",
 
   async do(input, display) {
-    const address = await display.pushAndWait({ input });
-    return JSON.stringify(address);
+    const address = await display.pushAndWait({
+      message: input.message,
+    });
+    return { status: "success" as const, data: JSON.stringify(address) };
   },
 
-  render({ data, resolve }: SlotRenderProps) {
-    const { message } = (data ?? {}) as { message?: string };
+  render({ props, resolve }) {
+    const { message } = props;
 
     const [form, setForm] = useState({
       name: "",
@@ -774,14 +835,15 @@ export const collectShipping: ToolConfig = {
       </div>
     );
   },
-};`}
+});`}
       />
 
       <p>
         The form is a regular React component with <code>useState</code>. All
         fields are required — the submit button stays disabled until everything
         is filled in. When the user submits, the full address object goes back
-        to the AI.
+        to the AI. The <code>resolveSchema</code> ensures the address shape is
+        validated at the type level.
       </p>
 
       {/* ------------------------------------------------------------------ */}
@@ -796,50 +858,74 @@ export const collectShipping: ToolConfig = {
         result with <code>pushAndForget</code>.
       </p>
 
+      <p>
+        The <code>render</code> function handles two phases via a{" "}
+        <code>phase</code> field in the <code>displayPropsSchema</code>. The
+        order review (<code>phase: &quot;review&quot;</code>) uses{" "}
+        <code>resolve</code> for the confirm/cancel buttons. The confirmation
+        card (<code>phase: &quot;confirmed&quot;</code>) is pushed with{" "}
+        <code>pushAndForget</code> and has no interactive elements.
+      </p>
+
       <CodeBlock
         filename="lib/tools/confirm-order.tsx"
         language="tsx"
         code={`import { z } from "zod";
-import type { ToolConfig, SlotRenderProps } from "glove-react";
+import { defineTool } from "glove-react";
 
-export const confirmOrder: ToolConfig = {
+const cartItemSchema = z.object({
+  name: z.string(),
+  size: z.string(),
+  color: z.string(),
+  quantity: z.number(),
+  price: z.number(),
+});
+
+const shippingSchema = z.object({
+  name: z.string(),
+  email: z.string(),
+  address: z.string(),
+  city: z.string(),
+  zip: z.string(),
+});
+
+export const confirmOrder = defineTool({
   name: "confirm_order",
   description:
     "Show the full order summary for review. Blocks until the user " +
     "confirms or cancels. If confirmed, places the order on the server.",
   inputSchema: z.object({
-    items: z
-      .array(
-        z.object({
-          name: z.string(),
-          size: z.string(),
-          color: z.string(),
-          quantity: z.number(),
-          price: z.number(),
-        }),
-      )
-      .describe("Cart items"),
-    shipping: z.object({
-      name: z.string(),
-      email: z.string(),
-      address: z.string(),
-      city: z.string(),
-      zip: z.string(),
-    }),
+    items: z.array(cartItemSchema).describe("Cart items"),
+    shipping: shippingSchema,
   }),
+  displayPropsSchema: z.object({
+    phase: z.enum(["review", "confirmed"]),
+    items: z.array(cartItemSchema).optional(),
+    shipping: shippingSchema.optional(),
+    total: z.number().optional(),
+    orderId: z.string().optional(),
+    estimatedDelivery: z.string().optional(),
+  }),
+  resolveSchema: z.boolean(),
+  displayStrategy: "hide-on-complete",
 
   async do(input, display) {
     const total = input.items.reduce(
-      (sum: number, item: any) => sum + item.price * item.quantity,
+      (sum, item) => sum + item.price * item.quantity,
       0,
     );
 
     // Gate: show review, wait for confirmation (browser)
     const confirmed = await display.pushAndWait({
-      input: { items: input.items, shipping: input.shipping, total },
+      phase: "review" as const,
+      items: input.items,
+      shipping: input.shipping,
+      total,
     });
 
-    if (!confirmed) return "Order cancelled by user.";
+    if (!confirmed) {
+      return { status: "success" as const, data: "Order cancelled by user." };
+    }
 
     // Execute: place order on server
     const res = await fetch("/api/orders", {
@@ -852,25 +938,27 @@ export const confirmOrder: ToolConfig = {
     });
     const order = await res.json();
 
-    // Display: show confirmation (browser)
+    // Display: show confirmation card (browser, fire-and-forget)
     await display.pushAndForget({
-      input: { ...order, phase: "confirmed" },
+      phase: "confirmed" as const,
+      orderId: order.orderId,
+      total: order.total,
+      estimatedDelivery: order.estimatedDelivery,
     });
 
-    return \`Order placed! ID: \${order.orderId}, Total: $\${order.total}, Delivery: \${order.estimatedDelivery}\`;
+    return {
+      status: "success" as const,
+      data: \`Order placed! ID: \${order.orderId}, Total: $\${order.total}, Delivery: \${order.estimatedDelivery}\`,
+      renderData: { orderId: order.orderId },
+    };
   },
 
-  render({ data, resolve }: SlotRenderProps) {
-    const { phase } = data as { phase?: string };
+  render({ props, resolve }) {
+    const { phase } = props;
 
-    // Order confirmation card (pushAndForget — no resolve)
+    // Order confirmation card (pushAndForget — no resolve needed)
     if (phase === "confirmed") {
-      const { orderId, total, estimatedDelivery } = data as {
-        orderId: string;
-        total: number;
-        estimatedDelivery: string;
-        phase: string;
-      };
+      const { orderId, total, estimatedDelivery } = props;
       return (
         <div
           style={{
@@ -881,7 +969,7 @@ export const confirmOrder: ToolConfig = {
           }}
         >
           <p style={{ fontWeight: 600, color: "#22c55e", marginBottom: 8 }}>
-            ✓ Order Confirmed
+            Order Confirmed
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <span style={{ fontSize: 13, color: "#888" }}>
@@ -899,11 +987,7 @@ export const confirmOrder: ToolConfig = {
     }
 
     // Order review (pushAndWait — resolve is available)
-    const { items, shipping, total } = data as {
-      items: { name: string; size: string; color: string; quantity: number; price: number }[];
-      shipping: { name: string; address: string; city: string; zip: string };
-      total: number;
-    };
+    const { items, shipping, total } = props;
 
     return (
       <div style={{ padding: 16, border: "1px dashed #f59e0b", borderRadius: 12 }}>
@@ -911,7 +995,7 @@ export const confirmOrder: ToolConfig = {
 
         {/* Items */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-          {items.map((item, i) => (
+          {(items ?? []).map((item, i) => (
             <div
               key={i}
               style={{
@@ -926,7 +1010,7 @@ export const confirmOrder: ToolConfig = {
               <span>
                 {item.name}{" "}
                 <span style={{ color: "#888" }}>
-                  ({item.size}, {item.color}) × {item.quantity}
+                  ({item.size}, {item.color}) x {item.quantity}
                 </span>
               </span>
               <span style={{ fontWeight: 600 }}>
@@ -937,21 +1021,23 @@ export const confirmOrder: ToolConfig = {
         </div>
 
         {/* Shipping */}
-        <div
-          style={{
-            padding: "8px 10px",
-            borderRadius: 6,
-            background: "#0a0a0a",
-            marginBottom: 12,
-            fontSize: 12,
-            color: "#888",
-          }}
-        >
-          <p style={{ fontWeight: 500, color: "#ededed", marginBottom: 4 }}>Ship to</p>
-          <p>{shipping.name}</p>
-          <p>{shipping.address}</p>
-          <p>{shipping.city}, {shipping.zip}</p>
-        </div>
+        {shipping && (
+          <div
+            style={{
+              padding: "8px 10px",
+              borderRadius: 6,
+              background: "#0a0a0a",
+              marginBottom: 12,
+              fontSize: 12,
+              color: "#888",
+            }}
+          >
+            <p style={{ fontWeight: 500, color: "#ededed", marginBottom: 4 }}>Ship to</p>
+            <p>{shipping.name}</p>
+            <p>{shipping.address}</p>
+            <p>{shipping.city}, {shipping.zip}</p>
+          </div>
+        )}
 
         {/* Total */}
         <div
@@ -1001,17 +1087,26 @@ export const confirmOrder: ToolConfig = {
       </div>
     );
   },
-};`}
+
+  renderResult({ data }) {
+    const { orderId } = data as { orderId: string };
+    return (
+      <div style={{ fontSize: 13, color: "#888", padding: "4px 0" }}>
+        Order placed: {orderId}
+      </div>
+    );
+  },
+});`}
       />
 
       <p>
-        The <code>render</code> function handles two phases by checking{" "}
-        <code>data.phase</code>. The order review uses <code>resolve</code> (the
-        user must confirm or cancel). The confirmation card has no{" "}
-        <code>resolve</code> — it is fire-and-forget. This is the same pattern
-        the{" "}
-        <a href="/docs/showcase/coding-agent">coding agent</a> uses for its
-        command runner.
+        The <code>render</code> function checks the <code>phase</code> field to
+        determine which card to show. The order review phase uses{" "}
+        <code>resolve(true)</code> and <code>resolve(false)</code> for the
+        confirm/cancel buttons. The confirmation card phase ignores{" "}
+        <code>resolve</code> — it is a fire-and-forget display pushed after the
+        server responds. The <code>renderResult</code> callback provides a
+        compact order ID label for the timeline after the slot is dismissed.
       </p>
 
       {/* ------------------------------------------------------------------ */}
@@ -1065,77 +1160,68 @@ Rules:
       {/* ------------------------------------------------------------------ */}
       <h2>9. Build the chat UI</h2>
 
+      <p>
+        The <code>&lt;Render&gt;</code> component handles the entire chat
+        layout — messages, streaming text, tool display slots, and user input.
+        It also manages display strategies automatically: slots with{" "}
+        <code>&quot;hide-on-complete&quot;</code> vanish when resolved, and
+        slots with <code>&quot;hide-on-new&quot;</code> are replaced when the
+        same tool fires again. The <code>strategy=&quot;interleaved&quot;</code>{" "}
+        mode places each tool&apos;s display slot inline with the conversation,
+        right after the AI calls the tool.
+      </p>
+
       <CodeBlock
         filename="app/page.tsx"
         language="tsx"
         code={`"use client";
 
-import { useState } from "react";
-import { useGlove } from "glove-react";
+import { useGlove, Render } from "glove-react";
 
 export default function ShoppingAssistant() {
-  const {
-    timeline,
-    streamingText,
-    busy,
-    sendMessage,
-    slots,
-    renderSlot,
-  } = useGlove();
-  const [input, setInput] = useState("");
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!input.trim() || busy) return;
-    sendMessage(input.trim());
-    setInput("");
-  }
+  const glove = useGlove();
 
   return (
     <div style={{ maxWidth: 640, margin: "2rem auto" }}>
       <h1>Shopping Assistant</h1>
-
-      <div>
-        {timeline.map((entry, i) => {
-          if (entry.kind === "user")
-            return <div key={i} style={{ margin: "1rem 0" }}><strong>You:</strong> {entry.text}</div>;
-          if (entry.kind === "agent_text")
-            return <div key={i} style={{ margin: "1rem 0" }}><strong>Shop:</strong> {entry.text}</div>;
-          if (entry.kind === "tool")
-            return (
-              <div key={i} style={{ margin: "0.5rem 0", fontSize: "0.85rem", color: "#888" }}>
-                {entry.name} — {entry.status}
-              </div>
-            );
-          return null;
-        })}
-      </div>
-
-      {streamingText && (
-        <div style={{ opacity: 0.7 }}><strong>Shop:</strong> {streamingText}</div>
-      )}
-
-      {/* Display stack — product grids, variant pickers, cart, forms, reviews */}
-      {slots.length > 0 && (
-        <div style={{ margin: "1rem 0", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          {slots.map(renderSlot)}
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} style={{ display: "flex", gap: "0.5rem" }}>
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="What are you looking for?"
-          disabled={busy}
-          style={{ flex: 1, padding: "0.5rem" }}
-        />
-        <button type="submit" disabled={busy}>Send</button>
-      </form>
+      <Render
+        glove={glove}
+        strategy="interleaved"
+        renderMessage={({ entry }) => (
+          <div style={{ margin: "1rem 0" }}>
+            <strong>{entry.kind === "user" ? "You" : "Shop"}:</strong> {entry.text}
+          </div>
+        )}
+        renderStreaming={({ text }) => (
+          <div style={{ opacity: 0.7 }}><strong>Shop:</strong> {text}</div>
+        )}
+        renderInput={({ send, busy }) => (
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            const input = e.currentTarget.elements.namedItem("msg") as HTMLInputElement;
+            if (!input.value.trim() || busy) return;
+            send(input.value.trim());
+            input.value = "";
+          }} style={{ display: "flex", gap: "0.5rem" }}>
+            <input name="msg" disabled={busy} placeholder="What are you looking for?" style={{ flex: 1, padding: "0.5rem" }} />
+            <button type="submit" disabled={busy}>Send</button>
+          </form>
+        )}
+      />
     </div>
   );
 }`}
       />
+
+      <p>
+        Compare this to the manual <code>timeline.map()</code> +{" "}
+        <code>slots.map(renderSlot)</code> approach from earlier tutorials.{" "}
+        <code>&lt;Render&gt;</code> handles slot visibility, interleaving
+        order, streaming text placement, and display strategy enforcement — all
+        in a single component. You provide three render callbacks for the parts
+        you want to customize (messages, streaming indicator, input form) and
+        the framework takes care of the rest.
+      </p>
 
       {/* ------------------------------------------------------------------ */}
       <h2>10. Run it</h2>
@@ -1268,6 +1354,7 @@ export default function ShoppingAssistant() {
           <tr>
             <th>Tool</th>
             <th>Pattern</th>
+            <th>Strategy</th>
             <th>Why</th>
           </tr>
         </thead>
@@ -1275,27 +1362,32 @@ export default function ShoppingAssistant() {
           <tr>
             <td><code>browse_products</code></td>
             <td><code>pushAndWait</code></td>
-            <td>AI needs to know which product was selected</td>
+            <td><code>hide-on-complete</code></td>
+            <td>Grid disappears after user selects a product; <code>renderResult</code> shows selection</td>
           </tr>
           <tr>
             <td><code>pick_variant</code></td>
             <td><code>pushAndWait</code></td>
-            <td>AI needs size, color, and quantity before adding to cart</td>
+            <td><code>hide-on-complete</code></td>
+            <td>Picker disappears after user adds to cart</td>
           </tr>
           <tr>
             <td><code>show_cart</code></td>
             <td><code>pushAndForget</code></td>
-            <td>Cart is informational — AI can keep talking</td>
+            <td><code>hide-on-new</code></td>
+            <td>Old cart card hidden when updated cart appears</td>
           </tr>
           <tr>
             <td><code>collect_shipping</code></td>
             <td><code>pushAndWait</code></td>
-            <td>AI needs address data before placing order</td>
+            <td><code>hide-on-complete</code></td>
+            <td>Form disappears after user submits address</td>
           </tr>
           <tr>
             <td><code>confirm_order</code></td>
             <td>Both</td>
-            <td><code>pushAndWait</code> for review, <code>pushAndForget</code> for confirmation card</td>
+            <td><code>hide-on-complete</code></td>
+            <td>Review disappears after confirm; confirmation card uses <code>pushAndForget</code> with <code>&quot;stay&quot;</code> behavior</td>
           </tr>
         </tbody>
       </table>
@@ -1318,12 +1410,18 @@ export default function ShoppingAssistant() {
         </li>
         <li>
           <a href="/docs/display-stack">The Display Stack</a> — deep dive into{" "}
-          <code>pushAndWait</code> and <code>pushAndForget</code>
+          <code>pushAndWait</code>, <code>pushAndForget</code>, and display
+          strategies
         </li>
         <li>
-          <a href="/docs/react">React API Reference</a> — full API for{" "}
-          <code>useGlove</code>, <code>ToolConfig</code>, and{" "}
-          <code>SlotRenderProps</code>
+          <a href="/docs/react#define-tool">defineTool API Reference</a>{" "}
+          — full API for typed tool definitions with{" "}
+          <code>displayPropsSchema</code> and <code>resolveSchema</code>
+        </li>
+        <li>
+          <a href="/docs/react#render-component">Render Component Reference</a>{" "}
+          — full API for the <code>&lt;Render&gt;</code> component and its
+          render callbacks
         </li>
       </ul>
     </div>

@@ -35,13 +35,13 @@ function formatTools(tools: Array<Tool<unknown>>): Array<AnthropicTool> {
 }
 
 function formatToolResultContent(tr: ToolResult): string {
-  if (tr.result.status === "error") {
-    const detail = tr.result.data ? JSON.stringify(tr.result.data) : "";
-    return `Error: ${tr.result.message ?? "Unknown error"}\n${detail}`.trim();
+  // Only send data/status/message to the model — renderData is client-only
+  const { data, status, message } = tr.result;
+  if (status === "error") {
+    const detail = data ? JSON.stringify(data) : "";
+    return `Error: ${message ?? "Unknown error"}\n${detail}`.trim();
   }
-  return typeof tr.result.data === "string"
-    ? tr.result.data
-    : JSON.stringify(tr.result.data);
+  return typeof data === "string" ? data : JSON.stringify(data);
 }
 
 function formatContentParts(parts: ContentPart[]): Anthropic.ContentBlockParam[] {

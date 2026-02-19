@@ -245,7 +245,7 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
           ],
           [
             "do",
-            "(input: I, display: DisplayManagerAdapter) => Promise<unknown>",
+            "(input: I, display: DisplayManagerAdapter) => Promise<ToolResultData>",
             "The tool's implementation. Receives validated input and the display manager. Return value becomes the tool result.",
           ],
         ]}
@@ -290,9 +290,9 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
       </p>
 
       <CodeBlock
-        code={`import { DisplayManager } from "glove-core";
+        code={`import { Displaymanager } from "glove-core/display-manager";
 
-const dm = new DisplayManager();
+const dm = new Displaymanager();
 
 dm.subscribe((stack) => {
   console.log("Display stack changed:", stack);
@@ -365,7 +365,7 @@ dm.subscribe((stack) => {
         rows={[
           [
             "renderers",
-            "Map<string, Renderer<unknown, unknown>>",
+            "Array<Renderer<unknown, unknown>>",
             "Registry of named renderers.",
           ],
           [
@@ -414,7 +414,7 @@ dm.subscribe((stack) => {
             "Resolve a pending slot.",
           ],
           [
-            "reject(slot_id, error)",
+            "reject(slot_id, error: any)",
             "void",
             "Reject a pending slot.",
           ],
@@ -1233,7 +1233,7 @@ try {
           ],
           [
             "run(input: I, handOver?: HandOverFunction)",
-            "Promise<unknown>",
+            "Promise<ToolResultData>",
             "Execute the tool with validated input. Optional handOver function for delegation patterns.",
           ],
         ]}
@@ -1275,11 +1275,64 @@ try {
           ],
           [
             "result",
-            "{ data: unknown; status: \"error\" | \"success\"; message?: string }",
-            "The execution result. Contains the return data, a status indicator, and an optional message.",
+            "ToolResultData",
+            "The execution result. See ToolResultData below.",
           ],
         ]}
       />
+
+      <h2 id="tool-result-data">ToolResultData</h2>
+
+      <p>
+        The shape of the <code>result</code> field on a{" "}
+        <code>ToolResult</code>. Contains the data returned by the tool,
+        a status indicator, an optional error message, and an optional
+        client-only rendering payload.
+      </p>
+
+      <CodeBlock
+        code={`interface ToolResultData {
+  status: "success" | "error";
+  data: unknown;          // Sent to the AI model
+  message?: string;       // Error message (for status: "error")
+  renderData?: unknown;   // Client-only — NOT sent to model, used by renderResult
+}`}
+        language="typescript"
+      />
+
+      <PropTable
+        headers={["Property", "Type", "Description"]}
+        rows={[
+          [
+            "status",
+            '"success" | "error"',
+            "Whether the tool executed successfully or encountered an error.",
+          ],
+          [
+            "data",
+            "unknown",
+            "The tool's return value. This is the data sent to the AI model as the tool result.",
+          ],
+          [
+            "message?",
+            "string",
+            "Error message describing what went wrong. Typically present when status is \"error\".",
+          ],
+          [
+            "renderData?",
+            "unknown",
+            "Client-only data for rendering tool results from history. Model adapters explicitly strip this field before sending to the AI — safe for sensitive client-only data like email addresses or UI state. Used by the renderResult function in glove-react tools.",
+          ],
+        ]}
+      />
+
+      <p>
+        Model adapters (Anthropic, OpenAI-compat) explicitly destructure and
+        only send <code>data</code>, <code>status</code>, and{" "}
+        <code>message</code> to the API. The <code>renderData</code> field
+        is preserved in the message store for client-side rendering via{" "}
+        <code>renderResult</code> but is never sent to the AI model.
+      </p>
 
       {/* ================================================================== */}
       {/* TASK TYPES                                                         */}
@@ -1349,7 +1402,7 @@ try {
           ],
           [
             "ListenerFn",
-            "(stack: Slot<unknown>[]) => void",
+            "(stack: Slot<unknown>[]) => Promise<void>",
             "Display stack change listener. Called whenever the stack is modified.",
           ],
           [
@@ -1364,7 +1417,7 @@ try {
           ],
           [
             "RejectFn",
-            "(error: string) => void",
+            "(reason?: any) => void",
             "Internal rejector for pushAndWait promises.",
           ],
         ]}
@@ -1502,7 +1555,7 @@ const available = getAvailableProviders();
           [
             "stream?",
             "boolean",
-            "Whether to use streaming. Defaults to false.",
+            "Whether to use streaming. Defaults to true.",
           ],
         ]}
       />
@@ -1515,7 +1568,7 @@ const available = getAvailableProviders();
       </p>
 
       <CodeBlock
-        code={`function getAvailableProviders(): ProviderConfig[]`}
+        code={`function getAvailableProviders(): Array<{ id: string; name: string; available: boolean; models: string[]; defaultModel: string }>`}
         language="typescript"
       />
 
@@ -1524,12 +1577,12 @@ const available = getAvailableProviders();
       <PropTable
         headers={["ID", "Env Variable", "Default Model"]}
         rows={[
-          ["openai", "OPENAI_API_KEY", "gpt-4o"],
+          ["openai", "OPENAI_API_KEY", "gpt-4.1"],
           ["anthropic", "ANTHROPIC_API_KEY", "claude-sonnet-4-20250514"],
-          ["openrouter", "OPENROUTER_API_KEY", "openai/gpt-4o"],
-          ["gemini", "GEMINI_API_KEY", "gemini-2.0-flash"],
-          ["minimax", "MINIMAX_API_KEY", "MiniMax-Text-01"],
-          ["kimi", "MOONSHOT_API_KEY", "moonshot-v1-auto"],
+          ["openrouter", "OPENROUTER_API_KEY", "anthropic/claude-sonnet-4"],
+          ["gemini", "GEMINI_API_KEY", "gemini-2.5-flash"],
+          ["minimax", "MINIMAX_API_KEY", "MiniMax-M2.5"],
+          ["kimi", "MOONSHOT_API_KEY", "kimi-k2.5"],
           ["glm", "ZHIPUAI_API_KEY", "glm-4-plus"],
         ]}
       />

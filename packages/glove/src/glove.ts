@@ -5,7 +5,7 @@
 // how do you achieve undos? include something in the do, that can be undone
 
 import z from "zod";
-import { Agent, ContentPart, Context, Executor, HandOverFunction, Message, ModelAdapter, ModelPromptResult, Observer, PromptMachine, StoreAdapter, SubscriberAdapter, Tool } from "./core";
+import { Agent, ContentPart, Context, Executor, HandOverFunction, Message, ModelAdapter, ModelPromptResult, Observer, PromptMachine, StoreAdapter, SubscriberAdapter, Tool, ToolResultData } from "./core";
 import { DisplayManagerAdapter } from "./display-manager";
 import { createTaskTool } from "./tools/task-tool";
 
@@ -15,7 +15,7 @@ interface GloveFoldArgs<I> {
   description: string
   inputSchema: z.ZodType<I>,
   requiresPermission?: boolean,
-  do: (input: I, display: DisplayManagerAdapter) => Promise<unknown>,
+  do: (input: I, display: DisplayManagerAdapter) => Promise<ToolResultData>,
 }
 
 interface IGloveRunnable {

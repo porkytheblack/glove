@@ -35,7 +35,7 @@ agent.setModel(newModelAdapter);  // Hot-swap model at runtime
   description: string,
   inputSchema: z.ZodType<I>,
   requiresPermission?: boolean,
-  do: (input: I, display: DisplayManagerAdapter) => Promise<unknown>,
+  do: (input: I, display: DisplayManagerAdapter) => Promise<ToolResultData>,
 }
 ```
 
@@ -157,10 +157,23 @@ interface Message {
 
 ```typescript
 interface ToolCall { tool_name: string; input_args: unknown; id?: string; }
-interface ToolResult { tool_name: string; call_id?: string; result: { data: unknown; status: "error" | "success"; message?: string }; }
+interface ToolResult { tool_name: string; call_id?: string; result: ToolResultData; }
 interface Task { id: string; content: string; activeForm: string; status: "pending" | "in_progress" | "completed"; }
 type PermissionStatus = "granted" | "denied" | "unset";
 ```
+
+### ToolResultData
+
+```typescript
+interface ToolResultData {
+  status: "success" | "error";
+  data: unknown;          // Sent to the AI model
+  message?: string;       // Error message (for status: "error")
+  renderData?: unknown;   // Client-only — NOT sent to model, used by renderResult
+}
+```
+
+**Note:** Model adapters (Anthropic, OpenAI-compat) explicitly destructure and only send `data`, `status`, and `message` to the API. `renderData` is preserved in the store for client-side rendering but never reaches the AI.
 
 ### Built-in Task Tool
 
@@ -211,11 +224,30 @@ import { GloveProvider } from "glove-react";
 ```typescript
 const {
   busy, timeline, streamingText, tasks, slots, stats,
-  sendMessage, abort, renderSlot, resolveSlot, rejectSlot,
+  sendMessage, abort, renderSlot, renderToolResult, resolveSlot, rejectSlot,
 } = useGlove(config?: UseGloveConfig);
 ```
 
 `UseGloveConfig` fields (all optional overrides): `endpoint`, `sessionId`, `store`, `model`, `systemPrompt`, `tools`, `compaction`, `subscribers`
+
+### GloveHandle
+
+The interface consumed by `<Render>`, returned by `useGlove()`:
+
+```typescript
+interface GloveHandle {
+  timeline: TimelineEntry[];
+  streamingText: string;
+  busy: boolean;
+  slots: EnhancedSlot[];
+  sendMessage: (text: string, images?: { data: string; media_type: string }[]) => void;
+  abort: () => void;
+  renderSlot: (slot: EnhancedSlot) => ReactNode;
+  renderToolResult: (entry: ToolEntry) => ReactNode;
+  resolveSlot: (slotId: string, value: unknown) => void;
+  rejectSlot: (slotId: string, reason?: string) => void;
+}
+```
 
 ### ToolConfig
 
@@ -224,11 +256,177 @@ interface ToolConfig<I = any> {
   name: string;
   description: string;
   inputSchema: z.ZodType<I>;
-  do: (input: I, display: ToolDisplay) => Promise<unknown>;
+  do: (input: I, display: ToolDisplay) => Promise<ToolResultData>;
   render?: (props: SlotRenderProps) => ReactNode;
+  renderResult?: (props: ToolResultRenderProps) => ReactNode;
+  displayStrategy?: SlotDisplayStrategy;
   requiresPermission?: boolean;
 }
 ```
+
+### defineTool
+
+Type-safe tool definition helper with colocated renderers. Preferred over raw `ToolConfig` for tools with display UI.
+
+```typescript
+import { defineTool } from "glove-react";
+
+const tool = defineTool<I, D, R>({
+  name: string,
+  description: string,
+  inputSchema: I,                          // z.ZodType — tool input schema
+  displayPropsSchema?: D,                  // z.ZodType — display props schema (recommended for tools with UI)
+  resolveSchema?: R,                       // z.ZodType — resolve value schema (default: z.ZodVoid)
+  displayStrategy?: SlotDisplayStrategy,
+  requiresPermission?: boolean,
+  do(input: z.infer<I>, display: TypedDisplay<z.infer<D>, z.infer<R>>): Promise<ToolResultData>,
+  render?({ props, resolve, reject }): ReactNode,
+  renderResult?({ data, output, status }): ReactNode,
+});
+```
+
+**Notes:**
+- Returns a `ToolConfig` — compatible with `GloveClient.tools` and `useGlove` config
+- `do()` receives a `TypedDisplay` with typed `pushAndWait`/`pushAndForget`
+- `render()` receives typed `props` (from displayPropsSchema) and typed `resolve` (from resolveSchema)
+- `renderResult()` receives `renderData` from the tool result for history rendering
+- Raw return values from `do()` are auto-wrapped into `{ status: "success", data: value }`
+- `displayPropsSchema` is optional but recommended — use raw `ToolConfig` for tools without display
+
+### TypedDisplay
+
+Typed display adapter provided to `defineTool`'s `do()` function:
+
+```typescript
+interface TypedDisplay<D, R = void> {
+  pushAndWait: (input: D) => Promise<R>;
+  pushAndForget: (input: D) => Promise<string>;
+}
+```
+
+### ToolDisplay
+
+Untyped display adapter provided to raw `ToolConfig`'s `do()` function:
+
+```typescript
+interface ToolDisplay {
+  pushAndWait: <I, O = unknown>(slot: { renderer?: string; input: I }) => Promise<O>;
+  pushAndForget: <I>(slot: { renderer?: string; input: I }) => Promise<string>;
+}
+```
+
+### SlotRenderProps
+
+```typescript
+interface SlotRenderProps<T = any> {
+  data: T;
+  resolve: (value: unknown) => void;
+  reject: (reason?: string) => void;
+}
+```
+
+### ToolResultRenderProps
+
+```typescript
+interface ToolResultRenderProps<T = any> {
+  data: T;            // The renderData from ToolResultData
+  output?: string;    // The string output of the tool
+  status: "success" | "error";
+}
+```
+
+### SlotDisplayStrategy
+
+```typescript
+type SlotDisplayStrategy = "stay" | "hide-on-complete" | "hide-on-new";
+```
+
+| Strategy | Behavior |
+|----------|----------|
+| `"stay"` | Slot always visible (default) |
+| `"hide-on-complete"` | Hidden when slot is resolved/rejected |
+| `"hide-on-new"` | Hidden when a newer slot from the same tool appears |
+
+### EnhancedSlot
+
+```typescript
+interface EnhancedSlot extends Slot<unknown> {
+  toolName: string;
+  toolCallId: string;
+  createdAt: number;
+  displayStrategy: SlotDisplayStrategy;
+  status: "pending" | "resolved" | "rejected";
+}
+```
+
+### TimelineEntry / ToolEntry
+
+```typescript
+type TimelineEntry =
+  | { kind: "user"; text: string; images?: string[] }
+  | { kind: "agent_text"; text: string }
+  | { kind: "tool"; id: string; name: string; input: unknown; status: "running" | "success" | "error"; output?: string; renderData?: unknown };
+
+type ToolEntry = Extract<TimelineEntry, { kind: "tool" }>;
+```
+
+### Render Component
+
+Headless render component for chat UIs:
+
+```tsx
+import { Render } from "glove-react";
+
+interface RenderProps {
+  glove: GloveHandle;                                              // Required
+  strategy?: RenderStrategy;                                       // Default: "interleaved"
+  renderMessage?: (props: MessageRenderProps) => ReactNode;
+  renderToolStatus?: (props: ToolStatusRenderProps) => ReactNode;  // Default: hidden
+  renderStreaming?: (props: StreamingRenderProps) => ReactNode;
+  renderInput?: (props: InputRenderProps) => ReactNode;
+  renderSlotContainer?: (props: SlotContainerRenderProps) => ReactNode;
+  as?: keyof JSX.IntrinsicElements;                                // Default: "div"
+  className?: string;
+  style?: CSSProperties;
+}
+```
+
+**Render prop interfaces:**
+
+```typescript
+interface MessageRenderProps {
+  entry: Extract<TimelineEntry, { kind: "user" | "agent_text" }>;
+  index: number;
+  isLast: boolean;
+}
+
+interface ToolStatusRenderProps {
+  entry: ToolEntry;
+  index: number;
+  hasSlot: boolean;   // true if this tool has an active or result slot
+}
+
+interface StreamingRenderProps { text: string; }
+
+interface InputRenderProps {
+  send: (text: string, images?: { data: string; media_type: string }[]) => void;
+  busy: boolean;
+  abort: () => void;
+}
+
+interface SlotContainerRenderProps {
+  slots: EnhancedSlot[];
+  renderSlot: (slot: EnhancedSlot) => ReactNode;
+}
+
+type RenderStrategy = "interleaved" | "slots-before" | "slots-after" | "slots-only";
+```
+
+**Features:**
+- Automatic slot visibility filtering based on `displayStrategy`
+- Automatic `renderResult` rendering for completed tools with `renderData`
+- Interleaving: slots appear inline next to their tool call entry
+- Sensible defaults for all render props (messages as divs, hidden tool status, basic input form)
 
 ### MemoryStore
 

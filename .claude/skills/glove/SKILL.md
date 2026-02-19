@@ -20,7 +20,7 @@ Glove is an open-source TypeScript framework for building AI-powered application
 | Package | Purpose | Install |
 |---------|---------|---------|
 | `glove-core` | Runtime engine: agent loop, tool execution, display manager, model adapters, stores | `pnpm add glove-core` |
-| `glove-react` | React hooks (`useGlove`), `GloveClient`, `GloveProvider`, `MemoryStore`, `ToolConfig` with colocated renderers | `pnpm add glove-react` |
+| `glove-react` | React hooks (`useGlove`), `GloveClient`, `GloveProvider`, `defineTool`, `<Render>`, `MemoryStore`, `ToolConfig` with colocated renderers | `pnpm add glove-react` |
 | `glove-next` | One-line Next.js API route handler (`createChatHandler`) for streaming SSE | `pnpm add glove-next` |
 
 **Most projects need just `glove-react` + `glove-next`.** `glove-core` is included as a dependency of `glove-react`.
@@ -38,8 +38,10 @@ User message → Agent Loop → Model decides tool calls → Execute tools → F
 ### Core Concepts
 
 - **Agent** — AI coordinator that replaces router/navigation logic. Reads tools, decides which to call.
-- **Tool** — A capability: name, description, inputSchema (Zod), `do` function, optional `render`.
+- **Tool** — A capability: name, description, inputSchema (Zod), `do` function, optional `render` + `renderResult`.
 - **Display Stack** — Stack of UI slots tools push onto. `pushAndWait` blocks tool; `pushAndForget` doesn't.
+- **Display Strategy** — Controls slot visibility lifecycle: `"stay"`, `"hide-on-complete"`, `"hide-on-new"`.
+- **renderData** — Client-only data returned from `do()` that is NOT sent to the AI model. Used by `renderResult` for history rendering.
 - **Adapter** — Pluggable interfaces for Model, Store, DisplayManager, and Subscriber. Swap providers without changing app code.
 - **Context Compaction** — Auto-summarizes long conversations to stay within context window limits.
 
@@ -65,33 +67,71 @@ export const POST = createChatHandler({
 
 Set `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`, etc.) in `.env.local`.
 
-### 3. Define tools + client
+### 3. Define tools with `defineTool`
 
-```typescript
-// lib/glove.ts
-import { GloveClient } from "glove-react";
+```tsx
+// lib/glove.tsx
+import { GloveClient, defineTool } from "glove-react";
+import type { ToolConfig } from "glove-react";
 import { z } from "zod";
+
+const inputSchema = z.object({
+  question: z.string().describe("The question to display"),
+  options: z.array(z.object({
+    label: z.string().describe("Display text"),
+    value: z.string().describe("Value returned when selected"),
+  })),
+});
+
+const askPreferenceTool = defineTool({
+  name: "ask_preference",
+  description: "Present options for the user to choose from.",
+  inputSchema,
+  displayPropsSchema: inputSchema,       // Zod schema for display props
+  resolveSchema: z.string(),             // Zod schema for resolve value
+  displayStrategy: "hide-on-complete",   // Hide slot after user responds
+  async do(input, display) {
+    const selected = await display.pushAndWait(input);  // typed!
+    return {
+      status: "success" as const,
+      data: `User selected: ${selected}`,         // sent to AI
+      renderData: { question: input.question, selected },  // client-only
+    };
+  },
+  render({ props, resolve }) {           // typed props, typed resolve
+    return (
+      <div>
+        <p>{props.question}</p>
+        {props.options.map(opt => (
+          <button key={opt.value} onClick={() => resolve(opt.value)}>
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    );
+  },
+  renderResult({ data }) {               // renders from history
+    const { question, selected } = data as { question: string; selected: string };
+    return <div><p>{question}</p><span>Selected: {selected}</span></div>;
+  },
+});
+
+// Tools without display stay as raw ToolConfig
+const getDateTool: ToolConfig = {
+  name: "get_date",
+  description: "Get today's date",
+  inputSchema: z.object({}),
+  async do() { return { status: "success", data: new Date().toLocaleDateString() }; },
+};
 
 export const gloveClient = new GloveClient({
   endpoint: "/api/chat",
   systemPrompt: "You are a helpful assistant.",
-  tools: [
-    {
-      name: "get_weather",
-      description: "Get current weather for a city.",
-      inputSchema: z.object({
-        city: z.string().describe("City name"),
-      }),
-      async do(input) {
-        const res = await fetch(`/api/weather?city=${input.city}`);
-        return res.json();
-      },
-    },
-  ],
+  tools: [askPreferenceTool, getDateTool],
 });
 ```
 
-### 4. Provider + Hook
+### 4. Provider + Render
 
 ```tsx
 // app/providers.tsx
@@ -105,13 +145,36 @@ export function Providers({ children }: { children: React.ReactNode }) {
 ```
 
 ```tsx
-// app/page.tsx
+// app/page.tsx — using <Render> component
+"use client";
+import { useGlove, Render } from "glove-react";
+
+export default function Chat() {
+  const glove = useGlove();
+
+  return (
+    <Render
+      glove={glove}
+      strategy="interleaved"
+      renderMessage={({ entry }) => (
+        <div><strong>{entry.kind === "user" ? "You" : "AI"}:</strong> {entry.text}</div>
+      )}
+      renderStreaming={({ text }) => <div style={{ opacity: 0.7 }}>{text}</div>}
+    />
+  );
+}
+```
+
+Or use `useGlove()` directly for full manual control:
+
+```tsx
+// app/page.tsx — manual rendering
 "use client";
 import { useState } from "react";
 import { useGlove } from "glove-react";
 
 export default function Chat() {
-  const { timeline, streamingText, busy, slots, sendMessage, renderSlot } = useGlove();
+  const { timeline, streamingText, busy, slots, sendMessage, renderSlot, renderToolResult } = useGlove();
   const [input, setInput] = useState("");
 
   return (
@@ -120,7 +183,12 @@ export default function Chat() {
         <div key={i}>
           {entry.kind === "user" && <p><strong>You:</strong> {entry.text}</p>}
           {entry.kind === "agent_text" && <p><strong>AI:</strong> {entry.text}</p>}
-          {entry.kind === "tool" && <p>Tool: {entry.name} — {entry.status}</p>}
+          {entry.kind === "tool" && (
+            <>
+              <p>Tool: {entry.name} — {entry.status}</p>
+              {entry.renderData !== undefined && renderToolResult(entry)}
+            </>
+          )}
         </div>
       ))}
       {streamingText && <p style={{ opacity: 0.7 }}>{streamingText}</p>}
@@ -142,10 +210,13 @@ export default function Chat() {
 async do(input, display) {
   const data = await fetchData(input);
   await display.pushAndForget({ input: data }); // Shows UI, tool continues
-  return data;
+  return { status: "success", data: "Displayed results", renderData: data };
 },
 render({ data }) {
   return <Card>{data.title}</Card>;
+},
+renderResult({ data }) {
+  return <Card>{(data as any).title}</Card>;  // Same card from history
 },
 ```
 
@@ -154,7 +225,11 @@ render({ data }) {
 ```tsx
 async do(input, display) {
   const confirmed = await display.pushAndWait({ input }); // Pauses until user responds
-  return confirmed ? "Confirmed" : "Cancelled";
+  return {
+    status: "success",
+    data: confirmed ? "Confirmed" : "Cancelled",
+    renderData: { confirmed },
+  };
 },
 render({ data, resolve }) {
   return (
@@ -165,7 +240,19 @@ render({ data, resolve }) {
     </div>
   );
 },
+renderResult({ data }) {
+  const { confirmed } = data as { confirmed: boolean };
+  return <div>{confirmed ? "Confirmed" : "Cancelled"}</div>;
+},
 ```
+
+### Display Strategies
+
+| Strategy | Behavior | Use for |
+|----------|----------|---------|
+| `"stay"` (default) | Slot always visible | Info cards, results |
+| `"hide-on-complete"` | Hidden when slot is resolved | Forms, confirmations, pickers |
+| `"hide-on-new"` | Hidden when newer slot from same tool appears | Cart summaries, status panels |
 
 ### SlotRenderProps
 
@@ -173,17 +260,105 @@ render({ data, resolve }) {
 |------|------|-------------|
 | `data` | `T` | Input passed to pushAndWait/pushAndForget |
 | `resolve` | `(value: unknown) => void` | Resolves the slot. For pushAndWait, the value returns to `do`. For pushAndForget, use `resolve()` or `removeSlot(id)` to dismiss. |
+| `reject` | `(reason?: string) => void` | Rejects the slot. For pushAndWait, this causes the promise to reject. Use for cancellation flows. |
 
-## Tool Definition Reference
+## Tool Definition
+
+### `defineTool` (recommended for tools with UI)
+
+```typescript
+import { defineTool } from "glove-react";
+
+const tool = defineTool({
+  name: string,
+  description: string,
+  inputSchema: z.ZodType,              // Zod schema for tool input
+  displayPropsSchema?: z.ZodType,      // Zod schema for display props (recommended for tools with UI)
+  resolveSchema?: z.ZodType,           // Zod schema for resolve value (omit for pushAndForget-only)
+  displayStrategy?: SlotDisplayStrategy,
+  requiresPermission?: boolean,
+  do(input, display): Promise<ToolResultData>,  // display is TypedDisplay<D, R>
+  render?({ props, resolve, reject }): ReactNode,
+  renderResult?({ data, output, status }): ReactNode,
+});
+```
+
+**Key points:**
+- `do()` should return `{ status, data, renderData }` — `data` goes to model, `renderData` stays client-only
+- `render()` gets typed `props` (matching displayPropsSchema) and typed `resolve` (matching resolveSchema)
+- `renderResult()` receives `renderData` for showing read-only views from history
+- `displayPropsSchema` is optional but recommended — tools without display should use raw `ToolConfig`
+
+### `ToolConfig` (for tools without UI or manual control)
 
 ```typescript
 interface ToolConfig<I = any> {
-  name: string;                              // Unique identifier
-  description: string;                       // AI reads this to decide when to call
-  inputSchema: z.ZodType<I>;                 // Zod schema for validation
-  do: (input: I, display: ToolDisplay) => Promise<unknown>;  // Implementation
-  render?: (props: SlotRenderProps) => ReactNode;             // Optional colocated UI
-  requiresPermission?: boolean;              // Gate behind user approval
+  name: string;
+  description: string;
+  inputSchema: z.ZodType<I>;
+  do: (input: I, display: ToolDisplay) => Promise<ToolResultData>;
+  render?: (props: SlotRenderProps) => ReactNode;
+  renderResult?: (props: ToolResultRenderProps) => ReactNode;
+  displayStrategy?: SlotDisplayStrategy;
+  requiresPermission?: boolean;
+}
+```
+
+### ToolResultData
+
+```typescript
+interface ToolResultData {
+  status: "success" | "error";
+  data: unknown;          // Sent to the AI model
+  message?: string;       // Error message (for status: "error")
+  renderData?: unknown;   // Client-only — NOT sent to model, used by renderResult
+}
+```
+
+**Important:** Model adapters explicitly strip `renderData` before sending to the AI. This makes it safe to store sensitive client-only data (e.g., email addresses, UI state) in `renderData`.
+
+## `<Render>` Component
+
+Headless render component that replaces manual timeline rendering:
+
+```tsx
+import { Render } from "glove-react";
+
+<Render
+  glove={gloveHandle}           // return value of useGlove()
+  strategy="interleaved"        // "interleaved" | "slots-before" | "slots-after" | "slots-only"
+  renderMessage={({ entry, index, isLast }) => ...}
+  renderToolStatus={({ entry, index, hasSlot }) => ...}
+  renderStreaming={({ text }) => ...}
+  renderInput={({ send, busy, abort }) => ...}
+  renderSlotContainer={({ slots, renderSlot }) => ...}
+  as="div"                      // wrapper element
+  className="chat"
+/>
+```
+
+**Features:**
+- Automatic slot visibility based on `displayStrategy`
+- Automatic `renderResult` rendering for completed tools with `renderData`
+- Interleaving: slots appear inline next to their tool call
+- Sensible defaults for all render props
+
+## `GloveHandle` Interface
+
+The interface consumed by `<Render>`, returned by `useGlove()`:
+
+```typescript
+interface GloveHandle {
+  timeline: TimelineEntry[];
+  streamingText: string;
+  busy: boolean;
+  slots: EnhancedSlot[];
+  sendMessage: (text: string, images?: { data: string; media_type: string }[]) => void;
+  abort: () => void;
+  renderSlot: (slot: EnhancedSlot) => ReactNode;
+  renderToolResult: (entry: ToolEntry) => ReactNode;
+  resolveSlot: (slotId: string, value: unknown) => void;
+  rejectSlot: (slotId: string, reason?: string) => void;
 }
 ```
 
@@ -194,12 +369,13 @@ interface ToolConfig<I = any> {
 | `timeline` | `TimelineEntry[]` | Messages + tool calls |
 | `streamingText` | `string` | Current streaming buffer |
 | `busy` | `boolean` | Agent is processing |
-| `slots` | `Slot[]` | Active display stack |
+| `slots` | `EnhancedSlot[]` | Active display stack with metadata |
 | `tasks` | `Task[]` | Agent task list |
 | `stats` | `GloveStats` | `{ turns, tokens_in, tokens_out }` |
 | `sendMessage(text, images?)` | `void` | Send user message |
 | `abort()` | `void` | Cancel current request |
 | `renderSlot(slot)` | `ReactNode` | Render a display slot |
+| `renderToolResult(entry)` | `ReactNode` | Render a tool result from history |
 | `resolveSlot(id, value)` | `void` | Resolve a pushAndWait slot |
 | `rejectSlot(id, reason?)` | `void` | Reject a pushAndWait slot |
 
@@ -209,7 +385,9 @@ interface ToolConfig<I = any> {
 type TimelineEntry =
   | { kind: "user"; text: string; images?: string[] }
   | { kind: "agent_text"; text: string }
-  | { kind: "tool"; id: string; name: string; input: unknown; status: "running" | "success" | "error"; output?: string };
+  | { kind: "tool"; id: string; name: string; input: unknown; status: "running" | "success" | "error"; output?: string; renderData?: unknown };
+
+type ToolEntry = Extract<TimelineEntry, { kind: "tool" }>;
 ```
 
 ## Supported Providers
@@ -247,7 +425,9 @@ For example patterns from real implementations, see [examples.md](examples.md).
 2. **Closure capture in React hooks**: When re-keying sessions, use mutable `let currentKey = key` to avoid stale closures.
 3. **React useEffect timing**: State updates don't take effect in the same render cycle — guard with early returns.
 4. **Browser-safe imports**: `glove-core` barrel exports include native deps (better-sqlite3). For browser code, import from subpaths: `glove-core/core`, `glove-core/glove`, `glove-core/display-manager`, `glove-core/tools/task-tool`.
-5. **`Displaymanager` casing**: The concrete class is `Displaymanager` (lowercase 'm'), not `DisplayManager`. Import it as: `import { Displaymanager } from "glove-core"`.
+5. **`Displaymanager` casing**: The concrete class is `Displaymanager` (lowercase 'm'), not `DisplayManager`. Import it as: `import { Displaymanager } from "glove-core/display-manager"`.
 6. **`createAdapter` stream default**: `stream` defaults to `true`, not `false`. Pass `stream: false` explicitly if you want synchronous responses.
-7. **Tool return values**: The `do` function's return value becomes the tool result sent back to the AI. Return structured data so the AI can reference it.
+7. **Tool return values**: The `do` function should return `ToolResultData` with `{ status, data, renderData? }`. `data` goes to the AI; `renderData` stays client-only.
 8. **Zod .describe()**: Always add `.describe()` to schema fields — the AI reads these descriptions to understand what to provide.
+9. **displayPropsSchema is optional but recommended**: `defineTool`'s `displayPropsSchema` is optional, but recommended for tools with display UI — tools without display should use raw `ToolConfig` instead.
+10. **renderData is stripped by model adapters**: Model adapters explicitly exclude `renderData` when formatting tool results for the AI, so it's safe for client-only data.
