@@ -1,0 +1,19 @@
+{
+  "name": "glove-voice",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.28.2",
+  "dependencies": {
+    "@types/node": "^25.2.3",
+    "eventemitter3": "^5.0.4",
+    "typescript": "^5.9.3",
+    "glove-core": "workspace:*"
+  }
+}

@@ -18,7 +18,7 @@ interface GloveFoldArgs<I> {
   do: (input: I, display: DisplayManagerAdapter) => Promise<ToolResultData>,
 }
 
-interface IGloveRunnable {
+export interface IGloveRunnable {
   processRequest: (request: string | ContentPart[], signal?: AbortSignal) => Promise<ModelPromptResult | Message>
   setModel: (model: ModelAdapter) => void
   readonly displayManager: DisplayManagerAdapter
