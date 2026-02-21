@@ -153,6 +153,58 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  examples/lola:
+    dependencies:
+      '@ricky0123/vad-web':
+        specifier: ^0.0.30
+        version: 0.0.30
+      better-sqlite3:
+        specifier: ^12.6.2
+        version: 12.6.2
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-next:
+        specifier: workspace:*
+        version: link:../../packages/next
+      glove-react:
+        specifier: workspace:*
+        version: link:../../packages/react
+      glove-voice:
+        specifier: workspace:*
+        version: link:../../packages/glove-voice
+      next:
+        specifier: ^15.3.3
+        version: 15.5.12(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      onnxruntime-web:
+        specifier: ^1.22.0
+        version: 1.24.2
+      openai:
+        specifier: ^6.22.0
+        version: 6.22.0(ws@8.19.0)(zod@4.3.6)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.4(react@19.2.4)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/better-sqlite3':
+        specifier: ^7.6.13
+        version: 7.6.13
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.14)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   examples/nextjs-agent:
     dependencies:
       glove-core:
