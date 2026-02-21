@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 interface NavItem {
   label: string;
   href: string;
+  voice?: boolean;
 }
 
 interface NavSection {
@@ -35,6 +36,8 @@ const sections: NavSection[] = [
     items: [
       { label: "Travel Planner", href: "/docs/showcase/travel-planner" },
       { label: "Coding Agent", href: "/docs/showcase/coding-agent" },
+      { label: "Coffee Shop", href: "/docs/showcase/coffee-shop", voice: true },
+      { label: "Lola", href: "/docs/showcase/lola", voice: true },
       { label: "Ecommerce Store", href: "/docs/showcase/ecommerce-store" },
       { label: "Terminal Agent", href: "/docs/showcase/terminal-agent" },
     ],
@@ -44,6 +47,7 @@ const sections: NavSection[] = [
     items: [
       { label: "React", href: "/docs/react" },
       { label: "Next.js", href: "/docs/next" },
+      { label: "Voice", href: "/docs/voice" },
     ],
   },
   {
@@ -85,6 +89,26 @@ export function DocsSidebar() {
                 onClick={() => setIsOpen(false)}
               >
                 {item.label}
+                {item.voice && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      marginLeft: 6,
+                      padding: "1px 5px",
+                      fontSize: 9,
+                      fontWeight: 600,
+                      letterSpacing: "0.05em",
+                      textTransform: "uppercase",
+                      borderRadius: 3,
+                      background: "rgba(245, 166, 35, 0.12)",
+                      color: "#f5a623",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    voice
+                  </span>
+                )}
               </Link>
             ))}
           </div>

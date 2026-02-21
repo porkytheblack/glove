@@ -9,13 +9,17 @@ import React, {
   type ReactNode,
 } from "react";
 import { useGlove, Render } from "glove-react";
+import { useGloveVoice } from "glove-react/voice";
 import type {
   MessageRenderProps,
   StreamingRenderProps,
   ToolStatusRenderProps,
 } from "glove-react";
+import type { TurnMode } from "glove-react/voice";
 import { createCoffeeTools, type CartOps } from "../lib/tools";
 import { getProductById, type CartItem } from "../lib/products";
+import { stt, createTTS, createSileroVAD } from "../lib/voice";
+import { systemPrompt, voiceSystemPrompt } from "../lib/system-prompt";
 import { RightPanel } from "./right-panel";
 import { ChatInput } from "./chat-input";
 import { EmptyState } from "./empty-state";
@@ -53,6 +57,9 @@ function renderStreaming({ text }: StreamingRenderProps): ReactNode {
 }
 
 function renderToolStatus({ entry }: ToolStatusRenderProps): ReactNode {
+  // Don't render aborted tools — abort is not an error, just the user ending the turn
+  if (entry.status === "aborted") return null;
+
   return (
     <div className="tool-entry">
       <div className={`tool-badge ${entry.status}`}>
@@ -122,8 +129,168 @@ export default function Chat({ sessionId, onFirstMessage }: ChatProps) {
 
   // ── Glove hook — sessionId drives store resolution ──────────────────
   const glove = useGlove({ tools, sessionId });
-  const { timeline, streamingText, busy, stats, slots, sendMessage, abort } =
+  const { runnable, timeline, streamingText, busy, stats, slots, sendMessage, abort } =
     glove;
+
+  // ── Turn mode state ──────────────────────────────────────────────────
+  const [turnMode, setTurnMode] = useState<TurnMode>("vad");
+
+  // ── Manual recording state ───────────────────────────────────────────
+  // Tracks whether the user is actively holding space / clicking to record
+  // in manual (push-to-speak) mode. This is purely UI state — the mic is
+  // always hot once voice.start() is called. Recording state just controls
+  // when we call commitTurn() to flush the utterance.
+  const [isManualRecording, setIsManualRecording] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const recordingRef = useRef(false);        // guards against double-commit
+  const recordingStartRef = useRef(0);       // timestamp for min-duration check
+  const pendingCommitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const MIN_RECORDING_MS = 350;             // ElevenLabs needs ≥0.3s of audio
+
+  // ── Voice pipeline ──────────────────────────────────────────────────
+  // Track VAD initialization state
+  const [vadReady, setVadReady] = useState(false);
+  const vadRef = useRef<Awaited<ReturnType<typeof createSileroVAD>> | null>(null);
+
+  // Initialize Silero VAD model on mount (dynamic import avoids SSR issues)
+  useEffect(() => {
+    createSileroVAD().then((v) => {
+      vadRef.current = v;
+      setVadReady(true);
+    });
+  }, []);
+
+  const voiceConfig = useMemo(
+    () => ({
+      stt,
+      createTTS,
+      vad: vadReady ? vadRef.current ?? undefined : undefined,
+      turnMode,
+    }),
+    [vadReady, turnMode]
+  );
+  const voice = useGloveVoice({ runnable, voice: voiceConfig });
+
+  // Stable ref for voice.commitTurn — avoids capturing the unstable `voice`
+  // object in keyboard/click handlers and preventing listener churn.
+  const commitTurnRef = useRef(voice.commitTurn);
+  commitTurnRef.current = voice.commitTurn;
+
+  // ── Voice-specific system prompt ────────────────────────────────────
+  useEffect(() => {
+    if (!runnable) return;
+    if (voice.isActive) {
+      runnable.setSystemPrompt(voiceSystemPrompt);
+    } else {
+      runnable.setSystemPrompt(systemPrompt);
+    }
+  }, [voice.isActive, runnable]);
+
+  // ── Reset manual recording when voice mode changes ─────────────────
+  // If the pipeline transitions away from listening (e.g. thinking/speaking),
+  // the recording session is done — clear all flags.
+  useEffect(() => {
+    if (voice.mode !== "listening") {
+      recordingRef.current = false;
+      setIsManualRecording(false);
+      setIsProcessing(false);
+      if (pendingCommitRef.current) {
+        clearTimeout(pendingCommitRef.current);
+        pendingCommitRef.current = null;
+      }
+    }
+  }, [voice.mode]);
+
+  // ── Thinking sound — loop while agent is processing ────────────────
+  useEffect(() => {
+    if (voice.mode !== "thinking") return;
+    const audio = new Audio("/bow-loading.mp3");
+    audio.loop = true;
+    audio.play().catch(() => {});
+    return () => {
+      audio.pause();
+      audio.src = "";
+    };
+  }, [voice.mode]);
+
+  // ── Commit with min-duration handling ──────────────────────────────
+  // When user stops recording: if enough audio has accumulated, commit
+  // immediately. Otherwise, show a processing state and wait until
+  // MIN_RECORDING_MS has elapsed before committing. The mic stays hot
+  // the entire time so audio keeps flowing to ElevenLabs.
+  const commitRecording = useCallback(() => {
+    if (!recordingRef.current) return;
+    recordingRef.current = false;
+    setIsManualRecording(false);
+
+    const elapsed = Date.now() - recordingStartRef.current;
+
+    if (elapsed >= MIN_RECORDING_MS) {
+      // Enough audio — commit now, show processing while STT finalizes
+      setIsProcessing(true);
+      commitTurnRef.current();
+    } else {
+      // Not enough audio yet — keep mic hot, wait, then commit
+      setIsProcessing(true);
+      const remaining = MIN_RECORDING_MS - elapsed;
+      pendingCommitRef.current = setTimeout(() => {
+        pendingCommitRef.current = null;
+        commitTurnRef.current();
+      }, remaining);
+    }
+  }, [MIN_RECORDING_MS]);
+
+  // ── Manual recording handlers ──────────────────────────────────────
+  const handleManualRecordStart = useCallback(() => {
+    if (turnMode !== "manual" || voice.mode !== "listening") return;
+    if (recordingRef.current) return;
+    recordingRef.current = true;
+    recordingStartRef.current = Date.now();
+    setIsProcessing(false);
+    setIsManualRecording(true);
+  }, [turnMode, voice.mode]);
+
+  const handleManualRecordStop = useCallback(() => {
+    commitRecording();
+  }, [commitRecording]);
+
+  // ── Space bar: hold-to-speak in manual mode ────────────────────────
+  useEffect(() => {
+    if (!voice.isActive || turnMode !== "manual") return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      e.preventDefault();
+      if (e.repeat) return;
+
+      if (voice.mode === "listening" && !recordingRef.current) {
+        recordingRef.current = true;
+        recordingStartRef.current = Date.now();
+        setIsProcessing(false);
+        setIsManualRecording(true);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      e.preventDefault();
+      commitRecording();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [voice.isActive, turnMode, voice.mode, commitRecording]);
 
   // ── Auto-scroll ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -210,6 +377,13 @@ export default function Chat({ sessionId, onFirstMessage }: ChatProps) {
           busy={busy}
           onSubmit={handleSubmit}
           onAbort={abort}
+          voice={voice}
+          turnMode={turnMode}
+          onTurnModeChange={setTurnMode}
+          isManualRecording={isManualRecording}
+          isProcessing={isProcessing}
+          onManualRecordStart={handleManualRecordStart}
+          onManualRecordStop={handleManualRecordStop}
         />
       </div>
 

@@ -1,9 +1,10 @@
 import type { Task, ContentPart, SubscriberAdapter, StoreAdapter, ModelAdapter, ToolResultData } from "glove-core/core";
 import type { Slot } from "glove-core/display-manager";
+import type { IGloveRunnable } from "glove-core/glove";
 import type z from "zod";
 import type { ReactNode } from "react";
 
-export type { Task, ContentPart, Slot, SubscriberAdapter, StoreAdapter, ModelAdapter, ToolResultData };
+export type { Task, ContentPart, Slot, SubscriberAdapter, StoreAdapter, ModelAdapter, ToolResultData, IGloveRunnable };
 
 // ─── Timeline ────────────────────────────────────────────────────────────────
 
@@ -15,7 +16,7 @@ export type TimelineEntry =
       id: string;
       name: string;
       input: unknown;
-      status: "running" | "success" | "error";
+      status: "running" | "success" | "error" | "aborted";
       output?: string;
       renderData?: unknown;
     };
@@ -50,7 +51,7 @@ export interface SlotRenderProps<T = any> {
 export interface ToolResultRenderProps<T = any> {
   data: T;
   output?: string;
-  status: "success" | "error";
+  status: "success" | "error" | "aborted";
 }
 
 // ─── Enhanced slots ──────────────────────────────────────────────────────────
@@ -133,6 +134,7 @@ export interface ToolConfig<I = any> {
   description: string;
   inputSchema: z.ZodType<I>;
   requiresPermission?: boolean;
+  unAbortable?: boolean;
   displayStrategy?: SlotDisplayStrategy;
   do: (input: I, display: ToolDisplay) => Promise<ToolResultData>;
   /** Colocated renderer for this tool's display slots. When present, the tool

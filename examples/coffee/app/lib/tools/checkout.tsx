@@ -23,6 +23,7 @@ export function createCheckoutTool(cartOps: CartOps) {
     inputSchema: z.object({}),
     displayPropsSchema: displaySchema,
     resolveSchema,
+    unAbortable: true,
     displayStrategy: "hide-on-complete",
     async do(_input, display) {
       const cart = cartOps.get();

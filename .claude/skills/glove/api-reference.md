@@ -35,6 +35,7 @@ agent.setModel(newModelAdapter);  // Hot-swap model at runtime
   description: string,
   inputSchema: z.ZodType<I>,
   requiresPermission?: boolean,
+  unAbortable?: boolean,          // When true, tool runs to completion even if abort signal fires (e.g. voice barge-in)
   do: (input: I, display: DisplayManagerAdapter) => Promise<ToolResultData>,
 }
 ```
@@ -280,6 +281,7 @@ const tool = defineTool<I, D, R>({
   resolveSchema?: R,                       // z.ZodType — resolve value schema (default: z.ZodVoid)
   displayStrategy?: SlotDisplayStrategy,
   requiresPermission?: boolean,
+  unAbortable?: boolean,                   // Tool runs to completion even if abort signal fires
   do(input: z.infer<I>, display: TypedDisplay<z.infer<D>, z.infer<R>>): Promise<ToolResultData>,
   render?({ props, resolve, reject }): ReactNode,
   renderResult?({ data, output, status }): ReactNode,
@@ -293,6 +295,33 @@ const tool = defineTool<I, D, R>({
 - `renderResult()` receives `renderData` from the tool result for history rendering
 - Raw return values from `do()` are auto-wrapped into `{ status: "success", data: value }`
 - `displayPropsSchema` is optional but recommended — use raw `ToolConfig` for tools without display
+
+### unAbortable Tools
+
+When `unAbortable: true` is set on a tool, glove-core guarantees the tool runs to completion even if the abort signal fires (e.g. from voice barge-in or manual `interrupt()`). This is essential for tools that perform mutations the user has already committed to, like checkout forms.
+
+**How it works (two layers):**
+
+1. **Core layer** (`Agent.executeTools`): When the abort signal fires, abortable tools are skipped with `{ status: "aborted" }`. But if `tool.unAbortable` is `true`, the tool executes normally — no `abortablePromise` wrapper, retries still allowed.
+
+2. **Voice layer** (`GloveVoice.interrupt`): Before clearing display slots, checks `displayManager.resolverStore.size > 0`. If a `pushAndWait` resolver is pending (the form is open), barge-in is suppressed entirely — `interrupt()` is never called. This prevents the abort signal from firing in the first place.
+
+**Important distinction:** `pushAndWait` alone does NOT make a tool survive barge-in. It only suppresses the barge-in trigger at the voice layer. If `interrupt()` is called through other means (e.g. programmatically), only `unAbortable: true` guarantees the tool runs to completion. Use both together for full protection.
+
+```typescript
+const checkout = defineTool({
+  name: "checkout",
+  unAbortable: true,           // Survives abort signals
+  displayStrategy: "hide-on-complete",
+  async do(input, display) {
+    const result = await display.pushAndWait({ items });  // Resolver suppresses voice barge-in
+    if (!result) return "Cancelled";
+    // Mutation happens here — safe because unAbortable guarantees completion
+    cartOps.clear();
+    return "Order placed!";
+  },
+});
+```
 
 ### TypedDisplay
 
@@ -497,6 +526,160 @@ type RemoteStreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "done"; message: Message; tokens_in: number; tokens_out: number };
+```
+
+---
+
+## glove-voice
+
+### GloveVoice Class
+
+```typescript
+import { GloveVoice } from "glove-voice";
+
+const voice = new GloveVoice(gloveRunnable, {
+  stt: STTAdapter,                    // Required — streaming STT adapter
+  createTTS: () => TTSAdapter,        // Required — factory, called per turn
+  turnMode?: "vad" | "manual",       // Default: "vad"
+  vad?: VADAdapter,                   // Override default VAD (only used in "vad" mode)
+  vadConfig?: VADConfig,              // Built-in VAD config (only used if no custom vad)
+  sampleRate?: number,                // Default: 16000
+});
+
+// Events
+voice.on("mode", (mode: VoiceMode) => { });
+voice.on("transcript", (text: string, partial: boolean) => { });
+voice.on("response", (text: string) => { });
+voice.on("error", (err: Error) => { });
+
+// Lifecycle
+await voice.start();       // Request mic, connect STT, begin listening
+await voice.stop();        // Stop everything, release resources
+voice.interrupt();         // Barge-in: abort request, stop TTS, return to listening
+voice.commitTurn();        // Manual turn commit: flush utterance to STT
+
+// Properties
+voice.currentMode;         // VoiceMode
+voice.isActive;            // boolean
+```
+
+### Types
+
+```typescript
+type VoiceMode = "idle" | "listening" | "thinking" | "speaking";
+type TurnMode = "vad" | "manual";
+type TTSFactory = () => TTSAdapter;
+type GetTokenFn = () => Promise<string>;
+```
+
+### Adapter Contracts
+
+```typescript
+// STT — Streaming speech-to-text
+interface STTAdapter extends EventEmitter<STTAdapterEvents> {
+  connect(): Promise<void>;
+  sendAudio(pcm: Int16Array): void;
+  flushUtterance(): void;
+  disconnect(): void;
+  readonly isConnected: boolean;
+  readonly currentPartial: string;
+}
+// Events: partial(text), final(text), error(Error), close()
+
+// TTS — Streaming text-to-speech
+interface TTSAdapter extends EventEmitter<TTSAdapterEvents> {
+  open(): Promise<void>;
+  sendText(text: string): void;
+  flush(): void;
+  destroy(): void;
+  readonly isReady: boolean;
+}
+// Events: audio_chunk(Uint8Array), done(), error(Error)
+
+// VAD — Voice activity detection
+interface VADAdapter extends EventEmitter<VADAdapterEvents> {
+  process(pcm: Int16Array): void;
+  reset(): void;
+  readonly isSpeaking: boolean;
+}
+// Events: speech_start(), speech_end()
+```
+
+### ElevenLabs Adapters
+
+```typescript
+import { createElevenLabsAdapters } from "glove-voice";
+
+const { stt, createTTS } = createElevenLabsAdapters({
+  getSTTToken: GetTokenFn,           // Fetches token from your server
+  getTTSToken: GetTokenFn,           // Fetches token from your server
+  voiceId: string,                   // ElevenLabs voice ID
+  stt?: {                            // Override STT options
+    model?: string,                  // Default: "scribe_v2_realtime"
+    language?: string,               // Default: "en"
+    vadSilenceThreshold?: number,    // Default: 0 (we manage VAD ourselves)
+    maxReconnects?: number,          // Default: 3
+  },
+  tts?: {                            // Override TTS options
+    model?: string,                  // Default: "eleven_turbo_v2_5"
+    outputFormat?: string,           // Default: "pcm_16000"
+    voiceSettings?: { stability?: number; similarityBoost?: number; speed?: number },
+  },
+});
+```
+
+### SileroVADAdapter
+
+```typescript
+// MUST use dynamic import — separate entry point to avoid WASM in SSR bundle
+const { SileroVADAdapter } = await import("glove-voice/silero-vad");
+
+const vad = new SileroVADAdapter({
+  positiveSpeechThreshold?: number,  // Default: 0.3 (higher = less sensitive)
+  negativeSpeechThreshold?: number,  // Default: 0.25 (lower = needs more silence)
+  wasm?: { type: "cdn" } | { type: "local"; path: string },
+});
+await vad.init();
+```
+
+### Built-in VAD (energy-based)
+
+```typescript
+import { VAD } from "glove-voice";
+const vad = new VAD({ silentFrames?: number }); // Default: 15 (~600ms). GloveVoice overrides to 40 (~1600ms).
+```
+
+### createVoiceTokenHandler (glove-next)
+
+```typescript
+import { createVoiceTokenHandler } from "glove-next";
+
+export const GET = createVoiceTokenHandler({
+  provider: "elevenlabs" | "deepgram" | "cartesia",
+  type?: "stt" | "tts",       // Required for elevenlabs
+  apiKey?: string,             // Defaults to env var
+});
+```
+
+### useGloveVoice (glove-react/voice)
+
+```typescript
+import { useGloveVoice } from "glove-react/voice";
+
+const voice = useGloveVoice({
+  runnable: IGloveRunnable | null,   // From useGlove().runnable
+  voice: GloveVoiceConfig,           // STT, TTS factory, turn mode, VAD
+});
+
+// Returns:
+voice.mode;          // VoiceMode
+voice.transcript;    // string — partial transcript while speaking
+voice.isActive;      // boolean
+voice.error;         // Error | null
+voice.start();       // () => Promise<void>
+voice.stop();        // () => Promise<void>
+voice.interrupt();   // () => void
+voice.commitTurn();  // () => void
 ```
 
 ---

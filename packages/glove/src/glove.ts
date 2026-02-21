@@ -15,12 +15,16 @@ interface GloveFoldArgs<I> {
   description: string
   inputSchema: z.ZodType<I>,
   requiresPermission?: boolean,
+  unAbortable?: boolean,
   do: (input: I, display: DisplayManagerAdapter) => Promise<ToolResultData>,
 }
 
-interface IGloveRunnable {
+export interface IGloveRunnable {
   processRequest: (request: string | ContentPart[], signal?: AbortSignal) => Promise<ModelPromptResult | Message>
   setModel: (model: ModelAdapter) => void
+  setSystemPrompt: (prompt: string) => void
+  addSubscriber: (subscriber: SubscriberAdapter) => void
+  removeSubscriber: (subscriber: SubscriberAdapter) => void
   readonly displayManager: DisplayManagerAdapter
 }
 
@@ -96,6 +100,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       description: args.description,
       input_schema: args.inputSchema,
       requiresPermission: args.requiresPermission,
+      unAbortable: args.unAbortable,
       async run(input: I) {
         const result = await args.do(input, displayManager)
 
@@ -111,8 +116,13 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   addSubscriber(subscriber: SubscriberAdapter) {
     this.promptMachine.addSubscriber(subscriber)
     this.executor.addSubscriber(subscriber)
-    
+
     return this
+  }
+
+  removeSubscriber(subscriber: SubscriberAdapter) {
+    this.promptMachine.removeSubscriber(subscriber)
+    this.executor.removeSubscriber(subscriber)
   }
 
 
@@ -130,6 +140,15 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   setModel(model: ModelAdapter) {
     model.setSystemPrompt(this.promptMachine.systemPrompt);
     this.promptMachine.model = model;
+  }
+
+  /**
+   * Update the system prompt for this session.
+   * Only safe to call when no request is in progress.
+   */
+  setSystemPrompt(prompt: string) {
+    this.promptMachine.systemPrompt = prompt;
+    this.promptMachine.model.setSystemPrompt(prompt);
   }
 
   async processRequest(request: string | ContentPart[], signal?: AbortSignal) {

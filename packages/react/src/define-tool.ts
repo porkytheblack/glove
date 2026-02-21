@@ -20,6 +20,7 @@ interface DefineToolConfig<
   resolveSchema?: R;
   displayStrategy?: SlotDisplayStrategy;
   requiresPermission?: boolean;
+  unAbortable?: boolean;
   do: (
     input: z.infer<I>,
     display: TypedDisplay<z.infer<D>, z.infer<R>>,
@@ -32,7 +33,7 @@ interface DefineToolConfig<
   renderResult?: (props: {
     data: unknown;
     output?: string;
-    status: "success" | "error";
+    status: "success" | "error" | "aborted";
   }) => ReactNode;
 }
 
@@ -48,6 +49,7 @@ export function defineTool<
     // but Zod v4 internals make this hard to express generically
     inputSchema: config.inputSchema as any,
     requiresPermission: config.requiresPermission,
+    unAbortable: config.unAbortable,
     displayStrategy: config.displayStrategy,
 
     do: async (input: z.infer<I>, display: ToolDisplay): Promise<ToolResultData> => {

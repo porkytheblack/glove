@@ -37,6 +37,7 @@ Works with OpenAI, Anthropic, Google Gemini, OpenRouter, and more.
 | [`glove-core`](packages/glove) | Core agent framework — builder, tools, model adapters, stores | [![npm](https://img.shields.io/npm/v/glove-core)](https://www.npmjs.com/package/glove-core) |
 | [`glove-react`](packages/react) | React hooks, `<Render>` component, `defineTool`, client bindings | [![npm](https://img.shields.io/npm/v/glove-react)](https://www.npmjs.com/package/glove-react) |
 | [`glove-next`](packages/next) | Next.js API route handlers (SSE streaming) | [![npm](https://img.shields.io/npm/v/glove-next)](https://www.npmjs.com/package/glove-next) |
+| [`glove-voice`](packages/glove-voice) | Voice pipeline — STT/TTS/VAD adapters, ElevenLabs integration | [![npm](https://img.shields.io/npm/v/glove-voice)](https://www.npmjs.com/package/glove-voice) |
 
 ## Quick Start
 
@@ -260,6 +261,29 @@ const subscriber = {
 app.addSubscriber(subscriber);
 ```
 
+### Voice
+
+Add real-time voice interaction with `glove-voice`:
+
+```typescript
+import { createElevenLabsAdapters } from "glove-voice";
+import { useGloveVoice } from "glove-react/voice";
+
+// Set up adapters with server-side token auth
+const { stt, createTTS } = createElevenLabsAdapters({
+  getSTTToken: () => fetch("/api/voice/stt-token").then(r => r.json()).then(d => d.token),
+  getTTSToken: () => fetch("/api/voice/tts-token").then(r => r.json()).then(d => d.token),
+  voiceId: "JBFqnCBsd6RMkjVDRZzb",
+});
+
+// In your React component
+const { runnable } = useGlove({ tools, sessionId });
+const voice = useGloveVoice({ runnable, voice: { stt, createTTS } });
+// voice.mode: "idle" | "listening" | "thinking" | "speaking"
+```
+
+Two turn modes: **VAD** (hands-free with barge-in) and **Manual** (push-to-talk). Token-based auth keeps API keys server-side.
+
 ## Architecture
 
 Glove is built on five adapter interfaces. Swap any layer without changing application logic.
@@ -271,15 +295,16 @@ Glove is built on five adapter interfaces. Swap any layer without changing appli
 │  Executor     — tool runner (Zod+Effect)│
 │  Observer     — session tracking        │
 │  DisplayManager — UI state machine      │
+│  GloveVoice   — voice pipeline          │
 └─────────────────────────────────────────┘
        ▼              ▼            ▼
-  ModelAdapter    StoreAdapter   DisplayManagerAdapter
-  (any LLM)      (any DB)       (any UI framework)
+  ModelAdapter    StoreAdapter   VoiceAdapters
+  (any LLM)      (any DB)       (STT/TTS/VAD)
 ```
 
 ## Examples
 
-The repo includes four example agents:
+The repo includes five example agents:
 
 ### Weather Agent
 
@@ -312,10 +337,18 @@ cd examples/nextjs-agent && pnpm dev
 
 ### Coffee Shop
 
-An e-commerce coffee ordering experience with product catalog, cart, and checkout — built with `defineTool`, `<Render>`, and display strategies.
+An e-commerce coffee ordering experience with product catalog, cart, checkout, and **voice interaction** — built with `defineTool`, `<Render>`, display strategies, and `glove-voice`.
 
 ```bash
 cd examples/coffee && pnpm dev
+```
+
+### Lola
+
+A voice-first movie companion with TMDB-powered tools, SileroVAD, and a cinematic amber/charcoal UI.
+
+```bash
+cd examples/lola && pnpm dev
 ```
 
 ## Claude Code Skill
