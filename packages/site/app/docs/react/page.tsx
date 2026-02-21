@@ -506,6 +506,11 @@ function DebugPanel() {
             "boolean",
             "When true, the agent will check the store for permission before executing this tool. Defaults to false.",
           ],
+          [
+            "unAbortable?",
+            "boolean",
+            "When true, the tool runs to completion even if the abort signal fires (e.g. from voice barge-in or manual interrupt). Use for mutation-critical tools like checkout forms. Defaults to false.",
+          ],
         ]}
       />
 
@@ -585,6 +590,11 @@ const weatherTool: ToolConfig<{ city: string }> = {
             "requiresPermission?",
             "boolean",
             "When true, checks store for permission before executing.",
+          ],
+          [
+            "unAbortable?",
+            "boolean",
+            "Tool runs to completion even if the abort signal fires. Use for mutation-critical tools like checkout.",
           ],
           [
             "do",

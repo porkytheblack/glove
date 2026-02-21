@@ -244,6 +244,11 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "When true, checks the store for permission before execution. Defaults to false.",
           ],
           [
+            "unAbortable?",
+            "boolean",
+            "When true, the tool runs to completion even if the abort signal fires (e.g. from voice barge-in). Use for mutation-critical tools. Defaults to false.",
+          ],
+          [
             "do",
             "(input: I, display: DisplayManagerAdapter) => Promise<ToolResultData>",
             "The tool's implementation. Receives validated input and the display manager. Return value becomes the tool result.",
@@ -1243,6 +1248,11 @@ try {
             "requiresPermission?",
             "boolean",
             "Whether the tool requires explicit permission before execution.",
+          ],
+          [
+            "unAbortable?",
+            "boolean",
+            "When true, the tool runs to completion despite abort signals. Essential for tools that perform mutations the user has committed to (e.g. checkout, payment).",
           ],
           [
             "run(input: I, handOver?: HandOverFunction)",

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm --filter glove-core build && pnpm --filter glove-react build && pnpm --filter glove-next build",
+    "build": "pnpm --filter glove-core build && pnpm --filter glove-react build && pnpm --filter glove-next build && pnpm --filter glove-voice build",
     "typecheck": "pnpm -r --filter './packages/*' typecheck",
     "weather:agent": "tsx examples/weather-agent/index.tsx",
     "coding:agent": "tsx examples/coding-agent/index.tsx",

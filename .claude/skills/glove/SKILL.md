@@ -277,6 +277,7 @@ const tool = defineTool({
   resolveSchema?: z.ZodType,           // Zod schema for resolve value (omit for pushAndForget-only)
   displayStrategy?: SlotDisplayStrategy,
   requiresPermission?: boolean,
+  unAbortable?: boolean,                 // Tool runs to completion even if abort signal fires (e.g. voice barge-in)
   do(input, display): Promise<ToolResultData>,  // display is TypedDisplay<D, R>
   render?({ props, resolve, reject }): ReactNode,
   renderResult?({ data, output, status }): ReactNode,
@@ -301,6 +302,7 @@ interface ToolConfig<I = any> {
   renderResult?: (props: ToolResultRenderProps) => ReactNode;
   displayStrategy?: SlotDisplayStrategy;
   requiresPermission?: boolean;
+  unAbortable?: boolean;
 }
 ```
 
@@ -414,6 +416,106 @@ Available at https://glove.dterminal.net/tools — copy-paste into your project:
 - `suggest_options` — Multiple-choice suggestions
 - `approve_plan` — Step-by-step plan approval
 
+## Voice Integration (`glove-voice`)
+
+### Package Overview
+
+| Package | Purpose | Install |
+|---------|---------|---------|
+| `glove-voice` | Voice pipeline: `GloveVoice`, adapters (STT/TTS/VAD), `AudioCapture`, `AudioPlayer` | `pnpm add glove-voice` |
+| `glove-react/voice` | React hook: `useGloveVoice` | Included in `glove-react` |
+| `glove-next` | Token handlers: `createVoiceTokenHandler` (already in `glove-next`, no separate import) | Included in `glove-next` |
+
+### Architecture
+
+```
+Mic → VAD → STTAdapter → glove.processRequest() → TTSAdapter → Speaker
+```
+
+`GloveVoice` wraps a Glove instance with a full-duplex voice pipeline. Glove remains the intelligence layer — all tools, display stack, and context management work normally. STT and TTS are swappable adapters. Text tokens stream through a `SentenceBuffer` into TTS in real-time.
+
+### Quick Start (Next.js + ElevenLabs)
+
+**Step 1: Token routes** — server-side handlers that exchange your API key for short-lived tokens
+
+```typescript
+// app/api/voice/stt-token/route.ts
+import { createVoiceTokenHandler } from "glove-next";
+export const GET = createVoiceTokenHandler({ provider: "elevenlabs", type: "stt" });
+```
+
+```typescript
+// app/api/voice/tts-token/route.ts
+import { createVoiceTokenHandler } from "glove-next";
+export const GET = createVoiceTokenHandler({ provider: "elevenlabs", type: "tts" });
+```
+
+Set `ELEVENLABS_API_KEY` in `.env.local`.
+
+**Step 2: Client voice config**
+
+```typescript
+// app/lib/voice.ts
+import { createElevenLabsAdapters } from "glove-voice";
+
+async function fetchToken(path: string): Promise<string> {
+  const res = await fetch(path);
+  const data = await res.json();
+  return data.token;
+}
+
+export const { stt, createTTS } = createElevenLabsAdapters({
+  getSTTToken: () => fetchToken("/api/voice/stt-token"),
+  getTTSToken: () => fetchToken("/api/voice/tts-token"),
+  voiceId: "JBFqnCBsd6RMkjVDRZzb",
+});
+```
+
+**Step 3: SileroVAD** — dynamic import for SSR safety
+
+```typescript
+export async function createSileroVAD() {
+  const { SileroVADAdapter } = await import("glove-voice/silero-vad");
+  const vad = new SileroVADAdapter({
+    positiveSpeechThreshold: 0.5,
+    negativeSpeechThreshold: 0.35,
+    wasm: { type: "cdn" },
+  });
+  await vad.init();
+  return vad;
+}
+```
+
+**Step 4: React hook**
+
+```tsx
+const { runnable } = useGlove({ tools, sessionId });
+const voice = useGloveVoice({ runnable, voice: { stt, createTTS, vad } });
+// voice.mode: "idle" | "listening" | "thinking" | "speaking"
+// voice.start(), voice.stop(), voice.interrupt(), voice.commitTurn()
+```
+
+### Turn Modes
+
+| Mode | Behavior | Use for |
+|------|----------|---------|
+| `"vad"` (default) | Auto speech detection + barge-in | Hands-free, voice-first apps |
+| `"manual"` | Push-to-talk, explicit `commitTurn()` | Noisy environments, precise control |
+
+### Voice-First Tool Design
+
+- **Use `pushAndForget` instead of `pushAndWait`** — blocking tools that wait for clicks are unusable in voice mode
+- **Return descriptive text in `data`** — the LLM reads it to formulate spoken responses
+- **Add a voice-specific system prompt** — instruct the agent to narrate results concisely
+
+### Supported Voice Providers
+
+| Provider | Token Handler Config | Env Variable |
+|----------|---------------------|--------------|
+| ElevenLabs | `{ provider: "elevenlabs", type: "stt" \| "tts" }` | `ELEVENLABS_API_KEY` |
+| Deepgram | `{ provider: "deepgram" }` | `DEEPGRAM_API_KEY` |
+| Cartesia | `{ provider: "cartesia" }` | `CARTESIA_API_KEY` |
+
 ## Supporting Files
 
 For detailed API reference, see [api-reference.md](api-reference.md).
@@ -431,3 +533,11 @@ For example patterns from real implementations, see [examples.md](examples.md).
 8. **Zod .describe()**: Always add `.describe()` to schema fields — the AI reads these descriptions to understand what to provide.
 9. **displayPropsSchema is optional but recommended**: `defineTool`'s `displayPropsSchema` is optional, but recommended for tools with display UI — tools without display should use raw `ToolConfig` instead.
 10. **renderData is stripped by model adapters**: Model adapters explicitly exclude `renderData` when formatting tool results for the AI, so it's safe for client-only data.
+11. **SileroVAD must use dynamic import**: Never import `glove-voice/silero-vad` at module level in Next.js/SSR. Use `await import("glove-voice/silero-vad")` to avoid pulling WASM into the server bundle.
+12. **Next.js transpilePackages**: Add `"glove-voice"` to `transpilePackages` in `next.config.ts` so Next.js processes the ES module.
+13. **createTTS must be a factory**: `GloveVoice` calls it once per turn to get a fresh TTS adapter. Pass `() => new ElevenLabsTTSAdapter(...)`, not a single instance.
+14. **Barge-in protection requires `unAbortable`**: A `pushAndWait` resolver suppresses voice barge-in at the trigger level (GloveVoice skips `interrupt()` when `resolverStore.size > 0`). But that alone doesn't protect the tool — if `interrupt()` is called by other means, only `unAbortable: true` on the tool guarantees it runs to completion despite the abort signal. Use both together for mutation-critical tools like checkout. Use `pushAndForget` for voice-first tools.
+15. **Empty committed transcripts**: ElevenLabs Scribe may return empty committed transcripts for short utterances. The adapter auto-falls back to the last partial transcript.
+16. **TTS idle timeout**: ElevenLabs TTS WebSocket disconnects after ~20s idle. GloveVoice handles this by closing TTS after each model_response_complete and opening a fresh session on next text_delta.
+17. **onnxruntime-web build warnings**: `Critical dependency: require function is used in a way...` warnings from onnxruntime-web are expected and harmless.
+18. **Audio sample rate**: All adapters must agree on 16kHz mono PCM (the default). Don't change unless your provider explicitly requires something different.

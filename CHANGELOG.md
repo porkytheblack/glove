@@ -1,4 +1,117 @@
-# Changelog — Glove v1.0.0
+# Changelog
+
+## v2.0.0 — Voice Support
+
+**Release date:** February 2026
+
+---
+
+### New Package
+
+| Package | Version | Description |
+|---------|---------|-------------|
+| `glove-voice` | 2.0.0 | Voice pipeline: STT/TTS adapters, VAD, audio capture/playback, barge-in, sentence chunking |
+
+### Updated Packages
+
+| Package | Version |
+|---------|---------|
+| `glove-core` | 2.0.0 |
+| `glove-react` | 2.0.0 |
+| `glove-next` | 2.0.0 |
+
+---
+
+### Features
+
+#### Voice Pipeline (`glove-voice`)
+
+- **`GloveVoice` class**: Orchestrates the full voice loop — listens via STT, sends transcripts through the Glove agent, streams responses through TTS, and plays audio. Manages mode transitions (`idle` → `listening` → `thinking` → `speaking`) and exposes `start()`, `stop()`, `interrupt()`. (`a0d08b1`)
+
+- **ElevenLabs adapters**: Built-in STT adapter (Scribe Realtime WebSocket) and TTS adapter (Input Streaming WebSocket) for ElevenLabs. `createElevenLabsAdapters()` convenience factory wires both from a single config. (`a0d08b1`)
+
+- **Server-side token helpers**: `createElevenLabsSTTToken()` and `createElevenLabsTTSToken()` generate short-lived API tokens server-side, keeping API keys off the client. Placeholder exports for Deepgram and Cartesia. (`a0d08b1`)
+
+- **Silero VAD integration**: `createSileroVAD()` dynamically imports `@ricky0123/vad-web` and configures it for voice activity detection. Handles ONNX runtime setup, audio worklet registration, and provides `onSpeechStart` / `onSpeechEnd` / `onSpeechCancel` callbacks. (`b4b765e`)
+
+- **Built-in VAD fallback**: `BuiltInVAD` provides a lightweight volume-threshold VAD for environments where Silero is unavailable. Configurable `threshold` and `silentFrames` parameters. (`a0d08b1`)
+
+- **Audio capture and playback**: `AudioCapture` manages microphone access and raw PCM streaming. `AudioPlayer` handles queued audio chunk playback with `onStart` / `onEnd` callbacks for mode synchronization. (`a0d08b1`)
+
+- **Sentence chunker**: Splits streaming text into sentence-sized chunks for natural TTS pacing. Handles abbreviations, decimal numbers, and ellipses without false splits. (`a0d08b1`)
+
+- **Barge-in with `unAbortable` protection**: When the user speaks during agent output, `GloveVoice` calls `interrupt()` to stop TTS and abort the current request. But if a `pushAndWait` resolver is pending (`displayManager.resolverStore.size > 0`), barge-in is suppressed — and tools with `unAbortable: true` continue executing even after abort. (`9977ced`)
+
+- **Adapter interface contracts**: `STTAdapter` and `TTSAdapter` interfaces define the protocol for plugging in any speech provider. `TTSFactory` creates fresh TTS instances per utterance for clean WebSocket lifecycle. (`a0d08b1`)
+
+- **Text extraction utility**: `extractText()` pulls plain text from `ModelPromptResult` responses, handling both string content and content-part arrays. Used to feed agent output into TTS. (`a0d08b1`)
+
+#### Core Engine (`glove-core`)
+
+- **`unAbortable` tools**: Tools can set `unAbortable: true` to run to completion even when the abort signal fires. The executor skips `abortablePromise` wrapping and allows retries regardless of signal state. Critical for tools that perform mutations (e.g. checkout, payments). (`9977ced`)
+
+- **`"aborted"` tool result status**: Tool results now support a third status `"aborted"` alongside `"success"` and `"error"`. When a request is aborted, non-`unAbortable` tools that haven't started yet receive an aborted result instead of being silently skipped. (`9977ced`)
+
+- **`abortablePromise` utility**: New helper wraps a promise so it rejects with `AbortError` when the signal fires, providing clean abort semantics for tool execution. (`9977ced`)
+
+- **`setSystemPrompt()`**: New method on `IGloveRunnable` updates the system prompt mid-session without rebuilding the agent. Used by voice pipelines to switch between text-mode and voice-mode prompts. (`9977ced`)
+
+- **`removeSubscriber()`**: New method on `PromptMachine` and `Executor` allows dynamic subscriber removal. Enables the voice pipeline to attach/detach its subscriber without leaking. (`9977ced`)
+
+- **`IGloveRunnable` exported**: The runnable interface is now exported from `glove-core/glove`, allowing external consumers (like `glove-voice` and `useGloveVoice`) to type-safely reference the built agent. (`9977ced`)
+
+#### React Bindings (`glove-react`)
+
+- **`useGloveVoice` hook**: New hook that wraps `GloveVoice` for React. Takes a `runnable` (from `useGlove().runnable`) and voice config, returns `mode`, `transcript`, `isActive`, `error`, `start()`, `stop()`, `interrupt()`. Handles lifecycle cleanup on unmount. Exported from `glove-react/voice`. (`9977ced`)
+
+- **`runnable` exposed from `useGlove`**: The hook now returns the underlying `IGloveRunnable` instance (or `null` before initialization). This is the bridge that connects `useGlove` to `useGloveVoice`. (`9977ced`)
+
+- **`"aborted"` status in timeline**: `TimelineEntry` tool status now includes `"aborted"`. When a request is aborted, running tools are marked as aborted in the timeline rather than left in a `"running"` state. (`9977ced`)
+
+- **`unAbortable` in `defineTool` and `ToolConfig`**: Both `defineTool()` and the `ToolConfig` interface accept `unAbortable?: boolean`, passing it through to the core tool definition. (`9977ced`)
+
+- **`glove-react/voice` subpath export**: New subpath export provides `useGloveVoice` and re-exports voice types (`VoiceMode`, `TurnMode`, `GloveVoiceConfig`, `TTSFactory`) so consumers don't need to import `glove-voice` directly. (`9977ced`)
+
+#### Next.js Integration (`glove-next`)
+
+- **`createVoiceTokenHandler`**: New factory for Next.js App Router GET handlers that return short-lived voice API tokens. Supports ElevenLabs (STT and TTS tokens), Deepgram, and Cartesia. Resolves API keys from config or environment variables. (`9977ced`)
+
+#### Examples
+
+- **Lola — Voice-First Movie Companion** (`examples/lola`): A voice-primary app where users speak to discover movies. Features a cinematic dark UI with amber accent, central voice orb, transcript strip, and 9 TMDB-powered tools (`search_movies`, `get_movie_details`, `get_ratings`, `get_trailer`, `compare_movies`, `get_recommendations`, `get_person`, `get_streaming_availability`, `remember_preference`). All tools use `pushAndForget` for non-blocking voice flow. TMDB API proxied server-side. (`b4efb16`)
+
+- **Coffee Shop — Voice-Enabled**: The existing coffee shop example now supports voice alongside text. Adds a voice orb toggle, thinking sound, dynamic system prompt switching (text vs voice mode), and voice-aware tool variants (`get_products`, `get_cart`) that return data for verbal narration instead of visual-only display. The checkout tool uses `unAbortable: true` to protect against barge-in during payment. (`9977ced`, `b4b765e`)
+
+#### Documentation
+
+- **Voice integration guide**: New docs page (`/docs/voice`) covering the voice pipeline architecture, adapter setup, VAD configuration, barge-in behavior, `unAbortable` tools, and the two-layer protection model. (`b4efb16`)
+
+- **Coffee Shop showcase page**: New showcase walkthrough (`/docs/showcase/coffee-shop`) explaining the coffee shop architecture, tool categories, voice integration, and `unAbortable` checkout pattern. (`b4efb16`)
+
+- **Lola showcase page**: New showcase walkthrough (`/docs/showcase/lola`) covering voice-first design, TMDB integration, tool design for voice, visual area pattern, and voice orb states. (`b4efb16`)
+
+- **`unAbortable` documented across all surfaces**: Added to Core API, React API, agent skill reference, and examples. (`b4efb16`)
+
+- **Sidebar voice badges**: Showcase entries with voice support display an amber "voice" pill in the docs sidebar. (`b4efb16`)
+
+#### Developer Experience
+
+- **Agent skill updated**: `.claude/skills/glove/` updated with `unAbortable` documentation, voice barge-in patterns, and corrected VAD defaults. (`b4efb16`)
+
+---
+
+### Breaking Changes
+
+- **Tool result status type widened**: `ToolResultData.status` is now `"success" | "error" | "aborted"` (was `"success" | "error"`). Code that exhaustively switches on status will need to handle the new `"aborted"` case.
+
+- **`TimelineEntry` tool status widened**: Same change in the React layer — tool entries can now be `"running" | "success" | "error" | "aborted"`.
+
+- **`IGloveRunnable` interface expanded**: Now includes `setSystemPrompt()`, `addSubscriber()`, and `removeSubscriber()` in addition to the existing `processRequest()`, `setModel()`, and `displayManager`. Custom implementations of this interface will need to add the new methods.
+
+---
+---
+
+## v1.0.0 — Initial Release
 
 > Initial public release of the Glove framework — a TypeScript toolkit for building AI-powered applications where an agent loop replaces traditional navigation and routing.
 
@@ -6,7 +119,7 @@
 
 ---
 
-## Packages
+### Packages
 
 | Package | Version | Description |
 |---------|---------|-------------|
@@ -16,9 +129,9 @@
 
 ---
 
-## Features
+### Features
 
-### Core Agent Engine (`glove-core`)
+#### Core Agent Engine (`glove-core`)
 
 - **Builder-pattern agent construction**: The `Glove` class provides a chainable API — call `.fold()` to register tools, `.addSubscriber()` for event listeners, and `.build()` to finalize. This makes agent setup declarative and composable. (`f7a3d26`, `b19591a`)
 
@@ -44,7 +157,7 @@
 
 - **`renderData` on tool results**: Tool results can now include a `renderData` field — data that is not sent to the model but is preserved for rendering tool results from history (e.g., showing a completed checkout form on page reload). (`81edcea`)
 
-### React Bindings (`glove-react`)
+#### React Bindings (`glove-react`)
 
 - **`useGlove` hook**: The primary React integration point. Manages the full agent lifecycle — initializes store + model, runs the agent loop, tracks timeline/streaming/slots/tasks state, and exposes `sendMessage`, `abort`, `resolveSlot`, `rejectSlot`, and render helpers. Supports both simple endpoint mode (`useGlove({ endpoint: "/api/chat" })`) and advanced mode with explicit adapters. (`4fee30e`)
 
@@ -64,13 +177,13 @@
 
 - **SSE stream parser**: `parseSSEStream` provides an async iterable over Server-Sent Events from a `Response` object. Used internally by the endpoint model adapter. (`4fee30e`)
 
-### Next.js Integration (`glove-next`)
+#### Next.js Integration (`glove-next`)
 
 - **`createChatHandler`**: A one-line factory for Next.js App Router POST handlers. Pass a provider name and optional model — it returns a handler that accepts `RemotePromptRequest`, streams LLM responses as SSE events, and works with all seven supported providers. Dynamically imports SDK dependencies to keep bundle size minimal. (`4fee30e`)
 
 - **SSE streaming utilities**: `createSSEStream` and `SSE_HEADERS` handle the low-level ReadableStream creation for server-sent events. (`4fee30e`)
 
-### Examples
+#### Examples
 
 - **Coding Agent** (`examples/coding-agent`): A full-stack coding assistant with a WebSocket + REST server, React SPA client with session management, model switching, permission prompts, task lists, and a timeline view. Demonstrates the `SqliteStore`, multi-provider support, and the display stack for tool permissions. (`131faa7`, `a950312`)
 
@@ -80,7 +193,7 @@
 
 - **Coffee Shop Agent** (`examples/coffee`): A polished e-commerce demo where an AI barista helps users browse products, manage a cart, and check out. Features rich tool UIs (product cards, cart view, checkout form) built with `defineTool` and colocated renderers. Includes a test suite. (`2dca070`)
 
-### Developer Experience
+#### Developer Experience
 
 - **Claude Code agent skill** (`.claude/skills/glove/`): A bundled skill definition with API reference and examples, enabling Claude Code to provide expert guidance when building with Glove. (`a00b1eb`)
 
@@ -90,7 +203,7 @@
 
 ---
 
-## Bug Fixes
+### Bug Fixes
 
 - **Timeline reload with `renderData`**: Tool results now persist `renderData` through the store, so tools with `renderResult` callbacks can reconstruct their UI after a page reload. Previously, interactive tool UIs were lost on refresh. (`81edcea`)
 
@@ -100,7 +213,7 @@
 
 ---
 
-## Documentation
+### Documentation
 
 - **Documentation site** (`packages/site`): A Next.js-powered docs site at [glove.dterminal.net](https://glove.dterminal.net) with pages for Getting Started, Core Concepts, Display Stack, React integration, Next.js integration, and three showcase walkthroughs (Coding Agent, E-commerce Store, Travel Planner). (`69030d4`)
 
@@ -114,6 +227,6 @@
 
 ---
 
-## Breaking Changes
+### Breaking Changes
 
 None — this is the initial release.

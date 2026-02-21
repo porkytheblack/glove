@@ -9,7 +9,8 @@ Real patterns drawn from the example implementations in `examples/`.
 | `examples/weather-agent` | Terminal CLI | Ink + glove-core | Local MemoryStore, AnthropicAdapter, pushAndWait for input, pushAndForget for display |
 | `examples/coding-agent` | Full-stack | Node server + React SPA | SqliteStore, WebSocket bridge, 14 tools, permission system, planning workflow |
 | `examples/nextjs-agent` | Web app | Next.js + glove-react | `defineTool`, `<Render>`, `renderResult`, `displayStrategy`, trip planning |
-| `examples/coffee` | Web app | Next.js + glove-react | `defineTool`, `<Render>`, `renderResult`, `displayStrategy`, e-commerce flow, cart state |
+| `examples/coffee` | Web app | Next.js + glove-react + glove-voice | `defineTool`, `<Render>`, `renderResult`, `displayStrategy`, e-commerce flow, cart state, voice interaction |
+| `examples/lola` | Web app | Next.js + glove-react + glove-voice | Voice-first movie companion, 9 TMDB tools, SileroVAD, `pushAndForget` only, cinematic UI |
 
 ---
 
@@ -603,6 +604,190 @@ const { sendMessage } = useGlove({
 
 ---
 
+## Pattern: Voice Integration (Coffee / Lola)
+
+Both coffee and lola examples demonstrate full voice integration. The pattern is:
+
+### 1. Token Routes
+
+```typescript
+// app/api/voice/stt-token/route.ts
+import { createVoiceTokenHandler } from "glove-next";
+export const GET = createVoiceTokenHandler({ provider: "elevenlabs", type: "stt" });
+
+// app/api/voice/tts-token/route.ts
+import { createVoiceTokenHandler } from "glove-next";
+export const GET = createVoiceTokenHandler({ provider: "elevenlabs", type: "tts" });
+```
+
+### 2. Client Voice Adapters
+
+```typescript
+// app/lib/voice.ts
+import { createElevenLabsAdapters } from "glove-voice";
+
+async function fetchToken(path: string): Promise<string> {
+  const res = await fetch(path);
+  const data = await res.json();
+  return data.token;
+}
+
+export const { stt, createTTS } = createElevenLabsAdapters({
+  getSTTToken: () => fetchToken("/api/voice/stt-token"),
+  getTTSToken: () => fetchToken("/api/voice/tts-token"),
+  voiceId: "JBFqnCBsd6RMkjVDRZzb",
+});
+
+// SileroVAD — dynamic import for SSR safety
+export async function createSileroVAD() {
+  const { SileroVADAdapter } = await import("glove-voice/silero-vad");
+  const vad = new SileroVADAdapter({
+    positiveSpeechThreshold: 0.5,
+    negativeSpeechThreshold: 0.35,
+    wasm: { type: "cdn" },
+  });
+  await vad.init();
+  return vad;
+}
+```
+
+### 3. useGloveVoice Hook
+
+```tsx
+import { useGlove } from "glove-react";
+import { useGloveVoice } from "glove-react/voice";
+import { stt, createTTS, createSileroVAD } from "@/lib/voice";
+
+function App() {
+  const { runnable } = useGlove({ tools, sessionId });
+
+  // Init VAD on mount
+  const vadRef = useRef(null);
+  const [vadReady, setVadReady] = useState(false);
+  useEffect(() => {
+    createSileroVAD().then((v) => { vadRef.current = v; setVadReady(true); });
+  }, []);
+
+  const voice = useGloveVoice({
+    runnable,
+    voice: { stt, createTTS, vad: vadReady ? vadRef.current : undefined },
+  });
+
+  // voice.mode: "idle" | "listening" | "thinking" | "speaking"
+  // voice.start(), voice.stop(), voice.interrupt(), voice.commitTurn()
+}
+```
+
+---
+
+## Pattern: Voice-First Tools (Lola)
+
+In voice-first apps, all tools use `pushAndForget` (never `pushAndWait`). Tool results return descriptive text for the LLM to narrate:
+
+```typescript
+const searchMoviesTool = defineTool({
+  name: "search_movies",
+  description: "Search for movies by title or keywords",
+  inputSchema: z.object({ query: z.string() }),
+  displayPropsSchema: z.object({ movies: z.array(z.any()) }),
+  displayStrategy: "hide-on-new",
+  async do(input, display) {
+    const movies = await searchMovies(input.query);
+    await display.pushAndForget({ movies });
+    return {
+      status: "success" as const,
+      data: movies.slice(0, 5).map(m =>
+        `${m.title} (${m.release_date?.slice(0, 4)}) — ${m.vote_average}/10`
+      ).join("; "),
+      renderData: { movies },
+    };
+  },
+  render({ props }) {
+    return <PosterGrid movies={props.movies} />;
+  },
+  renderResult({ data }) {
+    return <PosterGrid movies={(data as any).movies} />;
+  },
+});
+```
+
+---
+
+## Pattern: Dynamic System Prompt for Voice
+
+Switch between text and voice system prompts based on voice state:
+
+```typescript
+const basePrompt = "You are a helpful barista assistant...";
+
+const voiceInstructions = `
+Voice mode is active. The user is speaking to you.
+- Keep responses under 2 sentences
+- Narrate tool results concisely
+- Use natural conversational language
+- Do not use markdown, lists, or formatting
+`;
+
+function App() {
+  const voice = useGloveVoice({ runnable, voice: voiceConfig });
+  const systemPrompt = voice.isActive ? basePrompt + voiceInstructions : basePrompt;
+  const glove = useGlove({ systemPrompt, tools, sessionId });
+}
+```
+
+---
+
+## Pattern: Thinking Sound
+
+Play an ambient sound while the agent is thinking (between user utterance and agent response):
+
+```typescript
+const thinkingAudio = useRef<HTMLAudioElement | null>(null);
+
+useEffect(() => {
+  if (voice.mode === "thinking") {
+    thinkingAudio.current = new Audio("/thinking.mp3");
+    thinkingAudio.current.loop = true;
+    thinkingAudio.current.volume = 0.3;
+    thinkingAudio.current.play();
+  } else {
+    thinkingAudio.current?.pause();
+    thinkingAudio.current = null;
+  }
+}, [voice.mode]);
+```
+
+---
+
+## Pattern: Barge-in Protection with unAbortable
+
+Full barge-in protection for mutation-critical tools (like checkout) requires **two layers**:
+
+**Layer 1 — Voice barge-in suppression:** GloveVoice checks `displayManager.resolverStore.size > 0` before calling `interrupt()` during `speech_start`. If a `pushAndWait` resolver is pending (the form is open), barge-in is suppressed entirely.
+
+**Layer 2 — Abort signal resistance:** Setting `unAbortable: true` on the tool makes glove-core skip the `abortablePromise` wrapper. Even if `interrupt()` fires (e.g. programmatically), the tool runs to completion.
+
+`pushAndWait` alone only suppresses the voice trigger — it does NOT make the tool survive an abort signal. Only `unAbortable: true` guarantees completion.
+
+```tsx
+// Coffee Shop checkout — both layers working together
+const checkout = defineTool({
+  name: "checkout",
+  unAbortable: true,              // Layer 2: survives abort signals
+  displayStrategy: "hide-on-complete",
+  async do(_input, display) {
+    const result = await display.pushAndWait({ items });  // Layer 1: suppresses voice barge-in
+    if (!result) return "Cancelled";
+    cartOps.clear();              // Safe — tool guaranteed to complete
+    return "Order placed!";
+  },
+});
+```
+
+For voice-first apps (like Lola), prefer `pushAndForget` everywhere so barge-in always works naturally.
+
+---
+
 ## Monorepo Structure
 
 ```
@@ -611,11 +796,13 @@ glove/
 │   ├── glove/          # glove-core — runtime engine
 │   ├── react/          # glove-react — React bindings (GloveClient, useGlove, MemoryStore)
 │   ├── next/           # glove-next — Next.js handler (createChatHandler)
+│   ├── glove-voice/    # glove-voice — Voice pipeline (STT/TTS/VAD adapters)
 │   └── site/           # Documentation website (glove.dterminal.net)
 ├── examples/
 │   ├── weather-agent/  # Terminal CLI with Ink
 │   ├── coding-agent/   # Full-stack with WebSocket server + React SPA
 │   ├── nextjs-agent/   # Next.js trip planner
-│   └── coffee/         # Next.js coffee e-commerce
+│   ├── coffee/         # Next.js coffee e-commerce + voice
+│   └── lola/           # Voice-first movie companion
 └── pnpm-workspace.yaml
 ```
