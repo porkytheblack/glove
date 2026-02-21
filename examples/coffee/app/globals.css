@@ -68,7 +68,7 @@ main {
   color: var(--sage-400);
 }
 
-/* ─── Top bar (tab bar) ─────────────────────────────────────────────────── */
+/* ─── Top bar ──────────────────────────────────────────────────────────── */
 
 .top-bar {
   display: flex;
@@ -107,75 +107,171 @@ main {
   white-space: nowrap;
 }
 
-.top-bar-tabs {
-  display: flex;
-  align-items: stretch;
-  height: 100%;
+.top-bar-center {
   flex: 1;
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.top-bar-tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.tab {
   display: flex;
   align-items: center;
-  padding: 0 18px;
-  height: 100%;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--sage-400);
+  justify-content: center;
+  padding: 0 16px;
+}
+
+.top-bar-session-name {
   font-family: 'DM Sans', sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  white-space: nowrap;
-  flex-shrink: 0;
-  max-width: 180px;
-}
-
-.tab:hover {
   color: var(--cream-100);
-  background: var(--sage-800);
-}
-
-.tab.active {
-  color: var(--cream-50);
-  border-bottom-color: var(--sage-400);
-  background: var(--sage-800);
-}
-
-.tab-label {
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tab-new {
-  padding: 0 14px;
-  color: var(--sage-500);
-  border-bottom: none;
-  max-width: none;
-}
-
-.tab-new:hover {
-  color: var(--cream-100);
-  background: var(--sage-800);
+  max-width: 280px;
 }
 
 .top-bar-right {
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  padding: 0 12px;
   height: 100%;
   flex-shrink: 0;
   border-left: 1px solid var(--sage-800);
+}
+
+.top-bar-history-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.top-bar-history-btn:hover {
+  background: var(--sage-800);
+}
+
+/* ─── Session picker modal ─────────────────────────────────────────────── */
+
+.session-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 16, 10, 0.5);
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 64px;
+  animation: fadeIn 0.15s ease;
+}
+
+.session-picker {
+  width: 380px;
+  max-height: 480px;
+  background: var(--cream-50);
+  border: 1px solid var(--sage-100);
+  box-shadow: 0 16px 48px rgba(10, 16, 10, 0.2);
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.2s ease;
+}
+
+.session-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--sage-100);
+  flex-shrink: 0;
+}
+
+.session-picker-title {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sage-800);
+}
+
+.session-picker-new {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--sage-900);
+  color: var(--cream-50);
+  border: none;
+  border-radius: 4px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.session-picker-new:hover {
+  background: var(--sage-700);
+}
+
+.session-picker-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.session-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 20px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.1s ease;
+  text-align: left;
+}
+
+.session-picker-item:hover {
+  background: var(--sage-50);
+}
+
+.session-picker-item.active {
+  background: var(--sage-50);
+}
+
+.session-picker-item.active .session-picker-item-name {
+  color: var(--sage-900);
+  font-weight: 600;
+}
+
+.session-picker-item-name {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--sage-700);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+.session-picker-item-date {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--sage-300);
+  flex-shrink: 0;
+}
+
+.session-picker-empty {
+  padding: 24px 20px;
+  text-align: center;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: var(--sage-400);
 }
 
 /* ─── Right panel ───────────────────────────────────────────────────────── */
@@ -409,27 +505,6 @@ main {
   font-size: 10px;
   color: var(--sage-300);
   letter-spacing: 0.03em;
-}
-
-/* ─── Online badge ──────────────────────────────────────────────────────── */
-
-.online-badge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.online-dot {
-  width: 6px;
-  height: 6px;
-  background: #4ade80;
-  border-radius: 50%;
-}
-
-.online-text {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 11px;
-  color: var(--sage-400);
 }
 
 /* ─── Scrollbar ───────────────────────────────────────────────────────── */
@@ -686,17 +761,90 @@ main {
   min-height: 44px;
 }
 
+/* ── Turn mode segmented control ──────────────────────────────────────── */
+/* A compact pill-shaped toggle for switching between Auto (VAD) and      */
+/* Push-to-speak (manual) modes. Sits below the input row as a secondary  */
+/* preference control, visually grouped with a label.                     */
+
+.turn-mode-toggle {
+  display: flex;
+  background: var(--sage-100);
+  border-radius: 16px;
+  padding: 2px;
+  gap: 0;
+  transition: opacity 0.2s ease;
+}
+
+.turn-mode-toggle--disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.turn-mode-option {
+  padding: 4px 10px;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--sage-400);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.turn-mode-option:hover:not(:disabled) {
+  color: var(--sage-600);
+}
+
+.turn-mode-option--active {
+  background: white;
+  color: var(--sage-700);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.turn-mode-option:disabled {
+  cursor: not-allowed;
+}
+
+/* ── Voice mode bar (label + toggle, below the input) ────────────────── */
+/* A subtle secondary row that pairs a "Voice mode" label with the        */
+/* segmented control. Appears below the text input row so it's            */
+/* discoverable but doesn't compete with the primary input.               */
+
+.voice-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  justify-content: flex-end;
+}
+
+.voice-mode-label {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sage-300);
+}
+
 /* ── Text input row ───────────────────────────────────────────────────── */
 
 .chat-input-row {
   display: flex;
-  gap: 8px;
+  gap: 0;
+  align-items: stretch;
 }
 
 .chat-input {
   flex: 1;
   padding: 12px 16px;
   border: 1px solid var(--sage-200);
+  border-right: none;
+  border-radius: 6px 0 0 6px;
   background: white;
   font-family: 'DM Sans', sans-serif;
   font-size: 14px;
@@ -706,7 +854,8 @@ main {
 }
 
 .chat-input:focus {
-  border-color: var(--sage-500);
+  border-color: var(--sage-400);
+  z-index: 1;
 }
 
 .chat-input:disabled {
@@ -717,21 +866,35 @@ main {
   color: var(--sage-300);
 }
 
+/* ── Trailing action slot (mic / send / abort) ────────────────────────── */
+/* The trailing slot shares its left border with the text input, creating  */
+/* a single unified control surface. The button inside adapts based on     */
+/* context: mic when input is empty, send when there's text, abort when    */
+/* the agent is busy.                                                     */
+
+.input-trailing {
+  display: flex;
+  flex-shrink: 0;
+}
+
 .send-btn {
-  padding: 12px 20px;
+  padding: 12px 18px;
   background: var(--sage-900);
   color: var(--cream-50);
-  border: none;
+  border: 1px solid var(--sage-900);
+  border-radius: 0 6px 6px 0;
   font-family: 'DM Sans', sans-serif;
   font-size: 13px;
   cursor: pointer;
   transition: background 0.2s ease;
   display: flex;
   align-items: center;
+  justify-content: center;
 }
 
 .send-btn:hover:not(:disabled) {
   background: var(--sage-700);
+  border-color: var(--sage-700);
 }
 
 .send-btn:disabled {
@@ -740,10 +903,11 @@ main {
 }
 
 .abort-btn {
-  padding: 12px 20px;
+  padding: 12px 18px;
   background: #ef4444;
   color: white;
-  border: none;
+  border: 1px solid #ef4444;
+  border-radius: 0 6px 6px 0;
   font-family: 'DM Sans', sans-serif;
   font-size: 13px;
   cursor: pointer;
@@ -754,13 +918,18 @@ main {
   opacity: 0.85;
 }
 
-/* ─── Mic button (text mode — leading position) ──────────────────────────── */
+/* ─── Mic button (trailing position — shows when input is empty) ─────────── */
+/* Circular mic button that replaces the send button when the text input      */
+/* is empty. Visually signals "tap to start voice" as an alternative to       */
+/* typing. The border-radius on the right side integrates with the input.     */
 
 .mic-btn {
   position: relative;
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  height: auto;
   border: 1px solid var(--sage-200);
+  border-left: none;
+  border-radius: 0 6px 6px 0;
   background: var(--cream-50);
   cursor: pointer;
   display: flex;
@@ -768,16 +937,15 @@ main {
   justify-content: center;
   flex-shrink: 0;
   transition: all 0.2s ease;
-  border-radius: 50%;
 }
 
 .mic-btn:hover {
   background: var(--sage-100);
-  border-color: var(--sage-400);
+  border-color: var(--sage-300);
 }
 
 .mic-btn:active {
-  transform: scale(0.95);
+  background: var(--sage-200);
 }
 
 /* ─── Voice end button ──────────────────────────────────────────────────── */
@@ -941,6 +1109,39 @@ main {
   }
 }
 
+/* ── Recording state (manual / push-to-speak): warm red glow ─────────── */
+/* A distinct visual from the default listening state. The warm red       */
+/* clearly signals "I am actively capturing your speech right now."       */
+/* The outer ring pulses faster than the listening breathe to convey      */
+/* urgency and active capture. Uses a warm terracotta tone that           */
+/* complements the sage/cream palette rather than an alarming red.        */
+
+.voice-orb--recording {
+  background: #a0524a;
+}
+
+.voice-orb--recording .voice-orb__ring--outer {
+  opacity: 1;
+  border-color: #c07060;
+  animation: orbRecordPulse 1.2s ease-in-out infinite;
+}
+
+.voice-orb--recording .voice-orb__ring--middle {
+  opacity: 0.4;
+  border-color: #c07060;
+}
+
+@keyframes orbRecordPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.25;
+  }
+}
+
 /* ── Status text below the orb ───────────────────────────────────────── */
 
 .voice-orb__status {
@@ -960,6 +1161,49 @@ main {
 /* When showing a transcript, use a slightly more prominent color */
 .voice-orb__status--transcript {
   color: var(--sage-600);
+  font-style: italic;
+}
+
+/* Recording status: warm tone matching the orb */
+.voice-orb__status--recording {
+  color: #a0524a;
+  font-style: normal;
+}
+
+/* ── Processing state ────────────────────────────────────────────────── */
+/* Shown while waiting for ElevenLabs to finalize the STT after user    */
+/* releases the space bar. A pulsing amber orb with a gentle spin       */
+/* on the outer ring signals "working on it" without the urgency of     */
+/* the thinking state's tighter rotation.                                */
+
+.voice-orb--processing {
+  background: var(--sage-400);
+}
+
+.voice-orb--processing .voice-orb__ring--outer {
+  opacity: 0.7;
+  border-color: var(--sage-300);
+  animation: orbProcessSpin 2s linear infinite;
+}
+
+.voice-orb--processing .voice-orb__ring--middle {
+  opacity: 0.3;
+  border-color: var(--sage-300);
+  animation: orbProcessPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes orbProcessSpin {
+  0% { transform: scale(1.05) rotate(0deg); }
+  100% { transform: scale(1.05) rotate(360deg); }
+}
+
+@keyframes orbProcessPulse {
+  0%, 100% { opacity: 0.2; transform: scale(0.95); }
+  50% { opacity: 0.45; transform: scale(1.05); }
+}
+
+.voice-orb__status--processing {
+  color: var(--sage-500);
   font-style: italic;
 }
 
@@ -1051,6 +1295,24 @@ main {
     transform: scale(1.3);
   }
 
+  .voice-orb--recording .voice-orb__ring--outer {
+    opacity: 0.5;
+    transform: scale(1.1);
+  }
+
+  .voice-orb--recording .voice-orb__ring--middle {
+    opacity: 0.3;
+  }
+
+  .voice-orb--processing .voice-orb__ring--outer {
+    opacity: 0.5;
+    transform: scale(1.05);
+  }
+
+  .voice-orb--processing .voice-orb__ring--middle {
+    opacity: 0.3;
+  }
+
   .chat-input-mode {
     transition: none;
   }
@@ -1071,6 +1333,16 @@ main {
     display: none;
   }
 
+  .top-bar-session-name {
+    font-size: 12px;
+    max-width: 160px;
+  }
+
+  .session-picker {
+    width: calc(100vw - 32px);
+    max-height: 60vh;
+  }
+
   /* Voice orb: slightly smaller on mobile for better fit */
   .voice-orb {
     width: 48px;
@@ -1080,5 +1352,10 @@ main {
   .voice-end-btn {
     padding: 6px 10px;
     font-size: 11px;
+  }
+
+  /* Voice mode bar: stack tighter on mobile */
+  .voice-mode-bar {
+    margin-top: 6px;
   }
 }

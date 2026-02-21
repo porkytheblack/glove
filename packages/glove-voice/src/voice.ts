@@ -153,6 +153,9 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
         speech_end: () => this.cfg.stt.flushUtterance(),
         speech_start: () => {
           if (this.mode === "thinking" || this.mode === "speaking") {
+            // Don't barge-in when a blocking UI (e.g. checkout form) is active —
+            // its pushAndWait resolver is still pending in the display manager.
+            if (this.glove.displayManager.resolverStore.size > 0) return;
             this.interrupt();
           }
         },
@@ -232,8 +235,12 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     // Immediately stop audio playback
     this.player?.stop();
 
-    // Clear any pending display manager slots from tool calls
-    void this.glove.displayManager.clearStack();
+    // Clear display slots — but only non-blocking ones.
+    // If there are pending pushAndWait resolvers (e.g. checkout form),
+    // the unAbortable tool is still running and needs its UI.
+    if (this.glove.displayManager.resolverStore.size === 0) {
+      void this.glove.displayManager.clearStack();
+    }
 
     // Reset VAD state
     this.vad?.reset();

@@ -22,8 +22,10 @@ export {
   type ElevenLabsTTSConfig,
 } from "./adapters/eleven-labs";
 
-// Built-in VAD
+// Built-in VAD (energy-based, zero dependencies)
 export { VAD, type VADConfig } from "./vad";
+// SileroVADAdapter is in "glove-voice/silero-vad" — separate entry to avoid
+// pulling onnxruntime-web (browser-only WASM) into the main barrel.
 
 // Errors
 export { GloveVoiceError, type GloveVoiceErrorCode } from "./errors";

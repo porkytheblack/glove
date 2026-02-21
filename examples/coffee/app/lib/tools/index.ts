@@ -7,8 +7,10 @@ import { createAddToCartTool } from "./add-to-cart";
 import { createShowCartTool } from "./show-cart";
 import { createCheckoutTool } from "./checkout";
 import { createShowInfoTool } from "./show-info";
+import { createGetProductsTool } from "./get-products";
+import { createGetCartTool } from "./get-cart";
 
-// ─── Tool factory — assembles all 7 coffee tools ───────────────────────────
+// ─── Tool factory — assembles all coffee tools ─────────────────────────────
 
 export function createCoffeeTools(cartOps: CartOps): ToolConfig[] {
   return [
@@ -19,6 +21,9 @@ export function createCoffeeTools(cartOps: CartOps): ToolConfig[] {
     createShowCartTool(cartOps),
     createCheckoutTool(cartOps),
     createShowInfoTool(),
+    // Voice-friendly tools — return data as text for the LLM to narrate
+    createGetProductsTool(),
+    createGetCartTool(cartOps),
   ];
 }
 

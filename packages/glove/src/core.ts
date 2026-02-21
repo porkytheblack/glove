@@ -47,7 +47,7 @@ export class AbortError extends Error {
 
 export interface ToolResultData {
   data: unknown,
-  status: "error" | "success"
+  status: "error" | "success" | "aborted"
   message?: string
   // contains information that won't be sent to the modal but is required for rendering this from history. e.g for a payment form. as data(viewable by the modal, we might not wanna show the address etc and share that with the model) but maybe we want the user to still view all their details on reload of the chat
   // the renderData property is where data that fits this criteria can live. will need a post renderer
@@ -287,11 +287,26 @@ export class Executor {
     const toolResults: Array<ToolResult> = [];
 
     for (const call of this.toolCallStack) {
-      if (signal?.aborted) break;
-
-      let tool = this.tools.find(
+      const tool = this.tools.find(
         (t) => t.name.toLowerCase() == call.tool_name.toLowerCase(),
       );
+
+      // Skip abortable tools when signal is aborted, but let unAbortable
+      // tools through so they run to completion (e.g. checkout form).
+      if (signal?.aborted && !tool?.unAbortable) {
+        toolResults.push({
+          tool_name: call.tool_name,
+          call_id: call.id,
+          result: {
+            status: "aborted",
+            message: "Tool execution was aborted by the user.",
+            data: null,
+          },
+        });
+        await this.notifySubscribers("tool_use_result", toolResults?.at(-1));
+        continue;
+      }
+
       if (!tool) {
         toolResults.push({
           result: {
@@ -342,7 +357,8 @@ export class Executor {
 
       let toolRunEffect = Effect.tryPromise({
         try: async () => {
-          if (signal?.aborted) throw new AbortError();
+          // Only check abort signal for abortable tools
+          if (signal?.aborted && !tool.unAbortable) throw new AbortError();
           const result = tool.unAbortable ?
             await tool.run(parsed_input.data, handOver) :
             await abortablePromise(signal, tool.run(parsed_input.data, handOver));
@@ -355,12 +371,36 @@ export class Executor {
 
       let retriedEffect = Effect.retry(toolRunEffect, {
         times: this.MAX_RETRIES,
-        while: () => !signal?.aborted,
+        // Allow retries for unAbortable tools even when signal is aborted
+        while: () => !signal?.aborted || !!tool.unAbortable,
       })
       let toolResult = await Effect.runPromise(Effect.either(retriedEffect))
 
+      let wasAborted = false;
+
       Either.match(toolResult, {
         onLeft: (error) => {
+          // Detect abort: custom AbortError, native DOMException, or signal already aborted
+          const isAbort =
+            error instanceof AbortError ||
+            (error instanceof Error && error.name === "AbortError") ||
+            signal?.aborted;
+
+          if (isAbort) {
+            wasAborted = true;
+            toolResults.push({
+              tool_name: call.tool_name,
+              call_id: call.id,
+              result: {
+                status: "aborted",
+                message: "Tool execution was aborted by the user.",
+                data: null,
+              },
+            });
+            this.notifySubscribers("tool_use_result", toolResults?.at(-1));
+            return;
+          }
+
           toolResults.push({
             tool_name: call.tool_name,
             call_id: call.id,
@@ -384,6 +424,9 @@ export class Executor {
           this.notifySubscribers("tool_use_result", toolResults?.at(-1));
         },
       })
+
+      // Exit the loop if aborted (only for abortable tools)
+      if (wasAborted) break;
 
     }
 

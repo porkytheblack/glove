@@ -15,6 +15,7 @@ interface GloveFoldArgs<I> {
   description: string
   inputSchema: z.ZodType<I>,
   requiresPermission?: boolean,
+  unAbortable?: boolean,
   do: (input: I, display: DisplayManagerAdapter) => Promise<ToolResultData>,
 }
 
@@ -99,6 +100,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       description: args.description,
       input_schema: args.inputSchema,
       requiresPermission: args.requiresPermission,
+      unAbortable: args.unAbortable,
       async run(input: I) {
         const result = await args.do(input, displayManager)
 

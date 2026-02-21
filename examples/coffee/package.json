@@ -13,6 +13,8 @@
     "glove-next": "workspace:*",
     "glove-react": "workspace:*",
     "glove-voice": "workspace:*",
+    "@ricky0123/vad-web": "^0.0.30",
+    "onnxruntime-web": "^1.22.0",
     "next": "^15.3.3",
     "openai": "^6.22.0",
     "react": "^19.0.0",

@@ -153,7 +153,7 @@ class ReactSubscriber implements SubscriberAdapter {
             entry.kind === "tool" && entry.id === data.call_id
               ? {
                   ...entry,
-                  status: (data.result.status as "success" | "error"),
+                  status: (data.result.status as "success" | "error" | "aborted"),
                   output:
                     data.result.data != null
                       ? String(data.result.data)
@@ -249,7 +249,7 @@ function messagesToTimeline(messages: Message[]): TimelineEntry[] {
             name: tc.tool_name,
             input: tc.input_args,
             status: result
-              ? (result.status as "success" | "error")
+              ? (result.status as "success" | "error" | "aborted")
               : "running",
             output: result
               ? result.data != null
@@ -551,22 +551,29 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
           const isAbort =
             err?.name === "AbortError" || err?.constructor?.name === "AbortError";
 
-          setState((s) => ({
-            ...s,
-            busy: false,
-            streamingText: "",
-            ...(isAbort
-              ? {}
-              : {
-                  timeline: [
-                    ...s.timeline,
-                    {
-                      kind: "agent_text" as const,
-                      text: `Error: ${err?.message ?? "Unknown error"}`,
-                    },
-                  ],
-                }),
-          }));
+          setState((s) => {
+            // When aborting, mark any still-running tools as "aborted"
+            const timeline = isAbort
+              ? s.timeline.map((entry) =>
+                  entry.kind === "tool" && entry.status === "running"
+                    ? { ...entry, status: "aborted" as const }
+                    : entry,
+                )
+              : [
+                  ...s.timeline,
+                  {
+                    kind: "agent_text" as const,
+                    text: `Error: ${err?.message ?? "Unknown error"}`,
+                  },
+                ];
+
+            return {
+              ...s,
+              busy: false,
+              streamingText: "",
+              timeline,
+            };
+          });
         })
         .finally(() => {
           abortRef.current = null;

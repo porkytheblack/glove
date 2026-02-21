@@ -15,6 +15,10 @@
     "./server": {
       "types": "./dist/server/index.d.ts",
       "import": "./dist/server/index.js"
+    },
+    "./silero-vad": {
+      "types": "./dist/silero-vad.d.ts",
+      "import": "./dist/silero-vad.js"
     }
   },
   "files": ["dist"],
@@ -25,8 +29,10 @@
   "keywords": [],
   "packageManager": "pnpm@10.28.2",
   "dependencies": {
+    "@ricky0123/vad-web": "^0.0.30",
     "eventemitter3": "^5.0.4",
-    "glove-core": "workspace:*"
+    "glove-core": "workspace:*",
+    "onnxruntime-web": "^1.22.0"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",

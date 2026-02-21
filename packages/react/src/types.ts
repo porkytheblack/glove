@@ -16,7 +16,7 @@ export type TimelineEntry =
       id: string;
       name: string;
       input: unknown;
-      status: "running" | "success" | "error";
+      status: "running" | "success" | "error" | "aborted";
       output?: string;
       renderData?: unknown;
     };
@@ -51,7 +51,7 @@ export interface SlotRenderProps<T = any> {
 export interface ToolResultRenderProps<T = any> {
   data: T;
   output?: string;
-  status: "success" | "error";
+  status: "success" | "error" | "aborted";
 }
 
 // ─── Enhanced slots ──────────────────────────────────────────────────────────
@@ -134,6 +134,7 @@ export interface ToolConfig<I = any> {
   description: string;
   inputSchema: z.ZodType<I>;
   requiresPermission?: boolean;
+  unAbortable?: boolean;
   displayStrategy?: SlotDisplayStrategy;
   do: (input: I, display: ToolDisplay) => Promise<ToolResultData>;
   /** Colocated renderer for this tool's display slots. When present, the tool

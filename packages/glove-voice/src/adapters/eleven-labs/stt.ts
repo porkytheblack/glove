@@ -135,11 +135,16 @@ export class ElevenLabsSTTAdapter
         this.emit("partial", data.text);
         break;
 
-      case "committed_transcript":
-        console.debug(`[ElevenLabsSTT] committed: "${data.text}"`);
+      case "committed_transcript": {
+        // ElevenLabs sometimes returns an empty committed transcript for
+        // short utterances ("No", "Hi") when we flush with a silence frame.
+        // Fall back to the last partial — it's what Scribe actually heard.
+        const text = data.text || this.partial;
+        console.debug(`[ElevenLabsSTT] committed: "${data.text}"${data.text ? "" : ` (using partial: "${text}")`}`);
         this.partial = "";
-        this.emit("final", data.text);
+        this.emit("final", text);
         break;
+      }
 
       case "invalid_request":
         console.error(`[ElevenLabsSTT] invalid_request:`, JSON.stringify(data));
