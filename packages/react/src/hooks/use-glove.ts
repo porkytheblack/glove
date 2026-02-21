@@ -19,6 +19,7 @@ import type {
   TimelineEntry,
   EnhancedSlot,
   SlotDisplayStrategy,
+  IGloveRunnable,
 } from "../types";
 import type { Slot } from "glove-core/display-manager";
 import { MemoryStore } from "../adapters/memory-store";
@@ -47,6 +48,9 @@ export interface UseGloveConfig {
 }
 
 export interface UseGloveReturn extends GloveState {
+  /** The underlying Glove runnable. Pass to useGloveVoice or use directly.
+   *  `null` until the Glove instance is built (first render). */
+  runnable: IGloveRunnable | null;
   sendMessage: (
     text: string,
     images?: Array<{ data: string; media_type: string }>,
@@ -331,6 +335,9 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
     stats: { turns: 0, tokens_in: 0, tokens_out: 0 },
   });
 
+  // Runnable exposed for external consumers (e.g. useGloveVoice)
+  const [runnable, setRunnable] = useState<IGloveRunnable | null>(null);
+
   // Refs that persist across renders
   const gloveRef = useRef<ReturnType<Glove["build"]> | null>(null);
   const dmRef = useRef<Displaymanager | null>(null);
@@ -408,8 +415,9 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
       }
     }
 
-    const runnable = builder.build();
-    gloveRef.current = runnable;
+    const built = builder.build();
+    gloveRef.current = built;
+    setRunnable(built);
 
     // Subscribe to DisplayManager for slot updates — enhance raw slots
     const unsubDm = dm.subscribe(async (stack: Slot<unknown>[]) => {
@@ -453,6 +461,7 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
       unsubDm();
       abortRef.current?.abort();
       gloveRef.current = null;
+      setRunnable(null);
       dmRef.current = null;
       subscriberRef.current = null;
       slotMetaRef.current.clear();
@@ -645,6 +654,7 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
 
   return {
     ...state,
+    runnable,
     sendMessage,
     abort,
     resolveSlot,

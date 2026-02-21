@@ -9,6 +9,7 @@ import React, {
   type ReactNode,
 } from "react";
 import { useGlove, Render } from "glove-react";
+import { useGloveVoice } from "glove-react/voice";
 import type {
   MessageRenderProps,
   StreamingRenderProps,
@@ -16,6 +17,8 @@ import type {
 } from "glove-react";
 import { createCoffeeTools, type CartOps } from "../lib/tools";
 import { getProductById, type CartItem } from "../lib/products";
+import { stt, createTTS } from "../lib/voice";
+import { systemPrompt, voiceSystemPrompt } from "../lib/system-prompt";
 import { RightPanel } from "./right-panel";
 import { ChatInput } from "./chat-input";
 import { EmptyState } from "./empty-state";
@@ -122,8 +125,22 @@ export default function Chat({ sessionId, onFirstMessage }: ChatProps) {
 
   // ── Glove hook — sessionId drives store resolution ──────────────────
   const glove = useGlove({ tools, sessionId });
-  const { timeline, streamingText, busy, stats, slots, sendMessage, abort } =
+  const { runnable, timeline, streamingText, busy, stats, slots, sendMessage, abort } =
     glove;
+
+  // ── Voice pipeline ──────────────────────────────────────────────────
+  const voiceConfig = useMemo(() => ({ stt, createTTS, turnMode: "vad" as const }), []);
+  const voice = useGloveVoice({ runnable, voice: voiceConfig });
+
+  // ── Voice-specific system prompt ────────────────────────────────────
+  useEffect(() => {
+    if (!runnable) return;
+    if (voice.isActive) {
+      runnable.setSystemPrompt(voiceSystemPrompt);
+    } else {
+      runnable.setSystemPrompt(systemPrompt);
+    }
+  }, [voice.isActive, runnable]);
 
   // ── Auto-scroll ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -210,6 +227,7 @@ export default function Chat({ sessionId, onFirstMessage }: ChatProps) {
           busy={busy}
           onSubmit={handleSubmit}
           onAbort={abort}
+          voice={voice}
         />
       </div>
 

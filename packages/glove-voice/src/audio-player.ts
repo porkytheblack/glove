@@ -7,6 +7,7 @@ export class AudioPlayer {
   private nextPlayTime = 0;
   private drainCallbacks: Array<() => void> = [];
   private activeBuffers = 0;
+  private activeSources: Set<AudioBufferSourceNode> = new Set();
   private readonly sampleRate: number;
 
   constructor(sampleRate = 16_000) {
@@ -36,10 +37,12 @@ export class AudioPlayer {
 
     this.nextPlayTime = startAt + audioBuffer.duration;
     this.activeBuffers++;
+    this.activeSources.add(source);
 
     source.start(startAt);
     source.onended = () => {
       this.activeBuffers--;
+      this.activeSources.delete(source);
       if (this.activeBuffers === 0) {
         const cbs = this.drainCallbacks;
         this.drainCallbacks = [];
@@ -60,21 +63,27 @@ export class AudioPlayer {
   /** Immediately stop all audio. */
   stop(): void {
     if (!this.context) return;
-    // Suspend cancels all scheduled sources, resume readies the context for reuse.
-    // We don't await — fire-and-forget is fine here because we reset all bookkeeping
-    // synchronously, and any new enqueue() will schedule relative to currentTime.
-    void this.context.suspend().then(() => this.context?.resume());
+
+    // Immediately stop all active sources — no async delays
+    for (const source of this.activeSources) {
+      try {
+        source.stop();
+        source.disconnect();
+      } catch {
+        // Source may already be stopped or scheduled — ignore
+      }
+    }
+
+    this.activeSources.clear();
     this.nextPlayTime = 0;
     this.activeBuffers = 0;
     this.drainCallbacks = [];
   }
 
   async destroy(): Promise<void> {
-    // Don't call stop() — just close the context directly. Closing an AudioContext
-    // implicitly stops all processing and avoids the suspend/resume race.
-    this.nextPlayTime = 0;
-    this.activeBuffers = 0;
-    this.drainCallbacks = [];
+    // Stop all sources first
+    this.stop();
+    // Then close the context
     await this.context?.close();
     this.context = null;
   }

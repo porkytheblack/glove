@@ -645,12 +645,48 @@ main {
   border-top: 1px solid var(--sage-100);
   background: var(--cream-50);
   flex-shrink: 0;
+  transition: background 0.3s ease, border-color 0.3s ease;
+}
+
+/* Subtle background shift when voice is active — signals mode change */
+.chat-input-area--voice {
+  background: var(--sage-50);
+  border-top-color: var(--sage-200);
 }
 
 .chat-input-inner {
   max-width: 640px;
   margin: 0 auto;
+  position: relative;
 }
+
+/* ── Mode switching: crossfade between text and voice ─────────────────── */
+
+.chat-input-mode {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.chat-input-mode--hidden {
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  transform: translateY(4px);
+}
+
+.chat-input-mode--text {
+  /* When visible, natural flow */
+}
+
+.chat-input-mode--voice {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  justify-content: center;
+  min-height: 44px;
+}
+
+/* ── Text input row ───────────────────────────────────────────────────── */
 
 .chat-input-row {
   display: flex;
@@ -718,6 +754,215 @@ main {
   opacity: 0.85;
 }
 
+/* ─── Mic button (text mode — leading position) ──────────────────────────── */
+
+.mic-btn {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--sage-200);
+  background: var(--cream-50);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+  border-radius: 50%;
+}
+
+.mic-btn:hover {
+  background: var(--sage-100);
+  border-color: var(--sage-400);
+}
+
+.mic-btn:active {
+  transform: scale(0.95);
+}
+
+/* ─── Voice end button ──────────────────────────────────────────────────── */
+
+.voice-end-btn {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: transparent;
+  border: 1px solid var(--sage-200);
+  border-radius: 20px;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sage-500);
+  transition: all 0.15s ease;
+}
+
+.voice-end-btn:hover {
+  background: var(--cream-50);
+  border-color: var(--sage-400);
+  color: var(--sage-700);
+}
+
+/* ─── Voice orb ──────────────────────────────────────────────────────────── */
+
+.voice-orb-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  animation: fadeIn 0.3s ease;
+}
+
+.voice-orb {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  background: var(--sage-600);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.3s ease, transform 0.15s ease;
+  z-index: 1;
+}
+
+.voice-orb:active {
+  transform: scale(0.92);
+}
+
+/* ── Orb rings (pseudo-elements layered behind the core) ──────────────── */
+
+.voice-orb__ring {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.voice-orb__ring--outer {
+  inset: -8px;
+  border: 2px solid var(--sage-400);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.voice-orb__ring--middle {
+  inset: -16px;
+  border: 1.5px solid var(--sage-300);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.voice-orb__core {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+/* ── Listening state: gentle breathing pulse ─────────────────────────── */
+/* The outer ring fades in and scales slowly — like a calm heartbeat.     */
+/* Conveys "I'm here, I'm ready, speak whenever you'd like."             */
+
+.voice-orb--listening {
+  background: var(--sage-600);
+}
+
+.voice-orb--listening .voice-orb__ring--outer {
+  opacity: 1;
+  animation: orbBreathe 2.4s ease-in-out infinite;
+}
+
+@keyframes orbBreathe {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.2;
+  }
+}
+
+/* ── Thinking state: ring tightens and rotates ───────────────────────── */
+/* A dashed border spins — reads as "processing" without being frantic.  */
+/* The orb darkens slightly to indicate focus.                           */
+
+.voice-orb--thinking {
+  background: var(--sage-700);
+}
+
+.voice-orb--thinking .voice-orb__ring--outer {
+  opacity: 1;
+  border-style: dashed;
+  border-color: var(--sage-400);
+  animation: orbSpin 1.5s linear infinite;
+}
+
+@keyframes orbSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ── Speaking state: ripples expand outward ───────────────────────────── */
+/* Two rings pulse outward at staggered intervals — like sound waves     */
+/* emanating from the orb. Visually maps to "I am producing sound."      */
+
+.voice-orb--speaking {
+  background: var(--sage-500);
+}
+
+.voice-orb--speaking .voice-orb__ring--outer {
+  opacity: 1;
+  animation: orbRipple 1.8s ease-out infinite;
+}
+
+.voice-orb--speaking .voice-orb__ring--middle {
+  opacity: 1;
+  animation: orbRipple 1.8s ease-out 0.4s infinite;
+}
+
+@keyframes orbRipple {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+/* ── Status text below the orb ───────────────────────────────────────── */
+
+.voice-orb__status {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sage-400);
+  letter-spacing: 0.03em;
+  text-align: center;
+  max-width: 280px;
+  line-height: 1.4;
+  min-height: 17px;
+  /* Prevent layout jumps when switching between modes */
+  transition: color 0.2s ease;
+}
+
+/* When showing a transcript, use a slightly more prominent color */
+.voice-orb__status--transcript {
+  color: var(--sage-600);
+  font-style: italic;
+}
+
 /* ─── Footer ─────────────────────────────────────────────────────────────── */
 
 .chat-footer {
@@ -783,6 +1028,34 @@ main {
   to { opacity: 1; }
 }
 
+/* ─── Accessibility: reduced motion ──────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-orb__ring--outer,
+  .voice-orb__ring--middle {
+    animation: none !important;
+  }
+
+  .voice-orb--listening .voice-orb__ring--outer {
+    opacity: 0.4;
+    transform: scale(1.08);
+  }
+
+  .voice-orb--thinking .voice-orb__ring--outer {
+    opacity: 0.5;
+  }
+
+  .voice-orb--speaking .voice-orb__ring--outer,
+  .voice-orb--speaking .voice-orb__ring--middle {
+    opacity: 0.3;
+    transform: scale(1.3);
+  }
+
+  .chat-input-mode {
+    transition: none;
+  }
+}
+
 /* ─── Mobile responsive ──────────────────────────────────────────────────── */
 
 @media (max-width: 768px) {
@@ -796,5 +1069,16 @@ main {
 
   .top-bar-name {
     display: none;
+  }
+
+  /* Voice orb: slightly smaller on mobile for better fit */
+  .voice-orb {
+    width: 48px;
+    height: 48px;
+  }
+
+  .voice-end-btn {
+    padding: 6px 10px;
+    font-size: 11px;
   }
 }

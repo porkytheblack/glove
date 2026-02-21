@@ -42,6 +42,56 @@ export function SendIcon() {
   );
 }
 
+export function MicIcon({
+  color = "#3d5a3d",
+  size = 16,
+}: {
+  color?: string;
+  size?: number;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="9" y="1" width="6" height="14" rx="3" />
+      <path d="M19 10v2a7 7 0 01-14 0v-2" />
+      <line x1="12" y1="19" x2="12" y2="23" />
+      <line x1="8" y1="23" x2="16" y2="23" />
+    </svg>
+  );
+}
+
+export function StopCircleIcon({
+  color = "#3d5a3d",
+  size = 16,
+}: {
+  color?: string;
+  size?: number;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <rect x="9" y="9" width="6" height="6" rx="1" />
+    </svg>
+  );
+}
+
 export function BagIcon({ color = "#faf7f2" }: { color?: string }) {
   return (
     <svg

@@ -1,6 +1,6 @@
 import { Effect, Either } from "effect";
 import z from "zod";
-import { splitAtLastCompaction } from "./utils";
+import { splitAtLastCompaction, abortablePromise } from "./utils";
 
 // call model
 // model may return tool call requests or text
@@ -65,6 +65,7 @@ export interface Tool<I> {
   description: string;
   input_schema: z.ZodType<I>;
   requiresPermission?: boolean;
+  unAbortable?: boolean;
   run(
     input: I,
     handOver?: (request: unknown) => Promise<unknown>,
@@ -201,6 +202,11 @@ export class PromptMachine {
     this.subscribers.push(subscriber);
   }
 
+  removeSubscriber(subscriber: SubscriberAdapter) {
+    const idx = this.subscribers.indexOf(subscriber);
+    if (idx !== -1) this.subscribers.splice(idx, 1);
+  }
+
   notifySubscribers = async (event_name: string, event_data: unknown) => {
     await Promise.all(
       this.subscribers.map((s) => s.record(event_name, event_data)),
@@ -259,6 +265,11 @@ export class Executor {
 
   addSubscriber(subscriber: SubscriberAdapter) {
     this.subscribers.push(subscriber);
+  }
+
+  removeSubscriber(subscriber: SubscriberAdapter) {
+    const idx = this.subscribers.indexOf(subscriber);
+    if (idx !== -1) this.subscribers.splice(idx, 1);
   }
 
   notifySubscribers = async (event_name: string, event_data: unknown) => {
@@ -332,7 +343,9 @@ export class Executor {
       let toolRunEffect = Effect.tryPromise({
         try: async () => {
           if (signal?.aborted) throw new AbortError();
-          const result = await tool.run(parsed_input.data, handOver);
+          const result = tool.unAbortable ?
+            await tool.run(parsed_input.data, handOver) :
+            await abortablePromise(signal, tool.run(parsed_input.data, handOver));
           return result
         },
         catch(e) {

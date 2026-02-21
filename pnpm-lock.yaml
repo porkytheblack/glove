@@ -115,6 +115,9 @@ importers:
       glove-react:
         specifier: workspace:*
         version: link:../../packages/react
+      glove-voice:
+        specifier: workspace:*
+        version: link:../../packages/glove-voice
       next:
         specifier: ^15.3.3
         version: 15.5.12(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -251,15 +254,16 @@ importers:
 
   packages/glove-voice:
     dependencies:
-      '@types/node':
-        specifier: ^25.2.3
-        version: 25.2.3
       eventemitter3:
         specifier: ^5.0.4
         version: 5.0.4
       glove-core:
         specifier: workspace:*
         version: link:../glove
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -288,6 +292,9 @@ importers:
       glove-core:
         specifier: workspace:*
         version: link:../glove
+      glove-voice:
+        specifier: workspace:*
+        version: link:../glove-voice
       react:
         specifier: '>=18.0.0'
         version: 19.2.4

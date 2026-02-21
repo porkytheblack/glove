@@ -2,10 +2,10 @@ import EventEmitter from "eventemitter3";
 import type { STTAdapter, TTSAdapter, VADAdapter } from "./adapters/types";
 import { AudioCapture } from "./audio-capture";
 import { AudioPlayer } from "./audio-player";
-import { splitSentences } from "./sentence-chunker";
-import { extractText } from "./extract-text";
+import { SentenceBuffer } from "./sentence-chunker";
 import { GloveVoiceError } from "./errors";
-import { IGloveRunnable } from "glove-core";
+import { IGloveRunnable, SubscriberAdapter } from "glove-core";
+import type { VADConfig } from "./vad";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -35,6 +35,12 @@ export interface GloveVoiceConfig {
 
   /** Override VAD — only used when turnMode is "vad" (default). */
   vad?: VADAdapter;
+
+  /**
+   * VAD configuration — only used when turnMode is "vad" and no custom vad is provided.
+   * Increase silentFrames for longer pauses before ending speech (default: 40 frames ~= 1600ms).
+   */
+  vadConfig?: VADConfig;
 
   /** Audio sample rate in Hz (default: 16000). Must match STT/TTS adapter expectations. */
   sampleRate?: number;
@@ -113,14 +119,19 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     // Create bound handlers so we can remove them on stop()
     this.sttHandlers = {
       partial: (text) => {
+        console.debug(`[GloveVoice] STT partial: "${text}"`);
         if (this.mode === "listening") this.emit("transcript", text, true);
       },
       final: (text) => {
+        console.debug(`[GloveVoice] STT final: "${text}"`);
         if (!text.trim()) return;
         this.emit("transcript", text, false);
         void this.handleTurn(text);
       },
-      error: (err) => this.emit("error", err),
+      error: (err) => {
+        console.debug(`[GloveVoice] STT error:`, err);
+        this.emit("error", err);
+      },
     };
 
     this.cfg.stt.on("partial", this.sttHandlers.partial);
@@ -133,7 +144,8 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
         this.vad = this.cfg.vad;
       } else {
         const { VAD } = await import("./vad");
-        this.vad = new VAD();
+        // Default: longer silence threshold (40 frames ~= 1600ms) for natural pauses
+        this.vad = new VAD(this.cfg.vadConfig ?? { silentFrames: 40 });
       }
       const vad = this.vad;
 
@@ -207,12 +219,25 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
    * Automatically called on barge-in (VAD mode) or manually by consumer.
    */
   interrupt(): void {
-    this.abortController?.abort("interrupted");
+    console.debug(`[GloveVoice] interrupt() called — aborting request, clearing TTS/audio/slots`);
+
+    // Abort any in-flight Glove request
+    this.abortController?.abort(new DOMException("interrupted", "AbortError"));
     this.abortController = null;
+
+    // Destroy active TTS session
     this.activeTTS?.destroy();
     this.activeTTS = null;
+
+    // Immediately stop audio playback
     this.player?.stop();
+
+    // Clear any pending display manager slots from tool calls
+    void this.glove.displayManager.clearStack();
+
+    // Reset VAD state
     this.vad?.reset();
+
     if (this.mode !== "idle") this.setMode("listening");
   }
 
@@ -222,6 +247,7 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
    * as an explicit override (e.g. a "send" button).
    */
   commitTurn(): void {
+    console.debug(`[GloveVoice] commitTurn() called — mode=${this.mode}, stt.isConnected=${this.cfg.stt.isConnected}`);
     if (this.mode !== "listening") return;
     this.cfg.stt.flushUtterance();
   }
@@ -237,75 +263,144 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
   // ─── Core pipeline ────────────────────────────────────────────────────────
 
   private async handleTurn(transcript: string): Promise<void> {
+    console.debug(`[GloveVoice] handleTurn("${transcript}")`);
     this.interrupt();
 
-    // Turn ID prevents race: if a new turn starts while this one is in-flight,
-    // the old turn detects the mismatch and bails out.
     const myTurnId = ++this.turnId;
+    const stale = () => signal.aborted || this.turnId !== myTurnId;
 
     this.setMode("thinking");
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
 
-    // Fresh TTS adapter per turn — no listener leak
-    const tts = this.cfg.createTTS();
-    this.activeTTS = tts;
+    // ── Streaming TTS ────────────────────────────────────────────────────────
+    // Text tokens stream through SentenceBuffer → TTS in real-time.
+    // Each model_response_complete flushes the current TTS session and prepares
+    // a fresh adapter for the next model response (after tool execution).
+    // All text across the turn is spoken — tool-calling responses included.
 
-    tts.on("audio_chunk", (chunk) => {
-      if (signal.aborted || this.turnId !== myTurnId) return;
-      if (this.mode !== "speaking") this.setMode("speaking");
-      this.player!.enqueue(chunk);
-    });
+    const buffer = new SentenceBuffer();
+    let ttsGeneration = 0;
+    const stream = {
+      tts: null as TTSAdapter | null,
+      ttsReady: null as Promise<boolean> | null,
+      responseText: "",
+    };
 
-    tts.on("done", () => {
-      if (this.turnId !== myTurnId) return;
-      this.player!.onDrained(() => {
+    const openFreshTTS = () => {
+      const myGen = ++ttsGeneration;
+      const tts = this.cfg.createTTS();
+      stream.tts = tts;
+      this.activeTTS = tts;
+
+      tts.on("audio_chunk", (chunk) => {
+        if (stale()) return;
+        if (this.mode !== "speaking") this.setMode("speaking");
+        this.player!.enqueue(chunk);
+      });
+
+      // Only the LAST TTS adapter's done event triggers the listening transition.
+      // Earlier adapters (from intermediate model responses) finish on their own.
+      tts.on("done", () => {
+        if (ttsGeneration !== myGen || stale()) return;
+        this.player!.onDrained(() => {
+          if (this.mode !== "idle") this.setMode("listening");
+        });
+      });
+
+      tts.on("error", (err) => {
+        this.emit("error", err);
         if (this.mode !== "idle") this.setMode("listening");
       });
-    });
 
-    tts.on("error", (err) => this.emit("error", err));
+      stream.ttsReady = tts.open().then(
+        () => { console.debug(`[GloveVoice] TTS ready`); return true; },
+        (err) => { console.error(`[GloveVoice] TTS open failed:`, err); return false; },
+      );
+    };
 
-    // Open TTS in parallel with Glove — hides handshake latency
-    const ttsReady = tts.open();
+    const sendSentence = async (sentence: string) => {
+      if (!stream.tts || !stream.ttsReady || stale()) return;
+      const ok = await stream.ttsReady;
+      if (!ok || stale()) return;
+      stream.tts.sendText(sentence);
+    };
+
+    // ── Subscriber: text_delta → SentenceBuffer → TTS ────────────────────────
+
+    const subscriber: SubscriberAdapter = {
+      record: async (event_type: string, data: any) => {
+        if (stale()) return;
+
+        if (event_type === "text_delta") {
+          const text: string = data.text;
+          stream.responseText += text;
+
+          // Open TTS lazily on first text — avoids opening for tool-only responses
+          if (!stream.tts) {
+            console.debug(`[GloveVoice] text_delta — opening TTS`);
+            openFreshTTS();
+          }
+
+          for (const sentence of buffer.push(text)) {
+            console.debug(`[GloveVoice] streaming sentence to TTS: "${sentence.slice(0, 60)}"`);
+            await sendSentence(sentence);
+          }
+        } else if (event_type === "model_response_complete") {
+          // End of one model response. Flush any partial sentence, close this
+          // TTS session, and null out so the next text_delta opens a fresh one.
+          // This avoids ElevenLabs' 20s idle timeout during tool execution.
+          const remainder = buffer.flush();
+          if (remainder) {
+            console.debug(`[GloveVoice] flushing remainder: "${remainder.slice(0, 60)}"`);
+            await sendSentence(remainder);
+          }
+          if (stream.tts && stream.ttsReady && !stale()) {
+            const ok = await stream.ttsReady;
+            if (ok && !stale()) stream.tts.flush();
+          }
+          stream.tts = null;
+          stream.ttsReady = null;
+        }
+      },
+    };
+
+    this.glove.addSubscriber(subscriber);
 
     try {
-      const result = await this.glove.processRequest(transcript, signal);
+      console.debug(`[GloveVoice] calling processRequest...`);
+      await this.glove.processRequest(transcript, signal);
 
-      // Bail out if superseded by a newer turn
-      if (signal.aborted || this.turnId !== myTurnId) {
-        tts.destroy();
+      if (stale()) {
+        stream.tts?.destroy();
         return;
       }
 
-      const responseText = extractText(result);
-      if (!responseText) {
-        this.setMode("listening");
-        return;
+      if (stream.responseText) {
+        this.emit("response", stream.responseText);
+      } else {
+        console.debug(`[GloveVoice] no response text — returning to listening`);
+        if (this.mode !== "idle") this.setMode("listening");
       }
-
-      this.emit("response", responseText);
-      await ttsReady;
-
-      if (signal.aborted || this.turnId !== myTurnId) {
-        tts.destroy();
-        return;
-      }
-
-      for (const sentence of splitSentences(responseText)) {
-        if (signal.aborted || this.turnId !== myTurnId) break;
-        tts.sendText(sentence);
-      }
-
-      if (!signal.aborted && this.turnId === myTurnId) tts.flush();
     } catch (err) {
-      const e = err as Error;
-      const isAbort = e.name === "AbortError" || e.message === "interrupted";
-      if (!isAbort) {
+      const e = err instanceof Error ? err : new Error(String(err ?? "unknown error"));
+      const isAbort =
+        e.name === "AbortError" ||
+        e.message === "interrupted" ||
+        e.message.includes("aborted") ||
+        (typeof err === "string" && err === "interrupted");
+
+      if (isAbort) {
+        console.debug(`[GloveVoice] handleTurn aborted:`, e.message);
+      } else {
+        console.error(`[GloveVoice] handleTurn error:`, e.message);
         this.emit("error", new GloveVoiceError("ERR_GLOVE_REQUEST", e.message, { cause: e }));
-        this.setMode("listening");
       }
-      tts.destroy();
+
+      stream.tts?.destroy();
+      if (this.mode !== "idle") this.setMode("listening");
+    } finally {
+      this.glove.removeSubscriber(subscriber);
     }
   }
 
@@ -313,6 +408,7 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
   private setMode(mode: VoiceMode): void {
     if (this.mode === mode) return;
+    console.debug(`[GloveVoice] ${this.mode} → ${mode}`);
     this.mode = mode;
     this.emit("mode", mode);
   }

@@ -4,7 +4,7 @@ import type { STTAdapter, STTAdapterEvents, GetTokenFn } from "../types";
 export interface ElevenLabsSTTConfig {
   /**
    * Called to fetch a short-lived token from YOUR server.
-   * Your server calls POST /v1/tokens/create with scope "stt_websocket".
+   * Your server calls POST /v1/single-use-token/realtime_scribe.
    *
    * @example
    * getToken: () => fetch("/api/voice/stt-token").then(r => r.json()).then(d => d.token)
@@ -32,14 +32,14 @@ type ScribeMessage =
   | { message_type: "session_started"; session_id: string; config: unknown }
   | { message_type: "partial_transcript"; text: string }
   | { message_type: "committed_transcript"; text: string }
+  | { message_type: "invalid_request"; error: string; [key: string]: unknown }
   | { message_type: "error"; error: string };
 
 /**
  * ElevenLabs Scribe Realtime STT adapter.
  *
  * Auth: server-side token via getToken(). Your server calls:
- *   POST https://api.elevenlabs.io/v1/tokens/create
- *   Body: { "type": "stt_websocket" }
+ *   POST https://api.elevenlabs.io/v1/single-use-token/realtime_scribe
  *   Headers: { "xi-api-key": YOUR_API_KEY }
  *
  * The token is passed as a query param to the WebSocket URL.
@@ -71,14 +71,20 @@ export class ElevenLabsSTTAdapter
     const token = await this.cfg.getToken();
 
     return new Promise((resolve, reject) => {
-      const url = [
-        `wss://api.elevenlabs.io/v1/speech-to-text/stream`,
-        `?token=${encodeURIComponent(token)}`,
-        `&model_id=${this.model}`,
-        `&language_code=${this.language}`,
-        `&enable_partial_transcripts=true`,
-        `&vad_silence_threshold_secs=${this.vadThreshold}`,
-      ].join("");
+      const params = new URLSearchParams({
+        token,
+        model_id: this.model,
+        language_code: this.language,
+        audio_format: "pcm_16000",
+      });
+
+      // Only add VAD params when using server-side VAD commit strategy
+      if (this.vadThreshold > 0) {
+        params.set("commit_strategy", "vad");
+        params.set("vad_silence_threshold_secs", String(this.vadThreshold));
+      }
+
+      const url = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?${params}`;
 
       this.ws = new WebSocket(url);
       this.ws.binaryType = "arraybuffer";
@@ -119,29 +125,45 @@ export class ElevenLabsSTTAdapter
 
   private handleMessage(data: ScribeMessage): void {
     switch (data.message_type) {
+      case "session_started":
+        console.debug(`[ElevenLabsSTT] session started`, data.session_id);
+        break;
+
       case "partial_transcript":
+        console.debug(`[ElevenLabsSTT] partial: "${data.text}"`);
         this.partial = data.text;
         this.emit("partial", data.text);
         break;
 
       case "committed_transcript":
+        console.debug(`[ElevenLabsSTT] committed: "${data.text}"`);
         this.partial = "";
         this.emit("final", data.text);
         break;
 
+      case "invalid_request":
+        console.error(`[ElevenLabsSTT] invalid_request:`, JSON.stringify(data));
+        this.emit("error", new Error(`Scribe invalid_request: ${data.error}`));
+        break;
+
       case "error":
+        console.error(`[ElevenLabsSTT] error:`, data.error);
         this.emit("error", new Error(data.error));
+        break;
+
+      default:
+        console.debug(`[ElevenLabsSTT] unknown message:`, JSON.stringify(data));
         break;
     }
   }
 
   sendAudio(pcm: Int16Array): void {
     if (this.ws?.readyState !== WebSocket.OPEN) return;
-    // Scribe expects base64-encoded PCM in a JSON message
     this.ws.send(
       JSON.stringify({
         message_type: "input_audio_chunk",
         audio_base_64: int16ToBase64(pcm),
+        commit: false,
         sample_rate: 16000,
       })
     );
@@ -149,7 +171,17 @@ export class ElevenLabsSTTAdapter
 
   flushUtterance(): void {
     if (this.ws?.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify({ message_type: "commit_audio_chunk" }));
+    // Scribe requires at least some audio data alongside commit: true.
+    // Send a minimal silence frame (~20ms) so the API actually processes the commit.
+    const silence = new Int16Array(320); // 320 samples = 20ms at 16kHz
+    this.ws.send(
+      JSON.stringify({
+        message_type: "input_audio_chunk",
+        audio_base_64: int16ToBase64(silence),
+        commit: true,
+        sample_rate: 16000,
+      })
+    );
   }
 
   disconnect(): void {

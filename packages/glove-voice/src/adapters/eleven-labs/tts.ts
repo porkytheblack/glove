@@ -4,7 +4,7 @@ import type { TTSAdapter, TTSAdapterEvents, GetTokenFn } from "../types";
 export interface ElevenLabsTTSConfig {
   /**
    * Called to fetch a short-lived token from YOUR server.
-   * Your server calls POST /v1/tokens/create with scope "tts_websocket".
+   * Your server calls POST /v1/single-use-token/tts_websocket.
    *
    * @example
    * getToken: () => fetch("/api/voice/tts-token").then(r => r.json()).then(d => d.token)
@@ -38,8 +38,7 @@ interface TTSServerMessage {
  * ElevenLabs TTS Input Streaming adapter.
  *
  * Auth: server-side token via getToken(). Your server calls:
- *   POST https://api.elevenlabs.io/v1/tokens/create
- *   Body: { "type": "tts_websocket" }
+ *   POST https://api.elevenlabs.io/v1/single-use-token/tts_websocket
  *   Headers: { "xi-api-key": YOUR_API_KEY }
  *
  * Open in parallel with your Glove request — hides ~200ms handshake cost.
@@ -65,17 +64,18 @@ export class ElevenLabsTTSAdapter
     const token = await this.cfg.getToken();
 
     return new Promise((resolve, reject) => {
-      const url = [
-        `wss://api.elevenlabs.io/v1/text-to-speech/${this.cfg.voiceId}/stream-input`,
-        `?token=${encodeURIComponent(token)}`,
-        `&model_id=${this.model}`,
-        `&output_format=${this.outputFormat}`,
-        `&optimize_streaming_latency=4`,
-      ].join("");
+      const params = new URLSearchParams({
+        single_use_token: token,
+        model_id: this.model,
+        output_format: this.outputFormat,
+      });
+      const url = `wss://api.elevenlabs.io/v1/text-to-speech/${this.cfg.voiceId}/stream-input?${params}`;
 
+      console.debug(`[ElevenLabsTTS] connecting to ${url.replace(/single_use_token=[^&]+/, "single_use_token=***")}`);
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
+        console.debug(`[ElevenLabsTTS] WebSocket opened, sending BOS`);
         // BOS marker — required before sending text
         this.ws!.send(
           JSON.stringify({
@@ -100,23 +100,27 @@ export class ElevenLabsTTSAdapter
         try {
           const data: TTSServerMessage = JSON.parse(event.data as string);
           if (data.audio) {
+            console.debug(`[ElevenLabsTTS] audio chunk (${data.audio.length} b64 chars)`);
             this.emit("audio_chunk", base64ToUint8Array(data.audio));
           }
           if (data.isFinal) {
+            console.debug(`[ElevenLabsTTS] isFinal received`);
             this.emit("done");
           }
         } catch {
-          // Ignore
+          // Ignore non-JSON frames
         }
       };
 
-      this.ws.onerror = () => {
+      this.ws.onerror = (ev) => {
+        console.error(`[ElevenLabsTTS] WebSocket error`, ev);
         const err = new Error("ElevenLabs TTS WebSocket error");
         this.emit("error", err);
         reject(err);
       };
 
-      this.ws.onclose = () => {
+      this.ws.onclose = (ev) => {
+        console.debug(`[ElevenLabsTTS] WebSocket closed (code=${ev.code}, reason="${ev.reason}")`);
         this.ready = false;
       };
     });

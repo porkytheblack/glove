@@ -22,6 +22,10 @@
     "./adapters": {
       "types": "./dist/adapters/index.d.ts",
       "import": "./dist/adapters/index.js"
+    },
+    "./voice": {
+      "types": "./dist/voice/index.d.ts",
+      "import": "./dist/voice/index.js"
     }
   },
   "files": ["dist"],
@@ -34,7 +38,13 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "react": ">=18.0.0"
+    "react": ">=18.0.0",
+    "glove-voice": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "glove-voice": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

@@ -1,9 +1,10 @@
 import type { Task, ContentPart, SubscriberAdapter, StoreAdapter, ModelAdapter, ToolResultData } from "glove-core/core";
 import type { Slot } from "glove-core/display-manager";
+import type { IGloveRunnable } from "glove-core/glove";
 import type z from "zod";
 import type { ReactNode } from "react";
 
-export type { Task, ContentPart, Slot, SubscriberAdapter, StoreAdapter, ModelAdapter, ToolResultData };
+export type { Task, ContentPart, Slot, SubscriberAdapter, StoreAdapter, ModelAdapter, ToolResultData, IGloveRunnable };
 
 // ─── Timeline ────────────────────────────────────────────────────────────────
 

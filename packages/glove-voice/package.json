@@ -1,19 +1,35 @@
 {
   "name": "glove-voice",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Voice pipeline for Glove agent framework",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "import": "./dist/server/index.js"
+    }
+  },
+  "files": ["dist"],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
   "packageManager": "pnpm@10.28.2",
   "dependencies": {
-    "@types/node": "^25.2.3",
     "eventemitter3": "^5.0.4",
-    "typescript": "^5.9.3",
     "glove-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "typescript": "^5.9.3"
   }
 }

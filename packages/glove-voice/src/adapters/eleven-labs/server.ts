@@ -22,19 +22,17 @@
  * }
  */
 
-const ELEVENLABS_TOKEN_URL = "https://api.elevenlabs.io/v1/tokens/create";
-
 /**
  * Create a single-use token for Scribe Realtime (STT WebSocket).
- * Valid for a short window — generate fresh per session.
+ * Valid for 15 minutes — generate fresh per session.
  */
 export async function createElevenLabsSTTToken(apiKey: string): Promise<string> {
-  return createElevenLabsToken(apiKey, "stt_websocket");
+  return createElevenLabsToken(apiKey, "realtime_scribe");
 }
 
 /**
  * Create a single-use token for TTS Input Streaming (TTS WebSocket).
- * Valid for a short window — generate fresh per session.
+ * Valid for 15 minutes — generate fresh per session.
  */
 export async function createElevenLabsTTSToken(apiKey: string): Promise<string> {
   return createElevenLabsToken(apiKey, "tts_websocket");
@@ -42,16 +40,15 @@ export async function createElevenLabsTTSToken(apiKey: string): Promise<string> 
 
 async function createElevenLabsToken(
   apiKey: string,
-  type: "stt_websocket" | "tts_websocket"
+  tokenType: "realtime_scribe" | "tts_websocket"
 ): Promise<string> {
-  const res = await fetch(ELEVENLABS_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      "xi-api-key": apiKey,
-      "Content-Type": "application/json",
+  const res = await fetch(
+    `https://api.elevenlabs.io/v1/single-use-token/${tokenType}`,
+    {
+      method: "POST",
+      headers: { "xi-api-key": apiKey },
     },
-    body: JSON.stringify({ type }),
-  });
+  );
 
   if (!res.ok) {
     const text = await res.text();
