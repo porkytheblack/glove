@@ -551,6 +551,7 @@ voice.on("mode", (mode: VoiceMode) => { });
 voice.on("transcript", (text: string, partial: boolean) => { });
 voice.on("response", (text: string) => { });
 voice.on("error", (err: Error) => { });
+voice.on("audio_chunk", (pcm: Int16Array) => { });  // Raw mic PCM — emitted even when muted
 
 // Lifecycle
 await voice.start();       // Request mic, connect STT, begin listening
@@ -558,9 +559,17 @@ await voice.stop();        // Stop everything, release resources
 voice.interrupt();         // Barge-in: abort request, stop TTS, return to listening
 voice.commitTurn();        // Manual turn commit: flush utterance to STT
 
+// Narration — speak text through TTS without involving the model
+await voice.narrate("Here is your order summary.");  // Resolves when audio finishes
+
+// Mic control — gate audio forwarding to STT/VAD
+voice.mute();              // Stop forwarding audio to STT/VAD (audio_chunk still emitted)
+voice.unmute();            // Resume forwarding audio to STT/VAD
+
 // Properties
 voice.currentMode;         // VoiceMode
 voice.isActive;            // boolean
+voice.isMuted;             // boolean
 ```
 
 ### Types
@@ -675,11 +684,15 @@ const voice = useGloveVoice({
 voice.mode;          // VoiceMode
 voice.transcript;    // string — partial transcript while speaking
 voice.isActive;      // boolean
+voice.isMuted;       // boolean — whether mic audio is muted
 voice.error;         // Error | null
 voice.start();       // () => Promise<void>
 voice.stop();        // () => Promise<void>
 voice.interrupt();   // () => void
 voice.commitTurn();  // () => void
+voice.mute();        // () => void — stop forwarding mic to STT/VAD
+voice.unmute();      // () => void — resume forwarding mic to STT/VAD
+voice.narrate(text); // (text: string) => Promise<void> — speak without model
 ```
 
 ---

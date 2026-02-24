@@ -1,5 +1,6 @@
 import type { ModelAdapter } from "../core";
 import { AnthropicAdapter } from "./anthropic";
+import { BedrockAdapter } from "./bedrock";
 import { OpenAICompatAdapter } from "./openai-compat";
 
 // ─── Provider definitions ─────────────────────────────────────────────────────
@@ -11,8 +12,8 @@ export interface ProviderDef {
   envVar: string;
   defaultModel: string;
   models: string[];
-  /** "anthropic" uses the Anthropic SDK; "openai" uses the OpenAI-compat adapter */
-  format: "anthropic" | "openai";
+  /** "anthropic" uses the Anthropic SDK; "openai" uses the OpenAI-compat adapter; "bedrock" uses the AWS Bedrock adapter */
+  format: "anthropic" | "openai" | "bedrock";
   defaultMaxTokens: number;
 }
 
@@ -123,6 +124,31 @@ export const providers: Record<string, ProviderDef> = {
     format: "openai",
     defaultMaxTokens: 4096,
   },
+  bedrock: {
+    id: "bedrock",
+    name: "Amazon Bedrock",
+    baseURL: "", // Bedrock uses AWS SDK, not a REST endpoint
+    envVar: "AWS_ACCESS_KEY_ID", // Bedrock uses standard AWS credentials
+    defaultModel: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    models: [
+      "anthropic.claude-3-5-sonnet-20241022-v2:0",
+      "anthropic.claude-3-5-haiku-20241022-v1:0",
+      "anthropic.claude-3-opus-20240229-v1:0",
+      "anthropic.claude-3-sonnet-20240229-v1:0",
+      "anthropic.claude-3-haiku-20240307-v1:0",
+      "amazon.nova-pro-v1:0",
+      "amazon.nova-lite-v1:0",
+      "amazon.nova-micro-v1:0",
+      "meta.llama3-2-90b-instruct-v1:0",
+      "meta.llama3-2-11b-instruct-v1:0",
+      "meta.llama3-2-3b-instruct-v1:0",
+      "meta.llama3-2-1b-instruct-v1:0",
+      "mistral.mistral-large-2407-v1:0",
+      "cohere.command-r-plus-v1:0",
+    ],
+    format: "bedrock",
+    defaultMaxTokens: 8192,
+  },
 };
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
@@ -133,6 +159,14 @@ export interface CreateAdapterOptions {
   apiKey?: string;
   maxTokens?: number;
   stream?: boolean;
+  /** AWS region for Bedrock (defaults to AWS_REGION env var or "us-east-1") */
+  region?: string;
+  /** AWS access key ID for Bedrock (defaults to AWS_ACCESS_KEY_ID env var) */
+  accessKeyId?: string;
+  /** AWS secret access key for Bedrock (defaults to AWS_SECRET_ACCESS_KEY env var) */
+  secretAccessKey?: string;
+  /** AWS session token for Bedrock temporary credentials (defaults to AWS_SESSION_TOKEN env var) */
+  sessionToken?: string;
 }
 
 export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
@@ -160,6 +194,18 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
       model,
       maxTokens,
       stream,
+    });
+  }
+
+  if (providerDef.format === "bedrock") {
+    return new BedrockAdapter({
+      model,
+      maxTokens,
+      stream,
+      region: opts.region,
+      accessKeyId: opts.accessKeyId,
+      secretAccessKey: opts.secretAccessKey,
+      sessionToken: opts.sessionToken,
     });
   }
 

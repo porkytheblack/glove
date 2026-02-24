@@ -20,6 +20,8 @@ export interface UseGloveVoiceReturn {
   transcript: string;
   /** Whether the voice pipeline is active (not idle) */
   isActive: boolean;
+  /** Whether mic audio is muted (not forwarded to STT/VAD) */
+  isMuted: boolean;
   /** Last error from the voice pipeline (cleared on next start) */
   error: Error | null;
   /** Start the voice pipeline — requests mic permission, opens STT */
@@ -30,6 +32,12 @@ export interface UseGloveVoiceReturn {
   interrupt: () => void;
   /** Manual turn commit — flush current utterance to STT (push-to-talk) */
   commitTurn: () => void;
+  /** Stop forwarding mic audio to STT/VAD. Audio chunks still emitted. */
+  mute: () => void;
+  /** Resume forwarding mic audio to STT/VAD. */
+  unmute: () => void;
+  /** Speak text through TTS without involving the model. Resolves when done. */
+  narrate: (text: string) => Promise<void>;
 }
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
@@ -74,6 +82,7 @@ export function useGloveVoice(config: UseGloveVoiceConfig): UseGloveVoiceReturn 
   const [mode, setMode] = useState<VoiceMode>("idle");
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<Error | null>(null);
+  const [isMuted, setIsMuted] = useState(false);
 
   const voiceRef = useRef<GloveVoice | null>(null);
 
@@ -124,6 +133,7 @@ export function useGloveVoice(config: UseGloveVoiceConfig): UseGloveVoiceReturn 
     voiceRef.current = null;
     setMode("idle");
     setTranscript("");
+    setIsMuted(false);
   }, []);
 
   const interrupt = useCallback(() => {
@@ -134,14 +144,33 @@ export function useGloveVoice(config: UseGloveVoiceConfig): UseGloveVoiceReturn 
     voiceRef.current?.commitTurn();
   }, []);
 
+  const mute = useCallback(() => {
+    voiceRef.current?.mute();
+    setIsMuted(true);
+  }, []);
+
+  const unmute = useCallback(() => {
+    voiceRef.current?.unmute();
+    setIsMuted(false);
+  }, []);
+
+  const narrate = useCallback(async (text: string) => {
+    if (!voiceRef.current) throw new Error("useGloveVoice: voice not started");
+    return voiceRef.current.narrate(text);
+  }, []);
+
   return {
     mode,
     transcript,
     isActive: mode !== "idle",
+    isMuted,
     error,
     start,
     stop,
     interrupt,
     commitTurn,
+    mute,
+    unmute,
+    narrate,
   };
 }

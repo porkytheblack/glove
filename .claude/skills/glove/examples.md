@@ -788,6 +788,83 @@ For voice-first apps (like Lola), prefer `pushAndForget` everywhere so barge-in 
 
 ---
 
+## Pattern: Narrating Display Slots
+
+Use `voice.narrate()` to speak arbitrary text through TTS without involving the model. This is ideal for reading aloud display slot content (e.g., order summaries, confirmation details):
+
+```tsx
+const checkout = defineTool({
+  name: "checkout",
+  unAbortable: true,
+  displayStrategy: "hide-on-complete",
+  async do(input, display) {
+    const cart = getCart();
+
+    // Narrate the cart summary before showing the form
+    await voice.narrate(
+      `Your order has ${cart.length} items totaling ${formatPrice(total)}.`
+    );
+
+    const result = await display.pushAndWait({ items: cart });
+    if (!result) return "Cancelled";
+
+    // Narrate the confirmation
+    await voice.narrate("Order placed! You'll receive a confirmation email shortly.");
+
+    cartOps.clear();
+    return "Order placed!";
+  },
+});
+```
+
+**Key points:**
+- `narrate()` resolves when all audio finishes playing
+- Auto-mutes mic during narration to prevent feedback into STT/VAD
+- Creates a fresh TTS adapter per call (same pattern as model turns)
+- Safe to call from `pushAndWait` tool handlers — the model is paused waiting for the tool result
+
+---
+
+## Pattern: Mic Mute/Unmute + Audio Visualization
+
+Use `mute()`/`unmute()` to gate mic audio forwarding to STT/VAD. The `audio_chunk` event still fires when muted, enabling waveform visualization:
+
+```tsx
+function VoiceControls() {
+  const voice = useGloveVoice({ runnable, voice: voiceConfig });
+  const [level, setLevel] = useState(0);
+
+  // Visualize audio levels (works even when muted)
+  useEffect(() => {
+    const gv = voiceRef.current;
+    if (!gv) return;
+    const handler = (pcm: Int16Array) => {
+      let sum = 0;
+      for (let i = 0; i < pcm.length; i++) sum += pcm[i] * pcm[i];
+      setLevel(Math.sqrt(sum / pcm.length) / 32768);
+    };
+    gv.on("audio_chunk", handler);
+    return () => { gv.off("audio_chunk", handler); };
+  }, [voice.isActive]);
+
+  return (
+    <div>
+      <AudioLevelBar level={level} />
+      <button onClick={voice.isMuted ? voice.unmute : voice.mute}>
+        {voice.isMuted ? "Unmute" : "Mute"}
+      </button>
+    </div>
+  );
+}
+```
+
+**Key points:**
+- `audio_chunk` emits raw `Int16Array` PCM from the mic, even when muted
+- Muting stops STT transcription and VAD detection without tearing down the capture pipeline
+- `isMuted` state is tracked in the React hook for UI binding
+
+---
+
 ## Monorepo Structure
 
 ```

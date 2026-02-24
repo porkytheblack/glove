@@ -491,8 +491,10 @@ export async function createSileroVAD() {
 ```tsx
 const { runnable } = useGlove({ tools, sessionId });
 const voice = useGloveVoice({ runnable, voice: { stt, createTTS, vad } });
-// voice.mode: "idle" | "listening" | "thinking" | "speaking"
+// voice.mode, voice.isActive, voice.isMuted, voice.error, voice.transcript
 // voice.start(), voice.stop(), voice.interrupt(), voice.commitTurn()
+// voice.mute(), voice.unmute()              — gate mic audio to STT/VAD
+// voice.narrate("text")                     — speak text via TTS without model (returns Promise)
 ```
 
 ### Turn Modes
@@ -502,11 +504,18 @@ const voice = useGloveVoice({ runnable, voice: { stt, createTTS, vad } });
 | `"vad"` (default) | Auto speech detection + barge-in | Hands-free, voice-first apps |
 | `"manual"` | Push-to-talk, explicit `commitTurn()` | Noisy environments, precise control |
 
+### Narration + Mic Control
+
+- **`voice.narrate(text)`** — Speak arbitrary text through TTS without the model. Resolves when audio finishes. Auto-mutes mic during narration. Safe to call from `pushAndWait` tool handlers.
+- **`voice.mute()` / `voice.unmute()`** — Gate mic audio forwarding to STT/VAD. `audio_chunk` events still fire when muted (for visualization).
+- **`audio_chunk` event** — Raw `Int16Array` PCM from the mic, emitted even when muted. Use for waveform/level visualization.
+
 ### Voice-First Tool Design
 
 - **Use `pushAndForget` instead of `pushAndWait`** — blocking tools that wait for clicks are unusable in voice mode
 - **Return descriptive text in `data`** — the LLM reads it to formulate spoken responses
 - **Add a voice-specific system prompt** — instruct the agent to narrate results concisely
+- **Use `narrate()` for slot narration** — read display content aloud from within tool handlers
 
 ### Supported Voice Providers
 
@@ -541,3 +550,5 @@ For example patterns from real implementations, see [examples.md](examples.md).
 16. **TTS idle timeout**: ElevenLabs TTS WebSocket disconnects after ~20s idle. GloveVoice handles this by closing TTS after each model_response_complete and opening a fresh session on next text_delta.
 17. **onnxruntime-web build warnings**: `Critical dependency: require function is used in a way...` warnings from onnxruntime-web are expected and harmless.
 18. **Audio sample rate**: All adapters must agree on 16kHz mono PCM (the default). Don't change unless your provider explicitly requires something different.
+19. **`narrate()` auto-mutes mic**: `voice.narrate()` automatically mutes the mic during playback to prevent TTS audio from feeding back into STT/VAD. It restores the previous mute state when done.
+20. **`narrate()` needs a started pipeline**: Calling `narrate()` before `voice.start()` throws. The TTS factory and AudioPlayer must be initialized.

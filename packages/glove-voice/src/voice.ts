@@ -53,6 +53,8 @@ type GloveVoiceEvents = {
   /** Glove's text response, fires before TTS audio starts */
   response: [text: string];
   error: [error: GloveVoiceError | Error];
+  /** Raw mic PCM chunk — emitted even when muted, for visualization */
+  audio_chunk: [pcm: Int16Array];
 };
 
 // ─── GloveVoice ────────────────────────────────────────────────────────────
@@ -93,6 +95,7 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
   private turnId = 0;
   private turnMode: TurnMode;
   private sampleRate: number;
+  private muted = false;
 
   // Bound handlers for listener cleanup
   private sttHandlers: { partial: (t: string) => void; final: (t: string) => void; error: (e: Error) => void } | null = null;
@@ -171,6 +174,8 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     this.captureHandlers = {
       chunk: (pcm) => {
         if (this.mode === "idle") return;
+        this.emit("audio_chunk", pcm);
+        if (this.muted) return;
         this.cfg.stt.sendAudio(pcm);
         this.vad?.process(pcm);
       },
@@ -214,6 +219,7 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     this.capture = null;
     this.player = null;
     this.vad = null;
+    this.muted = false;
     this.setMode("idle");
   }
 
@@ -257,6 +263,66 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     console.debug(`[GloveVoice] commitTurn() called — mode=${this.mode}, stt.isConnected=${this.cfg.stt.isConnected}`);
     if (this.mode !== "listening") return;
     this.cfg.stt.flushUtterance();
+  }
+
+  /** Stop forwarding mic audio to STT/VAD. Audio chunks still emitted for visualization. */
+  mute(): void {
+    this.muted = true;
+  }
+
+  /** Resume forwarding mic audio to STT/VAD. */
+  unmute(): void {
+    this.muted = false;
+  }
+
+  get isMuted(): boolean {
+    return this.muted;
+  }
+
+  /**
+   * Speak arbitrary text through TTS without involving the model.
+   * Resolves when all audio has finished playing.
+   *
+   * Auto-mutes the mic during narration to prevent feedback into STT/VAD.
+   * Safe to call from `pushAndWait` tool handlers.
+   *
+   * @example
+   * // Inside a tool's pushAndWait handler:
+   * await voice.narrate("Here is your order summary.");
+   */
+  async narrate(text: string): Promise<void> {
+    if (!this.player) throw new Error("GloveVoice not started");
+
+    const wasMuted = this.muted;
+    this.mute();
+
+    const tts = this.cfg.createTTS();
+    this.activeTTS = tts;
+    const buffer = new SentenceBuffer();
+
+    tts.on("audio_chunk", (chunk) => this.player!.enqueue(chunk));
+
+    try {
+      await tts.open();
+
+      for (const sentence of buffer.push(text)) {
+        tts.sendText(sentence);
+      }
+      const remainder = buffer.flush();
+      if (remainder) tts.sendText(remainder);
+      tts.flush();
+
+      await new Promise<void>((resolve, reject) => {
+        tts.on("done", () => {
+          this.player!.onDrained(resolve);
+        });
+        tts.on("error", reject);
+      });
+    } finally {
+      tts.destroy();
+      this.activeTTS = null;
+      if (!wasMuted) this.unmute();
+    }
   }
 
   get currentMode(): VoiceMode {

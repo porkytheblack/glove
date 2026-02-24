@@ -8,6 +8,7 @@ export default defineConfig({
     "src/display-manager.ts",
     "src/tools/task-tool.ts",
     "src/models/anthropic.ts",
+    "src/models/bedrock.ts",
     "src/models/openai-compat.ts",
     "src/models/providers.ts",
   ],
