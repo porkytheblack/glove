@@ -970,6 +970,11 @@ const askPreference = defineTool({
             "GloveStats",
             "Cumulative session statistics: turns, tokens in, tokens out.",
           ],
+          [
+            "isCompacting",
+            "boolean",
+            "True while context compaction is in progress. Driven by compaction_start and compaction_end observer events.",
+          ],
         ]}
       />
 

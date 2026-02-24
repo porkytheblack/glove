@@ -371,6 +371,7 @@ interface GloveHandle {
 | `timeline` | `TimelineEntry[]` | Messages + tool calls |
 | `streamingText` | `string` | Current streaming buffer |
 | `busy` | `boolean` | Agent is processing |
+| `isCompacting` | `boolean` | Context compaction in progress (driven by `compaction_start`/`compaction_end` events) |
 | `slots` | `EnhancedSlot[]` | Active display stack with metadata |
 | `tasks` | `Task[]` | Agent task list |
 | `stats` | `GloveStats` | `{ turns, tokens_in, tokens_out }` |
@@ -506,9 +507,10 @@ const voice = useGloveVoice({ runnable, voice: { stt, createTTS, vad } });
 
 ### Narration + Mic Control
 
-- **`voice.narrate(text)`** — Speak arbitrary text through TTS without the model. Resolves when audio finishes. Auto-mutes mic during narration. Safe to call from `pushAndWait` tool handlers.
+- **`voice.narrate(text)`** — Speak arbitrary text through TTS without the model. Resolves when audio finishes. Auto-mutes mic during narration. Abortable via `interrupt()`. Safe to call from `pushAndWait` tool handlers.
 - **`voice.mute()` / `voice.unmute()`** — Gate mic audio forwarding to STT/VAD. `audio_chunk` events still fire when muted (for visualization).
 - **`audio_chunk` event** — Raw `Int16Array` PCM from the mic, emitted even when muted. Use for waveform/level visualization.
+- **Compaction silence** — Voice automatically ignores `text_delta` during context compaction so the summary is never narrated.
 
 ### Voice-First Tool Design
 
@@ -552,3 +554,5 @@ For example patterns from real implementations, see [examples.md](examples.md).
 18. **Audio sample rate**: All adapters must agree on 16kHz mono PCM (the default). Don't change unless your provider explicitly requires something different.
 19. **`narrate()` auto-mutes mic**: `voice.narrate()` automatically mutes the mic during playback to prevent TTS audio from feeding back into STT/VAD. It restores the previous mute state when done.
 20. **`narrate()` needs a started pipeline**: Calling `narrate()` before `voice.start()` throws. The TTS factory and AudioPlayer must be initialized.
+21. **Voice auto-silences during compaction**: When context compaction is triggered, the voice pipeline ignores all `text_delta` events between `compaction_start` and `compaction_end`. The compaction summary is never narrated.
+22. **`isCompacting` for React UI feedback**: `GloveState.isCompacting` is `true` while compaction is in progress. Use it to show a loading indicator or disable input during compaction.

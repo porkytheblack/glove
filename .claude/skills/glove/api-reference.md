@@ -140,6 +140,8 @@ interface SubscriberAdapter {
 | `tool_use_result` | `{ tool_name, call_id?, result }` | Tool finished |
 | `model_response` | `{ text, tool_calls }` | Non-streaming turn complete |
 | `model_response_complete` | `{ text, tool_calls }` | Streaming turn complete |
+| `compaction_start` | `{ current_token_consumption }` | Context compaction begun |
+| `compaction_end` | `{ current_token_consumption, summary_message }` | Context compaction finished |
 
 ### Message
 
@@ -225,7 +227,7 @@ import { GloveProvider } from "glove-react";
 
 ```typescript
 const {
-  busy, timeline, streamingText, tasks, slots, stats,
+  busy, isCompacting, timeline, streamingText, tasks, slots, stats,
   sendMessage, abort, renderSlot, renderToolResult, resolveSlot, rejectSlot,
 } = useGlove(config?: UseGloveConfig);
 ```

@@ -865,6 +865,31 @@ function VoiceControls() {
 
 ---
 
+## Pattern: Compaction Loading Indicator
+
+Use `isCompacting` from `useGlove()` to show feedback during context compaction:
+
+```tsx
+function Chat() {
+  const { isCompacting, timeline, sendMessage } = useGlove();
+
+  return (
+    <div>
+      {timeline.map((entry, i) => /* render entries */)}
+      {isCompacting && (
+        <div className="compaction-indicator">
+          Compacting context...
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+Voice automatically silences TTS during compaction — no action needed on the voice side.
+
+---
+
 ## Monorepo Structure
 
 ```

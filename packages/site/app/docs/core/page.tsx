@@ -1093,6 +1093,16 @@ try {
             "{ text: string; tool_calls: ToolCall[] }",
             "A model turn is complete (streaming adapters). Contains the full response text and any tool calls.",
           ],
+          [
+            "compaction_start",
+            "(none)",
+            "Context compaction has begun. Emitted by the Observer before the summarization model call.",
+          ],
+          [
+            "compaction_end",
+            "(none)",
+            "Context compaction has finished. Emitted by the Observer after the summary is appended and counters are reset.",
+          ],
         ]}
       />
 

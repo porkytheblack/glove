@@ -1395,6 +1395,18 @@ voice: { stt, createTTS: new ElevenLabsTTSAdapter({ getToken, voiceId }) }`}
         the ONNX Runtime WASM files and the JavaScript API will cause
         cryptic loading failures.
       </p>
+
+      <h3>12. Voice Auto-Silences During Compaction</h3>
+
+      <p>
+        When context compaction is triggered, the core emits{" "}
+        <code>compaction_start</code> and <code>compaction_end</code> observer
+        events. The voice pipeline listens for these and ignores all{" "}
+        <code>text_delta</code> events while compaction is in progress. This
+        means the compaction summary is never narrated through TTS. No action
+        is needed on your part &mdash; this is handled automatically by{" "}
+        <code>GloveVoice</code>.
+      </p>
     </div>
   );
 }
