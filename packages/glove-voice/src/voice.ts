@@ -428,11 +428,24 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
     // ── Subscriber: text_delta → SentenceBuffer → TTS ────────────────────────
 
+    let compacting = false;
+
     const subscriber: SubscriberAdapter = {
       record: async (event_type: string, data: any) => {
         if (stale()) return;
 
+        if (event_type === "compaction_start") {
+          compacting = true;
+          return;
+        }
+        if (event_type === "compaction_end") {
+          compacting = false;
+          return;
+        }
+
         if (event_type === "text_delta") {
+          // Don't narrate the compaction summary
+          if (compacting) return;
           const text: string = data.text;
           stream.responseText += text;
 

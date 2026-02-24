@@ -116,6 +116,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   addSubscriber(subscriber: SubscriberAdapter) {
     this.promptMachine.addSubscriber(subscriber)
     this.executor.addSubscriber(subscriber)
+    this.observer.addSubscriber(subscriber)
 
     return this
   }
@@ -123,6 +124,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   removeSubscriber(subscriber: SubscriberAdapter) {
     this.promptMachine.removeSubscriber(subscriber)
     this.executor.removeSubscriber(subscriber)
+    this.observer.removeSubscriber(subscriber)
   }
 
 

@@ -33,6 +33,7 @@ export interface GloveStats {
 
 export interface GloveState {
   busy: boolean;
+  isCompacting: boolean;
   timeline: TimelineEntry[];
   streamingText: string;
   tasks: Task[];

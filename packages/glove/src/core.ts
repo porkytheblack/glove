@@ -99,6 +99,7 @@ export interface Message {
   tool_results?: Array<ToolResult>;
   tool_calls?: Array<ToolCall>;
   is_compaction?: boolean;
+  is_compaction_request?: boolean
 }
 
 export interface PromptRequest {
@@ -443,6 +444,7 @@ export class Observer {
   store: StoreAdapter;
   context: Context;
   prompt: PromptMachine;
+  subscribers: Array<SubscriberAdapter> = []
 
   constructor(
     store: StoreAdapter,
@@ -459,6 +461,21 @@ export class Observer {
     this.COMPACTION_INSTRUCTIONS = compaction_instructions;
     this.CONTEXT_COMPACTION_LIMIT = context_compaction_limit ?? this.CONTEXT_COMPACTION_LIMIT;
   }
+
+  addSubscriber(subscriber: SubscriberAdapter) {
+    this.subscribers.push(subscriber);
+  }
+
+  removeSubscriber(subscriber: SubscriberAdapter) {
+    const idx = this.subscribers.indexOf(subscriber);
+    if (idx !== -1) this.subscribers.splice(idx, 1);
+  }
+
+  notifySubscribers = async (event_name: string, event_data: unknown) => {
+    await Promise.all(
+      this.subscribers.map((s) => s.record(event_name, event_data)),
+    );
+  };
 
   setCompactionInstructions(instruction: string) {
     this.COMPACTION_INSTRUCTIONS = instruction;
@@ -494,11 +511,16 @@ export class Observer {
 
     if (current_token_consumption < this.CONTEXT_COMPACTION_LIMIT) return;
 
+    await this.notifySubscribers("compaction_start", {
+      current_token_consumption
+    })
+
     const history = await this.context.getMessages()
 
     const compactionRequest: Message = {
       sender: 'user',
       text: this.COMPACTION_INSTRUCTIONS,
+      is_compaction_request: true
     }
 
     const combinedMessages = [...history, compactionRequest]
@@ -530,9 +552,12 @@ export class Observer {
     }
 
     await this.context.appendMessages([summaryMessage])
-    await this.store.addTokens(result.tokens_in + result.tokens_out)
-
-  
+    await this.store.addTokens(  result.tokens_out)
+    
+    await this.notifySubscribers("compaction_end", {
+      current_token_consumption: result.tokens_out,
+      summary_message: summaryMessage
+    })
     
   }
 }

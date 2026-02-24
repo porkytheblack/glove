@@ -190,6 +190,14 @@ class ReactSubscriber implements SubscriberAdapter {
           },
         }));
         break;
+
+      case "compaction_start":
+        this.setState((s) => ({ ...s, isCompacting: true }));
+        break;
+
+      case "compaction_end":
+        this.setState((s) => ({ ...s, isCompacting: false }));
+        break;
     }
   }
 }
@@ -328,6 +336,7 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
 
   const [state, setState] = useState<GloveState>({
     busy: false,
+    isCompacting: false,
     timeline: [],
     streamingText: "",
     tasks: [],
