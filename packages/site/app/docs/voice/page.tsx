@@ -1008,7 +1008,116 @@ export default config;`}
             "() => void",
             "Manual turn commit. Flushes the current utterance to STT for finalization. Primary control mechanism in manual turn mode. Also works in VAD mode as an explicit override.",
           ],
+          [
+            "isMuted",
+            "boolean",
+            "Whether mic audio is currently muted (not forwarded to STT/VAD). The audio_chunk event still fires when muted.",
+          ],
+          [
+            "mute()",
+            "() => void",
+            "Stop forwarding mic audio to STT/VAD. The mic stays active and audio_chunk events continue to fire (for visualization). No transcription or VAD detection occurs while muted.",
+          ],
+          [
+            "unmute()",
+            "() => void",
+            "Resume forwarding mic audio to STT/VAD. Restores normal transcription and voice activity detection.",
+          ],
+          [
+            "narrate(text)",
+            "(text: string) => Promise<void>",
+            "Speak arbitrary text through TTS without involving the model. Auto-mutes mic during playback. Resolves when all audio finishes playing. Safe to call from pushAndWait tool handlers.",
+          ],
         ]}
+      />
+
+      {/* ------------------------------------------------------------------ */}
+      <h2 id="narration-mic-control">Narration &amp; Mic Control</h2>
+
+      <h3>Narrating Display Slots</h3>
+
+      <p>
+        Use <code>voice.narrate(text)</code> to speak arbitrary text through TTS
+        without sending it to the model. This is useful for reading display slot
+        content aloud &mdash; order summaries, confirmation details, or any text
+        you want the user to hear.
+      </p>
+
+      <p>
+        <code>narrate()</code> returns a promise that resolves when all audio
+        finishes playing. It creates a fresh TTS adapter per call (same pattern
+        as model turns) and auto-mutes the mic during playback to prevent TTS
+        audio from feeding back into STT.
+      </p>
+
+      <CodeBlock
+        code={`const checkout = defineTool({
+  name: "checkout",
+  unAbortable: true,
+  displayStrategy: "hide-on-complete",
+  async do(input, display) {
+    const cart = getCart();
+
+    // Narrate the cart summary before showing the form
+    await voice.narrate(
+      \`Your order has \${cart.length} items totaling \${formatPrice(total)}.\`
+    );
+
+    const result = await display.pushAndWait({ items: cart });
+    if (!result) return "Cancelled";
+
+    // Narrate the confirmation
+    await voice.narrate("Order placed! You'll receive a confirmation email shortly.");
+
+    cartOps.clear();
+    return "Order placed!";
+  },
+});`}
+        language="tsx"
+      />
+
+      <p>
+        <strong>Key detail:</strong> <code>narrate()</code> is safe to call from{" "}
+        <code>pushAndWait</code> tool handlers. When a tool uses{" "}
+        <code>pushAndWait</code>, the model is paused waiting for the tool
+        result, so there is no concurrent model TTS to conflict with.
+      </p>
+
+      <h3>Mute / Unmute</h3>
+
+      <p>
+        <code>voice.mute()</code> and <code>voice.unmute()</code> gate mic
+        audio forwarding to STT and VAD. When muted, the mic stays active but
+        no transcription or speech detection occurs. This is useful for
+        temporarily disabling voice input without tearing down the pipeline.
+      </p>
+
+      <CodeBlock
+        code={`<button onClick={voice.isMuted ? voice.unmute : voice.mute}>
+  {voice.isMuted ? "Unmute" : "Mute"}
+</button>`}
+        language="tsx"
+      />
+
+      <h3>Audio Visualization</h3>
+
+      <p>
+        The <code>audio_chunk</code> event on the underlying{" "}
+        <code>GloveVoice</code> instance emits raw <code>Int16Array</code> PCM
+        data from the mic, even when muted. Use this for waveform or audio
+        level visualization:
+      </p>
+
+      <CodeBlock
+        code={`// Listen to audio_chunk on the GloveVoice instance for visualization
+voice.on("audio_chunk", (pcm: Int16Array) => {
+  // Compute RMS level for a simple meter
+  let sum = 0;
+  for (let i = 0; i < pcm.length; i++) sum += pcm[i] * pcm[i];
+  const level = Math.sqrt(sum / pcm.length) / 32768;
+  updateMeter(level);
+});`}
+        language="typescript"
       />
 
       {/* ------------------------------------------------------------------ */}
@@ -1257,7 +1366,25 @@ voice: { stt, createTTS: new ElevenLabsTTSAdapter({ getToken, voiceId }) }`}
         set <code>sampleRate</code> in <code>GloveVoiceConfig</code> to match.
       </p>
 
-      <h3>9. onnxruntime-web Version Pinning</h3>
+      <h3>9. narrate() Auto-Mutes the Mic</h3>
+
+      <p>
+        <code>voice.narrate()</code> automatically mutes the mic during
+        playback to prevent TTS audio from feeding back into STT/VAD. It
+        restores the previous mute state when done. If you were already muted
+        before calling <code>narrate()</code>, you will remain muted afterward.
+      </p>
+
+      <h3>10. narrate() Requires a Started Pipeline</h3>
+
+      <p>
+        Calling <code>narrate()</code> before <code>voice.start()</code> throws
+        an error because the TTS factory and AudioPlayer are not yet
+        initialized. Always ensure the voice pipeline is active before
+        narrating.
+      </p>
+
+      <h3>11. onnxruntime-web Version Pinning</h3>
 
       <p>
         If you see WASM loading errors when using SileroVAD, check that
