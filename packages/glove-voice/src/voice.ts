@@ -96,6 +96,7 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
   private turnMode: TurnMode;
   private sampleRate: number;
   private muted = false;
+  private narrateAbort: (() => void) | null = null;
 
   // Bound handlers for listener cleanup
   private sttHandlers: { partial: (t: string) => void; final: (t: string) => void; error: (e: Error) => void } | null = null;
@@ -234,6 +235,10 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     this.abortController?.abort(new DOMException("interrupted", "AbortError"));
     this.abortController = null;
 
+    // Resolve any in-flight narrate() before destroying TTS/player
+    this.narrateAbort?.();
+    this.narrateAbort = null;
+
     // Destroy active TTS session
     this.activeTTS?.destroy();
     this.activeTTS = null;
@@ -300,7 +305,13 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     this.activeTTS = tts;
     const buffer = new SentenceBuffer();
 
-    tts.on("audio_chunk", (chunk) => this.player!.enqueue(chunk));
+    // Track whether this narration was interrupted so we can resolve
+    // instead of hanging when interrupt() destroys the TTS + clears the player.
+    let interrupted = false;
+
+    tts.on("audio_chunk", (chunk) => {
+      if (!interrupted) this.player!.enqueue(chunk);
+    });
 
     try {
       await tts.open();
@@ -313,14 +324,30 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
       tts.flush();
 
       await new Promise<void>((resolve, reject) => {
+        // interrupt() calls narrateAbort before destroying TTS/player,
+        // so we resolve cleanly instead of hanging.
+        this.narrateAbort = () => {
+          interrupted = true;
+          resolve();
+        };
+
         tts.on("done", () => {
           this.player!.onDrained(resolve);
         });
-        tts.on("error", reject);
+        tts.on("error", (err) => {
+          // TTS adapters may emit an error when destroyed mid-stream.
+          // If already aborted by interrupt(), just resolve.
+          if (interrupted) return;
+          reject(err);
+        });
       });
     } finally {
-      tts.destroy();
-      this.activeTTS = null;
+      this.narrateAbort = null;
+      // Only destroy if interrupt() hasn't already done it
+      if (this.activeTTS === tts) {
+        tts.destroy();
+        this.activeTTS = null;
+      }
       if (!wasMuted) this.unmute();
     }
   }
