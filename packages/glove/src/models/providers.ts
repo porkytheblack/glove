@@ -15,6 +15,8 @@ export interface ProviderDef {
   /** "anthropic" uses the Anthropic SDK; "openai" uses the OpenAI-compat adapter; "bedrock" uses the AWS Bedrock adapter */
   format: "anthropic" | "openai" | "bedrock";
   defaultMaxTokens: number;
+  /** Whether this provider requires an API key. Defaults to true. */
+  requiresApiKey?: boolean;
 }
 
 export const providers: Record<string, ProviderDef> = {
@@ -124,6 +126,28 @@ export const providers: Record<string, ProviderDef> = {
     format: "openai",
     defaultMaxTokens: 4096,
   },
+  ollama: {
+    id: "ollama",
+    name: "Ollama",
+    baseURL: "http://localhost:11434/v1",
+    envVar: "",
+    defaultModel: "",
+    models: [],
+    format: "openai",
+    defaultMaxTokens: 4096,
+    requiresApiKey: false,
+  },
+  lmstudio: {
+    id: "lmstudio",
+    name: "LM Studio",
+    baseURL: "http://localhost:1234/v1",
+    envVar: "",
+    defaultModel: "",
+    models: [],
+    format: "openai",
+    defaultMaxTokens: 4096,
+    requiresApiKey: false,
+  },
   bedrock: {
     id: "bedrock",
     name: "Amazon Bedrock",
@@ -167,6 +191,8 @@ export interface CreateAdapterOptions {
   secretAccessKey?: string;
   /** AWS session token for Bedrock temporary credentials (defaults to AWS_SESSION_TOKEN env var) */
   sessionToken?: string;
+  /** Override the provider's default base URL (e.g., custom port for local LLMs) */
+  baseURL?: string;
 }
 
 export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
@@ -178,11 +204,19 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
   }
 
   const model = opts.model ?? providerDef.defaultModel;
-  const apiKey = opts.apiKey ?? process.env[providerDef.envVar];
+  if (!model) {
+    throw new Error(
+      `No model specified for provider "${providerDef.name}". Pass a model name.`,
+    );
+  }
+
+  const apiKey =
+    opts.apiKey ??
+    (providerDef.envVar ? process.env[providerDef.envVar] : undefined);
   const maxTokens = opts.maxTokens ?? providerDef.defaultMaxTokens;
   const stream = opts.stream ?? true;
 
-  if (!apiKey) {
+  if (providerDef.requiresApiKey !== false && !apiKey) {
     throw new Error(
       `No API key for provider "${providerDef.name}". Set ${providerDef.envVar} env var or pass apiKey.`,
     );
@@ -190,7 +224,7 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
 
   if (providerDef.format === "anthropic") {
     return new AnthropicAdapter({
-      apiKey,
+      apiKey: apiKey!,
       model,
       maxTokens,
       stream,
@@ -210,11 +244,11 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
   }
 
   return new OpenAICompatAdapter({
-    apiKey,
+    apiKey: apiKey ?? "not-needed",
     model,
     maxTokens,
     stream,
-    baseURL: providerDef.baseURL,
+    baseURL: opts.baseURL ?? providerDef.baseURL,
     provider: providerDef.id,
   });
 }
@@ -232,7 +266,7 @@ export function getAvailableProviders(): Array<{
   return Object.values(providers).map((p) => ({
     id: p.id,
     name: p.name,
-    available: !!process.env[p.envVar],
+    available: p.requiresApiKey === false || !!process.env[p.envVar],
     models: p.models,
     defaultModel: p.defaultModel,
   }));

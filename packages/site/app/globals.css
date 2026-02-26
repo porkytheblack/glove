@@ -130,6 +130,9 @@ section { padding: 6rem 2rem; max-width: 1080px; margin: 0 auto; }
 .cta-section h2 { font-size: clamp(1.75rem, 3vw, 2.25rem); font-weight: 300; letter-spacing: -0.02em; margin-bottom: 1rem; }
 .cta-section p { color: var(--text-secondary); font-size: 1rem; font-weight: 300; margin-bottom: 2.5rem; }
 .cta-actions { display: flex; justify-content: center; gap: 1rem; }
+.grant-badge { margin-top: 3rem; display: flex; justify-content: center; }
+.grant-badge img { width: 250px; height: auto; opacity: 0.85; transition: opacity 0.2s; }
+.grant-badge img:hover { opacity: 1; }
 
 /* ─── Footer ─── */
 footer { padding: 3rem 2rem; border-top: 1px solid var(--border-subtle); max-width: 1080px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }

@@ -211,6 +211,9 @@ Glove supports multiple providers through a unified adapter interface:
 | `minimax` | `MINIMAX_API_KEY` | `MiniMax-M2.5` |
 | `kimi` | `MOONSHOT_API_KEY` | `kimi-k2.5` |
 | `glm` | `ZHIPUAI_API_KEY` | `glm-4-plus` |
+| `ollama` | _(none)_ | _(user-specified)_ |
+| `lmstudio` | _(none)_ | _(user-specified)_ |
+| `bedrock` | `AWS_ACCESS_KEY_ID` | `anthropic.claude-3-5-sonnet-20241022-v2:0` |
 
 ```typescript
 import { createAdapter } from "glove-core/models/providers";
@@ -219,6 +222,18 @@ const model = createAdapter({
   provider: "openai",
   model: "gpt-4.1",
   stream: true,
+});
+```
+
+#### Local Models
+
+Ollama and LM Studio run locally with no API key. Pass your model name directly:
+
+```typescript
+const model = createAdapter({
+  provider: "ollama",
+  model: "llama3",
+  baseURL: "http://localhost:9999/v1", // optional, defaults to :11434
 });
 ```
 
@@ -385,6 +400,12 @@ pnpm build
 # Typecheck
 pnpm typecheck
 ```
+
+## Grants
+
+Glove Voice is supported by ElevenLabs.
+
+<a href="https://elevenlabs.io/startup-grants"><img src="https://eleven-public-cdn.elevenlabs.io/payloadcms/cy7rxce8uki-IIElevenLabsGrants%201.webp" alt="ElevenLabs Startup Grant" style="width:250px"></a>
 
 ## License
 

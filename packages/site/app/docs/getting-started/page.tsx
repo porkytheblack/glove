@@ -134,8 +134,8 @@ export default async function GettingStartedPage() {
 
 // This creates a POST endpoint that streams AI responses
 export const POST = createChatHandler({
-  provider: "openai",    // or "anthropic"
-  model: "gpt-4.1-mini",  // or "claude-sonnet-4-20250514"
+  provider: "openai",    // or "anthropic", "ollama", "lmstudio", etc.
+  model: "gpt-4.1-mini",  // or "claude-sonnet-4-20250514", "llama3", etc.
 });`}
       />
 
@@ -153,7 +153,10 @@ export const POST = createChatHandler({
         Using Anthropic? Change to{" "}
         <code>provider: &quot;anthropic&quot;</code> and{" "}
         <code>model: &quot;claude-sonnet-4-20250514&quot;</code>, then set{" "}
-        <code>ANTHROPIC_API_KEY</code> instead. See{" "}
+        <code>ANTHROPIC_API_KEY</code> instead. Want to use a local model?
+        Set <code>provider: &quot;ollama&quot;</code> or{" "}
+        <code>&quot;lmstudio&quot;</code> with your model name — no API key needed.
+        See{" "}
         <a href="/docs/next#supported-providers">all supported providers</a>.
       </p>
 

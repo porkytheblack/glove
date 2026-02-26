@@ -634,6 +634,20 @@ export default function LandingPage() {
             Read the Docs
           </a>
         </div>
+        <div className="grant-badge">
+          <a
+            href="https://elevenlabs.io/startup-grants"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <img
+              src="https://eleven-public-cdn.elevenlabs.io/payloadcms/cy7rxce8uki-IIElevenLabsGrants%201.webp"
+              alt="ElevenLabs Startup Grant"
+              width={250}
+              height={56}
+            />
+          </a>
+        </div>
       </div>
 
     </>

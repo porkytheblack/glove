@@ -43,7 +43,7 @@ function toAnthropicTools(tools?: SerializedTool[]) {
  * ```
  *
  * Supports all providers from `glove-core/models/providers`:
- * openai, anthropic, openrouter, gemini, minimax, kimi, glm.
+ * openai, anthropic, openrouter, gemini, minimax, kimi, glm, ollama, lmstudio, bedrock.
  *
  * The handler receives `RemotePromptRequest` and streams `RemoteStreamEvent`s
  * compatible with `glove-react`'s `useGlove({ endpoint })` mode.
@@ -59,6 +59,11 @@ export function createChatHandler(
   }
 
   const model = config.model ?? providerDef.defaultModel;
+  if (!model) {
+    throw new Error(
+      `No model specified for provider "${providerDef.name}". Pass a model name.`,
+    );
+  }
   const maxTokens = config.maxTokens ?? providerDef.defaultMaxTokens;
 
   if (providerDef.format === "anthropic") {
@@ -68,7 +73,7 @@ export function createChatHandler(
   return createOpenAIHandler(providerDef, model, maxTokens, config);
 }
 
-// ─── OpenAI-compat handler (openai, openrouter, gemini, minimax, kimi, glm) ──
+// ─── OpenAI-compat handler (openai, openrouter, gemini, minimax, kimi, glm, ollama, lmstudio)
 
 function createOpenAIHandler(
   providerDef: ProviderDef,
@@ -82,13 +87,18 @@ function createOpenAIHandler(
     if (!clientPromise) {
       clientPromise = import("openai").then((mod) => {
         const OpenAI = mod.default;
-        const apiKey = config.apiKey ?? process.env[providerDef.envVar];
-        if (!apiKey) {
+        const apiKey =
+          config.apiKey ??
+          (providerDef.envVar ? process.env[providerDef.envVar] : undefined);
+        if (providerDef.requiresApiKey !== false && !apiKey) {
           throw new Error(
             `No API key for ${providerDef.name}. Set ${providerDef.envVar} env var or pass apiKey.`,
           );
         }
-        return new OpenAI({ apiKey, baseURL: providerDef.baseURL });
+        return new OpenAI({
+          apiKey: apiKey ?? "not-needed",
+          baseURL: config.baseURL ?? providerDef.baseURL,
+        });
       });
     }
     return clientPromise;

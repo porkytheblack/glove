@@ -1578,7 +1578,7 @@ const available = getAvailableProviders();
           [
             "provider",
             "string",
-            "Provider ID. One of: openai, anthropic, openrouter, gemini, minimax, kimi, glm.",
+            "Provider ID. One of: openai, anthropic, openrouter, gemini, minimax, kimi, glm, ollama, lmstudio, bedrock.",
           ],
           [
             "model?",
@@ -1599,6 +1599,11 @@ const available = getAvailableProviders();
             "stream?",
             "boolean",
             "Whether to use streaming. Defaults to true.",
+          ],
+          [
+            "baseURL?",
+            "string",
+            "Override the provider's default base URL (e.g., custom port for local LLMs).",
           ],
         ]}
       />
@@ -1627,6 +1632,9 @@ const available = getAvailableProviders();
           ["minimax", "MINIMAX_API_KEY", "MiniMax-M2.5"],
           ["kimi", "MOONSHOT_API_KEY", "kimi-k2.5"],
           ["glm", "ZHIPUAI_API_KEY", "glm-4-plus"],
+          ["ollama", "(none)", "(user-specified)"],
+          ["lmstudio", "(none)", "(user-specified)"],
+          ["bedrock", "AWS_ACCESS_KEY_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0"],
         ]}
       />
 
@@ -1634,9 +1642,26 @@ const available = getAvailableProviders();
         Each provider has properties: <code>id</code>, <code>name</code>,{" "}
         <code>baseURL</code>, <code>envVar</code>, <code>defaultModel</code>,{" "}
         <code>models[]</code>, <code>format</code> (either{" "}
-        <code>&quot;openai&quot;</code> or <code>&quot;anthropic&quot;</code>),
-        and <code>defaultMaxTokens</code>.
+        <code>&quot;openai&quot;</code>, <code>&quot;anthropic&quot;</code>, or{" "}
+        <code>&quot;bedrock&quot;</code>),{" "}
+        <code>defaultMaxTokens</code>, and <code>requiresApiKey</code>.
       </p>
+
+      <p>
+        Local providers (<code>ollama</code> and <code>lmstudio</code>) don&apos;t
+        require an API key and have no default model — you must pass a{" "}
+        <code>model</code> name. Use <code>baseURL</code> to override the default
+        port if needed:
+      </p>
+
+      <CodeBlock
+        code={`const model = createAdapter({
+  provider: "ollama",
+  model: "llama3",
+  baseURL: "http://localhost:9999/v1", // optional, defaults to :11434
+});`}
+        language="typescript"
+      />
     </div>
   );
 }
