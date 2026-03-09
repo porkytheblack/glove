@@ -18,6 +18,28 @@ import type {
   SlotContainerRenderProps,
   GloveHandle,
 } from "./types";
+import type { VoiceMode } from "glove-voice";
+
+// ─── Voice Render Types ───────────────────────────────────────────
+
+export interface VoiceRenderHandle {
+  /** Current voice mode. */
+  mode: VoiceMode;
+  /** Partial transcript while user is speaking. */
+  transcript: string;
+  /** Whether the user is currently recording (PTT hold). */
+  recording?: boolean;
+}
+
+export interface TranscriptRenderProps {
+  transcript: string;
+  mode: VoiceMode;
+}
+
+export interface VoiceStatusRenderProps {
+  mode: VoiceMode;
+  recording?: boolean;
+}
 
 // ─── Render Props ─────────────────────────────────────────────────
 
@@ -43,6 +65,18 @@ export interface RenderProps {
   /** Override slot container rendering for slots-before / slots-after.
    *  Default: renders slots in a vertical stack. */
   renderSlotContainer?: (props: SlotContainerRenderProps) => ReactNode;
+
+  /**
+   * Optional voice handle — pass `useGlovePTT()` or `useGloveVoice()` return.
+   * When provided, `<Render>` automatically renders transcript and voice status.
+   */
+  voice?: VoiceRenderHandle;
+
+  /** Custom transcript renderer (requires `voice` prop). */
+  renderTranscript?: (props: TranscriptRenderProps) => ReactNode;
+
+  /** Custom voice status renderer (requires `voice` prop). */
+  renderVoiceStatus?: (props: VoiceStatusRenderProps) => ReactNode;
 
   /** Wrapper element for the entire output. Default: div */
   as?: keyof React.JSX.IntrinsicElements;
@@ -196,6 +230,24 @@ function DefaultInput({ send, busy }: InputRenderProps): ReactNode {
   );
 }
 
+function DefaultTranscript({ transcript }: TranscriptRenderProps): ReactNode {
+  if (!transcript) return null;
+  return (
+    <div data-glove-role="voice-transcript" data-glove-voice="transcript">
+      {transcript}
+    </div>
+  );
+}
+
+function DefaultVoiceStatus({ mode }: VoiceStatusRenderProps): ReactNode {
+  if (mode === "idle") return null;
+  return (
+    <div data-glove-role="voice-status" data-glove-voice-mode={mode}>
+      {mode === "listening" ? "Listening..." : mode === "thinking" ? "Thinking..." : "Speaking..."}
+    </div>
+  );
+}
+
 // ─── <Render> Component ───────────────────────────────────────────
 
 export function Render({
@@ -206,6 +258,9 @@ export function Render({
   renderStreaming,
   renderInput,
   renderSlotContainer,
+  voice,
+  renderTranscript,
+  renderVoiceStatus,
   as: Tag = "div",
   className,
   style,
@@ -239,6 +294,8 @@ export function Render({
   const ToolStatus = renderToolStatus ?? DefaultToolStatus;
   const Streaming = renderStreaming ?? DefaultStreaming;
   const Input = renderInput ?? DefaultInput;
+  const Transcript = renderTranscript ?? DefaultTranscript;
+  const VoiceStatus = renderVoiceStatus ?? DefaultVoiceStatus;
 
   const toolHasSlot = useCallback(
     (toolId: string) => visibleSlots.some((s) => s.toolCallId === toolId),
@@ -321,6 +378,13 @@ export function Render({
             return null;
         }
       })}
+
+      {voice && voice.mode !== "idle" && (
+        <>
+          {voice.transcript && Transcript({ transcript: voice.transcript, mode: voice.mode })}
+          {VoiceStatus({ mode: voice.mode, recording: voice.recording })}
+        </>
+      )}
 
       {Input(inputProps)}
     </Tag>

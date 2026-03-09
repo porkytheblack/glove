@@ -147,6 +147,16 @@ export default function Chat() {
 - **`createEndpointModel`** — SSE-based model compatible with `glove-next` handlers
 - **`parseSSEStream`** — Parse an SSE response stream into `RemoteStreamEvent` objects
 
+### Voice bindings
+
+Voice hooks and components are exported from `glove-react/voice`:
+
+- **`useGloveVoice`** — Core voice hook (mode, transcript, start/stop/interrupt)
+- **`useGlovePTT`** — Push-to-talk with click-vs-hold detection, hotkey, min-duration
+- **`VoicePTTButton`** — Headless PTT button with render prop and ARIA attributes
+
+Requires `glove-voice` as a peer dependency.
+
 ### Display strategies
 
 | Strategy | Behavior |
@@ -159,6 +169,7 @@ export default function Chat() {
 
 - [React API Reference](https://glove.dterminal.net/docs/react)
 - [Display Stack Guide](https://glove.dterminal.net/docs/display-stack)
+- [Server-Side Agents](https://glove.dterminal.net/docs/server-side) — using glove-core directly without React
 - [Getting Started](https://glove.dterminal.net/docs/getting-started)
 
 ## License

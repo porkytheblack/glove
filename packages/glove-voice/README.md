@@ -63,6 +63,40 @@ const voice = useGloveVoice({ runnable, voice: { stt, createTTS } });
 // voice.mode, voice.transcript, voice.start(), voice.stop(), voice.interrupt()
 ```
 
+### Push-to-Talk (React)
+
+`useGlovePTT` provides a high-level push-to-talk hook with click-vs-hold detection, hotkey support, and minimum duration:
+
+```tsx
+import { useGlovePTT } from "glove-react/voice";
+
+const ptt = useGlovePTT(voice, {
+  holdThresholdMs: 300,   // hold > 300ms = PTT, shorter = toggle
+  minDurationMs: 600,     // minimum recording duration
+  hotkey: " ",            // spacebar
+});
+// ptt.active, ptt.onPointerDown, ptt.onPointerUp
+```
+
+Or use the headless `VoicePTTButton` component:
+
+```tsx
+import { VoicePTTButton } from "glove-react/voice";
+
+<VoicePTTButton ptt={ptt}>
+  {({ active, handlers }) => (
+    <button {...handlers}>{active ? "Recording..." : "Hold to talk"}</button>
+  )}
+</VoicePTTButton>
+```
+
+### Config options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `startMuted` | `boolean` | Start the pipeline with mic muted (useful for manual mode) |
+| `turnMode` | `"vad" \| "manual"` | VAD for hands-free, manual for push-to-talk |
+
 ## Turn Modes
 
 | Mode | Behavior |
@@ -120,6 +154,14 @@ All adapters implement typed EventEmitter interfaces. Build your own by implemen
 | `glove-voice/server` | Token generators (createElevenLabsSTTToken, etc.) | No (server only) |
 | `glove-voice/silero-vad` | SileroVADAdapter | Yes (WASM) |
 
+React voice bindings are exported from `glove-react/voice`:
+
+| Export | Description |
+|--------|-------------|
+| `useGloveVoice` | Core voice hook — mode, transcript, start/stop/interrupt |
+| `useGlovePTT` | Push-to-talk with click-vs-hold, hotkey, min-duration |
+| `VoicePTTButton` | Headless PTT button component with render prop |
+
 ## Framework Integration Notes
 
 **Next.js:**
@@ -140,6 +182,12 @@ Build warnings from onnxruntime-web are expected and harmless.
 - All adapters assume 16kHz mono PCM audio
 - ElevenLabs TTS idles out after ~20s — GloveVoice handles this by closing TTS after each model response and opening a fresh session on the next text
 - Barge-in protection for mutation-critical tools requires `unAbortable: true` on the tool — a pending `pushAndWait` resolver only suppresses the voice barge-in trigger, it does not prevent tool abortion from other sources
+
+## Documentation
+
+- [Voice Guide](https://glove.dterminal.net/docs/voice)
+- [Getting Started](https://glove.dterminal.net/docs/getting-started)
+- [Full Documentation](https://glove.dterminal.net)
 
 ## License
 

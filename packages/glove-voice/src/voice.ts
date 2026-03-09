@@ -4,7 +4,7 @@ import { AudioCapture } from "./audio-capture";
 import { AudioPlayer } from "./audio-player";
 import { SentenceBuffer } from "./sentence-chunker";
 import { GloveVoiceError } from "./errors";
-import { IGloveRunnable, SubscriberAdapter } from "glove-core";
+import { IGloveRunnable, type SubscriberAdapter, type SubscriberEventDataMap } from "glove-core";
 import type { VADConfig } from "./vad";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -44,6 +44,18 @@ export interface GloveVoiceConfig {
 
   /** Audio sample rate in Hz (default: 16000). Must match STT/TTS adapter expectations. */
   sampleRate?: number;
+
+  /**
+   * Start the pipeline with mic muted (default: false).
+   *
+   * When true, `start()` initializes the full pipeline (mic, STT, speaker)
+   * but does not forward audio to STT/VAD until `unmute()` is called.
+   *
+   * Defaults to `true` when `turnMode` is `"manual"` — in push-to-talk
+   * the consumer controls when audio flows, so starting muted avoids
+   * the race between `start()` resolving and calling `mute()`.
+   */
+  startMuted?: boolean;
 }
 
 type GloveVoiceEvents = {
@@ -189,6 +201,11 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     // Connect STT then start mic
     await this.cfg.stt.connect();
     await this.capture.init();
+
+    // In manual mode, start muted by default so the consumer controls
+    // when audio flows (push-to-talk). Explicit startMuted overrides.
+    const shouldMute = this.cfg.startMuted ?? (this.turnMode === "manual");
+    if (shouldMute) this.muted = true;
 
     this.setMode("listening");
   }
@@ -431,7 +448,7 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     let compacting = false;
 
     const subscriber: SubscriberAdapter = {
-      record: async (event_type: string, data: any) => {
+      record: async (event_type, data) => {
         if (stale()) return;
 
         if (event_type === "compaction_start") {
@@ -446,8 +463,8 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
         if (event_type === "text_delta") {
           // Don't narrate the compaction summary
           if (compacting) return;
-          const text: string = data.text;
-          stream.responseText += text;
+          const e = data as SubscriberEventDataMap["text_delta"];
+          stream.responseText += e.text;
 
           // Open TTS lazily on first text — avoids opening for tool-only responses
           if (!stream.tts) {
@@ -455,7 +472,7 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
             openFreshTTS();
           }
 
-          for (const sentence of buffer.push(text)) {
+          for (const sentence of buffer.push(e.text)) {
             console.debug(`[GloveVoice] streaming sentence to TTS: "${sentence.slice(0, 60)}"`);
             await sendSentence(sentence);
           }

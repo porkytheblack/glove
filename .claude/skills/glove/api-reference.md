@@ -123,25 +123,52 @@ const available = getAvailableProviders();
 // [{ id, name, available, models, defaultModel }]
 ```
 
-### SubscriberAdapter
+### SubscriberAdapter & Typed Events
 
 ```typescript
+// Discriminated union of all subscriber events
+type SubscriberEvent =
+  | { type: "text_delta"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: unknown }
+  | { type: "model_response"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number }
+  | { type: "model_response_complete"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number }
+  | { type: "tool_use_result"; tool_name: string; call_id?: string; result: ToolResultData }
+  | { type: "compaction_start"; current_token_consumption: number }
+  | { type: "compaction_end"; current_token_consumption: number; summary_message: Message };
+
+// Mapped type: extracts data shape (minus "type") for each event
+type SubscriberEventDataMap = { [E in SubscriberEvent as E["type"]]: Omit<E, "type"> };
+
+// Type-safe notify callback — passed to ModelAdapter.prompt()
+type NotifySubscribersFunction = <T extends SubscriberEvent["type"]>(
+  event_name: T, data: SubscriberEventDataMap[T]
+) => Promise<void>;
+
+// Interface for event receivers
 interface SubscriberAdapter {
-  record(event_type: string, data: any): Promise<void>;
+  record: <T extends SubscriberEvent["type"]>(
+    event_type: T, data: SubscriberEventDataMap[T]
+  ) => Promise<void>;
 }
 ```
 
 **Events emitted:**
 
-| Event | Data | When |
-|-------|------|------|
-| `text_delta` | `{ text: string }` | Streaming text chunk |
-| `tool_use` | `{ id, name, input }` | Tool call started |
-| `tool_use_result` | `{ tool_name, call_id?, result }` | Tool finished |
-| `model_response` | `{ text, tool_calls }` | Non-streaming turn complete |
-| `model_response_complete` | `{ text, tool_calls }` | Streaming turn complete |
-| `compaction_start` | `{ current_token_consumption }` | Context compaction begun |
-| `compaction_end` | `{ current_token_consumption, summary_message }` | Context compaction finished |
+| Event | Emitted by | Data | Description |
+|-------|-----------|------|-------------|
+| `text_delta` | Adapter (streaming) | `{ text: string }` | Incremental text fragment |
+| `tool_use` | Adapter (streaming) | `{ id, name, input }` | Tool call assembled |
+| `model_response` | Adapter (non-streaming) | `{ text, tool_calls?, stop_reason?, tokens_in?, tokens_out? }` | Complete non-streaming response |
+| `model_response_complete` | Adapter (streaming) | `{ text, tool_calls?, stop_reason?, tokens_in?, tokens_out? }` | Final aggregated streaming response |
+| `tool_use_result` | Core (PromptMachine) | `{ tool_name, call_id?, result }` | Tool execution finished |
+| `compaction_start` | Core (Context) | `{ current_token_consumption }` | Compaction begun |
+| `compaction_end` | Core (Context) | `{ current_token_consumption, summary_message }` | Compaction finished |
+
+**Custom adapter event contract:**
+- Non-streaming: emit `model_response` once per prompt call
+- Streaming: emit `text_delta` per chunk, `tool_use` per tool call, `model_response_complete` once at end
+- Use `?? undefined` to coerce null `stop_reason` from provider SDKs
+- Never emit `tool_use_result`, `compaction_start`, or `compaction_end` — those are framework-only
 
 ### Message
 
@@ -417,6 +444,9 @@ interface RenderProps {
   renderStreaming?: (props: StreamingRenderProps) => ReactNode;
   renderInput?: (props: InputRenderProps) => ReactNode;
   renderSlotContainer?: (props: SlotContainerRenderProps) => ReactNode;
+  voice?: VoiceRenderHandle;                                       // Optional — auto-renders transcript/status
+  renderTranscript?: (props: TranscriptRenderProps) => ReactNode;  // Optional custom transcript renderer
+  renderVoiceStatus?: (props: VoiceStatusRenderProps) => ReactNode; // Optional custom voice status renderer
   as?: keyof JSX.IntrinsicElements;                                // Default: "div"
   className?: string;
   style?: CSSProperties;
@@ -546,6 +576,7 @@ const voice = new GloveVoice(gloveRunnable, {
   vad?: VADAdapter,                   // Override default VAD (only used in "vad" mode)
   vadConfig?: VADConfig,              // Built-in VAD config (only used if no custom vad)
   sampleRate?: number,                // Default: 16000
+  startMuted?: boolean,               // Default: false (true when turnMode="manual")
 });
 
 // Events
@@ -685,8 +716,9 @@ const voice = useGloveVoice({
 // Returns:
 voice.mode;          // VoiceMode
 voice.transcript;    // string — partial transcript while speaking
+voice.enabled;       // boolean — true after start(), false after stop() or pipeline death
 voice.isActive;      // boolean
-voice.isMuted;       // boolean — whether mic audio is muted
+voice.isMuted;       // boolean — whether mic audio is muted (reflects startMuted on start)
 voice.error;         // Error | null
 voice.start();       // () => Promise<void>
 voice.stop();        // () => Promise<void>
@@ -695,6 +727,76 @@ voice.commitTurn();  // () => void
 voice.mute();        // () => void — stop forwarding mic to STT/VAD
 voice.unmute();      // () => void — resume forwarding mic to STT/VAD
 voice.narrate(text); // (text: string) => Promise<void> — speak without model
+```
+
+### useGlovePTT (glove-react/voice)
+
+High-level push-to-talk hook. Encapsulates pipeline lifecycle, keyboard binding, click-vs-hold discrimination, and min-duration enforcement.
+
+```typescript
+import { useGlovePTT } from "glove-react/voice";
+
+const ptt = useGlovePTT({
+  runnable: IGloveRunnable | null,    // From useGlove().runnable
+  voice: Omit<GloveVoiceConfig, "turnMode">,  // turnMode forced to "manual"
+  hotkey?: string | false,            // Default: "Space" — auto-guards INPUT/TEXTAREA/SELECT
+  holdThreshold?: number,             // Default: 300ms — click-vs-hold discrimination
+  minRecordingMs?: number,            // Default: 350ms — min audio before committing
+});
+
+// Returns:
+ptt.enabled;       // boolean — pipeline active
+ptt.recording;     // boolean — user currently holding
+ptt.processing;    // boolean — STT finalizing after short recording
+ptt.mode;          // VoiceMode
+ptt.transcript;    // string — partial transcript
+ptt.error;         // Error | null
+ptt.toggle();      // () => Promise<void> — enable/disable pipeline
+ptt.interrupt();   // () => void — barge-in
+ptt.bind;          // { onPointerDown, onPointerUp, onPointerLeave } — spread onto button
+ptt.voice;         // UseGloveVoiceReturn — underlying voice hook for advanced use
+```
+
+### VoicePTTButton (glove-react/voice)
+
+Headless push-to-talk button component with render prop:
+
+```tsx
+import { VoicePTTButton } from "glove-react/voice";
+
+<VoicePTTButton ptt={pttReturn} className="..." style={...}>
+  {({ enabled, recording, processing, mode }) => (
+    <button className={recording ? "active" : ""}>
+      <MicIcon />
+    </button>
+  )}
+</VoicePTTButton>
+```
+
+Wraps `ptt.bind` with `role="button"`, `tabIndex`, `aria-label`, `aria-pressed`, and touch safety (`touchAction: "none"`).
+
+### Render Voice Props
+
+```typescript
+// voice prop on <Render>
+interface VoiceRenderHandle {
+  mode: VoiceMode;
+  transcript: string;
+  recording?: boolean;
+}
+
+// Custom renderers
+interface TranscriptRenderProps { transcript: string; mode: VoiceMode; }
+interface VoiceStatusRenderProps { mode: VoiceMode; recording?: boolean; }
+```
+
+```tsx
+<Render
+  glove={glove}
+  voice={ptt}                              // or useGloveVoice() return
+  renderTranscript={({ transcript }) => ...}  // optional
+  renderVoiceStatus={({ mode }) => ...}       // optional
+/>
 ```
 
 ---

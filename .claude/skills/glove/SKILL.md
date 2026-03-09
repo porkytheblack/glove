@@ -23,7 +23,7 @@ Glove is an open-source TypeScript framework for building AI-powered application
 | `glove-react` | React hooks (`useGlove`), `GloveClient`, `GloveProvider`, `defineTool`, `<Render>`, `MemoryStore`, `ToolConfig` with colocated renderers | `pnpm add glove-react` |
 | `glove-next` | One-line Next.js API route handler (`createChatHandler`) for streaming SSE | `pnpm add glove-next` |
 
-**Most projects need just `glove-react` + `glove-next`.** `glove-core` is included as a dependency of `glove-react`.
+**Most projects need just `glove-react` + `glove-next`.** `glove-core` is included as a dependency of `glove-react`. For server-side or non-React agents, use `glove-core` directly — see [Server-Side Agents](#server-side-agents) below.
 
 ## Architecture at a Glance
 
@@ -201,6 +201,145 @@ export default function Chat() {
   );
 }
 ```
+
+## Server-Side Agents
+
+For CLI tools, backend services, WebSocket servers, or any non-browser environment, use `glove-core` directly. No React, Next.js, or browser required.
+
+### Minimal Setup
+
+```typescript
+import { Glove, Displaymanager, createAdapter } from "glove-core";
+import z from "zod";
+
+// In-memory store (see MemoryStore below) or SqliteStore for persistence
+const store = new MemoryStore("my-session");
+
+const agent = new Glove({
+  store,
+  model: createAdapter({ provider: "anthropic", stream: true }),
+  displayManager: new Displaymanager(),  // required but can be empty
+  systemPrompt: "You are a helpful assistant.",
+  compaction_config: {
+    compaction_instructions: "Summarize the conversation.",
+  },
+})
+  .fold({
+    name: "search",
+    description: "Search the database.",
+    inputSchema: z.object({ query: z.string() }),
+    async do(input) {
+      const results = await db.search(input.query);
+      return { status: "success", data: results };
+    },
+  })
+  .build();
+
+const result = await agent.processRequest("Find recent orders");
+console.log(result.messages[0]?.text);
+```
+
+### Minimal MemoryStore
+
+```typescript
+import type { StoreAdapter, Message } from "glove-core";
+
+class MemoryStore implements StoreAdapter {
+  identifier: string;
+  private messages: Message[] = [];
+  private tokenCount = 0;
+  private turnCount = 0;
+
+  constructor(id: string) { this.identifier = id; }
+
+  async getMessages() { return this.messages; }
+  async appendMessages(msgs: Message[]) { this.messages.push(...msgs); }
+  async getTokenCount() { return this.tokenCount; }
+  async addTokens(count: number) { this.tokenCount += count; }
+  async getTurnCount() { return this.turnCount; }
+  async incrementTurn() { this.turnCount++; }
+  async resetCounters() { this.tokenCount = 0; this.turnCount = 0; }
+}
+```
+
+For persistent storage: `new SqliteStore({ dbPath: "./agent.db", sessionId: "abc" })`.
+
+### Key Differences from React
+
+| React (`glove-react`) | Server-side (`glove-core`) |
+|----------------------|---------------------------|
+| `defineTool` with `render`/`renderResult` | `.fold()` with just `do` — no renderers needed |
+| `useGlove()` hook manages state | Call `agent.processRequest()` directly |
+| `GloveClient` + `GloveProvider` | `new Glove({...}).build()` |
+| `createEndpointModel` (SSE client) | `createAdapter()` or direct adapter (e.g. `new AnthropicAdapter()`) |
+| `MemoryStore` from glove-react | Implement `StoreAdapter` yourself or use `SqliteStore` |
+
+### Tools Without Display
+
+Most server-side tools ignore the display manager — just return a result:
+
+```typescript
+gloveBuilder.fold({
+  name: "get_weather",
+  description: "Get weather for a city.",
+  inputSchema: z.object({ city: z.string() }),
+  async do(input) {
+    const res = await fetch(`https://wttr.in/${input.city}?format=j1`);
+    return { status: "success", data: await res.json() };
+  },
+});
+```
+
+Returning a plain string also works — auto-wrapped to `{ status: "success", data: yourString }`.
+
+### Interactive Tools (pushAndWait)
+
+When a tool calls `display.pushAndWait()`, the agent loop blocks until `dm.resolve(slotId, value)` is called. Wire this to your UI layer (WebSocket, terminal, Slack, etc.):
+
+```typescript
+// Tool side
+async do(input, display) {
+  const confirmed = await display.pushAndWait({
+    renderer: "confirm",
+    input: { message: `Delete ${input.file}?` },
+  });
+  if (!confirmed) return { status: "error", data: null, message: "Cancelled" };
+  // proceed...
+}
+
+// Server side — resolve when user responds
+dm.resolve(slotId, true);
+```
+
+### Subscribers (Logging, Forwarding)
+
+```typescript
+import type { SubscriberAdapter } from "glove-core";
+
+const logger: SubscriberAdapter = {
+  async record(event_type, data) {
+    if (event_type === "text_delta") process.stdout.write((data as any).text);
+    if (event_type === "tool_use") console.log(`\n[tool] ${(data as any).name}`);
+  },
+};
+
+gloveBuilder.addSubscriber(logger);
+```
+
+### Common Patterns
+
+- **CLI script**: Build agent, call `processRequest()`, print result
+- **Multi-turn REPL**: Loop with readline, each `processRequest()` accumulates in the store
+- **WebSocket server**: Per-connection session with isolated store/dm/subscriber, forward events via `record()`
+- **Background worker**: Build agent per job, process from a queue, no display needed
+- **Hot-swap model**: Call `agent.setModel(newAdapter)` at runtime
+
+### Optional Store Features
+
+- **Tasks** (`getTasks`, `addTasks`, `updateTask`): Auto-registers `glove_update_tasks` tool
+- **Permissions** (`getPermission`, `setPermission`): Tools with `requiresPermission: true` check consent
+
+If your store doesn't implement these, they're silently disabled.
 
 ## Display Stack Patterns
 
@@ -424,7 +563,7 @@ Available at https://glove.dterminal.net/tools — copy-paste into your project:
 | Package | Purpose | Install |
 |---------|---------|---------|
 | `glove-voice` | Voice pipeline: `GloveVoice`, adapters (STT/TTS/VAD), `AudioCapture`, `AudioPlayer` | `pnpm add glove-voice` |
-| `glove-react/voice` | React hook: `useGloveVoice` | Included in `glove-react` |
+| `glove-react/voice` | React hooks: `useGloveVoice`, `useGlovePTT`, `VoicePTTButton` | Included in `glove-react` |
 | `glove-next` | Token handlers: `createVoiceTokenHandler` (already in `glove-next`, no separate import) | Included in `glove-next` |
 
 ### Architecture
@@ -498,6 +637,98 @@ const voice = useGloveVoice({ runnable, voice: { stt, createTTS, vad } });
 // voice.narrate("text")                     — speak text via TTS without model (returns Promise)
 ```
 
+### `startMuted` Config Option
+
+In manual (push-to-talk) mode, the pipeline now starts muted by default — no need to call `mute()` immediately after `start()`. This eliminates the race condition where audio leaks in the gap.
+
+```typescript
+// Manual mode auto-mutes — just works
+await voice.start(); // already muted in manual mode
+
+// Explicit override
+const voice = useGloveVoice({
+  runnable,
+  voice: { stt, createTTS, turnMode: "manual", startMuted: false }, // opt out
+});
+```
+
+### `enabled` State on `useGloveVoice`
+
+The hook now exposes `voice.enabled` — tracks user intent (true after `start()`, false after `stop()` or pipeline death). Replaces the manual `useState` + sync `useEffect` pattern:
+
+```tsx
+// Before — consumer tracks + syncs
+const [voiceEnabled, setVoiceEnabled] = useState(false);
+useEffect(() => {
+  if (voiceEnabled && !voice.isActive) setVoiceEnabled(false);
+}, [voiceEnabled, voice.isActive]);
+
+// After — hook tracks it
+voice.enabled  // auto-resets on pipeline death
+```
+
+### `useGlovePTT` Hook (Push-to-Talk)
+
+High-level hook that encapsulates the entire PTT lifecycle. Reduces ~80 lines of boilerplate to ~5 lines:
+
+```tsx
+import { useGlovePTT } from "glove-react/voice";
+
+const glove = useGlove({ endpoint: "/api/chat", tools });
+const ptt = useGlovePTT({
+  runnable: glove.runnable,
+  voice: { stt, createTTS },    // turnMode forced to "manual"
+  hotkey: "Space",               // default, auto-guards INPUT/TEXTAREA
+  holdThreshold: 300,            // click-vs-hold discrimination (ms)
+  minRecordingMs: 350,           // min audio before committing
+});
+
+// ptt.enabled      — is the pipeline active
+// ptt.recording    — is the user currently holding
+// ptt.processing   — is STT finalizing
+// ptt.mode         — voice mode (idle/listening/thinking/speaking)
+// ptt.transcript   — partial transcript while recording
+// ptt.error        — last error
+// ptt.toggle()     — enable/disable the pipeline
+// ptt.interrupt()  — barge-in
+// ptt.bind         — { onPointerDown, onPointerUp, onPointerLeave }
+
+<button {...ptt.bind}><MicIcon /></button>
+```
+
+### `<VoicePTTButton>` Component
+
+Headless (unstyled) component with render prop for the mic button:
+
+```tsx
+import { VoicePTTButton } from "glove-react/voice";
+
+<VoicePTTButton ptt={ptt}>
+  {({ enabled, recording, mode }) => (
+    <button className={recording ? "active" : ""}>
+      <MicIcon />
+      {enabled && <StatusDot />}
+    </button>
+  )}
+</VoicePTTButton>
+```
+
+Includes click-vs-hold discrimination, pointer leave safety, and aria attributes.
+
+### `<Render>` Voice Support
+
+`<Render>` accepts an optional `voice` prop to auto-render transcript and voice status:
+
+```tsx
+<Render
+  glove={glove}
+  voice={ptt}                    // or useGloveVoice() return
+  renderTranscript={...}         // optional custom renderer
+  renderVoiceStatus={...}        // optional custom renderer
+  renderInput={() => null}
+/>
+```
+
 ### Turn Modes
 
 | Mode | Behavior | Use for |
@@ -556,3 +787,7 @@ For example patterns from real implementations, see [examples.md](examples.md).
 20. **`narrate()` needs a started pipeline**: Calling `narrate()` before `voice.start()` throws. The TTS factory and AudioPlayer must be initialized.
 21. **Voice auto-silences during compaction**: When context compaction is triggered, the voice pipeline ignores all `text_delta` events between `compaction_start` and `compaction_end`. The compaction summary is never narrated.
 22. **`isCompacting` for React UI feedback**: `GloveState.isCompacting` is `true` while compaction is in progress. Use it to show a loading indicator or disable input during compaction.
+23. **`<Render>` ships a default input**: If you have a custom input form, always pass `renderInput={() => null}` to suppress the built-in one — otherwise you get duplicate inputs.
+24. **Tools execute outside React**: Tool `do()` functions run outside the component tree. To access React context (e.g. `useWallet()`), use a mutable singleton ref synced from a React component (bridge pattern).
+25. **SileroVAD not needed for manual mode**: When using `turnMode: "manual"` (push-to-talk), skip the SileroVAD import and its WASM overhead. VAD is only needed for `turnMode: "vad"`.
+26. **System prompt: document tools explicitly**: Even though tools have descriptions and schemas, listing every tool with its parameters in the system prompt dramatically improves tool selection accuracy.

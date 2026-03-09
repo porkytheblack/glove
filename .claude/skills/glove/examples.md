@@ -604,9 +604,60 @@ const { sendMessage } = useGlove({
 
 ---
 
-## Pattern: Voice Integration (Coffee / Lola)
+## Pattern: Push-to-Talk with `useGlovePTT` (Recommended)
 
-Both coffee and lola examples demonstrate full voice integration. The pattern is:
+The simplest way to add voice with push-to-talk:
+
+```tsx
+import { useGlove, Render } from "glove-react";
+import { useGlovePTT, VoicePTTButton } from "glove-react/voice";
+import { stt, createTTS } from "@/lib/voice";
+
+function ChatPanel() {
+  const glove = useGlove({ endpoint: "/api/chat", tools });
+  const ptt = useGlovePTT({
+    runnable: glove.runnable,
+    voice: { stt, createTTS },
+    hotkey: "Space",
+  });
+
+  return (
+    <>
+      <Render
+        glove={glove}
+        voice={ptt}
+        renderInput={() => null}
+      />
+      <form onSubmit={handleSubmit}>
+        <input value={input} onChange={e => setInput(e.target.value)} />
+        <VoicePTTButton ptt={ptt}>
+          {({ enabled, recording, mode }) => (
+            <button className={recording ? "recording" : enabled ? "active" : ""}>
+              <MicIcon />
+            </button>
+          )}
+        </VoicePTTButton>
+        <button type="submit">Send</button>
+      </form>
+    </>
+  );
+}
+```
+
+**What `useGlovePTT` handles automatically:**
+- Pipeline enable/disable (click toggles, hold records)
+- Auto-mute on start (manual mode)
+- Unmute on hold, commit + re-mute on release
+- Keyboard hotkey (Space by default, ignores INPUT/TEXTAREA/SELECT)
+- Click-vs-hold discrimination (300ms threshold)
+- Minimum recording duration (350ms)
+- Pipeline death detection (auto-resets `enabled`)
+
+---
+
+## Pattern: Voice Integration with `useGloveVoice` (Low-Level)
+
+For full control over the voice pipeline (e.g. VAD mode, custom turn logic), use `useGloveVoice` directly. Both coffee and lola examples use this pattern:
 
 ### 1. Token Routes
 

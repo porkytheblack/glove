@@ -133,10 +133,11 @@ export default function VoicePage() {
           audio capture, and audio playback.
         </li>
         <li>
-          <strong>glove-react/voice</strong> &mdash; The React hook.
-          Provides <code>useGloveVoice</code> which wraps{" "}
-          <code>GloveVoice</code> in React state management with proper
-          lifecycle cleanup.
+          <strong>glove-react/voice</strong> &mdash; React hooks and
+          components. Provides <code>useGloveVoice</code> (low-level),{" "}
+          <code>useGlovePTT</code> (push-to-talk), and{" "}
+          <code>VoicePTTButton</code> (headless mic button) with proper
+          lifecycle management.
         </li>
         <li>
           <strong>glove-next</strong> &mdash; Token route handlers.
@@ -881,13 +882,20 @@ export default config;`}
         </li>
       </ul>
 
+      <p>
+        For most push-to-talk use cases, <code>useGlovePTT</code> handles all
+        of this automatically &mdash; see the{" "}
+        <a href="#push-to-talk">Push-to-Talk section</a> below. The following
+        is the low-level alternative for reference:
+      </p>
+
       <CodeBlock
         code={`const voice = useGloveVoice({
   runnable,
   voice: { stt, createTTS, turnMode: "manual" },
 });
 
-// Push-to-talk button
+// Low-level push-to-talk button
 <button
   onPointerDown={() => voice.start()}
   onPointerUp={() => voice.commitTurn()}
@@ -896,6 +904,233 @@ export default config;`}
 </button>`}
         language="tsx"
       />
+
+      {/* ------------------------------------------------------------------ */}
+      <h2 id="push-to-talk">Push-to-Talk (useGlovePTT)</h2>
+
+      <p>
+        <code>useGlovePTT</code> is a high-level hook that replaces
+        approximately 80 lines of push-to-talk boilerplate with around 5 lines.
+        It wraps <code>useGloveVoice</code> and handles:
+      </p>
+
+      <ul>
+        <li>Pipeline enable/disable (toggle voice on and off)</li>
+        <li>Auto-mute on start, unmute on hold, commit + re-mute on release</li>
+        <li>Keyboard hotkey binding with input element awareness</li>
+        <li>Click-vs-hold discrimination (quick click toggles, hold records)</li>
+        <li>Minimum recording duration enforcement</li>
+        <li>Pipeline death detection (WebSocket drop, permission revoked)</li>
+      </ul>
+
+      <h3>Quick Example</h3>
+
+      <CodeBlock
+        code={`import { useGlove, Render } from "glove-react";
+import { useGlovePTT, VoicePTTButton } from "glove-react/voice";
+import { stt, createTTS } from "@/lib/voice";
+
+function ChatPanel() {
+  const glove = useGlove({ endpoint: "/api/chat", tools });
+  const ptt = useGlovePTT({
+    runnable: glove.runnable,
+    voice: { stt, createTTS },
+    hotkey: "Space",
+  });
+
+  return (
+    <>
+      <Render glove={glove} voice={ptt} renderInput={() => null} />
+      <VoicePTTButton ptt={ptt}>
+        {({ enabled, recording, mode }) => (
+          <button className={recording ? "recording" : enabled ? "active" : ""}>
+            <MicIcon />
+          </button>
+        )}
+      </VoicePTTButton>
+    </>
+  );
+}`}
+        language="tsx"
+      />
+
+      <h3>UseGlovePTTConfig</h3>
+
+      <PropTable
+        headers={["Property", "Type", "Description"]}
+        rows={[
+          [
+            "runnable",
+            "IGloveRunnable | null",
+            "The Glove runnable instance. Pass useGlove().runnable.",
+          ],
+          [
+            "voice",
+            'Omit<GloveVoiceConfig, "turnMode">',
+            'Voice pipeline config. turnMode is forced to "manual" and startMuted to true internally.',
+          ],
+          [
+            "hotkey?",
+            "string | false",
+            'Keyboard hotkey code (default: "Space"). Uses KeyboardEvent.code values. Auto-ignores when focused on INPUT, TEXTAREA, or SELECT. Set to false to disable.',
+          ],
+          [
+            "holdThreshold?",
+            "number",
+            "Hold duration in ms for click-vs-hold discrimination (default: 300). A quick click toggles voice on/off; a hold triggers PTT recording.",
+          ],
+          [
+            "minRecordingMs?",
+            "number",
+            "Minimum recording duration in ms before committing a turn (default: 350). If the user releases early, the mic stays hot until the minimum is reached.",
+          ],
+        ]}
+      />
+
+      <h3>UseGlovePTTReturn</h3>
+
+      <PropTable
+        headers={["Property", "Type", "Description"]}
+        rows={[
+          [
+            "enabled",
+            "boolean",
+            "Whether the voice pipeline is active (user toggled voice on).",
+          ],
+          [
+            "recording",
+            "boolean",
+            "Whether the user is currently holding to record.",
+          ],
+          [
+            "processing",
+            "boolean",
+            "Whether STT is finalizing after a short recording.",
+          ],
+          [
+            "mode",
+            "VoiceMode",
+            'Current voice pipeline state: idle, listening, thinking, speaking.',
+          ],
+          [
+            "transcript",
+            "string",
+            "Current partial transcript while user is speaking.",
+          ],
+          [
+            "error",
+            "Error | null",
+            "Last error from the voice pipeline.",
+          ],
+          [
+            "toggle()",
+            "() => Promise<void>",
+            "Toggle the voice pipeline on/off.",
+          ],
+          [
+            "interrupt()",
+            "() => void",
+            "Barge-in: abort in-flight request and stop TTS.",
+          ],
+          [
+            "bind",
+            "{ onPointerDown, onPointerUp, onPointerLeave }",
+            "Pointer event handlers to spread onto a mic button. Includes click-vs-hold discrimination.",
+          ],
+          [
+            "voice",
+            "UseGloveVoiceReturn",
+            "The underlying voice hook return for advanced use cases.",
+          ],
+        ]}
+      />
+
+      <h3>VoicePTTButton</h3>
+
+      <p>
+        Headless (unstyled) component with a render prop pattern. Wraps{" "}
+        <code>ptt.bind</code> with <code>role=&quot;button&quot;</code>,{" "}
+        <code>tabIndex</code>, <code>aria-label</code>,{" "}
+        <code>aria-pressed</code>, and touch safety (prevents context menu on
+        long press, disables text selection during hold).
+      </p>
+
+      <CodeBlock
+        code={`import { VoicePTTButton } from "glove-react/voice";
+
+<VoicePTTButton ptt={ptt} className="mic-button">
+  {({ enabled, recording, processing, mode }) => (
+    <button className={recording ? "active" : ""}>
+      {processing ? <Spinner /> : <MicIcon />}
+      {enabled && <StatusDot />}
+    </button>
+  )}
+</VoicePTTButton>`}
+        language="tsx"
+      />
+
+      <h4>VoicePTTButtonProps</h4>
+
+      <PropTable
+        headers={["Property", "Type", "Description"]}
+        rows={[
+          [
+            "ptt",
+            "UseGlovePTTReturn",
+            "The return value of useGlovePTT().",
+          ],
+          [
+            "children",
+            "(props: VoicePTTButtonRenderProps) => ReactNode",
+            "Render prop for full styling control. Receives enabled, recording, processing, and mode.",
+          ],
+          [
+            "className?",
+            "string",
+            "Additional className on the wrapper span.",
+          ],
+          [
+            "style?",
+            "React.CSSProperties",
+            "Additional style on the wrapper span.",
+          ],
+        ]}
+      />
+
+      <h3>Render Voice Integration</h3>
+
+      <p>
+        The <code>&lt;Render&gt;</code> component accepts an optional{" "}
+        <code>voice</code> prop to auto-render transcript and voice status.
+        This works with both <code>useGlovePTT</code> and{" "}
+        <code>useGloveVoice</code> return values:
+      </p>
+
+      <CodeBlock
+        code={`<Render
+  glove={glove}
+  voice={ptt}                              // or useGloveVoice() return
+  renderTranscript={({ transcript }) => (  // optional custom renderer
+    <p className="transcript">{transcript}</p>
+  )}
+  renderVoiceStatus={({ mode }) => (       // optional custom renderer
+    <span className="status">{mode}</span>
+  )}
+  renderInput={() => null}
+/>`}
+        language="tsx"
+      />
+
+      <p>
+        The <code>voice</code> prop accepts a <code>VoiceRenderHandle</code>,
+        which is any object with <code>transcript</code>, <code>mode</code>,
+        and <code>enabled</code> fields. Both <code>UseGlovePTTReturn</code>{" "}
+        and <code>UseGloveVoiceReturn</code> satisfy this interface.
+        The optional <code>renderTranscript</code> receives{" "}
+        <code>TranscriptRenderProps</code> (with a <code>transcript</code>{" "}
+        string), and <code>renderVoiceStatus</code> receives{" "}
+        <code>VoiceStatusRenderProps</code> (with a <code>mode</code> value).
+      </p>
 
       {/* ------------------------------------------------------------------ */}
       <h2 id="use-glove-voice">useGloveVoice API Reference</h2>
@@ -960,6 +1195,11 @@ export default config;`}
             "number",
             "Audio sample rate in Hz. Default: 16000. Must match STT and TTS adapter expectations.",
           ],
+          [
+            "startMuted?",
+            "boolean",
+            'Start the pipeline with mic muted. Defaults to true when turnMode is "manual", false otherwise. Eliminates the race condition between start() resolving and calling mute().',
+          ],
         ]}
       />
 
@@ -982,6 +1222,11 @@ export default config;`}
             "isActive",
             "boolean",
             'Whether the voice pipeline is active (mode is not "idle").',
+          ],
+          [
+            "enabled",
+            "boolean",
+            "Whether the user intended the pipeline to be active. True after start(), false after stop() or pipeline death (WebSocket drop, permission revoked). Unlike isActive, this tracks user intent and auto-resets \u2014 no manual sync useEffect needed.",
           ],
           [
             "error",
@@ -1407,6 +1652,48 @@ voice: { stt, createTTS: new ElevenLabsTTSAdapter({ getToken, voiceId }) }`}
         is needed on your part &mdash; this is handled automatically by{" "}
         <code>GloveVoice</code>.
       </p>
+
+      <h3>13. SileroVAD Not Needed for Manual Mode</h3>
+
+      <p>
+        When using <code>turnMode: &quot;manual&quot;</code> (push-to-talk),
+        you do not need to import SileroVAD or set up any VAD at all. VAD is
+        only used in <code>turnMode: &quot;vad&quot;</code>. Skip the WASM
+        overhead for PTT-only apps.
+      </p>
+
+      <h3>14. Render Ships a Default Input</h3>
+
+      <p>
+        The <code>&lt;Render&gt;</code> component includes a built-in text
+        input. If you have your own input form, always pass{" "}
+        <code>renderInput={`{() => null}`}</code> to suppress the built-in
+        one &mdash; otherwise you get duplicate inputs.
+      </p>
+
+      <h3>15. Tools Execute Outside React</h3>
+
+      <p>
+        Tool <code>do()</code> functions run outside the React component tree.
+        To access React context (for example, a wallet hook or theme), use a
+        mutable singleton ref synced from a React component (bridge pattern):
+      </p>
+
+      <CodeBlock
+        code={`// bridge.ts
+export const voiceBridge = { current: null as GloveVoiceReturn | null };
+
+// In your component:
+useEffect(() => {
+  voiceBridge.current = voice;
+}, [voice]);
+
+// In your tool:
+async do(input, display) {
+  await voiceBridge.current?.narrate("Processing...");
+}`}
+        language="typescript"
+      />
     </div>
   );
 }

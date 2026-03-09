@@ -10,13 +10,94 @@ import { splitAtLastCompaction, abortablePromise } from "./utils";
 // what we need to keep track, - messages, tooks, tool responses.
 //
 
-export type NotifySubscribersFunction = (
-  event_name: string,
-  event_data: unknown,
+// ─── Subscriber Events ───────────────────────────────────────────────────────
+
+/**
+ * Discriminated union of all events that flow through the subscriber system.
+ *
+ * **Model events** (emitted by ModelAdapter during prompt execution):
+ * - `text_delta` — Streaming text chunk from the model
+ * - `tool_use` — Model is invoking a tool
+ * - `model_response` — Complete model response (sync/non-streaming adapters)
+ * - `model_response_complete` — Final model response after streaming completes
+ *
+ * **Executor events** (emitted during tool execution):
+ * - `tool_use_result` — Result of a tool execution (success, error, or aborted)
+ *
+ * **Observer events** (emitted during context compaction):
+ * - `compaction_start` — Context compaction has begun
+ * - `compaction_end` — Context compaction has finished
+ */
+export type SubscriberEvent =
+  | { type: "text_delta"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: unknown }
+  | { type: "model_response"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number }
+  | { type: "model_response_complete"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number }
+  | { type: "tool_use_result"; tool_name: string; call_id?: string; result: ToolResultData }
+  | { type: "compaction_start"; current_token_consumption: number }
+  | { type: "compaction_end"; current_token_consumption: number; summary_message: Message };
+
+/** Extract a single event by its type field. */
+export type SubscriberEventOf<T extends SubscriberEvent["type"]> =
+  Extract<SubscriberEvent, { type: T }>;
+
+/** Map from event type to its data shape (without the `type` field). */
+export type SubscriberEventDataMap = {
+  [E in SubscriberEvent as E["type"]]: Omit<E, "type">;
+};
+
+/**
+ * Function signature for notifying subscribers of events.
+ *
+ * Model adapters receive this as the `notify` parameter in `prompt()`.
+ * Call it to emit streaming events (text_delta, tool_use, model_response_complete).
+ *
+ * @example
+ * ```typescript
+ * // Inside a custom ModelAdapter.prompt():
+ * await notify("text_delta", { text: chunk });
+ * await notify("tool_use", { id: "call_1", name: "get_weather", input: { city: "NYC" } });
+ * await notify("model_response_complete", { text: fullText, tool_calls, stop_reason: "end_turn" });
+ * ```
+ */
+export type NotifySubscribersFunction = <T extends SubscriberEvent["type"]>(
+  event_name: T,
+  event_data: SubscriberEventDataMap[T],
 ) => Promise<void>;
 
+/**
+ * Interface for receiving subscriber events from the Glove pipeline.
+ *
+ * Implement this to build custom event handlers for logging, analytics,
+ * streaming UI updates, or any side effect driven by pipeline events.
+ *
+ * @example
+ * ```typescript
+ * const logger: SubscriberAdapter = {
+ *   async record(event_type, data) {
+ *     switch (event_type) {
+ *       case "text_delta":
+ *         console.log("Text:", data.text);
+ *         break;
+ *       case "tool_use":
+ *         console.log(`Tool: ${data.name}(${JSON.stringify(data.input)})`);
+ *         break;
+ *       case "model_response_complete":
+ *         console.log("Response complete:", data.text);
+ *         break;
+ *       case "tool_use_result":
+ *         console.log(`Result [${data.result.status}]:`, data.result.data);
+ *         break;
+ *     }
+ *   },
+ * };
+ * ```
+ */
 export interface SubscriberAdapter {
-  record: (event_type: string, data: any) => Promise<void>;
+  record: <T extends SubscriberEvent["type"]>(
+    event_type: T,
+    data: SubscriberEventDataMap[T],
+  ) => Promise<void>;
 }
 
 // ─── Tasks ────────────────────────────────────────────────────────────────────
@@ -208,7 +289,7 @@ export class PromptMachine {
     if (idx !== -1) this.subscribers.splice(idx, 1);
   }
 
-  notifySubscribers = async (event_name: string, event_data: unknown) => {
+  notifySubscribers: NotifySubscribersFunction = async (event_name, event_data) => {
     await Promise.all(
       this.subscribers.map((s) => s.record(event_name, event_data)),
     );
@@ -273,7 +354,7 @@ export class Executor {
     if (idx !== -1) this.subscribers.splice(idx, 1);
   }
 
-  notifySubscribers = async (event_name: string, event_data: unknown) => {
+  notifySubscribers: NotifySubscribersFunction = async (event_name, event_data) => {
     await Promise.all(
       this.subscribers.map((s) => s.record(event_name, event_data)),
     );
@@ -304,7 +385,7 @@ export class Executor {
             data: null,
           },
         });
-        await this.notifySubscribers("tool_use_result", toolResults?.at(-1));
+        await this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
         continue;
       }
 
@@ -318,7 +399,7 @@ export class Executor {
           tool_name: call.tool_name,
           call_id: call.id,
         });
-        await this.notifySubscribers("tool_use_result", toolResults?.at(-1));
+        await this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
 
         continue;
       }
@@ -334,7 +415,7 @@ export class Executor {
             data: null,
           },
         });
-        await this.notifySubscribers("tool_use_result", toolResults?.at(-1));
+        await this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
         continue;
       }
 
@@ -351,7 +432,7 @@ export class Executor {
           },
         });
 
-        await this.notifySubscribers("tool_use_result", toolResults?.at(-1));
+        await this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
 
         continue;
       }
@@ -398,7 +479,7 @@ export class Executor {
                 data: null,
               },
             });
-            this.notifySubscribers("tool_use_result", toolResults?.at(-1));
+            this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
             return;
           }
 
@@ -413,7 +494,7 @@ export class Executor {
             },
           });
 
-          this.notifySubscribers("tool_use_result", toolResults?.at(-1));
+          this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
         },
         onRight: (value: ToolResultData) => {
           toolResults.push({
@@ -422,7 +503,7 @@ export class Executor {
             result: value,
           });
 
-          this.notifySubscribers("tool_use_result", toolResults?.at(-1));
+          this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
         },
       })
 
@@ -471,7 +552,7 @@ export class Observer {
     if (idx !== -1) this.subscribers.splice(idx, 1);
   }
 
-  notifySubscribers = async (event_name: string, event_data: unknown) => {
+  notifySubscribers: NotifySubscribersFunction = async (event_name, event_data) => {
     await Promise.all(
       this.subscribers.map((s) => s.record(event_name, event_data)),
     );

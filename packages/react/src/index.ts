@@ -63,7 +63,13 @@ export { GloveProvider, useGloveClient } from "./hooks/context";
 
 // ─── Render ──────────────────────────────────────────────────────────────────
 
-export { Render, type RenderProps } from "./render";
+export {
+  Render,
+  type RenderProps,
+  type VoiceRenderHandle,
+  type TranscriptRenderProps,
+  type VoiceStatusRenderProps,
+} from "./render";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

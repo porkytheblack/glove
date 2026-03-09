@@ -302,7 +302,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
     await notify("model_response", {
       text: message.text,
       tool_calls: message.tool_calls,
-      stop_reason: choice.finish_reason,
+      stop_reason: choice.finish_reason ?? undefined,
     });
 
     return {
@@ -398,7 +398,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
     await notify("model_response_complete", {
       text: message.text,
       tool_calls: message.tool_calls,
-      stop_reason: finishReason,
+      stop_reason: finishReason ?? undefined,
     });
 
     return {

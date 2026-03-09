@@ -1516,6 +1516,21 @@ for await (const event of parseSSEStream(response)) {
             "CSSProperties",
             "style on wrapper.",
           ],
+          [
+            "voice?",
+            "VoiceRenderHandle",
+            "Optional voice state. When provided, <Render> auto-renders a transcript indicator and voice status below the messages. Works with both useGloveVoice() and useGlovePTT() returns.",
+          ],
+          [
+            "renderTranscript?",
+            "(props: TranscriptRenderProps) => ReactNode",
+            "Custom renderer for the voice transcript. Receives { transcript, mode }. Only used when voice prop is provided.",
+          ],
+          [
+            "renderVoiceStatus?",
+            "(props: VoiceStatusRenderProps) => ReactNode",
+            "Custom renderer for the voice status indicator. Receives { mode, recording? }. Only used when voice prop is provided.",
+          ],
         ]}
       />
 
@@ -1715,6 +1730,21 @@ function Chat() {
             "ToolResultData",
             "glove-core",
             "Return type for tool implementations with { status, data, renderData? }. data is sent to the AI; renderData stays client-only.",
+          ],
+          [
+            "VoiceRenderHandle",
+            "glove-react",
+            "Interface for the voice prop on <Render>. Requires mode, transcript, and optional recording.",
+          ],
+          [
+            "TranscriptRenderProps",
+            "glove-react",
+            "Props for custom renderTranscript function: { transcript, mode }.",
+          ],
+          [
+            "VoiceStatusRenderProps",
+            "glove-react",
+            "Props for custom renderVoiceStatus function: { mode, recording? }.",
           ],
         ]}
       />
