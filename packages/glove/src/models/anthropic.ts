@@ -19,6 +19,10 @@ export interface AnthropicAdapterConfig {
   model: string;
   maxTokens?: number;
   stream?: boolean;
+  /** Request timeout in milliseconds. Defaults to 10 minutes (600000). */
+  timeout?: number;
+  /** Override the default Anthropic API base URL. Useful for proxies or Anthropic-compatible APIs. */
+  baseURL?: string;
 }
 
 // ─── Format conversion: Glove → Anthropic ─────────────────────────────────────
@@ -274,7 +278,11 @@ export class AnthropicAdapter implements ModelAdapter {
     this.model = config.model;
     this.maxTokens = config.maxTokens ?? 8192;
     this.useStreaming = config.stream ?? false;
-    this.client = new Anthropic({ apiKey: config.apiKey });
+    this.client = new Anthropic({
+      apiKey: config.apiKey,
+      ...(config.timeout != null && { timeout: config.timeout }),
+      ...(config.baseURL != null && { baseURL: config.baseURL }),
+    });
   }
 
   setSystemPrompt(systemPrompt: string) {

@@ -22,6 +22,8 @@ export interface OpenAICompatAdapterConfig {
   baseURL: string;
   /** Display name prefix, e.g. "openai", "gemini". Defaults to "openai-compat" */
   provider?: string;
+  /** Request timeout in milliseconds. Useful for local LLMs that may be slow. Defaults to 10 minutes (600000). */
+  timeout?: number;
 }
 
 // ─── Format conversion: Glove → OpenAI ──────────────────────────────────────
@@ -237,6 +239,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
   private maxTokens: number;
   private systemPrompt?: string;
   private useStreaming: boolean;
+  private timeout: number;
 
   constructor(config: OpenAICompatAdapterConfig) {
     const provider = config.provider ?? "openai-compat";
@@ -244,9 +247,11 @@ export class OpenAICompatAdapter implements ModelAdapter {
     this.model = config.model;
     this.maxTokens = config.maxTokens ?? 4096;
     this.useStreaming = config.stream ?? false;
+    this.timeout = config.timeout ?? 600000;
     this.client = new OpenAI({
       apiKey: config.apiKey,
       baseURL: config.baseURL,
+      timeout: this.timeout,
     });
   }
 

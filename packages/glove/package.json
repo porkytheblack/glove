@@ -39,6 +39,10 @@
       "types": "./dist/models/anthropic.d.ts",
       "import": "./dist/models/anthropic.js"
     },
+    "./models/anthropic-compat": {
+      "types": "./dist/models/anthropic-compat.d.ts",
+      "import": "./dist/models/anthropic-compat.js"
+    },
     "./models/openai-compat": {
       "types": "./dist/models/openai-compat.d.ts",
       "import": "./dist/models/openai-compat.js"
