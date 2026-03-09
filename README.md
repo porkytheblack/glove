@@ -64,6 +64,7 @@ const model = createAdapter({
 // 2. Create the agent
 const app = new Glove({
   store: new SqliteStore({ dbPath: "./glove.db", sessionId: "my-session" }),
+  // Or use a simple in-memory store — see glove-core docs
   model,
   displayManager: new Displaymanager(),
   systemPrompt: "You are a helpful assistant.",
@@ -251,14 +252,17 @@ Stores handle conversation persistence. Implement the `StoreAdapter` interface f
 - **MemoryStore** (from `glove-react`) — in-memory, great for prototyping
 - **SqliteStore** (from `glove-core`) — persistent, good for server-side agents
 - **createRemoteStore** (from `glove-react`) — delegates to your own API endpoints
+- **Custom StoreAdapter** — implement the `StoreAdapter` interface for any backend (Redis, Postgres, etc.)
 
 ### Subscribers
 
 Observe agent events in real time:
 
 ```typescript
-const subscriber = {
-  async record(event_type: string, data: any) {
+import type { SubscriberAdapter } from "glove-core";
+
+const subscriber: SubscriberAdapter = {
+  async record(event_type, data) {
     switch (event_type) {
       case "text_delta":      // streaming text chunk
         process.stdout.write(data.text);
@@ -316,6 +320,14 @@ Glove is built on five adapter interfaces. Swap any layer without changing appli
   ModelAdapter    StoreAdapter   VoiceAdapters
   (any LLM)      (any DB)       (STT/TTS/VAD)
 ```
+
+## Documentation
+
+- [Getting Started](https://glove.dterminal.net/docs/getting-started)
+- [Core API Reference](https://glove.dterminal.net/docs/core)
+- [Server-Side Agents](https://glove.dterminal.net/docs/server-side) — CLI tools, backend services, WebSocket servers
+- [Voice](https://glove.dterminal.net/docs/voice)
+- [Full Documentation](https://glove.dterminal.net)
 
 ## Examples
 

@@ -48,6 +48,39 @@ const app = new Glove({
 await app.processRequest("What's the weather in Tokyo?");
 ```
 
+### In-memory store
+
+For scripts, prototyping, or when you don't need persistence:
+
+```typescript
+import type { StoreAdapter, Message } from "glove-core";
+
+class MemoryStore implements StoreAdapter {
+  identifier: string;
+  private messages: Message[] = [];
+  private tokenCount = 0;
+  private turnCount = 0;
+
+  constructor(id: string) { this.identifier = id; }
+
+  async getMessages() { return this.messages; }
+  async appendMessages(msgs: Message[]) { this.messages.push(...msgs); }
+  async getTokenCount() { return this.tokenCount; }
+  async addTokens(count: number) { this.tokenCount += count; }
+  async getTurnCount() { return this.turnCount; }
+  async incrementTurn() { this.turnCount++; }
+  async resetCounters() { this.tokenCount = 0; this.turnCount = 0; }
+}
+
+const agent = new Glove({
+  store: new MemoryStore("my-session"),
+  model,
+  displayManager: new Displaymanager(),
+  systemPrompt: "You are a helpful assistant.",
+  compaction_config: { compaction_instructions: "Summarize the conversation." },
+}).build();
+```
+
 ### Provider factory
 
 ```typescript
@@ -71,6 +104,9 @@ const model = createAdapter({
 | `minimax` | `MINIMAX_API_KEY` | `MiniMax-M2.5` |
 | `kimi` | `MOONSHOT_API_KEY` | `kimi-k2.5` |
 | `glm` | `ZHIPUAI_API_KEY` | `glm-4-plus` |
+| `ollama` | _(none)_ | _(user-specified)_ |
+| `lmstudio` | _(none)_ | _(user-specified)_ |
+| `bedrock` | `AWS_ACCESS_KEY_ID` | `anthropic.claude-3-5-sonnet-20241022-v2:0` |
 
 ### Browser-safe imports
 
@@ -104,11 +140,12 @@ The core defines four pluggable adapter interfaces:
 - **`ModelAdapter`** — LLM provider (`prompt`, `setSystemPrompt`)
 - **`StoreAdapter`** — Persistence layer (`getMessages`, `appendMessages`, `getTokenCount`, `resetCounters`, etc.). Full message history is preserved across compaction — `resetCounters()` resets token and turn counts without deleting messages.
 - **`DisplayManagerAdapter`** — UI slot management (`pushAndWait`, `pushAndForget`, `subscribe`)
-- **`SubscriberAdapter`** — Event observer (`record` receives `text_delta`, `tool_use`, `tool_use_result`, `model_response_complete`)
+- **`SubscriberAdapter`** — Typed event observer. The `record` method is generic over a `SubscriberEvent` discriminated union (`text_delta`, `tool_use`, `tool_use_result`, `model_response`, `model_response_complete`, `compaction_start`, `compaction_end`).
 
 ## Documentation
 
 - [Getting Started](https://glove.dterminal.net/docs/getting-started)
+- [Server-Side Agents](https://glove.dterminal.net/docs/server-side)
 - [Core API Reference](https://glove.dterminal.net/docs/core)
 - [Full Documentation](https://glove.dterminal.net)
 

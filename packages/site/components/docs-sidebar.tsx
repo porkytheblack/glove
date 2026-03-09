@@ -28,6 +28,7 @@ const sections: NavSection[] = [
     title: "Core",
     items: [
       { label: "Concepts", href: "/docs/concepts" },
+      { label: "Server-Side Agents", href: "/docs/server-side" },
       { label: "Core API", href: "/docs/core" },
     ],
   },

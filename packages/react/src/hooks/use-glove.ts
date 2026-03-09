@@ -5,6 +5,8 @@ import type {
   StoreAdapter,
   ModelAdapter,
   SubscriberAdapter,
+  SubscriberEvent,
+  SubscriberEventDataMap,
   ContentPart,
   Message,
 } from "glove-core/core";
@@ -111,19 +113,26 @@ class ReactSubscriber implements SubscriberAdapter {
     }));
   }
 
-  async record(event_type: string, data: any): Promise<void> {
+  async record<T extends SubscriberEvent["type"]>(event_type: T, data: SubscriberEventDataMap[T]): Promise<void> {
+    // Cast to the specific event data type within each branch.
+    // TypeScript cannot narrow generic mapped types via switch, but
+    // the discriminant guarantees correctness at runtime.
+    const d = data as SubscriberEventDataMap[typeof event_type];
     switch (event_type) {
-      case "text_delta":
-        this.streamBuffer += data.text;
+      case "text_delta": {
+        const e = d as SubscriberEventDataMap["text_delta"];
+        this.streamBuffer += e.text;
         this.setState((s) => ({
           ...s,
           streamingText: this.streamBuffer,
         }));
         break;
+      }
 
       case "tool_use": {
+        const e = d as SubscriberEventDataMap["tool_use"];
         // Track current tool call for slot enhancement
-        this._currentToolCall = { id: data.id ?? `tool_${this.toolIdCounter + 1}`, name: data.name };
+        this._currentToolCall = { id: e.id ?? `tool_${this.toolIdCounter + 1}`, name: e.name };
 
         // Flush pending text before the tool entry
         const flushed = this.streamBuffer.trim();
@@ -135,9 +144,9 @@ class ReactSubscriber implements SubscriberAdapter {
           if (flushed) tl.push({ kind: "agent_text", text: flushed });
           tl.push({
             kind: "tool",
-            id: data.id ?? toolId,
-            name: data.name,
-            input: data.input,
+            id: e.id ?? toolId,
+            name: e.name,
+            input: e.input,
             status: "running",
           });
           return { ...s, timeline: tl, streamingText: "" };
@@ -145,21 +154,22 @@ class ReactSubscriber implements SubscriberAdapter {
         break;
       }
 
-      case "tool_use_result":
+      case "tool_use_result": {
+        const e = d as SubscriberEventDataMap["tool_use_result"];
         this._currentToolCall = null;
 
         this.setState((s) => {
           const timeline = s.timeline.map((entry) =>
-            entry.kind === "tool" && entry.id === data.call_id
+            entry.kind === "tool" && entry.id === e.call_id
               ? {
                   ...entry,
-                  status: (data.result.status as "success" | "error" | "aborted"),
+                  status: (e.result.status as "success" | "error" | "aborted"),
                   output:
-                    data.result.data != null
-                      ? String(data.result.data)
-                      : data.result.message,
-                  ...(data.result.renderData !== undefined
-                    ? { renderData: data.result.renderData }
+                    e.result.data != null
+                      ? String(e.result.data)
+                      : e.result.message,
+                  ...(e.result.renderData !== undefined
+                    ? { renderData: e.result.renderData }
                     : {}),
                 }
               : entry,
@@ -168,28 +178,31 @@ class ReactSubscriber implements SubscriberAdapter {
           // Detect task updates from glove_update_tasks tool
           let tasks = s.tasks;
           if (
-            data.tool_name === "glove_update_tasks" &&
-            data.result?.status === "success" &&
-            data.result?.data?.tasks
+            e.tool_name === "glove_update_tasks" &&
+            e.result?.status === "success" &&
+            (e.result?.data as any)?.tasks
           ) {
-            tasks = data.result.data.tasks;
+            tasks = (e.result.data as any).tasks;
           }
 
           return { ...s, timeline, tasks };
         });
         break;
+      }
 
       case "model_response":
-      case "model_response_complete":
+      case "model_response_complete": {
+        const e = d as SubscriberEventDataMap["model_response"];
         this.setState((s) => ({
           ...s,
           stats: {
             turns: s.stats.turns + 1,
-            tokens_in: s.stats.tokens_in + (data.tokens_in ?? 0),
-            tokens_out: s.stats.tokens_out + (data.tokens_out ?? 0),
+            tokens_in: s.stats.tokens_in + (e.tokens_in ?? 0),
+            tokens_out: s.stats.tokens_out + (e.tokens_out ?? 0),
           },
         }));
         break;
+      }
 
       case "compaction_start":
         this.setState((s) => ({ ...s, isCompacting: true }));

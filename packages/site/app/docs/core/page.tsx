@@ -929,6 +929,202 @@ try {
       />
 
       {/* ================================================================== */}
+      {/* SUBSCRIBER EVENTS                                                  */}
+      {/* ================================================================== */}
+      <h2 id="subscriber-events">Subscriber Events</h2>
+
+      <p>
+        Every model adapter emits events via the <code>notify</code> callback
+        during prompting. These events are fully typed using a discriminated
+        union so that subscribers (and custom adapter authors) get compile-time
+        safety.
+      </p>
+
+      <h3>SubscriberEvent</h3>
+
+      <p>
+        A discriminated union of all event shapes. Each variant has a{" "}
+        <code>type</code> field plus event-specific data.
+      </p>
+
+      <CodeBlock
+        code={`type SubscriberEvent =
+  | { type: "text_delta"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: unknown }
+  | { type: "model_response"; text: string; tool_calls?: ToolCall[];
+      stop_reason?: string; tokens_in?: number; tokens_out?: number }
+  | { type: "model_response_complete"; text: string; tool_calls?: ToolCall[];
+      stop_reason?: string; tokens_in?: number; tokens_out?: number }
+  | { type: "tool_use_result"; tool_name: string; call_id?: string;
+      result: ToolResultData }
+  | { type: "compaction_start"; current_token_consumption: number }
+  | { type: "compaction_end"; current_token_consumption: number;
+      summary_message: Message }`}
+        language="typescript"
+      />
+
+      <h3>Event Reference</h3>
+
+      <PropTable
+        headers={["Event", "Emitted by", "Description"]}
+        rows={[
+          [
+            "text_delta",
+            "Model adapter (streaming)",
+            "Incremental text fragment from the model. Use to render streaming text in the UI.",
+          ],
+          [
+            "tool_use",
+            "Model adapter (streaming)",
+            "The model is invoking a tool. Contains the tool id, name, and parsed input.",
+          ],
+          [
+            "model_response",
+            "Model adapter (non-streaming)",
+            "Complete model response in non-streaming mode. Contains text, optional tool_calls, stop_reason, and token counts.",
+          ],
+          [
+            "model_response_complete",
+            "Model adapter (streaming)",
+            "Final aggregated response after streaming finishes. Same shape as model_response.",
+          ],
+          [
+            "tool_use_result",
+            "Core (PromptMachine)",
+            "Result of executing a tool. Includes tool_name, call_id, and the full ToolResultData.",
+          ],
+          [
+            "compaction_start",
+            "Core (Context)",
+            "Conversation compaction is beginning. Contains current token consumption.",
+          ],
+          [
+            "compaction_end",
+            "Core (Context)",
+            "Compaction finished. Contains the new token count and the summary message.",
+          ],
+        ]}
+      />
+
+      <h3>SubscriberEventDataMap</h3>
+
+      <p>
+        A mapped type that extracts the data shape (everything except{" "}
+        <code>type</code>) for each event. Use this when implementing a{" "}
+        <code>SubscriberAdapter</code> or handling events in a switch statement.
+      </p>
+
+      <CodeBlock
+        code={`type SubscriberEventDataMap = {
+  [E in SubscriberEvent as E["type"]]: Omit<E, "type">;
+};
+
+// Example: SubscriberEventDataMap["text_delta"] = { text: string }`}
+        language="typescript"
+      />
+
+      <h3>SubscriberAdapter</h3>
+
+      <p>
+        Interface for receiving events. Both the React hook subscriber and
+        GloveVoice implement this. The <code>record</code> method is generic
+        over the event type.
+      </p>
+
+      <CodeBlock
+        code={`interface SubscriberAdapter {
+  record: <T extends SubscriberEvent["type"]>(
+    event_type: T,
+    data: SubscriberEventDataMap[T],
+  ) => Promise<void>;
+}`}
+        language="typescript"
+      />
+
+      <h3 id="custom-adapter">Implementing a Custom Model Adapter</h3>
+
+      <p>
+        When building a custom <code>ModelAdapter</code>, you must emit the
+        correct events via the <code>notify</code> callback. Here is the
+        minimal contract:
+      </p>
+
+      <CodeBlock
+        code={`import type { ModelAdapter, NotifySubscribersFunction, PromptRequest, ModelPromptResult } from "glove-core";
+
+class MyAdapter implements ModelAdapter {
+  name = "my-provider:model-name";
+  private systemPrompt?: string;
+
+  setSystemPrompt(systemPrompt: string) {
+    this.systemPrompt = systemPrompt;
+  }
+
+  async prompt(
+    request: PromptRequest,
+    notify: NotifySubscribersFunction,
+    signal?: AbortSignal,
+  ): Promise<ModelPromptResult> {
+    // ... call your LLM API ...
+
+    // Non-streaming: emit a single model_response event
+    await notify("model_response", {
+      text: responseText,
+      tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+      stop_reason: finishReason ?? undefined,
+      tokens_in: usage.promptTokens,
+      tokens_out: usage.completionTokens,
+    });
+
+    return { messages: [message], tokens_in: ..., tokens_out: ... };
+  }
+}`}
+        language="typescript"
+      />
+
+      <p>For streaming adapters, emit events incrementally:</p>
+
+      <CodeBlock
+        code={`// During streaming — emit text fragments as they arrive
+notify("text_delta", { text: chunk });
+
+// When a tool call is fully assembled
+await notify("tool_use", { id: toolCallId, name: toolName, input: parsedArgs });
+
+// After the stream completes — emit the final aggregated response
+await notify("model_response_complete", {
+  text: fullText,
+  tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+  stop_reason: finishReason ?? undefined,
+});`}
+        language="typescript"
+      />
+
+      <p>
+        <strong>Key rules:</strong>
+      </p>
+      <ul>
+        <li>
+          Non-streaming adapters emit <code>model_response</code> (one event per prompt call).
+        </li>
+        <li>
+          Streaming adapters emit <code>text_delta</code> for each text
+          chunk, <code>tool_use</code> for each completed tool call, and{" "}
+          <code>model_response_complete</code> once at the end.
+        </li>
+        <li>
+          <code>stop_reason</code> should be <code>undefined</code> (not{" "}
+          <code>null</code>) when unavailable. Use <code>?? undefined</code>{" "}
+          to coerce provider SDK nulls.
+        </li>
+        <li>
+          <code>tool_use_result</code>, <code>compaction_start</code>, and{" "}
+          <code>compaction_end</code> are emitted by the framework — adapters
+          should not emit these.
+        </li>
+      </ul>
+
+      {/* ================================================================== */}
       {/* STORE ADAPTER                                                      */}
       {/* ================================================================== */}
       <h2 id="store-adapter">StoreAdapter</h2>
@@ -1425,8 +1621,8 @@ try {
         rows={[
           [
             "NotifySubscribersFunction",
-            "(event_name: string, event_data: unknown) => Promise<void>",
-            "Callback passed to ModelAdapter.prompt for emitting events to subscribers.",
+            "<T extends SubscriberEvent['type']>(event_name: T, data: SubscriberEventDataMap[T]) => Promise<void>",
+            "Type-safe callback passed to ModelAdapter.prompt for emitting events to subscribers.",
           ],
           [
             "HandOverFunction",

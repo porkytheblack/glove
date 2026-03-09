@@ -18,6 +18,14 @@ export interface UseGloveVoiceReturn {
   mode: VoiceMode;
   /** Current partial transcript while user is speaking */
   transcript: string;
+  /**
+   * Whether the user has enabled voice.
+   *
+   * `true` after `start()` succeeds, `false` after `stop()` or pipeline death.
+   * Unlike `isActive`, this tracks user intent — you don't need a separate
+   * `useState` + sync `useEffect` to detect when the pipeline dies externally.
+   */
+  enabled: boolean;
   /** Whether the voice pipeline is active (not idle) */
   isActive: boolean;
   /** Whether mic audio is muted (not forwarded to STT/VAD) */
@@ -83,8 +91,10 @@ export function useGloveVoice(config: UseGloveVoiceConfig): UseGloveVoiceReturn 
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<Error | null>(null);
   const [isMuted, setIsMuted] = useState(false);
+  const [enabled, setEnabled] = useState(false);
 
   const voiceRef = useRef<GloveVoice | null>(null);
+  const startingRef = useRef(false);
 
   // Tear down on unmount or when runnable changes
   useEffect(() => {
@@ -94,8 +104,16 @@ export function useGloveVoice(config: UseGloveVoiceConfig): UseGloveVoiceReturn 
         void v.stop();
       }
       voiceRef.current = null;
+      setEnabled(false);
     };
   }, [runnable]);
+
+  // Auto-sync enabled state: detect pipeline death (e.g. WebSocket drop)
+  useEffect(() => {
+    if (enabled && mode === "idle" && !startingRef.current) {
+      setEnabled(false);
+    }
+  }, [enabled, mode]);
 
   const start = useCallback(async () => {
     if (!runnable) {
@@ -105,6 +123,7 @@ export function useGloveVoice(config: UseGloveVoiceConfig): UseGloveVoiceReturn 
 
     setError(null);
     setTranscript("");
+    startingRef.current = true;
 
     const voice = new GloveVoice(runnable, voiceConfig);
     voiceRef.current = voice;
@@ -117,10 +136,15 @@ export function useGloveVoice(config: UseGloveVoiceConfig): UseGloveVoiceReturn 
 
     try {
       await voice.start();
+      setEnabled(true);
+      setIsMuted(voice.isMuted);
     } catch (err) {
       voiceRef.current = null;
       setError(err instanceof Error ? err : new Error(String(err)));
       setMode("idle");
+      setEnabled(false);
+    } finally {
+      startingRef.current = false;
     }
   }, [runnable, voiceConfig]);
 
@@ -134,6 +158,7 @@ export function useGloveVoice(config: UseGloveVoiceConfig): UseGloveVoiceReturn 
     setMode("idle");
     setTranscript("");
     setIsMuted(false);
+    setEnabled(false);
   }, []);
 
   const interrupt = useCallback(() => {
@@ -162,6 +187,7 @@ export function useGloveVoice(config: UseGloveVoiceConfig): UseGloveVoiceReturn 
   return {
     mode,
     transcript,
+    enabled,
     isActive: mode !== "idle",
     isMuted,
     error,

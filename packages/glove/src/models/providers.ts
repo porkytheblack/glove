@@ -193,6 +193,8 @@ export interface CreateAdapterOptions {
   sessionToken?: string;
   /** Override the provider's default base URL (e.g., custom port for local LLMs) */
   baseURL?: string;
+  /** Request timeout in milliseconds. Useful for local LLMs that may be slow. Passed to the adapter. */
+  timeout?: number;
 }
 
 export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
@@ -228,6 +230,7 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
       model,
       maxTokens,
       stream,
+      ...(opts.timeout != null && { timeout: opts.timeout }),
     });
   }
 
@@ -250,6 +253,7 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
     stream,
     baseURL: opts.baseURL ?? providerDef.baseURL,
     provider: providerDef.id,
+    ...(opts.timeout != null && { timeout: opts.timeout }),
   });
 }
 

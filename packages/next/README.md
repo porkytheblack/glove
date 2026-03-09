@@ -57,6 +57,9 @@ type RemoteStreamEvent =
 | `minimax` | `MINIMAX_API_KEY` | `MiniMax-M2.5` |
 | `kimi` | `MOONSHOT_API_KEY` | `kimi-k2.5` |
 | `glm` | `ZHIPUAI_API_KEY` | `glm-4-plus` |
+| `ollama` | _(none)_ | _(user-specified)_ |
+| `lmstudio` | _(none)_ | _(user-specified)_ |
+| `bedrock` | `AWS_ACCESS_KEY_ID` | `anthropic.claude-3-5-sonnet-20241022-v2:0` |
 
 ## Pair with glove-react
 
@@ -82,6 +85,7 @@ const model = createEndpointModel("/api/chat");
 ## Documentation
 
 - [Getting Started](https://glove.dterminal.net/docs/getting-started)
+- [Server-Side Agents](https://glove.dterminal.net/docs/server-side)
 - [Full Documentation](https://glove.dterminal.net)
 
 ## License
