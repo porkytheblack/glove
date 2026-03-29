@@ -1,6 +1,6 @@
 {
   "name": "glove-react",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "React bindings for Glove agent framework",
   "type": "module",
   "license": "MIT",
@@ -28,7 +28,9 @@
       "import": "./dist/voice/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit"

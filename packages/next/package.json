@@ -1,6 +1,6 @@
 {
   "name": "glove-next",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Next.js handlers for Glove agent framework",
   "type": "module",
   "license": "MIT",
@@ -20,7 +20,9 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit"
