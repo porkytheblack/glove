@@ -172,6 +172,19 @@ export interface ContentPart {
   };
 }
 
+export type InboxItemStatus = "pending" | "resolved" | "consumed";
+
+export interface InboxItem {
+  id: string;
+  tag: string;
+  request: string;
+  response: string | null;
+  status: InboxItemStatus;
+  blocking: boolean;
+  created_at: string;
+  resolved_at: string | null;
+}
+
 export interface Message {
   sender: "user" | "agent";
   id?: string;
@@ -233,6 +246,12 @@ export interface StoreAdapter {
   // Permissions (optional)
   getPermission?(toolName: string): Promise<PermissionStatus>
   setPermission?(toolName: string, status: PermissionStatus): Promise<void>
+
+  // Inbox (optional)
+  getInboxItems?(): Promise<Array<InboxItem>>
+  addInboxItem?(item: InboxItem): Promise<void>
+  updateInboxItem?(itemId: string, updates: Partial<Pick<InboxItem, "status" | "response" | "resolved_at">>): Promise<void>
+  getResolvedInboxItems?(): Promise<Array<InboxItem>>
 }
 
 export class Context {
@@ -264,6 +283,26 @@ export class Context {
   async updateTask(taskId: string, updates: Partial<Pick<Task, "status" | "content" | "activeForm">>): Promise<void> {
     if (!this.store.updateTask) return;
     await this.store.updateTask(taskId, updates);
+  }
+
+  async getInboxItems(): Promise<Array<InboxItem>> {
+    if (!this.store.getInboxItems) return [];
+    return await this.store.getInboxItems();
+  }
+
+  async addInboxItem(item: InboxItem): Promise<void> {
+    if (!this.store.addInboxItem) return;
+    await this.store.addInboxItem(item);
+  }
+
+  async updateInboxItem(itemId: string, updates: Partial<Pick<InboxItem, "status" | "response" | "resolved_at">>): Promise<void> {
+    if (!this.store.updateInboxItem) return;
+    await this.store.updateInboxItem(itemId, updates);
+  }
+
+  async getResolvedInboxItems(): Promise<Array<InboxItem>> {
+    if (!this.store.getResolvedInboxItems) return [];
+    return await this.store.getResolvedInboxItems();
   }
 }
 
@@ -625,9 +664,23 @@ export class Observer {
         taskLines.join("\n") + "\n";
     }
 
+    // Preserve pending inbox items across compaction
+    const pendingInbox = (await this.context.getInboxItems()).filter(
+      (item) => item.status === "pending"
+    );
+    let inboxBlock = "";
+    if (pendingInbox.length > 0) {
+      const lines = pendingInbox.map(
+        (item) => `- [${item.tag}] ${item.blocking ? "BLOCKING" : "non-blocking"}: ${item.request}`
+      );
+      inboxBlock =
+        `\n\n[Pending inbox items — being monitored by external services]\n` +
+        lines.join("\n") + "\n";
+    }
+
     const summaryMessage: Message = {
       sender: "user",
-      text: `[Conversation summary from compaction]\n\n${summaryText}${taskBlock}\n\n` +
+      text: `[Conversation summary from compaction]\n\n${summaryText}${taskBlock}${inboxBlock}\n\n` +
         `[End of summary - the conversation continues from here]`,
       is_compaction: true
     }
@@ -667,6 +720,10 @@ export class Agent {
   async ask(message: Message, handOver?: HandOverFunction, signal?: AbortSignal) {
     await this.context.appendMessages([message]);
 
+    // Inbox: inject resolved items (persisted) and build transient blocking reminder
+    await this.injectResolvedInboxItems();
+    const pendingBlockingMessage = await this.buildPendingBlockingMessage();
+
     // Per-request turn counter to prevent runaway loops.
     // The observer's session-level counter is still incremented for stats.
     let requestTurns = 0;
@@ -675,6 +732,12 @@ export class Agent {
       if (signal?.aborted) throw new AbortError();
 
       let messages = await this.context.getMessages();
+
+      // Append transient blocking reminder (not persisted) so the model
+      // is aware of pending items without bloating conversation history.
+      if (pendingBlockingMessage) {
+        messages = [...messages, pendingBlockingMessage];
+      }
 
       if (requestTurns >= this.observer.MAX_TURNS) {
         const errorMsg: Message = {
@@ -745,5 +808,42 @@ export class Agent {
       t.status === "in_progress" ? { ...t, status: "completed" as const } : t,
     );
     await this.context.addTasks(updated);
+  }
+
+  private async injectResolvedInboxItems() {
+    const resolved = await this.context.getResolvedInboxItems();
+    if (resolved.length === 0) return;
+
+    const inboxMessage: Message = {
+      sender: "user",
+      text: `[Inbox: ${resolved.length} item(s) resolved]\n` +
+        resolved.map((item) =>
+          `- [${item.tag}] Request: "${item.request}" -> Response: "${item.response}" (resolved ${item.resolved_at})`
+        ).join("\n"),
+    };
+
+    await this.context.appendMessages([inboxMessage]);
+
+    for (const item of resolved) {
+      await this.context.updateInboxItem(item.id, { status: "consumed" });
+    }
+  }
+
+  private async buildPendingBlockingMessage(): Promise<Message | null> {
+    const allItems = await this.context.getInboxItems();
+    const pendingBlocking = allItems.filter(
+      (item) => item.status === "pending" && item.blocking
+    );
+
+    if (pendingBlocking.length === 0) return null;
+
+    return {
+      sender: "user",
+      text: `[Inbox: ${pendingBlocking.length} blocking item(s) still pending — ` +
+        `you cannot proceed with actions that depend on these results]\n` +
+        pendingBlocking.map((item) =>
+          `- [${item.tag}] ${item.request} (posted ${item.created_at})`
+        ).join("\n"),
+    };
   }
 }

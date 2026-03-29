@@ -1,6 +1,6 @@
 {
   "name": "glove-core",
-  "version": "2.0.5",
+  "version": "2.1.0",
   "description": "Core agent framework",
   "type": "module",
   "license": "MIT",
@@ -34,6 +34,10 @@
     "./tools/task-tool": {
       "types": "./dist/tools/task-tool.d.ts",
       "import": "./dist/tools/task-tool.js"
+    },
+    "./tools/inbox-tool": {
+      "types": "./dist/tools/inbox-tool.d.ts",
+      "import": "./dist/tools/inbox-tool.js"
     },
     "./models/anthropic": {
       "types": "./dist/models/anthropic.d.ts",

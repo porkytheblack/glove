@@ -30,6 +30,7 @@ export type {
   ToolDisplay,
   TypedDisplay,
   Task,
+  InboxItem,
   ContentPart,
   Slot,
   ToolResultData,

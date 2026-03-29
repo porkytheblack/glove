@@ -8,6 +8,7 @@ import z from "zod";
 import { Agent, ContentPart, Context, Executor, HandOverFunction, Message, ModelAdapter, ModelPromptResult, Observer, PromptMachine, StoreAdapter, SubscriberAdapter, Tool, ToolResultData } from "./core";
 import { DisplayManagerAdapter } from "./display-manager";
 import { createTaskTool } from "./tools/task-tool";
+import { createInboxTool } from "./tools/inbox-tool";
 
 
 interface GloveFoldArgs<I> {
@@ -87,6 +88,11 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     // Auto-register task tool when the store supports tasks
     if (this.store.getTasks && this.store.addTasks) {
       this.executor.registerTool(createTaskTool(this.context));
+    }
+
+    // Auto-register inbox tool when the store supports inbox
+    if (this.store.getInboxItems && this.store.addInboxItem && this.store.updateInboxItem && this.store.getResolvedInboxItems) {
+      this.executor.registerTool(createInboxTool(this.context));
     }
   }
 

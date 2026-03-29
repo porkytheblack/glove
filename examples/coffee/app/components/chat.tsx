@@ -129,7 +129,7 @@ export default function Chat({ sessionId, onFirstMessage }: ChatProps) {
 
   // ── Glove hook — sessionId drives store resolution ──────────────────
   const glove = useGlove({ tools, sessionId });
-  const { runnable, timeline, streamingText, busy, stats, slots, sendMessage, abort } =
+  const { runnable, timeline, streamingText, busy, stats, slots, inbox, sendMessage, abort } =
     glove;
 
   // ── Turn mode state ──────────────────────────────────────────────────
@@ -388,7 +388,7 @@ export default function Chat({ sessionId, onFirstMessage }: ChatProps) {
       </div>
 
       {/* ── Right panel ──────────────────────────────────── */}
-      <RightPanel cart={cart} timeline={timeline} stats={stats} />
+      <RightPanel cart={cart} timeline={timeline} inbox={inbox} stats={stats} />
     </>
   );
 }

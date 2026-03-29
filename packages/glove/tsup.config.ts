@@ -7,6 +7,7 @@ export default defineConfig({
     "src/glove.ts",
     "src/display-manager.ts",
     "src/tools/task-tool.ts",
+    "src/tools/inbox-tool.ts",
     "src/models/anthropic.ts",
     "src/models/anthropic-compat.ts",
     "src/models/bedrock.ts",

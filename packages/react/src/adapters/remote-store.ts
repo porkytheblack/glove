@@ -2,6 +2,7 @@ import type {
   StoreAdapter,
   Message,
   Task,
+  InboxItem,
   PermissionStatus,
 } from "glove-core/core";
 
@@ -36,6 +37,16 @@ export interface RemoteStoreActions {
     taskId: string,
     updates: Partial<Pick<Task, "status" | "content" | "activeForm">>,
   ) => Promise<void>;
+
+  // Inbox
+  getInboxItems?: (sessionId: string) => Promise<InboxItem[]>;
+  addInboxItem?: (sessionId: string, item: InboxItem) => Promise<void>;
+  updateInboxItem?: (
+    sessionId: string,
+    itemId: string,
+    updates: Partial<Pick<InboxItem, "status" | "response" | "resolved_at">>,
+  ) => Promise<void>;
+  getResolvedInboxItems?: (sessionId: string) => Promise<InboxItem[]>;
 
   // Permissions
   getPermission?: (
@@ -75,6 +86,7 @@ export function createRemoteStore(
   let tokenCount = 0;
   let turnCount = 0;
   let tasks: Task[] = [];
+  let inboxItems: InboxItem[] = [];
   const permissions = new Map<string, PermissionStatus>();
 
   return {
@@ -153,6 +165,35 @@ export function createRemoteStore(
         const task = tasks.find((t) => t.id === taskId);
         if (task) Object.assign(task, updates);
       }
+    },
+
+    // ─── Inbox ──────────────────────────────────────────────────────────
+
+    async getInboxItems() {
+      if (actions.getInboxItems) return actions.getInboxItems(sessionId);
+      return inboxItems;
+    },
+
+    async addInboxItem(item) {
+      if (actions.addInboxItem) {
+        await actions.addInboxItem(sessionId, item);
+      } else {
+        inboxItems.push(item);
+      }
+    },
+
+    async updateInboxItem(itemId, updates) {
+      if (actions.updateInboxItem) {
+        await actions.updateInboxItem(sessionId, itemId, updates);
+      } else {
+        const item = inboxItems.find((i) => i.id === itemId);
+        if (item) Object.assign(item, updates);
+      }
+    },
+
+    async getResolvedInboxItems() {
+      if (actions.getResolvedInboxItems) return actions.getResolvedInboxItems(sessionId);
+      return inboxItems.filter((i) => i.status === "resolved");
     },
 
     // ─── Permissions ───────────────────────────────────────────────────────

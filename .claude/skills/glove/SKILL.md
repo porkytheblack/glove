@@ -44,6 +44,7 @@ User message → Agent Loop → Model decides tool calls → Execute tools → F
 - **renderData** — Client-only data returned from `do()` that is NOT sent to the AI model. Used by `renderResult` for history rendering.
 - **Adapter** — Pluggable interfaces for Model, Store, DisplayManager, and Subscriber. Swap providers without changing app code.
 - **Context Compaction** — Auto-summarizes long conversations to stay within context window limits. The store preserves full message history (so frontends can display the entire chat), while `Context.getMessages()` splits at the last compaction summary so the model only sees post-compaction context. Summary messages are marked with `is_compaction: true`.
+- **Inbox** — Persistent async mailbox for cross-instance communication. An agent posts a request (text) that can't be resolved now; an external service resolves it later (text response). Resolved items are automatically injected into the agent's context on the next `ask()` call. Items can be blocking (agent should wait) or non-blocking. Built-in `glove_post_to_inbox` tool auto-registered when store supports inbox methods.
 
 ## Quick Start (Next.js)
 
@@ -338,8 +339,103 @@ gloveBuilder.addSubscriber(logger);
 
 - **Tasks** (`getTasks`, `addTasks`, `updateTask`): Auto-registers `glove_update_tasks` tool
 - **Permissions** (`getPermission`, `setPermission`): Tools with `requiresPermission: true` check consent
+- **Inbox** (`getInboxItems`, `addInboxItem`, `updateInboxItem`, `getResolvedInboxItems`): Auto-registers `glove_post_to_inbox` tool. Enables async cross-instance communication.
 
 If your store doesn't implement these, they're silently disabled.
+
+## Inbox (Async Mailbox)
+
+The inbox enables agents to post requests that will be resolved later by external services — surviving across sessions and instances.
+
+### How It Works
+
+1. Agent calls `glove_post_to_inbox` with a tag, request text, and blocking flag
+2. Item persists in the store with status `pending`
+3. External service resolves the item (via `SqliteStore.resolveInboxItem()` or store API)
+4. Next time `agent.ask()` runs, resolved items are injected as text messages and marked `consumed`
+5. Pending blocking items are surfaced as transient reminders (not persisted)
+6. Compaction preserves pending inbox items in the summary block
+
+### Built-in Tool: `glove_post_to_inbox`
+
+Auto-registered when store implements inbox methods. Input schema:
+
+```typescript
+{
+  tag: string,       // Category label, e.g. "restock_watch"
+  request: string,   // Natural language description of what needs to happen
+  blocking: boolean, // Default false. If true, agent should wait for resolution
+}
+```
+
+### External Resolution
+
+```typescript
+// From a background job, webhook handler, or cron:
+import { SqliteStore } from "glove-core";
+
+SqliteStore.resolveInboxItem(
+  "path/to/db.db",
+  "inbox_item_id",
+  "The item you requested is now available."  // text response
+);
+```
+
+Or via REST if you've set up inbox API routes (see coffee example).
+
+### InboxItem Type
+
+```typescript
+interface InboxItem {
+  id: string;
+  tag: string;
+  request: string;
+  response: string | null;
+  status: "pending" | "resolved" | "consumed";
+  blocking: boolean;
+  created_at: string;
+  resolved_at: string | null;
+}
+```
+
+### Store Methods (Optional)
+
+```typescript
+// Add to StoreAdapter to enable inbox:
+getInboxItems?(): Promise<InboxItem[]>
+addInboxItem?(item: InboxItem): Promise<void>
+updateInboxItem?(itemId: string, updates: Partial<Pick<InboxItem, "status" | "response" | "resolved_at">>): Promise<void>
+getResolvedInboxItems?(): Promise<InboxItem[]>
+```
+
+All store implementations (SqliteStore, MemoryStore, createRemoteStore) support inbox.
+
+### React Integration
+
+`useGlove()` returns `inbox: InboxItem[]` alongside `tasks`:
+
+```tsx
+const { inbox, tasks, timeline, sendMessage } = useGlove({ tools, sessionId });
+
+// Show pending watches in UI
+{inbox.filter(i => i.status === "pending").map(item => (
+  <div key={item.id}>{item.tag}: {item.request}</div>
+))}
+```
+
+### Remote Store Actions
+
+When using `createRemoteStore`, add inbox actions to persist to your backend:
+
+```typescript
+const storeActions: RemoteStoreActions = {
+  // ...existing getMessages, appendMessages...
+  getInboxItems: (sid) => fetch(`/api/sessions/${sid}/inbox`).then(r => r.json()),
+  addInboxItem: (sid, item) => fetch(`/api/sessions/${sid}/inbox`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ item }) }),
+  updateInboxItem: (sid, itemId, updates) => fetch(`/api/sessions/${sid}/inbox/update`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId, updates }) }),
+  getResolvedInboxItems: (sid) => fetch(`/api/sessions/${sid}/inbox/resolved`).then(r => r.json()),
+};
+```
 
 ## Display Stack Patterns
 
@@ -513,6 +609,7 @@ interface GloveHandle {
 | `isCompacting` | `boolean` | Context compaction in progress (driven by `compaction_start`/`compaction_end` events) |
 | `slots` | `EnhancedSlot[]` | Active display stack with metadata |
 | `tasks` | `Task[]` | Agent task list |
+| `inbox` | `InboxItem[]` | Inbox items (pending, resolved, consumed) |
 | `stats` | `GloveStats` | `{ turns, tokens_in, tokens_out }` |
 | `sendMessage(text, images?)` | `void` | Send user message |
 | `abort()` | `void` | Cancel current request |
@@ -768,7 +865,7 @@ For example patterns from real implementations, see [examples.md](examples.md).
 1. **model_response_complete vs model_response**: Streaming adapters emit `model_response_complete`, not `model_response`. Subscribers must handle both.
 2. **Closure capture in React hooks**: When re-keying sessions, use mutable `let currentKey = key` to avoid stale closures.
 3. **React useEffect timing**: State updates don't take effect in the same render cycle — guard with early returns.
-4. **Browser-safe imports**: `glove-core` barrel exports include native deps (better-sqlite3). For browser code, import from subpaths: `glove-core/core`, `glove-core/glove`, `glove-core/display-manager`, `glove-core/tools/task-tool`.
+4. **Browser-safe imports**: `glove-core` barrel exports include native deps (better-sqlite3). For browser code, import from subpaths: `glove-core/core`, `glove-core/glove`, `glove-core/display-manager`, `glove-core/tools/task-tool`, `glove-core/tools/inbox-tool`.
 5. **`Displaymanager` casing**: The concrete class is `Displaymanager` (lowercase 'm'), not `DisplayManager`. Import it as: `import { Displaymanager } from "glove-core/display-manager"`.
 6. **`createAdapter` stream default**: `stream` defaults to `true`, not `false`. Pass `stream: false` explicitly if you want synchronous responses.
 7. **Tool return values**: The `do` function should return `ToolResultData` with `{ status, data, renderData? }`. `data` goes to the AI; `renderData` stays client-only.
@@ -791,3 +888,6 @@ For example patterns from real implementations, see [examples.md](examples.md).
 24. **Tools execute outside React**: Tool `do()` functions run outside the component tree. To access React context (e.g. `useWallet()`), use a mutable singleton ref synced from a React component (bridge pattern).
 25. **SileroVAD not needed for manual mode**: When using `turnMode: "manual"` (push-to-talk), skip the SileroVAD import and its WASM overhead. VAD is only needed for `turnMode: "vad"`.
 26. **System prompt: document tools explicitly**: Even though tools have descriptions and schemas, listing every tool with its parameters in the system prompt dramatically improves tool selection accuracy.
+27. **Inbox items need remote store wiring**: When using `createRemoteStore`, inbox falls back to in-memory if you don't provide `getInboxItems`/`addInboxItem`/`updateInboxItem`/`getResolvedInboxItems` actions. Items will vanish on reload.
+28. **Inbox resolved items are plain text messages**: Resolved inbox items are injected as user text messages, not tool results. This avoids Anthropic API validation errors from unmatched tool_use/tool_result pairs.
+29. **Blocking inbox reminders are transient**: Pending blocking item reminders are included in the prompt but NOT persisted to the store, preventing context bloat across turns.

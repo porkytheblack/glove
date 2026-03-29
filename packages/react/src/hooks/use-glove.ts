@@ -353,6 +353,7 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
     timeline: [],
     streamingText: "",
     tasks: [],
+    inbox: [],
     slots: [],
     stats: { turns: 0, tokens_in: 0, tokens_out: 0 },
   });
@@ -557,14 +558,16 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
           // Flush any remaining streamed text
           sub?.flushStreamToTimeline();
 
-          // Fetch final task state
+          // Fetch final task and inbox state
           const tasks = await store.getTasks?.();
+          const inbox = await store.getInboxItems?.();
 
           setState((s) => ({
             ...s,
             busy: false,
             streamingText: "",
             ...(tasks ? { tasks } : {}),
+            ...(inbox ? { inbox } : {}),
           }));
         })
         .catch((err: any) => {
@@ -675,6 +678,11 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
     store.getMessages().then((messages: Message[]) => {
       if (cancelled || messages.length === 0) return;
       setState((s) => ({ ...s, timeline: messagesToTimeline(messages) }));
+    });
+
+    store.getInboxItems?.().then((inbox) => {
+      if (cancelled || !inbox?.length) return;
+      setState((s) => ({ ...s, inbox }));
     });
 
     return () => { cancelled = true; };
