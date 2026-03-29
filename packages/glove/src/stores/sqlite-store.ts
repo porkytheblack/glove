@@ -6,6 +6,8 @@ import type {
   Task,
   TaskStatus,
   PermissionStatus,
+  InboxItem,
+  InboxItemStatus,
 } from "../core";
 
 export interface SqliteStoreOptions {
@@ -71,6 +73,23 @@ export class SqliteStore implements StoreAdapter {
         PRIMARY KEY (session_id, tool_name),
         FOREIGN KEY (session_id) REFERENCES sessions(session_id)
       );
+
+      CREATE TABLE IF NOT EXISTS inbox (
+        id          TEXT NOT NULL,
+        session_id  TEXT NOT NULL,
+        tag         TEXT NOT NULL,
+        request     TEXT NOT NULL,
+        response    TEXT,
+        status      TEXT NOT NULL DEFAULT 'pending',
+        blocking    INTEGER NOT NULL DEFAULT 0,
+        created_at  TEXT NOT NULL,
+        resolved_at TEXT,
+        PRIMARY KEY (session_id, id),
+        FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_inbox_session_status
+        ON inbox(session_id, status);
     `);
   }
 
@@ -308,6 +327,116 @@ export class SqliteStore implements StoreAdapter {
       .run(this.identifier, toolName, status);
   }
 
+  // ─── Inbox ─────────────────────────────────────────────────────────────
+
+  async getInboxItems(): Promise<Array<InboxItem>> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, tag, request, response, status, blocking, created_at, resolved_at
+         FROM inbox WHERE session_id = ? ORDER BY created_at`,
+      )
+      .all(this.identifier) as Array<{
+      id: string;
+      tag: string;
+      request: string;
+      response: string | null;
+      status: string;
+      blocking: number;
+      created_at: string;
+      resolved_at: string | null;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      tag: row.tag,
+      request: row.request,
+      response: row.response,
+      status: row.status as InboxItemStatus,
+      blocking: row.blocking === 1,
+      created_at: row.created_at,
+      resolved_at: row.resolved_at,
+    }));
+  }
+
+  async addInboxItem(item: InboxItem): Promise<void> {
+    this.db
+      .prepare(
+        `INSERT INTO inbox (id, session_id, tag, request, response, status, blocking, created_at, resolved_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        item.id,
+        this.identifier,
+        item.tag,
+        item.request,
+        item.response,
+        item.status,
+        item.blocking ? 1 : 0,
+        item.created_at,
+        item.resolved_at,
+      );
+  }
+
+  async updateInboxItem(
+    itemId: string,
+    updates: Partial<Pick<InboxItem, "status" | "response" | "resolved_at">>,
+  ): Promise<void> {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+
+    if (updates.status !== undefined) {
+      sets.push("status = ?");
+      values.push(updates.status);
+    }
+    if (updates.response !== undefined) {
+      sets.push("response = ?");
+      values.push(updates.response);
+    }
+    if (updates.resolved_at !== undefined) {
+      sets.push("resolved_at = ?");
+      values.push(updates.resolved_at);
+    }
+
+    if (sets.length === 0) return;
+
+    values.push(this.identifier, itemId);
+
+    this.db
+      .prepare(
+        `UPDATE inbox SET ${sets.join(", ")} WHERE session_id = ? AND id = ?`,
+      )
+      .run(...values);
+  }
+
+  async getResolvedInboxItems(): Promise<Array<InboxItem>> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, tag, request, response, status, blocking, created_at, resolved_at
+         FROM inbox WHERE session_id = ? AND status = 'resolved' ORDER BY created_at`,
+      )
+      .all(this.identifier) as Array<{
+      id: string;
+      tag: string;
+      request: string;
+      response: string | null;
+      status: string;
+      blocking: number;
+      created_at: string;
+      resolved_at: string | null;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      tag: row.tag,
+      request: row.request,
+      response: row.response,
+      status: row.status as InboxItemStatus,
+      blocking: row.blocking === 1,
+      created_at: row.created_at,
+      resolved_at: row.resolved_at,
+    }));
+  }
+
   // ─── Session metadata ────────────────────────────────────────────────────
 
   getName(): string {
@@ -376,6 +505,26 @@ export class SqliteStore implements StoreAdapter {
         createdAt: r.created_at,
         workingDir: r.working_dir ?? "",
       }));
+    } finally {
+      db.close();
+    }
+  }
+
+  /** Resolve an inbox item by ID from outside the session-scoped store. */
+  static resolveInboxItem(
+    dbPath: string,
+    itemId: string,
+    response: string,
+  ): boolean {
+    const db = new Database(dbPath);
+    try {
+      const result = db
+        .prepare(
+          `UPDATE inbox SET status = 'resolved', response = ?, resolved_at = datetime('now')
+           WHERE id = ? AND status = 'pending'`,
+        )
+        .run(response, itemId);
+      return result.changes > 0;
     } finally {
       db.close();
     }

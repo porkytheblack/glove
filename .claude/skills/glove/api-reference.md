@@ -79,6 +79,11 @@ interface StoreAdapter {
   // Optional — enables permission system:
   getPermission?(toolName: string): Promise<PermissionStatus>;
   setPermission?(toolName: string, status: PermissionStatus): Promise<void>;
+  // Optional — enables built-in inbox tool when present:
+  getInboxItems?(): Promise<InboxItem[]>;
+  addInboxItem?(item: InboxItem): Promise<void>;
+  updateInboxItem?(itemId: string, updates: Partial<Pick<InboxItem, "status" | "response" | "resolved_at">>): Promise<void>;
+  getResolvedInboxItems?(): Promise<InboxItem[]>;
 }
 ```
 
@@ -92,6 +97,7 @@ import { SqliteStore } from "glove-core";
 const store = new SqliteStore({ dbPath: ":memory:", sessionId: "abc123" });
 // Additional methods: getName(), setName(), getWorkingDir(), setWorkingDir(), close()
 // Static: SqliteStore.listSessions(dbPath)
+// Static: SqliteStore.resolveInboxItem(dbPath, itemId, response) — resolve inbox item from external process
 ```
 
 ### ModelAdapter Interface
@@ -191,6 +197,18 @@ interface ToolCall { tool_name: string; input_args: unknown; id?: string; }
 interface ToolResult { tool_name: string; call_id?: string; result: ToolResultData; }
 interface Task { id: string; content: string; activeForm: string; status: "pending" | "in_progress" | "completed"; }
 type PermissionStatus = "granted" | "denied" | "unset";
+
+type InboxItemStatus = "pending" | "resolved" | "consumed";
+interface InboxItem {
+  id: string;
+  tag: string;
+  request: string;
+  response: string | null;
+  status: InboxItemStatus;
+  blocking: boolean;
+  created_at: string;
+  resolved_at: string | null;
+}
 ```
 
 ### ToolResultData
@@ -213,6 +231,16 @@ Auto-registered when store has `getTasks` and `addTasks`:
 ```typescript
 import { createTaskTool } from "glove-core";
 const taskTool = createTaskTool(context); // name: "glove_update_tasks"
+```
+
+### Built-in Inbox Tool
+
+Auto-registered when store has `getInboxItems`, `addInboxItem`, `updateInboxItem`, and `getResolvedInboxItems`:
+
+```typescript
+import { createInboxTool } from "glove-core";
+const inboxTool = createInboxTool(context); // name: "glove_post_to_inbox"
+// Input: { tag: string, request: string, blocking?: boolean }
 ```
 
 ### AbortError
@@ -254,7 +282,7 @@ import { GloveProvider } from "glove-react";
 
 ```typescript
 const {
-  busy, isCompacting, timeline, streamingText, tasks, slots, stats,
+  busy, isCompacting, timeline, streamingText, tasks, inbox, slots, stats,
   sendMessage, abort, renderSlot, renderToolResult, resolveSlot, rejectSlot,
 } = useGlove(config?: UseGloveConfig);
 ```
@@ -504,7 +532,7 @@ import { createRemoteStore } from "glove-react";
 const store = createRemoteStore("session-id", {
   getMessages: async (sid) => fetch(`/api/${sid}/messages`).then(r => r.json()),
   appendMessages: async (sid, msgs) => fetch(`/api/${sid}/messages`, { method: "POST", body: JSON.stringify(msgs) }),
-  // Optional: getTokenCount, addTokens, getTurnCount, incrementTurn, resetCounters, getTasks, addTasks, updateTask, getPermission, setPermission
+  // Optional: getTokenCount, addTokens, getTurnCount, incrementTurn, resetCounters, getTasks, addTasks, updateTask, getPermission, setPermission, getInboxItems, addInboxItem, updateInboxItem, getResolvedInboxItems
 });
 ```
 
@@ -812,6 +840,7 @@ The main `glove-core` barrel includes native deps (better-sqlite3). For browser 
 | `glove-core/glove` | Glove builder class | Yes |
 | `glove-core/display-manager` | Displaymanager | Yes |
 | `glove-core/tools/task-tool` | Task tool factory | Yes |
+| `glove-core/tools/inbox-tool` | Inbox tool factory | Yes |
 | `glove-core/models/anthropic` | AnthropicAdapter | No |
 | `glove-core/models/openai-compat` | OpenAICompatAdapter | No |
 | `glove-core/models/providers` | Provider factory | No |

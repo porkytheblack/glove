@@ -22,6 +22,7 @@ const sections: NavSection[] = [
       { label: "What is Glove?", href: "/docs/intro" },
       { label: "Getting Started", href: "/docs/getting-started" },
       { label: "The Display Stack", href: "/docs/display-stack" },
+      { label: "The Inbox", href: "/docs/inbox" },
     ],
   },
   {

@@ -8,6 +8,7 @@ export interface Product {
   notes: string[];
   description: string;
   intensity: number;
+  stock: number;
 }
 
 export interface CartItem extends Product {
@@ -26,6 +27,7 @@ export const PRODUCTS: Product[] = [
     description:
       "Bright and floral with a clean, tea-like body. Grown at 1,900m in the Gedeo zone.",
     intensity: 3,
+    stock: 0,
   },
   {
     id: "colombian-huila",
@@ -38,6 +40,7 @@ export const PRODUCTS: Product[] = [
     description:
       "Balanced sweetness with a silky mouthfeel. Washed process from smallholder farms.",
     intensity: 5,
+    stock: 12,
   },
   {
     id: "kenyan-aa",
@@ -50,6 +53,7 @@ export const PRODUCTS: Product[] = [
     description:
       "Complex and vibrant. Double-washed SL28 varietal from the slopes of Mt. Kenya.",
     intensity: 4,
+    stock: 5,
   },
   {
     id: "sumatra-mandheling",
@@ -62,6 +66,7 @@ export const PRODUCTS: Product[] = [
     description:
       "Earthy and full-bodied with low acidity. Wet-hulled in the Batak highlands.",
     intensity: 8,
+    stock: 0,
   },
   {
     id: "guatemala-antigua",
@@ -74,6 +79,7 @@ export const PRODUCTS: Product[] = [
     description:
       "Rich and smoky with volcanic terroir. Grown in nutrient-dense pumice soil.",
     intensity: 6,
+    stock: 8,
   },
   {
     id: "rwanda-kivu",
@@ -86,6 +92,7 @@ export const PRODUCTS: Product[] = [
     description:
       "Delicate and fruit-forward. Fully washed Bourbon from cooperative farms.",
     intensity: 2,
+    stock: 15,
   },
 ];
 

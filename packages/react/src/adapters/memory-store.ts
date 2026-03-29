@@ -2,6 +2,7 @@ import type {
   StoreAdapter,
   Message,
   Task,
+  InboxItem,
   PermissionStatus,
 } from "glove-core/core";
 
@@ -18,6 +19,7 @@ export class MemoryStore implements StoreAdapter {
   private tokenCount = 0;
   private turnCount = 0;
   private tasks: Task[] = [];
+  private inboxItems: InboxItem[] = [];
   private permissions = new Map<string, PermissionStatus>();
 
   constructor(identifier: string) {
@@ -77,6 +79,28 @@ export class MemoryStore implements StoreAdapter {
   ): Promise<void> {
     const task = this.tasks.find((t) => t.id === taskId);
     if (task) Object.assign(task, updates);
+  }
+
+  // ─── Inbox ─────────────────────────────────────────────────────────────────
+
+  async getInboxItems(): Promise<InboxItem[]> {
+    return this.inboxItems;
+  }
+
+  async addInboxItem(item: InboxItem): Promise<void> {
+    this.inboxItems.push(item);
+  }
+
+  async updateInboxItem(
+    itemId: string,
+    updates: Partial<Pick<InboxItem, "status" | "response" | "resolved_at">>,
+  ): Promise<void> {
+    const item = this.inboxItems.find((i) => i.id === itemId);
+    if (item) Object.assign(item, updates);
+  }
+
+  async getResolvedInboxItems(): Promise<InboxItem[]> {
+    return this.inboxItems.filter((i) => i.status === "resolved");
   }
 
   // ─── Permissions ─────────────────────────────────────────────────────────────

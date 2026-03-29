@@ -9,7 +9,7 @@ Real patterns drawn from the example implementations in `examples/`.
 | `examples/weather-agent` | Terminal CLI | Ink + glove-core | Local MemoryStore, AnthropicAdapter, pushAndWait for input, pushAndForget for display |
 | `examples/coding-agent` | Full-stack | Node server + React SPA | SqliteStore, WebSocket bridge, 14 tools, permission system, planning workflow |
 | `examples/nextjs-agent` | Web app | Next.js + glove-react | `defineTool`, `<Render>`, `renderResult`, `displayStrategy`, trip planning |
-| `examples/coffee` | Web app | Next.js + glove-react + glove-voice | `defineTool`, `<Render>`, `renderResult`, `displayStrategy`, e-commerce flow, cart state, voice interaction |
+| `examples/coffee` | Web app | Next.js + glove-react + glove-voice | `defineTool`, `<Render>`, `renderResult`, `displayStrategy`, e-commerce flow, cart state, voice interaction, inbox (restock watches) |
 | `examples/lola` | Web app | Next.js + glove-react + glove-voice | Voice-first movie companion, 9 TMDB tools, SileroVAD, `pushAndForget` only, cinematic UI |
 | *(pattern below)* | Full-stack | React SPA + Node/Express | `createRemoteModel`, auth headers, SSE streaming, separate frontend/backend |
 
@@ -796,8 +796,109 @@ ${productCatalog}
 - ALWAYS use interactive tools (ask_preference, show_products) instead of listing in plain text
 - Use show_info for sourcing details, brewing tips, or order confirmations
 - Keep text responses short — 1-2 sentences between tool calls
-- When recommending, explain briefly WHY these products match their preferences`;
+- When recommending, explain briefly WHY these products match their preferences
+
+## Inventory & Restock Notifications
+- Some products may be out of stock. Always check stock levels before recommending.
+- If a customer wants an out-of-stock product, offer to notify them when it's back using glove_post_to_inbox.
+- Use tag "restock_watch" and describe which product they want in the request text.
+- Set blocking=false — the customer can continue browsing while waiting.`;
 ```
+
+### Inbox & Inventory (coffee example)
+
+The coffee example demonstrates the inbox pattern with inventory tracking:
+
+**Product model with stock:**
+```typescript
+interface Product {
+  id: string; name: string; origin: string;
+  roast: "Light" | "Medium-Light" | "Medium" | "Dark";
+  price: number; weight: string; notes: string[];
+  description: string; intensity: number;
+  stock: number;  // 0 = out of stock
+}
+```
+
+**Remote store actions for inbox persistence:**
+```typescript
+const storeActions: RemoteStoreActions = {
+  // ...existing getMessages, appendMessages...
+  getInboxItems: (sid) => fetch(`/api/sessions/${sid}/inbox`).then(r => r.json()),
+  addInboxItem: (sid, item) => fetch(`/api/sessions/${sid}/inbox`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ item }),
+  }),
+  updateInboxItem: (sid, itemId, updates) => fetch(`/api/sessions/${sid}/inbox/update`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ itemId, updates }),
+  }),
+  getResolvedInboxItems: (sid) => fetch(`/api/sessions/${sid}/inbox/resolved`).then(r => r.json()),
+};
+```
+
+**API routes:**
+
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/sessions/:id/inbox` | GET | Fetch session inbox items |
+| `/api/sessions/:id/inbox` | POST | Add inbox item |
+| `/api/sessions/:id/inbox/update` | POST | Update inbox item |
+| `/api/sessions/:id/inbox/resolved` | GET | Fetch resolved items |
+| `/api/inbox` | GET | List all pending items across sessions |
+| `/api/inbox/resolve` | POST | Resolve a specific item externally |
+| `/api/inbox/simulate-restock` | POST | Bulk resolve all restock_watch items |
+
+**Right panel inbox UI:**
+```tsx
+const { inbox } = useGlove({ tools, sessionId });
+// Pass to right panel
+<RightPanel cart={cart} timeline={timeline} inbox={inbox} stats={stats} />
+
+// In RightPanel — "Watching" section with status badges
+{inbox.filter(i => i.status !== "consumed").map(item => (
+  <div key={item.id}>
+    <span>{item.tag}: {item.request}</span>
+    <span className={item.status}>{item.status}</span>
+  </div>
+))}
+```
+
+**Testing flow:**
+1. Ask for Yirgacheffe or Mandheling (both out of stock)
+2. Agent offers to watch for restock via `glove_post_to_inbox`
+3. Simulate restock: `curl -X POST localhost:3000/api/inbox/simulate-restock`
+4. Send any new message — agent picks up resolved inbox item and notifies
+
+---
+
+## Pattern: Inbox (General)
+
+The inbox enables async cross-instance communication. An agent posts a request that can't be resolved now; an external service resolves it later.
+
+**Lifecycle:**
+1. Agent calls `glove_post_to_inbox({ tag, request, blocking })` — item stored as `pending`
+2. External service calls `SqliteStore.resolveInboxItem(dbPath, itemId, responseText)` — item becomes `resolved`
+3. Next `agent.ask()` — resolved items injected as text messages, marked `consumed`
+4. Pending blocking items appear as transient reminders (not persisted)
+5. Compaction preserves pending items in summary
+
+**External resolution (server-side):**
+```typescript
+import { SqliteStore } from "glove-core";
+// Resolve from background job, webhook, cron, etc.
+SqliteStore.resolveInboxItem("path/to/db.db", "inbox_item_id", "Your item is ready.");
+```
+
+**React integration:**
+```tsx
+const { inbox } = useGlove({ tools, sessionId });
+// inbox: InboxItem[] — pending, resolved, and consumed items
+```
+
+**Blocking vs non-blocking:**
+- `blocking: false` (default) — agent continues, result arrives later
+- `blocking: true` — agent is told it cannot proceed until resolved (soft enforcement via prompt)
 
 ---
 

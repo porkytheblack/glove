@@ -2,7 +2,7 @@
 
 import React from "react";
 import { formatPrice, type CartItem } from "../lib/products";
-import type { TimelineEntry } from "glove-react";
+import type { TimelineEntry, InboxItem } from "glove-react";
 import { BagIcon } from "./icons";
 
 interface OrderData {
@@ -15,10 +15,11 @@ interface OrderData {
 interface RightPanelProps {
   cart: CartItem[];
   timeline: TimelineEntry[];
+  inbox: InboxItem[];
   stats: { turns: number; tokens_in: number; tokens_out: number };
 }
 
-export function RightPanel({ cart, timeline, stats }: RightPanelProps) {
+export function RightPanel({ cart, timeline, inbox, stats }: RightPanelProps) {
   const totalItems = cart.reduce((sum, item) => sum + item.qty, 0);
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
   const shipping = subtotal > 4000 ? 0 : 500;
@@ -139,6 +140,55 @@ export function RightPanel({ cart, timeline, stats }: RightPanelProps) {
         )}
       </div>
 
+      {/* ── Inbox section ─────────────────────────────── */}
+      {inbox.length > 0 && (
+        <div className="rp-section">
+          <div className="rp-section-header">
+            <InboxIcon />
+            <span className="rp-section-title">Watching</span>
+            <span className="rp-badge">
+              {inbox.filter((i) => i.status === "pending").length}
+            </span>
+          </div>
+          <div className="rp-items">
+            {inbox
+              .filter((i) => i.status !== "consumed")
+              .map((item) => (
+                <div key={item.id} className="rp-item">
+                  <div className="rp-item-info">
+                    <span className="rp-item-name">{item.tag}</span>
+                    <span className="rp-item-meta">{item.request}</span>
+                  </div>
+                  <div className="rp-item-right">
+                    <span
+                      className={`rp-inbox-status ${item.status}`}
+                      style={{
+                        fontSize: "0.7rem",
+                        padding: "2px 6px",
+                        borderRadius: "4px",
+                        background:
+                          item.status === "pending"
+                            ? "#fef3c7"
+                            : item.status === "resolved"
+                              ? "#d1fae5"
+                              : "#e5e7eb",
+                        color:
+                          item.status === "pending"
+                            ? "#92400e"
+                            : item.status === "resolved"
+                              ? "#065f46"
+                              : "#6b7280",
+                      }}
+                    >
+                      {item.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Stats footer ──────────────────────────────── */}
       {stats.turns > 0 && (
         <div className="rp-footer">
@@ -148,6 +198,22 @@ export function RightPanel({ cart, timeline, stats }: RightPanelProps) {
         </div>
       )}
     </aside>
+  );
+}
+
+function InboxIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#3d5a3d"
+      strokeWidth="2"
+    >
+      <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+      <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z" />
+    </svg>
   );
 }
 

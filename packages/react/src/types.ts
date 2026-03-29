@@ -1,10 +1,10 @@
-import type { Task, ContentPart, SubscriberAdapter, StoreAdapter, ModelAdapter, ToolResultData } from "glove-core/core";
+import type { Task, InboxItem, ContentPart, SubscriberAdapter, StoreAdapter, ModelAdapter, ToolResultData } from "glove-core/core";
 import type { Slot } from "glove-core/display-manager";
 import type { IGloveRunnable } from "glove-core/glove";
 import type z from "zod";
 import type { ReactNode } from "react";
 
-export type { Task, ContentPart, Slot, SubscriberAdapter, StoreAdapter, ModelAdapter, ToolResultData, IGloveRunnable };
+export type { Task, InboxItem, ContentPart, Slot, SubscriberAdapter, StoreAdapter, ModelAdapter, ToolResultData, IGloveRunnable };
 
 // ─── Timeline ────────────────────────────────────────────────────────────────
 
@@ -37,6 +37,7 @@ export interface GloveState {
   timeline: TimelineEntry[];
   streamingText: string;
   tasks: Task[];
+  inbox: InboxItem[];
   slots: EnhancedSlot[];
   stats: GloveStats;
 }
