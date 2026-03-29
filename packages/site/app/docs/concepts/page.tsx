@@ -271,6 +271,58 @@ export default function ConceptsPage() {
         You can configure compaction behavior with{" "}
         <a href="/docs/react#compaction-config">CompactionConfig</a>.
       </p>
+
+      <h2 id="the-inbox">The Inbox</h2>
+
+      <p>
+        The <a href="/docs/display-stack">display stack</a> handles synchronous
+        interactions — the user clicks a button, the tool gets the result
+        immediately. But some things can&apos;t be resolved in the moment: a
+        product is out of stock, a payment is processing, an approval is needed
+        from someone else.
+      </p>
+
+      <p>
+        The inbox is a persistent async mailbox. An agent posts a request it
+        can&apos;t fulfill now, and an external service resolves it later. The
+        next time the agent runs, resolved items are automatically injected
+        into the conversation. This works across sessions, server restarts, and
+        different instances of the same agent.
+      </p>
+
+      <p>
+        When your store implements the four optional inbox methods
+        (<code>getInboxItems</code>, <code>addInboxItem</code>,{" "}
+        <code>updateInboxItem</code>, <code>getResolvedInboxItems</code>),
+        Glove auto-registers the <code>glove_post_to_inbox</code> tool —
+        just like it auto-registers <code>glove_update_tasks</code> when task
+        methods exist. The agent can call it whenever it decides something
+        needs async tracking.
+      </p>
+
+      <p>
+        Both the request and response are plain text — the agent writes in
+        natural language, and the external service responds in natural language.
+        Items can be <strong>blocking</strong> (the agent is told to wait) or{" "}
+        <strong>non-blocking</strong> (the agent continues, result arrives
+        later). Pending inbox items survive{" "}
+        <a href="#context-compaction">context compaction</a> — they&apos;re
+        preserved in the summary so the agent never forgets what it&apos;s
+        waiting for.
+      </p>
+
+      <p>
+        On the React side, <code>useGlove()</code> returns{" "}
+        <code>inbox: InboxItem[]</code> alongside <code>tasks</code>, so your
+        UI can show what the agent is tracking. External services resolve items
+        via <code>SqliteStore.resolveInboxItem()</code> — a static method that
+        can be called from any process with database access.
+      </p>
+
+      <p>
+        See the full <a href="/docs/inbox">Inbox guide</a> for setup,
+        external resolution patterns, and the coffee shop example.
+      </p>
     </div>
   );
 }
