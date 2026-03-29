@@ -11,6 +11,7 @@ Real patterns drawn from the example implementations in `examples/`.
 | `examples/nextjs-agent` | Web app | Next.js + glove-react | `defineTool`, `<Render>`, `renderResult`, `displayStrategy`, trip planning |
 | `examples/coffee` | Web app | Next.js + glove-react + glove-voice | `defineTool`, `<Render>`, `renderResult`, `displayStrategy`, e-commerce flow, cart state, voice interaction |
 | `examples/lola` | Web app | Next.js + glove-react + glove-voice | Voice-first movie companion, 9 TMDB tools, SileroVAD, `pushAndForget` only, cinematic UI |
+| *(pattern below)* | Full-stack | React SPA + Node/Express | `createRemoteModel`, auth headers, SSE streaming, separate frontend/backend |
 
 ---
 
@@ -77,6 +78,242 @@ export const gloveClient = new GloveClient({
   tools: [askPreference],
 });
 ```
+
+---
+
+## Pattern: React SPA + Node Backend (Non-Next.js)
+
+For React apps with a separate Node/Express backend (no Next.js), use `createRemoteModel` on the frontend and handle the SSE protocol on your server. This keeps API keys on the server and gives the frontend full control over auth headers.
+
+### 1. Backend — Node server with `createChatHandler`
+
+`createChatHandler` from `glove-next` uses Web API `Request`/`Response` — it works with any framework, not just Next.js. It handles SDK initialization, message formatting, tool serialization, and SSE streaming internally using the appropriate model adapter for your provider.
+
+**Express (with Web API adapter):**
+```typescript
+// server/index.ts
+import express from "express";
+import cors from "cors";
+import { createChatHandler } from "glove-next";
+
+const app = express();
+app.use(cors({ origin: "http://localhost:5173" }));
+app.use(express.json());
+
+// createChatHandler returns (req: Request) => Promise<Response>
+// It uses createAdapter internally — picks the right adapter for the provider
+const handler = createChatHandler({
+  provider: "anthropic",
+  model: "claude-sonnet-4-20250514",
+  // Reads ANTHROPIC_API_KEY from env by default, or pass explicitly:
+  // apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+// Simple auth middleware — verify JWT, session token, etc.
+function authMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  if (!token || !verifyToken(token)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  next();
+}
+
+app.post("/api/chat", authMiddleware, async (req, res) => {
+  // Convert Express request to Web API Request
+  const webReq = new Request(`http://localhost${req.url}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req.body),
+  });
+
+  const webRes = await handler(webReq);
+
+  // Forward the SSE response
+  res.status(webRes.status);
+  webRes.headers.forEach((value, key) => res.setHeader(key, value));
+  const reader = webRes.body!.getReader();
+  const pump = async () => {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(value);
+    }
+    res.end();
+  };
+  pump();
+});
+
+app.listen(3001, () => console.log("API server on :3001"));
+```
+
+**Hono / Bun (native Web API — zero adapter code):**
+```typescript
+// server/index.ts
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+import { createChatHandler } from "glove-next";
+
+const app = new Hono();
+app.use("/api/*", cors({ origin: "http://localhost:5173" }));
+
+const handler = createChatHandler({
+  provider: "anthropic",
+  model: "claude-sonnet-4-20250514",
+});
+
+app.post("/api/chat", async (c) => {
+  // Auth check
+  const token = c.req.header("Authorization")?.replace("Bearer ", "");
+  if (!token || !verifyToken(token)) return c.json({ error: "Unauthorized" }, 401);
+
+  // Hono uses Web API natively — pass the request directly
+  return handler(c.req.raw);
+});
+
+export default app; // Works with Bun.serve, Deno.serve, or Cloudflare Workers
+```
+
+**How it works:**
+- `createChatHandler` initializes the provider SDK (Anthropic SDK or OpenAI SDK) based on the `provider` config and handles message formatting, tool serialization, and SSE streaming
+- The SSE protocol emits `text_delta`, `tool_use`, and `done` events — the same protocol that `glove-react`'s `createEndpointModel` and `createRemoteModel` understand
+- Tools execute on the client side — the server only forwards tool definitions to the LLM provider
+
+### 2. Frontend — GloveClient with `createRemoteModel` + auth
+
+```tsx
+// src/lib/glove.ts
+import { GloveClient } from "glove-react";
+import { createRemoteModel } from "glove-react/adapters";
+import type { RemotePromptRequest } from "glove-react/adapters";
+
+const API_URL = "http://localhost:3001";
+
+// Get auth token from your auth system (Auth0, Clerk, Firebase, etc.)
+function getAuthToken(): string {
+  return localStorage.getItem("auth_token") ?? "";
+}
+
+export const gloveClient = new GloveClient({
+  // Use createModel instead of endpoint — gives you control over fetch
+  createModel: () =>
+    createRemoteModel("claude-sonnet", {
+      // Streaming mode — recommended for real-time UI
+      async *promptStream(request: RemotePromptRequest, signal?: AbortSignal) {
+        const res = await fetch(`${API_URL}/api/chat`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${getAuthToken()}`,
+          },
+          body: JSON.stringify(request),
+          signal,
+        });
+
+        if (!res.ok) {
+          if (res.status === 401) throw new Error("Session expired. Please log in again.");
+          throw new Error(`Server error: ${res.status}`);
+        }
+
+        // Parse the SSE stream
+        const reader = res.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop()!;
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              yield JSON.parse(line.slice(6));
+            }
+          }
+        }
+      },
+    }),
+
+  systemPrompt: "You are a helpful assistant.",
+  tools: [/* your tools */],
+});
+```
+
+### 3. Frontend — React app with GloveProvider
+
+```tsx
+// src/App.tsx
+import { GloveProvider, useGlove, Render } from "glove-react";
+import { gloveClient } from "./lib/glove";
+
+function Chat() {
+  const glove = useGlove();
+
+  return (
+    <Render
+      glove={glove}
+      renderMessage={({ entry }) => (
+        <div className={entry.kind === "user" ? "user" : "agent"}>
+          {entry.text}
+        </div>
+      )}
+      renderStreaming={({ text }) => <div className="streaming">{text}</div>}
+      renderInput={({ send, busy }) => (
+        <input
+          disabled={busy}
+          placeholder="Type a message..."
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              send(e.currentTarget.value);
+              e.currentTarget.value = "";
+            }
+          }}
+        />
+      )}
+    />
+  );
+}
+
+export default function App() {
+  return (
+    <GloveProvider client={gloveClient}>
+      <Chat />
+    </GloveProvider>
+  );
+}
+```
+
+**Key points:**
+- API keys never leave the server — the frontend only sends an auth token
+- `createRemoteModel` + `promptStream` gives full control over the fetch (headers, error handling, retries)
+- The SSE protocol is the same one `glove-next`'s `createChatHandler` uses: `text_delta`, `tool_use`, `done` events
+- For simpler setups without auth, use `endpoint` mode with a proxy (e.g. Vite's `proxy` config)
+
+### Alternative: Simple endpoint mode with Vite proxy (no auth)
+
+If you don't need auth headers and just want the simplest setup:
+
+```typescript
+// vite.config.ts
+export default defineConfig({
+  server: {
+    proxy: {
+      "/api": "http://localhost:3001",
+    },
+  },
+});
+
+// src/lib/glove.ts — just use endpoint mode
+export const gloveClient = new GloveClient({
+  endpoint: "/api/chat",
+  systemPrompt: "You are a helpful assistant.",
+  tools: [/* your tools */],
+});
+```
+
+This works because the Vite dev proxy forwards `/api/chat` to your backend, and `createEndpointModel` (used internally by `endpoint` mode) sends a plain `POST` with `Content-Type: application/json` — no auth headers.
 
 ---
 
