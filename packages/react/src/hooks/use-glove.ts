@@ -340,13 +340,18 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
   const compaction = config?.compaction ?? client?.compaction;
   const subscribers = config?.subscribers ?? client?.subscribers;
 
-  const [autoSessionId] = useState(() => crypto.randomUUID());
   const getSessionId = config?.getSessionId ?? client?.getSessionId;
+
+  if (!config?.store && !config?.sessionId && !getSessionId) {
+    throw new Error(
+      "useGlove requires a 'sessionId', 'getSessionId', or 'store' (via config or GloveClient)",
+    );
+  }
 
   // ── Async session ID + store resolution ─────────────────────────────────
   const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(
     // If getSessionId is provided, start null (loading). Otherwise use sync value.
-    getSessionId ? null : (config?.sessionId ?? autoSessionId),
+    getSessionId ? null : (config?.sessionId ?? null),
   );
 
   useEffect(() => {
@@ -359,15 +364,15 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getSessionId]);
 
-  const sessionId = resolvedSessionId ?? autoSessionId;
+  const sessionId = resolvedSessionId!;
 
   const store = useMemo(() => {
     if (config?.store) return config.store;
     // Don't create the real store until the async session ID resolves
-    if (getSessionId && !resolvedSessionId) return null;
+    if (!resolvedSessionId) return null;
     if (client) return client.resolveStore(sessionId);
     return new MemoryStore(sessionId);
-  }, [config?.store, client, sessionId, getSessionId, resolvedSessionId]);
+  }, [config?.store, client, sessionId, resolvedSessionId]);
 
   const model = useMemo(() => {
     if (config?.model) return config.model;
