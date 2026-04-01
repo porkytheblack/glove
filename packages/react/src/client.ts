@@ -16,6 +16,13 @@ export interface GloveClientConfig {
   /** Factory to create a StoreAdapter per session. Defaults to MemoryStore. */
   createStore?: (sessionId: string) => StoreAdapter;
 
+  /**
+   * Async function to fetch a session ID (e.g. from the backend).
+   * When provided, the hook will call this instead of using a passed-in
+   * or auto-generated sessionId. The resolved ID is then forwarded to `createStore`.
+   */
+  getSessionId?: () => Promise<string>;
+
   /** System prompt for the agent. Can be overridden per-hook. */
   systemPrompt?: string;
 
@@ -49,6 +56,7 @@ export class GloveClient {
   private _endpoint?: string;
   private _createModel?: () => ModelAdapter;
   private _createStore: (sessionId: string) => StoreAdapter;
+  private _getSessionId?: () => Promise<string>;
 
   /** @internal Defaults consumed by useGlove */
   readonly systemPrompt?: string;
@@ -66,6 +74,7 @@ export class GloveClient {
     this._createModel = config.createModel;
     this._createStore =
       config.createStore ?? ((sid) => new MemoryStore(sid));
+    this._getSessionId = config.getSessionId;
 
     this.systemPrompt = config.systemPrompt;
     this.tools = config.tools;
@@ -82,5 +91,10 @@ export class GloveClient {
   /** @internal Called by useGlove to create a store per session. */
   resolveStore(sessionId: string): StoreAdapter {
     return this._createStore(sessionId);
+  }
+
+  /** @internal Returns the async getSessionId function, if configured. */
+  get getSessionId(): (() => Promise<string>) | undefined {
+    return this._getSessionId;
   }
 }

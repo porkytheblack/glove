@@ -36,6 +36,11 @@ export interface UseGloveConfig {
   endpoint?: string;
   /** Session ID. Auto-generated if omitted. */
   sessionId?: string;
+  /**
+   * Async function to fetch a session ID (e.g. from the backend).
+   * Overrides `sessionId` when provided. Falls back to `GloveClient.getSessionId`.
+   */
+  getSessionId?: () => Promise<string>;
 
   // ── Advanced mode (explicit adapters) ────────────────────────────────────
   store?: StoreAdapter;
@@ -51,8 +56,14 @@ export interface UseGloveConfig {
 
 export interface UseGloveReturn extends GloveState {
   /** The underlying Glove runnable. Pass to useGloveVoice or use directly.
-   *  `null` until the Glove instance is built (first render). */
+   *  `null` until the Glove instance is built (first render) or while waiting
+   *  for an async `getSessionId` to resolve. */
   runnable: IGloveRunnable | null;
+  /** `false` while an async `getSessionId` is still resolving. Always `true` when
+   *  no async session ID fetcher is configured. */
+  sessionReady: boolean;
+  /** The resolved session ID. */
+  sessionId: string;
   sendMessage: (
     text: string,
     images?: Array<{ data: string; media_type: string }>,
@@ -330,13 +341,33 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
   const subscribers = config?.subscribers ?? client?.subscribers;
 
   const [autoSessionId] = useState(() => crypto.randomUUID());
-  const sessionId = config?.sessionId ?? autoSessionId;
+  const getSessionId = config?.getSessionId ?? client?.getSessionId;
+
+  // ── Async session ID + store resolution ─────────────────────────────────
+  const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(
+    // If getSessionId is provided, start null (loading). Otherwise use sync value.
+    getSessionId ? null : (config?.sessionId ?? autoSessionId),
+  );
+
+  useEffect(() => {
+    if (!getSessionId) return;
+    let cancelled = false;
+    getSessionId().then((id) => {
+      if (!cancelled) setResolvedSessionId(id);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getSessionId]);
+
+  const sessionId = resolvedSessionId ?? autoSessionId;
 
   const store = useMemo(() => {
     if (config?.store) return config.store;
+    // Don't create the real store until the async session ID resolves
+    if (getSessionId && !resolvedSessionId) return null;
     if (client) return client.resolveStore(sessionId);
     return new MemoryStore(sessionId);
-  }, [config?.store, client, sessionId]);
+  }, [config?.store, client, sessionId, getSessionId, resolvedSessionId]);
 
   const model = useMemo(() => {
     if (config?.model) return config.model;
@@ -390,6 +421,9 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
   // ── Build Glove instance (once, or when key config changes) ──────────────
 
   useEffect(() => {
+    // Wait for async session ID to resolve before building
+    if (!store) return;
+
     const dm = new Displaymanager();
     dmRef.current = dm;
 
@@ -506,7 +540,7 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
     (text: string, images?: Array<{ data: string; media_type: string }>) => {
       const glove = gloveRef.current;
       const sub = subscriberRef.current;
-      if (!glove || state.busy) return;
+      if (!glove || !store || state.busy) return;
 
       // Build image preview URLs for the timeline
       const imageUrls = images?.map(
@@ -559,8 +593,8 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
           sub?.flushStreamToTimeline();
 
           // Fetch final task and inbox state
-          const tasks = await store.getTasks?.();
-          const inbox = await store.getInboxItems?.();
+          const tasks = await store?.getTasks?.();
+          const inbox = await store?.getInboxItems?.();
 
           setState((s) => ({
             ...s,
@@ -673,6 +707,7 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
   // ── Timeline hydration from store ────────────────────────────────────────
 
   useEffect(() => {
+    if (!store) return;
     let cancelled = false;
 
     store.getMessages().then((messages: Message[]) => {
@@ -692,6 +727,8 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
   return {
     ...state,
     runnable,
+    sessionReady: store !== null,
+    sessionId,
     sendMessage,
     abort,
     resolveSlot,

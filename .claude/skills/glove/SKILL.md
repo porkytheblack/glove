@@ -129,6 +129,7 @@ export const gloveClient = new GloveClient({
   endpoint: "/api/chat",
   systemPrompt: "You are a helpful assistant.",
   tools: [askPreferenceTool, getDateTool],
+  // getSessionId: () => fetch("/api/session").then(r => r.json()).then(d => d.id),
 });
 ```
 
@@ -589,6 +590,8 @@ interface GloveHandle {
   timeline: TimelineEntry[];
   streamingText: string;
   busy: boolean;
+  sessionReady: boolean;
+  sessionId: string;
   slots: EnhancedSlot[];
   sendMessage: (text: string, images?: { data: string; media_type: string }[]) => void;
   abort: () => void;
@@ -606,6 +609,8 @@ interface GloveHandle {
 | `timeline` | `TimelineEntry[]` | Messages + tool calls |
 | `streamingText` | `string` | Current streaming buffer |
 | `busy` | `boolean` | Agent is processing |
+| `sessionReady` | `boolean` | `false` while async `getSessionId` resolves; always `true` if not configured |
+| `sessionId` | `string` | The resolved session ID |
 | `isCompacting` | `boolean` | Context compaction in progress (driven by `compaction_start`/`compaction_end` events) |
 | `slots` | `EnhancedSlot[]` | Active display stack with metadata |
 | `tasks` | `Task[]` | Agent task list |

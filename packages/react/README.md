@@ -85,6 +85,8 @@ export const gloveClient = new GloveClient({
   endpoint: "/api/chat",
   systemPrompt: "You are a helpful assistant.",
   tools: [askPreferenceTool, getDateTool],
+  // Optional: resolve session ID asynchronously (e.g. from your backend)
+  // getSessionId: () => fetch("/api/session").then(r => r.json()).then(d => d.sessionId),
 });
 ```
 
@@ -127,7 +129,7 @@ export default function Chat() {
 ### Components & hooks
 
 - **`GloveProvider`** — Context provider wrapping your app
-- **`useGlove(config?)`** — Main hook returning `timeline`, `streamingText`, `busy`, `slots`, `tasks`, `stats`, `sendMessage`, `abort`, `renderSlot`, `renderToolResult`, `resolveSlot`, `rejectSlot`
+- **`useGlove(config?)`** — Main hook returning `timeline`, `streamingText`, `busy`, `slots`, `tasks`, `stats`, `sessionReady`, `sessionId`, `sendMessage`, `abort`, `renderSlot`, `renderToolResult`, `resolveSlot`, `rejectSlot`. Accepts an optional `getSessionId` async function to resolve the session ID at runtime (overrides the client-level one if set).
 - **`Render`** — Headless render component with automatic slot visibility, interleaving, and `renderResult` rendering
 
 ### Tool helpers
@@ -137,7 +139,7 @@ export default function Chat() {
 
 ### Client
 
-- **`GloveClient`** — Configuration container. Pass `endpoint` (for server-side models via `glove-next`) or `createModel` (for client-side models).
+- **`GloveClient`** — Configuration container. Pass `endpoint` (for server-side models via `glove-next`) or `createModel` (for client-side models). Optionally pass `getSessionId` to resolve the session ID asynchronously instead of providing one directly.
 
 ### Adapters
 
@@ -156,6 +158,46 @@ Voice hooks and components are exported from `glove-react/voice`:
 - **`VoicePTTButton`** — Headless PTT button with render prop and ARIA attributes
 
 Requires `glove-voice` as a peer dependency.
+
+### Async session ID
+
+When your session ID comes from a backend (auth tokens, server-assigned IDs, etc.), use `getSessionId` instead of a static `sessionId`:
+
+```tsx
+// At the client level — applies to all useGlove consumers
+const client = new GloveClient({
+  endpoint: "/api/chat",
+  systemPrompt: "You are a helpful assistant.",
+  getSessionId: async () => {
+    const res = await fetch("/api/session");
+    const { sessionId } = await res.json();
+    return sessionId;
+  },
+});
+```
+
+```tsx
+// Or at the hook level — overrides the client-level getSessionId
+function Chat() {
+  const glove = useGlove({
+    getSessionId: async () => {
+      const res = await fetch("/api/session");
+      const { sessionId } = await res.json();
+      return sessionId;
+    },
+  });
+
+  // sessionReady is false while the async ID is resolving
+  if (!glove.sessionReady) return <div>Loading session...</div>;
+
+  // sessionId contains the resolved value
+  console.log("Session:", glove.sessionId);
+
+  return <Render glove={glove} />;
+}
+```
+
+When `getSessionId` is configured, the store is `null` until the ID resolves. The hook guards the build, hydration, and `sendMessage` flows against the null store, so consumers only need to check `sessionReady` before rendering. When no `getSessionId` is provided, behavior is unchanged -- `sessionReady` is always `true` and the session ID is either the provided `sessionId` or an auto-generated UUID.
 
 ### Display strategies
 

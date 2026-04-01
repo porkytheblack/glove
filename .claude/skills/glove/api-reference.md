@@ -264,6 +264,7 @@ const client = new GloveClient({
   endpoint?: string,                       // Chat endpoint URL
   createModel?: () => ModelAdapter,        // Custom model factory (overrides endpoint)
   createStore?: (sessionId: string) => StoreAdapter,  // Custom store factory
+  getSessionId?: () => Promise<string>,    // Async function to fetch session ID from backend
   systemPrompt?: string,
   tools?: ToolConfig[],
   compaction?: CompactionConfig,
@@ -282,12 +283,15 @@ import { GloveProvider } from "glove-react";
 
 ```typescript
 const {
-  busy, isCompacting, timeline, streamingText, tasks, inbox, slots, stats,
+  busy, isCompacting, sessionReady, sessionId,
+  timeline, streamingText, tasks, inbox, slots, stats,
   sendMessage, abort, renderSlot, renderToolResult, resolveSlot, rejectSlot,
 } = useGlove(config?: UseGloveConfig);
 ```
 
-`UseGloveConfig` fields (all optional overrides): `endpoint`, `sessionId`, `store`, `model`, `systemPrompt`, `tools`, `compaction`, `subscribers`
+`UseGloveConfig` fields (all optional overrides): `endpoint`, `sessionId`, `getSessionId`, `store`, `model`, `systemPrompt`, `tools`, `compaction`, `subscribers`
+
+**`getSessionId`**: Async function `() => Promise<string>` that fetches the session ID from your backend. When configured, store creation is deferred until the ID resolves. Hook-level `getSessionId` overrides client-level. No change in behavior when not used.
 
 ### GloveHandle
 
@@ -298,6 +302,8 @@ interface GloveHandle {
   timeline: TimelineEntry[];
   streamingText: string;
   busy: boolean;
+  sessionReady: boolean;
+  sessionId: string;
   slots: EnhancedSlot[];
   sendMessage: (text: string, images?: { data: string; media_type: string }[]) => void;
   abort: () => void;

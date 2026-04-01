@@ -291,6 +291,44 @@ export default function App() {
 - The SSE protocol is the same one `glove-next`'s `createChatHandler` uses: `text_delta`, `tool_use`, `done` events
 - For simpler setups without auth, use `endpoint` mode with a proxy (e.g. Vite's `proxy` config)
 
+### Server-assigned session IDs with `getSessionId`
+
+When the backend manages session creation (e.g. stored in a database), use `getSessionId` to fetch the ID asynchronously instead of generating it client-side:
+
+```typescript
+export const gloveClient = new GloveClient({
+  createModel: () => createRemoteModel("claude-sonnet", { /* ... */ }),
+  // Fetch session ID from backend — called once, before store is created
+  getSessionId: async () => {
+    const res = await fetch(`${API_URL}/api/sessions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${getAuthToken()}` },
+    });
+    const { id } = await res.json();
+    return id;
+  },
+  createStore: (sid) => createRemoteStore(sid, storeActions),
+});
+```
+
+The hook defers store creation until `getSessionId` resolves. Use `sessionReady` to show a loading state:
+
+```tsx
+function Chat() {
+  const glove = useGlove();
+  if (!glove.sessionReady) return <div>Setting up session...</div>;
+  return <Render glove={glove} /* ... */ />;
+}
+```
+
+You can also pass `getSessionId` at the hook level to override the client:
+
+```tsx
+const glove = useGlove({
+  getSessionId: () => fetch("/api/session").then(r => r.json()).then(d => d.id),
+});
+```
+
 ### Alternative: Simple endpoint mode with Vite proxy (no auth)
 
 If you don't need auth headers and just want the simplest setup:

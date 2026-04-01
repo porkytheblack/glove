@@ -115,6 +115,8 @@ import { GloveProvider, GloveClient } from "glove-react";
 const client = new GloveClient({
   endpoint: "/api/chat",
   systemPrompt: "You are a helpful assistant.",
+  // Optional: fetch session ID from your backend instead of passing one directly
+  // getSessionId: () => fetch("/api/session").then(r => r.json()).then(d => d.sessionId),
 });
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -129,7 +131,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
 import { useGlove } from "glove-react";
 
 export function Chat() {
-  const { timeline, busy, sendMessage } = useGlove();
+  const { timeline, busy, sendMessage, sessionReady } = useGlove();
+
+  if (!sessionReady) return <div>Loading session...</div>;
 
   return (
     <div>

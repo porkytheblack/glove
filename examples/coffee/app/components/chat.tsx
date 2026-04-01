@@ -84,19 +84,26 @@ function renderToolStatus({ entry }: ToolStatusRenderProps): ReactNode {
 // ─── Chat orchestrator ──────────────────────────────────────────────────────
 
 interface ChatProps {
-  sessionId: string;
+  /** Session ID for an existing session. */
+  sessionId?: string;
+  /** Async session ID fetcher for new sessions — useGlove resolves it. */
+  getSessionId?: () => Promise<string>;
   onFirstMessage?: (sessionId: string, text: string) => void;
+  /** Called once useGlove resolves an async getSessionId. */
+  onSessionResolved?: (sessionId: string) => void;
 }
 
-export default function Chat({ sessionId, onFirstMessage }: ChatProps) {
+export default function Chat({ sessionId: sessionIdProp, getSessionId, onFirstMessage, onSessionResolved }: ChatProps) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const namedRef = useRef(false);
+  const resolvedNotifiedRef = useRef(false);
 
   // Reset named tracking when session changes
   useEffect(() => {
     namedRef.current = false;
-  }, [sessionId]);
+    resolvedNotifiedRef.current = false;
+  }, [sessionIdProp, getSessionId]);
 
   // ── Cart state ────────────────────────────────────────────────────────
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -127,10 +134,23 @@ export default function Chat({ sessionId, onFirstMessage }: ChatProps) {
   // ── Tools (stable, created once) ──────────────────────────────────────
   const tools = useMemo(() => createCoffeeTools(cartOps), [cartOps]);
 
-  // ── Glove hook — sessionId drives store resolution ──────────────────
-  const glove = useGlove({ tools, sessionId });
-  const { runnable, timeline, streamingText, busy, stats, slots, inbox, sendMessage, abort } =
+  // ── Glove hook — supports both sync sessionId and async getSessionId ──
+  // When getSessionId is provided (new session), useGlove resolves the ID
+  // asynchronously and exposes sessionReady + sessionId on the return value.
+  const glove = useGlove({
+    tools,
+    ...(getSessionId ? { getSessionId } : { sessionId: sessionIdProp }),
+  });
+  const { runnable, sessionReady, sessionId, timeline, streamingText, busy, stats, slots, inbox, sendMessage, abort } =
     glove;
+
+  // Notify parent when an async getSessionId resolves so it can update tabs
+  useEffect(() => {
+    if (sessionReady && getSessionId && sessionId && !resolvedNotifiedRef.current) {
+      resolvedNotifiedRef.current = true;
+      onSessionResolved?.(sessionId);
+    }
+  }, [sessionReady, getSessionId, sessionId, onSessionResolved]);
 
   // ── Turn mode state ──────────────────────────────────────────────────
   const [turnMode, setTurnMode] = useState<TurnMode>("vad");
@@ -305,33 +325,49 @@ export default function Chat({ sessionId, onFirstMessage }: ChatProps) {
     (e: { preventDefault: () => void }) => {
       e.preventDefault();
       const text = input.trim();
-      if (!text || busy) return;
+      if (!text || busy || !sessionReady) return;
       setInput("");
       sendMessage(text);
 
       // Auto-name the session after the first user message
-      if (!namedRef.current && onFirstMessage) {
+      if (!namedRef.current && onFirstMessage && sessionId) {
         namedRef.current = true;
         const name = text.length > 40 ? text.slice(0, 40) + "..." : text;
         onFirstMessage(sessionId, name);
       }
     },
-    [input, busy, sendMessage, sessionId, onFirstMessage],
+    [input, busy, sessionReady, sendMessage, sessionId, onFirstMessage],
   );
 
   const handleSuggestion = useCallback(
     (text: string) => {
-      if (busy) return;
+      if (busy || !sessionReady) return;
       sendMessage(text);
 
-      if (!namedRef.current && onFirstMessage) {
+      if (!namedRef.current && onFirstMessage && sessionId) {
         namedRef.current = true;
         const name = text.length > 40 ? text.slice(0, 40) + "..." : text;
         onFirstMessage(sessionId, name);
       }
     },
-    [busy, sendMessage, sessionId, onFirstMessage],
+    [busy, sessionReady, sendMessage, sessionId, onFirstMessage],
   );
+
+  // While getSessionId is resolving, show a loading state
+  if (!sessionReady) {
+    return (
+      <>
+        <div className="chat-main">
+          <div className="chat-messages">
+            <div className="chat-messages-inner">
+              <div className="loading-state">Setting up session...</div>
+            </div>
+          </div>
+        </div>
+        <RightPanel cart={cart} timeline={timeline} inbox={inbox} stats={stats} />
+      </>
+    );
+  }
 
   return (
     <>
