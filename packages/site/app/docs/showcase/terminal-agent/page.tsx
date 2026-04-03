@@ -120,14 +120,15 @@ export default async function TerminalAgentPage() {
         language="bash"
         code={`mkdir my-terminal-agent && cd my-terminal-agent
 pnpm init
-pnpm add glove-core zod
+pnpm add glove-core glove-sqlite zod
 pnpm add -D tsx`}
       />
 
       <p>
-        <code>glove-core</code> includes the Anthropic SDK, OpenAI SDK, and
-        SQLite driver as dependencies. <code>tsx</code> lets you run TypeScript
-        directly without a build step.
+        <code>glove-core</code> includes the Anthropic SDK and OpenAI SDK
+        as dependencies. <code>glove-sqlite</code> provides the SQLite
+        store. <code>tsx</code> lets you run TypeScript directly without a
+        build step.
       </p>
 
       <p>
@@ -462,7 +463,8 @@ async function handleSlot(
         filename="agent.ts"
         language="typescript"
         code={`import * as readline from "node:readline/promises";
-import { Glove, SqliteStore, Displaymanager, AnthropicAdapter } from "glove-core";
+import { Glove, Displaymanager, AnthropicAdapter } from "glove-core";
+import { SqliteStore } from "glove-sqlite";
 import { readFileDef, editFileDef, bashDef, planDef } from "./tools";
 import { TerminalSubscriber } from "./subscriber";
 import { setupPromptHandler } from "./prompt-handler";
@@ -813,8 +815,9 @@ agent.setModel(new AnthropicAdapter({
         </li>
         <li>
           <a href="/docs/core">Core API Reference</a> — full documentation for{" "}
-          <code>Glove</code>, <code>SqliteStore</code>,{" "}
-          <code>AnthropicAdapter</code>, and <code>SubscriberAdapter</code>
+          <code>Glove</code>, <code>AnthropicAdapter</code>,{" "}
+          <code>SubscriberAdapter</code>, and{" "}
+          <code>SqliteStore</code> (from <code>glove-sqlite</code>)
         </li>
       </ul>
     </div>

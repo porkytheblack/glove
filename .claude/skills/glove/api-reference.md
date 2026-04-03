@@ -87,12 +87,12 @@ interface StoreAdapter {
 }
 ```
 
-**Implementations**: `SqliteStore` (glove-core), `MemoryStore` (glove-react), `createRemoteStore` (glove-react)
+**Implementations**: `SqliteStore` (glove-sqlite), `MemoryStore` (glove-react), `createRemoteStore` (glove-react)
 
 ### SqliteStore
 
 ```typescript
-import { SqliteStore } from "glove-core";
+import { SqliteStore } from "glove-sqlite";
 
 const store = new SqliteStore({ dbPath: ":memory:", sessionId: "abc123" });
 // Additional methods: getName(), setName(), getWorkingDir(), setWorkingDir(), close()
@@ -837,11 +837,11 @@ interface VoiceStatusRenderProps { mode: VoiceMode; recording?: boolean; }
 
 ## Browser-Safe Import Paths
 
-The main `glove-core` barrel includes native deps (better-sqlite3). For browser code, use subpath imports:
+`glove-core` no longer includes native deps — `SqliteStore` (and its `better-sqlite3` dependency) has been extracted to the separate `glove-sqlite` package. The `glove-core` barrel is now browser-safe. Subpath imports are still available:
 
 | Import | Content | Browser-safe |
 |--------|---------|-------------|
-| `glove-core` | Everything (barrel) | No |
+| `glove-core` | Everything (barrel) | Yes |
 | `glove-core/core` | Core types, Agent, PromptMachine, Executor, Observer | Yes |
 | `glove-core/glove` | Glove builder class | Yes |
 | `glove-core/display-manager` | Displaymanager | Yes |
@@ -850,3 +850,4 @@ The main `glove-core` barrel includes native deps (better-sqlite3). For browser 
 | `glove-core/models/anthropic` | AnthropicAdapter | No |
 | `glove-core/models/openai-compat` | OpenAICompatAdapter | No |
 | `glove-core/models/providers` | Provider factory | No |
+| `glove-sqlite` | SqliteStore (native better-sqlite3) | No |

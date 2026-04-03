@@ -1,4 +1,4 @@
-import { SqliteStore } from "glove-core";
+import { SqliteStore } from "glove-sqlite";
 import path from "path";
 
 const DB_PATH = path.join(process.cwd(), "lola-sessions.db");

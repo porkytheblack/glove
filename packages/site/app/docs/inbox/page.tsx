@@ -204,7 +204,7 @@ interface InboxItem {
       <CodeBlock
         filename="Background job / webhook handler"
         language="typescript"
-        code={`import { SqliteStore } from "glove-core";
+        code={`import { SqliteStore } from "glove-sqlite";
 
 // Resolve an inbox item from any process that has DB access
 const resolved = SqliteStore.resolveInboxItem(
@@ -232,7 +232,7 @@ if (!resolved) {
         filename="app/api/inbox/resolve/route.ts"
         language="typescript"
         code={`import { NextResponse } from "next/server";
-import { SqliteStore } from "glove-core";
+import { SqliteStore } from "glove-sqlite";
 
 export async function POST(req: Request) {
   const { itemId, response } = await req.json();

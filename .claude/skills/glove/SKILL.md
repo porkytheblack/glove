@@ -19,7 +19,8 @@ Glove is an open-source TypeScript framework for building AI-powered application
 
 | Package | Purpose | Install |
 |---------|---------|---------|
-| `glove-core` | Runtime engine: agent loop, tool execution, display manager, model adapters, stores | `pnpm add glove-core` |
+| `glove-core` | Runtime engine: agent loop, tool execution, display manager, model adapters (browser-safe — no native deps) | `pnpm add glove-core` |
+| `glove-sqlite` | `SqliteStore` — persistent SQLite-backed store (server-side only, depends on better-sqlite3) | `pnpm add glove-sqlite` |
 | `glove-react` | React hooks (`useGlove`), `GloveClient`, `GloveProvider`, `defineTool`, `<Render>`, `MemoryStore`, `ToolConfig` with colocated renderers | `pnpm add glove-react` |
 | `glove-next` | One-line Next.js API route handler (`createChatHandler`) for streaming SSE | `pnpm add glove-next` |
 
@@ -214,7 +215,7 @@ For CLI tools, backend services, WebSocket servers, or any non-browser environme
 import { Glove, Displaymanager, createAdapter } from "glove-core";
 import z from "zod";
 
-// In-memory store (see MemoryStore below) or SqliteStore for persistence
+// In-memory store (see MemoryStore below) or SqliteStore from glove-sqlite for persistence
 const store = new MemoryStore("my-session");
 
 const agent = new Glove({
@@ -264,7 +265,7 @@ class MemoryStore implements StoreAdapter {
 }
 ```
 
-For persistent storage: `new SqliteStore({ dbPath: "./agent.db", sessionId: "abc" })`.
+For persistent storage: `import { SqliteStore } from "glove-sqlite"` then `new SqliteStore({ dbPath: "./agent.db", sessionId: "abc" })`.
 
 ### Key Differences from React
 
@@ -274,7 +275,7 @@ For persistent storage: `new SqliteStore({ dbPath: "./agent.db", sessionId: "abc
 | `useGlove()` hook manages state | Call `agent.processRequest()` directly |
 | `GloveClient` + `GloveProvider` | `new Glove({...}).build()` |
 | `createEndpointModel` (SSE client) | `createAdapter()` or direct adapter (e.g. `new AnthropicAdapter()`) |
-| `MemoryStore` from glove-react | Implement `StoreAdapter` yourself or use `SqliteStore` |
+| `MemoryStore` from glove-react | Implement `StoreAdapter` yourself or use `SqliteStore` from `glove-sqlite` |
 
 ### Tools Without Display
 
@@ -352,7 +353,7 @@ The inbox enables agents to post requests that will be resolved later by externa
 
 1. Agent calls `glove_post_to_inbox` with a tag, request text, and blocking flag
 2. Item persists in the store with status `pending`
-3. External service resolves the item (via `SqliteStore.resolveInboxItem()` or store API)
+3. External service resolves the item (via `SqliteStore.resolveInboxItem()` from `glove-sqlite`, or store API)
 4. Next time `agent.ask()` runs, resolved items are injected as text messages and marked `consumed`
 5. Pending blocking items are surfaced as transient reminders (not persisted)
 6. Compaction preserves pending inbox items in the summary block
@@ -373,7 +374,7 @@ Auto-registered when store implements inbox methods. Input schema:
 
 ```typescript
 // From a background job, webhook handler, or cron:
-import { SqliteStore } from "glove-core";
+import { SqliteStore } from "glove-sqlite";
 
 SqliteStore.resolveInboxItem(
   "path/to/db.db",
@@ -409,7 +410,7 @@ updateInboxItem?(itemId: string, updates: Partial<Pick<InboxItem, "status" | "re
 getResolvedInboxItems?(): Promise<InboxItem[]>
 ```
 
-All store implementations (SqliteStore, MemoryStore, createRemoteStore) support inbox.
+All store implementations (SqliteStore from `glove-sqlite`, MemoryStore, createRemoteStore) support inbox.
 
 ### React Integration
 
@@ -870,7 +871,7 @@ For example patterns from real implementations, see [examples.md](examples.md).
 1. **model_response_complete vs model_response**: Streaming adapters emit `model_response_complete`, not `model_response`. Subscribers must handle both.
 2. **Closure capture in React hooks**: When re-keying sessions, use mutable `let currentKey = key` to avoid stale closures.
 3. **React useEffect timing**: State updates don't take effect in the same render cycle — guard with early returns.
-4. **Browser-safe imports**: `glove-core` barrel exports include native deps (better-sqlite3). For browser code, import from subpaths: `glove-core/core`, `glove-core/glove`, `glove-core/display-manager`, `glove-core/tools/task-tool`, `glove-core/tools/inbox-tool`.
+4. **Browser-safe imports**: `glove-core` is now browser-safe (no native deps). `SqliteStore` (with its native `better-sqlite3` dependency) lives in the separate `glove-sqlite` package for server-side use only. Subpath imports (`glove-core/core`, `glove-core/glove`, etc.) still work but are no longer required for browser safety.
 5. **`Displaymanager` casing**: The concrete class is `Displaymanager` (lowercase 'm'), not `DisplayManager`. Import it as: `import { Displaymanager } from "glove-core/display-manager"`.
 6. **`createAdapter` stream default**: `stream` defaults to `true`, not `false`. Pass `stream: false` explicitly if you want synchronous responses.
 7. **Tool return values**: The `do` function should return `ToolResultData` with `{ status, data, renderData? }`. `data` goes to the AI; `renderData` stays client-only.

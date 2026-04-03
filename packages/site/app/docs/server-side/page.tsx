@@ -199,7 +199,7 @@ class MemoryStore implements StoreAdapter {
       </p>
 
       <CodeBlock
-        code={`import { SqliteStore } from "glove-core";
+        code={`import { SqliteStore } from "glove-sqlite";
 
 const store = new SqliteStore({
   dbPath: "./my-agent.db",
@@ -352,9 +352,10 @@ gloveBuilder.addSubscriber(new LogSubscriber());`}
       <CodeBlock
         code={`import { WebSocketServer, WebSocket } from "ws";
 import {
-  Glove, Displaymanager, SqliteStore,
+  Glove, Displaymanager,
   createAdapter, type SubscriberAdapter,
 } from "glove-core";
+import { SqliteStore } from "glove-sqlite";
 
 const wss = new WebSocketServer({ port: 8080 });
 
@@ -653,7 +654,8 @@ console.log(result.messages.at(-1)?.text);`}
       <h3>Background worker</h3>
 
       <CodeBlock
-        code={`import { Glove, Displaymanager, SqliteStore, createAdapter } from "glove-core";
+        code={`import { Glove, Displaymanager, createAdapter } from "glove-core";
+import { SqliteStore } from "glove-sqlite";
 
 async function processJob(job: { id: string; prompt: string }) {
   const store = new SqliteStore({ dbPath: "./jobs.db", sessionId: job.id });
@@ -771,10 +773,11 @@ while (true) {
 
       <p>
         You work directly with <code>glove-core</code>: the{" "}
-        <code>Glove</code> builder, <code>Displaymanager</code>,{" "}
-        <code>SqliteStore</code> (or your own store), and model adapters from{" "}
-        <code>createAdapter</code> or instantiated directly (e.g.{" "}
-        <code>new AnthropicAdapter({"{ ... }"})</code>).
+        <code>Glove</code> builder, <code>Displaymanager</code>, and model
+        adapters from <code>createAdapter</code> or instantiated directly
+        (e.g. <code>new AnthropicAdapter({"{ ... }"})</code>). For persistent
+        storage, use <code>SqliteStore</code> from <code>glove-sqlite</code>{" "}
+        (or your own store).
       </p>
     </div>
   );

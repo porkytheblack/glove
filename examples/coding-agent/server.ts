@@ -17,10 +17,10 @@ import {
   AbortError,
   Displaymanager,
   Glove,
-  SqliteStore,
   createAdapter,
   getAvailableProviders,
 } from "glove-core";
+import { SqliteStore } from "glove-sqlite";
 import { baseTools, planTool, askQuestionTool } from "./tools";
 import type { ServerEvent, ClientCommand, HistoryTimelineEntry } from "./protocol";
 

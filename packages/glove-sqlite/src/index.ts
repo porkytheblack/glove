@@ -8,7 +8,7 @@ import type {
   PermissionStatus,
   InboxItem,
   InboxItemStatus,
-} from "../core";
+} from "glove-core/core";
 
 export interface SqliteStoreOptions {
   /** Path to the SQLite database file. Use ":memory:" for in-memory. */

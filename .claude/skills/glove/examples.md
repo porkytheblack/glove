@@ -407,7 +407,8 @@ For agents with server-side tools (file I/O, bash, git), use glove-core directly
 
 ```typescript
 // server.ts
-import { Glove, SqliteStore, Displaymanager, createAdapter } from "glove-core";
+import { Glove, Displaymanager, createAdapter } from "glove-core";
+import { SqliteStore } from "glove-sqlite";
 
 function createSession(sessionId: string, cwd: string) {
   const store = new SqliteStore({ dbPath: "./agent.db", sessionId });
@@ -923,7 +924,7 @@ The inbox enables async cross-instance communication. An agent posts a request t
 
 **External resolution (server-side):**
 ```typescript
-import { SqliteStore } from "glove-core";
+import { SqliteStore } from "glove-sqlite";
 // Resolve from background job, webhook, cron, etc.
 SqliteStore.resolveInboxItem("path/to/db.db", "inbox_item_id", "Your item is ready.");
 ```
@@ -1323,6 +1324,7 @@ Voice automatically silences TTS during compaction — no action needed on the v
 glove/
 ├── packages/
 │   ├── glove/          # glove-core — runtime engine
+│   ├── glove-sqlite/   # glove-sqlite — SQLite store adapter
 │   ├── react/          # glove-react — React bindings (GloveClient, useGlove, MemoryStore)
 │   ├── next/           # glove-next — Next.js handler (createChatHandler)
 │   ├── glove-voice/    # glove-voice — Voice pipeline (STT/TTS/VAD adapters)

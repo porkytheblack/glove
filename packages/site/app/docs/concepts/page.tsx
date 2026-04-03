@@ -315,7 +315,8 @@ export default function ConceptsPage() {
         On the React side, <code>useGlove()</code> returns{" "}
         <code>inbox: InboxItem[]</code> alongside <code>tasks</code>, so your
         UI can show what the agent is tracking. External services resolve items
-        via <code>SqliteStore.resolveInboxItem()</code> — a static method that
+        via <code>SqliteStore.resolveInboxItem()</code> (from{" "}
+        <code>glove-sqlite</code>) — a static method that
         can be called from any process with database access.
       </p>
 

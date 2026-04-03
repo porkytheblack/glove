@@ -735,7 +735,7 @@ const voice = useGloveVoice({
         code={`/** @type {import('next').NextConfig} */
 const config = {
   transpilePackages: ["glove-voice"],
-  serverExternalPackages: ["better-sqlite3"], // if using SqliteStore
+  serverExternalPackages: ["better-sqlite3"], // if using SqliteStore from glove-sqlite
 };
 
 export default config;`}

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { SqliteStore } from "glove-core";
+import { SqliteStore } from "glove-sqlite";
 import { DB_PATH } from "../../../lib/db/store";
 
 /**
