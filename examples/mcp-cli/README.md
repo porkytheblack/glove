@@ -1,14 +1,29 @@
 # glove-mcp examples
 
-Three server-side CLIs that exercise `glove-mcp`:
+Four server-side CLIs that exercise `glove-mcp`:
 
-| Command                  | File              | What it does |
-|--------------------------|-------------------|--------------|
-| `pnpm mcp:notion-auth`   | `notion-auth.ts`  | Runs the full Notion OAuth 2.0 authorization-code flow — spins up a local callback listener, opens your browser, exchanges the code for an access token, persists it to `.notion-token.json`. |
-| `pnpm mcp:notion`        | `notion-agent.ts` | Focused Notion agent — reads the stored token and pre-activates Notion at startup. |
-| `pnpm mcp:cli`           | `index.ts`        | Multi-MCP agent with `find_capability` discovery (Notion + Linear catalogue). |
+| Command                    | File                | What it does |
+|----------------------------|---------------------|--------------|
+| `pnpm mcp:notion-auth`     | `notion-auth.ts`    | Runs the full Notion OAuth 2.0 authorization-code flow — local callback listener, browser open, code-for-token exchange, token persisted to `.notion-token.json` (mode 0600). |
+| `pnpm mcp:notion-server`   | `notion-server.ts`  | Long-running. Spawns `@notionhq/notion-mcp-server` behind `mcp-proxy`, using the OAuth token from the previous step. Exposes Streamable HTTP at `http://localhost:3030/mcp`. |
+| `pnpm mcp:notion`          | `notion-agent.ts`   | Focused Notion agent — connects to whatever's listening at `NOTION_MCP_URL` (defaults to `http://localhost:3030/mcp`). Pre-activates Notion at startup. |
+| `pnpm mcp:cli`             | `index.ts`          | Multi-MCP agent with `find_capability` discovery (Notion + Linear catalogue). Resolves tokens the same way `notion-agent.ts` does. |
 
-`glove-mcp` itself ships no OAuth machinery — `McpAdapter.getAccessToken(id)` is the seam where consumers plug in. `notion-auth.ts` is a complete reference consumer: it owns the OAuth flow, persists the result, and the agents read from the persisted store via the adapter. You can lift this file straight into a real product and swap `FsTokenStore` for whatever your backend uses (Postgres, Vault, Redis, …).
+`glove-mcp` itself ships **no OAuth machinery** — `McpAdapter.getAccessToken(id)` is the only seam where consumers plug in. `notion-auth.ts` is a complete reference consumer: it owns the OAuth flow, persists the result, and the agents read from the persisted store via the adapter. Lift it into a real product and swap `FsTokenStore` for whatever your backend uses.
+
+---
+
+## Why the flow has three steps (and not two)
+
+The hosted **`https://mcp.notion.com/mcp`** uses its **own** OAuth issuer, per the MCP authorization spec (PKCE + DCR, audience = `mcp.notion.com`). The OAuth token you get from **`api.notion.com`** is a *Notion API* token — totally valid, but `mcp.notion.com` rejects it as audience-mismatched.
+
+So the practical path for a server-to-server agent is:
+
+1. **`mcp:notion-auth`** — get an `api.notion.com` OAuth token. (One-time per user.)
+2. **`mcp:notion-server`** — run Notion's official MCP server (`@notionhq/notion-mcp-server`) locally with that token. It speaks stdio; we put `mcp-proxy` in front of it so glove-mcp can reach it over HTTP.
+3. **`mcp:notion`** — point the agent at the local proxy.
+
+The OAuth token works in step 2 because `notion-mcp-server` calls `api.notion.com` directly — same audience as the token. (Future glove-mcp versions may add support for the MCP authorization spec so step 2 disappears.)
 
 ---
 
@@ -16,21 +31,18 @@ Three server-side CLIs that exercise `glove-mcp`:
 
 ### 1. Create a Public integration in Notion
 
-1. Open <https://www.notion.so/profile/integrations>.
-2. Click **New integration** → **Public**. (Public is required for OAuth; Internal integrations use a static token instead and skip this whole flow.)
-3. On the integration's settings page:
-    - Set **Redirect URIs** to `http://localhost:53682/callback`. The auth CLI listens on this exact URL by default — you can pick a different port via `NOTION_OAUTH_PORT`, but whatever you pick must match what's configured here.
-    - Set the **Capabilities** you want the agent to have (read content, update content, insert content, comments).
-    - Save.
-4. Under **Secrets**, copy the **OAuth client ID** and the **OAuth client secret**.
+1. <https://www.notion.so/profile/integrations> → **+ New integration** → **Public**.
+2. **Redirect URIs** — add **`http://localhost:53682/callback`** (the literal string with the path; Notion compares exact-string). Save.
+3. **Capabilities** — at minimum check `Read content`, `Update content`, `Insert content`. (You can change these later but users have to re-authorize.)
+4. Open the integration's settings, scroll to **Secrets**:
+   - Copy the **OAuth client ID** (UUID).
+   - Click **Show** next to **OAuth client secret** and copy that.
 
-### 2. Drop the credentials into `.env`
+### 2. Drop credentials into `.env`
 
 ```sh
 cp examples/mcp-cli/.env.example examples/mcp-cli/.env
 ```
-
-Edit `.env`:
 
 ```env
 ANTHROPIC_API_KEY=sk-ant-...
@@ -38,28 +50,14 @@ NOTION_OAUTH_CLIENT_ID=12345678-1234-1234-1234-123456789012
 NOTION_OAUTH_CLIENT_SECRET=secret_...
 ```
 
-### 3. Run the auth flow
+### 3. Run the OAuth flow (one-time)
 
 ```sh
 pnpm install
 pnpm mcp:notion-auth
 ```
 
-You'll see something like:
-
-```
-Notion OAuth setup
-==================
-
-  Client ID:    12345678-1234-1234-1234-123456789012
-  Redirect URI: http://localhost:53682/callback
-  Listening on: http://127.0.0.1:53682
-
-Opening Notion authorization page in your browser...
-Waiting for you to grant access...
-```
-
-Your browser opens Notion's authorization page. Pick the workspace and the pages you want to share with the integration, click **Allow**, and Notion redirects to your local callback. The CLI exchanges the code, prints a confirmation, and writes the token to `examples/mcp-cli/.notion-token.json` (mode `0600`, gitignored).
+The CLI prints a banner with the redirect URI it expects and the authorize URL, opens your browser to Notion's consent page, listens on `http://localhost:53682/callback`, validates the `state` parameter, exchanges the code, and writes the access token to `examples/mcp-cli/.notion-token.json`.
 
 ```
 ✓ Notion access granted and token saved.
@@ -69,30 +67,44 @@ Your browser opens Notion's authorization page. Pick the workspace and the pages
   Saved to:   examples/mcp-cli/.notion-token.json
 ```
 
-### 4. Run the agent
+### 4. Start the local Notion MCP server (long-running)
+
+```sh
+pnpm mcp:notion-server
+```
+
+This spawns:
+
+```
+npx -y mcp-proxy --port 3030 -- npx -y @notionhq/notion-mcp-server
+```
+
+with `NOTION_TOKEN` automatically set from the OAuth token you just saved. First run downloads the two npm packages — give it 30–60 seconds. Subsequent runs are instant. The server stays running until you Ctrl-C it.
+
+### 5. Run the agent (in another terminal)
 
 ```sh
 pnpm mcp:notion
 ```
 
-The agent reads the token from `.notion-token.json` via `FsTokenStore`, runs a preflight `listTools` call so a stale token fails loudly before the REPL starts, and drops you into chat with `notion__*` tools available on turn one.
+The agent runs a preflight `listTools` call (so a stale token / missing server fails loudly with a focused message), then drops into a REPL with `notion__*` tools available on turn one.
 
 ```
-Connecting to Notion MCP at https://mcp.notion.com/mcp...
+Connecting to Notion MCP at http://localhost:3030/mcp...
 Connected to workspace "My Awesome Workspace". 14 Notion tools available: notion__search, notion__fetch, ...
 Notion agent ready. Type your message, or '/exit' to quit.
-> Find me the roadmap doc and add a bullet under "Q3" saying "Ship MCP integration"
+> Find the roadmap doc and add a bullet under "Q3" saying "Ship MCP integration"
 ```
 
 ---
 
-## How the flow fits together
+## How the pieces fit together
 
 ```
-   ┌──────────────────┐   OAuth code/state    ┌────────────────┐
-   │ pnpm mcp:notion- │ ────────────────────► │  Notion OAuth  │
-   │      auth        │ ◄──────── token ───── │    server      │
-   └────────┬─────────┘                       └────────────────┘
+   ┌──────────────────┐   OAuth code/state    ┌────────────────────┐
+   │ pnpm mcp:notion- │ ────────────────────► │ api.notion.com     │
+   │      auth        │ ◄──────── token ───── │ (OAuth issuer)     │
+   └────────┬─────────┘                       └────────────────────┘
             │  writes
             ▼
    ┌──────────────────┐
@@ -103,74 +115,76 @@ Notion agent ready. Type your message, or '/exit' to quit.
             ▼
    ┌──────────────────────────────────────────────────────┐
    │ McpAdapter.getAccessToken("notion")                  │
-   │   1. process.env.NOTION_TOKEN  (if set, used as-is)  │
+   │   1. process.env.NOTION_TOKEN  (override)            │
    │   2. tokenStore.get("notion")  (OAuth path)          │
    └────────┬─────────────────────────────────────────────┘
-            │  resolves a fresh token on every connection
+            │
             ▼
-   ┌──────────────────┐
-   │ glove-mcp        │   `Authorization: Bearer <token>`
-   │ connectMcp(...)  │ ─────────────► https://mcp.notion.com/mcp
-   └──────────────────┘
+   ┌──────────────────┐  Authorization: Bearer ...   ┌────────────────────┐
+   │ glove-mcp        │ ────────────────────────────►│ mcp-proxy :3030    │
+   │ connectMcp(...)  │                              │  └─ stdio: notion- │
+   └──────────────────┘                              │     mcp-server     │
+                                                     │     └─ api.notion. │
+                                                     │        com         │
+                                                     └────────────────────┘
+                                                     ↑ pnpm mcp:notion-server
 ```
 
 Three things to notice:
 
-1. **Token resolution happens per-connection, not at process start.** `getAccessToken` is called inside `connectMcp` every time, so when you eventually add token refresh you can just update the stored token and the next connection will pick it up automatically.
+1. **Token resolution happens per-connection, not at process start.** `getAccessToken` is called inside `connectMcp` every time, so when you eventually add token refresh you can update the stored token and the next connection picks it up automatically.
 2. **Env var beats stored token.** Useful when you already have an internal integration token (`ntn_…`) and want to bypass OAuth, or for CI runs.
-3. **`auth_expired` is the contract.** If a token expires mid-session, the bridged tool returns `{ status: "error", message: "auth_expired" }`. The agent's subscriber can react by surfacing a "reconnect" prompt, the consumer can refresh and reactivate, etc. Check `notion-agent.ts` for a minimal example that prints these errors as `[tool error: auth_expired]`.
+3. **`auth_expired` is the contract.** If a token expires mid-session, the bridged tool returns `{ status: "error", message: "auth_expired" }`. The agent's subscriber surfaces these as `[tool error: auth_expired]` lines.
 
 ---
 
 ## Production lift-and-shift
 
-Everything outside `lib/token-store.ts` is reusable. To go to production:
+Everything in this folder is reusable. To go to production:
 
-- Replace `FsTokenStore` with a per-user store backed by your database. The interface is two methods (`get(id)`, `set(id, token)`).
-- Move `notion-auth.ts` from a CLI into a route handler:
-    - `GET /oauth/notion/start` builds the authorize URL and 302s the user to Notion.
-    - `GET /oauth/notion/callback` does what the local callback listener does today: validates `state`, exchanges the code, persists the token (keyed by your user id, not by `"notion"`).
-- The agent code stays identical — only the `McpAdapter` implementation changes.
+- Replace `FsTokenStore` with a per-user store backed by your DB. Two-method interface (`get`, `set`).
+- Move `notion-auth.ts` from a CLI into route handlers — `GET /oauth/notion/start` redirects, `GET /oauth/notion/callback` does what the local listener does today, keyed by your user id rather than the literal `"notion"`.
+- For the MCP server: either run `notion-mcp-server` per-user (one process per active conversation, expensive), per-tenant, or in a shared pool. Or wait for `glove-mcp` to add support for the MCP authorization spec so you can hit `mcp.notion.com` directly from your agent runtime.
+- Agent code (`notion-agent.ts`) doesn't change — only the `McpAdapter` implementation differs.
 
 ---
 
-## Alternative: skip OAuth, use an internal integration token
+## Alternative: skip OAuth entirely
 
-If you don't need multi-user OAuth (e.g. solo dev, CI agent, internal tooling):
+If you don't need multi-user OAuth:
 
-1. Create an **Internal** integration at <https://www.notion.so/profile/integrations>.
+1. <https://www.notion.so/profile/integrations> → **New integration** → **Internal**.
 2. Copy the **Internal Integration Secret** (`ntn_…` or `secret_…`).
-3. Share each page/database you want the agent to touch with that integration (page menu → **Connections**).
-4. Notion's hosted MCP at `mcp.notion.com/mcp` only accepts OAuth tokens, so for internal tokens you run Notion's official `@notionhq/notion-mcp-server` package locally. It speaks stdio, so front it with a stdio→HTTP shim:
-    ```sh
-    NOTION_TOKEN=ntn_… npx -y mcp-proxy --port 3030 -- npx -y @notionhq/notion-mcp-server
-    ```
-5. In `.env`:
-    ```env
-    NOTION_TOKEN=ntn_…
-    NOTION_MCP_URL=http://localhost:3030/mcp
-    ```
-6. Skip `pnpm mcp:notion-auth`. The agent's `getAccessToken` sees `NOTION_TOKEN` set in env and uses that path directly.
+3. In Notion, share each page/database with the integration (`•••` → **Connections** → connect).
+4. In `.env`:
+   ```env
+   NOTION_TOKEN=ntn_...
+   ```
+5. `pnpm mcp:notion-server` then `pnpm mcp:notion`. Skip `pnpm mcp:notion-auth` — `getAccessToken` sees `NOTION_TOKEN` set in env and uses it directly.
+
+The agent works identically; only the auth source changes.
 
 ---
 
 ## Troubleshooting
 
-- **`Authorization failed: redirect_uri_mismatch`** — the redirect URI in your Notion integration settings must exactly match the `Redirect URI` printed by the auth CLI. Same scheme, host, port, path.
-- **`Notion token exchange failed (401): invalid_client`** — `NOTION_OAUTH_CLIENT_ID` or `NOTION_OAUTH_CLIENT_SECRET` is wrong or copy-pasted with whitespace.
-- **`No access token for "notion"`** — you haven't run `pnpm mcp:notion-auth` yet, or the token file got deleted. Run it again.
-- **Empty tool list** — for the internal-integration path, you haven't shared any pages with the integration yet. For OAuth, your authorized scopes don't grant any capability — re-run the auth flow and grant pages on the consent screen.
-- **`auth_expired` mid-conversation** — the access token is no longer valid. Re-run `pnpm mcp:notion-auth` and restart the agent.
-- **Tool name confusion** — bridged tools are namespaced. A Notion `search` tool shows up to the model as `notion__search`. The `__` separator is regex-safe across all model providers.
+- **`Failed to connect... ECONNREFUSED localhost:3030`** — `pnpm mcp:notion-server` isn't running, or it's running on a different port. Start it in a separate terminal.
+- **`The MCP server rejected the token`** / **`401 Unauthorized`** — usually the audience-mismatch issue: you've set `NOTION_MCP_URL=https://mcp.notion.com/mcp` but your token came from `api.notion.com`. Unset `NOTION_MCP_URL` (defaults to local proxy) and run `pnpm mcp:notion-server`.
+- **`Authorization failed: redirect_uri_mismatch`** during `mcp:notion-auth` — the URI in your Notion integration must match exactly. The CLI prints `Redirect URI: http://localhost:53682/callback`; that exact string (with the `/callback` path) must appear in your integration's redirect-URIs list. The chip-input doesn't auto-save — click **Save** at the bottom of the page.
+- **`Notion token exchange failed (401): invalid_client`** — copy-paste error in `NOTION_OAUTH_CLIENT_SECRET`. Click **Show** again, copy the entire string, no leading/trailing whitespace.
+- **`No access token for "notion"`** — you haven't run `pnpm mcp:notion-auth`, or the token file got deleted. Run it again.
+- **Empty tool list after preflight** — for the OAuth path, your authorized scopes don't actually grant any capability; re-run the auth flow and grant pages on Notion's consent screen. For the internal-integration path, you haven't shared any pages with the integration yet.
+- **`auth_expired` mid-conversation** — token is no longer valid. Re-run `pnpm mcp:notion-auth` and restart the agent.
+- **Tool name confusion** — bridged tools are namespaced. A Notion `search` tool shows up to the model as `notion__search`. The `__` separator is regex-safe across model providers.
 
 ---
 
 ## Linear (used by the multi-MCP CLI)
 
-Linear's hosted MCP at `https://mcp.linear.app/mcp` works the same way. Quick path for a personal CLI: use a personal API key from <https://linear.app/settings/api> as the bearer token; Linear's MCP server accepts those.
+Linear's hosted MCP at `https://mcp.linear.app/mcp` works the same way. Quick path for a personal CLI: use a personal API key from <https://linear.app/settings/api> as the bearer token.
 
 ```env
 LINEAR_TOKEN=lin_api_...
 ```
 
-For multi-user setups, the same OAuth-app pattern applies — duplicate `notion-auth.ts` for Linear, key the stored token by `"linear"`, and the discovery CLI's adapter will pick it up on the next activation.
+For multi-user setups, mirror the Notion pattern — duplicate `notion-auth.ts` for Linear, key the stored token by `"linear"`, and the discovery CLI's adapter picks it up on the next activation.

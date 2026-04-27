@@ -6,7 +6,10 @@ export const entries: McpCatalogueEntry[] = [
     name: "Notion",
     description:
       "Read and write Notion pages, databases, comments, and blocks.",
-    url: "https://mcp.notion.com/mcp",
+    // Defaults to the local mcp-proxy + @notionhq/notion-mcp-server you start
+    // with `pnpm mcp:notion-server`. The hosted https://mcp.notion.com/mcp
+    // uses a separate OAuth issuer and rejects api.notion.com tokens.
+    url: process.env.NOTION_MCP_URL ?? "http://localhost:3030/mcp",
     tags: ["docs", "knowledge-base"],
   },
   {

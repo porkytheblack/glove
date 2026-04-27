@@ -6,7 +6,8 @@
   "scripts": {
     "start": "tsx index.ts",
     "notion": "tsx notion-agent.ts",
-    "notion:auth": "tsx notion-auth.ts"
+    "notion:auth": "tsx notion-auth.ts",
+    "notion:server": "tsx notion-server.ts"
   },
   "dependencies": {
     "glove-core": "workspace:*",

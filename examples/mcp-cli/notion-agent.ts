@@ -106,7 +106,13 @@ function notionEntries(): McpCatalogueEntry[] {
       name: "Notion",
       description:
         "Read and write Notion pages, databases, comments, and blocks.",
-      url: process.env.NOTION_MCP_URL ?? "https://mcp.notion.com/mcp",
+      // Default targets the local mcp-proxy + @notionhq/notion-mcp-server you
+      // started with `pnpm mcp:notion-server`. The hosted server at
+      // https://mcp.notion.com/mcp uses its own OAuth issuer and will reject
+      // tokens issued by api.notion.com (different audience), so we don't
+      // default there. Override NOTION_MCP_URL if you have an MCP-flavored
+      // token for the hosted endpoint.
+      url: process.env.NOTION_MCP_URL ?? "http://localhost:3030/mcp",
       tags: ["docs", "knowledge-base"],
     },
   ];
@@ -156,10 +162,41 @@ async function main() {
   try {
     toolNames = await preflight(entry, token);
   } catch (err) {
-    output.write(
-      `\nFailed to connect to Notion MCP.\n${err instanceof Error ? err.message : String(err)}\n` +
-        `\nIf the token is stale, re-run \`pnpm mcp:notion-auth\`. See README for help.\n\n`,
-    );
+    const message = err instanceof Error ? err.message : String(err);
+    const lower = message.toLowerCase();
+    output.write(`\nFailed to connect to Notion MCP.\n${message}\n\n`);
+
+    if (
+      lower.includes("econnrefused") ||
+      lower.includes("connect failed") ||
+      lower.includes("fetch failed")
+    ) {
+      output.write(
+        `Looks like nothing is listening at ${entry.url}.\n` +
+          `In a separate terminal, start the local Notion MCP server:\n\n` +
+          `  pnpm mcp:notion-server\n\n` +
+          `Then re-run this command. (Or set NOTION_MCP_URL if you're targeting\n` +
+          `a different MCP endpoint.)\n\n`,
+      );
+    } else if (
+      lower.includes("401") ||
+      lower.includes("unauthorized") ||
+      lower.includes("invalid token") ||
+      lower.includes("invalid_token")
+    ) {
+      output.write(
+        `The MCP server rejected the token. Common cause: you're pointing at\n` +
+          `https://mcp.notion.com/mcp, which uses its own OAuth issuer — tokens\n` +
+          `from api.notion.com OAuth aren't valid there (different audience).\n\n` +
+          `Use the self-hosted path instead:\n` +
+          `  1. In another terminal:  pnpm mcp:notion-server\n` +
+          `  2. Make sure NOTION_MCP_URL is unset (or set to http://localhost:3030/mcp)\n` +
+          `  3. Re-run pnpm mcp:notion\n\n` +
+          `If your token is genuinely stale, re-run \`pnpm mcp:notion-auth\`.\n\n`,
+      );
+    } else {
+      output.write(`See examples/mcp-cli/README.md for the full setup walkthrough.\n\n`);
+    }
     process.exit(1);
   }
   const stored = await tokenStore.get("notion");
