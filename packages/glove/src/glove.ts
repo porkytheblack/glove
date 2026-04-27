@@ -11,13 +11,27 @@ import { createTaskTool } from "./tools/task-tool";
 import { createInboxTool } from "./tools/inbox-tool";
 
 
-interface GloveFoldArgs<I> {
+export interface GloveFoldArgs<I> {
   name: string,
   description: string
-  inputSchema: z.ZodType<I>,
+  /** Zod schema — preferred for tools you author. Validated locally on input. */
+  inputSchema?: z.ZodType<I>,
+  /** Raw JSON Schema — for bridged tools (MCP, OpenAPI). Skips local validation. */
+  jsonSchema?: Record<string, unknown>,
   requiresPermission?: boolean,
   unAbortable?: boolean,
-  do: (input: I, display: DisplayManagerAdapter) => Promise<ToolResultData>,
+  /**
+   * Tool implementation.
+   *
+   * The third argument is the running `Glove` instance. Use it from tools that
+   * need to fold additional tools at runtime (e.g. the discovery subagent's
+   * activate tool). Existing tools can ignore it.
+   */
+  do: (
+    input: I,
+    display: DisplayManagerAdapter,
+    glove: IGloveRunnable,
+  ) => Promise<ToolResultData>,
 }
 
 export interface IGloveRunnable {
@@ -26,7 +40,11 @@ export interface IGloveRunnable {
   setSystemPrompt: (prompt: string) => void
   addSubscriber: (subscriber: SubscriberAdapter) => void
   removeSubscriber: (subscriber: SubscriberAdapter) => void
+  /** Fold a tool. Legal at any time, including after build. */
+  fold: <I>(args: GloveFoldArgs<I>) => IGloveRunnable
   readonly displayManager: DisplayManagerAdapter
+  readonly model: ModelAdapter
+  readonly serverMode: boolean
 }
 
 
@@ -48,6 +66,12 @@ interface GloveConfig {
   model: ModelAdapter,
   displayManager: DisplayManagerAdapter,
   systemPrompt: string,
+  /**
+   * Default false. When true, signals to integrations (e.g. mountMcp) that no
+   * UI is present. Drives default permission gating and default discovery
+   * ambiguity policy. Treat as the canonical "I am headless" flag.
+   */
+  serverMode?: boolean,
   maxRetries?: number,
   maxConsecutiveErrors?: number,
   compaction_config: CompactionConfig,
@@ -57,6 +81,7 @@ interface GloveConfig {
 export class Glove implements IGloveBuilder, IGloveRunnable {
 
   readonly displayManager: DisplayManagerAdapter
+  readonly serverMode: boolean
   private store: StoreAdapter
   private context: Context
   private promptMachine: PromptMachine
@@ -70,6 +95,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   constructor(config: GloveConfig) {
     this.store = config.store
     this.displayManager = config.displayManager
+    this.serverMode = config.serverMode ?? false
 
     this.context = new Context(this.store)
     this.promptMachine = new PromptMachine(config.model, this.context,config.systemPrompt)
@@ -97,18 +123,22 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   }
 
   fold<I>(args: GloveFoldArgs<I>) {
-    if (this.built) throw new Error(`Already built`);
+    if (!args.inputSchema && !args.jsonSchema) {
+      throw new Error(`Tool "${args.name}" must provide inputSchema or jsonSchema`);
+    }
 
     const displayManager = this.displayManager;
-    
+    const self = this;
+
     const tool: Tool<I> = {
       name: args.name,
       description: args.description,
       input_schema: args.inputSchema,
+      jsonSchema: args.jsonSchema,
       requiresPermission: args.requiresPermission,
       unAbortable: args.unAbortable,
       async run(input: I) {
-        const result = await args.do(input, displayManager)
+        const result = await args.do(input, displayManager, self)
 
         return result
       }
@@ -117,6 +147,10 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
 
     this.executor.registerTool(tool)
     return this
+  }
+
+  get model(): ModelAdapter {
+    return this.promptMachine.model
   }
 
   addSubscriber(subscriber: SubscriberAdapter) {

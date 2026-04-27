@@ -6,7 +6,7 @@ import type {
   NotifySubscribersFunction,
   Tool,
 } from "glove-core/core";
-import z from "zod";
+import { getToolJsonSchema } from "glove-core/core";
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -66,7 +66,7 @@ function serializeTools(
   return tools.map((t) => ({
     name: t.name,
     description: t.description,
-    parameters: z.toJSONSchema(t.input_schema) as Record<string, unknown>,
+    parameters: getToolJsonSchema(t),
   }));
 }
 

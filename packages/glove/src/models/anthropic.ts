@@ -1,5 +1,4 @@
 import Anthropic from "@anthropic-ai/sdk";
-import z from "zod";
 import type {
   Message,
   ContentPart,
@@ -11,6 +10,7 @@ import type {
   ModelAdapter,
   NotifySubscribersFunction,
 } from "../core";
+import { getToolJsonSchema } from "../core";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -34,7 +34,7 @@ function formatTools(tools: Array<Tool<unknown>>): Array<AnthropicTool> {
   return tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
-    input_schema: z.toJSONSchema(tool.input_schema) as Anthropic.Tool.InputSchema,
+    input_schema: getToolJsonSchema(tool) as Anthropic.Tool.InputSchema,
   }));
 }
 

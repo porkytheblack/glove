@@ -4,12 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm --filter glove-core build && pnpm --filter glove-sqlite build && pnpm --filter glove-react build && pnpm --filter glove-next build && pnpm --filter glove-voice build",
+    "build": "pnpm --filter glove-core build && pnpm --filter glove-sqlite build && pnpm --filter glove-mcp build && pnpm --filter glove-react build && pnpm --filter glove-next build && pnpm --filter glove-voice build",
     "typecheck": "pnpm -r --filter './packages/*' typecheck",
     "weather:agent": "tsx examples/weather-agent/index.tsx",
     "coding:agent": "tsx examples/coding-agent/index.tsx",
     "coding:server": "tsx examples/coding-agent/server.ts",
-    "coding:client": "pnpm --filter glove-coding-agent-client dev"
+    "coding:client": "pnpm --filter glove-coding-agent-client dev",
+    "mcp:cli": "tsx examples/mcp-cli/index.ts"
   },
   "packageManager": "pnpm@10.28.2",
   "pnpm": {

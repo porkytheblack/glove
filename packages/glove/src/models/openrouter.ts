@@ -1,5 +1,4 @@
 import OpenAI from "openai";
-import z from "zod";
 import type {
   Message,
   ContentPart,
@@ -11,6 +10,7 @@ import type {
   ModelAdapter,
   NotifySubscribersFunction,
 } from "../core";
+import { getToolJsonSchema } from "../core";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -33,7 +33,7 @@ function formatTools(tools: Array<Tool<unknown>>): Array<OpenAITool> {
     function: {
       name: tool.name,
       description: tool.description,
-      parameters: z.toJSONSchema(tool.input_schema) as Record<string, unknown>,
+      parameters: getToolJsonSchema(tool),
     },
   }));
 }
