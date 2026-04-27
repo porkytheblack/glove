@@ -10,7 +10,8 @@
     "coding:agent": "tsx examples/coding-agent/index.tsx",
     "coding:server": "tsx examples/coding-agent/server.ts",
     "coding:client": "pnpm --filter glove-coding-agent-client dev",
-    "mcp:cli": "tsx examples/mcp-cli/index.ts"
+    "mcp:cli": "tsx examples/mcp-cli/index.ts",
+    "mcp:notion": "tsx examples/mcp-cli/notion-agent.ts"
   },
   "packageManager": "pnpm@10.28.2",
   "pnpm": {
