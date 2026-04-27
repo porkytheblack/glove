@@ -23,6 +23,8 @@ import {
   type McpCatalogueEntry,
 } from "glove-mcp";
 
+import { FsTokenStore } from "./lib/token-store";
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Stores
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -62,7 +64,10 @@ class MemoryStore implements StoreAdapter {
 class InMemoryMcpAdapter implements McpAdapter {
   identifier: string;
   private active = new Set<string>();
-  constructor(id: string) {
+  constructor(
+    id: string,
+    private readonly tokenStore: FsTokenStore,
+  ) {
     this.identifier = id;
   }
   async getActive() {
@@ -74,14 +79,19 @@ class InMemoryMcpAdapter implements McpAdapter {
   async deactivate(id: string) {
     this.active.delete(id);
   }
-  async getAccessToken(_id: string) {
-    const t = process.env.NOTION_TOKEN;
-    if (!t) {
-      throw new Error(
-        "NOTION_TOKEN is not set. See examples/mcp-cli/README.md for setup.",
-      );
-    }
-    return t;
+  async getAccessToken(id: string) {
+    // 1. Env var wins — useful for internal integration tokens or CI overrides.
+    const envToken = process.env[`${id.toUpperCase()}_TOKEN`];
+    if (envToken) return envToken;
+
+    // 2. Fall back to the OAuth-acquired token written by `pnpm mcp:notion-auth`.
+    const stored = await this.tokenStore.get(id);
+    if (stored?.access_token) return stored.access_token;
+
+    throw new Error(
+      `No access token for "${id}". Run \`pnpm mcp:notion-auth\` to grant access, ` +
+        `or set ${id.toUpperCase()}_TOKEN in examples/mcp-cli/.env.`,
+    );
   }
 }
 
@@ -125,13 +135,16 @@ async function preflight(entry: McpCatalogueEntry, token: string) {
 async function main() {
   const conversationId = process.argv[2] ?? "notion-default";
 
-  const token = process.env.NOTION_TOKEN;
-  if (!token) {
-    output.write(
-      "\nNOTION_TOKEN is not set.\n" +
-        "Copy examples/mcp-cli/.env.example to .env and fill in your token.\n" +
-        "See examples/mcp-cli/README.md for the full setup walkthrough.\n\n",
-    );
+  const tokenStore = new FsTokenStore(
+    join(dirname(fileURLToPath(import.meta.url)), ".notion-token.json"),
+  );
+  const adapter = new InMemoryMcpAdapter(conversationId, tokenStore);
+
+  let token: string;
+  try {
+    token = await adapter.getAccessToken("notion");
+  } catch (err) {
+    output.write(`\n${err instanceof Error ? err.message : String(err)}\n\n`);
     process.exit(1);
   }
 
@@ -145,12 +158,18 @@ async function main() {
   } catch (err) {
     output.write(
       `\nFailed to connect to Notion MCP.\n${err instanceof Error ? err.message : String(err)}\n` +
-        `\nDouble-check NOTION_TOKEN and NOTION_MCP_URL. See README for help.\n\n`,
+        `\nIf the token is stale, re-run \`pnpm mcp:notion-auth\`. See README for help.\n\n`,
     );
     process.exit(1);
   }
+  const stored = await tokenStore.get("notion");
+  const workspace =
+    typeof stored?.meta?.workspace_name === "string"
+      ? (stored.meta.workspace_name as string)
+      : null;
   output.write(
-    `Connected. ${toolNames.length} Notion tools available: ${toolNames.slice(0, 6).join(", ")}` +
+    `Connected${workspace ? ` to workspace "${workspace}"` : ""}. ` +
+      `${toolNames.length} Notion tools available: ${toolNames.slice(0, 6).join(", ")}` +
       `${toolNames.length > 6 ? `, +${toolNames.length - 6} more` : ""}\n\n`,
   );
 
@@ -173,7 +192,6 @@ async function main() {
     },
   });
 
-  const adapter = new InMemoryMcpAdapter(conversationId);
   // Pre-activate Notion so mountMcp's reload step folds the tools immediately.
   await adapter.activate("notion");
 

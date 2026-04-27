@@ -18,6 +18,12 @@ import {
 import { mountMcp, type McpAdapter } from "glove-mcp";
 
 import { entries } from "./shared/mcp-config";
+import { FsTokenStore } from "./lib/token-store";
+
+const TOKEN_STORE_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  ".notion-token.json",
+);
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // In-memory store
@@ -67,6 +73,7 @@ class MemoryStore implements StoreAdapter {
 class InMemoryMcpAdapter implements McpAdapter {
   identifier: string;
   private active = new Set<string>();
+  private tokenStore = new FsTokenStore(TOKEN_STORE_PATH);
 
   constructor(id: string) {
     this.identifier = id;
@@ -82,13 +89,18 @@ class InMemoryMcpAdapter implements McpAdapter {
     this.active.delete(id);
   }
   async getAccessToken(id: string) {
-    const tokens: Record<string, string | undefined> = {
-      notion: process.env.NOTION_TOKEN,
-      linear: process.env.LINEAR_TOKEN,
-    };
-    const t = tokens[id];
-    if (!t) throw new Error(`No token configured for ${id}`);
-    return t;
+    // 1. Env var wins (internal integration tokens, CI overrides).
+    const envToken = process.env[`${id.toUpperCase()}_TOKEN`];
+    if (envToken) return envToken;
+
+    // 2. OAuth-acquired token from `pnpm mcp:notion-auth` (Notion only today).
+    const stored = await this.tokenStore.get(id);
+    if (stored?.access_token) return stored.access_token;
+
+    throw new Error(
+      `No token configured for "${id}". Run \`pnpm mcp:notion-auth\` for Notion, ` +
+        `or set ${id.toUpperCase()}_TOKEN in examples/mcp-cli/.env.`,
+    );
   }
 }
 

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "tsx index.ts",
-    "notion": "tsx notion-agent.ts"
+    "notion": "tsx notion-agent.ts",
+    "notion:auth": "tsx notion-auth.ts"
   },
   "dependencies": {
     "glove-core": "workspace:*",
