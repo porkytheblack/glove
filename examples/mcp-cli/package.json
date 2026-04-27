@@ -8,7 +8,8 @@
     "notion": "tsx notion-agent.ts",
     "notion:auth": "tsx notion-auth.ts",
     "notion:mcp-auth": "tsx notion-mcp-auth.ts",
-    "notion:server": "tsx notion-server.ts"
+    "notion:server": "tsx notion-server.ts",
+    "notion:status": "tsx notion-status.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

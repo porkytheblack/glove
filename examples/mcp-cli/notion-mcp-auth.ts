@@ -13,6 +13,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 
 import { FsMcpOAuthProvider } from "./lib/mcp-oauth";
+import { MCP_CLIENT_INFO, buildClientMetadata } from "./lib/mcp-client-info";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // MCP-spec OAuth flow against https://mcp.notion.com/mcp.
@@ -173,14 +174,7 @@ async function main() {
   // saveClientInformation, saveCodeVerifier, saveTokens at the right moments.
   const provider = new FsMcpOAuthProvider(STORE_PATH, "notion", {
     redirectUrl: config.redirectUrl,
-    clientMetadata: {
-      client_name: "Glove MCP CLI",
-      redirect_uris: [config.redirectUrl],
-      grant_types: ["authorization_code", "refresh_token"],
-      response_types: ["code"],
-      token_endpoint_auth_method: "none",
-      // We'll rely on dynamic client registration — no client_id needed.
-    },
+    clientMetadata: buildClientMetadata(config.redirectUrl),
     onAuthorizeUrl(url: URL) {
       output.write(
         [
@@ -210,7 +204,7 @@ async function main() {
   const transport = new StreamableHTTPClientTransport(new URL(config.serverUrl), {
     authProvider: provider,
   });
-  const client = new Client({ name: "glove-mcp-cli", version: "1.0.0" });
+  const client = new Client(MCP_CLIENT_INFO);
 
   try {
     await client.connect(transport);
@@ -258,7 +252,7 @@ async function main() {
   const verifyTransport = new StreamableHTTPClientTransport(new URL(config.serverUrl), {
     authProvider: provider,
   });
-  const verifyClient = new Client({ name: "glove-mcp-cli", version: "1.0.0" });
+  const verifyClient = new Client(MCP_CLIENT_INFO);
 
   try {
     await verifyClient.connect(verifyTransport);

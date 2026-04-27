@@ -26,11 +26,25 @@ import {
 
 import { FsTokenStore } from "./lib/token-store";
 import { FsMcpOAuthProvider } from "./lib/mcp-oauth";
+import { MCP_CLIENT_INFO, buildClientMetadata } from "./lib/mcp-client-info";
 
 const MCP_OAUTH_STORE_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
   ".mcp-oauth.json",
 );
+
+/**
+ * Used to construct provider instances at runtime. Must match the redirect
+ * URL the auth CLI registered with — otherwise the SDK might re-derive
+ * registration on a refresh attempt with a different URI and confuse the
+ * server. Pulled from the same env vars `notion-mcp-auth.ts` reads.
+ */
+function authRedirectUrl(): string {
+  if (process.env.NOTION_MCP_OAUTH_REDIRECT_URI)
+    return process.env.NOTION_MCP_OAUTH_REDIRECT_URI;
+  const port = process.env.NOTION_MCP_OAUTH_PORT ?? "53683";
+  return `http://localhost:${port}/callback`;
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Stores
@@ -94,11 +108,16 @@ class InMemoryMcpAdapter implements McpAdapter {
    * `getAccessToken`.
    */
   async getAuthProvider(id: string): Promise<OAuthClientProvider | undefined> {
+    const redirectUrl = authRedirectUrl();
+    const baseOpts = {
+      redirectUrl,
+      clientMetadata: buildClientMetadata(redirectUrl),
+    };
+
     // Probe the file: if no tokens are saved for this id, there's no MCP
     // OAuth session to use — fall back to bearer.
     const probe = new FsMcpOAuthProvider(MCP_OAUTH_STORE_PATH, id, {
-      redirectUrl: "http://localhost/never",
-      clientMetadata: { client_name: "Glove MCP CLI", redirect_uris: [] },
+      ...baseOpts,
       onAuthorizeUrl: () => {},
     });
     const tokens = await probe.tokens();
@@ -108,8 +127,7 @@ class InMemoryMcpAdapter implements McpAdapter {
     // we don't auto-open a browser during agent runtime; we throw with a
     // pointer at the auth CLI so the user knows what to do.
     return new FsMcpOAuthProvider(MCP_OAUTH_STORE_PATH, id, {
-      redirectUrl: "http://localhost/never",
-      clientMetadata: { client_name: "Glove MCP CLI", redirect_uris: [] },
+      ...baseOpts,
       onAuthorizeUrl: () => {
         throw new Error(
           `MCP OAuth session for "${id}" needs re-authorization. ` +
@@ -170,7 +188,7 @@ async function preflight(entry: McpCatalogueEntry, adapter: McpAdapter) {
     auth: authProvider
       ? undefined
       : bearer(() => adapter.getAccessToken(entry.id)),
-    clientInfo: { name: "glove-notion-agent", version: "1.0.0" },
+    clientInfo: MCP_CLIENT_INFO,
   });
   const tools = await conn.listTools();
   await conn.close();
@@ -280,7 +298,7 @@ async function main() {
     adapter,
     entries,
     ambiguityPolicy: { type: "auto-pick-best" },
-    clientInfo: { name: "glove-notion-agent", version: "1.0.0" },
+    clientInfo: MCP_CLIENT_INFO,
   });
 
   glove.build();

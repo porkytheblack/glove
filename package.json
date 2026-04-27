@@ -14,7 +14,8 @@
     "mcp:notion": "tsx examples/mcp-cli/notion-agent.ts",
     "mcp:notion-auth": "tsx examples/mcp-cli/notion-auth.ts",
     "mcp:notion-mcp-auth": "tsx examples/mcp-cli/notion-mcp-auth.ts",
-    "mcp:notion-server": "tsx examples/mcp-cli/notion-server.ts"
+    "mcp:notion-server": "tsx examples/mcp-cli/notion-server.ts",
+    "mcp:notion-status": "tsx examples/mcp-cli/notion-status.ts"
   },
   "packageManager": "pnpm@10.28.2",
   "pnpm": {

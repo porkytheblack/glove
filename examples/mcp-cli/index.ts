@@ -24,6 +24,7 @@ import {
 import { entries } from "./shared/mcp-config";
 import { FsTokenStore } from "./lib/token-store";
 import { FsMcpOAuthProvider } from "./lib/mcp-oauth";
+import { MCP_CLIENT_INFO, buildClientMetadata } from "./lib/mcp-client-info";
 
 const TOKEN_STORE_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -33,6 +34,13 @@ const MCP_OAUTH_STORE_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
   ".mcp-oauth.json",
 );
+
+function authRedirectUrl(): string {
+  if (process.env.NOTION_MCP_OAUTH_REDIRECT_URI)
+    return process.env.NOTION_MCP_OAUTH_REDIRECT_URI;
+  const port = process.env.NOTION_MCP_OAUTH_PORT ?? "53683";
+  return `http://localhost:${port}/callback`;
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // In-memory store
@@ -99,18 +107,21 @@ class InMemoryMcpAdapter implements McpAdapter {
   }
 
   async getAuthProvider(id: string): Promise<OAuthClientProvider | undefined> {
-    // Probe for an existing MCP OAuth session for this id.
+    const redirectUrl = authRedirectUrl();
+    const baseOpts = {
+      redirectUrl,
+      clientMetadata: buildClientMetadata(redirectUrl),
+    };
+
     const probe = new FsMcpOAuthProvider(MCP_OAUTH_STORE_PATH, id, {
-      redirectUrl: "http://localhost/never",
-      clientMetadata: { client_name: "Glove MCP CLI", redirect_uris: [] },
+      ...baseOpts,
       onAuthorizeUrl: () => {},
     });
     const tokens = await probe.tokens();
     if (!tokens) return undefined;
 
     return new FsMcpOAuthProvider(MCP_OAUTH_STORE_PATH, id, {
-      redirectUrl: "http://localhost/never",
-      clientMetadata: { client_name: "Glove MCP CLI", redirect_uris: [] },
+      ...baseOpts,
       onAuthorizeUrl: () => {
         throw new Error(
           `MCP OAuth session for "${id}" needs re-authorization. ` +
@@ -170,7 +181,7 @@ async function main() {
     adapter,
     entries,
     ambiguityPolicy: { type: "defer-to-main" },
-    clientInfo: { name: "glove-mcp-cli", version: "1.0.0" },
+    clientInfo: MCP_CLIENT_INFO,
   });
 
   glove.build();
