@@ -1,6 +1,8 @@
 # glove-mcp examples
 
-Five server-side CLIs that exercise `glove-mcp`:
+Server-side CLIs that exercise `glove-mcp`. Notion + Gmail use the MCP
+authorization spec OAuth path against hosted MCP servers; Linear works via
+the multi-MCP discovery CLI.
 
 | Command                      | File                  | What it does |
 |------------------------------|-----------------------|--------------|
@@ -9,6 +11,8 @@ Five server-side CLIs that exercise `glove-mcp`:
 | `pnpm mcp:cli`               | `index.ts`            | Multi-MCP agent with `find_capability` discovery. |
 | `pnpm mcp:notion-auth`       | `notion-auth.ts`      | **Alternative path.** api.notion.com OAuth (Public integration). For pairing with self-hosted `notion-mcp-server`. |
 | `pnpm mcp:notion-server`     | `notion-server.ts`    | **Alternative path.** Spawns `@notionhq/notion-mcp-server` behind `mcp-proxy` for the self-hosted setup. |
+| `pnpm mcp:gmail-auth`        | `gmail-mcp-auth.ts`   | OAuth flow for Gmail's hosted MCP at `gmailmcp.googleapis.com/mcp/v1`. Requires manually-registered Google Cloud OAuth client (Gmail's MCP doesn't support DCR). |
+| `pnpm mcp:gmail`             | `gmail-agent.ts`      | Focused Gmail agent — search, read, label, draft. Pre-activates Gmail at startup. |
 
 `glove-mcp` itself ships **no OAuth machinery**. The framework's only auth seam is `McpAdapter.getAccessToken(id)` (bearer) plus the optional `getAuthProvider(id)` (full MCP-spec OAuth). Everything OAuth-related in this folder — `notion-mcp-auth.ts`, `notion-auth.ts`, the `lib/` providers — is consumer-side reference code you can lift into your own app.
 
@@ -121,6 +125,77 @@ pnpm mcp:notion-mcp-auth
 ```
 
 The whole thing — including DCR — is roughly 80 lines in `notion-mcp-auth.ts`. The complexity lives in the `FsMcpOAuthProvider` which is just persistence (atomic write, mode 0600).
+
+---
+
+## Gmail setup
+
+Gmail's hosted MCP server (`https://gmailmcp.googleapis.com/mcp/v1`) is OAuth-protected like Notion's, but with one big difference: **no Dynamic Client Registration**. You create an OAuth 2.0 client manually in Google Cloud Console, copy the credentials into `.env`, and the auth CLI pre-seeds them so the SDK skips DCR.
+
+### One-time setup
+
+1. **Pick a Google Cloud project** — <https://console.cloud.google.com/> → either create a new project or pick an existing one.
+
+2. **Enable two APIs** — APIs & Services → Library → search for and **Enable**:
+    - **Gmail API** (`gmail.googleapis.com`)
+    - **Gmail MCP API** (`gmailmcp.googleapis.com`)
+
+3. **Configure the OAuth consent screen** — APIs & Services → OAuth consent screen.
+    - User type: **External** (unless you're on Workspace; **Internal** is fine there).
+    - Fill in the basics (app name, support email, developer email).
+    - **Data Access** → **Add or remove scopes** → add **both** of:
+        - `https://www.googleapis.com/auth/gmail.readonly`
+        - `https://www.googleapis.com/auth/gmail.compose`
+    - Save and continue.
+    - If your app is in **Testing** mode, add yourself as a Test user (Audience tab).
+
+4. **Create the OAuth client** — APIs & Services → Credentials → **Create credentials** → **OAuth client ID**.
+    - Application type: **Web application**.
+    - Name: anything (e.g. "Glove MCP CLI").
+    - Authorized redirect URIs → **Add URI**: `http://localhost:53684/callback`. (Pick a different port via `GMAIL_OAUTH_PORT` if you want — keep it consistent across `.env` and the registered URI.)
+    - **Create**. Copy the **Client ID** and **Client secret** from the modal.
+
+5. **Drop the credentials into `.env`**:
+
+    ```env
+    GMAIL_OAUTH_CLIENT_ID=12345-abc.apps.googleusercontent.com
+    GMAIL_OAUTH_CLIENT_SECRET=GOCSPX-...
+    ```
+
+6. **Run the auth flow**:
+
+    ```sh
+    pnpm mcp:gmail-auth
+    ```
+
+    Browser opens → Google's consent screen → pick the scopes → grant. The CLI prints success and writes tokens to `.mcp-oauth.json` (under the `"gmail"` key, alongside Notion's).
+
+7. **Run the agent**:
+
+    ```sh
+    pnpm mcp:gmail
+    ```
+
+    The agent connects to `gmailmcp.googleapis.com/mcp/v1`, runs a preflight `listTools` (expect ~10 tools — `create_draft`, `create_label`, `get_thread`, `label_message`, `label_thread`, `list_drafts`, `list_labels`, `search_threads`, `unlabel_message`, `unlabel_thread`), and drops you into the REPL.
+
+### What the Gmail agent can and can't do
+
+The available scopes are **readonly + compose** — that means:
+
+- ✅ Search and read emails / threads
+- ✅ List, apply, and remove labels
+- ✅ Create drafts (and let you review/send manually)
+- ❌ **Cannot send mail directly.** Add `gmail.send` scope yourself if you need this — the system prompt is conservative on this point.
+
+The discovery CLI (`pnpm mcp:cli`) also picks Gmail up from the catalogue, so a query like *"check if I have any emails from <x>"* will activate Gmail and use those tools automatically. Same auth flow — `mcp:gmail-auth` writes tokens that both CLIs read.
+
+### Troubleshooting Gmail
+
+- **`Gmail MCP API has not been used in project ...`** — you didn't enable `gmailmcp.googleapis.com`. Library → search "Gmail MCP API" → Enable.
+- **`Error 400: redirect_uri_mismatch`** — the URI in your Google OAuth client must match what the CLI sends, character-for-character. The CLI prints `Redirect URI: http://localhost:53684/callback`; that exact string must be in **Authorized redirect URIs**.
+- **`Error 403: access_denied`** — you're not a Test user and the consent screen is in Testing mode. Add yourself, or publish to Production (subject to Google's verification process if you use sensitive scopes).
+- **`invalid_client`** — `GMAIL_OAUTH_CLIENT_SECRET` got copied wrong (whitespace, partial paste). Re-copy from the modal — the secret is shown again under Credentials → click the client.
+- **Empty tool list** — auth succeeded but the Gmail MCP API isn't enabled. Check step 2.
 
 ---
 

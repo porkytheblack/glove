@@ -35,11 +35,37 @@ const MCP_OAUTH_STORE_PATH = join(
   ".mcp-oauth.json",
 );
 
-function authRedirectUrl(): string {
-  if (process.env.NOTION_MCP_OAUTH_REDIRECT_URI)
-    return process.env.NOTION_MCP_OAUTH_REDIRECT_URI;
-  const port = process.env.NOTION_MCP_OAUTH_PORT ?? "53683";
-  return `http://localhost:${port}/callback`;
+interface PerEntryOAuthConfig {
+  redirectUrl: string;
+  scope?: string;
+  tokenEndpointAuthMethod?: "none" | "client_secret_basic" | "client_secret_post";
+}
+
+const GMAIL_SCOPES = [
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.compose",
+].join(" ");
+
+function oauthConfigFor(id: string): PerEntryOAuthConfig {
+  switch (id) {
+    case "gmail": {
+      const port = process.env.GMAIL_OAUTH_PORT ?? "53684";
+      return {
+        redirectUrl:
+          process.env.GMAIL_OAUTH_REDIRECT_URI ?? `http://localhost:${port}/callback`,
+        scope: GMAIL_SCOPES,
+        tokenEndpointAuthMethod: "client_secret_basic",
+      };
+    }
+    case "notion":
+    default: {
+      const port = process.env.NOTION_MCP_OAUTH_PORT ?? "53683";
+      return {
+        redirectUrl:
+          process.env.NOTION_MCP_OAUTH_REDIRECT_URI ?? `http://localhost:${port}/callback`,
+      };
+    }
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -107,10 +133,14 @@ class InMemoryMcpAdapter implements McpAdapter {
   }
 
   async getAuthProvider(id: string): Promise<OAuthClientProvider | undefined> {
-    const redirectUrl = authRedirectUrl();
+    const cfg = oauthConfigFor(id);
     const baseOpts = {
-      redirectUrl,
-      clientMetadata: buildClientMetadata(redirectUrl),
+      redirectUrl: cfg.redirectUrl,
+      clientMetadata: buildClientMetadata({
+        redirectUrl: cfg.redirectUrl,
+        scope: cfg.scope,
+        tokenEndpointAuthMethod: cfg.tokenEndpointAuthMethod,
+      }),
     };
 
     const probe = new FsMcpOAuthProvider(MCP_OAUTH_STORE_PATH, id, {
@@ -120,12 +150,14 @@ class InMemoryMcpAdapter implements McpAdapter {
     const tokens = await probe.tokens();
     if (!tokens) return undefined;
 
+    const authCommand =
+      id === "gmail" ? "pnpm mcp:gmail-auth" : "pnpm mcp:notion-mcp-auth";
     return new FsMcpOAuthProvider(MCP_OAUTH_STORE_PATH, id, {
       ...baseOpts,
       onAuthorizeUrl: () => {
         throw new Error(
           `MCP OAuth session for "${id}" needs re-authorization. ` +
-            `Run \`pnpm mcp:notion-mcp-auth\` (or your provider's equivalent) to re-grant access.`,
+            `Run \`${authCommand}\` to re-grant access.`,
         );
       },
     });

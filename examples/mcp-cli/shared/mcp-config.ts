@@ -21,4 +21,13 @@ export const entries: McpCatalogueEntry[] = [
     url: "https://mcp.linear.app/mcp",
     tags: ["issues", "tickets"],
   },
+  {
+    id: "gmail",
+    name: "Gmail",
+    description:
+      "Search emails and threads, read messages, list/apply/remove labels, " +
+      "and create draft emails. Run `pnpm mcp:gmail-auth` to authorize.",
+    url: process.env.GMAIL_MCP_URL ?? "https://gmailmcp.googleapis.com/mcp/v1",
+    tags: ["email", "communications"],
+  },
 ];

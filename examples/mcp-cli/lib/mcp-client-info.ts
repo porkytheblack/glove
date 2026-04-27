@@ -21,16 +21,38 @@ export const MCP_CLIENT_INFO = {
   version: MCP_CLIENT_VERSION,
 };
 
+export interface BuildClientMetadataOptions {
+  redirectUrl: string;
+  /** Space-separated OAuth scopes. Required for servers that don't advertise
+   *  scopes via PRM (gmailmcp.googleapis.com); optional for servers that do
+   *  (mcp.notion.com/mcp). */
+  scope?: string;
+  /**
+   * How the client authenticates at the token endpoint:
+   *  - `"none"` for public clients (default; what DCR-registered MCP servers expect).
+   *  - `"client_secret_basic"` for confidential clients (Google's manually-registered
+   *     web-app OAuth clients).
+   */
+  tokenEndpointAuthMethod?: "none" | "client_secret_basic" | "client_secret_post";
+}
+
 /**
- * `clientMetadata` for Dynamic Client Registration. Pass `redirectUrl` so the
- * runtime use of the provider matches the URL the auth CLI registered with.
+ * `clientMetadata` for Dynamic Client Registration, or for pre-registered
+ * client info stored via `saveClientInformation`. Pass `redirectUrl` so the
+ * runtime use of the provider matches the URL that was registered.
  */
-export function buildClientMetadata(redirectUrl: string): OAuthClientMetadata {
+export function buildClientMetadata(
+  opts: string | BuildClientMetadataOptions,
+): OAuthClientMetadata {
+  const o: BuildClientMetadataOptions =
+    typeof opts === "string" ? { redirectUrl: opts } : opts;
+
   return {
     client_name: MCP_CLIENT_NAME,
-    redirect_uris: [redirectUrl],
+    redirect_uris: [o.redirectUrl],
     grant_types: ["authorization_code", "refresh_token"],
     response_types: ["code"],
-    token_endpoint_auth_method: "none",
+    token_endpoint_auth_method: o.tokenEndpointAuthMethod ?? "none",
+    ...(o.scope ? { scope: o.scope } : {}),
   };
 }

@@ -9,7 +9,9 @@
     "notion:auth": "tsx notion-auth.ts",
     "notion:mcp-auth": "tsx notion-mcp-auth.ts",
     "notion:server": "tsx notion-server.ts",
-    "notion:status": "tsx notion-status.ts"
+    "notion:status": "tsx notion-status.ts",
+    "gmail": "tsx gmail-agent.ts",
+    "gmail:auth": "tsx gmail-mcp-auth.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

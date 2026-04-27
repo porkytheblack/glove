@@ -16,7 +16,9 @@
     "mcp:notion-auth": "pnpm mcp:build && tsx examples/mcp-cli/notion-auth.ts",
     "mcp:notion-mcp-auth": "pnpm mcp:build && tsx examples/mcp-cli/notion-mcp-auth.ts",
     "mcp:notion-server": "pnpm mcp:build && tsx examples/mcp-cli/notion-server.ts",
-    "mcp:notion-status": "pnpm mcp:build && tsx examples/mcp-cli/notion-status.ts"
+    "mcp:notion-status": "pnpm mcp:build && tsx examples/mcp-cli/notion-status.ts",
+    "mcp:gmail": "pnpm mcp:build && tsx examples/mcp-cli/gmail-agent.ts",
+    "mcp:gmail-auth": "pnpm mcp:build && tsx examples/mcp-cli/gmail-mcp-auth.ts"
   },
   "packageManager": "pnpm@10.28.2",
   "pnpm": {
