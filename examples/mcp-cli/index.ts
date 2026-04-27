@@ -11,7 +11,7 @@ import { stdin as input, stdout as output } from "node:process";
 import {
   Glove,
   Displaymanager,
-  AnthropicAdapter,
+  OpenRouterAdapter,
   type Message,
   type StoreAdapter,
 } from "glove-core";
@@ -156,9 +156,10 @@ async function main() {
 
   const glove = new Glove({
     store: new MemoryStore(conversationId),
-    model: new AnthropicAdapter({
-      apiKey: process.env.ANTHROPIC_API_KEY,
-      model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5",
+    model: new OpenRouterAdapter({
+      // OpenRouterAdapter auto-reads OPENROUTER_API_KEY from process.env
+      // when apiKey is omitted.
+      model: process.env.ANTHROPIC_MODEL ?? "anthropic/claude-sonnet-4.5",
       stream: true,
     }),
     displayManager: new Displaymanager(),
