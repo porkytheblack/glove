@@ -164,6 +164,10 @@ The agent uses `getAccessToken` + bearer in this mode (since `.mcp-oauth.json` h
 
 ## Troubleshooting
 
+> **`invalid_token` from `mcp.notion.com` even though `mcp:notion-status` works** — your local `glove-mcp/dist` is stale. The `pnpm mcp:*` scripts all run `pnpm mcp:build` first to prevent this; if you're invoking `tsx` directly, run `pnpm mcp:build` (or `pnpm --filter glove-mcp build`) yourself. `dist/` is gitignored, so `git pull` doesn't update the compiled output.
+
+
+
 - **`Failed to connect... 401 Unauthorized`** against `mcp.notion.com` — your `.mcp-oauth.json` is stale or missing. Run `pnpm mcp:notion-mcp-auth` to refresh.
 - **`MCP OAuth session for "notion" needs re-authorization`** — token expired and refresh failed. `pnpm mcp:notion-mcp-auth`.
 - **`Discovery / registration failed`** during `mcp:notion-mcp-auth` — the URL doesn't expose MCP-spec OAuth metadata. Make sure `NOTION_MCP_URL` (if set) really is an MCP server, not the bare Notion API.

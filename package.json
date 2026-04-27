@@ -10,12 +10,13 @@
     "coding:agent": "tsx examples/coding-agent/index.tsx",
     "coding:server": "tsx examples/coding-agent/server.ts",
     "coding:client": "pnpm --filter glove-coding-agent-client dev",
-    "mcp:cli": "tsx examples/mcp-cli/index.ts",
-    "mcp:notion": "tsx examples/mcp-cli/notion-agent.ts",
-    "mcp:notion-auth": "tsx examples/mcp-cli/notion-auth.ts",
-    "mcp:notion-mcp-auth": "tsx examples/mcp-cli/notion-mcp-auth.ts",
-    "mcp:notion-server": "tsx examples/mcp-cli/notion-server.ts",
-    "mcp:notion-status": "tsx examples/mcp-cli/notion-status.ts"
+    "mcp:build": "pnpm --filter glove-core exec tsup --no-dts --silent && pnpm --filter glove-mcp exec tsup --no-dts --silent",
+    "mcp:cli": "pnpm mcp:build && tsx examples/mcp-cli/index.ts",
+    "mcp:notion": "pnpm mcp:build && tsx examples/mcp-cli/notion-agent.ts",
+    "mcp:notion-auth": "pnpm mcp:build && tsx examples/mcp-cli/notion-auth.ts",
+    "mcp:notion-mcp-auth": "pnpm mcp:build && tsx examples/mcp-cli/notion-mcp-auth.ts",
+    "mcp:notion-server": "pnpm mcp:build && tsx examples/mcp-cli/notion-server.ts",
+    "mcp:notion-status": "pnpm mcp:build && tsx examples/mcp-cli/notion-status.ts"
   },
   "packageManager": "pnpm@10.28.2",
   "pnpm": {
