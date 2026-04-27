@@ -21,9 +21,16 @@ import {
   mountMcp,
   type McpAdapter,
   type McpCatalogueEntry,
+  type OAuthClientProvider,
 } from "glove-mcp";
 
 import { FsTokenStore } from "./lib/token-store";
+import { FsMcpOAuthProvider } from "./lib/mcp-oauth";
+
+const MCP_OAUTH_STORE_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  ".mcp-oauth.json",
+);
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Stores
@@ -79,18 +86,52 @@ class InMemoryMcpAdapter implements McpAdapter {
   async deactivate(id: string) {
     this.active.delete(id);
   }
+
+  /**
+   * Prefer MCP-spec OAuth when an existing session is on disk for this id
+   * (i.e. the user ran `pnpm mcp:notion-mcp-auth`). When this returns a
+   * provider, mountMcp passes it straight to the SDK and never calls
+   * `getAccessToken`.
+   */
+  async getAuthProvider(id: string): Promise<OAuthClientProvider | undefined> {
+    // Probe the file: if no tokens are saved for this id, there's no MCP
+    // OAuth session to use — fall back to bearer.
+    const probe = new FsMcpOAuthProvider(MCP_OAUTH_STORE_PATH, id, {
+      redirectUrl: "http://localhost/never",
+      clientMetadata: { client_name: "Glove MCP CLI", redirect_uris: [] },
+      onAuthorizeUrl: () => {},
+    });
+    const tokens = await probe.tokens();
+    if (!tokens) return undefined;
+
+    // Real provider — if the SDK ever needs to redirect (e.g. refresh failed),
+    // we don't auto-open a browser during agent runtime; we throw with a
+    // pointer at the auth CLI so the user knows what to do.
+    return new FsMcpOAuthProvider(MCP_OAUTH_STORE_PATH, id, {
+      redirectUrl: "http://localhost/never",
+      clientMetadata: { client_name: "Glove MCP CLI", redirect_uris: [] },
+      onAuthorizeUrl: () => {
+        throw new Error(
+          `MCP OAuth session for "${id}" needs re-authorization. ` +
+            `Run \`pnpm mcp:notion-mcp-auth\` to re-grant access.`,
+        );
+      },
+    });
+  }
+
   async getAccessToken(id: string) {
     // 1. Env var wins — useful for internal integration tokens or CI overrides.
     const envToken = process.env[`${id.toUpperCase()}_TOKEN`];
     if (envToken) return envToken;
 
-    // 2. Fall back to the OAuth-acquired token written by `pnpm mcp:notion-auth`.
+    // 2. Fall back to the api.notion.com OAuth token (`pnpm mcp:notion-auth`).
     const stored = await this.tokenStore.get(id);
     if (stored?.access_token) return stored.access_token;
 
     throw new Error(
-      `No access token for "${id}". Run \`pnpm mcp:notion-auth\` to grant access, ` +
-        `or set ${id.toUpperCase()}_TOKEN in examples/mcp-cli/.env.`,
+      `No access token for "${id}". Run \`pnpm mcp:notion-mcp-auth\` (recommended), ` +
+        `\`pnpm mcp:notion-auth\` (self-hosted path), or set ${id.toUpperCase()}_TOKEN ` +
+        `in examples/mcp-cli/.env.`,
     );
   }
 }
@@ -106,32 +147,35 @@ function notionEntries(): McpCatalogueEntry[] {
       name: "Notion",
       description:
         "Read and write Notion pages, databases, comments, and blocks.",
-      // Default targets the local mcp-proxy + @notionhq/notion-mcp-server you
-      // started with `pnpm mcp:notion-server`. The hosted server at
-      // https://mcp.notion.com/mcp uses its own OAuth issuer and will reject
-      // tokens issued by api.notion.com (different audience), so we don't
-      // default there. Override NOTION_MCP_URL if you have an MCP-flavored
-      // token for the hosted endpoint.
-      url: process.env.NOTION_MCP_URL ?? "http://localhost:3030/mcp",
+      // Default targets Notion's hosted MCP — the same endpoint Claude Code
+      // uses. Requires running `pnpm mcp:notion-mcp-auth` first to do the
+      // MCP-spec OAuth dance (DCR + PKCE). Override to a local URL if you
+      // prefer the self-hosted notion-mcp-server path.
+      url: process.env.NOTION_MCP_URL ?? "https://mcp.notion.com/mcp",
       tags: ["docs", "knowledge-base"],
     },
   ];
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Preflight: verify the token works before dropping into the REPL
+// Preflight: verify the credentials work before dropping into the REPL
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async function preflight(entry: McpCatalogueEntry, token: string) {
+async function preflight(entry: McpCatalogueEntry, adapter: McpAdapter) {
+  const authProvider = (await adapter.getAuthProvider?.(entry.id)) ?? undefined;
   const conn = await connectMcp({
     namespace: entry.id,
     url: entry.url,
-    auth: bearer(token),
+    authProvider,
+    auth: authProvider
+      ? undefined
+      : bearer(() => adapter.getAccessToken(entry.id)),
     clientInfo: { name: "glove-notion-agent", version: "1.0.0" },
   });
   const tools = await conn.listTools();
   await conn.close();
-  return tools.map((t) => t.name);
+  const authMode: "oauth" | "bearer" = authProvider ? "oauth" : "bearer";
+  return { toolNames: tools.map((t) => t.name), authMode };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -146,37 +190,38 @@ async function main() {
   );
   const adapter = new InMemoryMcpAdapter(conversationId, tokenStore);
 
-  let token: string;
-  try {
-    token = await adapter.getAccessToken("notion");
-  } catch (err) {
-    output.write(`\n${err instanceof Error ? err.message : String(err)}\n\n`);
-    process.exit(1);
-  }
-
   const entries = notionEntries();
   const entry = entries[0];
 
   output.write(`Connecting to Notion MCP at ${entry.url}...\n`);
   let toolNames: string[];
+  let authMode: "oauth" | "bearer";
   try {
-    toolNames = await preflight(entry, token);
+    ({ toolNames, authMode } = await preflight(entry, adapter));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const lower = message.toLowerCase();
     output.write(`\nFailed to connect to Notion MCP.\n${message}\n\n`);
 
     if (
+      lower.includes("no access token") ||
+      lower.includes("needs re-authorization")
+    ) {
+      output.write(
+        `Run the OAuth flow first:\n\n` +
+          `  pnpm mcp:notion-mcp-auth        # MCP-spec OAuth (recommended, hits ${entry.url})\n` +
+          `  pnpm mcp:notion-auth            # api.notion.com OAuth (for self-hosted path)\n\n`,
+      );
+    } else if (
       lower.includes("econnrefused") ||
       lower.includes("connect failed") ||
       lower.includes("fetch failed")
     ) {
       output.write(
         `Looks like nothing is listening at ${entry.url}.\n` +
-          `In a separate terminal, start the local Notion MCP server:\n\n` +
-          `  pnpm mcp:notion-server\n\n` +
-          `Then re-run this command. (Or set NOTION_MCP_URL if you're targeting\n` +
-          `a different MCP endpoint.)\n\n`,
+          (entry.url.includes("localhost")
+            ? `Start the local Notion MCP server in another terminal:\n\n  pnpm mcp:notion-server\n\n`
+            : `Check your network or NOTION_MCP_URL.\n\n`),
       );
     } else if (
       lower.includes("401") ||
@@ -185,27 +230,26 @@ async function main() {
       lower.includes("invalid_token")
     ) {
       output.write(
-        `The MCP server rejected the token. Common cause: you're pointing at\n` +
-          `https://mcp.notion.com/mcp, which uses its own OAuth issuer — tokens\n` +
-          `from api.notion.com OAuth aren't valid there (different audience).\n\n` +
-          `Use the self-hosted path instead:\n` +
-          `  1. In another terminal:  pnpm mcp:notion-server\n` +
-          `  2. Make sure NOTION_MCP_URL is unset (or set to http://localhost:3030/mcp)\n` +
-          `  3. Re-run pnpm mcp:notion\n\n` +
-          `If your token is genuinely stale, re-run \`pnpm mcp:notion-auth\`.\n\n`,
+        `The MCP server rejected the credentials. Common causes:\n\n` +
+          `  · You're hitting ${entry.url} with an api.notion.com OAuth token —\n` +
+          `    different audience. Run \`pnpm mcp:notion-mcp-auth\` to do the\n` +
+          `    proper MCP-spec OAuth dance.\n` +
+          `  · Token expired and refresh failed — same fix.\n\n`,
       );
     } else {
       output.write(`See examples/mcp-cli/README.md for the full setup walkthrough.\n\n`);
     }
     process.exit(1);
   }
+
   const stored = await tokenStore.get("notion");
   const workspace =
     typeof stored?.meta?.workspace_name === "string"
       ? (stored.meta.workspace_name as string)
       : null;
   output.write(
-    `Connected${workspace ? ` to workspace "${workspace}"` : ""}. ` +
+    `Connected via ${authMode === "oauth" ? "MCP OAuth" : "bearer token"}` +
+      `${workspace ? ` to workspace "${workspace}"` : ""}. ` +
       `${toolNames.length} Notion tools available: ${toolNames.slice(0, 6).join(", ")}` +
       `${toolNames.length > 6 ? `, +${toolNames.length - 6} more` : ""}\n\n`,
   );

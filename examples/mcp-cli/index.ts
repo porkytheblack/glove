@@ -15,14 +15,23 @@ import {
   type Message,
   type StoreAdapter,
 } from "glove-core";
-import { mountMcp, type McpAdapter } from "glove-mcp";
+import {
+  mountMcp,
+  type McpAdapter,
+  type OAuthClientProvider,
+} from "glove-mcp";
 
 import { entries } from "./shared/mcp-config";
 import { FsTokenStore } from "./lib/token-store";
+import { FsMcpOAuthProvider } from "./lib/mcp-oauth";
 
 const TOKEN_STORE_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
   ".notion-token.json",
+);
+const MCP_OAUTH_STORE_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  ".mcp-oauth.json",
 );
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -88,6 +97,29 @@ class InMemoryMcpAdapter implements McpAdapter {
   async deactivate(id: string) {
     this.active.delete(id);
   }
+
+  async getAuthProvider(id: string): Promise<OAuthClientProvider | undefined> {
+    // Probe for an existing MCP OAuth session for this id.
+    const probe = new FsMcpOAuthProvider(MCP_OAUTH_STORE_PATH, id, {
+      redirectUrl: "http://localhost/never",
+      clientMetadata: { client_name: "Glove MCP CLI", redirect_uris: [] },
+      onAuthorizeUrl: () => {},
+    });
+    const tokens = await probe.tokens();
+    if (!tokens) return undefined;
+
+    return new FsMcpOAuthProvider(MCP_OAUTH_STORE_PATH, id, {
+      redirectUrl: "http://localhost/never",
+      clientMetadata: { client_name: "Glove MCP CLI", redirect_uris: [] },
+      onAuthorizeUrl: () => {
+        throw new Error(
+          `MCP OAuth session for "${id}" needs re-authorization. ` +
+            `Run \`pnpm mcp:notion-mcp-auth\` (or your provider's equivalent) to re-grant access.`,
+        );
+      },
+    });
+  }
+
   async getAccessToken(id: string) {
     // 1. Env var wins (internal integration tokens, CI overrides).
     const envToken = process.env[`${id.toUpperCase()}_TOKEN`];
