@@ -1,6 +1,6 @@
 {
   "name": "glove-voice",
-  "version": "2.2.4",
+  "version": "2.2.5",
   "description": "Voice pipeline for Glove agent framework",
   "type": "module",
   "license": "MIT",
