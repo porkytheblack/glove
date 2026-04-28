@@ -21,32 +21,15 @@ import {
   mountMcp,
   type McpAdapter,
   type McpCatalogueEntry,
-  type OAuthClientProvider,
 } from "glove-mcp";
 
-import {
-  buildClientMetadata,
-  findStoredOAuthProvider,
-  FsOAuthStore,
-} from "glove-mcp/oauth";
+import { FsOAuthStore } from "glove-mcp/oauth";
 
 const MCP_CLIENT_INFO = { name: "Glove MCP CLI", version: "0.1.0" };
 
 const MCP_OAUTH_STORE = new FsOAuthStore(
   join(dirname(fileURLToPath(import.meta.url)), ".mcp-oauth.json"),
 );
-
-const GMAIL_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/gmail.compose",
-].join(" ");
-
-function authRedirectUrl(): string {
-  if (process.env.GMAIL_OAUTH_REDIRECT_URI)
-    return process.env.GMAIL_OAUTH_REDIRECT_URI;
-  const port = process.env.GMAIL_OAUTH_PORT ?? "53684";
-  return `http://localhost:${port}/callback`;
-}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Stores
@@ -100,27 +83,10 @@ class InMemoryMcpAdapter implements McpAdapter {
     this.active.delete(id);
   }
 
-  async getAuthProvider(id: string): Promise<OAuthClientProvider | undefined> {
-    if (id !== "gmail") return undefined;
-
-    const redirectUrl = authRedirectUrl();
-    return findStoredOAuthProvider(MCP_OAUTH_STORE, id, {
-      redirectUrl,
-      clientMetadata: buildClientMetadata({
-        redirectUrl,
-        scope: GMAIL_SCOPES,
-        tokenEndpointAuthMethod: "client_secret_basic",
-      }),
-      onAuthorizeUrl: () => {
-        throw new Error(
-          `MCP OAuth session for "${id}" needs re-authorization. ` +
-            `Run \`pnpm mcp:gmail-auth\` to re-grant access.`,
-        );
-      },
-    });
-  }
-
   async getAccessToken(id: string): Promise<string> {
+    const state = await MCP_OAUTH_STORE.get(id);
+    if (state.tokens?.access_token) return state.tokens.access_token;
+
     throw new Error(
       `No access token for "${id}". Run \`pnpm mcp:gmail-auth\` to grant access.`,
     );
@@ -150,14 +116,10 @@ function gmailEntries(): McpCatalogueEntry[] {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function preflight(entry: McpCatalogueEntry, adapter: McpAdapter) {
-  const authProvider = (await adapter.getAuthProvider?.(entry.id)) ?? undefined;
   const conn = await connectMcp({
     namespace: entry.id,
     url: entry.url,
-    authProvider,
-    auth: authProvider
-      ? undefined
-      : bearer(() => adapter.getAccessToken(entry.id)),
+    auth: bearer(() => adapter.getAccessToken(entry.id)),
     clientInfo: MCP_CLIENT_INFO,
   });
   const tools = await conn.listTools();

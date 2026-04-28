@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -43,22 +43,12 @@ export interface ConnectMcpConfig {
   /** MCP server URL. */
   url: string;
   /**
-   * Static-headers auth, e.g. `bearer(token)`. Use this when you've obtained
-   * the access token out-of-band and just want to pass it as
-   * `Authorization: Bearer <token>`. Mutually informative with `authProvider`
-   * — if both are set, `authProvider` wins (the SDK manages the headers).
+   * Static-headers auth, e.g. `bearer(token)`. The framework only does bearer
+   * auth — anything more sophisticated (OAuth flow, refresh, etc.) belongs in
+   * the consumer's app, which then exposes a refreshed token through
+   * `McpAdapter.getAccessToken`.
    */
   auth?: ConnectMcpAuth;
-  /**
-   * MCP-spec OAuth provider, passed straight through to the SDK's
-   * StreamableHTTPClientTransport. The SDK runs discovery, DCR, PKCE, and
-   * token refresh internally; you only implement persistence + the
-   * "redirect to authorize URL" step. See the MCP authorization spec.
-   *
-   * `glove-mcp` deliberately ships no provider implementation — applications
-   * provide their own (or copy `examples/mcp-cli/lib/mcp-oauth.ts`).
-   */
-  authProvider?: OAuthClientProvider;
   /** Identify this client to the server. */
   clientInfo?: { name: string; version: string };
 }
@@ -70,12 +60,10 @@ const DEFAULT_CLIENT_INFO = { name: "glove-mcp", version: "0.1.0" };
 export async function connectMcp(
   config: ConnectMcpConfig,
 ): Promise<McpServerConnection> {
-  const headers =
-    config.authProvider ? undefined : config.auth ? await config.auth.headers() : undefined;
+  const headers = config.auth ? await config.auth.headers() : undefined;
 
   const transport = new StreamableHTTPClientTransport(new URL(config.url), {
     requestInit: headers ? { headers } : undefined,
-    authProvider: config.authProvider,
   });
 
   const client = new Client(config.clientInfo ?? DEFAULT_CLIENT_INFO);
@@ -83,12 +71,8 @@ export async function connectMcp(
   try {
     await client.connect(transport);
   } catch (err) {
-    // Known SDK quirk: connect can throw UnauthorizedError on the first attempt
-    // even when the credentials are valid. Retry once. NOTE: when an
-    // authProvider is in play and the user hasn't completed the auth flow
-    // yet, the SDK will also throw UnauthorizedError after calling
-    // `redirectToAuthorization` — the caller is expected to drive the flow
-    // (see examples/mcp-cli/notion-mcp-auth.ts).
+    // Known SDK quirk: connect can throw UnauthorizedError on the first
+    // attempt even when the credentials are valid. Retry once.
     if (err instanceof UnauthorizedError) {
       await client.connect(transport);
     } else {
@@ -135,5 +119,3 @@ export async function connectMcp(
 
 /** Re-exported so consumers branching on auth errors can detect them. */
 export { UnauthorizedError };
-/** Re-exported so consumers can implement MCP-spec OAuth without a direct SDK dep. */
-export type { OAuthClientProvider };

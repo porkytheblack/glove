@@ -13,11 +13,9 @@ export {
 
 export {
   buildClientMetadata,
-  findStoredOAuthProvider,
   MCP_DEFAULT_CLIENT_INFO,
   McpOAuthProvider,
   type BuildClientMetadataOptions,
-  type FindStoredOAuthProviderOptions,
   type McpOAuthProviderOptions,
 } from "./oauth-provider";
 

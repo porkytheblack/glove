@@ -15,19 +15,11 @@ import {
   type Message,
   type StoreAdapter,
 } from "glove-core";
-import {
-  mountMcp,
-  type McpAdapter,
-  type OAuthClientProvider,
-} from "glove-mcp";
+import { mountMcp, type McpAdapter } from "glove-mcp";
 
 import { entries } from "./shared/mcp-config";
 import { FsTokenStore } from "./lib/token-store";
-import {
-  buildClientMetadata,
-  findStoredOAuthProvider,
-  FsOAuthStore,
-} from "glove-mcp/oauth";
+import { FsOAuthStore } from "glove-mcp/oauth";
 
 const MCP_CLIENT_INFO = { name: "Glove MCP CLI", version: "0.1.0" };
 
@@ -38,39 +30,6 @@ const TOKEN_STORE_PATH = join(
 const MCP_OAUTH_STORE = new FsOAuthStore(
   join(dirname(fileURLToPath(import.meta.url)), ".mcp-oauth.json"),
 );
-
-interface PerEntryOAuthConfig {
-  redirectUrl: string;
-  scope?: string;
-  tokenEndpointAuthMethod?: "none" | "client_secret_basic" | "client_secret_post";
-}
-
-const GMAIL_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/gmail.compose",
-].join(" ");
-
-function oauthConfigFor(id: string): PerEntryOAuthConfig {
-  switch (id) {
-    case "gmail": {
-      const port = process.env.GMAIL_OAUTH_PORT ?? "53684";
-      return {
-        redirectUrl:
-          process.env.GMAIL_OAUTH_REDIRECT_URI ?? `http://localhost:${port}/callback`,
-        scope: GMAIL_SCOPES,
-        tokenEndpointAuthMethod: "client_secret_basic",
-      };
-    }
-    case "notion":
-    default: {
-      const port = process.env.NOTION_MCP_OAUTH_PORT ?? "53683";
-      return {
-        redirectUrl:
-          process.env.NOTION_MCP_OAUTH_REDIRECT_URI ?? `http://localhost:${port}/callback`,
-      };
-    }
-  }
-}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // In-memory store
@@ -136,37 +95,25 @@ class InMemoryMcpAdapter implements McpAdapter {
     this.active.delete(id);
   }
 
-  async getAuthProvider(id: string): Promise<OAuthClientProvider | undefined> {
-    const cfg = oauthConfigFor(id);
-    const authCommand =
-      id === "gmail" ? "pnpm mcp:gmail-auth" : "pnpm mcp:notion-mcp-auth";
-    return findStoredOAuthProvider(MCP_OAUTH_STORE, id, {
-      redirectUrl: cfg.redirectUrl,
-      clientMetadata: buildClientMetadata({
-        redirectUrl: cfg.redirectUrl,
-        scope: cfg.scope,
-        tokenEndpointAuthMethod: cfg.tokenEndpointAuthMethod,
-      }),
-      onAuthorizeUrl: () => {
-        throw new Error(
-          `MCP OAuth session for "${id}" needs re-authorization. ` +
-            `Run \`${authCommand}\` to re-grant access.`,
-        );
-      },
-    });
-  }
-
   async getAccessToken(id: string) {
-    // 1. Env var wins (internal integration tokens, CI overrides).
+    // 1. MCP-spec OAuth access token from `pnpm mcp:notion-mcp-auth` /
+    //    `pnpm mcp:gmail-auth`. The acquired access_token IS the bearer token.
+    const oauthState = await MCP_OAUTH_STORE.get(id);
+    if (oauthState.tokens?.access_token) return oauthState.tokens.access_token;
+
+    // 2. Env var override (internal integration tokens, CI runs).
     const envToken = process.env[`${id.toUpperCase()}_TOKEN`];
     if (envToken) return envToken;
 
-    // 2. OAuth-acquired token from `pnpm mcp:notion-auth` (Notion only today).
+    // 3. api.notion.com OAuth token from the self-hosted path
+    //    (`pnpm mcp:notion-auth` + `pnpm mcp:notion-server`).
     const stored = await this.tokenStore.get(id);
     if (stored?.access_token) return stored.access_token;
 
+    const authCommand =
+      id === "gmail" ? "pnpm mcp:gmail-auth" : "pnpm mcp:notion-mcp-auth";
     throw new Error(
-      `No token configured for "${id}". Run \`pnpm mcp:notion-auth\` for Notion, ` +
+      `No token configured for "${id}". Run \`${authCommand}\`, ` +
         `or set ${id.toUpperCase()}_TOKEN in examples/mcp-cli/.env.`,
     );
   }

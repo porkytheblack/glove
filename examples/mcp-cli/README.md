@@ -7,14 +7,16 @@ the multi-MCP discovery CLI.
 | Command                      | File                  | What it does |
 |------------------------------|-----------------------|--------------|
 | `pnpm mcp:notion-mcp-auth`   | `notion-mcp-auth.ts`  | **Recommended.** Runs the MCP authorization spec OAuth flow against `https://mcp.notion.com/mcp` — Dynamic Client Registration + PKCE. No client id/secret needed. Same path Claude Code uses. |
-| `pnpm mcp:notion`            | `notion-agent.ts`     | Focused Notion agent. Defaults to `mcp.notion.com`. Uses `getAuthProvider` to surface the saved MCP OAuth session. |
+| `pnpm mcp:notion`            | `notion-agent.ts`     | Focused Notion agent. Defaults to `mcp.notion.com`. Reads bearer tokens from `.mcp-oauth.json`. |
 | `pnpm mcp:cli`               | `index.ts`            | Multi-MCP agent with `find_capability` discovery. |
 | `pnpm mcp:notion-auth`       | `notion-auth.ts`      | **Alternative path.** api.notion.com OAuth (Public integration). For pairing with self-hosted `notion-mcp-server`. |
 | `pnpm mcp:notion-server`     | `notion-server.ts`    | **Alternative path.** Spawns `@notionhq/notion-mcp-server` behind `mcp-proxy` for the self-hosted setup. |
 | `pnpm mcp:gmail-auth`        | `gmail-mcp-auth.ts`   | OAuth flow for Gmail's hosted MCP at `gmailmcp.googleapis.com/mcp/v1`. Requires manually-registered Google Cloud OAuth client (Gmail's MCP doesn't support DCR). |
 | `pnpm mcp:gmail`             | `gmail-agent.ts`      | Focused Gmail agent — search, read, label, draft. Pre-activates Gmail at startup. |
 
-`glove-mcp` ships the MCP authorization spec OAuth machinery via the `glove-mcp/oauth` subpath — `runMcpOAuth` for the auth flow, `FsOAuthStore` / `MemoryOAuthStore` for persistence, `findStoredOAuthProvider` for the agent-runtime adapter seam. Consumers only handle their own OAuth-client setup (client_id/secret for non-DCR servers like Gmail) and persistence backend (file vs DB).
+**Auth model.** The framework's only auth seam is `McpAdapter.getAccessToken(id)` — a function that returns a bearer-token string. How you get and refresh that token is entirely your concern. The `glove-mcp/oauth` subpath ships an opt-in OAuth-flow runner (`runMcpOAuth`) and a file-backed token store (`FsOAuthStore`, `MemoryOAuthStore`) — the auth CLIs in this folder use them as a reference implementation. In production, swap the store for your DB and run the OAuth dance from a route handler instead of a CLI; the adapter still just reads `state.tokens.access_token` from wherever you persisted it.
+
+When a token expires mid-conversation the bridged tool returns `{ status: "error", message: "auth_expired" }`. React in your app — refresh, write the new token to your store, the next call uses it. The framework never touches refresh logic.
 
 Bare-minimum auth flow:
 
@@ -47,24 +49,29 @@ await runMcpOAuth({
 Bare-minimum adapter:
 
 ```ts
-import { findStoredOAuthProvider, FsOAuthStore, buildClientMetadata } from "glove-mcp/oauth";
+import { FsOAuthStore } from "glove-mcp/oauth";
+import type { McpAdapter } from "glove-mcp";
 
 const STORE = new FsOAuthStore(".mcp-oauth.json");
 
 class MyAdapter implements McpAdapter {
-  async getAuthProvider(id: string) {
-    const redirectUrl = "http://localhost:53683/callback";
-    return findStoredOAuthProvider(STORE, id, {
-      redirectUrl,
-      clientMetadata: buildClientMetadata({ redirectUrl }),
-      onAuthorizeUrl: () => { throw new Error(`Run \`my-app auth ${id}\``); },
-    });
+  identifier: string;
+  private active = new Set<string>();
+  constructor(id: string) { this.identifier = id; }
+
+  async getActive() { return [...this.active]; }
+  async activate(id: string) { this.active.add(id); }
+  async deactivate(id: string) { this.active.delete(id); }
+
+  async getAccessToken(id: string) {
+    const state = await STORE.get(id);
+    if (state.tokens?.access_token) return state.tokens.access_token;
+    throw new Error(`No token for "${id}". Run \`my-app auth ${id}\`.`);
   }
-  // getActive / activate / deactivate / getAccessToken still required by the McpAdapter interface
 }
 ```
 
-Full reference consumer code lives in this folder — each `*-mcp-auth.ts` is ~50 lines on top of `runMcpOAuth`.
+That's the whole shape. Persistence is whatever store you give it; refresh is your app's problem. Full reference consumer code lives in this folder — each `*-mcp-auth.ts` is ~50 lines on top of `runMcpOAuth`.
 
 ---
 
@@ -94,44 +101,7 @@ That's it. Workspace-level access, no Public-integration setup, no page-sharing 
 | Run with | `pnpm mcp:notion-mcp-auth` then `pnpm mcp:notion` | `pnpm mcp:notion-auth` + `pnpm mcp:notion-server` (background) + `pnpm mcp:notion` |
 | Matches | Claude Code, Cursor's Notion MCP. | Self-hosted setups, internal integrations. |
 
-The agent picks between them automatically: if `.mcp-oauth.json` has tokens for `notion`, `getAuthProvider` returns a provider and the SDK does the OAuth path. Otherwise it falls back to bearer (`getAccessToken`).
-
----
-
-## How `getAuthProvider` plugs in
-
-`McpAdapter` got an optional method:
-
-```ts
-interface McpAdapter {
-  // ...existing
-  getAccessToken(id: string): Promise<string>;
-  getAuthProvider?(id: string): Promise<OAuthClientProvider | null | undefined>;
-}
-```
-
-`mountMcp` and the discovery subagent's `activate` tool both check `getAuthProvider` first. When it returns a provider, glove-mcp passes it straight to the MCP SDK's `StreamableHTTPClientTransport`, which handles discovery, DCR, PKCE, token storage, and refresh internally. When it returns `undefined`, glove-mcp falls back to `getAccessToken` + `bearer()`.
-
-The adapter in `notion-agent.ts` shows the pattern:
-
-```ts
-async getAuthProvider(id: string) {
-  const probe = new FsMcpOAuthProvider(STORE_PATH, id, /* dummy opts */);
-  const tokens = await probe.tokens();
-  if (!tokens) return undefined;            // no MCP OAuth session — use bearer
-
-  return new FsMcpOAuthProvider(STORE_PATH, id, {
-    redirectUrl: "http://localhost/never",
-    clientMetadata: { client_name: "Glove MCP CLI", redirect_uris: [] },
-    onAuthorizeUrl: () => {
-      // We don't auto-open browsers during agent runtime — fail loudly.
-      throw new Error(`Run \`pnpm mcp:notion-mcp-auth\` to re-grant access.`);
-    },
-  });
-}
-```
-
-Same shape works for any MCP server speaking the MCP authorization spec — Notion, GitHub, anything that exposes `.well-known/oauth-authorization-server`.
+The adapter checks `.mcp-oauth.json` first (where `pnpm mcp:notion-mcp-auth` puts tokens) and falls back to env vars / `.notion-token.json` if not present. Same `getAccessToken` returns a bearer string in both cases — the framework doesn't care which store it came from.
 
 ---
 
@@ -253,9 +223,10 @@ The discovery CLI (`pnpm mcp:cli`) also picks Gmail up from the catalogue, so a 
 
 For a multi-user app:
 
-- Replace `FsMcpOAuthProvider` with a per-user, per-server provider backed by your DB. The SDK only needs the seven methods on `OAuthClientProvider` — getters for client info / tokens / verifier and the matching savers, plus `redirectUrl`, `clientMetadata`, and `redirectToAuthorization`.
-- Move `notion-mcp-auth.ts` from a CLI into route handlers — `GET /oauth/mcp/start` builds a transport and triggers the redirect, `GET /oauth/mcp/callback` calls `transport.finishAuth(code)`.
-- The agent code in `notion-agent.ts` doesn't change — `getAuthProvider` is a clean seam.
+- Replace `FsOAuthStore` with a per-user `OAuthStore` implementation backed by your DB. The interface is three methods (`get`, `set`, `delete`).
+- Move the OAuth flow from a CLI into route handlers — `GET /oauth/<id>/start` calls `runMcpOAuth` (or runs the lower-level `auth()` from the SDK directly), `GET /oauth/<id>/callback` finishes it. Same machinery, different invocation.
+- Background-refresh expired tokens however your stack does it; the agent reads bearer strings from your store via `getAccessToken`.
+- The agent code in `notion-agent.ts` doesn't change — `McpAdapter.getAccessToken` is the only seam.
 
 ---
 

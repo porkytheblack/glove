@@ -21,14 +21,9 @@ import {
   mountMcp,
   type McpAdapter,
   type McpCatalogueEntry,
-  type OAuthClientProvider,
 } from "glove-mcp";
 
-import {
-  buildClientMetadata,
-  findStoredOAuthProvider,
-  FsOAuthStore,
-} from "glove-mcp/oauth";
+import { FsOAuthStore } from "glove-mcp/oauth";
 
 import { FsTokenStore } from "./lib/token-store";
 
@@ -37,17 +32,6 @@ const MCP_CLIENT_INFO = { name: "Glove MCP CLI", version: "0.1.0" };
 const MCP_OAUTH_STORE = new FsOAuthStore(
   join(dirname(fileURLToPath(import.meta.url)), ".mcp-oauth.json"),
 );
-
-/**
- * Must match the redirect URL the auth CLI registered with — pulled from the
- * same env vars `notion-mcp-auth.ts` reads.
- */
-function authRedirectUrl(): string {
-  if (process.env.NOTION_MCP_OAUTH_REDIRECT_URI)
-    return process.env.NOTION_MCP_OAUTH_REDIRECT_URI;
-  const port = process.env.NOTION_MCP_OAUTH_PORT ?? "53683";
-  return `http://localhost:${port}/callback`;
-}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Stores
@@ -104,34 +88,16 @@ class InMemoryMcpAdapter implements McpAdapter {
     this.active.delete(id);
   }
 
-  /**
-   * Prefer MCP-spec OAuth when an existing session is on disk for this id
-   * (i.e. the user ran `pnpm mcp:notion-mcp-auth`). When this returns a
-   * provider, mountMcp passes it straight to the SDK and never calls
-   * `getAccessToken`.
-   */
-  async getAuthProvider(id: string): Promise<OAuthClientProvider | undefined> {
-    const redirectUrl = authRedirectUrl();
-    return findStoredOAuthProvider(MCP_OAUTH_STORE, id, {
-      redirectUrl,
-      clientMetadata: buildClientMetadata({ redirectUrl }),
-      // We don't auto-open a browser during agent runtime — fail loudly so
-      // the operator runs the auth CLI manually.
-      onAuthorizeUrl: () => {
-        throw new Error(
-          `MCP OAuth session for "${id}" needs re-authorization. ` +
-            `Run \`pnpm mcp:notion-mcp-auth\` to re-grant access.`,
-        );
-      },
-    });
-  }
-
   async getAccessToken(id: string) {
-    // 1. Env var wins — useful for internal integration tokens or CI overrides.
+    // 1. MCP OAuth-acquired access token (`pnpm mcp:notion-mcp-auth`).
+    const oauthState = await MCP_OAUTH_STORE.get(id);
+    if (oauthState.tokens?.access_token) return oauthState.tokens.access_token;
+
+    // 2. Env var override — internal integration tokens, CI runs.
     const envToken = process.env[`${id.toUpperCase()}_TOKEN`];
     if (envToken) return envToken;
 
-    // 2. Fall back to the api.notion.com OAuth token (`pnpm mcp:notion-auth`).
+    // 3. api.notion.com OAuth token from the self-hosted path (`pnpm mcp:notion-auth`).
     const stored = await this.tokenStore.get(id);
     if (stored?.access_token) return stored.access_token;
 
@@ -169,20 +135,15 @@ function notionEntries(): McpCatalogueEntry[] {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function preflight(entry: McpCatalogueEntry, adapter: McpAdapter) {
-  const authProvider = (await adapter.getAuthProvider?.(entry.id)) ?? undefined;
   const conn = await connectMcp({
     namespace: entry.id,
     url: entry.url,
-    authProvider,
-    auth: authProvider
-      ? undefined
-      : bearer(() => adapter.getAccessToken(entry.id)),
+    auth: bearer(() => adapter.getAccessToken(entry.id)),
     clientInfo: MCP_CLIENT_INFO,
   });
   const tools = await conn.listTools();
   await conn.close();
-  const authMode: "oauth" | "bearer" = authProvider ? "oauth" : "bearer";
-  return { toolNames: tools.map((t) => t.name), authMode };
+  return { toolNames: tools.map((t) => t.name) };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -202,9 +163,8 @@ async function main() {
 
   output.write(`Connecting to Notion MCP at ${entry.url}...\n`);
   let toolNames: string[];
-  let authMode: "oauth" | "bearer";
   try {
-    ({ toolNames, authMode } = await preflight(entry, adapter));
+    ({ toolNames } = await preflight(entry, adapter));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const lower = message.toLowerCase();
@@ -255,8 +215,7 @@ async function main() {
       ? (stored.meta.workspace_name as string)
       : null;
   output.write(
-    `Connected via ${authMode === "oauth" ? "MCP OAuth" : "bearer token"}` +
-      `${workspace ? ` to workspace "${workspace}"` : ""}. ` +
+    `Connected${workspace ? ` to workspace "${workspace}"` : ""}. ` +
       `${toolNames.length} Notion tools available: ${toolNames.slice(0, 6).join(", ")}` +
       `${toolNames.length > 6 ? `, +${toolNames.length - 6} more` : ""}\n\n`,
   );

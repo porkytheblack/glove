@@ -7,7 +7,6 @@ export type {
   McpToolDef,
 } from "./connect";
 export { connectMcp, UnauthorizedError } from "./connect";
-export type { OAuthClientProvider } from "./connect";
 export { bridgeMcpTool, MCP_NAMESPACE_SEP } from "./bridge";
 export { bearer } from "./auth";
 export type { BearerToken } from "./auth";

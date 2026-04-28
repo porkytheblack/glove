@@ -8,37 +8,20 @@ import { stdout as output } from "node:process";
 import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-
-import {
-  buildClientMetadata,
-  FsOAuthStore,
-  McpOAuthProvider,
-} from "glove-mcp/oauth";
+import { FsOAuthStore } from "glove-mcp/oauth";
 
 const MCP_CLIENT_INFO = { name: "Glove MCP CLI", version: "0.1.0" };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Diagnostic — reads .mcp-oauth.json, prints what's persisted (with secrets
-// masked), then tries the saved access_token against the server twice:
-//
-//   1. Through the MCP SDK (same code path the agent uses)
-//   2. As a direct fetch with an Authorization: Bearer header (raw HTTP)
-//
-// Different outcomes between the two narrows down where the bug is.
+// Diagnostic — reads .mcp-oauth.json and probes the saved access_token
+// against the server with a raw `Authorization: Bearer ...` request. That's
+// the same shape the framework uses (it just sends `bearer(token)`), so a
+// success here means the agent will work.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const STORE_PATH = join(__dirname, ".mcp-oauth.json");
 const STORE = new FsOAuthStore(STORE_PATH);
 const SERVER_URL = process.env.NOTION_MCP_URL ?? "https://mcp.notion.com/mcp";
-
-function authRedirectUrl(): string {
-  if (process.env.NOTION_MCP_OAUTH_REDIRECT_URI)
-    return process.env.NOTION_MCP_OAUTH_REDIRECT_URI;
-  const port = process.env.NOTION_MCP_OAUTH_PORT ?? "53683";
-  return `http://localhost:${port}/callback`;
-}
 
 function mask(s: string | undefined | null, keep = 6): string {
   if (!s) return "(missing)";
@@ -58,14 +41,9 @@ async function inspectFile(): Promise<{ hasTokens: boolean; accessToken: string 
   const st = await stat(STORE_PATH);
   output.write(`File: ${st.size} bytes, mode ${(st.mode & 0o777).toString(8)}\n`);
 
-  const provider = new McpOAuthProvider({ store: STORE, key: "notion",
-    redirectUrl: authRedirectUrl(),
-    clientMetadata: buildClientMetadata({ redirectUrl: authRedirectUrl() }),
-    onAuthorizeUrl: () => {},
-  });
-
-  const tokens = await provider.tokens();
-  const clientInfo = await provider.clientInformation();
+  const state = await STORE.get("notion");
+  const tokens = state.tokens;
+  const clientInfo = state.clientInformation;
 
   output.write(`\nProvider: notion\n`);
   output.write(`  clientInformation:\n`);
@@ -120,35 +98,17 @@ async function testRawFetch(accessToken: string): Promise<void> {
     });
     const text = await resp.text();
     output.write(`Status:  ${resp.status} ${resp.statusText}\n`);
-    output.write(`Headers: ${JSON.stringify(Object.fromEntries(resp.headers), null, 2)}\n`);
     output.write(`Body:    ${text.slice(0, 600)}${text.length > 600 ? "..." : ""}\n`);
-  } catch (err) {
-    output.write(`Failed: ${err instanceof Error ? err.message : String(err)}\n`);
-  }
-}
-
-async function testViaSdk(): Promise<void> {
-  output.write("\n--- MCP SDK probe ---\n");
-  output.write(`Connecting via StreamableHTTPClientTransport with McpOAuthProvider\n`);
-
-  const provider = new McpOAuthProvider({ store: STORE, key: "notion",
-    redirectUrl: authRedirectUrl(),
-    clientMetadata: buildClientMetadata({ redirectUrl: authRedirectUrl() }),
-    onAuthorizeUrl: () => {
-      throw new Error("(diagnostic) SDK tried to redirect — token must have been rejected and the provider needs to re-auth");
-    },
-  });
-
-  const transport = new StreamableHTTPClientTransport(new URL(SERVER_URL), {
-    authProvider: provider,
-  });
-  const client = new Client(MCP_CLIENT_INFO);
-
-  try {
-    await client.connect(transport);
-    const tools = await client.listTools();
-    output.write(`Connected. ${tools.tools.length} tools available.\n`);
-    await client.close();
+    if (!resp.ok) {
+      output.write(
+        `\nServer rejected the bearer token. The agent will see the same error.\n` +
+          `If the token is stale, re-run \`pnpm mcp:notion-mcp-auth\`.\n`,
+      );
+    } else {
+      output.write(
+        `\n✓ Server accepted the token. The agent should be able to connect cleanly.\n`,
+      );
+    }
   } catch (err) {
     output.write(`Failed: ${err instanceof Error ? err.message : String(err)}\n`);
   }
@@ -158,7 +118,6 @@ async function main() {
   output.write("Notion MCP OAuth status\n");
   output.write("=======================\n");
   output.write(`Server:      ${SERVER_URL}\n`);
-  output.write(`Redirect URI: ${authRedirectUrl()}\n`);
 
   const { hasTokens, accessToken } = await inspectFile();
   if (!hasTokens || !accessToken) {
@@ -169,7 +128,6 @@ async function main() {
   }
 
   await testRawFetch(accessToken);
-  await testViaSdk();
 
   output.write("\nDone.\n\n");
 }

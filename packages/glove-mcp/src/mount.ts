@@ -50,12 +50,10 @@ export async function mountMcp(
     if (!entry) continue; // entry removed since last session — drop silently
 
     try {
-      const authProvider = (await adapter.getAuthProvider?.(id)) ?? undefined;
       const conn = await connectMcp({
         namespace: id,
         url: entry.url,
-        authProvider,
-        auth: authProvider ? undefined : bearer(() => adapter.getAccessToken(id)),
+        auth: bearer(() => adapter.getAccessToken(id)),
         clientInfo,
       });
       const tools = await conn.listTools();

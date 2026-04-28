@@ -122,14 +122,10 @@ function activateTool(
       }
 
       try {
-        const authProvider = (await adapter.getAuthProvider?.(entry.id)) ?? undefined;
         const conn = await connectMcp({
           namespace: entry.id,
           url: entry.url,
-          authProvider,
-          auth: authProvider
-            ? undefined
-            : bearer(() => adapter.getAccessToken(entry.id)),
+          auth: bearer(() => adapter.getAccessToken(entry.id)),
           clientInfo,
         });
 

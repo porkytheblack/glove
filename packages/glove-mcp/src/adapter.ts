@@ -1,5 +1,3 @@
-import type { OAuthClientProvider } from "./connect";
-
 /**
  * Static catalogue entry — describes one MCP server the app supports.
  *
@@ -46,25 +44,17 @@ export interface McpAdapter {
   deactivate(id: string): Promise<void>;
 
   /**
-   * Resolve a fresh access token for this entry id. Called every time a
-   * connection is established (session boot + activation). Throwing here
-   * causes the activation/reload to fail gracefully.
+   * Resolve a fresh access token for this entry id. Sole auth seam — the
+   * framework wraps the returned string in `Authorization: Bearer ...`.
    *
-   * Not consulted when `getAuthProvider` returns a provider — the SDK manages
-   * tokens through the provider in that case.
+   * Called every time a connection is established (session boot + activation).
+   * Throwing here causes the activation/reload to fail gracefully.
+   *
+   * Token lifecycle (acquisition, refresh, persistence) is entirely the
+   * consumer's responsibility. When a token expires mid-call the bridged
+   * tool returns `{ status: "error", message: "auth_expired" }` — react in
+   * your app, refresh, update your store, and the next connection picks
+   * up the new value. See `glove-mcp/oauth` for an opt-in OAuth-flow runner.
    */
   getAccessToken(id: string): Promise<string>;
-
-  /**
-   * Optional MCP-spec OAuth provider for this id. If implemented and returns
-   * a provider, the connection uses the SDK's full OAuth machinery (discovery,
-   * DCR, PKCE, refresh) instead of static `Authorization: Bearer` headers.
-   *
-   * Return `undefined`/`null` when no OAuth session exists for this id — the
-   * connection then falls back to `getAccessToken` + bearer.
-   *
-   * Implementations: see `examples/mcp-cli/lib/mcp-oauth.ts` for a
-   * file-backed provider you can lift.
-   */
-  getAuthProvider?(id: string): Promise<OAuthClientProvider | null | undefined>;
 }
