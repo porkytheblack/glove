@@ -23,8 +23,18 @@ Glove is an open-source TypeScript framework for building AI-powered application
 | `glove-sqlite` | `SqliteStore` — persistent SQLite-backed store (server-side only, depends on better-sqlite3) | `pnpm add glove-sqlite` |
 | `glove-react` | React hooks (`useGlove`), `GloveClient`, `GloveProvider`, `defineTool`, `<Render>`, `MemoryStore`, `ToolConfig` with colocated renderers | `pnpm add glove-react` |
 | `glove-next` | One-line Next.js API route handler (`createChatHandler`) for streaming SSE | `pnpm add glove-next` |
+| `glove-mcp` | Bridge MCP servers into a Glove agent: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter`, `find_capability` discovery subagent. Opt-in OAuth helpers at `glove-mcp/oauth`. | `pnpm add glove-mcp` |
 
-**Most projects need just `glove-react` + `glove-next`.** `glove-core` is included as a dependency of `glove-react`. For server-side or non-React agents, use `glove-core` directly — see [Server-Side Agents](#server-side-agents) below.
+**Most projects need just `glove-react` + `glove-next`.** `glove-core` is included as a dependency of `glove-react`. For server-side or non-React agents, use `glove-core` directly — see [Server-Side Agents](#server-side-agents) below. For agents that need third-party tools via the Model Context Protocol, see [MCP Integration](#mcp-integration-glove-mcp).
+
+### What's in the framework
+
+- **`glove-core`** — agent loop, tools, display stack, store/model/subscriber adapters, context compaction, inbox.
+- **`glove-react`** — colocated renderers via `defineTool`, `<Render>`, `useGlove`, `MemoryStore`, `createRemoteStore`, `createEndpointModel`, `createRemoteModel`.
+- **`glove-next`** — `createChatHandler` (one-line SSE route), voice token handler.
+- **`glove-sqlite`** — `SqliteStore` for persistence (server-side only).
+- **`glove-voice`** — full-duplex voice pipeline: STT/TTS/VAD adapters, `GloveVoice`, `useGloveVoice`, `useGlovePTT`, `<VoicePTTButton>`.
+- **`glove-mcp`** — MCP servers as first-class tools: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter` (consumer-supplied per-conversation seam). `find_capability` discovery subagent. Opt-in OAuth helpers at `glove-mcp/oauth` (`runMcpOAuth`, `FsOAuthStore`, `MemoryOAuthStore`, `McpOAuthProvider`).
 
 ## Architecture at a Glance
 
@@ -46,6 +56,7 @@ User message → Agent Loop → Model decides tool calls → Execute tools → F
 - **Adapter** — Pluggable interfaces for Model, Store, DisplayManager, and Subscriber. Swap providers without changing app code.
 - **Context Compaction** — Auto-summarizes long conversations to stay within context window limits. The store preserves full message history (so frontends can display the entire chat), while `Context.getMessages()` splits at the last compaction summary so the model only sees post-compaction context. Summary messages are marked with `is_compaction: true`.
 - **Inbox** — Persistent async mailbox for cross-instance communication. An agent posts a request (text) that can't be resolved now; an external service resolves it later (text response). Resolved items are automatically injected into the agent's context on the next `ask()` call. Items can be blocking (agent should wait) or non-blocking. Built-in `glove_post_to_inbox` tool auto-registered when store supports inbox methods.
+- **MCP catalogue + adapter** — `glove-mcp` introduces two pieces: a static `McpCatalogueEntry[]` describing servers the app supports, and a per-conversation `McpAdapter` holding active ids and resolving access tokens. `mountMcp` reloads previously active servers and folds in a `find_capability` discovery subagent — model finds and activates servers it needs mid-conversation.
 
 ## Quick Start (Next.js)
 
@@ -223,6 +234,7 @@ const agent = new Glove({
   model: createAdapter({ provider: "anthropic", stream: true }),
   displayManager: new Displaymanager(),  // required but can be empty
   systemPrompt: "You are a helpful assistant.",
+  serverMode: true,  // canonical "I am headless" flag — drives default permission gating + MCP discovery policy
   compaction_config: {
     compaction_instructions: "Summarize the conversation.",
   },
@@ -533,7 +545,8 @@ const tool = defineTool({
 interface ToolConfig<I = any> {
   name: string;
   description: string;
-  inputSchema: z.ZodType<I>;
+  inputSchema?: z.ZodType<I>;          // Optional now — tools may use jsonSchema instead
+  jsonSchema?: Record<string, unknown>; // Raw JSON Schema alternative (used by MCP-bridged tools)
   do: (input: I, display: ToolDisplay) => Promise<ToolResultData>;
   render?: (props: SlotRenderProps) => ReactNode;
   renderResult?: (props: ToolResultRenderProps) => ReactNode;
@@ -542,6 +555,22 @@ interface ToolConfig<I = any> {
   unAbortable?: boolean;
 }
 ```
+
+**`jsonSchema` vs `inputSchema`:** Pass exactly one. `inputSchema` (Zod) gets local validation before `do()` runs. `jsonSchema` (raw JSON Schema) is forwarded verbatim to the model and the executor skips Zod validation — the source of truth lives elsewhere. Used by `bridgeMcpTool` where the MCP server defines the schema, but you can use it directly when wrapping any external tool catalogue.
+
+### `glove.fold` after `build()`
+
+`fold()` is legal at any time on an `IGloveRunnable`, including after `build()`. The discovery subagent's `activate` tool relies on this — it folds in newly bridged MCP tools mid-conversation so they're available on the next turn. Useful for any "register tools dynamically" pattern.
+
+```typescript
+const agent = new Glove({...}).build();
+// ...later, mid-conversation:
+agent.fold({ name: "new_tool", description: "...", inputSchema: z.object({}), async do() { ... } });
+```
+
+### `do(input, display, glove)` — third argument
+
+A tool's `do` function now receives the running `IGloveRunnable` as a third argument. This is how `find_capability`'s discovery subagent reaches back to fold tools onto the main agent and to inherit its model/displayManager. Most tools ignore this.
 
 ### ToolResultData
 
