@@ -14,7 +14,57 @@ the multi-MCP discovery CLI.
 | `pnpm mcp:gmail-auth`        | `gmail-mcp-auth.ts`   | OAuth flow for Gmail's hosted MCP at `gmailmcp.googleapis.com/mcp/v1`. Requires manually-registered Google Cloud OAuth client (Gmail's MCP doesn't support DCR). |
 | `pnpm mcp:gmail`             | `gmail-agent.ts`      | Focused Gmail agent — search, read, label, draft. Pre-activates Gmail at startup. |
 
-`glove-mcp` itself ships **no OAuth machinery**. The framework's only auth seam is `McpAdapter.getAccessToken(id)` (bearer) plus the optional `getAuthProvider(id)` (full MCP-spec OAuth). Everything OAuth-related in this folder — `notion-mcp-auth.ts`, `notion-auth.ts`, the `lib/` providers — is consumer-side reference code you can lift into your own app.
+`glove-mcp` ships the MCP authorization spec OAuth machinery via the `glove-mcp/oauth` subpath — `runMcpOAuth` for the auth flow, `FsOAuthStore` / `MemoryOAuthStore` for persistence, `findStoredOAuthProvider` for the agent-runtime adapter seam. Consumers only handle their own OAuth-client setup (client_id/secret for non-DCR servers like Gmail) and persistence backend (file vs DB).
+
+Bare-minimum auth flow:
+
+```ts
+import { FsOAuthStore, runMcpOAuth } from "glove-mcp/oauth";
+
+await runMcpOAuth({
+  serverUrl: "https://mcp.notion.com/mcp",
+  store: new FsOAuthStore(".mcp-oauth.json"),
+  key: "notion",
+});
+```
+
+For servers that don't support DCR (e.g. Google), pass `preRegisteredClient`:
+
+```ts
+await runMcpOAuth({
+  serverUrl: "https://gmailmcp.googleapis.com/mcp/v1",
+  store: new FsOAuthStore(".mcp-oauth.json"),
+  key: "gmail",
+  preRegisteredClient: {
+    client_id: process.env.GMAIL_OAUTH_CLIENT_ID!,
+    client_secret: process.env.GMAIL_OAUTH_CLIENT_SECRET!,
+  },
+  scope: "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose",
+  verify: { type: "callTool", name: "list_labels" },
+});
+```
+
+Bare-minimum adapter:
+
+```ts
+import { findStoredOAuthProvider, FsOAuthStore, buildClientMetadata } from "glove-mcp/oauth";
+
+const STORE = new FsOAuthStore(".mcp-oauth.json");
+
+class MyAdapter implements McpAdapter {
+  async getAuthProvider(id: string) {
+    const redirectUrl = "http://localhost:53683/callback";
+    return findStoredOAuthProvider(STORE, id, {
+      redirectUrl,
+      clientMetadata: buildClientMetadata({ redirectUrl }),
+      onAuthorizeUrl: () => { throw new Error(`Run \`my-app auth ${id}\``); },
+    });
+  }
+  // getActive / activate / deactivate / getAccessToken still required by the McpAdapter interface
+}
+```
+
+Full reference consumer code lives in this folder — each `*-mcp-auth.ts` is ~50 lines on top of `runMcpOAuth`.
 
 ---
 

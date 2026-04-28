@@ -24,12 +24,16 @@ import {
   type OAuthClientProvider,
 } from "glove-mcp";
 
-import { FsMcpOAuthProvider } from "./lib/mcp-oauth";
-import { MCP_CLIENT_INFO, buildClientMetadata } from "./lib/mcp-client-info";
+import {
+  buildClientMetadata,
+  findStoredOAuthProvider,
+  FsOAuthStore,
+} from "glove-mcp/oauth";
 
-const MCP_OAUTH_STORE_PATH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  ".mcp-oauth.json",
+const MCP_CLIENT_INFO = { name: "Glove MCP CLI", version: "0.1.0" };
+
+const MCP_OAUTH_STORE = new FsOAuthStore(
+  join(dirname(fileURLToPath(import.meta.url)), ".mcp-oauth.json"),
 );
 
 const GMAIL_SCOPES = [
@@ -100,24 +104,13 @@ class InMemoryMcpAdapter implements McpAdapter {
     if (id !== "gmail") return undefined;
 
     const redirectUrl = authRedirectUrl();
-    const baseOpts = {
+    return findStoredOAuthProvider(MCP_OAUTH_STORE, id, {
       redirectUrl,
       clientMetadata: buildClientMetadata({
         redirectUrl,
         scope: GMAIL_SCOPES,
-        tokenEndpointAuthMethod: "client_secret_basic" as const,
+        tokenEndpointAuthMethod: "client_secret_basic",
       }),
-    };
-
-    const probe = new FsMcpOAuthProvider(MCP_OAUTH_STORE_PATH, id, {
-      ...baseOpts,
-      onAuthorizeUrl: () => {},
-    });
-    const tokens = await probe.tokens();
-    if (!tokens) return undefined;
-
-    return new FsMcpOAuthProvider(MCP_OAUTH_STORE_PATH, id, {
-      ...baseOpts,
       onAuthorizeUrl: () => {
         throw new Error(
           `MCP OAuth session for "${id}" needs re-authorization. ` +

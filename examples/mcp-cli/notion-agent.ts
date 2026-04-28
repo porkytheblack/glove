@@ -24,20 +24,23 @@ import {
   type OAuthClientProvider,
 } from "glove-mcp";
 
-import { FsTokenStore } from "./lib/token-store";
-import { FsMcpOAuthProvider } from "./lib/mcp-oauth";
-import { MCP_CLIENT_INFO, buildClientMetadata } from "./lib/mcp-client-info";
+import {
+  buildClientMetadata,
+  findStoredOAuthProvider,
+  FsOAuthStore,
+} from "glove-mcp/oauth";
 
-const MCP_OAUTH_STORE_PATH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  ".mcp-oauth.json",
+import { FsTokenStore } from "./lib/token-store";
+
+const MCP_CLIENT_INFO = { name: "Glove MCP CLI", version: "0.1.0" };
+
+const MCP_OAUTH_STORE = new FsOAuthStore(
+  join(dirname(fileURLToPath(import.meta.url)), ".mcp-oauth.json"),
 );
 
 /**
- * Used to construct provider instances at runtime. Must match the redirect
- * URL the auth CLI registered with — otherwise the SDK might re-derive
- * registration on a refresh attempt with a different URI and confuse the
- * server. Pulled from the same env vars `notion-mcp-auth.ts` reads.
+ * Must match the redirect URL the auth CLI registered with — pulled from the
+ * same env vars `notion-mcp-auth.ts` reads.
  */
 function authRedirectUrl(): string {
   if (process.env.NOTION_MCP_OAUTH_REDIRECT_URI)
@@ -109,25 +112,11 @@ class InMemoryMcpAdapter implements McpAdapter {
    */
   async getAuthProvider(id: string): Promise<OAuthClientProvider | undefined> {
     const redirectUrl = authRedirectUrl();
-    const baseOpts = {
+    return findStoredOAuthProvider(MCP_OAUTH_STORE, id, {
       redirectUrl,
-      clientMetadata: buildClientMetadata(redirectUrl),
-    };
-
-    // Probe the file: if no tokens are saved for this id, there's no MCP
-    // OAuth session to use — fall back to bearer.
-    const probe = new FsMcpOAuthProvider(MCP_OAUTH_STORE_PATH, id, {
-      ...baseOpts,
-      onAuthorizeUrl: () => {},
-    });
-    const tokens = await probe.tokens();
-    if (!tokens) return undefined;
-
-    // Real provider — if the SDK ever needs to redirect (e.g. refresh failed),
-    // we don't auto-open a browser during agent runtime; we throw with a
-    // pointer at the auth CLI so the user knows what to do.
-    return new FsMcpOAuthProvider(MCP_OAUTH_STORE_PATH, id, {
-      ...baseOpts,
+      clientMetadata: buildClientMetadata({ redirectUrl }),
+      // We don't auto-open a browser during agent runtime — fail loudly so
+      // the operator runs the auth CLI manually.
       onAuthorizeUrl: () => {
         throw new Error(
           `MCP OAuth session for "${id}" needs re-authorization. ` +

@@ -23,16 +23,20 @@ import {
 
 import { entries } from "./shared/mcp-config";
 import { FsTokenStore } from "./lib/token-store";
-import { FsMcpOAuthProvider } from "./lib/mcp-oauth";
-import { MCP_CLIENT_INFO, buildClientMetadata } from "./lib/mcp-client-info";
+import {
+  buildClientMetadata,
+  findStoredOAuthProvider,
+  FsOAuthStore,
+} from "glove-mcp/oauth";
+
+const MCP_CLIENT_INFO = { name: "Glove MCP CLI", version: "0.1.0" };
 
 const TOKEN_STORE_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
   ".notion-token.json",
 );
-const MCP_OAUTH_STORE_PATH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  ".mcp-oauth.json",
+const MCP_OAUTH_STORE = new FsOAuthStore(
+  join(dirname(fileURLToPath(import.meta.url)), ".mcp-oauth.json"),
 );
 
 interface PerEntryOAuthConfig {
@@ -134,26 +138,15 @@ class InMemoryMcpAdapter implements McpAdapter {
 
   async getAuthProvider(id: string): Promise<OAuthClientProvider | undefined> {
     const cfg = oauthConfigFor(id);
-    const baseOpts = {
+    const authCommand =
+      id === "gmail" ? "pnpm mcp:gmail-auth" : "pnpm mcp:notion-mcp-auth";
+    return findStoredOAuthProvider(MCP_OAUTH_STORE, id, {
       redirectUrl: cfg.redirectUrl,
       clientMetadata: buildClientMetadata({
         redirectUrl: cfg.redirectUrl,
         scope: cfg.scope,
         tokenEndpointAuthMethod: cfg.tokenEndpointAuthMethod,
       }),
-    };
-
-    const probe = new FsMcpOAuthProvider(MCP_OAUTH_STORE_PATH, id, {
-      ...baseOpts,
-      onAuthorizeUrl: () => {},
-    });
-    const tokens = await probe.tokens();
-    if (!tokens) return undefined;
-
-    const authCommand =
-      id === "gmail" ? "pnpm mcp:gmail-auth" : "pnpm mcp:notion-mcp-auth";
-    return new FsMcpOAuthProvider(MCP_OAUTH_STORE_PATH, id, {
-      ...baseOpts,
       onAuthorizeUrl: () => {
         throw new Error(
           `MCP OAuth session for "${id}" needs re-authorization. ` +

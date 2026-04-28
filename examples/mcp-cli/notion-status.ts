@@ -11,8 +11,13 @@ import { stat } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
-import { FsMcpOAuthProvider } from "./lib/mcp-oauth";
-import { MCP_CLIENT_INFO, buildClientMetadata } from "./lib/mcp-client-info";
+import {
+  buildClientMetadata,
+  FsOAuthStore,
+  McpOAuthProvider,
+} from "glove-mcp/oauth";
+
+const MCP_CLIENT_INFO = { name: "Glove MCP CLI", version: "0.1.0" };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Diagnostic — reads .mcp-oauth.json, prints what's persisted (with secrets
@@ -25,6 +30,7 @@ import { MCP_CLIENT_INFO, buildClientMetadata } from "./lib/mcp-client-info";
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const STORE_PATH = join(__dirname, ".mcp-oauth.json");
+const STORE = new FsOAuthStore(STORE_PATH);
 const SERVER_URL = process.env.NOTION_MCP_URL ?? "https://mcp.notion.com/mcp";
 
 function authRedirectUrl(): string {
@@ -52,9 +58,9 @@ async function inspectFile(): Promise<{ hasTokens: boolean; accessToken: string 
   const st = await stat(STORE_PATH);
   output.write(`File: ${st.size} bytes, mode ${(st.mode & 0o777).toString(8)}\n`);
 
-  const provider = new FsMcpOAuthProvider(STORE_PATH, "notion", {
+  const provider = new McpOAuthProvider({ store: STORE, key: "notion",
     redirectUrl: authRedirectUrl(),
-    clientMetadata: buildClientMetadata(authRedirectUrl()),
+    clientMetadata: buildClientMetadata({ redirectUrl: authRedirectUrl() }),
     onAuthorizeUrl: () => {},
   });
 
@@ -123,11 +129,11 @@ async function testRawFetch(accessToken: string): Promise<void> {
 
 async function testViaSdk(): Promise<void> {
   output.write("\n--- MCP SDK probe ---\n");
-  output.write(`Connecting via StreamableHTTPClientTransport with FsMcpOAuthProvider\n`);
+  output.write(`Connecting via StreamableHTTPClientTransport with McpOAuthProvider\n`);
 
-  const provider = new FsMcpOAuthProvider(STORE_PATH, "notion", {
+  const provider = new McpOAuthProvider({ store: STORE, key: "notion",
     redirectUrl: authRedirectUrl(),
-    clientMetadata: buildClientMetadata(authRedirectUrl()),
+    clientMetadata: buildClientMetadata({ redirectUrl: authRedirectUrl() }),
     onAuthorizeUrl: () => {
       throw new Error("(diagnostic) SDK tried to redirect — token must have been rejected and the provider needs to re-auth");
     },
