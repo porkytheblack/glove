@@ -1337,3 +1337,192 @@ glove/
 │   └── lola/           # Voice-first movie companion
 └── pnpm-workspace.yaml
 ```
+
+---
+
+## Pattern: Headless agent with one MCP server (env-var bearer token)
+
+Smallest possible MCP-enabled agent. Static catalogue of one entry, in-memory adapter, env-var token. Use when you have a long-lived API key for a single integration.
+
+```ts
+import { Glove, Displaymanager, AnthropicAdapter } from "glove-core";
+import {
+  mountMcp,
+  type McpAdapter,
+  type McpCatalogueEntry,
+} from "glove-mcp";
+
+const entries: McpCatalogueEntry[] = [
+  {
+    id: "linear",
+    name: "Linear",
+    description: "Issues, projects, cycles.",
+    url: "https://mcp.linear.app/mcp",
+  },
+];
+
+class EnvAdapter implements McpAdapter {
+  identifier: string;
+  private active = new Set<string>(["linear"]); // pre-activate at boot
+  constructor(id: string) { this.identifier = id; }
+
+  async getActive() { return [...this.active]; }
+  async activate(id: string) { this.active.add(id); }
+  async deactivate(id: string) { this.active.delete(id); }
+
+  async getAccessToken(id: string) {
+    const t = process.env[`${id.toUpperCase()}_TOKEN`];
+    if (!t) throw new Error(`No token for "${id}"`);
+    return t;
+  }
+}
+
+const glove = new Glove({
+  store: new MemoryStore("convo-1"),
+  model: new AnthropicAdapter({ model: "claude-sonnet-4.5", stream: true }),
+  displayManager: new Displaymanager(),
+  systemPrompt: "Linear assistant. Help triage and update issues.",
+  serverMode: true,
+  compaction_config: { compaction_instructions: "Summarise." },
+});
+
+await mountMcp(glove, { adapter: new EnvAdapter("convo-1"), entries });
+glove.build();
+
+await glove.processRequest("List my open Linear issues assigned to me");
+```
+
+Linear is pre-activated, so its tools (`linear__list_issues` etc.) are folded at boot and available on the model's first turn — no `find_capability` round-trip needed.
+
+---
+
+## Pattern: Multi-MCP agent with discovery
+
+When the agent might use many integrations and you don't know which up front. The model calls `find_capability("send an email")`; the discovery subagent matches the catalogue, activates the right server, folds its tools.
+
+```ts
+import { mountMcp, type McpCatalogueEntry } from "glove-mcp";
+
+const entries: McpCatalogueEntry[] = [
+  {
+    id: "notion", name: "Notion",
+    description: "Pages, databases, blocks, comments.",
+    url: "https://mcp.notion.com/mcp",
+    tags: ["docs", "knowledge-base"],
+  },
+  {
+    id: "gmail", name: "Gmail",
+    description: "Search/read emails, labels, drafts.",
+    url: "https://gmailmcp.googleapis.com/mcp/v1",
+    tags: ["email"],
+  },
+  {
+    id: "linear", name: "Linear",
+    description: "Issues, projects, cycles.",
+    url: "https://mcp.linear.app/mcp",
+    tags: ["issues", "tickets"],
+  },
+];
+
+await mountMcp(glove, {
+  adapter,
+  entries,
+  ambiguityPolicy: { type: "auto-pick-best" }, // serverMode default; explicit for clarity
+  clientInfo: { name: "My App", version: "1.0.0" },
+});
+glove.build();
+```
+
+Discovery doesn't pre-activate anything. The agent boots with only `find_capability` (plus your own folded tools). When the user says "draft an email to my team about the Q3 deck", the model calls `find_capability("send an email")`; subagent picks `gmail`, calls `adapter.activate("gmail")`, connects, and folds `gmail__create_draft` etc. Next turn the model uses them.
+
+---
+
+## Pattern: OAuth token acquisition with `runMcpOAuth`
+
+Run the MCP authorization spec OAuth flow yourself, persist tokens to disk, then have the agent's `getAccessToken` read from the same store. The acquired `access_token` is the bearer string.
+
+`scripts/auth.ts` (one-time per user):
+
+```ts
+import { FsOAuthStore, runMcpOAuth } from "glove-mcp/oauth";
+
+// Notion supports DCR — no client_id/secret needed
+await runMcpOAuth({
+  serverUrl: "https://mcp.notion.com/mcp",
+  store: new FsOAuthStore(".mcp-oauth.json"),
+  key: "notion",
+  port: 53683,
+  clientInfo: { name: "My App", version: "1.0.0" },
+});
+
+// Gmail doesn't support DCR — pass pre-registered Cloud Console OAuth client
+await runMcpOAuth({
+  serverUrl: "https://gmailmcp.googleapis.com/mcp/v1",
+  store: new FsOAuthStore(".mcp-oauth.json"),
+  key: "gmail",
+  port: 53684,
+  preRegisteredClient: {
+    client_id: process.env.GMAIL_OAUTH_CLIENT_ID!,
+    client_secret: process.env.GMAIL_OAUTH_CLIENT_SECRET!,
+  },
+  scope: "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose",
+  // Gmail returns 200 to unauthenticated initialize/listTools — verify with a real call
+  verify: { type: "callTool", name: "list_labels" },
+});
+```
+
+Adapter for the agent:
+
+```ts
+import { FsOAuthStore } from "glove-mcp/oauth";
+import type { McpAdapter } from "glove-mcp";
+
+const STORE = new FsOAuthStore(".mcp-oauth.json");
+
+class OAuthAdapter implements McpAdapter {
+  identifier: string;
+  private active = new Set<string>();
+  constructor(id: string) { this.identifier = id; }
+
+  async getActive() { return [...this.active]; }
+  async activate(id: string) { this.active.add(id); }
+  async deactivate(id: string) { this.active.delete(id); }
+
+  async getAccessToken(id: string) {
+    const state = await STORE.get(id);
+    if (state.tokens?.access_token) return state.tokens.access_token;
+    throw new Error(`Run \`pnpm auth-${id}\` to grant access.`);
+  }
+}
+```
+
+---
+
+## Pattern: Handling `auth_expired` and refresh
+
+The framework never refreshes tokens. Bridged tools surface 401s as `{ status: "error", message: "auth_expired", data: null }`. Watch for it in a subscriber and refresh from your app.
+
+```ts
+glove.addSubscriber({
+  async record(type, data) {
+    if (type === "tool_use_result") {
+      const r = data.result;
+      if (r.status === "error" && r.message === "auth_expired") {
+        const id = data.tool_name.split("__")[0];   // "notion" from "notion__search"
+        await refreshAndStore(id);                   // your refresh logic
+        // Tool result already returned; agent will see auth_expired and decide to retry
+        // or surface to user. Optionally inject a system message hinting at retry.
+      }
+    }
+  },
+});
+
+async function refreshAndStore(id: string) {
+  // For OAuth tokens with a refresh_token: call the OAuth server's token endpoint.
+  // For internal integrations / static keys: probably nothing to do — log and notify.
+  // After refresh, write the new tokens back to your OAuthStore so the next
+  // getAccessToken call picks them up.
+}
+```
+
+For long-running agents, a separate background task that proactively refreshes tokens before `expires_in` hits zero is usually cleaner — the agent never sees `auth_expired` in the happy path.

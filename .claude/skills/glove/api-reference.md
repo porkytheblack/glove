@@ -12,6 +12,7 @@ const agent = new Glove({
   model: ModelAdapter,                    // Required — LLM provider
   displayManager: DisplayManagerAdapter,  // Required — UI slot management
   systemPrompt: string,                   // Required — system instructions
+  serverMode?: boolean,                   // Canonical "I am headless" flag — drives default permission gating + MCP discovery policy. Default: false.
   maxRetries?: number,                    // Tool retry limit (default: 3)
   compaction_config: {                    // Required
     compaction_instructions: string,      // Summarization prompt
@@ -19,13 +20,16 @@ const agent = new Glove({
     compaction_context_limit?: number,    // Token threshold (default: 100k)
   },
 })
-  .fold<I>(toolArgs)          // Register tool (chainable)
+  .fold<I>(toolArgs)          // Register tool (chainable; ALSO callable post-build on the IGloveRunnable)
   .addSubscriber(subscriber)  // Add event subscriber (chainable)
   .build();                   // Returns IGloveRunnable
 
 await agent.processRequest("Hello", abortSignal?);  // Also accepts ContentPart[]
 agent.setModel(newModelAdapter);  // Hot-swap model at runtime
+agent.fold({ ... });             // Legal post-build — adds tools mid-session (used by MCP discovery)
 ```
+
+The runnable returned by `build()` exposes `model`, `displayManager`, and `serverMode` as read-only fields so subagents and dynamically-folded tools (e.g. MCP discovery) can inherit them.
 
 ### GloveFoldArgs<I>
 
@@ -33,10 +37,12 @@ agent.setModel(newModelAdapter);  // Hot-swap model at runtime
 {
   name: string,
   description: string,
-  inputSchema: z.ZodType<I>,
+  inputSchema?: z.ZodType<I>,             // Optional. Provide either inputSchema (Zod, validated locally) or jsonSchema (raw, passthrough).
+  jsonSchema?: Record<string, unknown>,   // Raw JSON Schema. When set, executor skips local Zod validation. Used by bridgeMcpTool.
   requiresPermission?: boolean,
-  unAbortable?: boolean,          // When true, tool runs to completion even if abort signal fires (e.g. voice barge-in)
-  do: (input: I, display: DisplayManagerAdapter) => Promise<ToolResultData>,
+  unAbortable?: boolean,                  // When true, tool runs to completion even if abort signal fires (e.g. voice barge-in)
+  do: (input: I, display: DisplayManagerAdapter, glove: IGloveRunnable) => Promise<ToolResultData>,
+  // ^ third arg is the running Glove instance — used by subagent-folded tools (MCP discovery's `activate`) to fold tools onto the main agent and inherit its model/displayManager.
 }
 ```
 
@@ -320,14 +326,18 @@ interface GloveHandle {
 interface ToolConfig<I = any> {
   name: string;
   description: string;
-  inputSchema: z.ZodType<I>;
-  do: (input: I, display: ToolDisplay) => Promise<ToolResultData>;
+  inputSchema?: z.ZodType<I>;            // Optional — provide this OR jsonSchema
+  jsonSchema?: Record<string, unknown>;  // Raw JSON Schema alternative — executor skips Zod validation
+  do: (input: I, display: ToolDisplay, glove?: IGloveRunnable) => Promise<ToolResultData>;
   render?: (props: SlotRenderProps) => ReactNode;
   renderResult?: (props: ToolResultRenderProps) => ReactNode;
   displayStrategy?: SlotDisplayStrategy;
   requiresPermission?: boolean;
+  unAbortable?: boolean;
 }
 ```
+
+**`inputSchema` vs `jsonSchema`:** Pass exactly one. `inputSchema` is validated locally before `do()`. `jsonSchema` is forwarded raw and the executor skips validation — used by `bridgeMcpTool` so the MCP server's schema is the source of truth.
 
 ### defineTool
 
@@ -851,3 +861,341 @@ interface VoiceStatusRenderProps { mode: VoiceMode; recording?: boolean; }
 | `glove-core/models/openai-compat` | OpenAICompatAdapter | No |
 | `glove-core/models/providers` | Provider factory | No |
 | `glove-sqlite` | SqliteStore (native better-sqlite3) | No |
+
+---
+
+## glove-mcp
+
+Bearer-token bridge between Glove agents and MCP servers. Discovery subagent, opt-in OAuth helpers at `glove-mcp/oauth`.
+
+### McpCatalogueEntry
+
+```ts
+interface McpCatalogueEntry {
+  id: string;                              // namespace prefix + activation key
+  name: string;                            // discovery match
+  description: string;                     // discovery match
+  url: string;                             // HTTP transport only in v1
+  tags?: string[];                         // discovery match
+  metadata?: Record<string, unknown>;
+}
+```
+
+### McpAdapter
+
+Per-conversation, mirrors `StoreAdapter`. Sole auth seam is `getAccessToken`; the framework wraps the returned string as `Authorization: Bearer …`.
+
+```ts
+interface McpAdapter {
+  identifier: string;
+  getActive(): Promise<string[]>;
+  activate(id: string): Promise<void>;
+  deactivate(id: string): Promise<void>;          // v1: doesn't unfold tools — refresh session for that
+  getAccessToken(id: string): Promise<string>;
+}
+```
+
+### mountMcp
+
+```ts
+function mountMcp(glove: IGloveRunnable, config: MountMcpConfig): Promise<void>;
+
+interface MountMcpConfig {
+  adapter: McpAdapter;
+  entries: McpCatalogueEntry[];
+  ambiguityPolicy?: DiscoveryAmbiguityPolicy;  // default: serverMode → auto-pick-best, else interactive
+  subagentModel?: ModelAdapter;                // default: glove.model
+  subagentSystemPrompt?: string;               // default: built-in per-policy prompt
+  clientInfo?: { name: string; version: string };
+}
+```
+
+Behavior: reload all `adapter.getActive()` ids, fold the `find_capability` discovery tool. Fails open — a single bad reload logs and continues.
+
+### Discovery
+
+```ts
+type DiscoveryAmbiguityPolicy =
+  | { type: "interactive" }       // pushAndWait via mcp_picker renderer
+  | { type: "auto-pick-best" }    // deterministic; default in serverMode
+  | { type: "defer-to-main" };    // returns candidates as text, main agent decides
+
+function discoveryTool(config: DiscoveryToolConfig): GloveFoldArgs<{ need: string }>;
+
+interface DiscoveryToolConfig {
+  adapter: McpAdapter;
+  entries: McpCatalogueEntry[];
+  ambiguityPolicy: DiscoveryAmbiguityPolicy;
+  subagentModel?: ModelAdapter;
+  subagentSystemPrompt?: string;
+  clientInfo?: { name: string; version: string };
+}
+```
+
+`mountMcp` constructs and folds this for you. Direct use is unusual.
+
+### connectMcp
+
+```ts
+function connectMcp(config: ConnectMcpConfig): Promise<McpServerConnection>;
+
+interface ConnectMcpConfig {
+  namespace: string;
+  url: string;
+  auth?: ConnectMcpAuth;          // typically bearer(token)
+  clientInfo?: { name: string; version: string };
+}
+
+interface ConnectMcpAuth {
+  headers: () => Promise<Record<string, string>>;
+}
+
+interface McpServerConnection {
+  readonly namespace: string;
+  listTools(): Promise<McpToolDef[]>;
+  callTool(name: string, args: unknown): Promise<McpCallToolResult>;
+  close(): Promise<void>;
+  raw: Client;                    // SDK client for resources/prompts
+}
+
+interface McpToolDef {
+  name: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+  annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean };
+}
+
+interface McpCallToolResult {
+  content: Array<{ type: string; text?: string; [k: string]: unknown }>;
+  isError?: boolean;
+}
+```
+
+### bridgeMcpTool
+
+```ts
+function bridgeMcpTool(
+  connection: McpServerConnection,
+  tool: McpToolDef,
+  serverMode: boolean,
+): GloveFoldArgs<unknown>;
+
+const MCP_NAMESPACE_SEP = "__";   // tool name separator
+```
+
+- Names: `${connection.namespace}__${tool.name}`.
+- `jsonSchema: tool.inputSchema` (raw forwarded; executor skips Zod validation).
+- `requiresPermission`: `serverMode === true` → always false; else true unless `tool.annotations.readOnlyHint === true`.
+- `do`: maps `result.isError` → `{ status: "error", message: textOrFallback, data: result.content }`. 401 → `{ status: "error", message: "auth_expired", data: null }`. Otherwise success with `data` = joined text content, `renderData` = full `content[]`.
+
+### bearer
+
+```ts
+type BearerToken = string | (() => Promise<string> | string);
+function bearer(token: BearerToken): ConnectMcpAuth;
+```
+
+Wraps a token (or thunk) as a `ConnectMcpAuth` returning `Authorization: Bearer …` headers. Most consumers don't call this — `mountMcp` and discovery do internally with `bearer(() => adapter.getAccessToken(id))`.
+
+### UnauthorizedError
+
+Re-exported from the MCP SDK. Thrown by `connectMcp` if the SDK rejects credentials. Useful for `instanceof` branches in custom flows.
+
+### extractText
+
+```ts
+function extractText(result: Message | ModelPromptResult): string;
+```
+
+Local helper for pulling agent text out of a Glove response. Used internally by the discovery subagent.
+
+---
+
+## glove-mcp/oauth
+
+Opt-in subpath. Reference implementation of "acquire and persist OAuth tokens for an MCP server." Consumers can use any of these pieces (or none).
+
+### OAuthStore + states
+
+```ts
+interface OAuthProviderState {
+  clientInformation: OAuthClientInformationMixed | null;
+  tokens: OAuthTokens | null;
+  codeVerifier: string | null;
+}
+
+interface OAuthStore {
+  get(key: string): Promise<OAuthProviderState>;     // missing keys → empty state, never null
+  set(key: string, state: OAuthProviderState): Promise<void>;
+  delete(key: string): Promise<void>;
+  clear?(): Promise<void>;
+}
+
+function emptyOAuthState(): OAuthProviderState;
+```
+
+`OAuthClientInformationMixed`, `OAuthTokens` are re-exported from `@modelcontextprotocol/sdk/shared/auth.js`.
+
+### FsOAuthStore
+
+```ts
+class FsOAuthStore implements OAuthStore {
+  constructor(path: string);                          // single JSON file, mode 0600, atomic writes
+}
+```
+
+Holds state for any number of MCP servers in one file, keyed by `key` (typically `McpCatalogueEntry.id`). Swap for a DB-backed implementation in production.
+
+### MemoryOAuthStore
+
+```ts
+class MemoryOAuthStore implements OAuthStore {}
+```
+
+In-process only. For tests and one-shot scripts.
+
+### McpOAuthProvider
+
+```ts
+class McpOAuthProvider implements OAuthClientProvider {
+  constructor(opts: McpOAuthProviderOptions);
+  reset(): Promise<void>;                            // wipes this key's state
+}
+
+interface McpOAuthProviderOptions {
+  store: OAuthStore;
+  key: string;
+  redirectUrl: string;
+  clientMetadata: OAuthClientMetadata;
+  onAuthorizeUrl: (url: URL) => void | Promise<void>;
+}
+```
+
+The SDK calls each `OAuthClientProvider` method; this implementation round-trips through the store. Auth-flow CLIs typically open the user's browser in `onAuthorizeUrl`; agent-runtime providers throw to fail loudly.
+
+### runMcpOAuth
+
+```ts
+function runMcpOAuth(opts: RunMcpOAuthOptions): Promise<RunMcpOAuthResult>;
+
+interface RunMcpOAuthOptions {
+  serverUrl: string;
+  store: OAuthStore;
+  key: string;
+  clientInfo?: { name: string; version: string };    // default MCP_DEFAULT_CLIENT_INFO
+  port?: number;                                     // default 53683
+  redirectUrl?: string;                              // default http://localhost:${port}/callback
+  preRegisteredClient?: PreRegisteredClient;         // for servers that don't support DCR (Google)
+  scope?: string;
+  tokenEndpointAuthMethod?: "none" | "client_secret_basic" | "client_secret_post";
+  onAuthorizeUrl?: (url: URL) => void | Promise<void>;   // default: open in browser
+  onProgress?: (msg: string) => void;                // default: stdout
+  verify?: McpOAuthVerify;                           // default: { type: "listTools" }
+  timeoutMs?: number;                                // default 5min
+}
+
+interface PreRegisteredClient { client_id: string; client_secret?: string; }
+
+type McpOAuthVerify =
+  | false
+  | { type: "listTools" }
+  | { type: "callTool"; name: string; arguments?: Record<string, unknown> };
+
+interface RunMcpOAuthResult {
+  status: "AUTHORIZED" | "ALREADY_AUTHORIZED";
+  toolCount?: number;                                // when verify.type === "listTools"
+  verifyResult?: unknown;                            // when verify.type === "callTool"
+  redirectUrl: string;
+}
+```
+
+Drives discovery → DCR (or pre-seed) → PKCE → callback listener → token exchange → verify. Throws on failure. The verification step matters because some servers (Gmail) return 200 to unauthenticated `initialize`/`tools/list` — only an authenticated tool call confirms auth actually worked.
+
+### buildClientMetadata
+
+```ts
+function buildClientMetadata(opts: BuildClientMetadataOptions): OAuthClientMetadata;
+
+interface BuildClientMetadataOptions {
+  redirectUrl: string;
+  scope?: string;
+  tokenEndpointAuthMethod?: "none" | "client_secret_basic" | "client_secret_post";
+  clientName?: string;                               // default MCP_CLIENT_NAME
+}
+```
+
+### MCP_DEFAULT_CLIENT_INFO
+
+```ts
+const MCP_DEFAULT_CLIENT_INFO = { name: "Glove MCP", version: "0.1.0" };
+```
+
+---
+
+## Core changes that landed alongside glove-mcp
+
+These are framework-level changes in `glove-core` that consumers of any package should know about.
+
+### Tool / GloveFoldArgs — `jsonSchema` alternative
+
+```ts
+interface Tool<I> {
+  name: string;
+  description: string;
+  input_schema?: z.ZodType<I>;            // now optional
+  jsonSchema?: Record<string, unknown>;   // new — raw JSON Schema alternative
+  requiresPermission?: boolean;
+  unAbortable?: boolean;
+  run(input: I, handOver?: ...): Promise<ToolResultData>;
+}
+
+interface GloveFoldArgs<I> {
+  name: string;
+  description: string;
+  inputSchema?: z.ZodType<I>;             // now optional
+  jsonSchema?: Record<string, unknown>;   // new
+  requiresPermission?: boolean;
+  unAbortable?: boolean;
+  do: (input: I, display: DisplayManagerAdapter, glove: IGloveRunnable) => Promise<ToolResultData>;
+  // 3rd arg `glove` is new — the running instance, used by tools that fold further tools at runtime
+}
+```
+
+Pass exactly one of `inputSchema` / `jsonSchema`. The executor only runs Zod `safeParse` when `input_schema` is set; `jsonSchema`-only tools forward `call.input_args` straight to `run`.
+
+`getToolJsonSchema(tool)` — adapter helper that returns whichever schema the tool provided as JSON Schema.
+
+### Glove.fold — legal post-build
+
+```ts
+class Glove implements IGloveBuilder, IGloveRunnable {
+  fold<I>(args: GloveFoldArgs<I>): this;   // legal at any time, including after build()
+  // ...
+}
+
+interface IGloveRunnable {
+  fold<I>(args: GloveFoldArgs<I>): IGloveRunnable;   // exposed
+  readonly model: ModelAdapter;                       // exposed read-only
+  readonly serverMode: boolean;                       // exposed read-only
+  // ...
+}
+```
+
+The `built` throw was removed. Tools that need to register more tools at runtime (e.g. the discovery subagent's `activate`) read `glove` from `do(input, display, glove)` and call `glove.fold(...)`.
+
+### GloveConfig — serverMode
+
+```ts
+interface GloveConfig {
+  store: StoreAdapter;
+  model: ModelAdapter;
+  displayManager: DisplayManagerAdapter;
+  systemPrompt: string;
+  serverMode?: boolean;                  // new — canonical "I am headless" flag
+  maxRetries?: number;
+  maxConsecutiveErrors?: number;
+  compaction_config: CompactionConfig;
+}
+```
+
+Drives default permission-gating on bridged MCP tools (always-off in serverMode) and default discovery ambiguity policy (`auto-pick-best` in serverMode, `interactive` otherwise). Treat as the canonical headless flag for any future server-vs-UI behavioral splits.

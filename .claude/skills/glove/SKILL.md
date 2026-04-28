@@ -348,6 +348,7 @@ gloveBuilder.addSubscriber(logger);
 - **WebSocket server**: Per-connection session with isolated store/dm/subscriber, forward events via `record()`
 - **Background worker**: Build agent per job, process from a queue, no display needed
 - **Hot-swap model**: Call `agent.setModel(newAdapter)` at runtime
+- **MCP-backed agent**: Set `serverMode: true`, call `mountMcp(glove, { adapter, entries })` before `build()`. See [MCP Integration](#mcp-integration-glove-mcp).
 
 ### Optional Store Features
 
@@ -450,6 +451,161 @@ const storeActions: RemoteStoreActions = {
   getResolvedInboxItems: (sid) => fetch(`/api/sessions/${sid}/inbox/resolved`).then(r => r.json()),
 };
 ```
+
+## MCP Integration (`glove-mcp`)
+
+`glove-mcp` bridges Model Context Protocol servers (Notion, Gmail, Linear, Slack, an internal MCP wrapper around your own APIs, …) into a Glove agent so their tools appear in the model's tool list as ordinary Glove tools. Streamable HTTP transport only in v1.
+
+### When to use it
+
+- You need third-party capabilities a vendor already exposes via MCP — Notion, Gmail, Linear, Slack, Zapier-MCP, etc.
+- You have multiple internal services and want a single integration shape across them.
+- You want the agent to discover and activate capabilities mid-conversation rather than wiring all tools at startup.
+
+If you control both ends and just need a few first-party tools, hand-rolled `glove.fold(...)` is still simpler. MCP earns its keep when the catalogue is large or the servers are not yours.
+
+### Mental model: catalogue + adapter
+
+Two pieces, deliberately split:
+
+- **`McpCatalogueEntry[]`** — a static list authored at the application level. One entry per MCP server the app supports: `id`, `name`, `description`, `url`, `tags?`, `metadata?`. Identical across users. The `id` doubles as the tool namespace prefix and the activation key.
+
+- **`McpAdapter`** — a per-conversation interface the consumer implements (analogous to `StoreAdapter`). Holds the conversation's active server ids and resolves access tokens.
+
+  ```typescript
+  interface McpAdapter {
+    identifier: string;                          // for log correlation
+    getActive(): Promise<string[]>;              // ids active in this conversation
+    activate(id: string): Promise<void>;         // called by the discovery subagent
+    deactivate(id: string): Promise<void>;       // for the consumer's UI; v1 limitation: doesn't unload tools
+    getAccessToken(id: string): Promise<string>; // SOLE auth seam — return a bearer string
+  }
+  ```
+
+`getAccessToken` is the only auth seam. The framework wraps the returned string in `Authorization: Bearer ...`. Token acquisition, refresh, and persistence are entirely the consumer's responsibility — env vars, vault, your own OAuth flow, the opt-in `runMcpOAuth` helper, all valid.
+
+### `mountMcp` — the canonical entry point
+
+After `new Glove(...)` and before `glove.build()`:
+
+```typescript
+import { mountMcp } from "glove-mcp";
+
+const glove = new Glove({ /* ... */ , serverMode: true });
+
+await mountMcp(glove, {
+  adapter,                                  // McpAdapter
+  entries,                                  // McpCatalogueEntry[]
+  ambiguityPolicy: { type: "auto-pick-best" },  // optional
+  subagentModel: undefined,                 // optional — defaults to glove.model
+  subagentSystemPrompt: undefined,          // optional — defaults to per-policy prompt
+  clientInfo: { name: "My App", version: "1.0.0" },  // optional
+});
+
+glove.build();
+```
+
+What it does, in order:
+
+1. Reads `adapter.getActive()`, opens an MCP connection per active id (using `getAccessToken`), lists tools, and folds each one onto the main agent via `bridgeMcpTool`. Per-server reload failures are logged and skipped — a transient outage doesn't kill the agent.
+2. Folds in the `find_capability` discovery subagent so the model can activate more servers mid-conversation.
+
+`mountMcp` returns when reload + discovery fold are complete. Call it before `build()` for the cleanest init order, but `fold()` after `build()` works too.
+
+### Bridged tool shape
+
+`bridgeMcpTool(connection, tool, serverMode)` produces a `GloveFoldArgs` with these conventions:
+
+- **Name**: `${entry.id}__${tool.name}` (e.g. `notion__search`). The `__` separator (exported as `MCP_NAMESPACE_SEP`) is regex-safe across all model providers.
+- **Schema**: raw JSON Schema from the MCP server, passed via `jsonSchema` (no Zod). The MCP server is the source of truth.
+- **`requiresPermission`**: in `serverMode` always `false`; otherwise `true` unless the MCP tool annotates `readOnlyHint: true`.
+- **Result**: server `content[]` text is joined into `data` (what the model sees); the full `content[]` is also passed through as `renderData` so React renderers can use it.
+- **Auth-expired contract**: any 401-shaped error during `callTool` is mapped to `{ status: "error", message: "auth_expired", data: null }`. Detect this from the conversation log, refresh your token, and the next call picks up the new value via `getAccessToken`.
+
+### Discovery (`find_capability`) and ambiguity policies
+
+`mountMcp` folds in a single tool the model can call: **`find_capability`**. It takes a brief `need` description, spins up a tiny subagent (with its own DiscoveryMemoryStore, inheriting the main agent's model and displayManager), and gives the subagent four tools:
+
+- `list_capabilities(query?, tags?)` — substring search the catalogue.
+- `activate(id)` — connect, bridge tools onto the *main* agent, persist active state. Tools become available to the main model on its next turn.
+- `deactivate(id)` — flip persisted state. v1 limitation: tools stay loaded until session refresh.
+- `ask_user(question, options)` — only registered under the `interactive` policy. Renders via the `mcp_picker` renderer on the main displayManager.
+
+The **ambiguity policy** controls what happens when the subagent finds multiple plausible matches:
+
+| Policy | Behavior | When to use |
+|--------|----------|-------------|
+| `{ type: "interactive" }` | Subagent calls `ask_user` via `pushAndWait`. Requires an `mcp_picker` renderer on your displayManager. | Browser UIs / chat apps with a renderer wired up. Default when `serverMode: false`. |
+| `{ type: "auto-pick-best" }` | Subagent always picks the highest-ranked match. No human in the loop. | Headless / server-side / CLI. Default when `serverMode: true`. |
+| `{ type: "defer-to-main" }` | Subagent returns the candidate list as text and lets the main agent decide what to activate. | Multi-MCP discovery flows where the main model has more conversation context than the subagent. |
+
+`serverMode: true` on the `Glove` config is the canonical "I am headless" flag — drives both the default ambiguity policy and the default `requiresPermission` on bridged tools (never gate).
+
+### Auth model — bearer-only
+
+The framework only knows about static bearer tokens. `connectMcp` ships an `auth: bearer(token | () => token)` helper; pass either a string or a thunk that resolves a fresh token per connection. `mountMcp` and the discovery `activate` tool both use the thunk form so every connection re-reads `getAccessToken`.
+
+```typescript
+import { bearer, connectMcp } from "glove-mcp";
+
+const conn = await connectMcp({
+  namespace: "notion",
+  url: "https://mcp.notion.com/mcp",
+  auth: bearer(() => adapter.getAccessToken("notion")),
+  clientInfo: { name: "My App", version: "1.0.0" },
+});
+```
+
+### `auth_expired` contract
+
+Mid-call, an expired token surfaces as `{ status: "error", message: "auth_expired" }` on the bridged tool result. The framework does **not** refresh tokens. Your app must:
+
+1. Detect `auth_expired` on the conversation log (subscriber `tool_use_result` event, or post-hoc).
+2. Refresh / re-auth via whatever mechanism owns the credential.
+3. Update your store; the next bridged call pulls a fresh token from `getAccessToken`.
+
+For UI consumers this is usually a "Reconnect Notion" toast. For CLIs, instructing the user to re-run the auth command is normal.
+
+### `glove-mcp/oauth` — opt-in OAuth tooling
+
+If you don't already have an OAuth flow, the `glove-mcp/oauth` subpath ships a small reference implementation built on the MCP authorization spec:
+
+- **`runMcpOAuth(opts)`** — one call, end-to-end flow. Spins up a local listener on `http://localhost:53683/callback` (configurable), drives the SDK through DCR (or skips it via `preRegisteredClient`), opens the user's browser, exchanges the code for tokens, and verifies via `listTools` (or a `callTool` of your choice). Used by the `examples/mcp-cli/*-mcp-auth.ts` scripts.
+- **`FsOAuthStore` / `MemoryOAuthStore`** — `OAuthStore` implementations. `FsOAuthStore` writes a single JSON file with mode `0600` and atomic temp+rename. Replace with your DB for production.
+- **`McpOAuthProvider`** — lower-level `OAuthClientProvider` for advanced consumers driving `auth()` from the SDK directly.
+- **`buildClientMetadata`**, **`MCP_DEFAULT_CLIENT_INFO`**, **`emptyOAuthState`** — small helpers.
+
+Consumers who already have tokens (env vars, internal integrations, vault, an existing OAuth setup) can ignore this subpath entirely — `getAccessToken` returns the bearer, full stop.
+
+See [api-reference.md — `glove-mcp/oauth`](api-reference.md) for full type signatures, and [examples.md — Pattern: MCP OAuth flow](examples.md) for a worked example.
+
+### Production lift-and-shift
+
+The reference `examples/mcp-cli` setup is a single-user Node CLI; production typically wants:
+
+- **Multi-user store** — replace `FsOAuthStore` with a per-user `OAuthStore` backed by your DB. The interface is three methods (`get`, `set`, `delete`).
+- **OAuth flow in route handlers** — `GET /oauth/<id>/start` calls `runMcpOAuth` (or the lower-level SDK `auth()` directly), `GET /oauth/<id>/callback` finishes it. Same machinery, different invocation. The local-listener flavour of `runMcpOAuth` is convenient for CLIs but not what you want behind a load balancer.
+- **Background refresh** — refresh expired tokens however your stack does it; `getAccessToken` just reads the latest bearer string.
+- **Persistent active state** — the `McpAdapter` shown in examples uses an in-memory `Set` for active ids. In production, persist active ids per conversation (alongside messages) so reload after restart actually does something.
+
+The agent code itself doesn't change — `McpAdapter.getAccessToken` is the only seam.
+
+### Quick reference — where things live
+
+| Need | Symbol |
+|------|--------|
+| Mount MCP onto an agent | `mountMcp(glove, { adapter, entries, ... })` |
+| Implement consumer adapter | `McpAdapter` interface |
+| Author catalogue entries | `McpCatalogueEntry` |
+| One-off connect (preflight, custom flow) | `connectMcp({ namespace, url, auth })` |
+| Bridge a tool by hand | `bridgeMcpTool(connection, tool, serverMode)` |
+| Bearer header helper | `bearer(token | () => token)` |
+| Discovery subagent factory | `discoveryTool({ adapter, entries, ambiguityPolicy })` |
+| Tool namespace separator | `MCP_NAMESPACE_SEP` (`"__"`) |
+| 401 detection on raw connect | `UnauthorizedError` |
+| Run the OAuth flow | `runMcpOAuth(opts)` from `glove-mcp/oauth` |
+| Persist OAuth state | `FsOAuthStore`, `MemoryOAuthStore` from `glove-mcp/oauth` |
+| Build client metadata | `buildClientMetadata(opts)` from `glove-mcp/oauth` |
 
 ## Display Stack Patterns
 
@@ -926,3 +1082,9 @@ For example patterns from real implementations, see [examples.md](examples.md).
 27. **Inbox items need remote store wiring**: When using `createRemoteStore`, inbox falls back to in-memory if you don't provide `getInboxItems`/`addInboxItem`/`updateInboxItem`/`getResolvedInboxItems` actions. Items will vanish on reload.
 28. **Inbox resolved items are plain text messages**: Resolved inbox items are injected as user text messages, not tool results. This avoids Anthropic API validation errors from unmatched tool_use/tool_result pairs.
 29. **Blocking inbox reminders are transient**: Pending blocking item reminders are included in the prompt but NOT persisted to the store, preventing context bloat across turns.
+30. **MCP tool names use `__`**: Bridged MCP tool names are `${entry.id}__${tool.name}` — the `__` separator (`MCP_NAMESPACE_SEP`) is regex-safe across all model providers. A Notion `search` tool surfaces as `notion__search`.
+31. **`auth_expired` is a contract, not an exception**: 401-shaped errors during MCP `callTool` become `{ status: "error", message: "auth_expired" }`. The framework never refreshes — your app refreshes the token, writes it back to your store, and the next call picks it up via `getAccessToken`.
+32. **`McpAdapter.deactivate` doesn't unload tools (v1)**: It flips persisted state, but bridged tools stay loaded on the running agent until the session is refreshed. Plan accordingly.
+33. **`mountMcp` fails open**: If an active server fails to reload (transient outage, expired token), the failure is logged via `console.warn` and the agent continues with the rest of the catalogue. Don't rely on `mountMcp` throwing.
+34. **`serverMode` defaults the discovery policy**: `serverMode: true` → `auto-pick-best` and bridged tools never gate on permission. `serverMode: false` (default) → `interactive` policy and read-write MCP tools require permission. Pass `ambiguityPolicy` explicitly to override.
+35. **Interactive discovery needs an `mcp_picker` renderer**: The `interactive` ambiguity policy renders via the `mcp_picker` renderer on the displayManager. If you're in a browser and using that policy, register a renderer for it; otherwise the `pushAndWait` will hang.

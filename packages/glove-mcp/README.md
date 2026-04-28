@@ -75,7 +75,7 @@ interface McpAdapter {
 When a token expires mid-call, the bridged tool returns:
 
 ```ts
-{ status: "error", message: "auth_expired" }
+{ status: "error", message: "auth_expired", data: null }
 ```
 
 That's the contract. Watch for it in your subscriber / UI, refresh the token in your store, and the next connection picks up the new value. Token lifecycle (acquisition, refresh, persistence) is entirely the consumer's responsibility — `glove-mcp` only reads.
@@ -120,13 +120,13 @@ async getAccessToken(id: string) {
 
 `mountMcp` always folds `find_capability` — a subagent tool the model invokes when it suspects a useful MCP is sitting in the catalogue but isn't yet active. The subagent matches the user's request against entries' `name` / `description` / `tags`, calls `activate(id)` on the adapter, connects, and folds the bridged tools into the running Glove.
 
-Three ambiguity policies via `MountMcpConfig.ambiguityPolicy`:
+Three ambiguity policies via `MountMcpConfig.ambiguityPolicy` — pass as `{ type: "<policy>" }`:
 
 | Policy | Behavior |
 |--------|----------|
-| `interactive` | Subagent calls `pushAndWait` with an `mcp_picker` slot. Requires a renderer in your displayManager. Default for interactive Gloves. |
-| `auto-pick-best` | Subagent silently picks the highest-ranked match. No human in the loop. Default when `glove.serverMode === true`. |
-| `defer-to-main` | Subagent returns the candidate list as text and lets the main agent decide. |
+| `{ type: "interactive" }` | Subagent calls `pushAndWait` with an `mcp_picker` slot. Requires a renderer in your displayManager. Default for interactive Gloves. |
+| `{ type: "auto-pick-best" }` | Subagent silently picks the highest-ranked match. No human in the loop. Default when `glove.serverMode === true`. |
+| `{ type: "defer-to-main" }` | Subagent returns the candidate list as text and lets the main agent decide. |
 
 Override the subagent's model or system prompt via `subagentModel` / `subagentSystemPrompt` if needed.
 

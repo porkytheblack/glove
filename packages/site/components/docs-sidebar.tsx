@@ -50,6 +50,7 @@ const sections: NavSection[] = [
       { label: "React", href: "/docs/react" },
       { label: "Next.js", href: "/docs/next" },
       { label: "Voice", href: "/docs/voice" },
+      { label: "MCP", href: "/docs/mcp" },
     ],
   },
   {
