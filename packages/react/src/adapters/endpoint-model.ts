@@ -6,9 +6,9 @@ import type {
   Message,
   Tool,
 } from "glove-core/core";
+import { getToolJsonSchema } from "glove-core/core";
 import { parseSSEStream } from "../sse";
 import type { RemotePromptRequest, SerializedTool } from "./remote-model";
-import z from "zod";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -19,7 +19,7 @@ function serializeTools(
   return tools.map((t) => ({
     name: t.name,
     description: t.description,
-    parameters: z.toJSONSchema(t.input_schema) as Record<string, unknown>,
+    parameters: getToolJsonSchema(t),
   }));
 }
 

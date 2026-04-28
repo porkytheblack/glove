@@ -148,14 +148,14 @@ export class AnthropicCompatAdapter implements ModelAdapter {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-import z from "zod";
 import type { Tool } from "../core";
+import { getToolJsonSchema } from "../core";
 
 function formatTools(tools: Array<Tool<unknown>>): Array<Anthropic.Tool> {
   return tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
-    input_schema: z.toJSONSchema(tool.input_schema) as Anthropic.Tool.InputSchema,
+    input_schema: getToolJsonSchema(tool) as Anthropic.Tool.InputSchema,
   }));
 }
 

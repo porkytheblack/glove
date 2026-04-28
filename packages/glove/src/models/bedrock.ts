@@ -7,7 +7,6 @@ import {
   type ToolResultContentBlock,
   type ConverseCommandInput,
 } from "@aws-sdk/client-bedrock-runtime";
-import z from "zod";
 import type {
   Message,
   ContentPart,
@@ -19,6 +18,7 @@ import type {
   ModelAdapter,
   NotifySubscribersFunction,
 } from "../core";
+import { getToolJsonSchema } from "../core";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -56,7 +56,7 @@ function formatTools(tools: Array<Tool<unknown>>): BedrockTool[] {
       name: tool.name,
       description: tool.description,
       inputSchema: {
-        json: z.toJSONSchema(tool.input_schema),
+        json: getToolJsonSchema(tool),
       },
     },
   }));

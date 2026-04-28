@@ -144,13 +144,26 @@ export interface ToolResult {
 export interface Tool<I> {
   name: string;
   description: string;
-  input_schema: z.ZodType<I>;
+  /** Zod schema — preferred for tools you author. Validated locally on input. */
+  input_schema?: z.ZodType<I>;
+  /** Raw JSON Schema — for bridged tools (MCP, OpenAPI). Skips local validation. */
+  jsonSchema?: Record<string, unknown>;
   requiresPermission?: boolean;
   unAbortable?: boolean;
   run(
     input: I,
     handOver?: (request: unknown) => Promise<unknown>,
   ): Promise<ToolResultData>;
+}
+
+/**
+ * Adapter helper — returns whichever schema the tool provided, as JSON Schema.
+ * Used by model adapters' `formatTools` to serialize tool input schemas.
+ */
+export function getToolJsonSchema(tool: Tool<any>): Record<string, unknown> {
+  if (tool.jsonSchema) return tool.jsonSchema;
+  if (tool.input_schema) return z.toJSONSchema(tool.input_schema) as Record<string, unknown>;
+  return { type: "object", properties: {} };
 }
 
 export interface ToolCall {
@@ -458,22 +471,27 @@ export class Executor {
         continue;
       }
 
-      const parsed_input = tool.input_schema.safeParse(call.input_args);
+      let validatedInput: unknown = call.input_args;
 
-      if (!parsed_input.success) {
-        toolResults.push({
-          tool_name: call.tool_name,
-          call_id: call.id,
-          result: {
-            status: "error",
-            message: "TOOL_INPUT_INVALID",
-            data: `Failed to validate the input args provided for the tool:: ${JSON.stringify(z.treeifyError(parsed_input.error))}`,
-          },
-        });
+      if (tool.input_schema) {
+        const parsed_input = tool.input_schema.safeParse(call.input_args);
 
-        await this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
+        if (!parsed_input.success) {
+          toolResults.push({
+            tool_name: call.tool_name,
+            call_id: call.id,
+            result: {
+              status: "error",
+              message: "TOOL_INPUT_INVALID",
+              data: `Failed to validate the input args provided for the tool:: ${JSON.stringify(z.treeifyError(parsed_input.error))}`,
+            },
+          });
 
-        continue;
+          await this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
+
+          continue;
+        }
+        validatedInput = parsed_input.data;
       }
 
       let toolRunEffect = Effect.tryPromise({
@@ -481,8 +499,8 @@ export class Executor {
           // Only check abort signal for abortable tools
           if (signal?.aborted && !tool.unAbortable) throw new AbortError();
           const result = tool.unAbortable ?
-            await tool.run(parsed_input.data, handOver) :
-            await abortablePromise(signal, tool.run(parsed_input.data, handOver));
+            await tool.run(validatedInput, handOver) :
+            await abortablePromise(signal, tool.run(validatedInput, handOver));
           return result
         },
         catch(e) {

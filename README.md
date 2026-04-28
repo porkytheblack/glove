@@ -28,7 +28,7 @@ User: "Add the Nike ones to my cart and check out"
   → Agent calls add_to_cart → calls checkout → pushes payment form → waits for user
 ```
 
-Works with OpenAI, Anthropic, Google Gemini, OpenRouter, and more.
+Works with OpenAI, Anthropic, Google Gemini, OpenRouter, and more. Bridge external tool servers (Notion, Linear, Gmail, ...) via [MCP](#mcp-integration), or add real-time voice with [glove-voice](#voice).
 
 ## Packages
 
@@ -38,6 +38,7 @@ Works with OpenAI, Anthropic, Google Gemini, OpenRouter, and more.
 | [`glove-react`](packages/react) | React hooks, `<Render>` component, `defineTool`, client bindings | [![npm](https://img.shields.io/npm/v/glove-react)](https://www.npmjs.com/package/glove-react) |
 | [`glove-next`](packages/next) | Next.js API route handlers (SSE streaming) | [![npm](https://img.shields.io/npm/v/glove-next)](https://www.npmjs.com/package/glove-next) |
 | [`glove-voice`](packages/glove-voice) | Voice pipeline — STT/TTS/VAD adapters, ElevenLabs integration | [![npm](https://img.shields.io/npm/v/glove-voice)](https://www.npmjs.com/package/glove-voice) |
+| [`glove-mcp`](packages/glove-mcp) | Model Context Protocol integration — bridge MCP servers' tools, on-demand discovery, opt-in OAuth runner | [![npm](https://img.shields.io/npm/v/glove-mcp)](https://www.npmjs.com/package/glove-mcp) |
 
 ## Quick Start
 
@@ -307,6 +308,35 @@ const voice = useGloveVoice({ runnable, voice: { stt, createTTS } });
 
 Two turn modes: **VAD** (hands-free with barge-in) and **Manual** (push-to-talk). Token-based auth keeps API keys server-side.
 
+### MCP Integration
+
+Bridge tools from any [Model Context Protocol](https://modelcontextprotocol.io) server into a Glove agent with `glove-mcp`. The model can discover and activate MCP servers from a static catalogue mid-conversation via `find_capability`.
+
+```typescript
+import { mountMcp } from "glove-mcp";
+import type { McpAdapter, McpCatalogueEntry } from "glove-mcp";
+
+const ENTRIES: McpCatalogueEntry[] = [
+  {
+    id: "notion",
+    name: "Notion",
+    description: "Search, read, and edit pages in a Notion workspace.",
+    url: "https://mcp.notion.com/mcp",
+    tags: ["docs", "notes", "wiki"],
+  },
+];
+
+await mountMcp(runnable, {
+  adapter: myAdapter,        // implements McpAdapter — getActive / activate / deactivate / getAccessToken
+  entries: ENTRIES,
+  clientInfo: { name: "my-app", version: "1.0.0" },
+});
+```
+
+The framework's only auth seam is `McpAdapter.getAccessToken(id)` — return a bearer token however you obtained it. For the MCP authorization spec OAuth flow, `glove-mcp/oauth` ships an opt-in `runMcpOAuth` runner and reference `OAuthStore` implementations.
+
+See the [glove-mcp README](packages/glove-mcp/README.md) and [`examples/mcp-cli`](examples/mcp-cli) for the full picture.
+
 ## Architecture
 
 Glove is built on five adapter interfaces. Swap any layer without changing application logic.
@@ -335,7 +365,7 @@ Glove is built on five adapter interfaces. Swap any layer without changing appli
 
 ## Examples
 
-The repo includes five example agents:
+The repo includes six example agents:
 
 ### Weather Agent
 
@@ -380,6 +410,15 @@ A voice-first movie companion with TMDB-powered tools, SileroVAD, and a cinemati
 
 ```bash
 cd examples/lola && pnpm dev
+```
+
+### MCP CLI
+
+A multi-MCP server-side agent — connects to hosted MCP servers (Notion, Linear, Gmail) with `find_capability` discovery. Includes reference OAuth-flow CLIs that exercise `glove-mcp/oauth`.
+
+```bash
+pnpm mcp:notion-mcp-auth   # one-time OAuth dance
+pnpm mcp:cli                # multi-MCP agent with discovery
 ```
 
 ## Claude Code Skill

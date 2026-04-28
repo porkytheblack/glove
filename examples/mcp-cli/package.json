@@ -1,0 +1,26 @@
+{
+  "name": "glove-mcp-cli",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx index.ts",
+    "notion": "tsx notion-agent.ts",
+    "notion:auth": "tsx notion-auth.ts",
+    "notion:mcp-auth": "tsx notion-mcp-auth.ts",
+    "notion:server": "tsx notion-server.ts",
+    "notion:status": "tsx notion-status.ts",
+    "gmail": "tsx gmail-agent.ts",
+    "gmail:auth": "tsx gmail-mcp-auth.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "glove-core": "workspace:*",
+    "glove-mcp": "workspace:*",
+    "dotenv": "^17.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "typescript": "^5.9.3"
+  }
+}
