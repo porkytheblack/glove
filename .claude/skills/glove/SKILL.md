@@ -460,7 +460,7 @@ const storeActions: RemoteStoreActions = {
 | Token | Purpose | Builder method |
 |-------|---------|----------------|
 | `/hookname` | Mutate agent state, force compaction, swap model, short-circuit a turn | `defineHook(name, handler)` |
-| `/skillname` | Inject context as a synthetic user message marked `is_skill_injection: true` | `defineSkill(name, handler, opts?)` |
+| `/skillname` | Inject context as a synthetic user message marked `is_skill_injection: true` | `defineSkill({ name, handler, description?, exposeToAgent? })` |
 | `@subagentname` | Reroute the turn to a custom handler | `defineMention(name, handler)` |
 
 Tokens only bind when the name matches a registered handler. `/usr/local/bin` and `a@b.com` survive untouched. Multiple hooks/skills can stack in one message; only the first matching `@mention` wins.
@@ -475,11 +475,13 @@ const agent = new Glove({ /* ... */ })
   .defineHook("stop", async () => ({
     shortCircuit: { message: { sender: "agent", text: "Cancelled." } },
   }))
-  .defineSkill(
-    "concise",
-    async ({ source, args }) => `Be terse. (source=${source}, hint=${args ?? "none"})`,
-    { description: "Tighter, snappier responses", exposeToAgent: true },
-  )
+  .defineSkill({
+    name: "concise",
+    description: "Tighter, snappier responses",
+    exposeToAgent: true,
+    handler: async ({ source, args }) =>
+      `Be terse. (source=${source}, hint=${args ?? "none"})`,
+  })
   .defineMention("weather-only", async ({ message }) => {
     return { sender: "agent", text: await fetchWeather(message.text) };
   })
@@ -550,20 +552,26 @@ Skill-injected messages set `is_skill_injection: true` on `Message`, alongside t
 Set `exposeToAgent: true` and Glove auto-registers a single `glove_invoke_skill` tool on the executor. Its description lists every exposed skill (`- name — description`) and is rebuilt in place each time a new exposed skill is defined, so post-`build()` registrations are picked up immediately.
 
 ```typescript
-agent.defineSkill(
-  "research-mode",
-  async ({ source, args }) => {
-    const hint = args ? ` Focus area: ${args}.` : "";
-    return `Switch into long-form research mode. Cite sources.${hint}`;
+agent.defineSkill({
+  name: "research-mode",
+  description: "Switch to long-form research mode with citations",
+  exposeToAgent: true,
+  handler: async ({ source, args, parsedText }) => {
+    if (source === "agent") {
+      // Agent invoked via glove_invoke_skill — `args` is the model-supplied string.
+      return `Switch into research mode. Focus: ${args ?? "general"}.`;
+    }
+    // source === "user" — `parsedText` is the user message after token stripping
+    // (the rest of "/research-mode tell me about ribosomes").
+    return `Switch into research mode. User said: ${parsedText}`;
   },
-  { description: "Switch to long-form research mode with citations", exposeToAgent: true },
-);
+});
 
-// User: "/research-mode tell me about ribosomes"  (source = "user")
-// Agent: glove_invoke_skill({ name: "research-mode", args: "ribosome assembly" })  (source = "agent")
+// User: "/research-mode tell me about ribosomes"  (source = "user", parsedText = "tell me about ribosomes")
+// Agent: glove_invoke_skill({ name: "research-mode", args: "ribosome assembly" })  (source = "agent", args = "ribosome assembly")
 ```
 
-The tool returns `{ status: "success", data: { skill, content } }` on success and `{ status: "error", message: 'Skill "..." is not available' }` for unknown or unexposed names.
+The tool returns `{ status: "success", data: { skill, content } }` on success and `{ status: "error", message: 'Skill "..." is not available', data: null }` for unknown or unexposed names. When the skill returns `ContentPart[]`, text parts are joined into `data.content` (visible to the model) and the full part list is preserved on `renderData` (visible to client renderers, mirroring the MCP-bridge convention).
 
 | Aspect | User `/skill` | Agent `glove_invoke_skill` |
 |--------|--------------|----------------------------|

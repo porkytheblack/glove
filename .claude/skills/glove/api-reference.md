@@ -265,11 +265,18 @@ Three builder methods on `Glove` (and on the `IGloveBuilder` / `IGloveRunnable` 
 
 ```typescript
 glove.defineHook(name: string, handler: HookHandler): this;
-glove.defineSkill(name: string, handler: SkillHandler, opts?: SkillOptions): this;
+glove.defineSkill(args: DefineSkillArgs): this;
 glove.defineMention(name: string, handler: MentionHandler): this;
 ```
 
-All three are chainable and legal post-`build()`, like `fold`.
+All three are chainable and legal post-`build()`, like `fold`. `defineSkill` takes an object form mirroring `fold(GloveFoldArgs)`:
+
+```typescript
+interface DefineSkillArgs extends SkillOptions {
+  name: string;
+  handler: SkillHandler;
+}
+```
 
 #### Handler types
 
@@ -293,8 +300,8 @@ type SkillHandler = (ctx: SkillContext) => Promise<string | ContentPart[]>;
 
 interface SkillContext {
   name: string;
-  parsedText: string;
-  args?: string;             // model-supplied when source = "agent"
+  parsedText: string;        // when source = "user": stripped user text. when source = "agent": same as args ?? "".
+  args?: string;             // model-supplied when source = "agent". undefined when user-invoked.
   source: "user" | "agent";
   controls: AgentControls;
 }
@@ -364,11 +371,20 @@ import { createSkillInvokeTool, renderSkillToolDescription } from "glove-core";
 // Tool input
 { name: string, args?: string }
 
-// Tool result on success
+// Tool result on success (string handler return)
 { status: "success", data: { skill: string, content: string } }
 
+// Tool result on success (ContentPart[] handler return) — text parts join into data,
+// the full part list is preserved on renderData for client renderers (mirrors the
+// MCP-bridge convention; renderData is stripped by adapters before being sent to the model).
+{
+  status: "success",
+  data: { skill: string, content: string },         // text join, or "[non-text skill content]"
+  renderData: { skill: string, parts: ContentPart[] }
+}
+
 // Tool result on unknown / unexposed name
-{ status: "error", message: 'Skill "..." is not available. Use one of: ...' }
+{ status: "error", message: 'Skill "..." is not available. Use one of: ...', data: null }
 ```
 
 The tool description (built by `renderSkillToolDescription`) lists every exposed skill with its `description`. Glove rebuilds the description in place each time a new exposed skill is defined, so post-`build()` registrations are immediately visible to the model.

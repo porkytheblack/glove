@@ -42,11 +42,30 @@ export interface HookResult {
 
 export type HookHandler = (ctx: HookContext) => Promise<HookResult | void>;
 
+/**
+ * Context passed to a skill handler.
+ *
+ * A skill handler is invoked from two distinct paths and must dispatch on `source`:
+ *
+ *     glove.defineSkill({
+ *       name: "research-mode",
+ *       exposeToAgent: true,
+ *       async handler({ source, args, parsedText }) {
+ *         if (source === "agent") {
+ *           // Agent called glove_invoke_skill — `args` holds the model-supplied string.
+ *           return `Switch to research mode. Focus: ${args ?? "general"}.`;
+ *         }
+ *         // source === "user" — `parsedText` is the user message after token stripping
+ *         // (the rest of "/research-mode tell me about ribosomes").
+ *         return `Switch to research mode. User said: ${parsedText}`;
+ *       },
+ *     });
+ */
 export interface SkillContext {
   name: string;
-  /** User-supplied text that came in alongside the skill invocation. Empty when invoked by the agent without args. */
+  /** When `source === "user"`: the user message after token stripping. When `source === "agent"`: same as `args ?? ""`. */
   parsedText: string;
-  /** Free-form arguments supplied by the agent when it invokes the skill via the tool. Undefined when user-invoked. */
+  /** Free-form arguments supplied by the agent when it invokes the skill via `glove_invoke_skill`. Undefined when user-invoked. */
   args?: string;
   /** Where the invocation originated. */
   source: "user" | "agent";
@@ -60,6 +79,12 @@ export interface SkillOptions {
   description?: string;
   /** When true, the agent can pull this skill in via the `glove_invoke_skill` tool. */
   exposeToAgent?: boolean;
+}
+
+/** Arguments to `Glove.defineSkill`. Mirrors the object-form shape of `Glove.fold`. */
+export interface DefineSkillArgs extends SkillOptions {
+  name: string;
+  handler: SkillHandler;
 }
 
 export interface RegisteredSkill {
@@ -195,16 +220,30 @@ export function createSkillInvokeTool(
         source: "agent",
         controls: controlsFactory(),
       });
-      const text =
-        typeof injection === "string"
-          ? injection
-          : injection
-              .filter((p) => p.type === "text" && p.text)
-              .map((p) => p.text!)
-              .join("\n");
+      if (typeof injection === "string") {
+        return {
+          status: "success",
+          data: {
+            skill: input.name,
+            content: injection || "[skill produced no text content]",
+          },
+        };
+      }
+      // ContentPart[]: text parts go to `data` for the model. The full part
+      // array is preserved on `renderData` so client renderers (e.g. React
+      // tool result views) keep multimodal content. Mirrors the convention
+      // used by glove-mcp's bridged tool results.
+      const text = injection
+        .filter((p) => p.type === "text" && p.text)
+        .map((p) => p.text!)
+        .join("\n");
       return {
         status: "success",
-        data: { skill: input.name, content: text || "[skill produced no text content]" },
+        data: {
+          skill: input.name,
+          content: text || "[non-text skill content]",
+        },
+        renderData: { skill: input.name, parts: injection },
       };
     },
   };

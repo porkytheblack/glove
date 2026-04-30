@@ -178,6 +178,12 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
 
       <h3>Methods</h3>
 
+      <p>
+        For the in-message <code>/hook</code>, <code>/skill</code>, and{" "}
+        <code>@mention</code> directive system, see the dedicated{" "}
+        <a href="/docs/extensions">Hooks, Skills &amp; Mentions</a> guide.
+      </p>
+
       <PropTable
         headers={["Method", "Returns", "Description"]}
         rows={[
@@ -189,12 +195,12 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
           [
             "defineHook(name, handler)",
             "IGloveBuilder",
-            "Register a /name hook that runs before the model with full agent controls. See Hooks, Skills & Mentions.",
+            "Register a /name hook that runs before the model with full agent controls. See the Hooks, Skills & Mentions guide.",
           ],
           [
-            "defineSkill(name, handler, opts?)",
+            "defineSkill(args)",
             "IGloveBuilder",
-            "Register a /name skill that injects context as a synthetic user message. opts.exposeToAgent: true exposes it via the glove_invoke_skill tool.",
+            "Register a /name skill that injects context as a synthetic user message. Object form: { name, handler, description?, exposeToAgent? }. exposeToAgent: true exposes the skill via the glove_invoke_skill tool.",
           ],
           [
             "defineMention(name, handler)",

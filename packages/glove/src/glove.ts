@@ -12,14 +12,13 @@ import { createInboxTool } from "./tools/inbox-tool";
 import {
   AgentControls,
   createSkillInvokeTool,
+  DefineSkillArgs,
   formatSkillMessage,
   HookHandler,
   MentionHandler,
   parseTokens,
   RegisteredSkill,
   renderSkillToolDescription,
-  SkillHandler,
-  SkillOptions,
 } from "./extensions";
 
 
@@ -57,7 +56,7 @@ export interface IGloveRunnable {
   /** Register a `/name` hook that can mutate agent state or short-circuit a turn. */
   defineHook: (name: string, handler: HookHandler) => IGloveRunnable
   /** Register a `/name` skill that injects context as a synthetic user message. */
-  defineSkill: (name: string, handler: SkillHandler, opts?: SkillOptions) => IGloveRunnable
+  defineSkill: (args: DefineSkillArgs) => IGloveRunnable
   /** Register an `@name` mention that routes the request to a custom handler. */
   defineMention: (name: string, handler: MentionHandler) => IGloveRunnable
   readonly displayManager: DisplayManagerAdapter
@@ -69,7 +68,7 @@ export interface IGloveRunnable {
 interface IGloveBuilder {
   fold: <I>(args: GloveFoldArgs<I>) => IGloveBuilder,
   defineHook: (name: string, handler: HookHandler) => IGloveBuilder,
-  defineSkill: (name: string, handler: SkillHandler, opts?: SkillOptions) => IGloveBuilder,
+  defineSkill: (args: DefineSkillArgs) => IGloveBuilder,
   defineMention: (name: string, handler: MentionHandler) => IGloveBuilder,
   addSubscriber: (subscriber: SubscriberAdapter) => IGloveBuilder,
   build: ()=> IGloveRunnable
@@ -180,13 +179,13 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     return this
   }
 
-  defineSkill(name: string, handler: SkillHandler, opts?: SkillOptions) {
+  defineSkill(args: DefineSkillArgs) {
     const entry: RegisteredSkill = {
-      handler,
-      description: opts?.description,
-      exposeToAgent: opts?.exposeToAgent ?? false,
+      handler: args.handler,
+      description: args.description,
+      exposeToAgent: args.exposeToAgent ?? false,
     }
-    this.skills.set(name, entry)
+    this.skills.set(args.name, entry)
 
     // If any exposed skill exists, ensure the dispatcher tool is registered
     // and its description reflects the current set of exposed skills.
@@ -379,13 +378,18 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     if (typeof original === "string") {
       return { sender: "user", text };
     }
+    // No media: degenerate to a plain-text user message with stripped text.
+    // Never fall back to `original` — that would re-introduce stripped tokens.
+    if (!mediaParts || mediaParts.length === 0) {
+      return { sender: "user", text };
+    }
     const content: ContentPart[] = [];
     if (text.length > 0) content.push({ type: "text", text });
-    if (mediaParts && mediaParts.length > 0) content.push(...mediaParts);
+    content.push(...mediaParts);
     return {
       sender: "user",
       text: text.length > 0 ? text : "[multimodal message]",
-      content: content.length > 0 ? content : original,
+      content,
     };
   }
 

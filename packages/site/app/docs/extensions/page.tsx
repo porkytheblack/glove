@@ -99,11 +99,13 @@ const agent = new Glove({ /* store, model, displayManager, systemPrompt, ... */ 
       message: { sender: "agent", text: "Stopped." },
     },
   }))
-  .defineSkill(
-    "concise",
-    async ({ source, args }) => \`Be terse. (source=\${source}, hint=\${args ?? "none"})\`,
-    { description: "Tighter, snappier responses", exposeToAgent: true },
-  )
+  .defineSkill({
+    name: "concise",
+    description: "Tighter, snappier responses",
+    exposeToAgent: true,
+    handler: async ({ source, args }) =>
+      \`Be terse. (source=\${source}, hint=\${args ?? "none"})\`,
+  })
   .defineMention("weather-only", async ({ message }) => {
     const text = await fetchWeather(message.text);
     return { sender: "agent", text };
@@ -218,15 +220,23 @@ agent.defineHook("formal", async ({ parsedText }) => ({
 
 interface SkillContext {
   name: string;
-  parsedText: string;     // post-strip user text
-  args?: string;          // model-supplied free-form args (only when source = "agent")
+  // when source = "user": user message after token stripping.
+  // when source = "agent": same as args ?? "" (the model-supplied string).
+  parsedText: string;
+  args?: string;             // model-supplied free-form args (only when source = "agent")
   source: "user" | "agent";
   controls: AgentControls;
 }
 
 interface SkillOptions {
-  description?: string;   // shown to the agent in the invoke-skill tool
-  exposeToAgent?: boolean; // default false
+  description?: string;       // shown to the agent in the invoke-skill tool
+  exposeToAgent?: boolean;    // default false
+}
+
+// defineSkill takes an object form mirroring fold(GloveFoldArgs).
+interface DefineSkillArgs extends SkillOptions {
+  name: string;
+  handler: SkillHandler;
 }`}
       />
 
@@ -244,17 +254,19 @@ interface SkillOptions {
       <CodeBlock
         filename="exposing a skill to the agent"
         language="typescript"
-        code={`agent.defineSkill(
-  "research-mode",
-  async ({ source, args }) => {
-    const hint = args ? \` Focus area: \${args}.\` : "";
-    return \`Switch into long-form research mode. Cite sources.\${hint}\`;
+        code={`agent.defineSkill({
+  name: "research-mode",
+  description: "Switch to long-form research mode with citations",
+  exposeToAgent: true,
+  handler: async ({ source, args, parsedText }) => {
+    if (source === "agent") {
+      // Agent invoked via glove_invoke_skill — args is the model-supplied string.
+      return \`Switch into research mode. Focus: \${args ?? "general"}.\`;
+    }
+    // source === "user" — parsedText is the rest of "/research-mode <text>".
+    return \`Switch into research mode. User said: \${parsedText}\`;
   },
-  {
-    description: "Switch to long-form research mode with citations",
-    exposeToAgent: true,
-  },
-);
+});
 
 // User can invoke it inline:
 //   "/research-mode tell me about ribosomes"
@@ -263,10 +275,16 @@ interface SkillOptions {
       />
 
       <p>
-        Tool result for <code>glove_invoke_skill</code> is{" "}
-        <code>{`{ status: "success", data: { skill, content } }`}</code>{" "}
-        when the skill is exposed and known, otherwise{" "}
-        <code>{`{ status: "error", message: "Skill ... is not available" }`}</code>.
+        Tool result for <code>glove_invoke_skill</code> on success with a
+        string handler return is{" "}
+        <code>{`{ status: "success", data: { skill, content } }`}</code>.
+        When the handler returns a <code>ContentPart[]</code>, text parts
+        are joined into <code>data.content</code> (visible to the model)
+        and the full part list is preserved on{" "}
+        <code>renderData</code> (visible to client renderers, mirroring the
+        MCP-bridge convention). On unknown or unexposed names the tool
+        returns{" "}
+        <code>{`{ status: "error", message: "Skill ... is not available", data: null }`}</code>.
       </p>
 
       <h3>User-invoked vs agent-invoked</h3>
@@ -426,7 +444,7 @@ interface MentionContext {
         language="typescript"
         code={`// Builder methods
 defineHook(name: string, handler: HookHandler): this;
-defineSkill(name: string, handler: SkillHandler, opts?: SkillOptions): this;
+defineSkill(args: DefineSkillArgs): this;
 defineMention(name: string, handler: MentionHandler): this;
 
 // Standalone helpers (rarely needed)
