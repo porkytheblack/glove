@@ -207,6 +207,8 @@ export interface Message {
   tool_calls?: Array<ToolCall>;
   is_compaction?: boolean;
   is_compaction_request?: boolean
+  /** True when this user message was synthesised by a skill injection rather than authored by a real user. */
+  is_skill_injection?: boolean
 }
 
 export interface PromptRequest {

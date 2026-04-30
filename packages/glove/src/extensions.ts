@@ -248,6 +248,7 @@ export function formatSkillMessage(
     return {
       sender: "user",
       text: `[Skill: ${name}]\n${injection}`,
+      is_skill_injection: true,
     };
   }
   const textPart = injection
@@ -261,5 +262,6 @@ export function formatSkillMessage(
       { type: "text", text: `[Skill: ${name}]` },
       ...injection,
     ],
+    is_skill_injection: true,
   };
 }
