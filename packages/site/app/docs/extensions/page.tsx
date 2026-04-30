@@ -6,19 +6,24 @@ export default async function ExtensionsPage() {
       <h1>Hooks, Skills &amp; Mentions</h1>
 
       <p>
-        Glove agents accept three kinds of inline directive in a user message:
-        <code>/hook</code> tokens that mutate agent state,{" "}
-        <code>/skill</code> tokens that inject context, and{" "}
-        <code>@mention</code> tokens that route the turn to a custom handler.
-        Skills can also be exposed to the agent so it pulls them in mid-turn
-        through a tool call.
+        Glove ships three extension primitives: <code>/hook</code> directives
+        that mutate agent state, <code>/skill</code> directives that inject
+        context, and <code>@mention</code> subagents the main agent can
+        route to via a built-in tool.
       </p>
 
       <p>
-        These extensions live entirely in <code>glove-core</code>. They are
-        registered on the builder, parsed out of the incoming text in{" "}
-        <code>processRequest</code>, and dispatched before the model sees the
-        turn. Builders that register no extensions see no behavioural change.
+        Hooks and skills are parsed out of the user&apos;s text in{" "}
+        <code>processRequest</code> and dispatched before the model sees the
+        turn. Mentions, following Claude Code&apos;s subagent convention,
+        are <em>not</em> parsed — the user&apos;s <code>@name</code> text
+        reaches the model verbatim and acts as a routing signal that nudges
+        the agent to call the auto-registered{" "}
+        <code>glove_invoke_subagent</code> tool.
+      </p>
+
+      <p>
+        Builders that register no extensions see no behavioural change.
       </p>
 
       {/* ------------------------------------------------------------------ */}
@@ -58,22 +63,24 @@ export default async function ExtensionsPage() {
           <tr>
             <td><code>@mention</code></td>
             <td>
-              Routes the turn to a custom handler instead of running the
-              local agent loop.
+              Registers a subagent. The main agent calls the auto-registered{" "}
+              <code>glove_invoke_subagent</code> tool with a name + prompt;
+              the subagent&apos;s output comes back as the tool result.
             </td>
             <td>
-              Hand off to a sub-Glove, an external agent, or a deterministic
-              non-LLM responder.
+              Specialised reviewers, planners, deterministic responders,
+              hand-offs to external agents.
             </td>
           </tr>
         </tbody>
       </table>
 
       <p>
-        A token only binds when its name matches a registered handler.
-        Unbound tokens stay in the text, so paths like{" "}
-        <code>/usr/local/bin</code> and emails like <code>a@b.com</code>{" "}
-        are never hijacked.
+        <code>/hook</code> and <code>/skill</code> only bind when the name
+        matches a registered handler — paths like <code>/usr/local/bin</code>{" "}
+        survive untouched. <code>@mention</code> tokens are never parsed by
+        glove at all, so emails like <code>a@b.com</code> reach the model
+        unchanged.
       </p>
 
       {/* ------------------------------------------------------------------ */}
@@ -106,15 +113,18 @@ const agent = new Glove({ /* store, model, displayManager, systemPrompt, ... */ 
     handler: async ({ source, args }) =>
       \`Be terse. (source=\${source}, hint=\${args ?? "none"})\`,
   })
-  .defineMention("weather-only", async ({ message }) => {
-    const text = await fetchWeather(message.text);
-    return { sender: "agent", text };
+  .defineMention({
+    name: "weather",
+    description: "Run the weather subagent. Use for weather questions.",
+    handler: async ({ prompt }) => fetchWeather(prompt),
   })
   .build();
 
 await agent.processRequest("/concise tell me about Rust");
 await agent.processRequest("/compact what's next?");
-await agent.processRequest("@weather-only NYC");`}
+// "@weather" reaches the model verbatim. The model then calls
+// glove_invoke_subagent({ name: "weather", prompt: "NYC" }).
+await agent.processRequest("@weather NYC");`}
       />
 
       <p>
@@ -322,48 +332,121 @@ interface DefineSkillArgs extends SkillOptions {
       </table>
 
       {/* ------------------------------------------------------------------ */}
-      <h2>Mentions</h2>
+      <h2>Mentions (Subagents)</h2>
 
       <p>
-        A mention reroutes the turn. When an <code>@name</code> binds, Glove
-        persists the user message and hands off to your handler instead of
-        running the local agent loop. The handler returns a{" "}
-        <code>Message</code> or a full <code>ModelPromptResult</code>.
+        Mentions are Glove&apos;s subagent surface, modelled directly on{" "}
+        <a href="https://code.claude.com/docs/en/sub-agents" target="_blank" rel="noopener noreferrer">
+          Claude Code&apos;s subagent convention
+        </a>. Defining one auto-registers a single{" "}
+        <code>glove_invoke_subagent</code> tool the main agent can call with{" "}
+        <code>{`{ name, prompt }`}</code>. The handler runs in isolation,
+        returns text (or <code>ContentPart[]</code>), and that output comes
+        back as the tool result.
+      </p>
+
+      <p>
+        The user&apos;s <code>@name</code> text in the original message is{" "}
+        <strong>not parsed or stripped</strong>. It reaches the model
+        verbatim and acts as a routing signal — when the agent sees{" "}
+        <code>@reviewer please look at this</code> and{" "}
+        <code>glove_invoke_subagent</code> in its tool list, it picks the
+        right subagent and writes the task prompt itself. This matches how
+        Claude Code routes subagents: one tool, one mechanism, whether the
+        invocation came from the user or from the agent&apos;s own decision.
       </p>
 
       <CodeBlock
         filename="extensions — mention types"
         language="typescript"
-        code={`type MentionHandler = (ctx: MentionContext) => Promise<ModelPromptResult | Message>;
+        code={`type MentionHandler = (ctx: MentionContext) => Promise<string | ContentPart[]>;
 
 interface MentionContext {
   name: string;
-  message: Message;        // already-persisted user message (post-strip)
+  prompt: string;            // task prompt the agent supplied via the tool
   controls: AgentControls;
-  handOver?: HandOverFunction;
   signal?: AbortSignal;
+}
+
+interface MentionOptions {
+  description?: string;       // shown to the agent in the invoke-subagent tool
+}
+
+// defineMention takes an object form mirroring fold(GloveFoldArgs).
+interface DefineMentionArgs extends MentionOptions {
+  name: string;
+  handler: MentionHandler;
 }`}
       />
 
+      <h3>Registering a subagent</h3>
+
+      <CodeBlock
+        filename="defining a subagent"
+        language="typescript"
+        code={`agent.defineMention({
+  name: "reviewer",
+  description: "Code review specialist. Use when the user asks for a code review.",
+  handler: async ({ prompt }) => {
+    // The subagent runs in isolation — \`prompt\` is its only input.
+    // Common pattern: spin up another Glove instance with its own system prompt.
+    return await reviewerGlove.processRequest(prompt).then(r => r.messages[0]?.text ?? "");
+  },
+});
+
+// User: "@reviewer please look at PR #123"
+// Model sees the full text including "@reviewer", picks glove_invoke_subagent,
+// and calls it with { name: "reviewer", prompt: "review PR #123 ..." }.
+// The handler's return text becomes the tool result.`}
+      />
+
+      <h3>Tool result shape</h3>
+
       <p>
-        Only the <em>first</em> matching mention in the message is honoured.
-        Subsequent <code>@registered-name</code> occurrences stay in the
-        text. Common patterns:
+        Symmetric with <code>glove_invoke_skill</code>. On success with a
+        string handler return:{" "}
+        <code>{`{ status: "success", data: { subagent, content } }`}</code>.
+        For <code>ContentPart[]</code> returns, text parts are joined into{" "}
+        <code>data.content</code> and the full part list is preserved on{" "}
+        <code>renderData</code>. Unknown subagent names return{" "}
+        <code>{`{ status: "error", message: "...", data: null }`}</code>.
       </p>
+
+      <h3>Context isolation</h3>
+
+      <p>
+        Subagents do <strong>not</strong> see the parent conversation. The
+        only channel from parent to subagent is the <code>prompt</code>{" "}
+        string the agent supplies — the handler is responsible for whatever
+        context the subagent needs. If you spin up a sub-Glove inside the
+        handler, give it its own system prompt and store. This isolation
+        matches Claude Code&apos;s subagent context model and keeps the
+        parent context window from bloating with the subagent&apos;s
+        intermediate work.
+      </p>
+
+      <h3>Common patterns</h3>
 
       <ul>
         <li>
-          <strong>Sub-Glove</strong> — call{" "}
-          <code>subGlove.processRequest(message.text)</code> from the handler
-          and return its result.
+          <strong>Sub-Glove</strong> — handler builds (or reuses) a separate{" "}
+          <code>Glove</code> instance with its own model + system prompt and
+          calls <code>subGlove.processRequest(prompt)</code>.
         </li>
         <li>
-          <strong>Deterministic responder</strong> — bypass the LLM entirely
-          for known commands (status, help, version).
+          <strong>Deterministic responder</strong> — handler returns a
+          canned string, bypassing any LLM. Useful for{" "}
+          <code>@status</code>, <code>@help</code>, <code>@version</code>.
         </li>
         <li>
-          <strong>External agent / API</strong> — proxy to another service
-          and return its reply as an agent message.
+          <strong>External agent / API</strong> — handler proxies to another
+          service and returns its response.
+        </li>
+        <li>
+          <strong>Multiple in one message</strong> — &quot;@reviewer
+          @architect please discuss this design&quot; — both names reach the
+          model, and the agent decides whether to call both subagents (in
+          sequence, or in parallel via separate tool calls).
         </li>
       </ul>
 
@@ -371,17 +454,19 @@ interface MentionContext {
       <h2>How parsing works</h2>
 
       <p>
-        <code>processRequest</code> walks the incoming text once, looking for{" "}
-        <code>(^|\\s)([/@])([A-Za-z][\\w-]*)(?=\\s|$)</code>. For every match
-        it asks the relevant registry whether the name binds. Bound tokens
-        are removed (with surrounding whitespace collapsed); unbound tokens
-        are left in place.
+        <code>processRequest</code> walks the incoming text once, looking
+        only for <code>/name</code> directive tokens (regex{" "}
+        <code>(^|\\s)\\/([A-Za-z][\\w-]*)(?=\\s|$)</code>). For every match
+        it asks the hook then skill registry whether the name binds. Bound
+        tokens are removed (with surrounding whitespace collapsed); unbound
+        tokens stay in place. <code>@name</code> tokens are <em>not</em>{" "}
+        parsed — they pass through to the model verbatim.
       </p>
 
       <p>The dispatch order on a single turn is:</p>
 
       <ol>
-        <li>Parse tokens from the raw text.</li>
+        <li>Parse <code>/</code> directives from the raw text.</li>
         <li>
           Run hooks in document order. Apply any{" "}
           <code>rewriteText</code>; honour the first <code>shortCircuit</code>{" "}
@@ -392,12 +477,14 @@ interface MentionContext {
           becomes a synthetic user message persisted before the real one.
         </li>
         <li>
-          Build the real user <code>Message</code> from the stripped text and
-          any non-text <code>ContentPart</code>s the caller passed.
+          Build the real user <code>Message</code> from the stripped text
+          (including any <code>@mention</code>s, untouched) plus any
+          non-text <code>ContentPart</code>s the caller passed.
         </li>
         <li>
-          If a mention bound, persist the user message and call its handler.
-          Otherwise hand the message to <code>Agent.ask</code> as before.
+          Hand the message to <code>Agent.ask</code>. Mentions surface
+          through the agent loop via <code>glove_invoke_subagent</code>{" "}
+          tool calls.
         </li>
       </ol>
 
@@ -445,7 +532,7 @@ interface MentionContext {
         code={`// Builder methods
 defineHook(name: string, handler: HookHandler): this;
 defineSkill(args: DefineSkillArgs): this;
-defineMention(name: string, handler: MentionHandler): this;
+defineMention(args: DefineMentionArgs): this;
 
 // Standalone helpers (rarely needed)
 import { parseTokens, formatSkillMessage, createSkillInvokeTool } from "glove-core";`}
