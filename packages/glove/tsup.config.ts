@@ -5,6 +5,7 @@ export default defineConfig({
     "src/index.ts",
     "src/core.ts",
     "src/glove.ts",
+    "src/extensions.ts",
     "src/display-manager.ts",
     "src/tools/task-tool.ts",
     "src/tools/inbox-tool.ts",

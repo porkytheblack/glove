@@ -649,6 +649,12 @@ export class Observer {
 
     if (current_token_consumption < this.CONTEXT_COMPACTION_LIMIT) return;
 
+    return this.runCompactionNow();
+  }
+
+  async runCompactionNow() {
+    const current_token_consumption = await this.getCurrentTokenConsumption();
+
     await this.notifySubscribers("compaction_start", {
       current_token_consumption
     })

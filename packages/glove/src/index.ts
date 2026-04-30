@@ -1,5 +1,6 @@
 export * from "./core"
 export * from "./display-manager"
+export * from "./extensions"
 export * from "./glove"
 export * from "./models/anthropic"
 export * from "./models/anthropic-compat"
