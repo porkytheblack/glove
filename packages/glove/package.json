@@ -27,6 +27,10 @@
       "types": "./dist/glove.d.ts",
       "import": "./dist/glove.js"
     },
+    "./extensions": {
+      "types": "./dist/extensions.d.ts",
+      "import": "./dist/extensions.js"
+    },
     "./display-manager": {
       "types": "./dist/display-manager.d.ts",
       "import": "./dist/display-manager.js"

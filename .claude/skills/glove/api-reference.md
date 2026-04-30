@@ -192,7 +192,9 @@ interface Message {
   content?: ContentPart[];
   tool_results?: ToolResult[];
   tool_calls?: ToolCall[];
-  is_compaction?: boolean;  // true for compaction summary messages
+  is_compaction?: boolean;          // true for compaction summary messages
+  is_compaction_request?: boolean;  // internal marker on the synthetic compaction prompt
+  is_skill_injection?: boolean;     // true for synthetic user messages from /skill invocations
 }
 ```
 
@@ -256,6 +258,144 @@ import { AbortError } from "glove-core";
 try { await agent.processRequest("Hello", signal); }
 catch (err) { if (err instanceof AbortError) { /* cancelled */ } }
 ```
+
+### Extensions: Hooks, Skills & Mentions
+
+Three builder methods on `Glove` (and on the `IGloveBuilder` / `IGloveRunnable` interfaces):
+
+```typescript
+glove.defineHook(name: string, handler: HookHandler): this;
+glove.defineSkill(args: DefineSkillArgs): this;
+glove.defineMention(name: string, handler: MentionHandler): this;
+```
+
+All three are chainable and legal post-`build()`, like `fold`. `defineSkill` takes an object form mirroring `fold(GloveFoldArgs)`:
+
+```typescript
+interface DefineSkillArgs extends SkillOptions {
+  name: string;
+  handler: SkillHandler;
+}
+```
+
+#### Handler types
+
+```typescript
+type HookHandler = (ctx: HookContext) => Promise<HookResult | void>;
+
+interface HookContext {
+  name: string;
+  rawText: string;
+  parsedText: string;
+  controls: AgentControls;
+  signal?: AbortSignal;
+}
+
+interface HookResult {
+  rewriteText?: string;
+  shortCircuit?: { message: Message } | { result: ModelPromptResult };
+}
+
+type SkillHandler = (ctx: SkillContext) => Promise<string | ContentPart[]>;
+
+interface SkillContext {
+  name: string;
+  parsedText: string;        // when source = "user": stripped user text. when source = "agent": same as args ?? "".
+  args?: string;             // model-supplied when source = "agent". undefined when user-invoked.
+  source: "user" | "agent";
+  controls: AgentControls;
+}
+
+interface SkillOptions {
+  description?: string;       // shown to the agent in glove_invoke_skill
+  exposeToAgent?: boolean;    // default false
+}
+
+interface RegisteredSkill {
+  handler: SkillHandler;
+  description?: string;
+  exposeToAgent: boolean;
+}
+
+type MentionHandler = (ctx: MentionContext) => Promise<ModelPromptResult | Message>;
+
+interface MentionContext {
+  name: string;
+  message: Message;
+  controls: AgentControls;
+  handOver?: HandOverFunction;
+  signal?: AbortSignal;
+}
+
+interface AgentControls {
+  context: Context;
+  observer: Observer;
+  promptMachine: PromptMachine;
+  executor: Executor;
+  glove: IGloveRunnable;
+  forceCompaction: () => Promise<void>;   // calls Observer.runCompactionNow()
+}
+```
+
+#### Token parsing
+
+```typescript
+import { parseTokens, formatSkillMessage } from "glove-core";
+
+interface ParsedTokens {
+  stripped: string;
+  hooks: string[];
+  skills: string[];
+  mention: string | null;
+}
+
+interface ExtensionRegistries {
+  hooks: ReadonlySet<string>;
+  skills: ReadonlySet<string>;
+  mentions: ReadonlySet<string>;
+}
+
+function parseTokens(text: string, registries: ExtensionRegistries): ParsedTokens;
+function formatSkillMessage(name: string, injection: string | ContentPart[]): Message;
+```
+
+The regex is `(^|\s)([/@])([A-Za-z][\w-]*)(?=\s|$)`. A token only binds when its name appears in the relevant registry; unbound tokens are left in `stripped`. `formatSkillMessage` produces the synthetic user message used by `processRequest` and sets `is_skill_injection: true`.
+
+#### Built-in agent tool
+
+When any skill is registered with `exposeToAgent: true`, `glove_invoke_skill` is auto-registered on the executor:
+
+```typescript
+import { createSkillInvokeTool, renderSkillToolDescription } from "glove-core";
+
+// Tool input
+{ name: string, args?: string }
+
+// Tool result on success (string handler return)
+{ status: "success", data: { skill: string, content: string } }
+
+// Tool result on success (ContentPart[] handler return) — text parts join into data,
+// the full part list is preserved on renderData for client renderers (mirrors the
+// MCP-bridge convention; renderData is stripped by adapters before being sent to the model).
+{
+  status: "success",
+  data: { skill: string, content: string },         // text join, or "[non-text skill content]"
+  renderData: { skill: string, parts: ContentPart[] }
+}
+
+// Tool result on unknown / unexposed name
+{ status: "error", message: 'Skill "..." is not available. Use one of: ...', data: null }
+```
+
+The tool description (built by `renderSkillToolDescription`) lists every exposed skill with its `description`. Glove rebuilds the description in place each time a new exposed skill is defined, so post-`build()` registrations are immediately visible to the model.
+
+#### Observer additions
+
+`Observer.runCompactionNow()` runs the same body as `tryCompaction()` minus the token-threshold guard. This is what `AgentControls.forceCompaction` calls.
+
+#### Message field added
+
+`Message.is_skill_injection?: boolean` — set on the synthetic user message produced by a `/skill` invocation so transcript renderers can distinguish injected context from real user turns.
 
 ---
 

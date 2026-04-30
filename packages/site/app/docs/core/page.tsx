@@ -178,6 +178,12 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
 
       <h3>Methods</h3>
 
+      <p>
+        For the in-message <code>/hook</code>, <code>/skill</code>, and{" "}
+        <code>@mention</code> directive system, see the dedicated{" "}
+        <a href="/docs/extensions">Hooks, Skills &amp; Mentions</a> guide.
+      </p>
+
       <PropTable
         headers={["Method", "Returns", "Description"]}
         rows={[
@@ -185,6 +191,21 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "fold<I>(args: GloveFoldArgs<I>)",
             "IGloveBuilder",
             "Register a tool with the agent. Returns the builder for chaining.",
+          ],
+          [
+            "defineHook(name, handler)",
+            "IGloveBuilder",
+            "Register a /name hook that runs before the model with full agent controls. See the Hooks, Skills & Mentions guide.",
+          ],
+          [
+            "defineSkill(args)",
+            "IGloveBuilder",
+            "Register a /name skill that injects context as a synthetic user message. Object form: { name, handler, description?, exposeToAgent? }. exposeToAgent: true exposes the skill via the glove_invoke_skill tool.",
+          ],
+          [
+            "defineMention(name, handler)",
+            "IGloveBuilder",
+            "Register an @name mention that routes the turn to a custom handler instead of the local agent loop.",
           ],
           [
             "addSubscriber(subscriber: SubscriberAdapter)",
@@ -773,6 +794,11 @@ await observer.tryCompaction();`}
             "Promise<void>",
             "Check if compaction is needed (turns or tokens exceeded) and perform it if so. Summarizes the conversation and appends the summary as a new message with is_compaction set to true. Calls resetCounters() to reset token and turn counts without deleting messages. The full message history is preserved in the store for frontend display, while Context.getMessages() uses splitAtLastCompaction to ensure the model only sees messages from the latest compaction onward.",
           ],
+          [
+            "runCompactionNow()",
+            "Promise<void>",
+            "Same body as tryCompaction() but skips the token-threshold guard. Used by hook handlers via AgentControls.forceCompaction() to compact on demand.",
+          ],
         ]}
       />
 
@@ -1320,6 +1346,8 @@ await notify("model_response_complete", {
   tool_results?: ToolResult[];
   tool_calls?: ToolCall[];
   is_compaction?: boolean;
+  is_compaction_request?: boolean;
+  is_skill_injection?: boolean;
 }`}
         language="typescript"
       />
@@ -1361,6 +1389,16 @@ await notify("model_response_complete", {
             "is_compaction?",
             "boolean",
             "When true, marks this message as a compaction summary. Context.getMessages() uses this flag to split the history at the last compaction point, so the model only sees messages from the most recent compaction onward.",
+          ],
+          [
+            "is_compaction_request?",
+            "boolean",
+            "Internal marker on the synthetic user message that prompts the model for a compaction summary.",
+          ],
+          [
+            "is_skill_injection?",
+            "boolean",
+            "When true, marks this message as a synthetic user turn produced by a /skill invocation (see Hooks, Skills & Mentions). Use it in transcript renderers to distinguish injected context from real user turns.",
           ],
         ]}
       />

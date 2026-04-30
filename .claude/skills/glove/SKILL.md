@@ -56,6 +56,7 @@ User message → Agent Loop → Model decides tool calls → Execute tools → F
 - **Adapter** — Pluggable interfaces for Model, Store, DisplayManager, and Subscriber. Swap providers without changing app code.
 - **Context Compaction** — Auto-summarizes long conversations to stay within context window limits. The store preserves full message history (so frontends can display the entire chat), while `Context.getMessages()` splits at the last compaction summary so the model only sees post-compaction context. Summary messages are marked with `is_compaction: true`.
 - **Inbox** — Persistent async mailbox for cross-instance communication. An agent posts a request (text) that can't be resolved now; an external service resolves it later (text response). Resolved items are automatically injected into the agent's context on the next `ask()` call. Items can be blocking (agent should wait) or non-blocking. Built-in `glove_post_to_inbox` tool auto-registered when store supports inbox methods.
+- **Extensions (hooks, skills, mentions)** — In-message directives parsed out of the user text by `processRequest`. `/hookname` runs a builder-defined handler with full agent controls (force compaction, swap model, short-circuit a turn). `/skillname` materialises a synthetic user message before the real one (marked `is_skill_injection: true`). `@subagentname` reroutes the turn to a custom handler. Tokens only bind when the name is registered, so `/usr/local` and `a@b.com` pass through untouched. Skills can be exposed to the agent (`exposeToAgent: true`) so the agent itself can pull them in via the auto-registered `glove_invoke_skill` tool.
 - **MCP catalogue + adapter** — `glove-mcp` introduces two pieces: a static `McpCatalogueEntry[]` describing servers the app supports, and a per-conversation `McpAdapter` holding active ids and resolving access tokens. `mountMcp` reloads previously active servers and folds in a `find_capability` discovery subagent — model finds and activates servers it needs mid-conversation.
 
 ## Quick Start (Next.js)
@@ -451,6 +452,179 @@ const storeActions: RemoteStoreActions = {
   getResolvedInboxItems: (sid) => fetch(`/api/sessions/${sid}/inbox/resolved`).then(r => r.json()),
 };
 ```
+
+## Extensions: Hooks, Skills & Mentions
+
+`processRequest` parses three kinds of inline directive out of the user text and dispatches them before the model is called. Builders register handlers via three new builder methods (chainable, callable post-`build()` like `fold`):
+
+| Token | Purpose | Builder method |
+|-------|---------|----------------|
+| `/hookname` | Mutate agent state, force compaction, swap model, short-circuit a turn | `defineHook(name, handler)` |
+| `/skillname` | Inject context as a synthetic user message marked `is_skill_injection: true` | `defineSkill({ name, handler, description?, exposeToAgent? })` |
+| `@subagentname` | Reroute the turn to a custom handler | `defineMention(name, handler)` |
+
+Tokens only bind when the name matches a registered handler. `/usr/local/bin` and `a@b.com` survive untouched. Multiple hooks/skills can stack in one message; only the first matching `@mention` wins.
+
+### Quick example
+
+```typescript
+const agent = new Glove({ /* ... */ })
+  .defineHook("compact", async ({ controls }) => {
+    await controls.forceCompaction();
+  })
+  .defineHook("stop", async () => ({
+    shortCircuit: { message: { sender: "agent", text: "Cancelled." } },
+  }))
+  .defineSkill({
+    name: "concise",
+    description: "Tighter, snappier responses",
+    exposeToAgent: true,
+    handler: async ({ source, args }) =>
+      `Be terse. (source=${source}, hint=${args ?? "none"})`,
+  })
+  .defineMention("weather-only", async ({ message }) => {
+    return { sender: "agent", text: await fetchWeather(message.text) };
+  })
+  .build();
+
+await agent.processRequest("/concise tell me about Rust");      // user-invoked skill
+await agent.processRequest("/compact what's next?");           // hook → forceCompaction
+await agent.processRequest("@weather-only NYC");               // mention reroutes
+```
+
+### Hooks
+
+```typescript
+type HookHandler = (ctx: HookContext) => Promise<HookResult | void>;
+
+interface HookContext {
+  name: string;
+  rawText: string;
+  parsedText: string;        // text with bound tokens removed
+  controls: AgentControls;
+  signal?: AbortSignal;
+}
+
+interface HookResult {
+  rewriteText?: string;      // override parsedText for downstream skills + the user message
+  shortCircuit?:
+    | { message: Message }
+    | { result: ModelPromptResult };
+}
+
+interface AgentControls {
+  context: Context;
+  observer: Observer;
+  promptMachine: PromptMachine;
+  executor: Executor;
+  glove: IGloveRunnable;
+  forceCompaction: () => Promise<void>;
+}
+```
+
+`forceCompaction` calls `Observer.runCompactionNow()` — same body as `tryCompaction` minus the token-threshold guard. Subscribers still see `compaction_start` / `compaction_end`.
+
+Hooks run in document order. `rewriteText` overrides the working text passed to subsequent hooks, skills, and the final user message. `shortCircuit` persists the user message and returns immediately — the model is not called.
+
+### Skills
+
+```typescript
+type SkillHandler = (ctx: SkillContext) => Promise<string | ContentPart[]>;
+
+interface SkillContext {
+  name: string;
+  parsedText: string;        // post-strip user text
+  args?: string;             // model-supplied free-form args (only when source = "agent")
+  source: "user" | "agent";
+  controls: AgentControls;
+}
+
+interface SkillOptions {
+  description?: string;       // shown to the agent in the invoke-skill tool listing
+  exposeToAgent?: boolean;    // default false
+}
+```
+
+Skill-injected messages set `is_skill_injection: true` on `Message`, alongside the existing `is_compaction` and `is_compaction_request` flags. Use it in transcript renderers to render injected context differently from real user turns.
+
+#### Exposing skills to the agent
+
+Set `exposeToAgent: true` and Glove auto-registers a single `glove_invoke_skill` tool on the executor. Its description lists every exposed skill (`- name — description`) and is rebuilt in place each time a new exposed skill is defined, so post-`build()` registrations are picked up immediately.
+
+```typescript
+agent.defineSkill({
+  name: "research-mode",
+  description: "Switch to long-form research mode with citations",
+  exposeToAgent: true,
+  handler: async ({ source, args, parsedText }) => {
+    if (source === "agent") {
+      // Agent invoked via glove_invoke_skill — `args` is the model-supplied string.
+      return `Switch into research mode. Focus: ${args ?? "general"}.`;
+    }
+    // source === "user" — `parsedText` is the user message after token stripping
+    // (the rest of "/research-mode tell me about ribosomes").
+    return `Switch into research mode. User said: ${parsedText}`;
+  },
+});
+
+// User: "/research-mode tell me about ribosomes"  (source = "user", parsedText = "tell me about ribosomes")
+// Agent: glove_invoke_skill({ name: "research-mode", args: "ribosome assembly" })  (source = "agent", args = "ribosome assembly")
+```
+
+The tool returns `{ status: "success", data: { skill, content } }` on success and `{ status: "error", message: 'Skill "..." is not available', data: null }` for unknown or unexposed names. When the skill returns `ContentPart[]`, text parts are joined into `data.content` (visible to the model) and the full part list is preserved on `renderData` (visible to client renderers, mirroring the MCP-bridge convention).
+
+| Aspect | User `/skill` | Agent `glove_invoke_skill` |
+|--------|--------------|----------------------------|
+| Where it lands | Synthetic user message before the real turn (`is_skill_injection: true`) | Tool result on the agent's tool_use |
+| `SkillContext.source` | `"user"` | `"agent"` |
+| `SkillContext.args` | undefined | free-form string the model supplied |
+| Gated by `exposeToAgent` | No — user-invoked always works | Yes — only exposed skills are callable |
+
+### Mentions
+
+```typescript
+type MentionHandler = (ctx: MentionContext) => Promise<ModelPromptResult | Message>;
+
+interface MentionContext {
+  name: string;
+  message: Message;          // already-persisted user message (post-strip)
+  controls: AgentControls;
+  handOver?: HandOverFunction;
+  signal?: AbortSignal;
+}
+```
+
+Common patterns: forward to a sub-Glove (`subGlove.processRequest(message.text)`), respond deterministically without the model, or proxy to an external agent/API.
+
+### Dispatch order in `processRequest`
+
+1. Parse tokens from the raw text. Bound tokens are stripped (whitespace collapsed); unbound tokens stay in place.
+2. Run hooks in document order. Apply any `rewriteText`; honour the first `shortCircuit` and return.
+3. Materialise skills (`source: "user"`) — each becomes a synthetic user message persisted via `context.appendMessages` before the real one.
+4. Build the real user `Message` from the stripped text + any non-text `ContentPart`s the caller passed.
+5. If a mention bound, persist the user message and call its handler. Otherwise hand off to `Agent.ask` as before.
+
+### `is_skill_injection` flag
+
+Skill-materialised user messages set `is_skill_injection: true` on `Message`. Pair it with `is_compaction` for transcript rendering — collapse, mute, or filter injected messages so they're visually distinct from real user turns.
+
+### Public API surface
+
+```typescript
+import {
+  // Builder additions
+  Glove, // .defineHook(), .defineSkill(), .defineMention()
+  // Types
+  HookHandler, HookContext, HookResult,
+  SkillHandler, SkillContext, SkillOptions, RegisteredSkill,
+  MentionHandler, MentionContext,
+  AgentControls,
+  // Helpers
+  parseTokens, formatSkillMessage, createSkillInvokeTool, renderSkillToolDescription,
+} from "glove-core";
+```
+
+Available at the main entry and the `glove-core/extensions` subpath.
 
 ## MCP Integration (`glove-mcp`)
 
@@ -1088,3 +1262,8 @@ For example patterns from real implementations, see [examples.md](examples.md).
 33. **`mountMcp` fails open**: If an active server fails to reload (transient outage, expired token), the failure is logged via `console.warn` and the agent continues with the rest of the catalogue. Don't rely on `mountMcp` throwing.
 34. **`serverMode` defaults the discovery policy**: `serverMode: true` → `auto-pick-best` and bridged tools never gate on permission. `serverMode: false` (default) → `interactive` policy and read-write MCP tools require permission. Pass `ambiguityPolicy` explicitly to override.
 35. **Interactive discovery needs an `mcp_picker` renderer**: The `interactive` ambiguity policy renders via the `mcp_picker` renderer on the displayManager. If you're in a browser and using that policy, register a renderer for it; otherwise the `pushAndWait` will hang.
+36. **Extension tokens only bind to registered names**: `parseTokens` leaves any `/foo` or `@foo` in place when `foo` isn't in the relevant registry. Paths like `/usr/local` and emails like `a@b.com` survive untouched — but if a legitimate user message happens to mention `/compact` and you have a hook by that name, it WILL fire. Pick names that won't collide with normal prose.
+37. **Skill-injected messages are `is_skill_injection: true`**: Synthetic user messages produced by `/skill` invocations have this flag set. Use it in transcript renderers to distinguish them from real user turns. They are persisted in the store like any other message and survive compaction (subject to `splitAtLastCompaction` like everything else).
+38. **`glove_invoke_skill` reads the live registry per call**: The auto-registered tool checks `this.skills` at run time, so skills defined after `build()` with `exposeToAgent: true` are immediately callable. The tool's description is also rebuilt in place when a new exposed skill is registered, so the listing the model sees stays current.
+39. **First mention wins**: When a message has multiple registered `@mentions`, only the first one routes — subsequent matches stay in the text. If you want fan-out to multiple subagents, build a single mention handler that does the dispatch.
+40. **Hook `shortCircuit` still persists the user message**: Even when a hook short-circuits the turn, the user's (post-rewrite) message is appended to context first so transcripts stay consistent. The model just isn't called for that turn.

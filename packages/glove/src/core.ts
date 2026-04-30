@@ -207,6 +207,8 @@ export interface Message {
   tool_calls?: Array<ToolCall>;
   is_compaction?: boolean;
   is_compaction_request?: boolean
+  /** True when this user message was synthesised by a skill injection rather than authored by a real user. */
+  is_skill_injection?: boolean
 }
 
 export interface PromptRequest {
@@ -648,6 +650,12 @@ export class Observer {
     const current_token_consumption = await this.getCurrentTokenConsumption();
 
     if (current_token_consumption < this.CONTEXT_COMPACTION_LIMIT) return;
+
+    return this.runCompactionNow();
+  }
+
+  async runCompactionNow() {
+    const current_token_consumption = await this.getCurrentTokenConsumption();
 
     await this.notifySubscribers("compaction_start", {
       current_token_consumption
