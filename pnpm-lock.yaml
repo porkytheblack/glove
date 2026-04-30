@@ -153,6 +153,12 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  examples/glovebox-smoke:
+    dependencies:
+      glovebox:
+        specifier: workspace:*
+        version: link:../../packages/glovebox
+
   examples/lola:
     dependencies:
       '@ricky0123/vad-web':
@@ -385,9 +391,15 @@ importers:
 
   packages/glovebox:
     dependencies:
+      esbuild:
+        specifier: ^0.27.3
+        version: 0.27.3
       glove-core:
         specifier: workspace:*
         version: link:../glove
+      glovebox-kit:
+        specifier: workspace:*
+        version: link:../glovebox-kit
     devDependencies:
       '@types/node':
         specifier: ^25.2.3

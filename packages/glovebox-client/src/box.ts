@@ -7,7 +7,7 @@ import type {
 } from "glovebox/protocol"
 
 import { DefaultClientStorage, type ClientStorage } from "./storage"
-import { pickWebSocket, type WsLike } from "./wire"
+import { httpFromWs, pickWebSocket, type WsLike } from "./wire"
 
 export interface BoxEndpoint {
   url: string
@@ -51,7 +51,7 @@ export interface PromptResult {
   /** Resolves with the final assistant message. */
   message: Promise<string>
   /** Resolves with the final outputs map. */
-  outputs: Record<string, FileRef> | Promise<Record<string, FileRef>>
+  outputs: Promise<Record<string, FileRef>>
   /** Read an output file's bytes through the configured storage. */
   read(name: string): Promise<Uint8Array>
   /** Send a display resolution back to the server. */
@@ -60,6 +60,16 @@ export interface PromptResult {
   reject(slot_id: string, error: unknown): void
   /** Abort this prompt. */
   abort(): void
+}
+
+export interface BoxEnvironment {
+  name: string
+  version: string
+  base: string
+  fs: Record<string, { path: string; writable: boolean }>
+  packages: { apt?: string[]; pip?: string[]; npm?: string[] }
+  limits?: { cpu?: string; memory?: string; timeout?: string }
+  protocol_version: 1
 }
 
 interface AsyncQueue<T> {
@@ -148,7 +158,6 @@ export class Box {
     const id = `req_${this.nextId++}`
     const events = asyncQueue<SubscriberEvent>()
     const display = asyncQueue<DisplayEvent>()
-    let outputsResolved: Record<string, FileRef> | null = null
 
     let resolveMessage: (s: string) => void = () => undefined
     let rejectMessage: (e: unknown) => void = () => undefined
@@ -160,10 +169,7 @@ export class Box {
     let resolveOutputs: (o: Record<string, FileRef>) => void = () => undefined
     let rejectOutputs: (e: unknown) => void = () => undefined
     const outputsPromise = new Promise<Record<string, FileRef>>((res, rej) => {
-      resolveOutputs = (o) => {
-        outputsResolved = o
-        res(o)
-      }
+      resolveOutputs = res
       rejectOutputs = rej
     })
 
@@ -187,30 +193,65 @@ export class Box {
       }
     })
 
+    const sendOrEmit = (msg: ClientMessage) => {
+      this.send(msg).catch((err) => {
+        this.emitSendError(err)
+      })
+    }
+
     const result: PromptResult = {
       events: events.iter(),
       display: display.iter(),
       message: messagePromise,
-      get outputs() {
-        return outputsResolved ?? outputsPromise
-      },
+      outputs: outputsPromise,
       read: async (name: string) => {
-        const outputs = outputsResolved ?? (await outputsPromise)
+        const outputs = await outputsPromise
         const ref = outputs[name]
         if (!ref) throw new Error(`No output named ${name}`)
         return this.storage.get(ref, { bearer: this.bearer })
       },
-      resolve: (slot_id, value) => {
-        void this.send({ type: "display_resolve", slot_id, value })
-      },
-      reject: (slot_id, error) => {
-        void this.send({ type: "display_reject", slot_id, error })
-      },
-      abort: () => {
-        void this.send({ type: "abort", id })
-      },
+      resolve: (slot_id, value) => sendOrEmit({ type: "display_resolve", slot_id, value }),
+      reject: (slot_id, error) => sendOrEmit({ type: "display_reject", slot_id, error }),
+      abort: () => sendOrEmit({ type: "abort", id }),
     }
     return result
+  }
+
+  /**
+   * Fetch the deployed glovebox's environment spec — useful for routing
+   * decisions when an app holds many endpoints. Cached after first fetch.
+   */
+  async environment(): Promise<BoxEnvironment> {
+    if (this.envCache) return this.envCache
+    const url = httpFromWs(this.opts.endpoint.url, "/environment")
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${this.bearer}` },
+    })
+    if (!res.ok) {
+      throw new Error(`environment fetch failed: ${res.status} ${res.statusText}`)
+    }
+    const env = (await res.json()) as BoxEnvironment
+    this.envCache = env
+    return env
+  }
+
+  /** Subscribe to send-side errors that escape `void this.send(...)` callsites. */
+  onSendError(listener: (err: unknown) => void): () => void {
+    this.sendErrorListeners.add(listener)
+    return () => this.sendErrorListeners.delete(listener)
+  }
+
+  private envCache?: BoxEnvironment
+  private sendErrorListeners = new Set<(err: unknown) => void>()
+  private emitSendError(err: unknown): void {
+    if (this.sendErrorListeners.size === 0) {
+      // No listener — surface to the console so the failure doesn't disappear.
+      console.warn("[glovebox-client] send failed:", err)
+      return
+    }
+    for (const fn of this.sendErrorListeners) {
+      try { fn(err) } catch { /* ignore */ }
+    }
   }
 
   // ─── internals ────────────────────────────────────────────────────────

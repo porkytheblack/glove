@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { mkdirSync } from "node:fs"
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 
@@ -64,6 +65,7 @@ export class LocalServerStorage implements StorageAdapter {
     this.publicBaseUrl = opts.publicBaseUrl.replace(/\/$/, "")
 
     const manifestPath = opts.manifestPath ?? path.join(path.dirname(this.dir), "files.db")
+    mkdirSync(path.dirname(manifestPath), { recursive: true })
     this.db = new Database(manifestPath)
     this.db.pragma("journal_mode = WAL")
     this.db.exec(`

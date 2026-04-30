@@ -8,6 +8,7 @@ export type {
   PromptResult,
   SubscriberEvent,
   DisplayEvent,
+  BoxEnvironment,
 } from "./box"
 export { DefaultClientStorage } from "./storage"
 export type { ClientStorage, DefaultClientStorageOptions } from "./storage"

@@ -26,3 +26,16 @@ export async function pickWebSocket(): Promise<WsCtor> {
 export function isNodeWebSocket(ctor: WsCtor): boolean {
   return typeof globalThis === "undefined" || (globalThis as any).WebSocket !== ctor
 }
+
+/**
+ * Derive an http(s) URL from a ws(s) endpoint URL, replacing the path. Used
+ * for sibling HTTP routes (`/environment`, `/files/:id`).
+ */
+export function httpFromWs(wsUrl: string, pathname: string): string {
+  const u = new URL(wsUrl)
+  if (u.protocol === "wss:") u.protocol = "https:"
+  else if (u.protocol === "ws:") u.protocol = "http:"
+  u.pathname = pathname
+  u.search = ""
+  return u.toString()
+}

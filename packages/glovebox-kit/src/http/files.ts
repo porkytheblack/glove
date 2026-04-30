@@ -59,10 +59,14 @@ export async function handleFileRequest(
 
   const consume = url.searchParams.get("consume") === "1"
 
+  // Sanitize the filename: strip anything that could inject a header.
+  const safeName = row.name.replace(/[^A-Za-z0-9._-]/g, "_") || "file"
   res.writeHead(200, {
     "Content-Type": row.mime,
     "Content-Length": String(row.size),
-    "Content-Disposition": `inline; filename="${row.name.replace(/"/g, "")}"`,
+    "Content-Disposition": `inline; filename="${safeName}"`,
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
   })
 
   const stream = createReadStream(deps.storage.filePathFor(id))

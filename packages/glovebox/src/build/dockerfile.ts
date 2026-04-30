@@ -68,7 +68,10 @@ export function generateDockerfile(config: ResolvedGloveboxConfig): string {
 
   lines.push("COPY --chown=glovebox:glovebox server /opt/glovebox-server")
   lines.push("WORKDIR /opt/glovebox-server")
-  lines.push("RUN cd /opt/glovebox-server && npm ci --omit=dev")
+  // The bundle is self-contained; only native modules need install.
+  lines.push("RUN npm install --omit=dev --no-package-lock")
+  lines.push("RUN mkdir -p /var/glovebox/files \\")
+  lines.push(" && chown -R glovebox:glovebox /var/glovebox")
   lines.push("")
   lines.push("USER glovebox")
   lines.push("EXPOSE 8080")

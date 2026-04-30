@@ -5,16 +5,14 @@ import type { IGloveRunnable } from "glove-core"
 import type { ResolvedGloveboxConfig } from "glovebox"
 
 /**
- * Per-request state used by the injected hooks. The kit attaches one of
- * these to a request before invoking the agent and reads it back to learn
- * which extra paths the agent explicitly scheduled for exfiltration.
+ * Per-request state used by the injected hooks. The kit assigns one before
+ * invoking the agent and reads it back to learn which extra paths the agent
+ * explicitly scheduled for exfiltration.
  */
 export interface RequestExfilState {
   /** Absolute paths the agent explicitly tagged for output. */
   extraOutputs: Set<string>
 }
-
-export const REQUEST_EXFIL_STATE = new WeakMap<object, RequestExfilState>()
 
 /**
  * Inject the standard glovebox-flavored skills, hooks, and mentions onto a
@@ -95,24 +93,21 @@ export function applyInjections(
   return runnable
 }
 
-export function buildEnvironmentBlock(
-  config: ResolvedGloveboxConfig,
-  inputs: Record<string, unknown> | undefined,
-): string {
+/**
+ * Build the static environment preamble prepended to the system prompt at
+ * boot. Per-request inputs are NOT listed here — the agent calls the
+ * `workspace` skill to read the live `/input` directory if it needs to.
+ */
+export function buildEnvironmentBlock(config: ResolvedGloveboxConfig): string {
   const lines: string[] = []
   lines.push("[Glovebox environment]")
   if (config.fs.work) lines.push(`Working directory: ${config.fs.work.path}`)
-  if (config.fs.input) {
-    const names = inputs ? Object.keys(inputs) : []
-    const detail = names.length > 0 ? ` — currently contains: ${names.join(", ")}` : ""
-    lines.push(`Inputs (read-only): ${config.fs.input.path}${detail}`)
-  }
-  if (config.fs.output) {
-    lines.push(`Outputs: ${config.fs.output.path} — write your results here`)
-  }
+  if (config.fs.input) lines.push(`Inputs (read-only): ${config.fs.input.path}`)
+  if (config.fs.output) lines.push(`Outputs: ${config.fs.output.path} — write your results here`)
   const apt = config.packages.apt ?? []
   if (apt.length > 0) lines.push(`Available tools: ${apt.join(", ")}`)
   if (config.limits.timeout) lines.push(`Timeout: ${config.limits.timeout}`)
   if (config.limits.memory) lines.push(`Memory limit: ${config.limits.memory}`)
+  lines.push("Use the `workspace` skill to list current files in /input, /work, /output.")
   return lines.join("\n")
 }

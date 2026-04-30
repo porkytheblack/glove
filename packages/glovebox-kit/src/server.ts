@@ -2,16 +2,17 @@ import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises"
 import { createServer, type IncomingMessage, type Server as HttpServer } from "node:http"
 import path from "node:path"
 
-import type { ContentPart, IGloveRunnable } from "glove-core"
+import type { IGloveRunnable } from "glove-core"
 import type {
   ClientMessage,
   FileRef,
   Manifest,
+  OutputsPolicyOverride,
   ServerMessage,
   StoragePolicyEncoded,
 } from "glovebox/protocol"
 import type { GloveboxApp } from "glovebox"
-import { WebSocketServer, type WebSocket } from "ws"
+import { WebSocketServer } from "ws"
 
 import { verifyAgainstManifest, verifyBearer } from "./auth"
 import { attachDisplayBridge } from "./display-bridge"
@@ -19,10 +20,14 @@ import { handleFileRequest } from "./http/files"
 import {
   applyInjections,
   buildEnvironmentBlock,
-  REQUEST_EXFIL_STATE,
   type RequestExfilState,
 } from "./injection"
-import { pickAdapter, type StorageAdapter } from "./storage/index"
+import {
+  parseSize,
+  pickAdapter,
+  validateOutputsPolicy,
+  type StorageAdapter,
+} from "./storage/index"
 import { InlineStorage } from "./storage/inline"
 import { LocalServerStorage } from "./storage/local-server"
 import { UrlStorage } from "./storage/url"
@@ -39,17 +44,14 @@ export interface StartOptions {
   manifestPath: string
   /** Public base URL of this server. Used to mint `server` FileRefs. Defaults to `http://localhost:<port>`. */
   publicBaseUrl?: string
+  /** Custom storage adapters, merged into the default registry by `name`. */
+  adapters?: Record<string, StorageAdapter>
 }
 
 export interface RunningGlovebox {
   http: HttpServer
   wss: WebSocketServer
   close: () => Promise<void>
-}
-
-interface SessionState {
-  ws: WebSocket
-  inflight: Map<string, AbortController>
 }
 
 const MIME_DEFAULT = "application/octet-stream"
@@ -80,13 +82,11 @@ export async function startGlovebox(opts: StartOptions): Promise<RunningGlovebox
   const manifest: Manifest = JSON.parse(await readFile(opts.manifestPath, "utf8"))
   const config = opts.app.config
 
-  // Validate env (required keys must be present)
   for (const [name, spec] of Object.entries(manifest.env ?? {})) {
     if (spec.required && process.env[name] === undefined) {
       throw new Error(`Missing required env var: ${name}`)
     }
   }
-  // Verify configured key matches manifest fingerprint
   if (!verifyAgainstManifest(opts.key, opts.key, manifest.key_fingerprint)) {
     throw new Error("Configured GLOVEBOX_KEY does not match the manifest fingerprint")
   }
@@ -96,17 +96,11 @@ export async function startGlovebox(opts: StartOptions): Promise<RunningGlovebox
     throw new Error("App runnable does not look like a Glove runnable (missing processRequest)")
   }
 
-  // Ensure filesystem mounts exist (writable ones; read-only `/input` is
-  // baked into the image but we tolerate missing dirs in dev).
   for (const mount of Object.values(config.fs)) {
     if (mount.writable) await mkdir(mount.path, { recursive: true }).catch(() => undefined)
   }
 
-  // Inject standard skills/hooks/mentions, prepend env block to system prompt.
-  let currentExfilState: RequestExfilState | undefined
-  applyInjections(runnable, config, () => currentExfilState)
-
-  // Storage registry
+  // ─── Storage registry ──────────────────────────────────────────────────
   const publicBaseUrl = opts.publicBaseUrl ?? `http://localhost:${opts.port}`
   const localServer = new LocalServerStorage({ publicBaseUrl })
   await localServer.ensureReady()
@@ -115,10 +109,27 @@ export async function startGlovebox(opts: StartOptions): Promise<RunningGlovebox
     inline: new InlineStorage(),
     url: new UrlStorage(),
     localServer,
-    // s3: registered by user code if needed
+    ...(opts.adapters ?? {}),
+  }
+  validateOutputsPolicy(manifest.storage_policy.outputs, storage)
+
+  // ─── Boot-time injections ──────────────────────────────────────────────
+  // The exfil state is per-request; we set it up before invoking the agent
+  // and read it back after. Because prompts are serialized per session, the
+  // single closure reference is safe.
+  let currentExfilState: RequestExfilState | undefined
+  applyInjections(runnable, config, () => currentExfilState)
+
+  // Prepend a static env block to the existing system prompt — once, at boot.
+  // Dynamic per-request data (current /input listing) is reachable via the
+  // `workspace` skill the agent can pull on demand.
+  if (typeof runnable.getSystemPrompt === "function") {
+    const original = runnable.getSystemPrompt()
+    const envBlock = buildEnvironmentBlock(config)
+    runnable.setSystemPrompt(`${envBlock}\n\n${original}`)
   }
 
-  // HTTP server (handles `/files/:id` and upgrades the WS).
+  // ─── HTTP + WS server ──────────────────────────────────────────────────
   const http = createServer(async (req, res) => {
     const handled = await handleFileRequest(req, res, {
       storage: localServer,
@@ -128,6 +139,34 @@ export async function startGlovebox(opts: StartOptions): Promise<RunningGlovebox
     if (req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" })
       res.end(JSON.stringify({ ok: true, name: manifest.name, version: manifest.version }))
+      return
+    }
+    if (req.url === "/environment") {
+      const auth = req.headers["authorization"]
+      if (typeof auth !== "string" || !auth.startsWith("Bearer ")) {
+        res.writeHead(401)
+        res.end()
+        return
+      }
+      const presented = auth.slice("Bearer ".length).trim()
+      if (!verifyBearer(presented, opts.key)) {
+        res.writeHead(401)
+        res.end()
+        return
+      }
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Cache-Control": "private, no-store",
+      })
+      res.end(JSON.stringify({
+        name: manifest.name,
+        version: manifest.version,
+        base: manifest.base,
+        fs: manifest.fs,
+        packages: manifest.packages,
+        limits: manifest.limits,
+        protocol_version: manifest.protocol_version,
+      }))
       return
     }
     res.writeHead(404)
@@ -155,73 +194,71 @@ export async function startGlovebox(opts: StartOptions): Promise<RunningGlovebox
   })
 
   wss.on("connection", (ws) => {
-    const session: SessionState = { ws, inflight: new Map() }
+    const inflight = new Map<string, AbortController>()
+    let promptChain: Promise<unknown> = Promise.resolve()
 
     const send = (msg: ServerMessage) =>
       new Promise<void>((resolve, reject) => {
         ws.send(JSON.stringify(msg), (err) => (err ? reject(err) : resolve()))
       })
 
-    // Per-session subscriber and display bridge. The subscriber's request id
-    // is rewritten per prompt; events are fanned out as they arrive.
-    let activeRequestId = "_session"
-    const subscriber = new WsSubscriber(activeRequestId, send)
+    const subscriber = new WsSubscriber("_session", send)
     runnable.addSubscriber(subscriber)
     const detachDisplay = attachDisplayBridge(runnable.displayManager, subscriber)
 
-    ws.on("message", async (raw) => {
+    ws.on("message", (raw) => {
       let msg: ClientMessage
       try {
         msg = JSON.parse(String(raw)) as ClientMessage
       } catch {
         return
       }
-      if (msg.type === "ping") {
-        await send({ type: "pong", ts: msg.ts }).catch(() => undefined)
-        return
-      }
-      if (msg.type === "abort") {
-        const ac = session.inflight.get(msg.id)
-        if (ac) ac.abort()
-        return
-      }
-      if (msg.type === "display_resolve") {
-        runnable.displayManager.resolve(msg.slot_id, msg.value)
-        return
-      }
-      if (msg.type === "display_reject") {
-        runnable.displayManager.reject(msg.slot_id, msg.error)
-        return
-      }
-      if (msg.type === "prompt") {
-        await handlePrompt(msg, {
-          runnable,
-          config: config,
-          send,
-          subscriber,
-          session,
-          storage,
-          inputsPolicy: manifest.storage_policy.inputs,
-          outputsPolicy: manifest.storage_policy.outputs,
-          setActiveRequestId: (id) => {
-            activeRequestId = id
-            subscriber.setRequestId(id)
-          },
-          setExfilState: (s) => {
-            currentExfilState = s
-          },
-        }).catch((err: unknown) => {
-          const error = {
-            code: err instanceof Error ? err.name : "error",
-            message: err instanceof Error ? err.message : String(err),
-          }
-          void send({ type: "error", id: msg.id, error }).catch(() => undefined)
-        })
+      switch (msg.type) {
+        case "ping":
+          void send({ type: "pong", ts: msg.ts }).catch(() => undefined)
+          return
+        case "abort": {
+          const ac = inflight.get(msg.id)
+          if (ac) ac.abort()
+          return
+        }
+        case "display_resolve":
+          runnable.displayManager.resolve(msg.slot_id, msg.value)
+          return
+        case "display_reject":
+          runnable.displayManager.reject(msg.slot_id, msg.error)
+          return
+        case "prompt": {
+          // Serialize prompts within a session: the next prompt only starts
+          // after the previous chain settles. Glove's PromptMachine + Context
+          // are not safe to call concurrently.
+          promptChain = promptChain.then(() =>
+            handlePrompt(msg, {
+              runnable,
+              config,
+              send,
+              subscriber,
+              inflight,
+              storage,
+              outputsPolicy: manifest.storage_policy.outputs,
+              setExfilState: (s) => {
+                currentExfilState = s
+              },
+            }).catch((err: unknown) => {
+              const error = {
+                code: err instanceof Error ? err.name : "error",
+                message: err instanceof Error ? err.message : String(err),
+              }
+              return send({ type: "error", id: msg.id, error }).catch(() => undefined)
+            }),
+          )
+          return
+        }
       }
     })
 
     ws.on("close", () => {
-      for (const [, ac] of session.inflight) ac.abort()
+      for (const [, ac] of inflight) ac.abort()
       detachDisplay()
       subscriber.close()
       runnable.removeSubscriber(subscriber)
@@ -246,29 +283,34 @@ interface PromptDeps {
   config: GloveboxApp["config"]
   send: (msg: ServerMessage) => Promise<void>
   subscriber: WsSubscriber
-  session: SessionState
+  inflight: Map<string, AbortController>
   storage: Record<string, StorageAdapter>
-  inputsPolicy: StoragePolicyEncoded
   outputsPolicy: StoragePolicyEncoded
-  setActiveRequestId: (id: string) => void
   setExfilState: (s: RequestExfilState | undefined) => void
 }
 
 async function handlePrompt(
-  msg: { type: "prompt"; id: string; text: string; inputs?: Record<string, FileRef> },
+  msg: {
+    type: "prompt"
+    id: string
+    text: string
+    inputs?: Record<string, FileRef>
+    outputs_policy?: OutputsPolicyOverride
+  },
   deps: PromptDeps,
 ): Promise<void> {
-  deps.setActiveRequestId(msg.id)
+  // Tag every event from this turn with the prompt's id. Safe because we
+  // serialize prompts.
+  deps.subscriber.setRequestId(msg.id)
   const exfil: RequestExfilState = { extraOutputs: new Set() }
   deps.setExfilState(exfil)
+
   const ac = new AbortController()
-  deps.session.inflight.set(msg.id, ac)
-  REQUEST_EXFIL_STATE.set({} as object, exfil) // future per-context wiring
+  deps.inflight.set(msg.id, ac)
 
   const inputDir = deps.config.fs.input?.path
   const outputDir = deps.config.fs.output?.path
 
-  // Resolve inputs onto disk
   if (msg.inputs && inputDir) {
     await mkdir(inputDir, { recursive: true }).catch(() => undefined)
     for (const [name, ref] of Object.entries(msg.inputs)) {
@@ -278,32 +320,26 @@ async function handlePrompt(
     }
   }
 
-  const text = msg.text
-
-  // Prepend the env block to the agent's system prompt for this turn. We use
-  // a content-part array so the env block stays separate from the prompt.
-  const envBlock = buildEnvironmentBlock(deps.config, msg.inputs)
-  const composed: ContentPart[] = [
-    { type: "text", text: envBlock },
-    { type: "text", text },
-  ]
-
+  // The env block is set on the system prompt at boot; the prompt text reaches
+  // Glove unmodified.
   let completionMessage = ""
   try {
-    const result = await deps.runnable.processRequest(composed, ac.signal)
+    const result = await deps.runnable.processRequest(msg.text, ac.signal)
     if (result && typeof result === "object" && "messages" in result && Array.isArray(result.messages)) {
       const last = result.messages[result.messages.length - 1]
       if (last) completionMessage = last.text ?? ""
     } else if (result && typeof result === "object" && "text" in result) {
       completionMessage = (result as { text?: string }).text ?? ""
     }
-  } catch (err) {
-    deps.session.inflight.delete(msg.id)
+  } finally {
+    deps.inflight.delete(msg.id)
     deps.setExfilState(undefined)
-    throw err
   }
 
-  // Enumerate outputs
+  // Resolve the effective outputs policy: per-request override wins.
+  const effectivePolicy = applyOutputsOverride(deps.outputsPolicy, msg.outputs_policy)
+  validateOutputsPolicy(effectivePolicy, deps.storage)
+
   const outputs: Record<string, FileRef> = {}
   if (outputDir) {
     const files = await readdir(outputDir).catch(() => [] as string[])
@@ -317,7 +353,7 @@ async function handlePrompt(
         size: s.size,
         requestId: msg.id,
         storage: deps.storage,
-        policy: deps.outputsPolicy,
+        policy: effectivePolicy,
       })
     }
   }
@@ -332,7 +368,7 @@ async function handlePrompt(
       size: s.size,
       requestId: msg.id,
       storage: deps.storage,
-      policy: deps.outputsPolicy,
+      policy: effectivePolicy,
     })
   }
 
@@ -342,9 +378,6 @@ async function handlePrompt(
     message: completionMessage,
     outputs,
   })
-
-  deps.session.inflight.delete(msg.id)
-  deps.setExfilState(undefined)
 }
 
 function pickAdapterForRef(ref: FileRef, registry: Record<string, StorageAdapter>): StorageAdapter {
@@ -384,4 +417,35 @@ async function uploadOutput(args: {
     },
     new Uint8Array(bytes),
   )
+}
+
+/**
+ * Apply a per-request override on top of the configured outputs policy.
+ * Override rules go to the front so they win.
+ */
+function applyOutputsOverride(
+  base: StoragePolicyEncoded,
+  override?: OutputsPolicyOverride,
+): StoragePolicyEncoded {
+  if (!override) return base
+  const extra: StoragePolicyEncoded["rules"] = []
+  if (override.s3) {
+    extra.push({
+      use: { adapter: "s3", options: { bucket: override.s3.bucket, region: override.s3.region, prefix: override.s3.prefix } },
+      when: { always: true },
+    })
+  }
+  if (override.inline_below) {
+    extra.push({ use: { adapter: "inline" }, when: { sizeBelow: override.inline_below } })
+  }
+  if (override.server_ttl) {
+    extra.push({
+      use: { adapter: "localServer", options: { ttl: override.server_ttl } },
+      when: { default: true },
+    })
+  }
+  if (extra.length === 0) return base
+  // Drop the unused parseSize import suppressor — guard against zero-byte sizes:
+  void parseSize
+  return { rules: [...extra, ...base.rules] }
 }

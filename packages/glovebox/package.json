@@ -20,20 +20,25 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./protocol": {
       "types": "./dist/protocol.d.ts",
-      "import": "./dist/protocol.js"
+      "import": "./dist/protocol.js",
+      "default": "./dist/protocol.js"
     },
     "./storage": {
       "types": "./dist/storage.d.ts",
-      "import": "./dist/storage.js"
+      "import": "./dist/storage.js",
+      "default": "./dist/storage.js"
     },
     "./config": {
       "types": "./dist/config.d.ts",
-      "import": "./dist/config.js"
-    }
+      "import": "./dist/config.js",
+      "default": "./dist/config.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"
@@ -43,7 +48,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "glove-core": "workspace:*"
+    "esbuild": "^0.27.3",
+    "glove-core": "workspace:*",
+    "glovebox-kit": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",

@@ -2,7 +2,8 @@ import type { ResolvedGloveboxConfig } from "../config"
 
 /**
  * Generate a nixpacks.toml that yields the same end-state as the Dockerfile.
- * Targets Railway-style platforms that prefer nixpacks over raw Dockerfiles.
+ * The server bundle is already self-contained (esbuild output); only native
+ * modules need install.
  */
 export function generateNixpacks(config: ResolvedGloveboxConfig): string {
   const apt = config.packages.apt ?? []
@@ -20,7 +21,7 @@ export function generateNixpacks(config: ResolvedGloveboxConfig): string {
   lines.push(`nixPkgs = ${JSON.stringify(nixPkgs)}`)
   lines.push("")
   lines.push("[phases.install]")
-  lines.push(`cmds = ["cd server && npm ci --omit=dev"]`)
+  lines.push(`cmds = ["cd server && npm install --omit=dev --no-package-lock"]`)
   lines.push("")
   if (npm.length > 0) {
     lines.push("[phases.build]")
