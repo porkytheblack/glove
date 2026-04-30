@@ -3,7 +3,6 @@ import type {
   ContentPart,
   Context,
   Executor,
-  HandOverFunction,
   Message,
   ModelPromptResult,
   Observer,
@@ -93,43 +92,68 @@ export interface RegisteredSkill {
   exposeToAgent: boolean;
 }
 
+/**
+ * Context passed to a mention (subagent) handler.
+ *
+ * Mentions are invoked exclusively through the auto-registered
+ * `glove_invoke_subagent` tool — the main agent calls it with a name and a
+ * task prompt. Following Claude Code's subagent model, the handler runs in
+ * isolation and returns a single text/content payload that becomes the
+ * tool result. The user's `@subagent-name` text in the original message is
+ * NOT parsed or stripped by glove; it reaches the model verbatim and acts
+ * as a routing signal that nudges the agent to call the tool.
+ */
 export interface MentionContext {
   name: string;
-  message: Message;
+  /** The task prompt the agent supplied when calling `glove_invoke_subagent`. */
+  prompt: string;
   controls: AgentControls;
-  handOver?: HandOverFunction;
   signal?: AbortSignal;
 }
 
 export type MentionHandler = (
   ctx: MentionContext,
-) => Promise<ModelPromptResult | Message>;
+) => Promise<string | ContentPart[]>;
+
+export interface MentionOptions {
+  /** Short description shown to the agent in the invoke-subagent tool listing. Used by the model to decide when to invoke this subagent. */
+  description?: string;
+}
+
+/** Arguments to `Glove.defineMention`. Mirrors the object-form shape of `Glove.fold`. */
+export interface DefineMentionArgs extends MentionOptions {
+  name: string;
+  handler: MentionHandler;
+}
+
+export interface RegisteredMention {
+  handler: MentionHandler;
+  description?: string;
+}
 
 export interface ParsedTokens {
   stripped: string;
   hooks: string[];
   skills: string[];
-  mention: string | null;
 }
 
 export interface ExtensionRegistries {
   hooks: ReadonlySet<string>;
   skills: ReadonlySet<string>;
-  mentions: ReadonlySet<string>;
 }
 
-const TOKEN_RE = /(^|\s)([/@])([A-Za-z][\w-]*)(?=\s|$)/g;
+const TOKEN_RE = /(^|\s)\/([A-Za-z][\w-]*)(?=\s|$)/g;
 
 /**
- * Scan `text` for `/name` and `@name` tokens. A token only "binds" if its
- * name appears in the corresponding registry; otherwise it is left in place
- * (so paths like `/usr/local` and emails like `a@b.com` survive untouched).
+ * Scan `text` for `/name` directive tokens. A token only "binds" if its
+ * name appears in the hook or skill registry; otherwise it is left in
+ * place (so paths like `/usr/local` survive untouched).
  *
- * - `/name` binds to the hook registry first, otherwise to skills.
- * - `@name` binds to the mention registry. Only the first match wins;
- *   subsequent `@registered-name` occurrences are left in place.
- * - Bound tokens are removed from `stripped` (the surrounding whitespace is
- *   collapsed).
+ * `/name` binds to the hook registry first, otherwise to skills.
+ *
+ * `@mention` tokens are intentionally NOT parsed — following Claude Code's
+ * subagent convention, mentions reach the model verbatim and are routed
+ * through the `glove_invoke_subagent` tool.
  */
 export function parseTokens(
   text: string,
@@ -137,7 +161,6 @@ export function parseTokens(
 ): ParsedTokens {
   const hooks: string[] = [];
   const skills: string[] = [];
-  let mention: string | null = null;
 
   // Walk matches and decide per-match whether to consume.
   // We rebuild the stripped string by collecting non-consumed segments.
@@ -147,26 +170,18 @@ export function parseTokens(
 
   for (const match of text.matchAll(TOKEN_RE)) {
     const lead = match[1] ?? "";
-    const prefix = match[2];
-    const name = match[3];
+    const name = match[2];
     const matchStart = match.index!;
     const tokenStart = matchStart + lead.length;
     const tokenEnd = matchStart + match[0].length;
 
     let bound = false;
-    if (prefix === "/") {
-      if (registries.hooks.has(name)) {
-        hooks.push(name);
-        bound = true;
-      } else if (registries.skills.has(name)) {
-        skills.push(name);
-        bound = true;
-      }
-    } else if (prefix === "@") {
-      if (mention === null && registries.mentions.has(name)) {
-        mention = name;
-        bound = true;
-      }
+    if (registries.hooks.has(name)) {
+      hooks.push(name);
+      bound = true;
+    } else if (registries.skills.has(name)) {
+      skills.push(name);
+      bound = true;
     }
 
     if (!bound) continue;
@@ -181,7 +196,7 @@ export function parseTokens(
   // Collapse runs of whitespace introduced by removals, but preserve newlines.
   stripped = stripped.replace(/[ \t]+/g, " ").replace(/ ?\n ?/g, "\n").trim();
 
-  return { stripped, hooks, skills, mention };
+  return { stripped, hooks, skills };
 }
 
 const InvokeSkillInput = z.object({
@@ -276,6 +291,91 @@ function listExposedSkills(skills: ReadonlyMap<string, RegisteredSkill>): string
   return [...skills.entries()]
     .filter(([, s]) => s.exposeToAgent)
     .map(([name]) => name);
+}
+
+const InvokeSubagentInput = z.object({
+  name: z.string().describe("The name of the subagent to invoke. Must match one of the subagents listed in this tool's description."),
+  prompt: z.string().describe("The task prompt to hand to the subagent. Be specific and self-contained — the subagent does not see the parent conversation."),
+});
+
+type InvokeSubagentInput = z.infer<typeof InvokeSubagentInput>;
+
+/**
+ * Build the `glove_invoke_subagent` tool that lets the main agent route a
+ * task to a registered mention. Reads the live registry on each call so
+ * mentions registered after `build()` are immediately invocable.
+ *
+ * Following Claude Code's subagent model, the parent agent writes the
+ * subagent's task prompt itself and the subagent's final output is
+ * returned verbatim as the tool result.
+ */
+export function createMentionInvokeTool(
+  mentions: ReadonlyMap<string, RegisteredMention>,
+  controlsFactory: () => AgentControls,
+): Tool<InvokeSubagentInput> {
+  const tool: Tool<InvokeSubagentInput> = {
+    name: "glove_invoke_subagent",
+    description: renderMentionToolDescription(mentions),
+    input_schema: InvokeSubagentInput,
+    async run(input, _handOver) {
+      const entry = mentions.get(input.name);
+      if (!entry) {
+        const known = [...mentions.keys()].join(", ") || "(none)";
+        return {
+          status: "error",
+          message: `Subagent "${input.name}" is not registered. Use one of: ${known}.`,
+          data: null,
+        };
+      }
+      const result = await entry.handler({
+        name: input.name,
+        prompt: input.prompt,
+        controls: controlsFactory(),
+      });
+      if (typeof result === "string") {
+        return {
+          status: "success",
+          data: {
+            subagent: input.name,
+            content: result || "[subagent produced no text content]",
+          },
+        };
+      }
+      const text = result
+        .filter((p) => p.type === "text" && p.text)
+        .map((p) => p.text!)
+        .join("\n");
+      return {
+        status: "success",
+        data: {
+          subagent: input.name,
+          content: text || "[non-text subagent content]",
+        },
+        renderData: { subagent: input.name, parts: result },
+      };
+    },
+  };
+  return tool;
+}
+
+/** Rebuild the subagent dispatch tool description to reflect the current registry. */
+export function renderMentionToolDescription(
+  mentions: ReadonlyMap<string, RegisteredMention>,
+): string {
+  if (mentions.size === 0) {
+    return (
+      `Invoke a registered subagent with a task prompt. ` +
+      `No subagents are currently registered; calling this tool will return an error.`
+    );
+  }
+  const lines = [...mentions.entries()].map(([name, entry]) =>
+    `- ${name}${entry.description ? ` — ${entry.description}` : ""}`
+  );
+  return (
+    `Invoke a registered subagent with a task prompt. The subagent runs in an isolated context — its only input is the prompt you supply, so make it self-contained. The subagent's final output is returned verbatim as this tool's result.\n\n` +
+    `When the user @-mentions a subagent name (e.g. "@reviewer please look at this"), invoke the corresponding subagent here.\n\n` +
+    `Available subagents:\n${lines.join("\n")}`
+  );
 }
 
 /** Format a skill injection as a synthetic user message body. */
