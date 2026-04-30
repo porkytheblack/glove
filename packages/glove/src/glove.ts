@@ -11,13 +11,16 @@ import { createTaskTool } from "./tools/task-tool";
 import { createInboxTool } from "./tools/inbox-tool";
 import {
   AgentControls,
+  createMentionInvokeTool,
   createSkillInvokeTool,
+  DefineMentionArgs,
   DefineSkillArgs,
   formatSkillMessage,
   HookHandler,
-  MentionHandler,
   parseTokens,
+  RegisteredMention,
   RegisteredSkill,
+  renderMentionToolDescription,
   renderSkillToolDescription,
 } from "./extensions";
 
@@ -57,8 +60,8 @@ export interface IGloveRunnable {
   defineHook: (name: string, handler: HookHandler) => IGloveRunnable
   /** Register a `/name` skill that injects context as a synthetic user message. */
   defineSkill: (args: DefineSkillArgs) => IGloveRunnable
-  /** Register an `@name` mention that routes the request to a custom handler. */
-  defineMention: (name: string, handler: MentionHandler) => IGloveRunnable
+  /** Register a subagent the agent can route to via the `glove_invoke_subagent` tool. The user's `@name` mention in their text reaches the model verbatim and acts as a routing signal. */
+  defineMention: (args: DefineMentionArgs) => IGloveRunnable
   readonly displayManager: DisplayManagerAdapter
   readonly model: ModelAdapter
   readonly serverMode: boolean
@@ -69,7 +72,7 @@ interface IGloveBuilder {
   fold: <I>(args: GloveFoldArgs<I>) => IGloveBuilder,
   defineHook: (name: string, handler: HookHandler) => IGloveBuilder,
   defineSkill: (args: DefineSkillArgs) => IGloveBuilder,
-  defineMention: (name: string, handler: MentionHandler) => IGloveBuilder,
+  defineMention: (args: DefineMentionArgs) => IGloveBuilder,
   addSubscriber: (subscriber: SubscriberAdapter) => IGloveBuilder,
   build: ()=> IGloveRunnable
 }
@@ -111,7 +114,8 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
 
   private hooks = new Map<string, HookHandler>()
   private skills = new Map<string, RegisteredSkill>()
-  private mentions = new Map<string, MentionHandler>()
+  private mentions = new Map<string, RegisteredMention>()
+  private mentionInvokeTool: Tool<unknown> | null = null
   private skillInvokeTool: Tool<unknown> | null = null
 
   private built = false
@@ -205,8 +209,26 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     return this
   }
 
-  defineMention(name: string, handler: MentionHandler) {
-    this.mentions.set(name, handler)
+  defineMention(args: DefineMentionArgs) {
+    const entry: RegisteredMention = {
+      handler: args.handler,
+      description: args.description,
+    }
+    this.mentions.set(args.name, entry)
+
+    // Auto-register the dispatch tool the first time a mention is defined,
+    // and refresh its description on subsequent registrations so the model
+    // sees the live subagent list.
+    if (!this.mentionInvokeTool) {
+      this.mentionInvokeTool = createMentionInvokeTool(
+        this.mentions,
+        () => this.buildAgentControls(),
+      ) as Tool<unknown>
+      this.executor.registerTool(this.mentionInvokeTool)
+    } else {
+      this.mentionInvokeTool.description = renderMentionToolDescription(this.mentions)
+    }
+
     return this
   }
 
@@ -290,16 +312,18 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       mediaParts = request.filter((p) => p.type !== "text");
     }
 
-    const hasExtensions =
-      this.hooks.size > 0 || this.skills.size > 0 || this.mentions.size > 0;
+    // `/hook` and `/skill` directives are parsed and dispatched here.
+    // `@mention` tokens are intentionally NOT parsed — they reach the model
+    // verbatim and route through the auto-registered `glove_invoke_subagent`
+    // tool, mirroring Claude Code's subagent convention.
+    const hasDirectives = this.hooks.size > 0 || this.skills.size > 0;
 
-    const parsed = hasExtensions
+    const parsed = hasDirectives
       ? parseTokens(rawText, {
           hooks: new Set(this.hooks.keys()),
           skills: new Set(this.skills.keys()),
-          mentions: new Set(this.mentions.keys()),
         })
-      : { stripped: rawText, hooks: [], skills: [], mention: null as string | null };
+      : { stripped: rawText, hooks: [], skills: [] };
 
     let workingText = parsed.stripped;
     const controls = this.buildAgentControls();
@@ -348,25 +372,10 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       await this.context.appendMessages([skillMessage]);
     }
 
-    // 3. Build the real user message from stripped text + any original media.
+    // 3. Build the real user message from stripped text + any original media,
+    //    then hand off to the agent loop. Any `@subagent` mentions in the text
+    //    are visible to the model and routed through `glove_invoke_subagent`.
     const userMessage = this.buildUserMessage(workingText, mediaParts, request);
-
-    // 4. Mentions short-circuit the local agent loop.
-    if (parsed.mention) {
-      const handler = this.mentions.get(parsed.mention);
-      if (handler) {
-        // Persist the user message so transcripts include it before handing off.
-        await this.context.appendMessages([userMessage]);
-        return handler({
-          name: parsed.mention,
-          message: userMessage,
-          controls,
-          handOver,
-          signal,
-        });
-      }
-    }
-
     return this.agent.ask(userMessage, handOver, signal)
   }
 

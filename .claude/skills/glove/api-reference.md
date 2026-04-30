@@ -266,7 +266,7 @@ Three builder methods on `Glove` (and on the `IGloveBuilder` / `IGloveRunnable` 
 ```typescript
 glove.defineHook(name: string, handler: HookHandler): this;
 glove.defineSkill(args: DefineSkillArgs): this;
-glove.defineMention(name: string, handler: MentionHandler): this;
+glove.defineMention(args: DefineMentionArgs): this;
 ```
 
 All three are chainable and legal post-`build()`, like `fold`. `defineSkill` takes an object form mirroring `fold(GloveFoldArgs)`:
@@ -317,14 +317,27 @@ interface RegisteredSkill {
   exposeToAgent: boolean;
 }
 
-type MentionHandler = (ctx: MentionContext) => Promise<ModelPromptResult | Message>;
+type MentionHandler = (ctx: MentionContext) => Promise<string | ContentPart[]>;
 
 interface MentionContext {
   name: string;
-  message: Message;
+  prompt: string;            // task prompt the agent supplied via glove_invoke_subagent
   controls: AgentControls;
-  handOver?: HandOverFunction;
   signal?: AbortSignal;
+}
+
+interface MentionOptions {
+  description?: string;       // shown to the agent in the invoke-subagent tool listing
+}
+
+interface DefineMentionArgs extends MentionOptions {
+  name: string;
+  handler: MentionHandler;
+}
+
+interface RegisteredMention {
+  handler: MentionHandler;
+  description?: string;
 }
 
 interface AgentControls {
@@ -346,20 +359,18 @@ interface ParsedTokens {
   stripped: string;
   hooks: string[];
   skills: string[];
-  mention: string | null;
 }
 
 interface ExtensionRegistries {
   hooks: ReadonlySet<string>;
   skills: ReadonlySet<string>;
-  mentions: ReadonlySet<string>;
 }
 
 function parseTokens(text: string, registries: ExtensionRegistries): ParsedTokens;
 function formatSkillMessage(name: string, injection: string | ContentPart[]): Message;
 ```
 
-The regex is `(^|\s)([/@])([A-Za-z][\w-]*)(?=\s|$)`. A token only binds when its name appears in the relevant registry; unbound tokens are left in `stripped`. `formatSkillMessage` produces the synthetic user message used by `processRequest` and sets `is_skill_injection: true`.
+The regex is `(^|\s)\/([A-Za-z][\w-]*)(?=\s|$)`. Only `/name` directives are parsed. A token only binds when its name appears in the hook or skill registry; unbound tokens are left in `stripped`. `@mention` tokens are intentionally NOT parsed — they reach the model verbatim and route through the `glove_invoke_subagent` tool. `formatSkillMessage` produces the synthetic user message used by `processRequest` and sets `is_skill_injection: true`.
 
 #### Built-in agent tool
 
@@ -388,6 +399,30 @@ import { createSkillInvokeTool, renderSkillToolDescription } from "glove-core";
 ```
 
 The tool description (built by `renderSkillToolDescription`) lists every exposed skill with its `description`. Glove rebuilds the description in place each time a new exposed skill is defined, so post-`build()` registrations are immediately visible to the model.
+
+When any mention is registered, `glove_invoke_subagent` is auto-registered on the executor (mirrors Claude Code's subagent dispatch):
+
+```typescript
+import { createMentionInvokeTool, renderMentionToolDescription } from "glove-core";
+
+// Tool input
+{ name: string, prompt: string }
+
+// Tool result on success (string handler return)
+{ status: "success", data: { subagent: string, content: string } }
+
+// Tool result on success (ContentPart[] handler return)
+{
+  status: "success",
+  data: { subagent: string, content: string },        // text join, or "[non-text subagent content]"
+  renderData: { subagent: string, parts: ContentPart[] }
+}
+
+// Tool result on unknown name
+{ status: "error", message: 'Subagent "..." is not registered. Use one of: ...', data: null }
+```
+
+The subagent runs in isolation — its only input is the `prompt` the agent supplies. The handler's return becomes the tool result and reaches the parent agent verbatim.
 
 #### Observer additions
 

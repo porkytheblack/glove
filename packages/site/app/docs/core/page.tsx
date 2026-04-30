@@ -203,9 +203,9 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "Register a /name skill that injects context as a synthetic user message. Object form: { name, handler, description?, exposeToAgent? }. exposeToAgent: true exposes the skill via the glove_invoke_skill tool.",
           ],
           [
-            "defineMention(name, handler)",
+            "defineMention(args)",
             "IGloveBuilder",
-            "Register an @name mention that routes the turn to a custom handler instead of the local agent loop.",
+            "Register a subagent the main agent can route to via the auto-registered glove_invoke_subagent tool. Object form: { name, handler, description? }. Mirrors Claude Code's subagent convention — the user's @name text reaches the model verbatim and acts as a routing signal.",
           ],
           [
             "addSubscriber(subscriber: SubscriberAdapter)",
