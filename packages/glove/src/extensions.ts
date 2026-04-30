@@ -1,3 +1,4 @@
+import z from "zod";
 import type {
   ContentPart,
   Context,
@@ -7,6 +8,7 @@ import type {
   ModelPromptResult,
   Observer,
   PromptMachine,
+  Tool,
 } from "./core";
 import type { IGloveRunnable } from "./glove";
 
@@ -42,11 +44,29 @@ export type HookHandler = (ctx: HookContext) => Promise<HookResult | void>;
 
 export interface SkillContext {
   name: string;
+  /** User-supplied text that came in alongside the skill invocation. Empty when invoked by the agent without args. */
   parsedText: string;
+  /** Free-form arguments supplied by the agent when it invokes the skill via the tool. Undefined when user-invoked. */
+  args?: string;
+  /** Where the invocation originated. */
+  source: "user" | "agent";
   controls: AgentControls;
 }
 
 export type SkillHandler = (ctx: SkillContext) => Promise<string | ContentPart[]>;
+
+export interface SkillOptions {
+  /** Short description shown to the agent in the invoke-skill tool listing. */
+  description?: string;
+  /** When true, the agent can pull this skill in via the `glove_invoke_skill` tool. */
+  exposeToAgent?: boolean;
+}
+
+export interface RegisteredSkill {
+  handler: SkillHandler;
+  description?: string;
+  exposeToAgent: boolean;
+}
 
 export interface MentionContext {
   name: string;
@@ -137,6 +157,86 @@ export function parseTokens(
   stripped = stripped.replace(/[ \t]+/g, " ").replace(/ ?\n ?/g, "\n").trim();
 
   return { stripped, hooks, skills, mention };
+}
+
+const InvokeSkillInput = z.object({
+  name: z.string().describe("The name of the skill to invoke. Must match one of the skills listed in this tool's description."),
+  args: z.string().optional().describe("Optional free-form arguments to pass to the skill handler."),
+});
+
+type InvokeSkillInput = z.infer<typeof InvokeSkillInput>;
+
+/**
+ * Build the `glove_invoke_skill` tool that lets the agent pull in any
+ * skill registered with `exposeToAgent: true`. Reads the live registry
+ * each call so skills registered after `build()` are immediately usable.
+ */
+export function createSkillInvokeTool(
+  skills: ReadonlyMap<string, RegisteredSkill>,
+  controlsFactory: () => AgentControls,
+): Tool<InvokeSkillInput> {
+  const tool: Tool<InvokeSkillInput> = {
+    name: "glove_invoke_skill",
+    description: renderSkillToolDescription(skills),
+    input_schema: InvokeSkillInput,
+    async run(input) {
+      const entry = skills.get(input.name);
+      if (!entry || !entry.exposeToAgent) {
+        return {
+          status: "error",
+          message: `Skill "${input.name}" is not available. Use one of: ${listExposedSkills(skills).join(", ") || "(none)"}.`,
+          data: null,
+        };
+      }
+      const injection = await entry.handler({
+        name: input.name,
+        parsedText: input.args ?? "",
+        args: input.args,
+        source: "agent",
+        controls: controlsFactory(),
+      });
+      const text =
+        typeof injection === "string"
+          ? injection
+          : injection
+              .filter((p) => p.type === "text" && p.text)
+              .map((p) => p.text!)
+              .join("\n");
+      return {
+        status: "success",
+        data: { skill: input.name, content: text || "[skill produced no text content]" },
+      };
+    },
+  };
+  return tool;
+}
+
+/** Rebuild the tool description to reflect the current set of exposed skills. */
+export function renderSkillToolDescription(
+  skills: ReadonlyMap<string, RegisteredSkill>,
+): string {
+  const exposed = listExposedSkills(skills);
+  if (exposed.length === 0) {
+    return (
+      `Invoke a registered skill to pull its contextual instructions or content into this turn. ` +
+      `No skills are currently exposed; calling this tool will return an error.`
+    );
+  }
+  const lines = exposed.map((name) => {
+    const entry = skills.get(name)!;
+    return `- ${name}${entry.description ? ` — ${entry.description}` : ""}`;
+  });
+  return (
+    `Invoke a registered skill to pull its contextual instructions or content into this turn. ` +
+    `The skill's content is returned as the tool result and remains available for the rest of the conversation. ` +
+    `Available skills:\n${lines.join("\n")}`
+  );
+}
+
+function listExposedSkills(skills: ReadonlyMap<string, RegisteredSkill>): string[] {
+  return [...skills.entries()]
+    .filter(([, s]) => s.exposeToAgent)
+    .map(([name]) => name);
 }
 
 /** Format a skill injection as a synthetic user message body. */

@@ -11,11 +11,15 @@ import { createTaskTool } from "./tools/task-tool";
 import { createInboxTool } from "./tools/inbox-tool";
 import {
   AgentControls,
+  createSkillInvokeTool,
   formatSkillMessage,
   HookHandler,
   MentionHandler,
   parseTokens,
+  RegisteredSkill,
+  renderSkillToolDescription,
   SkillHandler,
+  SkillOptions,
 } from "./extensions";
 
 
@@ -53,7 +57,7 @@ export interface IGloveRunnable {
   /** Register a `/name` hook that can mutate agent state or short-circuit a turn. */
   defineHook: (name: string, handler: HookHandler) => IGloveRunnable
   /** Register a `/name` skill that injects context as a synthetic user message. */
-  defineSkill: (name: string, handler: SkillHandler) => IGloveRunnable
+  defineSkill: (name: string, handler: SkillHandler, opts?: SkillOptions) => IGloveRunnable
   /** Register an `@name` mention that routes the request to a custom handler. */
   defineMention: (name: string, handler: MentionHandler) => IGloveRunnable
   readonly displayManager: DisplayManagerAdapter
@@ -65,7 +69,7 @@ export interface IGloveRunnable {
 interface IGloveBuilder {
   fold: <I>(args: GloveFoldArgs<I>) => IGloveBuilder,
   defineHook: (name: string, handler: HookHandler) => IGloveBuilder,
-  defineSkill: (name: string, handler: SkillHandler) => IGloveBuilder,
+  defineSkill: (name: string, handler: SkillHandler, opts?: SkillOptions) => IGloveBuilder,
   defineMention: (name: string, handler: MentionHandler) => IGloveBuilder,
   addSubscriber: (subscriber: SubscriberAdapter) => IGloveBuilder,
   build: ()=> IGloveRunnable
@@ -107,8 +111,9 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   private agent: Agent
 
   private hooks = new Map<string, HookHandler>()
-  private skills = new Map<string, SkillHandler>()
+  private skills = new Map<string, RegisteredSkill>()
   private mentions = new Map<string, MentionHandler>()
+  private skillInvokeTool: Tool<unknown> | null = null
 
   private built = false
 
@@ -175,8 +180,29 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     return this
   }
 
-  defineSkill(name: string, handler: SkillHandler) {
-    this.skills.set(name, handler)
+  defineSkill(name: string, handler: SkillHandler, opts?: SkillOptions) {
+    const entry: RegisteredSkill = {
+      handler,
+      description: opts?.description,
+      exposeToAgent: opts?.exposeToAgent ?? false,
+    }
+    this.skills.set(name, entry)
+
+    // If any exposed skill exists, ensure the dispatcher tool is registered
+    // and its description reflects the current set of exposed skills.
+    const hasExposed = [...this.skills.values()].some((s) => s.exposeToAgent)
+    if (hasExposed) {
+      if (!this.skillInvokeTool) {
+        this.skillInvokeTool = createSkillInvokeTool(
+          this.skills,
+          () => this.buildAgentControls(),
+        ) as Tool<unknown>
+        this.executor.registerTool(this.skillInvokeTool)
+      } else {
+        this.skillInvokeTool.description = renderSkillToolDescription(this.skills)
+      }
+    }
+
     return this
   }
 
@@ -311,11 +337,12 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     // 2. Materialise skills as synthetic user messages persisted before the
     //    real user message. They show up like any other turn in history.
     for (const name of parsed.skills) {
-      const handler = this.skills.get(name);
-      if (!handler) continue;
-      const injection = await handler({
+      const entry = this.skills.get(name);
+      if (!entry) continue;
+      const injection = await entry.handler({
         name,
         parsedText: workingText,
+        source: "user",
         controls,
       });
       const skillMessage = formatSkillMessage(name, injection);
