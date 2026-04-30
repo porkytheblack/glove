@@ -1,0 +1,43 @@
+{
+  "name": "glovebox-kit",
+  "version": "0.1.0",
+  "description": "Sandboxed runtime that hosts a Glovebox app inside a container",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glovebox-kit"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "glove-core": "workspace:*",
+    "glovebox": "workspace:*",
+    "ws": "^8.18.0",
+    "better-sqlite3": "^11.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/ws": "^8.5.13",
+    "@types/better-sqlite3": "^7.6.13",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  }
+}
