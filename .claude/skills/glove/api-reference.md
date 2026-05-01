@@ -1374,3 +1374,339 @@ interface GloveConfig {
 ```
 
 Drives default permission-gating on bridged MCP tools (always-off in serverMode) and default discovery ambiguity policy (`auto-pick-best` in serverMode, `interactive` otherwise). Treat as the canonical headless flag for any future server-vs-UI behavioral splits.
+
+---
+
+## glovebox
+
+Authoring entry point and `glovebox build` CLI. Wraps a built Glove agent into a deployable Glovebox artifact.
+
+### glovebox.wrap
+
+```ts
+import { glovebox } from "glovebox";
+
+function wrap<R>(runnable: R, config?: GloveboxConfig): GloveboxApp;
+
+interface GloveboxApp {
+  readonly __glovebox: 1;
+  readonly runnable: unknown;          // your built IGloveRunnable
+  readonly config: ResolvedGloveboxConfig;
+}
+```
+
+Opaque marker; the build CLI and the kit both type-check via `__glovebox === 1`.
+
+### GloveboxConfig
+
+```ts
+interface GloveboxConfig {
+  name?: string;                       // default "glovebox-app"
+  version?: string;                    // default "0.1.0"
+  base?: BaseImage;                    // default "glovebox/base"
+  packages?: PackageSpec;              // { apt?, pip?, npm? }
+  fs?: Record<string, FsMount>;        // default DEFAULT_FS — work/input/output
+  env?: Record<string, EnvVarSpec>;    // declared, validated at boot
+  storage?: { inputs?: StoragePolicy; outputs?: StoragePolicy };
+  limits?: Limits;                     // { cpu?, memory?, timeout? }
+}
+
+type BaseImage =
+  | "glovebox/base"
+  | "glovebox/media"
+  | "glovebox/docs"
+  | "glovebox/python"
+  | "glovebox/browser"
+  | (string & {});                     // custom registry/image:tag
+
+interface FsMount     { path: string; writable: boolean }
+interface EnvVarSpec  { required: boolean; secret?: boolean; default?: string; description?: string }
+interface PackageSpec { apt?: string[]; pip?: string[]; npm?: string[] }
+interface Limits      { cpu?: string; memory?: string; timeout?: string }
+```
+
+`DEFAULT_FS`, `DEFAULT_INPUTS_POLICY`, `DEFAULT_OUTPUTS_POLICY` are exported from `glovebox` for inspection.
+
+### Storage DSL
+
+```ts
+import { rule, composite } from "glovebox";
+
+const rule = {
+  inline: (opts?: { below?: string; above?: string }) => Rule,
+  localServer: (opts?: { ttl?: string; below?: string; above?: string }) => Rule,
+  s3: (opts: { bucket: string; region?: string; prefix?: string; below?: string; above?: string }) => Rule,
+  url: (opts?: { below?: string; above?: string }) => Rule,
+};
+
+function composite(rules: Rule[]): StoragePolicyEncoded;
+```
+
+Sizes accept `"B" | "KB" | "MB" | "GB"` suffixes (parsed by `parseSize` in `glovebox-kit`). Earlier rules win; the policy must end in a terminal rule (`always` or `default`) for outputs.
+
+### StoragePolicyEncoded (wire shape)
+
+```ts
+type StoragePolicyEncoded = {
+  rules: Array<{
+    use: { adapter: string; options?: Record<string, unknown> };
+    when: {
+      sizeAbove?: string;
+      sizeBelow?: string;
+      always?: boolean;
+      default?: boolean;
+    };
+  }>;
+};
+
+type StoragePolicy = StoragePolicyEncoded | { __rules: StoragePolicyEncoded["rules"] };
+```
+
+### FileRef
+
+```ts
+type FileRef =
+  | { kind: "inline"; name: string; mime: string; data: string }    // base64
+  | { kind: "url";    name: string; mime?: string; url: string; headers?: Record<string, string> }
+  | { kind: "server"; name: string; mime: string; size: number; id: string; url: string }
+  | { kind: "s3";     name: string; mime?: string; bucket: string; key: string; region?: string }
+  | { kind: "gcs";    name: string; mime?: string; bucket: string; object: string };
+```
+
+### Wire messages
+
+```ts
+type ClientMessage =
+  | { type: "prompt"; id: string; text: string; inputs?: Record<string, FileRef>; outputs_policy?: OutputsPolicyOverride }
+  | { type: "abort"; id: string }
+  | { type: "display_resolve"; slot_id: string; value: unknown }
+  | { type: "display_reject"; slot_id: string; error: unknown }
+  | { type: "ping"; ts: number };
+
+type ServerMessage =
+  | { type: "event"; id: string; event_type: SubscriberEventType; data: unknown }
+  | { type: "display_push"; slot: WireSlot }
+  | { type: "display_clear"; slot_id: string }
+  | { type: "complete"; id: string; message: string; outputs: Record<string, FileRef> }
+  | { type: "error"; id: string; error: { code: string; message: string } }
+  | { type: "pong"; ts: number };
+
+type OutputsPolicyOverride = {
+  inline_below?: string;
+  s3?: { bucket: string; region?: string; prefix?: string };
+  server_ttl?: string;
+};
+```
+
+`SubscriberEventType` mirrors `glove-core`'s 1:1: `text_delta | tool_use | model_response | model_response_complete | tool_use_result | compaction_start | compaction_end`.
+
+### Manifest
+
+```ts
+interface Manifest {
+  name: string;
+  version: string;
+  base: string;
+  fs: Record<string, { path: string; writable: boolean }>;
+  env: Record<string, { required: boolean; secret?: boolean; default?: string; description?: string }>;
+  limits?: { cpu?: string; memory?: string; timeout?: string };
+  key_fingerprint: string;             // SHA-256 prefix shaped "<8>...<4>"
+  storage_policy: { inputs: StoragePolicyEncoded; outputs: StoragePolicyEncoded };
+  packages: { apt?: string[]; pip?: string[]; npm?: string[] };
+  protocol_version: 1;
+}
+```
+
+### CLI
+
+```
+glovebox build <entry> [--out <dir>] [--name <name>]
+```
+
+`<entry>` must default-export a `GloveboxApp` (i.e., the result of `glovebox.wrap(...)`). The CLI emits `dist/Dockerfile`, `dist/nixpacks.toml`, `dist/server/{index.js,package.json,glovebox.json}`, `dist/glovebox.json`, `dist/glovebox.key`, `dist/.env.example`. Re-runs reuse the existing key file.
+
+`resolveBaseImage(base)`:
+- Pass-through for explicit refs (`quay.io/me/img:tag`, `glovebox/media:custom`).
+- Otherwise `${GLOVEBOX_REGISTRY ?? "ghcr.io/porkytheblack"}/${base}:${KNOWN_BASE_TAGS[base] ?? "latest"}`.
+
+---
+
+## glovebox-kit
+
+In-container runtime. Bundled by `glovebox build` — you don't install it yourself.
+
+### startGlovebox
+
+```ts
+import { startGlovebox } from "glovebox-kit";
+
+function startGlovebox(opts: StartOptions): Promise<RunningGlovebox>;
+
+interface StartOptions {
+  app: GloveboxApp;                                 // your wrap module's default export
+  port: number;                                     // GLOVEBOX_PORT (default 8080)
+  key: string;                                      // GLOVEBOX_KEY (required)
+  manifestPath: string;                             // resolved from import.meta.url in the bundled entry
+  publicBaseUrl?: string;                           // GLOVEBOX_PUBLIC_URL — needed for `server`-kind FileRefs
+  adapters?: Record<string, StorageAdapter>;        // merged into the default registry by name
+}
+
+interface RunningGlovebox {
+  http: import("node:http").Server;
+  wss: import("ws").WebSocketServer;
+  close(): Promise<void>;
+}
+```
+
+Validates `GLOVEBOX_KEY` against `manifest.key_fingerprint`, validates declared required env vars, runs `applyInjections`, prepends `buildEnvironmentBlock(config)` to the agent's existing system prompt, and starts the HTTP+WS server.
+
+### Storage adapters
+
+```ts
+import {
+  InlineStorage,
+  UrlStorage,
+  LocalServerStorage,
+  S3Storage,
+  type StorageAdapter,
+  type FileMeta,
+  pickAdapter,
+} from "glovebox-kit";
+
+interface StorageAdapter {
+  readonly name: string;
+  put(meta: FileMeta, bytes: Uint8Array): Promise<FileRef>;
+  get(ref: FileRef): Promise<Uint8Array>;
+  release?(requestId: string): Promise<void>;
+}
+
+interface FileMeta { name: string; mime: string; size: number; requestId: string }
+
+interface S3AdapterOptions {
+  bucket: string;
+  region?: string;
+  prefix?: string;
+  uploadObject:   (params: { bucket: string; key: string; body: Uint8Array; contentType: string }) => Promise<void>;
+  downloadObject: (params: { bucket: string; key: string }) => Promise<Uint8Array>;
+}
+```
+
+`S3Storage` is "deferred" — no `@aws-sdk/client-s3` baked into the runtime image. Pass your own thunks.
+
+`LocalServerStorage` keeps a SQLite manifest (`/var/glovebox/files.db`) and stores files under `/var/glovebox/files/<uuid>`. Files are served by the `/files/:id` HTTP route (Bearer-auth'd, supports `?consume=1`). A sweeper deletes expired rows every 5 minutes.
+
+### Injection helpers
+
+```ts
+import { applyInjections, buildEnvironmentBlock, type RequestExfilState } from "glovebox-kit";
+
+interface RequestExfilState { extraOutputs: Set<string> }
+
+function applyInjections(
+  runnable: IGloveRunnable,
+  config: ResolvedGloveboxConfig,
+  resolveExfilState: () => RequestExfilState | undefined,
+): IGloveRunnable;
+
+function buildEnvironmentBlock(config: ResolvedGloveboxConfig): string;
+```
+
+Adds the `environment` and `workspace` skills, the `/output` and `/clear-workspace` hooks, and returns a static "[Glovebox environment]" block that the kit prepends to the existing system prompt.
+
+### Subscriber + display bridge
+
+```ts
+import { WsSubscriber, attachDisplayBridge } from "glovebox-kit";
+```
+
+`WsSubscriber` translates Glove subscriber events to `event`-typed wire messages tagged with the current request id. `attachDisplayBridge(displayManager, subscriber)` wires `display_push` / `display_clear` to the WS and returns a detach function; `display_resolve` / `display_reject` from the client map back to `displayManager.resolve` / `.reject`.
+
+---
+
+## glovebox-client
+
+Browser- and Node-compatible client SDK. Picks `globalThis.WebSocket` in browsers and falls back to `ws` in Node.
+
+### GloveboxClient
+
+```ts
+import { GloveboxClient } from "glovebox-client";
+
+class GloveboxClient {
+  static make(opts: GloveboxClientOptions): GloveboxClient;
+  box(name: string): Box;
+  close(): Promise<void>;
+}
+
+interface GloveboxClientOptions {
+  endpoints: Record<string, BoxEndpoint>;
+  storage?: ClientStorage;             // default DefaultClientStorage
+}
+
+interface BoxEndpoint { url: string; key: string }
+```
+
+### Box
+
+```ts
+class Box {
+  constructor(opts: BoxOptions);
+  prompt(text: string, opts?: PromptOptions): PromptResult;
+  environment(): Promise<BoxEnvironment>;        // cached after first call
+  onSendError(listener: (err: unknown) => void): () => void;
+  close(): Promise<void>;
+  readonly bearer: string;
+}
+
+interface BoxOptions {
+  endpoint: BoxEndpoint;
+  storage?: ClientStorage;
+  reconnectAttempts?: number;          // default 3, exponential 500/1000/2000ms
+}
+
+interface PromptOptions {
+  files?: Record<string, { mime?: string; bytes: Uint8Array }>;     // wrapped via ClientStorage.put
+  inputs?: Record<string, FileRef>;                                  // pre-built refs (merged in)
+}
+
+interface PromptResult {
+  events: AsyncIterable<SubscriberEvent>;
+  display: AsyncIterable<DisplayEvent>;
+  message: Promise<string>;
+  outputs: Promise<Record<string, FileRef>>;
+  read(name: string): Promise<Uint8Array>;
+  resolve(slot_id: string, value: unknown): void;
+  reject(slot_id: string, error: unknown): void;
+  abort(): void;
+}
+
+interface SubscriberEvent { request_id: string; event_type: SubscriberEventType; data: unknown }
+interface DisplayEvent    { type: "push" | "clear"; slot?: WireSlot; slot_id?: string }
+
+interface BoxEnvironment {
+  name: string;
+  version: string;
+  base: string;
+  fs: Record<string, { path: string; writable: boolean }>;
+  packages: { apt?: string[]; pip?: string[]; npm?: string[] };
+  limits?: { cpu?: string; memory?: string; timeout?: string };
+  protocol_version: 1;
+}
+```
+
+### ClientStorage
+
+```ts
+import { DefaultClientStorage, type ClientStorage } from "glovebox-client";
+
+interface ClientStorage {
+  put(name: string, mime: string, bytes: Uint8Array): Promise<FileRef>;
+  get(ref: FileRef, opts?: { bearer?: string }): Promise<Uint8Array>;
+}
+
+interface DefaultClientStorageOptions { inlineMaxBytes?: number }
+```
+
+`DefaultClientStorage`:
+- `put(...)` → `{ kind: "inline", data: base64(bytes) }`. Throws if `bytes.length > inlineMaxBytes`.
+- `get(ref)` handles `inline` (decode), `url` (fetch + optional `headers`), and `server` (fetch with `Authorization: Bearer <opts.bearer>`). Other kinds throw — replace with a custom `ClientStorage` to support `s3` / `gcs` on the client side.

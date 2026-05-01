@@ -11,6 +11,7 @@ Real patterns drawn from the example implementations in `examples/`.
 | `examples/nextjs-agent` | Web app | Next.js + glove-react | `defineTool`, `<Render>`, `renderResult`, `displayStrategy`, trip planning |
 | `examples/coffee` | Web app | Next.js + glove-react + glove-voice | `defineTool`, `<Render>`, `renderResult`, `displayStrategy`, e-commerce flow, cart state, voice interaction, inbox (restock watches) |
 | `examples/lola` | Web app | Next.js + glove-react + glove-voice | Voice-first movie companion, 9 TMDB tools, SileroVAD, `pushAndForget` only, cinematic UI |
+| `examples/glovebox-pdf-extractor` | Sandboxed service | glovebox + glovebox/docs base | `glovebox.wrap`, `glovebox build`, S3 outputs via `adapters` export, `GloveboxClient` |
 | *(pattern below)* | Full-stack | React SPA + Node/Express | `createRemoteModel`, auth headers, SSE streaming, separate frontend/backend |
 
 ---
@@ -1524,5 +1525,141 @@ async function refreshAndStore(id: string) {
   // getAccessToken call picks them up.
 }
 ```
+
+---
+
+## Pattern: Glovebox PDF Extractor (`examples/glovebox-pdf-extractor`)
+
+A worked example of wrapping a Glove agent for sandboxed deployment. Lives at `examples/glovebox-pdf-extractor` and runs on the `glovebox/docs:1.2` base (pandoc / qpdf / pdftk-java / ghostscript / libreoffice headless prebuilt). The agent reads PDFs from `/input`, extracts tables / text, and writes results to `/output` — clients hit one WebSocket endpoint and stream events back.
+
+### Wrap module (`glovebox.ts`)
+
+```typescript
+import { glovebox, rule, composite } from "glovebox"
+import { agent } from "./src/agent"     // built IGloveRunnable
+
+export default glovebox.wrap(agent, {
+  name: "pdf-extractor",
+  base: "glovebox/docs",
+  packages: {
+    apt: ["poppler-utils"],             // adds pdftotext / pdfimages on top of the docs base
+  },
+  storage: {
+    inputs: composite([rule.url(), rule.inline()]),
+    outputs: composite([
+      rule.inline({ below: "1MB" }),
+      rule.localServer({ ttl: "1h" }),
+    ]),
+  },
+  env: {
+    ANTHROPIC_API_KEY: { required: true, secret: true },
+  },
+  limits: { memory: "2GB", timeout: "10m" },
+})
+```
+
+The agent itself is a normal Glove build — `defineTool` for `extract_tables`, `extract_text`, `summarize_pdf`, etc. — using `glove-core` with `serverMode: true`. Tools shell out to the system binaries declared in `packages.apt` and the docs base (`pdftotext`, `pdftk`, `pandoc`). Outputs are written to `/output`; the kit picks them up after `processRequest` resolves.
+
+### Build + deploy
+
+```bash
+pnpm install
+pnpm dlx glovebox build ./glovebox.ts --out ./dist
+
+# Local Docker
+docker build -t pdf-extractor ./dist
+docker run --rm -p 8080:8080 \
+  -e GLOVEBOX_KEY=$(cat ./dist/glovebox.key) \
+  -e GLOVEBOX_PUBLIC_URL=http://localhost:8080 \
+  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+  pdf-extractor
+
+# Or push ./dist to Railway / Render and let nixpacks.toml drive the build.
+```
+
+### Calling it from a Node service
+
+```typescript
+import { readFile } from "node:fs/promises"
+import { GloveboxClient } from "glovebox-client"
+
+const client = GloveboxClient.make({
+  endpoints: {
+    pdf: { url: "wss://pdf.example.com/", key: process.env.GLOVEBOX_PDF_KEY! },
+  },
+})
+
+const pdfBytes = await readFile("./invoice.pdf")
+const box = client.box("pdf")
+
+// One-time sanity check: confirm the deployment is the docs base with poppler.
+const env = await box.environment()
+if (!env.packages.apt?.includes("poppler-utils")) {
+  throw new Error("This endpoint isn't the PDF extractor — wrong key/url?")
+}
+
+const result = box.prompt("Extract the line-items table from invoice.pdf as CSV.", {
+  files: { "invoice.pdf": { mime: "application/pdf", bytes: pdfBytes } },
+})
+
+// Stream tool calls + text deltas as they happen.
+for await (const event of result.events) {
+  if (event.event_type === "tool_use") {
+    const d = event.data as { tool_name: string }
+    console.log(`→ ${d.tool_name}`)
+  }
+}
+
+const summary = await result.message
+const outputs = await result.outputs
+const csv = await result.read("line-items.csv")    // routes via ClientStorage based on FileRef.kind
+
+console.log(summary)
+console.log(`Got ${Object.keys(outputs).length} output file(s)`)
+```
+
+### S3 outputs for large extracts
+
+If a single extract can exceed the 1MB inline cap and you don't want clients hitting the box's `localServer` for hours, swap the outputs policy to S3 and register the adapter via the `adapters` export:
+
+```typescript
+import { S3Storage } from "glovebox-kit"
+import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3"
+
+const s3 = new S3Client({ region: process.env.AWS_REGION })
+
+export const adapters = () => ({
+  s3: new S3Storage({
+    bucket: process.env.OUTPUTS_BUCKET!,
+    region: process.env.AWS_REGION,
+    uploadObject: async ({ bucket, key, body, contentType }) => {
+      await s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentType: contentType }))
+    },
+    downloadObject: async ({ bucket, key }) => {
+      const out = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }))
+      return new Uint8Array(await out.Body!.transformToByteArray())
+    },
+  }),
+})
+
+export default glovebox.wrap(agent, {
+  base: "glovebox/docs",
+  storage: {
+    outputs: composite([
+      rule.inline({ below: "256KB" }),
+      rule.s3({ bucket: process.env.OUTPUTS_BUCKET!, prefix: "extracts/" }),
+    ]),
+  },
+  env: {
+    ANTHROPIC_API_KEY: { required: true, secret: true },
+    OUTPUTS_BUCKET:    { required: true },
+    AWS_REGION:        { required: true, default: "us-east-1" },
+  },
+})
+```
+
+The build CLI's synthetic entry awaits `adapters()` and forwards the result into `startGlovebox({ adapters })`, where it gets merged into the registry by name. `validateOutputsPolicy` checks every effective policy at boot — if `OUTPUTS_BUCKET` is unset the container fails fast instead of failing the first extract.
+
+The exact tool definitions for this example live in the repo at `examples/glovebox-pdf-extractor/src/` — see that directory for the agent code, system prompt, and shell helpers that drive `pdftotext` / `pdftk`.
 
 For long-running agents, a separate background task that proactively refreshes tokens before `expires_in` hits zero is usually cleaner — the agent never sees `auth_expired` in the happy path.

@@ -1,6 +1,6 @@
 ---
 name: glove
-description: Expert guide for building AI-powered applications with the Glove framework. Use when working with glove-core, glove-react, glove-next, tools, display stack, model adapters, stores, or any Glove example project.
+description: Expert guide for building AI-powered applications with the Glove framework. Use when working with glove-core, glove-react, glove-next, tools, display stack, model adapters, stores, any Glove example project, or deploying agents as sandboxed runtime services with Glovebox (glovebox / glovebox-kit / glovebox-client).
 ---
 
 # Glove Framework — Development Guide
@@ -24,6 +24,9 @@ Glove is an open-source TypeScript framework for building AI-powered application
 | `glove-react` | React hooks (`useGlove`), `GloveClient`, `GloveProvider`, `defineTool`, `<Render>`, `MemoryStore`, `ToolConfig` with colocated renderers | `pnpm add glove-react` |
 | `glove-next` | One-line Next.js API route handler (`createChatHandler`) for streaming SSE | `pnpm add glove-next` |
 | `glove-mcp` | Bridge MCP servers into a Glove agent: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter`, `find_capability` discovery subagent. Opt-in OAuth helpers at `glove-mcp/oauth`. | `pnpm add glove-mcp` |
+| `glovebox` | Authoring + `glovebox build` CLI. `glovebox.wrap(runnable, config)` packages a built Glove agent into a deployable artifact (Dockerfile + nixpacks.toml + bundled server + manifest + auth key). Storage DSL (`rule.*`, `composite`) and wire protocol types live here too. | `pnpm add glovebox` |
+| `glovebox-kit` | In-container runtime. `startGlovebox({ app, port, key, manifestPath, ... })` boots the WS server, auto-injects glovebox skills/hooks, and bridges Glove's display stack onto the wire. Storage adapters: `InlineStorage`, `UrlStorage`, `LocalServerStorage`, `S3Storage`. | (transitive — bundled by `glovebox build`) |
+| `glovebox-client` | Client SDK. `GloveboxClient.make({ endpoints })`, `client.box(name).prompt(text, { files })`, `result.read(name)`, `box.environment()`. Symmetric `ClientStorage` interface with a default inline+url implementation. | `pnpm add glovebox-client` |
 
 **Most projects need just `glove-react` + `glove-next`.** `glove-core` is included as a dependency of `glove-react`. For server-side or non-React agents, use `glove-core` directly — see [Server-Side Agents](#server-side-agents) below. For agents that need third-party tools via the Model Context Protocol, see [MCP Integration](#mcp-integration-glove-mcp).
 
@@ -829,6 +832,238 @@ The agent code itself doesn't change — `McpAdapter.getAccessToken` is the only
 | Run the OAuth flow | `runMcpOAuth(opts)` from `glove-mcp/oauth` |
 | Persist OAuth state | `FsOAuthStore`, `MemoryOAuthStore` from `glove-mcp/oauth` |
 | Build client metadata | `buildClientMetadata(opts)` from `glove-mcp/oauth` |
+
+## Glovebox — Sandboxed Runtime
+
+Glovebox packages a built Glove agent as an isolated, network-addressable service. Developer writes a Glove agent normally, calls `glovebox.wrap(runnable, config)`, runs `glovebox build`, and gets a deployable artifact (Dockerfile + nixpacks.toml + esbuild server bundle + manifest + auth key). The deployed server exposes one authenticated WebSocket endpoint per session, with prompts multiplexed by `id` over that single socket.
+
+### When to use it
+
+- You have a Glove agent that needs system tools the host process can't safely (or portably) provide — ffmpeg, pandoc, headless Chromium, ImageMagick, qpdf, libreoffice — and you want them sandboxed inside a container instead of installed on every deployment target.
+- You want a network-callable surface around a Glove agent that consumers can hit from React frontends, Node services, or other agents without re-implementing the agent loop.
+- You need stable input/output contracts: clients send a prompt + files, get back a final message + output files, and don't care which adapters or tools fired in between.
+
+If you only need a chat endpoint, `glove-next`'s `createChatHandler` is still simpler. Glovebox earns its keep when the agent's environment matters (system binaries, isolated FS) or when several clients share one specialized agent.
+
+### The three packages
+
+- **`glovebox`** — authoring + `glovebox build` CLI. Public API in `packages/glovebox/src/index.ts` (`glovebox.wrap`, re-exports of `config`, `protocol`, `storage`). Storage DSL (`rule.inline`, `rule.url`, `rule.localServer`, `rule.s3`, `composite`). Wire protocol types (`FileRef`, `ClientMessage`, `ServerMessage`, `Manifest`, `StoragePolicyEncoded`).
+- **`glovebox-kit`** — in-container runtime. `startGlovebox(opts)` from `packages/glovebox-kit/src/server.ts`. Auto-injects two skills (`environment`, `workspace`), two hooks (`/output`, `/clear-workspace`), and prepends a static env block (built by `buildEnvironmentBlock`) to the agent's existing system prompt at boot. Hosts `/health` (public), `/environment` (Bearer-auth'd), `/files/:id` (Bearer-auth'd) HTTP routes alongside the WS upgrade endpoint.
+- **`glovebox-client`** — client SDK. `GloveboxClient.make({ endpoints })` registers named endpoints; `client.box(name)` returns a lazily-constructed `Box`. `box.prompt(text, { files })` returns a `PromptResult` with async-iterable `events` / `display` plus `message` / `outputs` promises and a `read(name)` helper.
+
+### Base images
+
+Five prebuilt bases live under `docker/`, published to `ghcr.io/porkytheblack/glovebox/<name>:<tag>` (override the registry with the `GLOVEBOX_REGISTRY` env var). Tags are pinned in `packages/glovebox/src/build/dockerfile.ts`'s `KNOWN_BASE_TAGS`:
+
+| Base | Tag | What's in it |
+|------|-----|--------------|
+| `glovebox/base` | `1.0` | Node 20, `glovebox` user (uid 10001), /work + /input + /output + prebuilt better-sqlite3 at `/opt/glovebox-prebuilt/node_modules` |
+| `glovebox/media` | `1.4` | base + ffmpeg, imagemagick, sox, yt-dlp |
+| `glovebox/docs` | `1.2` | base + pandoc, qpdf, pdftk-java, ghostscript, libreoffice headless |
+| `glovebox/python` | `1.3` | base + uv, numpy, pandas, pillow, scipy, matplotlib |
+| `glovebox/browser` | `1.1` | base + Playwright with Chromium |
+
+Standard bases skip the user/layout setup in the generated Dockerfile and `ln -sfn` the prebuilt better-sqlite3 into the server bundle's `node_modules`. Custom bases run a normal `npm install --omit=dev` against the emitted `package.json`.
+
+### Authoring: `glovebox.wrap`
+
+Build the Glove agent like always, then export a `GloveboxApp` as the default export:
+
+```typescript
+// glovebox.ts
+import { glovebox, rule, composite } from "glovebox"
+import { agent } from "./my-agent"   // your built IGloveRunnable
+
+export default glovebox.wrap(agent, {
+  name: "pdf-extractor",
+  base: "glovebox/docs",
+  packages: { apt: ["poppler-utils"] },
+  storage: {
+    inputs: composite([rule.url(), rule.inline()]),
+    outputs: composite([
+      rule.inline({ below: "1MB" }),
+      rule.localServer({ ttl: "1h" }),
+    ]),
+  },
+  env: {
+    ANTHROPIC_API_KEY: { required: true, secret: true },
+  },
+  limits: { memory: "2GB", timeout: "10m" },
+})
+```
+
+Defaults (from `packages/glovebox/src/config.ts`):
+- `base`: `"glovebox/base"`.
+- `fs`: `{ work: "/work" (rw), input: "/input" (ro), output: "/output" (rw) }` — `DEFAULT_FS`.
+- `storage.inputs`: `DEFAULT_INPUTS_POLICY` — try `url` always, fall back to `inline`.
+- `storage.outputs`: `DEFAULT_OUTPUTS_POLICY` — `inline` below 1MB, else `localServer` with 1h TTL.
+
+Storage rule order matters: `composite([...])` keeps caller order, and `pickAdapter` walks rules first-match-wins. `always: true` is terminal-anywhere; `default: true` is the fallback used when no other rule matched. `validateOutputsPolicy` rejects an outputs policy that targets the read-only `url` adapter or omits a terminal rule — the container fails fast on boot.
+
+### Build: `glovebox build`
+
+```bash
+pnpm add -D glovebox
+npx glovebox build ./glovebox.ts --out ./dist --name pdf-extractor
+```
+
+Emits, under `dist/`:
+
+```
+Dockerfile           # FROM <resolved base>, optional apt/pip/npm, COPY server, CMD ["node", "index.js"]
+nixpacks.toml        # Same recipe for Railway / Render / nixpacks-aware platforms
+glovebox.json        # The Manifest (name, version, base, fs, env, limits, key_fingerprint, storage_policy, packages, protocol_version: 1)
+glovebox.key         # 32-byte hex random — the bearer token. KEEP SECRET. Re-runs reuse if present.
+.env.example         # Generated from `env` config — required vars first
+server/
+├── index.js         # esbuild ESM bundle: glovebox-kit + glovebox + glove-core + your wrap module
+├── package.json     # only declares "better-sqlite3" — the one native dep
+└── glovebox.json    # Manifest copy (the runtime resolves it via `new URL("./glovebox.json", import.meta.url)`)
+```
+
+The synthetic ESM entry the build emits reads `GLOVEBOX_KEY` (required), `GLOVEBOX_PORT` (default 8080), and `GLOVEBOX_PUBLIC_URL` (optional) from the environment, picks up the wrap module's default export, and calls `startGlovebox(...)`. `better-sqlite3` is the only `external:` in the esbuild call (`NATIVE_EXTERNALS` in `server-bundle.ts`).
+
+### Runtime injection
+
+Inside the container, `startGlovebox` runs `applyInjections(runnable, config, getExfilState)` once at boot (see `packages/glovebox-kit/src/injection.ts`). This adds:
+
+- **`environment` skill** — agent-callable; returns the resolved config (`name`, `version`, `base`, `fs`, `packages`, `limits`) as JSON. Useful for the agent itself to introspect.
+- **`workspace` skill** — agent-callable; lists the live contents of every fs mount (`work`, `input`, `output`).
+- **`/output` hook** — `parseTokens` directives: when the agent writes `/output /tmp/some/extra/file.png`, the absolute path is added to a per-request `extraOutputs: Set<string>`. After the turn completes, anything in that set gets uploaded alongside whatever the agent wrote to `/output`.
+- **`/clear-workspace` hook** — `rm -rf` on the `/work` mount. No-op if `work` isn't configured.
+
+`buildEnvironmentBlock(config)` is also prepended to the existing system prompt once at boot, so the agent learns about `/work`, `/input`, `/output`, available apt packages, and limits without you wiring it manually. Per-request input listings are NOT in the env block — the agent calls the `workspace` skill to read `/input` on demand.
+
+### Wire protocol shape
+
+One WebSocket per session, authenticated on upgrade with `Authorization: Bearer <key>`. Prompts multiplexed by `id`. **In v1 the server serializes prompts within a session** (`promptChain.then(...)` in `server.ts`) — Glove's `PromptMachine` + `Context` aren't safe to call concurrently. The protocol is multiplex-shaped because v2 will lift this restriction.
+
+Message types live in `packages/glovebox/src/protocol.ts`:
+- Client → server: `prompt`, `abort`, `display_resolve`, `display_reject`, `ping`.
+- Server → client: `event` (mirrors `SubscriberEvent` 1:1), `display_push` / `display_clear` (Glove's display stack bridged onto the wire by `attachDisplayBridge`), `complete` (final assistant message + outputs map), `error`, `pong`.
+
+`FileRef` is the wire shape for files crossing the boundary in either direction:
+
+```typescript
+type FileRef =
+  | { kind: "inline"; name; mime; data }              // base64
+  | { kind: "url"; name; mime?; url; headers? }
+  | { kind: "server"; name; mime; size; id; url }     // /files/:id on the same server
+  | { kind: "s3"; name; mime?; bucket; key; region? }
+  | { kind: "gcs"; name; mime?; bucket; object }      // v2-deferred adapter
+```
+
+The server picks the adapter for each output via `pickAdapter(policy, { size }, registry)`. Inputs are read by `pickAdapterForRef(ref, registry)` based on the ref's `kind` — server defaults always include `inline`, `url`, and `localServer`; `s3` only resolves if you registered an adapter via `adapters` (see below).
+
+### Auth model
+
+Bearer-only, single key per deployment. The build CLI writes a 32-byte hex key to `dist/glovebox.key` and stores its SHA-256 fingerprint in the manifest. At boot, `verifyAgainstManifest` checks both the configured `GLOVEBOX_KEY` matches the manifest fingerprint AND the presented bearer matches the configured key — `verifyBearer` does the constant-time compare via `timingSafeEqual`. Fingerprints in the manifest leak nothing; verification still requires the raw key.
+
+The same key gates the WS upgrade, `/environment`, and `/files/:id`. JWTs and per-session tokens are V2-deferred.
+
+### Custom storage adapters via `adapters` export
+
+The wrap module may export an `adapters` function (or value) alongside its default export. The synthetic build entry awaits it and forwards the result into `startGlovebox({ adapters })`. Adapters are merged by name into the registry on top of the defaults, so `s3` becomes a real adapter the policy can target:
+
+```typescript
+// glovebox.ts
+import { glovebox, rule, composite } from "glovebox"
+import { S3Storage } from "glovebox-kit"
+import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3"
+import { agent } from "./my-agent"
+
+const s3 = new S3Client({ region: process.env.AWS_REGION })
+
+export const adapters = () => ({
+  s3: new S3Storage({
+    bucket: process.env.OUTPUTS_BUCKET!,
+    region: process.env.AWS_REGION,
+    uploadObject: async ({ bucket, key, body, contentType }) => {
+      await s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentType: contentType }))
+    },
+    downloadObject: async ({ bucket, key }) => {
+      const out = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }))
+      return new Uint8Array(await out.Body!.transformToByteArray())
+    },
+  }),
+})
+
+export default glovebox.wrap(agent, {
+  base: "glovebox/media",
+  storage: {
+    outputs: composite([
+      rule.inline({ below: "1MB" }),
+      rule.s3({ bucket: process.env.OUTPUTS_BUCKET! }),
+    ]),
+  },
+})
+```
+
+The kit ships `S3Storage` as a "deferred" adapter — no concrete SDK dependency in the runtime image. You pass `uploadObject` / `downloadObject` thunks from your own codebase. The kit will throw on boot if the outputs policy targets `s3` and no adapter is registered (`validateOutputsPolicy` is run on every effective policy, including per-request overrides).
+
+### Deploying
+
+The artifact is platform-agnostic. Two common paths:
+
+- **Docker** — `docker build -t my-app dist/` then run with `-p 8080:8080 -e GLOVEBOX_KEY=$(cat dist/glovebox.key) -e GLOVEBOX_PUBLIC_URL=https://my-app.example.com my-app`. Set any required env vars from `.env.example`.
+- **Railway / Render / nixpacks** — push `dist/` to a repo; the platform picks up `nixpacks.toml`. Set `GLOVEBOX_KEY` and any required env vars in the platform UI; `GLOVEBOX_PUBLIC_URL` should be the deployment's public URL so `server`-kind FileRefs are reachable from clients.
+
+`GLOVEBOX_PORT` defaults to 8080; the Dockerfile `EXPOSE`s and `ENV`s it. `GLOVEBOX_PUBLIC_URL` defaults to `http://localhost:<port>` — fine for local, broken for any client outside the container.
+
+### Calling from the client
+
+```typescript
+import { GloveboxClient } from "glovebox-client"
+
+const client = GloveboxClient.make({
+  endpoints: {
+    pdf: { url: "wss://pdf.example.com/", key: process.env.GLOVEBOX_PDF_KEY! },
+  },
+})
+
+const box = client.box("pdf")
+const env = await box.environment()        // Bearer-auth'd GET /environment, cached after first call
+console.log(env.base, env.packages.apt)
+
+const result = box.prompt("extract tables from invoice.pdf", {
+  files: { "invoice.pdf": { mime: "application/pdf", bytes: pdfBytes } },
+})
+
+for await (const event of result.events) {
+  if (event.event_type === "text_delta") {
+    process.stdout.write((event.data as { text: string }).text)
+  }
+}
+
+const message = await result.message
+const outputs = await result.outputs       // Record<string, FileRef>
+const csvBytes = await result.read("tables.csv")  // routes via ClientStorage based on FileRef.kind
+```
+
+`PromptResult` exposes both `events` and `display` as async iterables. Display events are session-scoped (not request-scoped) so they fan out to every active prompt's display stream. `result.resolve(slot_id, value)` / `result.reject(slot_id, error)` send display answers back; `result.abort()` sends `{ type: "abort", id }` upstream.
+
+`DefaultClientStorage` only handles `inline` and `url` (plus `server` over Bearer-auth'd HTTP) — pass a custom `ClientStorage` to `GloveboxClient.make({ storage })` if your inputs need to land in S3 first.
+
+### Debugging
+
+- **`GET /health`** is unauthenticated and returns `{ ok: true, name, version }`. Useful for liveness probes.
+- **`GET /environment`** with `Authorization: Bearer <key>` returns the manifest's `name`, `version`, `base`, `fs`, `packages`, `limits`, `protocol_version`. The client SDK caches this after first call. If `box.environment()` 401s, the key is wrong; if it returns a `base` you didn't expect, the deployment is built from a stale manifest.
+- **Manifest fingerprint mismatch** — boot fails with `Configured GLOVEBOX_KEY does not match the manifest fingerprint`. Either the key was rotated without rebuilding, or you're pointing at the wrong key file.
+- **`Outputs policy references unregistered adapter: s3`** — `validateOutputsPolicy` rejected the policy because the wrap module's `adapters` export didn't supply an `s3` entry. Either add the adapter or remove the `rule.s3(...)` from outputs.
+- **Empty completion message** — `processRequest` returned a result whose final message had no `text`. Check the agent's normal completion path — the kit only reads `result.messages[last].text` (or `result.text`) verbatim.
+- **Stuck prompts** — v1 serializes prompts per session via `promptChain.then(...)`. If a prompt hangs (e.g. waiting on a `pushAndWait` resolver), every subsequent prompt on the same session waits with it. Ensure the client either sends `display_resolve` or closes the WS to clear the chain.
+
+### V2-deferred caveats
+
+The v1 kit and protocol are deliberately narrow. Plan around these limitations:
+
+- **Multiplex execution** — wire is multiplex-shaped, server is not. Don't pipeline more than one prompt per session expecting parallelism.
+- **JWT auth** — single shared bearer key per deployment. Per-user JWTs / scoped tokens are deferred.
+- **Hot reload** — none. Rebuild + redeploy after every wrap-config change.
+- **GCS / Azure adapters** — only `inline`, `url`, `localServer`, and (via your `adapters` export) `s3` are supported. `gcs` exists in `FileRef` but throws at runtime without a registered adapter.
+- **Per-base preregistered subagents** — the `@transcoder` (media), `@pdfwright` (docs), `@analyst` (python), `@scraper` (browser) mentions land in v2; in v1 you wire those yourself if you want them.
+
+See [api-reference.md — glovebox / glovebox-kit / glovebox-client](api-reference.md) for full type signatures, and [examples.md — Pattern: Glovebox PDF Extractor](examples.md) for a worked example.
 
 ## Display Stack Patterns
 
