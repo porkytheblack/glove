@@ -1,6 +1,11 @@
 name: Glovebox base images
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "docker/**"
+      - ".github/workflows/glovebox-images.yml"
   workflow_dispatch:
     inputs:
       images:
@@ -21,11 +26,18 @@ permissions:
   contents: read
   packages: write
 
+# Only one publish job at a time — base-image rebuilds shouldn't race.
+concurrency:
+  group: glovebox-images
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # need the previous commit to diff against on push
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -33,8 +45,46 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Resolve build parameters
+        id: params
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "images=${{ inputs.images }}" >> "$GITHUB_OUTPUT"
+            echo "push=${{ inputs.push }}" >> "$GITHUB_OUTPUT"
+            echo "platforms=${{ inputs.platforms }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Push event: detect which Dockerfiles changed in this push and
+          # rebuild only those (always include `base` first if any other
+          # image changed, since they all FROM it).
+          changed=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} -- 'docker/**' || true)
+          set +e
+          selected=()
+          for name in base media docs python browser; do
+            if echo "$changed" | grep -q "^docker/$name/"; then
+              selected+=("$name")
+            fi
+          done
+          # If only `base` changed, rebuild everything since they all inherit.
+          if [[ "${selected[*]}" == "base" ]]; then
+            selected=(base media docs python browser)
+          fi
+          # Workflow file change → rebuild everything.
+          if echo "$changed" | grep -q "^\.github/workflows/glovebox-images.yml$"; then
+            selected=(base media docs python browser)
+          fi
+          if [[ ${#selected[@]} -eq 0 ]]; then
+            echo "no docker images changed"
+            echo "images=" >> "$GITHUB_OUTPUT"
+          else
+            echo "images=${selected[*]}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "push=true" >> "$GITHUB_OUTPUT"
+          echo "platforms=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
+
       - name: Log in to GHCR
-        if: ${{ inputs.push }}
+        if: ${{ steps.params.outputs.push == 'true' && steps.params.outputs.images != '' }}
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -42,14 +92,19 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push images
+        if: ${{ steps.params.outputs.images != '' }}
         env:
           REGISTRY: ghcr.io/${{ github.repository_owner }}
-          PLATFORM: ${{ inputs.platforms }}
+          PLATFORM: ${{ steps.params.outputs.platforms }}
         run: |
           cd docker
           args=()
-          if [[ "${{ inputs.push }}" == "true" ]]; then
+          if [[ "${{ steps.params.outputs.push }}" == "true" ]]; then
             args+=(--push)
           fi
           # shellcheck disable=SC2086
-          ./build.sh "${args[@]}" ${{ inputs.images }}
+          ./build.sh "${args[@]}" ${{ steps.params.outputs.images }}
+
+      - name: Skipped (no changes)
+        if: ${{ steps.params.outputs.images == '' }}
+        run: echo "No docker/ changes in this push — nothing to build."
