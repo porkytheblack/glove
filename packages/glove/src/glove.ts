@@ -52,6 +52,7 @@ export interface IGloveRunnable {
   processRequest: (request: string | ContentPart[], signal?: AbortSignal) => Promise<ModelPromptResult | Message>
   setModel: (model: ModelAdapter) => void
   setSystemPrompt: (prompt: string) => void
+  getSystemPrompt: () => string
   addSubscriber: (subscriber: SubscriberAdapter) => void
   removeSubscriber: (subscriber: SubscriberAdapter) => void
   /** Fold a tool. Legal at any time, including after build. */
@@ -285,6 +286,10 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   setSystemPrompt(prompt: string) {
     this.promptMachine.systemPrompt = prompt;
     this.promptMachine.model.setSystemPrompt(prompt);
+  }
+
+  getSystemPrompt(): string {
+    return this.promptMachine.systemPrompt;
   }
 
   async processRequest(request: string | ContentPart[], signal?: AbortSignal) {
