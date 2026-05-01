@@ -1,4 +1,4 @@
-import { glovebox, rule, composite } from "glovebox";
+import { glovebox, rule, composite } from "glovebox-core";
 import { agent } from "./agent";
 
 /**

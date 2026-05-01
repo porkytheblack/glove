@@ -1,4 +1,4 @@
-import { glovebox } from "glovebox"
+import { glovebox } from "glovebox-core"
 
 const fakeRunnable = {
   __isFake: true,

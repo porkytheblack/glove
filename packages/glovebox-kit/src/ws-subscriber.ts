@@ -1,5 +1,5 @@
 import type { SubscriberAdapter, SubscriberEvent, SubscriberEventDataMap } from "glove-core"
-import type { ServerMessage } from "glovebox/protocol"
+import type { ServerMessage } from "glovebox-core/protocol"
 
 /**
  * Subscriber that buffers events and drains them to the WS asynchronously.

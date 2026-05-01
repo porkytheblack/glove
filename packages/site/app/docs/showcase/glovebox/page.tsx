@@ -187,7 +187,7 @@ export const agent = new Glove({
       <CodeBlock
         filename="examples/glovebox-pdf-extractor/glovebox.ts"
         language="typescript"
-        code={`import { glovebox, rule, composite } from "glovebox";
+        code={`import { glovebox, rule, composite } from "glovebox-core";
 import { agent } from "./agent";
 
 export default glovebox.wrap(agent, {

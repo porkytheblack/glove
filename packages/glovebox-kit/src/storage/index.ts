@@ -1,4 +1,4 @@
-import type { FileRef, StoragePolicyEncoded } from "glovebox/protocol"
+import type { FileRef, StoragePolicyEncoded } from "glovebox-core/protocol"
 
 export interface FileMeta {
   name: string

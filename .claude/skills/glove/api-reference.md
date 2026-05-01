@@ -1384,7 +1384,7 @@ Authoring entry point and `glovebox build` CLI. Wraps a built Glove agent into a
 ### glovebox.wrap
 
 ```ts
-import { glovebox } from "glovebox";
+import { glovebox } from "glovebox-core";
 
 function wrap<R>(runnable: R, config?: GloveboxConfig): GloveboxApp;
 
@@ -1430,7 +1430,7 @@ interface Limits      { cpu?: string; memory?: string; timeout?: string }
 ### Storage DSL
 
 ```ts
-import { rule, composite } from "glovebox";
+import { rule, composite } from "glovebox-core";
 
 const rule = {
   inline: (opts?: { below?: string; above?: string }) => Rule,

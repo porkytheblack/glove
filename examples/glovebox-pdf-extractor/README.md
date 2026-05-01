@@ -50,7 +50,7 @@ invoking the `/output <path>` hook (registered automatically by `glovebox-kit`).
 ### `glovebox.ts`
 
 ```ts
-import { glovebox, rule, composite } from "glovebox";
+import { glovebox, rule, composite } from "glovebox-core";
 import { agent } from "./agent";
 
 export default glovebox.wrap(agent, {

@@ -10,7 +10,7 @@ In-container runtime for [Glovebox](https://github.com/porkytheblack/glove). Hos
 pnpm add glovebox-kit
 ```
 
-`glovebox-kit` is already pulled in transitively when you depend on `glovebox`. Adding it explicitly is only useful when you import an adapter from your wrap module.
+`glovebox-kit` is already pulled in transitively when you depend on `glovebox-core`. Adding it explicitly is only useful when you import an adapter from your wrap module.
 
 ## What runs inside the container
 
@@ -33,7 +33,7 @@ The standard case: your wrap module declares `adapters` alongside the default ex
 ```ts
 // glovebox.ts
 import { S3Storage } from "glovebox-kit"
-import { glovebox, rule, composite } from "glovebox"
+import { glovebox, rule, composite } from "glovebox-core"
 import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3"
 
 const s3 = new S3Client({ region: process.env.AWS_REGION })
@@ -174,7 +174,7 @@ v1. Prompts within a single session run sequentially: the WS handler chains them
 
 ## Companion packages
 
-- **[`glovebox`](../glovebox/README.md)** — authoring kit + `glovebox build` CLI.
+- **[`glovebox-core`](../glovebox/README.md)** — authoring kit + `glovebox build` CLI.
 - **[`glovebox-client`](../glovebox-client/README.md)** — client SDK.
 
 ## Documentation

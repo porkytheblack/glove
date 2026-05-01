@@ -3,7 +3,43 @@ import { CodeBlock } from "@/components/code-block";
 export default async function GloveboxPage() {
   return (
     <div className="docs-content">
-      <h1>Glovebox</h1>
+      <h1>
+        Glovebox{" "}
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            marginLeft: 10,
+            padding: "2px 8px",
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
+            borderRadius: 4,
+            background: "rgba(94, 156, 211, 0.14)",
+            color: "#5e9cd3",
+            verticalAlign: "middle",
+          }}
+        >
+          beta
+        </span>
+      </h1>
+
+      <p
+        style={{
+          padding: "10px 14px",
+          margin: "0 0 20px",
+          borderLeft: "3px solid #5e9cd3",
+          background: "rgba(94, 156, 211, 0.06)",
+          fontSize: 14,
+          color: "#5e9cd3",
+        }}
+      >
+        Glovebox is in beta. The wire protocol and authoring API are stable
+        for v1, but several pieces — JWT auth, multiplex prompt execution,
+        hot reload, GCS/Azure storage adapters — are deferred to v2. Expect
+        the surface to grow, not break.
+      </p>
 
       <p>
         Glovebox packages a Glove agent as an isolated, network-addressable
@@ -97,7 +133,7 @@ export default async function GloveboxPage() {
       <CodeBlock
         filename="glovebox.ts"
         language="typescript"
-        code={`import { glovebox, rule, composite } from "glovebox";
+        code={`import { glovebox, rule, composite } from "glovebox-core";
 import { agent } from "./my-agent";
 
 export default glovebox.wrap(agent, {
@@ -146,7 +182,7 @@ export default glovebox.wrap(agent, {
       <CodeBlock
         filename="storage policies"
         language="typescript"
-        code={`import { rule, composite } from "glovebox";
+        code={`import { rule, composite } from "glovebox-core";
 
 // Outputs: tiny files inline, anything bigger goes to S3.
 composite([

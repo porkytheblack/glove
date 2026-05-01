@@ -8,6 +8,7 @@ interface NavItem {
   label: string;
   href: string;
   voice?: boolean;
+  beta?: boolean;
 }
 
 interface NavSection {
@@ -24,6 +25,7 @@ const sections: NavSection[] = [
       { label: "The Display Stack", href: "/docs/display-stack" },
       { label: "The Inbox", href: "/docs/inbox" },
       { label: "Hooks, Skills & Mentions", href: "/docs/extensions" },
+      { label: "Glovebox", href: "/docs/glovebox", beta: true },
     ],
   },
   {
@@ -43,13 +45,13 @@ const sections: NavSection[] = [
       { label: "Lola", href: "/docs/showcase/lola", voice: true },
       { label: "Ecommerce Store", href: "/docs/showcase/ecommerce-store" },
       { label: "Terminal Agent", href: "/docs/showcase/terminal-agent" },
-      { label: "Glovebox", href: "/docs/showcase/glovebox" },
+      { label: "Glovebox", href: "/docs/showcase/glovebox", beta: true },
     ],
   },
   {
-    title: "Deployment",
+    title: "Sandbox",
     items: [
-      { label: "Glovebox", href: "/docs/glovebox" },
+      { label: "Glovebox", href: "/docs/glovebox", beta: true },
     ],
   },
   {
@@ -118,6 +120,26 @@ export function DocsSidebar() {
                     }}
                   >
                     voice
+                  </span>
+                )}
+                {item.beta && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      marginLeft: 6,
+                      padding: "1px 5px",
+                      fontSize: 9,
+                      fontWeight: 600,
+                      letterSpacing: "0.05em",
+                      textTransform: "uppercase",
+                      borderRadius: 3,
+                      background: "rgba(94, 156, 211, 0.14)",
+                      color: "#5e9cd3",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    beta
                   </span>
                 )}
               </Link>

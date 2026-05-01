@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "glove-core": "workspace:*",
-    "glovebox": "workspace:*",
+    "glovebox-core": "workspace:*",
     "ws": "^8.18.0",
     "better-sqlite3": "^11.5.0"
   },

@@ -4,7 +4,7 @@ import type {
   ServerMessage,
   SubscriberEventType,
   WireSlot,
-} from "glovebox/protocol"
+} from "glovebox-core/protocol"
 
 import { DefaultClientStorage, type ClientStorage } from "./storage"
 import { httpFromWs, pickWebSocket, type WsLike } from "./wire"
