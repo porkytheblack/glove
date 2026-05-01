@@ -2,7 +2,7 @@
 #
 # uv (fast pip), numpy, pandas, pillow. Surfaces @analyst as a data-analysis
 # subagent.
-FROM ghcr.io/dterminal/glovebox/base:1.0
+FROM ghcr.io/porkytheblack/glovebox/base:1.0
 
 USER root
 

@@ -9,14 +9,14 @@
 #   ./build.sh --tag 1.5            override the image tag for this run
 #
 # Environment:
-#   REGISTRY   default ghcr.io/dterminal
+#   REGISTRY   default ghcr.io/porkytheblack
 #   PLATFORM   default linux/amd64
 
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-REGISTRY="${REGISTRY:-ghcr.io/dterminal}"
+REGISTRY="${REGISTRY:-ghcr.io/porkytheblack}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 
 declare -A IMAGES=(

@@ -23,7 +23,7 @@ mentions the agent can route to.
 
 The `build.sh` script honors:
 
-- `REGISTRY=ghcr.io/dterminal` — registry prefix
+- `REGISTRY=ghcr.io/porkytheblack` — registry prefix
 - `PLATFORM=linux/amd64,linux/arm64` — platforms (default: amd64)
 
 ## Releasing

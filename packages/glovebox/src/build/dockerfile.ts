@@ -1,6 +1,6 @@
 import type { ResolvedGloveboxConfig } from "../config"
 
-const BASE_IMAGE_REGISTRY = "ghcr.io/dterminal"
+const DEFAULT_BASE_IMAGE_REGISTRY = "ghcr.io/porkytheblack"
 
 const KNOWN_BASE_TAGS: Record<string, string> = {
   "glovebox/base": "1.0",
@@ -28,12 +28,22 @@ const STANDARD_GLOVEBOX_BASES = new Set([
   "glovebox/browser",
 ])
 
+/**
+ * Resolve a `glovebox/<name>` base reference to a fully-qualified registry
+ * URL. The registry prefix can be overridden via the `GLOVEBOX_REGISTRY`
+ * env var (useful for forks or private mirrors); otherwise it defaults to
+ * the public `ghcr.io/porkytheblack` namespace.
+ *
+ * If the caller passed an explicit reference (e.g. `quay.io/me/img:tag` or
+ * `glovebox/media:custom`), it's returned as-is.
+ */
 export function resolveBaseImage(base: string): string {
   if (base.includes(":") || (base.includes("/") && !base.startsWith("glovebox/"))) {
     return base
   }
+  const registry = (process.env.GLOVEBOX_REGISTRY ?? DEFAULT_BASE_IMAGE_REGISTRY).replace(/\/$/, "")
   const tag = KNOWN_BASE_TAGS[base] ?? "latest"
-  return `${BASE_IMAGE_REGISTRY}/${base}:${tag}`
+  return `${registry}/${base}:${tag}`
 }
 
 export function generateDockerfile(config: ResolvedGloveboxConfig): string {

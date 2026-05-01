@@ -2,7 +2,7 @@
 #
 # pdftk, pandoc, qpdf, libreoffice headless. Surfaces @pdfwright and
 # @docconverter mentions for high-fidelity document manipulation.
-FROM ghcr.io/dterminal/glovebox/base:1.0
+FROM ghcr.io/porkytheblack/glovebox/base:1.0
 
 USER root
 

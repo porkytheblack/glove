@@ -5,7 +5,7 @@
 # pre-built native modules (better-sqlite3) so per-app images don't
 # pay rebuild cost.
 #
-# Per-app images extend this with `FROM ghcr.io/dterminal/glovebox/base:1.0`.
+# Per-app images extend this with `FROM ghcr.io/porkytheblack/glovebox/base:1.0`.
 FROM node:20-bookworm-slim
 
 # Locale + tini for proper signal handling.

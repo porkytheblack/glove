@@ -3,7 +3,7 @@
 #
 # Surfaces @scraper and @screenshotter mentions. Uses Playwright's bundled
 # Chromium so dependency drift is bounded.
-FROM ghcr.io/dterminal/glovebox/base:1.0
+FROM ghcr.io/porkytheblack/glovebox/base:1.0
 
 USER root
 

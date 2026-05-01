@@ -2,7 +2,7 @@
 #
 # ffmpeg, imagemagick, sox, yt-dlp. The @transcoder mention surfaces an
 # ffmpeg-expert subagent at runtime via glovebox-kit's base-mention registry.
-FROM ghcr.io/dterminal/glovebox/base:1.0
+FROM ghcr.io/porkytheblack/glovebox/base:1.0
 
 USER root
 
