@@ -1,0 +1,24 @@
+{
+  "name": "glovebox-pdf-extractor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "glovebox build ./glovebox.ts",
+    "dev": "tsx ./dev.ts",
+    "client": "tsx ./client.ts"
+  },
+  "dependencies": {
+    "glove-core": "workspace:*",
+    "glove-sqlite": "workspace:*",
+    "glovebox": "workspace:*",
+    "glovebox-kit": "workspace:*",
+    "glovebox-client": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0"
+  }
+}

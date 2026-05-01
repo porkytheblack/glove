@@ -43,6 +43,13 @@ const sections: NavSection[] = [
       { label: "Lola", href: "/docs/showcase/lola", voice: true },
       { label: "Ecommerce Store", href: "/docs/showcase/ecommerce-store" },
       { label: "Terminal Agent", href: "/docs/showcase/terminal-agent" },
+      { label: "Glovebox", href: "/docs/showcase/glovebox" },
+    ],
+  },
+  {
+    title: "Deployment",
+    items: [
+      { label: "Glovebox", href: "/docs/glovebox" },
     ],
   },
   {
