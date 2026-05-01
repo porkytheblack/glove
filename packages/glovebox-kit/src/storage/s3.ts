@@ -1,4 +1,4 @@
-import type { FileRef } from "glovebox/protocol"
+import type { FileRef } from "glovebox-core/protocol"
 
 import type { FileMeta, StorageAdapter } from "./index"
 

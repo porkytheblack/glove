@@ -1,7 +1,7 @@
 /**
  * Authoring entry point for Glovebox apps.
  *
- *     import { glovebox, rule, composite } from "glovebox"
+ *     import { glovebox, rule, composite } from "glovebox-core"
  *     import { agent } from "./my-agent"
  *
  *     export default glovebox.wrap(agent, {

@@ -14,12 +14,12 @@ import path from "node:path";
 import { randomBytes, createHash } from "node:crypto";
 
 import { startGlovebox } from "glovebox-kit";
-import type { Manifest } from "glovebox/protocol";
+import type { Manifest } from "glovebox-core/protocol";
 import gloveboxApp from "./glovebox";
 // Re-import the agent so we can rebuild it pointing at temp paths instead of
 // /input, /output, /work (which don't exist on a developer's host).
 import { buildAgent } from "./agent";
-import { glovebox } from "glovebox";
+import { glovebox } from "glovebox-core";
 
 function fingerprint(key: string): string {
   const h = createHash("sha256").update(key).digest("hex");

@@ -1535,7 +1535,7 @@ A worked example of wrapping a Glove agent for sandboxed deployment. Lives at `e
 ### Wrap module (`glovebox.ts`)
 
 ```typescript
-import { glovebox, rule, composite } from "glovebox"
+import { glovebox, rule, composite } from "glovebox-core"
 import { agent } from "./src/agent"     // built IGloveRunnable
 
 export default glovebox.wrap(agent, {

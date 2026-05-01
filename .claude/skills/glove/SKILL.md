@@ -24,7 +24,7 @@ Glove is an open-source TypeScript framework for building AI-powered application
 | `glove-react` | React hooks (`useGlove`), `GloveClient`, `GloveProvider`, `defineTool`, `<Render>`, `MemoryStore`, `ToolConfig` with colocated renderers | `pnpm add glove-react` |
 | `glove-next` | One-line Next.js API route handler (`createChatHandler`) for streaming SSE | `pnpm add glove-next` |
 | `glove-mcp` | Bridge MCP servers into a Glove agent: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter`, `find_capability` discovery subagent. Opt-in OAuth helpers at `glove-mcp/oauth`. | `pnpm add glove-mcp` |
-| `glovebox` | Authoring + `glovebox build` CLI. `glovebox.wrap(runnable, config)` packages a built Glove agent into a deployable artifact (Dockerfile + nixpacks.toml + bundled server + manifest + auth key). Storage DSL (`rule.*`, `composite`) and wire protocol types live here too. | `pnpm add glovebox` |
+| `glovebox-core` | Authoring + `glovebox` build CLI. `glovebox.wrap(runnable, config)` packages a built Glove agent into a deployable artifact (Dockerfile + nixpacks.toml + bundled server + manifest + auth key). Storage DSL (`rule.*`, `composite`) and wire protocol types live here too. The unscoped `glovebox` name is taken on npm — install as `glovebox-core`; the CLI binary is still `glovebox`. | `pnpm add glovebox-core` |
 | `glovebox-kit` | In-container runtime. `startGlovebox({ app, port, key, manifestPath, ... })` boots the WS server, auto-injects glovebox skills/hooks, and bridges Glove's display stack onto the wire. Storage adapters: `InlineStorage`, `UrlStorage`, `LocalServerStorage`, `S3Storage`. | (transitive — bundled by `glovebox build`) |
 | `glovebox-client` | Client SDK. `GloveboxClient.make({ endpoints })`, `client.box(name).prompt(text, { files })`, `result.read(name)`, `box.environment()`. Symmetric `ClientStorage` interface with a default inline+url implementation. | `pnpm add glovebox-client` |
 
@@ -871,7 +871,7 @@ Build the Glove agent like always, then export a `GloveboxApp` as the default ex
 
 ```typescript
 // glovebox.ts
-import { glovebox, rule, composite } from "glovebox"
+import { glovebox, rule, composite } from "glovebox-core"
 import { agent } from "./my-agent"   // your built IGloveRunnable
 
 export default glovebox.wrap(agent, {
@@ -967,7 +967,7 @@ The wrap module may export an `adapters` function (or value) alongside its defau
 
 ```typescript
 // glovebox.ts
-import { glovebox, rule, composite } from "glovebox"
+import { glovebox, rule, composite } from "glovebox-core"
 import { S3Storage } from "glovebox-kit"
 import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3"
 import { agent } from "./my-agent"

@@ -2,7 +2,7 @@ import { readdir } from "node:fs/promises"
 import path from "node:path"
 
 import type { IGloveRunnable } from "glove-core"
-import type { ResolvedGloveboxConfig } from "glovebox"
+import type { ResolvedGloveboxConfig } from "glovebox-core"
 
 /**
  * Per-request state used by the injected hooks. The kit assigns one before

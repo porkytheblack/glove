@@ -1,4 +1,4 @@
-import type { FileRef } from "glovebox/protocol"
+import type { FileRef } from "glovebox-core/protocol"
 
 /**
  * Client-side storage helpers. Symmetric to the server: the client uploads

@@ -5,7 +5,7 @@ import path from "node:path"
 
 import Database from "better-sqlite3"
 
-import type { FileRef } from "glovebox/protocol"
+import type { FileRef } from "glovebox-core/protocol"
 
 import type { FileMeta, StorageAdapter } from "./index"
 

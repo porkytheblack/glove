@@ -12,4 +12,4 @@ export type {
 } from "./box"
 export { DefaultClientStorage } from "./storage"
 export type { ClientStorage, DefaultClientStorageOptions } from "./storage"
-export type { FileRef, SubscriberEventType, WireSlot } from "glovebox/protocol"
+export type { FileRef, SubscriberEventType, WireSlot } from "glovebox-core/protocol"

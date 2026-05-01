@@ -30,7 +30,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "glovebox": "workspace:*",
+    "glovebox-core": "workspace:*",
     "ws": "^8.18.0"
   },
   "devDependencies": {

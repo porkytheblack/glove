@@ -1,5 +1,5 @@
 {
-  "name": "glovebox",
+  "name": "glovebox-core",
   "version": "0.1.0",
   "description": "Authoring kit and build CLI for sandboxed Glove agents",
   "type": "module",

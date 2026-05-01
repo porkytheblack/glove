@@ -1,11 +1,13 @@
-# glovebox
+# glovebox-core
 
-Authoring kit and build CLI for shipping a [Glove](https://github.com/porkytheblack/glove) agent as a sandboxed, network-addressable service. Wrap a built `Glove` runnable, run `glovebox build`, ship the resulting Dockerfile (or nixpacks bundle) to any container host.
+Authoring kit and `glovebox` build CLI for shipping a [Glove](https://github.com/porkytheblack/glove) agent as a sandboxed, network-addressable service. Wrap a built `Glove` runnable, run `glovebox build`, ship the resulting Dockerfile (or nixpacks bundle) to any container host.
+
+> The package is named `glovebox-core` on npm because the unscoped `glovebox` slot is taken by another project. The CLI binary it installs is still called `glovebox`, and the value you import from it is still called `glovebox` — only the install name differs.
 
 ## Install
 
 ```sh
-pnpm add glovebox glovebox-kit
+pnpm add glovebox-core glovebox-kit
 ```
 
 `glovebox-kit` is the in-container runtime; `glovebox build` bakes it into the generated server bundle, so it must resolve at install time. The `glovebox` binary is installed into your project's `node_modules/.bin`.
@@ -38,7 +40,7 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import path from "node:path"
 
-import { glovebox, rule, composite } from "glovebox"
+import { glovebox, rule, composite } from "glovebox-core"
 
 const exec = promisify(execFile)
 
@@ -177,7 +179,7 @@ The agent receives an environment block referencing these paths plus a `workspac
 Inputs and outputs are independent ordered lists of `{ use, when }` rules. Earlier rules win. Build them with `rule.*` + `composite`:
 
 ```ts
-import { rule, composite } from "glovebox"
+import { rule, composite } from "glovebox-core"
 
 storage: {
   // Caller can pass URL refs the server fetches; otherwise inline base64.

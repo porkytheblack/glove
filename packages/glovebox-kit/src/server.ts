@@ -10,8 +10,8 @@ import type {
   OutputsPolicyOverride,
   ServerMessage,
   StoragePolicyEncoded,
-} from "glovebox/protocol"
-import type { GloveboxApp } from "glovebox"
+} from "glovebox-core/protocol"
+import type { GloveboxApp } from "glovebox-core"
 import { WebSocketServer } from "ws"
 
 import { verifyAgainstManifest, verifyBearer } from "./auth"

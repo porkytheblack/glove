@@ -11,7 +11,7 @@
   "dependencies": {
     "glove-core": "workspace:*",
     "glove-sqlite": "workspace:*",
-    "glovebox": "workspace:*",
+    "glovebox-core": "workspace:*",
     "glovebox-kit": "workspace:*",
     "glovebox-client": "workspace:*",
     "zod": "^4.3.6"

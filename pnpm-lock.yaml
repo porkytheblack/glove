@@ -161,12 +161,12 @@ importers:
       glove-sqlite:
         specifier: workspace:*
         version: link:../../packages/glove-sqlite
-      glovebox:
-        specifier: workspace:*
-        version: link:../../packages/glovebox
       glovebox-client:
         specifier: workspace:*
         version: link:../../packages/glovebox-client
+      glovebox-core:
+        specifier: workspace:*
+        version: link:../../packages/glovebox
       glovebox-kit:
         specifier: workspace:*
         version: link:../../packages/glovebox-kit
@@ -186,7 +186,7 @@ importers:
 
   examples/glovebox-smoke:
     dependencies:
-      glovebox:
+      glovebox-core:
         specifier: workspace:*
         version: link:../../packages/glovebox
 
@@ -444,7 +444,7 @@ importers:
 
   packages/glovebox-client:
     dependencies:
-      glovebox:
+      glovebox-core:
         specifier: workspace:*
         version: link:../glovebox
       ws:
@@ -472,7 +472,7 @@ importers:
       glove-core:
         specifier: workspace:*
         version: link:../glove
-      glovebox:
+      glovebox-core:
         specifier: workspace:*
         version: link:../glovebox
       ws:

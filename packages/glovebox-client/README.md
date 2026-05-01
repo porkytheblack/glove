@@ -200,7 +200,7 @@ v1. The wire protocol is `protocol_version: 1`. Connections are bearer-authed an
 
 ## Companion packages
 
-- **[`glovebox`](../glovebox/README.md)** — authoring kit + `glovebox build` CLI.
+- **[`glovebox-core`](../glovebox/README.md)** — authoring kit + `glovebox build` CLI.
 - **[`glovebox-kit`](../glovebox-kit/README.md)** — in-container runtime.
 
 ## Documentation
