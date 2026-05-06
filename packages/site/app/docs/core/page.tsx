@@ -104,13 +104,13 @@ export default function CorePage() {
       </p>
 
       <CodeBlock
-        code={`import { Glove } from "glove-core";
+        code={`import { Glove, MemoryStore, Displaymanager, createAdapter } from "glove-core";
 import { z } from "zod";
 
 const agent = new Glove({
-  store,
-  model,
-  displayManager,
+  store: new MemoryStore("session-1"),
+  model: createAdapter({ provider: "anthropic" }),
+  displayManager: new Displaymanager(),
   systemPrompt: "You are a helpful assistant.",
   compaction_config: {
     compaction_instructions: "Summarize the conversation.",
@@ -123,7 +123,7 @@ const agent = new Glove({
     inputSchema: z.object({ city: z.string() }),
     async do(input) {
       const res = await fetch(\`https://api.weather.example/v1?city=\${input.city}\`);
-      return res.json();
+      return { status: "success", data: await res.json() };
     },
   })
   .build();
@@ -131,6 +131,13 @@ const agent = new Glove({
 const result = await agent.processRequest("What is the weather in Tokyo?");`}
         language="typescript"
       />
+
+      <p>
+        <code>store</code> is optional — when omitted, <code>Glove</code>{" "}
+        constructs a fresh <code>MemoryStore</code> internally. You can also
+        defer the store decision until <code>build()</code> by passing it
+        there: <code>new Glove({"{ ... }"}).build(myStore)</code>.
+      </p>
 
       <h3>Constructor</h3>
 
@@ -144,9 +151,9 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
         headers={["Property", "Type", "Description"]}
         rows={[
           [
-            "store",
+            "store?",
             "StoreAdapter",
-            "The store adapter for conversation persistence. Required.",
+            "Conversation persistence. Optional — defaults to a fresh MemoryStore. May also be supplied later via build(store) / rebuild(store).",
           ],
           [
             "model",
@@ -164,6 +171,11 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "The system prompt sent with every model request. Required.",
           ],
           [
+            "serverMode?",
+            "boolean",
+            "Default false. Hint to integrations (e.g. mountMcp) that no UI is present. Drives default permission gating.",
+          ],
+          [
             "maxRetries?",
             "number",
             "Maximum number of retries for failed tool executions. Passed to the Executor.",
@@ -179,9 +191,9 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
       <h3>Methods</h3>
 
       <p>
-        For the in-message <code>/hook</code>, <code>/skill</code>, and{" "}
-        <code>@mention</code> directive system, see the dedicated{" "}
-        <a href="/docs/extensions">Hooks, Skills &amp; Mentions</a> guide.
+        For the in-message <code>/hook</code> and <code>/skill</code>{" "}
+        directive system and the subagent factory pattern, see the dedicated{" "}
+        <a href="/docs/extensions">Hooks, Skills &amp; Subagents</a> guide.
       </p>
 
       <PropTable
@@ -190,12 +202,12 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
           [
             "fold<I>(args: GloveFoldArgs<I>)",
             "IGloveBuilder",
-            "Register a tool with the agent. Returns the builder for chaining.",
+            "Register a tool with the agent. Legal at any time, including after build(). Returns the builder for chaining.",
           ],
           [
             "defineHook(name, handler)",
             "IGloveBuilder",
-            "Register a /name hook that runs before the model with full agent controls. See the Hooks, Skills & Mentions guide.",
+            "Register a /name hook that runs before the model with full agent controls. See the Hooks, Skills & Subagents guide.",
           ],
           [
             "defineSkill(args)",
@@ -203,9 +215,9 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "Register a /name skill that injects context as a synthetic user message. Object form: { name, handler, description?, exposeToAgent? }. exposeToAgent: true exposes the skill via the glove_invoke_skill tool.",
           ],
           [
-            "defineMention(args)",
+            "defineSubAgent(args)",
             "IGloveBuilder",
-            "Register a subagent the main agent can route to via the auto-registered glove_invoke_subagent tool. Object form: { name, handler, description? }. Mirrors Claude Code's subagent convention — the user's @name text reaches the model verbatim and acts as a routing signal.",
+            "Register a subagent factory the main agent can route to via the auto-registered glove_invoke_subagent tool. Object form: { name, factory, description? }. The factory builds and returns a fully-configured child IGloveRunnable for each invocation.",
           ],
           [
             "addSubscriber(subscriber: SubscriberAdapter)",
@@ -213,9 +225,24 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "Add a subscriber that receives streaming events. Returns the builder for chaining.",
           ],
           [
-            "build()",
+            "removeSubscriber(subscriber: SubscriberAdapter)",
+            "void",
+            "Detach a previously added subscriber.",
+          ],
+          [
+            "setDisplayManager(dm: DisplayManagerAdapter)",
+            "IGloveBuilder",
+            "Swap the display manager. Builder-form (chainable) and runtime-form. Subagents typically call this on the child to share the parent's display stack mid-run.",
+          ],
+          [
+            "build(store?: StoreAdapter)",
             "IGloveRunnable",
-            "Finalize configuration and return a runnable agent instance.",
+            "Finalize configuration and return a runnable agent. If no store was supplied to the constructor and one is supplied here, the executor's already-folded tools (including auto-registered skill/subagent dispatch tools) and subscribers are transferred onto the freshly-built executor.",
+          ],
+          [
+            "rebuild(store?: StoreAdapter)",
+            "IGloveRunnable",
+            "Same body as build(); chainable variant useful for swapping the store late.",
           ],
           [
             "processRequest(request, signal?)",
@@ -226,6 +253,16 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "setModel(model: ModelAdapter)",
             "void",
             "Replace the model adapter at runtime. Useful for model switching mid-session.",
+          ],
+          [
+            "setSystemPrompt(prompt: string)",
+            "void",
+            "Update the system prompt for this session. Only safe to call when no request is in progress.",
+          ],
+          [
+            "getSystemPrompt()",
+            "string",
+            "Return the current system prompt.",
           ],
         ]}
       />
@@ -239,6 +276,16 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "displayManager",
             "DisplayManagerAdapter",
             "Read-only access to the display manager instance.",
+          ],
+          [
+            "model",
+            "ModelAdapter",
+            "Read-only access to the active model adapter.",
+          ],
+          [
+            "serverMode",
+            "boolean",
+            "Whether the agent was constructed with serverMode: true.",
           ],
         ]}
       />
@@ -255,9 +302,14 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "Description of what the tool does. The model reads this to decide when to invoke it.",
           ],
           [
-            "inputSchema",
+            "inputSchema?",
             "z.ZodType<I>",
-            "Zod schema defining the tool's input shape.",
+            "Zod schema for the tool's input. Validated locally on each call. Provide either inputSchema or jsonSchema.",
+          ],
+          [
+            "jsonSchema?",
+            "Record<string, unknown>",
+            "Raw JSON Schema — for tools bridged from MCP, OpenAPI, etc. Skips local validation. Provide either inputSchema or jsonSchema.",
           ],
           [
             "requiresPermission?",
@@ -271,8 +323,8 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
           ],
           [
             "do",
-            "(input: I, display: DisplayManagerAdapter) => Promise<ToolResultData>",
-            "The tool's implementation. Receives validated input and the display manager. Return value becomes the tool result.",
+            "(input: I, display: DisplayManagerAdapter, glove: IGloveRunnable, signal?: AbortSignal) => Promise<ToolResultData>",
+            "The tool's implementation. Receives validated input, the parent's display manager, the running Glove instance (use to fold further tools at runtime), and the active request's AbortSignal. Forward the signal into long-running internal work so abort propagates.",
           ],
         ]}
       />
@@ -281,7 +333,9 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
 
       <p>
         The interface returned by <code>build()</code>. Represents a fully
-        configured, ready-to-run agent.
+        configured, ready-to-run agent. Most builder methods are also part of
+        this interface — folding tools and registering hooks/skills/subagents
+        is legal at any time, including after build.
       </p>
 
       <PropTable
@@ -290,7 +344,32 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
           [
             "processRequest(request, signal?)",
             "(request: string | ContentPart[], signal?: AbortSignal) => Promise<ModelPromptResult | Message>",
-            "Send a user request to the agent and get the response.",
+            "Send a user request to the agent and get the response. Parses /hook and /skill directives; @mentions reach the model verbatim.",
+          ],
+          [
+            "fold<I>(args: GloveFoldArgs<I>)",
+            "IGloveRunnable",
+            "Fold a tool. Legal at any time, including after build.",
+          ],
+          [
+            "defineHook(name, handler)",
+            "IGloveRunnable",
+            "Register a /name hook handler.",
+          ],
+          [
+            "defineSkill(args)",
+            "IGloveRunnable",
+            "Register a /name skill handler.",
+          ],
+          [
+            "defineSubAgent(args)",
+            "IGloveRunnable",
+            "Register a subagent factory.",
+          ],
+          [
+            "rebuild(store?)",
+            "IGloveRunnable",
+            "Rebuild the agent's internals, optionally swapping the store. Tools folded before rebuild are transferred onto the new executor.",
           ],
           [
             "setModel(model)",
@@ -298,9 +377,44 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "Swap the model adapter at runtime.",
           ],
           [
+            "setSystemPrompt(prompt)",
+            "(prompt: string) => void",
+            "Update the system prompt.",
+          ],
+          [
+            "getSystemPrompt()",
+            "() => string",
+            "Read the current system prompt.",
+          ],
+          [
+            "setDisplayManager(dm)",
+            "(dm: DisplayManagerAdapter) => void",
+            "Swap the display manager. Subagents typically call this on the child Glove to share the parent's display stack mid-run.",
+          ],
+          [
+            "addSubscriber(s)",
+            "(s: SubscriberAdapter) => void",
+            "Attach a SubscriberAdapter to the prompt machine, executor, and observer.",
+          ],
+          [
+            "removeSubscriber(s)",
+            "(s: SubscriberAdapter) => void",
+            "Detach a previously attached SubscriberAdapter.",
+          ],
+          [
             "displayManager",
             "DisplayManagerAdapter",
-            "Read-only reference to the display manager.",
+            "Read-only reference to the active display manager.",
+          ],
+          [
+            "model",
+            "ModelAdapter",
+            "Read-only reference to the active model adapter.",
+          ],
+          [
+            "serverMode",
+            "boolean",
+            "Whether the agent was constructed with serverMode: true.",
           ],
         ]}
       />
@@ -727,7 +841,8 @@ await observer.tryCompaction();`}
         <code>
           new Observer(store: StoreAdapter, ctx: Context, prompt: PromptMachine,
           compaction_instructions: string, max_turns?: number,
-          context_compaction_limit?: number)
+          context_compaction_limit?: number,
+          escape_compaction_threshold?: number)
         </code>
       </p>
 
@@ -739,12 +854,17 @@ await observer.tryCompaction();`}
           [
             "MAX_TURNS",
             "number",
-            "Maximum turns before compaction is considered.",
+            "Maximum turns per request. Defaults to 120. Exceeding this aborts the loop with a polite error message.",
           ],
           [
             "CONTEXT_COMPACTION_LIMIT",
             "number",
-            "Maximum token count before compaction is triggered.",
+            "Token count above which compaction runs. Defaults to 100,000.",
+          ],
+          [
+            "ESCAPE_COMPACTION_THRESHOLD",
+            "number",
+            "Pre-emptive compaction percentage (0-100). Defaults to 90. When the current consumption is at or above this fraction of CONTEXT_COMPACTION_LIMIT, Agent.ask runs compaction immediately after a model turn that contained tool_use calls — keeps tool_use / tool_result pairs from being split across a compaction boundary.",
           ],
         ]}
       />
@@ -780,9 +900,14 @@ await observer.tryCompaction();`}
             "Get the current turn count from the store.",
           ],
           [
-            "addTokensConsumed(count: number)",
+            "addTokensConsumed(args: TokenConsumptionCounter)",
             "Promise<void>",
-            "Add to the cumulative token count in the store.",
+            "Add { tokens_in, tokens_out } to the store and emit a token_consumption subscriber event.",
+          ],
+          [
+            "isCompactionImminent()",
+            "Promise<boolean>",
+            "Returns true when current consumption has crossed the ESCAPE_COMPACTION_THRESHOLD fraction of CONTEXT_COMPACTION_LIMIT. Used by Agent.ask to compact pre-emptively after tool-call turns.",
           ],
           [
             "getCurrentTokenConsumption()",
@@ -985,7 +1110,12 @@ try {
       result: ToolResultData }
   | { type: "compaction_start"; current_token_consumption: number }
   | { type: "compaction_end"; current_token_consumption: number;
-      summary_message: Message }`}
+      summary_message: Message }
+  | { type: "token_consumption"; consumption: TokenConsumptionCounter }
+  | { type: "hook_invoked"; name: string }
+  | { type: "skill_invoked"; name: string; source: "user" | "agent"; args?: string }
+  | { type: "subagent_invoked"; name: string; prompt: string }
+  | { type: "subagent_completed"; name: string; status: "success" | "error"; message?: string };`}
         language="typescript"
       />
 
@@ -1016,18 +1146,43 @@ try {
           ],
           [
             "tool_use_result",
-            "Core (PromptMachine)",
+            "Executor",
             "Result of executing a tool. Includes tool_name, call_id, and the full ToolResultData.",
           ],
           [
             "compaction_start",
-            "Core (Context)",
+            "Observer",
             "Conversation compaction is beginning. Contains current token consumption.",
           ],
           [
             "compaction_end",
-            "Core (Context)",
+            "Observer",
             "Compaction finished. Contains the new token count and the summary message.",
+          ],
+          [
+            "token_consumption",
+            "Observer",
+            "Tokens were just added to the running totals. Carries the per-turn TokenConsumptionCounter.",
+          ],
+          [
+            "hook_invoked",
+            "Glove",
+            "A user-side /name hook handler is about to run.",
+          ],
+          [
+            "skill_invoked",
+            "Glove / skill dispatch tool",
+            'A skill handler is about to run. source: "user" for /name directive invocations, "agent" when the model called glove_invoke_skill.',
+          ],
+          [
+            "subagent_invoked",
+            "Executor",
+            "A subagent's child Glove run is about to start. Carries the subagent name and the prompt the model supplied.",
+          ],
+          [
+            "subagent_completed",
+            "Executor",
+            "Closes the subagent_invoked bracket with a 1:1 guarantee — fired even on abort or factory failure.",
           ],
         ]}
       />
@@ -1166,16 +1321,32 @@ await notify("model_response_complete", {
   getMessages(): Promise<Message[]>;
   appendMessages(msgs: Message[]): Promise<void>;
   getTokenCount(): Promise<number>;
-  addTokens(count: number): Promise<void>;
+  addTokens(args: TokenConsumptionCounter): Promise<void>;
   getTurnCount(): Promise<number>;
   incrementTurn(): Promise<void>;
   resetCounters(): Promise<void>;
-  // Optional:
+  // Optional — tasks:
   getTasks?(): Promise<Task[]>;
   addTasks?(tasks: Task[]): Promise<void>;
   updateTask?(taskId: string, updates: Partial<Task>): Promise<void>;
+  // Optional — permissions:
   getPermission?(toolName: string): Promise<PermissionStatus>;
   setPermission?(toolName: string, status: PermissionStatus): Promise<void>;
+  // Optional — inbox:
+  getInboxItems?(): Promise<InboxItem[]>;
+  addInboxItem?(item: InboxItem): Promise<void>;
+  updateInboxItem?(
+    itemId: string,
+    updates: Partial<Pick<InboxItem, "status" | "response" | "resolved_at">>,
+  ): Promise<void>;
+  getResolvedInboxItems?(): Promise<InboxItem[]>;
+  // Optional — subagent stores:
+  createSubAgentStore?(namespace: string, durable?: boolean): Promise<StoreAdapter>;
+}
+
+interface TokenConsumptionCounter {
+  tokens_in: number;
+  tokens_out: number;
 }`}
         language="typescript"
       />
@@ -1204,9 +1375,9 @@ await notify("model_response_complete", {
             "Get the cumulative token count.",
           ],
           [
-            "addTokens(count)",
+            "addTokens(args)",
             "Promise<void>",
-            "Add to the cumulative token count.",
+            "Add { tokens_in, tokens_out } to the cumulative counts. getTokenCount() still returns a single sum.",
           ],
           [
             "getTurnCount()",
@@ -1248,8 +1419,71 @@ await notify("model_response_complete", {
             "Promise<void>",
             "Set permission status for a tool. Optional.",
           ],
+          [
+            "getInboxItems?()",
+            "Promise<InboxItem[]>",
+            "Retrieve all inbox items. Optional. See the Inbox guide.",
+          ],
+          [
+            "addInboxItem?(item)",
+            "Promise<void>",
+            "Persist a new inbox item. Optional.",
+          ],
+          [
+            "updateInboxItem?(itemId, updates)",
+            "Promise<void>",
+            "Mutate an inbox item's status / response / resolved_at. Optional.",
+          ],
+          [
+            "getResolvedInboxItems?()",
+            "Promise<InboxItem[]>",
+            "Retrieve only items in the resolved status. Optional.",
+          ],
+          [
+            "createSubAgentStore?(namespace, durable?)",
+            "Promise<StoreAdapter>",
+            "Derive a child store for a subagent. With durable: false (default) every invocation returns a fresh store; with durable: true the same child store is returned for the same namespace so the subagent accumulates history across calls. Optional — when absent, subagent factories must construct their own store.",
+          ],
         ]}
       />
+
+      {/* ================================================================== */}
+      {/* MEMORY STORE                                                       */}
+      {/* ================================================================== */}
+      <h2 id="memory-store">MemoryStore</h2>
+
+      <p>
+        In-process implementation of <code>StoreAdapter</code> shipped with{" "}
+        <code>glove-core</code>. Used as the default store when{" "}
+        <code>Glove</code> is constructed without one. All data lives in
+        memory and is lost when the instance is garbage-collected — perfect
+        for prototypes, scripts, tests, and short-lived sessions.
+      </p>
+
+      <p>
+        <code>MemoryStore</code> implements every optional method, including{" "}
+        <code>createSubAgentStore</code>, so subagents work out of the box
+        without any extra setup. With <code>durable: true</code>, derived
+        sub-stores are cached per namespace so a subagent can carry message
+        history across invocations within the same parent process.
+      </p>
+
+      <CodeBlock
+        code={`import { MemoryStore } from "glove-core";
+
+const store = new MemoryStore("session-1");
+
+// Sub-stores
+const ephemeral = await store.createSubAgentStore("reviewer");           // fresh per call
+const durable = await store.createSubAgentStore("planner", true);        // cached per namespace`}
+        language="typescript"
+      />
+
+      <h3>Constructor</h3>
+
+      <p>
+        <code>new MemoryStore(identifier: string)</code>
+      </p>
 
       {/* ================================================================== */}
       {/* SUBSCRIBER ADAPTER                                                 */}
@@ -1257,14 +1491,17 @@ await notify("model_response_complete", {
       <h2 id="subscriber-adapter">SubscriberAdapter</h2>
 
       <p>
-        Interface for observing agent events. Subscribers receive streaming
-        text deltas, tool invocations, tool results, and model response
-        completions.
+        Interface for observing agent events. <code>record</code> is generic
+        over the event type via <code>SubscriberEventDataMap</code>, so the
+        compiler enforces that the data shape matches the event name.
       </p>
 
       <CodeBlock
         code={`interface SubscriberAdapter {
-  record(event_type: string, data: any): Promise<void>;
+  record: <T extends SubscriberEvent["type"]>(
+    event_type: T,
+    data: SubscriberEventDataMap[T],
+  ) => Promise<void>;
 }`}
         language="typescript"
       />
@@ -1275,58 +1512,15 @@ await notify("model_response_complete", {
           [
             "record(event_type, data)",
             "Promise<void>",
-            "Called whenever an event occurs. The event_type string identifies the event, and data carries the payload.",
+            "Called whenever an event occurs. The event_type discriminates the data shape via the SubscriberEventDataMap.",
           ],
         ]}
       />
-
-      <h3 id="subscriber-events">Subscriber Events</h3>
 
       <p>
-        The following events are emitted by the system and received by
-        subscribers via the <code>record</code> method.
+        For the full list of events and payload shapes, see the{" "}
+        <a href="#subscriber-events">SubscriberEvent reference</a> above.
       </p>
-
-      <PropTable
-        headers={["Event", "Data Shape", "Description"]}
-        rows={[
-          [
-            "text_delta",
-            "{ text: string }",
-            "A chunk of streaming text from the model. Emitted as the model generates tokens.",
-          ],
-          [
-            "tool_use",
-            "{ id: string; name: string; input: unknown }",
-            "A tool invocation has started. Contains the tool call ID, name, and input arguments.",
-          ],
-          [
-            "tool_use_result",
-            "{ tool_name: string; call_id?: string; result: ToolResult['result'] }",
-            "A tool has finished executing. Contains the tool name, call ID, and execution result.",
-          ],
-          [
-            "model_response",
-            "{ text: string; tool_calls: ToolCall[] }",
-            "A model turn is complete (non-streaming adapters).",
-          ],
-          [
-            "model_response_complete",
-            "{ text: string; tool_calls: ToolCall[] }",
-            "A model turn is complete (streaming adapters). Contains the full response text and any tool calls.",
-          ],
-          [
-            "compaction_start",
-            "(none)",
-            "Context compaction has begun. Emitted by the Observer before the summarization model call.",
-          ],
-          [
-            "compaction_end",
-            "(none)",
-            "Context compaction has finished. Emitted by the Observer after the summary is appended and counters are reset.",
-          ],
-        ]}
-      />
 
       {/* ================================================================== */}
       {/* MESSAGE                                                            */}
@@ -1342,6 +1536,7 @@ await notify("model_response_complete", {
   sender: "user" | "agent";
   id?: string;
   text: string;
+  pre_modified_text?: string;
   content?: ContentPart[];
   tool_results?: ToolResult[];
   tool_calls?: ToolCall[];
@@ -1368,7 +1563,12 @@ await notify("model_response_complete", {
           [
             "text",
             "string",
-            "The text content of the message.",
+            "The text content of the message. After hooks rewrite a user turn, this holds the rewritten text.",
+          ],
+          [
+            "pre_modified_text?",
+            "string",
+            "Original user text before any hook rewrite. Useful for transcript renderers that want to show the user what they actually typed.",
           ],
           [
             "content?",
@@ -1484,9 +1684,14 @@ await notify("model_response_complete", {
           ["name", "string", "Unique tool name."],
           ["description", "string", "Description for the model."],
           [
-            "input_schema",
+            "input_schema?",
             "z.ZodType<I>",
-            "Zod schema for input validation and JSON Schema generation.",
+            "Zod schema for input validation and JSON Schema generation. Provide either input_schema or jsonSchema.",
+          ],
+          [
+            "jsonSchema?",
+            "Record<string, unknown>",
+            "Raw JSON Schema for tools bridged from MCP / OpenAPI / etc. Skips local validation. Provide either input_schema or jsonSchema.",
           ],
           [
             "requiresPermission?",
@@ -1499,9 +1704,9 @@ await notify("model_response_complete", {
             "When true, the tool runs to completion despite abort signals. Essential for tools that perform mutations the user has committed to (e.g. checkout, payment).",
           ],
           [
-            "run(input: I, handOver?: HandOverFunction)",
+            "run(input, handOver?, signal?)",
             "Promise<ToolResultData>",
-            "Execute the tool with validated input. Optional handOver function for delegation patterns.",
+            "Execute the tool with validated input. handOver delegates to the renderer / display stack. signal is the active request's AbortSignal — forward it into long-running internal work (e.g. a child Glove run) so abort propagates. Tools marked unAbortable should ignore signal.",
           ],
         ]}
       />
@@ -1559,9 +1764,9 @@ await notify("model_response_complete", {
 
       <CodeBlock
         code={`interface ToolResultData {
-  status: "success" | "error";
+  status: "success" | "error" | "aborted";
   data: unknown;          // Sent to the AI model
-  message?: string;       // Error message (for status: "error")
+  message?: string;       // Error / abort message
   renderData?: unknown;   // Client-only — NOT sent to model, used by renderResult
 }`}
         language="typescript"
@@ -1572,8 +1777,8 @@ await notify("model_response_complete", {
         rows={[
           [
             "status",
-            '"success" | "error"',
-            "Whether the tool executed successfully or encountered an error.",
+            '"success" | "error" | "aborted"',
+            'Outcome of the tool. The Executor synthesizes "aborted" results when an abort signal interrupts an abortable tool.',
           ],
           [
             "data",
@@ -1686,6 +1891,22 @@ await notify("model_response_complete", {
             "RejectFn",
             "(reason?: any) => void",
             "Internal rejector for pushAndWait promises.",
+          ],
+        ]}
+      />
+
+      {/* ================================================================== */}
+      {/* CONSTANTS                                                          */}
+      {/* ================================================================== */}
+      <h2 id="constants">Exported Constants</h2>
+
+      <PropTable
+        headers={["Name", "Value", "Description"]}
+        rows={[
+          [
+            "SUBAGENT_DISPATCH_TOOL_NAME",
+            '"glove_invoke_subagent"',
+            "Tool name of the auto-registered subagent dispatch tool. The Executor recognises calls to this tool name and brackets them with subagent_invoked / subagent_completed events. Match against this constant rather than the literal string when filtering events or tool calls.",
           ],
         ]}
       />

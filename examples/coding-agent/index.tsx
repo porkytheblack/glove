@@ -20,6 +20,7 @@ import {
   type Message,
   type Task,
   type TaskStatus,
+  type TokenConsumptionCounter,
   type PermissionStatus,
   AbortError,
   Displaymanager,
@@ -74,8 +75,8 @@ class MemoryStore implements StoreAdapter {
     return this.tokenCount;
   }
 
-  async addTokens(count: number) {
-    this.tokenCount += count;
+  async addTokens(args: TokenConsumptionCounter) {
+    this.tokenCount += args.tokens_in + args.tokens_out;
   }
 
   async getTurnCount() {

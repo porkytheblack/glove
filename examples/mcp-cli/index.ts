@@ -14,6 +14,7 @@ import {
   OpenRouterAdapter,
   type Message,
   type StoreAdapter,
+  type TokenConsumptionCounter,
 } from "glove-core";
 import { mountMcp, type McpAdapter } from "glove-mcp";
 
@@ -54,8 +55,8 @@ class MemoryStore implements StoreAdapter {
   async getTokenCount() {
     return this.tokenCount;
   }
-  async addTokens(count: number) {
-    this.tokenCount += count;
+  async addTokens(args: TokenConsumptionCounter) {
+    this.tokenCount += args.tokens_in + args.tokens_out;
   }
   async getTurnCount() {
     return this.turnCount;
@@ -138,9 +139,10 @@ async function main() {
     systemPrompt:
       "You are a helpful assistant.\n\n" +
       "When the user asks for something requiring an external integration " +
-      "(Notion, Linear, etc), call find_capability to discover and activate " +
-      "the right MCP server. Once activated, its tools are available on your " +
-      "next turn.",
+      "(Notion, Linear, etc), invoke the `discovermcp` subagent (via the " +
+      "`glove_invoke_subagent` tool) with a brief description of what you " +
+      "need. The subagent will pick and activate the right MCP server. " +
+      "Once activated, its tools are available on your next turn.",
     serverMode: true,
     compaction_config: {
       compaction_instructions:

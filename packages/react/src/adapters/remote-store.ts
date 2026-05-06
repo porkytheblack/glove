@@ -2,6 +2,7 @@ import type {
   StoreAdapter,
   Message,
   Task,
+  TokenConsumptionCounter,
   InboxItem,
   PermissionStatus,
 } from "glove-core/core";
@@ -24,7 +25,7 @@ export interface RemoteStoreActions {
 
   // Optional — in-memory defaults when omitted
   getTokenCount?: (sessionId: string) => Promise<number>;
-  addTokens?: (sessionId: string, count: number) => Promise<void>;
+  addTokens?: (sessionId: string, args: TokenConsumptionCounter) => Promise<void>;
   getTurnCount?: (sessionId: string) => Promise<number>;
   incrementTurn?: (sessionId: string) => Promise<void>;
   resetCounters?: (sessionId: string) => Promise<void>;
@@ -109,11 +110,11 @@ export function createRemoteStore(
       return tokenCount;
     },
 
-    async addTokens(count) {
+    async addTokens(args) {
       if (actions.addTokens) {
-        await actions.addTokens(sessionId, count);
+        await actions.addTokens(sessionId, args);
       } else {
-        tokenCount += count;
+        tokenCount += args.tokens_in + args.tokens_out;
       }
     },
 

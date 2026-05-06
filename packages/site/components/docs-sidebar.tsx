@@ -24,7 +24,7 @@ const sections: NavSection[] = [
       { label: "Getting Started", href: "/docs/getting-started" },
       { label: "The Display Stack", href: "/docs/display-stack" },
       { label: "The Inbox", href: "/docs/inbox" },
-      { label: "Hooks, Skills & Mentions", href: "/docs/extensions" },
+      { label: "Hooks, Skills & Subagents", href: "/docs/extensions" },
       { label: "Glovebox", href: "/docs/glovebox", beta: true },
     ],
   },
@@ -67,6 +67,12 @@ const sections: NavSection[] = [
     title: "Resources",
     items: [
       { label: "Agent Skill", href: "/docs/agent-skill" },
+    ],
+  },
+  {
+    title: "Releases",
+    items: [
+      { label: "v3.0.0 Release Notes", href: "/docs/v3" },
     ],
   },
 ];

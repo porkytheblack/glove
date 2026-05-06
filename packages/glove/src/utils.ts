@@ -1,4 +1,126 @@
-import type { Message } from "./core";
+import type {
+  InboxItem,
+  Message,
+  PermissionStatus,
+  StoreAdapter,
+  Task,
+  TokenConsumptionCounter,
+} from "./core";
+
+/**
+ * Default in-memory `StoreAdapter`. Used by `Glove` when the caller doesn't
+ * supply a store, and freely usable as a no-setup option for prototyping,
+ * tests, and short-lived sessions. All data lives in process memory and is
+ * lost when the instance is garbage-collected.
+ *
+ * Implements `createSubAgentStore` so subagents work out of the box: with
+ * `durable: false` (the default) every invocation gets a fresh child store;
+ * with `durable: true` the same child instance is returned for the same
+ * namespace so a subagent can carry message history across invocations.
+ */
+export class MemoryStore implements StoreAdapter {
+  identifier: string;
+
+  private messages: Array<Message> = [];
+  private tokensIn = 0;
+  private tokensOut = 0;
+  private turnCount = 0;
+  private tasks: Array<Task> = [];
+  private permissions = new Map<string, PermissionStatus>();
+  private inboxItems: Array<InboxItem> = [];
+  private durableSubStores = new Map<string, MemoryStore>();
+
+  constructor(identifier: string) {
+    this.identifier = identifier;
+  }
+
+  async getMessages() {
+    return this.messages;
+  }
+
+  async appendMessages(msgs: Array<Message>) {
+    this.messages.push(...msgs);
+  }
+
+  async getTokenCount() {
+    return this.tokensIn + this.tokensOut;
+  }
+
+  async addTokens(args: TokenConsumptionCounter) {
+    this.tokensIn += args.tokens_in;
+    this.tokensOut += args.tokens_out;
+  }
+
+  async getTurnCount() {
+    return this.turnCount;
+  }
+
+  async incrementTurn() {
+    this.turnCount++;
+  }
+
+  async resetCounters() {
+    this.tokensIn = 0;
+    this.tokensOut = 0;
+    this.turnCount = 0;
+  }
+
+  async getTasks() {
+    return this.tasks;
+  }
+
+  async addTasks(tasks: Array<Task>) {
+    this.tasks = tasks;
+  }
+
+  async updateTask(
+    taskId: string,
+    updates: Partial<Pick<Task, "status" | "content" | "activeForm">>,
+  ) {
+    const task = this.tasks.find((t) => t.id === taskId);
+    if (task) Object.assign(task, updates);
+  }
+
+  async getPermission(toolName: string) {
+    return this.permissions.get(toolName) ?? "unset";
+  }
+
+  async setPermission(toolName: string, status: PermissionStatus) {
+    this.permissions.set(toolName, status);
+  }
+
+  async getInboxItems() {
+    return this.inboxItems;
+  }
+
+  async addInboxItem(item: InboxItem) {
+    this.inboxItems.push(item);
+  }
+
+  async updateInboxItem(
+    itemId: string,
+    updates: Partial<Pick<InboxItem, "status" | "response" | "resolved_at">>,
+  ) {
+    const item = this.inboxItems.find((i) => i.id === itemId);
+    if (item) Object.assign(item, updates);
+  }
+
+  async getResolvedInboxItems() {
+    return this.inboxItems.filter((i) => i.status === "resolved");
+  }
+
+  async createSubAgentStore(namespace: string, durable = false): Promise<StoreAdapter> {
+    if (durable) {
+      let existing = this.durableSubStores.get(namespace);
+      if (!existing) {
+        existing = new MemoryStore(`${this.identifier}__${namespace}`);
+        this.durableSubStores.set(namespace, existing);
+      }
+      return existing;
+    }
+    return new MemoryStore(`${this.identifier}__${namespace}_${Date.now()}`);
+  }
+}
 
 // Returns messages from the last compaction onward. The store keeps full history
 // for the frontend, while the model only sees the post-compaction context.
@@ -13,22 +135,6 @@ export function splitAtLastCompaction(messages: Array<Message>) {
     return messages
 }
 
-
-function abortableTool<T>(
-  signal: AbortSignal,
-  executor: (resolve: (v: T) => void, reject: (e: unknown) => void) => void
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    // Already aborted before we even started
-    if (signal.aborted) {
-      return reject(signal.reason);
-    }
-
-    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-
-    executor(resolve, reject);
-  });
-}
 
 /**
  * Wraps a Promise to make it abortable via an AbortSignal.

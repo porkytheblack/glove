@@ -5,6 +5,8 @@
  * `Authorization: Bearer <key>`. Multiple prompts multiplexed by `id`.
  */
 
+import type { SubscriberEvent } from "glove-core/core"
+
 // ─── FileRef ──────────────────────────────────────────────────────────────────
 
 export type FileRefInline = {
@@ -56,16 +58,14 @@ export type FileRef =
   | FileRefS3
   | FileRefGcs
 
-// ─── Subscriber events (mirrors glove-core's SubscriberEvent 1:1) ────────────
+// ─── Subscriber events ───────────────────────────────────────────────────────
 
-export type SubscriberEventType =
-  | "text_delta"
-  | "tool_use"
-  | "model_response"
-  | "model_response_complete"
-  | "tool_use_result"
-  | "compaction_start"
-  | "compaction_end"
+/**
+ * Wire-side name of a subscriber event. Derived directly from glove-core's
+ * `SubscriberEvent` discriminated union so new events added there flow into
+ * the wire protocol automatically — no hand-maintained mirror to drift.
+ */
+export type SubscriberEventType = SubscriberEvent["type"]
 
 // ─── Display slots (mirrors glove-core's Slot) ───────────────────────────────
 

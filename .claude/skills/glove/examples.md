@@ -509,17 +509,16 @@ glove.fold({
 
 ```tsx
 import {
-  type StoreAdapter,
   type SubscriberAdapter,
   Displaymanager,
   AnthropicAdapter,
   Glove,
+  MemoryStore,
 } from "glove-core";
 import { render, Text, Box } from "ink";
 
-// weather-agent defines MemoryStore locally (not imported from glove-react)
-class MemoryStore implements StoreAdapter { /* ... */ }
-
+// MemoryStore from glove-core is the default. You can also omit the `store`
+// from the Glove config and one will be constructed automatically.
 const store = new MemoryStore("weather-agent");
 const model = new AnthropicAdapter({
   model: "claude-sonnet-4-5-20250929",
@@ -982,6 +981,97 @@ const { sendMessage } = useGlove({
 
 ---
 
+## Pattern: Subagent with the Factory Pattern
+
+Define a subagent the main agent can route a self-contained task to via the auto-registered `glove_invoke_subagent` tool. The factory builds a fresh child `Glove` per invocation; the dispatcher runs it and returns its final agent text as the tool result. The Executor brackets the call with `subagent_invoked` / `subagent_completed` events, guaranteed 1:1 even on abort.
+
+```typescript
+import { Glove, MemoryStore, Displaymanager, createAdapter } from "glove-core";
+import z from "zod";
+
+const searchTool = {
+  name: "search",
+  description: "Web search.",
+  inputSchema: z.object({ query: z.string() }),
+  async do(input: { query: string }) {
+    const hits = await fetchWebSearch(input.query);
+    return { status: "success" as const, data: hits };
+  },
+};
+
+const fetchTool = {
+  name: "fetch_url",
+  description: "Fetch the contents of a URL.",
+  inputSchema: z.object({ url: z.string().url() }),
+  async do(input: { url: string }) {
+    const res = await fetch(input.url);
+    return { status: "success" as const, data: await res.text() };
+  },
+};
+
+const parent = new Glove({
+  store: new MemoryStore("parent"),
+  model: createAdapter({ provider: "anthropic", stream: true }),
+  displayManager: new Displaymanager(),
+  systemPrompt:
+    "You are a research assistant. When the user @-mentions @researcher or asks " +
+    "for deep research, route to the researcher subagent via glove_invoke_subagent.",
+  compaction_config: { compaction_instructions: "Summarise." },
+})
+  .defineSubAgent({
+    name: "researcher",
+    description: "Deep research subagent. Use for multi-step web research tasks.",
+    factory: async ({ parentStore, parentControls, prompt }) => {
+      // Sub-store: durable false → fresh per call. durable true → reused.
+      const subStore =
+        (await parentStore.createSubAgentStore?.("researcher", false)) ??
+        new MemoryStore(`researcher_${Date.now()}`);
+
+      return new Glove({
+        store: subStore,
+        model: parentControls.glove.model,             // inherit parent's model
+        displayManager: parentControls.displayManager, // share parent's display stack
+        systemPrompt:
+          "You are a research subagent. Plan, search, fetch, and summarise. " +
+          "Return a tight markdown summary at the end. The prompt you receive " +
+          `is the only context you have: "${prompt}"`,
+        compaction_config: {
+          compaction_instructions: "Summarise research progress.",
+          compaction_context_limit: 30_000,
+        },
+      })
+        .fold(searchTool)
+        .fold(fetchTool)
+        .build();
+    },
+  })
+  .build();
+
+// Watch the bracket events fire symmetrically
+parent.addSubscriber({
+  async record(type, data) {
+    if (type === "subagent_invoked") {
+      console.log("[open]", (data as { name: string; prompt: string }).name);
+    } else if (type === "subagent_completed") {
+      const d = data as { name: string; status: string; message?: string };
+      console.log("[close]", d.name, d.status, d.message ?? "");
+    }
+  },
+});
+
+// "@researcher" reaches the model verbatim. The model decides to call:
+//   glove_invoke_subagent({ name: "researcher", prompt: "..." })
+await parent.processRequest(
+  "@researcher write a 5-bullet brief on the state of WebGPU in 2026",
+);
+```
+
+**Why factory, not handler?** The factory builds a fresh child per call by default — message history doesn't bleed across invocations, and the child gets its own observer / executor / compaction config. Pass `durable: true` to `createSubAgentStore` if you want a subagent that carries history across calls within the same parent lifetime.
+
+**Aborting a subagent run:** `parent.processRequest(text, signal)` forwards `signal` into the dispatcher, which forwards it into `child.processRequest(prompt, signal)`. A parent-side abort propagates into the child's `Agent.ask` loop and unwinds it on the next iteration. The Executor still fires `subagent_completed` (with `status: "error"` and `message: "Subagent run aborted by the user."`).
+
+---
+
 ## Pattern: Push-to-Talk with `useGlovePTT` (Recommended)
 
 The simplest way to add voice with push-to-talk:
@@ -1346,7 +1436,7 @@ glove/
 Smallest possible MCP-enabled agent. Static catalogue of one entry, in-memory adapter, env-var token. Use when you have a long-lived API key for a single integration.
 
 ```ts
-import { Glove, Displaymanager, AnthropicAdapter } from "glove-core";
+import { Glove, Displaymanager, AnthropicAdapter, MemoryStore } from "glove-core";
 import {
   mountMcp,
   type McpAdapter,
@@ -1393,13 +1483,13 @@ glove.build();
 await glove.processRequest("List my open Linear issues assigned to me");
 ```
 
-Linear is pre-activated, so its tools (`linear__list_issues` etc.) are folded at boot and available on the model's first turn — no `find_capability` round-trip needed.
+Linear is pre-activated, so its tools (`linear__list_issues` etc.) are folded at boot and available on the model's first turn — no `discovermcp` round-trip needed.
 
 ---
 
 ## Pattern: Multi-MCP agent with discovery
 
-When the agent might use many integrations and you don't know which up front. The model calls `find_capability("send an email")`; the discovery subagent matches the catalogue, activates the right server, folds its tools.
+When the agent might use many integrations and you don't know which up front. The model calls `glove_invoke_subagent({ name: "discovermcp", prompt: "send an email" })`; the discovery subagent matches the catalogue, activates the right server, folds its tools.
 
 ```ts
 import { mountMcp, type McpCatalogueEntry } from "glove-mcp";
@@ -1434,7 +1524,7 @@ await mountMcp(glove, {
 glove.build();
 ```
 
-Discovery doesn't pre-activate anything. The agent boots with only `find_capability` (plus your own folded tools). When the user says "draft an email to my team about the Q3 deck", the model calls `find_capability("send an email")`; subagent picks `gmail`, calls `adapter.activate("gmail")`, connects, and folds `gmail__create_draft` etc. Next turn the model uses them.
+Discovery doesn't pre-activate anything. The agent boots with only `glove_invoke_subagent` (plus your own folded tools). When the user says "draft an email to my team about the Q3 deck", the model calls `glove_invoke_subagent({ name: "discovermcp", prompt: "send an email" })`; the subagent picks `gmail`, calls `adapter.activate("gmail")`, connects, and folds `gmail__create_draft` etc. onto the parent agent. The Executor brackets the call with `subagent_invoked` / `subagent_completed` for any subscribers watching. Next turn the model uses the freshly bridged tools.
 
 ---
 

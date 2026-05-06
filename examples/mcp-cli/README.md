@@ -8,7 +8,7 @@ the multi-MCP discovery CLI.
 |------------------------------|-----------------------|--------------|
 | `pnpm mcp:notion-mcp-auth`   | `notion-mcp-auth.ts`  | **Recommended.** Runs the MCP authorization spec OAuth flow against `https://mcp.notion.com/mcp` — Dynamic Client Registration + PKCE. No client id/secret needed. Same path Claude Code uses. |
 | `pnpm mcp:notion`            | `notion-agent.ts`     | Focused Notion agent. Defaults to `mcp.notion.com`. Reads bearer tokens from `.mcp-oauth.json`. |
-| `pnpm mcp:cli`               | `index.ts`            | Multi-MCP agent with `find_capability` discovery. |
+| `pnpm mcp:cli`               | `index.ts`            | Multi-MCP agent with `discovermcp` discovery subagent. |
 | `pnpm mcp:notion-auth`       | `notion-auth.ts`      | **Alternative path.** api.notion.com OAuth (Public integration). For pairing with self-hosted `notion-mcp-server`. |
 | `pnpm mcp:notion-server`     | `notion-server.ts`    | **Alternative path.** Spawns `@notionhq/notion-mcp-server` behind `mcp-proxy` for the self-hosted setup. |
 | `pnpm mcp:gmail-auth`        | `gmail-mcp-auth.ts`   | OAuth flow for Gmail's hosted MCP at `gmailmcp.googleapis.com/mcp/v1`. Requires manually-registered Google Cloud OAuth client (Gmail's MCP doesn't support DCR). |

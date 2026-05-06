@@ -235,6 +235,64 @@ export default async function AgentSkillPage() {
       </table>
 
       {/* ------------------------------------------------------------------ */}
+      <h2>How user-invoked skills land in history</h2>
+
+      <p>
+        The skill above is the install-time Claude Code skill bundle. The
+        runtime <code>defineSkill</code> system inside <code>glove-core</code>{" "}
+        — the <code>/skill-name</code> directives users type into chat — has
+        a behavior worth highlighting because it shows up in your stored
+        message history.
+      </p>
+
+      <p>
+        When a user types something like{" "}
+        <code>&quot;/research-mode tell me about ribosomes&quot;</code>,
+        Glove parses the directive token but does <strong>not</strong> strip
+        it from the message. Instead, the bound <code>/name</code> token is
+        replaced in the persisted user text with a non-triggerable
+        placeholder of the form{" "}
+        <code>[invoked_extension__skill_&lt;name&gt;]</code> for skills, and{" "}
+        <code>[invoked_extension__hook_&lt;name&gt;]</code> for hooks. The
+        skill or hook handler runs as expected; the persisted user message
+        records exactly which extensions fired.
+      </p>
+
+      <CodeBlock
+        language="text"
+        code={`User typed:
+  "/research-mode tell me about ribosomes"
+
+Persisted user message text:
+  "[invoked_extension__skill_research-mode] tell me about ribosomes"
+
+Skill handler receives:
+  ctx.parsedText = "[invoked_extension__skill_research-mode] tell me about ribosomes"
+  ctx.source     = "user"
+  ctx.args       = undefined`}
+      />
+
+      <p>
+        The placeholder is intentionally non-triggerable — re-parsing it
+        does not re-bind to the skill — so historical messages can be
+        replayed safely without firing the extension a second time. UIs
+        that render the transcript should detect the placeholder and either
+        substitute a chip showing &ldquo;skill: research-mode&rdquo; or
+        strip it entirely; the agent reads it verbatim and infers context
+        from it.
+      </p>
+
+      <p>
+        Synthetic user messages that the skill itself injects (the handler&apos;s
+        return value) are persisted with{" "}
+        <code>is_skill_injection: true</code> so transcript renderers can
+        style them differently from real user turns. See the{" "}
+        <a href="/docs/extensions">Hooks, Skills &amp; Mentions</a> guide
+        for the full <code>defineSkill</code> /{" "}
+        <code>defineHook</code> / <code>defineSubAgent</code> surface.
+      </p>
+
+      {/* ------------------------------------------------------------------ */}
       <h2>Updating the skill</h2>
 
       <p>

@@ -19,11 +19,11 @@ Glove is an open-source TypeScript framework for building AI-powered application
 
 | Package | Purpose | Install |
 |---------|---------|---------|
-| `glove-core` | Runtime engine: agent loop, tool execution, display manager, model adapters (browser-safe — no native deps) | `pnpm add glove-core` |
-| `glove-sqlite` | `SqliteStore` — persistent SQLite-backed store (server-side only, depends on better-sqlite3) | `pnpm add glove-sqlite` |
+| `glove-core` | Runtime engine: agent loop, tool execution, display manager, model adapters, `MemoryStore` default in-memory `StoreAdapter` (browser-safe — no native deps) | `pnpm add glove-core` |
+| `glove-sqlite` | **Deprecated.** `SqliteStore` — persistent SQLite-backed store. Prefer `MemoryStore` from `glove-core` for prototyping or BYO `StoreAdapter` for production. | `pnpm add glove-sqlite` |
 | `glove-react` | React hooks (`useGlove`), `GloveClient`, `GloveProvider`, `defineTool`, `<Render>`, `MemoryStore`, `ToolConfig` with colocated renderers | `pnpm add glove-react` |
 | `glove-next` | One-line Next.js API route handler (`createChatHandler`) for streaming SSE | `pnpm add glove-next` |
-| `glove-mcp` | Bridge MCP servers into a Glove agent: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter`, `find_capability` discovery subagent. Opt-in OAuth helpers at `glove-mcp/oauth`. | `pnpm add glove-mcp` |
+| `glove-mcp` | Bridge MCP servers into a Glove agent: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter`, `discovermcp` discovery subagent. Opt-in OAuth helpers at `glove-mcp/oauth`. | `pnpm add glove-mcp` |
 | `glovebox-core` | Authoring + `glovebox` build CLI. `glovebox.wrap(runnable, config)` packages a built Glove agent into a deployable artifact (Dockerfile + nixpacks.toml + bundled server + manifest + auth key). Storage DSL (`rule.*`, `composite`) and wire protocol types live here too. The unscoped `glovebox` name is taken on npm — install as `glovebox-core`; the CLI binary is still `glovebox`. | `pnpm add glovebox-core` |
 | `glovebox-kit` | In-container runtime. `startGlovebox({ app, port, key, manifestPath, ... })` boots the WS server, auto-injects glovebox skills/hooks, and bridges Glove's display stack onto the wire. Storage adapters: `InlineStorage`, `UrlStorage`, `LocalServerStorage`, `S3Storage`. | (transitive — bundled by `glovebox build`) |
 | `glovebox-client` | Client SDK. `GloveboxClient.make({ endpoints })`, `client.box(name).prompt(text, { files })`, `result.read(name)`, `box.environment()`. Symmetric `ClientStorage` interface with a default inline+url implementation. | `pnpm add glovebox-client` |
@@ -32,12 +32,12 @@ Glove is an open-source TypeScript framework for building AI-powered application
 
 ### What's in the framework
 
-- **`glove-core`** — agent loop, tools, display stack, store/model/subscriber adapters, context compaction, inbox.
+- **`glove-core`** — agent loop, tools, display stack, store/model/subscriber adapters, context compaction, inbox, hooks/skills/subagents, `MemoryStore` default in-memory `StoreAdapter`.
 - **`glove-react`** — colocated renderers via `defineTool`, `<Render>`, `useGlove`, `MemoryStore`, `createRemoteStore`, `createEndpointModel`, `createRemoteModel`.
 - **`glove-next`** — `createChatHandler` (one-line SSE route), voice token handler.
-- **`glove-sqlite`** — `SqliteStore` for persistence (server-side only).
+- **`glove-sqlite`** — deprecated; `SqliteStore` for persistence (server-side only).
 - **`glove-voice`** — full-duplex voice pipeline: STT/TTS/VAD adapters, `GloveVoice`, `useGloveVoice`, `useGlovePTT`, `<VoicePTTButton>`.
-- **`glove-mcp`** — MCP servers as first-class tools: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter` (consumer-supplied per-conversation seam). `find_capability` discovery subagent. Opt-in OAuth helpers at `glove-mcp/oauth` (`runMcpOAuth`, `FsOAuthStore`, `MemoryOAuthStore`, `McpOAuthProvider`).
+- **`glove-mcp`** — MCP servers as first-class tools: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter` (consumer-supplied per-conversation seam). `discovermcp` discovery subagent (registered via `glove.defineSubAgent(discoverySubAgent({...}))`). Opt-in OAuth helpers at `glove-mcp/oauth` (`runMcpOAuth`, `FsOAuthStore`, `MemoryOAuthStore`, `McpOAuthProvider`).
 
 ## Architecture at a Glance
 
@@ -59,8 +59,8 @@ User message → Agent Loop → Model decides tool calls → Execute tools → F
 - **Adapter** — Pluggable interfaces for Model, Store, DisplayManager, and Subscriber. Swap providers without changing app code.
 - **Context Compaction** — Auto-summarizes long conversations to stay within context window limits. The store preserves full message history (so frontends can display the entire chat), while `Context.getMessages()` splits at the last compaction summary so the model only sees post-compaction context. Summary messages are marked with `is_compaction: true`.
 - **Inbox** — Persistent async mailbox for cross-instance communication. An agent posts a request (text) that can't be resolved now; an external service resolves it later (text response). Resolved items are automatically injected into the agent's context on the next `ask()` call. Items can be blocking (agent should wait) or non-blocking. Built-in `glove_post_to_inbox` tool auto-registered when store supports inbox methods.
-- **Extensions (hooks, skills, mentions)** — `/hookname` runs a builder-defined handler with full agent controls (force compaction, swap model, short-circuit a turn). `/skillname` materialises a synthetic user message before the real one (marked `is_skill_injection: true`). `@mentionname` defines a subagent the main agent can route to via the auto-registered `glove_invoke_subagent` tool — the user's `@name` text is NOT parsed by glove, it reaches the model verbatim and acts as a routing signal (mirrors Claude Code's subagent convention). `/` tokens only bind when the name is registered, so `/usr/local` survives. Skills can be exposed to the agent (`exposeToAgent: true`) so the agent pulls them in via the auto-registered `glove_invoke_skill` tool.
-- **MCP catalogue + adapter** — `glove-mcp` introduces two pieces: a static `McpCatalogueEntry[]` describing servers the app supports, and a per-conversation `McpAdapter` holding active ids and resolving access tokens. `mountMcp` reloads previously active servers and folds in a `find_capability` discovery subagent — model finds and activates servers it needs mid-conversation.
+- **Extensions (hooks, skills, subagents)** — `/hookname` runs a builder-defined handler with full agent controls (force compaction, swap model, short-circuit a turn). `/skillname` materialises a synthetic user message before the real one (marked `is_skill_injection: true`). `defineSubAgent({ name, factory })` registers a subagent the main agent can route to via the auto-registered `glove_invoke_subagent` tool — the user's `@name` text is NOT parsed by glove, it reaches the model verbatim and acts as a routing signal (mirrors Claude Code's subagent convention). `/` tokens are replaced with non-triggerable placeholders (`[invoked_extension__hook_<name>]` / `[invoked_extension__skill_<name>]`) so the model sees that an extension fired without the placeholder re-binding on a future parse; unbound `/` tokens stay untouched (so `/usr/local` survives). Skills can be exposed to the agent (`exposeToAgent: true`) so the agent pulls them in via the auto-registered `glove_invoke_skill` tool.
+- **MCP catalogue + adapter** — `glove-mcp` introduces two pieces: a static `McpCatalogueEntry[]` describing servers the app supports, and a per-conversation `McpAdapter` holding active ids and resolving access tokens. `mountMcp` reloads previously active servers and registers a `discovermcp` discovery subagent (via `glove.defineSubAgent(discoverySubAgent({...}))`) — the model invokes it through `glove_invoke_subagent({ name: "discovermcp", prompt: "..." })` to find and activate servers mid-conversation.
 
 ## Quick Start (Next.js)
 
@@ -227,10 +227,12 @@ For CLI tools, backend services, WebSocket servers, or any non-browser environme
 ### Minimal Setup
 
 ```typescript
-import { Glove, Displaymanager, createAdapter } from "glove-core";
+import { Glove, Displaymanager, MemoryStore, createAdapter } from "glove-core";
 import z from "zod";
 
-// In-memory store (see MemoryStore below) or SqliteStore from glove-sqlite for persistence
+// MemoryStore from glove-core is the default. Omit `store` from the
+// Glove config and Glove constructs one for you with a generated identifier.
+// For persistence implement your own StoreAdapter.
 const store = new MemoryStore("my-session");
 
 const agent = new Glove({
@@ -258,30 +260,22 @@ const result = await agent.processRequest("Find recent orders");
 console.log(result.messages[0]?.text);
 ```
 
-### Minimal MemoryStore
+### `MemoryStore` from `glove-core`
+
+`MemoryStore` is the default `StoreAdapter` used when `Glove` is constructed without a `store`. It implements every optional surface — messages, tokens, turns, tasks, permissions, inbox, and `createSubAgentStore` — so subagents work out of the box.
 
 ```typescript
-import type { StoreAdapter, Message } from "glove-core";
+import { MemoryStore } from "glove-core";
 
-class MemoryStore implements StoreAdapter {
-  identifier: string;
-  private messages: Message[] = [];
-  private tokenCount = 0;
-  private turnCount = 0;
+const store = new MemoryStore("my-session");
 
-  constructor(id: string) { this.identifier = id; }
-
-  async getMessages() { return this.messages; }
-  async appendMessages(msgs: Message[]) { this.messages.push(...msgs); }
-  async getTokenCount() { return this.tokenCount; }
-  async addTokens(count: number) { this.tokenCount += count; }
-  async getTurnCount() { return this.turnCount; }
-  async incrementTurn() { this.turnCount++; }
-  async resetCounters() { this.tokenCount = 0; this.turnCount = 0; }
-}
+// Sub-stores: durable: false (default) returns a fresh per-call store.
+// durable: true caches the same instance per namespace so a subagent can
+// carry message history across invocations.
+const childStore = await store.createSubAgentStore("researcher", false);
 ```
 
-For persistent storage: `import { SqliteStore } from "glove-sqlite"` then `new SqliteStore({ dbPath: "./agent.db", sessionId: "abc" })`.
+`MemoryStore` is process-local — it loses data on restart. For persistence, implement `StoreAdapter` against your own backend. `glove-sqlite` is deprecated; new projects should prefer `MemoryStore` for prototyping or BYO `StoreAdapter` for production.
 
 ### Key Differences from React
 
@@ -291,7 +285,7 @@ For persistent storage: `import { SqliteStore } from "glove-sqlite"` then `new S
 | `useGlove()` hook manages state | Call `agent.processRequest()` directly |
 | `GloveClient` + `GloveProvider` | `new Glove({...}).build()` |
 | `createEndpointModel` (SSE client) | `createAdapter()` or direct adapter (e.g. `new AnthropicAdapter()`) |
-| `MemoryStore` from glove-react | Implement `StoreAdapter` yourself or use `SqliteStore` from `glove-sqlite` |
+| `MemoryStore` from glove-react | `MemoryStore` from glove-core (default) — or implement `StoreAdapter` for persistence |
 
 ### Tools Without Display
 
@@ -456,21 +450,23 @@ const storeActions: RemoteStoreActions = {
 };
 ```
 
-## Extensions: Hooks, Skills & Mentions
+## Extensions: Hooks, Skills & Subagents
 
-`processRequest` parses three kinds of inline directive out of the user text and dispatches them before the model is called. Builders register handlers via three new builder methods (chainable, callable post-`build()` like `fold`):
+`processRequest` parses two kinds of inline directive out of the user text and dispatches them before the model is called. Subagents are a third extension surface, but they are NOT parsed from user text — they are routed by the model through a dispatch tool. Builders register handlers via three builder methods (chainable, callable post-`build()` like `fold`):
 
-| Token | Purpose | Builder method |
+| Token / mechanism | Purpose | Builder method |
 |-------|---------|----------------|
 | `/hookname` | Mutate agent state, force compaction, swap model, short-circuit a turn | `defineHook(name, handler)` |
 | `/skillname` | Inject context as a synthetic user message marked `is_skill_injection: true` | `defineSkill({ name, handler, description?, exposeToAgent? })` |
-| `@subagentname` | Define a subagent the main agent can route to via the auto-registered `glove_invoke_subagent` tool. The user's `@name` text reaches the model verbatim — it's a routing signal, not a parsed directive. Mirrors Claude Code's subagent convention. | `defineMention({ name, handler, description? })` |
+| `glove_invoke_subagent({ name, prompt })` (model-side tool) | Register a child Glove the main agent can route a self-contained task to. The user's `@name` text reaches the model verbatim — it's a routing signal, not a parsed directive. Mirrors Claude Code's subagent convention. | `defineSubAgent({ name, factory, description? })` |
 
-`/` tokens only bind when the name matches a registered hook or skill — `/usr/local/bin` survives untouched. `@` tokens are never parsed by glove at all, so emails like `a@b.com` reach the model unchanged.
+`/` tokens only bind when the name matches a registered hook or skill — `/usr/local/bin` survives untouched. Bound `/` tokens are **replaced**, not stripped, with a non-triggerable placeholder of the form `[invoked_extension__hook_<name>]` or `[invoked_extension__skill_<name>]`. The placeholder doesn't re-bind on a future parse, but it keeps the persisted user message structurally honest — the model can see that an extension fired. `@` tokens are never parsed by glove at all, so emails like `a@b.com` reach the model unchanged.
 
 ### Quick example
 
 ```typescript
+import { Glove, MemoryStore } from "glove-core";
+
 const agent = new Glove({ /* ... */ })
   .defineHook("compact", async ({ controls }) => {
     await controls.forceCompaction();
@@ -485,10 +481,22 @@ const agent = new Glove({ /* ... */ })
     handler: async ({ source, args }) =>
       `Be terse. (source=${source}, hint=${args ?? "none"})`,
   })
-  .defineMention({
+  .defineSubAgent({
     name: "weather",
     description: "Run the weather subagent. Use for weather questions.",
-    handler: async ({ prompt }) => fetchWeather(prompt),
+    factory: async ({ parentStore, parentControls, prompt }) => {
+      const subStore = await parentStore.createSubAgentStore?.("weather", false)
+        ?? new MemoryStore(`weather_${Date.now()}`);
+      return new Glove({
+        store: subStore,
+        model: parentControls.glove.model,
+        displayManager: parentControls.displayManager,
+        systemPrompt: "You are a weather assistant. Answer the prompt and return.",
+        compaction_config: { compaction_instructions: "Summarise weather lookups." },
+      })
+        .fold(weatherTool)
+        .build();
+    },
   })
   .build();
 
@@ -507,7 +515,7 @@ type HookHandler = (ctx: HookContext) => Promise<HookResult | void>;
 interface HookContext {
   name: string;
   rawText: string;
-  parsedText: string;        // text with bound tokens removed
+  parsedText: string;        // text with bound tokens replaced by [invoked_extension__<type>_<name>] placeholders
   controls: AgentControls;
   signal?: AbortSignal;
 }
@@ -525,13 +533,15 @@ interface AgentControls {
   promptMachine: PromptMachine;
   executor: Executor;
   glove: IGloveRunnable;
+  store: StoreAdapter;             // direct access to the agent's StoreAdapter
+  displayManager: DisplayManagerAdapter;  // direct access to the agent's display stack
   forceCompaction: () => Promise<void>;
 }
 ```
 
 `forceCompaction` calls `Observer.runCompactionNow()` — same body as `tryCompaction` minus the token-threshold guard. Subscribers still see `compaction_start` / `compaction_end`.
 
-Hooks run in document order. `rewriteText` overrides the working text passed to subsequent hooks, skills, and the final user message. `shortCircuit` persists the user message and returns immediately — the model is not called.
+Hooks run in document order. `rewriteText` overrides the working text passed to subsequent hooks, skills, and the final user message. `shortCircuit` persists the user message and returns immediately — the model is not called. Glove emits `hook_invoked` (`{ name }`) on subscribers just before each hook handler runs.
 
 ### Skills
 
@@ -540,7 +550,7 @@ type SkillHandler = (ctx: SkillContext) => Promise<string | ContentPart[]>;
 
 interface SkillContext {
   name: string;
-  parsedText: string;        // post-strip user text
+  parsedText: string;        // when source = "user": user text with bound directives replaced by their placeholders. when source = "agent": same as args ?? "".
   args?: string;             // model-supplied free-form args (only when source = "agent")
   source: "user" | "agent";
   controls: AgentControls;
@@ -550,9 +560,20 @@ interface SkillOptions {
   description?: string;       // shown to the agent in the invoke-skill tool listing
   exposeToAgent?: boolean;    // default false
 }
+
+interface DefineSkillArgs extends SkillOptions {
+  name: string;
+  handler: SkillHandler;
+}
+
+interface RegisteredSkill {
+  handler: SkillHandler;
+  description?: string;
+  exposeToAgent: boolean;
+}
 ```
 
-Skill-injected messages set `is_skill_injection: true` on `Message`, alongside the existing `is_compaction` and `is_compaction_request` flags. Use it in transcript renderers to render injected context differently from real user turns.
+Skill-injected messages set `is_skill_injection: true` on `Message`, alongside the existing `is_compaction` and `is_compaction_request` flags. Use it in transcript renderers to render injected context differently from real user turns. Glove emits `skill_invoked` (`{ name, source: "user" | "agent", args? }`) on subscribers — for user-side directives, the dispatch fires from `Glove.processRequest`; for agent-side calls, it fires from inside the `glove_invoke_skill` tool.
 
 #### Exposing skills to the agent
 
@@ -568,14 +589,16 @@ agent.defineSkill({
       // Agent invoked via glove_invoke_skill — `args` is the model-supplied string.
       return `Switch into research mode. Focus: ${args ?? "general"}.`;
     }
-    // source === "user" — `parsedText` is the user message after token stripping
-    // (the rest of "/research-mode tell me about ribosomes").
+    // source === "user" — `parsedText` is the user message after directive substitution
+    // (e.g. "[invoked_extension__skill_research-mode] tell me about ribosomes").
     return `Switch into research mode. User said: ${parsedText}`;
   },
 });
 
-// User: "/research-mode tell me about ribosomes"  (source = "user", parsedText = "tell me about ribosomes")
-// Agent: glove_invoke_skill({ name: "research-mode", args: "ribosome assembly" })  (source = "agent", args = "ribosome assembly")
+// User: "/research-mode tell me about ribosomes"
+//   → source = "user", parsedText = "[invoked_extension__skill_research-mode] tell me about ribosomes"
+// Agent: glove_invoke_skill({ name: "research-mode", args: "ribosome assembly" })
+//   → source = "agent", args = "ribosome assembly"
 ```
 
 The tool returns `{ status: "success", data: { skill, content } }` on success and `{ status: "error", message: 'Skill "..." is not available', data: null }` for unknown or unexposed names. When the skill returns `ContentPart[]`, text parts are joined into `data.content` (visible to the model) and the full part list is preserved on `renderData` (visible to client renderers, mirroring the MCP-bridge convention).
@@ -587,34 +610,70 @@ The tool returns `{ status: "success", data: { skill, content } }` on success an
 | `SkillContext.args` | undefined | free-form string the model supplied |
 | Gated by `exposeToAgent` | No — user-invoked always works | Yes — only exposed skills are callable |
 
-### Mentions (Subagents)
+### Subagents
 
-Modelled on Claude Code's subagent convention. Defining one auto-registers a `glove_invoke_subagent` tool the main agent calls with `{ name, prompt }`. The user's `@name` text in the original message is **not** parsed by glove — it reaches the model verbatim and acts as a routing signal.
+Modelled on Claude Code's subagent convention. Defining one auto-registers a `glove_invoke_subagent` tool (constant `SUBAGENT_DISPATCH_TOOL_NAME` exported from core) the main agent calls with `{ name, prompt }`. The user's `@name` text in the original message is **not** parsed by glove — it reaches the model verbatim and acts as a routing signal. The factory builds a fresh child `Glove` for each invocation and the dispatcher runs it.
 
 ```typescript
-type MentionHandler = (ctx: MentionContext) => Promise<string | ContentPart[]>;
-
-interface MentionContext {
+interface SubAgentFactoryContext {
+  /** Subagent name as registered with `defineSubAgent`. */
   name: string;
-  prompt: string;            // task prompt the agent supplied via the tool
-  controls: AgentControls;
-  signal?: AbortSignal;
+  /** The task prompt the parent agent supplied when calling `glove_invoke_subagent`. */
+  prompt: string;
+  /** The parent agent's store. Use `createSubAgentStore(name, durable)` to derive a child store. */
+  parentStore: StoreAdapter;
+  /** Full parent agent controls (context, observer, promptMachine, executor, glove, store, displayManager, forceCompaction). */
+  parentControls: AgentControls;
 }
 
-interface MentionOptions {
-  description?: string;       // shown to the agent in the invoke-subagent tool listing
+type SubAgentFactory = (
+  ctx: SubAgentFactoryContext,
+) => Promise<IGloveRunnable> | IGloveRunnable;
+
+interface SubAgentOptions {
+  /** Short description shown to the agent in the invoke-subagent tool listing. */
+  description?: string;
 }
 
-interface DefineMentionArgs extends MentionOptions {
+interface DefineSubAgentArgs extends SubAgentOptions {
   name: string;
-  handler: MentionHandler;
+  factory: SubAgentFactory;
 }
 
-interface RegisteredMention {
-  handler: MentionHandler;
+interface RegisteredSubAgent {
+  factory: SubAgentFactory;
   description?: string;
 }
 ```
+
+#### Canonical factory
+
+```typescript
+import { Glove, MemoryStore } from "glove-core";
+
+glove.defineSubAgent({
+  name: "researcher",
+  description: "Deep research subagent",
+  factory: async ({ parentStore, parentControls }) => {
+    // Sub-store: durable false → fresh per-call; durable true → cached for the namespace.
+    const subStore = await parentStore.createSubAgentStore?.("researcher", false)
+      ?? new MemoryStore(`researcher_${Date.now()}`);
+
+    return new Glove({
+      store: subStore,
+      model: parentControls.glove.model,           // inherit the parent's model
+      displayManager: parentControls.displayManager, // share the parent's display stack
+      systemPrompt: "You are a researcher.",
+      compaction_config: { compaction_instructions: "Summarize research progress." },
+    })
+      .fold(searchTool)
+      .fold(fetchTool)
+      .build();   // build() can take a store too; passing it here is equivalent to constructor `store`
+  },
+});
+```
+
+The dispatcher attaches the parent's subscribers to the child for the run, calls `child.processRequest(prompt, signal)` (forwarding the parent's abort signal), then detaches them. The child's final agent text is returned as the tool result.
 
 #### Tool result shape
 
@@ -624,55 +683,75 @@ Symmetric with `glove_invoke_skill`:
 // Tool input
 { name: string, prompt: string }
 
-// Success — string handler return
+// Success
 { status: "success", data: { subagent: string, content: string } }
-
-// Success — ContentPart[] handler return: text joined into data.content,
-// full part list preserved on renderData (mirrors MCP-bridge convention).
-{
-  status: "success",
-  data: { subagent: string, content: string },
-  renderData: { subagent: string, parts: ContentPart[] }
-}
 
 // Unknown name
 { status: "error", message: 'Subagent "..." is not registered. Use one of: ...', data: null }
+
+// Factory threw
+{ status: "error", message: 'Subagent "..." factory threw: ...', data: null }
+
+// Child run threw
+{ status: "error", message: 'Subagent "..." failed: ...', data: null }
 ```
+
+#### Bracket events — guaranteed 1:1 symmetry
+
+The `Executor` (not the dispatcher) brackets every `glove_invoke_subagent` call with `subagent_invoked` (`{ name, prompt }`) before the run and `subagent_completed` (`{ name, status: "success" | "error", message? }`) after. The bracket is symmetric even when a parent abort short-circuits the dispatcher's promise chain: the executor's abort handler still fires the close bracket. Events emitted by the child Glove between them belong to that subagent — parent subscribers are attached to the child for the duration of the run.
 
 #### Common patterns
 
-- **Sub-Glove**: handler builds (or reuses) a separate `Glove` instance with its own model + system prompt + store and calls `subGlove.processRequest(prompt)`. Subagents do NOT see the parent context — `prompt` is the only channel.
-- **Deterministic responder**: handler returns a canned string. Useful for `@status`, `@help`, `@version`.
-- **External agent / API**: handler proxies to another service.
+- **Fresh child per call**: factory builds a new `Glove` each invocation, with its own `MemoryStore` (or a non-durable sub-store). Default and recommended.
+- **Durable child**: `parentStore.createSubAgentStore("name", true)` returns the same store for the namespace, so the subagent carries message history across invocations. The factory still builds a fresh `Glove`; only the store is reused.
 - **Multiple in one message** (`"@reviewer @architect please discuss this design"`): both names reach the model, which can call `glove_invoke_subagent` once per subagent (sequentially or in parallel via separate tool calls — its choice).
+
+### Sub-stores: `createSubAgentStore`
+
+`StoreAdapter` exposes an optional `createSubAgentStore(namespace: string, durable?: boolean): Promise<StoreAdapter>` factory:
+
+- `durable: false` (default) → a fresh, isolated store per call. The subagent starts from zero context every invocation.
+- `durable: true` → the same instance is returned for the same namespace, so the subagent retains messages, tasks, tokens, and counters across invocations within the parent's lifetime.
+
+`MemoryStore` from `glove-core` implements both modes. If your store doesn't implement `createSubAgentStore`, fall back to `new MemoryStore(...)` inside the factory — that preserves the "fresh per call" behavior.
+
+### `setDisplayManager` (chainable)
+
+`Glove` (both builder and runnable forms) exposes `setDisplayManager(displayManager)`. Subagent factories typically pass `parentControls.displayManager` into the child's constructor, but they can also opt in mid-flight by calling `child.setDisplayManager(parentControls.displayManager)` after build. Returns `this` for chaining.
 
 ### Dispatch order in `processRequest`
 
-1. Parse `/` directives from the raw text (regex `(^|\s)\/([A-Za-z][\w-]*)(?=\s|$)`). Bound tokens are stripped (whitespace collapsed); unbound tokens stay in place. `@` tokens are not parsed at all.
-2. Run hooks in document order. Apply any `rewriteText`; honour the first `shortCircuit` and return.
-3. Materialise skills (`source: "user"`) — each becomes a synthetic user message persisted via `context.appendMessages` before the real one.
-4. Build the real user `Message` from the stripped text (still contains any `@mention`s untouched) + any non-text `ContentPart`s the caller passed.
-5. Hand off to `Agent.ask`. Subagent invocations happen inside the agent loop via `glove_invoke_subagent` tool calls.
+1. Parse `/` directives from the raw text (regex `(^|\s)\/([A-Za-z][\w-]*)(?=\s|$)`). Bound tokens are **replaced** with `[invoked_extension__<type>_<name>]` placeholders; unbound tokens stay in place. `@` tokens are not parsed at all.
+2. Run hooks in document order. Glove emits `hook_invoked` per hook. Apply any `rewriteText`; honour the first `shortCircuit` and return.
+3. Materialise skills (`source: "user"`) — each becomes a synthetic user message persisted via `context.appendMessages` before the real one. Glove emits `skill_invoked` per skill.
+4. Build the real user `Message` from the placeholder-substituted text (still contains any `@mention`s untouched) + any non-text `ContentPart`s the caller passed.
+5. Hand off to `Agent.ask`. Subagent invocations happen inside the agent loop via `glove_invoke_subagent` tool calls; the executor brackets each one with `subagent_invoked` / `subagent_completed`.
 
 ### `is_skill_injection` flag
 
 Skill-materialised user messages set `is_skill_injection: true` on `Message`. Pair it with `is_compaction` for transcript rendering — collapse, mute, or filter injected messages so they're visually distinct from real user turns.
 
+### `pre_modified_text` on Message
+
+When a hook rewrites the user message via `rewriteText`, the original raw text is preserved on `Message.pre_modified_text` so frontends can render what the user actually typed alongside the rewritten version the model received.
+
 ### Public API surface
 
 ```typescript
 import {
-  // Builder additions
-  Glove, // .defineHook(), .defineSkill(), .defineMention()
+  // Builder
+  Glove, // .defineHook(), .defineSkill(), .defineSubAgent()
   // Types
   HookHandler, HookContext, HookResult,
   SkillHandler, SkillContext, SkillOptions, DefineSkillArgs, RegisteredSkill,
-  MentionHandler, MentionContext, MentionOptions, DefineMentionArgs, RegisteredMention,
+  SubAgentFactory, SubAgentFactoryContext, SubAgentOptions, DefineSubAgentArgs, RegisteredSubAgent,
   AgentControls,
+  // Constants
+  SUBAGENT_DISPATCH_TOOL_NAME, // "glove_invoke_subagent"
   // Helpers
   parseTokens, formatSkillMessage,
   createSkillInvokeTool, renderSkillToolDescription,
-  createMentionInvokeTool, renderMentionToolDescription,
+  createSubAgentInvokeTool, renderSubAgentToolDescription,
 } from "glove-core";
 ```
 
@@ -734,9 +813,9 @@ glove.build();
 What it does, in order:
 
 1. Reads `adapter.getActive()`, opens an MCP connection per active id (using `getAccessToken`), lists tools, and folds each one onto the main agent via `bridgeMcpTool`. Per-server reload failures are logged and skipped — a transient outage doesn't kill the agent.
-2. Folds in the `find_capability` discovery subagent so the model can activate more servers mid-conversation.
+2. Registers the `discovermcp` discovery **subagent** via `glove.defineSubAgent(discoverySubAgent({...}))` so the model can ask it to activate more servers mid-conversation. The model invokes it via `glove_invoke_subagent({ name: "discovermcp", prompt: "..." })`.
 
-`mountMcp` returns when reload + discovery fold are complete. Call it before `build()` for the cleanest init order, but `fold()` after `build()` works too.
+`mountMcp` returns when reload + subagent registration are complete. Call it before `build()` for the cleanest init order, but `fold()` / `defineSubAgent()` after `build()` work too.
 
 ### Bridged tool shape
 
@@ -748,9 +827,9 @@ What it does, in order:
 - **Result**: server `content[]` text is joined into `data` (what the model sees); the full `content[]` is also passed through as `renderData` so React renderers can use it.
 - **Auth-expired contract**: any 401-shaped error during `callTool` is mapped to `{ status: "error", message: "auth_expired", data: null }`. Detect this from the conversation log, refresh your token, and the next call picks up the new value via `getAccessToken`.
 
-### Discovery (`find_capability`) and ambiguity policies
+### Discovery (`discovermcp`) and ambiguity policies
 
-`mountMcp` folds in a single tool the model can call: **`find_capability`**. It takes a brief `need` description, spins up a tiny subagent (with its own DiscoveryMemoryStore, inheriting the main agent's model and displayManager), and gives the subagent four tools:
+`mountMcp` registers a single subagent the model can route to: **`discovermcp`**. The model invokes it via `glove_invoke_subagent({ name: "discovermcp", prompt: "send an email" })`. The factory builds a child `Glove` (with its own sub-store from `parentStore.createSubAgentStore("discovermcp", false)`, falling back to a private `DiscoveryMemoryStore` when sub-stores aren't supported, inheriting the main agent's model, displayManager, and `serverMode`), and folds these tools onto the child:
 
 - `list_capabilities(query?, tags?)` — substring search the catalogue.
 - `activate(id)` — connect, bridge tools onto the *main* agent, persist active state. Tools become available to the main model on its next turn.
@@ -826,7 +905,7 @@ The agent code itself doesn't change — `McpAdapter.getAccessToken` is the only
 | One-off connect (preflight, custom flow) | `connectMcp({ namespace, url, auth })` |
 | Bridge a tool by hand | `bridgeMcpTool(connection, tool, serverMode)` |
 | Bearer header helper | `bearer(token | () => token)` |
-| Discovery subagent factory | `discoveryTool({ adapter, entries, ambiguityPolicy })` |
+| Discovery subagent factory | `discoverySubAgent({ adapter, entries, ambiguityPolicy })` (returns `DefineSubAgentArgs`; pass to `glove.defineSubAgent(...)`) |
 | Tool namespace separator | `MCP_NAMESPACE_SEP` (`"__"`) |
 | 401 detection on raw connect | `UnauthorizedError` |
 | Run the OAuth flow | `runMcpOAuth(opts)` from `glove-mcp/oauth` |
@@ -1182,9 +1261,9 @@ const agent = new Glove({...}).build();
 agent.fold({ name: "new_tool", description: "...", inputSchema: z.object({}), async do() { ... } });
 ```
 
-### `do(input, display, glove)` — third argument
+### `do(input, display, glove, signal?)` — third and fourth arguments
 
-A tool's `do` function now receives the running `IGloveRunnable` as a third argument. This is how `find_capability`'s discovery subagent reaches back to fold tools onto the main agent and to inherit its model/displayManager. Most tools ignore this.
+A tool's `do` function receives the running `IGloveRunnable` as a third argument and the active request's `AbortSignal` as an optional fourth. The `glove` argument is how the `discovermcp` subagent's `activate` tool reaches back to fold bridged MCP tools onto the main agent and inherit its model/displayManager. The `signal` argument should be forwarded into long-running internal work (nested agent runs, fetches) so abort propagates; tools that ignore it still get the executor's abortable-promise unwind for free, and tools marked `unAbortable: true` should ignore `signal` entirely. Most tools ignore both.
 
 ### ToolResultData
 
@@ -1547,8 +1626,11 @@ For example patterns from real implementations, see [examples.md](examples.md).
 34. **`serverMode` defaults the discovery policy**: `serverMode: true` → `auto-pick-best` and bridged tools never gate on permission. `serverMode: false` (default) → `interactive` policy and read-write MCP tools require permission. Pass `ambiguityPolicy` explicitly to override.
 35. **Interactive discovery needs an `mcp_picker` renderer**: The `interactive` ambiguity policy renders via the `mcp_picker` renderer on the displayManager. If you're in a browser and using that policy, register a renderer for it; otherwise the `pushAndWait` will hang.
 36. **Only `/` directives are parsed**: `parseTokens` looks for `/name` only. `@name` tokens reach the model verbatim. Paths like `/usr/local` survive (the name `usr` won't be in any registry); emails like `a@b.com` are never touched at all. If a legitimate user message includes `/compact` and you have a hook by that name, it WILL fire — pick hook/skill names that won't collide with normal prose.
-37. **Skill-injected messages are `is_skill_injection: true`**: Synthetic user messages produced by `/skill` invocations have this flag set. Use it in transcript renderers to distinguish them from real user turns. They are persisted in the store like any other message and survive compaction (subject to `splitAtLastCompaction` like everything else).
-38. **`glove_invoke_skill` reads the live registry per call**: The auto-registered tool checks `this.skills` at run time, so skills defined after `build()` with `exposeToAgent: true` are immediately callable. The tool's description is also rebuilt in place when a new exposed skill is registered, so the listing the model sees stays current. The same applies to `glove_invoke_subagent` and the mention registry.
-39. **`@mention` is a model-side routing signal, not a parsed directive**: Following Claude Code's subagent convention, glove never parses `@name` tokens. The full user message reaches the model and the model decides whether to call `glove_invoke_subagent` based on that tool's description. This means: invocation is not guaranteed (the model could ignore an `@mention`), but multiple `@mentions` in one message Just Work — the model can call the dispatch tool once per subagent.
-40. **Subagents do not see parent context**: A mention handler runs in isolation — the only input it gets is the `prompt` string the agent supplied. If your subagent needs context, the parent agent must put it in the prompt (Claude Code-style). For sub-Glove subagents, give them their own `Glove` instance with its own store and system prompt.
-41. **Hook `shortCircuit` still persists the user message**: Even when a hook short-circuits the turn, the user's (post-rewrite) message is appended to context first so transcripts stay consistent. The model just isn't called for that turn.
+37. **Bound `/` directives are replaced with placeholders, not stripped**: `/compact` becomes `[invoked_extension__hook_compact]` in the parsed text the model sees. The placeholder is non-triggerable (it doesn't match the directive regex), so a future re-parse of the same text doesn't re-fire the extension. Hook and skill handlers receive `parsedText` containing the placeholder, not the bare directive — keep that in mind when matching against it.
+38. **Skill-injected messages are `is_skill_injection: true`**: Synthetic user messages produced by `/skill` invocations have this flag set. Use it in transcript renderers to distinguish them from real user turns. They are persisted in the store like any other message and survive compaction (subject to `splitAtLastCompaction` like everything else).
+39. **`glove_invoke_skill` reads the live registry per call**: The auto-registered tool checks `this.skills` at run time, so skills defined after `build()` with `exposeToAgent: true` are immediately callable. The tool's description is also rebuilt in place when a new exposed skill is registered, so the listing the model sees stays current. The same applies to `glove_invoke_subagent` and the subagent registry.
+40. **`@mention` is a model-side routing signal, not a parsed directive**: Following Claude Code's subagent convention, glove never parses `@name` tokens. The full user message reaches the model and the model decides whether to call `glove_invoke_subagent` based on that tool's description. This means: invocation is not guaranteed (the model could ignore an `@mention`), but multiple `@mentions` in one message Just Work — the model can call the dispatch tool once per subagent.
+41. **Subagents do not see parent context**: A subagent runs in isolation — the only input it gets is the `prompt` string the agent supplied. If your subagent needs context, the parent agent must put it in the prompt (Claude Code-style). The factory builds a fresh child `Glove` with its own store; pass `parentControls.glove.model` and `parentControls.displayManager` if you want to inherit them.
+42. **`subagent_invoked` / `subagent_completed` are guaranteed symmetric**: The Executor — not the dispatcher — fires both bracket events around every `glove_invoke_subagent` tool call. Even when a parent abort short-circuits the dispatcher's promise chain, the executor's abort branch still fires `subagent_completed` with `status: "error"` and `message: "Subagent run aborted by the user."`. Subscribers can rely on 1:1 symmetry.
+43. **Hook `shortCircuit` still persists the user message**: Even when a hook short-circuits the turn, the user's (post-rewrite) message is appended to context first so transcripts stay consistent. The model just isn't called for that turn.
+44. **Token consumption events**: The Observer fires `token_consumption` (`{ consumption: { tokens_in, tokens_out } }`) on subscribers after each model turn. `StoreAdapter.addTokens` takes the same `TokenConsumptionCounter` shape; `getTokenCount()` still returns a single sum.

@@ -54,7 +54,7 @@ await mountMcp(runnable, {
 });
 ```
 
-`mountMcp` reloads any servers the adapter reports as already active (so an existing conversation rehydrates its tools on session boot) and folds in `find_capability` — a discovery subagent the model uses to activate new MCPs from the catalogue mid-conversation.
+`mountMcp` reloads any servers the adapter reports as already active (so an existing conversation rehydrates its tools on session boot) and folds in `discovermcp` — a discovery subagent the model uses to activate new MCPs from the catalogue mid-conversation.
 
 ## Auth model
 
@@ -118,7 +118,7 @@ async getAccessToken(id: string) {
 
 ## Discovery
 
-`mountMcp` always folds `find_capability` — a subagent tool the model invokes when it suspects a useful MCP is sitting in the catalogue but isn't yet active. The subagent matches the user's request against entries' `name` / `description` / `tags`, calls `activate(id)` on the adapter, connects, and folds the bridged tools into the running Glove.
+`mountMcp` always folds `discovermcp` — a subagent tool the model invokes when it suspects a useful MCP is sitting in the catalogue but isn't yet active. The subagent matches the user's request against entries' `name` / `description` / `tags`, calls `activate(id)` on the adapter, connects, and folds the bridged tools into the running Glove.
 
 Three ambiguity policies via `MountMcpConfig.ambiguityPolicy` — pass as `{ type: "<policy>" }`:
 
@@ -149,7 +149,7 @@ The reference CLIs in `examples/mcp-cli/` are a single-user shape: `FsOAuthStore
 
 ## Key exports
 
-- **`mountMcp(runnable, config)`** — the canonical wiring point. Reloads active servers and folds `find_capability`.
+- **`mountMcp(runnable, config)`** — the canonical wiring point. Reloads active servers and folds `discovermcp`.
 - **`McpAdapter`** — the per-conversation interface consumers implement.
 - **`McpCatalogueEntry`** — static description of an MCP server the app supports.
 - **`connectMcp`** / **`bridgeMcpTool`** — lower-level building blocks if you need to bypass `mountMcp`.
@@ -164,7 +164,7 @@ From `glove-mcp/oauth`:
 
 ## Examples
 
-Full reference consumer code lives in [`examples/mcp-cli/`](../../examples/mcp-cli/) — a multi-MCP CLI with `find_capability` discovery, plus focused single-server agents for Notion and Gmail. Each `*-mcp-auth.ts` is ~50 lines on top of `runMcpOAuth`.
+Full reference consumer code lives in [`examples/mcp-cli/`](../../examples/mcp-cli/) — a multi-MCP CLI with `discovermcp` discovery, plus focused single-server agents for Notion and Gmail. Each `*-mcp-auth.ts` is ~50 lines on top of `runMcpOAuth`.
 
 ## Documentation
 

@@ -1,15 +1,15 @@
-import type { Message, StoreAdapter } from "glove-core/core";
+import type { Message, StoreAdapter, TokenConsumptionCounter } from "glove-core/core";
 
 /**
- * Minimal in-memory store used by transient discovery subagents.
- *
- * The subagent is constructed fresh per `find_capability` call and discarded
- * when the call returns, so we never need persistence here.
+ * Minimal in-memory fallback store used when the parent store doesn't
+ * implement `createSubAgentStore`. Each `discovermcp` invocation gets
+ * its own instance so prior search state never leaks across calls.
  */
 export class DiscoveryMemoryStore implements StoreAdapter {
   identifier: string;
   private messages: Array<Message> = [];
-  private tokenCount = 0;
+  private tokensIn = 0;
+  private tokensOut = 0;
   private turnCount = 0;
 
   constructor(id: string) {
@@ -25,11 +25,12 @@ export class DiscoveryMemoryStore implements StoreAdapter {
   }
 
   async getTokenCount() {
-    return this.tokenCount;
+    return this.tokensIn + this.tokensOut;
   }
 
-  async addTokens(count: number) {
-    this.tokenCount += count;
+  async addTokens(args: TokenConsumptionCounter) {
+    this.tokensIn += args.tokens_in;
+    this.tokensOut += args.tokens_out;
   }
 
   async getTurnCount() {
@@ -41,7 +42,8 @@ export class DiscoveryMemoryStore implements StoreAdapter {
   }
 
   async resetCounters() {
-    this.tokenCount = 0;
+    this.tokensIn = 0;
+    this.tokensOut = 0;
     this.turnCount = 0;
   }
 }

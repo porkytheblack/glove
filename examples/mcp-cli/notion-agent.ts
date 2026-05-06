@@ -14,6 +14,7 @@ import {
   OpenRouterAdapter,
   type Message,
   type StoreAdapter,
+  type TokenConsumptionCounter,
 } from "glove-core";
 import {
   bearer,
@@ -54,8 +55,8 @@ class MemoryStore implements StoreAdapter {
   async getTokenCount() {
     return this.tokenCount;
   }
-  async addTokens(count: number) {
-    this.tokenCount += count;
+  async addTokens(args: TokenConsumptionCounter) {
+    this.tokenCount += args.tokens_in + args.tokens_out;
   }
   async getTurnCount() {
     return this.turnCount;

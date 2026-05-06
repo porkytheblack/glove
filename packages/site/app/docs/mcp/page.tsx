@@ -130,13 +130,15 @@ export default function McpPage() {
         </li>
         <li>
           <strong>One call</strong> — <code>mountMcp(glove, {`{ adapter, entries }`})</code>{" "}
-          reloads previously active servers and folds in the{" "}
-          <code>find_capability</code> discovery tool.
+          reloads previously active servers and registers the{" "}
+          <code>discovermcp</code> discovery subagent via{" "}
+          <code>glove.defineSubAgent(...)</code>.
         </li>
       </ol>
 
       <CodeBlock
-        code={`import { Glove, Displaymanager, AnthropicAdapter } from "glove-core";
+        code={`import { Glove, Displaymanager, MemoryStore } from "glove-core";
+import { createAdapter } from "glove-core/models/providers";
 import { mountMcp, type McpAdapter, type McpCatalogueEntry } from "glove-mcp";
 
 const entries: McpCatalogueEntry[] = [
@@ -166,23 +168,26 @@ class MyAdapter implements McpAdapter {
 
 const glove = new Glove({
   store: new MemoryStore("convo-1"),
-  model: new AnthropicAdapter({ model: "claude-sonnet-4.5", stream: true }),
+  model: createAdapter({ provider: "anthropic", stream: true }),
   displayManager: new Displaymanager(),
-  systemPrompt: "You are a helpful assistant. Use find_capability to discover external tools.",
+  systemPrompt:
+    "You are a helpful assistant. When you need a capability you don't have, " +
+    "invoke the discovermcp subagent via glove_invoke_subagent.",
   serverMode: true,
   compaction_config: { compaction_instructions: "Summarise." },
-});
+}).build();
 
-await mountMcp(glove, { adapter: new MyAdapter("convo-1"), entries });
-glove.build();`}
+await mountMcp(glove, { adapter: new MyAdapter("convo-1"), entries });`}
         language="ts"
       />
 
       <p>
-        That&apos;s it. The agent boots with <code>find_capability</code>{" "}
-        folded in. When the model needs Notion, it calls{" "}
-        <code>find_capability(&quot;notion&quot;)</code>; a discovery
-        subagent matches the catalogue, calls{" "}
+        That&apos;s it. After <code>mountMcp</code> returns, the agent has the
+        framework&apos;s built-in <code>glove_invoke_subagent</code> dispatch
+        tool with <code>discovermcp</code> in its registry. When the model
+        needs Notion, it calls{" "}
+        <code>glove_invoke_subagent({`{ name: "discovermcp", prompt: "Find an MCP for Notion" }`})</code>;
+        the discovery subagent matches the catalogue, calls{" "}
         <code>adapter.activate(&quot;notion&quot;)</code>, connects, and
         folds bridged tools (<code>notion__search</code>,{" "}
         <code>notion__fetch</code>, …) onto the running Glove. Next turn the
@@ -248,16 +253,21 @@ glove.build();`}
       {/* ================================================================== */}
       {/* DISCOVERY                                                          */}
       {/* ================================================================== */}
-      <h2 id="discovery">Discovery & find_capability</h2>
+      <h2 id="discovery">Discovery — the discovermcp subagent</h2>
 
       <p>
-        <code>mountMcp</code> always folds <code>find_capability</code> into
-        the agent. The model calls it with a brief description (e.g.{" "}
-        <em>&quot;send an email&quot;</em>); a discovery subagent matches
-        the catalogue, optionally negotiates ambiguity, calls{" "}
-        <code>activate(id)</code>, and folds the bridged tools. Three
-        ambiguity policies decide what happens when more than one entry
-        matches:
+        <code>mountMcp</code> registers a subagent named{" "}
+        <code>discovermcp</code> on the running Glove via{" "}
+        <code>glove.defineSubAgent(discoverySubAgent({`{...}`}))</code>. The
+        framework auto-registers the <code>glove_invoke_subagent</code>{" "}
+        dispatch tool the first time you define a subagent, so the model
+        invokes discovery with{" "}
+        <code>glove_invoke_subagent({`{ name: "discovermcp", prompt }`})</code>.
+        The subagent runs in an isolated context — its own store, its own
+        message history, its own system prompt — and matches the catalogue,
+        negotiates ambiguity, calls <code>activate(id)</code>, and folds
+        bridged tools onto the parent Glove. Three ambiguity policies decide
+        what happens when more than one entry matches:
       </p>
 
       <PropTable
@@ -266,7 +276,7 @@ glove.build();`}
           [
             "{ type: \"interactive\" }",
             "default in UI Gloves",
-            "Subagent calls pushAndWait with an mcp_picker slot. Requires a renderer in your displayManager. The user picks; the subagent activates.",
+            "Subagent calls pushAndWait with an mcp_picker slot via the parent's display manager. Requires a renderer for that key. The user picks; the subagent activates.",
           ],
           [
             "{ type: \"auto-pick-best\" }",
@@ -284,7 +294,53 @@ glove.build();`}
       <p>
         Override the subagent&apos;s model or system prompt via{" "}
         <code>subagentModel</code> / <code>subagentSystemPrompt</code> on{" "}
-        <code>MountMcpConfig</code> if you want.
+        <code>MountMcpConfig</code>; otherwise both are inherited from the
+        parent Glove at invocation time.
+      </p>
+
+      <h3 id="discovery-wiring">Wiring discovery without mountMcp</h3>
+
+      <p>
+        <code>mountMcp</code> is a thin convenience over{" "}
+        <code>discoverySubAgent(config)</code> — call it directly when you
+        want to defer reload, skip it entirely, or combine the discovery
+        subagent with other custom subagents:
+      </p>
+
+      <CodeBlock
+        code={`import { discoverySubAgent, type DiscoverySubAgentConfig } from "glove-mcp";
+
+const config: DiscoverySubAgentConfig = {
+  adapter,
+  entries,
+  ambiguityPolicy: { type: "interactive" },
+};
+
+glove.defineSubAgent(discoverySubAgent(config));`}
+        language="ts"
+      />
+
+      <p>
+        The factory builds a child <code>Glove</code> per invocation, asking
+        the parent store for an isolated child store via{" "}
+        <code>parentStore.createSubAgentStore?.(&quot;discovermcp&quot;, false)</code>{" "}
+        (falling back to in-memory when the parent store doesn&apos;t
+        implement sub-stores). The child uses the parent&apos;s{" "}
+        <code>displayManager</code> so <code>ask_user</code> picker slots
+        surface in the parent&apos;s UI.
+      </p>
+
+      <h3 id="discovery-observability">Observability</h3>
+
+      <p>
+        Every <code>discovermcp</code> invocation is bracketed with matching{" "}
+        <code>subagent_invoked</code> and <code>subagent_completed</code>{" "}
+        subscriber events — even when the run aborts or errors out. While
+        the subagent is running, parent subscribers are temporarily attached
+        to the child Glove, so model deltas, tool uses, and tool results
+        from the discovery loop flow through the same subscriber pipeline as
+        the parent. Use the brackets to separate parent activity from
+        nested subagent activity in logs and analytics.
       </p>
 
       {/* ================================================================== */}

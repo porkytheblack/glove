@@ -53,7 +53,7 @@ await app.processRequest("What's the weather in Tokyo?");
 For scripts, prototyping, or when you don't need persistence:
 
 ```typescript
-import type { StoreAdapter, Message } from "glove-core";
+import type { StoreAdapter, Message, TokenConsumptionCounter } from "glove-core";
 
 class MemoryStore implements StoreAdapter {
   identifier: string;
@@ -66,7 +66,7 @@ class MemoryStore implements StoreAdapter {
   async getMessages() { return this.messages; }
   async appendMessages(msgs: Message[]) { this.messages.push(...msgs); }
   async getTokenCount() { return this.tokenCount; }
-  async addTokens(count: number) { this.tokenCount += count; }
+  async addTokens(args: TokenConsumptionCounter) { this.tokenCount += args.tokens_in + args.tokens_out; }
   async getTurnCount() { return this.turnCount; }
   async incrementTurn() { this.turnCount++; }
   async resetCounters() { this.tokenCount = 0; this.turnCount = 0; }

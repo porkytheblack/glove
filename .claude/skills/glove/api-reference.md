@@ -8,25 +8,32 @@
 import { Glove } from "glove-core";
 
 const agent = new Glove({
-  store: StoreAdapter,                    // Required — persistence
+  store?: StoreAdapter,                   // Optional — defaults to a fresh MemoryStore. Can also be supplied later to .build(store).
   model: ModelAdapter,                    // Required — LLM provider
   displayManager: DisplayManagerAdapter,  // Required — UI slot management
   systemPrompt: string,                   // Required — system instructions
   serverMode?: boolean,                   // Canonical "I am headless" flag — drives default permission gating + MCP discovery policy. Default: false.
   maxRetries?: number,                    // Tool retry limit (default: 3)
+  maxConsecutiveErrors?: number,          // Reserved
   compaction_config: {                    // Required
     compaction_instructions: string,      // Summarization prompt
     max_turns?: number,                   // Turn limit (default: 120)
     compaction_context_limit?: number,    // Token threshold (default: 100k)
   },
 })
-  .fold<I>(toolArgs)          // Register tool (chainable; ALSO callable post-build on the IGloveRunnable)
-  .addSubscriber(subscriber)  // Add event subscriber (chainable)
-  .build();                   // Returns IGloveRunnable
+  .fold<I>(toolArgs)            // Register tool (chainable; ALSO callable post-build on the IGloveRunnable)
+  .defineHook(name, handler)    // Register `/name` hook
+  .defineSkill(args)            // Register `/name` skill
+  .defineSubAgent(args)         // Register a subagent the model routes to via glove_invoke_subagent
+  .setDisplayManager(dm)        // Swap the display manager (chainable, also callable post-build)
+  .addSubscriber(subscriber)    // Add event subscriber (chainable)
+  .build(store?);               // Returns IGloveRunnable. Optional store argument supersedes the constructor's store
+                                // (used by subagent factories that derive a store via parentStore.createSubAgentStore).
 
 await agent.processRequest("Hello", abortSignal?);  // Also accepts ContentPart[]
 agent.setModel(newModelAdapter);  // Hot-swap model at runtime
-agent.fold({ ... });             // Legal post-build — adds tools mid-session (used by MCP discovery)
+agent.fold({ ... });              // Legal post-build — adds tools mid-session (used by the MCP discovery subagent)
+agent.rebuild(store?);            // Alias for build(store?) when re-binding to a new store post-construction
 ```
 
 The runnable returned by `build()` exposes `model`, `displayManager`, and `serverMode` as read-only fields so subagents and dynamically-folded tools (e.g. MCP discovery) can inherit them.
@@ -41,8 +48,17 @@ The runnable returned by `build()` exposes `model`, `displayManager`, and `serve
   jsonSchema?: Record<string, unknown>,   // Raw JSON Schema. When set, executor skips local Zod validation. Used by bridgeMcpTool.
   requiresPermission?: boolean,
   unAbortable?: boolean,                  // When true, tool runs to completion even if abort signal fires (e.g. voice barge-in)
-  do: (input: I, display: DisplayManagerAdapter, glove: IGloveRunnable) => Promise<ToolResultData>,
-  // ^ third arg is the running Glove instance — used by subagent-folded tools (MCP discovery's `activate`) to fold tools onto the main agent and inherit its model/displayManager.
+  do: (
+    input: I,
+    display: DisplayManagerAdapter,
+    glove: IGloveRunnable,
+    signal?: AbortSignal,
+  ) => Promise<ToolResultData>,
+  // ^ `glove` is the running Glove instance — used by subagent-folded tools (e.g. discovermcp's `activate`)
+  //   to fold bridged tools onto the main agent and inherit its model/displayManager.
+  // ^ `signal` is the active request's AbortSignal. Forward it into long-running internal work so abort
+  //   propagates. Tools that ignore it still get the executor's abortable-promise unwind for free; tools
+  //   marked `unAbortable: true` should ignore signal entirely.
 }
 ```
 
@@ -69,12 +85,17 @@ await dm.clearStack();         // Clear all slots
 ### StoreAdapter Interface
 
 ```typescript
+interface TokenConsumptionCounter {
+  tokens_in: number;
+  tokens_out: number;
+}
+
 interface StoreAdapter {
   identifier: string;
   getMessages(): Promise<Message[]>;
   appendMessages(msgs: Message[]): Promise<void>;
-  getTokenCount(): Promise<number>;
-  addTokens(count: number): Promise<void>;
+  getTokenCount(): Promise<number>;                 // Returns a single sum of in + out
+  addTokens(args: TokenConsumptionCounter): Promise<void>;  // Takes the split counter
   getTurnCount(): Promise<number>;
   incrementTurn(): Promise<void>;
   resetCounters(): Promise<void>;  // Reset token/turn counts without deleting messages
@@ -90,12 +111,32 @@ interface StoreAdapter {
   addInboxItem?(item: InboxItem): Promise<void>;
   updateInboxItem?(itemId: string, updates: Partial<Pick<InboxItem, "status" | "response" | "resolved_at">>): Promise<void>;
   getResolvedInboxItems?(): Promise<InboxItem[]>;
+  // Optional — enables subagent factories to derive isolated child stores:
+  // durable: false (default) → fresh per call. durable: true → cached for the namespace.
+  createSubAgentStore?(namespace: string, durable?: boolean): Promise<StoreAdapter>;
 }
 ```
 
-**Implementations**: `SqliteStore` (glove-sqlite), `MemoryStore` (glove-react), `createRemoteStore` (glove-react)
+**Implementations**:
+- `MemoryStore` (glove-core) — default; implements every optional surface including `createSubAgentStore`. `Glove` constructs one automatically when no `store` is passed.
+- `MemoryStore` (glove-react) — separate, simpler React-side implementation; lacks `createSubAgentStore`.
+- `createRemoteStore` (glove-react) — delegates messages/tokens/etc. to user-provided async actions.
+- `SqliteStore` (glove-sqlite) — **deprecated**.
 
-### SqliteStore
+### MemoryStore (glove-core)
+
+```typescript
+import { MemoryStore } from "glove-core";
+
+const store = new MemoryStore("session-id");
+
+// Sub-store: durable false → fresh per call; durable true → cached for namespace.
+const childStore = await store.createSubAgentStore("researcher", false);
+```
+
+Used as the default `StoreAdapter` when `Glove` is constructed without a `store`. Implements messages, tokens (`tokens_in` + `tokens_out`), turns, tasks, permissions, inbox, and `createSubAgentStore`. Process-local — data is lost on restart.
+
+### SqliteStore (deprecated)
 
 ```typescript
 import { SqliteStore } from "glove-sqlite";
@@ -105,6 +146,8 @@ const store = new SqliteStore({ dbPath: ":memory:", sessionId: "abc123" });
 // Static: SqliteStore.listSessions(dbPath)
 // Static: SqliteStore.resolveInboxItem(dbPath, itemId, response) — resolve inbox item from external process
 ```
+
+`@deprecated` — use `MemoryStore` from `glove-core` for prototyping or implement `StoreAdapter` against your own backend for production.
 
 ### ModelAdapter Interface
 
@@ -146,7 +189,12 @@ type SubscriberEvent =
   | { type: "model_response_complete"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number }
   | { type: "tool_use_result"; tool_name: string; call_id?: string; result: ToolResultData }
   | { type: "compaction_start"; current_token_consumption: number }
-  | { type: "compaction_end"; current_token_consumption: number; summary_message: Message };
+  | { type: "compaction_end"; current_token_consumption: number; summary_message: Message }
+  | { type: "token_consumption"; consumption: TokenConsumptionCounter }
+  | { type: "hook_invoked"; name: string }
+  | { type: "skill_invoked"; name: string; source: "user" | "agent"; args?: string }
+  | { type: "subagent_invoked"; name: string; prompt: string }
+  | { type: "subagent_completed"; name: string; status: "success" | "error"; message?: string };
 
 // Mapped type: extracts data shape (minus "type") for each event
 type SubscriberEventDataMap = { [E in SubscriberEvent as E["type"]]: Omit<E, "type"> };
@@ -172,15 +220,24 @@ interface SubscriberAdapter {
 | `tool_use` | Adapter (streaming) | `{ id, name, input }` | Tool call assembled |
 | `model_response` | Adapter (non-streaming) | `{ text, tool_calls?, stop_reason?, tokens_in?, tokens_out? }` | Complete non-streaming response |
 | `model_response_complete` | Adapter (streaming) | `{ text, tool_calls?, stop_reason?, tokens_in?, tokens_out? }` | Final aggregated streaming response |
-| `tool_use_result` | Core (PromptMachine) | `{ tool_name, call_id?, result }` | Tool execution finished |
-| `compaction_start` | Core (Context) | `{ current_token_consumption }` | Compaction begun |
-| `compaction_end` | Core (Context) | `{ current_token_consumption, summary_message }` | Compaction finished |
+| `tool_use_result` | Core (Executor) | `{ tool_name, call_id?, result }` | Tool execution finished |
+| `compaction_start` | Core (Observer) | `{ current_token_consumption }` | Compaction begun |
+| `compaction_end` | Core (Observer) | `{ current_token_consumption, summary_message }` | Compaction finished |
+| `token_consumption` | Core (Observer) | `{ consumption: { tokens_in, tokens_out } }` | Token counter update — fires after each model turn alongside `store.addTokens` |
+| `hook_invoked` | Core (Glove) | `{ name }` | A `/name` hook handler is about to run |
+| `skill_invoked` | Core (Glove or skill dispatch tool) | `{ name, source: "user" | "agent", args? }` | A skill handler is about to run. `source: "user"` fires from `Glove.processRequest`; `source: "agent"` fires from inside `glove_invoke_skill` |
+| `subagent_invoked` | Core (Executor, not the dispatcher) | `{ name, prompt }` | Open bracket — fires before a `glove_invoke_subagent` call runs |
+| `subagent_completed` | Core (Executor, not the dispatcher) | `{ name, status: "success" | "error", message? }` | Close bracket — fires after the dispatcher resolves OR on abort/error. **Guaranteed 1:1 with `subagent_invoked`** |
 
 **Custom adapter event contract:**
 - Non-streaming: emit `model_response` once per prompt call
 - Streaming: emit `text_delta` per chunk, `tool_use` per tool call, `model_response_complete` once at end
 - Use `?? undefined` to coerce null `stop_reason` from provider SDKs
-- Never emit `tool_use_result`, `compaction_start`, or `compaction_end` — those are framework-only
+- Never emit `tool_use_result`, `compaction_start`, `compaction_end`, `token_consumption`, `hook_invoked`, `skill_invoked`, `subagent_invoked`, or `subagent_completed` — those are framework-only
+
+#### Subagent bracket symmetry
+
+The `Executor` (not the dispatcher) brackets every `glove_invoke_subagent` call. Even if the parent agent is aborted mid-run and the dispatcher's promise short-circuits, the executor's abort handler still fires `subagent_completed` with `status: "error"` and `message: "Subagent run aborted by the user."`. Subscribers can rely on every `subagent_invoked` having a matching `subagent_completed`. Events the child Glove emits between them belong to that subagent — parent subscribers are attached to the child for the duration of the run.
 
 ### Message
 
@@ -189,6 +246,8 @@ interface Message {
   sender: "user" | "agent";
   id?: string;
   text: string;
+  /** Set when a hook rewrites a user message via `rewriteText` — preserves the user's raw input. */
+  pre_modified_text?: string;
   content?: ContentPart[];
   tool_results?: ToolResult[];
   tool_calls?: ToolCall[];
@@ -259,14 +318,14 @@ try { await agent.processRequest("Hello", signal); }
 catch (err) { if (err instanceof AbortError) { /* cancelled */ } }
 ```
 
-### Extensions: Hooks, Skills & Mentions
+### Extensions: Hooks, Skills & Subagents
 
 Three builder methods on `Glove` (and on the `IGloveBuilder` / `IGloveRunnable` interfaces):
 
 ```typescript
 glove.defineHook(name: string, handler: HookHandler): this;
 glove.defineSkill(args: DefineSkillArgs): this;
-glove.defineMention(args: DefineMentionArgs): this;
+glove.defineSubAgent(args: DefineSubAgentArgs): this;
 ```
 
 All three are chainable and legal post-`build()`, like `fold`. `defineSkill` takes an object form mirroring `fold(GloveFoldArgs)`:
@@ -286,7 +345,7 @@ type HookHandler = (ctx: HookContext) => Promise<HookResult | void>;
 interface HookContext {
   name: string;
   rawText: string;
-  parsedText: string;
+  parsedText: string;        // text with bound directives replaced by [invoked_extension__<type>_<name>] placeholders
   controls: AgentControls;
   signal?: AbortSignal;
 }
@@ -300,7 +359,7 @@ type SkillHandler = (ctx: SkillContext) => Promise<string | ContentPart[]>;
 
 interface SkillContext {
   name: string;
-  parsedText: string;        // when source = "user": stripped user text. when source = "agent": same as args ?? "".
+  parsedText: string;        // when source = "user": user text with bound directives replaced by their placeholders. when source = "agent": same as args ?? "".
   args?: string;             // model-supplied when source = "agent". undefined when user-invoked.
   source: "user" | "agent";
   controls: AgentControls;
@@ -317,26 +376,28 @@ interface RegisteredSkill {
   exposeToAgent: boolean;
 }
 
-type MentionHandler = (ctx: MentionContext) => Promise<string | ContentPart[]>;
-
-interface MentionContext {
+interface SubAgentFactoryContext {
   name: string;
-  prompt: string;            // task prompt the agent supplied via glove_invoke_subagent
-  controls: AgentControls;
-  signal?: AbortSignal;
+  prompt: string;
+  parentStore: StoreAdapter;
+  parentControls: AgentControls;
 }
 
-interface MentionOptions {
+type SubAgentFactory = (
+  ctx: SubAgentFactoryContext,
+) => Promise<IGloveRunnable> | IGloveRunnable;
+
+interface SubAgentOptions {
   description?: string;       // shown to the agent in the invoke-subagent tool listing
 }
 
-interface DefineMentionArgs extends MentionOptions {
+interface DefineSubAgentArgs extends SubAgentOptions {
   name: string;
-  handler: MentionHandler;
+  factory: SubAgentFactory;
 }
 
-interface RegisteredMention {
-  handler: MentionHandler;
+interface RegisteredSubAgent {
+  factory: SubAgentFactory;
   description?: string;
 }
 
@@ -346,7 +407,9 @@ interface AgentControls {
   promptMachine: PromptMachine;
   executor: Executor;
   glove: IGloveRunnable;
-  forceCompaction: () => Promise<void>;   // calls Observer.runCompactionNow()
+  store: StoreAdapter;                  // direct access to the agent's StoreAdapter
+  displayManager: DisplayManagerAdapter; // direct access to the agent's display stack
+  forceCompaction: () => Promise<void>;  // calls Observer.runCompactionNow()
 }
 ```
 
@@ -356,7 +419,13 @@ interface AgentControls {
 import { parseTokens, formatSkillMessage } from "glove-core";
 
 interface ParsedTokens {
-  stripped: string;
+  /**
+   * The original text with each bound `/name` directive replaced by a
+   * non-triggerable placeholder of the form `[invoked_extension__<type>_<name>]`
+   * (where `<type>` is `hook` or `skill`). Unbound `/name` tokens — including
+   * filesystem-like paths such as `/usr/local` — are left untouched.
+   */
+  replaced: string;
   hooks: string[];
   skills: string[];
 }
@@ -370,9 +439,17 @@ function parseTokens(text: string, registries: ExtensionRegistries): ParsedToken
 function formatSkillMessage(name: string, injection: string | ContentPart[]): Message;
 ```
 
-The regex is `(^|\s)\/([A-Za-z][\w-]*)(?=\s|$)`. Only `/name` directives are parsed. A token only binds when its name appears in the hook or skill registry; unbound tokens are left in `stripped`. `@mention` tokens are intentionally NOT parsed — they reach the model verbatim and route through the `glove_invoke_subagent` tool. `formatSkillMessage` produces the synthetic user message used by `processRequest` and sets `is_skill_injection: true`.
+The regex is `(^|\s)\/([A-Za-z][\w-]*)(?=\s|$)`. Only `/name` directives are parsed. A token only binds when its name appears in the hook or skill registry; unbound tokens are left in `replaced`. Bound directives are **substituted with placeholders** (`[invoked_extension__hook_<name>]` / `[invoked_extension__skill_<name>]`) — the placeholder is non-triggerable, so a future re-parse of the same text doesn't re-fire the extension. `@mention` tokens are intentionally NOT parsed — they reach the model verbatim and route through the `glove_invoke_subagent` tool. `formatSkillMessage` produces the synthetic user message used by `processRequest` and sets `is_skill_injection: true`.
 
-#### Built-in agent tool
+#### Subagent dispatch tool name
+
+```typescript
+import { SUBAGENT_DISPATCH_TOOL_NAME } from "glove-core";
+// "glove_invoke_subagent" — the tool name the Executor recognises so it can fire
+// the subagent_invoked / subagent_completed bracket events around each call.
+```
+
+#### Built-in agent tools
 
 When any skill is registered with `exposeToAgent: true`, `glove_invoke_skill` is auto-registered on the executor:
 
@@ -400,37 +477,40 @@ import { createSkillInvokeTool, renderSkillToolDescription } from "glove-core";
 
 The tool description (built by `renderSkillToolDescription`) lists every exposed skill with its `description`. Glove rebuilds the description in place each time a new exposed skill is defined, so post-`build()` registrations are immediately visible to the model.
 
-When any mention is registered, `glove_invoke_subagent` is auto-registered on the executor (mirrors Claude Code's subagent dispatch):
+When any subagent is registered, `glove_invoke_subagent` is auto-registered on the executor (mirrors Claude Code's subagent dispatch):
 
 ```typescript
-import { createMentionInvokeTool, renderMentionToolDescription } from "glove-core";
+import { createSubAgentInvokeTool, renderSubAgentToolDescription } from "glove-core";
 
 // Tool input
 { name: string, prompt: string }
 
-// Tool result on success (string handler return)
+// Tool result on success
 { status: "success", data: { subagent: string, content: string } }
 
-// Tool result on success (ContentPart[] handler return)
-{
-  status: "success",
-  data: { subagent: string, content: string },        // text join, or "[non-text subagent content]"
-  renderData: { subagent: string, parts: ContentPart[] }
-}
-
-// Tool result on unknown name
+// Unknown name
 { status: "error", message: 'Subagent "..." is not registered. Use one of: ...', data: null }
+
+// Factory threw
+{ status: "error", message: 'Subagent "..." factory threw: ...', data: null }
+
+// Child run threw
+{ status: "error", message: 'Subagent "..." failed: ...', data: null }
 ```
 
-The subagent runs in isolation — its only input is the `prompt` the agent supplies. The handler's return becomes the tool result and reaches the parent agent verbatim.
+The dispatcher invokes the registered factory with `{ name, prompt, parentStore, parentControls }`, attaches the parent's subscribers to the returned child Glove, calls `child.processRequest(prompt, signal)` (forwarding the parent's abort signal), and detaches the subscribers afterward. The child's final agent text becomes `data.content`. The `subagent_invoked` / `subagent_completed` bracket events are NOT fired by the dispatcher — they fire from the `Executor`, which guarantees 1:1 symmetry even when an abort short-circuits the dispatcher's promise.
 
 #### Observer additions
 
-`Observer.runCompactionNow()` runs the same body as `tryCompaction()` minus the token-threshold guard. This is what `AgentControls.forceCompaction` calls.
+- `Observer.runCompactionNow()` — same body as `tryCompaction()` minus the token-threshold guard. Called by `AgentControls.forceCompaction`.
+- `Observer.ESCAPE_COMPACTION_THRESHOLD` (default `90`, percent) — controls when `Agent.ask` runs an early compaction to keep `tool_use` / `tool_result` pairs from being split across the boundary. Configurable via the `Observer` constructor's 7th argument.
+- `Observer.isCompactionImminent()` — `true` when current token consumption is at or above `(CONTEXT_COMPACTION_LIMIT * ESCAPE_COMPACTION_THRESHOLD) / 100`. `Agent.ask` checks this before each turn and pre-emptively compacts when the model produced tool calls so pairs stay together.
+- `Observer.addTokensConsumed(args: TokenConsumptionCounter)` — called per turn; persists via `store.addTokens(args)` and emits `token_consumption` to subscribers.
 
-#### Message field added
+#### Message fields added
 
-`Message.is_skill_injection?: boolean` — set on the synthetic user message produced by a `/skill` invocation so transcript renderers can distinguish injected context from real user turns.
+- `Message.is_skill_injection?: boolean` — set on the synthetic user message produced by a `/skill` invocation so transcript renderers can distinguish injected context from real user turns.
+- `Message.pre_modified_text?: string` — populated when a hook rewrites the user message via `rewriteText`; preserves the user's raw input so frontends can render it alongside the rewritten version.
 
 ---
 
@@ -709,23 +789,36 @@ type RenderStrategy = "interleaved" | "slots-before" | "slots-after" | "slots-on
 - Interleaving: slots appear inline next to their tool call entry
 - Sensible defaults for all render props (messages as divs, hidden tool status, basic input form)
 
-### MemoryStore
+### MemoryStore (glove-react)
 
 ```typescript
 import { MemoryStore } from "glove-react";
 const store = new MemoryStore("session-id");
 ```
 
+The React-side `MemoryStore` is a separate, simpler implementation than the one in `glove-core`. It stores messages, tokens, turns, tasks, inbox, and permissions in memory but does NOT implement `createSubAgentStore`. For server-side or subagent-aware usage, prefer `MemoryStore` from `glove-core`.
+
 ### createRemoteStore
 
 ```typescript
-import { createRemoteStore } from "glove-react";
+import { createRemoteStore, type RemoteStoreActions } from "glove-react";
+
 const store = createRemoteStore("session-id", {
   getMessages: async (sid) => fetch(`/api/${sid}/messages`).then(r => r.json()),
-  appendMessages: async (sid, msgs) => fetch(`/api/${sid}/messages`, { method: "POST", body: JSON.stringify(msgs) }),
-  // Optional: getTokenCount, addTokens, getTurnCount, incrementTurn, resetCounters, getTasks, addTasks, updateTask, getPermission, setPermission, getInboxItems, addInboxItem, updateInboxItem, getResolvedInboxItems
+  appendMessages: async (sid, msgs) =>
+    fetch(`/api/${sid}/messages`, { method: "POST", body: JSON.stringify(msgs) }),
+  // Optional async actions, all curried with sessionId:
+  // getTokenCount?(sid)
+  // addTokens?(sid, args: TokenConsumptionCounter)   // TAKES THE SPLIT COUNTER, NOT A SINGLE NUMBER
+  // getTurnCount?(sid), incrementTurn?(sid), resetCounters?(sid)
+  // getTasks?(sid), addTasks?(sid, tasks), updateTask?(sid, taskId, updates)
+  // getPermission?(sid, toolName), setPermission?(sid, toolName, status)
+  // getInboxItems?(sid), addInboxItem?(sid, item),
+  // updateInboxItem?(sid, itemId, updates), getResolvedInboxItems?(sid)
 });
 ```
+
+`RemoteStoreActions.addTokens` receives `(sessionId, args: TokenConsumptionCounter)`. The fallback in-memory accumulator sums `args.tokens_in + args.tokens_out`. `createRemoteStore` does NOT implement `createSubAgentStore` — subagents folded onto an agent backed by this store will use the `MemoryStore` fallback inside their factories.
 
 ### createRemoteModel
 
@@ -1085,7 +1178,7 @@ interface MountMcpConfig {
 }
 ```
 
-Behavior: reload all `adapter.getActive()` ids, fold the `find_capability` discovery tool. Fails open — a single bad reload logs and continues.
+Behavior: reload all `adapter.getActive()` ids, then call `glove.defineSubAgent(discoverySubAgent({...}))` so the model can route discovery tasks via `glove_invoke_subagent({ name: "discovermcp", prompt: "..." })`. Fails open — a single bad reload logs and continues.
 
 ### Discovery
 
@@ -1095,19 +1188,24 @@ type DiscoveryAmbiguityPolicy =
   | { type: "auto-pick-best" }    // deterministic; default in serverMode
   | { type: "defer-to-main" };    // returns candidates as text, main agent decides
 
-function discoveryTool(config: DiscoveryToolConfig): GloveFoldArgs<{ need: string }>;
+function discoverySubAgent(config: DiscoverySubAgentConfig): DefineSubAgentArgs;
 
-interface DiscoveryToolConfig {
+interface DiscoverySubAgentConfig {
   adapter: McpAdapter;
   entries: McpCatalogueEntry[];
   ambiguityPolicy: DiscoveryAmbiguityPolicy;
+  /** Default: inherited from the parent glove at invocation time. */
   subagentModel?: ModelAdapter;
+  /** Default: built-in per-policy prompt. */
   subagentSystemPrompt?: string;
+  /** Forwarded to connectMcp during activation. */
   clientInfo?: { name: string; version: string };
 }
 ```
 
-`mountMcp` constructs and folds this for you. Direct use is unusual.
+`discoverySubAgent` returns a `DefineSubAgentArgs` with `name: "discovermcp"`. Pass it directly to `glove.defineSubAgent(...)`. `mountMcp` does this for you.
+
+The factory builds a child Glove on each invocation, asking the parent store for a non-durable sub-store via `parentStore.createSubAgentStore?.("discovermcp", false)` (falling back to a private `DiscoveryMemoryStore` when sub-stores aren't supported), inheriting the main agent's model / displayManager / serverMode, and folding `list_capabilities`, `activate`, `deactivate`, and (under `interactive`) `ask_user`. The `activate` tool reaches back to the parent glove (via the `glove` argument on its `do`) to fold bridged tools onto the main agent.
 
 ### connectMcp
 
@@ -1317,26 +1415,36 @@ These are framework-level changes in `glove-core` that consumers of any package 
 interface Tool<I> {
   name: string;
   description: string;
-  input_schema?: z.ZodType<I>;            // now optional
-  jsonSchema?: Record<string, unknown>;   // new — raw JSON Schema alternative
+  input_schema?: z.ZodType<I>;
+  jsonSchema?: Record<string, unknown>;
   requiresPermission?: boolean;
   unAbortable?: boolean;
-  run(input: I, handOver?: ...): Promise<ToolResultData>;
+  run(
+    input: I,
+    handOver?: (request: unknown) => Promise<unknown>,
+    signal?: AbortSignal,
+  ): Promise<ToolResultData>;
 }
 
 interface GloveFoldArgs<I> {
   name: string;
   description: string;
-  inputSchema?: z.ZodType<I>;             // now optional
-  jsonSchema?: Record<string, unknown>;   // new
+  inputSchema?: z.ZodType<I>;
+  jsonSchema?: Record<string, unknown>;
   requiresPermission?: boolean;
   unAbortable?: boolean;
-  do: (input: I, display: DisplayManagerAdapter, glove: IGloveRunnable) => Promise<ToolResultData>;
-  // 3rd arg `glove` is new — the running instance, used by tools that fold further tools at runtime
+  do: (
+    input: I,
+    display: DisplayManagerAdapter,
+    glove: IGloveRunnable,
+    signal?: AbortSignal,
+  ) => Promise<ToolResultData>;
+  // `glove` is the running instance (used by tools that fold further tools at runtime, e.g. discovermcp's `activate`).
+  // `signal` is the active request's AbortSignal — forward it into long-running internal work.
 }
 ```
 
-Pass exactly one of `inputSchema` / `jsonSchema`. The executor only runs Zod `safeParse` when `input_schema` is set; `jsonSchema`-only tools forward `call.input_args` straight to `run`.
+Pass exactly one of `inputSchema` / `jsonSchema`. The executor only runs Zod `safeParse` when `input_schema` is set; `jsonSchema`-only tools forward `call.input_args` straight to `run`. The subagent dispatcher (`glove_invoke_subagent`) explicitly forwards `signal` into the child's `processRequest` so a parent-side abort propagates into the child's `Agent.ask` loop.
 
 `getToolJsonSchema(tool)` — adapter helper that returns whichever schema the tool provided as JSON Schema.
 
@@ -1349,14 +1457,27 @@ class Glove implements IGloveBuilder, IGloveRunnable {
 }
 
 interface IGloveRunnable {
-  fold<I>(args: GloveFoldArgs<I>): IGloveRunnable;   // exposed
-  readonly model: ModelAdapter;                       // exposed read-only
-  readonly serverMode: boolean;                       // exposed read-only
-  // ...
+  processRequest(request: string | ContentPart[], signal?: AbortSignal): Promise<ModelPromptResult | Message>;
+  setModel(model: ModelAdapter): void;
+  setSystemPrompt(prompt: string): void;
+  getSystemPrompt(): string;
+  /** Swap the display manager for this Glove. Useful for subagents that want to share the parent's display stack mid-run. */
+  setDisplayManager(displayManager: DisplayManagerAdapter): void;
+  addSubscriber(subscriber: SubscriberAdapter): void;
+  removeSubscriber(subscriber: SubscriberAdapter): void;
+  fold<I>(args: GloveFoldArgs<I>): IGloveRunnable;
+  defineHook(name: string, handler: HookHandler): IGloveRunnable;
+  defineSkill(args: DefineSkillArgs): IGloveRunnable;
+  defineSubAgent(args: DefineSubAgentArgs): IGloveRunnable;
+  /** Re-bind to a new store post-construction. Equivalent to .build(store). */
+  rebuild(store?: StoreAdapter): IGloveRunnable;
+  readonly displayManager: DisplayManagerAdapter;
+  readonly model: ModelAdapter;
+  readonly serverMode: boolean;
 }
 ```
 
-The `built` throw was removed. Tools that need to register more tools at runtime (e.g. the discovery subagent's `activate`) read `glove` from `do(input, display, glove)` and call `glove.fold(...)`.
+The `built` throw was removed. Tools that need to register more tools at runtime (e.g. the `discovermcp` subagent's `activate`) read `glove` from `do(input, display, glove, signal?)` and call `glove.fold(...)`.
 
 ### GloveConfig — serverMode
 

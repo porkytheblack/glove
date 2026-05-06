@@ -938,10 +938,6 @@ export default function TravelPlanner() {
           — use <code>glove-core</code> directly without React
         </li>
         <li>
-          <a href="/tools">Tool Registry</a> — browse pre-built tools you can
-          drop into your app
-        </li>
-        <li>
           <a href="/docs/react#define-tool">
             <code>defineTool</code> Reference
           </a>{" "}

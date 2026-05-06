@@ -5,6 +5,7 @@ import type {
   Message,
   Task,
   TaskStatus,
+  TokenConsumptionCounter,
   PermissionStatus,
   InboxItem,
   InboxItemStatus,
@@ -17,6 +18,12 @@ export interface SqliteStoreOptions {
   sessionId: string;
 }
 
+/**
+ * @deprecated `glove-sqlite` is deprecated and will not receive new features.
+ * It does not implement the newer optional `StoreAdapter` capabilities
+ * (e.g. `createSubAgentStore`). Bring your own `StoreAdapter` implementation
+ * tailored to your storage backend.
+ */
 export class SqliteStore implements StoreAdapter {
   identifier: string;
   private db: Database.Database;
@@ -191,12 +198,13 @@ export class SqliteStore implements StoreAdapter {
     return row?.token_count ?? 0;
   }
 
-  async addTokens(count: number): Promise<void> {
+  async addTokens(args: TokenConsumptionCounter): Promise<void> {
+    const total = args.tokens_in + args.tokens_out;
     this.db
       .prepare(
         `UPDATE sessions SET token_count = token_count + ? WHERE session_id = ?`,
       )
-      .run(count, this.identifier);
+      .run(total, this.identifier);
   }
 
   async getTurnCount(): Promise<number> {

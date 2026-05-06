@@ -494,38 +494,78 @@ export const gloveClient = new GloveClient({
       </p>
 
       {/* ------------------------------------------------------------------ */}
-      <h2>Using pre-built tools from the registry</h2>
+      <h2>Swapping the display manager at runtime</h2>
 
       <p>
-        The <a href="/tools">Tool Registry</a> has pre-built tools with
-        renderers that you can copy into your project. Each tool includes the
-        full <code>ToolConfig</code> with <code>do</code> and{" "}
-        <code>render</code> already wired together.
+        Both <code>IGloveBuilder</code> and <code>IGloveRunnable</code> expose
+        a chainable <code>setDisplayManager(displayManager)</code> method.
+        It&apos;s safe to call before <code>build()</code> (builder form) or
+        after, and it just swaps the reference the agent hands to{" "}
+        <code>fold(...).do(input, display, ...)</code> for subsequent tool
+        runs. Use it when you want to bind the same Glove instance to
+        different surfaces depending on context — for example, swapping
+        between a sidebar and a modal display stack.
       </p>
 
-      <p>For example, to use the confirmation dialog:</p>
+      <CodeBlock
+        filename="lib/swap-display.ts"
+        language="typescript"
+        code={`import { Glove, Displaymanager } from "glove-core";
 
-      <ol>
-        <li>
-          Go to{" "}
-          <a href="/tools/confirm-action">confirm_action</a> in the registry
-        </li>
-        <li>Copy the source code into your project</li>
-        <li>
-          Import it and add it to your <code>tools</code> array
-        </li>
-      </ol>
+const sidebar = new Displaymanager();
+const modal = new Displaymanager();
+
+const agent = new Glove({
+  store, model, displayManager: sidebar, systemPrompt,
+  compaction_config: { compaction_instructions: "Summarise." },
+}).build();
+
+// Later, route a turn through the modal stack instead.
+agent.setDisplayManager(modal);
+await agent.processRequest("Show me the checkout dialog.");`}
+      />
+
+      {/* ------------------------------------------------------------------ */}
+      <h2>Subagents and the parent display stack</h2>
 
       <p>
-        Available tools include{" "}
-        <a href="/tools/confirm-action">confirm_action</a>,{" "}
-        <a href="/tools/collect-form">collect_form</a>,{" "}
-        <a href="/tools/ask-preference">ask_preference</a>,{" "}
-        <a href="/tools/text-input">text_input</a>,{" "}
-        <a href="/tools/show-info-card">show_info_card</a>,{" "}
-        <a href="/tools/suggest-options">suggest_options</a>, and{" "}
-        <a href="/tools/approve-plan">approve_plan</a>.
+        Subagents registered with{" "}
+        <code>glove.defineSubAgent({`{ name, factory }`})</code> run in
+        isolated child Gloves. By default a subagent factory builds its own{" "}
+        <code>DisplayManagerAdapter</code>, but the factory receives{" "}
+        <code>parentControls.displayManager</code> in its{" "}
+        <code>SubAgentFactoryContext</code> and can either pass it into the
+        child&apos;s <code>GloveConfig</code> up front or call{" "}
+        <code>child.setDisplayManager(parentControls.displayManager)</code>{" "}
+        before returning. Either way, slots the subagent&apos;s tools push
+        with <code>pushAndWait</code> / <code>pushAndForget</code> land in
+        the parent&apos;s display stack and render in the parent UI.
       </p>
+
+      <CodeBlock
+        filename="lib/subagent-shared-display.ts"
+        language="typescript"
+        code={`import { Glove } from "glove-core";
+
+glove.defineSubAgent({
+  name: "reviewer",
+  description: "Picks a reviewer slot from the parent UI when ambiguous.",
+  factory: async ({ parentControls, parentStore }) => {
+    const subStore = (await parentStore.createSubAgentStore?.("reviewer", false)) ?? defaultStore();
+
+    const child = new Glove({
+      store: subStore,
+      model: parentControls.glove.model,
+      displayManager: parentControls.displayManager, // share parent UI
+      systemPrompt: "You pick a reviewer.",
+      compaction_config: { compaction_instructions: "Summarise." },
+    });
+
+    child.fold(askReviewerPicker());
+    return child.build();
+  },
+});`}
+      />
 
       {/* ------------------------------------------------------------------ */}
       <h2>The render function in detail</h2>
@@ -718,10 +758,6 @@ renderResult({ data }) {
         <li>
           <a href="/docs/react#slot-render-props">SlotRenderProps</a> — all
           properties available in your <code>render</code> function
-        </li>
-        <li>
-          <a href="/tools">Tool Registry</a> — browse and copy pre-built tools
-          with renderers
         </li>
         <li>
           <a href="/docs/react#define-tool">defineTool API reference</a>{" "}
