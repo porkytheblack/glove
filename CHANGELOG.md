@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased — Glove Monitor
+
+**New packages**
+
+| Package | Version | Description |
+|---------|---------|-------------|
+| `glove-monitor` | 0.1.0 | Centralised observability dashboard for Glove agents. Hono server + Next.js dashboard + pluggable storage (SQLite by default) + token-gated DCR (RFC 7591) for ingest. Receives every `SubscriberEvent` from connected glove instances and rolls up conversations, tool calls, token consumption, cost, latency, and model usage. |
+| `glove-monitor-client` | 0.1.0 | Subscriber for glove-core apps. Three subpath entries: default Node `MonitorSubscriber` (auto-DCR + queued ingest), `/browser` `BrowserMonitorSubscriber` (credential-less; relays to dev's backend), `/server` `createMonitorRouteHandler` / `createMonitorHonoHandler` (server-side relay handler that holds DCR'd creds and overrides `user_id` from authenticated session). |
+
+**Highlights**
+
+- **Token-gated DCR.** Admin creates a Project in glove-monitor, generates a registration token; glove apps auto-register on first use, cache the resulting `client_id`/`client_secret`, and use OAuth client_credentials for ingest. No manual API key management.
+- **Browser-safe relay.** `glove-react` apps run `BrowserMonitorSubscriber` with no credentials in the bundle; the developer's existing backend mounts `createMonitorRouteHandler` to forward events upstream with server-trusted `user_id`.
+- **Server-trusted identity.** `subject = user_id ?? client_id`. Browser-supplied `user_id` is ignored; the relay handler overrides it from the dev's own auth.
+- **Cost + latency in the pipeline.** Token counts × per-model rates (with DB and config overrides) compute `cost_micros`. `tool_use` ↔ `tool_use_result` pairing yields tool latency.
+- **Live dashboard streams.** SSE at `/api/v1/events` for public consumers; WebSocket at `/api/events` for internal dashboard updates. Both filter by project.
+- **Hardened defaults.** Cookie sessions with separate `sessionSecret`, scrypt-strength password compare, `Secure` cookies on HTTPS, CSRF check on cookie-authed mutating routes, per-route rate limits, body-size caps in front of the JSON parser. Anonymous-admin "dev mode" requires explicit opt-in and refuses to activate in `NODE_ENV=production`.
+- **Compile-time schema drift guard.** A `satisfies SubscriberEvent` check forces an immediate type-check failure if a new variant lands in glove-core without being mirrored in the Zod ingest schema — instead of silently 400-ing every batch in production.
+
+**Status**
+
+- Server (Hono + storage adapters + ingest + DCR + read APIs + SSE/WS) and client subscribers are complete and end-to-end tested.
+- Next.js dashboard pages and the two example apps (`examples/glove-monitor-demo`, `examples/glove-monitor-react-demo`) are scheduled for a follow-up release.
+
+---
+
 ## v3.0.0 — Subagents, observability & MemoryStore
 
 **Release date:** May 2026
