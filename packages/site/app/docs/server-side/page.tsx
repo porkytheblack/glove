@@ -109,10 +109,13 @@ export default function ServerSidePage() {
       </p>
 
       <CodeBlock
-        code={`import { Glove, Displaymanager, createAdapter } from "glove-core";
+        code={`import { Glove, Displaymanager, MemoryStore } from "glove-core";
+import { createAdapter } from "glove-core/models/providers";
 import z from "zod";
 
-// 1. In-memory store (see below for implementation)
+// 1. In-memory store. \`MemoryStore\` ships from glove-core, implements
+//    every optional StoreAdapter method (tasks, inbox, permissions), and
+//    also implements createSubAgentStore so subagents work out of the box.
 const store = new MemoryStore("my-session");
 
 // 2. Model adapter from the provider registry
@@ -126,7 +129,8 @@ const model = createAdapter({
 //    tools don't need interactive UI
 const dm = new Displaymanager();
 
-// 4. Build the agent
+// 4. Build the agent. Pass \`store\` explicitly, or omit it from GloveConfig
+//    and let Glove construct a fresh MemoryStore for you.
 const agent = new Glove({
   store,
   model,
@@ -165,18 +169,35 @@ console.log(result.messages[0]?.text);`}
       <h2 id="memory-store">In-Memory Store</h2>
 
       <p>
-        For server-side agents that don&apos;t need persistence across restarts,
-        implement <code>StoreAdapter</code> with plain arrays and counters.
-        This is the minimum viable store.
+        Most server-side agents that don&apos;t need persistence can just use{" "}
+        <code>MemoryStore</code> from <code>glove-core</code>. It implements
+        the full <code>StoreAdapter</code> interface (messages, token
+        counters, turns, tasks, inbox, permissions) plus{" "}
+        <code>createSubAgentStore</code>, so subagents work without extra
+        wiring. <code>Glove</code>&apos;s constructor uses it as the default
+        when no <code>store</code> is provided.
       </p>
 
       <CodeBlock
-        code={`import type { StoreAdapter, Message } from "glove-core";
+        code={`import { MemoryStore } from "glove-core";
 
-class MemoryStore implements StoreAdapter {
+const store = new MemoryStore("my-session");`}
+        language="typescript"
+      />
+
+      <p>
+        For a custom backend (Redis, Postgres, DynamoDB, ...), implement{" "}
+        <code>StoreAdapter</code> directly. The minimum viable shape:
+      </p>
+
+      <CodeBlock
+        code={`import type { StoreAdapter, Message, TokenConsumptionCounter } from "glove-core";
+
+class MyStore implements StoreAdapter {
   identifier: string;
   private messages: Message[] = [];
-  private tokenCount = 0;
+  private tokensIn = 0;
+  private tokensOut = 0;
   private turnCount = 0;
 
   constructor(id: string) {
@@ -185,34 +206,27 @@ class MemoryStore implements StoreAdapter {
 
   async getMessages() { return this.messages; }
   async appendMessages(msgs: Message[]) { this.messages.push(...msgs); }
-  async getTokenCount() { return this.tokenCount; }
-  async addTokens(count: number) { this.tokenCount += count; }
+  async getTokenCount() { return this.tokensIn + this.tokensOut; }
+  async addTokens(args: TokenConsumptionCounter) {
+    this.tokensIn += args.tokens_in;
+    this.tokensOut += args.tokens_out;
+  }
   async getTurnCount() { return this.turnCount; }
   async incrementTurn() { this.turnCount++; }
-  async resetCounters() { this.tokenCount = 0; this.turnCount = 0; }
+  async resetCounters() {
+    this.tokensIn = 0;
+    this.tokensOut = 0;
+    this.turnCount = 0;
+  }
 }`}
         language="typescript"
       />
 
       <p>
-        For persistent storage, use the built-in <code>SqliteStore</code>:
-      </p>
-
-      <CodeBlock
-        code={`import { SqliteStore } from "glove-sqlite";
-
-const store = new SqliteStore({
-  dbPath: "./my-agent.db",
-  sessionId: "session-123",
-});`}
-        language="typescript"
-      />
-
-      <p>
-        The store interface is intentionally simple. You can implement it
-        against Redis, Postgres, DynamoDB, or any backend. See the{" "}
-        <a href="/docs/core#store-adapter">StoreAdapter</a> reference for
-        the full interface, including optional methods for tasks and permissions.
+        See the <a href="/docs/core#store-adapter">StoreAdapter</a>{" "}
+        reference for the full interface, including the optional task,
+        inbox, permission, and <code>createSubAgentStore</code> methods that
+        unlock the corresponding features automatically when present.
       </p>
 
       {/* ================================================================== */}
@@ -351,17 +365,19 @@ gloveBuilder.addSubscriber(new LogSubscriber());`}
 
       <CodeBlock
         code={`import { WebSocketServer, WebSocket } from "ws";
+import { randomUUID } from "node:crypto";
 import {
-  Glove, Displaymanager,
-  createAdapter, type SubscriberAdapter,
+  Glove, Displaymanager, MemoryStore,
+  type SubscriberAdapter,
 } from "glove-core";
-import { SqliteStore } from "glove-sqlite";
+import { createAdapter } from "glove-core/models/providers";
 
 const wss = new WebSocketServer({ port: 8080 });
 
 wss.on("connection", (ws) => {
-  // Each connection gets its own agent instance
-  const store = new SqliteStore({ dbPath: "./agent.db", sessionId: randomUUID() });
+  // Each connection gets its own agent instance.
+  // Swap MemoryStore for your own StoreAdapter to persist across reconnects.
+  const store = new MemoryStore(randomUUID());
   const dm = new Displaymanager();
 
   // Forward events to the WebSocket client
@@ -608,6 +624,16 @@ await agent.processRequest("Continue our conversation.");`}
             "Permission system",
             "Tools with requiresPermission: true will check/store user consent before execution.",
           ],
+          [
+            "getInboxItems, addInboxItem, updateInboxItem, getResolvedInboxItems",
+            "Async inbox",
+            "The glove_post_to_inbox tool is auto-registered. See the Inbox guide for the full lifecycle.",
+          ],
+          [
+            "createSubAgentStore",
+            "Subagent isolation",
+            "Subagent factories call parentStore.createSubAgentStore(name, durable?) to obtain a per-invocation child store. Without it, the discovery / subagent factories fall back to in-memory.",
+          ],
         ]}
       />
 
@@ -625,7 +651,8 @@ await agent.processRequest("Continue our conversation.");`}
 
       <CodeBlock
         code={`#!/usr/bin/env npx tsx
-import { Glove, Displaymanager, createAdapter } from "glove-core";
+import { Glove, Displaymanager, MemoryStore } from "glove-core";
+import { createAdapter } from "glove-core/models/providers";
 import z from "zod";
 
 const agent = new Glove({
@@ -654,11 +681,13 @@ console.log(result.messages.at(-1)?.text);`}
       <h3>Background worker</h3>
 
       <CodeBlock
-        code={`import { Glove, Displaymanager, createAdapter } from "glove-core";
-import { SqliteStore } from "glove-sqlite";
+        code={`import { Glove, Displaymanager } from "glove-core";
+import { createAdapter } from "glove-core/models/providers";
+import { storeForJob } from "./store";
 
 async function processJob(job: { id: string; prompt: string }) {
-  const store = new SqliteStore({ dbPath: "./jobs.db", sessionId: job.id });
+  // Bring your own StoreAdapter — Postgres, Redis, DynamoDB, anything.
+  const store = storeForJob(job.id);
 
   const agent = new Glove({
     store,
@@ -775,9 +804,10 @@ while (true) {
         You work directly with <code>glove-core</code>: the{" "}
         <code>Glove</code> builder, <code>Displaymanager</code>, and model
         adapters from <code>createAdapter</code> or instantiated directly
-        (e.g. <code>new AnthropicAdapter({"{ ... }"})</code>). For persistent
-        storage, use <code>SqliteStore</code> from <code>glove-sqlite</code>{" "}
-        (or your own store).
+        (e.g. <code>new AnthropicAdapter({"{ ... }"})</code>). For storage,
+        either use the in-process <code>MemoryStore</code> from{" "}
+        <code>glove-core</code> or implement your own{" "}
+        <code>StoreAdapter</code> against the database of your choice.
       </p>
     </div>
   );

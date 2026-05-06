@@ -1,7 +1,8 @@
 {
   "name": "glove-sqlite",
-  "version": "2.2.4",
-  "description": "SQLite store adapter for Glove agent framework",
+  "version": "3.0.0",
+  "description": "[DEPRECATED] SQLite store adapter for Glove agent framework. No longer receiving new features; bring your own StoreAdapter implementation.",
+  "deprecated": "glove-sqlite is deprecated and will not receive new features. Bring your own StoreAdapter implementation tailored to your storage backend.",
   "type": "module",
   "license": "MIT",
   "repository": {

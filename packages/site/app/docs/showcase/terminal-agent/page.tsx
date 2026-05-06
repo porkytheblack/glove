@@ -120,15 +120,16 @@ export default async function TerminalAgentPage() {
         language="bash"
         code={`mkdir my-terminal-agent && cd my-terminal-agent
 pnpm init
-pnpm add glove-core glove-sqlite zod
+pnpm add glove-core zod
 pnpm add -D tsx`}
       />
 
       <p>
         <code>glove-core</code> includes the Anthropic SDK and OpenAI SDK
-        as dependencies. <code>glove-sqlite</code> provides the SQLite
-        store. <code>tsx</code> lets you run TypeScript directly without a
-        build step.
+        as dependencies, plus the in-memory <code>MemoryStore</code> used
+        below. <code>tsx</code> lets you run TypeScript directly without a
+        build step. For durable persistence across restarts, implement a
+        custom <code>StoreAdapter</code> backed by your storage of choice.
       </p>
 
       <p>
@@ -463,19 +464,17 @@ async function handleSlot(
         filename="agent.ts"
         language="typescript"
         code={`import * as readline from "node:readline/promises";
-import { Glove, Displaymanager, AnthropicAdapter } from "glove-core";
-import { SqliteStore } from "glove-sqlite";
+import { Glove, Displaymanager, AnthropicAdapter, MemoryStore } from "glove-core";
 import { readFileDef, editFileDef, bashDef, planDef } from "./tools";
 import { TerminalSubscriber } from "./subscriber";
 import { setupPromptHandler } from "./prompt-handler";
 
 // ─── 1. Store ────────────────────────────────────────────────────────────────
-// Use ":memory:" for ephemeral sessions, or a file path for persistence.
+// MemoryStore keeps the conversation in process memory. For durable
+// persistence across restarts, implement StoreAdapter against your own
+// database (Postgres, Redis, SQLite, etc.).
 
-const store = new SqliteStore({
-  dbPath: "./agent.db",
-  sessionId: "main",
-});
+const store = new MemoryStore("main");
 
 // ─── 2. Model ────────────────────────────────────────────────────────────────
 
@@ -567,9 +566,11 @@ repl().catch(console.error);`}
 
       <ul>
         <li>
-          <strong><code>SqliteStore</code></strong> — persists messages, tokens,
-          tasks, and permissions in a local SQLite file. The agent remembers
-          previous conversations across restarts.
+          <strong><code>MemoryStore</code></strong> — keeps messages, tokens,
+          tasks, and permissions in process memory. The store is exported
+          from <code>glove-core</code> and is the default when no store is
+          configured. Swap in a custom <code>StoreAdapter</code> when you
+          need persistence across restarts.
         </li>
         <li>
           <strong><code>AnthropicAdapter</code></strong> — connects to the
@@ -817,7 +818,7 @@ agent.setModel(new AnthropicAdapter({
           <a href="/docs/core">Core API Reference</a> — full documentation for{" "}
           <code>Glove</code>, <code>AnthropicAdapter</code>,{" "}
           <code>SubscriberAdapter</code>, and{" "}
-          <code>SqliteStore</code> (from <code>glove-sqlite</code>)
+          <code>MemoryStore</code>
         </li>
       </ul>
     </div>

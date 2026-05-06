@@ -1,5 +1,138 @@
 # Changelog
 
+## v3.0.0 — Subagents, observability & MemoryStore
+
+**Release date:** May 2026
+
+---
+
+### Highlights
+
+- **First-class subagents** via `defineSubAgent` with a factory pattern — the parent agent invokes a registered subagent through the auto-registered `glove_invoke_subagent` tool, the framework runs the child Glove and returns its final agent text as the tool result.
+- **Sub-stores** (`StoreAdapter.createSubAgentStore`) so subagent conversations and token usage can be tracked independently for per-run cost attribution.
+- **Comprehensive subscriber events** for hooks, skills, and subagents — including bracketed `subagent_invoked` / `subagent_completed` with **guaranteed 1:1 symmetry** even on parent abort.
+- **`MemoryStore` in `glove-core`** — comprehensive default `StoreAdapter` with sub-store support, used automatically when `Glove` is constructed without a store.
+- **Pre-emptive compaction** — `Observer.ESCAPE_COMPACTION_THRESHOLD` (default 90%) keeps `tool_use` / `tool_result` pairs from being split across compactions.
+
+### Updated Packages
+
+| Package | Version |
+|---------|---------|
+| `glove-core` | 3.0.0 |
+| `glove-react` | 3.0.0 |
+| `glove-voice` | 3.0.0 |
+| `glove-next` | 3.0.0 |
+
+### New / promoted packages (early-access at 0.5.0)
+
+| Package | Version | Description |
+|---------|---------|-------------|
+| `glove-mcp` | 0.5.0 | MCP server bridging — `mountMcp` reloads previously-activated servers and registers the `discovermcp` discovery subagent. Promoted from internal use to a stable surface. |
+| `glovebox-core` | 0.5.0 | Authoring kit and `glovebox` build CLI for shipping a built `Glove` runnable as a sandboxed, network-addressable service. |
+| `glovebox-kit` | 0.5.0 | In-container runtime for Glovebox — hosts a Glove agent behind a single authenticated WebSocket plus an HTTP `/files` route. |
+| `glovebox-client` | 0.5.0 | Client SDK for talking to a deployed Glovebox server. |
+
+The `glovebox-*` packages are at 0.x because the surface is still solidifying. The `glove-mcp` jump from 0.1 to 0.5 reflects the migration to first-class subagent dispatch (see breaking changes below).
+
+### Deprecated
+
+- **`glove-sqlite`** — no longer receiving new features. The new `MemoryStore` in `glove-core` covers most prototyping needs; for production, BYO `StoreAdapter`. The package still installs and works, just without `createSubAgentStore` support.
+
+---
+
+### Breaking Changes
+
+#### `StoreAdapter.addTokens(args: TokenConsumptionCounter)`
+Was `(count: number)`. The counter is `{ tokens_in: number; tokens_out: number }` — the framework now records both directions separately, useful for per-direction cost reporting. `getTokenCount()` still returns a single sum. **Affects every custom `StoreAdapter` implementation.**
+
+```ts
+// Before
+async addTokens(count: number) { this.tokens += count }
+
+// After
+async addTokens(args: TokenConsumptionCounter) {
+  this.tokens += args.tokens_in + args.tokens_out
+}
+```
+
+In `glove-react`, the same change applies to `RemoteStoreActions.addTokens(sessionId, args: TokenConsumptionCounter)`.
+
+#### `Glove.defineMention` → `Glove.defineSubAgent` (factory pattern)
+`defineMention(args)` is removed. The `Mention*` family of types is replaced by `SubAgent*`. The shape changed too: instead of returning string content, the factory builds and returns a fully-built child `Glove`, and the framework calls `child.processRequest(prompt, signal)` and uses the final agent text as the tool result.
+
+```ts
+// Before
+glove.defineMention({
+  name: "researcher",
+  handler: async ({ prompt, controls }) => "research result",
+})
+
+// After
+glove.defineSubAgent({
+  name: "researcher",
+  factory: async ({ parentStore, parentControls, prompt }) => {
+    const subStore = await parentStore.createSubAgentStore?.("researcher", false)
+    return new Glove({
+      store: subStore,
+      model: parentControls.glove.model,
+      displayManager: parentControls.displayManager,
+      systemPrompt: "You are a researcher.",
+      compaction_config: { compaction_instructions: "Summarize research progress." },
+    }).fold(searchTool).build()
+  },
+})
+```
+
+#### `glove-mcp`: `discoveryTool` → `discoverySubAgent`; `find_capability` → `discovermcp`
+`discoveryTool({...})` is renamed `discoverySubAgent({...})` and now returns `DefineSubAgentArgs` (used with `glove.defineSubAgent(...)` instead of `glove.fold(...)`). The discovery subagent's name is `discovermcp` (was `find_capability`); the model invokes via `glove_invoke_subagent({ name: "discovermcp", prompt: "..." })`. `mountMcp` consumers don't need to change anything — it wires the new shape internally.
+
+#### Hook / skill directives — placeholders, not stripped
+User text containing `/skill-name` or `/hook-name` directives is no longer stripped from the persisted user message. Each bound directive is replaced by a non-triggerable placeholder of the form `[invoked_extension__hook_<name>]` or `[invoked_extension__skill_<name>]`. Hook and skill handlers receive `parsedText` containing the placeholder, not the bare directive.
+
+#### `Tool.run` and `GloveFoldArgs.do` gain optional `signal`
+`Tool.run(input, handOver?, signal?)` — backward-compatible; tools that ignore the third arg still work. `GloveFoldArgs.do(input, display, glove, signal?)` similarly gains an optional fourth `signal`. Tools that perform long-running internal work (subagent dispatchers, fetches) should forward it.
+
+---
+
+### Features
+
+#### Core (`glove-core`)
+
+- **`defineSubAgent(args)`** — register a subagent factory. Receives `{ name, prompt, parentStore, parentControls }` and returns an `IGloveRunnable`. Parent subscribers automatically fan out to the child for the duration of the run.
+- **`SUBAGENT_DISPATCH_TOOL_NAME`** — exported constant (`"glove_invoke_subagent"`); the Executor uses it to recognize subagent dispatch calls and bracket them.
+- **`StoreAdapter.createSubAgentStore?(namespace, durable?)`** — optional. `durable: false` (default) returns a fresh child store per call; `durable: true` returns a cached child for the namespace.
+- **`MemoryStore`** — comprehensive in-memory store exported from `glove-core`. Implements the full `StoreAdapter` surface including `createSubAgentStore`. Used as the default when `Glove` is constructed without a store.
+- **`Glove.build(store?)` and `Glove.rebuild(store?)`** — store can be supplied at build time. Tools folded before build are correctly transferred into the rebuilt executor.
+- **`IGloveRunnable.setDisplayManager(dm)` / `IGloveBuilder.setDisplayManager(dm)`** — chainable post-build setter. Subagents can share the parent's display via `parentControls.displayManager`.
+- **`AgentControls` extended** with `store: StoreAdapter` and `displayManager: DisplayManagerAdapter` direct accessors.
+- **Subscriber events**: `token_consumption`, `hook_invoked`, `skill_invoked`, `subagent_invoked`, `subagent_completed`. Bracket events fire from the Executor for guaranteed 1:1 symmetry on abort.
+- **`Observer.ESCAPE_COMPACTION_THRESHOLD`** (default 90%) — pre-emptive compaction in `Agent.ask` runs `runCompactionNow()` if the soft threshold is crossed AND the model just produced tool calls, keeping `tool_use` / `tool_result` pairs together.
+- **`Message.pre_modified_text`** — when a hook rewrites a user message, the original text is preserved on this field so UIs can still show what the user typed.
+
+#### MCP (`glove-mcp` 0.5.0)
+
+- **`discoverySubAgent(config)`** — replaces `discoveryTool`. Returns a `DefineSubAgentArgs` for `glove.defineSubAgent(...)`. Subagent name is `discovermcp`.
+- **Bracketed observability** — every discovery run emits `subagent_invoked` / `subagent_completed` plus all child events between (parent subscribers fan out automatically). Per-run token usage is tracked independently on the child store.
+
+#### Glovebox (`glovebox-core` / `glovebox-kit` / `glovebox-client` 0.5.0)
+
+- **Authoring kit and CLI** — wrap a built `Glove` runnable, run `glovebox build`, ship the resulting Dockerfile (or nixpacks bundle) to any container host.
+- **In-container runtime** — `glovebox-kit` hosts a Glove agent behind a single authenticated WebSocket endpoint plus an HTTP `/files` route for outputs.
+- **Client SDK** — `glovebox-client` provides a typed client for talking to a deployed Glovebox server. One WebSocket per session, multiple prompts multiplexed.
+
+---
+
+### Documentation
+
+- **Site overhaul** — every docs page rewritten for the new API surface.
+- **MCP guide** — discovery section rewritten for the factory pattern and `discovermcp` subagent name.
+- **Migration guide** — new [`/docs/v3`](https://glove.dterminal.net/docs/v3) page covers the migration step-by-step.
+- **Registry section removed** — the `/tools` registry has been deleted from the site.
+- **Claude Code skill** — `.claude/skills/glove/` rewritten to match 3.0.0.
+
+---
+---
+
 ## v2.0.0 — Voice Support
 
 **Release date:** February 2026

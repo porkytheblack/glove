@@ -137,9 +137,12 @@ export default async function InboxPage() {
       <h2>Enabling the inbox</h2>
 
       <p>
-        The inbox is enabled by implementing four optional methods on your store.
-        All built-in stores (<code>SqliteStore</code>, <code>MemoryStore</code>,{" "}
-        <code>createRemoteStore</code>) already support it.
+        The inbox is enabled by implementing four optional methods on your
+        store. The built-in <code>MemoryStore</code> from{" "}
+        <code>glove-core</code> implements them out of the box, and{" "}
+        <code>createRemoteStore</code> from <code>glove-react</code> exposes
+        them on its <code>RemoteStoreActions</code> contract — wire those to
+        your backend to persist the inbox across sessions.
       </p>
 
       <CodeBlock
@@ -198,50 +201,53 @@ interface InboxItem {
 
       <p>
         The whole point of the inbox is that something <em>outside</em> the
-        agent resolves the request. Glove provides a static helper for this:
+        agent resolves the request. Resolution is a plain store update:
+        flip the item&apos;s status to <code>&quot;resolved&quot;</code>,
+        attach the response text, and stamp <code>resolved_at</code>. The
+        next time <code>processRequest</code> runs, the agent picks the
+        item up via <code>getResolvedInboxItems()</code>, injects it into
+        context, and marks it <code>&quot;consumed&quot;</code>.
       </p>
 
       <CodeBlock
         filename="Background job / webhook handler"
         language="typescript"
-        code={`import { SqliteStore } from "glove-sqlite";
-
-// Resolve an inbox item from any process that has DB access
-const resolved = SqliteStore.resolveInboxItem(
-  "path/to/sessions.db",     // Same DB the agent uses
-  "inbox_17119...",           // The item ID
-  "Great news! The Yirgacheffe is back in stock and ready to order."
-);
-
-if (!resolved) {
-  console.log("Item not found or already resolved");
+        code={`// Any process that shares the store backend — cron, webhook, admin script —
+// just calls updateInboxItem on a StoreAdapter pointed at the same session.
+async function resolveInboxItem(
+  store: StoreAdapter,
+  itemId: string,
+  response: string,
+) {
+  if (!store.updateInboxItem) {
+    throw new Error("Store does not support inbox items");
+  }
+  await store.updateInboxItem(itemId, {
+    status: "resolved",
+    response,
+    resolved_at: new Date().toISOString(),
+  });
 }`}
       />
 
       <p>
-        This opens its own database connection, updates the item, and closes.
-        It can be called from a completely separate process — a cron job, a
-        webhook handler, an admin script, or another service entirely.
-      </p>
-
-      <p>
-        For web apps, you&apos;ll typically expose this as an API endpoint:
+        For web apps, expose this as an API endpoint that builds a store
+        adapter for the target session and updates the item:
       </p>
 
       <CodeBlock
         filename="app/api/inbox/resolve/route.ts"
         language="typescript"
         code={`import { NextResponse } from "next/server";
-import { SqliteStore } from "glove-sqlite";
+import { resolveInboxItem } from "@/lib/inbox";
+import { storeForSession } from "@/lib/store";
 
 export async function POST(req: Request) {
-  const { itemId, response } = await req.json();
+  const { sessionId, itemId, response } = await req.json();
 
-  const resolved = SqliteStore.resolveInboxItem(DB_PATH, itemId, response);
+  const store = storeForSession(sessionId);
+  await resolveInboxItem(store, itemId, response);
 
-  if (!resolved) {
-    return NextResponse.json({ error: "Not found or already resolved" }, { status: 404 });
-  }
   return NextResponse.json({ ok: true });
 }`}
       />
@@ -325,8 +331,8 @@ export const storeActions: RemoteStoreActions = {
       />
 
       <p>
-        The corresponding API routes delegate to <code>SqliteStore</code>{" "}
-        methods — the same pattern as the message routes.
+        The corresponding API routes delegate to your store backend — the
+        same pattern as the message routes.
       </p>
 
       {/* ------------------------------------------------------------------ */}

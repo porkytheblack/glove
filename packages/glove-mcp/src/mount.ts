@@ -5,7 +5,7 @@ import type { McpAdapter, McpCatalogueEntry } from "./adapter";
 import { connectMcp } from "./connect";
 import { bridgeMcpTool } from "./bridge";
 import { bearer } from "./auth";
-import { discoveryTool } from "./discovery";
+import { discoverySubAgent } from "./discovery";
 import type { DiscoveryAmbiguityPolicy } from "./discovery/policy";
 
 export interface MountMcpConfig {
@@ -24,13 +24,14 @@ export interface MountMcpConfig {
 }
 
 /**
- * Reload previously active MCPs into the running Glove and fold in
- * `find_capability`.
+ * Reload previously active MCPs into the running Glove and register the
+ * `discovermcp` discovery subagent so the parent agent can route to it
+ * via `glove_invoke_subagent`.
  *
  * Fails open — if any single reload fails, logs and continues with the rest,
  * so a transient server outage doesn't kill the agent.
  *
- * Returns when reload + discovery fold are complete.
+ * Returns when reload + subagent registration are complete.
  */
 export async function mountMcp(
   glove: IGloveRunnable,
@@ -66,9 +67,9 @@ export async function mountMcp(
     }
   }
 
-  // 2. Fold the discovery tool
-  glove.fold(
-    discoveryTool({
+  // 2. Register the discovery subagent
+  glove.defineSubAgent(
+    discoverySubAgent({
       adapter,
       entries,
       ambiguityPolicy: policy,

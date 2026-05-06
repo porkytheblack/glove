@@ -27,6 +27,20 @@ import { splitAtLastCompaction, abortablePromise } from "./utils";
  * **Observer events** (emitted during context compaction):
  * - `compaction_start` — Context compaction has begun
  * - `compaction_end` — Context compaction has finished
+ *
+ * **Extension events** (emitted by Glove when hooks, skills, and subagents fire):
+ * - `hook_invoked` — A `/name` hook handler is about to run (emitted by Glove)
+ * - `skill_invoked` — A skill handler is about to run, user-side `/name` or agent-side `glove_invoke_skill` (emitted by Glove and the skill dispatch tool respectively)
+ * - `subagent_invoked` — A subagent's child Glove run is about to start (emitted by Executor — see `SUBAGENT_DISPATCH_TOOL_NAME`)
+ * - `subagent_completed` — A subagent's child Glove run has finished (emitted by Executor)
+ *
+ * The `subagent_invoked` / `subagent_completed` pair brackets every
+ * subagent run with **guaranteed 1:1 symmetry** — the Executor fires both
+ * events around `glove_invoke_subagent` calls, so a parent abort that
+ * cuts the dispatcher's promise chain still produces a matching close
+ * bracket. Events emitted by the child Glove between them belong to that
+ * subagent (parent subscribers are attached to the child for the duration
+ * of the run).
  */
 export type SubscriberEvent =
   | { type: "text_delta"; text: string }
@@ -35,7 +49,12 @@ export type SubscriberEvent =
   | { type: "model_response_complete"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number }
   | { type: "tool_use_result"; tool_name: string; call_id?: string; result: ToolResultData }
   | { type: "compaction_start"; current_token_consumption: number }
-  | { type: "compaction_end"; current_token_consumption: number; summary_message: Message };
+  | { type: "compaction_end"; current_token_consumption: number; summary_message: Message }
+  | { type: "token_consumption"; consumption: TokenConsumptionCounter }
+  | { type: "hook_invoked"; name: string }
+  | { type: "skill_invoked"; name: string; source: "user" | "agent"; args?: string }
+  | { type: "subagent_invoked"; name: string; prompt: string }
+  | { type: "subagent_completed"; name: string; status: "success" | "error"; message?: string };
 
 /** Extract a single event by its type field. */
 export type SubscriberEventOf<T extends SubscriberEvent["type"]> =
@@ -150,9 +169,21 @@ export interface Tool<I> {
   jsonSchema?: Record<string, unknown>;
   requiresPermission?: boolean;
   unAbortable?: boolean;
+  /**
+   * Tool implementation.
+   *
+   * `signal` is the active request's `AbortSignal` (the same one passed to
+   * `Glove.processRequest`). Tools that perform long-running internal work
+   * — most notably the subagent dispatcher, which runs a nested agent loop
+   * — should forward it into that work so abort propagates all the way
+   * down. The executor already wraps `run()` with an abortable race so
+   * tools that ignore `signal` still don't block the executor on abort.
+   * Tools marked `unAbortable: true` should ignore `signal`.
+   */
   run(
     input: I,
     handOver?: (request: unknown) => Promise<unknown>,
+    signal?: AbortSignal,
   ): Promise<ToolResultData>;
 }
 
@@ -202,6 +233,8 @@ export interface Message {
   sender: "user" | "agent";
   id?: string;
   text: string;
+  // in cases where a user is using a hook that will rewrite the existing text, we wanna be able to still know the original message, especially in instances where we need to display it to the user
+  pre_modified_text?: string;
   content?: Array<ContentPart>;
   tool_results?: Array<ToolResult>;
   tool_calls?: Array<ToolCall>;
@@ -245,7 +278,7 @@ export interface StoreAdapter {
 
   getTokenCount(): Promise<number>
 
-  addTokens(count: number): Promise<void>
+  addTokens(args: TokenConsumptionCounter): Promise<void>
 
   getTurnCount(): Promise<number>
 
@@ -267,8 +300,16 @@ export interface StoreAdapter {
   addInboxItem?(item: InboxItem): Promise<void>
   updateInboxItem?(itemId: string, updates: Partial<Pick<InboxItem, "status" | "response" | "resolved_at">>): Promise<void>
   getResolvedInboxItems?(): Promise<Array<InboxItem>>
+
+  // subagent store
+  // durable means the subagent can continue to get the same store with full message history from past interactions
+  createSubAgentStore?(namespace: string, durable?: boolean): Promise<StoreAdapter>
 }
 
+export interface TokenConsumptionCounter {
+  tokens_in: number
+  tokens_out: number
+}
 export class Context {
   store: StoreAdapter;
   constructor(store: StoreAdapter) {
@@ -365,6 +406,14 @@ export class PromptMachine {
 // e.g if a tool call is requesting additional info from the user, perharps will create custom tool for this, but the good thing is this does not need to  be hardcoded into the sdk
 export type HandOverFunction = (input: unknown) => Promise<unknown>;
 
+/**
+ * Tool name of the auto-registered subagent dispatch tool. The Executor
+ * recognises calls to this tool name and brackets them with
+ * `subagent_invoked` / `subagent_completed` events so subscribers see
+ * symmetric brackets even when a subagent run is aborted or errors out.
+ */
+export const SUBAGENT_DISPATCH_TOOL_NAME = "glove_invoke_subagent";
+
 export class Executor {
   tools: Array<Tool<any>> = [];
   toolCallStack: Array<ToolCall> = [];
@@ -413,6 +462,27 @@ export class Executor {
       this.subscribers.map((s) => s.record(event_name, event_data)),
     );
   };
+
+  /**
+   * Fire `subagent_completed` for a finished subagent dispatch call. No-op
+   * for non-dispatch tools or for malformed inputs (the call without a
+   * `name` would never have produced an open-bracket either).
+   */
+  private maybeCloseSubagentBracket(
+    call: ToolCall,
+    status: "success" | "error",
+    message?: string,
+  ) {
+    if (call.tool_name !== SUBAGENT_DISPATCH_TOOL_NAME) return;
+    const args = call.input_args as { name?: string } | undefined;
+    if (!args?.name) return;
+    this.notifySubscribers("subagent_completed", {
+      name: args.name,
+      status,
+      message,
+    });
+  }
+
   addToolCallToStack(call: ToolCall) {
     this.toolCallStack.push(call);
   }
@@ -496,13 +566,29 @@ export class Executor {
         validatedInput = parsed_input.data;
       }
 
+      // Fire the open-bracket for subagent invocations here — once we've
+      // passed all skip conditions and are about to actually run the
+      // dispatcher. The matching close-bracket fires below in the result
+      // handlers (success, error, and abort), guaranteeing 1:1 symmetry
+      // even when the executor's abortablePromise wrapper short-circuits
+      // the dispatcher's own promise.
+      if (call.tool_name === SUBAGENT_DISPATCH_TOOL_NAME) {
+        const args = call.input_args as { name?: string; prompt?: string } | undefined;
+        if (args?.name) {
+          this.notifySubscribers("subagent_invoked", {
+            name: args.name,
+            prompt: args.prompt ?? "",
+          });
+        }
+      }
+
       let toolRunEffect = Effect.tryPromise({
         try: async () => {
           // Only check abort signal for abortable tools
           if (signal?.aborted && !tool.unAbortable) throw new AbortError();
           const result = tool.unAbortable ?
-            await tool.run(validatedInput, handOver) :
-            await abortablePromise(signal, tool.run(validatedInput, handOver));
+            await tool.run(validatedInput, handOver, signal) :
+            await abortablePromise(signal, tool.run(validatedInput, handOver, signal));
           return result
         },
         catch(e) {
@@ -539,6 +625,7 @@ export class Executor {
               },
             });
             this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
+            this.maybeCloseSubagentBracket(call, "error", "Subagent run aborted by the user.");
             return;
           }
 
@@ -554,6 +641,7 @@ export class Executor {
           });
 
           this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
+          this.maybeCloseSubagentBracket(call, "error", `Subagent dispatcher errored: ${error}`);
         },
         onRight: (value: ToolResultData) => {
           toolResults.push({
@@ -563,6 +651,11 @@ export class Executor {
           });
 
           this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
+          this.maybeCloseSubagentBracket(
+            call,
+            value.status === "success" ? "success" : "error",
+            value.message,
+          );
         },
       })
 
@@ -580,6 +673,7 @@ export class Executor {
 export class Observer {
   MAX_TURNS: number = 120;
   CONTEXT_COMPACTION_LIMIT = 100_000; // number of tokens probably needs to be configurable per ai
+  ESCAPE_COMPACTION_THRESHOLD = 90 // for model tool calls and results to escape being compacted
   COMPACTION_INSTRUCTIONS: string;
   store: StoreAdapter;
   context: Context;
@@ -592,7 +686,8 @@ export class Observer {
     prmpt: PromptMachine,
     compaction_instructions: string,
     max_turns?: number,
-    context_compaction_limit?: number
+    context_compaction_limit?: number,
+    escape_compaction_threshold?:number
   ) {
     this.store = store;
     this.MAX_TURNS = max_turns ?? this.MAX_TURNS;
@@ -600,6 +695,7 @@ export class Observer {
     this.prompt = prmpt;
     this.COMPACTION_INSTRUCTIONS = compaction_instructions;
     this.CONTEXT_COMPACTION_LIMIT = context_compaction_limit ?? this.CONTEXT_COMPACTION_LIMIT;
+    this.ESCAPE_COMPACTION_THRESHOLD = escape_compaction_threshold ?? this.ESCAPE_COMPACTION_THRESHOLD
   }
 
   addSubscriber(subscriber: SubscriberAdapter) {
@@ -637,13 +733,24 @@ export class Observer {
     return current_turns ?? 0;
   }
 
-  async addTokensConsumed(token_count: number) {
-    await this.store.addTokens(token_count)
+  async addTokensConsumed(args: TokenConsumptionCounter) {
+    await this.store.addTokens(args)
+    await this.notifySubscribers("token_consumption", {
+      consumption: args
+    })
   }
 
   async getCurrentTokenConsumption() {
     const res = await this.store.getTokenCount() 
     return res
+  }
+
+  async isCompactionImminent() {
+    const current_token_consumption = await this.getCurrentTokenConsumption()
+
+    if (current_token_consumption >= (this.CONTEXT_COMPACTION_LIMIT * this.ESCAPE_COMPACTION_THRESHOLD)/100) return true;
+
+    return false;
   }
 
   async tryCompaction() {
@@ -678,18 +785,6 @@ export class Observer {
 
     const summaryText = result.messages.filter((m)=> m.sender == "agent").map(m => m.text)?.join("\n") || "No summary was generated"
 
-    // Preserve current task state across compaction
-    const currentTasks = await this.context.getTasks();
-    let taskBlock = "";
-    if (currentTasks.length > 0) {
-      const taskLines = currentTasks.map(
-        (t) => `- [${t.status}] ${t.content}`
-      );
-      taskBlock =
-        `\n\n[Current task list — you MUST call glove_update_tasks to update these as you continue]\n` +
-        taskLines.join("\n") + "\n";
-    }
-
     // Preserve pending inbox items across compaction
     const pendingInbox = (await this.context.getInboxItems()).filter(
       (item) => item.status === "pending"
@@ -706,13 +801,16 @@ export class Observer {
 
     const summaryMessage: Message = {
       sender: "user",
-      text: `[Conversation summary from compaction]\n\n${summaryText}${taskBlock}${inboxBlock}\n\n` +
+      text: `[Conversation summary from compaction]\n\n${summaryText}${inboxBlock}\n\n` +
         `[End of summary - the conversation continues from here]`,
       is_compaction: true
     }
 
     await this.context.appendMessages([summaryMessage])
-    await this.store.addTokens(  result.tokens_out)
+    await this.store.addTokens({
+      tokens_in: 0,
+      tokens_out: result.tokens_out
+    })
     
     await this.notifySubscribers("compaction_end", {
       current_token_consumption: result.tokens_out,
@@ -744,11 +842,12 @@ export class Agent {
   }
 
   async ask(message: Message, handOver?: HandOverFunction, signal?: AbortSignal) {
-    await this.context.appendMessages([message]);
 
     // Inbox: inject resolved items (persisted) and build transient blocking reminder
     await this.injectResolvedInboxItems();
     const pendingBlockingMessage = await this.buildPendingBlockingMessage();
+    
+    await this.context.appendMessages([message]);
 
     // Per-request turn counter to prevent runaway loops.
     // The observer's session-level counter is still incremented for stats.
@@ -758,11 +857,12 @@ export class Agent {
       if (signal?.aborted) throw new AbortError();
 
       let messages = await this.context.getMessages();
+      messages = [...messages]
 
       // Append transient blocking reminder (not persisted) so the model
       // is aware of pending items without bloating conversation history.
       if (pendingBlockingMessage) {
-        messages = [...messages, pendingBlockingMessage];
+        messages.splice(messages.length - 1, 0, pendingBlockingMessage)
       }
 
       if (requestTurns >= this.observer.MAX_TURNS) {
@@ -782,18 +882,30 @@ export class Agent {
 
       if (signal?.aborted) throw new AbortError();
 
-      await this.context.appendMessages(results.messages);
-      await this.observer.addTokensConsumed(results.tokens_in);
-      await this.observer.turnComplete();
-      requestTurns++;
+      let should_compact = await this.observer.isCompactionImminent()
 
       const messages_with_tool_calls = results.messages.filter(
         (m) => (m.tool_calls?.length ?? 0) > 0,
       );
 
+      const has_tool_calls = messages_with_tool_calls.length != 0 
+
+      if (should_compact && has_tool_calls) {
+        // so that model results with tool calls are fully resolved, and the model has the full information to make decisions
+        await this.observer.runCompactionNow()
+      }
+      await this.context.appendMessages(results.messages);
+      await this.observer.addTokensConsumed({
+        tokens_in: results.tokens_in ?? 0,
+        tokens_out: results.tokens_out ?? 0
+      });
+      await this.observer.turnComplete();
+      requestTurns++;
+
+      
+
       if (messages_with_tool_calls.length == 0) {
         // Auto-complete any in_progress tasks when the agent's turn ends
-        await this.autoCompleteTasks();
         return results;
       }
 
@@ -821,19 +933,6 @@ export class Agent {
 
       await this.observer.tryCompaction();
     }
-  }
-
-  private async autoCompleteTasks() {
-    const tasks = await this.context.getTasks();
-    if (tasks.length === 0) return;
-
-    const hasIncomplete = tasks.some((t) => t.status === "in_progress");
-    if (!hasIncomplete) return;
-
-    const updated = tasks.map((t) =>
-      t.status === "in_progress" ? { ...t, status: "completed" as const } : t,
-    );
-    await this.context.addTasks(updated);
   }
 
   private async injectResolvedInboxItems() {

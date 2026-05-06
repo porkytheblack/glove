@@ -2,6 +2,7 @@ import type {
   StoreAdapter,
   Message,
   Task,
+  TokenConsumptionCounter,
   InboxItem,
   PermissionStatus,
 } from "glove-core/core";
@@ -42,8 +43,8 @@ export class MemoryStore implements StoreAdapter {
     return this.tokenCount;
   }
 
-  async addTokens(count: number): Promise<void> {
-    this.tokenCount += count;
+  async addTokens(args: TokenConsumptionCounter): Promise<void> {
+    this.tokenCount += args.tokens_in + args.tokens_out;
   }
 
   // ─── Turns ───────────────────────────────────────────────────────────────────

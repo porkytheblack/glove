@@ -1,13 +1,13 @@
 import { z } from "zod";
 import { Glove } from "glove-core/glove";
 import type { GloveFoldArgs, IGloveRunnable } from "glove-core/glove";
-import type { ModelAdapter, ToolResultData } from "glove-core/core";
+import type { DefineSubAgentArgs } from "glove-core/extensions";
+import type { ModelAdapter, StoreAdapter, ToolResultData } from "glove-core/core";
 
 import type { McpAdapter, McpCatalogueEntry } from "../adapter";
 import { connectMcp } from "../connect";
 import { bridgeMcpTool } from "../bridge";
 import { bearer } from "../auth";
-import { extractText } from "../extract-text";
 
 import type { DiscoveryAmbiguityPolicy } from "./policy";
 import { defaultPromptFor } from "./prompt";
@@ -17,11 +17,11 @@ export type { DiscoveryAmbiguityPolicy } from "./policy";
 
 // ─── Public config ───────────────────────────────────────────────────────────
 
-export interface DiscoveryToolConfig {
+export interface DiscoverySubAgentConfig {
   adapter: McpAdapter;
   entries: McpCatalogueEntry[];
   ambiguityPolicy: DiscoveryAmbiguityPolicy;
-  /** Default: inherited from the main glove at do-time via the third argument. */
+  /** Default: inherited from the parent glove at invocation time. */
   subagentModel?: ModelAdapter;
   /** Default: built-in per-policy prompt. */
   subagentSystemPrompt?: string;
@@ -223,26 +223,49 @@ function askUserTool(): GloveFoldArgs<{ question: string; options: AskUserOption
 
 // ─── Public factory ──────────────────────────────────────────────────────────
 
-export function discoveryTool(
-  config: DiscoveryToolConfig,
-): GloveFoldArgs<{ need: string }> {
+/**
+ * Build the `discovermcp` subagent definition. Pass to
+ * `glove.defineSubAgent(...)` so the parent agent invokes it via the
+ * first-class `glove_invoke_subagent` dispatch tool.
+ *
+ * Each invocation:
+ *   1. Asks the parent store for a fresh, non-durable sub-store via
+ *      `createSubAgentStore("discovermcp", false)`. Falls back to an
+ *      in-memory store if the parent store doesn't implement sub-stores —
+ *      that preserves the previous "constructed fresh per call" behavior.
+ *   2. Builds a child Glove with the same model / displayManager /
+ *      serverMode as the parent (overridable via config).
+ *   3. Folds the discovery tools (list_capabilities, activate, deactivate,
+ *      and ask_user when interactive). The activate tool reaches back to
+ *      the parent glove to fold bridged MCP tools onto it.
+ *   4. The dispatcher attaches parent subscribers to the child for the
+ *      duration of the run, brackets it with subagent_invoked /
+ *      subagent_completed events, and returns the child's final agent
+ *      message text as the tool result.
+ */
+export function discoverySubAgent(
+  config: DiscoverySubAgentConfig,
+): DefineSubAgentArgs {
   return {
-    name: "find_capability",
+    name: "discovermcp",
     description:
-      "Find a capability the assistant doesn't currently have. Pass a brief description of " +
-      "what you need to do. If a capability is activated, the relevant tools become available " +
-      "on your next turn — just continue the task and use them.",
-    inputSchema: z.object({
-      need: z.string().describe("Brief description of the capability or service required."),
-    }),
-    async do(input, _display, mainGlove): Promise<ToolResultData> {
+      "Discover and activate an MCP server the parent assistant doesn't currently have. " +
+      "Hand the subagent a brief description of what you need; if it activates a server, " +
+      "the relevant tools become available on the parent's next turn.",
+    factory: async ({ parentStore, parentControls }): Promise<IGloveRunnable> => {
+      const parentGlove = parentControls.glove;
+
+      const store: StoreAdapter =
+        (await parentStore.createSubAgentStore?.("discovermcp", false)) ??
+        new DiscoveryMemoryStore(`discovermcp_${Date.now()}`);
+
       const subagent = new Glove({
-        store: new DiscoveryMemoryStore(`discovery_${Date.now()}`),
-        model: config.subagentModel ?? mainGlove.model,
-        displayManager: mainGlove.displayManager,
+        store,
+        model: config.subagentModel ?? parentGlove.model,
+        displayManager: parentGlove.displayManager,
         systemPrompt:
           config.subagentSystemPrompt ?? defaultPromptFor(config.ambiguityPolicy),
-        serverMode: mainGlove.serverMode,
+        serverMode: parentGlove.serverMode,
         compaction_config: {
           compaction_instructions: "Summarise capability search progress.",
           compaction_context_limit: 30_000,
@@ -251,22 +274,14 @@ export function discoveryTool(
 
       subagent.fold(listCapabilitiesTool(config.adapter, config.entries));
       subagent.fold(
-        activateTool(config.adapter, config.entries, mainGlove, config.clientInfo),
+        activateTool(config.adapter, config.entries, parentGlove, config.clientInfo),
       );
       subagent.fold(deactivateTool(config.adapter));
       if (config.ambiguityPolicy.type === "interactive") {
         subagent.fold(askUserTool());
       }
 
-      subagent.build();
-
-      const result = await subagent.processRequest(input.need);
-      const text = extractText(result);
-
-      return {
-        status: "success",
-        data: text || "No matching capability found.",
-      };
+      return subagent.build();
     },
   };
 }

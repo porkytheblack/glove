@@ -12,6 +12,6 @@ export { bearer } from "./auth";
 export type { BearerToken } from "./auth";
 export { mountMcp } from "./mount";
 export type { MountMcpConfig } from "./mount";
-export { discoveryTool } from "./discovery";
-export type { DiscoveryAmbiguityPolicy, DiscoveryToolConfig } from "./discovery";
+export { discoverySubAgent } from "./discovery";
+export type { DiscoveryAmbiguityPolicy, DiscoverySubAgentConfig } from "./discovery";
 export { extractText } from "./extract-text";

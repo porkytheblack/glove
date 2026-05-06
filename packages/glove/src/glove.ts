@@ -5,23 +5,22 @@
 // how do you achieve undos? include something in the do, that can be undone
 
 import z from "zod";
-import { Agent, ContentPart, Context, Executor, HandOverFunction, Message, ModelAdapter, ModelPromptResult, Observer, PromptMachine, StoreAdapter, SubscriberAdapter, Tool, ToolResultData } from "./core";
+import { Agent, ContentPart, Context, Executor, HandOverFunction, Message, ModelAdapter, ModelPromptResult, NotifySubscribersFunction, Observer, PromptMachine, StoreAdapter, SubscriberAdapter, Tool, ToolResultData } from "./core";
+import { MemoryStore } from "./utils";
 import { DisplayManagerAdapter } from "./display-manager";
-import { createTaskTool } from "./tools/task-tool";
-import { createInboxTool } from "./tools/inbox-tool";
 import {
   AgentControls,
-  createMentionInvokeTool,
   createSkillInvokeTool,
-  DefineMentionArgs,
+  createSubAgentInvokeTool,
   DefineSkillArgs,
+  DefineSubAgentArgs,
   formatSkillMessage,
   HookHandler,
   parseTokens,
-  RegisteredMention,
   RegisteredSkill,
-  renderMentionToolDescription,
+  RegisteredSubAgent,
   renderSkillToolDescription,
+  renderSubAgentToolDescription,
 } from "./extensions";
 
 
@@ -37,14 +36,22 @@ export interface GloveFoldArgs<I> {
   /**
    * Tool implementation.
    *
-   * The third argument is the running `Glove` instance. Use it from tools that
-   * need to fold additional tools at runtime (e.g. the discovery subagent's
-   * activate tool). Existing tools can ignore it.
+   * Arguments:
+   * - `input` — validated input matching `inputSchema` / `jsonSchema`.
+   * - `display` — the parent's `DisplayManagerAdapter`.
+   * - `glove` — the running `Glove` instance. Use it from tools that need
+   *   to fold additional tools at runtime (e.g. the discovery subagent's
+   *   activate tool). Most tools ignore it.
+   * - `signal` — the active request's `AbortSignal`. Forward into any
+   *   long-running internal work (nested agent runs, fetches, ...) so
+   *   abort propagates. Tools that ignore it still get the executor's
+   *   abortable-promise unwind for free.
    */
   do: (
     input: I,
     display: DisplayManagerAdapter,
     glove: IGloveRunnable,
+    signal?: AbortSignal,
   ) => Promise<ToolResultData>,
 }
 
@@ -53,6 +60,8 @@ export interface IGloveRunnable {
   setModel: (model: ModelAdapter) => void
   setSystemPrompt: (prompt: string) => void
   getSystemPrompt: () => string
+  /** Swap the display manager for this Glove. Useful for subagents that want to share the parent's display stack mid-run. */
+  setDisplayManager: (displayManager: DisplayManagerAdapter) => void
   addSubscriber: (subscriber: SubscriberAdapter) => void
   removeSubscriber: (subscriber: SubscriberAdapter) => void
   /** Fold a tool. Legal at any time, including after build. */
@@ -61,8 +70,9 @@ export interface IGloveRunnable {
   defineHook: (name: string, handler: HookHandler) => IGloveRunnable
   /** Register a `/name` skill that injects context as a synthetic user message. */
   defineSkill: (args: DefineSkillArgs) => IGloveRunnable
-  /** Register a subagent the agent can route to via the `glove_invoke_subagent` tool. The user's `@name` mention in their text reaches the model verbatim and acts as a routing signal. */
-  defineMention: (args: DefineMentionArgs) => IGloveRunnable
+  /** Register a subagent factory the agent can route to via the `glove_invoke_subagent` tool. The factory receives the parent store and controls and returns a fully-built child Glove. The user's `@name` mention in their text reaches the model verbatim and acts as a routing signal. */
+  defineSubAgent: (args: DefineSubAgentArgs) => IGloveRunnable
+  rebuild: (store?: StoreAdapter)=> IGloveRunnable
   readonly displayManager: DisplayManagerAdapter
   readonly model: ModelAdapter
   readonly serverMode: boolean
@@ -73,9 +83,10 @@ interface IGloveBuilder {
   fold: <I>(args: GloveFoldArgs<I>) => IGloveBuilder,
   defineHook: (name: string, handler: HookHandler) => IGloveBuilder,
   defineSkill: (args: DefineSkillArgs) => IGloveBuilder,
-  defineMention: (args: DefineMentionArgs) => IGloveBuilder,
+  defineSubAgent: (args: DefineSubAgentArgs) => IGloveBuilder,
+  setDisplayManager: (displayManager: DisplayManagerAdapter) => IGloveBuilder,
   addSubscriber: (subscriber: SubscriberAdapter) => IGloveBuilder,
-  build: ()=> IGloveRunnable
+  build: (store?: StoreAdapter)=> IGloveRunnable
 }
 
 interface CompactionConfig {
@@ -86,7 +97,7 @@ interface CompactionConfig {
 
 
 interface GloveConfig {
-  store: StoreAdapter,
+  store?: StoreAdapter,
   model: ModelAdapter,
   displayManager: DisplayManagerAdapter,
   systemPrompt: string,
@@ -104,7 +115,7 @@ interface GloveConfig {
 
 export class Glove implements IGloveBuilder, IGloveRunnable {
 
-  readonly displayManager: DisplayManagerAdapter
+  private _displayManager: DisplayManagerAdapter
   readonly serverMode: boolean
   private store: StoreAdapter
   private context: Context
@@ -115,23 +126,33 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
 
   private hooks = new Map<string, HookHandler>()
   private skills = new Map<string, RegisteredSkill>()
-  private mentions = new Map<string, RegisteredMention>()
-  private mentionInvokeTool: Tool<unknown> | null = null
+  private subAgents = new Map<string, RegisteredSubAgent>()
+  private subAgentInvokeTool: Tool<unknown> | null = null
   private skillInvokeTool: Tool<unknown> | null = null
 
+  private subscribers: Array<SubscriberAdapter> = []
+  private compactionConfig: CompactionConfig
+
+  private store_defined = false
   private built = false
 
 
   constructor(config: GloveConfig) {
-    this.store = config.store
-    this.displayManager = config.displayManager
+    if (config.store) {
+      this.store = config.store
+      this.store_defined = true
+    } else {
+      this.store = new MemoryStore(`glove_${Date.now()}`)
+    }
+    this._displayManager = config.displayManager
     this.serverMode = config.serverMode ?? false
+    this.compactionConfig = config.compaction_config
 
     this.context = new Context(this.store)
     this.promptMachine = new PromptMachine(config.model, this.context,config.systemPrompt)
     this.executor = new Executor(config.maxRetries, this.store)
 
-    this.observer = new Observer(this.store, this.context, this.promptMachine, config.compaction_config?.compaction_instructions, config.compaction_config?.max_turns, config.compaction_config?.compaction_context_limit)
+    this.observer = new Observer(this.store, this.context, this.promptMachine, this.compactionConfig?.compaction_instructions, this.compactionConfig?.max_turns, this.compactionConfig?.compaction_context_limit)
 
     this.agent = new Agent(
       this.store,
@@ -141,16 +162,13 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       this.promptMachine
     )
 
-    // Auto-register task tool when the store supports tasks
-    if (this.store.getTasks && this.store.addTasks) {
-      this.executor.registerTool(createTaskTool(this.context));
-    }
-
-    // Auto-register inbox tool when the store supports inbox
-    if (this.store.getInboxItems && this.store.addInboxItem && this.store.updateInboxItem && this.store.getResolvedInboxItems) {
-      this.executor.registerTool(createInboxTool(this.context));
-    }
   }
+
+  private notifyExtensionEvent: NotifySubscribersFunction = async (event_name, event_data) => {
+    await Promise.all(
+      this.subscribers.map((s) => s.record(event_name, event_data)),
+    );
+  };
 
   fold<I>(args: GloveFoldArgs<I>) {
     if (!args.inputSchema && !args.jsonSchema) {
@@ -167,8 +185,8 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       jsonSchema: args.jsonSchema,
       requiresPermission: args.requiresPermission,
       unAbortable: args.unAbortable,
-      async run(input: I) {
-        const result = await args.do(input, displayManager, self)
+      async run(input: I, _handOver, signal?: AbortSignal) {
+        const result = await args.do(input, displayManager, self, signal)
 
         return result
       }
@@ -200,6 +218,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
         this.skillInvokeTool = createSkillInvokeTool(
           this.skills,
           () => this.buildAgentControls(),
+          this.notifyExtensionEvent,
         ) as Tool<unknown>
         this.executor.registerTool(this.skillInvokeTool)
       } else {
@@ -210,24 +229,25 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     return this
   }
 
-  defineMention(args: DefineMentionArgs) {
-    const entry: RegisteredMention = {
-      handler: args.handler,
+  defineSubAgent(args: DefineSubAgentArgs) {
+    const entry: RegisteredSubAgent = {
+      factory: args.factory,
       description: args.description,
     }
-    this.mentions.set(args.name, entry)
+    this.subAgents.set(args.name, entry)
 
-    // Auto-register the dispatch tool the first time a mention is defined,
+    // Auto-register the dispatch tool the first time a subagent is defined,
     // and refresh its description on subsequent registrations so the model
     // sees the live subagent list.
-    if (!this.mentionInvokeTool) {
-      this.mentionInvokeTool = createMentionInvokeTool(
-        this.mentions,
+    if (!this.subAgentInvokeTool) {
+      this.subAgentInvokeTool = createSubAgentInvokeTool(
+        this.subAgents,
         () => this.buildAgentControls(),
+        () => this.subscribers,
       ) as Tool<unknown>
-      this.executor.registerTool(this.mentionInvokeTool)
+      this.executor.registerTool(this.subAgentInvokeTool)
     } else {
-      this.mentionInvokeTool.description = renderMentionToolDescription(this.mentions)
+      this.subAgentInvokeTool.description = renderSubAgentToolDescription(this.subAgents)
     }
 
     return this
@@ -240,6 +260,8 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       promptMachine: this.promptMachine,
       executor: this.executor,
       glove: this,
+      store: this.store,
+      displayManager: this._displayManager,
       forceCompaction: () => this.observer.runCompactionNow(),
     }
   }
@@ -248,7 +270,27 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     return this.promptMachine.model
   }
 
+  get systemPrompt(): string {
+    return this.promptMachine.systemPrompt
+  }
+
+  get displayManager(): DisplayManagerAdapter {
+    return this._displayManager
+  }
+
+  /**
+   * Swap the display manager. Subagents typically call this to share the
+   * parent agent's display stack (passed in via `controls.displayManager`)
+   * if they decide mid-flight that they need to render UI in the parent's
+   * surface. Builder-form too — chainable from `new Glove(...).setDisplayManager(...)`.
+   */
+  setDisplayManager(displayManager: DisplayManagerAdapter) {
+    this._displayManager = displayManager
+    return this
+  }
+
   addSubscriber(subscriber: SubscriberAdapter) {
+    this.subscribers.push(subscriber)
     this.promptMachine.addSubscriber(subscriber)
     this.executor.addSubscriber(subscriber)
     this.observer.addSubscriber(subscriber)
@@ -257,15 +299,67 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   }
 
   removeSubscriber(subscriber: SubscriberAdapter) {
+    const idx = this.subscribers.indexOf(subscriber)
+    if (idx !== -1) this.subscribers.splice(idx, 1)
     this.promptMachine.removeSubscriber(subscriber)
     this.executor.removeSubscriber(subscriber)
     this.observer.removeSubscriber(subscriber)
   }
 
 
-  build(): IGloveRunnable {
+  build(store?: StoreAdapter): IGloveRunnable {
     this.built = true;
 
+    if (store && !this.store_defined) {
+      // Preserve tools registered before build — recreating Executor would
+      // otherwise drop them silently (including the auto-registered
+      // skill/subagent dispatch tools).
+      const previousTools = this.executor.tools;
+      const maxRetries = this.executor.MAX_RETRIES;
+      const model = this.promptMachine.model;
+      const systemPrompt = this.promptMachine.systemPrompt;
+
+      this.store = store;
+      this.context = new Context(this.store)
+      this.promptMachine = new PromptMachine(model, this.context, systemPrompt)
+      this.executor = new Executor(maxRetries, this.store)
+
+      this.observer = new Observer(
+        this.store,
+        this.context,
+        this.promptMachine,
+        this.compactionConfig?.compaction_instructions,
+        this.compactionConfig?.max_turns,
+        this.compactionConfig?.compaction_context_limit,
+      )
+
+      this.agent = new Agent(
+        this.store,
+        this.executor,
+        this.context,
+        this.observer,
+        this.promptMachine
+      )
+
+      for (const tool of previousTools) this.executor.registerTool(tool)
+
+      // Re-attach existing subscribers to the freshly-built components so
+      // event subscriptions made before build keep firing.
+      for (const sub of this.subscribers) {
+        this.promptMachine.addSubscriber(sub)
+        this.executor.addSubscriber(sub)
+        this.observer.addSubscriber(sub)
+      }
+
+      this.store_defined = true
+    }
+
+
+    return this
+  }
+
+  rebuild(store?: StoreAdapter) {
+    this.build(store)
     return this
   }
 
@@ -328,15 +422,16 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
           hooks: new Set(this.hooks.keys()),
           skills: new Set(this.skills.keys()),
         })
-      : { stripped: rawText, hooks: [], skills: [] };
+      : { replaced: rawText, hooks: [], skills: [] };
 
-    let workingText = parsed.stripped;
+    let workingText = parsed.replaced;
     const controls = this.buildAgentControls();
 
     // 1. Run hooks in document order.
     for (const name of parsed.hooks) {
       const handler = this.hooks.get(name);
       if (!handler) continue;
+      await this.notifyExtensionEvent("hook_invoked", { name });
       const result = await handler({
         name,
         rawText,
@@ -367,6 +462,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     for (const name of parsed.skills) {
       const entry = this.skills.get(name);
       if (!entry) continue;
+      await this.notifyExtensionEvent("skill_invoked", { name, source: "user" });
       const injection = await entry.handler({
         name,
         parsedText: workingText,
@@ -377,9 +473,10 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       await this.context.appendMessages([skillMessage]);
     }
 
-    // 3. Build the real user message from stripped text + any original media,
-    //    then hand off to the agent loop. Any `@subagent` mentions in the text
-    //    are visible to the model and routed through `glove_invoke_subagent`.
+    // 3. Build the real user message from the placeholder-substituted text
+    //    + any original media, then hand off to the agent loop. Any
+    //    `@subagent` mentions in the text are visible to the model and
+    //    routed through `glove_invoke_subagent`.
     const userMessage = this.buildUserMessage(workingText, mediaParts, request);
     return this.agent.ask(userMessage, handOver, signal)
   }
@@ -392,8 +489,6 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     if (typeof original === "string") {
       return { sender: "user", text };
     }
-    // No media: degenerate to a plain-text user message with stripped text.
-    // Never fall back to `original` — that would re-introduce stripped tokens.
     if (!mediaParts || mediaParts.length === 0) {
       return { sender: "user", text };
     }

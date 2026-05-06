@@ -83,7 +83,7 @@ export default async function GloveboxShowcasePage() {
       <CodeBlock
         filename="examples/glovebox-pdf-extractor/agent.ts"
         language="typescript"
-        code={`import { Glove, Displaymanager, createAdapter } from "glove-core";
+        code={`import { Glove, Displaymanager, MemoryStore, createAdapter } from "glove-core";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { writeFile } from "node:fs/promises";
@@ -92,22 +92,8 @@ import z from "zod";
 
 const run = promisify(exec);
 
-class MemoryStore {
-  identifier = "pdf";
-  private msgs: any[] = [];
-  private tokens = 0;
-  private turns = 0;
-  async getMessages() { return this.msgs; }
-  async appendMessages(m: any[]) { this.msgs.push(...m); }
-  async getTokenCount() { return this.tokens; }
-  async addTokens(n: number) { this.tokens += n; }
-  async getTurnCount() { return this.turns; }
-  async incrementTurn() { this.turns++; }
-  async resetCounters() { this.tokens = 0; this.turns = 0; }
-}
-
 export const agent = new Glove({
-  store: new MemoryStore(),
+  store: new MemoryStore("pdf"),
   model: createAdapter({ provider: "anthropic", model: "claude-sonnet-4.5", stream: true }),
   displayManager: new Displaymanager(),
   serverMode: true,

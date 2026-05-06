@@ -1065,12 +1065,33 @@ const store = new MemoryStore("session-1");`}
       />
 
       <p>
-        Implements the full <code>StoreAdapter</code> interface: messages, token
-        counts, turn counts, tasks, and permissions are all stored in memory.
-        The <code>resetCounters()</code> method resets token and turn counts to
-        zero without clearing messages, which is used during compaction to
-        preserve the full conversation history.
+        Implements messages, token counts, turn counts, tasks, inbox items,
+        and permissions in process memory. The{" "}
+        <code>resetCounters()</code> method zeroes the token and turn counts
+        without clearing messages, so compaction preserves the full
+        conversation history.
       </p>
+
+      <p>
+        <code>glove-core</code> ships its own, more comprehensive{" "}
+        <code>MemoryStore</code> that also implements{" "}
+        <code>createSubAgentStore(namespace, durable?)</code>, so subagents
+        get isolated child stores out of the box. The <code>Glove</code>{" "}
+        constructor uses it as the default when no <code>store</code> is
+        supplied. Reach for the <code>glove-core</code> export when you need
+        subagent isolation in browser-side prototypes; reach for the{" "}
+        <code>glove-react</code> one for symmetry with the rest of the React
+        package surface.
+      </p>
+
+      <CodeBlock
+        code={`import { MemoryStore } from "glove-core";
+
+// Used implicitly by \`new Glove({ ... })\` when \`store\` is omitted, or
+// constructed explicitly when you want the subagent-aware variant.
+const store = new MemoryStore("session-1");`}
+        language="typescript"
+      />
 
       {/* ------------------------------------------------------------------ */}
       <h2 id="create-remote-store">createRemoteStore</h2>
@@ -1131,8 +1152,8 @@ const store = createRemoteStore("session-123", {
           ],
           [
             "addTokens?",
-            "(sessionId: string, count: number) => Promise<void>",
-            "Add to the cumulative token count.",
+            "(sessionId: string, args: TokenConsumptionCounter) => Promise<void>",
+            "Record input/output tokens consumed. args is { tokens_in, tokens_out }. The fallback in-memory implementation sums both into a single counter.",
           ],
           [
             "getTurnCount?",

@@ -8,7 +8,7 @@ When the main assistant asks you for a capability:
 3. {{POLICY}}
 4. If nothing matches, return a single sentence saying so.
 
-Be brief. Your text reply is what the main assistant sees as the result of its find_capability call.
+Be brief. Your text reply is what the main assistant sees as the result of its discovermcp invocation.
 You may also receive requests to deactivate capabilities — call deactivate(id) for those.`;
 
 const POLICY_PARAGRAPHS: Record<DiscoveryAmbiguityPolicy["type"], string> = {

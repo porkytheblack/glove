@@ -204,8 +204,11 @@ export default function ConceptsPage() {
           <strong>
             <a href="/docs/core#store-adapter">StoreAdapter</a>
           </strong>{" "}
-          — the persistence layer. Where messages, tokens, and turn counts are
-          stored. In-memory, SQLite, Postgres, or a remote API.
+          — the persistence layer. Where messages, tokens, turn counts, and
+          (optionally) tasks, permissions, inbox items, and subagent stores
+          live. <code>MemoryStore</code> ships in <code>glove-core</code> for
+          prototyping; bring your own implementation for Postgres, Redis,
+          remote APIs, or anything else.
         </li>
         <li>
           <strong>
@@ -220,16 +223,50 @@ export default function ConceptsPage() {
           <strong>
             <a href="/docs/core#subscriber-adapter">SubscriberAdapter</a>
           </strong>{" "}
-          — the event observer. Receives events like{" "}
-          <code>text_delta</code>, <code>tool_use</code>, and{" "}
-          <code>tool_use_result</code>. Use it for logging, analytics, or
-          real-time streaming.
+          — the typed event observer. Receives a discriminated{" "}
+          <code>SubscriberEvent</code> union covering model events
+          (<code>text_delta</code>, <code>tool_use</code>,{" "}
+          <code>model_response_complete</code>), executor events
+          (<code>tool_use_result</code>), observer events
+          (<code>compaction_start</code>, <code>compaction_end</code>,{" "}
+          <code>token_consumption</code>), and extension events
+          (<code>hook_invoked</code>, <code>skill_invoked</code>,{" "}
+          <code>subagent_invoked</code>, <code>subagent_completed</code>).
+          Use it for logging, analytics, or real-time streaming.
         </li>
       </ul>
 
       <p>
         For example, switching from OpenAI to Anthropic only requires changing
         the ModelAdapter — your tools, UI, and application logic stay the same.
+      </p>
+
+      <h3 id="subagent-stores">Sub-stores for subagents</h3>
+
+      <p>
+        <code>StoreAdapter</code> exposes one optional method specifically for
+        subagent isolation:{" "}
+        <code>createSubAgentStore(namespace, durable?)</code>. A subagent
+        factory typically calls{" "}
+        <code>parentStore.createSubAgentStore(name, durable)</code> to derive
+        a child store before building the child <code>Glove</code>.
+      </p>
+
+      <ul>
+        <li>
+          <code>durable: false</code> (the default) returns a fresh store on
+          every invocation — the subagent has no memory across calls.
+        </li>
+        <li>
+          <code>durable: true</code> returns the same store for the same
+          namespace, so the subagent accumulates message history across
+          invocations.
+        </li>
+      </ul>
+
+      <p>
+        <code>MemoryStore</code> implements this out of the box; custom store
+        implementations can opt in by supplying their own factory.
       </p>
 
       <h2 id="context-compaction">Context Compaction</h2>
@@ -314,15 +351,76 @@ export default function ConceptsPage() {
       <p>
         On the React side, <code>useGlove()</code> returns{" "}
         <code>inbox: InboxItem[]</code> alongside <code>tasks</code>, so your
-        UI can show what the agent is tracking. External services resolve items
-        via <code>SqliteStore.resolveInboxItem()</code> (from{" "}
-        <code>glove-sqlite</code>) — a static method that
-        can be called from any process with database access.
+        UI can show what the agent is tracking. External services resolve
+        items by calling your store&apos;s <code>updateInboxItem</code> (from
+        a webhook handler, cron job, or admin script) — any process with
+        access to the same backing store can resolve an item.
       </p>
 
       <p>
         See the full <a href="/docs/inbox">Inbox guide</a> for setup,
         external resolution patterns, and the coffee shop example.
+      </p>
+
+      {/* ============================================================== */}
+      <h2 id="extensions">Hooks, Skills &amp; Subagents</h2>
+
+      <p>
+        Glove ships three extension primitives for shaping a turn before — or
+        instead of — calling the model:
+      </p>
+
+      <ul>
+        <li>
+          <strong>Hooks</strong> bind to user-side <code>/name</code>{" "}
+          directives. The handler runs before the model with full{" "}
+          <code>AgentControls</code> access — it can rewrite the user text,
+          force compaction, swap the model mid-conversation, or short-circuit
+          the turn entirely.
+        </li>
+        <li>
+          <strong>Skills</strong> bind to user-side <code>/name</code>{" "}
+          directives <em>or</em> are pulled in by the agent via the
+          auto-registered <code>glove_invoke_skill</code> tool when{" "}
+          <code>exposeToAgent: true</code>. They return text or{" "}
+          <code>ContentPart[]</code> that lands as a synthetic user message
+          marked <code>is_skill_injection: true</code>.
+        </li>
+        <li>
+          <strong>Subagents</strong> are isolated child agents. The main
+          agent routes to them via the auto-registered{" "}
+          <code>glove_invoke_subagent</code> tool. Each invocation calls a
+          factory that builds and returns a fresh <code>IGloveRunnable</code>;
+          the dispatcher runs <code>processRequest(prompt)</code> on it and
+          returns the final agent text as the tool result.
+        </li>
+      </ul>
+
+      <p>
+        When a user-side directive binds, the original <code>/name</code>{" "}
+        token is replaced with a non-triggerable placeholder of the form{" "}
+        <code>[invoked_extension__hook_&lt;name&gt;]</code> or{" "}
+        <code>[invoked_extension__skill_&lt;name&gt;]</code>. The placeholder
+        survives in the persisted user message so transcripts can still show
+        what the user typed without the directive re-firing on a future
+        parse. Unbound <code>/name</code> tokens (filesystem paths, etc.) are
+        left untouched.
+      </p>
+
+      <p>
+        Subagent runs are bracketed by <code>subagent_invoked</code> /{" "}
+        <code>subagent_completed</code> subscriber events with{" "}
+        <strong>guaranteed 1:1 symmetry</strong> — the executor fires both
+        events around every <code>glove_invoke_subagent</code> call, even on
+        abort. While the child is running, the parent&apos;s subscribers fan
+        out to it, so streaming UIs see the child&apos;s{" "}
+        <code>text_delta</code> and <code>tool_use</code> events as part of
+        the same stream.
+      </p>
+
+      <p>
+        See the full <a href="/docs/extensions">Extensions guide</a> for
+        types, dispatch order, and worked examples.
       </p>
     </div>
   );

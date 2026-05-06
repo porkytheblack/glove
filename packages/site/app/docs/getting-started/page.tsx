@@ -463,6 +463,12 @@ export default function Chat() {
           architecture: the agent loop, adapters, and context compaction
         </li>
         <li>
+          <a href="/docs/extensions">Hooks, Skills &amp; Subagents</a> —
+          extend the agent with <code>/hook</code> directives,{" "}
+          <code>/skill</code> context injections, and isolated subagent
+          factories
+        </li>
+        <li>
           <a href="/docs/react">React API Reference</a> — explore the full API
           including{" "}
           <a href="/docs/react#glove-client">GloveClient</a>,{" "}
@@ -473,11 +479,52 @@ export default function Chat() {
           <a href="/docs/react#define-tool">defineTool</a> — type-safe tool
           definitions with typed display props and resolve values
         </li>
-        <li>
-          <a href="/tools">Tool Registry</a> — browse pre-built tools you can
-          drop into your app
-        </li>
       </ul>
+
+      {/* ------------------------------------------------------------------ */}
+      <h2>Server-only quickstart</h2>
+
+      <p>
+        If you just want to run an agent from a Node script — no React, no
+        Next.js — wire <code>Glove</code> up directly with the in-process{" "}
+        <code>MemoryStore</code> from <code>glove-core</code>:
+      </p>
+
+      <CodeBlock
+        filename="scripts/run-agent.ts"
+        language="typescript"
+        code={`import { Glove, MemoryStore, Displaymanager, createAdapter } from "glove-core";
+import { z } from "zod";
+
+const agent = new Glove({
+  store: new MemoryStore("local-session"),
+  model: createAdapter({ provider: "openai", model: "gpt-4.1-mini" }),
+  displayManager: new Displaymanager(),
+  systemPrompt: "You are a helpful weather assistant.",
+  compaction_config: {
+    compaction_instructions: "Summarize the conversation so far.",
+  },
+})
+  .fold({
+    name: "get_weather",
+    description: "Get the current weather for a city.",
+    inputSchema: z.object({ city: z.string().describe("The city to get weather for") }),
+    async do(input) {
+      return { status: "success", data: { city: input.city, temperature: "72F", condition: "Sunny" } };
+    },
+  })
+  .build();
+
+const result = await agent.processRequest("What's the weather in Tokyo?");
+console.log(result);`}
+      />
+
+      <p>
+        <code>MemoryStore</code> keeps everything in process memory — perfect
+        for prototypes, scripts, and tests. For durable sessions, implement{" "}
+        <a href="/docs/core#store-adapter">StoreAdapter</a> against your own
+        backend (Postgres, Redis, S3, anything).
+      </p>
     </div>
   );
 }

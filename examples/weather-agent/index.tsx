@@ -13,6 +13,7 @@ import {
   type StoreAdapter,
   type SubscriberAdapter,
   type Message,
+  type TokenConsumptionCounter,
   Displaymanager,
   type Slot,
   AnthropicAdapter,
@@ -45,8 +46,8 @@ class MemoryStore implements StoreAdapter {
     return this.tokenCount;
   }
 
-  async addTokens(count: number) {
-    this.tokenCount += count;
+  async addTokens(args: TokenConsumptionCounter) {
+    this.tokenCount += args.tokens_in + args.tokens_out;
   }
 
   async getTurnCount() {

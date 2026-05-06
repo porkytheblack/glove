@@ -313,7 +313,7 @@ Two turn modes: **VAD** (hands-free with barge-in) and **Manual** (push-to-talk)
 
 ### MCP Integration
 
-Bridge tools from any [Model Context Protocol](https://modelcontextprotocol.io) server into a Glove agent with `glove-mcp`. The model can discover and activate MCP servers from a static catalogue mid-conversation via `find_capability`.
+Bridge tools from any [Model Context Protocol](https://modelcontextprotocol.io) server into a Glove agent with `glove-mcp`. The model can discover and activate MCP servers from a static catalogue mid-conversation via the `discovermcp` subagent.
 
 ```typescript
 import { mountMcp } from "glove-mcp";
@@ -446,7 +446,7 @@ cd examples/lola && pnpm dev
 
 ### MCP CLI
 
-A multi-MCP server-side agent — connects to hosted MCP servers (Notion, Linear, Gmail) with `find_capability` discovery. Includes reference OAuth-flow CLIs that exercise `glove-mcp/oauth`.
+A multi-MCP server-side agent — connects to hosted MCP servers (Notion, Linear, Gmail) with the `discovermcp` subagent. Includes reference OAuth-flow CLIs that exercise `glove-mcp/oauth`.
 
 ```bash
 pnpm mcp:notion-mcp-auth   # one-time OAuth dance

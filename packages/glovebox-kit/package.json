@@ -1,6 +1,6 @@
 {
   "name": "glovebox-kit",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "description": "Sandboxed runtime that hosts a Glovebox app inside a container",
   "type": "module",
   "license": "MIT",

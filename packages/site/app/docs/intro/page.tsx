@@ -73,6 +73,15 @@ export default function IntroPage() {
           tool, so the tool and its UI live together.
         </li>
         <li>
+          <strong>Hook / Skill / Subagent</strong> &mdash; Three extension
+          primitives. <code>/hook</code> directives mutate agent state before
+          the model sees a turn; <code>/skill</code> directives inject
+          context as a synthetic user message; subagents are isolated child
+          agents the main agent routes to via the auto-registered{" "}
+          <code>glove_invoke_subagent</code> tool. See the{" "}
+          <a href="/docs/extensions">Extensions guide</a>.
+        </li>
+        <li>
           <strong>Adapter</strong> &mdash; A pluggable interface. Glove
           uses adapters for the AI model, data storage, UI state, and event
           observation. Swap OpenAI for Anthropic (or anything else) without

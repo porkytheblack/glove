@@ -30,7 +30,6 @@ export function SiteNav() {
         <span className="nav-wordmark">Glove</span>
       </Link>
       <div className="nav-links">
-        <Link href="/tools">Registry</Link>
         <Link href="/docs/getting-started">Docs</Link>
         <a
           href="https://github.com/porkytheblack/glove"

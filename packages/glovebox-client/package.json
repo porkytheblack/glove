@@ -1,6 +1,6 @@
 {
   "name": "glovebox-client",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "description": "Client SDK for talking to a deployed Glovebox server",
   "type": "module",
   "license": "MIT",

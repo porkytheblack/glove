@@ -149,36 +149,6 @@ footer { padding: 3rem 2rem; border-top: 1px solid var(--border-subtle); max-wid
 .reveal { opacity: 0; transform: translateY(20px); transition: opacity 0.6s ease, transform 0.6s ease; }
 .reveal.visible { opacity: 1; transform: translateY(0); }
 
-/* ─── Registry ─── */
-.registry-container { max-width: 1080px; margin: 0 auto; padding: 0 2rem; }
-.registry-header { padding-top: 8rem; padding-bottom: 2rem; max-width: 1080px; margin: 0 auto; padding-left: 2rem; padding-right: 2rem; }
-.category-tabs { display: flex; gap: 0.5rem; margin-top: 1.5rem; flex-wrap: wrap; }
-.category-tab { padding: 0.4rem 1rem; border-radius: 20px; font-size: 0.8rem; font-family: var(--mono); cursor: pointer; transition: all 0.2s; border: 1px solid var(--border-subtle); background: transparent; color: var(--text-secondary); }
-.category-tab:hover { border-color: var(--border); color: var(--text-primary); }
-.category-tab.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
-.tool-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border-subtle); border-radius: 12px; overflow: hidden; margin-top: 2rem; margin-bottom: 4rem; }
-.tool-card { background: var(--bg-elevated); padding: 1.5rem; transition: background 0.3s; text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 0.75rem; }
-.tool-card:hover { background: var(--bg-surface); }
-.tool-card-header { display: flex; align-items: center; justify-content: space-between; }
-.tool-card-name { font-family: var(--mono); font-size: 0.8rem; font-weight: 500; color: var(--accent); }
-.tool-card-category { font-family: var(--mono); font-size: 0.6rem; color: var(--text-tertiary); background: var(--accent-dim); padding: 0.2rem 0.5rem; border-radius: 4px; }
-.tool-card-desc { font-size: 0.875rem; color: var(--text-secondary); line-height: 1.6; font-weight: 300; flex: 1; }
-.tool-card-pattern { font-family: var(--mono); font-size: 0.7rem; color: var(--text-tertiary); }
-
-/* ─── Tool Detail ─── */
-.tool-detail { max-width: 1080px; margin: 0 auto; padding: 8rem 2rem 6rem; }
-.tool-detail-back { font-size: 0.85rem; color: var(--text-secondary); text-decoration: none; display: inline-flex; align-items: center; gap: 0.5rem; margin-bottom: 2rem; transition: color 0.2s; min-height: 44px; }
-.tool-detail-back:hover { color: var(--text-primary); }
-.tool-detail-name { font-family: var(--mono); font-size: 1.25rem; font-weight: 500; color: var(--accent); margin-bottom: 0.5rem; word-break: break-word; }
-.tool-detail-desc { font-size: 1rem; color: var(--text-secondary); line-height: 1.7; font-weight: 300; max-width: 600px; margin-bottom: 1.5rem; }
-.tool-detail-meta { display: flex; gap: 1rem; margin-bottom: 3rem; }
-.tool-detail-badge { font-family: var(--mono); font-size: 0.7rem; padding: 0.3rem 0.75rem; border-radius: 6px; background: var(--accent-dim); color: var(--text-secondary); border: 1px solid rgba(158,212,184,0.12); }
-.tool-detail-section { margin-bottom: 3rem; }
-.tool-detail-section-label { font-family: var(--mono); font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1rem; }
-.preview-container { background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 12px; overflow: hidden; }
-.preview-header { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border-subtle); font-family: var(--mono); font-size: 0.65rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; }
-.preview-body { padding: 1.5rem; }
-
 /* ─── Docs ─── */
 .docs-layout { display: grid; grid-template-columns: 220px 1fr; max-width: 1080px; margin: 0 auto; padding-top: 5rem; min-height: 100vh; }
 .docs-sidebar { padding: 2rem 1.5rem 2rem 2rem; border-right: 1px solid var(--border-subtle); position: sticky; top: 5rem; height: calc(100vh - 5rem); overflow-y: auto; }
@@ -216,7 +186,6 @@ footer { padding: 3rem 2rem; border-top: 1px solid var(--border-subtle); max-wid
 
 /* ─── Tablet (<=1024px) ─── */
 @media (max-width: 1024px) {
-  .tool-grid { grid-template-columns: repeat(2, 1fr); }
   .idea-grid { gap: 1.5rem; }
   .arch-layer { grid-template-columns: 140px 1fr; padding: 1.5rem; gap: 1.5rem; }
   .stack-step { grid-template-columns: 48px 1fr 220px; gap: 1.5rem; }
@@ -286,23 +255,6 @@ footer { padding: 3rem 2rem; border-top: 1px solid var(--border-subtle); max-wid
   footer { flex-direction: column; gap: 1.5rem; text-align: center; }
   .footer-right { flex-wrap: wrap; justify-content: center; }
   .footer-right a { min-height: 44px; display: inline-flex; align-items: center; }
-
-  /* Registry */
-  .tool-grid { grid-template-columns: 1fr; }
-  .registry-container { padding: 0 1.5rem; }
-  .registry-header { padding: 7rem 1.5rem 2rem; }
-  .tool-card { padding: 1.25rem; }
-
-  /* Category tabs — scrollable on narrow screens */
-  .category-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 0.25rem; }
-  .category-tabs::-webkit-scrollbar { display: none; }
-  .category-tab { flex-shrink: 0; min-height: 44px; display: inline-flex; align-items: center; }
-
-  /* Tool Detail */
-  .tool-detail { padding: 7rem 1.5rem 4rem; }
-  .tool-detail-name { font-size: 1.1rem; }
-  .tool-detail-meta { flex-wrap: wrap; }
-  .preview-body { padding: 1rem; }
 
   /* Docs */
   .docs-layout { grid-template-columns: 1fr; }
@@ -392,13 +344,6 @@ footer { padding: 3rem 2rem; border-top: 1px solid var(--border-subtle); max-wid
 
   .cta-section { padding: 4rem 1.25rem; }
   footer { padding: 2rem 1.25rem; }
-
-  .registry-container { padding: 0 1.25rem; }
-  .registry-header { padding: 6rem 1.25rem 1.5rem; }
-  .category-tab { font-size: 0.75rem; padding: 0.35rem 0.75rem; min-height: 40px; }
-
-  .tool-detail { padding: 6rem 1.25rem 3rem; }
-  .tool-detail-name { font-size: 1rem; }
 
   .docs-content { padding: 1.5rem 1.25rem 4rem; }
   .docs-content h1 { font-size: 1.5rem; }

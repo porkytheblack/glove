@@ -1373,10 +1373,6 @@ export default function CodingAgent() {
           into <code>pushAndWait</code> and <code>pushAndForget</code>
         </li>
         <li>
-          <a href="/tools">Tool Registry</a> — pre-built tools with
-          renderers you can use immediately
-        </li>
-        <li>
           <a href="/docs/react">React API Reference</a> — full API
           documentation
         </li>

@@ -81,7 +81,7 @@ export default async function GloveboxPage() {
         </thead>
         <tbody>
           <tr>
-            <td><code>glovebox</code></td>
+            <td><code>glovebox-core</code></td>
             <td>Author&apos;s machine / build step</td>
             <td>
               Authoring kit and <code>glovebox build</code> CLI. Exposes{" "}
@@ -112,7 +112,7 @@ export default async function GloveboxPage() {
       </table>
 
       <p>
-        The protocol — defined in <code>glovebox/protocol</code> — is the
+        The protocol — defined in <code>glovebox-core/protocol</code> — is the
         only contract between them. Anything else is private to the side
         that ships it.
       </p>
@@ -356,7 +356,7 @@ pnpm exec glovebox build ./glovebox.ts --out ./dist --name media-extractor`}
         One WebSocket per client session, authenticated on upgrade with{" "}
         <code>Authorization: Bearer &lt;key&gt;</code>. Multiple prompts are
         multiplexed by an <code>id</code> the client picks. The full type
-        definitions live in <code>glovebox/protocol</code>; the table below
+        definitions live in <code>glovebox-core/protocol</code>; the table below
         is the at-a-glance version.
       </p>
 

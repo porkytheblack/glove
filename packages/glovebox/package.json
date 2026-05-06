@@ -1,6 +1,6 @@
 {
   "name": "glovebox-core",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "description": "Authoring kit and build CLI for sandboxed Glove agents",
   "type": "module",
   "license": "MIT",
