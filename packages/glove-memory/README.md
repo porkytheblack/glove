@@ -30,6 +30,8 @@ Draft v0.1. Pre-implementation scope from the spec is complete; storage backends
 
 Two roles, both implemented as Glove instances. The conversational reader gets read-only tools; the curator runs as an orchestrator-driven extractor with read + write tools. Context attaches once and gives the agent both read and write tools because users naturally instruct the agent to update their own context ("remember that I prefer X").
 
+### Simple reader — every tool on one Glove
+
 ```ts
 import { Glove } from "glove-core";
 import {
@@ -75,6 +77,120 @@ const reader = useContext(
   context,
 ).build();
 ```
+
+### Curator composition — adapters scoped per subagent
+
+A single curator Glove with every write tool attached works, but it's rarely the best shape. As the schema grows — more node classes, more episode kinds, more resource roots — the rendered tool descriptions grow with it, and one extractor reasoning about everything at once becomes harder to keep coherent.
+
+The spec's recommended pattern is a parent curator that routes work to specialised subagents. Each subagent attaches **only the adapters it needs**, so its tool descriptions render only the schema slice for its role. The entity-linker never sees episode kinds; the episode-recorder gets a read-only view of entity classes (so it can resolve participant IDs) plus the episode-kind list for writes; the resource-writer gets read access to entities and episodes so it can populate `metadata.links` correctly.
+
+Schema rendering is naturally bounded by role rather than by total ontology size:
+
+```ts
+import { Glove } from "glove-core";
+import {
+  useMemoryCurator,
+  useMemoryReader,
+  useEpisodicCurator,
+  useEpisodicReader,
+  useResourcesCurator,
+} from "glove-memory";
+
+// Subagents share the parent's adapters — there's no per-subagent memory
+// namespace. What one subagent writes, the next can immediately read.
+//
+// Each factory builds a fresh Glove with a focused system prompt and only
+// the tools its role needs. The factory pattern is `glove-core`'s standard
+// `defineSubAgent({ name, factory })`.
+
+const linkerFactory = ({ parentStore, parentControls }) =>
+  // Sees: node classes, relationships. NOT episode kinds, NOT resource roots.
+  useMemoryCurator(
+    new Glove({
+      store: parentStore,
+      model,
+      displayManager: parentControls.displayManager,
+      systemPrompt:
+        "You extract entities and relationships from the conversation slice you receive. " +
+        "Use addNode (which dedups via identity keys) for entities, and connect for " +
+        "relationships. If addNode returns identity_ambiguous, merge the matched ids " +
+        "first, then retry.",
+      compaction_config: { compaction_instructions: "..." },
+      serverMode: true,
+    }),
+    entity,
+  );
+
+const recorderFactory = ({ parentStore, parentControls }) => {
+  // Sees: episode kinds (for writes) + read-only entity classes (to resolve
+  // participant ids). Does NOT see resource roots.
+  let glove = new Glove({
+    store: parentStore,
+    model,
+    displayManager: parentControls.displayManager,
+    systemPrompt:
+      "You record episodes from the conversation slice you receive. " +
+      "Look up participant entity ids via glove_memory_find before calling " +
+      "glove_episodic_record. Pick a registered kind from the list in the " +
+      "record-tool description.",
+    compaction_config: { compaction_instructions: "..." },
+    serverMode: true,
+  });
+  glove = useMemoryReader(glove, entity);
+  glove = useEpisodicCurator(glove, episodic);
+  return glove;
+};
+
+const filerFactory = ({ parentStore, parentControls }) => {
+  // Sees: resource roots + read-only entities and episodes (so metadata.links
+  // points at real ids). Does NOT see write tools for entity / episodic.
+  let glove = new Glove({
+    store: parentStore,
+    model,
+    displayManager: parentControls.displayManager,
+    systemPrompt:
+      "You file research notes, transcripts, and link collections under the " +
+      "registered resource roots. Use glove_memory_find / glove_episodic_find " +
+      "to resolve link target ids before writing, so metadata.links references " +
+      "are valid.",
+    compaction_config: { compaction_instructions: "..." },
+    serverMode: true,
+  });
+  glove = useMemoryReader(glove, entity);
+  glove = useEpisodicReader(glove, episodic);
+  glove = useResourcesCurator(glove, resources);
+  return glove;
+};
+
+// The parent curator owns no memory tools itself — it just routes. Its job
+// is reading the conversation slice and dispatching to the right subagent
+// in sequence (classify -> link -> record -> file).
+const curator = new Glove({
+  store: curatorStore,
+  model,
+  displayManager: headlessDisplayManager,
+  systemPrompt:
+    "You orchestrate memory extraction from conversation history. Route work " +
+    "to your subagents in sequence: linker (entities + relationships), recorder " +
+    "(episodes), filer (resources). Each subagent only sees the slice of the " +
+    "schema relevant to its role.",
+  compaction_config: { compaction_instructions: "..." },
+  serverMode: true,
+})
+  .defineSubAgent({ name: "linker", description: "Extract entities and relationships.", factory: linkerFactory })
+  .defineSubAgent({ name: "recorder", description: "Record episodes; resolves participant ids first.", factory: recorderFactory })
+  .defineSubAgent({ name: "filer", description: "File research artifacts; resolves link targets first.", factory: filerFactory })
+  .build();
+```
+
+Why this beats one Glove with everything attached:
+
+- **Bounded prompt surface per role.** The recorder's `glove_memory_find` description renders entity classes; it doesn't render relationships, episode kinds, or resource roots. The filer's tool descriptions render resource roots without rendering write tools for entity. Token cost scales with role, not with total schema size.
+- **Tighter system prompt per role.** Each subagent has a focused brief. The linker isn't tempted to write episodes; the recorder isn't tempted to invent new resource paths.
+- **Read-only access where appropriate.** The recorder needs entity *ids* to populate `participants`, not the ability to create entities. Attaching `useMemoryReader` rather than `useMemoryCurator` removes that affordance entirely.
+- **Adapters are shared.** All three subagents read and write to the same underlying graph, timeline, and filesystem. The linker's `addNode` becomes immediately visible to the recorder's `find`. Splitting memory across subagents would defeat the point of sequencing them.
+
+The same shape works for the conversational reader side too — a main agent that mostly answers questions can keep the small reader surface, and delegate "go research X" to a research subagent that has `useResourcesReader` plus extra fetch tools the main agent doesn't need.
 
 ## Tools
 
