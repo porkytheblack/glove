@@ -20,6 +20,13 @@ export interface MonitorSubscriberOptions {
    * `glove-core`'s `SubscriberEvent` does not carry the model name on
    * `model_response*` events, so the subscriber injects this value at the
    * boundary so the server can compute cost and aggregate by model.
+   *
+   * The injected value is also used for **compaction-pass** model responses,
+   * because glove-core today uses the agent's main model for compaction. If
+   * a future glove-core release adds a separate compaction model, this
+   * option will need a sibling (e.g. `compactionModel`) or to be called from
+   * a context that knows which model just fired.
+   *
    * Resolver function form is supported for runtime-switchable models.
    */
   model?: string | (() => string | undefined)

@@ -19,6 +19,12 @@
 - **Hardened defaults.** Cookie sessions with separate `sessionSecret`, scrypt-strength password compare, `Secure` cookies on HTTPS, CSRF check on cookie-authed mutating routes, per-route rate limits, body-size caps in front of the JSON parser. Anonymous-admin "dev mode" requires explicit opt-in and refuses to activate in `NODE_ENV=production`.
 - **Compile-time schema drift guard.** A `satisfies SubscriberEvent` check forces an immediate type-check failure if a new variant lands in glove-core without being mirrored in the Zod ingest schema — instead of silently 400-ing every batch in production.
 
+**Token & cost accounting**
+
+- Per-conversation totals (tokens_in, tokens_out, cost_micros, models_used) are driven exclusively from `model_response_complete` events. `token_consumption` is intentionally not folded in — `glove-core` fires both events with identical per-turn deltas on every regular turn, so summing both would double-count.
+- Compaction passes are captured: `Observer.runCompactionNow` calls `PromptMachine.run`, which fires `model_response_complete` to the same subscriber chain. Compaction does not emit a separate `token_consumption` event.
+- Compaction cost uses the subscriber's configured `model` name. `glove-core` does not currently support a separate compaction model; if/when it does, `MonitorSubscriber` will gain a `compactionModel` option.
+
 **Status**
 
 - Server (Hono + storage adapters + ingest + DCR + read APIs + SSE/WS) and client subscribers are complete and end-to-end tested.

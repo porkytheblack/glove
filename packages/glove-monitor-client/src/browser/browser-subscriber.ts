@@ -13,7 +13,9 @@ export interface BrowserMonitorSubscriberOptions {
   app: string
   /**
    * Model name (e.g. "claude-opus-4-7"). Injected into model_response*
-   * events so the server can compute cost and aggregate by model.
+   * events so the server can compute cost and aggregate by model. The
+   * same value is used for compaction-pass responses; glove-core does not
+   * currently support a separate compaction model.
    */
   model?: string | (() => string | undefined)
   /** Resolves the conversation identifier per event. */

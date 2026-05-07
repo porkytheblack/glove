@@ -216,14 +216,27 @@ async function processEvent(
     if (costMicros != null) aggregate.costMicrosDelta = costMicros
     if (model) aggregate.modelsUsed = [model]
   }
-  // `token_consumption` events are NOT folded into the conversation aggregate
-  // here. glove-core's Observer fires `token_consumption` after every turn in
-  // addition to the model adapter's `model_response_complete`, so counting
-  // both would double-count regular turns. This means tokens consumed during
-  // a compaction pass (which emits `token_consumption` but not
-  // `model_response_complete` to the outer subscriber) are not reflected in
-  // the conversation total — a known limitation. Per-event tokens for
-  // compaction are still stored on the events row for inspection.
+  // `token_consumption` is intentionally NOT folded into the conversation
+  // aggregate. In glove-core, every turn fires `model_response_complete`
+  // (from the model adapter, via PromptMachine.notifySubscribers) AND
+  // `token_consumption` (from Observer.addTokensConsumed, called by
+  // Agent.ask after the turn). Both events carry the **same** per-turn
+  // tokens_in/tokens_out deltas — so counting both would double every
+  // total. `model_response_complete` is the canonical source.
+  //
+  // Compaction passes are captured correctly too: Observer.runCompactionNow
+  // calls PromptMachine.run, which fires `model_response_complete` to all
+  // subscribers via the same fan-out. Compaction does NOT fire a
+  // `token_consumption` event (it writes to the store via store.addTokens
+  // directly, bypassing Observer.addTokensConsumed), so there's no
+  // compaction-specific gap to plug here.
+  //
+  // Caveat: cost on compaction events is computed using the subscriber's
+  // configured `model` name. glove-core does not yet support a separate
+  // compaction model — when it does, MonitorSubscriber will need a
+  // `compactionModel` option (or a way to tell which model fired the
+  // event) so cost lookups use the right per-1k rate during the
+  // compaction pass.
   if (event.type === "tool_use_result") {
     aggregate.toolCallCountDelta = 1
     if (event.result.status === "error") aggregate.errorCountDelta = 1
