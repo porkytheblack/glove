@@ -190,7 +190,90 @@ Why this beats one Glove with everything attached:
 - **Read-only access where appropriate.** The recorder needs entity *ids* to populate `participants`, not the ability to create entities. Attaching `useMemoryReader` rather than `useMemoryCurator` removes that affordance entirely.
 - **Adapters are shared.** All three subagents read and write to the same underlying graph, timeline, and filesystem. The linker's `addNode` becomes immediately visible to the recorder's `find`. Splitting memory across subagents would defeat the point of sequencing them.
 
-The same shape works for the conversational reader side too — a main agent that mostly answers questions can keep the small reader surface, and delegate "go research X" to a research subagent that has `useResourcesReader` plus extra fetch tools the main agent doesn't need.
+### Same scoping for developer-defined subagents
+
+The pattern isn't curator-specific. Any subagent the developer registers — scheduling helpers, research subagents, status reporters, anything that wants memory access — picks the slice it needs the same way. Memory tools are just adapters; the scoping rules are the same whether the subagent's job is extraction or something else entirely.
+
+Two concrete examples on the **conversational reader** side. The main agent answers most questions itself with the small reader surface; for harder asks it delegates:
+
+```ts
+import { Glove } from "glove-core";
+import {
+  useContext,
+  useEpisodicReader,
+  useMemoryReader,
+  useResourcesCurator,
+} from "glove-memory";
+
+// `scheduler` — answers "when am I free Thursday?", "what did we discuss
+// with Don last week?". Pure read. Sees the user's pinned context (working
+// hours, calendar prefs) and the episodic timeline. Does NOT see entity
+// classes, relationships, or resource roots — irrelevant to its job.
+const schedulerFactory = ({ parentStore, parentControls }) => {
+  let glove = new Glove({
+    store: parentStore,
+    model,
+    displayManager: parentControls.displayManager,
+    systemPrompt:
+      "You answer scheduling and history questions. Use glove_episodic_timeline / " +
+      "glove_episodic_find / glove_episodic_search to look up past meetings, and " +
+      "your injected user context for working-hours preferences. Don't write to " +
+      "memory — that's not your role.",
+    compaction_config: { compaction_instructions: "..." },
+    serverMode: true,
+  });
+  glove = useEpisodicReader(glove, episodic);
+  glove = useContext(glove, context);
+  return glove;
+};
+
+// `researcher` — fetches external info (web tools the main agent doesn't
+// have), writes notes under /research, links them to the relevant entities.
+// Sees: write access to the filesystem + read access to entity ids so
+// metadata.links is valid. Does NOT see episodic, does NOT see context,
+// does NOT have entity-write tools.
+const researcherFactory = ({ parentStore, parentControls }) => {
+  let glove = new Glove({
+    store: parentStore,
+    model,
+    displayManager: parentControls.displayManager,
+    systemPrompt:
+      "You research a person, organization, or topic and file notes under " +
+      "/research/<slug>/. Look up entity ids via glove_memory_find first so " +
+      "metadata.links references are valid. Use your fetch tool to gather " +
+      "external information; summarise it as markdown.",
+    compaction_config: { compaction_instructions: "..." },
+    serverMode: true,
+  })
+    .fold({
+      name: "fetch_url",
+      description: "Fetch and extract text from a URL.",
+      inputSchema: z.object({ url: z.string().url() }),
+      async do({ url }) { /* ... */ },
+    });
+  glove = useMemoryReader(glove, entity);
+  glove = useResourcesCurator(glove, resources);
+  return glove;
+};
+
+// Main reader — small surface itself, delegates the heavier work.
+const mainAgent = useContext(
+  useEpisodicReader(useMemoryReader(new Glove({ /* ... */ }), entity), episodic),
+  context,
+)
+  .defineSubAgent({ name: "scheduler", description: "Answer scheduling and history questions.", factory: schedulerFactory })
+  .defineSubAgent({ name: "researcher", description: "Fetch external info and file research notes.", factory: researcherFactory })
+  .build();
+```
+
+What this buys, beyond the curator-composition example:
+
+- **The main agent's tool surface stays small.** It doesn't carry `glove_resources_write`, `glove_resources_edit`, `fetch_url`, or any of the heavier machinery. The user asking a casual question doesn't pay token cost for tools the model won't call.
+- **Each subagent's mutation scope is explicit.** The scheduler is read-only across the board; the researcher writes only to the filesystem. Neither can touch the entity graph or the episodic timeline. Bugs that would show up as "agent invented a wrong entity" or "agent overwrote a meeting" are structurally impossible.
+- **Different subagents see different schema slices.** The researcher's tool descriptions render the filesystem's resource-root list and the entity's node classes. The scheduler's render the episode-kind list. Neither sees the other half. A schema with twenty node classes and ten resource roots doesn't dump all thirty into every subagent's prompt.
+- **Subagents can carry tools the main agent shouldn't have.** `fetch_url` lives on the researcher, not the main agent. The main agent's only path to web content is to delegate. That's a security and behaviour boundary the prompt alone couldn't enforce.
+
+The shape generalises: any time a subagent does *X*, attach the smallest combination of `use*Reader` / `use*Curator` calls that makes *X* possible. Reader-only when it just needs to look up ids or summaries; curator when it actually needs to mutate; nothing at all when memory isn't relevant to its role.
 
 ## Tools
 
