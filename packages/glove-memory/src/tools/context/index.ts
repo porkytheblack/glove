@@ -44,8 +44,9 @@ export interface ContextEnableTarget {
 /**
  * Attach the context tool surface to a Glove and wire system-prompt injection.
  *
- * 1. Folds `glove_context_get`, `glove_context_set`, `glove_context_unset` so
- *    the agent can read and modify context on user instruction.
+ * 1. Folds `glove_context_get`, `glove_context_set`, `glove_context_update`,
+ *    `glove_context_unset` so the agent can read and modify context on user
+ *    instruction.
  *
  * 2. Wraps `processRequest` so each turn:
  *    - calls `adapter.render()` to materialise pinned entries as a markdown
