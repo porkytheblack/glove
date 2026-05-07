@@ -1,0 +1,1 @@
+export { InMemoryEntityAdapter } from "./entity";
