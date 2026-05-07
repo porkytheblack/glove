@@ -3,12 +3,16 @@ import type {
   AppRecord,
   Client,
   Conversation,
+  CostSeriesPoint,
   EventRecord,
   ListConversationsResult,
   MonitorStorageAdapter,
+  OverviewMetrics,
   PricingRateRow,
   Project,
   RegistrationToken,
+  TimeseriesOpts,
+  TokenSeriesPoint,
   ToolCallRecord,
 } from "./types.js"
 import { decodeCursor, encodeCursor } from "./cursor.js"
@@ -207,4 +211,73 @@ export class MemoryAdapter implements MonitorStorageAdapter {
   listPricingRates(): PricingRateRow[] {
     return Array.from(this.pricingRates.values()).sort((a, b) => a.model.localeCompare(b.model))
   }
+
+  // ─── Overview / time-series ────────────────────────────────────────
+  getOverviewMetrics(projectId: string, sinceIso: string, untilIso: string): OverviewMetrics {
+    let tokensIn = 0, tokensOut = 0, costMicros = 0
+    for (const e of this.events) {
+      if (e.projectId !== projectId) continue
+      if (e.type !== "model_response_complete") continue
+      if (e.occurredAt < sinceIso || e.occurredAt >= untilIso) continue
+      tokensIn += e.tokensIn ?? 0
+      tokensOut += e.tokensOut ?? 0
+      costMicros += e.costMicros ?? 0
+    }
+    let toolCalls = 0, toolErrors = 0
+    for (const t of this.toolCalls) {
+      if (t.projectId !== projectId) continue
+      if (t.startedAt < sinceIso || t.startedAt >= untilIso) continue
+      toolCalls++
+      if (t.status === "error") toolErrors++
+    }
+    let conversationsInWindow = 0, activeNow = 0
+    for (const c of this.conversations.values()) {
+      if (c.projectId !== projectId) continue
+      if (c.lastEventAt >= sinceIso && c.lastEventAt < untilIso) conversationsInWindow++
+      if (c.status === "active") activeNow++
+    }
+    return { conversationsInWindow, activeNow, tokensIn, tokensOut, costMicros, toolCalls, toolErrors }
+  }
+
+  listTimeseriesTokens(projectId: string, opts: TimeseriesOpts): TokenSeriesPoint[] {
+    const buckets = new Map<string, { tokensIn: number; tokensOut: number }>()
+    for (const e of this.events) {
+      if (e.projectId !== projectId) continue
+      if (e.type !== "model_response_complete") continue
+      if (e.occurredAt < opts.since || e.occurredAt >= opts.until) continue
+      const bucket = bucketIso(e.occurredAt, opts.bucket)
+      const slot = buckets.get(bucket) ?? { tokensIn: 0, tokensOut: 0 }
+      slot.tokensIn += e.tokensIn ?? 0
+      slot.tokensOut += e.tokensOut ?? 0
+      buckets.set(bucket, slot)
+    }
+    return Array.from(buckets.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([bucket, s]) => ({ bucket, tokensIn: s.tokensIn, tokensOut: s.tokensOut }))
+  }
+
+  listTimeseriesCost(projectId: string, opts: TimeseriesOpts): CostSeriesPoint[] {
+    const buckets = new Map<string, number>()
+    for (const e of this.events) {
+      if (e.projectId !== projectId) continue
+      if (e.type !== "model_response_complete") continue
+      if (e.occurredAt < opts.since || e.occurredAt >= opts.until) continue
+      const bucket = bucketIso(e.occurredAt, opts.bucket)
+      buckets.set(bucket, (buckets.get(bucket) ?? 0) + (e.costMicros ?? 0))
+    }
+    return Array.from(buckets.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([bucket, costMicros]) => ({ bucket, costMicros }))
+  }
+}
+
+/**
+ * Truncate an ISO timestamp to the hour or day, preserving ISO formatting.
+ * Mirrors the SQLite adapter's `strftime` output so the two backends produce
+ * matching bucket strings.
+ */
+function bucketIso(iso: string, bucket: "hour" | "day"): string {
+  // YYYY-MM-DDTHH:MM:SS.mmmZ → YYYY-MM-DDTHH:00:00Z (hour) or YYYY-MM-DDT00:00:00Z (day)
+  if (bucket === "hour") return `${iso.slice(0, 13)}:00:00Z`
+  return `${iso.slice(0, 10)}T00:00:00Z`
 }

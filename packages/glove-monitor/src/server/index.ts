@@ -19,6 +19,7 @@ import { conversationsRoutes } from "./routes/v1/conversations.js"
 import { aggregateRoutes } from "./routes/v1/aggregates.js"
 import { eventsRoutes } from "./routes/v1/events.js"
 import { healthRoutes } from "./routes/v1/health.js"
+import { overviewRoutes } from "./routes/v1/overview.js"
 import { SSEHub } from "./sse.js"
 import { WebSocketHub } from "./ws.js"
 import type { IngestContext } from "./ingest-pipeline.js"
@@ -111,6 +112,7 @@ export async function createServer(input: Parameters<typeof resolveConfig>[0]): 
   app.route("/api/v1/projects", projectsRoutes(adapter))
   app.route("/api/v1/conversations", conversationsRoutes(adapter))
   app.route("/api/v1", aggregateRoutes(adapter))   // /tools, /apps, /clients, /models
+  app.route("/api/v1/overview", overviewRoutes(adapter))
   app.route("/api/v1/events", eventsRoutes(sseHub))
 
   return { app, config, adapter, sseHub, wsHub, ingestContext, accessTokenSecret }

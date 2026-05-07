@@ -8,7 +8,11 @@ export default defineConfig({
     "adapters/index": "src/adapters/index.ts",
   },
   format: ["esm"],
-  dts: true,
+  // Use a library-only tsconfig so the Next.js dashboard's incremental flag
+  // (auto-restored by `next dev`/`next build` on the root tsconfig) doesn't
+  // break tsup's DTS rollup pass.
+  tsconfig: "./tsconfig.lib.json",
+  dts: { resolve: true },
   target: "es2022",
   clean: true,
   splitting: false,

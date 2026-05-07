@@ -6,12 +6,16 @@ import type {
   AppRecord,
   Client,
   Conversation,
+  CostSeriesPoint,
   EventRecord,
   ListConversationsResult,
   MonitorStorageAdapter,
+  OverviewMetrics,
   PricingRateRow,
   Project,
   RegistrationToken,
+  TimeseriesOpts,
+  TokenSeriesPoint,
   ToolCallRecord,
 } from "./types.js"
 import { decodeCursor, encodeCursor } from "./cursor.js"
@@ -511,6 +515,89 @@ export class SqliteAdapter implements MonitorStorageAdapter {
   listPricingRates(): PricingRateRow[] {
     const rows = this.db.prepare("SELECT * FROM pricing_rates ORDER BY model ASC").all()
     return rows.map(rowToPricingRate)
+  }
+
+  // ─── Overview / time-series ────────────────────────────────────────
+  getOverviewMetrics(projectId: string, sinceIso: string, untilIso: string): OverviewMetrics {
+    // Tokens / cost come from `model_response_complete` (the canonical source —
+    // see ingest-pipeline.ts for the rationale on skipping `token_consumption`).
+    const tokensRow = this.db.prepare(`
+      SELECT COALESCE(SUM(tokens_in), 0)   AS tokensIn,
+             COALESCE(SUM(tokens_out), 0)  AS tokensOut,
+             COALESCE(SUM(cost_micros), 0) AS costMicros
+      FROM events
+      WHERE project_id = ?
+        AND type = 'model_response_complete'
+        AND occurred_at >= ? AND occurred_at < ?
+    `).get(projectId, sinceIso, untilIso) as Record<string, unknown>
+    const toolsRow = this.db.prepare(`
+      SELECT COUNT(*)                                                AS toolCalls,
+             SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END)       AS toolErrors
+      FROM tool_calls
+      WHERE project_id = ?
+        AND started_at >= ? AND started_at < ?
+    `).get(projectId, sinceIso, untilIso) as Record<string, unknown>
+    const convRow = this.db.prepare(`
+      SELECT COUNT(*) AS inWindow
+      FROM conversations
+      WHERE project_id = ?
+        AND last_event_at >= ? AND last_event_at < ?
+    `).get(projectId, sinceIso, untilIso) as Record<string, unknown>
+    const activeRow = this.db.prepare(`
+      SELECT COUNT(*) AS activeNow
+      FROM conversations
+      WHERE project_id = ? AND status = 'active'
+    `).get(projectId) as Record<string, unknown>
+    return {
+      conversationsInWindow: Number(convRow.inWindow ?? 0),
+      activeNow: Number(activeRow.activeNow ?? 0),
+      tokensIn: Number(tokensRow.tokensIn ?? 0),
+      tokensOut: Number(tokensRow.tokensOut ?? 0),
+      costMicros: Number(tokensRow.costMicros ?? 0),
+      toolCalls: Number(toolsRow.toolCalls ?? 0),
+      toolErrors: Number(toolsRow.toolErrors ?? 0),
+    }
+  }
+
+  listTimeseriesTokens(projectId: string, opts: TimeseriesOpts): TokenSeriesPoint[] {
+    // strftime('%Y-%m-%dT%H:00:00Z') buckets to the hour, '%Y-%m-%dT00:00:00Z'
+    // to the day. The ISO suffix keeps consumers from having to reinterpret
+    // the bucket as local time.
+    const fmt = opts.bucket === "hour" ? "%Y-%m-%dT%H:00:00Z" : "%Y-%m-%dT00:00:00Z"
+    const rows = this.db.prepare(`
+      SELECT strftime(?, occurred_at) AS bucket,
+             COALESCE(SUM(tokens_in), 0)  AS tokensIn,
+             COALESCE(SUM(tokens_out), 0) AS tokensOut
+      FROM events
+      WHERE project_id = ?
+        AND type = 'model_response_complete'
+        AND occurred_at >= ? AND occurred_at < ?
+      GROUP BY bucket
+      ORDER BY bucket ASC
+    `).all(fmt, projectId, opts.since, opts.until)
+    return rows.map((row: Record<string, unknown>) => ({
+      bucket: row.bucket as string,
+      tokensIn: Number(row.tokensIn ?? 0),
+      tokensOut: Number(row.tokensOut ?? 0),
+    }))
+  }
+
+  listTimeseriesCost(projectId: string, opts: TimeseriesOpts): CostSeriesPoint[] {
+    const fmt = opts.bucket === "hour" ? "%Y-%m-%dT%H:00:00Z" : "%Y-%m-%dT00:00:00Z"
+    const rows = this.db.prepare(`
+      SELECT strftime(?, occurred_at) AS bucket,
+             COALESCE(SUM(cost_micros), 0) AS costMicros
+      FROM events
+      WHERE project_id = ?
+        AND type = 'model_response_complete'
+        AND occurred_at >= ? AND occurred_at < ?
+      GROUP BY bucket
+      ORDER BY bucket ASC
+    `).all(fmt, projectId, opts.since, opts.until)
+    return rows.map((row: Record<string, unknown>) => ({
+      bucket: row.bucket as string,
+      costMicros: Number(row.costMicros ?? 0),
+    }))
   }
 }
 

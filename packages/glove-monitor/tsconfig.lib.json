@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "preserve",
+    "incremental": false
+  },
+  "include": ["src/index.ts", "src/cli.ts", "src/server/**/*", "src/adapters/**/*", "src/config/**/*", "src/pricing/**/*", "src/shared/**/*"],
+  "exclude": ["src/app", "node_modules", "dist", ".next"]
+}

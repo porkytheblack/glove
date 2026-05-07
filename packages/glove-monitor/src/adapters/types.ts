@@ -117,6 +117,40 @@ export interface ListConversationsResult {
   nextCursor: string | null
 }
 
+export interface OverviewMetrics {
+  /** Conversations whose `last_event_at` falls inside the window. */
+  conversationsInWindow: number
+  /** Conversations with `status = active` right now (window-independent). */
+  activeNow: number
+  /** Token totals from `model_response_complete` events in the window. */
+  tokensIn: number
+  tokensOut: number
+  /** Sum of `cost_micros` from `model_response_complete` events in the window. */
+  costMicros: number
+  /** Count + error count of `tool_use_result` events in the window. */
+  toolCalls: number
+  toolErrors: number
+}
+
+export type TimeseriesBucket = "hour" | "day"
+
+export interface TimeseriesOpts {
+  since: string
+  until: string
+  bucket: TimeseriesBucket
+}
+
+export interface TokenSeriesPoint {
+  bucket: string
+  tokensIn: number
+  tokensOut: number
+}
+
+export interface CostSeriesPoint {
+  bucket: string
+  costMicros: number
+}
+
 // ─── Storage interface ───────────────────────────────────────────────
 
 export interface MonitorStorageAdapter {
@@ -212,4 +246,20 @@ export interface MonitorStorageAdapter {
   upsertPricingRate(rate: PricingRateRow): Promise<void> | void
   getPricingRate(model: string): Promise<PricingRateRow | null> | PricingRateRow | null
   listPricingRates(): Promise<PricingRateRow[]> | PricingRateRow[]
+
+  // Overview / time-series — power the dashboard's KPI cards and charts.
+  // Window is inclusive on `since`, exclusive on `until` (standard half-open).
+  getOverviewMetrics(
+    projectId: string,
+    sinceIso: string,
+    untilIso: string,
+  ): Promise<OverviewMetrics> | OverviewMetrics
+  listTimeseriesTokens(
+    projectId: string,
+    opts: TimeseriesOpts,
+  ): Promise<TokenSeriesPoint[]> | TokenSeriesPoint[]
+  listTimeseriesCost(
+    projectId: string,
+    opts: TimeseriesOpts,
+  ): Promise<CostSeriesPoint[]> | CostSeriesPoint[]
 }

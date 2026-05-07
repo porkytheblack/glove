@@ -40,8 +40,13 @@
     "src"
   ],
   "scripts": {
-    "build": "tsup",
-    "dev": "tsx src/cli.ts",
+    "build": "tsup && next build",
+    "build:lib": "tsup",
+    "build:dashboard": "next build",
+    "dev": "concurrently -n server,dashboard -c green,cyan \"pnpm dev:server\" \"pnpm dev:dashboard\"",
+    "dev:server": "tsx src/cli.ts",
+    "dev:dashboard": "next dev -p 3000",
+    "start:dashboard": "next start -p 3000",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
@@ -50,6 +55,9 @@
   "dependencies": {
     "@hono/node-server": "^1.13.0",
     "hono": "^4.6.0",
+    "next": "^15.3.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "recharts": "^2.13.0",
     "tsx": "^4.21.0",
     "ws": "^8.18.0",
@@ -61,7 +69,10 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.2.3",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
     "@types/ws": "^8.5.13",
+    "concurrently": "^9.1.0",
     "glove-core": "workspace:*",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3"
