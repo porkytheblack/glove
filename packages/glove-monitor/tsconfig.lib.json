@@ -5,6 +5,6 @@
     "jsx": "preserve",
     "incremental": false
   },
-  "include": ["src/index.ts", "src/cli.ts", "src/server/**/*", "src/adapters/**/*", "src/config/**/*", "src/pricing/**/*", "src/shared/**/*"],
+  "include": ["src/index.ts", "src/cli.ts", "src/cli-main.ts", "src/cli/**/*", "src/server/**/*", "src/adapters/**/*", "src/config/**/*", "src/pricing/**/*", "src/shared/**/*"],
   "exclude": ["src/app", "node_modules", "dist", ".next"]
 }

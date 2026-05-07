@@ -15,7 +15,8 @@
     "node": ">=18"
   },
   "bin": {
-    "glove-monitor": "./dist/cli.js"
+    "glove-monitor": "./dist/cli.js",
+    "gmonitor": "./dist/cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -37,16 +38,21 @@
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    ".next/standalone",
+    ".next/static",
+    "next.config.mjs"
   ],
   "scripts": {
     "build": "tsup && next build",
     "build:lib": "tsup",
     "build:dashboard": "next build",
     "dev": "concurrently -n server,dashboard -c green,cyan \"pnpm dev:server\" \"pnpm dev:dashboard\"",
-    "dev:server": "tsx src/cli.ts",
+    "dev:server": "tsx src/cli-main.ts server",
     "dev:dashboard": "next dev -p 3000",
-    "start:dashboard": "next start -p 3000",
+    "start": "node dist/cli.js",
+    "start:server": "node dist/cli.js server",
+    "start:dashboard": "node dist/cli.js dashboard",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {

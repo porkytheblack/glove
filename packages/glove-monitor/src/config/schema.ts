@@ -19,9 +19,18 @@ export interface MonitorPricingConfig {
 }
 
 export interface MonitorConfig {
+  /** Hono API server port (the ingest + read API). */
   port: number
+  /** Next.js dashboard port. The dashboard rewrites `/api/*` to `apiUrl`. */
+  dashboardPort: number
   host: string
   dataDir: string
+  /**
+   * Base URL the Next.js dashboard should rewrite `/api/*` to. Defaults to
+   * `http://${host}:${port}` (i.e. the in-process Hono server). Override when
+   * the dashboard runs separately and points at a remote API.
+   */
+  apiUrl?: string
   adapter?: MonitorStorageAdapter
   auth?: MonitorAuthConfig
   pricing?: MonitorPricingConfig
@@ -39,6 +48,7 @@ export type MonitorUserConfig = Partial<MonitorConfig>
 
 const DEFAULTS: MonitorConfig = {
   port: 4500,
+  dashboardPort: 3000,
   host: "localhost",
   dataDir: ".glove-monitor",
   allowAnonymousAdmin: false,
@@ -52,7 +62,11 @@ export function defineConfig(input: MonitorUserConfig): MonitorUserConfig {
 
 export function resolveConfig(input: MonitorUserConfig): MonitorConfig {
   const envPort = process.env.PORT ? parseInt(process.env.PORT, 10) : undefined
+  const envDashboardPort = process.env.GLOVE_MONITOR_DASHBOARD_PORT
+    ? parseInt(process.env.GLOVE_MONITOR_DASHBOARD_PORT, 10)
+    : undefined
   const envHost = process.env.HOST
+  const envApiUrl = process.env.GLOVE_MONITOR_API_URL
   const envAuthUser = process.env.GLOVE_MONITOR_AUTH_USERNAME
   const envAuthPass = process.env.GLOVE_MONITOR_AUTH_PASSWORD
 
@@ -74,10 +88,14 @@ export function resolveConfig(input: MonitorUserConfig): MonitorConfig {
     || process.env.GLOVE_MONITOR_ALLOW_ANONYMOUS_ADMIN === "true"
   const allowAnonymousAdmin = (input.allowAnonymousAdmin ?? envAnon) && process.env.NODE_ENV !== "production"
 
+  const port = input.port ?? envPort ?? DEFAULTS.port
+  const host = input.host ?? envHost ?? DEFAULTS.host
   return {
-    port: input.port ?? envPort ?? DEFAULTS.port,
-    host: input.host ?? envHost ?? DEFAULTS.host,
+    port,
+    dashboardPort: input.dashboardPort ?? envDashboardPort ?? DEFAULTS.dashboardPort,
+    host,
     dataDir: input.dataDir ?? DEFAULTS.dataDir,
+    apiUrl: input.apiUrl ?? envApiUrl,  // fall back to derived `http://host:port` at consumer-side if undefined
     adapter: input.adapter,
     auth,
     pricing: input.pricing,

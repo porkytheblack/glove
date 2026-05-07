@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     cli: "src/cli.ts",
+    "cli-main": "src/cli-main.ts",
     "server/index": "src/server/index.ts",
     "adapters/index": "src/adapters/index.ts",
   },

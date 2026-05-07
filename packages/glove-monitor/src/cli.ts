@@ -1,53 +1,38 @@
 #!/usr/bin/env node
-import { serve } from "@hono/node-server"
-import { WebSocketServer } from "ws"
-import { createServer } from "./server/index.js"
-import type { MonitorUserConfig } from "./config/schema.js"
 
-async function main(): Promise<void> {
-  const userConfig: MonitorUserConfig = {}
-  const { app, config, wsHub } = await createServer(userConfig)
+// glove-monitor CLI launcher — re-executes itself with tsx as a Node loader
+// so user `gmonitor.config.ts` files can be imported at runtime without an
+// extra build step. Same pattern as station-kit/src/cli.ts.
 
-  const server = serve({
-    fetch: app.fetch,
-    port: config.port,
-    hostname: config.host,
-  })
+import { spawn } from "node:child_process"
+import { createRequire } from "node:module"
+import { execPath } from "node:process"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
-  // WebSocket upgrade for dashboard internals at /api/events
-  const wss = new WebSocketServer({ noServer: true })
-  ;(server as unknown as { on: (e: string, cb: (req: unknown, sock: unknown, head: unknown) => void) => void }).on(
-    "upgrade",
-    (req: unknown, socket: unknown, head: unknown) => {
-      const url = (req as { url?: string }).url ?? ""
-      if (!url.startsWith("/api/events")) {
-        ;(socket as { destroy: () => void }).destroy()
-        return
-      }
-      wss.handleUpgrade(
-        req as Parameters<WebSocketServer["handleUpgrade"]>[0],
-        socket as Parameters<WebSocketServer["handleUpgrade"]>[1],
-        head as Parameters<WebSocketServer["handleUpgrade"]>[2],
-        (ws) => {
-          // Project scoping comes from a query param.
-          const u = new URL(url, "http://localhost")
-          const projectId = u.searchParams.get("project") ?? null
-          wsHub.add({ ws, projectId })
-        },
-      )
-    },
-  )
+const MARKER = "__GMONITOR_TSX_LOADED"
 
-  console.log(`glove-monitor listening on http://${config.host}:${config.port}`)
-  console.log(`  data dir: ${config.dataDir}`)
-  if (config.auth) {
-    console.log(`  auth: enabled (user: ${config.auth.username})`)
-  } else {
-    console.log("  auth: disabled — running without dashboard credentials")
+if (!process.env[MARKER]) {
+  // Resolve tsx from glove-monitor's own dependencies (not the user's project)
+  const require = createRequire(import.meta.url)
+  let tsxSpecifier: string
+  try {
+    const tsxEntry = require.resolve("tsx")
+    tsxSpecifier = pathToFileURL(tsxEntry).href
+  } catch {
+    tsxSpecifier = "tsx"  // last-resort fallback if user has it installed
   }
-}
 
-main().catch((err) => {
-  console.error("glove-monitor failed to start:", err)
-  process.exit(1)
-})
+  const main = fileURLToPath(new URL("./cli-main.js", import.meta.url))
+  const child = spawn(execPath, ["--import", tsxSpecifier, main, ...process.argv.slice(2)], {
+    stdio: "inherit",
+    env: { ...process.env, [MARKER]: "1", __GMONITOR_TSX: tsxSpecifier },
+  })
+  child.on("exit", (code) => process.exit(code ?? 0))
+  child.on("error", (err) => {
+    console.error("[glove-monitor] failed to start:", err.message)
+    process.exit(1)
+  })
+} else {
+  // Already running under tsx — execute main directly.
+  await import("./cli-main.js")
+}
