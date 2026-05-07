@@ -2,9 +2,15 @@ import type { ContentPart, GloveFoldArgs, Message, ModelPromptResult } from "glo
 import type { ContextAdapter } from "../../context/adapter";
 import { buildContextGetTool } from "./get";
 import { buildContextSetTool } from "./set";
+import { buildContextUpdateTool } from "./update";
 import { buildContextUnsetTool } from "./unset";
 
-export { buildContextGetTool, buildContextSetTool, buildContextUnsetTool };
+export {
+  buildContextGetTool,
+  buildContextSetTool,
+  buildContextUpdateTool,
+  buildContextUnsetTool,
+};
 
 /**
  * Tool surface for context — a single registration, no reader/curator split.
@@ -15,6 +21,7 @@ export function buildContextTools(adapter: ContextAdapter): Array<GloveFoldArgs<
   return [
     buildContextGetTool(adapter),
     buildContextSetTool(adapter),
+    buildContextUpdateTool(adapter),
     buildContextUnsetTool(adapter),
   ];
 }

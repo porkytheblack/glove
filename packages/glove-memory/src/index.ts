@@ -60,6 +60,7 @@ export {
   // Context
   buildContextGetTool,
   buildContextSetTool,
+  buildContextUpdateTool,
   buildContextUnsetTool,
   buildContextTools,
   useContext,

@@ -1,6 +1,7 @@
 import type { ToolResultData } from "glove-core";
 import { ProvenanceSchema, type Provenance } from "../../core/provenance";
 import {
+  ContextError,
   MemoryError,
   MemoryNotFoundError,
   MemoryWriteError,
@@ -41,4 +42,4 @@ export function publicEntries(entries: ContextEntry[]): Array<Omit<ContextEntry,
   return entries.map(publicEntry);
 }
 
-export { MemoryError, MemoryNotFoundError, MemoryWriteError };
+export { ContextError, MemoryError, MemoryNotFoundError, MemoryWriteError };

@@ -9,8 +9,8 @@ import type {
 } from "../context/types";
 import { isExpired, renderEntries } from "../context/render";
 import {
+  ContextError,
   MemoryError,
-  MemoryNotFoundError,
   MemoryWriteError,
 } from "../core/errors";
 
@@ -70,7 +70,7 @@ export class InMemoryContextAdapter implements ContextAdapter {
   async set(entry: ContextEntryInput, provenance: Provenance): Promise<{ id: string }> {
     requireProvenance(provenance);
     if (!entry.section || entry.section.length === 0) {
-      throw new MemoryWriteError("validation_failed", "Context entry must include a non-empty section.");
+      throw new ContextError("invalid_section", "Context entry must include a non-empty section.");
     }
     const id = this.genId();
     const now = new Date().toISOString();
@@ -95,8 +95,11 @@ export class InMemoryContextAdapter implements ContextAdapter {
     provenance: Provenance,
   ): Promise<void> {
     requireProvenance(provenance);
+    if (patch.section !== undefined && patch.section.length === 0) {
+      throw new ContextError("invalid_section", "Context entry section must be a non-empty string.");
+    }
     const entry = this.entries.get(id);
-    if (!entry) throw new MemoryNotFoundError(`No context entry with id "${id}".`);
+    if (!entry) throw new ContextError("entry_not_found", `No context entry with id "${id}".`);
     if (patch.section !== undefined) entry.section = patch.section;
     if (patch.title !== undefined) entry.title = patch.title;
     if (patch.content !== undefined) entry.content = patch.content;
@@ -110,7 +113,7 @@ export class InMemoryContextAdapter implements ContextAdapter {
   async unset(id: string, provenance: Provenance): Promise<void> {
     requireProvenance(provenance);
     if (!this.entries.has(id)) {
-      throw new MemoryNotFoundError(`No context entry with id "${id}".`);
+      throw new ContextError("entry_not_found", `No context entry with id "${id}".`);
     }
     this.entries.delete(id);
   }
@@ -122,7 +125,7 @@ export class InMemoryContextAdapter implements ContextAdapter {
   ): Promise<void> {
     requireProvenance(provenance);
     if (!section || section.length === 0) {
-      throw new MemoryWriteError("validation_failed", "setSection requires a non-empty section name.");
+      throw new ContextError("invalid_section", "setSection requires a non-empty section name.");
     }
     // Wipe existing entries in the section.
     for (const [id, entry] of [...this.entries.entries()]) {
@@ -133,17 +136,17 @@ export class InMemoryContextAdapter implements ContextAdapter {
     }
   }
 
+  /**
+   * Idempotent — removing an empty section is a no-op rather than an error.
+   * The "remove every entry in this section" intent is satisfied either way.
+   */
   async unsetSection(section: string, provenance: Provenance): Promise<void> {
     requireProvenance(provenance);
-    let removed = 0;
-    for (const [id, entry] of [...this.entries.entries()]) {
-      if (entry.section === section) {
-        this.entries.delete(id);
-        removed++;
-      }
+    if (!section || section.length === 0) {
+      throw new ContextError("invalid_section", "unsetSection requires a non-empty section name.");
     }
-    if (removed === 0) {
-      throw new MemoryNotFoundError(`No context entries in section "${section}".`);
+    for (const [id, entry] of [...this.entries.entries()]) {
+      if (entry.section === section) this.entries.delete(id);
     }
   }
 

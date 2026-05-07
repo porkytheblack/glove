@@ -80,9 +80,12 @@ export type ResourceFsErrorCode =
   | "path_already_exists"
   | "not_a_directory"
   | "not_a_file"
+  | "directory_not_empty"
   | "edit_string_not_unique"
   | "edit_string_not_found"
+  | "body_not_editable"
   | "binary_not_supported"
+  | "semantic_search_unsupported"
   | "invalid_path"
   | "invalid_range";
 

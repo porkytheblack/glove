@@ -99,7 +99,10 @@ export class InMemoryEntityAdapter implements EntityMemoryAdapter {
       existing.provenance.push(
         appendNote(provenance, conflicts.length ? `dedup-merge; conflicts: ${conflicts.join(", ")}` : "dedup-merge"),
       );
-      return { id: existingId, created: false };
+      // `mergedInto` mirrors `id` on a dedup hit so callers branching on the
+      // field (rather than `created`) see which existing node absorbed the
+      // write. Same value as `id`; surface convention for readability.
+      return { id: existingId, created: false, mergedInto: existingId };
     }
 
     const id = this.genId(`node_${className.toLowerCase()}`);

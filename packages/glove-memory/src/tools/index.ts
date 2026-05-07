@@ -22,6 +22,7 @@ export * from "./resources";
 export {
   buildContextGetTool,
   buildContextSetTool,
+  buildContextUpdateTool,
   buildContextUnsetTool,
   buildContextTools,
   useContext,

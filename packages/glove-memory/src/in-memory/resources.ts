@@ -66,6 +66,11 @@ export class InMemoryResourcesAdapter implements ResourceFsAdapter {
   ): Promise<DirectoryEntry[]> {
     const root = normalisePath(path);
     if (!(await this.dirExists(root))) {
+      // If a file lives at this path, the request is well-formed but the
+      // path isn't a directory; surface that distinction to callers.
+      if (this.files.has(root)) {
+        throw new ResourceFsError("not_a_directory", `Path is a file, not a directory: "${root}".`);
+      }
       throw new ResourceFsError("path_not_found", `Directory not found: "${root}".`);
     }
     const entries = new Map<string, DirectoryEntry>();
@@ -113,7 +118,13 @@ export class InMemoryResourcesAdapter implements ResourceFsAdapter {
   ): Promise<ResourceFile> {
     const p = normalisePath(path);
     const file = this.files.get(p);
-    if (!file) throw new ResourceFsError("path_not_found", `File not found: "${p}".`);
+    if (!file) {
+      // Distinguish "the path is a directory" from "nothing exists here".
+      if (await this.dirExists(p)) {
+        throw new ResourceFsError("not_a_file", `Path is a directory, not a file: "${p}".`);
+      }
+      throw new ResourceFsError("path_not_found", `File not found: "${p}".`);
+    }
 
     const range = opts.range ?? [1, 50];
     const [start, end] = range;
@@ -230,7 +241,7 @@ export class InMemoryResourcesAdapter implements ResourceFsAdapter {
   ): Promise<SemanticMatch[]> {
     if (!this.embedder) {
       throw new ResourceFsError(
-        "binary_not_supported", // closest existing code; semantic search is just unavailable
+        "semantic_search_unsupported",
         "This adapter was constructed without an EmbeddingAdapter.",
       );
     }
@@ -326,7 +337,7 @@ export class InMemoryResourcesAdapter implements ResourceFsAdapter {
     const text = bodyText(file.body);
     if (text === null) {
       throw new ResourceFsError(
-        "not_a_file",
+        "body_not_editable",
         `File at "${p}" has no editable body (URL bodies without cachedText are not editable).`,
       );
     }
@@ -437,7 +448,7 @@ export class InMemoryResourcesAdapter implements ResourceFsAdapter {
         const childExists = [...this.files.keys()].some((k) => isWithin(p, k) && k !== p);
         if (childExists) {
           throw new ResourceFsError(
-            "not_a_file",
+            "directory_not_empty",
             `Directory "${p}" is not empty. Pass recursive=true to remove with contents.`,
           );
         }

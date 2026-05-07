@@ -38,6 +38,21 @@ interface InMemoryEpisodicOpts {
  * Reference in-process adapter for episodic memory. Stores episodes in a
  * Map keyed by id; supports the structured query DSL with linear scans.
  *
+ * **Stale marking is content-only.** `updateEpisode` flips
+ * `embeddingStatus: "stale"` and drops the cached vector only when the
+ * `content` field changes — the spec is silent on whether kind / participant
+ * / property / occurredAt updates should invalidate embeddings, and the
+ * embedding represents `content`. If a consumer wants every patch to
+ * re-embed they can delete the episode and re-record it, or extend this
+ * class.
+ *
+ * **Recency blend uses a 30-day half-life.** `searchEpisodes` ranks by
+ * `(1 - recencyWeight) * semanticScore + recencyWeight * recencyScore`
+ * where `recencyScore = exp(-ln(2) * ageMs / halfLifeMs)` with
+ * `halfLifeMs = 30 days`. Default `recencyWeight = 0.2`. Companion adapters
+ * may pick different decay shapes; the spec only fixes the shape of the
+ * blend, not the curve.
+ *
  * If an `EmbeddingAdapter` is supplied, semantic search runs naive cosine
  * similarity over locally-stored vectors. Fine for tests; companion
  * adapters use proper vector indices.
