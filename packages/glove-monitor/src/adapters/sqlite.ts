@@ -7,12 +7,14 @@ import type {
   Client,
   Conversation,
   EventRecord,
+  ListConversationsResult,
   MonitorStorageAdapter,
   PricingRateRow,
   Project,
   RegistrationToken,
   ToolCallRecord,
 } from "./types.js"
+import { decodeCursor, encodeCursor } from "./cursor.js"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type BetterSqlite3Module = any
@@ -393,16 +395,33 @@ export class SqliteAdapter implements MonitorStorageAdapter {
       id,
     )
   }
-  listConversations(opts: Parameters<MonitorStorageAdapter["listConversations"]>[0]): Conversation[] {
+  listConversations(opts: Parameters<MonitorStorageAdapter["listConversations"]>[0]): ListConversationsResult {
     const where: string[] = ["project_id = ?"]
     const params: unknown[] = [opts.projectId]
     if (opts.appName) { where.push("app_name = ?"); params.push(opts.appName) }
     if (opts.subject) { where.push("subject = ?"); params.push(opts.subject) }
     if (opts.status)  { where.push("status = ?");  params.push(opts.status) }
-    const sql = `SELECT * FROM conversations WHERE ${where.join(" AND ")} ORDER BY last_event_at DESC LIMIT ?`
-    params.push(opts.limit ?? 50)
+    // Keyset pagination: strict-less-than the cursor's (last_event_at, id).
+    // Tuple comparison evaluates lexicographically in SQLite, so this fans out
+    // correctly across rows that share a timestamp.
+    const cursor = decodeCursor(opts.cursor)
+    if (cursor) {
+      where.push("(last_event_at, id) < (?, ?)")
+      params.push(cursor.lastEventAt, cursor.id)
+    }
+    const limit = Math.max(1, opts.limit ?? 50)
+    const sql = `SELECT * FROM conversations WHERE ${where.join(" AND ")} ORDER BY last_event_at DESC, id DESC LIMIT ?`
+    params.push(limit)
     const rows = this.db.prepare(sql).all(...params)
-    return rows.map(rowToConversation)
+    const conversations = rows.map(rowToConversation)
+    const nextCursor =
+      conversations.length === limit
+        ? encodeCursor({
+            lastEventAt: conversations[conversations.length - 1]!.lastEventAt,
+            id: conversations[conversations.length - 1]!.id,
+          })
+        : null
+    return { conversations, nextCursor }
   }
 
   // Events

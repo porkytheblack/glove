@@ -53,7 +53,7 @@ export function aggregateRoutes(adapter: MonitorStorageAdapter): Hono {
   app.get("/models", async (c) => {
     const auth = c.get("auth")
     if (!auth.projectId) return c.json({ error: "project_id_required" }, 400)
-    const conversations = await adapter.listConversations({ projectId: auth.projectId, limit: 1000 })
+    const { conversations } = await adapter.listConversations({ projectId: auth.projectId, limit: 1000 })
     const byModel = new Map<string, { conversations: number; tokensIn: number; tokensOut: number; costMicros: number }>()
     for (const conv of conversations) {
       for (const m of conv.modelsUsed) {

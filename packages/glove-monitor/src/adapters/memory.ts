@@ -4,12 +4,14 @@ import type {
   Client,
   Conversation,
   EventRecord,
+  ListConversationsResult,
   MonitorStorageAdapter,
   PricingRateRow,
   Project,
   RegistrationToken,
   ToolCallRecord,
 } from "./types.js"
+import { decodeCursor, encodeCursor } from "./cursor.js"
 
 export class MemoryAdapter implements MonitorStorageAdapter {
   private projects = new Map<string, Project>()
@@ -127,13 +129,35 @@ export class MemoryAdapter implements MonitorStorageAdapter {
     }
     if (delta.status) c.status = delta.status
   }
-  listConversations(opts: Parameters<MonitorStorageAdapter["listConversations"]>[0]): Conversation[] {
+  listConversations(opts: Parameters<MonitorStorageAdapter["listConversations"]>[0]): ListConversationsResult {
     let results = Array.from(this.conversations.values()).filter((c) => c.projectId === opts.projectId)
     if (opts.appName) results = results.filter((c) => c.appName === opts.appName)
     if (opts.subject) results = results.filter((c) => c.subject === opts.subject)
     if (opts.status) results = results.filter((c) => c.status === opts.status)
-    results.sort((a, b) => b.lastEventAt.localeCompare(a.lastEventAt))
-    return results.slice(0, opts.limit ?? 50)
+    // Mirror SQLite's `(last_event_at DESC, id DESC)` ordering so cursor pivots
+    // line up between backends.
+    results.sort((a, b) => {
+      const t = b.lastEventAt.localeCompare(a.lastEventAt)
+      return t !== 0 ? t : b.id.localeCompare(a.id)
+    })
+    const cursor = decodeCursor(opts.cursor)
+    if (cursor) {
+      results = results.filter((c) => {
+        if (c.lastEventAt < cursor.lastEventAt) return true
+        if (c.lastEventAt === cursor.lastEventAt && c.id < cursor.id) return true
+        return false
+      })
+    }
+    const limit = Math.max(1, opts.limit ?? 50)
+    const page = results.slice(0, limit)
+    const nextCursor =
+      page.length === limit
+        ? encodeCursor({
+            lastEventAt: page[page.length - 1]!.lastEventAt,
+            id: page[page.length - 1]!.id,
+          })
+        : null
+    return { conversations: page, nextCursor }
   }
 
   insertEvent(e: EventRecord): void { this.events.push({ ...e }) }

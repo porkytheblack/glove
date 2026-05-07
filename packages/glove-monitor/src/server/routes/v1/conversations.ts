@@ -1,5 +1,6 @@
 import { Hono } from "hono"
 import type { MonitorStorageAdapter } from "../../../adapters/types.js"
+import { decodeCursor } from "../../../adapters/cursor.js"
 import { requireScope } from "../../middleware/auth.js"
 
 export function conversationsRoutes(adapter: MonitorStorageAdapter): Hono {
@@ -10,14 +11,21 @@ export function conversationsRoutes(adapter: MonitorStorageAdapter): Hono {
     const auth = c.get("auth")
     if (!auth.projectId) return c.json({ error: "project_id_required" }, 400)
     const url = new URL(c.req.url)
-    const list = await adapter.listConversations({
+    const rawCursor = url.searchParams.get("cursor")
+    // Reject malformed cursors at the boundary so callers see a 400 instead
+    // of silently getting page 1 (which would mask client bugs).
+    if (rawCursor && !decodeCursor(rawCursor)) {
+      return c.json({ error: "invalid_cursor" }, 400)
+    }
+    const result = await adapter.listConversations({
       projectId: auth.projectId,
       appName: url.searchParams.get("app") ?? undefined,
       subject: url.searchParams.get("subject") ?? undefined,
       status: (url.searchParams.get("status") as "active" | "completed" | "errored" | null) ?? undefined,
       limit: url.searchParams.get("limit") ? Math.min(Number(url.searchParams.get("limit")), 200) : 50,
+      cursor: rawCursor ?? undefined,
     })
-    return c.json({ data: list })
+    return c.json({ data: result.conversations, next_cursor: result.nextCursor })
   })
 
   app.get("/:id", async (c) => {

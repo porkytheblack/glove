@@ -112,6 +112,11 @@ export interface PricingRateRow {
   updatedAt: string
 }
 
+export interface ListConversationsResult {
+  conversations: Conversation[]
+  nextCursor: string | null
+}
+
 // ─── Storage interface ───────────────────────────────────────────────
 
 export interface MonitorStorageAdapter {
@@ -174,6 +179,11 @@ export interface MonitorStorageAdapter {
       status?: "active" | "completed" | "errored"
     },
   ): Promise<void> | void
+  /**
+   * Keyset-paginated list. Sort key `(last_event_at DESC, id DESC)`. Cursor
+   * format is opaque to callers — use `encodeCursor`/`decodeCursor` from
+   * `./cursor.js`. `nextCursor` is `null` on the last page.
+   */
   listConversations(opts: {
     projectId: string
     appName?: string
@@ -181,7 +191,7 @@ export interface MonitorStorageAdapter {
     status?: "active" | "completed" | "errored"
     limit?: number
     cursor?: string
-  }): Promise<Conversation[]> | Conversation[]
+  }): Promise<ListConversationsResult> | ListConversationsResult
 
   // Events
   insertEvent(e: EventRecord): Promise<void> | void
