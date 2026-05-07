@@ -17,6 +17,7 @@ import {
   type TokenConsumptionCounter,
 } from "glove-core";
 import { mountMcp, type McpAdapter } from "glove-mcp";
+import { MonitorSubscriber } from "glove-monitor-client";
 
 import { entries } from "./shared/mcp-config";
 import { FsTokenStore } from "./lib/token-store";
@@ -169,6 +170,16 @@ async function main() {
         output.write(`\n[calling ${(data as { name: string }).name}]\n`);
     },
   });
+
+  if (process.env.GLOVE_MONITOR_URL) {
+    glove.addSubscriber(new MonitorSubscriber({
+      url: process.env.GLOVE_MONITOR_URL,
+      registrationToken: process.env.GLOVE_MONITOR_REG_TOKEN,
+      app: "mcp-cli",
+      model: "anthropic/claude-sonnet-4.5",
+      onError: (err) => console.warn("[glove-monitor]", err),
+    }));
+  }
 
   const rl = createInterface({ input, output });
   output.write(

@@ -17,6 +17,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "glove-core": "workspace:*",
     "glove-mcp": "workspace:*",
+    "glove-monitor-client": "workspace:*",
     "dotenv": "^17.2.4"
   },
   "devDependencies": {

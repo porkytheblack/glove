@@ -28,6 +28,7 @@ import {
   Glove,
   OpenRouterAdapter,
 } from "glove-core";
+import { MonitorSubscriber } from "glove-monitor-client";
 import { codingTools } from "./tools";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -844,6 +845,17 @@ function buildAgent(
   }
 
   glove.addSubscriber(subscriber);
+
+  if (process.env.GLOVE_MONITOR_URL) {
+    glove.addSubscriber(new MonitorSubscriber({
+      url: process.env.GLOVE_MONITOR_URL,
+      registrationToken: process.env.GLOVE_MONITOR_REG_TOKEN,
+      app: "coding-agent-cli",
+      model: "minimax/minimax-m2.5",
+      onError: (err) => console.warn("[glove-monitor]", err),
+    }));
+  }
+
   return glove.build();
 }
 

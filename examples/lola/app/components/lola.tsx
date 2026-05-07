@@ -10,6 +10,7 @@ import React, {
 import { useGlove } from "glove-react";
 import { useGloveVoice } from "glove-react/voice";
 import type { TurnMode } from "glove-react/voice";
+import { BrowserMonitorSubscriber } from "glove-monitor-client/browser";
 import { createLolaTools } from "../lib/tools";
 import { stt, createTTS, createSileroVAD } from "../lib/voice";
 import { systemPrompt, voiceSystemPrompt } from "../lib/system-prompt";
@@ -57,8 +58,24 @@ export function Lola({ sessionId, onFirstMessage }: LolaProps) {
   // ---- Tools (stable, created once) ----------------------------------------
   const tools = useMemo(() => createLolaTools(), []);
 
+  // ---- glove-monitor (optional credential-less subscriber) ----------------
+  const monitorSub = useMemo(() => {
+    if (typeof window === "undefined") return undefined
+    return new BrowserMonitorSubscriber({
+      relayUrl: "/api/glove-monitor/ingest",
+      app: "lola",
+      model: "z-ai/glm-5",
+      conversationId: () => sessionId,
+      onError: (err) => console.warn("[glove-monitor]", err),
+    })
+  }, [sessionId])
+
   // ---- Glove hook ----------------------------------------------------------
-  const glove = useGlove({ tools, sessionId });
+  const glove = useGlove({
+    tools,
+    sessionId,
+    ...(monitorSub ? { subscribers: [monitorSub] } : {}),
+  });
   const {
     runnable,
     timeline,
