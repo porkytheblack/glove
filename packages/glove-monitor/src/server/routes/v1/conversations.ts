@@ -12,9 +12,11 @@ export function conversationsRoutes(adapter: MonitorStorageAdapter): Hono {
     if (!auth.projectId) return c.json({ error: "project_id_required" }, 400)
     const url = new URL(c.req.url)
     const rawCursor = url.searchParams.get("cursor")
-    // Reject malformed cursors at the boundary so callers see a 400 instead
-    // of silently getting page 1 (which would mask client bugs).
-    if (rawCursor && !decodeCursor(rawCursor)) {
+    // Reject any cursor parameter that's present but unusable. An empty
+    // string and any non-decodable value both indicate a client bug —
+    // silently page-1ing would mask it. Cursor must be either absent
+    // entirely or a previously-issued opaque token.
+    if (rawCursor != null && !decodeCursor(rawCursor)) {
       return c.json({ error: "invalid_cursor" }, 400)
     }
     const result = await adapter.listConversations({

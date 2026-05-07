@@ -6,6 +6,7 @@ import type { ReactNode } from "react"
 import { useAuth } from "./auth-provider"
 import { useBreadcrumb } from "../hooks/use-breadcrumb"
 import { useMonitor } from "../hooks/use-monitor"
+import { GloveLogo } from "./glove-logo"
 
 interface NavItem {
   label: string
@@ -33,7 +34,7 @@ export function Shell({ children }: { children: ReactNode }): ReactNode {
     <div className="gm-layout">
       <aside className="gm-sidebar">
         <div className="gm-sidebar-brand">
-          <span className="gm-sidebar-brand-mark">G</span>
+          <span className="gm-sidebar-brand-mark"><GloveLogo size={16} /></span>
           <span>Glove Monitor</span>
         </div>
         <div className="gm-sidebar-section-label">Telemetry</div>

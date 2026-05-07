@@ -20,12 +20,21 @@ export class SSEHub {
     return () => this.clients.delete(client)
   }
 
+  /**
+   * Emit as a default-message SSE frame (no `event:` line). Setting the
+   * `event:` field makes the frame a *named* event, which `EventSource.onmessage`
+   * does NOT fire for — only `addEventListener('foo', ...)` would. Keeping
+   * everything on the default `message` channel means clients can use
+   * `onmessage` and filter on `data.type`. The `event` field on `SSEEvent`
+   * is preserved for API symmetry with `WebSocketHub` but stamped into the
+   * data envelope for client consumption.
+   */
   broadcast(ev: SSEEvent): void {
     const id = ev.id ?? String(++this.nextId)
+    const envelope = JSON.stringify(ev.data)
     const lines = [
-      `event: ${ev.event}`,
       `id: ${id}`,
-      `data: ${JSON.stringify(ev.data)}`,
+      `data: ${envelope}`,
       "",
       "",
     ].join("\n")

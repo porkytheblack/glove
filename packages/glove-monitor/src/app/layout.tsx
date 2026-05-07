@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import "./globals.css"
 import { AuthProvider } from "./components/auth-provider"
 import { BreadcrumbProvider } from "./components/breadcrumb-provider"
+import { ErrorBoundary } from "./components/error-boundary"
 import { LoginPage } from "./components/login-page"
 import { MonitorProvider } from "./hooks/use-monitor"
 import { Shell } from "./components/shell"
@@ -22,13 +23,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         />
       </head>
       <body>
-        <AuthProvider loginPage={<LoginPage />}>
-          <BreadcrumbProvider>
-            <MonitorProvider>
-              <Shell>{children}</Shell>
-            </MonitorProvider>
-          </BreadcrumbProvider>
-        </AuthProvider>
+        <ErrorBoundary>
+          <AuthProvider loginPage={<LoginPage />}>
+            <BreadcrumbProvider>
+              <MonitorProvider>
+                <Shell>{children}</Shell>
+              </MonitorProvider>
+            </BreadcrumbProvider>
+          </AuthProvider>
+        </ErrorBoundary>
       </body>
     </html>
   )

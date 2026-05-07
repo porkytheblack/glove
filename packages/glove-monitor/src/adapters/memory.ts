@@ -275,9 +275,12 @@ export class MemoryAdapter implements MonitorStorageAdapter {
  * Truncate an ISO timestamp to the hour or day, preserving ISO formatting.
  * Mirrors the SQLite adapter's `strftime` output so the two backends produce
  * matching bucket strings.
+ *
+ * Slicing is position-based and works for any ISO 8601 input that starts with
+ * `YYYY-MM-DDTHH` — whether the input has fractional seconds (`.mmm`) or not,
+ * the first 10 chars are always the date and the first 13 are date+T+hour.
  */
 function bucketIso(iso: string, bucket: "hour" | "day"): string {
-  // YYYY-MM-DDTHH:MM:SS.mmmZ → YYYY-MM-DDTHH:00:00Z (hour) or YYYY-MM-DDT00:00:00Z (day)
   if (bucket === "hour") return `${iso.slice(0, 13)}:00:00Z`
   return `${iso.slice(0, 10)}T00:00:00Z`
 }

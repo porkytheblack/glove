@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { login } from "../hooks/use-api"
 import { useLoginCallback } from "./auth-provider"
+import { GloveLogo } from "./glove-logo"
 
 export function LoginPage(): React.ReactNode {
   const onSuccess = useLoginCallback()
@@ -29,7 +30,7 @@ export function LoginPage(): React.ReactNode {
     <div className="login-shell">
       <div className="login-card">
         <div className="login-brand">
-          <span className="gm-sidebar-brand-mark">G</span>
+          <span className="gm-sidebar-brand-mark"><GloveLogo size={20} /></span>
           <span>Glove Monitor</span>
         </div>
         <form onSubmit={(e) => void submit(e)}>

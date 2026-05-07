@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useState } from "react"
 
 /**
  * Compact JSON viewer with collapsible objects/arrays. Deliberately
@@ -8,10 +8,40 @@ import { useState } from "react"
  * what's basically syntax highlighting of stored payloads.
  */
 export function JsonViewer({ value, defaultCollapsed = false }: { value: unknown; defaultCollapsed?: boolean }): React.ReactNode {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle")
+  const handleCopy = useCallback(async () => {
+    try {
+      const text = JSON.stringify(value, null, 2)
+      await navigator.clipboard.writeText(text)
+      setCopyState("copied")
+    } catch {
+      setCopyState("failed")
+    }
+    setTimeout(() => setCopyState("idle"), 1500)
+  }, [value])
+  const label = copyState === "idle" ? "copy" : copyState
   return (
-    <pre className="json-viewer">
-      <Node value={value} depth={0} defaultCollapsed={defaultCollapsed} />
-    </pre>
+    <div style={{ position: "relative" }}>
+      <button
+        type="button"
+        onClick={() => void handleCopy()}
+        className="btn"
+        style={{
+          position: "absolute",
+          top: "0.5rem",
+          right: "0.5rem",
+          fontSize: "0.65rem",
+          padding: "0.2rem 0.5rem",
+          zIndex: 1,
+        }}
+        aria-label={`Copy JSON (${label})`}
+      >
+        {label}
+      </button>
+      <pre className="json-viewer">
+        <Node value={value} depth={0} defaultCollapsed={defaultCollapsed} />
+      </pre>
+    </div>
   )
 }
 
