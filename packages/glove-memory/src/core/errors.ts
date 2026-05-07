@@ -62,3 +62,46 @@ export class MemoryWriteError extends MemoryError {
     this.matchedIds = matchedIds;
   }
 }
+
+export type EpisodicMemoryErrorCode =
+  | "embedding_unavailable"
+  | "semantic_search_unsupported"
+  | "invalid_time_range";
+
+export class EpisodicMemoryError extends MemoryError {
+  constructor(code: EpisodicMemoryErrorCode, message?: string) {
+    super(code, message);
+    this.name = "EpisodicMemoryError";
+  }
+}
+
+export type ResourceFsErrorCode =
+  | "path_not_found"
+  | "path_already_exists"
+  | "not_a_directory"
+  | "not_a_file"
+  | "edit_string_not_unique"
+  | "edit_string_not_found"
+  | "binary_not_supported"
+  | "invalid_path"
+  | "invalid_range";
+
+export class ResourceFsError extends MemoryError {
+  constructor(code: ResourceFsErrorCode, message?: string) {
+    super(code, message);
+    this.name = "ResourceFsError";
+  }
+}
+
+export type ContextErrorCode =
+  | "entry_not_found"
+  | "invalid_section"
+  | "expired"
+  | "render_failed";
+
+export class ContextError extends MemoryError {
+  constructor(code: ContextErrorCode, message?: string) {
+    super(code, message);
+    this.name = "ContextError";
+  }
+}

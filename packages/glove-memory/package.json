@@ -27,6 +27,18 @@
       "types": "./dist/entity/index.d.ts",
       "import": "./dist/entity/index.js"
     },
+    "./episodic": {
+      "types": "./dist/episodic/index.d.ts",
+      "import": "./dist/episodic/index.js"
+    },
+    "./resources": {
+      "types": "./dist/resources/index.d.ts",
+      "import": "./dist/resources/index.js"
+    },
+    "./context": {
+      "types": "./dist/context/index.d.ts",
+      "import": "./dist/context/index.js"
+    },
     "./tools": {
       "types": "./dist/tools/index.d.ts",
       "import": "./dist/tools/index.js"
