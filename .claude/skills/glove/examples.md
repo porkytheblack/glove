@@ -1618,6 +1618,294 @@ async function refreshAndStore(id: string) {
 
 ---
 
+## Pattern: Memory schema definition (`glove-memory`)
+
+The schema is shared across every adapter. Define node classes, relationships, episode kinds, and resource roots in one place; pass the same `MemorySchema` instance to all four adapters so the curator's reasoning crosses subsystems consistently.
+
+```ts
+import { MemorySchema, InMemoryEntityAdapter, InMemoryEpisodicAdapter, InMemoryResourcesAdapter, InMemoryContextAdapter } from "glove-memory";
+import { z } from "zod";
+
+const schema = new MemorySchema()
+  .defineNodeClass({
+    name: "Person",
+    schema: z.object({ name: z.string(), email: z.string().optional() }),
+    identityKeys: [["email"], ["name"]],          // multi-set: any matching set folds the write
+    searchableProperties: ["name", "email"],
+  })
+  .defineNodeClass({
+    name: "Organization",
+    schema: z.object({ name: z.string(), domain: z.string().optional() }),
+    identityKeys: [["domain"], ["name"]],
+    searchableProperties: ["name"],
+  })
+  .defineRelationship({ type: "worksAt",   from: "Person", to: "Organization" })
+  .defineRelationship({ type: "knows",     from: "Person", to: "Person",
+                        propertiesSchema: z.object({ since: z.string().optional() }).optional() })
+  .defineEpisodeKind({  name: "meeting",   description: "A scheduled gathering." })
+  .defineEpisodeKind({  name: "decision",  description: "A consequential commitment made by a participant." })
+  .defineResourceRoot({ path: "/research",    description: "External research artifacts." })
+  .defineResourceRoot({ path: "/transcripts", description: "Meeting transcripts." });
+
+// Adapters share the schema so what one writes the next can read.
+const entity   = new InMemoryEntityAdapter({   schema });
+const episodic = new InMemoryEpisodicAdapter({ schema /*, embedder */ });
+const resources = new InMemoryResourcesAdapter({ schema /*, embedder */ });
+const context  = new InMemoryContextAdapter({  schema });
+```
+
+Adding a new node class, relationship, episode kind, or optional property is always safe at runtime. Adding a *required* property breaks new writes that don't supply it. Renaming or changing identity keys needs a consumer-managed rewrite — the adapter won't notice.
+
+---
+
+## Pattern: Subagent-delegated memory reader (recommended)
+
+The lead architectural recommendation in `glove-memory`: don't attach entity / episodic / resources tools directly to your main Glove. Build subagents — one per retrieval task — and register them on the main agent. Each subagent attaches only the adapter slice it needs; the main agent stays small and routes via `glove_invoke_subagent`. `useContext` is the exception — it stays on the main agent.
+
+```ts
+import { Glove, Displaymanager, MemoryStore, createAdapter } from "glove-core";
+import {
+  useMemoryReader, useEpisodicReader, useResourcesReader, useContext,
+} from "glove-memory";
+
+const model = createAdapter({ provider: "anthropic", stream: true });
+
+// `lookup` — answers "who is Don?" / "what do you know about Acme?". Sees only
+// the entity graph; doesn't render episode kinds or resource roots.
+const lookupFactory = ({ parentStore, parentControls }) =>
+  useMemoryReader(
+    new Glove({
+      store: parentStore,
+      model,
+      displayManager: parentControls.displayManager,
+      systemPrompt:
+        "You answer factual questions about people, organizations, and their " +
+        "relationships. Use glove_memory_find for fuzzy lookups, glove_memory_get " +
+        "for one-hop neighbourhoods, glove_memory_query for deeper traversal.",
+      compaction_config: { compaction_instructions: "Summarise lookup runs." },
+      serverMode: true,
+    }),
+    entity,
+  );
+
+// `recall` — answers "what did we discuss with Don last week?". Reads episodes;
+// reads entity for resolving names to ids.
+const recallFactory = ({ parentStore, parentControls }) => {
+  let glove = new Glove({
+    store: parentStore,
+    model,
+    displayManager: parentControls.displayManager,
+    systemPrompt:
+      "You answer questions about past events. Resolve participant names to ids " +
+      "via glove_memory_find first, then use glove_episodic_timeline / " +
+      "glove_episodic_find / glove_episodic_search depending on whether the user " +
+      "asked about a specific person, a window, or a topic.",
+    compaction_config: { compaction_instructions: "Summarise recall runs." },
+    serverMode: true,
+  });
+  glove = useMemoryReader(glove, entity);
+  glove = useEpisodicReader(glove, episodic);
+  return glove;
+};
+
+// `find-notes` — browses the resource filesystem; reads entity for "notes
+// about <person>" lookups.
+const findNotesFactory = ({ parentStore, parentControls }) => {
+  let glove = new Glove({
+    store: parentStore,
+    model,
+    displayManager: parentControls.displayManager,
+    systemPrompt:
+      "You find research notes, transcripts, and link collections in the " +
+      "resource filesystem. Use glove_resources_grep / _glob / _search to locate " +
+      "files; glove_resources_read to fetch contents. When the user asks for " +
+      "notes about a specific person or organization, look up the entity id " +
+      "first and use glove_resources_links_for to find everything that links " +
+      "to it.",
+    compaction_config: { compaction_instructions: "Summarise filesystem runs." },
+    serverMode: true,
+  });
+  glove = useMemoryReader(glove, entity);
+  glove = useResourcesReader(glove, resources);
+  return glove;
+};
+
+// Main agent — keeps useContext for system-prompt injection and the small
+// "remember that…" tool surface. Every other memory task is delegated.
+const main = useContext(
+  new Glove({
+    store: new MemoryStore("convo-1"),
+    model,
+    displayManager: new Displaymanager(),
+    systemPrompt:
+      "You are an assistant. Route lookups about people / orgs to the lookup " +
+      "subagent, recall of past events to the recall subagent, and research " +
+      "notes / transcripts to the find-notes subagent. Use the context tools " +
+      "when the user says 'remember that…' or asks what you know about them.",
+    compaction_config: { compaction_instructions: "Summarise conversation." },
+  }),
+  context,
+)
+  .defineSubAgent({ name: "lookup",     description: "Look up people, organizations, and relationships.", factory: lookupFactory })
+  .defineSubAgent({ name: "recall",     description: "Recall past meetings, decisions, and events.",      factory: recallFactory })
+  .defineSubAgent({ name: "find-notes", description: "Find research notes, transcripts, and links.",       factory: findNotesFactory })
+  .build();
+
+// "@lookup who works at Acme?" reaches the model verbatim. The model calls
+// glove_invoke_subagent({ name: "lookup", prompt: "who works at Acme?" }).
+await main.processRequest("@lookup who works at Acme?");
+```
+
+The shape generalises. Any subagent — for any role, not just memory — picks the smallest combination of `use*Reader` / `use*Curator` calls that makes its job possible. Reader-only when it just resolves ids or summaries; curator when it actually needs to mutate; nothing at all when memory isn't relevant.
+
+---
+
+## Pattern: Curator composition
+
+Same advice on the write side. A parent curator that routes to specialised write-side subagents — entity-linker, episode-recorder, resource-filer — beats a single curator with every write tool attached. Each subagent attaches only the adapter slice it needs, so its tool descriptions render only the schema slice for its role.
+
+```ts
+import { Glove, Displaymanager } from "glove-core";
+import {
+  useMemoryReader, useMemoryCurator,
+  useEpisodicReader, useEpisodicCurator,
+  useResourcesCurator,
+} from "glove-memory";
+
+// Sees: node classes, relationships. NOT episode kinds, NOT resource roots.
+const linkerFactory = ({ parentStore, parentControls }) =>
+  useMemoryCurator(
+    new Glove({
+      store: parentStore,
+      model,
+      displayManager: parentControls.displayManager,
+      systemPrompt:
+        "You extract entities and relationships from the conversation slice you " +
+        "receive. Use addNode (which dedups via identity keys) for entities, and " +
+        "connect for relationships. If addNode returns identity_ambiguous, merge " +
+        "the matched ids first then retry the write.",
+      compaction_config: { compaction_instructions: "Summarise linker work." },
+      serverMode: true,
+    }),
+    entity,
+  );
+
+// Sees: episode kinds (for writes) + read-only entity classes (to resolve
+// participant ids). Does NOT see resource roots.
+const recorderFactory = ({ parentStore, parentControls }) => {
+  let glove = new Glove({
+    store: parentStore,
+    model,
+    displayManager: parentControls.displayManager,
+    systemPrompt:
+      "You record episodes from the conversation slice. Look up participant " +
+      "entity ids via glove_memory_find before calling glove_episodic_record. " +
+      "Pick a registered kind from the list in the record-tool description.",
+    compaction_config: { compaction_instructions: "Summarise recorder work." },
+    serverMode: true,
+  });
+  glove = useMemoryReader(glove, entity);
+  glove = useEpisodicCurator(glove, episodic);
+  return glove;
+};
+
+// Sees: resource roots + read-only entities and episodes (so metadata.links
+// points at real ids). Does NOT see write tools for entity / episodic.
+const filerFactory = ({ parentStore, parentControls }) => {
+  let glove = new Glove({
+    store: parentStore,
+    model,
+    displayManager: parentControls.displayManager,
+    systemPrompt:
+      "You file research notes, transcripts, and link collections under the " +
+      "registered resource roots. Use glove_memory_find / glove_episodic_find " +
+      "to resolve link target ids before writing, so metadata.links references " +
+      "are valid.",
+    compaction_config: { compaction_instructions: "Summarise filer work." },
+    serverMode: true,
+  });
+  glove = useMemoryReader(glove, entity);
+  glove = useEpisodicReader(glove, episodic);
+  glove = useResourcesCurator(glove, resources);
+  return glove;
+};
+
+// Parent curator owns no memory tools — it just routes. Each subagent only
+// renders the schema slice for its role.
+const curator = new Glove({
+  store: curatorStore,
+  model,
+  displayManager: new Displaymanager(),
+  systemPrompt:
+    "You orchestrate memory extraction from conversation history. Route work to " +
+    "your subagents in sequence: linker (entities + relationships), recorder " +
+    "(episodes), filer (resources). Each subagent only sees the slice of the " +
+    "schema relevant to its role.",
+  compaction_config: { compaction_instructions: "Summarise curator runs." },
+  serverMode: true,
+})
+  .defineSubAgent({ name: "linker",   description: "Extract entities and relationships.",          factory: linkerFactory })
+  .defineSubAgent({ name: "recorder", description: "Record episodes; resolves participant ids first.", factory: recorderFactory })
+  .defineSubAgent({ name: "filer",    description: "File research artifacts; resolves link targets first.", factory: filerFactory })
+  .build();
+```
+
+Adapters are still shared. The linker's `addNode` becomes immediately visible to the recorder's `find`. Splitting memory across subagents would defeat the point of sequencing them.
+
+---
+
+## Pattern: Context flow ("remember that…")
+
+`useContext` does two things: folds four context tools onto the agent and wraps `processRequest` so each turn calls `adapter.render()` and prepends the rendered markdown block to the system prompt. The user instructs the agent in plain English; the agent calls `glove_context_set`; on the *next* turn the rendered context block shows up in the system prompt automatically.
+
+```ts
+import { Glove, Displaymanager, MemoryStore, createAdapter } from "glove-core";
+import { MemorySchema, InMemoryContextAdapter, useContext } from "glove-memory";
+
+const schema = new MemorySchema();      // context doesn't need node / episode / resource definitions
+const context = new InMemoryContextAdapter({ schema });
+
+const main = useContext(
+  new Glove({
+    store: new MemoryStore("convo-1"),
+    model: createAdapter({ provider: "anthropic", stream: true }),
+    displayManager: new Displaymanager(),
+    systemPrompt:
+      "You are a helpful assistant. When the user says 'remember that…' or " +
+      "tells you a preference, call glove_context_set with section: \"preferences\" " +
+      "and pinned: true so it lands in your system prompt next turn.",
+    compaction_config: { compaction_instructions: "Summarise the conversation." },
+  }),
+  context,
+).build();
+
+// Turn 1 — agent calls glove_context_set({
+//   section: "preferences",
+//   content: "Prefers tea over coffee. Allergic to peanuts.",
+//   pinned: true,
+// })
+await main.processRequest(
+  "Remember that I prefer tea over coffee, and I'm allergic to peanuts."
+);
+
+// Turn 2 — useContext re-renders and the rendered block is now part of the
+// system prompt the model sees. No extra wiring; render happens every turn.
+await main.processRequest("Suggest a snack to go with my drink.");
+
+// You can also list / mutate from outside the agent — useful for a settings UI.
+const all = await context.list("preferences");
+await context.update(
+  all[0].id,
+  { content: "Prefers tea over coffee. Allergic to peanuts and tree nuts." },
+  { source: "user-settings", actor: "user:don", timestamp: new Date().toISOString() },
+);
+// Next agent turn picks up the updated render automatically.
+```
+
+`useContext` snapshots the developer-supplied system prompt at registration time, then composes `<base>\n\n<rendered>` every turn — pinned context goes **after** developer guardrails so user preferences don't shadow them. Re-rendering happens every turn, so external updates between turns are reflected immediately. Multiple `useContext` calls stack (each captures its then-current base), but most consumers call it once.
+
+---
+
 ## Pattern: Glovebox PDF Extractor (`examples/glovebox-pdf-extractor`)
 
 A worked example of wrapping a Glove agent for sandboxed deployment. Lives at `examples/glovebox-pdf-extractor` and runs on the `glovebox/docs:1.2` base (pandoc / qpdf / pdftk-java / ghostscript / libreoffice headless prebuilt). The agent reads PDFs from `/input`, extracts tables / text, and writes results to `/output` — clients hit one WebSocket endpoint and stream events back.

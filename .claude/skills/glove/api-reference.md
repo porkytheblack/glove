@@ -1498,6 +1498,706 @@ Drives default permission-gating on bridged MCP tools (always-off in serverMode)
 
 ---
 
+## glove-memory
+
+Storage-agnostic memory layer. Four sibling subsystems (entity / episodic / resources / context) with reader / curator tool surfaces and BYO storage adapters. Reference `InMemory*` adapters for dev/test. Draft v0.1 — companion storage backends (`glove-memory-sqlite`, `glove-memory-postgres`) not yet released.
+
+### Subpath exports
+
+| Import | Contents |
+|--------|----------|
+| `glove-memory` | Barrel — re-exports core / entity / episodic / resources / context plus tool helpers and in-memory adapters |
+| `glove-memory/core` | Shared types — `Provenance`, `Link`, `EmbeddingAdapter`, `MemorySchema`, errors |
+| `glove-memory/entity` | `EntityMemoryAdapter`, `MemoryNode`, `MemoryEdge`, query DSL |
+| `glove-memory/episodic` | `EpisodicMemoryAdapter`, `Episode`, semantic-search opts |
+| `glove-memory/resources` | `ResourceFsAdapter`, `ResourceFile`, POSIX path helpers |
+| `glove-memory/context` | `ContextAdapter`, `ContextEntry`, default markdown rendering |
+| `glove-memory/tools` | Auto-registered read/write tool factories and `useMemory*` / `useEpisodic*` / `useResources*` / `useContext` helpers |
+| `glove-memory/in-memory` | Reference in-process adapters |
+
+### MemorySchema
+
+Shared ontology object passed to every adapter. Schema lives in code only — package does not persist or migrate it.
+
+```ts
+import { MemorySchema } from "glove-memory/core";
+
+class MemorySchema {
+  defineNodeClass<P>(def: NodeClassDef<P>): this;
+  defineRelationship<P>(def: RelationshipDef<P>): this;
+  defineEpisodeKind<P>(def: EpisodeKindDef<P>): this;
+  defineResourceRoot(def: ResourceRootDef): this;
+
+  // Lookups
+  getNodeClass(name: string): NodeClassDef<any> | undefined;
+  requireNodeClass(name: string): NodeClassDef<any>;
+  getRelationship(type: string): RelationshipDef<any> | undefined;
+  requireRelationship(type: string): RelationshipDef<any>;
+  getEpisodeKind(name: string): EpisodeKindDef<any> | undefined;
+  getResourceRoot(path: string): ResourceRootDef | undefined;
+
+  // Listings (used by tool descriptions)
+  listNodeClasses(): NodeClassDef<any>[];
+  listRelationships(): RelationshipDef<any>[];
+  listEpisodeKinds(): EpisodeKindDef<any>[];
+  listResourceRoots(): ResourceRootDef[];
+}
+
+interface NodeClassDef<P = unknown> {
+  name: string;
+  schema: z.ZodType<P>;
+  /** Multi-set: any matching set folds the write into the same node. */
+  identityKeys?: Array<Array<keyof P & string>>;
+  /** Indexed for fuzzy / contains search. */
+  searchableProperties?: Array<keyof P & string>;
+}
+
+interface RelationshipDef<P = unknown> {
+  type: string;
+  from: string;                     // node class name
+  to: string;                       // node class name
+  propertiesSchema?: z.ZodType<P>;
+  /** When true, multiple edges of this type can exist between the same pair. Default false. */
+  multi?: boolean;
+}
+
+interface EpisodeKindDef<P = unknown> {
+  name: string;
+  description?: string;
+  propertiesSchema?: z.ZodType<P>;
+}
+
+interface ResourceRootDef {
+  path: string;                     // absolute POSIX path
+  description?: string;
+  /** Default true. False skips embedding lifecycle for files under this root. */
+  semanticSearch?: boolean;
+}
+```
+
+### Provenance + Link
+
+```ts
+import type { Provenance, Link } from "glove-memory/core";
+import { ProvenanceSchema, LinkSchema } from "glove-memory/core";
+
+interface Provenance {
+  source: string;     // "conversation:<id>/turn:<n>", "manual", "import:<kind>:<id>"
+  actor: string;      // "curator-run-xyz", "user:don", "system"
+  timestamp: string;  // ISO 8601
+  note?: string;
+}
+
+interface Link {
+  kind: "entity" | "episode" | "resource";
+  id: string;
+  relation?: string;
+}
+```
+
+Provenance is required on every write and append-only per record. Link targets are not validated by adapters — that's the orchestrator's job.
+
+### EmbeddingAdapter
+
+```ts
+interface EmbeddingAdapter {
+  /** Adapters must reject `setEmbedding` with mismatched-dimension vectors. */
+  dimensions: number;
+  /** Returned vectors match input order. */
+  embed(texts: string[]): Promise<number[][]>;
+}
+```
+
+Out-of-band lifecycle: writes mark records `embeddingStatus: "missing" | "stale"` and return immediately; an external loop calls `findEpisodesNeedingEmbedding` / `findFilesNeedingEmbedding` → `embed` → `setEmbedding`.
+
+### Error hierarchy
+
+All extend `MemoryError extends Error` with a `code: string`.
+
+```ts
+class MemoryError extends Error { code: string }
+class MemoryNotFoundError extends MemoryError {}              // code: "not_found"
+
+class MemorySchemaError extends MemoryError {}                // codes:
+type MemorySchemaErrorCode =
+  | "unknown_class" | "unknown_relationship" | "unknown_kind"
+  | "unknown_resource_root" | "schema_mismatch";
+
+class MemoryQueryError extends MemoryError { operator?: string }   // codes:
+type MemoryQueryErrorCode = "invalid_query" | "operator_not_supported";
+
+class MemoryWriteError extends MemoryError { matchedIds?: string[] }   // codes:
+type MemoryWriteErrorCode =
+  | "validation_failed" | "provenance_required" | "identity_ambiguous";
+// matchedIds set on identity_ambiguous — orchestrator merges those then retries.
+
+class EpisodicMemoryError extends MemoryError {}              // codes:
+type EpisodicMemoryErrorCode =
+  | "embedding_unavailable" | "semantic_search_unsupported" | "invalid_time_range";
+
+class ResourceFsError extends MemoryError {}                  // codes:
+type ResourceFsErrorCode =
+  | "path_not_found" | "path_already_exists" | "not_a_directory" | "not_a_file"
+  | "directory_not_empty" | "edit_string_not_unique" | "edit_string_not_found"
+  | "body_not_editable" | "binary_not_supported" | "semantic_search_unsupported"
+  | "invalid_path" | "invalid_range";
+
+class ContextError extends MemoryError {}                     // codes:
+type ContextErrorCode =
+  | "entry_not_found" | "invalid_section" | "expired" | "render_failed";
+```
+
+### EntityMemoryAdapter
+
+```ts
+import type { EntityMemoryAdapter } from "glove-memory/entity";
+
+interface EntityMemoryAdapter {
+  identifier: string;
+  schema: MemorySchema;
+
+  // Nodes
+  addNode(className: string, props: unknown, provenance: Provenance): Promise<NodeWriteResult>;
+  getNode(id: string): Promise<MemoryNode | null>;
+  updateNode(id: string, props: Record<string, unknown>, provenance: Provenance): Promise<void>;
+  mergeNodes(keepId: string, mergeId: string, provenance: Provenance): Promise<void>;
+
+  // Edges
+  connect(
+    fromId: string, toId: string, relType: string,
+    props: unknown | undefined, provenance: Provenance,
+  ): Promise<EdgeWriteResult>;
+  disconnect(edgeId: string, provenance: Provenance): Promise<void>;
+
+  // Query
+  findNodes(className: string, where: NodeFilter, opts?: FindNodesOpts): Promise<MemoryNode[]>;
+  getNodeWithNeighbours(id: string): Promise<NodeWithNeighbours | null>;
+  query(spec: QuerySpec): Promise<QueryResult>;
+}
+
+interface FindNodesOpts {
+  /** When true, string `eq` filters opportunistically run as fuzzy on `searchableProperties`. */
+  fuzzy?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+interface MemoryNode {
+  id: string;
+  className: string;
+  props: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  provenance: Provenance[];
+}
+
+interface MemoryEdge {
+  id: string;
+  fromId: string;
+  toId: string;
+  type: string;
+  props?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  provenance: Provenance[];
+}
+
+interface NodeWriteResult {
+  id: string;
+  /** False when the write matched an existing node via identity keys. */
+  created: boolean;
+  /** Present if dedup folded this write into an existing node. */
+  mergedInto?: string;
+}
+
+interface EdgeWriteResult {
+  id: string;
+  /** False when an existing (fromId, toId, type) edge was updated rather than created. */
+  created: boolean;
+}
+
+interface NodeWithNeighbours {
+  node: MemoryNode;
+  neighbours: NodeNeighbour[];
+}
+
+interface NodeNeighbour {
+  edgeId: string;
+  edgeType: string;
+  direction: "out" | "in";
+  nodeId: string;
+  className: string;
+  edgeProps?: Record<string, unknown>;
+}
+```
+
+Identity behaviour: `addNode` matches against `identityKeys` deterministically — no fuzzy on the write path. If any identity key set matches an existing node, returns `created: false`. If two distinct existing nodes match different identity sets in the same write, throws `MemoryWriteError("identity_ambiguous", ..., matchedIds)` — the orchestrator merges first then retries.
+
+### Query DSL
+
+```ts
+import type { QuerySpec, NodeFilter, FilterOp, ExpandSpec, QueryResult } from "glove-memory/entity";
+import { FilterOpSchema, NodeFilterSchema, ExpandSpecSchema, QuerySpecSchema, FILTER_OP_KEYS } from "glove-memory/entity";
+
+type FilterOp =
+  | { eq: unknown } | { neq: unknown } | { in: unknown[] } | { not_in: unknown[] }
+  | { exists: boolean } | { fuzzy: string } | { contains: string }
+  | { starts_with: string } | { ends_with: string }
+  | { gt: number | string } | { gte: number | string }
+  | { lt: number | string } | { lte: number | string }
+  | { between: [unknown, unknown] };
+
+type NodeFilter = { [propertyName: string]: FilterOp | FilterOp[] };
+
+interface ExpandSpec {
+  [relationshipType: string]: {
+    select?: string[];
+    where?: NodeFilter;
+    expand?: ExpandSpec;
+    limit?: number;
+    orderBy?: string;
+  };
+}
+
+interface QuerySpec {
+  from: string;                // root node class
+  where?: NodeFilter;
+  expand?: ExpandSpec;
+  select?: string[];           // root property allowlist
+  orderBy?: string;            // "propertyName:asc" | "propertyName:desc"
+  limit?: number;
+  offset?: number;
+}
+
+interface QueryResult { rows: QueryRow[] }
+interface QueryRow {
+  id: string;
+  className: string;
+  props: Record<string, unknown>;
+  expanded?: Record<string, QueryRow[]>;
+}
+```
+
+The operator set is closed. Adapters that can't implement an operator throw `MemoryQueryError("operator_not_supported", message, op)` rather than degrading silently.
+
+### EpisodicMemoryAdapter
+
+```ts
+import type { EpisodicMemoryAdapter } from "glove-memory/episodic";
+
+interface EpisodicMemoryAdapter {
+  identifier: string;
+  schema: MemorySchema;
+  /** Drives whether `glove_episodic_search` is registered by `useEpisodicReader`. */
+  supportsSemanticSearch: boolean;
+
+  recordEpisode(ep: EpisodeInput, provenance: Provenance): Promise<{ id: string }>;
+  getEpisode(id: string): Promise<Episode | null>;
+  updateEpisode(id: string, patch: EpisodePatch, provenance: Provenance): Promise<void>;
+  deleteEpisode(id: string, provenance: Provenance): Promise<void>;
+
+  findEpisodes(spec: EpisodeQuerySpec): Promise<Episode[]>;
+  episodesForEntity(entityId: string, opts?: EpisodeListOpts): Promise<Episode[]>;
+  episodesBetween(start: string, end: string, opts?: EpisodeListOpts): Promise<Episode[]>;
+
+  /** Bulk participant rewrite — used by orchestrators to reconcile after entity merge. */
+  replaceParticipantId(oldId: string, newId: string, provenance: Provenance): Promise<{ updated: number }>;
+
+  // Embedding lifecycle
+  findEpisodesNeedingEmbedding(opts?: { limit?: number }): Promise<Array<{ id: string; content: string }>>;
+  setEmbedding(id: string, vector: number[]): Promise<void>;
+
+  // Only callable when supportsSemanticSearch === true
+  searchEpisodes?(query: string, opts?: SemanticSearchOpts): Promise<EpisodeSearchResult[]>;
+}
+
+interface Episode {
+  id: string;
+  occurredAt: string | { start: string; end: string };
+  content: string;
+  kind: string;                       // registered episode kind
+  participants: Array<{ entityId: string; role?: string }>;
+  properties?: Record<string, unknown>;
+  embeddingStatus: "missing" | "fresh" | "stale";
+  createdAt: string;
+  updatedAt: string;
+  provenance: Provenance[];
+}
+
+type EpisodeInput = Omit<Episode,
+  "id" | "createdAt" | "updatedAt" | "provenance" | "embeddingStatus">;
+
+type EpisodePatch = Partial<
+  Pick<Episode, "content" | "kind" | "participants" | "properties" | "occurredAt">
+>;
+
+interface EpisodeQuerySpec {
+  where?: {
+    kind?: string | string[];
+    participantIds?: string[];        // matches if any participant ID is in the set
+    properties?: NodeFilter;          // reuses entity-side closed operator set
+  };
+  timeRange?: { start?: string; end?: string };
+  orderBy?:
+    | "occurredAt:asc" | "occurredAt:desc"
+    | "createdAt:asc"  | "createdAt:desc";
+  limit?: number;
+  offset?: number;
+}
+
+interface EpisodeListOpts {
+  limit?: number;
+  offset?: number;
+  orderBy?: "occurredAt:asc" | "occurredAt:desc";
+  kind?: string | string[];
+}
+
+interface SemanticSearchOpts {
+  limit?: number;
+  filter?: {
+    participantIds?: string[];
+    kind?: string | string[];
+    timeRange?: { start?: string; end?: string };
+  };
+  /** 0 = pure semantic, 1 = pure recency. Default 0.2. */
+  recencyWeight?: number;
+}
+
+interface EpisodeSearchResult {
+  episode: Episode;
+  /** Blended semantic + recency score (higher is better). */
+  score: number;
+  /** Raw embedding distance, for debugging. */
+  distance: number;
+}
+
+// helpers
+function occurredAtStart(occurredAt: Episode["occurredAt"]): Date;
+function occurredAtEnd(occurredAt: Episode["occurredAt"]): Date;
+```
+
+In-memory adapter detail: `updateEpisode` flips `embeddingStatus: "stale"` only when `content` changes — kind / participant / property / occurredAt patches don't re-embed. The recency blend uses `recencyScore = exp(-ln(2) * ageMs / halfLifeMs)` with `halfLifeMs = 30 days`.
+
+### ResourceFsAdapter
+
+```ts
+import type { ResourceFsAdapter } from "glove-memory/resources";
+
+interface ResourceFsAdapter {
+  identifier: string;
+  schema: MemorySchema;
+  supportsSemanticSearch: boolean;
+
+  // Read
+  list(path: string, opts?: { recursive?: boolean; limit?: number }): Promise<DirectoryEntry[]>;
+  /** Default range [1, 50]; pass [start, -1] for start-to-EOF. */
+  read(path: string, opts?: { range?: [number, number] }): Promise<ResourceFile>;
+  stat(path: string): Promise<ResourceStat | null>;
+  exists(path: string): Promise<boolean>;
+
+  // Search
+  grep(spec: GrepSpec): Promise<GrepMatch[]>;
+  glob(pattern: string, opts?: { path?: string; limit?: number }): Promise<string[]>;
+  searchSemantic?(query: string, opts?: ResourceSemanticSearchOpts): Promise<SemanticMatch[]>;
+
+  // Write
+  write(path: string, body: ResourceBody, metadata: ResourceMetadata, provenance: Provenance): Promise<void>;
+  /** Throws if `oldStr` matches zero or more than once. */
+  edit(path: string, oldStr: string, newStr: string, provenance: Provenance): Promise<void>;
+  mkdir(path: string, provenance: Provenance): Promise<void>;
+  move(fromPath: string, toPath: string, provenance: Provenance): Promise<void>;
+  remove(path: string, recursive: boolean, provenance: Provenance): Promise<void>;
+  setMetadata(path: string, patch: Partial<ResourceMetadata>, provenance: Provenance): Promise<void>;
+
+  // Reverse linking + bulk rewrite
+  linksFor(targetKind: "entity" | "episode" | "resource", targetId: string): Promise<string[]>;
+  replaceLinkTarget(
+    fromKind: "entity" | "episode" | "resource",
+    fromId: string, toId: string, provenance: Provenance,
+  ): Promise<{ updated: number }>;
+
+  // Embedding lifecycle (only when supportsSemanticSearch === true)
+  findFilesNeedingEmbedding?(opts?: { limit?: number }): Promise<Array<{ path: string; content: string }>>;
+  setEmbedding?(path: string, vector: number[]): Promise<void>;
+}
+
+type ResourceBody =
+  | { type: "text"; text: string }
+  | { type: "markdown"; text: string }
+  | { type: "url"; url: string; cachedText?: string };
+
+interface ResourceMetadata {
+  summary?: string;
+  tags: string[];
+  links: Link[];
+  [key: string]: unknown;             // free-form consumer fields
+}
+
+interface ResourceFile {
+  path: string;
+  body: ResourceBody;
+  metadata: ResourceMetadata;
+  embeddingStatus: "missing" | "fresh" | "stale";
+  createdAt: string;
+  updatedAt: string;
+  provenance: Provenance[];
+}
+
+interface DirectoryEntry {
+  name: string;
+  path: string;
+  kind: "file" | "directory";
+  // file-only
+  contentType?: "text" | "markdown" | "url";
+  size?: number;
+  summary?: string;
+  tags?: string[];
+  updatedAt?: string;
+}
+
+interface ResourceStat {
+  path: string;
+  kind: "file" | "directory";
+  size?: number;
+  contentType?: "text" | "markdown" | "url";
+  metadata?: ResourceMetadata;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface GrepSpec {
+  query: string;
+  regex?: boolean;                    // default false (literal substring)
+  caseSensitive?: boolean;            // default false
+  path?: string;                      // restrict to subtree, default "/"
+  contentTypes?: Array<"text" | "markdown" | "url">;
+  contextLines?: number;              // default 2
+  limit?: number;
+}
+
+interface GrepMatch {
+  path: string;
+  line: number;
+  text: string;
+  context?: { before: string[]; after: string[] };
+}
+
+interface SemanticMatch {
+  path: string;
+  summary?: string;
+  score: number;
+  distance: number;
+}
+
+interface ResourceSemanticSearchOpts {
+  limit?: number;
+  path?: string;                      // restrict to subtree
+  contentTypes?: Array<"text" | "markdown" | "url">;
+  /** 0 = pure semantic, 1 = pure recency. Default 0 (no recency bias for resources). */
+  recencyWeight?: number;
+}
+
+// path helpers
+function normalisePath(input: string): string;
+function parentDir(path: string): string;
+function basename(path: string): string;
+function isWithin(parent: string, child: string): boolean;
+function matchGlob(pattern: string, path: string): boolean;
+
+// content helpers
+function searchableText(body: ResourceBody): string | null;
+function bodySize(body: ResourceBody): number | undefined;
+```
+
+Both curator and user can write directly via this adapter — provenance disambiguates them.
+
+### ContextAdapter
+
+```ts
+import type { ContextAdapter } from "glove-memory/context";
+
+interface ContextAdapter {
+  identifier: string;
+  schema: MemorySchema;
+
+  // Read
+  list(section?: string): Promise<ContextEntry[]>;
+  get(id: string): Promise<ContextEntry | null>;
+  /** Markdown block to inject into the system prompt. Pinned entries by default; expired entries silently filtered. */
+  render(opts?: ContextRenderOpts): Promise<string>;
+
+  // Write
+  set(entry: ContextEntryInput, provenance: Provenance): Promise<{ id: string }>;
+  update(id: string, patch: ContextEntryPatch, provenance: Provenance): Promise<void>;
+  unset(id: string, provenance: Provenance): Promise<void>;
+  /** Bulk replace all entries in a section — common "user updated their preferences pane" flow. */
+  setSection(
+    section: string,
+    entries: Array<Omit<ContextEntryInput, "section">>,
+    provenance: Provenance,
+  ): Promise<void>;
+  unsetSection(section: string, provenance: Provenance): Promise<void>;
+}
+
+interface ContextEntry {
+  id: string;
+  section: string;          // free-form: "identity", "preferences", "glossary", "current_task", ...
+  title?: string;
+  content: string;          // markdown body
+  pinned: boolean;          // true = always injected at turn start; false = read on demand
+  expiresAt?: string;       // optional ISO 8601; expired entries filtered from render/list
+  links?: Link[];
+  createdAt: string;
+  updatedAt: string;
+  provenance: Provenance[];
+}
+
+type ContextEntryInput = Omit<ContextEntry, "id" | "createdAt" | "updatedAt" | "provenance">;
+type ContextEntryPatch = Partial<Omit<ContextEntry, "id" | "createdAt" | "updatedAt" | "provenance">>;
+
+interface ContextRenderOpts {
+  /** Default false. */
+  includeUnpinned?: boolean;
+  /** Default: all sections. */
+  sections?: string[];
+}
+
+// Zod schemas
+const ContextEntryInputSchema: z.ZodType<ContextEntryInput>;
+const ContextEntryPatchSchema: z.ZodType<ContextEntryPatch>;
+```
+
+### `use*` helpers
+
+All seven take `(glove, adapter)` and return the same `glove` for chaining. The first six use the bare `FoldTarget` signature; `useContext` requires the richer `ContextEnableTarget` because it also wraps `processRequest`.
+
+```ts
+import {
+  useMemoryReader, useMemoryCurator,
+  useEpisodicReader, useEpisodicCurator,
+  useResourcesReader, useResourcesCurator,
+  useContext,
+  type FoldTarget, type ContextEnableTarget,
+} from "glove-memory";
+
+type FoldTarget = {
+  fold: <I>(args: GloveFoldArgs<I>) => unknown;
+};
+
+interface ContextEnableTarget {
+  fold: <I>(args: GloveFoldArgs<I>) => unknown;
+  getSystemPrompt(): string;
+  setSystemPrompt(prompt: string): void;
+  processRequest(
+    request: string | ContentPart[],
+    signal?: AbortSignal,
+  ): Promise<ModelPromptResult | Message>;
+}
+
+function useMemoryReader<G extends FoldTarget>(glove: G, adapter: EntityMemoryAdapter): G;
+function useMemoryCurator<G extends FoldTarget>(glove: G, adapter: EntityMemoryAdapter): G;
+function useEpisodicReader<G extends FoldTarget>(glove: G, adapter: EpisodicMemoryAdapter): G;
+function useEpisodicCurator<G extends FoldTarget>(glove: G, adapter: EpisodicMemoryAdapter): G;
+function useResourcesReader<G extends FoldTarget>(glove: G, adapter: ResourceFsAdapter): G;
+function useResourcesCurator<G extends FoldTarget>(glove: G, adapter: ResourceFsAdapter): G;
+function useContext<G extends ContextEnableTarget>(glove: G, adapter: ContextAdapter): G;
+```
+
+`useContext` snapshots the developer-supplied system prompt at registration time, then on every subsequent `processRequest` it calls `adapter.render()` and composes `<base>\n\n<rendered>` (rendered context goes **after** developer guardrails). Multiple `useContext` calls stack — each captures the then-current base prompt.
+
+### Lower-level tool factories
+
+For consumers who want to build their own tool surface composition. Each factory returns one `GloveFoldArgs<T>`; the `useXxxReader` / `useXxxCurator` helpers just call all of these in turn and `fold` them.
+
+```ts
+// Entity
+function buildFindNodesTool(adapter: EntityMemoryAdapter): GloveFoldArgs<...>;
+function buildGetNodeTool(adapter: EntityMemoryAdapter): GloveFoldArgs<...>;
+function buildQueryTool(adapter: EntityMemoryAdapter): GloveFoldArgs<...>;
+function buildAddNodeTool(adapter: EntityMemoryAdapter): GloveFoldArgs<...>;
+function buildUpdateNodeTool(adapter: EntityMemoryAdapter): GloveFoldArgs<...>;
+function buildConnectTool(adapter: EntityMemoryAdapter): GloveFoldArgs<...>;
+function buildDisconnectTool(adapter: EntityMemoryAdapter): GloveFoldArgs<...>;
+function buildMergeNodesTool(adapter: EntityMemoryAdapter): GloveFoldArgs<...>;
+function buildEntityReaderTools(adapter: EntityMemoryAdapter): GloveFoldArgs<any>[];
+function buildEntityCuratorTools(adapter: EntityMemoryAdapter): GloveFoldArgs<any>[];
+function renderEntitySchemaSection(schema: MemorySchema): string;
+
+// Episodic
+function buildEpisodicFindTool(adapter: EpisodicMemoryAdapter): GloveFoldArgs<...>;
+function buildEpisodicTimelineTool(adapter: EpisodicMemoryAdapter): GloveFoldArgs<...>;
+function buildEpisodicSearchTool(adapter: EpisodicMemoryAdapter): GloveFoldArgs<...>;     // skipped when !supportsSemanticSearch
+function buildEpisodicRecordTool(adapter: EpisodicMemoryAdapter): GloveFoldArgs<...>;
+function buildEpisodicUpdateTool(adapter: EpisodicMemoryAdapter): GloveFoldArgs<...>;
+function buildEpisodicDeleteTool(adapter: EpisodicMemoryAdapter): GloveFoldArgs<...>;
+function buildEpisodicReaderTools(adapter: EpisodicMemoryAdapter): GloveFoldArgs<any>[];
+function buildEpisodicCuratorTools(adapter: EpisodicMemoryAdapter): GloveFoldArgs<any>[];
+function renderEpisodeKindsSection(schema: MemorySchema): string;
+
+// Resources
+function buildResourcesLsTool(adapter: ResourceFsAdapter): GloveFoldArgs<...>;
+function buildResourcesReadTool(adapter: ResourceFsAdapter): GloveFoldArgs<...>;
+function buildResourcesStatTool(adapter: ResourceFsAdapter): GloveFoldArgs<...>;
+function buildResourcesGrepTool(adapter: ResourceFsAdapter): GloveFoldArgs<...>;
+function buildResourcesGlobTool(adapter: ResourceFsAdapter): GloveFoldArgs<...>;
+function buildResourcesSearchTool(adapter: ResourceFsAdapter): GloveFoldArgs<...>;        // skipped when !supportsSemanticSearch
+function buildResourcesLinksForTool(adapter: ResourceFsAdapter): GloveFoldArgs<...>;
+function buildResourcesWriteTool(adapter: ResourceFsAdapter): GloveFoldArgs<...>;
+function buildResourcesEditTool(adapter: ResourceFsAdapter): GloveFoldArgs<...>;
+function buildResourcesMkdirTool(adapter: ResourceFsAdapter): GloveFoldArgs<...>;
+function buildResourcesMoveTool(adapter: ResourceFsAdapter): GloveFoldArgs<...>;
+function buildResourcesRemoveTool(adapter: ResourceFsAdapter): GloveFoldArgs<...>;
+function buildResourcesSetMetadataTool(adapter: ResourceFsAdapter): GloveFoldArgs<...>;
+function buildResourcesReaderTools(adapter: ResourceFsAdapter): GloveFoldArgs<any>[];
+function buildResourcesCuratorTools(adapter: ResourceFsAdapter): GloveFoldArgs<any>[];
+function renderResourceRootsSection(schema: MemorySchema): string;
+
+// Context
+function buildContextGetTool(adapter: ContextAdapter): GloveFoldArgs<...>;
+function buildContextSetTool(adapter: ContextAdapter): GloveFoldArgs<...>;
+function buildContextUpdateTool(adapter: ContextAdapter): GloveFoldArgs<...>;
+function buildContextUnsetTool(adapter: ContextAdapter): GloveFoldArgs<...>;
+function buildContextTools(adapter: ContextAdapter): GloveFoldArgs<any>[];
+```
+
+### Reference in-memory adapter constructors
+
+```ts
+import {
+  InMemoryEntityAdapter,
+  InMemoryEpisodicAdapter,
+  InMemoryResourcesAdapter,
+  InMemoryContextAdapter,
+} from "glove-memory";
+
+new InMemoryEntityAdapter({
+  schema: MemorySchema;
+  identifier?: string;          // default: `in-memory-entity-${Date.now()}`
+});
+
+new InMemoryEpisodicAdapter({
+  schema: MemorySchema;
+  identifier?: string;
+  /** When provided, supportsSemanticSearch becomes true and naive cosine similarity is used. */
+  embedder?: EmbeddingAdapter;
+});
+
+new InMemoryResourcesAdapter({
+  schema: MemorySchema;
+  identifier?: string;
+  embedder?: EmbeddingAdapter;
+});
+
+new InMemoryContextAdapter({
+  schema: MemorySchema;
+  identifier?: string;
+});
+```
+
+Process-local — data is lost on restart. Companion adapters (`glove-memory-sqlite`, `glove-memory-postgres`) ship production-shaped implementations.
+
+---
+
 ## glovebox
 
 Authoring entry point and `glovebox build` CLI. Wraps a built Glove agent into a deployable Glovebox artifact.

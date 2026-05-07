@@ -24,6 +24,7 @@ Glove is an open-source TypeScript framework for building AI-powered application
 | `glove-react` | React hooks (`useGlove`), `GloveClient`, `GloveProvider`, `defineTool`, `<Render>`, `MemoryStore`, `ToolConfig` with colocated renderers | `pnpm add glove-react` |
 | `glove-next` | One-line Next.js API route handler (`createChatHandler`) for streaming SSE | `pnpm add glove-next` |
 | `glove-mcp` | Bridge MCP servers into a Glove agent: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter`, `discovermcp` discovery subagent. Opt-in OAuth helpers at `glove-mcp/oauth`. | `pnpm add glove-mcp` |
+| `glove-memory` | Schema-first memory layer with four sibling subsystems: entity graph, episodic timeline, resource filesystem, and ambient context. BYO storage via the adapter contracts; reference in-memory adapters ship for dev/test. Storage backends (`glove-memory-sqlite`, `glove-memory-postgres`) are companion packages — not yet released. Draft v0.1. | `pnpm add glove-memory` |
 | `glovebox-core` | Authoring + `glovebox` build CLI. `glovebox.wrap(runnable, config)` packages a built Glove agent into a deployable artifact (Dockerfile + nixpacks.toml + bundled server + manifest + auth key). Storage DSL (`rule.*`, `composite`) and wire protocol types live here too. The unscoped `glovebox` name is taken on npm — install as `glovebox-core`; the CLI binary is still `glovebox`. | `pnpm add glovebox-core` |
 | `glovebox-kit` | In-container runtime. `startGlovebox({ app, port, key, manifestPath, ... })` boots the WS server, auto-injects glovebox skills/hooks, and bridges Glove's display stack onto the wire. Storage adapters: `InlineStorage`, `UrlStorage`, `LocalServerStorage`, `S3Storage`. | (transitive — bundled by `glovebox build`) |
 | `glovebox-client` | Client SDK. `GloveboxClient.make({ endpoints })`, `client.box(name).prompt(text, { files })`, `result.read(name)`, `box.environment()`. Symmetric `ClientStorage` interface with a default inline+url implementation. | `pnpm add glovebox-client` |
@@ -38,6 +39,7 @@ Glove is an open-source TypeScript framework for building AI-powered application
 - **`glove-sqlite`** — deprecated; `SqliteStore` for persistence (server-side only).
 - **`glove-voice`** — full-duplex voice pipeline: STT/TTS/VAD adapters, `GloveVoice`, `useGloveVoice`, `useGlovePTT`, `<VoicePTTButton>`.
 - **`glove-mcp`** — MCP servers as first-class tools: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter` (consumer-supplied per-conversation seam). `discovermcp` discovery subagent (registered via `glove.defineSubAgent(discoverySubAgent({...}))`). Opt-in OAuth helpers at `glove-mcp/oauth` (`runMcpOAuth`, `FsOAuthStore`, `MemoryOAuthStore`, `McpOAuthProvider`).
+- **`glove-memory`** — Memory layer with four sibling subsystems (entity graph / episodic timeline / resource filesystem / ambient context) and matching `useMemoryReader` / `useMemoryCurator`, `useEpisodicReader` / `useEpisodicCurator`, `useResourcesReader` / `useResourcesCurator`, and `useContext` helper families. Storage-agnostic adapter contracts plus reference `InMemory*` adapters for dev/test.
 
 ## Architecture at a Glance
 
@@ -911,6 +913,254 @@ The agent code itself doesn't change — `McpAdapter.getAccessToken` is the only
 | Run the OAuth flow | `runMcpOAuth(opts)` from `glove-mcp/oauth` |
 | Persist OAuth state | `FsOAuthStore`, `MemoryOAuthStore` from `glove-mcp/oauth` |
 | Build client metadata | `buildClientMetadata(opts)` from `glove-mcp/oauth` |
+
+## Memory (`glove-memory`)
+
+Schema-first memory layer with four sibling subsystems. Storage-agnostic adapter contracts; reference in-memory adapters ship for dev/test. Status: draft v0.1; companion storage backends (`glove-memory-sqlite`, `glove-memory-postgres`) are not yet released.
+
+### The four subsystems
+
+| Subsystem | Adapter | What it's for |
+|-----------|---------|---------------|
+| Entity | `EntityMemoryAdapter` | Graph-shaped, schema-first, deterministic identity resolution. Nodes (people, organizations, projects) and typed edges between them. Curator-written, agent-read. |
+| Episodic | `EpisodicMemoryAdapter` | Timeline-bound, append-only events. Meetings, decisions, observations. Time is a first-class field; semantic search is opt-in (advertised by `supportsSemanticSearch`). |
+| Resources | `ResourceFsAdapter` | POSIX-style virtual filesystem the agent navigates with `ls` / `read` / `grep` / `glob` / `edit`. Holds research notes, transcripts, link collections. Text-only; absolute paths only (no `.` / `..`). |
+| Context | `ContextAdapter` | User-configured ambient context, auto-injected into the system prompt every turn. Different shape: not curator-extracted, no reader/curator split — one registration gives the agent both read and write tools. |
+
+### Architectural recommendation: don't dump memory tools on the main Glove
+
+If you're building an agent that needs memory access, **do not attach the entity / episodic / resources tools directly to your main Glove**. Build subagents — one per retrieval task — and register them on the main agent. Each subagent attaches only the adapter slice it needs.
+
+Why:
+
+- **Bounded prompt surface.** Tool descriptions render the schema slice for that role only — token cost scales with role, not with total ontology size.
+- **Sharper routing.** `lookup` / `recall` / `find-notes` subagent names are themselves a reasoning surface. Tighter signal than "you have eight memory tools, decide which".
+- **Mutation scope is structural.** A subagent attached with `useMemoryReader` *cannot* write; the affordance isn't there.
+- **Adapters stay shared.** All subagents read and write to the same underlying graph / timeline / filesystem. Splitting tools does not split the data.
+
+Same advice on the curator side: a parent curator that routes to specialised write-side subagents (entity-linker, episode-recorder, resource-filer) beats a single curator with every write tool attached.
+
+The exception is `useContext`. Context is small (4 tools), user-driven ("remember that…"), and ships with the system-prompt-injection wrapper that has to live on the agent the user actually talks to. **Keep `useContext` on the main agent.**
+
+See [examples.md — Memory: subagent-delegated reader / curator composition / context flow](examples.md) for worked-out patterns.
+
+### Helper families
+
+Each helper folds the relevant tool surface onto a Glove. All return the same `G` for chaining; all operate on either an `IGloveBuilder` or an `IGloveRunnable` (anything that exposes `fold`).
+
+| Helper | Folds | Notes |
+|--------|-------|-------|
+| `useMemoryReader(glove, adapter)` | `glove_memory_find`, `_get`, `_query` | Read-only entity graph access. |
+| `useMemoryCurator(glove, adapter)` | reader tools + `_add_node`, `_update_node`, `_connect`, `_disconnect`, `_merge_nodes` | Full entity write access. |
+| `useEpisodicReader(glove, adapter)` | `glove_episodic_find`, `_timeline`, `_search` | `_search` only registered when `adapter.supportsSemanticSearch === true`. |
+| `useEpisodicCurator(glove, adapter)` | reader tools + `_record`, `_update`, `_delete` | |
+| `useResourcesReader(glove, adapter)` | `glove_resources_ls`, `_read`, `_stat`, `_grep`, `_glob`, `_search`, `_links_for` | `_search` only when `supportsSemanticSearch`. |
+| `useResourcesCurator(glove, adapter)` | reader tools + `_write`, `_edit`, `_mkdir`, `_move`, `_remove`, `_set_metadata` | |
+| `useContext(glove, adapter)` | `glove_context_get`, `_set`, `_update`, `_unset` | **Also wraps `processRequest`** to call `adapter.render()` and prepend the rendered markdown block to the system prompt every turn. |
+
+### Tool inventory
+
+#### Entity (`useMemoryReader` / `useMemoryCurator`)
+
+| Tool | Purpose |
+|------|---------|
+| `glove_memory_find` | Find nodes by class + filter, optional fuzzy |
+| `glove_memory_get` | Fetch a node by id + one-hop neighbourhood |
+| `glove_memory_query` | Full structured query via the query DSL |
+| `glove_memory_add_node` | Create or upsert a node by identity keys *(curator)* |
+| `glove_memory_update_node` | Patch a node's properties *(curator)* |
+| `glove_memory_connect` | Create or update an edge *(curator)* |
+| `glove_memory_disconnect` | Remove an edge *(curator)* |
+| `glove_memory_merge_nodes` | Fold one node into another *(curator)* |
+
+#### Episodic (`useEpisodicReader` / `useEpisodicCurator`)
+
+| Tool | Purpose |
+|------|---------|
+| `glove_episodic_search` | Semantic search over episode content *(only when `supportsSemanticSearch`)* |
+| `glove_episodic_find` | Structured filter — by kind, participant, time range, properties |
+| `glove_episodic_timeline` | Chronological listing for an entity or time window |
+| `glove_episodic_record` | Append a new episode *(curator)* |
+| `glove_episodic_update` | Patch an existing episode *(curator)* |
+| `glove_episodic_delete` | Remove an episode *(curator)* |
+
+#### Resources (`useResourcesReader` / `useResourcesCurator`)
+
+| Tool | Purpose |
+|------|---------|
+| `glove_resources_ls` | List directory contents |
+| `glove_resources_read` | Read a file body, with optional line range |
+| `glove_resources_stat` | Get metadata about a single path |
+| `glove_resources_grep` | Text/regex search across the tree |
+| `glove_resources_glob` | Find paths by name pattern |
+| `glove_resources_search` | Semantic search *(only when `supportsSemanticSearch`)* |
+| `glove_resources_links_for` | Reverse-lookup: find resources linking to a target |
+| `glove_resources_write` | Create or overwrite a file *(curator)* |
+| `glove_resources_edit` | Replace a unique substring *(curator)* |
+| `glove_resources_mkdir` | Create an empty directory *(curator)* |
+| `glove_resources_move` | Rename or relocate *(curator)* |
+| `glove_resources_remove` | Delete a file or directory *(curator)* |
+| `glove_resources_set_metadata` | Patch metadata without rewriting body *(curator)* |
+
+#### Context (`useContext`)
+
+| Tool | Purpose |
+|------|---------|
+| `glove_context_get` | Read entries by section or list all |
+| `glove_context_set` | Add a new entry |
+| `glove_context_update` | Patch an existing entry in place |
+| `glove_context_unset` | Remove an entry or wipe an entire section |
+
+### `MemorySchema` — the shared ontology
+
+One schema object is passed to every adapter. Lives in code; the package does not persist it, validate it across deployments, or expose migration primitives — that's the consumer's concern.
+
+```ts
+import { MemorySchema } from "glove-memory/core";
+import { z } from "zod";
+
+const schema = new MemorySchema()
+  .defineNodeClass({
+    name: "Person",
+    schema: z.object({ name: z.string(), email: z.string().optional() }),
+    identityKeys: [["email"], ["name"]],          // multi-set: any matching set folds the write
+    searchableProperties: ["name", "email"],      // indexed for fuzzy / contains
+  })
+  .defineRelationship({
+    type: "worksAt",
+    from: "Person",
+    to: "Organization",
+    propertiesSchema: z.object({ since: z.string().optional() }).optional(),
+    multi: false,                                  // default — re-connect updates rather than duplicating
+  })
+  .defineEpisodeKind({
+    name: "meeting",
+    description: "A scheduled gathering.",
+    propertiesSchema: z.object({ duration_min: z.number() }).optional(),
+  })
+  .defineResourceRoot({
+    path: "/research",
+    description: "External research artifacts.",
+    semanticSearch: true,                          // default true; false skips embedding lifecycle for this root
+  });
+```
+
+What's safe at runtime:
+
+- Adding a new node class, relationship, or episode kind is always safe.
+- Adding an *optional* property is always safe.
+- Adding a *required* property won't break reads; new writes that don't supply it fail validation.
+- Removing or renaming properties needs a consumer-managed rewrite — the adapter won't notice.
+- Changing identity keys may silently collapse or split nodes on subsequent writes.
+
+### Provenance — required, append-only, every write
+
+Every adapter write takes a `Provenance`. It's append-only per node, edge, episode, resource, and context entry. Reader-facing tools filter `provenance` out of results; only direct adapter calls return it.
+
+```ts
+interface Provenance {
+  source: string;     // "conversation:<id>/turn:<n>", "manual", "import:<kind>:<id>"
+  actor: string;      // "curator-run-xyz", "user:don", "system"
+  timestamp: string;  // ISO 8601
+  note?: string;      // free-form rationale (identity-merge decisions, conflict notes)
+}
+```
+
+`Link` is the shared cross-reference vocabulary — episodes pointing at people, resources pointing at episodes, context entries pointing at projects.
+
+```ts
+interface Link {
+  kind: "entity" | "episode" | "resource";
+  id: string;             // entity / episode id, or resource path
+  relation?: string;      // free-form, e.g. "primary-contact", "source-transcript"
+}
+```
+
+The package does **not** validate that link targets exist — adapters stay decoupled. Cross-validation is the curator / orchestrator's job.
+
+### Embedding lifecycle — out-of-band, BYO adapter
+
+Episodic and resources use the same lifecycle. Writes mark records `embeddingStatus: "missing"` (initial) or `"stale"` (content change) and return immediately. A separate process — typically a Station signal — does the embed pass:
+
+```ts
+interface EmbeddingAdapter {
+  dimensions: number;
+  embed(texts: string[]): Promise<number[][]>;
+}
+```
+
+The refresh loop:
+
+```ts
+const pending = await episodic.findEpisodesNeedingEmbedding({ limit: 50 });
+const vectors = await embedder.embed(pending.map((p) => p.content));
+for (let i = 0; i < pending.length; i++) {
+  await episodic.setEmbedding(pending[i].id, vectors[i]);
+}
+```
+
+Resources use `findFilesNeedingEmbedding` / `setEmbedding` (both optional on `ResourceFsAdapter`, present only when `supportsSemanticSearch === true`). Stale marking on episodes is **content-only** in the in-memory adapter — `kind` / `participants` / `properties` / `occurredAt` patches don't re-embed; consumers wanting different behaviour can delete + re-record. The recency blend in `searchEpisodes` defaults to `recencyWeight = 0.2` with a 30-day half-life.
+
+### Reconciliation primitives
+
+The package's contract is deliberately narrow: store, query, write, search. It does **not** cascade across adapters. When an entity is merged or deleted, episodes that reference its old ID don't auto-update. Orchestrators reach for these primitives:
+
+| Action | Primitive |
+|--------|-----------|
+| Entity merged | `episodic.replaceParticipantId(oldId, newId, prov)`, `resources.replaceLinkTarget("entity", oldId, newId, prov)` |
+| Entity deleted | `episodic.findEpisodes({ where: { participantIds: [id] } })`, `resources.linksFor("entity", id)` then orchestrator decides |
+| Resource moved | `resources.replaceLinkTarget("resource", fromPath, toPath, prov)` |
+| Episode deleted | `resources.linksFor("episode", id)` then orchestrator decides |
+| Stale embeddings | `findEpisodesNeedingEmbedding` / `findFilesNeedingEmbedding` → `embed` → `setEmbedding` |
+
+### Reference in-memory adapters
+
+For dev / tests / quick prototypes. All exported from `glove-memory/in-memory` (and re-exported from the barrel).
+
+```ts
+import {
+  InMemoryEntityAdapter,
+  InMemoryEpisodicAdapter,
+  InMemoryResourcesAdapter,
+  InMemoryContextAdapter,
+} from "glove-memory";
+
+const entity = new InMemoryEntityAdapter({ schema });
+const episodic = new InMemoryEpisodicAdapter({ schema, embedder });   // omit embedder → supportsSemanticSearch = false
+const resources = new InMemoryResourcesAdapter({ schema, embedder }); // ditto
+const context = new InMemoryContextAdapter({ schema });
+```
+
+Process-local — they lose data on restart. Production projects swap in a companion package or BYO adapter.
+
+### Out of scope
+
+- Triggering, scheduling, or pipeline orchestration (Station's territory).
+- Curation logic itself (configured by the consumer).
+- Embedding *generation* — consumers plug in their own `EmbeddingAdapter`.
+- Schema persistence or migration — schema lives in code only.
+- Cross-adapter cascade on entity merge, episode delete, or resource rename — that's reconciliation, an orchestrator responsibility.
+- The user-side write path for context — the adapter exposes `set` / `update` / `unset`; the UI / API / form / wherever users edit their preferences calls those directly.
+- Binary resources. Resources is text-only.
+- `.` and `..` path resolution. All resource paths are absolute.
+
+### Quick reference — where things live
+
+| Need | Symbol |
+|------|--------|
+| Define the ontology | `MemorySchema` from `glove-memory/core` |
+| Required write metadata | `Provenance` from `glove-memory/core` |
+| Cross-reference between subsystems | `Link` from `glove-memory/core` |
+| Embedding contract | `EmbeddingAdapter` from `glove-memory/core` |
+| Entity contract | `EntityMemoryAdapter` from `glove-memory/entity` |
+| Episodic contract | `EpisodicMemoryAdapter` from `glove-memory/episodic` |
+| Resources contract | `ResourceFsAdapter` from `glove-memory/resources` |
+| Context contract | `ContextAdapter` from `glove-memory/context` |
+| Reader / curator helpers | `useMemoryReader` / `useMemoryCurator`, `useEpisodicReader` / `useEpisodicCurator`, `useResourcesReader` / `useResourcesCurator`, `useContext` from `glove-memory/tools` |
+| Reference in-process adapters | `InMemoryEntityAdapter`, `InMemoryEpisodicAdapter`, `InMemoryResourcesAdapter`, `InMemoryContextAdapter` from `glove-memory/in-memory` |
+| Error classes | `MemoryError`, `MemoryNotFoundError`, `MemorySchemaError`, `MemoryQueryError`, `MemoryWriteError`, `EpisodicMemoryError`, `ResourceFsError`, `ContextError` from `glove-memory/core` |
+
+See [api-reference.md — `glove-memory`](api-reference.md) for full type signatures, and [examples.md — Memory](examples.md) for worked examples (schema definition, subagent-delegated reader, curator composition, context flow).
 
 ## Glovebox — Sandboxed Runtime
 
