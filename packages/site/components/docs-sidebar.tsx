@@ -76,6 +76,12 @@ const sections: NavSection[] = [
       { label: "v3.0.0 Release Notes", href: "/docs/v3" },
     ],
   },
+  {
+    title: "Philosophy",
+    items: [
+      { label: "Why Memory", href: "/docs/memory/why", beta: true },
+    ],
+  },
 ];
 
 export function DocsSidebar() {

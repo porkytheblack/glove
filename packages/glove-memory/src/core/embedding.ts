@@ -6,7 +6,7 @@
  *
  * Embedding *generation* is intentionally out-of-band — adapters mark records
  * with `embeddingStatus: "missing" | "stale"` on write and a separate refresh
- * process (typically a Station signal) calls `embed` and writes vectors back
+ * process (typically a Station — https://station.dterminal.net — signal) calls `embed` and writes vectors back
  * via `setEmbedding`. This keeps writes fast and decouples embedding cost
  * from the curator's hot path.
  */
