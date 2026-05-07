@@ -125,7 +125,8 @@ const reader = useContext(
 | Tool | Purpose |
 |------|---------|
 | `glove_context_get` | Read entries by section or list all |
-| `glove_context_set` | Add or update an entry |
+| `glove_context_set` | Add a new entry |
+| `glove_context_update` | Patch an existing entry in place |
 | `glove_context_unset` | Remove an entry or wipe an entire section |
 
 ## System-prompt injection (context)
