@@ -323,7 +323,7 @@ Why this beats one Glove with everything attached:
 
 ## Embedding lifecycle
 
-Episodic and resources adapters generate embeddings out-of-band. Writes mark records `embeddingStatus: "missing"` (initial) or `"stale"` (content change) and return immediately. A separate process — typically a Station signal — picks them up via `findEpisodesNeedingEmbedding` / `findFilesNeedingEmbedding`, calls the configured `EmbeddingAdapter`, and writes vectors back via `setEmbedding`.
+Episodic and resources adapters generate embeddings out-of-band. Writes mark records `embeddingStatus: "missing"` (initial) or `"stale"` (content change) and return immediately. A separate process — typically a [Station](https://station.dterminal.net) signal — picks them up via `findEpisodesNeedingEmbedding` / `findFilesNeedingEmbedding`, calls the configured `EmbeddingAdapter`, and writes vectors back via `setEmbedding`.
 
 The `EmbeddingAdapter` contract is intentionally tiny — consumers plug in whatever provider they want without the package taking on a model dependency.
 
@@ -346,7 +346,7 @@ The package's contract is deliberately narrow: store, query, write, search. It d
 
 ## What this package doesn't own
 
-- Triggering, scheduling, or pipeline orchestration (Station's territory).
+- Triggering, scheduling, or pipeline orchestration ([Station](https://station.dterminal.net)'s territory).
 - The curation logic itself (configured by the consumer).
 - Embedding *generation* — consumers plug in their own `EmbeddingAdapter`.
 - Schema persistence or migration — schema lives in code; consistency across deployments is the consumer's concern.

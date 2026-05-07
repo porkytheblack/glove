@@ -482,6 +482,68 @@ export default function Chat() {
       </ul>
 
       {/* ------------------------------------------------------------------ */}
+      <h2>Memory</h2>
+
+      <p>
+        Production agents need to remember across conversations — not just
+        recent messages, but stable facts about people and projects, things
+        that happened, research artifacts, and the user&apos;s standing
+        preferences. Glove ships these as a separate package,{" "}
+        <code>glove-memory</code>, with four orthogonal primitives you can
+        attach to any agent independently.
+      </p>
+
+      <ul>
+        <li>
+          <strong>Entity memory</strong> — a typed graph of recurring things.
+          Nodes have a class (<code>Person</code>, <code>Organization</code>),
+          a Zod-validated property bag, and deterministic identity keys so
+          the same Don gets one node, even when extracted fifty times.
+        </li>
+        <li>
+          <strong>Episodic memory</strong> — append-only timeline of events
+          (meetings, decisions, milestones). Time-indexed, semantically
+          searchable, with participants referencing entity IDs.
+        </li>
+        <li>
+          <strong>Resources</strong> — POSIX-style virtual filesystem the
+          agent navigates with <code>ls</code> / <code>read</code> /{" "}
+          <code>grep</code> / <code>glob</code> / <code>edit</code>. Holds
+          research notes, transcripts, link collections.
+        </li>
+        <li>
+          <strong>Context</strong> — the user&apos;s standing brief on
+          themselves: identity, preferences, glossary, current task scope.
+          Auto-injected into the system prompt every turn.
+        </li>
+      </ul>
+
+      <p>
+        Each subsystem is its own adapter contract with a bring-your-own
+        storage backend; reference in-memory adapters ship for dev/test.
+        The conversational agent gets read-only tools; a separate{" "}
+        <strong>curator</strong> Glove instance — typically triggered by{" "}
+        <a href="https://station.dterminal.net">Station</a> — runs over
+        conversation history and writes.
+      </p>
+
+      <p>
+        The recommended shape is to <em>not</em> attach memory tools directly
+        to your main agent. Build subagents — one per retrieval task — and
+        register them via <code>defineSubAgent</code>. Each subagent attaches
+        only the adapter slice it needs, so its tool descriptions render only
+        the relevant schema. Token cost scales with role rather than with
+        total ontology size.
+      </p>
+
+      <p>
+        See <a href="/docs/memory">Memory</a> for the full reference (tools,
+        adapter contracts, embedding lifecycle, reconciliation primitives)
+        and <a href="/docs/memory/why">Why Memory</a> for the design story
+        behind the four-primitive split.
+      </p>
+
+      {/* ------------------------------------------------------------------ */}
       <h2>Server-only quickstart</h2>
 
       <p>

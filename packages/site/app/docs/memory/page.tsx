@@ -499,7 +499,8 @@ const curator = new Glove({ /* ... */ })
         Episodic and resources adapters generate embeddings <strong>out-of-band</strong>.
         Writes mark records <code>embeddingStatus: &quot;missing&quot;</code>{" "}
         (initial) or <code>&quot;stale&quot;</code> (content change) and return
-        immediately. A separate process — typically a Station signal — picks
+        immediately. A separate process — typically a{" "}
+        <a href="https://station.dterminal.net">Station</a> signal — picks
         them up via <code>findEpisodesNeedingEmbedding</code> /{" "}
         <code>findFilesNeedingEmbedding</code>, calls the configured{" "}
         <code>EmbeddingAdapter</code>, and writes vectors back via{" "}
@@ -622,7 +623,7 @@ const curator = new Glove({ /* ... */ })
       <h2>What this package doesn&apos;t own</h2>
 
       <ul>
-        <li>Triggering, scheduling, or pipeline orchestration (Station&apos;s territory).</li>
+        <li>Triggering, scheduling, or pipeline orchestration (<a href="https://station.dterminal.net">Station</a>&apos;s territory).</li>
         <li>The curation logic itself (configured by the consumer).</li>
         <li>
           Embedding <em>generation</em> — consumers plug in their own{" "}

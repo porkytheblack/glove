@@ -23,7 +23,8 @@ import type {
  * **Embeddings are out-of-band.** `recordEpisode` and `updateEpisode` mark
  * the episode `embeddingStatus: "missing"` (on record) or `"stale"` (on
  * content update) and return immediately. A separate process — typically a
- * Station signal — picks them up via `findEpisodesNeedingEmbedding`,
+ * Station (https://station.dterminal.net) signal — picks them up via
+ * `findEpisodesNeedingEmbedding`,
  * computes embeddings via the configured `EmbeddingAdapter`, and writes
  * vectors back via `setEmbedding`.
  *

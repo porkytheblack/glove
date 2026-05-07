@@ -1080,7 +1080,7 @@ The package does **not** validate that link targets exist — adapters stay deco
 
 ### Embedding lifecycle — out-of-band, BYO adapter
 
-Episodic and resources use the same lifecycle. Writes mark records `embeddingStatus: "missing"` (initial) or `"stale"` (content change) and return immediately. A separate process — typically a Station signal — does the embed pass:
+Episodic and resources use the same lifecycle. Writes mark records `embeddingStatus: "missing"` (initial) or `"stale"` (content change) and return immediately. A separate process — typically a [Station](https://station.dterminal.net) signal — does the embed pass:
 
 ```ts
 interface EmbeddingAdapter {
@@ -1135,7 +1135,7 @@ Process-local — they lose data on restart. Production projects swap in a compa
 
 ### Out of scope
 
-- Triggering, scheduling, or pipeline orchestration (Station's territory).
+- Triggering, scheduling, or pipeline orchestration ([Station](https://station.dterminal.net)'s territory).
 - Curation logic itself (configured by the consumer).
 - Embedding *generation* — consumers plug in their own `EmbeddingAdapter`.
 - Schema persistence or migration — schema lives in code only.
