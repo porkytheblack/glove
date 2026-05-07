@@ -595,6 +595,14 @@ agent.defineSubAgent({
         </li>
       </ul>
 
+      <p>
+        For memory tools specifically, see the{" "}
+        <a href="/docs/memory">Memory</a> guide and prefer the
+        subagent-delegation pattern: the entity / episodic / resources tools
+        belong on focused retrieval subagents rather than directly on the
+        main agent.
+      </p>
+
       {/* ------------------------------------------------------------------ */}
       <h2>How parsing works</h2>
 
