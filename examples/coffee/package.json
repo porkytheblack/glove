@@ -6,10 +6,14 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "monitor": "gmonitor start --config ./gmonitor.config.ts",
+    "monitor:bootstrap": "node scripts/bootstrap-monitor.mjs",
+    "monitor:dashboard": "open http://127.0.0.1:3030"
   },
   "dependencies": {
     "glove-core": "workspace:*",
+    "glove-monitor-client": "workspace:*",
     "glove-next": "workspace:*",
     "glove-react": "workspace:*",
     "glove-sqlite": "workspace:*",
@@ -23,6 +27,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "glove-monitor": "workspace:*",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "typescript": "^5.9.3"

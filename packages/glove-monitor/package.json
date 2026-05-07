@@ -1,0 +1,86 @@
+{
+  "name": "glove-monitor",
+  "version": "0.1.0",
+  "description": "Centralised observability dashboard for Glove agents — conversations, tool calls, tokens, cost, latency",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-monitor"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "glove-monitor": "./dist/cli.js",
+    "gmonitor": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "import": "./dist/server/index.js"
+    },
+    "./adapters": {
+      "types": "./dist/adapters/index.d.ts",
+      "import": "./dist/adapters/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    ".next/standalone",
+    ".next/static",
+    "next.config.mjs"
+  ],
+  "scripts": {
+    "build": "tsup && next build",
+    "build:lib": "tsup",
+    "build:dashboard": "next build",
+    "dev": "concurrently -n server,dashboard -c green,cyan \"pnpm dev:server\" \"pnpm dev:dashboard\"",
+    "dev:server": "tsx src/cli-main.ts server",
+    "dev:dashboard": "next dev -p 3000",
+    "start": "node dist/cli.js",
+    "start:server": "node dist/cli.js server",
+    "start:dashboard": "node dist/cli.js dashboard",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "glove-core": "workspace:*"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "hono": "^4.6.0",
+    "next": "^15.3.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "recharts": "^2.13.0",
+    "tsx": "^4.21.0",
+    "ws": "^8.18.0",
+    "zod": "^4.3.6"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.5.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/ws": "^8.5.13",
+    "concurrently": "^9.1.0",
+    "glove-core": "workspace:*",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  }
+}

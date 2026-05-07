@@ -10,6 +10,7 @@ import React, {
 } from "react";
 import { useGlove, Render } from "glove-react";
 import { useGloveVoice } from "glove-react/voice";
+import { BrowserMonitorSubscriber } from "glove-monitor-client/browser";
 import type {
   MessageRenderProps,
   StreamingRenderProps,
@@ -134,12 +135,27 @@ export default function Chat({ sessionId: sessionIdProp, getSessionId, onFirstMe
   // ── Tools (stable, created once) ──────────────────────────────────────
   const tools = useMemo(() => createCoffeeTools(cartOps), [cartOps]);
 
+  // ── glove-monitor (optional) — credential-less browser subscriber that
+  // POSTs to /api/glove-monitor/ingest on the same origin. The relay handler
+  // there carries the DCR'd credentials. Skips when the relay isn't mounted.
+  const monitorSub = useMemo(() => {
+    if (typeof window === "undefined") return undefined
+    return new BrowserMonitorSubscriber({
+      relayUrl: "/api/glove-monitor/ingest",
+      app: "coffee",
+      model: "minimax/minimax-m2.5",
+      conversationId: () => sessionIdProp ?? "coffee-session",
+      onError: (err) => console.warn("[glove-monitor]", err),
+    })
+  }, [sessionIdProp])
+
   // ── Glove hook — supports both sync sessionId and async getSessionId ──
   // When getSessionId is provided (new session), useGlove resolves the ID
   // asynchronously and exposes sessionReady + sessionId on the return value.
   const glove = useGlove({
     tools,
     ...(getSessionId ? { getSessionId } : { sessionId: sessionIdProp }),
+    ...(monitorSub ? { subscribers: [monitorSub] } : {}),
   });
   const { runnable, sessionReady, sessionId, timeline, streamingText, busy, stats, slots, inbox, sendMessage, abort } =
     glove;

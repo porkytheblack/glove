@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "glove-core": "workspace:*",
+    "glove-monitor-client": "workspace:*",
     "glove-next": "workspace:*",
     "glove-react": "workspace:*",
     "glove-sqlite": "workspace:*",

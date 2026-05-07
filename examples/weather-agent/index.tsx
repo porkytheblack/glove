@@ -19,6 +19,7 @@ import {
   AnthropicAdapter,
   Glove,
 } from "glove-core";
+import { MonitorSubscriber } from "glove-monitor-client";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // In-memory store
@@ -872,6 +873,19 @@ function buildAgent(dm: Displaymanager, subscriber: SubscriberAdapter) {
   });
 
   glove.addSubscriber(subscriber);
+
+  // Forward every SubscriberEvent to glove-monitor when configured. Skips
+  // silently in unconfigured runs so existing demo flows are unaffected.
+  if (process.env.GLOVE_MONITOR_URL) {
+    glove.addSubscriber(new MonitorSubscriber({
+      url: process.env.GLOVE_MONITOR_URL,
+      registrationToken: process.env.GLOVE_MONITOR_REG_TOKEN,
+      app: "weather-agent",
+      model: "claude-sonnet-4-5-20250929",
+      onError: (err) => console.warn("[glove-monitor]", err),
+    }));
+  }
+
   return glove.build();
 }
 

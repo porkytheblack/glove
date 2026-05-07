@@ -21,6 +21,7 @@ import {
   getAvailableProviders,
 } from "glove-core";
 import { SqliteStore } from "glove-sqlite";
+import { MonitorSubscriber } from "glove-monitor-client";
 import { baseTools, planTool, askQuestionTool } from "./tools";
 import type { ServerEvent, ClientCommand, HistoryTimelineEntry } from "./protocol";
 
@@ -385,6 +386,18 @@ class Session {
 
     // Add WebSocket subscriber
     gloveBuilder.addSubscriber(new WebSocketSubscriber(ws));
+
+    // Optional: forward telemetry to glove-monitor when configured.
+    if (process.env.GLOVE_MONITOR_URL) {
+      gloveBuilder.addSubscriber(new MonitorSubscriber({
+        url: process.env.GLOVE_MONITOR_URL,
+        registrationToken: process.env.GLOVE_MONITOR_REG_TOKEN,
+        app: "coding-agent",
+        model: process.env.DEFAULT_MODEL ?? "claude-sonnet-4-5-20250929",
+        conversationId: () => this.sessionId,
+        onError: (err) => console.warn("[glove-monitor]", err),
+      }));
+    }
 
     this.glove = gloveBuilder.build();
 

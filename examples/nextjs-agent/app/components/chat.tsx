@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, type ReactNode } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback, type ReactNode } from "react";
 import { useGlove, Render } from "glove-react";
+import { BrowserMonitorSubscriber } from "glove-monitor-client/browser";
 import type {
   MessageRenderProps,
   StreamingRenderProps,
@@ -64,7 +65,17 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const glove = useGlove();
+  const monitorSub = useMemo(() => {
+    if (typeof window === "undefined") return undefined;
+    return new BrowserMonitorSubscriber({
+      relayUrl: "/api/glove-monitor/ingest",
+      app: "nextjs-agent",
+      model: "z-ai/glm-5",
+      onError: (err) => console.warn("[glove-monitor]", err),
+    });
+  }, []);
+
+  const glove = useGlove(monitorSub ? { subscribers: [monitorSub] } : undefined);
   const { timeline, streamingText, busy, stats, slots, sendMessage, abort } =
     glove;
 

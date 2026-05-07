@@ -10,3 +10,5 @@ dist
 .next
 out
 *.db
+*.tsbuildinfo
+next-env.d.ts
