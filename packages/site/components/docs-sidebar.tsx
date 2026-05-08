@@ -25,6 +25,7 @@ const sections: NavSection[] = [
       { label: "The Display Stack", href: "/docs/display-stack" },
       { label: "The Inbox", href: "/docs/inbox" },
       { label: "Hooks, Skills & Subagents", href: "/docs/extensions" },
+      { label: "Memory", href: "/docs/memory/why", beta: true },
       { label: "Glovebox", href: "/docs/glovebox", beta: true },
     ],
   },
@@ -34,6 +35,7 @@ const sections: NavSection[] = [
       { label: "Concepts", href: "/docs/concepts" },
       { label: "Server-Side Agents", href: "/docs/server-side" },
       { label: "Core API", href: "/docs/core" },
+      { label: "Memory", href: "/docs/memory/why", beta: true },
     ],
   },
   {
@@ -74,12 +76,6 @@ const sections: NavSection[] = [
     title: "Releases",
     items: [
       { label: "v3.0.0 Release Notes", href: "/docs/v3" },
-    ],
-  },
-  {
-    title: "Philosophy",
-    items: [
-      { label: "Why Memory", href: "/docs/memory/why", beta: true },
     ],
   },
 ];
