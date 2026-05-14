@@ -10,4 +10,4 @@ dist
 .next
 out
 *.db
-.DS_STORE
+.DS_Store
