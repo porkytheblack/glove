@@ -213,6 +213,12 @@ export interface CreateAdapterOptions {
   timeout?: number;
   /** MiMo: when true, wrap reasoning_content in <think>…</think> and prepend to message text. Defaults to false. */
   includeReasoningInText?: boolean;
+  /**
+   * MiMo: hint how much the model should think. `mimo-v2.5-pro` is adaptive
+   * by default (skips thinking on trivial prompts); pass `"high"` for
+   * consistently deep reasoning. Leave unset to let the model decide.
+   */
+  reasoningEffort?: "low" | "medium" | "high";
 }
 
 export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
@@ -272,6 +278,7 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
       stream,
       baseURL: opts.baseURL ?? process.env.MIMO_BASE_URL ?? providerDef.baseURL,
       ...(opts.includeReasoningInText != null && { includeReasoningInText: opts.includeReasoningInText }),
+      ...(opts.reasoningEffort != null && { reasoningEffort: opts.reasoningEffort }),
       ...(opts.timeout != null && { timeout: opts.timeout }),
     });
   }

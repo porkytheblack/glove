@@ -33,4 +33,10 @@ export interface ChatHandlerConfig {
    * the client. Ignored by other providers.
    */
   includeReasoningInText?: boolean;
+  /**
+   * MiMo only: hint how much the model should think. `mimo-v2.5-pro` is
+   * adaptive by default (skips thinking on trivial prompts); pass `"high"`
+   * for consistently deep reasoning. Ignored by other providers.
+   */
+  reasoningEffort?: "low" | "medium" | "high";
 }
