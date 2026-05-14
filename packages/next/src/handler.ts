@@ -313,6 +313,7 @@ function createMimoHandler(
 ) {
   let clientPromise: Promise<any> | null = null;
   const includeReasoningInText = config.includeReasoningInText ?? false;
+  const reasoningEffort = config.reasoningEffort;
 
   function getClient() {
     if (!clientPromise) {
@@ -352,6 +353,7 @@ function createMimoHandler(
       max_tokens: maxTokens,
       messages,
       ...(tools ? { tools } : {}),
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
       stream: true,
       stream_options: { include_usage: true },
     });

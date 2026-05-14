@@ -28,6 +28,15 @@ export interface MimoAdapterConfig {
    * choose to surface it (or not).
    */
   includeReasoningInText?: boolean;
+  /**
+   * Hints how much the model should think before answering. MiMo only.
+   *
+   * On `mimo-v2.5-pro` thinking is **adaptive by default** — the model skips
+   * most reasoning on trivial prompts. Pass `"high"` for consistently deep
+   * reasoning; `"low"` / `"medium"` can actually *suppress* thinking on the
+   * pro tier. Leave unset to let the model decide.
+   */
+  reasoningEffort?: "low" | "medium" | "high";
   /** Request timeout in milliseconds. Defaults to 10 minutes. */
   timeout?: number;
 }
@@ -266,6 +275,7 @@ export class MimoAdapter implements ModelAdapter {
   private systemPrompt?: string;
   private useStreaming: boolean;
   private includeReasoningInText: boolean;
+  private reasoningEffort?: "low" | "medium" | "high";
   private timeout: number;
 
   constructor(config: MimoAdapterConfig) {
@@ -274,6 +284,7 @@ export class MimoAdapter implements ModelAdapter {
     this.maxTokens = config.maxTokens ?? 8192;
     this.useStreaming = config.stream ?? true;
     this.includeReasoningInText = config.includeReasoningInText ?? false;
+    this.reasoningEffort = config.reasoningEffort;
     this.timeout = config.timeout ?? 600000;
     this.client = new OpenAI({
       apiKey: config.apiKey ?? process.env.MIMO_API_KEY ?? "",
@@ -300,11 +311,14 @@ export class MimoAdapter implements ModelAdapter {
     const tools =
       request.tools?.length ? formatTools(request.tools) : undefined;
 
-    const params: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming = {
+    const params: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming & {
+      reasoning_effort?: "low" | "medium" | "high";
+    } = {
       model: this.model,
       max_tokens: this.maxTokens,
       messages: messages as OpenAI.Chat.ChatCompletionMessageParam[],
       ...(tools && { tools }),
+      ...(this.reasoningEffort && { reasoning_effort: this.reasoningEffort }),
     };
 
     if (this.useStreaming) {
