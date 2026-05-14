@@ -13,6 +13,7 @@ export default defineConfig({
     "src/models/anthropic-compat.ts",
     "src/models/bedrock.ts",
     "src/models/openai-compat.ts",
+    "src/models/mimo.ts",
     "src/models/providers.ts",
   ],
   format: ["esm"],

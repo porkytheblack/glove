@@ -1,5 +1,6 @@
 import { providers, type ProviderDef } from "glove-core/models/providers";
 import { formatMessages } from "glove-core/models/openai-compat";
+import { formatMessages as formatMimoMessages, MIMO_DEFAULT_BASE_URL } from "glove-core/models/mimo";
 import type { Message } from "glove-core/core";
 import type { ChatHandlerConfig, RemotePromptRequest, SerializedTool } from "./types";
 import { createSSEStream, SSE_HEADERS } from "./sse";
@@ -43,7 +44,7 @@ function toAnthropicTools(tools?: SerializedTool[]) {
  * ```
  *
  * Supports all providers from `glove-core/models/providers`:
- * openai, anthropic, openrouter, gemini, minimax, kimi, glm, ollama, lmstudio, bedrock.
+ * openai, anthropic, openrouter, gemini, minimax, kimi, glm, mimo, ollama, lmstudio, bedrock.
  *
  * The handler receives `RemotePromptRequest` and streams `RemoteStreamEvent`s
  * compatible with `glove-react`'s `useGlove({ endpoint })` mode.
@@ -68,6 +69,10 @@ export function createChatHandler(
 
   if (providerDef.format === "anthropic") {
     return createAnthropicHandler(providerDef, model, maxTokens, config);
+  }
+
+  if (providerDef.format === "mimo") {
+    return createMimoHandler(providerDef, model, maxTokens, config);
   }
 
   return createOpenAIHandler(providerDef, model, maxTokens, config);
@@ -285,6 +290,152 @@ function createAnthropicHandler(
         },
         tokens_in: finalMessage.usage.input_tokens,
         tokens_out: finalMessage.usage.output_tokens,
+      });
+    });
+
+    return new Response(readable, { headers: SSE_HEADERS });
+  };
+}
+
+// ─── MiMo handler ────────────────────────────────────────────────────────────
+//
+// MiMo's wire format is OpenAI-compatible but adds `reasoning_content` to both
+// streaming deltas and assistant messages, and the API rejects multi-turn
+// requests where an assistant turn that produced `tool_calls` doesn't echo its
+// reasoning back. The MiMo formatter handles that round-trip; the rest of the
+// handler mirrors the OpenAI branch.
+
+function createMimoHandler(
+  providerDef: ProviderDef,
+  model: string,
+  maxTokens: number,
+  config: ChatHandlerConfig,
+) {
+  let clientPromise: Promise<any> | null = null;
+  const includeReasoningInText = config.includeReasoningInText ?? false;
+
+  function getClient() {
+    if (!clientPromise) {
+      clientPromise = import("openai").then((mod) => {
+        const OpenAI = mod.default;
+        const apiKey = config.apiKey ?? process.env[providerDef.envVar];
+        if (!apiKey) {
+          throw new Error(
+            `No API key for ${providerDef.name}. Set ${providerDef.envVar} env var or pass apiKey.`,
+          );
+        }
+        return new OpenAI({
+          apiKey,
+          baseURL:
+            config.baseURL ??
+            process.env.MIMO_BASE_URL ??
+            providerDef.baseURL ??
+            MIMO_DEFAULT_BASE_URL,
+        });
+      });
+    }
+    return clientPromise;
+  }
+
+  return async function POST(req: Request): Promise<Response> {
+    const body: RemotePromptRequest = await req.json();
+    const client = await getClient();
+
+    const messages = [
+      { role: "system" as const, content: body.systemPrompt },
+      ...formatMimoMessages(body.messages as Message[]),
+    ];
+    const tools = toOpenAITools(body.tools);
+
+    const stream = await client.chat.completions.create({
+      model,
+      max_tokens: maxTokens,
+      messages,
+      ...(tools ? { tools } : {}),
+      stream: true,
+      stream_options: { include_usage: true },
+    });
+
+    const readable = createSSEStream(async (send) => {
+      let fullText = "";
+      let reasoningText = "";
+      const toolCallAcc = new Map<
+        number,
+        { id: string; name: string; arguments: string }
+      >();
+      let tokensIn = 0;
+      let tokensOut = 0;
+
+      for await (const chunk of stream) {
+        if (chunk.usage) {
+          tokensIn = chunk.usage.prompt_tokens ?? 0;
+          tokensOut = chunk.usage.completion_tokens ?? 0;
+        }
+
+        const choice = chunk.choices?.[0];
+        if (!choice) continue;
+
+        const delta = choice.delta as {
+          content?: string | null;
+          reasoning_content?: string | null;
+          tool_calls?: any[];
+        } | undefined;
+
+        if (delta?.reasoning_content) {
+          reasoningText += delta.reasoning_content;
+          if (includeReasoningInText) {
+            send({ type: "text_delta", text: delta.reasoning_content });
+          }
+        }
+
+        if (delta?.content) {
+          fullText += delta.content;
+          send({ type: "text_delta", text: delta.content });
+        }
+
+        if (delta?.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            if (!toolCallAcc.has(tc.index)) {
+              toolCallAcc.set(tc.index, {
+                id: tc.id ?? `call_${crypto.randomUUID()}`,
+                name: tc.function?.name ?? "",
+                arguments: "",
+              });
+            }
+            const acc = toolCallAcc.get(tc.index)!;
+            if (tc.id) acc.id = tc.id;
+            if (tc.function?.name) acc.name = tc.function.name;
+            if (tc.function?.arguments)
+              acc.arguments += tc.function.arguments;
+          }
+        }
+      }
+
+      const toolCalls = [...toolCallAcc.values()].map((acc) => {
+        let input: unknown;
+        try {
+          input = JSON.parse(acc.arguments);
+        } catch {
+          input = acc.arguments;
+        }
+        send({ type: "tool_use", id: acc.id, name: acc.name, input });
+        return { tool_name: acc.name, input_args: input, id: acc.id };
+      });
+
+      const visibleText = includeReasoningInText && reasoningText
+        ? `<think>${reasoningText}</think>${fullText ? "\n" + fullText : ""}`
+        : fullText;
+
+      send({
+        type: "done",
+        message: {
+          sender: "agent",
+          text: visibleText,
+          ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+          ...(reasoningText && { reasoning_content: reasoningText }),
+        },
+        tokens_in: tokensIn,
+        tokens_out: tokensOut,
       });
     });
 

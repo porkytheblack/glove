@@ -16,7 +16,7 @@ export interface RemotePromptRequest {
 
 /** Configuration for createChatHandler */
 export interface ChatHandlerConfig {
-  /** Provider name from the registry (e.g. "openai", "anthropic", "openrouter", "ollama", "lmstudio") */
+  /** Provider name from the registry (e.g. "openai", "anthropic", "openrouter", "mimo", "ollama", "lmstudio") */
   provider: string;
   /** Model name. Defaults to the provider's defaultModel. */
   model?: string;
@@ -24,6 +24,13 @@ export interface ChatHandlerConfig {
   apiKey?: string;
   /** Maximum tokens in the response. Defaults to the provider's defaultMaxTokens. */
   maxTokens?: number;
-  /** Override the provider's default base URL (e.g., custom port for local LLMs) */
+  /** Override the provider's default base URL (e.g., custom port for local LLMs, MIMO_BASE_URL). */
   baseURL?: string;
+  /**
+   * MiMo only: when true, the reasoning trace is wrapped in `<think>…</think>`
+   * and streamed alongside the visible text. Defaults to false — reasoning is
+   * captured server-side and echoed back on subsequent turns but isn't sent to
+   * the client. Ignored by other providers.
+   */
+  includeReasoningInText?: boolean;
 }

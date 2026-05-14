@@ -55,6 +55,10 @@
       "types": "./dist/models/openai-compat.d.ts",
       "import": "./dist/models/openai-compat.js"
     },
+    "./models/mimo": {
+      "types": "./dist/models/mimo.d.ts",
+      "import": "./dist/models/mimo.js"
+    },
     "./models/providers": {
       "types": "./dist/models/providers.d.ts",
       "import": "./dist/models/providers.js"
