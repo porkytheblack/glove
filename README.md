@@ -221,6 +221,7 @@ Glove supports multiple providers through a unified adapter interface:
 | `minimax` | `MINIMAX_API_KEY` | `MiniMax-M2.5` |
 | `kimi` | `MOONSHOT_API_KEY` | `kimi-k2.5` |
 | `glm` | `ZHIPUAI_API_KEY` | `glm-4-plus` |
+| `mimo` | `MIMO_API_KEY` (+ optional `MIMO_BASE_URL`) | `mimo-v2.5` |
 | `ollama` | _(none)_ | _(user-specified)_ |
 | `lmstudio` | _(none)_ | _(user-specified)_ |
 | `bedrock` | `AWS_ACCESS_KEY_ID` | `anthropic.claude-3-5-sonnet-20241022-v2:0` |

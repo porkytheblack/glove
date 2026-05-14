@@ -6,6 +6,11 @@ export { MemoryStore } from "./utils"
 export * from "./models/anthropic"
 export * from "./models/anthropic-compat"
 export * from "./models/bedrock"
+export {
+  MimoAdapter,
+  MIMO_DEFAULT_BASE_URL,
+  type MimoAdapterConfig,
+} from "./models/mimo"
 export * from "./models/openai-compat"
 export * from "./models/openrouter"
 export * from "./models/providers"

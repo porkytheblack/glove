@@ -242,6 +242,13 @@ export interface Message {
   is_compaction_request?: boolean
   /** True when this user message was synthesised by a skill injection rather than authored by a real user. */
   is_skill_injection?: boolean
+  /**
+   * Provider-emitted reasoning trace, captured separately from `text` so the
+   * visible message stays clean. Some reasoning-model APIs (e.g. Xiaomi MiMo)
+   * require this to be echoed back on subsequent turns when the assistant turn
+   * made tool calls. Adapters that don't recognise the field ignore it.
+   */
+  reasoning_content?: string
 }
 
 export interface PromptRequest {

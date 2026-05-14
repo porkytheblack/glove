@@ -1,6 +1,7 @@
 import type { ModelAdapter } from "../core";
 import { AnthropicAdapter } from "./anthropic";
 import { BedrockAdapter } from "./bedrock";
+import { MimoAdapter, MIMO_DEFAULT_BASE_URL } from "./mimo";
 import { OpenAICompatAdapter } from "./openai-compat";
 
 // ─── Provider definitions ─────────────────────────────────────────────────────
@@ -12,8 +13,8 @@ export interface ProviderDef {
   envVar: string;
   defaultModel: string;
   models: string[];
-  /** "anthropic" uses the Anthropic SDK; "openai" uses the OpenAI-compat adapter; "bedrock" uses the AWS Bedrock adapter */
-  format: "anthropic" | "openai" | "bedrock";
+  /** "anthropic" uses the Anthropic SDK; "openai" uses the OpenAI-compat adapter; "bedrock" uses the AWS Bedrock adapter; "mimo" uses the Xiaomi MiMo adapter (OpenAI-compat wire format + reasoning_content round-trip). */
+  format: "anthropic" | "openai" | "bedrock" | "mimo";
   defaultMaxTokens: number;
   /** Whether this provider requires an API key. Defaults to true. */
   requiresApiKey?: boolean;
@@ -126,6 +127,21 @@ export const providers: Record<string, ProviderDef> = {
     format: "openai",
     defaultMaxTokens: 4096,
   },
+  mimo: {
+    id: "mimo",
+    name: "Xiaomi MiMo",
+    baseURL: MIMO_DEFAULT_BASE_URL,
+    envVar: "MIMO_API_KEY",
+    defaultModel: "mimo-v2.5",
+    models: [
+      "mimo-v2.5",
+      "mimo-v2.5-pro",
+      "mimo-v2-pro",
+      "mimo-v2-omni",
+    ],
+    format: "mimo",
+    defaultMaxTokens: 8192,
+  },
   ollama: {
     id: "ollama",
     name: "Ollama",
@@ -191,10 +207,12 @@ export interface CreateAdapterOptions {
   secretAccessKey?: string;
   /** AWS session token for Bedrock temporary credentials (defaults to AWS_SESSION_TOKEN env var) */
   sessionToken?: string;
-  /** Override the provider's default base URL (e.g., custom port for local LLMs) */
+  /** Override the provider's default base URL (e.g., custom port for local LLMs, MIMO_BASE_URL). */
   baseURL?: string;
   /** Request timeout in milliseconds. Useful for local LLMs that may be slow. Passed to the adapter. */
   timeout?: number;
+  /** MiMo: when true, wrap reasoning_content in <think>…</think> and prepend to message text. Defaults to false. */
+  includeReasoningInText?: boolean;
 }
 
 export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
@@ -243,6 +261,18 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
       accessKeyId: opts.accessKeyId,
       secretAccessKey: opts.secretAccessKey,
       sessionToken: opts.sessionToken,
+    });
+  }
+
+  if (providerDef.format === "mimo") {
+    return new MimoAdapter({
+      apiKey: apiKey!,
+      model,
+      maxTokens,
+      stream,
+      baseURL: opts.baseURL ?? process.env.MIMO_BASE_URL ?? providerDef.baseURL,
+      ...(opts.includeReasoningInText != null && { includeReasoningInText: opts.includeReasoningInText }),
+      ...(opts.timeout != null && { timeout: opts.timeout }),
     });
   }
 

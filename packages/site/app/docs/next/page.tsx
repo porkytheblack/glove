@@ -138,7 +138,7 @@ export const POST = createChatHandler({
           [
             "provider",
             "string",
-            'The provider ID. Required. One of: "openai", "anthropic", "openrouter", "gemini", "minimax", "kimi", "glm", "ollama", "lmstudio", "bedrock".',
+            'The provider ID. Required. One of: "openai", "anthropic", "openrouter", "gemini", "minimax", "kimi", "glm", "mimo", "ollama", "lmstudio", "bedrock".',
           ],
           [
             "model?",
@@ -184,6 +184,7 @@ export const POST = createChatHandler({
           ["minimax", "openai", "MiniMax-Text-01"],
           ["kimi", "openai", "moonshot-v1-auto"],
           ["glm", "openai", "glm-4-plus"],
+          ["mimo", "mimo", "mimo-v2.5"],
           ["ollama", "openai", "(user-specified)"],
           ["lmstudio", "openai", "(user-specified)"],
           ["bedrock", "bedrock", "anthropic.claude-3-5-sonnet-20241022-v2:0"],
@@ -217,6 +218,7 @@ export const POST = createChatHandler({
           ["minimax", "MINIMAX_API_KEY", "MiniMax API key."],
           ["kimi", "MOONSHOT_API_KEY", "Moonshot (Kimi) API key."],
           ["glm", "ZHIPUAI_API_KEY", "ZhipuAI (GLM) API key."],
+          ["mimo", "MIMO_API_KEY", "Xiaomi MiMo API key. Override the gateway with MIMO_BASE_URL or the baseURL config (defaults to https://api.xiaomimimo.com/v1)."],
           ["ollama", "(none)", "No API key needed. Runs locally on port 11434 by default."],
           ["lmstudio", "(none)", "No API key needed. Runs locally on port 1234 by default."],
           ["bedrock", "AWS_ACCESS_KEY_ID", "AWS credentials (also needs AWS_SECRET_ACCESS_KEY)."],
