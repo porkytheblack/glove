@@ -1618,6 +1618,37 @@ type ToolEntry = Extract<TimelineEntry, { kind: "tool" }>;
 | `minimax` | `MINIMAX_API_KEY` | `MiniMax-M2.5` | openai |
 | `kimi` | `MOONSHOT_API_KEY` | `kimi-k2.5` | openai |
 | `glm` | `ZHIPUAI_API_KEY` | `glm-4-plus` | openai |
+| `mimo` | `MIMO_API_KEY` (+ optional `MIMO_BASE_URL`) | `mimo-v2.5` | mimo |
+| `ollama` | _(none)_ | _(user-specified)_ | openai |
+| `lmstudio` | _(none)_ | _(user-specified)_ | openai |
+| `bedrock` | `AWS_ACCESS_KEY_ID` | `anthropic.claude-3-5-sonnet-20241022-v2:0` | bedrock |
+
+### Reasoning Models
+
+The OpenAI-compat adapter captures provider-emitted reasoning traces
+(`reasoning_content` / `reasoning` field) from DeepSeek-R1 / V4,
+Qwen3-Thinking, GLM-4.5 / 4.6, Kimi K2, MiniMax M2.5, OpenRouter,
+GPT-5 / o-series, and any other OpenAI-shape endpoint that follows the
+convention. Captured trace lands on `Message.reasoning_content` (a typed
+string field) and is echoed back on subsequent tool-calling assistant
+turns (DeepSeek V4 and MiMo reject the request otherwise).
+
+| Use case | Config |
+|----------|--------|
+| Default capture + echo | `createAdapter({ provider, reasoning: true })` |
+| Hint thinking depth (GPT-5 / GLM / MiniMax / Kimi / DeepSeek V4) | `createAdapter({ provider, reasoning: { effort: "high" } })` — `"minimal"`/`"low"`/`"medium"`/`"high"` |
+| OpenRouter unified reasoning object | `createAdapter({ provider: "openrouter", reasoning: { reasoningObject: { effort: "high", max_tokens: 2000 } } })` |
+| Anthropic-style `thinking` (for OpenAI shims) | `createAdapter({ provider, reasoning: { thinking: { type: "enabled", budget_tokens: 4000 } } })` |
+| Qwen3 dashscope `enable_thinking` | `createAdapter({ provider, reasoning: { extraBody: { enable_thinking: true, thinking_budget: 1024 } } })` |
+| Surface trace in visible text (wrapped in `<think>…</think>`) | `createAdapter({ provider, reasoning: { includeInText: true } })` |
+| Disable echo (DeepSeek-R1 specifically) | `createAdapter({ provider, reasoning: { echo: false } })` |
+
+`OpenAICompatReasoningOptions` is exported from
+`glove-core/models/openai-compat`. Legacy `reasoningEffort` /
+`includeReasoningInText` fields on `createAdapter` and
+`createChatHandler` are folded into the new shape — existing MiMo
+callers keep working unchanged. The MiMo provider continues to use
+its dedicated adapter (`MimoAdapter` already has the field built-in).
 
 ## Pre-built Tool Registry
 
@@ -1884,3 +1915,9 @@ For example patterns from real implementations, see [examples.md](examples.md).
 42. **`subagent_invoked` / `subagent_completed` are guaranteed symmetric**: The Executor — not the dispatcher — fires both bracket events around every `glove_invoke_subagent` tool call. Even when a parent abort short-circuits the dispatcher's promise chain, the executor's abort branch still fires `subagent_completed` with `status: "error"` and `message: "Subagent run aborted by the user."`. Subscribers can rely on 1:1 symmetry.
 43. **Hook `shortCircuit` still persists the user message**: Even when a hook short-circuits the turn, the user's (post-rewrite) message is appended to context first so transcripts stay consistent. The model just isn't called for that turn.
 44. **Token consumption events**: The Observer fires `token_consumption` (`{ consumption: { tokens_in, tokens_out } }`) on subscribers after each model turn. `StoreAdapter.addTokens` takes the same `TokenConsumptionCounter` shape; `getTokenCount()` still returns a single sum.
+45. **Reasoning capture is opt-in**: `OpenAICompatAdapter` ignores `reasoning_content` by default. Pass `reasoning: true` (or an object) on `createAdapter` / `new OpenAICompatAdapter` to capture the trace into `Message.reasoning_content`. The MiMo adapter is opinionated and captures unconditionally.
+46. **`reasoning_content` vs `reasoning` field**: The adapter reads either field from the response. DeepSeek / Qwen3 / GLM / Kimi / MiniMax / MiMo emit `reasoning_content`; OpenRouter emits `reasoning` (with `reasoning_content` as a documented alias). The captured string always lands on `Message.reasoning_content` — that's the canonical Glove field.
+47. **Echo is required on tool turns for DeepSeek V4 / MiMo**: When `reasoning` is enabled, the adapter echoes `Message.reasoning_content` back on assistant turns that produced `tool_calls` — DeepSeek V4 and MiMo reject the request otherwise. DeepSeek-R1 (the older model) rejects the field entirely; set `reasoning: { echo: false }` if you're specifically targeting R1.
+48. **`reasoning_effort` "minimal" is GPT-5-only**: The full effort enum is `"minimal" | "low" | "medium" | "high"`, but `"minimal"` only works on GPT-5 / o-series. The MiMo branch silently drops it. Other providers may reject it — check provider docs before using.
+49. **Adaptive reasoning models can suppress thinking on "low"**: On `mimo-v2.5-pro` and similar adaptive models, passing `effort: "low"` or `"medium"` can suppress reasoning rather than bound it. Pass `"high"` for consistently deep reasoning, or leave unset to let the model decide.
+50. **Provider-specific reasoning extras via `extraBody`**: For Qwen3 dashscope's `enable_thinking` / `thinking_budget`, or any other non-standard request field, use `reasoning: { extraBody: { ... } }` — fields are merged straight into the request body. Structured options (`effort`, `reasoningObject`, `thinking`) are exposed for the common cases.

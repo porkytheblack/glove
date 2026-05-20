@@ -1543,6 +1543,7 @@ const durable = await store.createSubAgentStore("planner", true);        // cach
   is_compaction?: boolean;
   is_compaction_request?: boolean;
   is_skill_injection?: boolean;
+  reasoning_content?: string;
 }`}
         language="typescript"
       />
@@ -1599,6 +1600,11 @@ const durable = await store.createSubAgentStore("planner", true);        // cach
             "is_skill_injection?",
             "boolean",
             "When true, marks this message as a synthetic user turn produced by a /skill invocation (see Hooks, Skills & Mentions). Use it in transcript renderers to distinguish injected context from real user turns.",
+          ],
+          [
+            "reasoning_content?",
+            "string",
+            "Provider-emitted reasoning trace captured by the OpenAI-compat adapter (when reasoning is enabled) or the MiMo adapter. DeepSeek V4 and MiMo require this to be echoed back on subsequent tool-calling turns — the adapters handle that round-trip automatically.",
           ],
         ]}
       />
@@ -2060,7 +2066,90 @@ const available = getAvailableProviders();
             "string",
             "Override the provider's default base URL (e.g., custom port for local LLMs).",
           ],
+          [
+            "timeout?",
+            "number",
+            "Request timeout in milliseconds. Useful for slow local LLMs. Defaults to 10 minutes (600_000).",
+          ],
+          [
+            "reasoning?",
+            "boolean | OpenAICompatReasoningOptions",
+            'Reasoning / thinking support for OpenAI-compatible providers. Pass true for sensible defaults (capture provider-emitted reasoning_content / reasoning into Message.reasoning_content, echo on tool turns) or an object for fine-grained control (effort, reasoningObject, thinking, extraBody, includeInText, echo). Ignored by the Anthropic, Bedrock, and MiMo paths.',
+          ],
+          [
+            "reasoningEffort?",
+            '"minimal" | "low" | "medium" | "high"',
+            'Hint how much the model should think. Sent as the top-level reasoning_effort request field on the OpenAI-compat path (GPT-5/o-series, GLM-4.5/4.6, MiniMax M2.5, Kimi K2, DeepSeek V4) and mapped onto MiMo\'s existing knob. "minimal" is GPT-5-specific. On adaptive models like mimo-v2.5-pro, "low"/"medium" can suppress thinking — use "high" for consistently deep reasoning.',
+          ],
+          [
+            "includeReasoningInText?",
+            "boolean",
+            'When true, wrap reasoning in <think>…</think> and prepend to the visible message text. Defaults to false — the trace stays on Message.reasoning_content. Honoured by the OpenAI-compat and MiMo adapters.',
+          ],
         ]}
+      />
+
+      <h3>OpenAICompatReasoningOptions</h3>
+
+      <p>
+        Fine-grained reasoning configuration for OpenAI-compatible providers.
+        Captures provider-emitted reasoning traces (
+        <code>reasoning_content</code> per the DeepSeek / Qwen / GLM / Kimi /
+        MiniMax / MiMo convention, or <code>reasoning</code> per OpenRouter
+        normalization) and routes thinking-related request knobs.
+      </p>
+
+      <CodeBlock
+        code={`interface OpenAICompatReasoningOptions {
+  /** Wrap reasoning in <think>...</think> and prepend to visible text. Default false. */
+  includeInText?: boolean;
+  /** Echo Message.reasoning_content back on tool-calling turns. Default true. */
+  echo?: boolean;
+  /** Top-level reasoning_effort request field. */
+  effort?: "minimal" | "low" | "medium" | "high";
+  /** OpenRouter-style reasoning object — sent verbatim. */
+  reasoningObject?: {
+    effort?: "low" | "medium" | "high";
+    max_tokens?: number;
+    exclude?: boolean;
+    enabled?: boolean;
+  };
+  /** Anthropic-style thinking object — for OpenAI shims that forward it. */
+  thinking?: { type: "enabled" | "disabled"; budget_tokens?: number };
+  /** Escape hatch — merged into request body. For Qwen3 dashscope's enable_thinking etc. */
+  extraBody?: Record<string, unknown>;
+}`}
+        language="typescript"
+      />
+
+      <p>Common patterns:</p>
+
+      <CodeBlock
+        code={`// Sensible defaults: capture + echo on tool-calling turns.
+createAdapter({ provider: "openai", reasoning: true });
+
+// Hint thinking depth — DeepSeek V4, GLM, MiniMax, Kimi, GPT-5/o-series.
+createAdapter({ provider: "openai", reasoning: { effort: "high" } });
+
+// OpenRouter's unified reasoning object.
+createAdapter({
+  provider: "openrouter",
+  reasoning: { reasoningObject: { effort: "high", max_tokens: 2000 } },
+});
+
+// Qwen3 dashscope's enable_thinking.
+createAdapter({
+  provider: "openai",
+  baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  reasoning: { extraBody: { enable_thinking: true, thinking_budget: 1024 } },
+});
+
+// Surface reasoning in the visible message text.
+createAdapter({ provider: "openai", reasoning: { includeInText: true } });
+
+// Disable echo (DeepSeek-R1 specifically — newer V4 needs echo on).
+createAdapter({ provider: "openai", reasoning: { echo: false } });`}
+        language="typescript"
       />
 
       <h3>getAvailableProviders</h3>
