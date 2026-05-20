@@ -160,6 +160,21 @@ export const POST = createChatHandler({
             "string",
             "Override the provider's default base URL (e.g., custom port for local LLMs).",
           ],
+          [
+            "reasoning?",
+            "boolean | OpenAICompatReasoningOptions",
+            "Reasoning / thinking support for OpenAI-compatible providers. Pass true for sensible defaults (capture provider-emitted reasoning_content / reasoning into Message.reasoning_content, echo on tool turns) or an object for fine-grained control. Honoured by the OpenAI-compat handler; ignored by Anthropic. The MiMo handler reads the legacy reasoningEffort / includeReasoningInText fields directly. See the API reference for the full OpenAICompatReasoningOptions shape (effort, reasoningObject, thinking, extraBody, includeInText, echo).",
+          ],
+          [
+            "reasoningEffort?",
+            '"minimal" | "low" | "medium" | "high"',
+            'Hint how much the model should think. Sent as the top-level reasoning_effort request field on the OpenAI-compat handler (GPT-5/o-series, GLM-4.5/4.6, MiniMax M2.5, Kimi K2, DeepSeek V4) and mapped onto the MiMo handler\'s existing knob. "minimal" is GPT-5-specific. On adaptive models like mimo-v2.5-pro, "low"/"medium" can suppress thinking — use "high" for consistently deep reasoning.',
+          ],
+          [
+            "includeReasoningInText?",
+            "boolean",
+            "When true, wrap reasoning in <think>…</think> and stream alongside the visible text. Defaults to false — the trace stays on Message.reasoning_content and isn't streamed to the client. Honoured by the OpenAI-compat and MiMo handlers; the Anthropic handler ignores it.",
+          ],
         ]}
       />
 

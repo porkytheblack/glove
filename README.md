@@ -255,6 +255,42 @@ import { AnthropicAdapter } from "glove-core/models/anthropic";
 import { OpenAICompatAdapter } from "glove-core/models/openai-compat";
 ```
 
+#### Reasoning Models
+
+The OpenAI-compat adapter captures provider-emitted reasoning traces
+(`reasoning_content` / `reasoning`) from DeepSeek-R1 / V4, Qwen3-Thinking,
+GLM-4.5 / 4.6, Kimi K2, MiniMax M2.5, OpenRouter, and any other OpenAI-shape
+endpoint that follows the convention. Set `reasoning: true` for sensible
+defaults, or pass an object for fine-grained control:
+
+```typescript
+// Capture reasoning into Message.reasoning_content; echo it back on tool turns
+// (required by DeepSeek V4 and MiMo for multi-turn tool flows).
+createAdapter({ provider: "openai", reasoning: true });
+
+// Hint thinking depth — works with GPT-5 / o-series, GLM, MiniMax, Kimi, etc.
+createAdapter({ provider: "openai", reasoning: { effort: "high" } });
+
+// OpenRouter-style unified reasoning object.
+createAdapter({
+  provider: "openrouter",
+  reasoning: { reasoningObject: { effort: "high", max_tokens: 2000 } },
+});
+
+// Provider-specific extras (e.g. Qwen3 dashscope's `enable_thinking`).
+createAdapter({
+  provider: "openai",
+  baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  reasoning: { extraBody: { enable_thinking: true, thinking_budget: 1024 } },
+});
+
+// Surface reasoning in the visible message text (wrapped in <think>…</think>).
+createAdapter({ provider: "openai", reasoning: { includeInText: true } });
+```
+
+The MiMo provider has its own dedicated adapter — keep using
+`{ provider: "mimo", reasoningEffort, includeReasoningInText }` for it.
+
 ### Stores
 
 Stores handle conversation persistence. Implement the `StoreAdapter` interface for any backend:

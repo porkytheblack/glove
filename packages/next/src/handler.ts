@@ -1,5 +1,8 @@
 import { providers, type ProviderDef } from "glove-core/models/providers";
-import { formatMessages } from "glove-core/models/openai-compat";
+import {
+  formatMessages,
+  type OpenAICompatReasoningOptions,
+} from "glove-core/models/openai-compat";
 import { formatMessages as formatMimoMessages, MIMO_DEFAULT_BASE_URL } from "glove-core/models/mimo";
 import type { Message } from "glove-core/core";
 import type { ChatHandlerConfig, RemotePromptRequest, SerializedTool } from "./types";
@@ -80,6 +83,61 @@ export function createChatHandler(
 
 // ─── OpenAI-compat handler (openai, openrouter, gemini, minimax, kimi, glm, ollama, lmstudio)
 
+/** Normalise the handler-side reasoning config the same way the adapter does. */
+function resolveHandlerReasoning(
+  config: ChatHandlerConfig,
+): { enabled: boolean; includeInText: boolean; echo: boolean; extra: Record<string, unknown> } {
+  const r = config.reasoning;
+  const rObj = typeof r === "object" && r !== null ? r : undefined;
+
+  // Fold legacy top-level fields (`reasoningEffort`, `includeReasoningInText`)
+  // into the structured shape so existing callers keep working. An explicit
+  // `reasoning` object wins on conflict.
+  const detailed: OpenAICompatReasoningOptions = {
+    ...(config.reasoningEffort != null && { effort: config.reasoningEffort }),
+    ...(config.includeReasoningInText != null && {
+      includeInText: config.includeReasoningInText,
+    }),
+    ...rObj,
+  };
+
+  const extra: Record<string, unknown> = {};
+  if (detailed.effort) extra.reasoning_effort = detailed.effort;
+  if (detailed.reasoningObject) extra.reasoning = detailed.reasoningObject;
+  if (detailed.thinking) extra.thinking = detailed.thinking;
+  if (detailed.extraBody) {
+    for (const [k, v] of Object.entries(detailed.extraBody)) extra[k] = v;
+  }
+
+  // Enable capture if the caller asked for it explicitly (boolean true /
+  // object) or set any reasoning-related field truthily on the way in.
+  // Explicit `includeReasoningInText: false` is a no-op — it doesn't
+  // backdoor capture on.
+  const enabled =
+    r === true ||
+    rObj !== undefined ||
+    detailed.includeInText === true ||
+    detailed.effort !== undefined ||
+    Object.keys(extra).length > 0;
+
+  return {
+    enabled,
+    includeInText: detailed.includeInText ?? false,
+    echo: detailed.echo ?? enabled,
+    extra,
+  };
+}
+
+function readReasoningDelta(delta: unknown): string | undefined {
+  if (!delta || typeof delta !== "object") return undefined;
+  const d = delta as Record<string, unknown>;
+  const rc = d.reasoning_content;
+  if (typeof rc === "string" && rc.length > 0) return rc;
+  const r = d.reasoning;
+  if (typeof r === "string" && r.length > 0) return r;
+  return undefined;
+}
+
 function createOpenAIHandler(
   providerDef: ProviderDef,
   model: string,
@@ -87,6 +145,7 @@ function createOpenAIHandler(
   config: ChatHandlerConfig,
 ) {
   let clientPromise: Promise<any> | null = null;
+  const reasoning = resolveHandlerReasoning(config);
 
   function getClient() {
     if (!clientPromise) {
@@ -115,7 +174,7 @@ function createOpenAIHandler(
 
     const messages = [
       { role: "system" as const, content: body.systemPrompt },
-      ...formatMessages(body.messages as Message[]),
+      ...formatMessages(body.messages as Message[], reasoning.echo),
     ];
     const tools = toOpenAITools(body.tools);
 
@@ -124,12 +183,14 @@ function createOpenAIHandler(
       max_tokens: maxTokens,
       messages,
       ...(tools ? { tools } : {}),
+      ...reasoning.extra,
       stream: true,
       stream_options: { include_usage: true },
     });
 
     const readable = createSSEStream(async (send) => {
       let fullText = "";
+      let reasoningText = "";
       const toolCallAcc = new Map<
         number,
         { id: string; name: string; arguments: string }
@@ -145,6 +206,16 @@ function createOpenAIHandler(
 
         const choice = chunk.choices?.[0];
         if (!choice) continue;
+
+        if (reasoning.enabled) {
+          const reasoningDelta = readReasoningDelta(choice.delta);
+          if (reasoningDelta) {
+            reasoningText += reasoningDelta;
+            if (reasoning.includeInText) {
+              send({ type: "text_delta", text: reasoningDelta });
+            }
+          }
+        }
 
         if (choice.delta?.content) {
           fullText += choice.delta.content;
@@ -181,12 +252,18 @@ function createOpenAIHandler(
         return { tool_name: acc.name, input_args: input, id: acc.id };
       });
 
+      const visibleText =
+        reasoning.includeInText && reasoningText
+          ? `<think>${reasoningText}</think>${fullText ? "\n" + fullText : ""}`
+          : fullText;
+
       send({
         type: "done",
         message: {
           sender: "agent",
-          text: fullText,
+          text: visibleText,
           ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+          ...(reasoningText && { reasoning_content: reasoningText }),
         },
         tokens_in: tokensIn,
         tokens_out: tokensOut,
@@ -313,7 +390,11 @@ function createMimoHandler(
 ) {
   let clientPromise: Promise<any> | null = null;
   const includeReasoningInText = config.includeReasoningInText ?? false;
-  const reasoningEffort = config.reasoningEffort;
+  // MiMo only accepts low/medium/high — the GPT-5 "minimal" value is dropped.
+  const reasoningEffort =
+    config.reasoningEffort && config.reasoningEffort !== "minimal"
+      ? config.reasoningEffort
+      : undefined;
 
   function getClient() {
     if (!clientPromise) {

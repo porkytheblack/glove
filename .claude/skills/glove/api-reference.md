@@ -159,7 +159,7 @@ interface ModelAdapter {
 }
 ```
 
-**Built-in adapters**: `AnthropicAdapter`, `OpenAICompatAdapter`, `OpenRouterAdapter`
+**Built-in adapters**: `AnthropicAdapter`, `OpenAICompatAdapter`, `OpenRouterAdapter`, `MimoAdapter`, `BedrockAdapter`
 
 ### createAdapter (Provider Factory)
 
@@ -167,16 +167,86 @@ interface ModelAdapter {
 import { createAdapter, getAvailableProviders } from "glove-core/models/providers";
 
 const model = createAdapter({
-  provider: "anthropic",         // openai | anthropic | openrouter | gemini | minimax | kimi | glm
+  provider: "anthropic",         // openai | anthropic | openrouter | gemini | minimax | kimi | glm | mimo | ollama | lmstudio | bedrock
   model?: "claude-sonnet-4-20250514",
   apiKey?: string,               // Defaults to env var
   maxTokens?: number,
   stream?: boolean,              // Default: true
+  baseURL?: string,              // Override provider's default base URL
+  timeout?: number,              // Request timeout in ms (default 600_000 — 10m)
+  // ─── Reasoning (OpenAI-compat path) ────────────────────────────────────
+  reasoning?: boolean | OpenAICompatReasoningOptions,
+  reasoningEffort?: "minimal" | "low" | "medium" | "high",  // legacy; folded into reasoning
+  includeReasoningInText?: boolean,                          // legacy; folded into reasoning
+  // ─── Bedrock-only ──────────────────────────────────────────────────────
+  region?: string, accessKeyId?: string, secretAccessKey?: string, sessionToken?: string,
 });
 
 const available = getAvailableProviders();
 // [{ id, name, available, models, defaultModel }]
 ```
+
+### OpenAICompatAdapter Reasoning
+
+OpenAI-compat reasoning models (DeepSeek-R1 / V4, Qwen3-Thinking,
+GLM-4.5 / 4.6, Kimi K2, MiniMax M2.5, OpenRouter, GPT-5 / o-series)
+emit a reasoning trace under `reasoning_content` (DeepSeek convention,
+most upstreams) or `reasoning` (OpenRouter's normalized field). The
+adapter captures either onto `Message.reasoning_content` and echoes it
+back on tool-calling turns (required by DeepSeek V4 and MiMo).
+
+```typescript
+import {
+  OpenAICompatAdapter,
+  type OpenAICompatReasoningOptions,
+  type ReasoningEffort,
+} from "glove-core/models/openai-compat";
+
+interface OpenAICompatReasoningOptions {
+  /** Wrap reasoning in <think>…</think> and prepend to visible text. Default false. */
+  includeInText?: boolean;
+  /**
+   * Echo Message.reasoning_content back on subsequent assistant turns that
+   * produced tool_calls. Required by DeepSeek V4 and MiMo. Default true when
+   * reasoning is enabled. Set false for DeepSeek-R1 specifically.
+   */
+  echo?: boolean;
+  /** Sent as top-level `reasoning_effort` field. */
+  effort?: ReasoningEffort;  // "minimal" | "low" | "medium" | "high"
+  /** OpenRouter-style `reasoning` object. Sent verbatim. */
+  reasoningObject?: {
+    effort?: "low" | "medium" | "high";
+    max_tokens?: number;
+    exclude?: boolean;
+    enabled?: boolean;
+  };
+  /** Anthropic-style `thinking` object. For OpenAI shims that forward thinking. */
+  thinking?: { type: "enabled" | "disabled"; budget_tokens?: number };
+  /** Escape hatch — merged into request body. For Qwen3 dashscope's `enable_thinking`, etc. */
+  extraBody?: Record<string, unknown>;
+}
+
+// Sensible defaults: capture + echo on tool turns.
+new OpenAICompatAdapter({ baseURL, apiKey, model, reasoning: true });
+
+// Hint thinking depth.
+new OpenAICompatAdapter({ baseURL, apiKey, model, reasoning: { effort: "high" } });
+
+// OpenRouter unified shape.
+new OpenAICompatAdapter({
+  baseURL: "https://openrouter.ai/api/v1", apiKey, model,
+  reasoning: { reasoningObject: { effort: "high", max_tokens: 2000 } },
+});
+
+// Qwen3 dashscope.
+new OpenAICompatAdapter({
+  baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", apiKey, model,
+  reasoning: { extraBody: { enable_thinking: true, thinking_budget: 1024 } },
+});
+```
+
+The MiMo provider has its own `MimoAdapter` with the round-trip
+baked-in — use `createAdapter({ provider: "mimo", ... })` for it.
 
 ### SubscriberAdapter & Typed Events
 
@@ -254,6 +324,13 @@ interface Message {
   is_compaction?: boolean;          // true for compaction summary messages
   is_compaction_request?: boolean;  // internal marker on the synthetic compaction prompt
   is_skill_injection?: boolean;     // true for synthetic user messages from /skill invocations
+  /**
+   * Provider-emitted reasoning trace, captured by the OpenAI-compat adapter
+   * (`reasoning: true | {...}`) and the MiMo adapter. DeepSeek V4 and MiMo
+   * require this to be echoed back on subsequent tool-calling turns; the
+   * OpenAI-compat formatter handles the round-trip when echo is on.
+   */
+  reasoning_content?: string;
 }
 ```
 
