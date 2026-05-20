@@ -1,4 +1,8 @@
 import type { Message } from "glove-core/core";
+import type {
+  OpenAICompatReasoningOptions,
+  ReasoningEffort,
+} from "glove-core/models/openai-compat";
 
 /** Serialized tool definition from the client (JSON Schema, no Zod/run fns) */
 export interface SerializedTool {
@@ -27,16 +31,34 @@ export interface ChatHandlerConfig {
   /** Override the provider's default base URL (e.g., custom port for local LLMs, MIMO_BASE_URL). */
   baseURL?: string;
   /**
-   * MiMo only: when true, the reasoning trace is wrapped in `<think>…</think>`
-   * and streamed alongside the visible text. Defaults to false — reasoning is
-   * captured server-side and echoed back on subsequent turns but isn't sent to
-   * the client. Ignored by other providers.
+   * When true, the reasoning trace is wrapped in `<think>…</think>` and
+   * streamed alongside the visible text. Defaults to false — reasoning is
+   * captured server-side and echoed back on subsequent turns but isn't sent
+   * to the client. Honoured by the OpenAI-compat and MiMo handlers; the
+   * Anthropic handler ignores it.
    */
   includeReasoningInText?: boolean;
   /**
-   * MiMo only: hint how much the model should think. `mimo-v2.5-pro` is
-   * adaptive by default (skips thinking on trivial prompts); pass `"high"`
-   * for consistently deep reasoning. Ignored by other providers.
+   * Hint how much the model should think before answering. Sent as the
+   * top-level `reasoning_effort` request field on the OpenAI-compat handler
+   * (works with GPT-5/o-series, GLM-4.5/4.6, MiniMax M2.5, Kimi K2,
+   * DeepSeek V4) and mapped onto MiMo's existing knob for the MiMo handler.
+   *
+   * `"minimal"` is GPT-5-specific. On adaptive models like `mimo-v2.5-pro`,
+   * `"low"` / `"medium"` can suppress thinking — pass `"high"` for
+   * consistently deep reasoning. Leave unset to let the model decide.
    */
-  reasoningEffort?: "low" | "medium" | "high";
+  reasoningEffort?: ReasoningEffort;
+  /**
+   * Reasoning / thinking support for OpenAI-compatible providers. Pass `true`
+   * for sensible defaults (capture provider-emitted `reasoning_content` /
+   * `reasoning` into `Message.reasoning_content`, echo it back on tool
+   * turns), or an object for fine-grained control over request shape and
+   * echo policy.
+   *
+   * Honoured by the OpenAI-compat handler. Ignored by the Anthropic and
+   * MiMo handlers — the MiMo handler reads `reasoningEffort` /
+   * `includeReasoningInText` directly.
+   */
+  reasoning?: boolean | OpenAICompatReasoningOptions;
 }

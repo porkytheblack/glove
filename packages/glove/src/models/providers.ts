@@ -2,7 +2,11 @@ import type { ModelAdapter } from "../core";
 import { AnthropicAdapter } from "./anthropic";
 import { BedrockAdapter } from "./bedrock";
 import { MimoAdapter, MIMO_DEFAULT_BASE_URL } from "./mimo";
-import { OpenAICompatAdapter } from "./openai-compat";
+import {
+  OpenAICompatAdapter,
+  type OpenAICompatReasoningOptions,
+  type ReasoningEffort,
+} from "./openai-compat";
 
 // ─── Provider definitions ─────────────────────────────────────────────────────
 
@@ -211,14 +215,37 @@ export interface CreateAdapterOptions {
   baseURL?: string;
   /** Request timeout in milliseconds. Useful for local LLMs that may be slow. Passed to the adapter. */
   timeout?: number;
-  /** MiMo: when true, wrap reasoning_content in <think>…</think> and prepend to message text. Defaults to false. */
+  /**
+   * MiMo: when true, wrap reasoning_content in <think>…</think> and prepend to
+   * message text. Defaults to false. For OpenAI-compat providers prefer
+   * `reasoning: { includeInText: true }`.
+   */
   includeReasoningInText?: boolean;
   /**
-   * MiMo: hint how much the model should think. `mimo-v2.5-pro` is adaptive
-   * by default (skips thinking on trivial prompts); pass `"high"` for
-   * consistently deep reasoning. Leave unset to let the model decide.
+   * Hint how much the model should think before answering. Sent as the
+   * top-level `reasoning_effort` request field for OpenAI-compat providers
+   * (GPT-5 / o-series, GLM-4.5/4.6, MiniMax M2.5, Kimi K2, DeepSeek V4) and
+   * mapped onto MiMo's existing `reasoning_effort` for the MiMo adapter.
+   *
+   * `"minimal"` is GPT-5-specific. Note that on adaptive models like
+   * `mimo-v2.5-pro`, `"low"` / `"medium"` can actually suppress thinking;
+   * pass `"high"` for consistently deep reasoning.
+   *
+   * Leave unset to let the model decide.
    */
-  reasoningEffort?: "low" | "medium" | "high";
+  reasoningEffort?: ReasoningEffort;
+  /**
+   * Reasoning / thinking support for OpenAI-compatible providers. Pass `true`
+   * for sensible defaults (capture reasoning into `Message.reasoning_content`,
+   * echo it back on tool turns), or an object for fine-grained control.
+   *
+   * Works with DeepSeek-R1 / V4, Qwen3-Thinking, GLM-4.5/4.6, Kimi K2,
+   * MiniMax M2.5, OpenRouter reasoning models, and any OpenAI-compatible
+   * endpoint that follows the `reasoning_content` / `reasoning` field
+   * conventions. Ignored by the Anthropic, Bedrock, and MiMo paths — those
+   * use their own dedicated config surfaces.
+   */
+  reasoning?: boolean | OpenAICompatReasoningOptions;
 }
 
 export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
@@ -271,6 +298,12 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
   }
 
   if (providerDef.format === "mimo") {
+    // MiMo's reasoningEffort accepts only low/medium/high — the GPT-5 "minimal"
+    // value is silently dropped here. Adjust if MiMo adds it.
+    const mimoEffort =
+      opts.reasoningEffort && opts.reasoningEffort !== "minimal"
+        ? opts.reasoningEffort
+        : undefined;
     return new MimoAdapter({
       apiKey: apiKey!,
       model,
@@ -278,9 +311,39 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
       stream,
       baseURL: opts.baseURL ?? process.env.MIMO_BASE_URL ?? providerDef.baseURL,
       ...(opts.includeReasoningInText != null && { includeReasoningInText: opts.includeReasoningInText }),
-      ...(opts.reasoningEffort != null && { reasoningEffort: opts.reasoningEffort }),
+      ...(mimoEffort && { reasoningEffort: mimoEffort }),
       ...(opts.timeout != null && { timeout: opts.timeout }),
     });
+  }
+
+  // `reasoning: true` is the shortcut; fold legacy `reasoningEffort` /
+  // `includeReasoningInText` into the structured shape when the caller didn't
+  // already pass an explicit reasoning config. `includeReasoningInText: false`
+  // is treated as "leave the default" (no-op) — explicit truthy values are
+  // the only ones that backdoor capture on.
+  const legacyEffort = opts.reasoningEffort ?? undefined;
+  const legacyIncludeInText = opts.includeReasoningInText === true ? true : undefined;
+  let reasoningConfig: boolean | OpenAICompatReasoningOptions | undefined =
+    opts.reasoning;
+  if (
+    reasoningConfig === undefined &&
+    (legacyEffort !== undefined || legacyIncludeInText !== undefined)
+  ) {
+    reasoningConfig = {
+      ...(legacyEffort !== undefined && { effort: legacyEffort }),
+      ...(legacyIncludeInText !== undefined && { includeInText: legacyIncludeInText }),
+    };
+  } else if (
+    typeof reasoningConfig === "object" &&
+    reasoningConfig !== null
+  ) {
+    // Caller passed both `reasoning: {...}` and one of the legacy fields —
+    // the structured object wins, but legacy fields fill any blanks.
+    reasoningConfig = {
+      ...(legacyEffort !== undefined && { effort: legacyEffort }),
+      ...(legacyIncludeInText !== undefined && { includeInText: legacyIncludeInText }),
+      ...reasoningConfig,
+    };
   }
 
   return new OpenAICompatAdapter({
@@ -291,6 +354,7 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
     baseURL: opts.baseURL ?? providerDef.baseURL,
     provider: providerDef.id,
     ...(opts.timeout != null && { timeout: opts.timeout }),
+    ...(reasoningConfig !== undefined && { reasoning: reasoningConfig }),
   });
 }
 
