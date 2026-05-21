@@ -185,6 +185,11 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "CompactionConfig",
             "Configuration for automatic context window compaction. Required.",
           ],
+          [
+            "enableToolResultSummary?",
+            "boolean",
+            "Default false. When true, the PromptMachine swaps each older tool result's data for its summary before sending messages to the model. Pairs with the per-tool generateToolSummary handler. See Tool result summaries below.",
+          ],
         ]}
       />
 
@@ -325,6 +330,11 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "do",
             "(input: I, display: DisplayManagerAdapter, glove: IGloveRunnable, signal?: AbortSignal) => Promise<ToolResultData>",
             "The tool's implementation. Receives validated input, the parent's display manager, the running Glove instance (use to fold further tools at runtime), and the active request's AbortSignal. Forward the signal into long-running internal work so abort propagates.",
+          ],
+          [
+            "generateToolSummary?",
+            "(summaryArgs?: unknown) => Promise<string>",
+            "Optional. When the tool's do() returns a ToolResultData with generateSummaryArgs set, the Executor calls this with those args and stores the returned string on result.summary. The summary replaces data in older context when Glove was constructed with enableToolResultSummary: true.",
           ],
         ]}
       />
@@ -704,8 +714,16 @@ const result = await pm.run(messages, tools);`}
       <p>
         <code>
           new PromptMachine(model: ModelAdapter, ctx: Context, systemPrompt:
-          string)
+          string, enableToolResultSummary?: boolean)
         </code>
+      </p>
+
+      <p>
+        The optional <code>enableToolResultSummary</code> flag (default{" "}
+        <code>false</code>) is wired through from{" "}
+        <code>GloveConfig.enableToolResultSummary</code>. When set, every call
+        to <code>run()</code> first passes the message list through{" "}
+        <code>summarizeOlderToolResults</code>.
       </p>
 
       <h3>Methods</h3>
@@ -719,9 +737,14 @@ const result = await pm.run(messages, tools);`}
             "Add a subscriber to receive model events (text_delta, tool_use, model_response_complete).",
           ],
           [
+            "summarizeOlderToolResults(messages: Message[])",
+            "Message[]",
+            "Pure transform. Finds the index of the latest non-tool user message and, for every message with tool_results at or before that index, replaces result.data with result.summary when summary is present. Untouched messages (including the current turn's tool results) are returned by reference. Called automatically by run() when enableToolResultSummary is true.",
+          ],
+          [
             "run(messages: Message[], tools?: Tool<unknown>[], signal?: AbortSignal)",
             "Promise<ModelPromptResult>",
-            "Prompt the model with messages and optional tools. Returns the model's response including token counts.",
+            "Prompt the model with messages and optional tools. When enableToolResultSummary is true, the message list is first passed through summarizeOlderToolResults. Returns the model's response including token counts.",
           ],
         ]}
       />
@@ -1714,6 +1737,11 @@ const durable = await store.createSubAgentStore("planner", true);        // cach
             "Promise<ToolResultData>",
             "Execute the tool with validated input. handOver delegates to the renderer / display stack. signal is the active request's AbortSignal — forward it into long-running internal work (e.g. a child Glove run) so abort propagates. Tools marked unAbortable should ignore signal.",
           ],
+          [
+            "generateSummary?(args)",
+            "(args: unknown) => Promise<string>",
+            "Optional. Called by the Executor after run() resolves when the result includes generateSummaryArgs. The returned string lands on result.summary and is swapped in for data in older messages when enableToolResultSummary is on.",
+          ],
         ]}
       />
 
@@ -1771,9 +1799,11 @@ const durable = await store.createSubAgentStore("planner", true);        // cach
       <CodeBlock
         code={`interface ToolResultData {
   status: "success" | "error" | "aborted";
-  data: unknown;          // Sent to the AI model
-  message?: string;       // Error / abort message
-  renderData?: unknown;   // Client-only — NOT sent to model, used by renderResult
+  data: unknown;                 // Sent to the AI model
+  message?: string;              // Error / abort message
+  renderData?: unknown;          // Client-only — NOT sent to model, used by renderResult
+  summary?: string;              // Set by the Executor from generateSummary — swapped in for data in older context when enableToolResultSummary is on
+  generateSummaryArgs?: unknown; // Opaque args passed to the tool's generateSummary handler
 }`}
         language="typescript"
       />
@@ -1801,6 +1831,16 @@ const durable = await store.createSubAgentStore("planner", true);        // cach
             "unknown",
             "Client-only data for rendering tool results from history. Model adapters explicitly strip this field before sending to the AI — safe for sensitive client-only data like email addresses or UI state. Used by the renderResult function in glove-react tools.",
           ],
+          [
+            "summary?",
+            "string",
+            "Compact string description of the result. Set by the Executor after run()/do() resolves, by calling the tool's generateSummary(generateSummaryArgs). When the Glove was constructed with enableToolResultSummary: true, the PromptMachine substitutes summary for data on every tool result older than the most recent user message before sending to the model. Untouched in the store and in renderers.",
+          ],
+          [
+            "generateSummaryArgs?",
+            "unknown",
+            "Opaque payload the tool's do() returns to drive its generateSummary handler — e.g. the line range it just read, the URL it just fetched, the query it just executed. Omit it to skip summary generation for a given call.",
+          ],
         ]}
       />
 
@@ -1810,6 +1850,149 @@ const durable = await store.createSubAgentStore("planner", true);        // cach
         <code>message</code> to the API. The <code>renderData</code> field
         is preserved in the message store for client-side rendering via{" "}
         <code>renderResult</code> but is never sent to the AI model.
+      </p>
+
+      {/* ================================================================== */}
+      {/* TOOL RESULT SUMMARIES                                              */}
+      {/* ================================================================== */}
+      <h2 id="tool-result-summaries">Tool result summaries</h2>
+
+      <p>
+        Long-running agents that read files, fetch URLs, or run queries blow
+        through tokens fast — the model rarely needs the full payload of a
+        tool call once a few turns have passed. Tool result summaries are an
+        opt-in optimization: each tool produces a compact description of what
+        it did, and that description is what older context carries instead of
+        the raw payload.
+      </p>
+
+      <p>
+        The mechanism has three coordinated pieces:
+      </p>
+
+      <ol>
+        <li>
+          <strong>Tool returns <code>generateSummaryArgs</code>.</strong> The
+          tool&apos;s <code>do()</code> includes whatever the summary handler
+          needs (line range, URL, query, row count) on the result.
+        </li>
+        <li>
+          <strong>Executor calls <code>generateToolSummary</code>.</strong>{" "}
+          After <code>do()</code> resolves, if the tool defined a{" "}
+          <code>generateToolSummary</code> handler and the result has{" "}
+          <code>generateSummaryArgs</code>, the Executor awaits it and
+          assigns the returned string to <code>result.summary</code>.
+        </li>
+        <li>
+          <strong>PromptMachine swaps <code>data</code> for{" "}
+          <code>summary</code> in older context.</strong>{" "}
+          When <code>Glove</code> is constructed with{" "}
+          <code>enableToolResultSummary: true</code>,{" "}
+          <code>PromptMachine.summarizeOlderToolResults</code> rewrites every
+          tool result that sits at or before the most recent non-tool user
+          message: <code>result.data</code> is replaced with{" "}
+          <code>result.summary</code>. Tool results from the current turn are
+          untouched, so the model still has full fidelity for what it just
+          asked about.
+        </li>
+      </ol>
+
+      <CodeBlock
+        filename="file-read.tool.ts"
+        language="typescript"
+        code={`import { z } from "zod";
+import type { GloveFoldArgs } from "glove-core";
+
+export const readFile: GloveFoldArgs<{ path: string; from?: number; to?: number }> = {
+  name: "read_file",
+  description: "Read a slice of a file.",
+  inputSchema: z.object({
+    path: z.string(),
+    from: z.number().optional(),
+    to: z.number().optional(),
+  }),
+  async do(input) {
+    const content = await fs.readFile(input.path, "utf8");
+    const slice = sliceLines(content, input.from, input.to);
+    return {
+      status: "success",
+      data: slice,
+      // What the summary handler needs to describe this call later.
+      generateSummaryArgs: { path: input.path, from: input.from, to: input.to, lineCount: slice.split("\\n").length },
+    };
+  },
+  async generateToolSummary(args) {
+    const { path, from, to, lineCount } = args as { path: string; from?: number; to?: number; lineCount: number };
+    const range = from != null || to != null ? \` lines \${from ?? 1}-\${to ?? "EOF"}\` : "";
+    return \`Read \${path}\${range} (\${lineCount} lines).\`;
+  },
+};`}
+      />
+
+      <CodeBlock
+        filename="agent.ts"
+        language="typescript"
+        code={`const agent = new Glove({
+  store: new MemoryStore("session"),
+  model: createAdapter({ provider: "anthropic" }),
+  displayManager: new Displaymanager(),
+  systemPrompt: "You are a helpful assistant.",
+  compaction_config: { compaction_instructions: "Summarize so far." },
+  enableToolResultSummary: true,
+})
+  .fold(readFile)
+  .build();`}
+      />
+
+      <h3>What the model sees</h3>
+
+      <p>
+        Imagine the agent has executed <code>read_file</code> three turns ago
+        and again on the current turn. With{" "}
+        <code>enableToolResultSummary: true</code>:
+      </p>
+
+      <ul>
+        <li>
+          The <strong>older</strong> <code>read_file</code> result is sent as{" "}
+          <code>Read src/lib/auth.ts lines 40-120 (81 lines).</code> — the
+          summary, not the file contents.
+        </li>
+        <li>
+          The <strong>current turn&apos;s</strong> <code>read_file</code>{" "}
+          result is sent with the full file slice intact, so the model can
+          reason about it.
+        </li>
+      </ul>
+
+      <p>
+        The store keeps both <code>data</code> and <code>summary</code>{" "}
+        untouched on every result, so re-renders, transcripts, and
+        post-hoc analytics still have the full record. Only the array of
+        messages handed to the model adapter is rewritten.
+      </p>
+
+      <h3>Opt-in per tool</h3>
+
+      <p>
+        Tools that omit <code>generateToolSummary</code>, or omit{" "}
+        <code>generateSummaryArgs</code> on a particular call, leave{" "}
+        <code>summary</code> unset. The pruner only substitutes when{" "}
+        <code>summary</code> is a non-empty string, so partially-instrumented
+        tool catalogues still work — instrumented tools shrink in older
+        context, uninstrumented tools keep their original data.
+      </p>
+
+      <h3>Compaction vs summaries</h3>
+
+      <p>
+        Compaction collapses an entire run of messages into a single summary
+        message once token use crosses a threshold (see{" "}
+        <a href="#observer">Observer</a>). Tool result summaries shrink
+        individual tool payloads on every turn before compaction would have
+        fired. The two compose: tool summaries delay the point at which the
+        Observer needs to compact, and compaction still runs when the
+        instrumented context eventually grows large enough.
       </p>
 
       {/* ================================================================== */}

@@ -64,7 +64,7 @@ function formatTools(tools: Array<Tool<unknown>>): Array<MimoTool> {
 function formatToolResultContent(tr: ToolResult): string {
   const { data, status, message } = tr.result;
   if (status === "error") {
-    const detail = data ? JSON.stringify(data) : "";
+    const detail = data ? (typeof data === "string" ? data : JSON.stringify(data)) : "";
     return `Error: ${message ?? "Unknown error"}\n${detail}`.trim();
   }
   return typeof data === "string" ? data : JSON.stringify(data);

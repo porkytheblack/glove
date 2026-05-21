@@ -65,7 +65,7 @@ function formatTools(tools: Array<Tool<unknown>>): BedrockTool[] {
 function formatToolResultContent(tr: ToolResult): ToolResultContentBlock[] {
   const { data, status, message } = tr.result;
   if (status === "error") {
-    const detail = data ? JSON.stringify(data) : "";
+    const detail = data ? (typeof data === "string" ? data : JSON.stringify(data)) : "";
     return [{ text: `Error: ${message ?? "Unknown error"}\n${detail}`.trim() }];
   }
   const text = typeof data === "string" ? data : JSON.stringify(data);

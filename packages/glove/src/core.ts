@@ -152,6 +152,10 @@ export interface ToolResultData {
   // contains information that won't be sent to the modal but is required for rendering this from history. e.g for a payment form. as data(viewable by the modal, we might not wanna show the address etc and share that with the model) but maybe we want the user to still view all their details on reload of the chat
   // the renderData property is where data that fits this criteria can live. will need a post renderer
   renderData?: unknown
+  // for eager compaction generated summaries
+  summary?: string
+  // 
+  generateSummaryArgs?: unknown
 }
 
 export interface ToolResult {
@@ -185,6 +189,12 @@ export interface Tool<I> {
     handOver?: (request: unknown) => Promise<unknown>,
     signal?: AbortSignal,
   ): Promise<ToolResultData>;
+  /**
+   * 
+   * @param args customly defined args that may be used to generate the summary, e.g read 20 lines from x to y, or fetched data from google.com, something short, this will get passed into the run function to generate one and update the toolresult
+   * @returns 
+   */
+  generateSummary?: (args: unknown) => Promise<string>
 }
 
 /**
@@ -374,12 +384,14 @@ export class PromptMachine {
   systemPrompt: string;
   model: ModelAdapter;
   subscribers: Array<SubscriberAdapter> = [];
+  enableToolResultSummary: boolean = false
 
-  constructor(model: ModelAdapter, ctx: Context, systemPrompt: string) {
+  constructor(model: ModelAdapter, ctx: Context, systemPrompt: string, enableToolResultSummary?: boolean) {
     this.context = ctx;
     this.systemPrompt = systemPrompt;
     model.setSystemPrompt(systemPrompt);
     this.model = model;
+    this.enableToolResultSummary = enableToolResultSummary ?? false
   }
 
   addSubscriber(subscriber: SubscriberAdapter) {
@@ -397,10 +409,47 @@ export class PromptMachine {
     );
   };
 
+  summarizeOlderToolResults(messages: Array<Message>): Array<Message> {
+    let lastUserMessageIdx = -1;
+
+    for (let i = messages.length - 1; i >= 0; i--){
+      const message = messages[i]
+      if (message.sender == "user" && !message.tool_results) {
+        lastUserMessageIdx = i
+        break;
+      }
+    }
+
+    return messages.map((message, i) => {
+      if (i > lastUserMessageIdx) return message;
+  
+      if (message.sender !== "user" || !message.tool_results?.length) return message;
+
+      return {
+        ...message,
+        tool_results: message.tool_results.map((result) => {
+          if (result.result.summary) {
+            return {
+              ...result,
+              result: {
+                ...result.result,
+                data: result.result.summary
+              }
+            }
+          }
+          return result
+        })
+      }
+      
+    })
+    
+  }
+
   async run(messages: Array<Message>, tools?: Array<Tool<unknown>>, signal?: AbortSignal) {
+    const prunedMessages = this.enableToolResultSummary ? this.summarizeOlderToolResults(messages) : messages
     const result = await this.model.prompt(
       {
-        messages,
+        messages: prunedMessages,
         tools,
       },
       this.notifySubscribers,
@@ -596,6 +645,11 @@ export class Executor {
           const result = tool.unAbortable ?
             await tool.run(validatedInput, handOver, signal) :
             await abortablePromise(signal, tool.run(validatedInput, handOver, signal));
+
+          // add tool result summary to make future tool calls more efficient and less token consuming
+          if (tool.generateSummary && result.generateSummaryArgs) {
+            result.summary = await tool.generateSummary(result.generateSummaryArgs)
+          }
           return result
         },
         catch(e) {
@@ -912,7 +966,6 @@ export class Agent {
       
 
       if (messages_with_tool_calls.length == 0) {
-        // Auto-complete any in_progress tasks when the agent's turn ends
         return results;
       }
 

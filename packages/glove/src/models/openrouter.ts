@@ -40,7 +40,9 @@ function formatTools(tools: Array<Tool<unknown>>): Array<OpenAITool> {
 
 function formatToolResultContent(tr: ToolResult): string {
   if (tr.result.status === "error") {
-    const detail = tr.result.data ? JSON.stringify(tr.result.data) : "";
+    const detail = tr.result.data
+      ? (typeof tr.result.data === "string" ? tr.result.data : JSON.stringify(tr.result.data))
+      : "";
     return `Error: ${tr.result.message ?? "Unknown error"}\n${detail}`.trim();
   }
   return typeof tr.result.data === "string"

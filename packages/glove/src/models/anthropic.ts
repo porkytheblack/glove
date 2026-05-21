@@ -11,6 +11,7 @@ import type {
   NotifySubscribersFunction,
 } from "../core";
 import { getToolJsonSchema } from "../core";
+import { isString } from "effect/String";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -42,7 +43,7 @@ function formatToolResultContent(tr: ToolResult): string {
   // Only send data/status/message to the model — renderData is client-only
   const { data, status, message } = tr.result;
   if (status === "error") {
-    const detail = data ? JSON.stringify(data) : "";
+    const detail = data ? isString(data) ? data : JSON.stringify(data) : "";
     return `Error: ${message ?? "Unknown error"}\n${detail}`.trim();
   }
   return typeof data === "string" ? data : JSON.stringify(data);

@@ -172,7 +172,7 @@ function formatToolResultContent(tr: ToolResult): string {
   // Only send data/status/message to the model — renderData is client-only
   const { data, status, message } = tr.result;
   if (status === "error") {
-    const detail = data ? JSON.stringify(data) : "";
+    const detail = data ? (typeof data === "string" ? data : JSON.stringify(data)) : "";
     return `Error: ${message ?? "Unknown error"}\n${detail}`.trim();
   }
   return typeof data === "string" ? data : JSON.stringify(data);

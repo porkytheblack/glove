@@ -1520,13 +1520,61 @@ A tool's `do` function receives the running `IGloveRunnable` as a third argument
 ```typescript
 interface ToolResultData {
   status: "success" | "error";
-  data: unknown;          // Sent to the AI model
-  message?: string;       // Error message (for status: "error")
-  renderData?: unknown;   // Client-only — NOT sent to model, used by renderResult
+  data: unknown;                 // Sent to the AI model
+  message?: string;              // Error message (for status: "error")
+  renderData?: unknown;          // Client-only — NOT sent to model, used by renderResult
+  summary?: string;              // Populated by the Executor from tool.generateSummary; swapped in for data in older context when enableToolResultSummary is on
+  generateSummaryArgs?: unknown; // Opaque payload do() returns to drive the tool's generateSummary handler
 }
 ```
 
 **Important:** Model adapters explicitly strip `renderData` before sending to the AI. This makes it safe to store sensitive client-only data (e.g., email addresses, UI state) in `renderData`.
+
+### Tool result summaries (opt-in)
+
+Token-efficiency optimization for tools whose payloads bloat context (file reads, web fetches, large query results). Off by default; opt in with `enableToolResultSummary: true` on `GloveConfig`, and add `generateToolSummary` to each tool you want to compress.
+
+```typescript
+const agent = new Glove({
+  store,
+  model: createAdapter({ provider: "anthropic" }),
+  displayManager: new Displaymanager(),
+  systemPrompt: "...",
+  compaction_config: { compaction_instructions: "Summarize so far." },
+  enableToolResultSummary: true,            // turn on the pruner
+})
+  .fold({
+    name: "read_file",
+    description: "Read a slice of a file.",
+    inputSchema: z.object({ path: z.string(), from: z.number().optional(), to: z.number().optional() }),
+    async do(input) {
+      const slice = await readSlice(input);
+      return {
+        status: "success",
+        data: slice,
+        generateSummaryArgs: { path: input.path, from: input.from, to: input.to, lineCount: slice.split("\n").length },
+      };
+    },
+    async generateToolSummary(args) {
+      const { path, from, to, lineCount } = args as any;
+      const range = from != null || to != null ? ` lines ${from ?? 1}-${to ?? "EOF"}` : "";
+      return `Read ${path}${range} (${lineCount} lines).`;
+    },
+  })
+  .build();
+```
+
+How it works:
+
+1. **`do()` returns `generateSummaryArgs`** — whatever the summary handler needs (path + line range, URL, query, row count).
+2. **Executor calls `generateToolSummary(args)`** after `do()` resolves and stores the result on `ToolResultData.summary`. Both `data` and `summary` live on the result.
+3. **`PromptMachine.summarizeOlderToolResults`** runs before every model call (when `enableToolResultSummary: true`): finds the latest non-tool user message and, for every tool result at or before that index, swaps `data` → `summary`. Tool results from the current turn are untouched.
+
+The store always keeps both `data` and `summary`. Only the messages handed to the model adapter are rewritten — transcript renderers, history snapshots, and analytics still see the full record.
+
+Tools without `generateToolSummary`, or calls that omit `generateSummaryArgs`, leave `summary` unset and the pruner leaves them alone. Partially instrumented tool catalogues work fine.
+
+Composes with compaction: tool summaries delay the point at which the Observer needs to compact, and compaction still fires when the instrumented context grows past `CONTEXT_COMPACTION_LIMIT`.
 
 ## `<Render>` Component
 
@@ -1917,6 +1965,10 @@ For example patterns from real implementations, see [examples.md](examples.md).
 44. **Token consumption events**: The Observer fires `token_consumption` (`{ consumption: { tokens_in, tokens_out } }`) on subscribers after each model turn. `StoreAdapter.addTokens` takes the same `TokenConsumptionCounter` shape; `getTokenCount()` still returns a single sum.
 45. **Reasoning capture is opt-in**: `OpenAICompatAdapter` ignores `reasoning_content` by default. Pass `reasoning: true` (or an object) on `createAdapter` / `new OpenAICompatAdapter` to capture the trace into `Message.reasoning_content`. The MiMo adapter is opinionated and captures unconditionally.
 46. **`reasoning_content` vs `reasoning` field**: The adapter reads either field from the response. DeepSeek / Qwen3 / GLM / Kimi / MiniMax / MiMo emit `reasoning_content`; OpenRouter emits `reasoning` (with `reasoning_content` as a documented alias). The captured string always lands on `Message.reasoning_content` — that's the canonical Glove field.
+47. **Tool result summaries are off by default**: `enableToolResultSummary` on `GloveConfig` defaults to `false`. Setting it to `true` alone does nothing — you also have to add `generateToolSummary` to each tool you want to shrink AND have `do()` return `generateSummaryArgs`. The Executor only populates `result.summary` when BOTH the handler and the args are present.
+48. **`summary` only replaces `data` in older context**: `PromptMachine.summarizeOlderToolResults` finds the latest non-tool user message and only rewrites tool results at or before that index. Current-turn tool results always reach the model with full `data`. The store keeps both `data` and `summary` untouched on every result — only the messages handed to the model adapter are rewritten.
+49. **`summarizeOlderToolResults` skips empty summaries**: The substitution only happens when `result.summary` is truthy. Partially-instrumented tool catalogues are safe — instrumented tools shrink in older context, uninstrumented tools keep their original `data`. There's no way to force a tool to be excluded from the rewrite other than not populating `summary` for it.
+50. **String error data is no longer double-JSON-stringified**: All model adapters (`anthropic`, `bedrock`, `mimo`, `openai-compat`, `openrouter`) now check `typeof data === "string"` before `JSON.stringify`-ing error result data. If your tool returns `{ status: "error", data: "some message" }`, the model sees `Error: ...\nsome message` rather than `Error: ...\n"some message"`. Bug fix — no consumer action needed, but a behavior change worth knowing if you parse error strings on the model side.
 47. **Echo is required on tool turns for DeepSeek V4 / MiMo**: When `reasoning` is enabled, the adapter echoes `Message.reasoning_content` back on assistant turns that produced `tool_calls` — DeepSeek V4 and MiMo reject the request otherwise. DeepSeek-R1 (the older model) rejects the field entirely; set `reasoning: { echo: false }` if you're specifically targeting R1.
 48. **`reasoning_effort` "minimal" is GPT-5-only**: The full effort enum is `"minimal" | "low" | "medium" | "high"`, but `"minimal"` only works on GPT-5 / o-series. The MiMo branch silently drops it. Other providers may reject it — check provider docs before using.
 49. **Adaptive reasoning models can suppress thinking on "low"**: On `mimo-v2.5-pro` and similar adaptive models, passing `effort: "low"` or `"medium"` can suppress reasoning rather than bound it. Pass `"high"` for consistently deep reasoning, or leave unset to let the model decide.

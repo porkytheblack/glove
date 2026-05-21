@@ -53,6 +53,7 @@ export interface GloveFoldArgs<I> {
     glove: IGloveRunnable,
     signal?: AbortSignal,
   ) => Promise<ToolResultData>,
+  generateToolSummary?: (summaryArgs?: unknown) => Promise<string>
 }
 
 export interface IGloveRunnable {
@@ -110,6 +111,7 @@ interface GloveConfig {
   maxRetries?: number,
   maxConsecutiveErrors?: number,
   compaction_config: CompactionConfig,
+  enableToolResultSummary?: boolean
 }
 
 
@@ -149,7 +151,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     this.compactionConfig = config.compaction_config
 
     this.context = new Context(this.store)
-    this.promptMachine = new PromptMachine(config.model, this.context,config.systemPrompt)
+    this.promptMachine = new PromptMachine(config.model, this.context,config.systemPrompt, config.enableToolResultSummary)
     this.executor = new Executor(config.maxRetries, this.store)
 
     this.observer = new Observer(this.store, this.context, this.promptMachine, this.compactionConfig?.compaction_instructions, this.compactionConfig?.max_turns, this.compactionConfig?.compaction_context_limit)
@@ -189,8 +191,8 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
         const result = await args.do(input, displayManager, self, signal)
 
         return result
-      }
-
+      },
+      generateSummary: args.generateToolSummary
     }
 
     this.executor.registerTool(tool)
@@ -318,10 +320,11 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       const maxRetries = this.executor.MAX_RETRIES;
       const model = this.promptMachine.model;
       const systemPrompt = this.promptMachine.systemPrompt;
+      const enableToolResultSummary = this.promptMachine.enableToolResultSummary;
 
       this.store = store;
       this.context = new Context(this.store)
-      this.promptMachine = new PromptMachine(model, this.context, systemPrompt)
+      this.promptMachine = new PromptMachine(model, this.context, systemPrompt, enableToolResultSummary)
       this.executor = new Executor(maxRetries, this.store)
 
       this.observer = new Observer(

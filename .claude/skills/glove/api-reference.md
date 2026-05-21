@@ -54,11 +54,15 @@ The runnable returned by `build()` exposes `model`, `displayManager`, and `serve
     glove: IGloveRunnable,
     signal?: AbortSignal,
   ) => Promise<ToolResultData>,
+  generateToolSummary?: (summaryArgs?: unknown) => Promise<string>,
   // ^ `glove` is the running Glove instance — used by subagent-folded tools (e.g. discovermcp's `activate`)
   //   to fold bridged tools onto the main agent and inherit its model/displayManager.
   // ^ `signal` is the active request's AbortSignal. Forward it into long-running internal work so abort
   //   propagates. Tools that ignore it still get the executor's abortable-promise unwind for free; tools
   //   marked `unAbortable: true` should ignore signal entirely.
+  // ^ `generateToolSummary` is called by the Executor when `do()` returns `generateSummaryArgs`. Returned
+  //   string lands on `result.summary` and replaces `result.data` in older context when the Glove was
+  //   constructed with `enableToolResultSummary: true`. See "Tool result summaries" further down.
 }
 ```
 
@@ -1501,6 +1505,7 @@ interface Tool<I> {
     handOver?: (request: unknown) => Promise<unknown>,
     signal?: AbortSignal,
   ): Promise<ToolResultData>;
+  generateSummary?: (args: unknown) => Promise<string>;
 }
 
 interface GloveFoldArgs<I> {
@@ -1516,8 +1521,12 @@ interface GloveFoldArgs<I> {
     glove: IGloveRunnable,
     signal?: AbortSignal,
   ) => Promise<ToolResultData>;
+  generateToolSummary?: (summaryArgs?: unknown) => Promise<string>;
   // `glove` is the running instance (used by tools that fold further tools at runtime, e.g. discovermcp's `activate`).
   // `signal` is the active request's AbortSignal — forward it into long-running internal work.
+  // `generateToolSummary` produces a compact string from the `generateSummaryArgs` returned by `do()`.
+  //   Lands on result.summary; swapped in for result.data in older context when the Glove was constructed
+  //   with `enableToolResultSummary: true`. See "Tool result summaries" further down.
 }
 ```
 
@@ -1556,6 +1565,72 @@ interface IGloveRunnable {
 
 The `built` throw was removed. Tools that need to register more tools at runtime (e.g. the `discovermcp` subagent's `activate`) read `glove` from `do(input, display, glove, signal?)` and call `glove.fold(...)`.
 
+### Tool result summaries
+
+Per-tool compression of older tool results. Off by default — opt in by passing `enableToolResultSummary: true` to `new Glove({...})` and supplying `generateToolSummary` on the tools you want to shrink. The fields involved:
+
+```ts
+interface ToolResultData {
+  status: "success" | "error" | "aborted";
+  data: unknown;                 // sent to the model
+  message?: string;
+  renderData?: unknown;          // client-only, stripped by model adapters
+  summary?: string;              // populated by the Executor from generateSummary(args)
+  generateSummaryArgs?: unknown; // opaque payload the tool's do() hands to its summary handler
+}
+
+interface GloveFoldArgs<I> {
+  // ...all existing fields...
+  generateToolSummary?: (summaryArgs?: unknown) => Promise<string>;
+}
+
+interface Tool<I> {
+  // ...all existing fields...
+  generateSummary?: (args: unknown) => Promise<string>;
+}
+```
+
+Flow:
+
+1. The tool's `do()` returns a `ToolResultData` with `generateSummaryArgs` set to whatever its summary handler needs.
+2. After `do()` resolves, `Executor` checks `tool.generateSummary && result.generateSummaryArgs` — if both, it awaits `tool.generateSummary(result.generateSummaryArgs)` and assigns the returned string to `result.summary`. Both `data` and `summary` are stored on the result.
+3. On every call to `PromptMachine.run`, when the `Glove` was constructed with `enableToolResultSummary: true`, the messages array is passed through `summarizeOlderToolResults` before being sent to the model. That method finds the index of the latest non-tool user message (i.e. a `Message` with `sender: "user"` and no `tool_results`). For every message with `tool_results` at or before that index, it returns a shallow copy where each result's `data` is replaced with its `summary` (when `summary` is a non-empty string). Tool results from the current turn are untouched.
+
+Concrete example — a `read_file` tool:
+
+```ts
+const readFile: GloveFoldArgs<{ path: string; from?: number; to?: number }> = {
+  name: "read_file",
+  description: "Read a slice of a file.",
+  inputSchema: z.object({ path: z.string(), from: z.number().optional(), to: z.number().optional() }),
+  async do(input) {
+    const slice = await fs.readFile(input.path, "utf8");
+    return {
+      status: "success",
+      data: slice,
+      generateSummaryArgs: { path: input.path, from: input.from, to: input.to, lineCount: slice.split("\n").length },
+    };
+  },
+  async generateToolSummary(args) {
+    const { path, from, to, lineCount } = args as { path: string; from?: number; to?: number; lineCount: number };
+    const range = from != null || to != null ? ` lines ${from ?? 1}-${to ?? "EOF"}` : "";
+    return `Read ${path}${range} (${lineCount} lines).`;
+  },
+};
+```
+
+Older `read_file` results in context arrive at the model as `"Read src/lib/auth.ts lines 40-120 (81 lines)."` while the current turn keeps the full slice.
+
+Behavioural details:
+
+- Off by default — set `enableToolResultSummary: true` on `GloveConfig` to enable.
+- Tools that omit `generateToolSummary`, or omit `generateSummaryArgs` on a particular call, leave `summary` unset. The pruner only substitutes when `summary` is truthy, so partially-instrumented tool catalogues still work.
+- The store keeps full `data` and `summary` on every result — only the messages handed to the model adapter are rewritten. Transcript renderers, history snapshots, and analytics all see the full record.
+- Carried through `Glove.rebuild(store?)` — the new `PromptMachine` is constructed with the same `enableToolResultSummary` flag.
+- Composes with compaction: tool summaries shrink the per-turn payload going to the model, delaying the point at which the Observer needs to compact. Compaction still fires when the instrumented context eventually grows past `CONTEXT_COMPACTION_LIMIT`.
+
+`PromptMachine` constructor signature picks up an optional fourth arg: `new PromptMachine(model, ctx, systemPrompt, enableToolResultSummary?: boolean)`. Default is `false`.
+
 ### GloveConfig — serverMode
 
 ```ts
@@ -1568,6 +1643,7 @@ interface GloveConfig {
   maxRetries?: number;
   maxConsecutiveErrors?: number;
   compaction_config: CompactionConfig;
+  enableToolResultSummary?: boolean;     // opt-in older-tool-result compression. See "Tool result summaries".
 }
 ```
 
