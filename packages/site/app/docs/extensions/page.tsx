@@ -380,6 +380,251 @@ interface DefineSkillArgs extends SkillOptions {
       </table>
 
       {/* ------------------------------------------------------------------ */}
+      <h2>Content skills (data-driven, sectioned)</h2>
+
+      <p>
+        <code>defineSkill</code> is the right primitive when the injected
+        content has to be computed at invocation time — environment
+        snapshots, time-aware briefings, anything that closes over runtime
+        state. For coding agents the more common shape is{" "}
+        <em>static content</em>: a body of instructions, a reference table,
+        a checklist, sliced into a main file plus accompanying sections.{" "}
+        <code>ContentSkill</code> is that shape — pure data, no handler.
+      </p>
+
+      <p>
+        Built for agents that may not have filesystem access (web,
+        glovebox, embedded). Skills are loaded lazily through a single{" "}
+        <code>glove_read_skill</code> tool whose description embeds a token-
+        budgeted XML listing of every registered skill. The model picks one
+        by name, calls the tool, and the content lands as a tool result.
+        Mirrors Claude Code&apos;s on-disk{" "}
+        <code>.claude/skills/&lt;name&gt;/SKILL.md</code> convention so you
+        can ship the same skill bundles to either runtime.
+      </p>
+
+      <CodeBlock
+        filename="content-skills — data types"
+        language="typescript"
+        code={`interface ContentSkill {
+  name: string;
+  description: string;
+  /** Opaque reader handle (FS path, URL, KV key). Returned alongside content so the agent knows where extended access lives. */
+  path?: string;
+  /** Main body. Returned when the agent reads with no section. */
+  content: string;
+  /** Optional named sections (e.g. "api-reference", "examples"). */
+  sections?: Record<string, string>;
+  /** Higher priority keeps the description in the listing under tight budget. Default 0. */
+  priority?: number;
+  /** Omit from the listing but still readable by name. Default false. */
+  hidden?: boolean;
+}
+
+interface SkillReader {
+  list(): Promise<SkillSummary[]>;
+  read(name: string, section?: string): Promise<SkillReadResult | null>;
+}`}
+      />
+
+      <h3>Registering with <code>useReadSkill</code></h3>
+
+      <p>
+        Idiomatic with the <code>useMemoryReader</code> /{" "}
+        <code>useContext</code> family from <code>glove-memory</code>. Pass
+        an array of <code>ContentSkill</code>s (or a custom{" "}
+        <code>SkillReader</code>) and the helper folds the read tool, builds
+        the listing block in its description, and wires user-side{" "}
+        <code>/skill-name</code> directives through the existing parser.
+      </p>
+
+      <CodeBlock
+        filename="lib/agent.ts"
+        language="typescript"
+        code={`import { Glove, MemoryStore, Displaymanager, createAdapter, useReadSkill } from "glove-core";
+
+const agent = new Glove({
+  store: new MemoryStore("session"),
+  model: createAdapter({ provider: "anthropic" }),
+  displayManager: new Displaymanager(),
+  systemPrompt: "You are a coding assistant.",
+  compaction_config: { compaction_instructions: "Summarize so far." },
+});
+
+useReadSkill(agent, [
+  {
+    name: "python-debug",
+    description: "Diagnose Python errors and apply fix patterns.",
+    content: "# Python Debugging\\nRead tracebacks bottom-up...",
+    sections: {
+      "api-reference": "# API\\npdb.set_trace()...",
+      examples: "# Examples\\n...",
+    },
+  },
+  {
+    name: "git-workflow",
+    description: "Branch / commit / PR conventions for this repo.",
+    content: "# Git\\nNever force-push main...",
+  },
+]);
+
+agent.build();
+
+// Agent-side: model calls glove_read_skill({ name: "python-debug" })
+// User-side: "/python-debug let's debug this" materialises the content
+//            as a synthetic user message before the real turn.`}
+      />
+
+      <h3>The listing budget</h3>
+
+      <p>
+        The tool description renders an XML-tagged{" "}
+        <code>&lt;available_skills&gt;</code> block listing every registered
+        skill. The default budget is 2000 tokens (~2% of a 100K compaction
+        limit). Skills are sorted by{" "}
+        <code>priority</code> desc; descriptions fit until the budget is
+        exhausted; everything below the cut falls back to a name-only{" "}
+        <code>&lt;skill name=&quot;...&quot; /&gt;</code> line so the model
+        still knows every name. If even name-only lines exceed the budget,
+        an <code>&lt;!-- N more skills omitted --&gt;</code> comment is
+        rendered as a fallback.
+      </p>
+
+      <CodeBlock
+        filename="tuning the budget"
+        language="typescript"
+        code={`useReadSkill(agent, skills, {
+  // Default: 2000 tokens. Tune up if you've raised compaction_context_limit.
+  listingBudgetTokens: 4000,
+
+  // Optional: replace the in-memory reader with your own. Useful when the
+  // listing or content needs to come from a database, a remote service,
+  // or a file system.
+  reader: customReader,
+
+  // Optional: override the tool name (default "glove_read_skill").
+  toolName: "load_doc",
+
+  // Optional: appended after the listing block in the tool description.
+  descriptionSuffix: "Prefer reading api-reference before answering API questions.",
+
+  // Optional: skip the user-side /skill-name wiring. Default true.
+  wireUserDirectives: false,
+});`}
+      />
+
+      <h3>The tool contract</h3>
+
+      <p>
+        <code>glove_read_skill</code> takes <code>{`{ name, section? }`}</code>.
+        Omitted <code>section</code> returns the main body plus the list of
+        available section names; supplied <code>section</code> returns that
+        slice. Content is wrapped in XML — Claude-family models parse{" "}
+        <code>&lt;skill&gt;...&lt;content&gt;...&lt;/content&gt;&lt;/skill&gt;</code>{" "}
+        with crisp delimiters that markdown headers can&apos;t match. The
+        raw <code>SkillReadResult</code> is also placed on{" "}
+        <code>renderData</code> for client-side renderers.
+      </p>
+
+      <CodeBlock
+        filename="tool result — main body"
+        language="xml"
+        code={`<skill name="python-debug" path="/skills/python-debug">
+<content>
+# Python Debugging
+
+Read tracebacks bottom-up...
+</content>
+<sections>api-reference,examples</sections>
+</skill>`}
+      />
+
+      <p>
+        For a section read the wrapper adds a <code>section</code>{" "}
+        attribute. Missing skill / missing section both return{" "}
+        <code>{`{ status: "error", message: "...", data: null }`}</code>{" "}
+        with the list of known (non-hidden) names. The error message never
+        leaks <code>hidden: true</code> skill names.
+      </p>
+
+      <h3>Loading skills from disk</h3>
+
+      <p>
+        For server-side agents that <em>do</em> have a filesystem, the
+        sibling subpath <code>glove-core/content-skills-fs</code> ships{" "}
+        <code>loadContentSkillsFromFs</code> — a thin loader that walks a
+        Claude Code-style <code>.claude/skills/</code> directory and returns
+        a <code>ContentSkill[]</code> ready for <code>useReadSkill</code>.
+        Node-only (uses <code>node:fs</code>), kept in its own subpath so
+        browser bundles don&apos;t pull it in.
+      </p>
+
+      <CodeBlock
+        filename="server-side agent loading skills from .claude/skills/"
+        language="typescript"
+        code={`import { Glove, useReadSkill } from "glove-core";
+import { loadContentSkillsFromFs } from "glove-core/content-skills-fs";
+
+const skills = await loadContentSkillsFromFs("./.claude/skills");
+
+// Each subdirectory becomes a ContentSkill. SKILL.md is the main body
+// (YAML frontmatter \`name\` and \`description\` override the directory
+// name). Sibling .md files (api-reference.md, examples.md, ...) become
+// sections keyed by filename without the extension.
+
+useReadSkill(agent, skills);`}
+      />
+
+      <CodeBlock
+        filename="recognised SKILL.md layout"
+        language="text"
+        code={`.claude/skills/
+├── python-debug/
+│   ├── SKILL.md           ← optional YAML frontmatter: name, description, priority, hidden
+│   ├── api-reference.md   ← section "api-reference"
+│   └── examples.md        ← section "examples"
+└── git-workflow/
+    └── SKILL.md`}
+      />
+
+      <h3>When to use which skill primitive</h3>
+
+      <table className="pattern-table">
+        <thead>
+          <tr>
+            <th>Use case</th>
+            <th>Reach for</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Static instructions, references, checklists, prompt fragments</td>
+            <td><code>ContentSkill</code> + <code>useReadSkill</code></td>
+          </tr>
+          <tr>
+            <td>Live environment snapshots, time-aware briefings, computed context</td>
+            <td><code>defineSkill</code> with a handler</td>
+          </tr>
+          <tr>
+            <td>Tone presets, persona overlays, simple text injection</td>
+            <td>Either works; <code>ContentSkill</code> if it&apos;s purely static</td>
+          </tr>
+          <tr>
+            <td>Bundled skill ships to multiple runtimes (web + glovebox + CLI)</td>
+            <td><code>ContentSkill</code> — same bundle, no filesystem assumed</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        Both coexist on the same agent. <code>useReadSkill</code> registers
+        its skills with <code>exposeToAgent: false</code> internally so{" "}
+        <code>glove_invoke_skill</code> never double-lists them; the model
+        discovers content skills exclusively through{" "}
+        <code>glove_read_skill</code>.
+      </p>
+
+      {/* ------------------------------------------------------------------ */}
       <h2>Subagents</h2>
 
       <p>
@@ -714,7 +959,28 @@ import {
   formatSkillMessage,
   createSkillInvokeTool,
   createSubAgentInvokeTool,
-} from "glove-core";`}
+} from "glove-core";
+
+// Content skills — pure-data, lazy-loaded, sectioned.
+import {
+  useReadSkill,
+  createMemorySkillReader,
+  createReadSkillTool,
+  renderSkillListing,
+  renderReadSkillDescription,
+  renderSkillReadResultXml,
+  defaultListingBudgetTokens,
+  READ_SKILL_TOOL_NAME,
+  DEFAULT_LISTING_BUDGET_TOKENS,
+  type ContentSkill,
+  type SkillReader,
+  type SkillSummary,
+  type SkillReadResult,
+} from "glove-core";
+
+// FS loader for Claude Code-style .claude/skills/<name>/SKILL.md layout.
+// Subpath because it uses node:fs.
+import { loadContentSkillsFromFs } from "glove-core/content-skills-fs";`}
       />
 
       <p>

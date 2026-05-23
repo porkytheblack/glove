@@ -7,6 +7,7 @@ export default defineConfig({
     "src/glove.ts",
     "src/extensions.ts",
     "src/content-skills.ts",
+    "src/content-skills-fs.ts",
     "src/display-manager.ts",
     "src/tools/task-tool.ts",
     "src/tools/inbox-tool.ts",
