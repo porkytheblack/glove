@@ -60,13 +60,15 @@ export async function loadContentSkillsFromFs(
       if (body != null) sections[sectionName] = body;
     }
 
+    const priority = typeof meta.priority === "string" ? Number(meta.priority) : NaN;
+
     skills.push({
       name: skillName,
       description,
       path: skillDir,
       content: body,
       sections: Object.keys(sections).length > 0 ? sections : undefined,
-      priority: typeof meta.priority === "string" ? Number(meta.priority) || undefined : undefined,
+      priority: Number.isNaN(priority) ? undefined : priority,
       hidden: meta.hidden === "true",
     });
   }
