@@ -31,6 +31,14 @@
       "types": "./dist/extensions.d.ts",
       "import": "./dist/extensions.js"
     },
+    "./content-skills": {
+      "types": "./dist/content-skills.d.ts",
+      "import": "./dist/content-skills.js"
+    },
+    "./content-skills-fs": {
+      "types": "./dist/content-skills-fs.d.ts",
+      "import": "./dist/content-skills-fs.js"
+    },
     "./display-manager": {
       "types": "./dist/display-manager.d.ts",
       "import": "./dist/display-manager.js"
