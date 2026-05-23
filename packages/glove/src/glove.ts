@@ -80,7 +80,7 @@ export interface IGloveRunnable {
 }
 
 
-interface IGloveBuilder {
+export interface IGloveBuilder {
   fold: <I>(args: GloveFoldArgs<I>) => IGloveBuilder,
   defineHook: (name: string, handler: HookHandler) => IGloveBuilder,
   defineSkill: (args: DefineSkillArgs) => IGloveBuilder,
