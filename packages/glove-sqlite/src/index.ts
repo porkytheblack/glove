@@ -10,6 +10,7 @@ import type {
   InboxItem,
   InboxItemStatus,
 } from "glove-core/core";
+import { permissionKey } from "glove-core";
 
 export interface SqliteStoreOptions {
   /** Path to the SQLite database file. Use ":memory:" for in-memory. */
@@ -76,8 +77,9 @@ export class SqliteStore implements StoreAdapter {
       CREATE TABLE IF NOT EXISTS permissions (
         session_id TEXT NOT NULL,
         tool_name  TEXT NOT NULL,
+        input_hash TEXT NOT NULL DEFAULT '',
         status     TEXT NOT NULL DEFAULT 'unset',
-        PRIMARY KEY (session_id, tool_name),
+        PRIMARY KEY (session_id, tool_name, input_hash),
         FOREIGN KEY (session_id) REFERENCES sessions(session_id)
       );
 
@@ -125,6 +127,36 @@ export class SqliteStore implements StoreAdapter {
 
     if (!msgNames.has("content")) {
       this.db.exec("ALTER TABLE messages ADD COLUMN content TEXT");
+    }
+
+    // Migrate permissions table — add input_hash to the primary key so the
+    // store can record per-(tool, input) decisions. Existing rows get
+    // input_hash = '' (a legacy sentinel that won't match any real call),
+    // so users re-prompt once after upgrade — consistent with the new
+    // exact-match semantics.
+    const permColumns = this.db
+      .prepare("PRAGMA table_info(permissions)")
+      .all() as Array<{ name: string }>;
+    const permNames = new Set(permColumns.map((c) => c.name));
+
+    if (!permNames.has("input_hash")) {
+      this.db.exec(`
+        ALTER TABLE permissions RENAME TO permissions_legacy;
+
+        CREATE TABLE permissions (
+          session_id TEXT NOT NULL,
+          tool_name  TEXT NOT NULL,
+          input_hash TEXT NOT NULL DEFAULT '',
+          status     TEXT NOT NULL DEFAULT 'unset',
+          PRIMARY KEY (session_id, tool_name, input_hash),
+          FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+        );
+
+        INSERT INTO permissions (session_id, tool_name, input_hash, status)
+          SELECT session_id, tool_name, '', status FROM permissions_legacy;
+
+        DROP TABLE permissions_legacy;
+      `);
     }
   }
 
@@ -314,25 +346,34 @@ export class SqliteStore implements StoreAdapter {
 
   // ─── Permissions ─────────────────────────────────────────────────────────
 
-  async getPermission(toolName: string): Promise<PermissionStatus> {
+  async getPermission(
+    toolName: string,
+    input?: unknown,
+  ): Promise<PermissionStatus> {
+    const hash = permissionKey(toolName, input);
     const row = this.db
       .prepare(
-        `SELECT status FROM permissions WHERE session_id = ? AND tool_name = ?`,
+        `SELECT status FROM permissions
+         WHERE session_id = ? AND tool_name = ? AND input_hash = ?`,
       )
-      .get(this.identifier, toolName) as { status: string } | undefined;
+      .get(this.identifier, toolName, hash) as { status: string } | undefined;
     return (row?.status as PermissionStatus) ?? "unset";
   }
 
   async setPermission(
     toolName: string,
     status: PermissionStatus,
+    input?: unknown,
   ): Promise<void> {
+    const hash = permissionKey(toolName, input);
     this.db
       .prepare(
-        `INSERT INTO permissions (session_id, tool_name, status) VALUES (?, ?, ?)
-         ON CONFLICT (session_id, tool_name) DO UPDATE SET status = excluded.status`,
+        `INSERT INTO permissions (session_id, tool_name, input_hash, status)
+           VALUES (?, ?, ?, ?)
+         ON CONFLICT (session_id, tool_name, input_hash)
+           DO UPDATE SET status = excluded.status`,
       )
-      .run(this.identifier, toolName, status);
+      .run(this.identifier, toolName, hash, status);
   }
 
   // ─── Inbox ─────────────────────────────────────────────────────────────

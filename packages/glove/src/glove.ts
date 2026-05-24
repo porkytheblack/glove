@@ -31,7 +31,18 @@ export interface GloveFoldArgs<I> {
   inputSchema?: z.ZodType<I>,
   /** Raw JSON Schema — for bridged tools (MCP, OpenAPI). Skips local validation. */
   jsonSchema?: Record<string, unknown>,
-  requiresPermission?: boolean,
+  /**
+   * Gate the tool behind a permission check.
+   *
+   * - `boolean` — applies to every invocation.
+   * - `(input) => boolean` — called with the model-supplied input on every
+   *   call; return `true` to require a check for this call, `false` to
+   *   skip it (e.g. read-only commands).
+   *
+   * When the gate is on, the store is consulted via `getPermission(name, input)`
+   * and a permission prompt is rendered through the display stack.
+   */
+  requiresPermission?: boolean | ((input: I) => boolean),
   unAbortable?: boolean,
   /**
    * Tool implementation.

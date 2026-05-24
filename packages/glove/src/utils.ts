@@ -8,6 +8,30 @@ import type {
 } from "./core";
 
 /**
+ * Build a canonical permission key from a tool name and its input.
+ *
+ * `(toolName, input) → "${toolName}::${JSON.stringify(input ?? null)}"`
+ *
+ * Exact-match semantics: distinct inputs produce distinct keys, so the
+ * agent will re-ask for permission whenever the input differs. Stores
+ * that want fuzzier matching (prefix on a shell command, directory on
+ * a file path, &c.) should implement their own keying instead of using
+ * this helper.
+ */
+export function permissionKey(toolName: string, input?: unknown): string {
+  let payload: string;
+  try {
+    payload = JSON.stringify(input ?? null);
+  } catch {
+    // Circular / non-serializable inputs fall back to a per-tool key so we
+    // never throw out of a permission lookup. The caller still gets a
+    // working (if coarser) decision.
+    payload = "null";
+  }
+  return `${toolName}::${payload}`;
+}
+
+/**
  * Default in-memory `StoreAdapter`. Used by `Glove` when the caller doesn't
  * supply a store, and freely usable as a no-setup option for prototyping,
  * tests, and short-lived sessions. All data lives in process memory and is
@@ -81,12 +105,12 @@ export class MemoryStore implements StoreAdapter {
     if (task) Object.assign(task, updates);
   }
 
-  async getPermission(toolName: string) {
-    return this.permissions.get(toolName) ?? "unset";
+  async getPermission(toolName: string, input?: unknown) {
+    return this.permissions.get(permissionKey(toolName, input)) ?? "unset";
   }
 
-  async setPermission(toolName: string, status: PermissionStatus) {
-    this.permissions.set(toolName, status);
+  async setPermission(toolName: string, status: PermissionStatus, input?: unknown) {
+    this.permissions.set(permissionKey(toolName, input), status);
   }
 
   async getInboxItems() {

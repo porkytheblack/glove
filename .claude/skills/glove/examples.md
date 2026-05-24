@@ -487,6 +487,8 @@ class BridgeSubscriber implements SubscriberAdapter {
 
 ## Pattern: Permission-Gated Destructive Tools
 
+### Always gate (boolean form)
+
 ```typescript
 const DESTRUCTIVE_TOOLS = new Set(["write_file", "edit_file", "bash"]);
 
@@ -502,6 +504,38 @@ glove.fold({
   },
 });
 ```
+
+Each distinct `command` prompts independently (the default `MemoryStore`
+keys decisions on `(toolName, JSON.stringify(input))`), so granting
+`{ command: "ls" }` doesn't silently authorise `{ command: "rm -rf /" }`.
+After the first approval for a given command, identical re-calls reuse
+the cached decision.
+
+### Gate per-input (function form) — read-only escape hatch
+
+When the gate itself depends on input — e.g. you want `bash` to ask
+before writes but never before reads — pass `requiresPermission` as a
+function. Returning `false` skips the store lookup entirely; returning
+`true` runs the normal `getPermission(name, input)` flow:
+
+```typescript
+const READ_ONLY = /^(ls|cat|head|tail|pwd|echo|grep|find|wc)\b/;
+
+glove.fold({
+  name: "bash",
+  description: "Execute a shell command",
+  inputSchema: z.object({ command: z.string(), timeout: z.number().optional() }),
+  // Skip the prompt for obviously read-only commands; gate everything else.
+  requiresPermission: (input) => !READ_ONLY.test(input.command),
+  async do(input) {
+    // ... same as above
+  },
+});
+```
+
+The gate runs on every call before the store is consulted, so a write
+command always prompts even if a previous read command was allowed
+through silently.
 
 ---
 

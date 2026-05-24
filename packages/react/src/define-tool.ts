@@ -19,7 +19,15 @@ interface DefineToolConfig<
   displayPropsSchema?: D;
   resolveSchema?: R;
   displayStrategy?: SlotDisplayStrategy;
-  requiresPermission?: boolean;
+  /**
+   * Gate the tool behind a permission check.
+   *
+   * - `boolean` — applies to every invocation.
+   * - `(input) => boolean` — called with the model-supplied input on every
+   *   call; return `true` to require a check for this call, `false` to
+   *   skip it (e.g. read-only commands).
+   */
+  requiresPermission?: boolean | ((input: z.infer<I>) => boolean);
   unAbortable?: boolean;
   do: (
     input: z.infer<I>,

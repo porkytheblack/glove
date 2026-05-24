@@ -171,7 +171,18 @@ export interface Tool<I> {
   input_schema?: z.ZodType<I>;
   /** Raw JSON Schema — for bridged tools (MCP, OpenAPI). Skips local validation. */
   jsonSchema?: Record<string, unknown>;
-  requiresPermission?: boolean;
+  /**
+   * Gate the tool behind a permission check.
+   *
+   * - `boolean` — applies to every invocation regardless of input.
+   * - `(input) => boolean` — called with the model-supplied input on every
+   *   call; return `true` to require a permission check for THIS call,
+   *   `false` to skip the check entirely (e.g. read-only bash commands).
+   *
+   * When the gate is on, the store is consulted via `getPermission(name, input)`
+   * and a permission prompt is rendered via `handOver({ renderer: "permission_request", toolName, toolInput })`.
+   */
+  requiresPermission?: boolean | ((input: I) => boolean);
   unAbortable?: boolean;
   /**
    * Tool implementation.
@@ -309,8 +320,14 @@ export interface StoreAdapter {
   updateTask?(taskId: string, updates: Partial<Pick<Task, "status" | "content" | "activeForm">>): Promise<void>
 
   // Permissions (optional)
-  getPermission?(toolName: string): Promise<PermissionStatus>
-  setPermission?(toolName: string, status: PermissionStatus): Promise<void>
+  //
+  // `input` is the model-supplied tool input for this specific call. Stores
+  // can decide whether to scope decisions per-input (e.g. exact-match on a
+  // canonical form) or treat all calls to a tool uniformly (ignore `input`).
+  // The default `MemoryStore` keys decisions on `(toolName, JSON.stringify(input ?? null))`,
+  // so distinct inputs prompt independently.
+  getPermission?(toolName: string, input?: unknown): Promise<PermissionStatus>
+  setPermission?(toolName: string, status: PermissionStatus, input?: unknown): Promise<void>
 
   // Inbox (optional)
   getInboxItems?(): Promise<Array<InboxItem>>
@@ -484,10 +501,16 @@ export class Executor {
   }
 
   private async checkPermission(tool: Tool<any>, input: unknown, handOver?: HandOverFunction): Promise<boolean> {
-    if (!tool.requiresPermission) return true;
+    // Resolve `requiresPermission` against this specific input. Function form
+    // lets a single tool gate writes but not reads (e.g. bash) without
+    // store-side rules.
+    const gate = typeof tool.requiresPermission === "function"
+      ? Boolean(tool.requiresPermission(input))
+      : Boolean(tool.requiresPermission);
+    if (!gate) return true;
     if (!this.store?.getPermission || !this.store?.setPermission) return true;
 
-    const status = await this.store.getPermission(tool.name);
+    const status = await this.store.getPermission(tool.name, input);
     if (status === "granted") return true;
     if (status === "denied") return false;
 
@@ -496,7 +519,7 @@ export class Executor {
 
     const result = await handOver({ renderer: 'permission_request', toolName: tool.name, toolInput: input });
     const allowed = Boolean(result);
-    await this.store.setPermission(tool.name, allowed ? "granted" : "denied");
+    await this.store.setPermission(tool.name, allowed ? "granted" : "denied", input);
     return allowed;
   }
 

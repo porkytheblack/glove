@@ -6,6 +6,7 @@ import type {
   InboxItem,
   PermissionStatus,
 } from "glove-core/core";
+import { permissionKey } from "glove-core";
 
 /**
  * In-memory `StoreAdapter` for simple use cases where persistence isn't needed.
@@ -106,14 +107,18 @@ export class MemoryStore implements StoreAdapter {
 
   // ─── Permissions ─────────────────────────────────────────────────────────────
 
-  async getPermission(toolName: string): Promise<PermissionStatus> {
-    return this.permissions.get(toolName) ?? "unset";
+  async getPermission(
+    toolName: string,
+    input?: unknown,
+  ): Promise<PermissionStatus> {
+    return this.permissions.get(permissionKey(toolName, input)) ?? "unset";
   }
 
   async setPermission(
     toolName: string,
     status: PermissionStatus,
+    input?: unknown,
   ): Promise<void> {
-    this.permissions.set(toolName, status);
+    this.permissions.set(permissionKey(toolName, input), status);
   }
 }

@@ -135,7 +135,15 @@ export interface ToolConfig<I = any> {
   name: string;
   description: string;
   inputSchema: z.ZodType<I>;
-  requiresPermission?: boolean;
+  /**
+   * Gate the tool behind a permission check.
+   *
+   * - `boolean` — applies to every invocation.
+   * - `(input) => boolean` — called with the model-supplied input on every
+   *   call; return `true` to require a check for this call, `false` to
+   *   skip it (e.g. read-only commands).
+   */
+  requiresPermission?: boolean | ((input: I) => boolean);
   unAbortable?: boolean;
   displayStrategy?: SlotDisplayStrategy;
   do: (input: I, display: ToolDisplay) => Promise<ToolResultData>;

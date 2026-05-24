@@ -46,7 +46,7 @@ The runnable returned by `build()` exposes `model`, `displayManager`, and `serve
   description: string,
   inputSchema?: z.ZodType<I>,             // Optional. Provide either inputSchema (Zod, validated locally) or jsonSchema (raw, passthrough).
   jsonSchema?: Record<string, unknown>,   // Raw JSON Schema. When set, executor skips local Zod validation. Used by bridgeMcpTool.
-  requiresPermission?: boolean,
+  requiresPermission?: boolean | ((input: I) => boolean),  // boolean gates every call; function form gates per-input (return true to require check, false to skip)
   unAbortable?: boolean,                  // When true, tool runs to completion even if abort signal fires (e.g. voice barge-in)
   do: (
     input: I,
@@ -107,9 +107,13 @@ interface StoreAdapter {
   getTasks?(): Promise<Task[]>;
   addTasks?(tasks: Task[]): Promise<void>;
   updateTask?(taskId: string, updates: Partial<Pick<Task, "status" | "content" | "activeForm">>): Promise<void>;
-  // Optional — enables permission system:
-  getPermission?(toolName: string): Promise<PermissionStatus>;
-  setPermission?(toolName: string, status: PermissionStatus): Promise<void>;
+  // Optional — enables permission system (input-aware):
+  // The Executor passes the model-supplied tool input on every gated call.
+  // Stores can scope decisions per-(name, input) or ignore input and treat
+  // all calls to a tool uniformly. The default MemoryStore exact-matches via
+  // permissionKey(name, input).
+  getPermission?(toolName: string, input?: unknown): Promise<PermissionStatus>;
+  setPermission?(toolName: string, status: PermissionStatus, input?: unknown): Promise<void>;
   // Optional — enables built-in inbox tool when present:
   getInboxItems?(): Promise<InboxItem[]>;
   addInboxItem?(item: InboxItem): Promise<void>;
@@ -139,6 +143,18 @@ const childStore = await store.createSubAgentStore("researcher", false);
 ```
 
 Used as the default `StoreAdapter` when `Glove` is constructed without a `store`. Implements messages, tokens (`tokens_in` + `tokens_out`), turns, tasks, permissions, inbox, and `createSubAgentStore`. Process-local — data is lost on restart.
+
+Permission decisions are keyed on `(toolName, input)` via the exported `permissionKey(name, input)` helper — distinct inputs prompt independently and identical inputs hit the cached decision.
+
+```typescript
+import { permissionKey } from "glove-core";
+
+permissionKey("bash", { cmd: "ls" });        // "bash::{\"cmd\":\"ls\"}"
+permissionKey("bash", { cmd: "rm -rf /" });  // different key → independent prompt
+permissionKey("read_file");                  // "read_file::null" (omitted input is its own bucket)
+```
+
+Custom stores that want fuzzier matching (regex on a command, prefix on a path) should canonicalise `input` themselves rather than reusing this helper.
 
 ### SqliteStore (deprecated)
 
@@ -668,7 +684,7 @@ interface ToolConfig<I = any> {
   render?: (props: SlotRenderProps) => ReactNode;
   renderResult?: (props: ToolResultRenderProps) => ReactNode;
   displayStrategy?: SlotDisplayStrategy;
-  requiresPermission?: boolean;
+  requiresPermission?: boolean | ((input: I) => boolean);  // function form gates per-input
   unAbortable?: boolean;
 }
 ```
@@ -689,7 +705,7 @@ const tool = defineTool<I, D, R>({
   displayPropsSchema?: D,                  // z.ZodType — display props schema (recommended for tools with UI)
   resolveSchema?: R,                       // z.ZodType — resolve value schema (default: z.ZodVoid)
   displayStrategy?: SlotDisplayStrategy,
-  requiresPermission?: boolean,
+  requiresPermission?: boolean | ((input: z.infer<I>) => boolean),  // function form gates per-input
   unAbortable?: boolean,                   // Tool runs to completion even if abort signal fires
   do(input: z.infer<I>, display: TypedDisplay<z.infer<D>, z.infer<R>>): Promise<ToolResultData>,
   render?({ props, resolve, reject }): ReactNode,
@@ -893,7 +909,9 @@ const store = createRemoteStore("session-id", {
   // addTokens?(sid, args: TokenConsumptionCounter)   // TAKES THE SPLIT COUNTER, NOT A SINGLE NUMBER
   // getTurnCount?(sid), incrementTurn?(sid), resetCounters?(sid)
   // getTasks?(sid), addTasks?(sid, tasks), updateTask?(sid, taskId, updates)
-  // getPermission?(sid, toolName), setPermission?(sid, toolName, status)
+  // getPermission?(sid, toolName, input?), setPermission?(sid, toolName, status, input?)
+  //   ↑ input is the model-supplied tool input — use it to scope decisions per-input.
+  //     In-memory fallback keys on (toolName, JSON.stringify(input ?? null)) via permissionKey().
   // getInboxItems?(sid), addInboxItem?(sid, item),
   // updateInboxItem?(sid, itemId, updates), getResolvedInboxItems?(sid)
 });
@@ -1498,7 +1516,12 @@ interface Tool<I> {
   description: string;
   input_schema?: z.ZodType<I>;
   jsonSchema?: Record<string, unknown>;
-  requiresPermission?: boolean;
+  /**
+   * Permission gate. boolean applies to every call; (input) => boolean runs
+   * per-call to decide whether THIS input needs a check. When the gate is
+   * on, the Executor consults the store via getPermission(name, input).
+   */
+  requiresPermission?: boolean | ((input: I) => boolean);
   unAbortable?: boolean;
   run(
     input: I,
@@ -1513,7 +1536,7 @@ interface GloveFoldArgs<I> {
   description: string;
   inputSchema?: z.ZodType<I>;
   jsonSchema?: Record<string, unknown>;
-  requiresPermission?: boolean;
+  requiresPermission?: boolean | ((input: I) => boolean);  // see Tool<I> for semantics
   unAbortable?: boolean;
   do: (
     input: I,

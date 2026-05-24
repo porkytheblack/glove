@@ -6,6 +6,7 @@ import type {
   InboxItem,
   PermissionStatus,
 } from "glove-core/core";
+import { permissionKey } from "glove-core";
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -50,14 +51,22 @@ export interface RemoteStoreActions {
   getResolvedInboxItems?: (sessionId: string) => Promise<InboxItem[]>;
 
   // Permissions
+  //
+  // `input` is the model-supplied tool input for THIS call. Use it to scope
+  // decisions per-input (e.g. exact-match on a canonical form) or ignore it
+  // and apply the decision to the whole tool. When omitted, the in-memory
+  // fallback keys decisions on `(toolName, JSON.stringify(input ?? null))`,
+  // matching the default `MemoryStore`.
   getPermission?: (
     sessionId: string,
     toolName: string,
+    input?: unknown,
   ) => Promise<PermissionStatus>;
   setPermission?: (
     sessionId: string,
     toolName: string,
     status: PermissionStatus,
+    input?: unknown,
   ) => Promise<void>;
 }
 
@@ -199,17 +208,17 @@ export function createRemoteStore(
 
     // ─── Permissions ───────────────────────────────────────────────────────
 
-    async getPermission(toolName) {
+    async getPermission(toolName, input) {
       if (actions.getPermission)
-        return actions.getPermission(sessionId, toolName);
-      return permissions.get(toolName) ?? "unset";
+        return actions.getPermission(sessionId, toolName, input);
+      return permissions.get(permissionKey(toolName, input)) ?? "unset";
     },
 
-    async setPermission(toolName, status) {
+    async setPermission(toolName, status, input) {
       if (actions.setPermission) {
-        await actions.setPermission(sessionId, toolName, status);
+        await actions.setPermission(sessionId, toolName, status, input);
       } else {
-        permissions.set(toolName, status);
+        permissions.set(permissionKey(toolName, input), status);
       }
     },
   };

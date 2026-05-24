@@ -318,8 +318,8 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
           ],
           [
             "requiresPermission?",
-            "boolean",
-            "When true, checks the store for permission before execution. Defaults to false.",
+            "boolean | ((input: I) => boolean)",
+            "Gate the tool behind a permission check. Pass true to gate every call. Pass (input) => boolean to gate per-call — return true to require a check for that input, false to skip (e.g. read-only commands). When the gate is on, the store is consulted via getPermission(name, input) and a permission_request slot is pushed via handOver. Defaults to false.",
           ],
           [
             "unAbortable?",
@@ -1352,9 +1352,9 @@ await notify("model_response_complete", {
   getTasks?(): Promise<Task[]>;
   addTasks?(tasks: Task[]): Promise<void>;
   updateTask?(taskId: string, updates: Partial<Task>): Promise<void>;
-  // Optional — permissions:
-  getPermission?(toolName: string): Promise<PermissionStatus>;
-  setPermission?(toolName: string, status: PermissionStatus): Promise<void>;
+  // Optional — permissions (input-aware):
+  getPermission?(toolName: string, input?: unknown): Promise<PermissionStatus>;
+  setPermission?(toolName: string, status: PermissionStatus, input?: unknown): Promise<void>;
   // Optional — inbox:
   getInboxItems?(): Promise<InboxItem[]>;
   addInboxItem?(item: InboxItem): Promise<void>;
@@ -1433,14 +1433,14 @@ interface TokenConsumptionCounter {
             "Update a task by ID. Optional.",
           ],
           [
-            "getPermission?(toolName)",
+            "getPermission?(toolName, input?)",
             "Promise<PermissionStatus>",
-            "Check permission status for a tool. Optional.",
+            "Check permission status for a specific (tool, input) pair. The Executor passes the model-supplied input on every call; the store decides whether to scope decisions per-input or treat all calls to a tool the same. Optional.",
           ],
           [
-            "setPermission?(toolName, status)",
+            "setPermission?(toolName, status, input?)",
             "Promise<void>",
-            "Set permission status for a tool. Optional.",
+            "Persist a permission decision for a specific (tool, input) pair. Called by the Executor after the user resolves a permission_request prompt. Optional.",
           ],
           [
             "getInboxItems?()",
@@ -1724,8 +1724,8 @@ const durable = await store.createSubAgentStore("planner", true);        // cach
           ],
           [
             "requiresPermission?",
-            "boolean",
-            "Whether the tool requires explicit permission before execution.",
+            "boolean | ((input: I) => boolean)",
+            "Permission gate. boolean applies to every call; (input) => boolean runs on every call and decides per-input whether a check is needed. The Executor consults the store via getPermission(name, input) when the gate is on.",
           ],
           [
             "unAbortable?",
@@ -2042,6 +2042,52 @@ export const readFile: GloveFoldArgs<{ path: string; from?: number; to?: number 
         code={`type PermissionStatus = "granted" | "denied" | "unset";`}
         language="typescript"
       />
+
+      <p>
+        Decisions are keyed on the <strong>(tool name, input)</strong> pair,
+        not just the tool name. The <code>Executor</code> calls{" "}
+        <code>store.getPermission(name, input)</code> with the model-supplied
+        input on every gated call, so two calls to the same tool with different
+        inputs prompt independently. The store decides how to scope the
+        decision — exact-match on the input, a canonical form (command prefix,
+        directory), or a tool-wide rule.
+      </p>
+
+      <p>
+        For tools where the check itself depends on the input,{" "}
+        <code>Tool.requiresPermission</code> also accepts a function. Return{" "}
+        <code>true</code> to require a check for that input, <code>false</code>{" "}
+        to skip it entirely. This lets a single tool gate writes but not reads
+        without store-side rules.
+      </p>
+
+      <h3 id="permission-key">permissionKey</h3>
+
+      <p>
+        Helper exported from <code>glove-core</code> that builds the canonical
+        key used by the default <code>MemoryStore</code>:
+      </p>
+
+      <CodeBlock
+        code={`import { permissionKey } from "glove-core";
+
+permissionKey("bash", { cmd: "ls" });
+// "bash::{\\"cmd\\":\\"ls\\"}"
+
+permissionKey("bash", { cmd: "rm -rf /" });
+// "bash::{\\"cmd\\":\\"rm -rf /\\"}"  ← different key, prompts independently
+
+permissionKey("read_file");
+// "read_file::null"  ← omitted input has its own bucket`}
+        language="typescript"
+      />
+
+      <p>
+        Use it when implementing a custom store that wants exact-match
+        semantics matching <code>MemoryStore</code>. Stores that want fuzzier
+        matching (regex on a command, prefix on a file path) should key by
+        their own canonical form instead.
+      </p>
 
       {/* ================================================================== */}
       {/* FUNCTION TYPES                                                     */}

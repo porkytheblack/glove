@@ -503,8 +503,8 @@ function DebugPanel() {
           ],
           [
             "requiresPermission?",
-            "boolean",
-            "When true, the agent will check the store for permission before executing this tool. Defaults to false.",
+            "boolean | ((input: I) => boolean)",
+            "Permission gate. boolean applies to every call; (input) => boolean runs per-call — return true to require a check for that input, false to skip (e.g. read-only commands). The store is consulted via getPermission(name, input) when the gate is on. Defaults to false.",
           ],
           [
             "unAbortable?",
@@ -588,8 +588,8 @@ const weatherTool: ToolConfig<{ city: string }> = {
           ],
           [
             "requiresPermission?",
-            "boolean",
-            "When true, checks store for permission before executing.",
+            "boolean | ((input: z.infer<I>) => boolean)",
+            "Permission gate. boolean applies to every call; (input) => boolean runs per-call — return true to require a check for that input, false to skip. See the core docs for full semantics.",
           ],
           [
             "unAbortable?",
@@ -1187,13 +1187,13 @@ const store = createRemoteStore("session-123", {
           ],
           [
             "getPermission?",
-            "(sessionId: string, toolName: string) => Promise<PermissionStatus>",
-            "Check the permission status for a tool.",
+            "(sessionId: string, toolName: string, input?: unknown) => Promise<PermissionStatus>",
+            "Check the permission status for a specific (tool, input) pair. input is the model-supplied tool input — use it to scope decisions per-input, or ignore it and apply decisions tool-wide. When omitted, the in-memory fallback keys on (toolName, JSON.stringify(input ?? null)) matching the default MemoryStore.",
           ],
           [
             "setPermission?",
-            "(sessionId: string, toolName: string, status: PermissionStatus) => Promise<void>",
-            "Set the permission status for a tool.",
+            "(sessionId: string, toolName: string, status: PermissionStatus, input?: unknown) => Promise<void>",
+            "Persist a permission decision for a specific (tool, input) pair. Called after the user resolves a permission_request prompt.",
           ],
         ]}
       />

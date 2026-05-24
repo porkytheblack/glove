@@ -353,7 +353,7 @@ gloveBuilder.addSubscriber(logger);
 ### Optional Store Features
 
 - **Tasks** (`getTasks`, `addTasks`, `updateTask`): Auto-registers `glove_update_tasks` tool
-- **Permissions** (`getPermission`, `setPermission`): Tools with `requiresPermission: true` check consent
+- **Permissions** (`getPermission(name, input?)`, `setPermission(name, status, input?)`): Tools with `requiresPermission: true` (or a `(input) => boolean` gate) check consent. The Executor passes the model-supplied input on every gated call so the store can scope decisions per-input. The default `MemoryStore` uses exact-match keying via the exported `permissionKey(name, input)` helper.
 - **Inbox** (`getInboxItems`, `addInboxItem`, `updateInboxItem`, `getResolvedInboxItems`): Auto-registers `glove_post_to_inbox` tool. Enables async cross-instance communication.
 
 If your store doesn't implement these, they're silently disabled.
@@ -1468,7 +1468,7 @@ const tool = defineTool({
   displayPropsSchema?: z.ZodType,      // Zod schema for display props (recommended for tools with UI)
   resolveSchema?: z.ZodType,           // Zod schema for resolve value (omit for pushAndForget-only)
   displayStrategy?: SlotDisplayStrategy,
-  requiresPermission?: boolean,
+  requiresPermission?: boolean | ((input: z.infer<I>) => boolean),  // function form gates per-input (e.g. only writes, not reads)
   unAbortable?: boolean,                 // Tool runs to completion even if abort signal fires (e.g. voice barge-in)
   do(input, display): Promise<ToolResultData>,  // display is TypedDisplay<D, R>
   render?({ props, resolve, reject }): ReactNode,
@@ -1494,7 +1494,7 @@ interface ToolConfig<I = any> {
   render?: (props: SlotRenderProps) => ReactNode;
   renderResult?: (props: ToolResultRenderProps) => ReactNode;
   displayStrategy?: SlotDisplayStrategy;
-  requiresPermission?: boolean;
+  requiresPermission?: boolean | ((input: I) => boolean);  // function form gates per-input
   unAbortable?: boolean;
 }
 ```
@@ -1973,3 +1973,6 @@ For example patterns from real implementations, see [examples.md](examples.md).
 48. **`reasoning_effort` "minimal" is GPT-5-only**: The full effort enum is `"minimal" | "low" | "medium" | "high"`, but `"minimal"` only works on GPT-5 / o-series. The MiMo branch silently drops it. Other providers may reject it — check provider docs before using.
 49. **Adaptive reasoning models can suppress thinking on "low"**: On `mimo-v2.5-pro` and similar adaptive models, passing `effort: "low"` or `"medium"` can suppress reasoning rather than bound it. Pass `"high"` for consistently deep reasoning, or leave unset to let the model decide.
 50. **Provider-specific reasoning extras via `extraBody`**: For Qwen3 dashscope's `enable_thinking` / `thinking_budget`, or any other non-standard request field, use `reasoning: { extraBody: { ... } }` — fields are merged straight into the request body. Structured options (`effort`, `reasoningObject`, `thinking`) are exposed for the common cases.
+51. **Permissions are keyed on (tool, input), not just tool**: `Executor.checkPermission` calls `store.getPermission(name, input)` with the model-supplied input on every gated call. The default `MemoryStore` exact-matches inputs via `permissionKey(name, input)` → `"${name}::${JSON.stringify(input ?? null)}"`, so calls with different inputs prompt independently and calls with identical inputs hit the cached decision. Custom stores can implement fuzzier matching (regex on a command, prefix on a path) by ignoring or canonicalising `input` themselves.
+52. **`requiresPermission` accepts a function**: `boolean | ((input: I) => boolean)`. Use the function form when the *gate itself* depends on input — e.g. a single `bash` tool that gates writes but not reads: `requiresPermission: (i) => !i.cmd.startsWith("ls")`. Returning `false` skips the store lookup entirely for that call; returning `true` runs the normal `getPermission(name, input)` flow.
+53. **SqliteStore migration on upgrade**: Existing databases get an `input_hash` column added to the `permissions` table (PK becomes `(session_id, tool_name, input_hash)`). Legacy rows are preserved with `input_hash = ''` (a sentinel that won't match any real call), so users re-prompt once for every tool after upgrade — consistent with the new exact-match semantics. `glove-sqlite` is still deprecated; prefer `MemoryStore` from `glove-core` or BYO `StoreAdapter`.
