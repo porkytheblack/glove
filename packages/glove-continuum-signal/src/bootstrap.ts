@@ -268,6 +268,7 @@ async function runConcurrent(
   // store (PromptMachine state is shared). Wrappers that want true
   // parallelism should run multiple warm subprocesses.
   let chain: Promise<void> = Promise.resolve();
+  let stopping = false;
 
   const handleNotify = (msg: { runId: string; input: unknown }): void => {
     chain = chain.then(async () => {
@@ -342,12 +343,27 @@ async function runConcurrent(
     const msg = raw as ParentToChildMessage;
     if (!msg || typeof msg !== "object") return;
     if (msg.type === "stop") {
+      stopping = true;
       ac.abort();
       // Give in-flight notify a moment to send its closing envelope, then exit.
       setTimeout(() => process.exit(0), 200);
       return;
     }
     if (msg.type === "notify") {
+      // Reject notifies arriving after stop has been received — the chain
+      // is being torn down. Without this, the late notify would either get
+      // queued behind a chain link that's about to be aborted (producing a
+      // confusing failure) or race the 200ms exit deadline.
+      if (stopping) {
+        void sendIPC({
+          type: "notify:failed",
+          runId: msg.runId,
+          agentName: agent.name,
+          error: "Warm subprocess is shutting down",
+          timestamp: nowISO(),
+        });
+        return;
+      }
       handleNotify(msg);
       return;
     }

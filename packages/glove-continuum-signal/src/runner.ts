@@ -59,6 +59,14 @@ interface RegisteredAgent {
   mode: AgentMode;
   filePath: string;
   agent: AnyAgent;
+  /**
+   * Number of restarts in the CURRENT instability window. Reset to 0 once a
+   * warm subprocess has been `ready` for `WARM_HEALTHY_RESET_MS` without
+   * exiting. This way "chronic flap" detection still works (rapid back-to-back
+   * crashes exhaust the budget) but a once-in-a-while crash after hours of
+   * healthy work doesn't permanently lose the agent.
+   */
+  warmRestartCount: number;
 }
 
 interface RecurringSchedule {
@@ -76,9 +84,28 @@ interface WarmAgentHandle {
   ready: boolean;
   pendingNotifies: Map<string, Run>;
   outboxQueue: Array<{ runId: string; input: unknown }>;
-  restarts: number;
   startedAt: Date;
+  /**
+   * Timer that resets `entry.warmRestartCount` once the subprocess has been
+   * stable for long enough. Cleared in the exit handler so a quick re-crash
+   * doesn't get a fresh budget.
+   */
+  resetRestartsTimer: ReturnType<typeof setTimeout> | null;
 }
+
+const WARM_HEALTHY_RESET_MS = 60_000;
+/**
+ * Env vars an agent's `.env({...})` is not allowed to override, and which we
+ * also don't forward from the parent process. These are loader-level escapes
+ * that turn process spawn into code-execution. PATH is deliberately NOT in
+ * the list — the spawned `node` binary needs it to resolve.
+ */
+const ENV_BLOCKLIST = new Set([
+  "NODE_OPTIONS",
+  "LD_PRELOAD",
+  "LD_LIBRARY_PATH",
+  "DYLD_INSERT_LIBRARIES",
+]);
 
 export interface ContinuumRunnerOptions {
   agentsDir?: string;
@@ -163,12 +190,16 @@ export class ContinuumRunner {
       console.warn(
         `[glove-continuum-signal] Duplicate agent name "${a.name}" — overwriting with ${resolved}`,
       );
+      // Clear stale recurring schedule so the old (potentially mismatched)
+      // interval/timeout/maxAttempts don't keep firing under the new agent's name.
+      this.recurringSchedules.delete(a.name);
     }
     this.registry.set(a.name, {
       name: a.name,
       mode: a.mode,
       filePath: resolved,
       agent: a,
+      warmRestartCount: 0,
     });
     this.emit("onAgentDiscovered", {
       agentName: a.name,
@@ -622,15 +653,43 @@ export class ContinuumRunner {
 
   // ── Concurrent warm subprocess lifecycle ────────────────────────────────
 
+  /**
+   * Merge an agent's `.env({…})` override into the parent's process.env for
+   * the subprocess. Filter `ENV_BLOCKLIST` from BOTH the agent override and
+   * the parent — so an agent file can never override loader-critical vars
+   * (NODE_OPTIONS, LD_PRELOAD, …) and a parent that has them set won't leak
+   * them downstream either. This is defense-in-depth; the trust model is
+   * still "I trust my own agent code", and `agentsDir` discovery is also
+   * trusted, but blocking the highest-impact escapes is cheap.
+   */
+  private buildChildEnv(
+    overrides: Record<string, string>,
+  ): Record<string, string> {
+    const merged: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (ENV_BLOCKLIST.has(k)) continue;
+      if (v !== undefined) merged[k] = v;
+    }
+    for (const [k, v] of Object.entries(overrides)) {
+      if (ENV_BLOCKLIST.has(k)) {
+        console.warn(
+          `[glove-continuum-signal] Refusing to override env var "${k}" — on the blocklist (loader/path-critical).`,
+        );
+        continue;
+      }
+      merged[k] = v;
+    }
+    return merged;
+  }
+
   private spawnWarmAgent(entry: RegisteredAgent): void {
-    const env: Record<string, string> = {
-      ...(process.env as Record<string, string>),
+    const env = this.buildChildEnv({
       ...(entry.agent.env ?? {}),
       CONTINUUM_AGENT_FILE: entry.filePath,
       CONTINUUM_AGENT_NAME: entry.name,
       CONTINUUM_MODE: "concurrent",
       CONTINUUM_TIMEOUT: String(entry.agent.timeout ?? DEFAULT_TIMEOUT_MS),
-    };
+    });
     const tsxImport = getTsxImport();
     const nodeArgs = tsxImport
       ? ["--import", tsxImport, BOOTSTRAP]
@@ -646,8 +705,8 @@ export class ContinuumRunner {
       ready: false,
       pendingNotifies: new Map(),
       outboxQueue: [],
-      restarts: 0,
       startedAt: new Date(),
+      resetRestartsTimer: null,
     };
     this.warmAgents.set(entry.name, handle);
 
@@ -667,26 +726,19 @@ export class ContinuumRunner {
     setTimeout(() => {
       this.restartingWarmAgents.delete(entry.name);
       if (this.stopping) return;
-      // Reuse the previous handle's restart counter so the policy applies
-      // across exits. We track it on the registry entry's `_warmRestarts`
-      // counter (private field on the registry value).
-      const prevRestarts =
-        (entry as RegisteredAgent & { _warmRestarts?: number })
-          ._warmRestarts ?? 0;
-      if (prevRestarts >= this.warmRestartPolicy.maxRestarts) {
+      if (entry.warmRestartCount >= this.warmRestartPolicy.maxRestarts) {
         this.emit("onAgentTerminated", {
           agentName: entry.name,
-          reason: `Restart budget exhausted (${prevRestarts}/${this.warmRestartPolicy.maxRestarts})`,
+          reason: `Restart budget exhausted (${entry.warmRestartCount}/${this.warmRestartPolicy.maxRestarts})`,
           restartScheduled: false,
         });
         return;
       }
-      (entry as RegisteredAgent & { _warmRestarts?: number })._warmRestarts =
-        prevRestarts + 1;
+      entry.warmRestartCount += 1;
       this.spawnWarmAgent(entry);
       this.emit("onAgentRestarted", {
         agentName: entry.name,
-        restartCount: prevRestarts + 1,
+        restartCount: entry.warmRestartCount,
       });
     }, this.warmRestartPolicy.backoffMs);
   }
@@ -700,6 +752,20 @@ export class ContinuumRunner {
       this.spawnWarmAgent(entry);
       handle = this.warmAgents.get(entry.name)!;
     }
+    // Defensive: corrupted/malformed input would otherwise abort the
+    // dispatch loop. Fail the run and move on.
+    let input: unknown;
+    try {
+      input = JSON.parse(run.input);
+    } catch (err) {
+      await this.adapter.updateRun(run.id, {
+        status: "failed",
+        completedAt: new Date(),
+        error: `Malformed input JSON: ${(err as Error).message}`,
+      });
+      this.emit("onRunFailed", { run, error: (err as Error).message });
+      return;
+    }
     await this.adapter.updateRun(run.id, {
       status: "running",
       startedAt: new Date(),
@@ -709,7 +775,6 @@ export class ContinuumRunner {
     const fresh = (await this.adapter.getRun(run.id)) ?? run;
     handle.pendingNotifies.set(run.id, fresh);
     this.emit("onRunDispatched", { run: fresh });
-    const input: unknown = JSON.parse(run.input);
     const envelope = { type: "notify" as const, runId: run.id, input };
     if (handle.ready) {
       try {
@@ -735,8 +800,7 @@ export class ContinuumRunner {
   // ── Triggered subprocess lifecycle ──────────────────────────────────────
 
   private dispatchTriggered(entry: RegisteredAgent, run: Run): void {
-    const env: Record<string, string> = {
-      ...(process.env as Record<string, string>),
+    const env = this.buildChildEnv({
       ...(entry.agent.env ?? {}),
       CONTINUUM_AGENT_FILE: entry.filePath,
       CONTINUUM_AGENT_NAME: run.agentName,
@@ -744,7 +808,7 @@ export class ContinuumRunner {
       CONTINUUM_RUN_ID: run.id,
       CONTINUUM_INPUT_JSON: run.input,
       CONTINUUM_TIMEOUT: String(run.timeout ?? DEFAULT_TIMEOUT_MS),
-    };
+    });
     const tsxImport = getTsxImport();
     const nodeArgs = tsxImport
       ? ["--import", tsxImport, BOOTSTRAP]
@@ -773,27 +837,48 @@ export class ContinuumRunner {
     warm: WarmAgentHandle | null,
     triggeredRun?: Run,
   ): void {
-    let resolved = !!warm; // for triggered, we resolve via run:completed/failed; for warm, run lifecycle is per-notify
+    let resolved = !!warm; // for triggered, resolved flips on terminal IPC; for warm, lifecycle is per-notify
     const runId = triggeredRun?.id;
 
     const cleanupTriggered = (): void => {
       if (runId) this.childByRunId.delete(runId);
     };
 
-    child.on("message", async (raw: unknown) => {
+    // Serialize message processing so the parent never interleaves two
+    // handler bodies for the same child. Without this, slow adapter calls
+    // inside one handler could be lapped by the next message (e.g. `ready`
+    // outbox-flush awaiting `getRun` while `notify:started` for an earlier
+    // queued send is already on the wire).
+    let messageChain: Promise<void> = Promise.resolve();
+
+    child.on("message", (raw: unknown) => {
       const msg = raw as ChildToParentMessage;
       if (!msg || typeof msg !== "object") return;
-      await this.handleChildMessage(entry, msg, warm, () => {
-        resolved = true;
-      });
+
+      // Synchronous critical path: set `resolved` and decrement counters
+      // BEFORE any await. Otherwise the 200ms exit-grace check can observe
+      // `resolved === false` while a slow adapter call inside the async
+      // handler is still pending, double-decrementing on a slow adapter.
+      // Lifted from station-signal's pattern (signal-runner.ts:653).
       if (
         triggeredRun &&
-        (msg.type === "run:completed" || msg.type === "run:failed")
+        (msg.type === "run:completed" || msg.type === "run:failed") &&
+        !resolved
       ) {
+        resolved = true;
         this.activeCount = Math.max(0, this.activeCount - 1);
         this.decrementPerAgent(entry.name);
         cleanupTriggered();
       }
+
+      messageChain = messageChain.then(() =>
+        this.handleChildMessage(entry, msg, warm).catch((err) => {
+          console.error(
+            `[glove-continuum-signal] handleChildMessage error for "${entry.name}":`,
+            err,
+          );
+        }),
+      );
     });
 
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -875,6 +960,12 @@ export class ContinuumRunner {
       }
 
       if (warm) {
+        // Clear the stability-reset timer so a quick re-crash doesn't get a
+        // fresh restart budget.
+        if (warm.resetRestartsTimer) {
+          clearTimeout(warm.resetRestartsTimer);
+          warm.resetRestartsTimer = null;
+        }
         // Fail any pending notifies — their subprocess is gone.
         for (const pending of warm.pendingNotifies.values()) {
           const cur = await this.adapter.getRun(pending.id);
@@ -905,13 +996,21 @@ export class ContinuumRunner {
     entry: RegisteredAgent,
     msg: ChildToParentMessage,
     warm: WarmAgentHandle | null,
-    markResolved: () => void,
   ): Promise<void> {
     switch (msg.type) {
       case "ready": {
         if (warm) {
           warm.ready = true;
           this.emit("onAgentReady", { agentName: entry.name });
+          // Stable-uptime reset: if the subprocess survives WARM_HEALTHY_RESET_MS
+          // post-ready, treat the previous restart streak as a transient blip
+          // and zero the counter. Exit handler clears this timer so a quick
+          // re-crash doesn't earn a fresh budget.
+          if (warm.resetRestartsTimer) clearTimeout(warm.resetRestartsTimer);
+          warm.resetRestartsTimer = setTimeout(() => {
+            entry.warmRestartCount = 0;
+            warm.resetRestartsTimer = null;
+          }, WARM_HEALTHY_RESET_MS);
           // Flush queued notifies.
           for (const queued of warm.outboxQueue) {
             try {
@@ -941,7 +1040,8 @@ export class ContinuumRunner {
         return;
       }
       case "run:completed": {
-        markResolved();
+        // `resolved` flag + counter decrement already happened synchronously
+        // in wireChildIPC before this async handler ran.
         const current = await this.adapter.getRun(msg.runId);
         if (
           current &&
@@ -961,7 +1061,8 @@ export class ContinuumRunner {
         return;
       }
       case "run:failed": {
-        markResolved();
+        // `resolved` flag + counter decrement already happened synchronously
+        // in wireChildIPC before this async handler ran.
         const current = await this.adapter.getRun(msg.runId);
         if (
           current &&
@@ -998,12 +1099,17 @@ export class ContinuumRunner {
         return;
       }
       case "notify:started": {
+        // Ownership check — only act on runIds this warm subprocess actually owns.
+        // Prevents a misbehaving warm child from spoofing another warm agent's run.
+        if (warm && !warm.pendingNotifies.has(msg.runId)) return;
         const current = await this.adapter.getRun(msg.runId);
         if (current) this.emit("onRunStarted", { run: current });
         return;
       }
       case "notify:completed": {
-        if (warm) warm.pendingNotifies.delete(msg.runId);
+        if (!warm) return;
+        if (!warm.pendingNotifies.has(msg.runId)) return;
+        warm.pendingNotifies.delete(msg.runId);
         const current = await this.adapter.getRun(msg.runId);
         if (
           current &&
@@ -1023,7 +1129,9 @@ export class ContinuumRunner {
         return;
       }
       case "notify:failed": {
-        if (warm) warm.pendingNotifies.delete(msg.runId);
+        if (!warm) return;
+        if (!warm.pendingNotifies.has(msg.runId)) return;
+        warm.pendingNotifies.delete(msg.runId);
         const current = await this.adapter.getRun(msg.runId);
         if (
           current &&
