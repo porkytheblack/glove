@@ -63,6 +63,7 @@ const sections: NavSection[] = [
       { label: "MCP", href: "/docs/mcp" },
       { label: "Memory", href: "/docs/memory" },
       { label: "Mesh", href: "/docs/mesh" },
+      { label: "Continuum", href: "/docs/continuum", beta: true },
     ],
   },
   {

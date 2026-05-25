@@ -104,7 +104,30 @@ too if mesh is mounted on the resulting glove.
 For cross-subprocess agent-to-agent transport, supply a real adapter (Redis,
 NATS, HTTP webhooks, …). The package tests include a `FilesystemMeshAdapter`
 (`tests/fixtures/fs-mesh-adapter.ts`) as a worked example of a multiprocess
-adapter built on the filesystem.
+adapter built on the filesystem — atomic tmp+rename writes, ~100ms polling
+subscribe, per-message sender lookup so `acknowledge()` routes back to the
+original sender even across process restarts. Suitable for tests and local
+multiprocess scenarios; a production cross-machine mesh wants a real broker.
+
+### End-to-end proof: two continuum agents talking via mesh
+
+`tests/agent-to-agent-mesh.test.ts` exercises the full chain in one
+`ContinuumRunner` with two warm concurrent agents (`mesh-sender` +
+`mesh-receiver`) sharing a `FilesystemMeshAdapter`:
+
+```
+runner.notify("mesh-sender", { to: "mesh-receiver", content })
+  → sender's bootstrap subprocess receives notify IPC
+  → MeshSendingModel emits glove_mesh_send_message tool call
+  → executor runs the mesh tool
+  → FilesystemMeshAdapter.send writes <root>/inbox/mesh-receiver/<msgId>.json
+  → receiver's subprocess polls the inbox dir (~100ms)
+  → mountMesh's subscribe handler fires inside the receiver
+  → store.addInboxItem flushes the receiver's persisted store
+  → test parent reads the receiver's store and verifies delivery
+```
+
+Two separate subprocesses, no shared memory, mesh as the only transport.
 
 ## Subscribers + observability
 
@@ -146,7 +169,16 @@ The parent runner is single source of truth for run status (H1 from
 station-signal); children only emit IPC envelopes. For warm concurrent
 subprocesses, the parent validates that `notify:*` envelope `runId`s belong to
 the sending subprocess (`pendingNotifies` ownership check) — a misbehaving
-warm child can't spoof another agent's run completion.
+warm child can't spoof another agent's run completion. The `resolved` flag
+and active-count decrement on terminal IPC are set in the synchronous
+critical path of the message handler (before any `await`), so slow adapter
+backends can't trip a double-decrement when the 200ms exit grace overlaps a
+pending status update.
+
+Warm subprocesses get a per-name restart budget (`warmRestartPolicy.maxRestarts`,
+default 5). The counter resets after 60s of post-`ready` stability, so a
+long-running deployment doesn't permanently lose its warm agents to
+occasional blips. Crash-loops still hit the budget and stop trying.
 
 ## Out of scope for v1
 
