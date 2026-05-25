@@ -2374,6 +2374,165 @@ Process-local — data is lost on restart. Companion adapters (`glove-memory-sql
 
 ---
 
+## glove-mesh
+
+Inter-agent messaging on top of the inbox primitive. Behaviorally additive to `glove-core` (agent loop, executor, store contracts unchanged) with one minimal runtime API addition: a `readonly store: StoreAdapter` accessor on `IGloveRunnable`. `mountMesh` reads `glove.store` through that accessor to write resolved inbox items directly, without going through the model's tool path. Ships from `glove-mesh` (barrel), with subpath exports `glove-mesh/core`, `glove-mesh/tools`, `glove-mesh/in-memory`.
+
+### mountMesh
+
+```ts
+import { mountMesh } from "glove-mesh";
+import type { MeshMountTarget, MountMeshConfig } from "glove-mesh";
+
+interface MountMeshConfig {
+  /** Per-agent adapter. Implements registration, transport, and inbound subscription. */
+  adapter: MeshAdapter;
+  /** This agent's identity, announced to the network on mount. */
+  identity: AgentIdentity;
+}
+
+type MeshMountTarget = {
+  fold: <I>(args: GloveFoldArgs<I>) => unknown;
+  readonly store: StoreAdapter;
+};
+
+function mountMesh(
+  glove: MeshMountTarget,
+  config: MountMeshConfig,
+): Promise<void>;
+```
+
+`IGloveRunnable` satisfies `MeshMountTarget` (the `store` accessor was added on the runnable for this purpose). Throws `MeshStoreUnsupportedError` if `glove.store` does not implement all four inbox methods.
+
+### MeshAdapter
+
+```ts
+interface MeshAdapter {
+  identifier: string;
+
+  // Identity / registration
+  register(identity: AgentIdentity): Promise<void>;
+  unregister(): Promise<void>;
+  listAgents(): Promise<AgentIdentity[]>;
+  getAgent(id: string): Promise<AgentIdentity | null>;
+
+  // Outbound
+  send(message: MeshMessage): Promise<void>;
+  broadcast(message: Omit<MeshMessage, "to">): Promise<void>;
+  acknowledge(messageId: string, note?: string): Promise<void>;
+
+  // Inbound — framework registers ONE handler per agent
+  subscribe(handler: (msg: IncomingMeshMessage) => Promise<void>): () => void;
+}
+```
+
+### Identity, message, and incoming types
+
+```ts
+interface AgentIdentity {
+  id: string;
+  name: string;
+  description: string;
+  capabilities?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+interface MeshMessage {
+  id: string;                    // sender-generated
+  from: string;                  // sender-claimed; unverified in v1
+  to?: string;                   // omitted on broadcast
+  in_reply_to?: string;
+  content: string;
+  created_at: string;            // ISO-8601
+  blocking?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+interface IncomingMeshMessage extends MeshMessage {
+  kind: "direct" | "broadcast" | "ack";
+  ack_of?: string;               // when kind === "ack"
+  ack_note?: string;
+}
+```
+
+### The four tools
+
+| Tool | Input schema | Output `data` |
+|------|--------------|---------------|
+| `glove_mesh_send_message` | `{ to: string, content: string, in_reply_to?: string, blocking?: boolean }` | `{ message_id, to, blocking }` |
+| `glove_mesh_broadcast` | `{ content: string, blocking?: boolean }` | `{ message_id, blocking }` |
+| `glove_mesh_list_agents` | `{ filter?: { capability?, name_contains? } }` | `{ agents: AgentSummary[], count }` |
+| `glove_mesh_acknowledge` | `{ message_id: string, note?: string }` | `{ acknowledged: string }` |
+
+`AgentSummary` is `{ id, name, description, capabilities }`. All tools return `{ status: "success" \| "error", data, message? }`.
+
+### MeshNetwork + InMemoryMeshAdapter
+
+In-process reference implementation under `glove-mesh/in-memory`.
+
+```ts
+class MeshNetwork {
+  constructor(opts?: { senderTableCapacity?: number }); // default 1024
+
+  registerAgent(id: string, identity: AgentIdentity): void;
+  unregisterAgent(id: string): void;
+  listAgents(): AgentIdentity[];
+  getAgent(id: string): AgentIdentity | null;
+
+  attachHandler(agentId: string, h: Handler): () => void;
+
+  deliverDirect(msg: MeshMessage): Promise<void>;
+  deliverBroadcast(msg: MeshMessage): Promise<void>;
+  deliverAck(originalSenderId: string, ackOf: string, fromId: string, note?: string): Promise<void>;
+
+  resolveSenderFor(messageId: string): string | null;
+}
+
+class InMemoryMeshAdapter implements MeshAdapter {
+  constructor(network: MeshNetwork, agentId: string);
+}
+```
+
+### Inbox tag convention
+
+Mesh-originated inbox items use namespaced tags:
+
+| Tag prefix | Direction | Meaning |
+|------------|-----------|---------|
+| `mesh:from:<sender>` | inbound | direct message |
+| `mesh:broadcast:from:<sender>` | inbound | broadcast |
+| `mesh:waiting:<msg_id>` | local | pending blocking item for an outbound send |
+
+### Error classes
+
+```ts
+class MeshError extends Error { code: string }
+class MeshNotRegisteredError extends MeshError {}
+class MeshUnknownAgentError extends MeshError {}
+class MeshUnknownMessageError extends MeshError {}
+class MeshStoreUnsupportedError extends MeshError {}
+```
+
+### Individual tool builders
+
+For consumers who want to fold tools manually without going through `mountMesh`:
+
+```ts
+import {
+  buildMeshSendTool,
+  buildMeshBroadcastTool,
+  buildMeshListAgentsTool,
+  buildMeshAcknowledgeTool,
+} from "glove-mesh";
+
+// Each takes a ToolContext { adapter, identity, store, pending: PendingMap }
+// and returns a GloveFoldArgs<I> ready to pass to glove.fold(...).
+```
+
+Most consumers should use `mountMesh` instead — it wires the inbound subscriber, the closure-captured pending map, and the identity registration in one call.
+
+---
+
 ## glovebox
 
 Authoring entry point and `glovebox build` CLI. Wraps a built Glove agent into a deployable Glovebox artifact.

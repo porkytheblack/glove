@@ -88,6 +88,10 @@ export interface IGloveRunnable {
   readonly displayManager: DisplayManagerAdapter
   readonly model: ModelAdapter
   readonly serverMode: boolean
+  /** The StoreAdapter backing this agent's persistence. Exposed for
+   *  integrations (e.g. glove-mesh) that need to write resolved inbox
+   *  items without going through the model's tool path. */
+  readonly store: StoreAdapter
 }
 
 
@@ -130,7 +134,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
 
   private _displayManager: DisplayManagerAdapter
   readonly serverMode: boolean
-  private store: StoreAdapter
+  private _store: StoreAdapter
   private context: Context
   private promptMachine: PromptMachine
   private observer: Observer
@@ -152,10 +156,10 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
 
   constructor(config: GloveConfig) {
     if (config.store) {
-      this.store = config.store
+      this._store = config.store
       this.store_defined = true
     } else {
-      this.store = new MemoryStore(`glove_${Date.now()}`)
+      this._store = new MemoryStore(`glove_${Date.now()}`)
     }
     this._displayManager = config.displayManager
     this.serverMode = config.serverMode ?? false
@@ -291,6 +295,10 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     return this._displayManager
   }
 
+  get store(): StoreAdapter {
+    return this._store
+  }
+
   /**
    * Swap the display manager. Subagents typically call this to share the
    * parent agent's display stack (passed in via `controls.displayManager`)
@@ -333,7 +341,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       const systemPrompt = this.promptMachine.systemPrompt;
       const enableToolResultSummary = this.promptMachine.enableToolResultSummary;
 
-      this.store = store;
+      this._store = store;
       this.context = new Context(this.store)
       this.promptMachine = new PromptMachine(model, this.context, systemPrompt, enableToolResultSummary)
       this.executor = new Executor(maxRetries, this.store)
