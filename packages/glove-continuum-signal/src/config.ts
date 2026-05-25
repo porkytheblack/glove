@@ -30,6 +30,10 @@ export function configure(options: ConfigureOptions): void {
     _adapter = options.adapter;
   }
 
+  // configure() semantics: each call fully replaces the trigger adapter.
+  // If the caller doesn't supply one (no triggerAdapter, no endpoint), the
+  // previous one must be cleared — otherwise switching from remote-trigger
+  // mode back to local-only silently leaves `.trigger()` POSTing upstream.
   if (options.triggerAdapter) {
     _triggerAdapter = options.triggerAdapter;
   } else if (options.endpoint) {
@@ -37,6 +41,8 @@ export function configure(options: ConfigureOptions): void {
       endpoint: options.endpoint,
       apiKey: options.apiKey,
     });
+  } else {
+    _triggerAdapter = null;
   }
 
   _configured = true;

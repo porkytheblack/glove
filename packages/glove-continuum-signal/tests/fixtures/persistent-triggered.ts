@@ -4,14 +4,15 @@ import { EchoModel } from "./echo-model.js";
 import { FileStore } from "./file-store.js";
 
 // File path is supplied via env so the test parent can choose where to
-// persist (and inspect the file after the runs).
-const storePath = process.env.CONTINUUM_TEST_STORE_PATH;
-
+// persist (and inspect the file after the runs). Read at call time, not at
+// module load, so tests that import the fixture before setting the env still
+// pick up the right value when the store factory actually runs.
 export const persistentTriggered = agent("persistent-triggered")
   .input(z.object({ phrase: z.string() }))
   .triggered()
   .timeout(15_000)
   .store((name) => {
+    const storePath = process.env.CONTINUUM_TEST_STORE_PATH;
     if (!storePath) {
       throw new Error("CONTINUUM_TEST_STORE_PATH env var not set");
     }

@@ -42,8 +42,21 @@ export class HttpTriggerAdapter implements TriggerAdapter {
       const body = (await response.json().catch(() => ({}))) as ErrorBody;
       throw new ContinuumRemoteError(response.status, body.error, body.message);
     }
-    const body = (await response.json()) as SuccessBody;
-    return body.data.id;
+    const body = (await response.json().catch(() => ({}))) as unknown;
+    if (
+      typeof body !== "object" ||
+      body === null ||
+      typeof (body as SuccessBody).data !== "object" ||
+      (body as SuccessBody).data === null ||
+      typeof (body as SuccessBody).data.id !== "string"
+    ) {
+      throw new ContinuumRemoteError(
+        response.status,
+        "invalid_response",
+        "Continuum server returned a response without { data: { id: string } }",
+      );
+    }
+    return (body as SuccessBody).data.id;
   }
 
   async ping(): Promise<boolean> {

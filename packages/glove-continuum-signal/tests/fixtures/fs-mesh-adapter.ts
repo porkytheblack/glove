@@ -138,8 +138,11 @@ export class FilesystemMeshAdapter implements MeshAdapter {
         kind: "broadcast",
       };
       this.writeInbox(peer.id, incoming);
+      // Record each per-recipient id so a later acknowledge(per-recipient-id)
+      // can find the original sender even after the recipient's in-memory
+      // senderByMsgId map is gone (subprocess restart, etc.).
+      this.writeSentRecord(incoming.id, message.from);
     }
-    this.writeSentRecord(message.id, message.from);
   }
 
   async acknowledge(messageId: string, note?: string): Promise<void> {

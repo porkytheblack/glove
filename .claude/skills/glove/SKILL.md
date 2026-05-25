@@ -1494,7 +1494,7 @@ Single envelope (rather than per-type callbacks) because the Glove `SubscriberEv
 
 | Need | Symbol |
 |------|--------|
-| Define an agent | `agent("name").input(zod).triggered()|.concurrent().factory(ctx => glove)` from `glove-continuum-signal` |
+| Define an agent | `agent("name").input(zod).triggered()` or `.concurrent()`, then `.factory(ctx => glove)`, from `glove-continuum-signal` |
 | Run agents | `new ContinuumRunner({ agentsDir, adapter, subscribers, ... })` from `glove-continuum-signal` |
 | Push to a warm agent | `runner.notify(name, input)` or `concurrentAgent.notify(input)` |
 | Persistence contract | `ContinuumAdapter` from `glove-continuum-signal` |

@@ -7,7 +7,6 @@ import assert from "node:assert/strict";
 import {
   ContinuumRunner,
   MemoryAdapter,
-  type AgentEventEnvelope,
   type ContinuumSubscriber,
 } from "../src/index.js";
 import { meshListener } from "./fixtures/mesh-listener.js";
@@ -39,7 +38,6 @@ test("multiprocess mesh: parent-process adapter sends → warm subagent's subpro
   process.env.CONTINUUM_TEST_STORE_PATH = storePath;
 
   const events: string[] = [];
-  const agentEvents: AgentEventEnvelope[] = [];
   const subscriber: ContinuumSubscriber = {
     onAgentSpawned: (e) =>
       events.push(`spawned:${e.agentName}:${e.mode}`),
@@ -49,7 +47,9 @@ test("multiprocess mesh: parent-process adapter sends → warm subagent's subpro
     onRunDispatched: (e) => events.push(`dispatched:${e.run.id}`),
     onRunCompleted: (e) => events.push(`completed:${e.run.id}`),
     onRunFailed: (e) => events.push(`failed:${e.run.id}:${e.error ?? ""}`),
-    onAgentEvent: (env) => agentEvents.push(env),
+    // No onAgentEvent listener: this test's `mesh-listener` agent never
+    // runs `processRequest`, so Glove subscriber events don't fire in its
+    // subprocess. Delivery into the receiver's inbox is the real proof.
   };
 
   const runner = new ContinuumRunner({
@@ -135,11 +135,6 @@ test("multiprocess mesh: parent-process adapter sends → warm subagent's subpro
       `inbox item tag should reference the sender; got: ${item.tag}`,
     );
 
-    // Sanity: the runner observed mesh tool registrations as ordinary tool
-    // events when mountMesh folded its four tools. This isn't a delivery
-    // proof; it's a "mesh is wired into the running subprocess" proof.
-    // (Tool fold events aren't subscriber events, so we don't assert here —
-    // delivery itself is the proof.)
   } finally {
     delete process.env.CONTINUUM_TEST_MESH_ROOT;
     delete process.env.CONTINUUM_TEST_STORE_PATH;

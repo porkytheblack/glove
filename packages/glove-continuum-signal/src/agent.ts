@@ -17,6 +17,30 @@ import { AGENT_BRAND } from "./util.js";
 
 const VALID_NAME = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 
+function assertTimeoutMs(ms: number): void {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) {
+    throw new RangeError(
+      `.timeout(ms) requires a finite positive number; got ${String(ms)}`,
+    );
+  }
+}
+
+function assertConcurrency(n: number): void {
+  if (typeof n !== "number" || !Number.isInteger(n) || n < 1) {
+    throw new RangeError(
+      `.concurrency(n) requires an integer >= 1; got ${String(n)}`,
+    );
+  }
+}
+
+function assertRetries(n: number): void {
+  if (typeof n !== "number" || !Number.isInteger(n) || n < 0) {
+    throw new RangeError(
+      `.retries(n) requires a non-negative integer; got ${String(n)}`,
+    );
+  }
+}
+
 // ─── Factory context ─────────────────────────────────────────────────────────
 
 export interface AgentFactoryContext {
@@ -330,12 +354,14 @@ export class AgentBuilder<TInput = unknown, TOutput = void> {
   }
 
   timeout(ms: number): AgentBuilder<TInput, TOutput> {
+    assertTimeoutMs(ms);
     const b = this._clone();
     b._timeout = ms;
     return b;
   }
 
   concurrency(n: number): AgentBuilder<TInput, TOutput> {
+    assertConcurrency(n);
     const b = this._clone();
     b._maxConcurrency = n;
     return b;
@@ -358,9 +384,12 @@ export class AgentBuilder<TInput = unknown, TOutput = void> {
   private _commonConfig(): CommonConfig<TInput, TOutput> {
     return {
       name: this._name,
+      // Permissive fallback so callers who skip .input() don't lose primitives
+      // / arrays / non-object payloads. A real schema almost always overrides
+      // this; the fallback exists only so the builder is usable without one.
       inputSchema:
         this._inputSchema ??
-        (z.object({}) as unknown as z.ZodType<TInput>),
+        (z.any() as unknown as z.ZodType<TInput>),
       outputSchema: this._outputSchema,
       timeout: this._timeout,
       maxAttempts: DEFAULT_MAX_ATTEMPTS,
@@ -397,18 +426,21 @@ export class TriggeredAgentBuilder<TInput = unknown, TOutput = void> {
   }
 
   timeout(ms: number): TriggeredAgentBuilder<TInput, TOutput> {
+    assertTimeoutMs(ms);
     const b = this._clone();
     b._config.timeout = ms;
     return b;
   }
 
   retries(n: number): TriggeredAgentBuilder<TInput, TOutput> {
+    assertRetries(n);
     const b = this._clone();
     b._config.maxAttempts = n + 1;
     return b;
   }
 
   concurrency(n: number): TriggeredAgentBuilder<TInput, TOutput> {
+    assertConcurrency(n);
     const b = this._clone();
     b._config.maxConcurrency = n;
     return b;
@@ -476,12 +508,14 @@ export class ConcurrentAgentBuilder<TInput = unknown, TOutput = void> {
   }
 
   timeout(ms: number): ConcurrentAgentBuilder<TInput, TOutput> {
+    assertTimeoutMs(ms);
     const b = this._clone();
     b._config.timeout = ms;
     return b;
   }
 
   concurrency(n: number): ConcurrentAgentBuilder<TInput, TOutput> {
+    assertConcurrency(n);
     const b = this._clone();
     b._config.maxConcurrency = n;
     return b;

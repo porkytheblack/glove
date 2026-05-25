@@ -1022,12 +1022,17 @@ export class ContinuumRunner {
               const run = await this.adapter.getRun(queued.runId);
               if (run) this.emit("onNotifyDelivered", { run });
             } catch (err) {
+              const errMsg = `Failed to flush notify IPC: ${(err as Error).message}`;
               warm.pendingNotifies.delete(queued.runId);
               await this.adapter.updateRun(queued.runId, {
                 status: "failed",
                 completedAt: new Date(),
-                error: `Failed to flush notify IPC: ${(err as Error).message}`,
+                error: errMsg,
               });
+              const failedRun = await this.adapter.getRun(queued.runId);
+              if (failedRun) {
+                this.emit("onRunFailed", { run: failedRun, error: errMsg });
+              }
             }
           }
           warm.outboxQueue.length = 0;
@@ -1185,7 +1190,12 @@ export class ContinuumRunner {
       nextRunAt: new Date(Date.now() + ms),
       timeout: a.timeout,
       maxAttempts: a.maxAttempts,
-      input: a.recurringInput ? JSON.stringify(a.recurringInput) : undefined,
+      // Preserve falsy-but-defined values (0, false, "") — only treat
+      // explicit `undefined` as "no recurring input".
+      input:
+        a.recurringInput !== undefined
+          ? JSON.stringify(a.recurringInput)
+          : undefined,
     });
   }
 

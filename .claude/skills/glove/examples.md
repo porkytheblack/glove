@@ -2292,8 +2292,8 @@ const runner = new ContinuumRunner({
   subscribers: [new ConsoleSubscriber()],
   pollIntervalMs: 50,
 });
-runner.registerAgent(meshSender, new URL("./agents/mesh-pair.ts", import.meta.url).pathname);
-runner.registerAgent(meshReceiver, new URL("./agents/mesh-pair.ts", import.meta.url).pathname);
+runner.registerAgent(meshSender, new URL("./agents/mesh-pair.js", import.meta.url).pathname);
+runner.registerAgent(meshReceiver, new URL("./agents/mesh-pair.js", import.meta.url).pathname);
 
 await runner.start();
 

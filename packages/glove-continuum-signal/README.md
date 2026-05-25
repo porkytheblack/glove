@@ -115,7 +115,7 @@ multiprocess scenarios; a production cross-machine mesh wants a real broker.
 `ContinuumRunner` with two warm concurrent agents (`mesh-sender` +
 `mesh-receiver`) sharing a `FilesystemMeshAdapter`:
 
-```
+```text
 runner.notify("mesh-sender", { to: "mesh-receiver", content })
   → sender's bootstrap subprocess receives notify IPC
   → MeshSendingModel emits glove_mesh_send_message tool call
