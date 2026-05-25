@@ -56,21 +56,40 @@ export function buildMeshBroadcastTool(
           created_at: msg.created_at,
           resolved_at: null,
         };
-        await ctx.store.addInboxItem(item);
-        pendingInboxId = item.id;
-        ctx.pending.set(msg.id, item.id);
+        try {
+          await ctx.store.addInboxItem(item);
+          pendingInboxId = item.id;
+          ctx.pending.set(msg.id, item.id);
+        } catch (err) {
+          return {
+            status: "error",
+            data: null,
+            message: `glove_mesh_broadcast failed to record pending blocking item for ${msg.id}: ${(err as Error)?.message ?? String(err)}`,
+          };
+        }
       }
 
       try {
         await ctx.adapter.broadcast(msg);
       } catch (err) {
         if (pendingInboxId) {
-          await ctx.store.updateInboxItem(pendingInboxId, {
-            status: "consumed",
-            response: `Broadcast failed: ${(err as Error)?.message ?? String(err)}`,
-            resolved_at: nowIso(),
-          });
-          ctx.pending.delete(msg.id);
+          // Roll back the pending entry no matter what — even if the inbox
+          // update fails, the in-memory pending map must not leak.
+          try {
+            await ctx.store.updateInboxItem(pendingInboxId, {
+              status: "consumed",
+              response: `Broadcast failed: ${(err as Error)?.message ?? String(err)}`,
+              resolved_at: nowIso(),
+            });
+          } catch (rollbackErr) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[glove-mesh] failed to roll back pending inbox item ${pendingInboxId}:`,
+              rollbackErr,
+            );
+          } finally {
+            ctx.pending.delete(msg.id);
+          }
         }
         return {
           status: "error",

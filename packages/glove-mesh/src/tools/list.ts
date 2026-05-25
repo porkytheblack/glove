@@ -30,7 +30,16 @@ export function buildMeshListAgentsTool(
       "Optionally filter by capability tag or by case-insensitive substring of name.",
     inputSchema: ListSchema,
     async do(input: ListInput): Promise<ToolResultData> {
-      const all = await ctx.adapter.listAgents();
+      let all;
+      try {
+        all = await ctx.adapter.listAgents();
+      } catch (err) {
+        return {
+          status: "error",
+          data: null,
+          message: `glove_mesh_list_agents failed: ${(err as Error)?.message ?? String(err)}`,
+        };
+      }
       const cap = input.filter?.capability;
       const sub = input.filter?.name_contains?.toLowerCase();
       const filtered = all

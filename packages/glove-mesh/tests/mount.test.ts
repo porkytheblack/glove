@@ -380,3 +380,69 @@ describe("mountMesh — duplicate ack idempotency", () => {
     assert.equal(resolvedSecond.response, "first");
   });
 });
+
+describe("mountMesh — adapter error returns structured ToolResultData", () => {
+  it("glove_mesh_list_agents returns status=error when adapter.listAgents throws", async () => {
+    const net = new MeshNetwork();
+    const storeA = new MemoryStore("a");
+    const target = makeFoldTarget(storeA);
+
+    const real = new InMemoryMeshAdapter(net, "a");
+    const throwingAdapter = {
+      ...real,
+      identifier: real.identifier,
+      register: real.register.bind(real),
+      unregister: real.unregister.bind(real),
+      getAgent: real.getAgent.bind(real),
+      send: real.send.bind(real),
+      broadcast: real.broadcast.bind(real),
+      acknowledge: real.acknowledge.bind(real),
+      subscribe: real.subscribe.bind(real),
+      listAgents: async () => {
+        throw new Error("registry down");
+      },
+    };
+
+    await mountMesh(target, { adapter: throwingAdapter, identity: ID_A });
+
+    const result = await callTool(target.folded, "glove_mesh_list_agents", {});
+    assert.equal((result as { status: string }).status, "error");
+    assert.match(
+      (result as { message: string }).message,
+      /glove_mesh_list_agents failed: registry down/,
+    );
+  });
+
+  it("glove_mesh_send_message returns status=error when ctx.store.addInboxItem throws", async () => {
+    const net = new MeshNetwork();
+    const storeA = new MemoryStore("a");
+    // Inject an addInboxItem that throws to exercise the new pre-send guard.
+    storeA.addInboxItem = async () => {
+      throw new Error("disk full");
+    };
+    const target = makeFoldTarget(storeA);
+
+    await mountMesh(target, {
+      adapter: new InMemoryMeshAdapter(net, "a"),
+      identity: ID_A,
+    });
+    // Register a second agent so the recipient validation passes — we want to
+    // hit the addInboxItem failure, not the unknown-agent guard.
+    const targetB = makeFoldTarget(new MemoryStore("b"));
+    await mountMesh(targetB, {
+      adapter: new InMemoryMeshAdapter(net, "b"),
+      identity: ID_B,
+    });
+
+    const result = await callTool(target.folded, "glove_mesh_send_message", {
+      to: "b",
+      content: "hi",
+      blocking: true,
+    });
+    assert.equal((result as { status: string }).status, "error");
+    assert.match(
+      (result as { message: string }).message,
+      /failed to record pending blocking item .* disk full/,
+    );
+  });
+});

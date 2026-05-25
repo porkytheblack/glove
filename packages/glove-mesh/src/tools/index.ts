@@ -69,8 +69,11 @@ export async function mountMesh(
     pending,
   };
 
-  await adapter.register(identity);
-
+  // Subscribe BEFORE registering. On distributed transports, peers can
+  // discover and message us the instant `register` resolves; if the inbound
+  // handler isn't installed yet, those messages are dropped on the floor.
+  // The in-memory adapter doesn't race (single-threaded) but consistency
+  // beats accidentally relying on adapter implementation details.
   adapter.subscribe(async (msg: IncomingMeshMessage) => {
     try {
       if (msg.kind === "ack") {
@@ -99,6 +102,8 @@ export async function mountMesh(
       console.warn("[glove-mesh] inbound handler failed:", err);
     }
   });
+
+  await adapter.register(identity);
 
   glove.fold(buildMeshSendTool(ctx));
   glove.fold(buildMeshBroadcastTool(ctx));

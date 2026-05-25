@@ -1167,7 +1167,7 @@ See [api-reference.md — `glove-memory`](api-reference.md) for full type signat
 
 ## Mesh Network (`glove-mesh`)
 
-`glove-mesh` lets multiple Glove agents talk to each other — direct messages, broadcasts, acknowledgements — on top of the existing `glove-inbox` primitive. The package is strictly additive (no `glove-core` changes) and ships no authentication; the consumer's `MeshAdapter` owns transport and any signing/verification.
+`glove-mesh` lets multiple Glove agents talk to each other — direct messages, broadcasts, acknowledgements — on top of the existing `glove-inbox` primitive. The package is behaviorally additive to `glove-core` except for one small runtime API addition: `IGloveRunnable.store` (a `readonly` accessor that `mountMesh` reads to write resolved inbox items directly). No agent-loop semantics change. The package itself ships no authentication; the consumer's `MeshAdapter` owns transport and any signing/verification.
 
 ### When to use it
 

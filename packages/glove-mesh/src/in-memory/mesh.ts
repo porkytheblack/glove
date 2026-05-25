@@ -3,6 +3,7 @@ import {
   type AgentIdentity,
   type IncomingMeshMessage,
   type MeshMessage,
+  MeshUnknownAgentError,
   MeshUnknownMessageError,
 } from "../core/types";
 
@@ -61,15 +62,26 @@ export class MeshNetwork {
 
   /** Route a directed message. Records sender for future ack lookup. */
   async deliverDirect(msg: MeshMessage): Promise<void> {
-    if (!msg.to) return;
+    // Always remember the sender first — keeps ack routing consistent even
+    // when validation fails (mirrors the contract of a real broker, which
+    // can't easily roll back its sender bookkeeping on a rejected publish).
     this.rememberSender(msg.id, msg.from);
+    if (!msg.to) {
+      throw new MeshUnknownAgentError("(missing `to` field)");
+    }
+    if (!this.agents.has(msg.to)) {
+      throw new MeshUnknownAgentError(msg.to);
+    }
     await this.fanOut(msg.to, { ...msg, kind: "direct" });
   }
 
   /** Fan out to everyone except the sender. */
   async deliverBroadcast(msg: MeshMessage): Promise<void> {
     this.rememberSender(msg.id, msg.from);
-    const recipients = [...this.handlers.keys()].filter((id) => id !== msg.from);
+    // Source of truth is the registration table, not the handler map.
+    // An agent that registered but hasn't subscribed yet still counts as a
+    // recipient (delivery to that agent is a no-op via fanOut).
+    const recipients = [...this.agents.keys()].filter((id) => id !== msg.from);
     for (const recipient of recipients) {
       await this.fanOut(recipient, { ...msg, kind: "broadcast" });
     }

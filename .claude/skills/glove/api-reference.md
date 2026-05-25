@@ -2376,7 +2376,7 @@ Process-local — data is lost on restart. Companion adapters (`glove-memory-sql
 
 ## glove-mesh
 
-Inter-agent messaging on top of the inbox primitive. Strictly additive to `glove-core`. Ships from `glove-mesh` (barrel), with subpath exports `glove-mesh/core`, `glove-mesh/tools`, `glove-mesh/in-memory`.
+Inter-agent messaging on top of the inbox primitive. Behaviorally additive to `glove-core` (agent loop, executor, store contracts unchanged) with one minimal runtime API addition: a `readonly store: StoreAdapter` accessor on `IGloveRunnable`. `mountMesh` reads `glove.store` through that accessor to write resolved inbox items directly, without going through the model's tool path. Ships from `glove-mesh` (barrel), with subpath exports `glove-mesh/core`, `glove-mesh/tools`, `glove-mesh/in-memory`.
 
 ### mountMesh
 

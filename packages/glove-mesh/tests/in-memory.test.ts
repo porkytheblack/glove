@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   InMemoryMeshAdapter,
   MeshNetwork,
+  MeshUnknownAgentError,
   MeshUnknownMessageError,
   type AgentIdentity,
   type IncomingMeshMessage,
@@ -164,6 +165,60 @@ describe("MeshNetwork handler isolation", () => {
 
     await a.send(makeMessage("a", "b", "test"));
     assert.equal(ok.length, 1);
+  });
+});
+
+describe("InMemoryMeshAdapter fail-fast routing", () => {
+  it("throws MeshUnknownAgentError when sending to an unregistered recipient", async () => {
+    const net = new MeshNetwork();
+    const a = new InMemoryMeshAdapter(net, "a");
+    await a.register(ID_A);
+
+    await assert.rejects(
+      () => a.send(makeMessage("a", "nobody", "hello")),
+      (err: unknown) => err instanceof MeshUnknownAgentError,
+    );
+  });
+
+  it("throws MeshUnknownAgentError when `to` is missing on a direct send", async () => {
+    const net = new MeshNetwork();
+    const a = new InMemoryMeshAdapter(net, "a");
+    await a.register(ID_A);
+
+    await assert.rejects(
+      // Pass `to: undefined` via the lower-level network method to exercise the
+      // missing-recipient guard. The adapter's send() already requires `to`.
+      () => net.deliverDirect(makeMessage("a", undefined, "no recipient")),
+      (err: unknown) => err instanceof MeshUnknownAgentError,
+    );
+  });
+
+  it("broadcast uses the registration table — registered-but-unsubscribed peers don't get fan-out by default", async () => {
+    // Documents the new semantics: agents are sourced from the registry, not
+    // the handler map. An agent registered without a handler is included in
+    // the recipient list (delivery is a silent no-op via fanOut, but no error).
+    const net = new MeshNetwork();
+    const a = new InMemoryMeshAdapter(net, "a");
+    const b = new InMemoryMeshAdapter(net, "b");
+    const c = new InMemoryMeshAdapter(net, "c");
+    await a.register(ID_A);
+    await b.register(ID_B);
+    await c.register(ID_C);
+
+    const bReceived: IncomingMeshMessage[] = [];
+    b.subscribe(async (m) => { bReceived.push(m); });
+    // C is registered but never subscribes — broadcast must not throw.
+
+    const msg: Omit<MeshMessage, "to"> = {
+      id: "bcast_solo",
+      from: "a",
+      content: "hi all",
+      created_at: nowIso(),
+    };
+
+    await a.broadcast(msg);
+    assert.equal(bReceived.length, 1);
+    assert.equal(bReceived[0]!.kind, "broadcast");
   });
 });
 
