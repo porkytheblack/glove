@@ -23,7 +23,7 @@ export function buildMeshListAgentsTool(
   ctx: ToolContext,
 ): GloveFoldArgs<ListInput> {
   return {
-    name: "mesh_list_agents",
+    name: "glove_mesh_list_agents",
     description:
       "List other agents currently registered on the mesh network. " +
       "Returns each agent's id, name, description, and capabilities. " +

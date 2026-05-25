@@ -13,7 +13,7 @@ const AckSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Optional short note explaining the acknowledgement. For longer replies with content, use mesh_send_message with in_reply_to instead.",
+      "Optional short note explaining the acknowledgement. For longer replies with content, use glove_mesh_send_message with in_reply_to instead.",
     ),
 });
 
@@ -23,12 +23,12 @@ export function buildMeshAcknowledgeTool(
   ctx: ToolContext,
 ): GloveFoldArgs<AckInput> {
   return {
-    name: "mesh_acknowledge",
+    name: "glove_mesh_acknowledge",
     description:
       "Acknowledge receipt of an incoming message from another mesh agent. " +
       "If the sender was blocking on this message, they will be unblocked. " +
       "Use this for lightweight confirmations; for a substantive reply with content, " +
-      "use mesh_send_message with in_reply_to instead.",
+      "use glove_mesh_send_message with in_reply_to instead.",
     inputSchema: AckSchema,
     async do(input: AckInput): Promise<ToolResultData> {
       try {
@@ -37,7 +37,7 @@ export function buildMeshAcknowledgeTool(
         return {
           status: "error",
           data: null,
-          message: `mesh_acknowledge failed: ${(err as Error)?.message ?? String(err)}`,
+          message: `glove_mesh_acknowledge failed: ${(err as Error)?.message ?? String(err)}`,
         };
       }
       return {

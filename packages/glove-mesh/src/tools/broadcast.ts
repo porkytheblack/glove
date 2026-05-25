@@ -29,7 +29,7 @@ export function buildMeshBroadcastTool(
   ctx: ToolContext,
 ): GloveFoldArgs<BroadcastInput> {
   return {
-    name: "mesh_broadcast",
+    name: "glove_mesh_broadcast",
     description:
       "Broadcast a message to every other agent on the mesh network. " +
       "Set blocking=true to wait for at least one acknowledgement before continuing. " +
@@ -75,7 +75,7 @@ export function buildMeshBroadcastTool(
         return {
           status: "error",
           data: null,
-          message: `mesh_broadcast failed: ${(err as Error)?.message ?? String(err)}`,
+          message: `glove_mesh_broadcast failed: ${(err as Error)?.message ?? String(err)}`,
         };
       }
 
@@ -83,7 +83,7 @@ export function buildMeshBroadcastTool(
         status: "success",
         data: {
           message_id: msg.id,
-          blocking: !!input.blocking,
+          blocking: input.blocking,
         },
       };
     },

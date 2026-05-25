@@ -18,10 +18,10 @@ Four model-callable tools:
 
 | Tool | Purpose |
 |---|---|
-| `mesh_send_message` | Send a private message to another agent. Optionally blocking. |
-| `mesh_broadcast` | Send a message to every other registered agent. Optionally blocking. |
-| `mesh_list_agents` | Discover who's on the network. Filter by capability or name substring. |
-| `mesh_acknowledge` | Confirm receipt of an incoming message. Unblocks the original sender. |
+| `glove_mesh_send_message` | Send a private message to another agent. Optionally blocking. |
+| `glove_mesh_broadcast` | Send a message to every other registered agent. Optionally blocking. |
+| `glove_mesh_list_agents` | Discover who's on the network. Filter by capability or name substring. |
+| `glove_mesh_acknowledge` | Confirm receipt of an incoming message. Unblocks the original sender. |
 
 ## Quick start (in-process, two agents)
 
@@ -138,10 +138,10 @@ class RedisMeshAdapter implements MeshAdapter {
 
 | Tool call | Pending inbox item? | Resolves on |
 |---|---|---|
-| `mesh_send_message({ blocking: false })` | No | n/a — returns immediately. |
-| `mesh_send_message({ blocking: true })` | Yes, tagged `mesh:waiting:<msg_id>` | An ack with `ack_of === msg_id`, **or** a reply (`mesh_send_message` with `in_reply_to === msg_id`). |
-| `mesh_broadcast({ blocking: true })` | Yes, tagged `mesh:waiting:<msg_id>` | The first ack received from any peer. Later acks arrive as ordinary inbox items. |
-| `mesh_acknowledge` (this agent acking an inbound) | No | n/a — itself. |
+| `glove_mesh_send_message({ blocking: false })` | No | n/a — returns immediately. |
+| `glove_mesh_send_message({ blocking: true })` | Yes, tagged `mesh:waiting:<msg_id>` | An ack with `ack_of === msg_id`, **or** a reply (`glove_mesh_send_message` with `in_reply_to === msg_id`). |
+| `glove_mesh_broadcast({ blocking: true })` | Yes, tagged `mesh:waiting:<msg_id>` | The first ack received from any peer. Later acks arrive as ordinary inbox items. |
+| `glove_mesh_acknowledge` (this agent acking an inbound) | No | n/a — itself. |
 
 The pending blocking inbox item synthesises a transient reminder each turn via `Agent.buildPendingBlockingMessage` (built into glove-core's agent loop) until it resolves. When the ack/reply arrives, the resolved item shows up in the model's view via the standard `[Inbox: N item(s) resolved]` injection.
 
@@ -170,6 +170,6 @@ The `from` field on every `MeshMessage` is sender-claimed and not verified. If y
 ## How this differs from `glove_post_to_inbox`
 
 - `glove_post_to_inbox` is for "I will resolve this myself later from outside the conversation" — the resolver is an external service the consumer runs.
-- `mesh_send_message` is for "I'm talking to another Glove agent" — the resolver is another agent on the mesh.
+- `glove_mesh_send_message` is for "I'm talking to another Glove agent" — the resolver is another agent on the mesh.
 
 Both write to the same `StoreAdapter` inbox surface; the tag prefix tells them apart.

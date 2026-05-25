@@ -13,7 +13,7 @@ export function nowIso(): string {
 }
 
 export function randomSuffix(): string {
-  return Math.random().toString(36).slice(2, 8);
+  return Math.random().toString(36).slice(2, 10);
 }
 
 export function generateMessageId(senderId: string): string {
@@ -102,7 +102,9 @@ export async function peerNameOrId(
   try {
     const agent = await adapter.getAgent(id);
     return agent?.name ?? id;
-  } catch {
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(`[glove-mesh] adapter.getAgent("${id}") threw — falling back to id:`, err);
     return id;
   }
 }

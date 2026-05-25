@@ -45,8 +45,8 @@ export interface MountMeshConfig {
  *   3. Subscribes a single inbound handler. Incoming messages land in this
  *      agent's inbox as resolved items; the existing inbox-injection path
  *      surfaces them on the next ask() turn.
- *   4. Folds four mesh tools onto the glove: mesh_send_message,
- *      mesh_broadcast, mesh_list_agents, mesh_acknowledge.
+ *   4. Folds four mesh tools onto the glove: glove_mesh_send_message,
+ *      glove_mesh_broadcast, glove_mesh_list_agents, glove_mesh_acknowledge.
  *
  * Not chainable (returns Promise<void>); follows the `mountMcp` convention
  * for adapter setup that needs async work.

@@ -14,7 +14,7 @@ const SendSchema = z.object({
     .string()
     .min(1)
     .describe(
-      "Recipient agent id on the mesh network. Use mesh_list_agents to find ids.",
+      "Recipient agent id on the mesh network. Use glove_mesh_list_agents to find ids.",
     ),
   content: z.string().min(1).describe("Message body."),
   in_reply_to: z
@@ -35,10 +35,10 @@ type SendInput = z.infer<typeof SendSchema>;
 
 export function buildMeshSendTool(ctx: ToolContext): GloveFoldArgs<SendInput> {
   return {
-    name: "mesh_send_message",
+    name: "glove_mesh_send_message",
     description:
       "Send a private message to another agent on the mesh network. " +
-      "Use mesh_list_agents first to find recipient ids. " +
+      "Use glove_mesh_list_agents first to find recipient ids. " +
       "Set blocking=true to wait for the recipient to acknowledge or reply before continuing — " +
       "the result will be delivered into your inbox automatically. " +
       "Set in_reply_to to thread a reply to a previous message (the original sender is unblocked automatically).",
@@ -86,7 +86,7 @@ export function buildMeshSendTool(ctx: ToolContext): GloveFoldArgs<SendInput> {
         return {
           status: "error",
           data: null,
-          message: `mesh_send_message failed: ${(err as Error)?.message ?? String(err)}`,
+          message: `glove_mesh_send_message failed: ${(err as Error)?.message ?? String(err)}`,
         };
       }
 
@@ -95,7 +95,7 @@ export function buildMeshSendTool(ctx: ToolContext): GloveFoldArgs<SendInput> {
         data: {
           message_id: msg.id,
           to: input.to,
-          blocking: !!input.blocking,
+          blocking: input.blocking,
         },
       };
     },
