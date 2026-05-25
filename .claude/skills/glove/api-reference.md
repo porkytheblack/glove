@@ -2533,6 +2533,273 @@ Most consumers should use `mountMesh` instead — it wires the inbound subscribe
 
 ---
 
+## glove-continuum-signal
+
+Subprocess-based runtime substrate for agent collaboration across time. Modeled on station-signal; agent-shaped (Glove instances as the unit of execution, persistent stores as the unit of continuity across wakeups). Ships from `glove-continuum-signal` (single entry, no subpaths in v1).
+
+### agent() builder
+
+```ts
+import { agent, z } from "glove-continuum-signal";
+import type {
+  Agent,
+  AnyAgent,
+  TriggeredAgent,
+  ConcurrentAgent,
+  AgentBuilder,
+  TriggeredAgentBuilder,
+  ConcurrentAgentBuilder,
+  AgentFactoryContext,
+  AgentRuntimeControls,
+} from "glove-continuum-signal";
+
+function agent(name: string): AgentBuilder;
+```
+
+`AgentBuilder<TInput, TOutput>` setters (all return a fresh clone — immutable builder):
+
+| Method | Purpose |
+|--------|---------|
+| `.input(zod)` | Zod schema for trigger/notify input. Carries `TInput` forward. |
+| `.output(zod)` | Zod schema for processRequest's extracted output. Carries `TOutput` forward. |
+| `.timeout(ms)` | Per-run timeout. Parent enforces via SIGTERM for triggered; per-notify for concurrent. Default 5min. |
+| `.concurrency(n)` | Per-agent run budget (triggered only — concurrent agents are 1-per-name). |
+| `.env({...})` | Extra env vars forwarded to spawned subprocesses. Loader-critical vars (`NODE_OPTIONS`, `LD_PRELOAD`, …) are stripped. |
+| `.store(name => StoreAdapter)` | Persistent store factory. Runtime invokes per wakeup; passes the result to the factory via `ctx.store`. |
+| `.triggered()` | Forks into `TriggeredAgentBuilder<TInput, TOutput>`. |
+| `.concurrent()` | Forks into `ConcurrentAgentBuilder<TInput, TOutput>`. |
+
+`TriggeredAgentBuilder<TInput, TOutput>` adds triggered-only setters:
+
+| Method | Purpose |
+|--------|---------|
+| `.retries(n)` | Total attempts = n + 1 (matches station-signal). Default no retry. |
+| `.every("5m")` | Recurring schedule. Interval grammar: `100ms`, `30s`, `5m`, `1h`, `2d`, `1w`. |
+| `.withInput(default)` | Default input for the recurring schedule. |
+| `.onComplete((output, input) => …)` | Post-run hook. Errors here emit `onCompleteError` but don't fail the run. |
+| `.factory(async ctx => Glove)` | Terminal. Returns `TriggeredAgent<TInput, TOutput>` (branded). |
+
+`ConcurrentAgentBuilder<TInput, TOutput>` mirrors the common setters and exposes `.onComplete(…)` and `.factory(…)`. The built `ConcurrentAgent<TInput, TOutput>` has `.notify(input)` in addition to `.trigger(input)` (both enqueue `kind: "notify"`).
+
+```ts
+interface AgentFactoryContext {
+  name: string;
+  runId: string;                // per-wakeup for triggered; "warmup" for concurrent factory setup
+  mode: "triggered" | "concurrent";
+  store: StoreAdapter | null;   // built from `.store(factory)` or null
+  subscriber: SubscriberAdapter; // IPC-forwarding; bootstrap re-attaches defensively
+  controls: AgentRuntimeControls;
+}
+
+interface AgentRuntimeControls {
+  emit(event: { type: string; data?: Record<string, unknown> }): void;
+  signal: AbortSignal;          // fires on graceful stop / restart / terminal fail
+}
+
+interface Agent<TInput, TOutput> {
+  readonly name: string;
+  readonly mode: "triggered" | "concurrent";
+  readonly inputSchema: z.ZodType<TInput>;
+  readonly outputSchema?: z.ZodType<TOutput>;
+  readonly factory: (ctx: AgentFactoryContext) => Promise<IGloveRunnable>;
+  // ... + storeFactory, onCompleteHandler, timeout, maxAttempts, maxConcurrency, env, interval?, recurringInput?
+  trigger(input: TInput): Promise<string>;
+  notify?(input: TInput): Promise<string>;   // ConcurrentAgent only
+}
+
+const AGENT_BRAND = Symbol.for("glove-continuum-agent");
+function isAgent(value: unknown): value is AnyAgent;
+```
+
+### ContinuumRunner
+
+```ts
+import { ContinuumRunner } from "glove-continuum-signal";
+import type { ContinuumRunnerOptions } from "glove-continuum-signal";
+
+interface ContinuumRunnerOptions {
+  agentsDir?: string;
+  adapter?: ContinuumAdapter;                                    // default: MemoryAdapter
+  pollIntervalMs?: number;                                       // default 1000
+  maxAttempts?: number;                                          // fallback for agents w/o their own
+  subscribers?: ContinuumSubscriber[];
+  maxConcurrent?: number;                                        // triggered-run budget, default 5
+  retryBackoffMs?: number;                                       // base for exp. backoff, default 1000
+  warmRestartPolicy?: { maxRestarts: number; backoffMs: number }; // default { 5, 1000 }
+}
+
+class ContinuumRunner {
+  static create(agentsDir: string, options?: Omit<ContinuumRunnerOptions, "agentsDir">): ContinuumRunner;
+
+  start(): Promise<void>;
+  stop(options?: { graceful?: boolean; timeoutMs?: number }): Promise<void>;
+  notify(name: string, input: unknown): Promise<string>;
+  cancel(runId: string): Promise<boolean>;
+  waitForRun(runId: string, opts?: { pollMs?: number; timeoutMs?: number; waitForExistence?: boolean }): Promise<Run | null>;
+  getRun(id: string): Promise<Run | null>;
+  listRuns(agentName: string): Promise<Run[]>;
+  listAgents(): Array<{ name: string; mode: AgentMode; filePath: string }>;
+  hasAgent(name: string): boolean;
+  subscribe(s: ContinuumSubscriber): this;
+  registerAgent(a: AnyAgent, filePath: string): this;
+  getAdapter(): ContinuumAdapter;
+}
+```
+
+`start()`: discovers branded agents from `agentsDir` (recursive readdir, `await import`, scan `Object.values` for `isAgent`), pre-warms concurrent ones, installs SIGINT/SIGTERM, enters the tick loop. `stop({ graceful: true })` sends `stop` IPC to warm agents, awaits children, kills any stragglers after `timeoutMs`.
+
+### ContinuumAdapter
+
+```ts
+import type { ContinuumAdapter, Run, RunPatch, RunStatus, RunKind } from "glove-continuum-signal";
+
+type RunKind = "trigger" | "recurring" | "notify";
+type RunStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+
+interface Run {
+  id: string;
+  agentName: string;
+  kind: RunKind;
+  input: string;           // JSON
+  output?: string;         // JSON
+  error?: string;
+  status: RunStatus;
+  attempts: number;
+  maxAttempts: number;
+  timeout: number;
+  interval?: string;
+  nextRunAt?: Date;
+  lastRunAt?: Date;
+  startedAt?: Date;
+  completedAt?: Date;
+  createdAt: Date;
+}
+
+interface ContinuumAdapter {
+  addRun(run: Run): Promise<void>;
+  removeRun(id: string): Promise<void>;
+  getRunsDue(): Promise<Run[]>;
+  getRunsRunning(): Promise<Run[]>;
+  getRun(id: string): Promise<Run | null>;
+  updateRun(id: string, patch: RunPatch): Promise<void>;
+  listRuns(agentName: string): Promise<Run[]>;
+  hasRunWithStatus(agentName: string, statuses: RunStatus[]): Promise<boolean>;
+  purgeRuns(olderThan: Date, statuses: RunStatus[]): Promise<number>;
+  generateId(): string;
+  ping(): Promise<boolean>;
+  close?(): Promise<void>;
+}
+```
+
+`MemoryAdapter` (default) — in-process Map, ~10% eviction of terminal runs at the 10k cap. Does NOT implement `SerializableAdapter`. Steps are deliberately dropped from the station-signal contract — the Glove turn IS the unit of work, and fine-grained observability lives on the forwarded subscriber event stream.
+
+### ContinuumSubscriber
+
+```ts
+import type { ContinuumSubscriber, AgentEventEnvelope } from "glove-continuum-signal";
+
+interface ContinuumSubscriber {
+  // Discovery / supervisor lifecycle
+  onAgentDiscovered?(e: { agentName: string; mode: AgentMode; filePath: string }): void;
+  onAgentSpawned?(e: { agentName: string; mode: AgentMode; pid: number; startedAt: Date }): void;
+  onAgentReady?(e: { agentName: string }): void;     // concurrent only
+  onAgentTerminated?(e: { agentName: string; reason: string; restartScheduled: boolean }): void;
+  onAgentRestarted?(e: { agentName: string; restartCount: number }): void;
+
+  // Per-run lifecycle (covers both kind: "trigger" and kind: "notify" — distinguish via run.kind)
+  onRunDispatched?(e: { run: Run }): void;
+  onRunStarted?(e: { run: Run }): void;
+  onRunCompleted?(e: { run: Run; output?: string }): void;
+  onRunFailed?(e: { run: Run; error?: string }): void;
+  onRunTimeout?(e: { run: Run }): void;
+  onRunRetry?(e: { run: Run; attempt: number; maxAttempts: number }): void;
+  onRunCancelled?(e: { run: Run }): void;
+  onRunSkipped?(e: { run: Run; reason: string }): void;
+  onRunRescheduled?(e: { run: Run; nextRunAt: Date }): void;
+  onNotifyDelivered?(e: { run: Run }): void;
+  onCompleteError?(e: { run: Run; error: string }): void;
+  onLogOutput?(e: { run: Run | null; agentName: string; level: "stdout" | "stderr"; message: string }): void;
+
+  // Forwarded Glove events from any child subprocess
+  onAgentEvent?(envelope: AgentEventEnvelope): void;
+}
+
+interface AgentEventEnvelope<T extends SubscriberEvent["type"] = SubscriberEvent["type"]> {
+  agentName: string;
+  runId: string | null;           // null for ambient warm-agent events
+  mode: AgentMode;
+  event_type: T;
+  data: SubscriberEventDataMap[T];
+  timestamp: string;
+}
+```
+
+`ConsoleSubscriber` ships as a default implementation — useful out of the box. Custom subscribers narrow on `envelope.event_type` to handle specific Glove events.
+
+### IPC wire shape
+
+```ts
+import type {
+  ParentToChildMessage,
+  ChildToParentMessage,
+  IPCMessage,
+} from "glove-continuum-signal";
+
+type ParentToChildMessage =
+  | { type: "notify"; runId: string; input: unknown }
+  | { type: "stop"; reason?: string };
+
+type ChildToParentMessage =
+  | { type: "ready"; agentName: string }                                                   // concurrent only
+  | { type: "run:started"; runId; agentName; timestamp }
+  | { type: "run:completed"; runId; agentName; output?; timestamp }
+  | { type: "run:failed"; runId; agentName; error; retryable; timestamp }
+  | { type: "notify:started"; runId; agentName; timestamp }
+  | { type: "notify:completed"; runId; agentName; output?; timestamp }
+  | { type: "notify:failed"; runId; agentName; error; timestamp }
+  | { type: "onComplete:error"; runId; agentName; error }
+  | { type: "agent:event"; agentName; runId: string | null; event_type; data; timestamp };
+
+type IPCMessage = ChildToParentMessage; // station-signal naming compatibility
+```
+
+Split `run:*` vs `notify:*` so subscribers can distinguish without inspecting `Run.kind`. No mesh-specific envelope slots — mesh runs entirely inside the subprocess against the consumer's `MeshAdapter`.
+
+### Remote trigger
+
+```ts
+import { configure, HttpTriggerAdapter } from "glove-continuum-signal";
+
+configure({ endpoint: "https://continuum.example.com", apiKey: "..." });
+// or directly:
+configure({ triggerAdapter: new HttpTriggerAdapter({ endpoint, apiKey }) });
+```
+
+When a `TriggerAdapter` is configured, `agent.trigger(input)` POSTs to `${endpoint}/api/v1/trigger` with `{ agentName, input }` instead of writing locally. Env-var auto-config: `CONTINUUM_ENDPOINT` + `CONTINUUM_API_KEY`.
+
+### Error classes
+
+`AgentValidationError`, `AgentNotFoundError`, `AgentTimeoutError`, `AgentTerminatedError`, `ContinuumRemoteError` — all carry a `.code` discriminator.
+
+### Quick reference
+
+| Need | Symbol |
+|------|--------|
+| Define an agent | `agent("name").input(zod).triggered()\|.concurrent().factory(ctx => glove)` |
+| Run agents | `new ContinuumRunner({ agentsDir, adapter, subscribers, ... })` |
+| Push to a warm agent | `runner.notify(name, input)` or `concurrentAgent.notify(input)` |
+| Wait for a run | `runner.waitForRun(runId, { timeoutMs })` |
+| Persistence contract | `ContinuumAdapter` |
+| Default adapter | `MemoryAdapter` |
+| Remote trigger | `configure({ endpoint, apiKey })` + `HttpTriggerAdapter` |
+| Observability | `ContinuumSubscriber`, `ConsoleSubscriber`, `AgentEventEnvelope` |
+| Brand | `AGENT_BRAND`, `isAgent(v)` |
+| Interval parsing | `parseInterval("5m")` from `glove-continuum-signal` |
+| Re-exported from glove-core | `IGloveRunnable`, `StoreAdapter`, `SubscriberAdapter`, `SubscriberEvent`, `SubscriberEventDataMap` |
+| Re-exported from zod | `z` |
+
+---
+
 ## glovebox
 
 Authoring entry point and `glovebox build` CLI. Wraps a built Glove agent into a deployable Glovebox artifact.

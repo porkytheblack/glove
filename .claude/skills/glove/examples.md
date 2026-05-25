@@ -2209,3 +2209,125 @@ The build CLI's synthetic entry awaits `adapters()` and forwards the result into
 The exact tool definitions for this example live in the repo at `examples/glovebox-pdf-extractor/src/` — see that directory for the agent code, system prompt, and shell helpers that drive `pdftotext` / `pdftk`.
 
 For long-running agents, a separate background task that proactively refreshes tokens before `expires_in` hits zero is usually cleaner — the agent never sees `auth_expired` in the happy path.
+
+## Pattern: Continuum runtime with two warm agents talking via filesystem-backed mesh
+
+Spins up a `ContinuumRunner` with two `.concurrent()` agents. Both mount `glove-mesh` against a shared filesystem network so each agent runs in its own subprocess but can still send each other messages without an external broker. Mirrors the package's own `tests/agent-to-agent-mesh.test.ts`.
+
+```typescript
+// agents/mesh-pair.ts — fixture both subprocesses load
+import { join } from "node:path";
+import { Displaymanager, Glove, MemoryStore } from "glove-core";
+import { mountMesh } from "glove-mesh";
+import { agent, z } from "glove-continuum-signal";
+import { FilesystemMeshAdapter } from "./fs-mesh-adapter.js"; // see package tests/fixtures/
+
+function meshRoot(): string {
+  const r = process.env.MESH_ROOT;
+  if (!r) throw new Error("MESH_ROOT env var not set");
+  return r;
+}
+
+function inboxCapableStore(name: string) {
+  // MemoryStore from glove-core already implements all four inbox methods.
+  // For persistence across runner restarts, swap for an inbox-capable
+  // file/SQLite-backed StoreAdapter.
+  return new MemoryStore(`mesh-${name}`);
+}
+
+export const meshSender = agent("mesh-sender")
+  .input(z.object({ to: z.string(), content: z.string() }))
+  .concurrent()
+  .timeout(15_000)
+  .store(inboxCapableStore)
+  .factory(async (ctx) => {
+    const glove = new Glove({
+      store: ctx.store ?? undefined,
+      model: createMyModelThatCallsMeshSend(), // e.g. real LLM or a test SendingModel
+      displayManager: new Displaymanager(),
+      systemPrompt:
+        "On every prompt, call glove_mesh_send_message with {to, content} parsed from the user input.",
+      compaction_config: { compaction_instructions: "n/a" },
+    }).build(ctx.store ?? undefined);
+
+    await mountMesh(glove, {
+      adapter: new FilesystemMeshAdapter({ root: meshRoot(), agentId: ctx.name }),
+      identity: { id: ctx.name, name: ctx.name, description: "Sends." },
+    });
+    return glove;
+  });
+
+export const meshReceiver = agent("mesh-receiver")
+  .input(z.object({ noop: z.string() }))
+  .concurrent()
+  .timeout(15_000)
+  .store(inboxCapableStore)
+  .factory(async (ctx) => {
+    const glove = new Glove({
+      store: ctx.store ?? undefined,
+      model: createMyEchoModel(),
+      displayManager: new Displaymanager(),
+      systemPrompt: "mesh-receiver",
+      compaction_config: { compaction_instructions: "n/a" },
+    }).build(ctx.store ?? undefined);
+
+    await mountMesh(glove, {
+      adapter: new FilesystemMeshAdapter({ root: meshRoot(), agentId: ctx.name }),
+      identity: { id: ctx.name, name: ctx.name, description: "Receives." },
+    });
+    return glove;
+  });
+```
+
+```typescript
+// runner.ts — entry point
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { ContinuumRunner, ConsoleSubscriber } from "glove-continuum-signal";
+import { meshSender, meshReceiver } from "./agents/mesh-pair.js";
+
+process.env.MESH_ROOT = mkdtempSync(`${tmpdir()}/my-mesh-`);
+
+const runner = new ContinuumRunner({
+  subscribers: [new ConsoleSubscriber()],
+  pollIntervalMs: 50,
+});
+runner.registerAgent(meshSender, new URL("./agents/mesh-pair.js", import.meta.url).pathname);
+runner.registerAgent(meshReceiver, new URL("./agents/mesh-pair.js", import.meta.url).pathname);
+
+await runner.start();
+
+// Both warm subprocesses spawn and mount mesh against the shared MESH_ROOT.
+// Send a message: notify the sender, its model emits a glove_mesh_send_message
+// tool call, the executor runs the mesh tool, the FilesystemMeshAdapter writes
+// to <MESH_ROOT>/inbox/mesh-receiver/<msgId>.json, and the receiver's polling
+// subscribe handler picks it up and writes to its inbox via mountMesh.
+const runId = await runner.notify("mesh-sender", {
+  to: "mesh-receiver",
+  content: "hello peer",
+});
+await runner.waitForRun(runId);
+
+// Inspect the receiver's store to confirm delivery.
+const receiverInbox = await runner.getAdapter(); // adapter holds the Run records, not the agent stores
+// (For inbox inspection, either back the receiver's store on disk and read the file,
+// or expose a read-only HTTP endpoint from inside the receiver agent.)
+
+await runner.stop({ graceful: true, timeoutMs: 5_000 });
+```
+
+What's happening end-to-end:
+
+1. `runner.notify("mesh-sender", input)` writes a `kind: "notify"` Run to the runner's adapter.
+2. The tick loop routes the run to `mesh-sender`'s warm subprocess via IPC.
+3. The bootstrap's notify chain calls `glove.processRequest('{"to":"mesh-receiver","content":"hello peer"}')`.
+4. The sender's model returns a `glove_mesh_send_message` tool call.
+5. The executor runs the tool, which calls `FilesystemMeshAdapter.send(...)`.
+6. The adapter writes `<MESH_ROOT>/inbox/mesh-receiver/<msgId>.json` atomically (tmp + rename).
+7. The receiver's subprocess polls its inbox directory (~100ms) and reads the new file.
+8. `mountMesh`'s subscribe handler runs in the receiver subprocess, dropping a resolved `InboxItem` into the receiver's store.
+9. Bootstrap sends `notify:completed` IPC; runner marks the sender's run completed.
+
+Two separate subprocesses, no shared memory, mesh as the only transport. For cross-machine deployments, swap `FilesystemMeshAdapter` for one backed by Redis pub/sub or NATS — the contract (`MeshAdapter`) is identical, the rest of the stack doesn't change.
+
+The `FilesystemMeshAdapter` source lives at `packages/glove-continuum-signal/tests/fixtures/fs-mesh-adapter.ts` — copy it into your own codebase as a starting point for a production adapter (it's deliberately tests-only in the package itself: no retention/compaction, single-writer assumption per `(root, agentId)`).

@@ -26,6 +26,7 @@ Glove is an open-source TypeScript framework for building AI-powered application
 | `glove-mcp` | Bridge MCP servers into a Glove agent: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter`, `discovermcp` discovery subagent. Opt-in OAuth helpers at `glove-mcp/oauth`. | `pnpm add glove-mcp` |
 | `glove-memory` | Schema-first memory layer with four sibling subsystems: entity graph, episodic timeline, resource filesystem, and ambient context. BYO storage via the adapter contracts; reference in-memory adapters ship for dev/test. Storage backends (`glove-memory-sqlite`, `glove-memory-postgres`) are companion packages — not yet released. Draft v0.1. | `pnpm add glove-memory` |
 | `glove-mesh` | Inter-agent communication on top of the inbox primitive: `mountMesh`, `MeshAdapter` (BYO transport), `MeshNetwork` + `InMemoryMeshAdapter` reference impl. Four tools — `glove_mesh_send_message`, `glove_mesh_broadcast`, `glove_mesh_list_agents`, `glove_mesh_acknowledge`. No auth (consumer's job). | `pnpm add glove-mesh` |
+| `glove-continuum-signal` | Subprocess-based runtime substrate for agent collaboration across time. Two modes: **triggered** (cold, spawn-per-wakeup) and **concurrent** (warm, long-lived subprocess notified inline). `agent()` builder, `ContinuumRunner` (discovery + supervision + IPC), `ContinuumAdapter` (BYO persistence; `MemoryAdapter` default), `ContinuumSubscriber` (lifecycle + forwarded Glove events). Pairs with `glove-mesh` for inter-agent talk — substrate provides the supervised subprocesses, mesh provides the messaging. | `pnpm add glove-continuum-signal` |
 | `glovebox-core` | Authoring + `glovebox` build CLI. `glovebox.wrap(runnable, config)` packages a built Glove agent into a deployable artifact (Dockerfile + nixpacks.toml + bundled server + manifest + auth key). Storage DSL (`rule.*`, `composite`) and wire protocol types live here too. The unscoped `glovebox` name is taken on npm — install as `glovebox-core`; the CLI binary is still `glovebox`. | `pnpm add glovebox-core` |
 | `glovebox-kit` | In-container runtime. `startGlovebox({ app, port, key, manifestPath, ... })` boots the WS server, auto-injects glovebox skills/hooks, and bridges Glove's display stack onto the wire. Storage adapters: `InlineStorage`, `UrlStorage`, `LocalServerStorage`, `S3Storage`. | (transitive — bundled by `glovebox build`) |
 | `glovebox-client` | Client SDK. `GloveboxClient.make({ endpoints })`, `client.box(name).prompt(text, { files })`, `result.read(name)`, `box.environment()`. Symmetric `ClientStorage` interface with a default inline+url implementation. | `pnpm add glovebox-client` |
@@ -42,6 +43,7 @@ Glove is an open-source TypeScript framework for building AI-powered application
 - **`glove-mcp`** — MCP servers as first-class tools: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter` (consumer-supplied per-conversation seam). `discovermcp` discovery subagent (registered via `glove.defineSubAgent(discoverySubAgent({...}))`). Opt-in OAuth helpers at `glove-mcp/oauth` (`runMcpOAuth`, `FsOAuthStore`, `MemoryOAuthStore`, `McpOAuthProvider`).
 - **`glove-memory`** — Memory layer with four sibling subsystems (entity graph / episodic timeline / resource filesystem / ambient context) and matching `useMemoryReader` / `useMemoryCurator`, `useEpisodicReader` / `useEpisodicCurator`, `useResourcesReader` / `useResourcesCurator`, and `useContext` helper families. Storage-agnostic adapter contracts plus reference `InMemory*` adapters for dev/test.
 - **`glove-mesh`** — Inter-agent messaging on top of the inbox primitive: `mountMesh(glove, { adapter, identity })` registers an agent and folds `glove_mesh_send_message` / `_broadcast` / `_list_agents` / `_acknowledge`. `MeshAdapter` is the consumer-supplied transport (BYO); ships `InMemoryMeshAdapter` + `MeshNetwork` for in-process dev/test. Each agent keeps its own inbox; incoming messages land as resolved `InboxItem`s so the existing inbox-injection path surfaces them on the next `ask()`. No authentication — sender ids are unverified.
+- **`glove-continuum-signal`** — Subprocess-based runtime substrate modeled on `station-signal` but agent-shaped. `agent("name").input(zod).triggered()|.concurrent()` builder produces branded agents; `ContinuumRunner` discovers them from a directory, pre-warms concurrent ones, dispatches triggered runs from an adapter queue (per-spawn isolation), and routes `notify` IPC envelopes to warm subprocesses inline. `ContinuumAdapter` is the persistence contract (`MemoryAdapter` ships; consumers BYO for SQLite/Postgres/etc.). Single fat `onAgentEvent(envelope)` subscriber forwards every Glove `SubscriberEvent` from any child upstream with the agent identity attached. Mesh integrates by being mounted per-agent inside the factory — no special IPC machinery.
 
 ## Architecture at a Glance
 
@@ -66,6 +68,7 @@ User message → Agent Loop → Model decides tool calls → Execute tools → F
 - **Extensions (hooks, skills, subagents)** — `/hookname` runs a builder-defined handler with full agent controls (force compaction, swap model, short-circuit a turn). `/skillname` materialises a synthetic user message before the real one (marked `is_skill_injection: true`). `defineSubAgent({ name, factory })` registers a subagent the main agent can route to via the auto-registered `glove_invoke_subagent` tool — the user's `@name` text is NOT parsed by glove, it reaches the model verbatim and acts as a routing signal (mirrors Claude Code's subagent convention). `/` tokens are replaced with non-triggerable placeholders (`[invoked_extension__hook_<name>]` / `[invoked_extension__skill_<name>]`) so the model sees that an extension fired without the placeholder re-binding on a future parse; unbound `/` tokens stay untouched (so `/usr/local` survives). Skills can be exposed to the agent (`exposeToAgent: true`) so the agent pulls them in via the auto-registered `glove_invoke_skill` tool.
 - **MCP catalogue + adapter** — `glove-mcp` introduces two pieces: a static `McpCatalogueEntry[]` describing servers the app supports, and a per-conversation `McpAdapter` holding active ids and resolving access tokens. `mountMcp` reloads previously active servers and registers a `discovermcp` discovery subagent (via `glove.defineSubAgent(discoverySubAgent({...}))`) — the model invokes it through `glove_invoke_subagent({ name: "discovermcp", prompt: "..." })` to find and activate servers mid-conversation.
 - **Mesh network** — `glove-mesh` lets Glove agents send each other messages via a consumer-supplied `MeshAdapter` (transport). Each agent keeps its own `StoreAdapter`+inbox; when A sends to B, the framework drops a `status: "resolved"` `InboxItem` into B's store so the existing inbox-injection path surfaces it on B's next `ask()`. Blocking sends insert a pending `blocking: true` item that resolves on ack or `in_reply_to` reply. No auth in v1.
+- **Continuum (subprocess runtime)** — `glove-continuum-signal` supervises Glove agents as Node subprocesses. **Triggered** agents are cold and spawn-per-wakeup (resume from a persistent `StoreAdapter` each time); **concurrent** agents are warm and notified inline. The `agent()` builder forks into mode-specific types after `.triggered()` / `.concurrent()` so mode-specific setters (`.retries()`, `.every()`) are type-level guarded. Persistent stores configured via `.store(name => StoreAdapter)` so the same store implementation can be injected across an agent fleet. Parent is single source of truth for run status (children only emit IPC). Mesh integration: mount in the factory — substrate stays out of inter-agent protocol.
 
 ## Quick Start (Next.js)
 
@@ -1318,6 +1321,189 @@ Both write to the same `StoreAdapter` inbox surface; the tag prefix tells them a
 - No new `SubscriberEvent` types; observability rides on `tool_use_result` for the four tools and inbox-state writes.
 - No group/topic concept. Broadcast targets every registered agent.
 
+## Continuum (`glove-continuum-signal`)
+
+Subprocess-based runtime substrate that supervises Glove agents like `station-signal` supervises background jobs. Two execution modes:
+
+- **Triggered (asynchronous)** — agents are cold by default. An external force (`.trigger(input)`, a schedule fire, an inbound mesh message) wakes them. They resume their persistent store, run a turn, return, go cold. Each wakeup spawns a fresh subprocess.
+- **Concurrent (synchronous)** — agents are warm in long-lived subprocesses. The runner keeps them alive and pushes notifications inline via `runner.notify(name, input)`; mid-loop pickup is immediate, no spawn latency.
+
+The substrate is NOT an inter-agent protocol — that's `glove-mesh`. Continuum gives mesh a stable per-agent identity, an inbox-capable persistent store, and a long-lived subprocess for warm agents; mesh runs entirely inside that subprocess against whatever transport the consumer's `MeshAdapter` provides.
+
+### When to use
+
+- Multiple long-running agents in one deployment, each with isolated subprocesses but observed centrally.
+- Agents that keep state across many wakeups (continuity-of-context for triggered agents).
+- Firing agent work from an HTTP handler / cron / webhook and picking it up async — like a background job, but the job is a full Glove agent.
+- Mesh between agents on the same host without an external broker (pair with the example `FilesystemMeshAdapter`).
+
+For a single in-process agent in a Next.js handler, you don't need continuum — keep using `createChatHandler`.
+
+### The `agent()` builder — mode-as-fork
+
+```typescript
+import { agent, z } from "glove-continuum-signal";
+import { Glove, Displaymanager } from "glove-core";
+import { createAdapter } from "glove-core/models/providers";
+
+export const pizzaBaker = agent("pizza-baker")
+  .input(z.object({ orderId: z.string() }))
+  .output(z.object({ ready: z.boolean() }))
+  .triggered()                                                // forks into TriggeredAgentBuilder
+  .timeout(60_000)
+  .retries(2)
+  .every("5m").withInput({ orderId: "tick" })
+  .env({ OVEN: "hot" })
+  .store((name) => new MyPersistentStore(`./agents/${name}.db`))
+  .onComplete(async (out, in_) => audit(out, in_))
+  .factory(async (ctx) =>
+    new Glove({
+      store: ctx.store ?? undefined,
+      model: createAdapter({ provider: "anthropic" }),
+      displayManager: new Displaymanager(),
+      systemPrompt: "You bake pizzas.",
+      compaction_config: { compaction_instructions: "..." },
+    })
+      .fold(checkOrderTool)
+      .build(ctx.store ?? undefined),
+  );
+
+// Fire-and-forget. Returns a run id immediately.
+const runId = await pizzaBaker.trigger({ orderId: "abc-123" });
+```
+
+`.triggered()` returns `TriggeredAgentBuilder<TInput>` — `.retries()` / `.every()` / `.withInput()` are only available here. `.concurrent()` returns `ConcurrentAgentBuilder<TInput>` — its built agent gets a `.notify(input)` instance method on top of `.trigger(input)` (both enqueue `kind: "notify"` runs that route to the warm subprocess; `notify()` is the clearer name when you're sure the peer is warm). Calling `.notify()` on a triggered agent is a type error, not a runtime error.
+
+**Factory context** (`AgentFactoryContext`):
+- `name` — registered agent name
+- `runId` — per-wakeup for triggered; `"warmup"` during concurrent factory setup
+- `mode` — `"triggered" | "concurrent"`
+- `store` — the `StoreAdapter` the runtime built from `.store(factory)` (or `null` if `.store(...)` wasn't called)
+- `subscriber` — an IPC-forwarding `SubscriberAdapter` the bootstrap re-attaches defensively after the factory returns
+- `controls.emit({ type, data })` — emit a custom event back to the runner's subscribers, wrapped as an `agent:event` envelope
+- `controls.signal` — `AbortSignal` that fires on graceful stop / restart / terminal fail; use it to unmount mesh, close DB pools, etc.
+
+### The `ContinuumRunner`
+
+```typescript
+import {
+  ContinuumRunner,
+  MemoryAdapter,
+  ConsoleSubscriber,
+} from "glove-continuum-signal";
+
+const runner = new ContinuumRunner({
+  agentsDir: "./agents",                  // auto-discover branded agents (recursive)
+  adapter: new MemoryAdapter(),           // or your own ContinuumAdapter
+  subscribers: [new ConsoleSubscriber()],
+  pollIntervalMs: 1_000,
+  maxConcurrent: 5,                       // triggered-run budget
+  warmRestartPolicy: { maxRestarts: 5, backoffMs: 1_000 },
+});
+
+await runner.start();
+
+// Triggered: spawn-per-wakeup. Returns a run id immediately.
+const runId = await pizzaBaker.trigger({ orderId: "abc-123" });
+const final = await runner.waitForRun(runId);
+
+// Concurrent: routes to the warm subprocess inline.
+const notifyId = await runner.notify("pizza-watcher", { event: "oven_ready" });
+
+await runner.stop({ graceful: true, timeoutMs: 10_000 });
+```
+
+`runner.notify(name, input)` is the runner-bound equivalent of `concurrentAgent.notify(input)` — handy when you have the runner reference but not the agent reference (e.g. from a wrapper that holds the runner).
+
+### Persistent stores
+
+Triggered agents NEED a `StoreAdapter` that survives across wakeups, otherwise context resets every time. Configure via `.store(name => …)` — the runtime calls this on each spawn with the agent's name, and the resulting store is passed to the factory via `ctx.store`. Discovery emits a warning for triggered agents that omit `.store(...)`. Concurrent agents are usually fine with in-memory stores because their subprocess is long-lived (still want persistence if the runner can restart).
+
+### Mesh integration
+
+Mount mesh per-agent inside the factory:
+
+```typescript
+import { mountMesh } from "glove-mesh";
+import { makeRedisMeshAdapter } from "./infra/mesh.js";
+
+agent("pizza-watcher")
+  .input(z.object({ event: z.string() }))
+  .concurrent()
+  .store((name) => new MyInboxCapableStore(`./agents/${name}.db`))
+  .factory(async (ctx) => {
+    const glove = new Glove({ store: ctx.store ?? undefined, /* ... */ }).build();
+    await mountMesh(glove, {
+      adapter: makeRedisMeshAdapter(ctx.name),
+      identity: { id: ctx.name, name: ctx.name, description: "..." },
+    });
+    return glove;
+  });
+```
+
+`mountMesh` requires the store to implement inbox methods (`getInboxItems` / `addInboxItem` / `updateInboxItem` / `getResolvedInboxItems`). Glove's default `MemoryStore` implements them; custom stores must too. `InMemoryMeshAdapter` from `glove-mesh` is single-process; for cross-subprocess agent-to-agent transport pick a real adapter (Redis, NATS, HTTP webhooks, …) or use the example `FilesystemMeshAdapter` from `glove-continuum-signal/tests/fixtures/fs-mesh-adapter.ts` (atomic tmp+rename writes, ~100ms polling subscribe, per-msg sender lookup for cross-process `acknowledge()`).
+
+### Adapter contract (`ContinuumAdapter`)
+
+Mirrors `station-signal`'s `SignalQueueAdapter` with three deltas: `agentName` everywhere (not `signalName`), `RunKind` includes `"notify"`, and steps are dropped (the Glove turn IS the unit; fine-grained observability lives on the forwarded subscriber event stream, not as relational `Step` rows). `MemoryAdapter` ships as default; consumers BYO for SQLite/Postgres/etc. `HttpTriggerAdapter` powers remote `.trigger()` via `configure({ endpoint, apiKey })`.
+
+### Subscriber model
+
+`ContinuumSubscriber` exposes lifecycle callbacks (`onAgentDiscovered`, `onAgentSpawned`, `onAgentReady`, `onAgentTerminated`, `onAgentRestarted`, `onRunDispatched`, `onRunStarted`, `onRunCompleted`, `onRunFailed`, `onRunTimeout`, `onRunRetry`, `onRunCancelled`, `onRunSkipped`, `onRunRescheduled`, `onNotifyDelivered`, `onCompleteError`, `onLogOutput`) plus a single fat `onAgentEvent(envelope)` that forwards every Glove `SubscriberEvent` from any child subprocess upstream:
+
+```typescript
+interface AgentEventEnvelope<T extends SubscriberEvent["type"]> {
+  agentName: string;
+  runId: string | null;           // null for ambient warm-agent events between notifies
+  mode: AgentMode;
+  event_type: T;
+  data: SubscriberEventDataMap[T];
+  timestamp: string;
+}
+```
+
+Single envelope (rather than per-type callbacks) because the Glove `SubscriberEvent` union is 14+ types and grows independently. Wrappers fan out per-type trivially.
+
+### Trust model
+
+- A registered agent file is `await import()`-ed during discovery and runs in a subprocess with the parent's environment. `agentsDir` should never point at user-influenced content.
+- `NODE_OPTIONS`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, and `DYLD_INSERT_LIBRARIES` are stripped from the parent env before forwarding, and an agent's `.env({...})` cannot override them.
+- For warm subprocesses, the parent validates that `notify:*` envelope `runId`s belong to the sending subprocess (`pendingNotifies` ownership check) — a misbehaving warm child can't spoof another agent's run completion.
+- Warm subprocesses get a per-name restart budget (`warmRestartPolicy.maxRestarts`, default 5) that resets after 60s of post-`ready` stability, so a long-running deployment doesn't permanently lose its warm agents to occasional blips. Crash-loops still hit the budget and stop trying.
+
+### How it differs from station-signal
+
+| Aspect | station-signal | glove-continuum-signal |
+|--------|---------------|------------------------|
+| Unit of work | Stateless job (run handler or stepped pipeline) | Stateful Glove agent turn |
+| Builder terminal | `.run(fn)` / `.step().build()` | `.factory(ctx => Glove)` |
+| Modes | Spawn-per-run only | Triggered (spawn-per-wakeup) + Concurrent (warm subprocess + notify IPC) |
+| Persistence | Step records in the adapter | Per-agent `StoreAdapter` carried across wakeups via `.store(name => …)` |
+| Children touch adapter? | Yes (write `Step` rows) | No (parent is sole source of truth) |
+| Observability | Per-type subscriber callbacks | Lifecycle callbacks + one fat `onAgentEvent(envelope)` for forwarded Glove events |
+| Inter-unit messaging | N/A | Defers to `glove-mesh` (mounted in factory) |
+
+### Limitations (v1)
+
+- Single-runner only. Multi-runner warm-pool sharding and distributed claim leasing for recurring schedules are deferred to future wrapper packages.
+- `configure()` is a module-level singleton; multiple runners in one process race on it. Use `runner.notify()` when you need to address a specific runner's adapter.
+- A stuck notify in a warm subprocess fails its own run on timeout but doesn't kill the subprocess; subsequent notifies queue behind it on the bootstrap's promise chain. Restart the warm agent if you observe persistent starvation.
+- Notify cancellation is best-effort — the parent flips status to `cancelled`, but the warm subprocess's promise chain keeps running. Plan around it for mutation-critical work.
+
+### Quick reference — where things live
+
+| Need | Symbol |
+|------|--------|
+| Define an agent | `agent("name").input(zod).triggered()` or `.concurrent()`, then `.factory(ctx => glove)`, from `glove-continuum-signal` |
+| Run agents | `new ContinuumRunner({ agentsDir, adapter, subscribers, ... })` from `glove-continuum-signal` |
+| Push to a warm agent | `runner.notify(name, input)` or `concurrentAgent.notify(input)` |
+| Persistence contract | `ContinuumAdapter` from `glove-continuum-signal` |
+| Default in-process adapter | `MemoryAdapter` from `glove-continuum-signal` |
+| Remote trigger | `configure({ endpoint, apiKey })` + `HttpTriggerAdapter` from `glove-continuum-signal` |
+| Observability | `ContinuumSubscriber`, `ConsoleSubscriber`, `AgentEventEnvelope` from `glove-continuum-signal` |
+| Brand symbol | `AGENT_BRAND = Symbol.for("glove-continuum-agent")`, `isAgent(v)` from `glove-continuum-signal` |
+| Mount mesh inside factory | `mountMesh(glove, { adapter, identity })` from `glove-mesh` (see Mesh section) |
+
 ## Glovebox — Sandboxed Runtime
 
 Glovebox packages a built Glove agent as an isolated, network-addressable service. Developer writes a Glove agent normally, calls `glovebox.wrap(runnable, config)`, runs `glovebox build`, and gets a deployable artifact (Dockerfile + nixpacks.toml + esbuild server bundle + manifest + auth key). The deployed server exposes one authenticated WebSocket endpoint per session, with prompts multiplexed by `id` over that single socket.
@@ -2138,3 +2324,13 @@ For example patterns from real implementations, see [examples.md](examples.md).
 57. **Mesh tag prefixes are `mesh:`, not `glove_mesh:`**: Tool names are `glove_mesh_*` (matching the framework's `glove_<package>_*` convention), but inbox tags use the shorter `mesh:from:<sender>`, `mesh:broadcast:from:<sender>`, `mesh:waiting:<msg_id>` prefixes. The mismatch is intentional — tags are filter keys, tool names are model-facing — but worth noting when grepping inbox histories.
 58. **Mesh reply implies ack**: An incoming direct message with `in_reply_to: X` does BOTH things: surfaces the reply body as a new resolved inbox item AND resolves the pending blocking item for `X` (if one exists). The recipient doesn't need to call `glove_mesh_acknowledge` separately when replying.
 59. **`InMemoryMeshAdapter` is process-local**: Construct ONE `MeshNetwork` per process and share it across every `InMemoryMeshAdapter`. For cross-process or distributed messaging, implement `MeshAdapter` directly over your transport (Redis pub/sub, NATS, HTTP webhooks). The `MeshNetwork` LRU that maps `message_id → sender_id` for ack routing caps at 1024 by default — acks for very old messages are best-effort.
+60. **Continuum `agent()` builder forks on mode**: After `.input(zod)`, calling `.triggered()` returns `TriggeredAgentBuilder<TInput>` and `.concurrent()` returns `ConcurrentAgentBuilder<TInput>`. `.retries(n)` / `.every("5m")` / `.withInput(default)` only exist on triggered; trying them on concurrent is a type error, not a runtime error. The terminal `.factory(ctx => Glove)` returns the built agent (branded with `AGENT_BRAND`). Mirrors station-signal's `.run()` vs `.step().build()` fork.
+61. **`.notify()` is type-level concurrent-only**: `ConcurrentAgent<T>` exposes both `.trigger(input)` and `.notify(input)` (both write `kind: "notify"` runs); `TriggeredAgent<T>` only has `.trigger(input)` (which writes `kind: "trigger"`). The runtime distinguishes by run kind: trigger/recurring spawn fresh subprocesses, notify routes IPC to the warm one. Calling `agent.notify()` on a triggered agent doesn't compile.
+62. **Triggered agents NEED `.store(name => StoreAdapter)`**: Without it, each wakeup gets a fresh `MemoryStore` and loses all context from previous wakeups — defeating continuum's purpose. Discovery emits a console warning when a triggered agent omits `.store(...)`. Concurrent agents are usually fine without one because their subprocess is long-lived, but persistence helps if the runner can restart.
+63. **Mounting `mountMesh` in a continuum factory works out-of-the-box**: Continuum's stores must already be inbox-capable when mesh is mounted (mesh requires those four inbox methods). Glove's `MemoryStore` qualifies; a BYO `StoreAdapter` needs the inbox methods too. The continuum substrate provides no special IPC for mesh — the factory just calls `await mountMesh(glove, { adapter, identity })` after building the glove and the adapter runs entirely inside the subprocess.
+64. **Continuum subscribers receive `onAgentEvent(envelope)`, NOT per-type Glove events**: The runner forwards every Glove `SubscriberEvent` from any child subprocess as a single `AgentEventEnvelope` (`{ agentName, runId, mode, event_type, data, timestamp }`). Subscribers narrow on `envelope.event_type` to handle specific types. `runId` is nullable for ambient warm-agent events emitted outside any notify (e.g. during factory setup). Wrappers can build per-type fan-out on top trivially.
+65. **Continuum parent is single source of truth for run status**: Children only emit IPC envelopes; the parent runner translates them into `adapter.updateRun(…)` calls. Children NEVER reconstruct or talk to the adapter directly (a real simplification over station-signal that falls out of dropping steps). The `resolved` flag and active-count decrement on terminal IPC are set in the synchronous critical path BEFORE any `await`, so slow adapter backends can't trip a double-decrement when the 200ms exit grace overlaps a pending status update.
+66. **Continuum warm-restart budget resets after 60s of stability**: `warmRestartPolicy.maxRestarts` (default 5) caps how many crash-loop restarts an agent gets, but the counter zeroes out once the warm subprocess has been `ready` for 60s without exiting. So a once-in-a-while crash after hours of healthy work doesn't permanently lose the agent; chronic flap still hits the budget. The reset timer is cleared in the exit handler so a quick re-crash doesn't earn a fresh budget.
+67. **Continuum runner spawn env-blocklist**: `NODE_OPTIONS`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, and `DYLD_INSERT_LIBRARIES` are stripped from BOTH the parent env forwarded to subprocesses AND any `.env({...})` override an agent supplies. Defense-in-depth against loader injection — the trust model is still "I trust my own agent code", but blocking the highest-impact escapes is cheap. `PATH` is deliberately kept so `spawn("node", …)` resolves.
+68. **`runner.notify(name, input)` vs `agent.notify(input)`**: Both write a `kind: "notify"` run that routes to the warm subprocess. The agent's instance method goes through `getAdapter()` (the global `configure({adapter})` singleton); the runner method goes through the runner's own adapter. Use the runner method when you have multiple runners in one process (the global races) or when you want to be explicit about which runner gets the run.
+69. **Continuum bootstrap path is `dist/bootstrap.js` (production) or falls back to `src/bootstrap.ts` (dev)**: The runner uses `existsSync` to pick whichever exists. If you delete `dist/` while running under `tsx`, the runner still works against the source file. If neither exists, `spawn` fails at runtime with `ENOENT` — make sure you've built the package (or are running under `tsx`) before starting a runner.
