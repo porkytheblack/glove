@@ -25,6 +25,7 @@ Glove is an open-source TypeScript framework for building AI-powered application
 | `glove-next` | One-line Next.js API route handler (`createChatHandler`) for streaming SSE | `pnpm add glove-next` |
 | `glove-mcp` | Bridge MCP servers into a Glove agent: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter`, `discovermcp` discovery subagent. Opt-in OAuth helpers at `glove-mcp/oauth`. | `pnpm add glove-mcp` |
 | `glove-memory` | Schema-first memory layer with four sibling subsystems: entity graph, episodic timeline, resource filesystem, and ambient context. BYO storage via the adapter contracts; reference in-memory adapters ship for dev/test. Storage backends (`glove-memory-sqlite`, `glove-memory-postgres`) are companion packages — not yet released. Draft v0.1. | `pnpm add glove-memory` |
+| `glove-mesh` | Inter-agent communication on top of the inbox primitive: `mountMesh`, `MeshAdapter` (BYO transport), `MeshNetwork` + `InMemoryMeshAdapter` reference impl. Four tools — `glove_mesh_send_message`, `glove_mesh_broadcast`, `glove_mesh_list_agents`, `glove_mesh_acknowledge`. No auth (consumer's job). | `pnpm add glove-mesh` |
 | `glovebox-core` | Authoring + `glovebox` build CLI. `glovebox.wrap(runnable, config)` packages a built Glove agent into a deployable artifact (Dockerfile + nixpacks.toml + bundled server + manifest + auth key). Storage DSL (`rule.*`, `composite`) and wire protocol types live here too. The unscoped `glovebox` name is taken on npm — install as `glovebox-core`; the CLI binary is still `glovebox`. | `pnpm add glovebox-core` |
 | `glovebox-kit` | In-container runtime. `startGlovebox({ app, port, key, manifestPath, ... })` boots the WS server, auto-injects glovebox skills/hooks, and bridges Glove's display stack onto the wire. Storage adapters: `InlineStorage`, `UrlStorage`, `LocalServerStorage`, `S3Storage`. | (transitive — bundled by `glovebox build`) |
 | `glovebox-client` | Client SDK. `GloveboxClient.make({ endpoints })`, `client.box(name).prompt(text, { files })`, `result.read(name)`, `box.environment()`. Symmetric `ClientStorage` interface with a default inline+url implementation. | `pnpm add glovebox-client` |
@@ -40,6 +41,7 @@ Glove is an open-source TypeScript framework for building AI-powered application
 - **`glove-voice`** — full-duplex voice pipeline: STT/TTS/VAD adapters, `GloveVoice`, `useGloveVoice`, `useGlovePTT`, `<VoicePTTButton>`.
 - **`glove-mcp`** — MCP servers as first-class tools: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter` (consumer-supplied per-conversation seam). `discovermcp` discovery subagent (registered via `glove.defineSubAgent(discoverySubAgent({...}))`). Opt-in OAuth helpers at `glove-mcp/oauth` (`runMcpOAuth`, `FsOAuthStore`, `MemoryOAuthStore`, `McpOAuthProvider`).
 - **`glove-memory`** — Memory layer with four sibling subsystems (entity graph / episodic timeline / resource filesystem / ambient context) and matching `useMemoryReader` / `useMemoryCurator`, `useEpisodicReader` / `useEpisodicCurator`, `useResourcesReader` / `useResourcesCurator`, and `useContext` helper families. Storage-agnostic adapter contracts plus reference `InMemory*` adapters for dev/test.
+- **`glove-mesh`** — Inter-agent messaging on top of the inbox primitive: `mountMesh(glove, { adapter, identity })` registers an agent and folds `glove_mesh_send_message` / `_broadcast` / `_list_agents` / `_acknowledge`. `MeshAdapter` is the consumer-supplied transport (BYO); ships `InMemoryMeshAdapter` + `MeshNetwork` for in-process dev/test. Each agent keeps its own inbox; incoming messages land as resolved `InboxItem`s so the existing inbox-injection path surfaces them on the next `ask()`. No authentication — sender ids are unverified.
 
 ## Architecture at a Glance
 
@@ -63,6 +65,7 @@ User message → Agent Loop → Model decides tool calls → Execute tools → F
 - **Inbox** — Persistent async mailbox for cross-instance communication. An agent posts a request (text) that can't be resolved now; an external service resolves it later (text response). Resolved items are automatically injected into the agent's context on the next `ask()` call. Items can be blocking (agent should wait) or non-blocking. Built-in `glove_post_to_inbox` tool auto-registered when store supports inbox methods.
 - **Extensions (hooks, skills, subagents)** — `/hookname` runs a builder-defined handler with full agent controls (force compaction, swap model, short-circuit a turn). `/skillname` materialises a synthetic user message before the real one (marked `is_skill_injection: true`). `defineSubAgent({ name, factory })` registers a subagent the main agent can route to via the auto-registered `glove_invoke_subagent` tool — the user's `@name` text is NOT parsed by glove, it reaches the model verbatim and acts as a routing signal (mirrors Claude Code's subagent convention). `/` tokens are replaced with non-triggerable placeholders (`[invoked_extension__hook_<name>]` / `[invoked_extension__skill_<name>]`) so the model sees that an extension fired without the placeholder re-binding on a future parse; unbound `/` tokens stay untouched (so `/usr/local` survives). Skills can be exposed to the agent (`exposeToAgent: true`) so the agent pulls them in via the auto-registered `glove_invoke_skill` tool.
 - **MCP catalogue + adapter** — `glove-mcp` introduces two pieces: a static `McpCatalogueEntry[]` describing servers the app supports, and a per-conversation `McpAdapter` holding active ids and resolving access tokens. `mountMcp` reloads previously active servers and registers a `discovermcp` discovery subagent (via `glove.defineSubAgent(discoverySubAgent({...}))`) — the model invokes it through `glove_invoke_subagent({ name: "discovermcp", prompt: "..." })` to find and activate servers mid-conversation.
+- **Mesh network** — `glove-mesh` lets Glove agents send each other messages via a consumer-supplied `MeshAdapter` (transport). Each agent keeps its own `StoreAdapter`+inbox; when A sends to B, the framework drops a `status: "resolved"` `InboxItem` into B's store so the existing inbox-injection path surfaces it on B's next `ask()`. Blocking sends insert a pending `blocking: true` item that resolves on ack or `in_reply_to` reply. No auth in v1.
 
 ## Quick Start (Next.js)
 
@@ -1162,6 +1165,159 @@ Process-local — they lose data on restart. Production projects swap in a compa
 
 See [api-reference.md — `glove-memory`](api-reference.md) for full type signatures, and [examples.md — Memory](examples.md) for worked examples (schema definition, subagent-delegated reader, curator composition, context flow).
 
+## Mesh Network (`glove-mesh`)
+
+`glove-mesh` lets multiple Glove agents talk to each other — direct messages, broadcasts, acknowledgements — on top of the existing `glove-inbox` primitive. The package is strictly additive (no `glove-core` changes) and ships no authentication; the consumer's `MeshAdapter` owns transport and any signing/verification.
+
+### When to use it
+
+- Two or more Glove agents running async or in parallel in the same process (or across processes/hosts) need to coordinate.
+- You want the agent loop to surface peer messages as plain context the model can read, without writing custom subscriber/store integration.
+
+If you just need one agent to delegate work to another sub-task in isolation, use `defineSubAgent` instead — subagents run nested under the parent. Mesh is for peers.
+
+### Mental model
+
+Each agent owns its own `StoreAdapter`+inbox. The `MeshAdapter` is a per-agent view of the network (matches `McpAdapter`'s per-conversation pattern). When agent A calls `glove_mesh_send_message({ to: "b", content: ... })`, the framework drops a `status: "resolved"` `InboxItem` with tag `mesh:from:a` into B's store. B's existing `Agent.injectResolvedInboxItems` path (glove-core) surfaces it as a synthetic user message on B's next `ask()` — exactly like an externally-resolved inbox item.
+
+The "shared inbox" is conceptual: the mesh is shared; the inbox stays per-agent.
+
+### `mountMesh` — the canonical entry point
+
+After `new Glove(...).build()`:
+
+```typescript
+import { mountMesh, MeshNetwork, InMemoryMeshAdapter } from "glove-mesh";
+
+const network = new MeshNetwork();          // in-process bus; for distributed, BYO
+
+await mountMesh(glove, {
+  adapter: new InMemoryMeshAdapter(network, "agent-a"),
+  identity: {
+    id: "agent-a",
+    name: "Agent A",
+    description: "Plans tasks for the team.",
+    capabilities: ["chat", "planning"],
+  },
+});
+```
+
+What it does:
+
+1. Validates `glove.store` implements the four inbox methods (`getInboxItems`, `addInboxItem`, `updateInboxItem`, `getResolvedInboxItems`) — throws `MeshStoreUnsupportedError` otherwise.
+2. Awaits `adapter.register(identity)` so peers can discover this agent.
+3. Calls `adapter.subscribe(handler)` once. The handler converts incoming messages into resolved inbox items (or resolves a pending blocking item on ack).
+4. Folds four tools onto the running Glove: `glove_mesh_send_message`, `glove_mesh_broadcast`, `glove_mesh_list_agents`, `glove_mesh_acknowledge`.
+
+Returns `Promise<void>` (not chainable). Mirrors `mountMcp`'s async-setup convention.
+
+### The four tools
+
+| Tool | Input | Behavior |
+|------|-------|----------|
+| `glove_mesh_send_message` | `{ to, content, in_reply_to?, blocking? }` | Calls `adapter.send`. Blocking inserts a pending blocking inbox item tagged `mesh:waiting:<msg_id>` that resolves on ack or reply. |
+| `glove_mesh_broadcast` | `{ content, blocking? }` | Calls `adapter.broadcast`. Blocking resolves on the FIRST ack received. |
+| `glove_mesh_list_agents` | `{ filter?: { capability?, name_contains? } }` | Calls `adapter.listAgents`; filters; excludes self. |
+| `glove_mesh_acknowledge` | `{ message_id, note? }` | Calls `adapter.acknowledge`. Lightweight confirmation; for substantive replies use `glove_mesh_send_message` with `in_reply_to` instead. |
+
+### `MeshAdapter` contract
+
+Implement one per agent. Consumer-supplied — the package never knows about your transport.
+
+```typescript
+interface MeshAdapter {
+  identifier: string;
+
+  // Identity / registration
+  register(identity: AgentIdentity): Promise<void>;
+  unregister(): Promise<void>;
+  listAgents(): Promise<AgentIdentity[]>;
+  getAgent(id: string): Promise<AgentIdentity | null>;
+
+  // Outbound
+  send(message: MeshMessage): Promise<void>;
+  broadcast(message: Omit<MeshMessage, "to">): Promise<void>;
+  acknowledge(messageId: string, note?: string): Promise<void>;
+
+  // Inbound — framework registers ONE handler per agent
+  subscribe(handler: (msg: IncomingMeshMessage) => Promise<void>): () => void;
+}
+```
+
+Adapter guarantees the framework relies on:
+
+- `send` resolves when the transport has accepted the message, not when the recipient handles it.
+- `broadcast` excludes the sender from fan-out.
+- Handler errors must NOT bubble — log and continue so fan-out to other agents stays intact.
+- `acknowledge` routes an `IncomingMeshMessage` with `kind: "ack"` back to the original sender of `messageId`.
+
+### Reference `InMemoryMeshAdapter`
+
+For dev, tests, and single-host setups. `MeshNetwork` is the shared bus; construct once, hand the same instance to every `InMemoryMeshAdapter` in the process.
+
+```typescript
+import { MeshNetwork, InMemoryMeshAdapter } from "glove-mesh";
+
+const net = new MeshNetwork();
+const a = new InMemoryMeshAdapter(net, "agent-a");
+const b = new InMemoryMeshAdapter(net, "agent-b");
+```
+
+`MeshNetwork` keeps a bounded LRU (default 1024) of `message_id → sender_id` so `acknowledge` can route back without the model threading sender on every ack.
+
+### Blocking sends
+
+| Tool call | Pending item? | Resolves on |
+|-----------|---------------|-------------|
+| `glove_mesh_send_message({ blocking: false })` | No | n/a |
+| `glove_mesh_send_message({ blocking: true })` | Yes — tag `mesh:waiting:<msg_id>` | ack with `ack_of === msg_id`, OR a reply (`glove_mesh_send_message` with `in_reply_to === msg_id`) |
+| `glove_mesh_broadcast({ blocking: true })` | Yes | first ack from any peer |
+| `glove_mesh_acknowledge` (this agent acking inbound) | No | n/a — itself |
+
+A pending blocking item synthesises a transient reminder each turn via `Agent.buildPendingBlockingMessage` until it resolves. When the ack/reply arrives, the resolved item shows up via the standard `[Inbox: N item(s) resolved]` injection.
+
+**Reply implies ack.** A direct incoming with `in_reply_to: X` does BOTH: inserts a new resolved inbox item with the reply body AND resolves the pending item for `X`. Saves the recipient one tool call.
+
+### Tag convention
+
+Mesh items use namespaced tags so consumers can filter mesh traffic out of inbox histories:
+
+| Tag prefix | Direction | Meaning |
+|------------|-----------|---------|
+| `mesh:from:<sender>` | inbound | direct message |
+| `mesh:broadcast:from:<sender>` | inbound | broadcast |
+| `mesh:waiting:<msg_id>` | local | pending blocking item for an outbound send |
+
+### Auth model — there isn't one
+
+`MeshMessage.from` is sender-claimed and unverified. If you need authenticated messaging, sign messages before calling `send`/`broadcast` and verify in your `subscribe` handler. Mirrors how `McpAdapter.getAccessToken` keeps auth a consumer concern.
+
+### Quick reference — where things live
+
+| Need | Symbol |
+|------|--------|
+| Mount mesh on an agent | `mountMesh(glove, { adapter, identity })` from `glove-mesh` |
+| Adapter contract | `MeshAdapter` from `glove-mesh/core` |
+| Message types | `AgentIdentity`, `MeshMessage`, `IncomingMeshMessage` from `glove-mesh/core` |
+| In-process bus | `MeshNetwork`, `InMemoryMeshAdapter` from `glove-mesh/in-memory` |
+| Individual tool builders | `buildMeshSendTool`, `buildMeshBroadcastTool`, `buildMeshListAgentsTool`, `buildMeshAcknowledgeTool` from `glove-mesh/tools` |
+| Error classes | `MeshError`, `MeshNotRegisteredError`, `MeshUnknownAgentError`, `MeshUnknownMessageError`, `MeshStoreUnsupportedError` from `glove-mesh/core` |
+
+### How it differs from `glove_post_to_inbox`
+
+- `glove_post_to_inbox` — "I will resolve this myself later from outside the conversation" (external service, webhook, cron).
+- `glove_mesh_send_message` — "I'm talking to another Glove agent on the mesh" (peer-to-peer).
+
+Both write to the same `StoreAdapter` inbox surface; the tag prefix tells them apart.
+
+### Limitations (v1)
+
+- `InMemoryMeshAdapter` is process-local; restarts wipe state. Real transports are the consumer's job.
+- Sender-table LRU caps at 1024 — acks for very old messages are best-effort.
+- Broadcast blocking resolves on the FIRST ack, not all peers.
+- No new `SubscriberEvent` types; observability rides on `tool_use_result` for the four tools and inbox-state writes.
+- No group/topic concept. Broadcast targets every registered agent.
+
 ## Glovebox — Sandboxed Runtime
 
 Glovebox packages a built Glove agent as an isolated, network-addressable service. Developer writes a Glove agent normally, calls `glovebox.wrap(runnable, config)`, runs `glovebox build`, and gets a deployable artifact (Dockerfile + nixpacks.toml + esbuild server bundle + manifest + auth key). The deployed server exposes one authenticated WebSocket endpoint per session, with prompts multiplexed by `id` over that single socket.
@@ -1976,3 +2132,9 @@ For example patterns from real implementations, see [examples.md](examples.md).
 51. **Permissions are keyed on (tool, input), not just tool**: `Executor.checkPermission` calls `store.getPermission(name, input)` with the model-supplied input on every gated call. The default `MemoryStore` exact-matches inputs via `permissionKey(name, input)` → `"${name}::${JSON.stringify(input ?? null)}"`, so calls with different inputs prompt independently and calls with identical inputs hit the cached decision. Custom stores can implement fuzzier matching (regex on a command, prefix on a path) by ignoring or canonicalising `input` themselves.
 52. **`requiresPermission` accepts a function**: `boolean | ((input: I) => boolean)`. Use the function form when the *gate itself* depends on input — e.g. a single `bash` tool that gates writes but not reads: `requiresPermission: (i) => !i.cmd.startsWith("ls")`. Returning `false` skips the store lookup entirely for that call; returning `true` runs the normal `getPermission(name, input)` flow.
 53. **SqliteStore migration on upgrade**: Existing databases get an `input_hash` column added to the `permissions` table (PK becomes `(session_id, tool_name, input_hash)`). Legacy rows are preserved with `input_hash = ''` (a sentinel that won't match any real call), so users re-prompt once for every tool after upgrade — consistent with the new exact-match semantics. `glove-sqlite` is still deprecated; prefer `MemoryStore` from `glove-core` or BYO `StoreAdapter`.
+54. **`mountMesh` requires inbox-capable stores**: It throws `MeshStoreUnsupportedError` if `glove.store` doesn't implement all four inbox methods (`getInboxItems`, `addInboxItem`, `updateInboxItem`, `getResolvedInboxItems`). `MemoryStore` and `SqliteStore` both qualify; BYO stores need to opt in. The framework no longer no-ops silently here — fail-fast on misconfiguration.
+55. **Mesh blocking sends use the existing inbox-injection path**: The pending blocking item created by `glove_mesh_send_message({ blocking: true })` synthesises a transient reminder each turn via `Agent.buildPendingBlockingMessage` until it resolves. On ack/reply, the resolved item shows up via the standard `[Inbox: N item(s) resolved]` injection. No new mechanism in `glove-core` — mesh is strictly additive.
+56. **Mesh sender ids are unverified**: `MeshMessage.from` is sender-claimed. The framework does not verify the sender matches the registered identity. If you need authenticated messaging, sign messages before calling `adapter.send`/`broadcast` and verify in your `subscribe` handler — mirrors how `McpAdapter.getAccessToken` keeps auth a consumer concern.
+57. **Mesh tag prefixes are `mesh:`, not `glove_mesh:`**: Tool names are `glove_mesh_*` (matching the framework's `glove_<package>_*` convention), but inbox tags use the shorter `mesh:from:<sender>`, `mesh:broadcast:from:<sender>`, `mesh:waiting:<msg_id>` prefixes. The mismatch is intentional — tags are filter keys, tool names are model-facing — but worth noting when grepping inbox histories.
+58. **Mesh reply implies ack**: An incoming direct message with `in_reply_to: X` does BOTH things: surfaces the reply body as a new resolved inbox item AND resolves the pending blocking item for `X` (if one exists). The recipient doesn't need to call `glove_mesh_acknowledge` separately when replying.
+59. **`InMemoryMeshAdapter` is process-local**: Construct ONE `MeshNetwork` per process and share it across every `InMemoryMeshAdapter`. For cross-process or distributed messaging, implement `MeshAdapter` directly over your transport (Redis pub/sub, NATS, HTTP webhooks). The `MeshNetwork` LRU that maps `message_id → sender_id` for ack routing caps at 1024 by default — acks for very old messages are best-effort.

@@ -975,6 +975,140 @@ const { inbox } = useGlove({ tools, sessionId });
 
 ---
 
+## Pattern: Mesh — two-agent in-process messaging
+
+`glove-mesh` reuses the inbox primitive to wire agents together. Each agent keeps its own `StoreAdapter`; `mountMesh` registers identity, subscribes to inbound, and folds four `glove_mesh_*` tools.
+
+```typescript
+import { Glove, MemoryStore, Displaymanager, createAdapter } from "glove-core";
+import { mountMesh, MeshNetwork, InMemoryMeshAdapter } from "glove-mesh";
+
+// One shared bus for the in-process demo.
+const network = new MeshNetwork();
+
+async function makeAgent(id: string, name: string, description: string) {
+  const store = new MemoryStore(id);
+  const glove = new Glove({
+    store,
+    model: createAdapter({ provider: "anthropic" }),
+    displayManager: new Displaymanager(),
+    systemPrompt: `You are ${name}. ${description} You can send messages to other agents via glove_mesh_*. Use glove_mesh_list_agents to see who's available.`,
+    serverMode: true,
+    compaction_config: { compaction_instructions: "Summarize the conversation." },
+  }).build(store);
+
+  await mountMesh(glove, {
+    adapter: new InMemoryMeshAdapter(network, id),
+    identity: { id, name, description, capabilities: ["chat"] },
+  });
+
+  return glove;
+}
+
+const planner = await makeAgent("planner", "Planner", "Plans tasks for the team.");
+const worker  = await makeAgent("worker",  "Worker",  "Executes assigned tasks.");
+
+await planner.processRequest("Find a worker and ask them to summarise the latest deploy. Block until they respond.");
+// planner calls glove_mesh_send_message({ to: "worker", content: "...", blocking: true })
+// → pending blocking InboxItem in planner's store (tag: mesh:waiting:<msg_id>)
+// → resolved InboxItem in worker's store (tag: mesh:from:planner)
+
+await worker.processRequest("Check your inbox and respond to any waiting messages.");
+// worker sees the [Inbox: 1 item(s) resolved] banner with the message body
+// → calls glove_mesh_send_message({ to: "planner", content: "...", in_reply_to: <id> })
+//   (reply implies ack, so planner's pending item resolves)
+
+await planner.processRequest("Continue.");
+// planner sees the resolved [Inbox: ...] banner with worker's reply
+```
+
+**Key contract points:**
+- `mountMesh` is async (must await) and not chainable; mirrors `mountMcp`.
+- `mountMesh` throws `MeshStoreUnsupportedError` if `glove.store` lacks the four inbox methods.
+- Sender ids are unverified — sign on `send` / verify on `subscribe` if you need auth.
+- Broadcast blocking resolves on the FIRST ack from any peer; later acks arrive as ordinary inbox items.
+
+---
+
+## Pattern: Mesh — BYO transport (Redis pub/sub sketch)
+
+For cross-process / distributed setups, implement `MeshAdapter` directly. The adapter is the only seam — the rest of the package is reusable.
+
+```typescript
+import type { MeshAdapter, MeshMessage, IncomingMeshMessage, AgentIdentity } from "glove-mesh";
+import type { Redis } from "ioredis";
+
+export class RedisMeshAdapter implements MeshAdapter {
+  identifier: string;
+
+  constructor(private redis: Redis, private agentId: string) {
+    this.identifier = `redis-mesh-${agentId}`;
+  }
+
+  async register(identity: AgentIdentity) {
+    await this.redis.hset("mesh:agents", this.agentId, JSON.stringify(identity));
+  }
+  async unregister() {
+    await this.redis.hdel("mesh:agents", this.agentId);
+  }
+  async listAgents(): Promise<AgentIdentity[]> {
+    const raw = await this.redis.hgetall("mesh:agents");
+    return Object.values(raw).map((s) => JSON.parse(s));
+  }
+  async getAgent(id: string) {
+    const raw = await this.redis.hget("mesh:agents", id);
+    return raw ? (JSON.parse(raw) as AgentIdentity) : null;
+  }
+
+  async send(msg: MeshMessage) {
+    // Remember sender so acks can route back.
+    await this.redis.set(`mesh:msg:${msg.id}:sender`, msg.from, "EX", 3600);
+    await this.redis.publish(`mesh:agent:${msg.to}`, JSON.stringify({ ...msg, kind: "direct" }));
+  }
+  async broadcast(msg: Omit<MeshMessage, "to">) {
+    await this.redis.set(`mesh:msg:${msg.id}:sender`, this.agentId, "EX", 3600);
+    await this.redis.publish("mesh:broadcast", JSON.stringify({ ...msg, kind: "broadcast", from: this.agentId }));
+  }
+  async acknowledge(messageId: string, note?: string) {
+    const sender = await this.redis.get(`mesh:msg:${messageId}:sender`);
+    if (!sender) throw new Error(`No record of message "${messageId}"`);
+    const ack = {
+      id: `ack_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+      from: this.agentId,
+      to: sender,
+      content: note ?? "",
+      created_at: new Date().toISOString(),
+      kind: "ack" as const,
+      ack_of: messageId,
+      ack_note: note,
+    };
+    await this.redis.publish(`mesh:agent:${sender}`, JSON.stringify(ack));
+  }
+
+  subscribe(handler: (msg: IncomingMeshMessage) => Promise<void>) {
+    const sub = this.redis.duplicate();
+    sub.subscribe(`mesh:agent:${this.agentId}`, "mesh:broadcast");
+    sub.on("message", async (_chan, raw) => {
+      try {
+        await handler(JSON.parse(raw) as IncomingMeshMessage);
+      } catch (err) {
+        // Per adapter contract: handler errors must not bubble.
+        // eslint-disable-next-line no-console
+        console.warn("[mesh-redis] handler:", err);
+      }
+    });
+    return () => {
+      sub.unsubscribe();
+      sub.quit();
+    };
+  }
+}
+```
+
+Wire it up identically to the in-memory case — just pass a `RedisMeshAdapter` instead of `InMemoryMeshAdapter`. The four mesh tools and the inbox routing don't change.
+
+---
+
 ## Pattern: Abort Handling
 
 ```typescript
