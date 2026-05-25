@@ -46,7 +46,6 @@ async function makeAgent(id: string, name: string, description: string) {
   await mountMesh(glove, {
     adapter: new InMemoryMeshAdapter(network, id),
     identity: { id, name, description, capabilities: ["chat"] },
-    store,
   });
 
   return glove;

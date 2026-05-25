@@ -10,7 +10,7 @@ export {
   buildMeshBroadcastTool,
   buildMeshListAgentsTool,
   buildMeshAcknowledgeTool,
-  type FoldTarget,
+  type MeshMountTarget,
   type MountMeshConfig,
 } from "./tools";
 export { MeshNetwork, InMemoryMeshAdapter } from "./in-memory";

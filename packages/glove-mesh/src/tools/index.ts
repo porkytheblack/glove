@@ -20,12 +20,13 @@ export { buildMeshListAgentsTool } from "./list";
 export { buildMeshAcknowledgeTool } from "./acknowledge";
 
 /**
- * Anything that exposes `glove-core`'s `fold`. Matches the loose target type
- * used by glove-memory's `useMemoryReader` so callers can pass either a
- * still-building Glove or a runnable Glove and keep their concrete type.
+ * Loose target type — anything exposing `fold` for tool registration and a
+ * readonly `store` for inbox writes. `IGloveRunnable` satisfies this, and
+ * minimal stubs in tests do too without depending on the full runnable.
  */
-export type FoldTarget = {
+export type MeshMountTarget = {
   fold: <I>(args: GloveFoldArgs<I>) => unknown;
+  readonly store: StoreAdapter;
 };
 
 export interface MountMeshConfig {
@@ -33,24 +34,13 @@ export interface MountMeshConfig {
   adapter: MeshAdapter;
   /** This agent's identity, announced to the network on mount. */
   identity: AgentIdentity;
-  /**
-   * The same StoreAdapter passed to `new Glove({ store })`. Required because
-   * `IGloveRunnable` does not expose the store and tools' third argument is
-   * the glove itself, not the store — so mesh has no other path to write
-   * resolved inbox items into the recipient's history.
-   *
-   * Must implement all four inbox methods: getInboxItems, addInboxItem,
-   * updateInboxItem, getResolvedInboxItems. Throws MeshStoreUnsupportedError
-   * otherwise.
-   */
-  store: StoreAdapter;
 }
 
 /**
  * Wire a Glove agent onto a mesh network.
  *
  * On call:
- *   1. Validates the store supports inbox methods (throws otherwise).
+ *   1. Validates the glove's store supports inbox methods (throws otherwise).
  *   2. Registers this agent's identity with the adapter.
  *   3. Subscribes a single inbound handler. Incoming messages land in this
  *      agent's inbox as resolved items; the existing inbox-injection path
@@ -62,10 +52,11 @@ export interface MountMeshConfig {
  * for adapter setup that needs async work.
  */
 export async function mountMesh(
-  glove: FoldTarget,
+  glove: MeshMountTarget,
   config: MountMeshConfig,
 ): Promise<void> {
-  const { adapter, identity, store } = config;
+  const { adapter, identity } = config;
+  const store = glove.store;
 
   assertInboxCapable(store);
 

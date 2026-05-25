@@ -18,9 +18,10 @@ const ID_B: AgentIdentity = { id: "b", name: "Agent B", description: "second" };
 interface RecorderTarget {
   folded: GloveFoldArgs<unknown>[];
   fold: <I>(args: GloveFoldArgs<I>) => unknown;
+  readonly store: StoreAdapter;
 }
 
-function makeFoldTarget(): RecorderTarget {
+function makeFoldTarget(store: StoreAdapter): RecorderTarget {
   const folded: GloveFoldArgs<unknown>[] = [];
   const target: RecorderTarget = {
     folded,
@@ -28,6 +29,7 @@ function makeFoldTarget(): RecorderTarget {
       folded.push(args as GloveFoldArgs<unknown>);
       return target;
     },
+    store,
   };
   return target;
 }
@@ -51,7 +53,6 @@ describe("mountMesh — store capability gate", () => {
   it("throws MeshStoreUnsupportedError when the store lacks inbox methods", async () => {
     const net = new MeshNetwork();
     const adapter = new InMemoryMeshAdapter(net, "a");
-    const target = makeFoldTarget();
     const halfStore: StoreAdapter = {
       identifier: "stub",
       getMessages: async () => [],
@@ -62,13 +63,9 @@ describe("mountMesh — store capability gate", () => {
       incrementTurn: async () => {},
       resetCounters: async () => {},
     };
+    const target = makeFoldTarget(halfStore);
     await assert.rejects(
-      () =>
-        mountMesh(target, {
-          adapter,
-          identity: ID_A,
-          store: halfStore,
-        }),
+      () => mountMesh(target, { adapter, identity: ID_A }),
       (err: unknown) => err instanceof MeshStoreUnsupportedError,
     );
   });
@@ -79,9 +76,9 @@ describe("mountMesh — tool folding", () => {
     const net = new MeshNetwork();
     const adapter = new InMemoryMeshAdapter(net, "a");
     const store = new MemoryStore("a");
-    const target = makeFoldTarget();
+    const target = makeFoldTarget(store);
 
-    await mountMesh(target, { adapter, identity: ID_A, store });
+    await mountMesh(target, { adapter, identity: ID_A });
 
     const names = target.folded.map((t) => t.name).sort();
     assert.deepEqual(names, [
@@ -97,15 +94,13 @@ describe("mountMesh — tool folding", () => {
 describe("mountMesh — inbound direct message", () => {
   it("inserts a resolved inbox item tagged mesh:from:<sender>", async () => {
     const net = new MeshNetwork();
-    const adapterA = new InMemoryMeshAdapter(net, "a");
-    const adapterB = new InMemoryMeshAdapter(net, "b");
     const storeA = new MemoryStore("a");
     const storeB = new MemoryStore("b");
-    const targetA = makeFoldTarget();
-    const targetB = makeFoldTarget();
+    const targetA = makeFoldTarget(storeA);
+    const targetB = makeFoldTarget(storeB);
 
-    await mountMesh(targetA, { adapter: adapterA, identity: ID_A, store: storeA });
-    await mountMesh(targetB, { adapter: adapterB, identity: ID_B, store: storeB });
+    await mountMesh(targetA, { adapter: new InMemoryMeshAdapter(net, "a"), identity: ID_A });
+    await mountMesh(targetB, { adapter: new InMemoryMeshAdapter(net, "b"), identity: ID_B });
 
     const result = await callTool(targetA.folded, "mesh_send_message", {
       to: "b",
@@ -124,19 +119,19 @@ describe("mountMesh — inbound direct message", () => {
 
   it("tags broadcasts with mesh:broadcast:from:<sender>", async () => {
     const net = new MeshNetwork();
-    const adapterA = new InMemoryMeshAdapter(net, "a");
-    const adapterB = new InMemoryMeshAdapter(net, "b");
     const storeA = new MemoryStore("a");
     const storeB = new MemoryStore("b");
 
-    await mountMesh(makeFoldTarget(), { adapter: adapterA, identity: ID_A, store: storeA });
-    const targetB = makeFoldTarget();
-    await mountMesh(targetB, { adapter: adapterB, identity: ID_B, store: storeB });
-    // B sends a broadcast — A should receive it (tested via storeA).
-    const targetBSend = makeFoldTarget();
-    await mountMesh(targetBSend, { adapter: new InMemoryMeshAdapter(net, "b2"), identity: { id: "b2", name: "B2", description: "" }, store: new MemoryStore("b2") });
+    await mountMesh(makeFoldTarget(storeA), {
+      adapter: new InMemoryMeshAdapter(net, "a"),
+      identity: ID_A,
+    });
+    const targetB = makeFoldTarget(storeB);
+    await mountMesh(targetB, {
+      adapter: new InMemoryMeshAdapter(net, "b"),
+      identity: ID_B,
+    });
 
-    // For simpler assertion, broadcast from B and check storeA.
     const result = await callTool(targetB.folded, "mesh_broadcast", {
       content: "team-wide ping",
       blocking: false,
@@ -157,17 +152,15 @@ describe("mountMesh — blocking send + ack round-trip", () => {
     const net = new MeshNetwork();
     const storeA = new MemoryStore("a");
     const storeB = new MemoryStore("b");
-    const targetA = makeFoldTarget();
-    const targetB = makeFoldTarget();
+    const targetA = makeFoldTarget(storeA);
+    const targetB = makeFoldTarget(storeB);
     await mountMesh(targetA, {
       adapter: new InMemoryMeshAdapter(net, "a"),
       identity: ID_A,
-      store: storeA,
     });
     await mountMesh(targetB, {
       adapter: new InMemoryMeshAdapter(net, "b"),
       identity: ID_B,
-      store: storeB,
     });
 
     const sendResult = await callTool(targetA.folded, "mesh_send_message", {
@@ -207,17 +200,15 @@ describe("mountMesh — reply implies ack", () => {
     const net = new MeshNetwork();
     const storeA = new MemoryStore("a");
     const storeB = new MemoryStore("b");
-    const targetA = makeFoldTarget();
-    const targetB = makeFoldTarget();
+    const targetA = makeFoldTarget(storeA);
+    const targetB = makeFoldTarget(storeB);
     await mountMesh(targetA, {
       adapter: new InMemoryMeshAdapter(net, "a"),
       identity: ID_A,
-      store: storeA,
     });
     await mountMesh(targetB, {
       adapter: new InMemoryMeshAdapter(net, "b"),
       identity: ID_B,
-      store: storeB,
     });
 
     const sendResult = await callTool(targetA.folded, "mesh_send_message", {
@@ -253,22 +244,18 @@ describe("mountMesh — reply implies ack", () => {
 describe("mountMesh — mesh_list_agents", () => {
   it("returns peers excluding self, with capability and name filtering", async () => {
     const net = new MeshNetwork();
-    const storeA = new MemoryStore("a");
-    const targetA = makeFoldTarget();
+    const targetA = makeFoldTarget(new MemoryStore("a"));
     await mountMesh(targetA, {
       adapter: new InMemoryMeshAdapter(net, "a"),
       identity: ID_A,
-      store: storeA,
     });
-    await mountMesh(makeFoldTarget(), {
+    await mountMesh(makeFoldTarget(new MemoryStore("b")), {
       adapter: new InMemoryMeshAdapter(net, "b"),
       identity: { id: "b", name: "Beta", description: "", capabilities: ["chat"] },
-      store: new MemoryStore("b"),
     });
-    await mountMesh(makeFoldTarget(), {
+    await mountMesh(makeFoldTarget(new MemoryStore("c")), {
       adapter: new InMemoryMeshAdapter(net, "c"),
       identity: { id: "c", name: "Gamma", description: "", capabilities: ["research"] },
-      store: new MemoryStore("c"),
     });
 
     const all = (await callTool(targetA.folded, "mesh_list_agents", {})) as {
