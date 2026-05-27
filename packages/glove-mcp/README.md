@@ -8,7 +8,7 @@ Model Context Protocol integration for the [Glove](https://github.com/porkythebl
 pnpm add glove-mcp
 ```
 
-Requires `glove-core` as a peer; HTTP transport only in v1.
+Requires `glove-core` as a peer. Speaks Streamable HTTP by default and auto-falls-back to the deprecated HTTP+SSE transport for legacy / embedded servers (e.g. robot controllers). Force a specific transport per entry via `transport: "streamable-http" | "sse" | "auto"`.
 
 ## Minimal usage
 

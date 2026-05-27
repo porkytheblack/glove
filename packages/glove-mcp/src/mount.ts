@@ -56,6 +56,7 @@ export async function mountMcp(
         url: entry.url,
         auth: bearer(() => adapter.getAccessToken(id)),
         clientInfo,
+        transport: entry.transport,
       });
       const tools = await conn.listTools();
       for (const tool of tools) {

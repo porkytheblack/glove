@@ -1,3 +1,5 @@
+import type { McpTransportKind } from "./connect";
+
 /**
  * Static catalogue entry — describes one MCP server the app supports.
  *
@@ -11,12 +13,18 @@ export interface McpCatalogueEntry {
   name: string;
   /** Short description used by the subagent for matching. */
   description: string;
-  /** MCP server URL (HTTP transport only in v1). */
+  /** MCP server URL. */
   url: string;
   /** Optional — discovery uses these for matching. */
   tags?: string[];
   /** Optional — extra arbitrary metadata. */
   metadata?: Record<string, unknown>;
+  /**
+   * Optional wire transport — `"auto"` (default), `"streamable-http"`, or
+   * `"sse"`. Set `"sse"` for servers that only speak the deprecated
+   * HTTP+SSE transport (some local / embedded / robot MCP servers).
+   */
+  transport?: McpTransportKind;
 }
 
 /**

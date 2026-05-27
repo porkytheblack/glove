@@ -127,6 +127,7 @@ function activateTool(
           url: entry.url,
           auth: bearer(() => adapter.getAccessToken(entry.id)),
           clientInfo,
+          transport: entry.transport,
         });
 
         const tools = await conn.listTools();

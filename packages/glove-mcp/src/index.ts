@@ -5,6 +5,7 @@ export type {
   McpCallToolResult,
   McpServerConnection,
   McpToolDef,
+  McpTransportKind,
 } from "./connect";
 export { connectMcp, UnauthorizedError } from "./connect";
 export { bridgeMcpTool, MCP_NAMESPACE_SEP } from "./bridge";
