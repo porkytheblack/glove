@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased — Multimodal file inputs (PDF, audio) & provider capability map
+
+### Highlights
+
+- **PDFs and documents now reach OpenAI-compatible providers.** Previously, `document` content parts were dropped and replaced with a `[Document attachment: …]` text placeholder on every OpenAI-shape provider (OpenAI, OpenRouter, Gemini, MiniMax, Kimi, GLM, MiMo). They now emit a native OpenAI `file` content part (`{ type: "file", file: { filename, file_data } }`) where the provider supports it.
+- **New `audio` modality.** `ContentPart.type` gains `"audio"`; OpenAI-shape adapters emit `input_audio` parts (wav/mp3) and Anthropic/Bedrock degrade to a text note.
+- **`ContentPart.source.filename`** — carried through to providers that need it (OpenAI file parts, Anthropic document `title`, Bedrock document `name`).
+- **Per-provider modality capability map.** Every `ProviderDef` now declares `modalities: ModalitySupport`, surfaced on `adapter.capabilities`. Parts whose modality a provider can't accept degrade to a descriptive text note instead of a malformed request. Override per-adapter with `createAdapter({ capabilities })` (handy for local ollama/lmstudio multimodal models).
+- **Honest degradation, not silent breakage.** Video on the OpenAI shape (which has no video content part) and unsupported documents/audio now produce a clear `[Attachment omitted: … — reason]` note rather than a broken `image_url` or dropped payload.
+- **`glove-react`: attach any file, not just images.** `sendMessage(text, images?, files?)` accepts a third `MessageAttachment[]` argument; new `attachmentToContentPart` / `inferModality` helpers and a `TimelineAttachment` entry for rendering non-image attachments.
+
+### Notes
+
+- Anthropic and Bedrock already forwarded documents; this release stops hard-coding the Anthropic document media type to `application/pdf`, adds a `title` from the filename, and sanitises the Bedrock document name.
+- The glove-next SSE handler picks up the same capability-aware formatting automatically (it reuses `glove-core`'s `formatMessages`).
+- The capability map is coarse (per-provider, not per-model). Some models within a provider accept less — e.g. only audio-capable OpenAI models take `input_audio`. Tune via the `capabilities` override.
+
+---
+
 ## v3.0.0 — Subagents, observability & MemoryStore
 
 **Release date:** May 2026

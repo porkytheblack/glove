@@ -67,6 +67,10 @@
       "types": "./dist/models/mimo.d.ts",
       "import": "./dist/models/mimo.js"
     },
+    "./models/content": {
+      "types": "./dist/models/content.d.ts",
+      "import": "./dist/models/content.js"
+    },
     "./models/providers": {
       "types": "./dist/models/providers.d.ts",
       "import": "./dist/models/providers.js"
@@ -81,7 +85,8 @@
   ],
   "scripts": {
     "build": "tsup",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
@@ -93,6 +98,7 @@
   "devDependencies": {
     "@types/node": "^25.2.3",
     "@types/ora": "^3.2.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.9.3"
   }
 }

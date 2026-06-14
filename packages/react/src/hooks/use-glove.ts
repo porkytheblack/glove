@@ -19,11 +19,18 @@ import type {
   SlotRenderProps,
   ToolResultRenderProps,
   TimelineEntry,
+  TimelineAttachment,
   EnhancedSlot,
   SlotDisplayStrategy,
   IGloveRunnable,
 } from "../types";
 import type { Slot } from "glove-core/display-manager";
+import {
+  attachmentToContentPart,
+  attachmentPreviewUrl,
+  inferModality,
+  type MessageAttachment,
+} from "../attachments";
 import { MemoryStore } from "../adapters/memory-store";
 import { createEndpointModel } from "../adapters/endpoint-model";
 import { useGloveClient } from "./context";
@@ -67,6 +74,7 @@ export interface UseGloveReturn extends GloveState {
   sendMessage: (
     text: string,
     images?: Array<{ data: string; media_type: string }>,
+    files?: Array<MessageAttachment>,
   ) => void;
   abort: () => void;
   resolveSlot: (slotId: string, value: unknown) => void;
@@ -260,10 +268,24 @@ function messagesToTimeline(messages: Message[]): TimelineEntry[] {
             : `data:${p.source!.media_type};base64,${p.source!.data}`,
         );
 
+      // Non-image attachments (documents, audio, video) surface as labelled chips.
+      const attachments: TimelineAttachment[] | undefined = msg.content
+        ?.filter((p) => p.type !== "text" && p.type !== "image" && p.source)
+        .map((p) => ({
+          ...(p.source!.filename ? { name: p.source!.filename } : {}),
+          media_type: p.source!.media_type,
+          kind: p.type as TimelineAttachment["kind"],
+          url:
+            p.source!.type === "url"
+              ? p.source!.url!
+              : `data:${p.source!.media_type};base64,${p.source!.data}`,
+        }));
+
       timeline.push({
         kind: "user",
         text: msg.text,
         ...(images?.length ? { images } : {}),
+        ...(attachments?.length ? { attachments } : {}),
       });
     } else if (msg.sender === "agent") {
       // Agent text (before any tool calls)
@@ -542,7 +564,11 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
   // ── Actions ──────────────────────────────────────────────────────────────
 
   const sendMessage = useCallback(
-    (text: string, images?: Array<{ data: string; media_type: string }>) => {
+    (
+      text: string,
+      images?: Array<{ data: string; media_type: string }>,
+      files?: Array<MessageAttachment>,
+    ) => {
       const glove = gloveRef.current;
       const sub = subscriberRef.current;
       if (!glove || !store || state.busy) return;
@@ -551,6 +577,14 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
       const imageUrls = images?.map(
         (img) => `data:${img.media_type};base64,${img.data}`,
       );
+
+      // Non-image attachments surface as labelled chips in the timeline.
+      const attachments: TimelineAttachment[] | undefined = files?.map((f) => ({
+        ...(f.filename ? { name: f.filename } : {}),
+        media_type: f.media_type,
+        kind: f.kind ?? inferModality(f.media_type),
+        url: attachmentPreviewUrl(f),
+      }));
 
       setState((s) => ({
         ...s,
@@ -562,6 +596,7 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
             kind: "user" as const,
             text,
             ...(imageUrls?.length ? { images: imageUrls } : {}),
+            ...(attachments?.length ? { attachments } : {}),
           },
         ],
       }));
@@ -569,11 +604,11 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
       const ac = new AbortController();
       abortRef.current = ac;
 
-      // Build request: plain text or multimodal content
+      // Build request: plain text, or multimodal content when images/files are present.
       let request: string | ContentPart[];
-      if (images?.length) {
+      if (images?.length || files?.length) {
         const parts: ContentPart[] = [
-          ...images.map(
+          ...(images ?? []).map(
             (img) =>
               ({
                 type: "image" as const,
@@ -584,6 +619,7 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
                 },
               }) satisfies ContentPart,
           ),
+          ...(files ?? []).map(attachmentToContentPart),
           { type: "text" as const, text } satisfies ContentPart,
         ];
         request = parts;

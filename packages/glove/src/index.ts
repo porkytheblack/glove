@@ -14,6 +14,7 @@ export {
 } from "./models/mimo"
 export * from "./models/openai-compat"
 export * from "./models/openrouter"
+export * from "./models/content"
 export * from "./models/providers"
 export * from "./tools/task-tool"
 export * from "./tools/inbox-tool"

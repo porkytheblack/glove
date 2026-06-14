@@ -16,10 +16,22 @@ export {
 export { createEndpointModel } from "./adapters/endpoint-model";
 export { parseSSEStream } from "./sse";
 
+// ─── Attachments (file inputs → ContentParts) ──────────────────────────────────
+
+export {
+  attachmentToContentPart,
+  attachmentPreviewUrl,
+  inferModality,
+  type MessageAttachment,
+} from "./attachments";
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type {
   TimelineEntry,
+  TimelineAttachment,
+  Modality,
+  ModalitySupport,
   ToolEntry,
   GloveState,
   GloveStats,

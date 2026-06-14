@@ -1,4 +1,4 @@
-import type { ModelAdapter } from "../core";
+import type { ModelAdapter, ModalitySupport } from "../core";
 import { AnthropicAdapter } from "./anthropic";
 import { BedrockAdapter } from "./bedrock";
 import { MimoAdapter, MIMO_DEFAULT_BASE_URL } from "./mimo";
@@ -7,6 +7,14 @@ import {
   type OpenAICompatReasoningOptions,
   type ReasoningEffort,
 } from "./openai-compat";
+import {
+  OPENAI_MODALITIES,
+  ANTHROPIC_MODALITIES,
+  BEDROCK_MODALITIES,
+  MIMO_MODALITIES,
+  VISION_ONLY_MODALITIES,
+  GEMINI_OPENAI_MODALITIES,
+} from "./content";
 
 // ─── Provider definitions ─────────────────────────────────────────────────────
 
@@ -22,6 +30,14 @@ export interface ProviderDef {
   defaultMaxTokens: number;
   /** Whether this provider requires an API key. Defaults to true. */
   requiresApiKey?: boolean;
+  /**
+   * Input modalities this provider's API accepts. Threaded into the adapter as
+   * `capabilities`, and surfaced on `adapter.capabilities` for introspection.
+   * Coarse (per-provider, not per-model) — some models within a provider may
+   * accept less (e.g. only audio-capable OpenAI models take `input_audio`).
+   * Parts whose modality isn't listed degrade to a text note.
+   */
+  modalities: ModalitySupport;
 }
 
 export const providers: Record<string, ProviderDef> = {
@@ -44,6 +60,8 @@ export const providers: Record<string, ProviderDef> = {
     ],
     format: "openai",
     defaultMaxTokens: 8192,
+    // OpenRouter normalises images, PDFs (file part), and audio across models.
+    modalities: OPENAI_MODALITIES,
   },
   anthropic: {
     id: "anthropic",
@@ -58,6 +76,7 @@ export const providers: Record<string, ProviderDef> = {
     ],
     format: "anthropic",
     defaultMaxTokens: 8192,
+    modalities: ANTHROPIC_MODALITIES,
   },
   openai: {
     id: "openai",
@@ -74,6 +93,8 @@ export const providers: Record<string, ProviderDef> = {
     ],
     format: "openai",
     defaultMaxTokens: 4096,
+    // Images + PDFs (file part). input_audio only on audio-capable models.
+    modalities: OPENAI_MODALITIES,
   },
   gemini: {
     id: "gemini",
@@ -88,6 +109,9 @@ export const providers: Record<string, ProviderDef> = {
     ],
     format: "openai",
     defaultMaxTokens: 8192,
+    // Via the OpenAI-compat shim: images + audio. PDFs go through Gemini's
+    // native API, so documents degrade to a note here.
+    modalities: GEMINI_OPENAI_MODALITIES,
   },
   minimax: {
     id: "minimax",
@@ -102,6 +126,7 @@ export const providers: Record<string, ProviderDef> = {
     ],
     format: "openai",
     defaultMaxTokens: 8192,
+    modalities: VISION_ONLY_MODALITIES,
   },
   kimi: {
     id: "kimi",
@@ -116,6 +141,7 @@ export const providers: Record<string, ProviderDef> = {
     ],
     format: "openai",
     defaultMaxTokens: 8192,
+    modalities: VISION_ONLY_MODALITIES,
   },
   glm: {
     id: "glm",
@@ -130,6 +156,7 @@ export const providers: Record<string, ProviderDef> = {
     ],
     format: "openai",
     defaultMaxTokens: 4096,
+    modalities: VISION_ONLY_MODALITIES,
   },
   mimo: {
     id: "mimo",
@@ -145,6 +172,7 @@ export const providers: Record<string, ProviderDef> = {
     ],
     format: "mimo",
     defaultMaxTokens: 8192,
+    modalities: MIMO_MODALITIES,
   },
   ollama: {
     id: "ollama",
@@ -156,6 +184,9 @@ export const providers: Record<string, ProviderDef> = {
     format: "openai",
     defaultMaxTokens: 4096,
     requiresApiKey: false,
+    // Local models vary wildly; assume vision-only by default and override
+    // via createAdapter({ capabilities }) when running a multimodal model.
+    modalities: VISION_ONLY_MODALITIES,
   },
   lmstudio: {
     id: "lmstudio",
@@ -167,6 +198,7 @@ export const providers: Record<string, ProviderDef> = {
     format: "openai",
     defaultMaxTokens: 4096,
     requiresApiKey: false,
+    modalities: VISION_ONLY_MODALITIES,
   },
   bedrock: {
     id: "bedrock",
@@ -192,6 +224,7 @@ export const providers: Record<string, ProviderDef> = {
     ],
     format: "bedrock",
     defaultMaxTokens: 8192,
+    modalities: BEDROCK_MODALITIES,
   },
 };
 
@@ -246,6 +279,13 @@ export interface CreateAdapterOptions {
    * use their own dedicated config surfaces.
    */
   reasoning?: boolean | OpenAICompatReasoningOptions;
+  /**
+   * Override the provider's default input modalities. Useful for local models
+   * (ollama / lmstudio) whose multimodal support depends on the running model,
+   * or to opt a specific OpenAI-compat model into audio. Ignored by the
+   * Anthropic and Bedrock paths, whose capabilities are fixed by their APIs.
+   */
+  capabilities?: ModalitySupport;
 }
 
 export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
@@ -310,6 +350,7 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
       maxTokens,
       stream,
       baseURL: opts.baseURL ?? process.env.MIMO_BASE_URL ?? providerDef.baseURL,
+      capabilities: opts.capabilities ?? providerDef.modalities,
       ...(opts.includeReasoningInText != null && { includeReasoningInText: opts.includeReasoningInText }),
       ...(mimoEffort && { reasoningEffort: mimoEffort }),
       ...(opts.timeout != null && { timeout: opts.timeout }),
@@ -353,6 +394,7 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
     stream,
     baseURL: opts.baseURL ?? providerDef.baseURL,
     provider: providerDef.id,
+    capabilities: opts.capabilities ?? providerDef.modalities,
     ...(opts.timeout != null && { timeout: opts.timeout }),
     ...(reasoningConfig !== undefined && { reasoning: reasoningConfig }),
   });

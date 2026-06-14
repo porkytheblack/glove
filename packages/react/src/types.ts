@@ -1,15 +1,26 @@
-import type { Task, InboxItem, ContentPart, SubscriberAdapter, StoreAdapter, ModelAdapter, ToolResultData } from "glove-core/core";
+import type { Task, InboxItem, ContentPart, Modality, ModalitySupport, SubscriberAdapter, StoreAdapter, ModelAdapter, ToolResultData } from "glove-core/core";
 import type { Slot } from "glove-core/display-manager";
 import type { IGloveRunnable } from "glove-core/glove";
+import type { MessageAttachment } from "./attachments";
 import type z from "zod";
 import type { ReactNode } from "react";
 
-export type { Task, InboxItem, ContentPart, Slot, SubscriberAdapter, StoreAdapter, ModelAdapter, ToolResultData, IGloveRunnable };
+export type { Task, InboxItem, ContentPart, Modality, ModalitySupport, Slot, SubscriberAdapter, StoreAdapter, ModelAdapter, ToolResultData, IGloveRunnable };
+
+/** A non-image attachment surfaced on a user timeline entry for rendering. */
+export interface TimelineAttachment {
+  /** Original filename, when known. */
+  name?: string;
+  media_type: string;
+  kind: Modality;
+  /** Preview/source URL (data: URL for base64 sources). */
+  url: string;
+}
 
 // ─── Timeline ────────────────────────────────────────────────────────────────
 
 export type TimelineEntry =
-  | { kind: "user"; text: string; images?: string[] }
+  | { kind: "user"; text: string; images?: string[]; attachments?: TimelineAttachment[] }
   | { kind: "agent_text"; text: string }
   | {
       kind: "tool";
@@ -89,7 +100,11 @@ export interface StreamingRenderProps {
 }
 
 export interface InputRenderProps {
-  send: (text: string, images?: { data: string; media_type: string }[]) => void;
+  send: (
+    text: string,
+    images?: { data: string; media_type: string }[],
+    files?: MessageAttachment[],
+  ) => void;
   busy: boolean;
   abort: () => void;
 }
@@ -104,7 +119,11 @@ export interface GloveHandle {
   streamingText: string;
   busy: boolean;
   slots: EnhancedSlot[];
-  sendMessage: (text: string, images?: { data: string; media_type: string }[]) => void;
+  sendMessage: (
+    text: string,
+    images?: { data: string; media_type: string }[],
+    files?: MessageAttachment[],
+  ) => void;
   abort: () => void;
   renderSlot: (slot: EnhancedSlot) => ReactNode;
   renderToolResult: (entry: ToolEntry) => ReactNode;

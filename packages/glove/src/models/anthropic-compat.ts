@@ -5,9 +5,11 @@ import type {
   PromptRequest,
   ModelPromptResult,
   ModelAdapter,
+  ModalitySupport,
   NotifySubscribersFunction,
 } from "../core";
 import { formatAnthropicMessages } from "./anthropic";
+import { ANTHROPIC_MODALITIES } from "./content";
 
 // Re-use the Anthropic adapter's formatting utilities
 // but allow custom baseURL/apiKey for compatible APIs
@@ -32,6 +34,7 @@ export interface AnthropicCompatAdapterConfig {
 
 export class AnthropicCompatAdapter implements ModelAdapter {
   name: string;
+  readonly capabilities: ModalitySupport = ANTHROPIC_MODALITIES;
   private client: Anthropic;
   private model: string;
   private maxTokens: number;

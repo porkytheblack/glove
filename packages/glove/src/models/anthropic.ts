@@ -8,9 +8,11 @@ import type {
   PromptRequest,
   ModelPromptResult,
   ModelAdapter,
+  ModalitySupport,
   NotifySubscribersFunction,
 } from "../core";
 import { getToolJsonSchema } from "../core";
+import { ANTHROPIC_MODALITIES, unsupportedAttachmentNote } from "./content";
 import { isString } from "effect/String";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -74,6 +76,8 @@ function formatContentParts(parts: ContentPart[]): Anthropic.ContentBlockParam[]
         if (part.source) {
           blocks.push({
             type: "document",
+            // Anthropic accepts application/pdf for base64 and a broader set
+            // via URL; pass the caller's media_type through rather than forcing PDF.
             source: part.source.type === "url"
               ? { type: "url" as const, url: part.source.url! }
               : {
@@ -81,6 +85,8 @@ function formatContentParts(parts: ContentPart[]): Anthropic.ContentBlockParam[]
                   media_type: part.source.media_type as "application/pdf",
                   data: part.source.data!,
                 },
+            // Surface the filename to the model when we have it.
+            ...(part.source.filename && { title: part.source.filename }),
           });
         }
         break;
@@ -88,7 +94,14 @@ function formatContentParts(parts: ContentPart[]): Anthropic.ContentBlockParam[]
         // Anthropic doesn't natively support video — include as text note
         blocks.push({
           type: "text",
-          text: `[Video attachment: ${part.source?.media_type ?? "video"}]`,
+          text: unsupportedAttachmentNote(part, "Anthropic has no video content block"),
+        });
+        break;
+      case "audio":
+        // Anthropic doesn't accept audio input — include as text note
+        blocks.push({
+          type: "text",
+          text: unsupportedAttachmentNote(part, "Anthropic has no audio content block"),
         });
         break;
     }
@@ -268,6 +281,7 @@ function parseResponse(content: Anthropic.ContentBlock[]): Message {
 
 export class AnthropicAdapter implements ModelAdapter {
   name: string;
+  readonly capabilities: ModalitySupport = ANTHROPIC_MODALITIES;
   private client: Anthropic;
   private model: string;
   private maxTokens: number;

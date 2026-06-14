@@ -16,9 +16,11 @@ import type {
   PromptRequest,
   ModelPromptResult,
   ModelAdapter,
+  ModalitySupport,
   NotifySubscribersFunction,
 } from "../core";
 import { getToolJsonSchema } from "../core";
+import { BEDROCK_MODALITIES, unsupportedAttachmentNote } from "./content";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -121,7 +123,7 @@ function formatContentParts(parts: ContentPart[]): ContentBlock[] {
             blocks.push({
               document: {
                 format: format ?? "pdf",
-                name: "document",
+                name: bedrockDocumentName(part.source.filename),
                 source: {
                   bytes: Buffer.from(part.source.data, "base64"),
                 },
@@ -156,9 +158,30 @@ function formatContentParts(parts: ContentPart[]): ContentBlock[] {
           }
         }
         break;
+      case "audio":
+        // Bedrock Converse has no audio content block — include as text note.
+        blocks.push({
+          text: unsupportedAttachmentNote(part, "Bedrock has no audio content block"),
+        });
+        break;
     }
   }
   return blocks;
+}
+
+/**
+ * Bedrock's `document.name` only allows alphanumerics, single spaces, hyphens,
+ * parentheses, and square brackets. Sanitise the filename to that set (dropping
+ * the extension, which Bedrock infers from `format`) and fall back to "document".
+ */
+function bedrockDocumentName(filename?: string): string {
+  if (!filename) return "document";
+  const base = filename.replace(/\.[^.]+$/, "");
+  const cleaned = base
+    .replace(/[^a-zA-Z0-9 \-()[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || "document";
 }
 
 function formatMessage(msg: Message): BedrockMessage[] {
@@ -323,6 +346,7 @@ function parseResponse(content: ContentBlock[]): Message {
 
 export class BedrockAdapter implements ModelAdapter {
   name: string;
+  readonly capabilities: ModalitySupport = BEDROCK_MODALITIES;
   private client: BedrockRuntimeClient;
   private model: string;
   private maxTokens: number;

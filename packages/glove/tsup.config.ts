@@ -16,6 +16,7 @@ export default defineConfig({
     "src/models/bedrock.ts",
     "src/models/openai-compat.ts",
     "src/models/mimo.ts",
+    "src/models/content.ts",
     "src/models/providers.ts",
   ],
   format: ["esm"],

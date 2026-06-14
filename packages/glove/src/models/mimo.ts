@@ -1,16 +1,17 @@
 import OpenAI from "openai";
 import type {
   Message,
-  ContentPart,
   ToolResult,
   ToolCall,
   Tool,
   PromptRequest,
   ModelPromptResult,
   ModelAdapter,
+  ModalitySupport,
   NotifySubscribersFunction,
 } from "../core";
 import { getToolJsonSchema } from "../core";
+import { formatOpenAIContentParts, MIMO_MODALITIES } from "./content";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -37,6 +38,8 @@ export interface MimoAdapterConfig {
    * pro tier. Leave unset to let the model decide.
    */
   reasoningEffort?: "low" | "medium" | "high";
+  /** Input modalities this endpoint accepts. Defaults to {@link MIMO_MODALITIES}. */
+  capabilities?: ModalitySupport;
   /** Request timeout in milliseconds. Defaults to 10 minutes. */
   timeout?: number;
 }
@@ -78,37 +81,7 @@ function safeJsonParse(str: string): unknown {
   }
 }
 
-function formatContentParts(
-  parts: ContentPart[],
-): OpenAI.Chat.ChatCompletionContentPart[] {
-  const result: OpenAI.Chat.ChatCompletionContentPart[] = [];
-  for (const part of parts) {
-    switch (part.type) {
-      case "text":
-        if (part.text) result.push({ type: "text", text: part.text });
-        break;
-      case "image":
-      case "video":
-        if (part.source) {
-          const url =
-            part.source.type === "url"
-              ? part.source.url!
-              : `data:${part.source.media_type};base64,${part.source.data}`;
-          result.push({ type: "image_url", image_url: { url } });
-        }
-        break;
-      case "document":
-        result.push({
-          type: "text",
-          text: `[Document attachment: ${part.source?.media_type ?? "document"}]`,
-        });
-        break;
-    }
-  }
-  return result;
-}
-
-function formatMessage(msg: Message): MimoMessage[] {
+function formatMessage(msg: Message, caps: ModalitySupport): MimoMessage[] {
   const role: "user" | "assistant" =
     msg.sender === "agent" ? "assistant" : "user";
 
@@ -153,16 +126,21 @@ function formatMessage(msg: Message): MimoMessage[] {
   }
 
   if (msg.content?.length && role === "user") {
-    return [{ role: "user" as const, content: formatContentParts(msg.content) }];
+    return [
+      { role: "user" as const, content: formatOpenAIContentParts(msg.content, caps) },
+    ];
   }
 
   return [{ role, content: msg.text }];
 }
 
-export function formatMessages(messages: Array<Message>): MimoMessage[] {
+export function formatMessages(
+  messages: Array<Message>,
+  caps: ModalitySupport = MIMO_MODALITIES,
+): MimoMessage[] {
   const flat: MimoMessage[] = [];
   for (const msg of messages) {
-    flat.push(...formatMessage(msg));
+    flat.push(...formatMessage(msg, caps));
   }
 
   const merged: MimoMessage[] = [];
@@ -269,6 +247,7 @@ function parseResponse(
 
 export class MimoAdapter implements ModelAdapter {
   name: string;
+  readonly capabilities: ModalitySupport;
   private client: OpenAI;
   private model: string;
   private maxTokens: number;
@@ -280,6 +259,7 @@ export class MimoAdapter implements ModelAdapter {
 
   constructor(config: MimoAdapterConfig) {
     this.name = `mimo:${config.model}`;
+    this.capabilities = config.capabilities ?? MIMO_MODALITIES;
     this.model = config.model;
     this.maxTokens = config.maxTokens ?? 8192;
     this.useStreaming = config.stream ?? true;
@@ -306,7 +286,7 @@ export class MimoAdapter implements ModelAdapter {
     if (this.systemPrompt) {
       messages.push({ role: "system", content: this.systemPrompt });
     }
-    messages.push(...formatMessages(request.messages));
+    messages.push(...formatMessages(request.messages, this.capabilities));
 
     const tools =
       request.tools?.length ? formatTools(request.tools) : undefined;

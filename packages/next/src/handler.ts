@@ -174,7 +174,7 @@ function createOpenAIHandler(
 
     const messages = [
       { role: "system" as const, content: body.systemPrompt },
-      ...formatMessages(body.messages as Message[], reasoning.echo),
+      ...formatMessages(body.messages as Message[], reasoning.echo, providerDef.modalities),
     ];
     const tools = toOpenAITools(body.tools);
 
@@ -425,7 +425,7 @@ function createMimoHandler(
 
     const messages = [
       { role: "system" as const, content: body.systemPrompt },
-      ...formatMimoMessages(body.messages as Message[]),
+      ...formatMimoMessages(body.messages as Message[], providerDef.modalities),
     ];
     const tools = toOpenAITools(body.tools);
 

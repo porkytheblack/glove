@@ -224,17 +224,44 @@ export interface ToolCall {
   id?: string;
 }
 
+/** A non-text input modality a message can carry. */
+export type Modality = "image" | "video" | "document" | "audio";
+
 export interface ContentPart {
-  type: "text" | "image" | "video" | "document";
+  type: "text" | Modality;
   /** For text parts */
   text?: string;
-  /** For media parts (image, video, document) */
+  /** For media parts (image, video, document, audio) */
   source?: {
     type: "base64" | "url";
     media_type: string;
     data?: string;
     url?: string;
+    /**
+     * Original filename. Some providers require it (e.g. OpenAI's `file`
+     * content part) and frontends use it to label attachments. Optional.
+     */
+    filename?: string;
   };
+}
+
+/**
+ * The input modalities a model adapter can forward to its provider natively.
+ * Parts whose modality isn't supported degrade to a descriptive text note
+ * rather than producing a broken request. Consumers can read this off an
+ * adapter (`adapter.capabilities`) to decide what to attach.
+ */
+export interface ModalitySupport {
+  /** Inline (base64) or referenced images — jpeg, png, gif, webp. */
+  image: boolean;
+  /** PDFs and other documents sent as a native file part. */
+  document: boolean;
+  /** Inline audio — wav, mp3, etc. */
+  audio: boolean;
+  /** Video input. */
+  video: boolean;
+  /** Whether remote URL sources (vs. base64) are accepted for media parts. */
+  urlSources: boolean;
 }
 
 export type InboxItemStatus = "pending" | "resolved" | "consumed";
@@ -286,6 +313,14 @@ export interface ModelPromptResult {
 
 export interface ModelAdapter {
   name: string;
+
+  /**
+   * The input modalities this adapter forwards natively. Optional — when
+   * absent, treat the adapter as text-only / unknown. Used for graceful
+   * degradation: a `ContentPart` whose modality isn't supported is replaced
+   * with a descriptive text note instead of a malformed provider request.
+   */
+  readonly capabilities?: ModalitySupport;
 
   prompt(
     request: PromptRequest,

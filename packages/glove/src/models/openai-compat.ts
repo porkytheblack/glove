@@ -1,16 +1,17 @@
 import OpenAI from "openai";
 import type {
   Message,
-  ContentPart,
   ToolResult,
   ToolCall,
   Tool,
   PromptRequest,
   ModelPromptResult,
   ModelAdapter,
+  ModalitySupport,
   NotifySubscribersFunction,
 } from "../core";
 import { getToolJsonSchema } from "../core";
+import { formatOpenAIContentParts, OPENAI_MODALITIES } from "./content";
 
 // ─── Reasoning config ─────────────────────────────────────────────────────────
 
@@ -132,6 +133,13 @@ export interface OpenAICompatAdapterConfig {
   baseURL: string;
   /** Display name prefix, e.g. "openai", "gemini". Defaults to "openai-compat" */
   provider?: string;
+  /**
+   * Input modalities this endpoint accepts. Defaults to the real-OpenAI
+   * baseline ({@link OPENAI_MODALITIES}). `createAdapter` passes the per-provider
+   * set from the provider table. Parts whose modality isn't supported degrade
+   * to a text note.
+   */
+  capabilities?: ModalitySupport;
   /** Request timeout in milliseconds. Useful for local LLMs that may be slow. Defaults to 10 minutes (600000). */
   timeout?: number;
   /**
@@ -186,37 +194,11 @@ function safeJsonParse(str: string): unknown {
   }
 }
 
-function formatContentParts(
-  parts: ContentPart[],
-): OpenAI.Chat.ChatCompletionContentPart[] {
-  const result: OpenAI.Chat.ChatCompletionContentPart[] = [];
-  for (const part of parts) {
-    switch (part.type) {
-      case "text":
-        if (part.text) result.push({ type: "text", text: part.text });
-        break;
-      case "image":
-      case "video":
-        if (part.source) {
-          const url =
-            part.source.type === "url"
-              ? part.source.url!
-              : `data:${part.source.media_type};base64,${part.source.data}`;
-          result.push({ type: "image_url", image_url: { url } });
-        }
-        break;
-      case "document":
-        result.push({
-          type: "text",
-          text: `[Document attachment: ${part.source?.media_type ?? "document"}]`,
-        });
-        break;
-    }
-  }
-  return result;
-}
-
-function formatMessage(msg: Message, echoReasoning: boolean): OpenAIMessage[] {
+function formatMessage(
+  msg: Message,
+  echoReasoning: boolean,
+  caps: ModalitySupport,
+): OpenAIMessage[] {
   const role: "user" | "assistant" =
     msg.sender === "agent" ? "assistant" : "user";
 
@@ -263,7 +245,9 @@ function formatMessage(msg: Message, echoReasoning: boolean): OpenAIMessage[] {
   }
 
   if (msg.content?.length && role === "user") {
-    return [{ role: "user" as const, content: formatContentParts(msg.content) }];
+    return [
+      { role: "user" as const, content: formatOpenAIContentParts(msg.content, caps) },
+    ];
   }
 
   return [{ role, content: msg.text }];
@@ -272,10 +256,11 @@ function formatMessage(msg: Message, echoReasoning: boolean): OpenAIMessage[] {
 export function formatMessages(
   messages: Array<Message>,
   echoReasoning: boolean = false,
+  caps: ModalitySupport = OPENAI_MODALITIES,
 ): OpenAIMessage[] {
   const flat: OpenAIMessage[] = [];
   for (const msg of messages) {
-    flat.push(...formatMessage(msg, echoReasoning));
+    flat.push(...formatMessage(msg, echoReasoning, caps));
   }
 
   const merged: OpenAIMessage[] = [];
@@ -412,6 +397,7 @@ function parseResponse(
 
 export class OpenAICompatAdapter implements ModelAdapter {
   name: string;
+  readonly capabilities: ModalitySupport;
   private client: OpenAI;
   private model: string;
   private maxTokens: number;
@@ -423,6 +409,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
   constructor(config: OpenAICompatAdapterConfig) {
     const provider = config.provider ?? "openai-compat";
     this.name = `${provider}:${config.model}`;
+    this.capabilities = config.capabilities ?? OPENAI_MODALITIES;
     this.model = config.model;
     this.maxTokens = config.maxTokens ?? 4096;
     this.useStreaming = config.stream ?? false;
@@ -448,7 +435,9 @@ export class OpenAICompatAdapter implements ModelAdapter {
     if (this.systemPrompt) {
       messages.push({ role: "system", content: this.systemPrompt });
     }
-    messages.push(...formatMessages(request.messages, this.reasoning.echo));
+    messages.push(
+      ...formatMessages(request.messages, this.reasoning.echo, this.capabilities),
+    );
 
     const tools =
       request.tools?.length ? formatTools(request.tools) : undefined;

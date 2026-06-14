@@ -2013,6 +2013,63 @@ type ToolEntry = Extract<TimelineEntry, { kind: "tool" }>;
 | `lmstudio` | _(none)_ | _(user-specified)_ | openai |
 | `bedrock` | `AWS_ACCESS_KEY_ID` | `anthropic.claude-3-5-sonnet-20241022-v2:0` | bedrock |
 
+### Multimodal & File Inputs
+
+A message carries non-text input as `ContentPart`s (`core.ts`):
+
+```typescript
+interface ContentPart {
+  type: "text" | "image" | "video" | "document" | "audio";
+  text?: string;
+  source?: {
+    type: "base64" | "url";
+    media_type: string;       // "application/pdf", "image/png", "audio/wav", …
+    data?: string;            // base64 (no data: prefix)
+    url?: string;
+    filename?: string;        // forwarded to providers that need it
+  };
+}
+```
+
+Each adapter declares what it can forward via `adapter.capabilities: ModalitySupport`
+(`{ image, document, audio, video, urlSources }`). The per-provider table lives on
+`ProviderDef.modalities` and is threaded into the adapter by `createAdapter`. A part
+whose modality the provider can't accept **degrades to a descriptive text note**
+(`[Attachment omitted: … — reason]`) rather than producing a broken request.
+
+| Modality | anthropic | bedrock | openai / openrouter | gemini (shim) | minimax / kimi / glm / ollama / lmstudio | mimo |
+|----------|-----------|---------|---------------------|---------------|------------------------------------------|------|
+| image | ✅ | ✅ (base64) | ✅ | ✅ | ✅ | ✅ |
+| document (PDF) | ✅ | ✅ | ✅ (`file` part) | ⚠️ note (use native API) | ⚠️ note | ⚠️ note |
+| audio | ⚠️ note | ⚠️ note | ✅ (`input_audio`, wav/mp3) | ✅ | ⚠️ note | ✅ |
+| video | ⚠️ note | ✅ (base64) | ⚠️ note | ⚠️ note | ⚠️ note | ⚠️ note |
+
+Capability presets and the OpenAI-shape formatter are exported from
+`glove-core/models/content` (`OPENAI_MODALITIES`, `ANTHROPIC_MODALITIES`,
+`BEDROCK_MODALITIES`, `MIMO_MODALITIES`, `VISION_ONLY_MODALITIES`,
+`GEMINI_OPENAI_MODALITIES`, `formatOpenAIContentParts`). Override per-adapter:
+
+```typescript
+// Local multimodal model whose support differs from the vision-only default:
+createAdapter({ provider: "ollama", model: "llava", capabilities: { image: true, document: false, audio: false, video: false, urlSources: true } });
+```
+
+**React:** `sendMessage(text, images?, files?)` takes a third `MessageAttachment[]`
+argument for non-image files. `attachmentToContentPart`, `inferModality`, and
+`attachmentPreviewUrl` are exported from `glove-react`; reconstructed history and
+freshly-sent messages expose non-image files on `TimelineEntry.attachments`.
+
+```tsx
+const { sendMessage } = useGlove({ tools });
+sendMessage("summarise this", undefined, [
+  { data: base64Pdf, media_type: "application/pdf", filename: "report.pdf" },
+]);
+```
+
+The capability map is coarse (per-provider, not per-model). Some models within a
+provider accept less — e.g. only audio-capable OpenAI models take `input_audio` —
+so pair it with the right model or override `capabilities`.
+
 ### Reasoning Models
 
 The OpenAI-compat adapter captures provider-emitted reasoning traces

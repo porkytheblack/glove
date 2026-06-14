@@ -1,16 +1,17 @@
 import OpenAI from "openai";
 import type {
   Message,
-  ContentPart,
   ToolResult,
   ToolCall,
   Tool,
   PromptRequest,
   ModelPromptResult,
   ModelAdapter,
+  ModalitySupport,
   NotifySubscribersFunction,
 } from "../core";
 import { getToolJsonSchema } from "../core";
+import { formatOpenAIContentParts, OPENAI_MODALITIES } from "./content";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,8 @@ export interface OpenRouterAdapterConfig {
   maxTokens?: number;
   stream?: boolean;
   baseURL?: string;
+  /** Input modalities this endpoint accepts. Defaults to {@link OPENAI_MODALITIES}. */
+  capabilities?: ModalitySupport;
 }
 
 // ─── Format conversion: Glove → OpenAI ──────────────────────────────────────
@@ -58,41 +61,10 @@ function safeJsonParse(str: string): unknown {
   }
 }
 
-function formatContentParts(
-  parts: ContentPart[],
-): OpenAI.Chat.ChatCompletionContentPart[] {
-  const result: OpenAI.Chat.ChatCompletionContentPart[] = [];
-  for (const part of parts) {
-    switch (part.type) {
-      case "text":
-        if (part.text) result.push({ type: "text", text: part.text });
-        break;
-      case "image":
-      case "video":
-        if (part.source) {
-          const url =
-            part.source.type === "url"
-              ? part.source.url!
-              : `data:${part.source.media_type};base64,${part.source.data}`;
-          result.push({ type: "image_url", image_url: { url } });
-        }
-        break;
-      case "document":
-        // OpenAI doesn't have a native document block — describe it as text
-        result.push({
-          type: "text",
-          text: `[Document attachment: ${part.source?.media_type ?? "document"}]`,
-        });
-        break;
-    }
-  }
-  return result;
-}
-
 // A single Glove Message may expand to multiple OpenAI messages because
 // tool results are separate { role: "tool" } messages in the OpenAI format
 // (unlike Anthropic where they are content blocks inside a user message).
-function formatMessage(msg: Message): OpenAIMessage[] {
+function formatMessage(msg: Message, caps: ModalitySupport): OpenAIMessage[] {
   const role: "user" | "assistant" =
     msg.sender === "agent" ? "assistant" : "user";
 
@@ -128,18 +100,23 @@ function formatMessage(msg: Message): OpenAIMessage[] {
 
   // multimodal content — only user messages support content part arrays in OpenAI
   if (msg.content?.length && role === "user") {
-    return [{ role: "user" as const, content: formatContentParts(msg.content) }];
+    return [
+      { role: "user" as const, content: formatOpenAIContentParts(msg.content, caps) },
+    ];
   }
 
   // plain text
   return [{ role, content: msg.text }];
 }
 
-function formatMessages(messages: Array<Message>): OpenAIMessage[] {
+function formatMessages(
+  messages: Array<Message>,
+  caps: ModalitySupport = OPENAI_MODALITIES,
+): OpenAIMessage[] {
   // Stage 1: flatten — each Glove message may produce multiple OpenAI messages
   const flat: OpenAIMessage[] = [];
   for (const msg of messages) {
-    flat.push(...formatMessage(msg));
+    flat.push(...formatMessage(msg, caps));
   }
 
   // Stage 2: merge consecutive user messages (never merge tool or assistant)
@@ -248,6 +225,7 @@ function parseResponse(
 
 export class OpenRouterAdapter implements ModelAdapter {
   name: string;
+  readonly capabilities: ModalitySupport;
   private client: OpenAI;
   private model: string;
   private maxTokens: number;
@@ -256,6 +234,7 @@ export class OpenRouterAdapter implements ModelAdapter {
 
   constructor(config: OpenRouterAdapterConfig) {
     this.name = `openrouter:${config.model}`;
+    this.capabilities = config.capabilities ?? OPENAI_MODALITIES;
     this.model = config.model;
     this.maxTokens = config.maxTokens ?? 4096;
     this.useStreaming = config.stream ?? false;
@@ -279,7 +258,7 @@ export class OpenRouterAdapter implements ModelAdapter {
     if (this.systemPrompt) {
       messages.push({ role: "system", content: this.systemPrompt });
     }
-    messages.push(...formatMessages(request.messages));
+    messages.push(...formatMessages(request.messages, this.capabilities));
 
     const tools =
       request.tools?.length ? formatTools(request.tools) : undefined;
