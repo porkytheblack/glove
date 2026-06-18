@@ -293,6 +293,38 @@ createAdapter({ provider: "openai", reasoning: { includeInText: true } });
 The MiMo provider has its own dedicated adapter — keep using
 `{ provider: "mimo", reasoningEffort, includeReasoningInText }` for it.
 
+#### Prompt Caching
+
+Enable provider prompt caching with the `cache` option. Pass `true` for sensible
+defaults or an object to tune the lifetime:
+
+```typescript
+// Anthropic: cache_control breakpoints on the tools + system prefix and the
+// latest turn, so each follow-up request reuses the prior context.
+createAdapter({ provider: "anthropic", cache: true });
+
+// Tune the cache lifetime (Anthropic / OpenRouter honour the TTL).
+createAdapter({ provider: "anthropic", cache: { ttl: "1h" } });
+
+// Same switch on the Next.js handler.
+createChatHandler({ provider: "anthropic", cache: true });
+```
+
+What the switch does per provider:
+
+| Provider | Behaviour when `cache` is enabled |
+|----------|-----------------------------------|
+| `anthropic` | `cache_control` ephemeral breakpoints on the stable prefix (tools + system) and the latest turn; `ttl` (`"5m"` / `"1h"`) honoured |
+| `bedrock` | `cachePoint` checkpoints after tools, after system, and on the latest turn (cache-capable models only; no TTL knob) |
+| `openrouter` | `cache_control` breakpoints forwarded to the upstream Anthropic / Gemini model |
+| `openai`, `gemini`, `minimax`, `kimi`, `glm`, `mimo`, `ollama`, `lmstudio` | Cache automatically — no request-side effect |
+
+Every adapter also reports provider cache usage on
+`ModelPromptResult.cache_creation_input_tokens` /
+`cache_read_input_tokens` (and on the `model_response` /
+`model_response_complete` subscriber events) regardless of the `cache` setting —
+inspect `cache_read_input_tokens` to confirm cache hits.
+
 ### Stores
 
 Stores handle conversation persistence. Implement the `StoreAdapter` interface for any backend:

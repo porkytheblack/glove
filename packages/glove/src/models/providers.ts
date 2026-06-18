@@ -1,4 +1,4 @@
-import type { ModelAdapter } from "../core";
+import type { ModelAdapter, PromptCacheConfig } from "../core";
 import { AnthropicAdapter } from "./anthropic";
 import { BedrockAdapter } from "./bedrock";
 import { MimoAdapter, MIMO_DEFAULT_BASE_URL } from "./mimo";
@@ -246,6 +246,23 @@ export interface CreateAdapterOptions {
    * use their own dedicated config surfaces.
    */
   reasoning?: boolean | OpenAICompatReasoningOptions;
+  /**
+   * Prompt caching. Pass `true` to enable with sensible defaults or an object
+   * (`{ ttl: "1h" }`) to tune the cache lifetime.
+   *
+   * How it's applied depends on the provider:
+   * - **anthropic**: `cache_control` breakpoints on the tool + system prefix
+   *   and the latest turn (TTL honoured).
+   * - **bedrock**: `cachePoint` checkpoints after the tools, after the system
+   *   prompt, and on the latest turn (cache-capable models only; TTL ignored).
+   * - **openrouter**: `cache_control` breakpoints forwarded to the upstream
+   *   Anthropic / Gemini model.
+   * - **openai / gemini / minimax / kimi / glm / mimo / …**: these providers
+   *   cache automatically; enabling has no request-side effect, but the
+   *   adapters always report any provider `cached_tokens` on
+   *   `ModelPromptResult.cache_read_input_tokens`.
+   */
+  cache?: PromptCacheConfig;
 }
 
 export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
@@ -282,6 +299,7 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
       maxTokens,
       stream,
       ...(opts.timeout != null && { timeout: opts.timeout }),
+      ...(opts.cache != null && { cache: opts.cache }),
     });
   }
 
@@ -294,6 +312,7 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
       accessKeyId: opts.accessKeyId,
       secretAccessKey: opts.secretAccessKey,
       sessionToken: opts.sessionToken,
+      ...(opts.cache != null && { cache: opts.cache }),
     });
   }
 
@@ -313,6 +332,7 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
       ...(opts.includeReasoningInText != null && { includeReasoningInText: opts.includeReasoningInText }),
       ...(mimoEffort && { reasoningEffort: mimoEffort }),
       ...(opts.timeout != null && { timeout: opts.timeout }),
+      ...(opts.cache != null && { cache: opts.cache }),
     });
   }
 
@@ -355,6 +375,7 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
     provider: providerDef.id,
     ...(opts.timeout != null && { timeout: opts.timeout }),
     ...(reasoningConfig !== undefined && { reasoning: reasoningConfig }),
+    ...(opts.cache != null && { cache: opts.cache }),
   });
 }
 

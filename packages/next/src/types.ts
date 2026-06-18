@@ -1,4 +1,4 @@
-import type { Message } from "glove-core/core";
+import type { Message, PromptCacheConfig } from "glove-core/core";
 import type {
   OpenAICompatReasoningOptions,
   ReasoningEffort,
@@ -61,4 +61,16 @@ export interface ChatHandlerConfig {
    * `includeReasoningInText` directly.
    */
   reasoning?: boolean | OpenAICompatReasoningOptions;
+  /**
+   * Prompt caching. Pass `true` to enable with defaults or an object
+   * (`{ ttl: "1h" }`) to tune the cache lifetime.
+   *
+   * - **anthropic** handler: places `cache_control` breakpoints on the tool +
+   *   system prefix and the latest turn (TTL honoured).
+   * - **openrouter** (OpenAI-compat handler): forwards `cache_control`
+   *   breakpoints to the upstream model.
+   * - other OpenAI-compatible providers cache automatically — enabling has no
+   *   request-side effect.
+   */
+  cache?: PromptCacheConfig;
 }

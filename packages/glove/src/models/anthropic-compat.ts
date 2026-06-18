@@ -6,8 +6,11 @@ import type {
   ModelPromptResult,
   ModelAdapter,
   NotifySubscribersFunction,
+  PromptCacheConfig,
+  ResolvedPromptCache,
 } from "../core";
-import { formatAnthropicMessages } from "./anthropic";
+import { resolvePromptCache } from "../core";
+import { applyAnthropicPromptCache, formatAnthropicMessages } from "./anthropic";
 
 // Re-use the Anthropic adapter's formatting utilities
 // but allow custom baseURL/apiKey for compatible APIs
@@ -26,6 +29,12 @@ export interface AnthropicCompatAdapterConfig {
   provider?: string;
   /** Request timeout in milliseconds. Defaults to 10 minutes (600000). */
   timeout?: number;
+  /**
+   * Prompt caching via Anthropic `cache_control` breakpoints. Pass `true` to
+   * enable with defaults, or an object to tune the TTL. The compatible endpoint
+   * must honour `cache_control` for this to have any effect. Defaults to off.
+   */
+  cache?: PromptCacheConfig;
 }
 
 // ─── Adapter ──────────────────────────────────────────────────────────────────
@@ -37,6 +46,7 @@ export class AnthropicCompatAdapter implements ModelAdapter {
   private maxTokens: number;
   private systemPrompt?: string;
   private useStreaming: boolean;
+  private cache: ResolvedPromptCache;
 
   constructor(config: AnthropicCompatAdapterConfig) {
     const provider = config.provider ?? "anthropic-compat";
@@ -44,6 +54,7 @@ export class AnthropicCompatAdapter implements ModelAdapter {
     this.model = config.model;
     this.maxTokens = config.maxTokens ?? 8192;
     this.useStreaming = config.stream ?? false;
+    this.cache = resolvePromptCache(config.cache);
     this.client = new Anthropic({
       apiKey: config.apiKey ?? "not-needed",
       baseURL: config.baseURL,
@@ -64,13 +75,16 @@ export class AnthropicCompatAdapter implements ModelAdapter {
     const tools =
       request.tools?.length ? formatTools(request.tools) : undefined;
 
-    const params: Anthropic.MessageCreateParams = {
-      model: this.model,
-      max_tokens: this.maxTokens,
-      messages,
-      ...(this.systemPrompt && { system: this.systemPrompt }),
-      ...(tools && { tools }),
-    };
+    const params: Anthropic.MessageCreateParams = applyAnthropicPromptCache(
+      {
+        model: this.model,
+        max_tokens: this.maxTokens,
+        messages,
+        ...(this.systemPrompt && { system: this.systemPrompt }),
+        ...(tools && { tools }),
+      },
+      this.cache,
+    );
 
     if (this.useStreaming) {
       return this.promptStreaming(params, notify, signal);
@@ -91,16 +105,23 @@ export class AnthropicCompatAdapter implements ModelAdapter {
 
     const message = parseResponse(response.content);
 
+    const cacheRead = response.usage.cache_read_input_tokens ?? undefined;
+    const cacheCreate = response.usage.cache_creation_input_tokens ?? undefined;
+
     await notify("model_response", {
       text: message.text,
       tool_calls: message.tool_calls,
       stop_reason: response.stop_reason ?? undefined,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
+      ...(cacheCreate != null && { cache_creation_input_tokens: cacheCreate }),
     });
 
     return {
       messages: [message],
       tokens_in: response.usage.input_tokens,
       tokens_out: response.usage.output_tokens,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
+      ...(cacheCreate != null && { cache_creation_input_tokens: cacheCreate }),
     };
   }
 
@@ -132,16 +153,24 @@ export class AnthropicCompatAdapter implements ModelAdapter {
     const finalMessage = await stream.finalMessage();
     const message = parseResponse(finalMessage.content);
 
+    const cacheRead = finalMessage.usage.cache_read_input_tokens ?? undefined;
+    const cacheCreate =
+      finalMessage.usage.cache_creation_input_tokens ?? undefined;
+
     await notify("model_response_complete", {
       text: message.text,
       tool_calls: message.tool_calls,
       stop_reason: finalMessage.stop_reason ?? undefined,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
+      ...(cacheCreate != null && { cache_creation_input_tokens: cacheCreate }),
     });
 
     return {
       messages: [message],
       tokens_in: finalMessage.usage.input_tokens,
       tokens_out: finalMessage.usage.output_tokens,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
+      ...(cacheCreate != null && { cache_creation_input_tokens: cacheCreate }),
     };
   }
 }
