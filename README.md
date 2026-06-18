@@ -315,7 +315,7 @@ What the switch does per provider:
 | Provider | Behaviour when `cache` is enabled |
 |----------|-----------------------------------|
 | `anthropic` | `cache_control` ephemeral breakpoints on the stable prefix (tools + system) and the latest turn; `ttl` (`"5m"` / `"1h"`) honoured |
-| `bedrock` | `cachePoint` checkpoints after tools, after system, and on the latest turn (cache-capable models only; no TTL knob) |
+| `bedrock` | `cachePoint` checkpoints after tools, after system, and on the latest turn (cache-capable models only); `ttl` maps onto Bedrock's `CacheTTL` |
 | `openrouter` | `cache_control` breakpoints forwarded to the upstream Anthropic / Gemini model |
 | `openai`, `gemini`, `minimax`, `kimi`, `glm`, `mimo`, `ollama`, `lmstudio` | Cache automatically — no request-side effect |
 

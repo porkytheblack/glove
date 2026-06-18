@@ -6,6 +6,7 @@ import {
   type ContentBlock,
   type ToolResultContentBlock,
   type ConverseCommandInput,
+  type CachePointBlock,
 } from "@aws-sdk/client-bedrock-runtime";
 import type {
   Message,
@@ -18,6 +19,7 @@ import type {
   ModelAdapter,
   NotifySubscribersFunction,
   PromptCacheConfig,
+  PromptCacheTTL,
   ResolvedPromptCache,
 } from "../core";
 import { getToolJsonSchema, resolvePromptCache } from "../core";
@@ -44,14 +46,22 @@ export interface BedrockAdapterConfig {
    * with defaults — checkpoints are inserted after the tool list, after the
    * system prompt, and on the latest message. Only cache-capable models
    * (Anthropic Claude, Amazon Nova) honour them; others ignore the checkpoints.
-   * Bedrock has no TTL knob, so the `ttl` option is ignored. Defaults to off.
+   * The `ttl` option (`"5m"` / `"1h"`) maps onto the Bedrock `CacheTTL`
+   * extended-TTL field. Defaults to off.
    */
   cache?: PromptCacheConfig;
 }
 
-// Bedrock cachePoint block. Inline-typed because older `@aws-sdk` typings may
-// not expose it on the content/system/tool unions.
-const CACHE_POINT = { cachePoint: { type: "default" as const } };
+/**
+ * Build a typed Bedrock `cachePoint` block. `CachePointType.DEFAULT` is
+ * `"default"` and `CacheTTL` is `"5m" | "1h"` — identical to our
+ * {@link PromptCacheTTL} — so the values pass through unchanged. Typed
+ * against `CachePointBlock` so the compiler verifies the shape (rather than an
+ * unchecked `as never`).
+ */
+function cachePointBlock(ttl: PromptCacheTTL): { cachePoint: CachePointBlock } {
+  return { cachePoint: { type: "default", ttl } };
+}
 
 /**
  * Insert Bedrock `cachePoint` checkpoints into a Converse request: after the
@@ -66,15 +76,16 @@ export function applyBedrockPromptCache(
   if (!cache.enabled) return params;
 
   const out: ConverseCommandInput = { ...params };
+  const cp = cachePointBlock(cache.ttl);
 
   if (out.system && out.system.length > 0) {
-    out.system = [...out.system, CACHE_POINT as never];
+    out.system = [...out.system, cp];
   }
 
   if (out.toolConfig?.tools && out.toolConfig.tools.length > 0) {
     out.toolConfig = {
       ...out.toolConfig,
-      tools: [...out.toolConfig.tools, CACHE_POINT as never],
+      tools: [...out.toolConfig.tools, cp],
     };
   }
 
@@ -84,7 +95,7 @@ export function applyBedrockPromptCache(
     const last = messages[lastIdx];
     messages[lastIdx] = {
       ...last,
-      content: [...(last.content ?? []), CACHE_POINT as never],
+      content: [...(last.content ?? []), cp],
     };
     out.messages = messages;
   }

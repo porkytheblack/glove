@@ -24,8 +24,8 @@ How it's applied per provider:
   is honoured. Below a model's minimum cacheable prefix the API silently skips
   caching — no error.
 - **bedrock** — `cachePoint` checkpoints after the tool list, after the system
-  prompt, and on the latest turn (cache-capable models only; Bedrock has no TTL
-  knob, so `ttl` is ignored).
+  prompt, and on the latest turn (cache-capable models only). `ttl` maps onto
+  Bedrock's `CacheTTL` (`"5m"` / `"1h"`).
 - **openrouter** — `cache_control` breakpoints forwarded to the upstream
   Anthropic / Gemini model.
 - **openai / gemini / minimax / kimi / glm / mimo / ollama / lmstudio** — these

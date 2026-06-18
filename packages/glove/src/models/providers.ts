@@ -254,7 +254,8 @@ export interface CreateAdapterOptions {
    * - **anthropic**: `cache_control` breakpoints on the tool + system prefix
    *   and the latest turn (TTL honoured).
    * - **bedrock**: `cachePoint` checkpoints after the tools, after the system
-   *   prompt, and on the latest turn (cache-capable models only; TTL ignored).
+   *   prompt, and on the latest turn (cache-capable models only; `ttl` maps
+   *   onto Bedrock's `CacheTTL`).
    * - **openrouter**: `cache_control` breakpoints forwarded to the upstream
    *   Anthropic / Gemini model.
    * - **openai / gemini / minimax / kimi / glm / mimo / …**: these providers
