@@ -2,7 +2,7 @@
 
 ## v3.1.0 — Prompt caching
 
-**Package:** `glove-core` 3.1.0
+**Packages:** `glove-core` 3.1.0 · `glove-react` 3.1.0 · `glove-next` 3.1.0
 
 ### Prompt caching
 

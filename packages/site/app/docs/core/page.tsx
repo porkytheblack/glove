@@ -2315,6 +2315,11 @@ const available = getAvailableProviders();
             "boolean",
             'When true, wrap reasoning in <think>…</think> and prepend to the visible message text. Defaults to false — the trace stays on Message.reasoning_content. Honoured by the OpenAI-compat and MiMo adapters.',
           ],
+          [
+            "cache?",
+            "boolean | PromptCacheOptions",
+            'Prompt caching. Pass true for sensible defaults or { ttl: "5m" | "1h" } to tune the lifetime. Anthropic / anthropic-compat place cache_control breakpoints on the tools + system prefix and the latest turn; Bedrock inserts cachePoint checkpoints; OpenRouter forwards cache_control upstream. openai/gemini/minimax/kimi/glm/mimo/ollama/lmstudio cache automatically (no request-side effect). Defaults to off.',
+          ],
         ]}
       />
 
@@ -2378,6 +2383,140 @@ createAdapter({ provider: "openai", reasoning: { includeInText: true } });
 
 // Disable echo (DeepSeek-R1 specifically — newer V4 needs echo on).
 createAdapter({ provider: "openai", reasoning: { echo: false } });`}
+        language="typescript"
+      />
+
+      <h3 id="prompt-caching">Prompt Caching</h3>
+
+      <p>
+        Pass <code>cache</code> to enable provider prompt caching from a single
+        switch. Accepts <code>true</code> for sensible defaults (a 5-minute TTL)
+        or an object to tune the lifetime. The same option is accepted on every
+        adapter class and on <code>createChatHandler</code> in{" "}
+        <code>glove-next</code>. Added in <code>glove-core@3.1.0</code>.
+      </p>
+
+      <CodeBlock
+        code={`// Cache the tools + system prefix and the latest turn, reusing the
+// prior context on every follow-up request.
+createAdapter({ provider: "anthropic", cache: true });
+
+// Extend the cache lifetime to 1 hour (Anthropic / Bedrock / OpenRouter).
+createAdapter({ provider: "anthropic", cache: { ttl: "1h" } });`}
+        language="typescript"
+      />
+
+      <p>How it&apos;s applied depends on the provider:</p>
+
+      <ul>
+        <li>
+          <strong>anthropic / anthropic-compat</strong> —{" "}
+          <code>cache_control</code> ephemeral breakpoints on the stable prefix
+          (tools render before system, so one breakpoint caches both) and on the
+          latest turn. <code>ttl</code> (<code>&quot;5m&quot;</code> /{" "}
+          <code>&quot;1h&quot;</code>) honoured. Below a model&apos;s minimum
+          cacheable prefix the API silently skips caching — no error.
+        </li>
+        <li>
+          <strong>bedrock</strong> — <code>cachePoint</code> checkpoints after
+          the tool list, after the system prompt, and on the latest turn
+          (cache-capable models only — Claude, Nova). <code>ttl</code> maps onto
+          Bedrock&apos;s <code>CacheTTL</code>.
+        </li>
+        <li>
+          <strong>openrouter</strong> — <code>cache_control</code> breakpoints
+          forwarded to the upstream Anthropic / Gemini model.
+        </li>
+        <li>
+          <strong>openai / gemini / minimax / kimi / glm / mimo / ollama /
+          lmstudio</strong> — these cache automatically, so enabling{" "}
+          <code>cache</code> has no request-side effect, but cache usage is still
+          reported (see below).
+        </li>
+      </ul>
+
+      <h3>PromptCacheOptions</h3>
+
+      <CodeBlock
+        code={`type PromptCacheTTL = "5m" | "1h";
+
+interface PromptCacheOptions {
+  /** Cache lifetime. Honoured by Anthropic / Bedrock / OpenRouter. Default "5m". */
+  ttl?: PromptCacheTTL;
+}
+
+type PromptCacheConfig = boolean | PromptCacheOptions;`}
+        language="typescript"
+      />
+
+      <p>
+        Caching is a <strong>prefix match</strong>: keep the system prompt and
+        tool list byte-stable across turns. Interpolating a timestamp,{" "}
+        <code>Date.now()</code>, or a per-request id into the system prompt
+        invalidates the cached prefix. Confirm a hit by checking that{" "}
+        <code>cache_read_input_tokens</code> is greater than zero on the second
+        and later requests.
+      </p>
+
+      <h3 id="cache-usage">Cache usage &amp; billing</h3>
+
+      <p>
+        Regardless of the <code>cache</code> setting, every adapter reports the
+        provider&apos;s cache usage so downstream clients can use it for billing
+        and cost attribution. OpenAI-compatible providers report reads via{" "}
+        <code>prompt_tokens_details.cached_tokens</code>; Anthropic and Bedrock
+        report both reads and writes.
+      </p>
+
+      <ul>
+        <li>
+          <strong>
+            <code>ModelPromptResult</code>
+          </strong>{" "}
+          — <code>cache_creation_input_tokens</code> /{" "}
+          <code>cache_read_input_tokens</code> on the result returned by{" "}
+          <code>model.prompt()</code>.
+        </li>
+        <li>
+          <strong>
+            <code>token_consumption</code> event
+          </strong>{" "}
+          — the per-turn <code>TokenConsumptionCounter</code> now includes the
+          cache fields: the canonical real-time billing surface. Also echoed on
+          the <code>model_response</code> / <code>model_response_complete</code>{" "}
+          events.
+        </li>
+        <li>
+          <strong>
+            <code>StoreAdapter.getTokenConsumption?()</code>
+          </strong>{" "}
+          — new optional method (implemented by <code>MemoryStore</code>)
+          returning the cumulative session counter, including cache totals, for
+          aggregate billing without replaying the event stream.
+        </li>
+        <li>
+          <strong>
+            <code>glove-react</code> <code>useGlove().stats</code>
+          </strong>{" "}
+          — <code>GloveStats</code> gains <code>cache_creation_input_tokens</code>{" "}
+          / <code>cache_read_input_tokens</code>, accumulated from the{" "}
+          <code>token_consumption</code> event.
+        </li>
+      </ul>
+
+      <CodeBlock
+        code={`// Real-time per-turn usage (billing).
+glove.addSubscriber({
+  async record(type, data) {
+    if (type === "token_consumption") {
+      const c = (data as { consumption: TokenConsumptionCounter }).consumption;
+      // c.cache_read_input_tokens, c.cache_creation_input_tokens
+    }
+  },
+});
+
+// Cumulative session totals (MemoryStore and stores that implement it).
+const total = await store.getTokenConsumption?.();`}
         language="typescript"
       />
 
