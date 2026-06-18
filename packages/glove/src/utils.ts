@@ -48,6 +48,8 @@ export class MemoryStore implements StoreAdapter {
   private messages: Array<Message> = [];
   private tokensIn = 0;
   private tokensOut = 0;
+  private cacheCreationInputTokens = 0;
+  private cacheReadInputTokens = 0;
   private turnCount = 0;
   private tasks: Array<Task> = [];
   private permissions = new Map<string, PermissionStatus>();
@@ -73,6 +75,17 @@ export class MemoryStore implements StoreAdapter {
   async addTokens(args: TokenConsumptionCounter) {
     this.tokensIn += args.tokens_in;
     this.tokensOut += args.tokens_out;
+    this.cacheCreationInputTokens += args.cache_creation_input_tokens ?? 0;
+    this.cacheReadInputTokens += args.cache_read_input_tokens ?? 0;
+  }
+
+  async getTokenConsumption(): Promise<TokenConsumptionCounter> {
+    return {
+      tokens_in: this.tokensIn,
+      tokens_out: this.tokensOut,
+      cache_creation_input_tokens: this.cacheCreationInputTokens,
+      cache_read_input_tokens: this.cacheReadInputTokens,
+    };
   }
 
   async getTurnCount() {
@@ -86,6 +99,8 @@ export class MemoryStore implements StoreAdapter {
   async resetCounters() {
     this.tokensIn = 0;
     this.tokensOut = 0;
+    this.cacheCreationInputTokens = 0;
+    this.cacheReadInputTokens = 0;
     this.turnCount = 0;
   }
 

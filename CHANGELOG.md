@@ -38,6 +38,26 @@ reported cache usage on `ModelPromptResult.cache_creation_input_tokens` /
 `model_response` / `model_response_complete` subscriber events. Inspect
 `cache_read_input_tokens` to confirm cache hits.
 
+### Cache usage for downstream clients (billing)
+
+Cache token counts flow all the way through the token-accounting path so
+downstream clients can use them for billing / cost attribution:
+
+- **`TokenConsumptionCounter`** gains optional `cache_creation_input_tokens` /
+  `cache_read_input_tokens`, so the per-turn **`token_consumption`** subscriber
+  event carries cache usage — the canonical real-time billing surface.
+- **`StoreAdapter.getTokenConsumption?()`** (new optional method, implemented by
+  `MemoryStore`) returns the session's cumulative `TokenConsumptionCounter`
+  including cache totals, for aggregate billing queries without replaying the
+  event stream.
+- **`glove-react`**: `GloveStats` (from `useGlove().stats`) gains
+  `cache_creation_input_tokens` / `cache_read_input_tokens`, accumulated from
+  the `token_consumption` event.
+- **`glove-next` / remote model**: the SSE `done` event (`RemoteStreamEvent`)
+  and `RemotePromptResponse` carry optional cache fields, so a Next.js chat
+  handler reports provider cache usage and the client-side agent loop threads it
+  into the `token_consumption` event and `stats`.
+
 ## v3.0.0 — Subagents, observability & MemoryStore
 
 **Release date:** May 2026

@@ -204,11 +204,13 @@ function createOpenAIHandler(
       >();
       let tokensIn = 0;
       let tokensOut = 0;
+      let cacheRead: number | undefined;
 
       for await (const chunk of stream) {
         if (chunk.usage) {
           tokensIn = chunk.usage.prompt_tokens ?? 0;
           tokensOut = chunk.usage.completion_tokens ?? 0;
+          cacheRead = chunk.usage.prompt_tokens_details?.cached_tokens ?? cacheRead;
         }
 
         const choice = chunk.choices?.[0];
@@ -274,6 +276,7 @@ function createOpenAIHandler(
         },
         tokens_in: tokensIn,
         tokens_out: tokensOut,
+        ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
       });
     });
 
@@ -380,6 +383,12 @@ function createAnthropicHandler(
         },
         tokens_in: finalMessage.usage.input_tokens,
         tokens_out: finalMessage.usage.output_tokens,
+        ...(finalMessage.usage.cache_read_input_tokens != null && {
+          cache_read_input_tokens: finalMessage.usage.cache_read_input_tokens,
+        }),
+        ...(finalMessage.usage.cache_creation_input_tokens != null && {
+          cache_creation_input_tokens: finalMessage.usage.cache_creation_input_tokens,
+        }),
       });
     });
 
@@ -461,11 +470,13 @@ function createMimoHandler(
       >();
       let tokensIn = 0;
       let tokensOut = 0;
+      let cacheRead: number | undefined;
 
       for await (const chunk of stream) {
         if (chunk.usage) {
           tokensIn = chunk.usage.prompt_tokens ?? 0;
           tokensOut = chunk.usage.completion_tokens ?? 0;
+          cacheRead = chunk.usage.prompt_tokens_details?.cached_tokens ?? cacheRead;
         }
 
         const choice = chunk.choices?.[0];
@@ -532,6 +543,7 @@ function createMimoHandler(
         },
         tokens_in: tokensIn,
         tokens_out: tokensOut,
+        ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
       });
     });
 

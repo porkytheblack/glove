@@ -371,6 +371,14 @@ export interface StoreAdapter {
 
   addTokens(args: TokenConsumptionCounter): Promise<void>
 
+  /**
+   * Optional. Return the cumulative token consumption for the session,
+   * including prompt-cache reads/writes when the store tracks them. Lets
+   * downstream clients read aggregate usage for billing without replaying the
+   * `token_consumption` event stream. `MemoryStore` implements this.
+   */
+  getTokenConsumption?(): Promise<TokenConsumptionCounter>
+
   getTurnCount(): Promise<number>
 
   incrementTurn(): Promise<void>
@@ -406,6 +414,19 @@ export interface StoreAdapter {
 export interface TokenConsumptionCounter {
   tokens_in: number
   tokens_out: number
+  /**
+   * Tokens written to the prompt cache (the cache-write premium). Optional —
+   * present only when the model adapter surfaced prompt-cache usage. Forwarded
+   * on the `token_consumption` subscriber event and persisted by stores that
+   * track it (e.g. `MemoryStore.getTokenConsumption`), so downstream clients
+   * can use it for billing / cost attribution.
+   */
+  cache_creation_input_tokens?: number
+  /**
+   * Tokens served from the prompt cache (billed at the reduced cache-read
+   * rate). See {@link TokenConsumptionCounter.cache_creation_input_tokens}.
+   */
+  cache_read_input_tokens?: number
 }
 export class Context {
   store: StoreAdapter;
@@ -1044,7 +1065,13 @@ export class Agent {
       await this.context.appendMessages(results.messages);
       await this.observer.addTokensConsumed({
         tokens_in: results.tokens_in ?? 0,
-        tokens_out: results.tokens_out ?? 0
+        tokens_out: results.tokens_out ?? 0,
+        ...(results.cache_creation_input_tokens != null && {
+          cache_creation_input_tokens: results.cache_creation_input_tokens,
+        }),
+        ...(results.cache_read_input_tokens != null && {
+          cache_read_input_tokens: results.cache_read_input_tokens,
+        }),
       });
       await this.observer.turnComplete();
       requestTurns++;

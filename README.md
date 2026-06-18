@@ -325,6 +325,14 @@ Every adapter also reports provider cache usage on
 `model_response_complete` subscriber events) regardless of the `cache` setting —
 inspect `cache_read_input_tokens` to confirm cache hits.
 
+**Cache usage for billing.** The counts flow through the token-accounting path
+so downstream clients can bill on them: the per-turn `token_consumption`
+subscriber event carries `cache_creation_input_tokens` / `cache_read_input_tokens`
+(`TokenConsumptionCounter`), `MemoryStore.getTokenConsumption()` returns the
+cumulative session total, and in React `useGlove().stats` exposes the running
+cache totals. For Next.js, `createChatHandler` reports provider cache usage on
+the SSE `done` event so the client-side agent loop threads it into `stats`.
+
 ### Stores
 
 Stores handle conversation persistence. Implement the `StoreAdapter` interface for any backend:

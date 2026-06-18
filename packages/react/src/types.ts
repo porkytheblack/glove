@@ -29,6 +29,10 @@ export interface GloveStats {
   turns: number;
   tokens_in: number;
   tokens_out: number;
+  /** Cumulative prompt-cache write tokens (for billing / cost attribution). */
+  cache_creation_input_tokens: number;
+  /** Cumulative prompt-cache read tokens (billed at the reduced cache-read rate). */
+  cache_read_input_tokens: number;
 }
 
 export interface GloveState {
