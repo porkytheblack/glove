@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v3.1.0 — Prompt caching
+
+**Package:** `glove-core` 3.1.0
 
 ### Prompt caching
 
