@@ -1,5 +1,65 @@
 # Changelog
 
+## v3.1.0 — Prompt caching
+
+**Package:** `glove-core` 3.1.0
+
+### Prompt caching
+
+A `cache` affordance on the model factory, every model adapter, and the
+`glove-next` chat handler enables provider prompt caching from one consistent
+switch. Pass `cache: true` for sensible defaults or `cache: { ttl: "1h" }` to
+tune the lifetime.
+
+```ts
+createAdapter({ provider: "anthropic", cache: true });
+createAdapter({ provider: "anthropic", cache: { ttl: "1h" } });
+createChatHandler({ provider: "anthropic", cache: true });
+```
+
+How it's applied per provider:
+
+- **anthropic** / **anthropic-compat** — `cache_control` ephemeral breakpoints
+  on the stable prefix (tools render before the system prompt, so one
+  breakpoint caches both) and on the latest conversation turn, so each
+  follow-up request reuses the prior context. `ttl` (`"5m"` default / `"1h"`)
+  is honoured. Below a model's minimum cacheable prefix the API silently skips
+  caching — no error.
+- **bedrock** — `cachePoint` checkpoints after the tool list, after the system
+  prompt, and on the latest turn (cache-capable models only). `ttl` maps onto
+  Bedrock's `CacheTTL` (`"5m"` / `"1h"`).
+- **openrouter** — `cache_control` breakpoints forwarded to the upstream
+  Anthropic / Gemini model.
+- **openai / gemini / minimax / kimi / glm / mimo / ollama / lmstudio** — these
+  providers cache automatically, so enabling has no request-side effect.
+
+Regardless of the `cache` setting, every adapter now surfaces the provider's
+reported cache usage on `ModelPromptResult.cache_creation_input_tokens` /
+`cache_read_input_tokens` (OpenAI-compatible providers report reads via
+`prompt_tokens_details.cached_tokens`), and forwards those counts on the
+`model_response` / `model_response_complete` subscriber events. Inspect
+`cache_read_input_tokens` to confirm cache hits.
+
+### Cache usage for downstream clients (billing)
+
+Cache token counts flow all the way through the token-accounting path so
+downstream clients can use them for billing / cost attribution:
+
+- **`TokenConsumptionCounter`** gains optional `cache_creation_input_tokens` /
+  `cache_read_input_tokens`, so the per-turn **`token_consumption`** subscriber
+  event carries cache usage — the canonical real-time billing surface.
+- **`StoreAdapter.getTokenConsumption?()`** (new optional method, implemented by
+  `MemoryStore`) returns the session's cumulative `TokenConsumptionCounter`
+  including cache totals, for aggregate billing queries without replaying the
+  event stream.
+- **`glove-react`**: `GloveStats` (from `useGlove().stats`) gains
+  `cache_creation_input_tokens` / `cache_read_input_tokens`, accumulated from
+  the `token_consumption` event.
+- **`glove-next` / remote model**: the SSE `done` event (`RemoteStreamEvent`)
+  and `RemotePromptResponse` carry optional cache fields, so a Next.js chat
+  handler reports provider cache usage and the client-side agent loop threads it
+  into the `token_consumption` event and `stats`.
+
 ## v3.0.0 — Subagents, observability & MemoryStore
 
 **Release date:** May 2026

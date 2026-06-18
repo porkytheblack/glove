@@ -29,13 +29,26 @@ export interface RemotePromptResponse {
   message: Message;
   tokens_in: number;
   tokens_out: number;
+  /** Prompt-cache write tokens, if the backend reports them (for billing). */
+  cache_creation_input_tokens?: number;
+  /** Prompt-cache read tokens, if the backend reports them (for billing). */
+  cache_read_input_tokens?: number;
 }
 
 /** Streaming events from the user's backend */
 export type RemoteStreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
-  | { type: "done"; message: Message; tokens_in: number; tokens_out: number };
+  | {
+      type: "done";
+      message: Message;
+      tokens_in: number;
+      tokens_out: number;
+      /** Prompt-cache write tokens, if reported (for billing). */
+      cache_creation_input_tokens?: number;
+      /** Prompt-cache read tokens, if reported (for billing). */
+      cache_read_input_tokens?: number;
+    };
 
 /**
  * User-provided async functions for model communication.
@@ -124,6 +137,8 @@ export function createRemoteModel(
         let finalMessage: Message | null = null;
         let tokensIn = 0;
         let tokensOut = 0;
+        let cacheCreate: number | undefined;
+        let cacheRead: number | undefined;
 
         for await (const event of actions.promptStream(remoteReq, signal)) {
           switch (event.type) {
@@ -141,6 +156,8 @@ export function createRemoteModel(
               finalMessage = event.message;
               tokensIn = event.tokens_in;
               tokensOut = event.tokens_out;
+              cacheCreate = event.cache_creation_input_tokens;
+              cacheRead = event.cache_read_input_tokens;
               break;
           }
         }
@@ -154,12 +171,18 @@ export function createRemoteModel(
         await notify("model_response_complete", {
           text: finalMessage.text,
           tool_calls: finalMessage.tool_calls,
+          tokens_in: tokensIn,
+          tokens_out: tokensOut,
+          ...(cacheCreate != null && { cache_creation_input_tokens: cacheCreate }),
+          ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
         });
 
         return {
           messages: [finalMessage],
           tokens_in: tokensIn,
           tokens_out: tokensOut,
+          ...(cacheCreate != null && { cache_creation_input_tokens: cacheCreate }),
+          ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
         };
       }
 
@@ -170,12 +193,26 @@ export function createRemoteModel(
       await notify("model_response", {
         text: result.message.text,
         tool_calls: result.message.tool_calls,
+        tokens_in: result.tokens_in,
+        tokens_out: result.tokens_out,
+        ...(result.cache_creation_input_tokens != null && {
+          cache_creation_input_tokens: result.cache_creation_input_tokens,
+        }),
+        ...(result.cache_read_input_tokens != null && {
+          cache_read_input_tokens: result.cache_read_input_tokens,
+        }),
       });
 
       return {
         messages: [result.message],
         tokens_in: result.tokens_in,
         tokens_out: result.tokens_out,
+        ...(result.cache_creation_input_tokens != null && {
+          cache_creation_input_tokens: result.cache_creation_input_tokens,
+        }),
+        ...(result.cache_read_input_tokens != null && {
+          cache_read_input_tokens: result.cache_read_input_tokens,
+        }),
       };
     },
   };

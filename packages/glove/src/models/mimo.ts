@@ -9,6 +9,7 @@ import type {
   ModelPromptResult,
   ModelAdapter,
   NotifySubscribersFunction,
+  PromptCacheConfig,
 } from "../core";
 import { getToolJsonSchema } from "../core";
 
@@ -39,9 +40,27 @@ export interface MimoAdapterConfig {
   reasoningEffort?: "low" | "medium" | "high";
   /** Request timeout in milliseconds. Defaults to 10 minutes. */
   timeout?: number;
+  /**
+   * Prompt caching. The MiMo gateway caches automatically, so this is a
+   * reporting affordance: the adapter surfaces the provider-reported
+   * `cached_tokens` on `ModelPromptResult.cache_read_input_tokens` when present.
+   * Accepting the flag keeps the config surface consistent with the other
+   * adapters. Defaults to off.
+   */
+  cache?: PromptCacheConfig;
 }
 
 export const MIMO_DEFAULT_BASE_URL = "https://api.xiaomimimo.com/v1";
+
+/** Pull the provider-reported cached prompt-token count from a usage object. */
+function readCachedTokens(usage: unknown): number | undefined {
+  if (!usage || typeof usage !== "object") return undefined;
+  const details = (usage as { prompt_tokens_details?: unknown })
+    .prompt_tokens_details;
+  if (!details || typeof details !== "object") return undefined;
+  const cached = (details as { cached_tokens?: unknown }).cached_tokens;
+  return typeof cached === "number" ? cached : undefined;
+}
 
 // ─── Format conversion: Glove → MiMo (OpenAI-compatible) ────────────────────
 
@@ -286,6 +305,9 @@ export class MimoAdapter implements ModelAdapter {
     this.includeReasoningInText = config.includeReasoningInText ?? false;
     this.reasoningEffort = config.reasoningEffort;
     this.timeout = config.timeout ?? 600000;
+    // MiMo caches automatically — `config.cache` is accepted for API
+    // consistency but has no request-side effect; cached_tokens are reported
+    // unconditionally below.
     this.client = new OpenAI({
       apiKey: config.apiKey ?? process.env.MIMO_API_KEY ?? "",
       baseURL: config.baseURL ?? process.env.MIMO_BASE_URL ?? MIMO_DEFAULT_BASE_URL,
@@ -345,16 +367,20 @@ export class MimoAdapter implements ModelAdapter {
 
     const message = parseResponse(choice, this.includeReasoningInText);
 
+    const cacheRead = readCachedTokens(response.usage);
+
     await notify("model_response", {
       text: message.text,
       tool_calls: message.tool_calls,
       stop_reason: choice.finish_reason ?? undefined,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
     });
 
     return {
       messages: [message],
       tokens_in: response.usage?.prompt_tokens ?? 0,
       tokens_out: response.usage?.completion_tokens ?? 0,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
     };
   }
 
@@ -378,12 +404,14 @@ export class MimoAdapter implements ModelAdapter {
 
     let tokensIn = 0;
     let tokensOut = 0;
+    let cacheRead: number | undefined;
     let finishReason: string | null = null;
 
     for await (const chunk of stream) {
       if (chunk.usage) {
         tokensIn = chunk.usage.prompt_tokens ?? 0;
         tokensOut = chunk.usage.completion_tokens ?? 0;
+        cacheRead = readCachedTokens(chunk.usage) ?? cacheRead;
       }
 
       const choice = chunk.choices?.[0];
@@ -462,12 +490,14 @@ export class MimoAdapter implements ModelAdapter {
       text: message.text,
       tool_calls: message.tool_calls,
       stop_reason: finishReason ?? undefined,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
     });
 
     return {
       messages: [message],
       tokens_in: tokensIn,
       tokens_out: tokensOut,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
     };
   }
 }

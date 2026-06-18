@@ -6,6 +6,7 @@ import {
   type ContentBlock,
   type ToolResultContentBlock,
   type ConverseCommandInput,
+  type CachePointBlock,
 } from "@aws-sdk/client-bedrock-runtime";
 import type {
   Message,
@@ -17,8 +18,11 @@ import type {
   ModelPromptResult,
   ModelAdapter,
   NotifySubscribersFunction,
+  PromptCacheConfig,
+  PromptCacheTTL,
+  ResolvedPromptCache,
 } from "../core";
-import { getToolJsonSchema } from "../core";
+import { getToolJsonSchema, resolvePromptCache } from "../core";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -37,6 +41,66 @@ export interface BedrockAdapterConfig {
   maxTokens?: number;
   /** Enable streaming (defaults to true) */
   stream?: boolean;
+  /**
+   * Prompt caching via Bedrock `cachePoint` checkpoints. Pass `true` to enable
+   * with defaults — checkpoints are inserted after the tool list, after the
+   * system prompt, and on the latest message. Only cache-capable models
+   * (Anthropic Claude, Amazon Nova) honour them; others ignore the checkpoints.
+   * The `ttl` option (`"5m"` / `"1h"`) maps onto the Bedrock `CacheTTL`
+   * extended-TTL field. Defaults to off.
+   */
+  cache?: PromptCacheConfig;
+}
+
+/**
+ * Build a typed Bedrock `cachePoint` block. `CachePointType.DEFAULT` is
+ * `"default"` and `CacheTTL` is `"5m" | "1h"` — identical to our
+ * {@link PromptCacheTTL} — so the values pass through unchanged. Typed
+ * against `CachePointBlock` so the compiler verifies the shape (rather than an
+ * unchecked `as never`).
+ */
+function cachePointBlock(ttl: PromptCacheTTL): { cachePoint: CachePointBlock } {
+  return { cachePoint: { type: "default", ttl } };
+}
+
+/**
+ * Insert Bedrock `cachePoint` checkpoints into a Converse request: after the
+ * tool list, after the system prompt, and on the last message's content. Each
+ * checkpoint caches everything before it, so the stable tool + system prefix
+ * and the latest turn are reused across requests.
+ */
+export function applyBedrockPromptCache(
+  params: ConverseCommandInput,
+  cache: ResolvedPromptCache,
+): ConverseCommandInput {
+  if (!cache.enabled) return params;
+
+  const out: ConverseCommandInput = { ...params };
+  const cp = cachePointBlock(cache.ttl);
+
+  if (out.system && out.system.length > 0) {
+    out.system = [...out.system, cp];
+  }
+
+  if (out.toolConfig?.tools && out.toolConfig.tools.length > 0) {
+    out.toolConfig = {
+      ...out.toolConfig,
+      tools: [...out.toolConfig.tools, cp],
+    };
+  }
+
+  if (out.messages && out.messages.length > 0) {
+    const messages = [...out.messages];
+    const lastIdx = messages.length - 1;
+    const last = messages[lastIdx];
+    messages[lastIdx] = {
+      ...last,
+      content: [...(last.content ?? []), cp],
+    };
+    out.messages = messages;
+  }
+
+  return out;
 }
 
 // ─── Format conversion: Glove → Bedrock ──────────────────────────────────────
@@ -328,12 +392,14 @@ export class BedrockAdapter implements ModelAdapter {
   private maxTokens: number;
   private systemPrompt?: string;
   private useStreaming: boolean;
+  private cache: ResolvedPromptCache;
 
   constructor(config: BedrockAdapterConfig) {
     this.name = `bedrock:${config.model}`;
     this.model = config.model;
     this.maxTokens = config.maxTokens ?? 8192;
     this.useStreaming = config.stream ?? true;
+    this.cache = resolvePromptCache(config.cache);
 
     const region = config.region ?? process.env.AWS_REGION ?? "us-east-1";
     const credentials =
@@ -363,17 +429,20 @@ export class BedrockAdapter implements ModelAdapter {
     const messages = formatBedrockMessages(request.messages);
     const tools = request.tools?.length ? formatTools(request.tools) : undefined;
 
-    const params: ConverseCommandInput = {
-      modelId: this.model,
-      messages,
-      inferenceConfig: {
-        maxTokens: this.maxTokens,
+    const params: ConverseCommandInput = applyBedrockPromptCache(
+      {
+        modelId: this.model,
+        messages,
+        inferenceConfig: {
+          maxTokens: this.maxTokens,
+        },
+        ...(this.systemPrompt && {
+          system: [{ text: this.systemPrompt }],
+        }),
+        ...(tools && { toolConfig: { tools: tools as ConverseCommandInput["toolConfig"] extends { tools?: infer T } ? T : never } }),
       },
-      ...(this.systemPrompt && {
-        system: [{ text: this.systemPrompt }],
-      }),
-      ...(tools && { toolConfig: { tools: tools as ConverseCommandInput["toolConfig"] extends { tools?: infer T } ? T : never } }),
-    };
+      this.cache,
+    );
 
     if (this.useStreaming) {
       return this.promptStreaming(params, notify, signal);
@@ -395,16 +464,23 @@ export class BedrockAdapter implements ModelAdapter {
     const content = response.output?.message?.content ?? [];
     const message = parseResponse(content);
 
+    const cacheRead = response.usage?.cacheReadInputTokens ?? undefined;
+    const cacheCreate = response.usage?.cacheWriteInputTokens ?? undefined;
+
     await notify("model_response", {
       text: message.text,
       tool_calls: message.tool_calls,
       stop_reason: response.stopReason,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
+      ...(cacheCreate != null && { cache_creation_input_tokens: cacheCreate }),
     });
 
     return {
       messages: [message],
       tokens_in: response.usage?.inputTokens ?? 0,
       tokens_out: response.usage?.outputTokens ?? 0,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
+      ...(cacheCreate != null && { cache_creation_input_tokens: cacheCreate }),
     };
   }
 
@@ -427,6 +503,8 @@ export class BedrockAdapter implements ModelAdapter {
 
     let tokensIn = 0;
     let tokensOut = 0;
+    let cacheRead: number | undefined;
+    let cacheCreate: number | undefined;
     let stopReason: string | undefined;
 
     if (response.stream) {
@@ -465,6 +543,9 @@ export class BedrockAdapter implements ModelAdapter {
         if (event.metadata) {
           tokensIn = event.metadata.usage?.inputTokens ?? 0;
           tokensOut = event.metadata.usage?.outputTokens ?? 0;
+          cacheRead = event.metadata.usage?.cacheReadInputTokens ?? cacheRead;
+          cacheCreate =
+            event.metadata.usage?.cacheWriteInputTokens ?? cacheCreate;
         }
       }
     }
@@ -501,12 +582,16 @@ export class BedrockAdapter implements ModelAdapter {
       text: message.text,
       tool_calls: message.tool_calls,
       stop_reason: stopReason,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
+      ...(cacheCreate != null && { cache_creation_input_tokens: cacheCreate }),
     });
 
     return {
       messages: [message],
       tokens_in: tokensIn,
       tokens_out: tokensOut,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
+      ...(cacheCreate != null && { cache_creation_input_tokens: cacheCreate }),
     };
   }
 }

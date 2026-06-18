@@ -203,13 +203,30 @@ class ReactSubscriber implements SubscriberAdapter {
 
       case "model_response":
       case "model_response_complete": {
-        const e = d as SubscriberEventDataMap["model_response"];
+        // Count the turn here; token + cache totals come from the canonical
+        // `token_consumption` event below so they aren't double-counted.
+        this.setState((s) => ({
+          ...s,
+          stats: { ...s.stats, turns: s.stats.turns + 1 },
+        }));
+        break;
+      }
+
+      case "token_consumption": {
+        const e = d as SubscriberEventDataMap["token_consumption"];
+        const c = e.consumption;
         this.setState((s) => ({
           ...s,
           stats: {
-            turns: s.stats.turns + 1,
-            tokens_in: s.stats.tokens_in + (e.tokens_in ?? 0),
-            tokens_out: s.stats.tokens_out + (e.tokens_out ?? 0),
+            ...s.stats,
+            tokens_in: s.stats.tokens_in + (c.tokens_in ?? 0),
+            tokens_out: s.stats.tokens_out + (c.tokens_out ?? 0),
+            cache_creation_input_tokens:
+              s.stats.cache_creation_input_tokens +
+              (c.cache_creation_input_tokens ?? 0),
+            cache_read_input_tokens:
+              s.stats.cache_read_input_tokens +
+              (c.cache_read_input_tokens ?? 0),
           },
         }));
         break;
@@ -391,7 +408,13 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
     tasks: [],
     inbox: [],
     slots: [],
-    stats: { turns: 0, tokens_in: 0, tokens_out: 0 },
+    stats: {
+      turns: 0,
+      tokens_in: 0,
+      tokens_out: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
   });
 
   // Runnable exposed for external consumers (e.g. useGloveVoice)

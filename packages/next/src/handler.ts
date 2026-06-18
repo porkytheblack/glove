@@ -1,10 +1,12 @@
 import { providers, type ProviderDef } from "glove-core/models/providers";
 import {
   formatMessages,
+  applyOpenAICacheControl,
   type OpenAICompatReasoningOptions,
 } from "glove-core/models/openai-compat";
+import { applyAnthropicPromptCache } from "glove-core/models/anthropic";
 import { formatMessages as formatMimoMessages, MIMO_DEFAULT_BASE_URL } from "glove-core/models/mimo";
-import type { Message } from "glove-core/core";
+import { resolvePromptCache, type Message } from "glove-core/core";
 import type { ChatHandlerConfig, RemotePromptRequest, SerializedTool } from "./types";
 import { createSSEStream, SSE_HEADERS } from "./sse";
 
@@ -146,6 +148,7 @@ function createOpenAIHandler(
 ) {
   let clientPromise: Promise<any> | null = null;
   const reasoning = resolveHandlerReasoning(config);
+  const cache = resolvePromptCache(config.cache);
 
   function getClient() {
     if (!clientPromise) {
@@ -172,10 +175,14 @@ function createOpenAIHandler(
     const body: RemotePromptRequest = await req.json();
     const client = await getClient();
 
-    const messages = [
-      { role: "system" as const, content: body.systemPrompt },
-      ...formatMessages(body.messages as Message[], reasoning.echo),
-    ];
+    const messages = applyOpenAICacheControl(
+      [
+        { role: "system" as const, content: body.systemPrompt },
+        ...formatMessages(body.messages as Message[], reasoning.echo),
+      ],
+      cache,
+      providerDef.id,
+    );
     const tools = toOpenAITools(body.tools);
 
     const stream = await client.chat.completions.create({
@@ -197,11 +204,13 @@ function createOpenAIHandler(
       >();
       let tokensIn = 0;
       let tokensOut = 0;
+      let cacheRead: number | undefined;
 
       for await (const chunk of stream) {
         if (chunk.usage) {
           tokensIn = chunk.usage.prompt_tokens ?? 0;
           tokensOut = chunk.usage.completion_tokens ?? 0;
+          cacheRead = chunk.usage.prompt_tokens_details?.cached_tokens ?? cacheRead;
         }
 
         const choice = chunk.choices?.[0];
@@ -267,6 +276,7 @@ function createOpenAIHandler(
         },
         tokens_in: tokensIn,
         tokens_out: tokensOut,
+        ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
       });
     });
 
@@ -283,6 +293,7 @@ function createAnthropicHandler(
   config: ChatHandlerConfig,
 ) {
   let clientPromise: Promise<any> | null = null;
+  const cache = resolvePromptCache(config.cache);
 
   function getClient() {
     if (!clientPromise) {
@@ -319,13 +330,18 @@ function createAnthropicHandler(
         id: string;
       }> = [];
 
-      const stream = client.messages.stream({
-        model,
-        max_tokens: maxTokens,
-        messages,
-        system: body.systemPrompt,
-        ...(tools ? { tools } : {}),
-      });
+      const params = applyAnthropicPromptCache(
+        {
+          model,
+          max_tokens: maxTokens,
+          messages,
+          system: body.systemPrompt,
+          ...(tools ? { tools } : {}),
+        } as Parameters<typeof applyAnthropicPromptCache>[0],
+        cache,
+      );
+
+      const stream = client.messages.stream(params);
 
       stream.on("text", (text: string) => {
         fullText += text;
@@ -367,6 +383,12 @@ function createAnthropicHandler(
         },
         tokens_in: finalMessage.usage.input_tokens,
         tokens_out: finalMessage.usage.output_tokens,
+        ...(finalMessage.usage.cache_read_input_tokens != null && {
+          cache_read_input_tokens: finalMessage.usage.cache_read_input_tokens,
+        }),
+        ...(finalMessage.usage.cache_creation_input_tokens != null && {
+          cache_creation_input_tokens: finalMessage.usage.cache_creation_input_tokens,
+        }),
       });
     });
 
@@ -448,11 +470,13 @@ function createMimoHandler(
       >();
       let tokensIn = 0;
       let tokensOut = 0;
+      let cacheRead: number | undefined;
 
       for await (const chunk of stream) {
         if (chunk.usage) {
           tokensIn = chunk.usage.prompt_tokens ?? 0;
           tokensOut = chunk.usage.completion_tokens ?? 0;
+          cacheRead = chunk.usage.prompt_tokens_details?.cached_tokens ?? cacheRead;
         }
 
         const choice = chunk.choices?.[0];
@@ -519,6 +543,7 @@ function createMimoHandler(
         },
         tokens_in: tokensIn,
         tokens_out: tokensOut,
+        ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
       });
     });
 

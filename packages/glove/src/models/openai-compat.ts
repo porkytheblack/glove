@@ -9,8 +9,10 @@ import type {
   ModelPromptResult,
   ModelAdapter,
   NotifySubscribersFunction,
+  PromptCacheConfig,
+  ResolvedPromptCache,
 } from "../core";
-import { getToolJsonSchema } from "../core";
+import { getToolJsonSchema, resolvePromptCache } from "../core";
 
 // ─── Reasoning config ─────────────────────────────────────────────────────────
 
@@ -148,6 +150,84 @@ export interface OpenAICompatAdapterConfig {
    * that follows the `reasoning_content` or `reasoning` field conventions.
    */
   reasoning?: boolean | OpenAICompatReasoningOptions;
+  /**
+   * Prompt caching.
+   *
+   * Most OpenAI-compatible providers (OpenAI, Gemini, DeepSeek, GLM, …) cache
+   * automatically with no request-side knob — for those this adapter always
+   * surfaces the provider-reported `cached_tokens` on
+   * `ModelPromptResult.cache_read_input_tokens` regardless of this setting.
+   *
+   * When `cache` is enabled **and** the provider routes to Anthropic models via
+   * OpenRouter (`provider: "openrouter"`), the adapter additionally places
+   * `cache_control` breakpoints on the system prompt and the latest turn —
+   * OpenRouter forwards these to Anthropic. Pass `true` for defaults or an
+   * object to set the TTL. Defaults to off.
+   */
+  cache?: PromptCacheConfig;
+}
+
+// ─── Prompt cache helpers ──────────────────────────────────────────────────────
+
+/** Providers that forward OpenAI-style `cache_control` breakpoints upstream. */
+const CACHE_CONTROL_PROVIDERS = new Set(["openrouter"]);
+
+/**
+ * Place OpenAI-style `cache_control` breakpoints on the system message and the
+ * latest turn. Only used for providers that forward them to a caching upstream
+ * (OpenRouter → Anthropic). Other providers cache automatically and ignore the
+ * field, so we don't risk a 400 by only emitting it for known-good providers.
+ */
+export function applyOpenAICacheControl(
+  messages: Array<OpenAIMessage>,
+  cache: ResolvedPromptCache,
+  provider: string,
+): Array<OpenAIMessage> {
+  if (!cache.enabled || !CACHE_CONTROL_PROVIDERS.has(provider)) return messages;
+
+  const cache_control = { type: "ephemeral" as const, ttl: cache.ttl };
+
+  const withBreakpoint = (msg: OpenAIMessage): OpenAIMessage => {
+    const content = (msg as { content?: unknown }).content;
+    if (typeof content === "string") {
+      if (content.length === 0) return msg;
+      return {
+        ...msg,
+        content: [{ type: "text", text: content, cache_control }],
+      } as unknown as OpenAIMessage;
+    }
+    if (Array.isArray(content) && content.length > 0) {
+      const parts = [...content];
+      parts[parts.length - 1] = { ...parts[parts.length - 1], cache_control };
+      return { ...msg, content: parts } as unknown as OpenAIMessage;
+    }
+    return msg;
+  };
+
+  const out = [...messages];
+
+  // System prefix — caches the (typically large) static instruction block.
+  const sysIdx = out.findIndex((m) => m.role === "system");
+  if (sysIdx >= 0) out[sysIdx] = withBreakpoint(out[sysIdx]);
+
+  // Latest turn — only user/system content blocks carry cache_control safely;
+  // `tool` and `assistant` messages are left untouched.
+  const lastIdx = out.length - 1;
+  if (lastIdx >= 0 && lastIdx !== sysIdx && out[lastIdx].role === "user") {
+    out[lastIdx] = withBreakpoint(out[lastIdx]);
+  }
+
+  return out;
+}
+
+/** Pull the provider-reported cached prompt-token count from a usage object. */
+function readCachedTokens(usage: unknown): number | undefined {
+  if (!usage || typeof usage !== "object") return undefined;
+  const details = (usage as { prompt_tokens_details?: unknown })
+    .prompt_tokens_details;
+  if (!details || typeof details !== "object") return undefined;
+  const cached = (details as { cached_tokens?: unknown }).cached_tokens;
+  return typeof cached === "number" ? cached : undefined;
 }
 
 // ─── Format conversion: Glove → OpenAI ──────────────────────────────────────
@@ -419,15 +499,19 @@ export class OpenAICompatAdapter implements ModelAdapter {
   private useStreaming: boolean;
   private timeout: number;
   private reasoning: ResolvedReasoning;
+  private provider: string;
+  private cache: ResolvedPromptCache;
 
   constructor(config: OpenAICompatAdapterConfig) {
     const provider = config.provider ?? "openai-compat";
+    this.provider = provider;
     this.name = `${provider}:${config.model}`;
     this.model = config.model;
     this.maxTokens = config.maxTokens ?? 4096;
     this.useStreaming = config.stream ?? false;
     this.timeout = config.timeout ?? 600000;
     this.reasoning = resolveReasoning(config.reasoning);
+    this.cache = resolvePromptCache(config.cache);
     this.client = new OpenAI({
       apiKey: config.apiKey,
       baseURL: config.baseURL,
@@ -444,11 +528,12 @@ export class OpenAICompatAdapter implements ModelAdapter {
     notify: NotifySubscribersFunction,
     signal?: AbortSignal,
   ): Promise<ModelPromptResult> {
-    const messages: OpenAIMessage[] = [];
+    let messages: OpenAIMessage[] = [];
     if (this.systemPrompt) {
       messages.push({ role: "system", content: this.systemPrompt });
     }
     messages.push(...formatMessages(request.messages, this.reasoning.echo));
+    messages = applyOpenAICacheControl(messages, this.cache, this.provider);
 
     const tools =
       request.tools?.length ? formatTools(request.tools) : undefined;
@@ -505,16 +590,20 @@ export class OpenAICompatAdapter implements ModelAdapter {
 
     const message = parseResponse(choice, this.reasoning);
 
+    const cacheRead = readCachedTokens(response.usage);
+
     await notify("model_response", {
       text: message.text,
       tool_calls: message.tool_calls,
       stop_reason: choice.finish_reason ?? undefined,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
     });
 
     return {
       messages: [message],
       tokens_in: response.usage?.prompt_tokens ?? 0,
       tokens_out: response.usage?.completion_tokens ?? 0,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
     };
   }
 
@@ -538,12 +627,14 @@ export class OpenAICompatAdapter implements ModelAdapter {
 
     let tokensIn = 0;
     let tokensOut = 0;
+    let cacheRead: number | undefined;
     let finishReason: string | null = null;
 
     for await (const chunk of stream) {
       if (chunk.usage) {
         tokensIn = chunk.usage.prompt_tokens ?? 0;
         tokensOut = chunk.usage.completion_tokens ?? 0;
+        cacheRead = readCachedTokens(chunk.usage) ?? cacheRead;
       }
 
       const choice = chunk.choices?.[0];
@@ -621,12 +712,14 @@ export class OpenAICompatAdapter implements ModelAdapter {
       text: message.text,
       tool_calls: message.tool_calls,
       stop_reason: finishReason ?? undefined,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
     });
 
     return {
       messages: [message],
       tokens_in: tokensIn,
       tokens_out: tokensOut,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
     };
   }
 }

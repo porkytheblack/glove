@@ -45,8 +45,8 @@ import { splitAtLastCompaction, abortablePromise } from "./utils";
 export type SubscriberEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
-  | { type: "model_response"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number }
-  | { type: "model_response_complete"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number }
+  | { type: "model_response"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
+  | { type: "model_response_complete"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
   | { type: "tool_use_result"; tool_name: string; call_id?: string; result: ToolResultData }
   | { type: "compaction_start"; current_token_consumption: number }
   | { type: "compaction_end"; current_token_consumption: number; summary_message: Message }
@@ -281,7 +281,70 @@ export interface ModelPromptResult {
   messages: Array<Message>;
   tokens_in: number;
   tokens_out: number;
+  /**
+   * Tokens written to the prompt cache this request (the cache-write premium).
+   * Populated by adapters that surface prompt-cache usage (Anthropic, Bedrock,
+   * and OpenAI-compatible providers that report `cached_tokens`). Undefined
+   * when caching is off or the provider doesn't report it.
+   */
+  cache_creation_input_tokens?: number;
+  /**
+   * Tokens served from the prompt cache this request (billed at the reduced
+   * cache-read rate). See {@link ModelPromptResult.cache_creation_input_tokens}.
+   */
+  cache_read_input_tokens?: number;
   // TODO: other info
+}
+
+// ─── Prompt caching ────────────────────────────────────────────────────────
+
+/**
+ * Cache lifetime for an ephemeral prompt-cache breakpoint. Only honoured by
+ * providers that expose a TTL knob (Anthropic first-party + Anthropic-compatible
+ * proxies, and OpenRouter when routing to Anthropic models). Bedrock uses its
+ * own checkpoint TTL and OpenAI/Gemini/DeepSeek cache automatically with no TTL
+ * control — `ttl` is ignored there.
+ */
+export type PromptCacheTTL = "5m" | "1h";
+
+/**
+ * Fine-grained prompt-caching options. Pass `true` on a model adapter / factory
+ * to enable caching with sensible defaults, or this object to tune it.
+ */
+export interface PromptCacheOptions {
+  /** Cache lifetime. Defaults to "5m". */
+  ttl?: PromptCacheTTL;
+}
+
+/**
+ * Prompt-cache configuration accepted by the model factories and adapters.
+ *
+ * - `undefined` / `false` (default): caching is not requested. Adapters still
+ *   surface any cache usage the provider reports (e.g. OpenAI's automatic
+ *   caching), but place no cache breakpoints.
+ * - `true`: enable caching with defaults — adapters place cache breakpoints on
+ *   the stable prefix (tools + system prompt) and the latest conversation turn.
+ * - object: enable caching with the supplied {@link PromptCacheOptions}.
+ */
+export type PromptCacheConfig = boolean | PromptCacheOptions;
+
+/** Normalized prompt-cache settings used internally by the adapters. */
+export interface ResolvedPromptCache {
+  enabled: boolean;
+  ttl: PromptCacheTTL;
+}
+
+/** Normalize a {@link PromptCacheConfig} into {@link ResolvedPromptCache}. */
+export function resolvePromptCache(
+  config?: PromptCacheConfig,
+): ResolvedPromptCache {
+  if (config === undefined || config === false) {
+    return { enabled: false, ttl: "5m" };
+  }
+  if (config === true) {
+    return { enabled: true, ttl: "5m" };
+  }
+  return { enabled: true, ttl: config.ttl ?? "5m" };
 }
 
 export interface ModelAdapter {
@@ -307,6 +370,14 @@ export interface StoreAdapter {
   getTokenCount(): Promise<number>
 
   addTokens(args: TokenConsumptionCounter): Promise<void>
+
+  /**
+   * Optional. Return the cumulative token consumption for the session,
+   * including prompt-cache reads/writes when the store tracks them. Lets
+   * downstream clients read aggregate usage for billing without replaying the
+   * `token_consumption` event stream. `MemoryStore` implements this.
+   */
+  getTokenConsumption?(): Promise<TokenConsumptionCounter>
 
   getTurnCount(): Promise<number>
 
@@ -343,6 +414,19 @@ export interface StoreAdapter {
 export interface TokenConsumptionCounter {
   tokens_in: number
   tokens_out: number
+  /**
+   * Tokens written to the prompt cache (the cache-write premium). Optional —
+   * present only when the model adapter surfaced prompt-cache usage. Forwarded
+   * on the `token_consumption` subscriber event and persisted by stores that
+   * track it (e.g. `MemoryStore.getTokenConsumption`), so downstream clients
+   * can use it for billing / cost attribution.
+   */
+  cache_creation_input_tokens?: number
+  /**
+   * Tokens served from the prompt cache (billed at the reduced cache-read
+   * rate). See {@link TokenConsumptionCounter.cache_creation_input_tokens}.
+   */
+  cache_read_input_tokens?: number
 }
 export class Context {
   store: StoreAdapter;
@@ -981,7 +1065,13 @@ export class Agent {
       await this.context.appendMessages(results.messages);
       await this.observer.addTokensConsumed({
         tokens_in: results.tokens_in ?? 0,
-        tokens_out: results.tokens_out ?? 0
+        tokens_out: results.tokens_out ?? 0,
+        ...(results.cache_creation_input_tokens != null && {
+          cache_creation_input_tokens: results.cache_creation_input_tokens,
+        }),
+        ...(results.cache_read_input_tokens != null && {
+          cache_read_input_tokens: results.cache_read_input_tokens,
+        }),
       });
       await this.observer.turnComplete();
       requestTurns++;

@@ -9,8 +9,10 @@ import type {
   ModelPromptResult,
   ModelAdapter,
   NotifySubscribersFunction,
+  PromptCacheConfig,
+  ResolvedPromptCache,
 } from "../core";
-import { getToolJsonSchema } from "../core";
+import { getToolJsonSchema, resolvePromptCache } from "../core";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -20,6 +22,64 @@ export interface OpenRouterAdapterConfig {
   maxTokens?: number;
   stream?: boolean;
   baseURL?: string;
+  /**
+   * Prompt caching via OpenRouter `cache_control` breakpoints (forwarded to
+   * Anthropic / Gemini models). Pass `true` for defaults or an object to set
+   * the TTL. The adapter always surfaces any provider-reported `cached_tokens`
+   * on `ModelPromptResult.cache_read_input_tokens`. Defaults to off.
+   */
+  cache?: PromptCacheConfig;
+}
+
+// ─── Prompt cache helpers ──────────────────────────────────────────────────────
+
+/**
+ * Place OpenRouter `cache_control` breakpoints on the system message and the
+ * latest user turn. OpenRouter forwards these to caching upstreams (Anthropic,
+ * Gemini); providers that don't support them ignore the field.
+ */
+function applyOpenRouterCacheControl(
+  messages: Array<OpenAIMessage>,
+  cache: ResolvedPromptCache,
+): Array<OpenAIMessage> {
+  if (!cache.enabled) return messages;
+
+  const cache_control = { type: "ephemeral" as const, ttl: cache.ttl };
+  const withBreakpoint = (msg: OpenAIMessage): OpenAIMessage => {
+    const content = (msg as { content?: unknown }).content;
+    if (typeof content === "string") {
+      if (content.length === 0) return msg;
+      return {
+        ...msg,
+        content: [{ type: "text", text: content, cache_control }],
+      } as unknown as OpenAIMessage;
+    }
+    if (Array.isArray(content) && content.length > 0) {
+      const parts = [...content];
+      parts[parts.length - 1] = { ...parts[parts.length - 1], cache_control };
+      return { ...msg, content: parts } as unknown as OpenAIMessage;
+    }
+    return msg;
+  };
+
+  const out = [...messages];
+  const sysIdx = out.findIndex((m) => m.role === "system");
+  if (sysIdx >= 0) out[sysIdx] = withBreakpoint(out[sysIdx]);
+  const lastIdx = out.length - 1;
+  if (lastIdx >= 0 && lastIdx !== sysIdx && out[lastIdx].role === "user") {
+    out[lastIdx] = withBreakpoint(out[lastIdx]);
+  }
+  return out;
+}
+
+/** Pull the provider-reported cached prompt-token count from a usage object. */
+function readCachedTokens(usage: unknown): number | undefined {
+  if (!usage || typeof usage !== "object") return undefined;
+  const details = (usage as { prompt_tokens_details?: unknown })
+    .prompt_tokens_details;
+  if (!details || typeof details !== "object") return undefined;
+  const cached = (details as { cached_tokens?: unknown }).cached_tokens;
+  return typeof cached === "number" ? cached : undefined;
 }
 
 // ─── Format conversion: Glove → OpenAI ──────────────────────────────────────
@@ -253,12 +313,14 @@ export class OpenRouterAdapter implements ModelAdapter {
   private maxTokens: number;
   private systemPrompt?: string;
   private useStreaming: boolean;
+  private cache: ResolvedPromptCache;
 
   constructor(config: OpenRouterAdapterConfig) {
     this.name = `openrouter:${config.model}`;
     this.model = config.model;
     this.maxTokens = config.maxTokens ?? 4096;
     this.useStreaming = config.stream ?? false;
+    this.cache = resolvePromptCache(config.cache);
     this.client = new OpenAI({
       apiKey: config.apiKey ?? process.env.OPENROUTER_API_KEY,
       baseURL: config.baseURL ?? "https://openrouter.ai/api/v1",
@@ -275,11 +337,12 @@ export class OpenRouterAdapter implements ModelAdapter {
     signal?: AbortSignal,
   ): Promise<ModelPromptResult> {
     // System prompt is a message in the OpenAI format
-    const messages: OpenAIMessage[] = [];
+    let messages: OpenAIMessage[] = [];
     if (this.systemPrompt) {
       messages.push({ role: "system", content: this.systemPrompt });
     }
     messages.push(...formatMessages(request.messages));
+    messages = applyOpenRouterCacheControl(messages, this.cache);
 
     const tools =
       request.tools?.length ? formatTools(request.tools) : undefined;
@@ -315,16 +378,20 @@ export class OpenRouterAdapter implements ModelAdapter {
 
     const message = parseResponse(choice);
 
+    const cacheRead = readCachedTokens(response.usage);
+
     await notify("model_response", {
       text: message.text,
       tool_calls: message.tool_calls,
       stop_reason: choice.finish_reason ?? undefined,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
     });
 
     return {
       messages: [message],
       tokens_in: response.usage?.prompt_tokens ?? 0,
       tokens_out: response.usage?.completion_tokens ?? 0,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
     };
   }
 
@@ -349,6 +416,7 @@ export class OpenRouterAdapter implements ModelAdapter {
 
     let tokensIn = 0;
     let tokensOut = 0;
+    let cacheRead: number | undefined;
     let finishReason: string | null = null;
 
     for await (const chunk of stream) {
@@ -356,6 +424,7 @@ export class OpenRouterAdapter implements ModelAdapter {
       if (chunk.usage) {
         tokensIn = chunk.usage.prompt_tokens ?? 0;
         tokensOut = chunk.usage.completion_tokens ?? 0;
+        cacheRead = readCachedTokens(chunk.usage) ?? cacheRead;
       }
 
       const choice = chunk.choices?.[0];
@@ -421,12 +490,14 @@ export class OpenRouterAdapter implements ModelAdapter {
       text: message.text,
       tool_calls: message.tool_calls,
       stop_reason: finishReason ?? undefined,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
     });
 
     return {
       messages: [message],
       tokens_in: tokensIn,
       tokens_out: tokensOut,
+      ...(cacheRead != null && { cache_read_input_tokens: cacheRead }),
     };
   }
 }
