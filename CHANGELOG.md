@@ -1,5 +1,34 @@
 # Changelog
 
+## glove-scratchpad 0.1.0 — The Scratchpad Computer
+
+**Packages:** `glove-scratchpad` 0.1.0 (new)
+
+A substrate-independent profile over Glove for context-efficient multi-agent
+workflows. The context win usually attributed to "code execution for MCP" is
+recovered through topology — **handles + deterministic SQL transforms over a
+durable store** — with no terminal or VM.
+
+- **Store-and-truncate result containment.** `storeAndTruncate(tool, { scratchpad })`
+  wraps any Glove tool (`GloveFoldArgs`, not coupled to MCP): the full payload is
+  written to the store and only a stub (reference + descriptor + "read more")
+  crosses back into context. Composes with `glove-mcp`'s `bridgeMcpTool`.
+- **Postgres-dialect manipulation surface.** Subdroids narrow with SQL
+  (`scratchpad_query`), reason over descriptors (`scratchpad_describe`), and read
+  values only at the last mile (`scratchpad_materialize`). The contract is a
+  defined Postgres subset (`ScratchpadBackend`); the backend is swappable.
+- **First-level normalization.** Ingested JSON becomes a typed root table; nested
+  arrays become child tables (FK + `_idx`); deeper nesting stays in `jsonb`,
+  reachable via `->` / `->>`.
+- **Descriptor economy + restraint priming.** A reference resolves to
+  `{value, schema, preview, provenance}`; `mountScratchpad` folds the surface
+  tools and primes the last-mile discipline.
+- **Computation as a value.** `Scratchpad.snapshot()` / `PgliteBackend.create({ load })`
+  serialize and resume the whole store.
+- Reference `PgliteBackend` behind the `glove-scratchpad/pglite` subpath
+  (`@electric-sql/pglite` is an optional peer). Example: `pnpm scratchpad:demo`
+  (no API key) shows ~37× context reduction on a 500-record payload.
+
 ## v3.1.0 — Prompt caching
 
 **Packages:** `glove-core` 3.1.0 · `glove-react` 3.1.0 · `glove-next` 3.1.0
