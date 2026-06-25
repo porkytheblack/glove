@@ -247,10 +247,21 @@ use:
   `DROP TABLE [IF EXISTS] … [CASCADE]`
 - **DML** — `INSERT … VALUES (…), (…)`, `DELETE … [WHERE …]` (with `$n` params)
 - **Query** — `SELECT [DISTINCT]` from tables, subqueries, or
-  `information_schema.columns`; `INNER` / `LEFT JOIN … ON`; `WHERE`, `GROUP BY`,
-  `HAVING`, `ORDER BY`, `LIMIT`, `OFFSET`; `WITH` (CTEs); aggregates
-  (`count` / `sum` / `avg` / `min` / `max`); jsonb access via `->` / `->>`; and
-  `::type` casts.
+  `information_schema.columns`; `INNER` / `LEFT` / `RIGHT` / `FULL` / `CROSS`
+  joins; `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT`, `OFFSET` (ORDER BY /
+  GROUP BY by alias or ordinal); `WITH` (CTEs).
+- **Set ops** — `UNION` / `UNION ALL` / `INTERSECT` / `EXCEPT`.
+- **Subqueries** — scalar `(SELECT …)`, `IN (SELECT …)`, `EXISTS` / `NOT EXISTS`,
+  including correlated (a subquery resolves outer columns).
+- **Expressions** — `CASE` (searched + simple), `BETWEEN`, `IN`, `IS [NOT] NULL`,
+  `CAST(x AS t)` / `::t`, jsonb `->` / `->>`; aggregates
+  (`count` / `sum` / `avg` / `min` / `max`) with `FILTER (WHERE …)`; scalar fns
+  (`coalesce`, `nullif`, `round`, `floor`, `ceil`, `abs`, `sqrt`, `power`, `mod`,
+  `greatest`, `least`, `lower`, `upper`, `length`, `trim`, `substr`, `replace`,
+  `concat`, `strpos`, …).
+- **Window functions** — `func(…) OVER (PARTITION BY … ORDER BY …)`:
+  `row_number`, `rank`, `dense_rank`, aggregate windows (`sum`/`count`/… `OVER`),
+  `lag` / `lead`, `first_value`.
 
 Anything outside the subset throws a clear error rather than silently
 mis-answering. The whole store serializes to bytes (`dump()`) and is
