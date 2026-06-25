@@ -29,7 +29,8 @@
   ],
   "scripts": {
     "build": "tsup",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -38,6 +39,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
     "typescript": "^5.9.3"
   }
 }

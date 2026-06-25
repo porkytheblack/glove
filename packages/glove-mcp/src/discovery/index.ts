@@ -12,6 +12,7 @@ import { bearer } from "../auth";
 import type { DiscoveryAmbiguityPolicy } from "./policy";
 import { defaultPromptFor } from "./prompt";
 import { DiscoveryMemoryStore } from "./memory-store";
+import { matchEntries } from "./match";
 
 export type { DiscoveryAmbiguityPolicy } from "./policy";
 
@@ -32,39 +33,6 @@ export interface DiscoverySubAgentConfig {
 }
 
 // ─── Subagent-only tools ─────────────────────────────────────────────────────
-
-function matchEntries(
-  entries: McpCatalogueEntry[],
-  query: string | undefined,
-  tags: string[] | undefined,
-): McpCatalogueEntry[] {
-  const q = (query ?? "").trim().toLowerCase();
-  const tagFilter = (tags ?? []).map((t) => t.toLowerCase());
-
-  const scored: Array<{ entry: McpCatalogueEntry; score: number }> = [];
-  for (const entry of entries) {
-    const haystack =
-      `${entry.name} ${entry.description} ${(entry.tags ?? []).join(" ")}`.toLowerCase();
-
-    if (tagFilter.length) {
-      const entryTags = (entry.tags ?? []).map((t) => t.toLowerCase());
-      const tagsMatch = tagFilter.every((t) => entryTags.includes(t));
-      if (!tagsMatch) continue;
-    }
-
-    if (!q) {
-      scored.push({ entry, score: 1 });
-      continue;
-    }
-
-    if (haystack.includes(q)) {
-      scored.push({ entry, score: q.length });
-    }
-  }
-
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, 10).map((s) => s.entry);
-}
 
 function listCapabilitiesTool(
   adapter: McpAdapter,
