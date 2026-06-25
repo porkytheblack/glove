@@ -12,6 +12,8 @@
     "scratchpad:agent": "tsx examples/scratchpad-agent/agent.ts",
     "scratchpad:mcp": "tsx examples/scratchpad-mcp-workflow/agent.ts",
     "scratchpad:mcp-smoke": "tsx examples/scratchpad-mcp-workflow/smoke.ts",
+    "scratchpad:fleet": "tsx examples/scratchpad-mcp-fleet/agent.ts",
+    "scratchpad:fleet-smoke": "tsx examples/scratchpad-mcp-fleet/smoke.ts",
     "weather:agent": "tsx examples/weather-agent/index.tsx",
     "coding:agent": "tsx examples/coding-agent/index.tsx",
     "coding:server": "tsx examples/coding-agent/server.ts",
