@@ -26,6 +26,15 @@ export {
 } from "./scratchpad";
 
 export {
+  createScratchpadStats,
+  type ScratchpadEvent,
+  type ScratchpadOp,
+  type ScratchpadSubscriber,
+  type ScratchpadStats,
+  type ScratchpadStatsCollector,
+} from "./events";
+
+export {
   planNormalization,
   coerceForInsert,
   RID,

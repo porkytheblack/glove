@@ -30,6 +30,7 @@ import {
   toColumnDescriptors,
 } from "./descriptor";
 import type { ColumnType } from "./types";
+import type { ScratchpadEvent, ScratchpadOp, ScratchpadSubscriber } from "./events";
 
 const META_RECORDS = "_scratchpad_records";
 const META_TABLES = "_scratchpad_tables";
@@ -110,6 +111,8 @@ function assertReadOnly(sql: string): string {
 }
 
 export class Scratchpad {
+  private subscribers: ScratchpadSubscriber[] = [];
+
   private constructor(public readonly backend: ScratchpadBackend) {}
 
   /** Open a scratchpad over a backend, ensuring meta tables exist. */
@@ -117,6 +120,45 @@ export class Scratchpad {
     const sp = new Scratchpad(backend);
     await sp.ensureMeta();
     return sp;
+  }
+
+  // ── observability ─────────────────────────────────────────────────────────
+
+  /**
+   * Subscribe to the scratchpad's {@link ScratchpadEvent} stream — one event per
+   * ingest / query / materialize / drop / snapshot (and `error`). Returns an
+   * unsubscribe function. Subscribers are runtime-only (never serialised); after
+   * a {@link Scratchpad.restore} you re-subscribe.
+   */
+  subscribe(subscriber: ScratchpadSubscriber): () => void {
+    this.subscribers.push(subscriber);
+    return () => {
+      const i = this.subscribers.indexOf(subscriber);
+      if (i >= 0) this.subscribers.splice(i, 1);
+    };
+  }
+
+  /** Emit to every subscriber; a misbehaving subscriber must not break the store. */
+  private async emit(event: ScratchpadEvent): Promise<void> {
+    for (const sub of this.subscribers) {
+      try {
+        await sub.record(event);
+      } catch {
+        /* swallow — observability must never break the datapath */
+      }
+    }
+  }
+
+  /** Emit an `error` event for `op`, then rethrow the original error. */
+  private async fail(op: ScratchpadOp, err: unknown, ctx?: { sql?: string; ref?: string }): Promise<never> {
+    await this.emit({
+      type: "error",
+      op,
+      message: err instanceof Error ? err.message : String(err),
+      sql: ctx?.sql,
+      ref: ctx?.ref,
+    });
+    throw err;
   }
 
   private async ensureMeta(): Promise<void> {
@@ -154,39 +196,53 @@ export class Scratchpad {
    * payload lands in the store; only the descriptor + reference cross back.
    */
   async ingest(value: unknown, opts: IngestOptions = {}): Promise<Stub> {
-    const taken = new Set(await this.refs());
-    const ref = uniqueRef(opts.name ?? "rec", taken);
-    const plan = planNormalization(value, ref);
+    const t0 = Date.now();
+    try {
+      const taken = new Set(await this.refs());
+      const ref = uniqueRef(opts.name ?? "rec", taken);
+      const plan = planNormalization(value, ref);
 
-    // 1. DDL + DML for each table (root first so child FKs resolve).
-    for (const table of plan.tables) {
-      await this.backend.exec(this.buildCreateTable(table, plan.rootTable));
-      await this.insertRows(table);
-    }
+      // 1. DDL + DML for each table (root first so child FKs resolve).
+      for (const table of plan.tables) {
+        await this.backend.exec(this.buildCreateTable(table, plan.rootTable));
+        await this.insertRows(table);
+      }
 
-    // 2. Register in the meta tables so describe() and snapshots are complete.
-    const provenance: Provenance = {
-      source: opts.provenance?.source ?? "ingest",
-      actor: opts.provenance?.actor,
-      timestamp: opts.provenance?.timestamp ?? new Date().toISOString(),
-      note: opts.provenance?.note,
-    };
-    await this.backend.query(
-      `INSERT INTO ${quoteIdent(META_RECORDS)} (ref, kind, provenance, raw_bytes, text_length)
-       VALUES ($1, $2, $3::jsonb, $4, $5)`,
-      [ref, plan.kind, JSON.stringify(provenance), plan.rawBytes, plan.textLength ?? null],
-    );
-    for (let i = 0; i < plan.tables.length; i++) {
-      const t = plan.tables[i];
+      // 2. Register in the meta tables so describe() and snapshots are complete.
+      const provenance: Provenance = {
+        source: opts.provenance?.source ?? "ingest",
+        actor: opts.provenance?.actor,
+        timestamp: opts.provenance?.timestamp ?? new Date().toISOString(),
+        note: opts.provenance?.note,
+      };
       await this.backend.query(
-        `INSERT INTO ${quoteIdent(META_TABLES)} (table_name, ref, role, parent_field, ord)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [t.table, ref, t.role, t.parentField ?? null, i],
+        `INSERT INTO ${quoteIdent(META_RECORDS)} (ref, kind, provenance, raw_bytes, text_length)
+         VALUES ($1, $2, $3::jsonb, $4, $5)`,
+        [ref, plan.kind, JSON.stringify(provenance), plan.rawBytes, plan.textLength ?? null],
       );
-    }
+      for (let i = 0; i < plan.tables.length; i++) {
+        const t = plan.tables[i];
+        await this.backend.query(
+          `INSERT INTO ${quoteIdent(META_TABLES)} (table_name, ref, role, parent_field, ord)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [t.table, ref, t.role, t.parentField ?? null, i],
+        );
+      }
 
-    const descriptor = await this.describe(ref, opts.previewRows ?? 5);
-    return { ref, descriptor, readMore: this.readMore(descriptor) };
+      const descriptor = await this.describe(ref, opts.previewRows ?? 5);
+      await this.emit({
+        type: "ingest",
+        ref,
+        rowCount: descriptor.rowCount,
+        bytes: descriptor.rawBytes ?? 0,
+        source: provenance.source,
+        actor: provenance.actor,
+        durationMs: Date.now() - t0,
+      });
+      return { ref, descriptor, readMore: this.readMore(descriptor) };
+    } catch (err) {
+      return this.fail("ingest", err);
+    }
   }
 
   private buildCreateTable(table: NormTable, rootTable: string): string {
@@ -322,37 +378,52 @@ export class Scratchpad {
    * caller reads the returned rows.
    */
   async query(sql: string, opts: QueryOptions = {}): Promise<Stub | QueryRows> {
-    if (opts.store !== undefined) {
-      const taken = new Set(await this.refs());
-      const ref = uniqueRef(opts.store, taken);
-      const select = sql.trim().replace(/;+\s*$/, "");
-      await this.backend.exec(`CREATE TABLE ${quoteIdent(ref)} AS ${select};`);
+    const t0 = Date.now();
+    try {
+      if (opts.store !== undefined) {
+        const taken = new Set(await this.refs());
+        const ref = uniqueRef(opts.store, taken);
+        const select = sql.trim().replace(/;+\s*$/, "");
+        await this.backend.exec(`CREATE TABLE ${quoteIdent(ref)} AS ${select};`);
 
-      const provenance: Provenance = {
-        source: opts.provenance?.source ?? "query",
-        actor: opts.provenance?.actor,
-        timestamp: opts.provenance?.timestamp ?? new Date().toISOString(),
-        note: opts.provenance?.note ?? select,
-      };
-      await this.backend.query(
-        `INSERT INTO ${quoteIdent(META_RECORDS)} (ref, kind, provenance) VALUES ($1, 'table', $2::jsonb)`,
-        [ref, JSON.stringify(provenance)],
+        const provenance: Provenance = {
+          source: opts.provenance?.source ?? "query",
+          actor: opts.provenance?.actor,
+          timestamp: opts.provenance?.timestamp ?? new Date().toISOString(),
+          note: opts.provenance?.note ?? select,
+        };
+        await this.backend.query(
+          `INSERT INTO ${quoteIdent(META_RECORDS)} (ref, kind, provenance) VALUES ($1, 'table', $2::jsonb)`,
+          [ref, JSON.stringify(provenance)],
+        );
+        await this.backend.query(
+          `INSERT INTO ${quoteIdent(META_TABLES)} (table_name, ref, role, ord) VALUES ($1, $1, 'root', 0)`,
+          [ref],
+        );
+        const descriptor = await this.describe(ref, opts.previewRows ?? 5);
+        await this.emit({
+          type: "query",
+          sql: select,
+          stored: ref,
+          rows: descriptor.rowCount,
+          truncated: false,
+          durationMs: Date.now() - t0,
+        });
+        return { ref, descriptor, readMore: this.readMore(descriptor) };
+      }
+
+      const select = assertReadOnly(sql);
+      const limit = opts.limit ?? 50;
+      const res = await this.backend.query(
+        `SELECT * FROM (${select}) AS _q LIMIT ${limit + 1}`,
       );
-      await this.backend.query(
-        `INSERT INTO ${quoteIdent(META_TABLES)} (table_name, ref, role, ord) VALUES ($1, $1, 'root', 0)`,
-        [ref],
-      );
-      const descriptor = await this.describe(ref, opts.previewRows ?? 5);
-      return { ref, descriptor, readMore: this.readMore(descriptor) };
+      const truncated = res.rows.length > limit;
+      const rows = truncated ? res.rows.slice(0, limit) : res.rows;
+      await this.emit({ type: "query", sql: select, rows: rows.length, truncated, durationMs: Date.now() - t0 });
+      return { rows, truncated };
+    } catch (err) {
+      return this.fail("query", err, { sql });
     }
-
-    const select = assertReadOnly(sql);
-    const limit = opts.limit ?? 50;
-    const res = await this.backend.query(
-      `SELECT * FROM (${select}) AS _q LIMIT ${limit + 1}`,
-    );
-    const truncated = res.rows.length > limit;
-    return { rows: truncated ? res.rows.slice(0, limit) : res.rows, truncated };
   }
 
   // ── materialize (the last mile) ───────────────────────────────────────────
@@ -362,22 +433,35 @@ export class Scratchpad {
    * path that puts real values into context. Bounded by `limit`.
    */
   async materialize(opts: MaterializeOptions): Promise<MaterializeResult> {
-    const limit = opts.limit ?? 50;
-    const offset = Math.max(0, opts.offset ?? 0);
-    let inner: string;
-    if (opts.sql) {
-      inner = assertReadOnly(opts.sql);
-    } else if (opts.ref) {
-      inner = `SELECT * FROM ${quoteIdent(opts.ref)}`;
-    } else {
-      throw new Error("materialize requires either `ref` or `sql`.");
+    const t0 = Date.now();
+    try {
+      const limit = opts.limit ?? 50;
+      const offset = Math.max(0, opts.offset ?? 0);
+      let inner: string;
+      if (opts.sql) {
+        inner = assertReadOnly(opts.sql);
+      } else if (opts.ref) {
+        inner = `SELECT * FROM ${quoteIdent(opts.ref)}`;
+      } else {
+        throw new Error("materialize requires either `ref` or `sql`.");
+      }
+      const res = await this.backend.query(
+        `SELECT * FROM (${inner}) AS _q LIMIT ${limit + 1} OFFSET ${offset}`,
+      );
+      const truncated = res.rows.length > limit;
+      const rows = truncated ? res.rows.slice(0, limit) : res.rows;
+      await this.emit({
+        type: "materialize",
+        ref: opts.ref,
+        sql: opts.sql,
+        returned: rows.length,
+        truncated,
+        durationMs: Date.now() - t0,
+      });
+      return { rows, returned: rows.length, truncated };
+    } catch (err) {
+      return this.fail("materialize", err, { sql: opts.sql, ref: opts.ref });
     }
-    const res = await this.backend.query(
-      `SELECT * FROM (${inner}) AS _q LIMIT ${limit + 1} OFFSET ${offset}`,
-    );
-    const truncated = res.rows.length > limit;
-    const rows = truncated ? res.rows.slice(0, limit) : res.rows;
-    return { rows, returned: rows.length, truncated };
   }
 
   // ── lifecycle ─────────────────────────────────────────────────────────────
@@ -402,23 +486,36 @@ export class Scratchpad {
 
   /** Drop a record and all its tables. */
   async drop(ref: Reference): Promise<void> {
-    const tblRes = await this.backend.query(
-      `SELECT table_name FROM ${quoteIdent(META_TABLES)} WHERE ref = $1`,
-      [ref],
-    );
-    const names =
-      tblRes.rows.length > 0 ? tblRes.rows.map((r) => String(r.table_name)) : [ref];
-    // Drop children first (CASCADE covers FK either way).
-    for (const name of names.reverse()) {
-      await this.backend.exec(`DROP TABLE IF EXISTS ${quoteIdent(name)} CASCADE;`);
+    const t0 = Date.now();
+    try {
+      const tblRes = await this.backend.query(
+        `SELECT table_name FROM ${quoteIdent(META_TABLES)} WHERE ref = $1`,
+        [ref],
+      );
+      const names =
+        tblRes.rows.length > 0 ? tblRes.rows.map((r) => String(r.table_name)) : [ref];
+      // Drop children first (CASCADE covers FK either way).
+      for (const name of names.reverse()) {
+        await this.backend.exec(`DROP TABLE IF EXISTS ${quoteIdent(name)} CASCADE;`);
+      }
+      await this.backend.query(`DELETE FROM ${quoteIdent(META_TABLES)} WHERE ref = $1`, [ref]);
+      await this.backend.query(`DELETE FROM ${quoteIdent(META_RECORDS)} WHERE ref = $1`, [ref]);
+      await this.emit({ type: "drop", ref, durationMs: Date.now() - t0 });
+    } catch (err) {
+      await this.fail("drop", err, { ref });
     }
-    await this.backend.query(`DELETE FROM ${quoteIdent(META_TABLES)} WHERE ref = $1`, [ref]);
-    await this.backend.query(`DELETE FROM ${quoteIdent(META_RECORDS)} WHERE ref = $1`, [ref]);
   }
 
   /** Serialise the whole scratchpad to bytes — computation as a value (§10). */
   async snapshot(): Promise<Uint8Array> {
-    return this.backend.dump();
+    const t0 = Date.now();
+    try {
+      const bytes = await this.backend.dump();
+      await this.emit({ type: "snapshot", bytes: bytes.byteLength, durationMs: Date.now() - t0 });
+      return bytes;
+    } catch (err) {
+      return this.fail("snapshot", err);
+    }
   }
 
   async close(): Promise<void> {

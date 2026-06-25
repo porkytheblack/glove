@@ -135,6 +135,33 @@ bytesContained, bytesEmitted }` per call — `bytesContained` never reaches the
 model, `bytesEmitted` (the stub) is all that does. `createContainmentReporter()`
 is a ready-made aggregator with `.report()`, `.format()`, and `.reset()`.
 
+### Scratchpad events
+
+`onContain` is containment-specific. For full observability over the datapath —
+every ingest, query, materialize, drop, snapshot, and error — subscribe to the
+scratchpad's event stream (modelled on glove-core's `SubscriberAdapter`):
+
+```ts
+import { createScratchpadStats } from "glove-scratchpad";
+
+const off = sp.subscribe({
+  record(ev) {
+    if (ev.type === "materialize") console.log(`last-mile read: ${ev.returned} rows in ${ev.durationMs}ms`);
+    if (ev.type === "error") console.warn(`scratchpad ${ev.op} failed: ${ev.message}`);
+  },
+});
+
+// …or drop in the ready-made tally:
+const stats = createScratchpadStats();
+sp.subscribe(stats.subscriber);
+// later: stats.format() → "5 ingest(s) (188 KB) · 9 queries · 3 materialize(s) (24 rows) · 0 errors"
+```
+
+`materialize` is the event to watch — it's the only one where real values cross
+back into the model's context. `subscribe` returns an unsubscribe function;
+subscribers are runtime-only (never serialised), so after a `restore` you
+re-subscribe. A throwing subscriber can never break the store.
+
 ### First-level normalization
 
 On ingest, a JSON value is normalized once (§7):
