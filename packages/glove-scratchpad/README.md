@@ -249,6 +249,47 @@ subset — real Postgres over a pool, SQLite, a remote service.
 
 ---
 
+## Storable & resumable
+
+A scratchpad is a value: `snapshot()` serialises the whole store to bytes and a
+backend reconstructs from them. The package turns that into the same BYO-adapter
+pattern glove uses everywhere — a `ScratchpadStore` you implement over your DB /
+KV / object store, plus persist / restore / auto-persist helpers.
+
+```ts
+import { autoPersistScratchpad, restoreScratchpad } from "glove-scratchpad";
+import { FsScratchpadStore } from "glove-scratchpad/persist-fs";
+
+const store = new FsScratchpadStore("./.scratchpads");   // or your DB-backed ScratchpadStore
+
+// First run — snapshot after each mutation (debounced), no explicit checkpoints.
+const sp = await Scratchpad.create(await MemoryBackend.create());
+const stopPersist = autoPersistScratchpad(sp, { store, key: sessionId });
+// …on conversation end: await stopPersist();   (unsubscribe + flush)
+
+// Resuming the SAME session later:
+const sp = (await restoreScratchpad({ store, key: sessionId }))
+  ?? (await Scratchpad.create(await MemoryBackend.create()));   // fresh if none saved
+```
+
+Why this composes with glove: the references an agent knows live in its **message
+history** (the stubs in tool results, persisted by glove's `StoreAdapter`).
+Persist the scratchpad snapshot under the **same key** (the session id) and a
+resumed conversation finds both its messages *and* the data those references
+resolve to — a long, multi-provider run survives a restart intact.
+
+- `ScratchpadStore` — `{ save(key, bytes), load(key), delete(key) }`. Implement
+  over anything; `MemoryScratchpadStore` (dev/tests) and `FsScratchpadStore`
+  (`glove-scratchpad/persist-fs`, node-only, atomic temp+rename, 0600) ship.
+- `persistScratchpad(sp, store, key)` — explicit snapshot + save.
+- `restoreScratchpad({ store, key, backend? })` — rebuild, or `null` if absent.
+  `backend` defaults to `MemoryBackend`; pass it for PGlite/your own.
+- `autoPersistScratchpad(sp, { store, key, debounceMs? })` — event-driven
+  debounced save on every mutation (ingest / stored query / drop). Returns a
+  stop function that unsubscribes and flushes.
+
+---
+
 ## Subagent graphs
 
 `glove-scratchpad/graph` turns a **plain, schema-validated object** into a wired

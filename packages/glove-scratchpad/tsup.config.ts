@@ -9,6 +9,8 @@ export default defineConfig({
     "src/backends/memory.ts",
     "src/backends/pglite.ts",
     "src/mcp/index.ts",
+    "src/persist/index.ts",
+    "src/persist/fs.ts",
   ],
   format: ["esm"],
   dts: true,

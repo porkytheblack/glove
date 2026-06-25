@@ -42,6 +42,10 @@
     "./mcp": {
       "types": "./dist/mcp/index.d.ts",
       "import": "./dist/mcp/index.js"
+    },
+    "./persist-fs": {
+      "types": "./dist/persist/fs.d.ts",
+      "import": "./dist/persist/fs.js"
     }
   },
   "files": [

@@ -33,5 +33,6 @@
  */
 export * from "./core";
 export * from "./tools";
+export * from "./persist";
 export { MemoryBackend, type MemoryBackendOptions } from "./backends/memory";
 export * from "./graph";
