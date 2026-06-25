@@ -1447,6 +1447,11 @@ export class MemoryBackend implements ScratchpadBackend {
       return this.aggregate(name, expr, [jr], params);
     }
     const a = expr.args.map((e) => this.evalExpr(e, jr, params));
+    return this.applyScalarFunc(name, a);
+  }
+
+  /** Apply a non-aggregate scalar function to its already-evaluated arguments. */
+  private applyScalarFunc(name: string, a: unknown[]): unknown {
     switch (name) {
       case "now":
         return this.now();
@@ -1472,7 +1477,29 @@ export class MemoryBackend implements ScratchpadBackend {
     switch (expr.k) {
       case "func":
         if (AGG_FUNCS.has(expr.name)) return this.aggregate(expr.name, expr, group, params);
-        return this.evalExpr(expr, group[0] ?? new Map(), params);
+        // A non-aggregate scalar function whose ARGS may contain aggregates
+        // (e.g. COALESCE(SUM(x), 0)): evaluate each arg over the group so any
+        // nested aggregate collapses correctly, then apply the scalar function.
+        return this.applyScalarFunc(
+          expr.name,
+          expr.args.map((a) => this.evalAggExpr(a, group, params)),
+        );
+      case "unary": {
+        const v = this.evalAggExpr(expr.e, group, params);
+        return v === null || v === undefined ? null : -num(v);
+      }
+      case "is": {
+        const v = this.evalAggExpr(expr.e, group, params);
+        const isNull = v === null || v === undefined;
+        return expr.negated ? !isNull : isNull;
+      }
+      case "in": {
+        const v = this.evalAggExpr(expr.e, group, params);
+        for (const el of expr.list) {
+          if (looseEq(v, this.evalAggExpr(el, group, params))) return !expr.negated;
+        }
+        return expr.negated;
+      }
       case "cast":
         return castValue(this.evalAggExpr(expr.e, group, params), expr.type);
       case "binary": {

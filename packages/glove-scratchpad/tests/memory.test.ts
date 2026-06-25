@@ -75,6 +75,31 @@ test("HAVING filters groups", async () => {
   assert.deepEqual(r.rows, [{ active: true, n: 2 }]);
 });
 
+test("scalar function / operator wrapping an aggregate aggregates over the group", async () => {
+  const b = await be();
+
+  // COALESCE(SUM(...)) must sum over the whole group, not collapse to one row's value.
+  const r1 = await b.query(`SELECT coalesce(sum(id), 0)::int AS total FROM "t"`);
+  assert.deepEqual(r1.rows, [{ total: 60 }]);
+
+  // The canonical reason to write COALESCE(SUM, 0): an empty set yields 0, not null.
+  const r2 = await b.query(`SELECT coalesce(sum(id), 0)::int AS total FROM "t" WHERE id > 999`);
+  assert.deepEqual(r2.rows, [{ total: 0 }]);
+
+  // Still aggregates per group under GROUP BY.
+  const r3 = await b.query(
+    `SELECT active, coalesce(sum(id), 0)::int AS total FROM "t" GROUP BY active ORDER BY active`,
+  );
+  assert.deepEqual(r3.rows, [
+    { active: false, total: 20 },
+    { active: true, total: 40 },
+  ]);
+
+  // Unary minus and abs() over an aggregate recurse into the aggregate too.
+  const r4 = await b.query(`SELECT (-sum(id))::int AS neg, abs(0 - sum(id))::int AS mag FROM "t"`);
+  assert.deepEqual(r4.rows, [{ neg: -60, mag: 60 }]);
+});
+
 test("INNER JOIN ... ON with qualified columns", async () => {
   const b = await be();
   await b.exec(`CREATE TABLE "child" ("_rid" bigint, "_parent" bigint, "_idx" bigint, "kind" text);`);
