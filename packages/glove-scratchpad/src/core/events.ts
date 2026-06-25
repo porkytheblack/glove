@@ -30,8 +30,10 @@ export type ScratchpadEvent =
       type: "ingest";
       ref: Reference;
       rowCount: number;
-      /** Payload bytes written to the store (kept out of context). */
+      /** Payload bytes written to the store (kept OUT of context — the saving). */
       bytes: number;
+      /** Bytes of the compact stub the model sees in place of the payload. */
+      stubBytes: number;
       source: string;
       actor?: string;
       durationMs: number;
@@ -43,6 +45,8 @@ export type ScratchpadEvent =
       stored?: Reference;
       /** Rows produced (returned in read mode, or row count of the stored table). */
       rows: number;
+      /** Bytes the model sees: the returned rows in read mode, or the stub in store mode. */
+      bytes: number;
       truncated: boolean;
       durationMs: number;
     }
@@ -52,6 +56,8 @@ export type ScratchpadEvent =
       sql?: string;
       /** Rows that crossed into context. */
       returned: number;
+      /** Bytes that crossed into context. */
+      bytes: number;
       truncated: boolean;
       durationMs: number;
     }
@@ -144,6 +150,121 @@ export function createScratchpadStats(): ScratchpadStatsCollector {
     reset: () => {
       s.ingests = s.queries = s.materializes = s.drops = s.snapshots = s.errors = 0;
       s.bytesIngested = s.rowsMaterialized = 0;
+    },
+  };
+}
+
+// ─── Token-consumption tracker ───────────────────────────────────────────────
+
+/** Estimate the model tokens a serialised payload of `bytes` occupies. */
+export type TokensForBytes = (bytes: number) => number;
+
+/** Default heuristic: ~4 bytes per token (reasonable for JSON / English). */
+export const defaultTokensForBytes: TokensForBytes = (bytes) => Math.ceil(bytes / 4);
+
+export interface ScratchpadConsumption {
+  /** Estimated tokens that crossed INTO the model's context via the scratchpad. */
+  tokensIntoContext: number;
+  /** Estimated tokens KEPT OUT of context by containment (the saving). */
+  tokensContained: number;
+  bytesIntoContext: number;
+  bytesContained: number;
+  /** Where the in-context tokens went. */
+  byOp: {
+    /** Stubs that replaced contained payloads. */
+    stubs: number;
+    /** Materialized rows (the deliberate last-mile loads). */
+    materializes: number;
+    /** Read-mode query rows / narrowed-result stubs. */
+    queryReads: number;
+  };
+  /** tokensContained / tokensIntoContext — how much the scratchpad stretches your context budget. */
+  reductionFactor: number;
+}
+
+export interface ConsumptionTracker {
+  /** Pass to {@link Scratchpad.subscribe}. */
+  readonly subscriber: ScratchpadSubscriber;
+  report(): ScratchpadConsumption;
+  /** One-line summary, e.g. `~3.2k tokens into context · ~46.0k contained (14.4× budget)`. */
+  format(): string;
+  reset(): void;
+}
+
+function humanTokens(n: number): string {
+  if (n < 1000) return `${n}`;
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+/**
+ * A {@link ScratchpadSubscriber} that estimates TOKEN consumption on the
+ * scratchpad computer: tokens that crossed into the model's context (stubs +
+ * materialized rows + read-mode query rows) versus tokens kept out by
+ * containment. Subscribe it and read `report()` / `format()`.
+ *
+ * Tokens are estimated from serialised bytes via `tokensForBytes` (default
+ * ~4 bytes/token); pass your model's ratio — or a tokenizer-backed estimate —
+ * for a tighter number.
+ *
+ * ```ts
+ * const consumption = createConsumptionTracker();
+ * sp.subscribe(consumption.subscriber);
+ * // …later: console.log(consumption.format());
+ * //   → "~3.2k tokens into context · ~46.0k contained (14.4× budget)"
+ * ```
+ */
+export function createConsumptionTracker(
+  tokensForBytes: TokensForBytes = defaultTokensForBytes,
+): ConsumptionTracker {
+  let stubBytes = 0;
+  let materializeBytes = 0;
+  let queryBytes = 0;
+  let containedBytes = 0;
+
+  const subscriber: ScratchpadSubscriber = {
+    record(ev) {
+      switch (ev.type) {
+        case "ingest":
+          containedBytes += ev.bytes;
+          stubBytes += ev.stubBytes;
+          break;
+        case "materialize":
+          materializeBytes += ev.bytes;
+          break;
+        case "query":
+          queryBytes += ev.bytes;
+          break;
+      }
+    },
+  };
+
+  const report = (): ScratchpadConsumption => {
+    const stubs = tokensForBytes(stubBytes);
+    const materializes = tokensForBytes(materializeBytes);
+    const queryReads = tokensForBytes(queryBytes);
+    const tokensIntoContext = stubs + materializes + queryReads;
+    const tokensContained = tokensForBytes(containedBytes);
+    return {
+      tokensIntoContext,
+      tokensContained,
+      bytesIntoContext: stubBytes + materializeBytes + queryBytes,
+      bytesContained: containedBytes,
+      byOp: { stubs, materializes, queryReads },
+      reductionFactor: tokensIntoContext > 0 ? tokensContained / tokensIntoContext : Infinity,
+    };
+  };
+
+  return {
+    subscriber,
+    report,
+    format: () => {
+      const r = report();
+      const factor = r.tokensIntoContext > 0 ? `${r.reductionFactor.toFixed(1)}× budget` : "n/a";
+      return `~${humanTokens(r.tokensIntoContext)} tokens into context · ~${humanTokens(r.tokensContained)} contained (${factor})`;
+    },
+    reset: () => {
+      stubBytes = materializeBytes = queryBytes = containedBytes = 0;
     },
   };
 }

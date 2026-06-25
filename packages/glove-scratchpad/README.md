@@ -192,6 +192,34 @@ back into the model's context. `subscribe` returns an unsubscribe function;
 subscribers are runtime-only (never serialised), so after a `restore` you
 re-subscribe. A throwing subscriber can never break the store.
 
+### Token consumption
+
+The events carry the byte sizes of what crosses the model boundary
+(`ingest.bytes` = payload contained, `ingest.stubBytes` = the stub emitted,
+`materialize.bytes` / `query.bytes` = rows read into context), so you can track
+**token consumption on the scratchpad computer** — tokens kept out of context by
+containment versus tokens spent reading data back in:
+
+```ts
+import { createConsumptionTracker } from "glove-scratchpad";
+
+const consumption = createConsumptionTracker();   // optional: (bytes) => tokens
+sp.subscribe(consumption.subscriber);
+// …after the run:
+console.log(consumption.format());
+//   → "~3.2k tokens into context · ~46.0k contained (14.4× budget)"
+
+const r = consumption.report();
+//   { tokensIntoContext, tokensContained, reductionFactor,
+//     byOp: { stubs, materializes, queryReads }, bytesIntoContext, bytesContained }
+```
+
+Tokens are estimated from serialised bytes via a `tokensForBytes` function
+(default ~4 bytes/token); pass your model's ratio — or a tokenizer-backed
+estimate — for a tighter number. `byOp` splits the in-context tokens between the
+stubs that replaced contained payloads, the deliberate last-mile `materialize`s,
+and read-mode `query`s — so you can see exactly where your context budget goes.
+
 ### First-level normalization
 
 On ingest, a JSON value is normalized once (§7):

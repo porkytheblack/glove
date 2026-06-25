@@ -7,7 +7,7 @@
  * Run (from the repo root): `pnpm scratchpad:fleet-smoke`
  */
 import { connectMcp } from "glove-mcp";
-import { Scratchpad, MemoryBackend, createScratchpadStats } from "glove-scratchpad";
+import { Scratchpad, MemoryBackend, createScratchpadStats, createConsumptionTracker } from "glove-scratchpad";
 import { MemoryScratchpadStore, persistScratchpad, restoreScratchpad } from "glove-scratchpad";
 import { containMcpTools, createContainmentReporter } from "glove-scratchpad/mcp";
 import { startFleet } from "./mcp-fleet";
@@ -20,7 +20,9 @@ async function main() {
   const sp = await Scratchpad.create(await MemoryBackend.create());
   const reporter = createContainmentReporter();
   const stats = createScratchpadStats();
+  const consumption = createConsumptionTracker();
   sp.subscribe(stats.subscriber);
+  sp.subscribe(consumption.subscriber);
 
   rule();
   console.log(`Fleet up: ${fleet.catalogue.length} providers. Containing the ${NEEDED.length} a churn board needs.\n`);
@@ -88,6 +90,7 @@ async function main() {
   console.log("OBSERVABILITY\n");
   console.log(`  containment: ${reporter.format()}`);
   console.log(`  scratchpad : ${stats.format()}`);
+  console.log(`  tokens     : ${consumption.format()}`);
   rule();
 
   await fleet.close();

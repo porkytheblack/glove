@@ -27,11 +27,16 @@ export {
 
 export {
   createScratchpadStats,
+  createConsumptionTracker,
+  defaultTokensForBytes,
   type ScratchpadEvent,
   type ScratchpadOp,
   type ScratchpadSubscriber,
   type ScratchpadStats,
   type ScratchpadStatsCollector,
+  type TokensForBytes,
+  type ScratchpadConsumption,
+  type ConsumptionTracker,
 } from "./events";
 
 export {
