@@ -115,3 +115,74 @@ test("string functions: trim, substr, replace, nullif", async () => {
   assert.equal(r.rows[0].n1, null);
   assert.equal(r.rows[0].n2, "x");
 });
+
+// ─── subqueries (Batch 2) ────────────────────────────────────────────────────
+// t (id 10/20/30) plus o (orders): t=10 has 2 orders, t=30 has 1, t=20 none.
+async function be2(): Promise<MemoryBackend> {
+  const b = await be();
+  await b.exec(`CREATE TABLE "o" ("oid" bigint, "tid" bigint, "amt" bigint);`);
+  await b.query(
+    `INSERT INTO "o" ("oid","tid","amt") VALUES ($1,$2,$3),($4,$5,$6),($7,$8,$9)`,
+    [1, 10, 100, 2, 10, 50, 3, 30, 200],
+  );
+  return b;
+}
+
+test("uncorrelated scalar subquery in SELECT and WHERE", async () => {
+  const b = await be();
+  const sel = await b.query(`SELECT name, (SELECT MAX(score) FROM "t") AS top FROM "t" WHERE id = 10`);
+  assert.equal(sel.rows[0].top, 3.5);
+  const wh = await b.query(`SELECT name FROM "t" WHERE score = (SELECT MAX(score) FROM "t")`);
+  assert.deepEqual(col(wh.rows, "name"), ["Grace"]);
+});
+
+test("IN (SELECT …)", async () => {
+  const b = await be2();
+  const r = await b.query(`SELECT name FROM "t" WHERE id IN (SELECT tid FROM "o") ORDER BY id`);
+  assert.deepEqual(col(r.rows, "name"), ["Ada", "Grace"]);
+  const not = await b.query(`SELECT name FROM "t" WHERE id NOT IN (SELECT tid FROM "o")`);
+  assert.deepEqual(col(not.rows, "name"), ["Linus"]);
+});
+
+test("correlated EXISTS / NOT EXISTS", async () => {
+  const b = await be2();
+  const ex = await b.query(`SELECT name FROM "t" WHERE EXISTS (SELECT 1 FROM "o" WHERE o.tid = t.id) ORDER BY id`);
+  assert.deepEqual(col(ex.rows, "name"), ["Ada", "Grace"]);
+  const nx = await b.query(`SELECT name FROM "t" WHERE NOT EXISTS (SELECT 1 FROM "o" WHERE o.tid = t.id)`);
+  assert.deepEqual(col(nx.rows, "name"), ["Linus"]);
+});
+
+test("correlated scalar subquery (per-row aggregate)", async () => {
+  const b = await be2();
+  const r = await b.query(
+    `SELECT name, (SELECT COUNT(*) FROM "o" WHERE o.tid = t.id)::int AS orders FROM "t" ORDER BY id`,
+  );
+  assert.deepEqual(r.rows, [
+    { name: "Ada", orders: 2 },
+    { name: "Linus", orders: 0 },
+    { name: "Grace", orders: 1 },
+  ]);
+});
+
+// ─── set operations (Batch 2) ────────────────────────────────────────────────
+test("UNION dedups; UNION ALL keeps duplicates; ORDER BY on the combined result", async () => {
+  const b = await be();
+  const u = await b.query(`SELECT id FROM "t" WHERE id <= 20 UNION SELECT id FROM "t" WHERE id >= 20 ORDER BY id`);
+  assert.deepEqual(col(u.rows, "id"), [10, 20, 30]);
+  const ua = await b.query(`SELECT id FROM "t" WHERE id <= 20 UNION ALL SELECT id FROM "t" WHERE id >= 20 ORDER BY id`);
+  assert.deepEqual(col(ua.rows, "id"), [10, 20, 20, 30]);
+});
+
+test("INTERSECT and EXCEPT (distinct by default)", async () => {
+  const b = await be();
+  const i = await b.query(`SELECT id FROM "t" WHERE id <= 20 INTERSECT SELECT id FROM "t" WHERE id >= 20`);
+  assert.deepEqual(col(i.rows, "id"), [20]);
+  const e = await b.query(`SELECT id FROM "t" EXCEPT SELECT id FROM "t" WHERE active ORDER BY id`);
+  assert.deepEqual(col(e.rows, "id"), [20]); // only the inactive row (Linus)
+});
+
+test("set ops align by position; ORDER BY ordinal", async () => {
+  const b = await be();
+  const r = await b.query(`SELECT name AS who FROM "t" WHERE id = 10 UNION SELECT name FROM "t" WHERE id = 30 ORDER BY 1`);
+  assert.deepEqual(col(r.rows, "who"), ["Ada", "Grace"]);
+});

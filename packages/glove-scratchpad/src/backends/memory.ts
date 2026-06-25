@@ -201,9 +201,11 @@ type Expr =
   | { k: "not"; e: Expr }
   | { k: "binary"; op: string; l: Expr; r: Expr }
   | { k: "is"; e: Expr; negated: boolean }
-  | { k: "in"; e: Expr; list: Expr[]; negated: boolean }
+  | { k: "in"; e: Expr; list?: Expr[]; sub?: SelectStmt; negated: boolean }
   | { k: "between"; e: Expr; lo: Expr; hi: Expr; negated: boolean }
   | { k: "case"; operand?: Expr; whens: Array<{ when: Expr; then: Expr }>; els?: Expr }
+  | { k: "subquery"; select: SelectStmt }
+  | { k: "exists"; select: SelectStmt }
   | { k: "cast"; e: Expr; type: string }
   | { k: "json"; op: "->" | "->>"; l: Expr; r: Expr };
 
@@ -232,6 +234,8 @@ interface OrderKey {
   dir: "asc" | "desc";
 }
 
+type SetOp = "union" | "unionAll" | "intersect" | "except";
+
 interface SelectStmt {
   k: "select";
   with?: Array<{ name: string; select: SelectStmt }>;
@@ -242,6 +246,8 @@ interface SelectStmt {
   where?: Expr;
   groupBy: Expr[];
   having?: Expr;
+  /** UNION/EXCEPT/INTERSECT branches; ORDER BY/LIMIT/OFFSET apply to the combined result. */
+  setOps?: Array<{ op: SetOp; select: SelectStmt }>;
   orderBy: OrderKey[];
   limit?: number;
   offset?: number;
@@ -496,6 +502,44 @@ class Parser {
 
   // ── SELECT ──────────────────────────────────────────────────────────────
   private parseSelect(): SelectStmt {
+    const stmt = this.parseSelectCore();
+    // Set operations — the right side is a core; ORDER BY/LIMIT bind to the whole.
+    while (this.isKw("union") || this.isKw("except") || this.isKw("intersect")) {
+      const kw = this.next().value.toLowerCase();
+      const all = this.acceptKw("all");
+      const op: SetOp =
+        kw === "union" ? (all ? "unionAll" : "union") : kw === "except" ? "except" : "intersect";
+      (stmt.setOps ??= []).push({ op, select: this.parseSelectCore() });
+    }
+    if (this.acceptKw("order")) {
+      this.expectKw("by");
+      do {
+        const expr = this.parseExpr();
+        let dir: "asc" | "desc" = "asc";
+        if (this.acceptKw("asc")) dir = "asc";
+        else if (this.acceptKw("desc")) dir = "desc";
+        // optional NULLS FIRST/LAST — accept & ignore (we default nulls-last asc)
+        if (this.acceptKw("nulls")) {
+          this.acceptKw("first") || this.acceptKw("last");
+        }
+        stmt.orderBy.push({ expr, dir });
+      } while (this.acceptOp(","));
+    }
+    if (this.acceptKw("limit")) {
+      const t = this.next();
+      if (t.type !== "number") throw this.err("LIMIT expects a number");
+      stmt.limit = Number(t.value);
+    }
+    if (this.acceptKw("offset")) {
+      const t = this.next();
+      if (t.type !== "number") throw this.err("OFFSET expects a number");
+      stmt.offset = Number(t.value);
+    }
+    return stmt;
+  }
+
+  /** A select core: WITH … SELECT … FROM/JOIN/WHERE/GROUP/HAVING — no set-op, ORDER BY, or LIMIT. */
+  private parseSelectCore(): SelectStmt {
     let withClauses: SelectStmt["with"];
     if (this.acceptKw("with")) {
       withClauses = [];
@@ -529,7 +573,6 @@ class Parser {
 
     if (this.acceptKw("from")) {
       stmt.from = this.parseFromItem();
-      // join list
       for (;;) {
         if (this.acceptOp(",")) {
           stmt.joins.push({ type: "cross", item: this.parseFromItem() });
@@ -549,30 +592,6 @@ class Parser {
       } while (this.acceptOp(","));
     }
     if (this.acceptKw("having")) stmt.having = this.parseExpr();
-    if (this.acceptKw("order")) {
-      this.expectKw("by");
-      do {
-        const expr = this.parseExpr();
-        let dir: "asc" | "desc" = "asc";
-        if (this.acceptKw("asc")) dir = "asc";
-        else if (this.acceptKw("desc")) dir = "desc";
-        // optional NULLS FIRST/LAST — accept & ignore (we default nulls-last asc)
-        if (this.acceptKw("nulls")) {
-          this.acceptKw("first") || this.acceptKw("last");
-        }
-        stmt.orderBy.push({ expr, dir });
-      } while (this.acceptOp(","));
-    }
-    if (this.acceptKw("limit")) {
-      const t = this.next();
-      if (t.type !== "number") throw this.err("LIMIT expects a number");
-      stmt.limit = Number(t.value);
-    }
-    if (this.acceptKw("offset")) {
-      const t = this.next();
-      if (t.type !== "number") throw this.err("OFFSET expects a number");
-      stmt.offset = Number(t.value);
-    }
     return stmt;
   }
 
@@ -613,8 +632,14 @@ class Parser {
       this.isKw("inner") ||
       this.isKw("left") ||
       this.isKw("right") ||
+      this.isKw("full") ||
+      this.isKw("outer") ||
+      this.isKw("cross") ||
       this.isKw("on") ||
-      this.isKw("as")
+      this.isKw("as") ||
+      this.isKw("union") ||
+      this.isKw("except") ||
+      this.isKw("intersect")
     );
   }
 
@@ -714,6 +739,12 @@ class Parser {
         const negated = this.acceptKw("not");
         this.expectKw("in");
         this.expectOp("(");
+        if (this.isKw("select") || this.isKw("with")) {
+          const sub = this.parseSelect();
+          this.expectOp(")");
+          l = { k: "in", e: l, sub, negated };
+          continue;
+        }
         const list: Expr[] = [];
         if (!this.isOp(")")) {
           do {
@@ -801,6 +832,11 @@ class Parser {
     const t = this.peek();
     if (this.isOp("(")) {
       this.pos++;
+      if (this.isKw("select") || this.isKw("with")) {
+        const select = this.parseSelect();
+        this.expectOp(")");
+        return { k: "subquery", select };
+      }
       const e = this.parseExpr();
       this.expectOp(")");
       return e;
@@ -834,6 +870,14 @@ class Parser {
       if (!t.quoted && lower === "null") {
         this.pos++;
         return { k: "null" };
+      }
+      // EXISTS (subquery)
+      if (!t.quoted && lower === "exists" && this.isOp("(", 1)) {
+        this.pos++; // exists
+        this.expectOp("(");
+        const select = this.parseSelect();
+        this.expectOp(")");
+        return { k: "exists", select };
       }
       // CASE … WHEN … END
       if (!t.quoted && lower === "case") {
@@ -968,8 +1012,13 @@ export interface MemoryBackendOptions {
   load?: Uint8Array;
 }
 
+/** Sentinel: a column name is absent in a scope (distinct from a null value). */
+const COLUMN_ABSENT = Symbol("column_absent");
+
 export class MemoryBackend implements ScratchpadBackend {
   private tables = new Map<string, CatTable>();
+  /** Stack of enclosing rows, so a correlated subquery can resolve outer columns. */
+  private subqueryOuter: JoinedRow[] = [];
   /** Monotonic logical clock backing `now()` so insert order is always stable. */
   private clock: number;
 
@@ -1141,6 +1190,7 @@ export class MemoryBackend implements ScratchpadBackend {
   // ── SELECT ────────────────────────────────────────────────────────────────
 
   private execSelect(stmt: SelectStmt, params: unknown[], ctes: Map<string, RowSet>): RowSet {
+    if (stmt.setOps?.length) return this.execSetOps(stmt, params, ctes);
     // Resolve CTEs first (each can see earlier ones).
     if (stmt.with) {
       const merged = new Map(ctes);
@@ -1213,6 +1263,87 @@ export class MemoryBackend implements ScratchpadBackend {
     if (stmt.limit !== undefined) out = out.slice(0, Math.max(0, stmt.limit));
 
     return { columns, rows: out };
+  }
+
+  /** UNION / EXCEPT / INTERSECT: combine branch row-sets, then ORDER/OFFSET/LIMIT the whole. */
+  private execSetOps(stmt: SelectStmt, params: unknown[], ctes: Map<string, RowSet>): RowSet {
+    const left = this.execBranch(stmt, params, ctes);
+    const columns = left.columns;
+    let rows = left.rows;
+    for (const so of stmt.setOps!) {
+      const right = this.execBranch(so.select, params, ctes);
+      const aligned = this.alignColumns(columns, right.columns, right.rows);
+      rows = this.combineSet(so.op, columns, rows, aligned);
+    }
+    if (stmt.orderBy.length > 0) {
+      const valueOf = (row: Record<string, unknown>, key: OrderKey): unknown =>
+        key.expr.k === "num"
+          ? row[columns[Number(key.expr.v) - 1]]
+          : this.evalExpr(key.expr, new Map([["", row]]), params);
+      rows = rows.slice().sort((a, b) => {
+        for (const key of stmt.orderBy) {
+          const cmp = compareValues(valueOf(a, key), valueOf(b, key));
+          if (cmp !== 0) return key.dir === "desc" ? -cmp : cmp;
+        }
+        return 0;
+      });
+    }
+    const offset = stmt.offset ?? 0;
+    if (offset > 0) rows = rows.slice(offset);
+    if (stmt.limit !== undefined) rows = rows.slice(0, Math.max(0, stmt.limit));
+    return { columns, rows };
+  }
+
+  /** Run one set-op branch's core (its own set-ops / ORDER BY / LIMIT are deferred to the parent). */
+  private execBranch(stmt: SelectStmt, params: unknown[], ctes: Map<string, RowSet>): RowSet {
+    return this.execSelect(
+      { ...stmt, setOps: undefined, orderBy: [], limit: undefined, offset: undefined },
+      params,
+      ctes,
+    );
+  }
+
+  /** Set operations align by column POSITION — rename the source columns to the target (left) names. */
+  private alignColumns(
+    target: string[],
+    src: string[],
+    rows: Record<string, unknown>[],
+  ): Record<string, unknown>[] {
+    if (src.length === target.length && src.every((c, i) => c === target[i])) return rows;
+    return rows.map((r) => {
+      const o: Record<string, unknown> = {};
+      for (let i = 0; i < target.length; i++) o[target[i]] = r[src[i]];
+      return o;
+    });
+  }
+
+  private combineSet(
+    op: SetOp,
+    columns: string[],
+    left: Record<string, unknown>[],
+    right: Record<string, unknown>[],
+  ): Record<string, unknown>[] {
+    const key = (r: Record<string, unknown>) => stableKey(columns.map((c) => r[c]));
+    if (op === "unionAll") return left.concat(right);
+    if (op === "union") {
+      const seen = new Set<string>();
+      const out: Record<string, unknown>[] = [];
+      for (const r of left.concat(right)) {
+        const k = key(r);
+        if (!seen.has(k)) { seen.add(k); out.push(r); }
+      }
+      return out;
+    }
+    // INTERSECT / EXCEPT — DISTINCT by default.
+    const rset = new Set(right.map(key));
+    const want = op === "intersect";
+    const seen = new Set<string>();
+    const out: Record<string, unknown>[] = [];
+    for (const r of left) {
+      const k = key(r);
+      if (rset.has(k) === want && !seen.has(k)) { seen.add(k); out.push(r); }
+    }
+    return out;
   }
 
   private orderValue(
@@ -1426,7 +1557,13 @@ export class MemoryBackend implements ScratchpadBackend {
       }
       case "in": {
         const v = this.evalExpr(expr.e, jr, params);
-        for (const el of expr.list) {
+        if (expr.sub) {
+          const rs = this.execSubquery(expr.sub, jr, params);
+          const c = rs.columns[0];
+          for (const row of rs.rows) if (looseEq(v, row[c])) return !expr.negated;
+          return expr.negated;
+        }
+        for (const el of expr.list ?? []) {
           if (looseEq(v, this.evalExpr(el, jr, params))) return !expr.negated;
         }
         return expr.negated;
@@ -1441,6 +1578,13 @@ export class MemoryBackend implements ScratchpadBackend {
       }
       case "case":
         return this.evalCase(expr, (e) => this.evalExpr(e, jr, params));
+      case "subquery": {
+        const rs = this.execSubquery(expr.select, jr, params);
+        if (rs.rows.length === 0) return null;
+        return rs.rows[0][rs.columns[0]] ?? null;
+      }
+      case "exists":
+        return this.execSubquery(expr.select, jr, params).rows.length > 0;
       case "func":
         return this.evalScalarFunc(expr, jr, params);
       case "binary":
@@ -1463,19 +1607,40 @@ export class MemoryBackend implements ScratchpadBackend {
   }
 
   private resolveColumn(expr: { table?: string; name: string }, jr: JoinedRow): unknown {
+    const here = this.lookupColumn(expr, jr);
+    if (here !== COLUMN_ABSENT) return here;
+    // Correlated subquery: walk enclosing scopes outermost-last.
+    for (let i = this.subqueryOuter.length - 1; i >= 0; i--) {
+      const outer = this.lookupColumn(expr, this.subqueryOuter[i]);
+      if (outer !== COLUMN_ABSENT) return outer;
+    }
+    return null;
+  }
+
+  /** Resolve a column in one scope, returning {@link COLUMN_ABSENT} if not present. */
+  private lookupColumn(expr: { table?: string; name: string }, jr: JoinedRow): unknown {
     if (expr.table) {
       const rec = jr.get(expr.table);
       if (rec && expr.name in rec) return rec[expr.name];
-      // case-insensitive alias fallback
       for (const [alias, r] of jr) {
         if (alias.toLowerCase() === expr.table.toLowerCase() && expr.name in r) return r[expr.name];
       }
-      return null;
+      return COLUMN_ABSENT;
     }
     for (const rec of jr.values()) {
       if (expr.name in rec) return rec[expr.name];
     }
-    return null;
+    return COLUMN_ABSENT;
+  }
+
+  /** Run a subquery with `jr` pushed as its correlation scope. */
+  private execSubquery(select: SelectStmt, jr: JoinedRow, params: unknown[]): RowSet {
+    this.subqueryOuter.push(jr);
+    try {
+      return this.execSelect(select, params, new Map());
+    } finally {
+      this.subqueryOuter.pop();
+    }
   }
 
   private evalBinary(expr: { op: string; l: Expr; r: Expr }, jr: JoinedRow, params: unknown[]): unknown {
@@ -1642,8 +1807,11 @@ export class MemoryBackend implements ScratchpadBackend {
         return expr.negated ? !isNull : isNull;
       }
       case "in": {
+        // A subquery in an IN over a group isn't aggregate-correlated here —
+        // evaluate against the group's representative row.
+        if (expr.sub) return this.evalExpr(expr, group[0] ?? new Map(), params);
         const v = this.evalAggExpr(expr.e, group, params);
-        for (const el of expr.list) {
+        for (const el of expr.list ?? []) {
           if (looseEq(v, this.evalAggExpr(el, group, params))) return !expr.negated;
         }
         return expr.negated;
@@ -1885,7 +2053,7 @@ function containsAggregate(expr: Expr): boolean {
     case "is":
       return containsAggregate(expr.e);
     case "in":
-      return containsAggregate(expr.e) || expr.list.some(containsAggregate);
+      return containsAggregate(expr.e) || (expr.list ?? []).some(containsAggregate);
     case "between":
       return containsAggregate(expr.e) || containsAggregate(expr.lo) || containsAggregate(expr.hi);
     case "case":
