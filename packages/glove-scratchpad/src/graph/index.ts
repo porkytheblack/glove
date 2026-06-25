@@ -22,13 +22,15 @@ export {
 
 export {
   runScratchpadGraph,
+  buildAndRunScratchpadGraph,
   type RunScratchpadGraphOptions,
+  type BuildAndRunOptions,
   type WorkflowRunResult,
   type WorkflowStep,
 } from "./run";
 
 export {
-  workflowTools,
+  workflowTool,
   mountWorkflow,
-  type WorkflowToolsOptions,
+  type WorkflowToolOptions,
 } from "./tools";

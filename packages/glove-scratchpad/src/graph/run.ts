@@ -15,7 +15,13 @@
  * unconditional handoffs in this version.
  */
 import type { Message, ModelPromptResult } from "glove-core/core";
-import type { GraphNode, ScratchpadGraph } from "./build";
+import {
+  buildScratchpadGraph,
+  type BuildScratchpadGraphOptions,
+  type GraphNode,
+  type ScratchpadGraph,
+} from "./build";
+import type { GraphDef } from "./types";
 
 export interface WorkflowStep {
   /** The subagent that ran. */
@@ -214,4 +220,32 @@ export async function runScratchpadGraph(
   const resolved = !signal?.aborted && count <= maxSteps && answerNodes.every((n) => outputs.has(n));
 
   return { answer, resolved, steps, refs };
+}
+
+export interface BuildAndRunOptions extends BuildScratchpadGraphOptions {
+  /** The task the workflow exists to answer. */
+  objective: string;
+  /** Hard cap on node executions (cycle / runaway guard). */
+  maxSteps?: number;
+  signal?: AbortSignal;
+  onStep?: (step: WorkflowStep) => void;
+}
+
+/**
+ * Construct a graph from a definition and run it to an answer in one shot — the
+ * common case ("build and run"). Returns both the wired graph (for inspection)
+ * and the run result.
+ */
+export async function buildAndRunScratchpadGraph(
+  def: GraphDef | unknown,
+  opts: BuildAndRunOptions,
+): Promise<{ graph: ScratchpadGraph; result: WorkflowRunResult }> {
+  const graph = await buildScratchpadGraph(def, opts);
+  const result = await runScratchpadGraph(graph, {
+    objective: opts.objective,
+    maxSteps: opts.maxSteps,
+    signal: opts.signal,
+    onStep: opts.onStep,
+  });
+  return { graph, result };
 }

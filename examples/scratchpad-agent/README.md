@@ -27,11 +27,11 @@ provenance. Prints the resulting nodes, tool slices, and edges.
 pnpm scratchpad:graph
 ```
 
-## `workflow.ts` — create a workflow, then run it (no API key)
+## `workflow.ts` — build and run a workflow in one call (no API key)
 
-Drives the workflow tools end to end: `workflow_create` defines a three-subagent
-flow from a schema object, `workflow_run` executes it over the shared scratchpad
-until the objective resolves. The subagents are stubs whose turns are scripted
+Drives the single `workflow_run` tool: it builds a three-subagent flow from a
+schema object and runs it over the shared scratchpad until the objective
+resolves — all in one call. The subagents are stubs whose turns are scripted
 scratchpad ops, so it runs without a model — prints the topology, the per-step
 trace (references flowing `issues → open → by_priority`), and the resolved answer.
 

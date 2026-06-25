@@ -4,7 +4,13 @@ import type { IGloveRunnable } from "glove-core/glove";
 import type { Message } from "glove-core/core";
 import { Scratchpad } from "../src/core/scratchpad";
 import { MemoryBackend } from "../src/backends/memory";
-import { buildScratchpadGraph, runScratchpadGraph, workflowTools, type GraphDef } from "../src/graph";
+import {
+  buildScratchpadGraph,
+  runScratchpadGraph,
+  buildAndRunScratchpadGraph,
+  workflowTool,
+  type GraphDef,
+} from "../src/graph";
 
 type Script = (sp: Scratchpad, prompt: string) => Promise<string>;
 
@@ -112,43 +118,64 @@ test("runScratchpadGraph executes in dependency order, threads handoffs, resolve
   await sp.close();
 });
 
-test("workflow_create + workflow_run drive the graph as agent tools", async () => {
+test("workflow_run builds and runs the workflow in one call", async () => {
   const sp = await seeded();
   const { factory } = makeFactory(sp, PIPELINE_SCRIPTS);
-  const tools = workflowTools({ scratchpad: sp, createAgent: factory });
-  const create = tools.find((t) => t.name === "workflow_create")!;
-  const run = tools.find((t) => t.name === "workflow_run")!;
-  const inspect = tools.find((t) => t.name === "workflow_inspect")!;
-
-  const created = await create.do(PIPELINE as never, undefined as never, undefined as never);
-  assert.equal(created.status, "success");
-  const id = (created.data as { id: string }).id;
-  assert.equal(id, "triage");
-
-  const seen = await inspect.do({ id } as never, undefined as never, undefined as never);
-  assert.equal((seen.data as { entry: string }).entry, "planner");
+  const run = workflowTool({ scratchpad: sp, createAgent: factory });
+  assert.equal(run.name, "workflow_run");
 
   const ran = await run.do(
-    { id, objective: "open issues by priority" } as never,
+    { ...PIPELINE, objective: "open issues by priority" } as never,
     undefined as never,
     undefined as never,
   );
   assert.equal(ran.status, "success");
-  const data = ran.data as { answer: string; resolved: boolean; steps: unknown[]; refs: string[] };
+  const data = ran.data as {
+    answer: string;
+    resolved: boolean;
+    steps: { subagent: string }[];
+    refs: string[];
+    topology: { entry: string; subagents: { name: string; next: string[] }[] };
+  };
   assert.match(data.answer, /^ANSWER: /);
   assert.equal(data.resolved, true);
-  assert.equal(data.steps.length, 3);
+  assert.deepEqual(data.steps.map((s) => s.subagent), ["planner", "analyst", "writer"]);
   assert.ok(data.refs.includes("by_priority"));
+  // topology is returned (replaces the old inspect step)
+  assert.equal(data.topology.entry, "planner");
   await sp.close();
 });
 
-test("workflow_run errors clearly for an unknown id", async () => {
+test("buildAndRunScratchpadGraph composes build + run and returns both", async () => {
   const sp = await seeded();
   const { factory } = makeFactory(sp, PIPELINE_SCRIPTS);
-  const run = workflowTools({ scratchpad: sp, createAgent: factory }).find((t) => t.name === "workflow_run")!;
-  const res = await run.do({ id: "ghost", objective: "x" } as never, undefined as never, undefined as never);
+  const { graph, result } = await buildAndRunScratchpadGraph(PIPELINE, {
+    scratchpad: sp,
+    createAgent: factory,
+    objective: "open issues by priority",
+  });
+  assert.equal(graph.entry.spec.name, "planner");
+  assert.equal(result.resolved, true);
+  assert.match(result.answer, /^ANSWER: /);
+  await sp.close();
+});
+
+test("workflow_run reports an invalid definition as an error result", async () => {
+  const sp = await seeded();
+  const { factory } = makeFactory(sp, PIPELINE_SCRIPTS);
+  const run = workflowTool({ scratchpad: sp, createAgent: factory });
+  const res = await run.do(
+    {
+      entry: "planner",
+      subagents: [{ name: "planner", prompt: "p" }],
+      edges: [{ from: "planner", to: "ghost" }],
+      objective: "x",
+    } as never,
+    undefined as never,
+    undefined as never,
+  );
   assert.equal(res.status, "error");
-  assert.match(res.message ?? "", /No workflow with id "ghost"/);
+  assert.match(res.message ?? "", /edge\.to "ghost" is not a declared subagent/);
   await sp.close();
 });
 

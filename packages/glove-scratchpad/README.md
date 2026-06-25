@@ -79,7 +79,7 @@ Now the agent works the data through `scratchpad_describe` → `scratchpad_query
 | Last-mile discipline     | `mountScratchpad` priming + `scratchpad_materialize`    |
 | Computation as a value   | `Scratchpad.snapshot()` / `MemoryBackend.create({ load })` |
 | Subagent topology        | `buildScratchpadGraph(def, …)` (`glove-scratchpad/graph`) |
-| Workflow execution       | `runScratchpadGraph` · `workflow_create` / `workflow_run` tools |
+| Workflow execution       | `runScratchpadGraph` · the `workflow_run` (build + run) tool |
 
 ### Store-and-truncate (result containment)
 
@@ -256,18 +256,12 @@ const { answer, resolved, steps, refs } = await runScratchpadGraph(graph, {
 });
 ```
 
-### As tools the agent drives
+### As one tool the agent drives
 
 Most of the time you don't want to author the graph in code — you want the agent
-to. `mountWorkflow` folds three tools so the **model** designs and runs the
-workflow itself:
-
-- `workflow_create` — define a workflow from a schema object (subagents +
-  prompts + tool slices + edges); returns an `id`.
-- `workflow_run` — run a created workflow over the scratchpad until the
-  objective resolves; returns the answer + a per-step trace + the references left
-  behind.
-- `workflow_inspect` — read back a workflow's topology.
+to. `mountWorkflow` folds a **single** tool, `workflow_run`, that builds and runs
+a workflow in one call: the model hands it the definition + an objective, and it
+constructs the subagents and runs them to a resolved answer.
 
 ```ts
 import { mountWorkflow } from "glove-scratchpad/graph";
@@ -278,9 +272,13 @@ mountWorkflow(agent, {
   createAgent: (spec) =>                      // you own construction…
     new Glove({ model, displayManager, systemPrompt: spec.prompt, /* … */ }).build(),
 });
-// …the model now calls workflow_create({ entry, subagents, edges }) then
-// workflow_run({ id, objective }) on its own.
+// …the model now calls, in one shot:
+//   workflow_run({ entry, subagents, edges, objective })
+// → { answer, resolved, refs, topology, steps }
 ```
+
+(`workflowTool(opts)` returns it unmounted; `buildAndRunScratchpadGraph(def, { …, objective })`
+is the programmatic equivalent.)
 
 Routing is dependency-ordered (a DAG); each reachable node runs once after its
 predecessors, with a `maxSteps` guard for cycles. Conditional routing (acting on
@@ -328,9 +326,11 @@ await sp.snapshot();                                                // → Uint8
   → `ScratchpadGraph`.
 - `runScratchpadGraph(graph, { objective, maxSteps?, signal?, onStep? })`
   → `{ answer, resolved, steps, refs }`.
-- `mountWorkflow(glove, { scratchpad, createAgent, tools?, ... })` — folds
-  `workflow_create` / `workflow_run` / `workflow_inspect` so the model authors
-  and runs workflows itself. `workflowTools(...)` returns them unmounted.
+- `buildAndRunScratchpadGraph(def, { …, objective, maxSteps? })`
+  → `{ graph, result }` — build + run in one call.
+- `mountWorkflow(glove, { scratchpad, createAgent, tools?, ... })` — folds the
+  single `workflow_run` tool (build + run) so the model authors and runs
+  workflows itself. `workflowTool(...)` returns it unmounted.
 - `parseGraphDef(obj)` → validated `GraphDef`. `graphSchema` / `subagentSchema` /
   `edgeSchema` are the Zod schemas.
 

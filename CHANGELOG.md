@@ -34,12 +34,13 @@ durable store** — with no terminal or VM.
   into a wired topology via `buildScratchpadGraph`: per-node tool partitioning
   (interface disclosure), scratchpad mounting, provenance stamping
   (`actor = subagent name`), and `next`/`get` navigation.
-- **Workflow execution + agent-facing tools.** `runScratchpadGraph(graph, { objective })`
+- **Workflow execution + an agent-facing tool.** `runScratchpadGraph(graph, { objective })`
   walks the edges in dependency order, threading each subagent's output downstream
   while every node works the shared scratchpad, until the terminal subagent
   resolves the answer (DAG routing, `maxSteps` cycle guard). `mountWorkflow` folds
-  `workflow_create` / `workflow_run` / `workflow_inspect` so the **model** designs
-  a workflow from a schema object and runs it over the scratchpad on its own.
+  a single `workflow_run` tool that **builds and runs** a workflow in one call, so
+  the model designs a workflow from a schema object and runs it over the
+  scratchpad on its own. `buildAndRunScratchpadGraph` is the programmatic form.
 - **First-level normalization.** Ingested JSON becomes a typed root table; nested
   arrays become child tables (FK + `_idx`); deeper nesting stays in `jsonb`,
   reachable via `->` / `->>`.

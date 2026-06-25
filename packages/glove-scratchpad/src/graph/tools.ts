@@ -1,29 +1,26 @@
 /**
- * Workflow tools — the graph as something the agent itself drives (§5).
+ * The workflow tool — the graph as one thing the agent drives (§5).
  *
- * Instead of a developer hand-wiring a topology in code, these fold onto the
- * agent's tool set so the *model* can author a workflow and then run it:
+ * A single tool the model calls to **build and run** a multi-subagent workflow
+ * in one shot: hand it the workflow definition (subagents + prompts + tool
+ * slices + edges) and an objective, and it constructs the subagents and runs
+ * them over the shared scratchpad until the objective resolves — each narrowing
+ * in SQL and handing references downstream. No separate create/run step.
  *
- *   - `workflow_create`  — define a multi-subagent workflow from a schema object
- *     (subagents + prompts + tool slices + edges). Built and stashed under an id.
- *   - `workflow_run`     — run a workflow over the shared scratchpad until the
- *     objective resolves; returns the answer.
- *   - `workflow_inspect` — read back a built workflow's topology.
- *
- * The developer supplies the seam that can't come from the model — how to build a
- * subagent runnable (`createAgent`) and which tools exist (`tools`). The model
- * supplies the design: which subagents, what each is told, who hands off to whom.
+ * The developer supplies the seam that can't come from the model — how to build
+ * a subagent runnable (`createAgent`) and which tools exist (`tools`). The model
+ * supplies the design and the objective.
  */
 import { z } from "zod";
 import type { GloveFoldArgs, IGloveRunnable } from "glove-core/glove";
 import type { ToolResultData } from "glove-core/core";
 import type { Scratchpad } from "../core/scratchpad";
 import { graphSchema, type SubagentDef } from "./types";
-import { buildScratchpadGraph, type ScratchpadGraph } from "./build";
-import { runScratchpadGraph } from "./run";
+import type { ScratchpadGraph } from "./build";
+import { buildAndRunScratchpadGraph } from "./run";
 
-export interface WorkflowToolsOptions {
-  /** The shared store every workflow's subagents read/write through. */
+export interface WorkflowToolOptions {
+  /** The shared store the workflow's subagents read/write through. */
   scratchpad: Scratchpad;
   /**
    * Build a bare runnable for a subagent spec (model, store, display). The graph
@@ -34,7 +31,7 @@ export interface WorkflowToolsOptions {
   tools?: Record<string, GloveFoldArgs<unknown>>;
   /** Mount the scratchpad surface on subagents lacking an explicit flag. Default true. */
   mountScratchpad?: boolean;
-  /** Default execution cap for `workflow_run` when the model doesn't pass one. */
+  /** Default execution cap when the model doesn't pass `maxSteps`. */
   defaultMaxSteps?: number;
 }
 
@@ -50,67 +47,40 @@ function topologySummary(graph: ScratchpadGraph) {
       tools: n.spec.tools ?? [],
       next: graph.next(n.spec.name).map((s) => s.spec.name),
     })),
-    edges: graph.edges,
   };
 }
 
-/**
- * Build the workflow tools over a shared registry of constructed graphs. All
- * returned tools close over the same registry, so a `workflow_create` in one
- * turn is runnable by `workflow_run` in a later turn.
- */
-export function workflowTools(opts: WorkflowToolsOptions): GloveFoldArgs<unknown>[] {
-  const graphs = new Map<string, ScratchpadGraph>();
-  let counter = 0;
+/** The build-and-run workflow input: a graph definition plus an objective. */
+const workflowRunSchema = graphSchema.extend({
+  objective: z.string().describe("The task the workflow should resolve."),
+  maxSteps: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("Optional cap on subagent executions (cycle / runaway guard)."),
+});
 
-  const create: GloveFoldArgs<z.infer<typeof graphSchema>> = {
-    name: "workflow_create",
+/**
+ * The single workflow tool. Builds the subagents from the definition and runs
+ * them to a resolved answer in one call.
+ */
+export function workflowTool(opts: WorkflowToolOptions): GloveFoldArgs<z.infer<typeof workflowRunSchema>> {
+  return {
+    name: "workflow_run",
     description:
-      "Define a multi-subagent workflow over the scratchpad. Provide an entry subagent, the subagents (each with a name, a prompt, and an optional `tools` slice of tool names it may use), and directed `edges` (handoffs) between them. Subagents share the scratchpad and pass references downstream. Returns a workflow `id` to run later with workflow_run.",
-    inputSchema: graphSchema,
-    async do(input): Promise<ToolResultData> {
+      "Define and run a multi-subagent workflow over the scratchpad in ONE call. Provide the `entry` subagent, the `subagents` (each with a name, a prompt, and an optional `tools` slice of tool names it may use), the `edges` (directed handoffs), and an `objective`. This builds the subagents and runs them in dependency order over the shared store — each reasoning over descriptors, narrowing in SQL, and handing references downstream — and returns the resolved answer plus a per-step trace and the references left behind. Subagents pass references, never payloads.",
+    inputSchema: workflowRunSchema,
+    async do(input, _display, _glove, signal): Promise<ToolResultData> {
       try {
-        const graph = await buildScratchpadGraph(input, {
+        const { objective, maxSteps, ...def } = input;
+        const { graph, result } = await buildAndRunScratchpadGraph(def, {
           scratchpad: opts.scratchpad,
           createAgent: opts.createAgent,
           tools: opts.tools,
           mountScratchpad: opts.mountScratchpad,
-        });
-        const id =
-          input.name && !graphs.has(input.name) ? input.name : `wf_${++counter}`;
-        graphs.set(id, graph);
-        return { status: "success", data: { id, ...topologySummary(graph) } };
-      } catch (err) {
-        return errResult(err);
-      }
-    },
-  };
-
-  const run: GloveFoldArgs<{ id: string; objective: string; maxSteps?: number }> = {
-    name: "workflow_run",
-    description:
-      "Run a previously created workflow over the scratchpad until the objective resolves. Each subagent runs in dependency order, works the shared store, and hands references downstream; the final subagent returns the resolved answer. Returns the answer plus a per-step trace and the references left in the store.",
-    inputSchema: z.object({
-      id: z.string().describe("The workflow id returned by workflow_create."),
-      objective: z.string().describe("The task the workflow should resolve."),
-      maxSteps: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Optional cap on subagent executions (cycle / runaway guard)."),
-    }),
-    async do(input, _display, _glove, signal): Promise<ToolResultData> {
-      try {
-        const graph = graphs.get(input.id);
-        if (!graph) {
-          return errResult(
-            new Error(`No workflow with id "${input.id}". Create one with workflow_create first.`),
-          );
-        }
-        const result = await runScratchpadGraph(graph, {
-          objective: input.objective,
-          maxSteps: input.maxSteps ?? opts.defaultMaxSteps,
+          objective,
+          maxSteps: maxSteps ?? opts.defaultMaxSteps,
           signal,
         });
         return {
@@ -119,6 +89,7 @@ export function workflowTools(opts: WorkflowToolsOptions): GloveFoldArgs<unknown
             answer: result.answer,
             resolved: result.resolved,
             refs: result.refs,
+            topology: topologySummary(graph),
             steps: result.steps.map((s) => ({ subagent: s.subagent, output: s.output })),
           },
         };
@@ -127,23 +98,10 @@ export function workflowTools(opts: WorkflowToolsOptions): GloveFoldArgs<unknown
       }
     },
   };
-
-  const inspect: GloveFoldArgs<{ id: string }> = {
-    name: "workflow_inspect",
-    description: "Read back a created workflow's topology (entry, subagents, tool slices, edges) by id.",
-    inputSchema: z.object({ id: z.string().describe("The workflow id.") }),
-    async do(input): Promise<ToolResultData> {
-      const graph = graphs.get(input.id);
-      if (!graph) return errResult(new Error(`No workflow with id "${input.id}".`));
-      return { status: "success", data: { id: input.id, ...topologySummary(graph) } };
-    },
-  };
-
-  return [create, run, inspect] as GloveFoldArgs<unknown>[];
 }
 
-/** Fold the workflow tools onto a built Glove. Returns the same runnable. */
-export function mountWorkflow(glove: IGloveRunnable, opts: WorkflowToolsOptions): IGloveRunnable {
-  for (const tool of workflowTools(opts)) glove.fold(tool);
+/** Fold the workflow tool onto a built Glove. Returns the same runnable. */
+export function mountWorkflow(glove: IGloveRunnable, opts: WorkflowToolOptions): IGloveRunnable {
+  glove.fold(workflowTool(opts));
   return glove;
 }

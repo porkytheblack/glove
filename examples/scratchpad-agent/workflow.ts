@@ -1,10 +1,10 @@
 /**
  * Subagent workflow — create one, then run it to an answer (no model / no API key).
  *
- * Shows the graph as something the agent *drives via tools*: `workflow_create`
- * defines a multi-subagent workflow from a schema object, and `workflow_run`
- * executes it over the shared scratchpad until the objective resolves — each
- * subagent narrowing in SQL and handing a reference to the next.
+ * Shows the graph as something the agent *drives via one tool*: `workflow_run`
+ * takes a multi-subagent workflow definition + an objective, builds the subagents,
+ * and runs them over the shared scratchpad until the objective resolves — each
+ * narrowing in SQL and handing a reference to the next.
  *
  * Here the subagents are stub runnables whose "turn" is a scripted scratchpad
  * operation, so the whole thing runs without a model. In production, `createAgent`
@@ -14,7 +14,7 @@
  * Run: `pnpm scratchpad:workflow` (from the repo root).
  */
 import { Scratchpad, MemoryBackend, storeAndTruncate } from "glove-scratchpad";
-import { workflowTools, type GraphDef } from "glove-scratchpad/graph";
+import { workflowTool, type GraphDef } from "glove-scratchpad/graph";
 import type { GloveFoldArgs, IGloveRunnable } from "glove-core/glove";
 import type { Message } from "glove-core/core";
 
@@ -88,10 +88,8 @@ async function main() {
     },
   };
 
-  // The workflow tools the agent would call (here we call them directly).
-  const tools = workflowTools({ scratchpad: sp, createAgent: factoryOver(sp, scripts) });
-  const create = tools.find((t) => t.name === "workflow_create")!;
-  const run = tools.find((t) => t.name === "workflow_run")!;
+  // The single workflow tool the agent would call (here we call it directly).
+  const run = workflowTool({ scratchpad: sp, createAgent: factoryOver(sp, scripts) });
 
   const def: GraphDef = {
     name: "triage-flow",
@@ -108,18 +106,13 @@ async function main() {
   };
 
   rule();
-  console.log("SUBAGENT WORKFLOW — create one, then run it to an answer");
+  console.log("SUBAGENT WORKFLOW — build and run in one call (workflow_run)");
   rule();
 
-  const created = await create.do(def as never, undefined as never, undefined as never);
-  const id = (created.data as { id: string }).id;
-  console.log(`\nworkflow_create → id "${id}"`);
-  for (const s of (created.data as { subagents: { name: string; next: string[] }[] }).subagents) {
-    console.log(`  ● ${s.name}  → ${s.next.length ? s.next.join(", ") : "(terminal)"}`);
-  }
-
+  // One call: hand it the definition + objective; it builds the subagents and
+  // runs them to a resolved answer.
   const ran = await run.do(
-    { id, objective: "How many OPEN issues are there, broken down by priority?" } as never,
+    { ...def, objective: "How many OPEN issues are there, broken down by priority?" } as never,
     undefined as never,
     undefined as never,
   );
@@ -128,7 +121,13 @@ async function main() {
     resolved: boolean;
     refs: string[];
     steps: { subagent: string; output: string }[];
+    topology: { entry: string; subagents: { name: string; next: string[] }[] };
   };
+
+  console.log(`\ntopology (entry: ${data.topology.entry}):`);
+  for (const s of data.topology.subagents) {
+    console.log(`  ● ${s.name}  → ${s.next.length ? s.next.join(", ") : "(terminal)"}`);
+  }
 
   console.log(`\nworkflow_run → resolved: ${data.resolved}`);
   for (const step of data.steps) console.log(`  ${step.subagent}: ${step.output}`);
