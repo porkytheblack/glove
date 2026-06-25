@@ -196,7 +196,7 @@ type Expr =
   | { k: "param"; i: number }
   | { k: "star" }
   | { k: "col"; table?: string; name: string }
-  | { k: "func"; name: string; args: Expr[]; star?: boolean; filter?: Expr }
+  | { k: "func"; name: string; args: Expr[]; star?: boolean; filter?: Expr; over?: WindowSpec }
   | { k: "unary"; op: string; e: Expr }
   | { k: "not"; e: Expr }
   | { k: "binary"; op: string; l: Expr; r: Expr }
@@ -232,6 +232,12 @@ interface JoinClause {
 interface OrderKey {
   expr: Expr;
   dir: "asc" | "desc";
+}
+
+/** `OVER (PARTITION BY … ORDER BY …)` — the window a window-function evaluates within. */
+interface WindowSpec {
+  partitionBy: Expr[];
+  orderBy: OrderKey[];
 }
 
 type SetOp = "union" | "unionAll" | "intersect" | "except";
@@ -924,7 +930,34 @@ class Parser {
           filter = this.parseExpr();
           this.expectOp(")");
         }
-        return { k: "func", name, args, star, filter };
+        // window: OVER (PARTITION BY … ORDER BY …)
+        let over: WindowSpec | undefined;
+        if (this.isKw("over")) {
+          this.pos++;
+          this.expectOp("(");
+          const partitionBy: Expr[] = [];
+          if (this.acceptKw("partition")) {
+            this.expectKw("by");
+            do {
+              partitionBy.push(this.parseExpr());
+            } while (this.acceptOp(","));
+          }
+          const orderBy: OrderKey[] = [];
+          if (this.acceptKw("order")) {
+            this.expectKw("by");
+            do {
+              const expr = this.parseExpr();
+              let dir: "asc" | "desc" = "asc";
+              if (this.acceptKw("asc")) dir = "asc";
+              else if (this.acceptKw("desc")) dir = "desc";
+              if (this.acceptKw("nulls")) this.acceptKw("first") || this.acceptKw("last");
+              orderBy.push({ expr, dir });
+            } while (this.acceptOp(","));
+          }
+          this.expectOp(")");
+          over = { partitionBy, orderBy };
+        }
+        return { k: "func", name, args, star, filter, over };
       }
       // column reference, possibly qualified table.col
       this.pos++;
@@ -1025,6 +1058,8 @@ export class MemoryBackend implements ScratchpadBackend {
   private tables = new Map<string, CatTable>();
   /** Stack of enclosing rows, so a correlated subquery can resolve outer columns. */
   private subqueryOuter: JoinedRow[] = [];
+  /** Active window-function values during a windowed projection (expr → value per row). */
+  private currentWindow: { vals: Map<Expr, unknown[]>; index: number } | null = null;
   /** Monotonic logical clock backing `now()` so insert order is always stable. */
   private clock: number;
 
@@ -1236,7 +1271,18 @@ export class MemoryBackend implements ScratchpadBackend {
       ({ out, columns } = this.projectAggregate(stmt, joined, params));
     } else {
       columns = this.outputColumns(stmt, aliasCols);
-      out = joined.map((jr) => this.projectRow(stmt.items, jr, params, aliasCols));
+      const winFns = this.collectWindowFuncs(stmt.items);
+      if (winFns.length > 0) {
+        const winVals = this.computeWindows(winFns, joined, params);
+        const prev = this.currentWindow;
+        out = joined.map((jr, i) => {
+          this.currentWindow = { vals: winVals, index: i };
+          return this.projectRow(stmt.items, jr, params, aliasCols);
+        });
+        this.currentWindow = prev;
+      } else {
+        out = joined.map((jr) => this.projectRow(stmt.items, jr, params, aliasCols));
+      }
     }
 
     // ORDER BY (evaluate against the joined row, then fall back to output alias)
@@ -1559,6 +1605,132 @@ export class MemoryBackend implements ScratchpadBackend {
     return rows;
   }
 
+  // ── window functions ────────────────────────────────────────────────────────
+
+  private collectWindowFuncs(items: SelectItem[]): Array<Extract<Expr, { k: "func" }>> {
+    const found: Array<Extract<Expr, { k: "func" }>> = [];
+    const seen = new Set<Expr>();
+    const visit = (e: Expr) => {
+      if (e.k === "func" && e.over && !seen.has(e)) {
+        seen.add(e);
+        found.push(e);
+      }
+    };
+    for (const it of items) if (it.expr) walkExpr(it.expr, visit);
+    return found;
+  }
+
+  /** Precompute each window function's value for every joined row. */
+  private computeWindows(
+    fns: Array<Extract<Expr, { k: "func" }>>,
+    joined: JoinedRow[],
+    params: unknown[],
+  ): Map<Expr, unknown[]> {
+    const result = new Map<Expr, unknown[]>();
+    const n = joined.length;
+    for (const fn of fns) {
+      const spec = fn.over!;
+      const values = new Array<unknown>(n).fill(null);
+      const parts = new Map<string, number[]>();
+      const order: string[] = [];
+      for (let i = 0; i < n; i++) {
+        const key = stableKey(spec.partitionBy.map((e) => this.evalExpr(e, joined[i], params)));
+        if (!parts.has(key)) {
+          parts.set(key, []);
+          order.push(key);
+        }
+        parts.get(key)!.push(i);
+      }
+      for (const pk of order) {
+        let idxs = parts.get(pk)!;
+        if (spec.orderBy.length > 0) {
+          idxs = idxs.slice().sort((a, b) => {
+            for (const o of spec.orderBy) {
+              const c = compareValues(
+                this.evalExpr(o.expr, joined[a], params),
+                this.evalExpr(o.expr, joined[b], params),
+              );
+              if (c !== 0) return o.dir === "desc" ? -c : c;
+            }
+            return a - b; // stable
+          });
+        }
+        this.computeWindowOverPartition(fn, idxs, joined, params, values);
+      }
+      result.set(fn, values);
+    }
+    return result;
+  }
+
+  private computeWindowOverPartition(
+    fn: Extract<Expr, { k: "func" }>,
+    idxs: number[],
+    joined: JoinedRow[],
+    params: unknown[],
+    values: unknown[],
+  ): void {
+    const name = fn.name;
+    const ordered = fn.over!.orderBy.length > 0;
+    const orderKey = (i: number) => fn.over!.orderBy.map((o) => this.evalExpr(o.expr, joined[i], params));
+    const sameKey = (a: unknown[], b: unknown[]) => stableKey(a) === stableKey(b);
+
+    if (name === "row_number") {
+      idxs.forEach((rowIdx, p) => (values[rowIdx] = p + 1));
+      return;
+    }
+    if (name === "rank" || name === "dense_rank") {
+      let rank = 0;
+      let dense = 0;
+      let prev: unknown[] | null = null;
+      idxs.forEach((rowIdx, p) => {
+        const k = orderKey(rowIdx);
+        if (prev === null || !sameKey(prev, k)) {
+          dense += 1;
+          rank = p + 1;
+        }
+        prev = k;
+        values[rowIdx] = name === "rank" ? rank : dense;
+      });
+      return;
+    }
+    if (name === "lag" || name === "lead") {
+      const off = fn.args[1] ? Math.trunc(num(this.evalExpr(fn.args[1], joined[idxs[0]], params))) : 1;
+      idxs.forEach((rowIdx, p) => {
+        const tgt = name === "lag" ? p - off : p + off;
+        values[rowIdx] =
+          tgt >= 0 && tgt < idxs.length
+            ? this.evalExpr(fn.args[0], joined[idxs[tgt]], params)
+            : fn.args[2]
+              ? this.evalExpr(fn.args[2], joined[rowIdx], params)
+              : null;
+      });
+      return;
+    }
+    if (name === "first_value") {
+      const v = idxs.length ? this.evalExpr(fn.args[0], joined[idxs[0]], params) : null;
+      idxs.forEach((rowIdx) => (values[rowIdx] = v));
+      return;
+    }
+    if (AGG_FUNCS.has(name)) {
+      if (!ordered) {
+        const v = this.aggregate(name, fn, idxs.map((i) => joined[i]), params);
+        idxs.forEach((rowIdx) => (values[rowIdx] = v));
+      } else {
+        // Running aggregate: frame = unbounded preceding … current row (peers share a value).
+        for (let p = 0; p < idxs.length; ) {
+          let end = p;
+          const kp = orderKey(idxs[p]);
+          while (end + 1 < idxs.length && sameKey(orderKey(idxs[end + 1]), kp)) end++;
+          const v = this.aggregate(name, fn, idxs.slice(0, end + 1).map((i) => joined[i]), params);
+          for (let q = p; q <= end; q++) values[idxs[q]] = v;
+          p = end + 1;
+        }
+      }
+      return;
+    }
+    throw new Error(`MemoryBackend: unsupported window function '${name}()'`);
+  }
+
   // ── expression evaluation ───────────────────────────────────────────────────
 
   private evalExpr(expr: Expr, jr: JoinedRow, params: unknown[]): unknown {
@@ -1633,6 +1805,11 @@ export class MemoryBackend implements ScratchpadBackend {
       case "exists":
         return this.execSubquery(expr.select, jr, params).rows.length > 0;
       case "func":
+        // Window functions are precomputed per row; look up by AST identity.
+        if (expr.over && this.currentWindow) {
+          const vals = this.currentWindow.vals.get(expr);
+          if (vals) return vals[this.currentWindow.index];
+        }
         return this.evalScalarFunc(expr, jr, params);
       case "binary":
         return this.evalBinary(expr, jr, params);
@@ -2088,7 +2265,8 @@ function likeMatch(value: string, pattern: string, ci: boolean): boolean {
 function containsAggregate(expr: Expr): boolean {
   switch (expr.k) {
     case "func":
-      if (AGG_FUNCS.has(expr.name)) return true;
+      // A windowed func (`… OVER (…)`) is NOT a grouping aggregate.
+      if (AGG_FUNCS.has(expr.name) && !expr.over) return true;
       return expr.args.some(containsAggregate);
     case "cast":
     case "not":
@@ -2111,6 +2289,50 @@ function containsAggregate(expr: Expr): boolean {
       );
     default:
       return false;
+  }
+}
+
+/** Visit every sub-expression (used to collect window functions). Subqueries are a separate scope. */
+function walkExpr(expr: Expr, visit: (e: Expr) => void): void {
+  visit(expr);
+  switch (expr.k) {
+    case "func":
+      expr.args.forEach((a) => walkExpr(a, visit));
+      if (expr.filter) walkExpr(expr.filter, visit);
+      if (expr.over) {
+        expr.over.partitionBy.forEach((e) => walkExpr(e, visit));
+        expr.over.orderBy.forEach((o) => walkExpr(o.expr, visit));
+      }
+      break;
+    case "unary":
+    case "not":
+    case "cast":
+    case "is":
+      walkExpr(expr.e, visit);
+      break;
+    case "binary":
+    case "json":
+      walkExpr(expr.l, visit);
+      walkExpr(expr.r, visit);
+      break;
+    case "in":
+      walkExpr(expr.e, visit);
+      (expr.list ?? []).forEach((e) => walkExpr(e, visit));
+      break;
+    case "between":
+      walkExpr(expr.e, visit);
+      walkExpr(expr.lo, visit);
+      walkExpr(expr.hi, visit);
+      break;
+    case "case":
+      if (expr.operand) walkExpr(expr.operand, visit);
+      expr.whens.forEach((w) => {
+        walkExpr(w.when, visit);
+        walkExpr(w.then, visit);
+      });
+      if (expr.els) walkExpr(expr.els, visit);
+      break;
+    // subquery / exists: separate scope — not descended for window collection
   }
 }
 

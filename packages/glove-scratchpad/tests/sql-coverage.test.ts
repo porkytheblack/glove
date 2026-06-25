@@ -226,3 +226,59 @@ test("ORDER BY ordinal and GROUP BY ordinal", async () => {
     { active: true, n: 2 },
   ]);
 });
+
+// ─── window functions (Batch 4) ──────────────────────────────────────────────
+test("ROW_NUMBER() OVER (PARTITION BY … ORDER BY …)", async () => {
+  const b = await be();
+  const r = await b.query(
+    `SELECT name, ROW_NUMBER() OVER (PARTITION BY active ORDER BY score DESC)::int AS rn FROM "t" ORDER BY name`,
+  );
+  assert.deepEqual(r.rows, [
+    { name: "Ada", rn: 2 }, // active=true: Grace(3.5)=1, Ada(1.5)=2
+    { name: "Grace", rn: 1 },
+    { name: "Linus", rn: 1 }, // active=false: only Linus
+  ]);
+});
+
+test("RANK and DENSE_RANK handle ties (gaps vs dense)", async () => {
+  const b = await MemoryBackend.create();
+  await b.exec(`CREATE TABLE "s" ("who" text, "pts" bigint);`);
+  await b.query(`INSERT INTO "s" ("who","pts") VALUES ($1,$2),($3,$4),($5,$6),($7,$8)`, ["a", 10, "b", 10, "c", 8, "d", 7]);
+  const r = await b.query(
+    `SELECT who, RANK() OVER (ORDER BY pts DESC)::int AS rk, DENSE_RANK() OVER (ORDER BY pts DESC)::int AS dr FROM "s" ORDER BY pts DESC, who`,
+  );
+  assert.deepEqual(r.rows, [
+    { who: "a", rk: 1, dr: 1 },
+    { who: "b", rk: 1, dr: 1 },
+    { who: "c", rk: 3, dr: 2 }, // RANK gaps after the tie; DENSE_RANK doesn't
+    { who: "d", rk: 4, dr: 3 },
+  ]);
+});
+
+test("aggregate OVER: whole-partition and running", async () => {
+  const b = await be();
+  const whole = await b.query(`SELECT name, SUM(score) OVER (PARTITION BY active) AS s FROM "t" ORDER BY name`);
+  assert.deepEqual(whole.rows, [
+    { name: "Ada", s: 5 }, // 1.5 + 3.5
+    { name: "Grace", s: 5 },
+    { name: "Linus", s: 2.5 },
+  ]);
+  const running = await b.query(`SELECT id, SUM(id) OVER (ORDER BY id)::int AS run FROM "t" ORDER BY id`);
+  assert.deepEqual(col(running.rows, "run"), [10, 30, 60]);
+});
+
+test("LAG over a window", async () => {
+  const b = await be();
+  const r = await b.query(`SELECT id, LAG(id) OVER (ORDER BY id) AS prev FROM "t" ORDER BY id`);
+  assert.deepEqual(col(r.rows, "prev"), [null, 10, 20]);
+});
+
+test("top-1-per-group via ROW_NUMBER in a subquery (the headline pattern)", async () => {
+  const b = await be();
+  const r = await b.query(
+    `SELECT name FROM (
+       SELECT name, active, ROW_NUMBER() OVER (PARTITION BY active ORDER BY score DESC) AS rn FROM "t"
+     ) q WHERE rn = 1 ORDER BY name`,
+  );
+  assert.deepEqual(col(r.rows, "name"), ["Grace", "Linus"]);
+});
