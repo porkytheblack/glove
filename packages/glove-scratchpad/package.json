@@ -58,6 +58,7 @@
   },
   "dependencies": {
     "glove-core": "workspace:*",
+    "glove-sql": "workspace:*",
     "zod": "^4.3.6"
   },
   "peerDependencies": {

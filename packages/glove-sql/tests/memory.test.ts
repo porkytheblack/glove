@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MemoryBackend } from "../src/backends/memory";
+import { MemoryBackend } from "../src/index";
 
 // Unit tests for the pure-JS Postgres-subset emulator: the SQL surface the
 // Scratchpad and its agents actually use, exercised directly against the backend.

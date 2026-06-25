@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MemoryBackend } from "../src/backends/memory";
+import { MemoryBackend } from "../src/index";
 
 // A small known table for SQL-coverage tests.
 async function be(): Promise<MemoryBackend> {
