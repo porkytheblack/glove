@@ -8,6 +8,7 @@ export default defineConfig({
     "src/graph/index.ts",
     "src/backends/memory.ts",
     "src/backends/pglite.ts",
+    "src/mcp/index.ts",
   ],
   format: ["esm"],
   dts: true,
@@ -15,5 +16,5 @@ export default defineConfig({
   clean: true,
   splitting: true,
   outDir: "dist",
-  external: ["glove-core", "zod", "@electric-sql/pglite"],
+  external: ["glove-core", "zod", "@electric-sql/pglite", "glove-mcp"],
 });

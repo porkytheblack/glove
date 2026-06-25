@@ -20,5 +20,16 @@ export {
 export {
   storeAndTruncate,
   stubData,
+  createContainmentReporter,
   type StoreAndTruncateOptions,
+  type ContainmentInfo,
+  type ContainmentListener,
+  type ContainmentReporter,
+  type ContainmentReport,
 } from "./store-and-truncate";
+
+export {
+  containTools,
+  mountContainedTools,
+  type ContainToolsOptions,
+} from "./contain";

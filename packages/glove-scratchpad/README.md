@@ -75,6 +75,8 @@ Now the agent works the data through `scratchpad_describe` → `scratchpad_query
 | Manipulation surface     | Postgres-dialect SQL via `ScratchpadBackend`            |
 | Default backend          | `MemoryBackend` — pure-JS, zero-dep, runtime-built      |
 | Result containment       | `storeAndTruncate(tool, { scratchpad })`                |
+| Contain a whole MCP server | `mountContainedMcp(glove, conn, …)` (`glove-scratchpad/mcp`) |
+| Containment telemetry    | `createContainmentReporter()` → bytes saved             |
 | Descriptor economy       | `Descriptor` = `{ value, schema, preview, provenance }` |
 | Last-mile discipline     | `mountScratchpad` priming + `scratchpad_materialize`    |
 | Computation as a value   | `Scratchpad.snapshot()` / `MemoryBackend.create({ load })` |
@@ -95,6 +97,43 @@ glove.fold(storeAndTruncate(bridgeMcpTool(conn, tool, serverMode), { scratchpad:
 
 Storing is a **side effect of a tool returning**, never an agent action — the
 adapter owns ingestion, key allocation, normalization, and lifecycle.
+
+### Containing a whole MCP server (`glove-scratchpad/mcp`)
+
+The line above is the per-tool primitive. In practice you want every tool a
+bridged server exposes contained at once — so the `glove-scratchpad/mcp` subpath
+does the `listTools → bridge → contain → fold` loop for you:
+
+```ts
+import { connectMcp } from "glove-mcp";
+import { mountContainedMcp, createContainmentReporter } from "glove-scratchpad/mcp";
+
+const conn = await connectMcp({ namespace: "crm", url });
+const reporter = createContainmentReporter();
+
+await mountContainedMcp(agent, conn, {
+  scratchpad: sp,
+  onContain: reporter.onContain,            // optional telemetry
+  shouldContain: (t) => t.name !== "ping",  // optional: opt small/control tools out
+});
+// …the agent now sees crm__* tools whose big results land in the scratchpad.
+console.log(reporter.format());  // "3 call(s) · 188 KB contained → 4 KB emitted (47.0× less)"
+```
+
+`glove-mcp` is an **optional peer dependency** — installing `glove-scratchpad`
+doesn't pull it in; the subpath resolves only when you've added `glove-mcp`
+yourself (exactly like `glove-scratchpad/pglite` and `@electric-sql/pglite`).
+`containMcpTools(conn, opts)` returns the tools unfolded if you'd rather place
+them on a subagent or a graph node. For a non-MCP catalogue, the MCP-agnostic
+`containTools` / `mountContainedTools` (from the barrel) do the same batch wrap.
+
+### Is it earning its keep? (`createContainmentReporter`)
+
+Every containment is observable. Pass an `onContain` listener to
+`storeAndTruncate` / `mountContained*` and you get `{ tool, ref, rowCount,
+bytesContained, bytesEmitted }` per call — `bytesContained` never reaches the
+model, `bytesEmitted` (the stub) is all that does. `createContainmentReporter()`
+is a ready-made aggregator with `.report()`, `.format()`, and `.reset()`.
 
 ### First-level normalization
 
@@ -318,7 +357,22 @@ await sp.snapshot();                                                // → Uint8
   the four surface tools and prepends `SCRATCHPAD_PREAMBLE` (unless `prime:false`).
 - Surface tools folded: `scratchpad_describe`, `scratchpad_query`,
   `scratchpad_materialize`, `scratchpad_list`.
-- `storeAndTruncate(tool, { scratchpad, actor?, name?, minBytes?, keepRenderData? })`.
+- `storeAndTruncate(tool, { scratchpad, actor?, name?, minBytes?, keepRenderData?, onContain? })`.
+- `containTools(tools, opts)` / `mountContainedTools(glove, tools, opts)` — batch
+  wrap (and fold) a tool catalogue; `opts.shouldContain?(tool)` opts tools out.
+- `createContainmentReporter()` → `{ onContain, report(), format(), reset() }` —
+  aggregate the byte savings across contained calls.
+
+### MCP integration (`glove-scratchpad/mcp`)
+
+Requires the optional `glove-mcp` peer.
+
+- `mountContainedMcp(glove, connection, opts)` — bridge + contain + fold every
+  tool a connection exposes. Returns the folded tool names.
+- `containMcpTools(connection, opts)` — same, returned unfolded.
+- `opts`: `{ scratchpad, actor?, minBytes?, keepRenderData?, onContain?,`
+  `serverMode? (default true), shouldContain?(mcpToolDef) }`.
+- Re-exports `createContainmentReporter` so an MCP-only consumer needs one import.
 
 ### Graph (`glove-scratchpad/graph`)
 

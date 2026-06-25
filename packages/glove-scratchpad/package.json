@@ -38,6 +38,10 @@
     "./pglite": {
       "types": "./dist/backends/pglite.d.ts",
       "import": "./dist/backends/pglite.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/index.d.ts",
+      "import": "./dist/mcp/index.js"
     }
   },
   "files": [
@@ -53,16 +57,21 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "@electric-sql/pglite": "^0.5.0"
+    "@electric-sql/pglite": "^0.5.0",
+    "glove-mcp": "workspace:*"
   },
   "peerDependenciesMeta": {
     "@electric-sql/pglite": {
+      "optional": true
+    },
+    "glove-mcp": {
       "optional": true
     }
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.3",
     "@types/node": "^25.2.3",
+    "glove-mcp": "workspace:*",
     "tsx": "^4.19.0",
     "typescript": "^5.9.3"
   }

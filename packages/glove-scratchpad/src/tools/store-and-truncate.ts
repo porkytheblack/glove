@@ -13,11 +13,35 @@
  * ```ts
  * glove.fold(storeAndTruncate(bridgeMcpTool(conn, tool, serverMode), { scratchpad }));
  * ```
+ *
+ * To bridge + contain an entire MCP server in one call, see
+ * `mountContainedMcp` on the `glove-scratchpad/mcp` subpath. To wrap a batch of
+ * already-built tools, see `containTools` / `mountContainedTools`.
  */
 import type { GloveFoldArgs } from "glove-core/glove";
 import type { ToolResultData } from "glove-core/core";
 import type { Scratchpad } from "../core/scratchpad";
 import type { Stub } from "../core/types";
+
+/**
+ * Reported once per successful containment. The savings are the headline number
+ * for this whole architecture: `bytesContained` never reaches the model;
+ * `bytesEmitted` (the stub) is all that crosses into context.
+ */
+export interface ContainmentInfo {
+  /** Name of the wrapped tool whose result was contained. */
+  tool: string;
+  /** Reference the payload was stored under. */
+  ref: string;
+  /** Rows in the stored root table. */
+  rowCount: number;
+  /** Bytes of the full payload — kept OUT of the model's context. */
+  bytesContained: number;
+  /** Bytes of the stub that crossed INTO the model's context. */
+  bytesEmitted: number;
+}
+
+export type ContainmentListener = (info: ContainmentInfo) => void;
 
 export interface StoreAndTruncateOptions {
   scratchpad: Scratchpad;
@@ -36,6 +60,12 @@ export interface StoreAndTruncateOptions {
    * model) so UIs can still show full results. Default true.
    */
   keepRenderData?: boolean;
+  /**
+   * Notified after each successful containment with the byte savings. Use it
+   * for telemetry / "is the scratchpad earning its keep?" dashboards. See
+   * {@link createContainmentReporter} for a ready-made aggregator.
+   */
+  onContain?: ContainmentListener;
 }
 
 function byteLength(s: string): number {
@@ -117,13 +147,107 @@ export function storeAndTruncate<I>(
         provenance: { source: `tool:${tool.name}`, actor: opts.actor },
       });
 
+      const model = stubData(stub);
+
+      if (opts.onContain) {
+        opts.onContain({
+          tool: tool.name,
+          ref: stub.ref,
+          rowCount: stub.descriptor.rowCount,
+          bytesContained: byteLength(rawString),
+          bytesEmitted: byteLength(JSON.stringify(model)),
+        });
+      }
+
       return {
         status: "success",
-        data: stubData(stub),
+        data: model,
         renderData:
           result.renderData ??
           (opts.keepRenderData === false ? undefined : result.data),
       };
+    },
+  };
+}
+
+// ─── Containment telemetry ───────────────────────────────────────────────────
+
+export interface ContainmentReport {
+  /** Number of successful containments observed. */
+  calls: number;
+  /** Total payload bytes kept out of context. */
+  bytesContained: number;
+  /** Total stub bytes that entered context. */
+  bytesEmitted: number;
+  /** `bytesContained / bytesEmitted` (Infinity when nothing was emitted yet). */
+  reductionFactor: number;
+  /** Per-tool breakdown. */
+  byTool: Record<string, { calls: number; bytesContained: number; bytesEmitted: number }>;
+}
+
+export interface ContainmentReporter {
+  /** Pass as `onContain` to `storeAndTruncate` / `mountContained*`. */
+  readonly onContain: ContainmentListener;
+  /** Snapshot the running totals. */
+  report(): ContainmentReport;
+  /** One-line human summary, e.g. `3 calls · 188 KB contained → 4 KB emitted (47.0× less)`. */
+  format(): string;
+  /** Reset all counters. */
+  reset(): void;
+}
+
+function humanBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * A ready-made {@link ContainmentListener} that aggregates byte savings across
+ * many contained calls. Productionises the "prove the scratchpad is saving
+ * context" accounting you'd otherwise hand-roll off the subscriber stream.
+ *
+ * ```ts
+ * const reporter = createContainmentReporter();
+ * await mountContainedMcp(agent, conn, { scratchpad: sp, onContain: reporter.onContain });
+ * // …after the run:
+ * console.log(reporter.format());
+ * ```
+ */
+export function createContainmentReporter(): ContainmentReporter {
+  let calls = 0;
+  let bytesContained = 0;
+  let bytesEmitted = 0;
+  const byTool: ContainmentReport["byTool"] = {};
+
+  const onContain: ContainmentListener = (info) => {
+    calls++;
+    bytesContained += info.bytesContained;
+    bytesEmitted += info.bytesEmitted;
+    const t = (byTool[info.tool] ??= { calls: 0, bytesContained: 0, bytesEmitted: 0 });
+    t.calls++;
+    t.bytesContained += info.bytesContained;
+    t.bytesEmitted += info.bytesEmitted;
+  };
+
+  return {
+    onContain,
+    report: () => ({
+      calls,
+      bytesContained,
+      bytesEmitted,
+      reductionFactor: bytesEmitted > 0 ? bytesContained / bytesEmitted : Infinity,
+      byTool: structuredClone(byTool),
+    }),
+    format: () => {
+      const factor = bytesEmitted > 0 ? `${(bytesContained / bytesEmitted).toFixed(1)}× less` : "n/a";
+      return `${calls} call(s) · ${humanBytes(bytesContained)} contained → ${humanBytes(bytesEmitted)} emitted (${factor})`;
+    },
+    reset: () => {
+      calls = 0;
+      bytesContained = 0;
+      bytesEmitted = 0;
+      for (const k of Object.keys(byTool)) delete byTool[k];
     },
   };
 }
