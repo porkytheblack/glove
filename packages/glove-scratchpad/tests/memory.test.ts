@@ -212,5 +212,6 @@ test("dump → restore round-trips the whole catalog", async () => {
 
 test("unsupported SQL throws a clear error rather than mis-answering", async () => {
   const b = await be();
-  await assert.rejects(() => b.query(`SELECT id FROM "t" RIGHT JOIN "t" t2 ON true`), /join/i);
+  // Outside the emulated subset → a clear error, never a wrong answer.
+  await assert.rejects(() => b.query(`SELECT string_agg(name, ',') FROM "t"`), /unsupported function/i);
 });

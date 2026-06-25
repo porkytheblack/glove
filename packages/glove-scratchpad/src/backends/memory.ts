@@ -224,7 +224,7 @@ type FromItem =
   | { kind: "infoschema"; alias: string };
 
 interface JoinClause {
-  type: "inner" | "left" | "cross";
+  type: "inner" | "left" | "right" | "full" | "cross";
   item: FromItem;
   on?: Expr;
 }
@@ -671,15 +671,21 @@ class Parser {
   }
 
   private tryParseJoin(): JoinClause | null {
-    let type: "inner" | "left" = "inner";
+    let type: JoinClause["type"] = "inner";
     const start = this.pos;
     if (this.acceptKw("inner")) {
       type = "inner";
     } else if (this.acceptKw("left")) {
       this.acceptKw("outer");
       type = "left";
-    } else if (this.isKw("right") || this.isKw("full")) {
-      throw this.err("only INNER and LEFT joins are supported");
+    } else if (this.acceptKw("right")) {
+      this.acceptKw("outer");
+      type = "right";
+    } else if (this.acceptKw("full")) {
+      this.acceptKw("outer");
+      type = "full";
+    } else if (this.acceptKw("cross")) {
+      type = "cross";
     }
     if (!this.acceptKw("join")) {
       this.pos = start;
@@ -1235,9 +1241,15 @@ export class MemoryBackend implements ScratchpadBackend {
 
     // ORDER BY (evaluate against the joined row, then fall back to output alias)
     if (stmt.orderBy.length > 0) {
+      // ORDER BY <ordinal> → the output column at that position.
+      const keys = stmt.orderBy.map((k) =>
+        k.expr.k === "num" && Number.isInteger(k.expr.v) && k.expr.v >= 1 && k.expr.v <= columns.length
+          ? { ...k, expr: { k: "col", name: columns[k.expr.v - 1] } as Expr }
+          : k,
+      );
       const decorated = out.map((row, idx) => ({ row, jr: joined[idx], idx }));
       decorated.sort((a, b) => {
-        for (const key of stmt.orderBy) {
+        for (const key of keys) {
           const av = this.orderValue(key.expr, a, params);
           const bv = this.orderValue(key.expr, b, params);
           const cmp = compareValues(av, bv);
@@ -1411,15 +1423,22 @@ export class MemoryBackend implements ScratchpadBackend {
   ): { out: Record<string, unknown>[]; columns: string[] } {
     const columns = stmt.items.map((it) => it.alias ?? (it.expr ? inferColName(it.expr) : "?column?"));
 
+    // GROUP BY <ordinal> → the matching SELECT item's expression.
+    const groupExprs = stmt.groupBy.map((g) =>
+      g.k === "num" && Number.isInteger(g.v) && g.v >= 1 && g.v <= stmt.items.length
+        ? stmt.items[g.v - 1].expr ?? g
+        : g,
+    );
+
     // group rows
     let groups: JoinedRow[][];
-    if (stmt.groupBy.length === 0) {
+    if (groupExprs.length === 0) {
       groups = [joined]; // single group (even when empty → one aggregate row)
     } else {
       const map = new Map<string, JoinedRow[]>();
       const order: string[] = [];
       for (const jr of joined) {
-        const key = stableKey(stmt.groupBy.map((g) => this.evalExpr(g, jr, params)));
+        const key = stableKey(groupExprs.map((g) => this.evalExpr(g, jr, params)));
         if (!map.has(key)) {
           map.set(key, []);
           order.push(key);
@@ -1474,25 +1493,53 @@ export class MemoryBackend implements ScratchpadBackend {
     params: unknown[],
   ): JoinedRow[] {
     const result: JoinedRow[] = [];
-    const nullRow: Record<string, unknown> = {};
-    for (const c of right.columns) nullRow[c] = null;
+    const rightNull: Record<string, unknown> = {};
+    for (const c of right.columns) rightNull[c] = null;
+    const keepLeftUnmatched = join.type === "left" || join.type === "full";
+    const keepRightUnmatched = join.type === "right" || join.type === "full";
+    const rightMatched = new Array<boolean>(right.rows.length).fill(false);
+
     for (const ljr of left) {
       let matched = false;
-      for (const rrow of right.rows) {
+      right.rows.forEach((rrow, ri) => {
         const merged: JoinedRow = new Map(ljr);
         merged.set(right.alias, rrow);
         if (join.type === "cross" || !join.on || truthy(this.evalExpr(join.on, merged, params))) {
           result.push(merged);
           matched = true;
+          rightMatched[ri] = true;
         }
-      }
-      if (!matched && join.type === "left") {
+      });
+      if (!matched && keepLeftUnmatched) {
         const merged: JoinedRow = new Map(ljr);
-        merged.set(right.alias, nullRow);
+        merged.set(right.alias, rightNull);
         result.push(merged);
       }
     }
+
+    if (keepRightUnmatched) {
+      const leftNull = this.nullLeftTemplate(left);
+      right.rows.forEach((rrow, ri) => {
+        if (rightMatched[ri]) return;
+        const merged: JoinedRow = new Map(leftNull);
+        merged.set(right.alias, rrow);
+        result.push(merged);
+      });
+    }
     return result;
+  }
+
+  /** A JoinedRow with every existing left alias/column set to null (for RIGHT/FULL unmatched rows). */
+  private nullLeftTemplate(left: JoinedRow[]): JoinedRow {
+    const tmpl: JoinedRow = new Map();
+    if (left.length > 0) {
+      for (const [alias, rec] of left[0]) {
+        const nullRec: Record<string, unknown> = {};
+        for (const c of Object.keys(rec)) nullRec[c] = null;
+        tmpl.set(alias, nullRec);
+      }
+    }
+    return tmpl;
   }
 
   private infoSchemaRows(): Record<string, unknown>[] {

@@ -186,3 +186,43 @@ test("set ops align by position; ORDER BY ordinal", async () => {
   const r = await b.query(`SELECT name AS who FROM "t" WHERE id = 10 UNION SELECT name FROM "t" WHERE id = 30 ORDER BY 1`);
   assert.deepEqual(col(r.rows, "who"), ["Ada", "Grace"]);
 });
+
+// ─── joins + ordinals (Batch 3) ──────────────────────────────────────────────
+test("RIGHT JOIN preserves the right table", async () => {
+  const b = await be2();
+  const r = await b.query(
+    `SELECT t.name, COUNT(o.oid)::int AS n FROM "o" RIGHT JOIN "t" ON o.tid = t.id GROUP BY t.name ORDER BY t.name`,
+  );
+  assert.deepEqual(r.rows, [
+    { name: "Ada", n: 2 },
+    { name: "Grace", n: 1 },
+    { name: "Linus", n: 0 }, // preserved despite no orders
+  ]);
+});
+
+test("FULL JOIN keeps unmatched rows from both sides", async () => {
+  const b = await MemoryBackend.create();
+  await b.exec(`CREATE TABLE "a" ("id" bigint); CREATE TABLE "b" ("id" bigint);`);
+  await b.query(`INSERT INTO "a" ("id") VALUES (1),(2)`);
+  await b.query(`INSERT INTO "b" ("id") VALUES (2),(3)`);
+  const r = await b.query(`SELECT a.id AS aid, b.id AS bid FROM "a" FULL JOIN "b" ON a.id = b.id`);
+  const got = r.rows.map((x) => `${x.aid ?? "_"}-${x.bid ?? "_"}`).sort();
+  assert.deepEqual(got, ["1-_", "2-2", "_-3"]); // match 2/2, unmatched left 1, unmatched right 3
+});
+
+test("CROSS JOIN is the cartesian product", async () => {
+  const b = await be2();
+  const r = await b.query(`SELECT COUNT(*)::int AS n FROM "t" CROSS JOIN "o"`);
+  assert.equal(r.rows[0].n, 9); // 3 × 3
+});
+
+test("ORDER BY ordinal and GROUP BY ordinal", async () => {
+  const b = await be();
+  const o = await b.query(`SELECT name, id FROM "t" ORDER BY 2 DESC`);
+  assert.deepEqual(col(o.rows, "name"), ["Grace", "Linus", "Ada"]);
+  const g = await b.query(`SELECT active, COUNT(*)::int AS n FROM "t" GROUP BY 1 ORDER BY 1`);
+  assert.deepEqual(g.rows, [
+    { active: false, n: 1 },
+    { active: true, n: 2 },
+  ]);
+});
