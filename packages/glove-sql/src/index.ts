@@ -1298,6 +1298,12 @@ export class MemoryBackend implements SqlBackend {
     let outGroups: JoinedRow[][] = [];
 
     if (hasAgg) {
+      if (this.collectWindowFuncs(stmt.items).length > 0) {
+        throw new Error(
+          "MemoryBackend: window functions over a GROUP BY result are not supported — " +
+            "wrap the aggregate in a subquery and apply the window outside it",
+        );
+      }
       ({ out, columns, outGroups } = this.projectAggregate(stmt, joined, params));
     } else {
       columns = this.outputColumns(stmt, aliasCols);

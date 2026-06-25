@@ -110,3 +110,13 @@ test("scalar subquery returning more than one row errors", async () => {
   await b.query(`INSERT INTO "t" VALUES (1),(2)`);
   await assert.rejects(() => b.query(`SELECT (SELECT id FROM "t") AS x`), /more than one row/);
 });
+
+test("window function over a GROUP BY result errors clearly (instead of crashing)", async () => {
+  const b = await MemoryBackend.create();
+  await b.exec(`CREATE TABLE "t" ("g" text, "x" bigint)`);
+  await b.query(`INSERT INTO "t" VALUES ('a',1),('a',2),('b',3)`);
+  await assert.rejects(
+    () => b.query(`SELECT g, sum(x) AS s, rank() OVER (ORDER BY sum(x)) FROM "t" GROUP BY g`),
+    /window functions over a GROUP BY/,
+  );
+});
