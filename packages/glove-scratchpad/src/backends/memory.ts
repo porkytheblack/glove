@@ -196,12 +196,14 @@ type Expr =
   | { k: "param"; i: number }
   | { k: "star" }
   | { k: "col"; table?: string; name: string }
-  | { k: "func"; name: string; args: Expr[]; star?: boolean }
+  | { k: "func"; name: string; args: Expr[]; star?: boolean; filter?: Expr }
   | { k: "unary"; op: string; e: Expr }
   | { k: "not"; e: Expr }
   | { k: "binary"; op: string; l: Expr; r: Expr }
   | { k: "is"; e: Expr; negated: boolean }
   | { k: "in"; e: Expr; list: Expr[]; negated: boolean }
+  | { k: "between"; e: Expr; lo: Expr; hi: Expr; negated: boolean }
+  | { k: "case"; operand?: Expr; whens: Array<{ when: Expr; then: Expr }>; els?: Expr }
   | { k: "cast"; e: Expr; type: string }
   | { k: "json"; op: "->" | "->>"; l: Expr; r: Expr };
 
@@ -722,6 +724,15 @@ class Parser {
         l = { k: "in", e: l, list, negated };
         continue;
       }
+      if (this.isKw("between") || (this.isKw("not") && this.isKw("between", 1))) {
+        const negated = this.acceptKw("not");
+        this.expectKw("between");
+        const lo = this.parseAdditive();
+        this.expectKw("and");
+        const hi = this.parseAdditive();
+        l = { k: "between", e: l, lo, hi, negated };
+        continue;
+      }
       break;
     }
     return l;
@@ -824,6 +835,20 @@ class Parser {
         this.pos++;
         return { k: "null" };
       }
+      // CASE … WHEN … END
+      if (!t.quoted && lower === "case") {
+        return this.parseCase();
+      }
+      // CAST(expr AS type) — alternate cast syntax (the `::type` form is in parsePostfix).
+      if (!t.quoted && lower === "cast" && this.isOp("(", 1)) {
+        this.pos++; // cast
+        this.expectOp("(");
+        const e = this.parseExpr();
+        this.expectKw("as");
+        const type = this.parseTypeName();
+        this.expectOp(")");
+        return { k: "cast", e, type };
+      }
       // function call?
       if (this.isOp("(", 1)) {
         const name = this.next().value.toLowerCase();
@@ -840,7 +865,16 @@ class Parser {
           } while (this.acceptOp(","));
         }
         this.expectOp(")");
-        return { k: "func", name, args, star };
+        // aggregate FILTER (WHERE …)
+        let filter: Expr | undefined;
+        if (this.isKw("filter")) {
+          this.pos++;
+          this.expectOp("(");
+          this.expectKw("where");
+          filter = this.parseExpr();
+          this.expectOp(")");
+        }
+        return { k: "func", name, args, star, filter };
       }
       // column reference, possibly qualified table.col
       this.pos++;
@@ -852,6 +886,38 @@ class Parser {
       return { k: "col", name: t.value };
     }
     throw this.err("unexpected token in expression");
+  }
+
+  private parseCase(): Expr {
+    this.expectKw("case");
+    // Simple form `CASE <operand> WHEN <value> …` vs searched `CASE WHEN <cond> …`.
+    let operand: Expr | undefined;
+    if (!this.isKw("when")) operand = this.parseExpr();
+    const whens: Array<{ when: Expr; then: Expr }> = [];
+    while (this.acceptKw("when")) {
+      const when = this.parseExpr();
+      this.expectKw("then");
+      const then = this.parseExpr();
+      whens.push({ when, then });
+    }
+    let els: Expr | undefined;
+    if (this.acceptKw("else")) els = this.parseExpr();
+    this.expectKw("end");
+    return { k: "case", operand, whens, els };
+  }
+
+  /** Parse a type name after AS / `::` — handles `double precision` and `numeric(p,s)`. */
+  private parseTypeName(): string {
+    const words: string[] = [this.ident()];
+    if (
+      words[0].toLowerCase() === "double" &&
+      this.peek().type === "ident" &&
+      this.peek().value.toLowerCase() === "precision"
+    ) {
+      words.push(this.next().value);
+    }
+    if (this.isOp("(")) this.skipParens(); // e.g. numeric(10,2)
+    return words.join(" ").toLowerCase();
   }
 }
 
@@ -1365,11 +1431,35 @@ export class MemoryBackend implements ScratchpadBackend {
         }
         return expr.negated;
       }
+      case "between": {
+        const v = this.evalExpr(expr.e, jr, params);
+        const lo = this.evalExpr(expr.lo, jr, params);
+        const hi = this.evalExpr(expr.hi, jr, params);
+        if (v === null || v === undefined || lo === null || lo === undefined || hi === null || hi === undefined) return null;
+        const inRange = compareValues(v, lo) >= 0 && compareValues(v, hi) <= 0;
+        return expr.negated ? !inRange : inRange;
+      }
+      case "case":
+        return this.evalCase(expr, (e) => this.evalExpr(e, jr, params));
       case "func":
         return this.evalScalarFunc(expr, jr, params);
       case "binary":
         return this.evalBinary(expr, jr, params);
     }
+  }
+
+  /** CASE evaluation shared by row-level and group-level evaluators. */
+  private evalCase(
+    expr: { operand?: Expr; whens: Array<{ when: Expr; then: Expr }>; els?: Expr },
+    ev: (e: Expr) => unknown,
+  ): unknown {
+    if (expr.operand !== undefined) {
+      const op = ev(expr.operand);
+      for (const w of expr.whens) if (looseEq(op, ev(w.when))) return ev(w.then);
+    } else {
+      for (const w of expr.whens) if (truthy(ev(w.when))) return ev(w.then);
+    }
+    return expr.els !== undefined ? ev(expr.els) : null;
   }
 
   private resolveColumn(expr: { table?: string; name: string }, jr: JoinedRow): unknown {
@@ -1464,9 +1554,67 @@ export class MemoryBackend implements ScratchpadBackend {
       case "length":
         return a[0] === null || a[0] === undefined ? null : String(a[0]).length;
       case "abs":
-        return a[0] === null ? null : Math.abs(num(a[0]));
+        return a[0] == null ? null : Math.abs(num(a[0]));
       case "concat":
         return a.map((v) => (v === null || v === undefined ? "" : String(v))).join("");
+      // ── numeric ──
+      case "round": {
+        if (a[0] == null) return null;
+        const f = Math.pow(10, a[1] != null ? Math.trunc(num(a[1])) : 0);
+        return Math.round(num(a[0]) * f) / f;
+      }
+      case "trunc": {
+        if (a[0] == null) return null;
+        const f = Math.pow(10, a[1] != null ? Math.trunc(num(a[1])) : 0);
+        return Math.trunc(num(a[0]) * f) / f;
+      }
+      case "floor":
+        return a[0] == null ? null : Math.floor(num(a[0]));
+      case "ceil":
+      case "ceiling":
+        return a[0] == null ? null : Math.ceil(num(a[0]));
+      case "sign":
+        return a[0] == null ? null : Math.sign(num(a[0]));
+      case "sqrt":
+        return a[0] == null ? null : Math.sqrt(num(a[0]));
+      case "power":
+      case "pow":
+        return a[0] == null || a[1] == null ? null : Math.pow(num(a[0]), num(a[1]));
+      case "mod":
+        return a[0] == null || a[1] == null ? null : num(a[0]) % num(a[1]);
+      case "greatest": {
+        const vals = a.filter((v) => v !== null && v !== undefined);
+        return vals.length ? vals.reduce((m, v) => (compareValues(v, m) > 0 ? v : m)) : null;
+      }
+      case "least": {
+        const vals = a.filter((v) => v !== null && v !== undefined);
+        return vals.length ? vals.reduce((m, v) => (compareValues(v, m) < 0 ? v : m)) : null;
+      }
+      case "nullif":
+        return looseEq(a[0], a[1]) ? null : a[0];
+      // ── string ──
+      case "trim":
+        return a[0] == null ? null : String(a[0]).trim();
+      case "ltrim":
+        return a[0] == null ? null : String(a[0]).replace(/^\s+/, "");
+      case "rtrim":
+        return a[0] == null ? null : String(a[0]).replace(/\s+$/, "");
+      case "substr":
+      case "substring": {
+        if (a[0] == null) return null;
+        const s = String(a[0]);
+        const start = Math.max(0, (a[1] != null ? Math.trunc(num(a[1])) : 1) - 1); // 1-indexed
+        return a.length > 2 && a[2] != null
+          ? s.slice(start, start + Math.max(0, Math.trunc(num(a[2]))))
+          : s.slice(start);
+      }
+      case "replace": {
+        if (a[0] == null) return null;
+        const from = String(a[1] ?? "");
+        return from === "" ? String(a[0]) : String(a[0]).split(from).join(String(a[2] ?? ""));
+      }
+      case "strpos":
+        return a[0] == null || a[1] == null ? null : String(a[0]).indexOf(String(a[1])) + 1;
       default:
         throw new Error(`MemoryBackend: unsupported function '${name}()'`);
     }
@@ -1500,6 +1648,16 @@ export class MemoryBackend implements ScratchpadBackend {
         }
         return expr.negated;
       }
+      case "between": {
+        const v = this.evalAggExpr(expr.e, group, params);
+        const lo = this.evalAggExpr(expr.lo, group, params);
+        const hi = this.evalAggExpr(expr.hi, group, params);
+        if (v === null || v === undefined || lo === null || lo === undefined || hi === null || hi === undefined) return null;
+        const inRange = compareValues(v, lo) >= 0 && compareValues(v, hi) <= 0;
+        return expr.negated ? !inRange : inRange;
+      }
+      case "case":
+        return this.evalCase(expr, (e) => this.evalAggExpr(e, group, params));
       case "cast":
         return castValue(this.evalAggExpr(expr.e, group, params), expr.type);
       case "binary": {
@@ -1555,18 +1713,27 @@ export class MemoryBackend implements ScratchpadBackend {
     }
   }
 
-  private aggregate(name: string, expr: { args: Expr[]; star?: boolean }, group: JoinedRow[], params: unknown[]): unknown {
+  private aggregate(
+    name: string,
+    expr: { args: Expr[]; star?: boolean; filter?: Expr },
+    group: JoinedRow[],
+    params: unknown[],
+  ): unknown {
+    // FILTER (WHERE …) restricts which rows of the group the aggregate sees.
+    const rows = expr.filter
+      ? group.filter((jr) => truthy(this.evalExpr(expr.filter!, jr, params)))
+      : group;
     if (name === "count") {
-      if (expr.star) return group.length;
+      if (expr.star) return rows.length;
       let n = 0;
-      for (const jr of group) {
+      for (const jr of rows) {
         const v = this.evalExpr(expr.args[0], jr, params);
         if (v !== null && v !== undefined) n++;
       }
       return n;
     }
     const vals: unknown[] = [];
-    for (const jr of group) {
+    for (const jr of rows) {
       const v = this.evalExpr(expr.args[0], jr, params);
       if (v !== null && v !== undefined) vals.push(v);
     }
@@ -1719,6 +1886,14 @@ function containsAggregate(expr: Expr): boolean {
       return containsAggregate(expr.e);
     case "in":
       return containsAggregate(expr.e) || expr.list.some(containsAggregate);
+    case "between":
+      return containsAggregate(expr.e) || containsAggregate(expr.lo) || containsAggregate(expr.hi);
+    case "case":
+      return (
+        (expr.operand ? containsAggregate(expr.operand) : false) ||
+        expr.whens.some((w) => containsAggregate(w.when) || containsAggregate(w.then)) ||
+        (expr.els ? containsAggregate(expr.els) : false)
+      );
     default:
       return false;
   }
