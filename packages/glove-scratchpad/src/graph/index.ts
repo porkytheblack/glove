@@ -19,3 +19,16 @@ export {
   type GraphNode,
   type ScratchpadGraph,
 } from "./build";
+
+export {
+  runScratchpadGraph,
+  type RunScratchpadGraphOptions,
+  type WorkflowRunResult,
+  type WorkflowStep,
+} from "./run";
+
+export {
+  workflowTools,
+  mountWorkflow,
+  type WorkflowToolsOptions,
+} from "./tools";

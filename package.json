@@ -8,6 +8,7 @@
     "typecheck": "pnpm -r --filter './packages/*' typecheck",
     "scratchpad:demo": "tsx examples/scratchpad-agent/demo.ts",
     "scratchpad:graph": "tsx examples/scratchpad-agent/graph.ts",
+    "scratchpad:workflow": "tsx examples/scratchpad-agent/workflow.ts",
     "scratchpad:agent": "tsx examples/scratchpad-agent/agent.ts",
     "weather:agent": "tsx examples/weather-agent/index.tsx",
     "coding:agent": "tsx examples/coding-agent/index.tsx",

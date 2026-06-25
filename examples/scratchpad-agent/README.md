@@ -27,6 +27,18 @@ provenance. Prints the resulting nodes, tool slices, and edges.
 pnpm scratchpad:graph
 ```
 
+## `workflow.ts` — create a workflow, then run it (no API key)
+
+Drives the workflow tools end to end: `workflow_create` defines a three-subagent
+flow from a schema object, `workflow_run` executes it over the shared scratchpad
+until the objective resolves. The subagents are stubs whose turns are scripted
+scratchpad ops, so it runs without a model — prints the topology, the per-step
+trace (references flowing `issues → open → by_priority`), and the resolved answer.
+
+```bash
+pnpm scratchpad:workflow
+```
+
 ## `agent.ts` — live agent (requires `ANTHROPIC_API_KEY`)
 
 A real Glove agent whose only data source is a tool returning a large payload.

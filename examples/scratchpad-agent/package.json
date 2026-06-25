@@ -6,6 +6,7 @@
   "scripts": {
     "demo": "tsx demo.ts",
     "graph": "tsx graph.ts",
+    "workflow": "tsx workflow.ts",
     "agent": "tsx agent.ts"
   },
   "dependencies": {

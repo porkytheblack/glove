@@ -34,6 +34,12 @@ durable store** — with no terminal or VM.
   into a wired topology via `buildScratchpadGraph`: per-node tool partitioning
   (interface disclosure), scratchpad mounting, provenance stamping
   (`actor = subagent name`), and `next`/`get` navigation.
+- **Workflow execution + agent-facing tools.** `runScratchpadGraph(graph, { objective })`
+  walks the edges in dependency order, threading each subagent's output downstream
+  while every node works the shared scratchpad, until the terminal subagent
+  resolves the answer (DAG routing, `maxSteps` cycle guard). `mountWorkflow` folds
+  `workflow_create` / `workflow_run` / `workflow_inspect` so the **model** designs
+  a workflow from a schema object and runs it over the scratchpad on its own.
 - **First-level normalization.** Ingested JSON becomes a typed root table; nested
   arrays become child tables (FK + `_idx`); deeper nesting stays in `jsonb`,
   reachable via `->` / `->>`.
@@ -44,7 +50,8 @@ durable store** — with no terminal or VM.
   serialize and resume the whole store (compact JSON; no data-dir overhead).
 - Examples (no API key, no database): `pnpm scratchpad:demo` shows ~37× context
   reduction on a 500-record payload; `pnpm scratchpad:graph` constructs a
-  three-subagent graph from a schema object and prints the wired topology.
+  three-subagent graph from a schema object and prints the wired topology;
+  `pnpm scratchpad:workflow` creates a workflow and runs it to a resolved answer.
 
 ## v3.1.0 — Prompt caching
 
