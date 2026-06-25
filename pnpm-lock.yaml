@@ -300,9 +300,6 @@ importers:
 
   examples/scratchpad-agent:
     dependencies:
-      '@electric-sql/pglite':
-        specifier: ^0.5.3
-        version: 0.5.3
       glove-core:
         specifier: workspace:*
         version: link:../../packages/glove
