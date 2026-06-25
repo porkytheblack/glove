@@ -51,3 +51,33 @@ test("modulo operator works; division/modulo by zero errors", async () => {
   await assert.rejects(() => b.query(`SELECT 1 / 0`), /division by zero/);
   await assert.rejects(() => b.query(`SELECT 5 % 0`), /division by zero/);
 });
+
+// ─── Batch 2: aggregates ─────────────────────────────────────────────────────
+
+test("ORDER BY after GROUP BY sorts the aggregated rows, not pre-aggregation rows", async () => {
+  const b = await MemoryBackend.create();
+  await b.exec(`CREATE TABLE "s" ("region" text, "amt" bigint)`);
+  await b.query(`INSERT INTO "s" VALUES ($1,$2),($3,$4),($5,$6),($7,$8),($9,$10),($11,$12)`,
+    ["west", 10, "west", 20, "east", 5, "north", 7, "north", 8, "north", 9]);
+  const byRegion = await b.query(`SELECT region, sum(amt)::int AS total FROM "s" GROUP BY region ORDER BY region`);
+  assert.deepEqual(byRegion.rows, [
+    { region: "east", total: 5 },
+    { region: "north", total: 24 },
+    { region: "west", total: 30 },
+  ]);
+  const byTotal = await b.query(`SELECT region, sum(amt)::int AS total FROM "s" GROUP BY region ORDER BY sum(amt) DESC`);
+  assert.deepEqual(byTotal.rows.map((r) => r.region), ["west", "north", "east"]);
+});
+
+test("DISTINCT inside count/sum/avg is honoured (and composes with GROUP BY)", async () => {
+  const b = await MemoryBackend.create();
+  await b.exec(`CREATE TABLE "t" ("grp" text, "score" double precision)`);
+  await b.query(`INSERT INTO "t" VALUES ($1,$2),($3,$4),($5,$6),($7,$8),($9,$10)`,
+    ["a", 10, "a", 10, "a", 20, "b", 30, "b", null]);
+  const r = await b.query(
+    `SELECT count(DISTINCT score)::int AS c, sum(DISTINCT score)::int AS s, avg(DISTINCT score) AS a, count(DISTINCT grp)::int AS g FROM "t"`,
+  );
+  assert.deepEqual(r.rows[0], { c: 3, s: 60, a: 20, g: 2 });
+  const byGrp = await b.query(`SELECT grp, count(DISTINCT score)::int AS c FROM "t" GROUP BY grp ORDER BY grp`);
+  assert.deepEqual(byGrp.rows, [{ grp: "a", c: 2 }, { grp: "b", c: 1 }]);
+});

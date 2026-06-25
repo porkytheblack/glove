@@ -218,7 +218,7 @@ type Expr =
   | { k: "param"; i: number }
   | { k: "star" }
   | { k: "col"; table?: string; name: string }
-  | { k: "func"; name: string; args: Expr[]; star?: boolean; filter?: Expr; over?: WindowSpec }
+  | { k: "func"; name: string; args: Expr[]; star?: boolean; filter?: Expr; over?: WindowSpec; distinct?: boolean }
   | { k: "unary"; op: string; e: Expr }
   | { k: "not"; e: Expr }
   | { k: "binary"; op: string; l: Expr; r: Expr }
@@ -932,12 +932,13 @@ class Parser {
         const name = this.next().value.toLowerCase();
         this.expectOp("(");
         let star = false;
+        let distinct = false;
         const args: Expr[] = [];
         if (this.isOp("*")) {
           this.pos++;
           star = true;
         } else if (!this.isOp(")")) {
-          this.acceptKw("distinct"); // accept & ignore DISTINCT in aggregates
+          distinct = this.acceptKw("distinct");
           do {
             args.push(this.parseExpr());
           } while (this.acceptOp(","));
@@ -979,7 +980,7 @@ class Parser {
           this.expectOp(")");
           over = { partitionBy, orderBy };
         }
-        return { k: "func", name, args, star, filter, over };
+        return { k: "func", name, args, star, filter, over, distinct };
       }
       // column reference, possibly qualified table.col
       this.pos++;
@@ -1288,9 +1289,10 @@ export class MemoryBackend implements SqlBackend {
 
     let out: Record<string, unknown>[];
     let columns: string[];
+    let outGroups: JoinedRow[][] = [];
 
     if (hasAgg) {
-      ({ out, columns } = this.projectAggregate(stmt, joined, params));
+      ({ out, columns, outGroups } = this.projectAggregate(stmt, joined, params));
     } else {
       columns = this.outputColumns(stmt, aliasCols);
       const winFns = this.collectWindowFuncs(stmt.items);
@@ -1315,17 +1317,34 @@ export class MemoryBackend implements SqlBackend {
           ? { ...k, expr: { k: "col", name: columns[k.expr.v - 1] } as Expr }
           : k,
       );
-      const decorated = out.map((row, idx) => ({ row, jr: joined[idx], idx }));
-      decorated.sort((a, b) => {
-        for (const key of keys) {
-          const av = this.orderValue(key.expr, a, params);
-          const bv = this.orderValue(key.expr, b, params);
-          const cmp = compareValues(av, bv);
-          if (cmp !== 0) return key.dir === "desc" ? -cmp : cmp;
-        }
-        return a.idx - b.idx; // stable
-      });
-      out = decorated.map((d) => d.row);
+      if (hasAgg) {
+        // Aggregate query: out has one row per GROUP — evaluate ORDER BY over the
+        // group (so ORDER BY <grouping col> / <aggregate> is correct), not over a
+        // misaligned pre-aggregation joined row.
+        const decorated = out.map((row, idx) => ({ row, group: outGroups[idx], idx }));
+        decorated.sort((a, b) => {
+          for (const key of keys) {
+            const av = this.orderValueAgg(key.expr, a, params);
+            const bv = this.orderValueAgg(key.expr, b, params);
+            const cmp = compareValues(av, bv);
+            if (cmp !== 0) return key.dir === "desc" ? -cmp : cmp;
+          }
+          return a.idx - b.idx;
+        });
+        out = decorated.map((d) => d.row);
+      } else {
+        const decorated = out.map((row, idx) => ({ row, jr: joined[idx], idx }));
+        decorated.sort((a, b) => {
+          for (const key of keys) {
+            const av = this.orderValue(key.expr, a, params);
+            const bv = this.orderValue(key.expr, b, params);
+            const cmp = compareValues(av, bv);
+            if (cmp !== 0) return key.dir === "desc" ? -cmp : cmp;
+          }
+          return a.idx - b.idx; // stable
+        });
+        out = decorated.map((d) => d.row);
+      }
     }
 
     if (stmt.distinct) {
@@ -1442,6 +1461,20 @@ export class MemoryBackend implements SqlBackend {
     }
   }
 
+  /** ORDER BY value for an aggregate query: output alias first, else evaluate over the group. */
+  private orderValueAgg(
+    expr: Expr,
+    d: { row: Record<string, unknown>; group: JoinedRow[] },
+    params: unknown[],
+  ): unknown {
+    if (expr.k === "col" && !expr.table && expr.name in d.row) return d.row[expr.name];
+    try {
+      return this.evalAggExpr(expr, d.group ?? [], params);
+    } catch {
+      return expr.k === "col" ? (d.row[expr.name] ?? null) : null;
+    }
+  }
+
   private aliasHasColumn(jr: JoinedRow, name: string): boolean {
     for (const rec of jr.values()) if (name in rec) return true;
     return false;
@@ -1488,7 +1521,7 @@ export class MemoryBackend implements SqlBackend {
     stmt: SelectStmt,
     joined: JoinedRow[],
     params: unknown[],
-  ): { out: Record<string, unknown>[]; columns: string[] } {
+  ): { out: Record<string, unknown>[]; columns: string[]; outGroups: JoinedRow[][] } {
     const columns = stmt.items.map((it) => it.alias ?? (it.expr ? inferColName(it.expr) : "?column?"));
 
     // GROUP BY <ordinal> → the matching SELECT item's expression.
@@ -1517,6 +1550,7 @@ export class MemoryBackend implements SqlBackend {
     }
 
     const out: Record<string, unknown>[] = [];
+    const outGroups: JoinedRow[][] = [];
     for (const group of groups) {
       if (stmt.having && !truthy(this.evalAggExpr(stmt.having, group, params))) continue;
       const row: Record<string, unknown> = {};
@@ -1525,8 +1559,9 @@ export class MemoryBackend implements SqlBackend {
         row[it.alias ?? inferColName(it.expr)] = this.evalAggExpr(it.expr, group, params);
       }
       out.push(row);
+      outGroups.push(group); // parallel to `out`, for ORDER BY over the group
     }
-    return { out, columns };
+    return { out, columns, outGroups };
   }
 
   // ── FROM resolution ───────────────────────────────────────────────────────
@@ -2150,7 +2185,7 @@ export class MemoryBackend implements SqlBackend {
 
   private aggregate(
     name: string,
-    expr: { args: Expr[]; star?: boolean; filter?: Expr },
+    expr: { args: Expr[]; star?: boolean; filter?: Expr; distinct?: boolean },
     group: JoinedRow[],
     params: unknown[],
   ): unknown {
@@ -2158,21 +2193,24 @@ export class MemoryBackend implements SqlBackend {
     const rows = expr.filter
       ? group.filter((jr) => truthy(this.evalExpr(expr.filter!, jr, params)))
       : group;
-    if (name === "count") {
-      if (expr.star) return rows.length;
-      let n = 0;
-      for (const jr of rows) {
-        const v = this.evalExpr(expr.args[0], jr, params);
-        if (v !== null && v !== undefined) n++;
-      }
-      return n;
-    }
-    const vals: unknown[] = [];
+    if (name === "count" && expr.star) return rows.length;
+
+    // Collect the (non-null) argument values, deduping when DISTINCT is given.
+    let vals: unknown[] = [];
+    const seen = expr.distinct ? new Set<string>() : null;
     for (const jr of rows) {
       const v = this.evalExpr(expr.args[0], jr, params);
-      if (v !== null && v !== undefined) vals.push(v);
+      if (v === null || v === undefined) continue;
+      if (seen) {
+        const k = stableKey([v]);
+        if (seen.has(k)) continue;
+        seen.add(k);
+      }
+      vals.push(v);
     }
-    if (vals.length === 0) return name === "sum" ? null : null;
+
+    if (name === "count") return vals.length;
+    if (vals.length === 0) return null;
     switch (name) {
       case "sum":
         return vals.reduce((acc: number, v) => acc + num(v), 0);
