@@ -1083,6 +1083,8 @@ export class MemoryBackend implements SqlBackend {
   private subqueryOuter: JoinedRow[] = [];
   /** Active window-function values during a windowed projection (expr → value per row). */
   private currentWindow: { vals: Map<Expr, unknown[]>; index: number } | null = null;
+  /** CTEs in scope for the SELECT currently executing, so subqueries can see them. */
+  private currentCtes: Map<string, RowSet> = new Map();
   /** Monotonic logical clock backing `now()` so insert order is always stable. */
   private clock: number;
 
@@ -1254,8 +1256,8 @@ export class MemoryBackend implements SqlBackend {
   // ── SELECT ────────────────────────────────────────────────────────────────
 
   private execSelect(stmt: SelectStmt, params: unknown[], ctes: Map<string, RowSet>): RowSet {
-    if (stmt.setOps?.length) return this.execSetOps(stmt, params, ctes);
-    // Resolve CTEs first (each can see earlier ones).
+    // Resolve CTEs first (each can see earlier ones) — BEFORE the set-op split so
+    // `WITH … SELECT … UNION …` makes the CTEs visible to every branch.
     if (stmt.with) {
       const merged = new Map(ctes);
       for (const cte of stmt.with) {
@@ -1263,6 +1265,10 @@ export class MemoryBackend implements SqlBackend {
       }
       ctes = merged;
     }
+    if (stmt.setOps?.length) return this.execSetOps(stmt, params, ctes);
+    // Make these CTEs visible to subqueries evaluated during this SELECT.
+    const _prevCtes = this.currentCtes;
+    this.currentCtes = ctes;
 
     // FROM + JOINs → joined rows with an alias→columns map.
     const aliasCols = new Map<string, string[]>();
@@ -1361,6 +1367,7 @@ export class MemoryBackend implements SqlBackend {
     if (offset > 0) out = out.slice(offset);
     if (stmt.limit !== undefined) out = out.slice(0, Math.max(0, stmt.limit));
 
+    this.currentCtes = _prevCtes;
     return { columns, rows: out };
   }
 
@@ -1856,6 +1863,9 @@ export class MemoryBackend implements SqlBackend {
       case "subquery": {
         const rs = this.execSubquery(expr.select, jr, params);
         if (rs.rows.length === 0) return null;
+        if (rs.rows.length > 1) {
+          throw new Error("MemoryBackend: more than one row returned by a scalar subquery");
+        }
         return rs.rows[0][rs.columns[0]] ?? null;
       }
       case "exists":
@@ -1917,7 +1927,7 @@ export class MemoryBackend implements SqlBackend {
   private execSubquery(select: SelectStmt, jr: JoinedRow, params: unknown[]): RowSet {
     this.subqueryOuter.push(jr);
     try {
-      return this.execSelect(select, params, new Map());
+      return this.execSelect(select, params, this.currentCtes);
     } finally {
       this.subqueryOuter.pop();
     }

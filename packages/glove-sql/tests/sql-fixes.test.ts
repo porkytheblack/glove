@@ -81,3 +81,32 @@ test("DISTINCT inside count/sum/avg is honoured (and composes with GROUP BY)", a
   const byGrp = await b.query(`SELECT grp, count(DISTINCT score)::int AS c FROM "t" GROUP BY grp ORDER BY grp`);
   assert.deepEqual(byGrp.rows, [{ grp: "a", c: 2 }, { grp: "b", c: 1 }]);
 });
+
+// ─── Batch 3: CTE scope, set-ops + WITH, scalar subquery cardinality ─────────
+
+test("CTEs are visible inside subqueries (IN / EXISTS)", async () => {
+  const b = await MemoryBackend.create();
+  await b.exec(`CREATE TABLE "t" ("id" bigint, "big" boolean)`);
+  await b.query(`INSERT INTO "t" VALUES (1,false),(2,true),(3,true)`);
+  const inq = await b.query(
+    `WITH bigs AS (SELECT id FROM "t" WHERE big) SELECT id FROM "t" WHERE id IN (SELECT id FROM bigs) ORDER BY id`,
+  );
+  assert.deepEqual(inq.rows.map((x) => x.id), [2, 3]);
+  const ex = await b.query(
+    `WITH bigs AS (SELECT id FROM "t" WHERE big) SELECT id FROM "t" t1 WHERE EXISTS (SELECT 1 FROM bigs WHERE bigs.id = t1.id) ORDER BY id`,
+  );
+  assert.deepEqual(ex.rows.map((x) => x.id), [2, 3]);
+});
+
+test("WITH applies across UNION branches", async () => {
+  const b = await MemoryBackend.create();
+  const r = await b.query(`WITH c AS (SELECT 1 AS n) SELECT n FROM c UNION SELECT 2 ORDER BY n`);
+  assert.deepEqual(r.rows.map((x) => x.n), [1, 2]);
+});
+
+test("scalar subquery returning more than one row errors", async () => {
+  const b = await MemoryBackend.create();
+  await b.exec(`CREATE TABLE "t" ("id" bigint)`);
+  await b.query(`INSERT INTO "t" VALUES (1),(2)`);
+  await assert.rejects(() => b.query(`SELECT (SELECT id FROM "t") AS x`), /more than one row/);
+});
