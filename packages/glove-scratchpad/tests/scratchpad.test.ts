@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Scratchpad } from "../src/core/scratchpad";
-import { PgliteBackend } from "../src/backends/pglite";
+import { MemoryBackend } from "../src/backends/memory";
 
 async function fresh(): Promise<Scratchpad> {
-  return Scratchpad.create(await PgliteBackend.create());
+  return Scratchpad.create(await MemoryBackend.create());
 }
 
 const DOC = {

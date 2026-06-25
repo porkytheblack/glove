@@ -1,8 +1,8 @@
 /**
- * Mounting the scratchpad onto a subdroid (§5, §8.1).
+ * Mounting the scratchpad onto a subagent (§5, §8.1).
  *
  * Folds the four surface tools and (by default) primes the agent for restraint.
- * Correctness here is *behavioral*, not structural: every subdroid can read, but
+ * Correctness here is *behavioral*, not structural: every subagent can read, but
  * is primed to defer materialization to the last mile. The priming and the tool
  * return shapes must agree — the descriptor must be the path of least resistance
  * (§8.1 "ergonomics beats the prompt").
@@ -12,7 +12,7 @@ import type { Scratchpad } from "../core/scratchpad";
 import { scratchpadTools, type ScratchpadToolOptions } from "./surface";
 
 /**
- * The restraint-priming preamble. Prepended to a subdroid's system prompt so
+ * The restraint-priming preamble. Prepended to a subagent's system prompt so
  * the cheap, obvious move is to reason over descriptors and pass references
  * downstream — and materializing real values feels like the deliberate detour.
  */
@@ -20,7 +20,7 @@ export const SCRATCHPAD_PREAMBLE = `You are working over a SCRATCHPAD — a dura
 
 Operating discipline:
 - Reason over DESCRIPTORS, not payloads. scratchpad_describe and the stub a tool returns already tell you the shape; you rarely need the values to plan.
-- NARROW with scratchpad_query before you read. Filter/join/aggregate in SQL (Postgres dialect: SELECT/WHERE/JOIN/GROUP BY/CTEs; reach nested depth with -> / ->> / jsonb_array_elements). Pass \`store\` to persist a narrowed result as a NEW reference and keep it as a handle.
+- NARROW with scratchpad_query before you read. Filter/join/aggregate in SQL (Postgres dialect: SELECT/WHERE/JOIN/GROUP BY/CTEs; reach nested depth with -> / ->>). Pass \`store\` to persist a narrowed result as a NEW reference and keep it as a handle.
 - Pass REFERENCES downstream, not data. A reference + a query is enough for the next step; the payload stays in the store.
 - MATERIALIZE only at the last mile. Call scratchpad_materialize only when you genuinely need values to answer or format — and only after narrowing, so you read a few rows, not thousands. Every materialize is a deliberate, budgeted load.
 
@@ -33,7 +33,7 @@ export interface MountScratchpadConfig extends ScratchpadToolOptions {
 }
 
 /**
- * Fold the scratchpad surface tools onto a built Glove (main agent or subdroid)
+ * Fold the scratchpad surface tools onto a built Glove (main agent or subagent)
  * and prime it for the last-mile discipline. Returns the same runnable.
  */
 export function mountScratchpad(

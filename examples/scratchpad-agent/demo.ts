@@ -7,8 +7,7 @@
  *
  * Run: `pnpm scratchpad:demo` (from the repo root).
  */
-import { Scratchpad, storeAndTruncate, stubData } from "glove-scratchpad";
-import { PgliteBackend } from "glove-scratchpad/pglite";
+import { Scratchpad, MemoryBackend, storeAndTruncate, stubData } from "glove-scratchpad";
 import type { GloveFoldArgs } from "glove-core/glove";
 
 const bytes = (v: unknown): number =>
@@ -35,7 +34,7 @@ function fakeIssueSearch(): unknown {
 }
 
 async function main() {
-  const sp = await Scratchpad.create(await PgliteBackend.create());
+  const sp = await Scratchpad.create(await MemoryBackend.create());
   let contextBudget = 0; // bytes the model would actually have ingested
 
   rule();
@@ -72,7 +71,7 @@ async function main() {
 
   const ref = (stub as { ref: string }).ref;
 
-  // ── 3. A subdroid narrows deterministically in SQL — no payload moves. ────
+  // ── 3. A subagent narrows deterministically in SQL — no payload moves. ────
   const narrowed = await sp.query(
     `SELECT id, title, priority, assignee
        FROM ${ref}
@@ -86,7 +85,7 @@ async function main() {
   const openP0Count =
     "descriptor" in narrowed ? narrowed.descriptor.rowCount : 0;
 
-  console.log(`\n3. Subdroid narrows with SQL (filter to open P0 issues), storing the result:`);
+  console.log(`\n3. Subagent narrows with SQL (filter to open P0 issues), storing the result:`);
   console.log(`   ${openP0Count} matching rows, persisted as a NEW reference "open_p0".`);
   console.log(`   → only its stub (${fmt(narrowBytes)}) crosses to the next step. Payload stays put.`);
 
@@ -101,7 +100,7 @@ async function main() {
 
   // ── 5. Computation as a value: snapshot → restore. ────────────────────────
   const snap = await sp.snapshot();
-  const sp2 = await Scratchpad.create(await PgliteBackend.create({ load: snap }));
+  const sp2 = await Scratchpad.create(await MemoryBackend.create({ load: snap }));
   const after = await sp2.materialize({ sql: `SELECT count(*)::int AS n FROM ${ref}` });
   console.log(`\n5. Snapshot the whole scratchpad to ${fmt(snap.byteLength)} and bring it back to life:`);
   console.log(`   restored store still answers: ${ref} has ${after.rows[0].n} rows. (computation as a value)`);

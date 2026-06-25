@@ -12,8 +12,7 @@
 import { Glove, Displaymanager, MemoryStore } from "glove-core";
 import { createAdapter } from "glove-core/models/providers";
 import type { SubscriberAdapter } from "glove-core";
-import { Scratchpad, storeAndTruncate, mountScratchpad } from "glove-scratchpad";
-import { PgliteBackend } from "glove-scratchpad/pglite";
+import { Scratchpad, MemoryBackend, storeAndTruncate, mountScratchpad } from "glove-scratchpad";
 
 function fakeIssues(): unknown {
   const labels = ["bug", "p0", "p1", "p2", "ui", "infra", "docs"];
@@ -33,7 +32,7 @@ async function main() {
     process.exit(1);
   }
 
-  const sp = await Scratchpad.create(await PgliteBackend.create());
+  const sp = await Scratchpad.create(await MemoryBackend.create());
 
   const log: SubscriberAdapter = {
     async record(event_type, data) {

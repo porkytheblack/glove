@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
     "demo": "tsx demo.ts",
+    "graph": "tsx graph.ts",
     "agent": "tsx agent.ts"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.5.3",
     "glove-core": "workspace:*",
     "glove-scratchpad": "workspace:*",
     "zod": "^4.3.6"

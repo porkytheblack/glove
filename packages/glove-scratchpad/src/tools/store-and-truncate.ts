@@ -21,7 +21,7 @@ import type { Stub } from "../core/types";
 
 export interface StoreAndTruncateOptions {
   scratchpad: Scratchpad;
-  /** Stamped into provenance as the actor (e.g. the subdroid's name). */
+  /** Stamped into provenance as the actor (e.g. the subagent's name). */
   actor?: string;
   /** Base name for stored records. Defaults to the wrapped tool's name. */
   name?: string;

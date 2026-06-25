@@ -1,5 +1,5 @@
 /**
- * The Glove-facing surface: tools a subdroid folds, the mount helper, and the
+ * The Glove-facing surface: tools a subagent folds, the mount helper, and the
  * store-and-truncate wrapper that contains tool results.
  */
 export {

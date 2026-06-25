@@ -1,12 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Scratchpad } from "../src/core/scratchpad";
-import { PgliteBackend } from "../src/backends/pglite";
+import { MemoryBackend } from "../src/backends/memory";
 
 // §10 — "computation as a value": a live scratchpad snapshots to bytes and is
 // brought back to life later, intact.
 test("snapshot → restore round-trips records, tables, and values", async () => {
-  const sp1 = await Scratchpad.create(await PgliteBackend.create());
+  const sp1 = await Scratchpad.create(await MemoryBackend.create());
   await sp1.ingest(
     {
       id: 7,
@@ -22,7 +22,7 @@ test("snapshot → restore round-trips records, tables, and values", async () =>
   assert.ok(bytes.byteLength > 0);
   await sp1.close();
 
-  const sp2 = await Scratchpad.create(await PgliteBackend.create({ load: bytes }));
+  const sp2 = await Scratchpad.create(await MemoryBackend.create({ load: bytes }));
 
   const refs = await sp2.refs();
   assert.ok(refs.includes("doc"));

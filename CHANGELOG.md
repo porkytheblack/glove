@@ -13,21 +13,38 @@ durable store** — with no terminal or VM.
   wraps any Glove tool (`GloveFoldArgs`, not coupled to MCP): the full payload is
   written to the store and only a stub (reference + descriptor + "read more")
   crosses back into context. Composes with `glove-mcp`'s `bridgeMcpTool`.
-- **Postgres-dialect manipulation surface.** Subdroids narrow with SQL
+- **Postgres-dialect manipulation surface.** Subagents narrow with SQL
   (`scratchpad_query`), reason over descriptors (`scratchpad_describe`), and read
   values only at the last mile (`scratchpad_materialize`). The contract is a
   defined Postgres subset (`ScratchpadBackend`); the backend is swappable.
+- **Default backend: a zero-dependency, pure-JS Postgres-subset emulator**
+  (`MemoryBackend`). An in-memory store whose tables are constructed at runtime
+  from whatever data is ingested, with a small SQL engine (tokenizer →
+  recursive-descent parser → evaluator) covering exactly the subset the
+  Scratchpad and its agents use: CREATE/DROP/`CREATE TABLE AS`, INSERT/DELETE
+  with `$n` params, and SELECT with INNER/LEFT joins, WHERE/GROUP BY/HAVING/ORDER
+  BY/LIMIT/OFFSET, CTEs, aggregates, jsonb `->`/`->>`, and `::type` casts. No
+  WASM, no native module — runs anywhere JS does. Out-of-subset SQL throws rather
+  than mis-answering.
+- **Optional `PgliteBackend`** (WASM Postgres) behind the `glove-scratchpad/pglite`
+  subpath (`@electric-sql/pglite` is an optional peer) for when a full Postgres
+  dialect is wanted. The same `Scratchpad` code path runs unchanged on either.
+- **Schema-defined subagent graphs.** `glove-scratchpad/graph` turns a plain,
+  Zod-validated `GraphDef` object (subagents + prompts + tool slices + edges)
+  into a wired topology via `buildScratchpadGraph`: per-node tool partitioning
+  (interface disclosure), scratchpad mounting, provenance stamping
+  (`actor = subagent name`), and `next`/`get` navigation.
 - **First-level normalization.** Ingested JSON becomes a typed root table; nested
   arrays become child tables (FK + `_idx`); deeper nesting stays in `jsonb`,
   reachable via `->` / `->>`.
 - **Descriptor economy + restraint priming.** A reference resolves to
   `{value, schema, preview, provenance}`; `mountScratchpad` folds the surface
   tools and primes the last-mile discipline.
-- **Computation as a value.** `Scratchpad.snapshot()` / `PgliteBackend.create({ load })`
-  serialize and resume the whole store.
-- Reference `PgliteBackend` behind the `glove-scratchpad/pglite` subpath
-  (`@electric-sql/pglite` is an optional peer). Example: `pnpm scratchpad:demo`
-  (no API key) shows ~37× context reduction on a 500-record payload.
+- **Computation as a value.** `Scratchpad.snapshot()` / `MemoryBackend.create({ load })`
+  serialize and resume the whole store (compact JSON; no data-dir overhead).
+- Examples (no API key, no database): `pnpm scratchpad:demo` shows ~37× context
+  reduction on a 500-record payload; `pnpm scratchpad:graph` constructs a
+  three-subagent graph from a schema object and prints the wired topology.
 
 ## v3.1.0 — Prompt caching
 

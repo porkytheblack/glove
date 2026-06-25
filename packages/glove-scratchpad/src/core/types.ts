@@ -27,7 +27,7 @@ export interface Provenance {
    * `"ingest"`, `"query"`, `"tool:notion__search"`, `"mcp:gmail__list"`.
    */
   source: string;
-  /** Which subdroid / actor produced it (e.g. a subagent name). */
+  /** Which subagent / actor produced it (e.g. a subagent name). */
   actor?: string;
   /** ISO 8601 timestamp. Stamped by the store at ingest time when omitted. */
   timestamp?: string;
@@ -107,7 +107,7 @@ export interface Descriptor {
 }
 
 /**
- * What crosses the wire between subdroids instead of a payload (§8).
+ * What crosses the wire between subagents instead of a payload (§8).
  * A reference, a descriptor, and a hint on how to read more — never values.
  */
 export interface Stub {

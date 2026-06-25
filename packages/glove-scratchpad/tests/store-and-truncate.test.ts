@@ -2,13 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { GloveFoldArgs } from "glove-core/glove";
 import { Scratchpad } from "../src/core/scratchpad";
-import { PgliteBackend } from "../src/backends/pglite";
+import { MemoryBackend } from "../src/backends/memory";
 import { storeAndTruncate } from "../src/tools/store-and-truncate";
 
 // §3, §11 — result containment. A tool's large payload is written to the store
 // and only a stub crosses back into the model's context.
 test("storeAndTruncate replaces a large payload with a small stub", async () => {
-  const sp = await Scratchpad.create(await PgliteBackend.create());
+  const sp = await Scratchpad.create(await MemoryBackend.create());
 
   const big = Array.from({ length: 200 }, (_, i) => ({
     id: i,
@@ -57,7 +57,7 @@ test("storeAndTruncate replaces a large payload with a small stub", async () => 
 });
 
 test("storeAndTruncate passes through small payloads under minBytes", async () => {
-  const sp = await Scratchpad.create(await PgliteBackend.create());
+  const sp = await Scratchpad.create(await MemoryBackend.create());
   const tool: GloveFoldArgs<Record<string, never>> = {
     name: "tiny",
     description: "small result",
@@ -72,7 +72,7 @@ test("storeAndTruncate passes through small payloads under minBytes", async () =
 });
 
 test("storeAndTruncate leaves error results untouched", async () => {
-  const sp = await Scratchpad.create(await PgliteBackend.create());
+  const sp = await Scratchpad.create(await MemoryBackend.create());
   const tool: GloveFoldArgs<Record<string, never>> = {
     name: "boom",
     description: "always errors",

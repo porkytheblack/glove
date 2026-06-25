@@ -1,7 +1,7 @@
 /**
  * Readable keys and SQL identifier hygiene.
  *
- * The reference an agent holds *is* the physical root table name, so a subdroid
+ * The reference an agent holds *is* the physical root table name, so a subagent
  * can write `SELECT … FROM <ref>` directly. Child tables derived by
  * normalization are named `<ref>__<field>`. All identifiers are sanitised to a
  * safe Postgres form and clamped to the 63-byte identifier limit.

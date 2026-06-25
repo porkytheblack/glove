@@ -1,7 +1,7 @@
 /**
  * The manipulation surface as Glove tools (§6, §9).
  *
- * Three verbs a subdroid uses to work the store without dragging payloads
+ * Three verbs a subagent uses to work the store without dragging payloads
  * through context:
  *
  *   - `scratchpad_describe` — read the metadata surface of a reference (shape,
@@ -13,7 +13,7 @@
  *     that puts real values into context (§9 "no transparent materialization").
  *   - `scratchpad_list`     — enumerate references currently in the store.
  *
- * Every subdroid *can* call all of these (§8.1 "reading is universal"); they are
+ * Every subagent *can* call all of these (§8.1 "reading is universal"); they are
  * primed to defer materialization to the last mile.
  */
 import { z } from "zod";
@@ -22,7 +22,7 @@ import type { ToolResultData } from "glove-core/core";
 import type { Scratchpad } from "../core/scratchpad";
 
 export interface ScratchpadToolOptions {
-  /** Stamped into provenance as the actor (e.g. the subdroid's name). */
+  /** Stamped into provenance as the actor (e.g. the subagent's name). */
   actor?: string;
   /** Default row cap for read-mode query / materialize. Default 50. */
   defaultLimit?: number;
@@ -74,7 +74,7 @@ export function buildQueryTool(
   return {
     name: "scratchpad_query",
     description:
-      "Run a Postgres-dialect query over stored records (SELECT / WHERE / JOIN / GROUP BY / CTEs; nested depth via -> / ->> / jsonb_array_elements). " +
+      "Run a Postgres-dialect query over stored records (SELECT / WHERE / JOIN / GROUP BY / CTEs; nested depth via -> / ->>). " +
       "Pass `store` to persist the result as a NEW reference and get back a stub (shape only) — the preferred way to narrow data for a downstream step without materializing it. " +
       "Omit `store` to read back a bounded set of rows for a quick check.",
     inputSchema: z.object({
@@ -179,7 +179,7 @@ export function buildListTool(
   };
 }
 
-/** All four surface tools, ready to fold onto a subdroid. */
+/** All four surface tools, ready to fold onto a subagent. */
 export function scratchpadTools(
   sp: Scratchpad,
   opts: ScratchpadToolOptions = {},

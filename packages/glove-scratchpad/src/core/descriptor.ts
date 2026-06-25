@@ -4,7 +4,7 @@
  * Reads shape from the *live* backend schema (not just the ingest plan), so it
  * works identically for ingested records and for records derived by
  * `CREATE TABLE AS <select>`. This is "the metadata surface is the real
- * interface": rich enough that a downstream subdroid can plan without peeking.
+ * interface": rich enough that a downstream subagent can plan without peeking.
  */
 import type {
   ColumnDescriptor,

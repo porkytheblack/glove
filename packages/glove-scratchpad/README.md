@@ -11,9 +11,10 @@ mechanisms that have nothing to do with a Linux shell:
    through the model.
 
 Neither needs a terminal or a VM. The first is **graph partitioning** (give each
-subdroid only the tools its node needs — Glove subagents + `glove-mcp` discovery
-already do this). The second is **handles + deterministic transforms over a
-durable store** — which is what this package provides:
+subagent only the tools its node needs — Glove subagents + `glove-mcp` discovery
+already do this, and the [subagent graph](#subagent-graphs) below makes it
+declarative). The second is **handles + deterministic transforms over a durable
+store** — which is what this package provides:
 
 > A tool's full result is written into a durable store and only a **stub**
 > (reference + descriptor + "read more") crosses back into the model's context.
@@ -21,15 +22,18 @@ durable store** — which is what this package provides:
 > payloads) downstream, and **materialize** real values only at the last mile.
 
 The manipulation surface is a **defined Postgres subset** (the standard); the
-backend behind it is swappable (the shipped `PgliteBackend`, real Postgres, or an
-emulator over a plain object).
+backend behind it is swappable. The default is a **zero-dependency, pure-JS
+Postgres-subset emulator** (`MemoryBackend`) whose tables are constructed at
+runtime from whatever data is ingested — no WASM, no native module, runs
+anywhere JS does. A PGlite (WASM Postgres) backend is available on an opt-in
+subpath when a full Postgres dialect is wanted.
 
 ```
 naive (full payload in context):        142,354 b
 scratchpad (stub + stub + last mile):     3,789 b   →  37.6× less
 ```
 
-(from `pnpm scratchpad:demo` — no API key required)
+(from `pnpm scratchpad:demo` — no API key, no database, no dependencies)
 
 ---
 
@@ -37,18 +41,19 @@ scratchpad (stub + stub + last mile):     3,789 b   →  37.6× less
 
 ```bash
 pnpm add glove-scratchpad
-# the reference backend is an optional peer dependency:
+# that's it — the default backend is pure JS with zero runtime dependencies.
+
+# OPTIONAL: only if you want the PGlite (WASM Postgres) backend instead:
 pnpm add @electric-sql/pglite
 ```
 
 ## Quick start
 
 ```ts
-import { Scratchpad, mountScratchpad, storeAndTruncate } from "glove-scratchpad";
-import { PgliteBackend } from "glove-scratchpad/pglite";
+import { Scratchpad, MemoryBackend, mountScratchpad, storeAndTruncate } from "glove-scratchpad";
 
 // 1. One durable store per unit of work, behind the Postgres-subset contract.
-const sp = await Scratchpad.create(await PgliteBackend.create());
+const sp = await Scratchpad.create(await MemoryBackend.create());
 
 // 2. Contain a chunky tool's result: payload → store, stub → context.
 agent.fold(storeAndTruncate(bigTool, { scratchpad: sp }));
@@ -62,16 +67,18 @@ Now the agent works the data through `scratchpad_describe` → `scratchpad_query
 
 ---
 
-## The four moving parts
+## The moving parts
 
-| Concept (design)        | Code                                              |
-| ----------------------- | ------------------------------------------------- |
-| Durable store / membrane | `Scratchpad` (`glove-scratchpad/core`)            |
-| Manipulation surface     | Postgres-dialect SQL via `ScratchpadBackend`      |
-| Result containment       | `storeAndTruncate(tool, { scratchpad })`          |
+| Concept (design)         | Code                                                    |
+| ------------------------ | ------------------------------------------------------- |
+| Durable store / membrane | `Scratchpad` (`glove-scratchpad/core`)                  |
+| Manipulation surface     | Postgres-dialect SQL via `ScratchpadBackend`            |
+| Default backend          | `MemoryBackend` — pure-JS, zero-dep, runtime-built      |
+| Result containment       | `storeAndTruncate(tool, { scratchpad })`                |
 | Descriptor economy       | `Descriptor` = `{ value, schema, preview, provenance }` |
-| Last-mile discipline     | `mountScratchpad` priming + `scratchpad_materialize` |
-| Computation as a value   | `Scratchpad.snapshot()` / `PgliteBackend.create({ load })` |
+| Last-mile discipline     | `mountScratchpad` priming + `scratchpad_materialize`    |
+| Computation as a value   | `Scratchpad.snapshot()` / `MemoryBackend.create({ load })` |
+| Subagent topology        | `buildScratchpadGraph(def, …)` (`glove-scratchpad/graph`) |
 
 ### Store-and-truncate (result containment)
 
@@ -95,7 +102,7 @@ On ingest, a JSON value is normalized once (§7):
 - scalar fields → typed **columns** of the root table (named by the reference);
 - nested arrays → **child tables** joined on `_parent = _rid`, ordered by `_idx`;
 - anything deeper (nested objects, mixed scalars) → a **`jsonb`** column,
-  reachable in place via `->` / `->>` / `jsonb_array_elements`.
+  reachable in place via `->` / `->>`.
 
 Depth-1 is the same pass run once; deeper nesting is never out of reach, so
 stopping here is an ergonomics choice, not a capability gate.
@@ -110,7 +117,7 @@ without peeking, so agents don't materialize *defensively*.
 
 ### Reading is universal; restraint is the default
 
-Every subdroid *can* read. The system works because they're **primed** to defer
+Every subagent *can* read. The system works because they're **primed** to defer
 materialization to the last mile, and because the stub leads with a rich
 descriptor while the payload sits one deliberate step behind a handle — the
 cheap, obvious move is to reason over the descriptor. Priming sets the
@@ -119,9 +126,116 @@ disposition; the return shape makes it hold (`SCRATCHPAD_PREAMBLE`).
 ### Computation as a value
 
 `Scratchpad.snapshot()` serializes the entire store to bytes;
-`PgliteBackend.create({ load })` brings it back to life. A scratchpad is a value
-you can tear down and resume. (The PGlite dump carries Postgres's base data-dir
-overhead; a lighter backend snapshots smaller.)
+`MemoryBackend.create({ load })` brings it back to life. A scratchpad is a value
+you can tear down and resume. (`MemoryBackend` snapshots to compact JSON; the
+PGlite dump carries Postgres's base data-dir overhead instead.)
+
+---
+
+## Backends
+
+The Scratchpad emits a **defined Postgres subset** and never knows what is
+backing it (§6.1 *"the dialect is the standard; the backend is an implementation
+detail"*). Two backends ship:
+
+### `MemoryBackend` (default) — `glove-scratchpad` / `glove-scratchpad/memory`
+
+A **zero-dependency, pure-JS Postgres-subset emulator**. It is an in-memory
+store whose tables are *constructed at runtime* from whatever data is ingested
+(no fixed schema), with a small SQL engine — tokenizer → recursive-descent
+parser → evaluator — that runs exactly the subset the Scratchpad and its agents
+use:
+
+- **DDL** — `CREATE TABLE [IF NOT EXISTS]`, `CREATE TABLE … AS <select>`,
+  `DROP TABLE [IF EXISTS] … [CASCADE]`
+- **DML** — `INSERT … VALUES (…), (…)`, `DELETE … [WHERE …]` (with `$n` params)
+- **Query** — `SELECT [DISTINCT]` from tables, subqueries, or
+  `information_schema.columns`; `INNER` / `LEFT JOIN … ON`; `WHERE`, `GROUP BY`,
+  `HAVING`, `ORDER BY`, `LIMIT`, `OFFSET`; `WITH` (CTEs); aggregates
+  (`count` / `sum` / `avg` / `min` / `max`); jsonb access via `->` / `->>`; and
+  `::type` casts.
+
+Anything outside the subset throws a clear error rather than silently
+mis-answering. The whole store serializes to bytes (`dump()`) and is
+reconstructed via `MemoryBackend.create({ load })` — computation as a value with
+none of Postgres's data-dir overhead.
+
+```ts
+import { MemoryBackend } from "glove-scratchpad";          // (also on /memory)
+const sp = await Scratchpad.create(await MemoryBackend.create());
+```
+
+### `PgliteBackend` (optional) — `glove-scratchpad/pglite`
+
+A real embedded Postgres (WASM) — full dialect, real `jsonb`, a serializable
+data dir. `@electric-sql/pglite` is an **optional peer dependency**; install it
+only if you use this backend. Reach for it when you need SQL beyond the emulated
+subset (window functions, `jsonb_array_elements`, complex CTEs, …).
+
+```ts
+import { PgliteBackend } from "glove-scratchpad/pglite";
+const sp = await Scratchpad.create(await PgliteBackend.create());
+```
+
+**Bring your own.** Implement `ScratchpadBackend` over anything that speaks the
+subset — real Postgres over a pool, SQLite, a remote service.
+
+---
+
+## Subagent graphs
+
+`glove-scratchpad/graph` turns a **plain, schema-validated object** into a wired
+multi-subagent topology. The object is the contract — subagents, their prompts,
+the tool slice each one sees, and the edges between them. The adapter does the
+construction the definition implies.
+
+```ts
+import { buildScratchpadGraph, type GraphDef } from "glove-scratchpad/graph";
+
+const def: GraphDef = {
+  name: "triage",
+  entry: "planner",
+  subagents: [
+    {
+      name: "planner",
+      prompt: "Plan the triage. Narrow in SQL; hand a reference to the reader.",
+      tools: ["issues__search"],          // its capability slice (interface disclosure)
+    },
+    {
+      name: "reader",
+      prompt: "Read the narrowed reference and write the summary.",
+      defaultLimit: 20,
+    },
+  ],
+  edges: [{ from: "planner", to: "reader", when: "after narrowing" }],
+};
+
+const graph = await buildScratchpadGraph(def, {
+  scratchpad: sp,
+  tools: { issues__search: searchTool },  // registry the slices are drawn from
+  // You own construction (model/store/display); the adapter owns wiring.
+  createAgent: (spec) =>
+    new Glove({ model, displayManager, systemPrompt: spec.prompt, /* … */ }).build(),
+});
+
+graph.entry;                 // the planner node
+graph.next("planner");       // [ reader ]  — successors via edges
+graph.get("reader").runnable // the wired IGloveRunnable
+```
+
+For each subagent the adapter:
+
+1. validates the definition (shape + unique names + entry/edge endpoints exist);
+2. builds the runnable via your `createAgent` factory;
+3. sets its system prompt from `spec.prompt`;
+4. folds its **tool slice** from the `tools` registry (unknown name → error);
+5. mounts the scratchpad surface + restraint priming, stamping
+   `actor = spec.name` so provenance records who produced what;
+6. returns a navigable graph (`nodes`, `edges`, `entry`, `get`, `next`).
+
+The Zod schema (`graphSchema`) is the source of truth; the TS types are inferred
+from it, so a definition that type-checks is one that validates at runtime. Use
+`parseGraphDef(obj)` to validate without building.
 
 ---
 
@@ -132,13 +246,13 @@ overhead; a lighter backend snapshots smaller.)
 ```ts
 const sp = await Scratchpad.create(backend);
 
-await sp.ingest(value, { name?, provenance?, previewRows? });      // → Stub
-await sp.describe(ref, previewRows?);                              // → Descriptor
+await sp.ingest(value, { name?, provenance?, previewRows? });       // → Stub
+await sp.describe(ref, previewRows?);                               // → Descriptor
 await sp.query(sql, { store?, limit?, previewRows?, provenance? }); // → Stub | { rows, truncated }
-await sp.materialize({ ref?, sql?, limit?, offset? });             // → { rows, returned, truncated }
-await sp.list();                                                   // → record summaries (no previews)
+await sp.materialize({ ref?, sql?, limit?, offset? });              // → { rows, returned, truncated }
+await sp.list();                                                    // → record summaries (no previews)
 await sp.drop(ref);
-await sp.snapshot();                                               // → Uint8Array
+await sp.snapshot();                                                // → Uint8Array
 ```
 
 - `query` with `store` runs `CREATE TABLE AS` and returns a **stub** for the new
@@ -155,6 +269,13 @@ await sp.snapshot();                                               // → Uint8A
   `scratchpad_materialize`, `scratchpad_list`.
 - `storeAndTruncate(tool, { scratchpad, actor?, name?, minBytes?, keepRenderData? })`.
 
+### Graph (`glove-scratchpad/graph`)
+
+- `buildScratchpadGraph(def, { scratchpad, createAgent, tools?, mountScratchpad? })`
+  → `ScratchpadGraph`.
+- `parseGraphDef(obj)` → validated `GraphDef`. `graphSchema` / `subagentSchema` /
+  `edgeSchema` are the Zod schemas.
+
 ### Backend contract (`ScratchpadBackend`)
 
 ```ts
@@ -166,8 +287,9 @@ interface ScratchpadBackend {
 }
 ```
 
-Implement it over anything that speaks the Postgres subset. The shipped
-`PgliteBackend` (`glove-scratchpad/pglite`) is one reference implementation.
+Implement it over anything that speaks the Postgres subset. `MemoryBackend`
+(default, zero-dep) and `PgliteBackend` (`glove-scratchpad/pglite`) both satisfy
+it — the same `Scratchpad` code path runs unchanged on either.
 
 ---
 
@@ -180,13 +302,15 @@ Implement it over anything that speaks the Postgres subset. The shipped
   explicit, budgeted load.
 - The contract is a **defined Postgres subset**; the backend is swappable.
 - Normalize to **first level**; deeper nesting stays in `jsonb`, reachable in place.
-- **Every** subdroid can read; **all** are primed to defer to the last mile.
+- **Every** subagent can read; **all** are primed to defer to the last mile.
 
 ## Status
 
-Draft v0.1 — a working vertical slice of the architecture. The empirical "how
-small a SQL surface covers what fraction of real MCP transforms" question (the
-closure knee) is left open by design.
+Draft v0.1 — a working vertical slice of the architecture. The default backend
+covers the SQL subset the Scratchpad and its agents use; the empirical "how small
+a SQL surface covers what fraction of real MCP transforms" question (the closure
+knee) is left open by design — when a workflow outgrows the subset, swap in
+`PgliteBackend` and keep the same code.
 
 ## License
 

@@ -1,6 +1,8 @@
 # Scratchpad Computer example
 
-Two ways to see [`glove-scratchpad`](../../packages/glove-scratchpad) work.
+Three ways to see [`glove-scratchpad`](../../packages/glove-scratchpad) work. The
+first two need no API key and no database — the default `MemoryBackend` is pure
+JS with zero dependencies.
 
 ## `demo.ts` — mechanism walkthrough (no API key)
 
@@ -13,6 +15,17 @@ pnpm scratchpad:demo
 ```
 
 Expected: a ~37× context reduction on a 500-issue payload, end to end.
+
+## `graph.ts` — subagent graph from a schema object (no API key)
+
+Defines a multi-subagent workflow as a plain `GraphDef` object and lets
+`buildScratchpadGraph` construct the wired topology — folding each node's tool
+slice (interface disclosure), mounting the scratchpad surface, and stamping
+provenance. Prints the resulting nodes, tool slices, and edges.
+
+```bash
+pnpm scratchpad:graph
+```
 
 ## `agent.ts` — live agent (requires `ANTHROPIC_API_KEY`)
 

@@ -5,6 +5,8 @@ export default defineConfig({
     "src/index.ts",
     "src/core/index.ts",
     "src/tools/index.ts",
+    "src/graph/index.ts",
+    "src/backends/memory.ts",
     "src/backends/pglite.ts",
   ],
   format: ["esm"],

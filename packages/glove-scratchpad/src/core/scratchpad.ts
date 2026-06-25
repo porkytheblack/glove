@@ -1,7 +1,7 @@
 /**
  * The Scratchpad — the durable store + manipulation surface (§6, §9).
  *
- * The membrane between the stochastic control unit (subdroids) and the
+ * The membrane between the stochastic control unit (subagents) and the
  * deterministic datapath (SQL over the store). Management of durable state is
  * owned here, never by the models (§8): storing is a side effect of ingest, key
  * allocation / normalization / lifecycle are the store's job.
