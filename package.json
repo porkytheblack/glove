@@ -10,6 +10,8 @@
     "scratchpad:graph": "tsx examples/scratchpad-agent/graph.ts",
     "scratchpad:workflow": "tsx examples/scratchpad-agent/workflow.ts",
     "scratchpad:agent": "tsx examples/scratchpad-agent/agent.ts",
+    "scratchpad:mcp": "tsx examples/scratchpad-mcp-workflow/agent.ts",
+    "scratchpad:mcp-smoke": "tsx examples/scratchpad-mcp-workflow/smoke.ts",
     "weather:agent": "tsx examples/weather-agent/index.tsx",
     "coding:agent": "tsx examples/coding-agent/index.tsx",
     "coding:server": "tsx examples/coding-agent/server.ts",
