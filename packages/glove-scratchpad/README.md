@@ -127,6 +127,36 @@ yourself (exactly like `glove-scratchpad/pglite` and `@electric-sql/pglite`).
 them on a subagent or a graph node. For a non-MCP catalogue, the MCP-agnostic
 `containTools` / `mountContainedTools` (from the barrel) do the same batch wrap.
 
+#### Scaling to 10+ providers (interface disclosure + containment)
+
+`mountContainedMcp` is right when you have a handful of connections you always
+want loaded. With a large catalogue — 10, 20 providers — folding every tool up
+front bloats the model's tool list and defeats the point. That's *interface*
+bloat, and the answer is **discovery**: load nothing up front, let the agent
+discover and activate providers on demand via `glove-mcp`'s `discovermcp`
+subagent. `containingWrap` makes that discovery containment-aware:
+
+```ts
+import { mountMcp } from "glove-mcp";              // catalogue + discovery
+import { containingWrap, createContainmentReporter } from "glove-scratchpad/mcp";
+
+const reporter = createContainmentReporter();
+await mountMcp(agent, {
+  adapter,                                          // per-conversation active-state + tokens
+  entries,                                          // the FULL 10+ provider catalogue
+  wrapTool: containingWrap(sp, { onContain: reporter.onContain }),
+});
+// The agent starts with ZERO provider tools. It calls discovermcp to activate
+// the providers a task needs; each activated tool's result is contained in the
+// scratchpad. Interface disclosure + result containment — the two mechanisms a
+// "code execution environment for MCP" needs — together.
+```
+
+`wrapTool` is a general `glove-mcp` seam (`(tool, entry) => tool`); `containingWrap`
+is the containment implementation of it. The provenance `actor` defaults to each
+provider's catalogue id, so events and descriptors record which provider produced
+what — essential when a single answer joins data across many of them.
+
 ### Is it earning its keep? (`createContainmentReporter`)
 
 Every containment is observable. Pass an `onContain` listener to

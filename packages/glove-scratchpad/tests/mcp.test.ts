@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { GloveFoldArgs, IGloveRunnable } from "glove-core/glove";
-import type { McpServerConnection } from "glove-mcp";
+import type { McpServerConnection, McpCatalogueEntry } from "glove-mcp";
 import { Scratchpad } from "../src/core/scratchpad";
 import { MemoryBackend } from "../src/backends/memory";
-import { containMcpTools, mountContainedMcp } from "../src/mcp/index";
+import { containMcpTools, mountContainedMcp, containingWrap } from "../src/mcp/index";
 
 // A fake MCP connection — structurally a McpServerConnection, no SDK / no
 // network. `bridgeMcpTool` is a pure function, so the whole bridge+contain path
@@ -70,6 +70,28 @@ test("shouldContain leaves small/control tools bridged but uncontained", async (
   const list = tools.find((t) => t.name === "crm__list_accounts")!;
   const listRes = await list.do({}, undefined as never, undefined as never);
   assert.equal((listRes.data as { scratchpad?: boolean }).scratchpad, true);
+  await sp.close();
+});
+
+test("containingWrap contains a bridged tool and defaults actor to the entry id", async () => {
+  const sp = await Scratchpad.create(await MemoryBackend.create());
+  const wrap = containingWrap(sp);
+
+  const tool: GloveFoldArgs<unknown> = {
+    name: "crm__list_accounts",
+    description: "x",
+    async do() {
+      return { status: "success", data: JSON.stringify(Array.from({ length: 40 }, (_, i) => ({ id: i }))) };
+    },
+  };
+  const entry: McpCatalogueEntry = { id: "crm", name: "CRM", description: "Customer data", url: "http://x/mcp" };
+
+  const wrapped = wrap(tool, entry);
+  const r = await wrapped.do({}, undefined as never, undefined as never);
+  const data = r.data as { scratchpad?: boolean; rowCount: number; provenance: { actor?: string } };
+  assert.equal(data.scratchpad, true);
+  assert.equal(data.rowCount, 40);
+  assert.equal(data.provenance.actor, "crm"); // actor defaults to the catalogue entry id
   await sp.close();
 });
 

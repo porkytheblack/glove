@@ -6,7 +6,7 @@ import type { ModelAdapter, StoreAdapter, ToolResultData } from "glove-core/core
 
 import type { McpAdapter, McpCatalogueEntry } from "../adapter";
 import { connectMcp } from "../connect";
-import { bridgeMcpTool } from "../bridge";
+import { bridgeMcpTool, type McpToolWrapper } from "../bridge";
 import { bearer } from "../auth";
 
 import type { DiscoveryAmbiguityPolicy } from "./policy";
@@ -27,6 +27,8 @@ export interface DiscoverySubAgentConfig {
   subagentSystemPrompt?: string;
   /** Forwarded to connectMcp during activation. */
   clientInfo?: { name: string; version: string };
+  /** Transform each bridged tool before it's folded onto the main agent (e.g. containment). */
+  wrapTool?: McpToolWrapper;
 }
 
 // ─── Subagent-only tools ─────────────────────────────────────────────────────
@@ -102,6 +104,7 @@ function activateTool(
   entries: McpCatalogueEntry[],
   mainGlove: IGloveRunnable,
   clientInfo?: { name: string; version: string },
+  wrapTool?: McpToolWrapper,
 ): GloveFoldArgs<{ id: string }> {
   return {
     name: "activate",
@@ -132,7 +135,8 @@ function activateTool(
         const tools = await conn.listTools();
         const toolNames: string[] = [];
         for (const tool of tools) {
-          mainGlove.fold(bridgeMcpTool(conn, tool, mainGlove.serverMode));
+          const bridged = bridgeMcpTool(conn, tool, mainGlove.serverMode);
+          mainGlove.fold(wrapTool ? wrapTool(bridged, entry) : bridged);
           toolNames.push(tool.name);
         }
 
@@ -274,7 +278,7 @@ export function discoverySubAgent(
 
       subagent.fold(listCapabilitiesTool(config.adapter, config.entries));
       subagent.fold(
-        activateTool(config.adapter, config.entries, parentGlove, config.clientInfo),
+        activateTool(config.adapter, config.entries, parentGlove, config.clientInfo, config.wrapTool),
       );
       subagent.fold(deactivateTool(config.adapter));
       if (config.ambiguityPolicy.type === "interactive") {

@@ -24,7 +24,8 @@
  */
 import type { GloveFoldArgs, IGloveRunnable } from "glove-core/glove";
 import { bridgeMcpTool } from "glove-mcp";
-import type { McpServerConnection, McpToolDef } from "glove-mcp";
+import type { McpServerConnection, McpToolDef, McpToolWrapper } from "glove-mcp";
+import type { Scratchpad } from "../core/scratchpad";
 import { storeAndTruncate, type StoreAndTruncateOptions } from "../tools/store-and-truncate";
 
 export interface ContainMcpOptions extends Omit<StoreAndTruncateOptions, "name"> {
@@ -76,6 +77,37 @@ export async function mountContainedMcp(
   const tools = await containMcpTools(connection, opts);
   for (const tool of tools) glove.fold(tool);
   return tools.map((tool) => tool.name);
+}
+
+export type ContainingWrapOptions = Omit<StoreAndTruncateOptions, "scratchpad" | "name">;
+
+/**
+ * Build an `McpToolWrapper` that contains every bridged tool's result in the
+ * scratchpad. Pass it to `mountMcp({ ..., wrapTool })` so an entire 10+ provider
+ * catalogue is discovered on demand by the `discovermcp` subagent AND has each
+ * activated tool's result contained — interface disclosure (don't load every
+ * schema up front) and result containment (don't round-trip payloads) together.
+ *
+ * ```ts
+ * import { mountMcp } from "glove-mcp";
+ * import { containingWrap } from "glove-scratchpad/mcp";
+ *
+ * await mountMcp(agent, {
+ *   adapter, entries,                                   // the full catalogue
+ *   wrapTool: containingWrap(sp, { onContain: reporter.onContain }),
+ * });
+ * ```
+ *
+ * The provenance `actor` defaults to the catalogue entry id, so events and
+ * descriptors record which provider produced each record.
+ */
+export function containingWrap(
+  scratchpad: Scratchpad,
+  opts: ContainingWrapOptions = {},
+): McpToolWrapper {
+  const { actor, ...rest } = opts;
+  return (tool, entry) =>
+    storeAndTruncate(tool, { scratchpad, actor: actor ?? entry.id, ...rest });
 }
 
 // Re-export the telemetry helpers so an MCP-only consumer needs a single import.
