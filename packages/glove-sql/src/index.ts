@@ -91,7 +91,7 @@ interface Token {
 }
 
 const MULTI_OPS = ["->>", "->", "::", "<=", ">=", "<>", "!=", "||"];
-const SINGLE = new Set(["(", ")", ",", ".", "*", "+", "-", "/", "=", "<", ">", ";"]);
+const SINGLE = new Set(["(", ")", ",", ".", "*", "+", "-", "/", "%", "=", "<", ">", ";"]);
 
 function tokenize(sql: string): Token[] {
   const toks: Token[] = [];
@@ -817,7 +817,7 @@ class Parser {
   private parseMultiplicative(): Expr {
     let l = this.parseUnary();
     for (;;) {
-      if (this.isOp("*") || this.isOp("/")) {
+      if (this.isOp("*") || this.isOp("/") || this.isOp("%")) {
         const op = this.next().value;
         l = { k: "binary", op, l, r: this.parseUnary() };
         continue;
@@ -1798,16 +1798,15 @@ export class MemoryBackend implements SqlBackend {
       }
       case "in": {
         const v = this.evalExpr(expr.e, jr, params);
+        let items: unknown[];
         if (expr.sub) {
           const rs = this.execSubquery(expr.sub, jr, params);
           const c = rs.columns[0];
-          for (const row of rs.rows) if (looseEq(v, row[c])) return !expr.negated;
-          return expr.negated;
+          items = rs.rows.map((row) => row[c]);
+        } else {
+          items = (expr.list ?? []).map((el) => this.evalExpr(el, jr, params));
         }
-        for (const el of expr.list ?? []) {
-          if (looseEq(v, this.evalExpr(el, jr, params))) return !expr.negated;
-        }
-        return expr.negated;
+        return evalInList(v, items, expr.negated);
       }
       case "between": {
         const v = this.evalExpr(expr.e, jr, params);
@@ -1909,33 +1908,46 @@ export class MemoryBackend implements SqlBackend {
     }
     const l = this.evalExpr(expr.l, jr, params);
     const r = this.evalExpr(expr.r, jr, params);
+    const nullish = l === null || l === undefined || r === null || r === undefined;
     switch (op) {
+      // Comparisons with a NULL operand are UNKNOWN (NULL), not true/false.
       case "=":
-        return looseEq(l, r);
+        return nullish ? null : looseEq(l, r);
       case "<>":
-        return l === null || r === null ? null : !looseEq(l, r);
+        return nullish ? null : !looseEq(l, r);
       case "<":
       case "<=":
       case ">":
       case ">=": {
-        if (l === null || r === null || l === undefined || r === undefined) return null;
+        if (nullish) return null;
         const c = compareValues(l, r);
         return op === "<" ? c < 0 : op === "<=" ? c <= 0 : op === ">" ? c > 0 : c >= 0;
       }
       case "like":
       case "ilike":
-        if (l === null || r === null) return null;
-        return likeMatch(String(l), String(r), op === "ilike");
+        return nullish ? null : likeMatch(String(l), String(r), op === "ilike");
+      // Arithmetic with a NULL operand is NULL (never NaN).
       case "+":
-        return num(l) + num(r);
+        return nullish ? null : num(l) + num(r);
       case "-":
-        return num(l) - num(r);
+        return nullish ? null : num(l) - num(r);
       case "*":
-        return num(l) * num(r);
-      case "/":
-        return num(l) / num(r);
+        return nullish ? null : num(l) * num(r);
+      case "/": {
+        if (nullish) return null;
+        const d = num(r);
+        if (d === 0) throw new Error("MemoryBackend: division by zero");
+        return num(l) / d;
+      }
+      case "%": {
+        if (nullish) return null;
+        const d = num(r);
+        if (d === 0) throw new Error("MemoryBackend: division by zero");
+        return num(l) % d;
+      }
+      // `||` concatenation propagates NULL (unlike the concat() function).
       case "||":
-        return (l === null ? "" : String(l)) + (r === null ? "" : String(r));
+        return nullish ? null : String(l) + String(r);
       default:
         throw new Error(`MemoryBackend: unsupported operator '${op}'`);
     }
@@ -2057,10 +2069,8 @@ export class MemoryBackend implements SqlBackend {
         // evaluate against the group's representative row.
         if (expr.sub) return this.evalExpr(expr, group[0] ?? new Map(), params);
         const v = this.evalAggExpr(expr.e, group, params);
-        for (const el of expr.list ?? []) {
-          if (looseEq(v, this.evalAggExpr(el, group, params))) return !expr.negated;
-        }
-        return expr.negated;
+        const items = (expr.list ?? []).map((el) => this.evalAggExpr(el, group, params));
+        return evalInList(v, items, expr.negated);
       }
       case "between": {
         const v = this.evalAggExpr(expr.e, group, params);
@@ -2099,29 +2109,40 @@ export class MemoryBackend implements SqlBackend {
   }
 
   private combine(op: string, l: unknown, r: unknown): unknown {
+    const nullish = l === null || l === undefined || r === null || r === undefined;
     switch (op) {
       case "=":
-        return looseEq(l, r);
+        return nullish ? null : looseEq(l, r);
       case "<>":
-        return !looseEq(l, r);
+        return nullish ? null : !looseEq(l, r);
       case "<":
       case "<=":
       case ">":
       case ">=": {
-        if (l === null || r === null) return null;
+        if (nullish) return null;
         const c = compareValues(l, r);
         return op === "<" ? c < 0 : op === "<=" ? c <= 0 : op === ">" ? c > 0 : c >= 0;
       }
       case "+":
-        return num(l) + num(r);
+        return nullish ? null : num(l) + num(r);
       case "-":
-        return num(l) - num(r);
+        return nullish ? null : num(l) - num(r);
       case "*":
-        return num(l) * num(r);
-      case "/":
-        return num(l) / num(r);
+        return nullish ? null : num(l) * num(r);
+      case "/": {
+        if (nullish) return null;
+        const d = num(r);
+        if (d === 0) throw new Error("MemoryBackend: division by zero");
+        return num(l) / d;
+      }
+      case "%": {
+        if (nullish) return null;
+        const d = num(r);
+        if (d === 0) throw new Error("MemoryBackend: division by zero");
+        return num(l) % d;
+      }
       case "||":
-        return (l === null ? "" : String(l)) + (r === null ? "" : String(r));
+        return nullish ? null : String(l) + String(r);
       default:
         throw new Error(`MemoryBackend: unsupported operator '${op}' in aggregate`);
     }
@@ -2190,7 +2211,33 @@ function looseEq(a: unknown, b: unknown): boolean {
     return num(a) === num(b);
   }
   if (typeof a === "boolean" || typeof b === "boolean") return Boolean(a) === Boolean(b);
+  // jsonb / array / object: deep value equality, not JS reference identity.
+  if (typeof a === "object" || typeof b === "object") {
+    try {
+      return JSON.stringify(a) === JSON.stringify(b);
+    } catch {
+      return a === b;
+    }
+  }
   return a === b;
+}
+
+/**
+ * Three-valued IN / NOT IN. TRUE on a match; if there's no match but the list
+ * holds a NULL the result is UNKNOWN (NULL) — so `x NOT IN (.. NULL ..)` yields
+ * no rows, the classic Postgres gotcha; FALSE only when there's no match and no NULL.
+ */
+function evalInList(v: unknown, items: unknown[], negated: boolean): unknown {
+  if (v === null || v === undefined) return null;
+  let sawNull = false;
+  for (const item of items) {
+    if (item === null || item === undefined) {
+      sawNull = true;
+      continue;
+    }
+    if (looseEq(v, item)) return !negated;
+  }
+  return sawNull ? null : negated;
 }
 
 function compareValues(a: unknown, b: unknown): number {
