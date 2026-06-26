@@ -62,27 +62,38 @@ async function main() {
       return { status: "success", data: JSON.stringify(fakeIssues()) };
     },
   };
-  await storeAndTruncate(search, { scratchpad: sp, name: "issues" }).do(
+  const contained = await storeAndTruncate(search, { scratchpad: sp, name: "issues" }).do(
     {},
     undefined as never,
     undefined as never,
   );
+  // Thread the ref the store actually allocated — `name` is only a base, so on a
+  // resumed scratchpad the first dataset may come back as `issues_2`, not `issues`.
+  const issuesRef = (contained.data as { ref: string }).ref;
 
-  // What each subagent does on its turn (stand-ins for real tool use).
+  // Each subagent threads the ref the previous step actually produced rather than
+  // guessing a name. `query({ store })` returns a stub whose `ref` is authoritative.
+  let openRef = "";
+  let byPriorityRef = "";
   const scripts: Record<string, Script> = {
     triage: async (s) => {
-      await s.query(`SELECT id, priority, assignee FROM issues WHERE state = 'open'`, { store: "open" });
-      return "narrowed to open issues → reference 'open'";
+      const stub = (await s.query(
+        `SELECT id, priority, assignee FROM ${issuesRef} WHERE state = 'open'`,
+        { store: "open" },
+      )) as { ref: string };
+      openRef = stub.ref;
+      return `narrowed to open issues → reference '${openRef}'`;
     },
     analyst: async (s) => {
-      await s.query(
-        `SELECT priority, count(*)::int AS n FROM open GROUP BY priority ORDER BY priority`,
+      const stub = (await s.query(
+        `SELECT priority, count(*)::int AS n FROM ${openRef} GROUP BY priority ORDER BY priority`,
         { store: "by_priority" },
-      );
-      return "counted open issues by priority → reference 'by_priority'";
+      )) as { ref: string };
+      byPriorityRef = stub.ref;
+      return `counted open issues by priority → reference '${byPriorityRef}'`;
     },
     writer: async (s) => {
-      const m = await s.materialize({ ref: "by_priority" });
+      const m = await s.materialize({ ref: byPriorityRef });
       const parts = m.rows.map((r) => `${r.priority}: ${r.n}`).join(", ");
       return `Open issues by priority — ${parts}.`;
     },

@@ -101,12 +101,15 @@ function activateTool(
         });
 
         const tools = await conn.listTools();
-        const toolNames: string[] = [];
-        for (const tool of tools) {
+        // Build the full wrapped set first; fold only after every wrapTool call
+        // succeeds, so a throwing wrapper can't leave the session with a
+        // half-activated provider the adapter doesn't know about.
+        const wrapped = tools.map((tool) => {
           const bridged = bridgeMcpTool(conn, tool, mainGlove.serverMode);
-          mainGlove.fold(wrapTool ? wrapTool(bridged, entry) : bridged);
-          toolNames.push(tool.name);
-        }
+          return wrapTool ? wrapTool(bridged, entry) : bridged;
+        });
+        for (const t of wrapped) mainGlove.fold(t);
+        const toolNames = tools.map((tool) => tool.name);
 
         await adapter.activate(entry.id);
 

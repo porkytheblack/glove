@@ -14,7 +14,7 @@
 import { z } from "zod";
 
 /** One node of the graph: a subagent, its prompt, and the tools it may see. */
-export const subagentSchema = z.object({
+export const subagentSchema = z.strictObject({
   /** Unique, readable name. Used as the provenance `actor` and the edge id. */
   name: z.string().min(1),
   /** The subagent's system prompt (the restraint preamble is prepended on mount). */
@@ -40,7 +40,7 @@ export const subagentSchema = z.object({
 });
 
 /** A directed handoff from one subagent to another. */
-export const edgeSchema = z.object({
+export const edgeSchema = z.strictObject({
   /** Source subagent name. */
   from: z.string().min(1),
   /** Target subagent name. */
@@ -50,7 +50,7 @@ export const edgeSchema = z.object({
 });
 
 /** The whole graph: subagents + the topology between them. */
-export const graphSchema = z.object({
+export const graphSchema = z.strictObject({
   /** Optional name for the graph (diagnostics / logging). */
   name: z.string().optional(),
   /** The subagent the workflow starts at. Must be one of `subagents`. */

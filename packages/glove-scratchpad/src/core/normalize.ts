@@ -22,7 +22,7 @@
  * snapshots are reproducible.
  */
 import type { ColumnType } from "./types";
-import { sanitizeIdent, childTableName } from "./keys";
+import { childTableName, uniqueColumn } from "./keys";
 
 /** Internal columns. Sanitised field names never start with `_`, so these never collide. */
 export const RID = "_rid";
@@ -139,10 +139,16 @@ function inferColumns(
 
   for (const field of fields) {
     const values = rows.map((r) => r[field]);
+    const nonNull = values.filter((v) => v !== null && v !== undefined);
     const anyArray = values.some((v) => Array.isArray(v));
     const anyObject = values.some((v) => isPlainObject(v));
+    // Promote a field to a child table only when EVERY non-null value is an
+    // array. A heterogeneous field (e.g. `[{tags:["a"]}, {tags:"b"}]`) would
+    // otherwise lose its non-array cells in the extraction path — keep it as a
+    // jsonb column instead so nothing is dropped.
+    const allArray = nonNull.length > 0 && nonNull.every((v) => Array.isArray(v));
 
-    if (extractChildren && anyArray) {
+    if (extractChildren && allArray) {
       childFields.push(field);
       continue;
     }
@@ -151,8 +157,7 @@ function inferColumns(
     if (anyArray || anyObject) type = "jsonb";
     else type = inferScalarType(values);
 
-    let name = sanitizeIdent(field);
-    while (usedNames.has(name)) name = `${name}_`;
+    const name = uniqueColumn(field, usedNames);
     usedNames.add(name);
 
     columns.push({ name, field, type });
@@ -166,14 +171,14 @@ function inferColumns(
 function materialiseRows(
   sourceRows: Record<string, unknown>[],
   columns: NormColumn[],
-  opts: { startRid: number; withIdx: boolean; parentIds?: number[] },
+  opts: { startRid: number; withIdx: boolean; parentIds?: number[]; idx?: number[] },
 ): { rows: Array<Record<string, unknown>>; nextRid: number } {
   const rows: Array<Record<string, unknown>> = [];
   let rid = opts.startRid;
   for (let i = 0; i < sourceRows.length; i++) {
     const src = sourceRows[i];
     const row: Record<string, unknown> = { [RID]: rid };
-    if (opts.withIdx) row[IDX] = i;
+    if (opts.withIdx) row[IDX] = opts.idx ? opts.idx[i] : i;
     if (opts.parentIds) row[PARENT] = opts.parentIds[i];
     for (const col of columns) {
       row[col.name] = coerceForInsert(col.type, src[col.field]);
@@ -260,14 +265,16 @@ export function planNormalization(value: unknown, ref: string): NormalizationPla
   for (const field of childFields) {
     const childElements: unknown[] = [];
     const parentIds: number[] = [];
+    const childIdx: number[] = [];
     for (let i = 0; i < sourceRows.length; i++) {
       const cell = sourceRows[i][field];
       if (!Array.isArray(cell)) continue;
       const parentRid = rootMat.rows[i][RID] as number;
-      for (const el of cell) {
+      cell.forEach((el, j) => {
         childElements.push(el);
         parentIds.push(parentRid);
-      }
+        childIdx.push(j); // `_idx` resets per parent row, preserving array order
+      });
     }
     if (childElements.length === 0) continue;
 
@@ -277,6 +284,7 @@ export function planNormalization(value: unknown, ref: string): NormalizationPla
       startRid: ridCursor,
       withIdx: true,
       parentIds,
+      idx: childIdx,
     });
     ridCursor = childMat.nextRid;
 

@@ -150,16 +150,23 @@ export function storeAndTruncate<I>(
       const model = stubData(stub);
 
       if (opts.onContain) {
-        opts.onContain({
-          tool: tool.name,
-          ref: stub.ref,
-          rowCount: stub.descriptor.rowCount,
-          bytesContained: byteLength(rawString),
-          bytesEmitted: byteLength(JSON.stringify(model)),
-        });
+        try {
+          opts.onContain({
+            tool: tool.name,
+            ref: stub.ref,
+            rowCount: stub.descriptor.rowCount,
+            bytesContained: byteLength(rawString),
+            bytesEmitted: byteLength(JSON.stringify(model)),
+          });
+        } catch {
+          // Telemetry must never turn a successful containment into a failed
+          // tool call — a throwing listener here would force a retry and leave
+          // a duplicate stored ref behind.
+        }
       }
 
       return {
+        ...result,
         status: "success",
         data: model,
         renderData:

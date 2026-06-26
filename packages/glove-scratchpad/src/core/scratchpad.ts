@@ -113,6 +113,18 @@ function assertReadOnly(sql: string): string {
       "Only read-only SELECT / WITH queries are allowed here. Use `store` to persist a derived record.",
     );
   }
+  // A leading `WITH` can still hide a data-modifying CTE — Postgres permits
+  // `WITH gone AS (DELETE … RETURNING *) SELECT * FROM gone`, which would mutate
+  // the store through a path documented as read-only. Strip string and quoted
+  // identifiers, then reject any write keyword that remains as a bare token.
+  const stripped = trimmed
+    .replace(/'(?:[^']|'')*'/g, "''") // string literals
+    .replace(/"(?:[^"]|"")*"/g, '""'); // quoted identifiers
+  if (/\b(insert|update|delete|drop|create|alter|truncate|merge|grant|revoke)\b/i.test(stripped)) {
+    throw new Error(
+      "Data-modifying statements (including data-modifying CTEs) are not allowed here. Use `store` to persist a derived record.",
+    );
+  }
   return trimmed;
 }
 
@@ -195,6 +207,46 @@ export class Scratchpad {
     return res.rows.map((r) => String(r.ref));
   }
 
+  /**
+   * Every name a new allocation must avoid: registered refs **and** the physical
+   * table names normalization derives (`${ref}__field` children). Allocating
+   * against `refs()` alone lets a later `name: "doc__authors"` pass the
+   * uniqueness check and then fail at `CREATE TABLE` because that child table
+   * already exists.
+   */
+  private async reservedNames(): Promise<Set<string>> {
+    const [recs, tbls] = await Promise.all([
+      this.backend.query(`SELECT ref FROM ${quoteIdent(META_RECORDS)}`),
+      this.backend.query(`SELECT table_name FROM ${quoteIdent(META_TABLES)}`),
+    ]);
+    const set = new Set<string>();
+    for (const r of recs.rows) set.add(String(r.ref));
+    for (const r of tbls.rows) set.add(String(r.table_name));
+    return set;
+  }
+
+  /**
+   * Best-effort rollback for a half-written record. The backend has no
+   * cross-statement transaction, so if metadata registration fails after some
+   * physical tables were created, drop them and remove any partial meta rows so
+   * `refs()` and snapshots stay consistent and the name can be reused.
+   */
+  private async cleanupPartial(ref: string, tables: string[]): Promise<void> {
+    for (const name of [...tables].reverse()) {
+      try {
+        await this.backend.exec(`DROP TABLE IF EXISTS ${quoteIdent(name)} CASCADE;`);
+      } catch {
+        /* best effort */
+      }
+    }
+    try {
+      await this.backend.query(`DELETE FROM ${quoteIdent(META_TABLES)} WHERE ref = $1`, [ref]);
+      await this.backend.query(`DELETE FROM ${quoteIdent(META_RECORDS)} WHERE ref = $1`, [ref]);
+    } catch {
+      /* best effort */
+    }
+  }
+
   // ── ingest (store-and-truncate write side) ────────────────────────────────
 
   /**
@@ -203,14 +255,18 @@ export class Scratchpad {
    */
   async ingest(value: unknown, opts: IngestOptions = {}): Promise<Stub> {
     const t0 = Date.now();
+    let ref: string | undefined;
+    const created: string[] = [];
     try {
-      const taken = new Set(await this.refs());
-      const ref = uniqueRef(opts.name ?? "rec", taken);
+      const taken = await this.reservedNames();
+      ref = uniqueRef(opts.name ?? "rec", taken);
       const plan = planNormalization(value, ref);
 
-      // 1. DDL + DML for each table (root first so child FKs resolve).
+      // 1. DDL + DML for each table (root first so child FKs resolve). Track
+      //    created tables so a later failure can be rolled back (no transaction).
       for (const table of plan.tables) {
         await this.backend.exec(this.buildCreateTable(table, plan.rootTable));
+        created.push(table.table);
         await this.insertRows(table);
       }
 
@@ -249,6 +305,7 @@ export class Scratchpad {
       });
       return stub;
     } catch (err) {
+      if (ref) await this.cleanupPartial(ref, created);
       return this.fail("ingest", err);
     }
   }
@@ -389,25 +446,36 @@ export class Scratchpad {
     const t0 = Date.now();
     try {
       if (opts.store !== undefined) {
-        const taken = new Set(await this.refs());
+        // Validate before persisting: store mode runs the SQL through
+        // `CREATE TABLE AS`, so it must clear the same read-only / single-statement
+        // guard as read mode — otherwise `query("SELECT 1; DROP TABLE rec", { store })`
+        // would reach the backend verbatim.
+        const select = assertReadOnly(sql);
+        const taken = await this.reservedNames();
         const ref = uniqueRef(opts.store, taken);
-        const select = sql.trim().replace(/;+\s*$/, "");
-        await this.backend.exec(`CREATE TABLE ${quoteIdent(ref)} AS ${select};`);
+        const created: string[] = [];
+        try {
+          await this.backend.exec(`CREATE TABLE ${quoteIdent(ref)} AS ${select};`);
+          created.push(ref);
 
-        const provenance: Provenance = {
-          source: opts.provenance?.source ?? "query",
-          actor: opts.provenance?.actor,
-          timestamp: opts.provenance?.timestamp ?? new Date().toISOString(),
-          note: opts.provenance?.note ?? select,
-        };
-        await this.backend.query(
-          `INSERT INTO ${quoteIdent(META_RECORDS)} (ref, kind, provenance) VALUES ($1, 'table', $2::jsonb)`,
-          [ref, JSON.stringify(provenance)],
-        );
-        await this.backend.query(
-          `INSERT INTO ${quoteIdent(META_TABLES)} (table_name, ref, role, ord) VALUES ($1, $1, 'root', 0)`,
-          [ref],
-        );
+          const provenance: Provenance = {
+            source: opts.provenance?.source ?? "query",
+            actor: opts.provenance?.actor,
+            timestamp: opts.provenance?.timestamp ?? new Date().toISOString(),
+            note: opts.provenance?.note ?? select,
+          };
+          await this.backend.query(
+            `INSERT INTO ${quoteIdent(META_RECORDS)} (ref, kind, provenance) VALUES ($1, 'table', $2::jsonb)`,
+            [ref, JSON.stringify(provenance)],
+          );
+          await this.backend.query(
+            `INSERT INTO ${quoteIdent(META_TABLES)} (table_name, ref, role, ord) VALUES ($1, $1, 'root', 0)`,
+            [ref],
+          );
+        } catch (e) {
+          await this.cleanupPartial(ref, created);
+          throw e;
+        }
         const descriptor = await this.describe(ref, opts.previewRows ?? 5);
         const stub: Stub = { ref, descriptor, readMore: this.readMore(descriptor) };
         await this.emit({

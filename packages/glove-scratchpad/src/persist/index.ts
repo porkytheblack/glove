@@ -131,6 +131,7 @@ export function autoPersistScratchpad(
       await opts.store.save(opts.key, bytes);
       opts.onPersist?.({ key: opts.key, bytes: bytes.byteLength });
     } catch (err) {
+      pending = true; // keep the dirty state so stop()'s final flush retries it
       opts.onError?.(err);
     }
   };
@@ -145,7 +146,11 @@ export function autoPersistScratchpad(
       pending = true;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
-        inFlight = flush();
+        timer = null;
+        // Chain through inFlight so a new save can't begin while one is still
+        // running — two snapshots racing on the same key could otherwise be
+        // written out of order.
+        inFlight = inFlight.then(flush, flush);
       }, debounceMs);
     },
   });

@@ -217,7 +217,13 @@ export async function runScratchpadGraph(
     .map((n) => outputs.get(n) ?? "")
     .filter(Boolean)
     .join("\n\n");
-  const resolved = !signal?.aborted && count <= maxSteps && answerNodes.every((n) => outputs.has(n));
+  // A graph with no terminal node (e.g. a pure cycle `a → b → a`) can never
+  // truly resolve — don't report success just because the last visited node ran.
+  const resolved =
+    !signal?.aborted &&
+    count <= maxSteps &&
+    terminals.length > 0 &&
+    answerNodes.every((n) => outputs.has(n));
 
   return { answer, resolved, steps, refs };
 }

@@ -66,10 +66,13 @@ export async function mountMcp(
         clientInfo,
       });
       const tools = await conn.listTools();
-      for (const tool of tools) {
+      // Build the full wrapped set first; fold only after every wrapTool call
+      // succeeds, so a throwing wrapper can't leave a half-rehydrated provider.
+      const wrapped = tools.map((tool) => {
         const bridged = bridgeMcpTool(conn, tool, glove.serverMode);
-        glove.fold(wrapTool ? wrapTool(bridged, entry) : bridged);
-      }
+        return wrapTool ? wrapTool(bridged, entry) : bridged;
+      });
+      for (const t of wrapped) glove.fold(t);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn(`[glove-mcp] failed to reload ${id}:`, err);

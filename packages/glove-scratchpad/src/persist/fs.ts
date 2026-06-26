@@ -17,12 +17,22 @@ export class FsScratchpadStore implements ScratchpadStore {
     return join(this.dir, `${encodeURIComponent(key)}.snapshot`);
   }
 
+  /** Monotonic per-instance counter — part of each write's unique temp name. */
+  private seq = 0;
+
   async save(key: string, bytes: Uint8Array): Promise<void> {
     await mkdir(this.dir, { recursive: true });
     const target = this.path(key);
-    const tmp = `${target}.tmp`;
+    // Unique temp path per write so two concurrent saves of the same key can't
+    // clobber each other's temp file before the atomic rename publishes it.
+    const tmp = `${target}.${process.pid}.${this.seq++}.tmp`;
     await writeFile(tmp, bytes, { mode: 0o600 });
-    await rename(tmp, target); // atomic on POSIX
+    try {
+      await rename(tmp, target); // atomic on POSIX
+    } catch (err) {
+      await unlink(tmp).catch(() => {}); // don't leak the temp file on failure
+      throw err;
+    }
   }
 
   async load(key: string): Promise<Uint8Array | null> {

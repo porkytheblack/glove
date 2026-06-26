@@ -1189,6 +1189,10 @@ export class MemoryBackend implements SqlBackend {
         this.execCreateTable(stmt, params);
         return { rows: [], fields: [] };
       case "dropTable":
+        if (!this.tables.has(stmt.name)) {
+          if (stmt.ifExists) return { rows: [], fields: [] };
+          throw new Error(`MemoryBackend: relation "${stmt.name}" does not exist`);
+        }
         this.tables.delete(stmt.name);
         return { rows: [], fields: [] };
       case "insert":
@@ -1220,6 +1224,19 @@ export class MemoryBackend implements SqlBackend {
   private execInsert(stmt: InsertStmt, params: unknown[]): void {
     const table = this.getTable(stmt.table);
     const colNames = stmt.columns ?? table.columns.map((c) => c.name);
+    if (stmt.columns) {
+      // Reject names the table never declared — otherwise the stored row carries
+      // columns absent from `table.columns`/`information_schema`, and `SELECT *`
+      // and explicit predicates would observe different schemas.
+      const declared = new Set(table.columns.map((c) => c.name));
+      for (const name of colNames) {
+        if (!declared.has(name)) {
+          throw new Error(
+            `MemoryBackend: column "${name}" of relation "${stmt.table}" does not exist`,
+          );
+        }
+      }
+    }
     for (const valueExprs of stmt.rows) {
       if (valueExprs.length !== colNames.length) {
         throw new Error(`MemoryBackend: INSERT column/value count mismatch on "${stmt.table}"`);
@@ -1540,6 +1557,58 @@ export class MemoryBackend implements SqlBackend {
         ? stmt.items[g.v - 1].expr ?? g
         : g,
     );
+
+    // In aggregate mode every column reference must be covered by a GROUP BY
+    // expression or sit inside an aggregate — PG rejects `SELECT name, count(*)`
+    // without `GROUP BY name`. Validate up front instead of silently reading a
+    // representative row (`group[0]`), which returns a stable but wrong answer.
+    const groupKeys = new Set(groupExprs.map(exprKey));
+    const assertGrouped = (e: Expr): void => {
+      if (groupKeys.has(exprKey(e))) return; // the whole expr is a grouping key
+      switch (e.k) {
+        case "col":
+          throw new Error(
+            `MemoryBackend: column "${e.table ? `${e.table}.` : ""}${e.name}" must appear in the GROUP BY clause or be used in an aggregate function`,
+          );
+        case "func":
+          if (AGG_FUNCS.has(e.name)) return; // an aggregate collapses the group
+          e.args.forEach(assertGrouped);
+          if (e.filter) assertGrouped(e.filter);
+          return;
+        case "unary":
+        case "not":
+        case "is":
+        case "cast":
+          assertGrouped(e.e);
+          return;
+        case "binary":
+        case "json":
+          assertGrouped(e.l);
+          assertGrouped(e.r);
+          return;
+        case "in":
+          assertGrouped(e.e);
+          (e.list ?? []).forEach(assertGrouped);
+          return;
+        case "between":
+          assertGrouped(e.e);
+          assertGrouped(e.lo);
+          assertGrouped(e.hi);
+          return;
+        case "case":
+          if (e.operand) assertGrouped(e.operand);
+          for (const w of e.whens) {
+            assertGrouped(w.when);
+            assertGrouped(w.then);
+          }
+          if (e.els) assertGrouped(e.els);
+          return;
+        default:
+          return; // literals, params, star, subquery, exists — not column refs
+      }
+    };
+    for (const it of stmt.items) if (it.expr) assertGrouped(it.expr);
+    if (stmt.having) assertGrouped(stmt.having);
 
     // group rows
     let groups: JoinedRow[][];
@@ -2468,5 +2537,55 @@ function inferColName(expr: Expr): string {
       return "?column?";
     default:
       return "?column?";
+  }
+}
+
+/**
+ * Canonical structural key for an expression — used to test whether a SELECT /
+ * HAVING expression is covered by a GROUP BY expression (`SELECT lower(name) …
+ * GROUP BY lower(name)`), so aggregate mode can reject ungrouped columns.
+ */
+function exprKey(e: Expr): string {
+  switch (e.k) {
+    case "num":
+      return `#${e.v}`;
+    case "str":
+      return `$${e.v}`;
+    case "bool":
+      return `?${e.v}`;
+    case "null":
+      return "null";
+    case "param":
+      return `:${e.i}`;
+    case "star":
+      return "*";
+    case "col":
+      return `c:${e.table ?? ""}.${e.name}`;
+    case "func":
+      return `f:${e.name.toLowerCase()}(${e.args.map(exprKey).join(",")}${e.star ? "*" : ""}${e.distinct ? "~d" : ""})`;
+    case "unary":
+      return `u${e.op}(${exprKey(e.e)})`;
+    case "not":
+      return `!(${exprKey(e.e)})`;
+    case "binary":
+      return `b${e.op}(${exprKey(e.l)},${exprKey(e.r)})`;
+    case "is":
+      return `is${e.negated ? "!" : ""}(${exprKey(e.e)})`;
+    case "in":
+      return `in${e.negated ? "!" : ""}(${exprKey(e.e)};${(e.list ?? []).map(exprKey).join(",")})`;
+    case "between":
+      return `bt${e.negated ? "!" : ""}(${exprKey(e.e)},${exprKey(e.lo)},${exprKey(e.hi)})`;
+    case "case":
+      return `case(${e.operand ? exprKey(e.operand) : ""};${e.whens.map((w) => `${exprKey(w.when)}=>${exprKey(w.then)}`).join(",")};${e.els ? exprKey(e.els) : ""})`;
+    case "cast":
+      return `cast:${e.type}(${exprKey(e.e)})`;
+    case "json":
+      return `j${e.op}(${exprKey(e.l)},${exprKey(e.r)})`;
+    case "subquery":
+      return "subq";
+    case "exists":
+      return "exists";
+    default:
+      return "?";
   }
 }

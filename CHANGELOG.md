@@ -32,6 +32,14 @@ own zero-dependency package.
 - **Stronger restraint priming.** `mountScratchpad`'s preamble more firmly steers the
   model to narrow with `scratchpad_query` / `scratchpad_describe` and read values only
   at the last mile via `scratchpad_materialize`.
+- **External-review hardening.** `query()` / `materialize({ sql })` now reject
+  data-modifying CTEs (`WITH … AS (DELETE … RETURNING *)`) and store mode runs the
+  same single-statement / read-only guard, so the read paths are genuinely
+  side-effect-free; ref allocation reserves physical child-table names so a later
+  `name: "doc__authors"` can't collide; normalization keeps heterogeneous
+  array/scalar fields (no dropped values) and resets child `_idx` per parent row;
+  partial ingests roll back rather than orphaning tables; and a workflow graph with
+  no terminal node reports `resolved: false` instead of feigning success.
 - New no-key examples: `pnpm scratchpad:mcp-smoke` (containment across a multi-provider
   MCP fleet), `pnpm scratchpad:fleet-smoke` (10-provider fleet), and
   `pnpm scratchpad:bench` (a deterministic, $0 benchmark showing reduction grows with
@@ -55,7 +63,12 @@ WASM, no native module, no runtime dependencies. Runs anywhere JS does.
   (`UNION` / `INTERSECT` / `EXCEPT`), window functions, `CASE` / `BETWEEN` / `IN`,
   jsonb `->` / `->>`, `::type` casts, and the `%` operator. Out-of-subset SQL throws
   rather than mis-answering.
-- 55 tests plus an `AUDIT.md` tracking the findings the test team surfaced and how
+- Hardened further under external (CodeRabbit) review: `DROP TABLE` without
+  `IF EXISTS` errors on a missing relation, `INSERT` rejects columns the table
+  never declared, and aggregate mode rejects ungrouped columns
+  (`SELECT name, count(*)` with no matching `GROUP BY`) instead of silently
+  returning a representative row.
+- 61 tests plus an `AUDIT.md` tracking the findings the test team surfaced and how
   each was resolved.
 
 ## glove-mcp 0.6.0 — tool-wrap seam + word-overlap discovery
