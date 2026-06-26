@@ -38,6 +38,12 @@ const META_TABLES = "_scratchpad_tables";
 /** Postgres max bind params per statement; we chunk inserts well under it. */
 const MAX_PARAMS = 60000;
 
+const _enc = new TextEncoder();
+/** Serialised byte size of a value — the basis for token-consumption estimates. */
+function bytesOf(v: unknown): number {
+  return _enc.encode(typeof v === "string" ? v : JSON.stringify(v ?? "")).length;
+}
+
 export interface IngestOptions {
   /** Readable base name for the reference. Defaults to `"rec"`. */
   name?: string;
@@ -230,16 +236,18 @@ export class Scratchpad {
       }
 
       const descriptor = await this.describe(ref, opts.previewRows ?? 5);
+      const stub: Stub = { ref, descriptor, readMore: this.readMore(descriptor) };
       await this.emit({
         type: "ingest",
         ref,
         rowCount: descriptor.rowCount,
         bytes: descriptor.rawBytes ?? 0,
+        stubBytes: bytesOf(stub),
         source: provenance.source,
         actor: provenance.actor,
         durationMs: Date.now() - t0,
       });
-      return { ref, descriptor, readMore: this.readMore(descriptor) };
+      return stub;
     } catch (err) {
       return this.fail("ingest", err);
     }
@@ -401,15 +409,17 @@ export class Scratchpad {
           [ref],
         );
         const descriptor = await this.describe(ref, opts.previewRows ?? 5);
+        const stub: Stub = { ref, descriptor, readMore: this.readMore(descriptor) };
         await this.emit({
           type: "query",
           sql: select,
           stored: ref,
           rows: descriptor.rowCount,
+          bytes: bytesOf(stub),
           truncated: false,
           durationMs: Date.now() - t0,
         });
-        return { ref, descriptor, readMore: this.readMore(descriptor) };
+        return stub;
       }
 
       const select = assertReadOnly(sql);
@@ -419,7 +429,7 @@ export class Scratchpad {
       );
       const truncated = res.rows.length > limit;
       const rows = truncated ? res.rows.slice(0, limit) : res.rows;
-      await this.emit({ type: "query", sql: select, rows: rows.length, truncated, durationMs: Date.now() - t0 });
+      await this.emit({ type: "query", sql: select, rows: rows.length, bytes: bytesOf(rows), truncated, durationMs: Date.now() - t0 });
       return { rows, truncated };
     } catch (err) {
       return this.fail("query", err, { sql });
@@ -455,6 +465,7 @@ export class Scratchpad {
         ref: opts.ref,
         sql: opts.sql,
         returned: rows.length,
+        bytes: bytesOf(rows),
         truncated,
         durationMs: Date.now() - t0,
       });

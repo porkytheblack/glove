@@ -1,8 +1,9 @@
 /**
  * The manipulation surface as Glove tools (§6, §9).
  *
- * Three verbs a subagent uses to work the store without dragging payloads
- * through context:
+ * The four tools a subagent uses to work the store without dragging payloads
+ * through context — three verbs (describe / query / materialize) plus an
+ * enumerator (list):
  *
  *   - `scratchpad_describe` — read the metadata surface of a reference (shape,
  *     preview, provenance). Reasoning over descriptors, not values.

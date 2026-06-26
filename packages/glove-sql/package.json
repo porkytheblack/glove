@@ -1,0 +1,36 @@
+{
+  "name": "glove-sql",
+  "version": "0.1.0",
+  "description": "A zero-dependency, pure-JS Postgres-subset SQL engine. Tables built at runtime from ingested data; tokenizer + recursive-descent parser + evaluator covering joins, CTEs, set ops, subqueries, aggregates with FILTER, CASE, window functions, and a scalar-function library. Serialises to bytes (computation as a value). The default backend for glove-scratchpad.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-sql"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -41,21 +41,26 @@ pnpm scratchpad:fleet         # live, via OPENROUTER_API_KEY / OPENROUTER_MODEL
 ```
 
 **`smoke.ts`** (no key) connects the 5 relevant providers, contains them, runs the
-5-way JOIN, then persists + restores the whole scratchpad — deterministic ground
-truth. **`agent.ts`** (live) loads the *full* catalogue with discovery, and the
-model discovers → activates → contains → joins → materializes on its own. Both
-land on the same board (33 flagged enterprise accounts, ~$8.78M ARR at risk).
+5-way JOIN, then persists + restores the whole scratchpad — **deterministic ground
+truth** (the reproducible artifact). **`agent.ts`** (live) loads the *full*
+catalogue with discovery, and the model discovers → activates → contains → joins →
+materializes on its own; a well-behaved live run reaches the same board (33 flagged
+enterprise accounts, ~$8.78M ARR at risk), but the model-driven path is not
+guaranteed — it can write SQL that errors and recovers, or load fewer providers.
 
 ## What to watch in the live trace
+
+The **containment** line is deterministic (the payloads are seeded); the SQL the
+model writes — and thus the query/error counts — vary by run.
 
 ```
 → glove_invoke_subagent "Activate providers for accounts, issues, support, billing, analytics…"
   ⟳ discover → list_capabilities → activate ×5      # interface disclosure
-→ crm__list_accounts … analytics__usage_by_account  # contained on return (30× less)
+→ crm__list_accounts … analytics__usage_by_account  # contained on return (30× less, deterministic)
 → scratchpad_query  WITH p0 AS (… JOIN … )          # narrowed + joined in SQL
 …
-  containment : 5 call(s) · 163 KB contained → 5.5 KB emitted (30× less)
-  scratchpad  : 5 ingests · 8 queries · … · 2 errors  # bad SQL surfaced + recovered
+  containment : 5 call(s) · 163 KB contained → 5.5 KB emitted (30× less)   # deterministic
+  scratchpad  : 5 ingests · N queries · … · M errors   # model-dependent (bad SQL surfaces + recovers)
 ```
 
 ## Files

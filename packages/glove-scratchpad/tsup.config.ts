@@ -18,5 +18,5 @@ export default defineConfig({
   clean: true,
   splitting: true,
   outDir: "dist",
-  external: ["glove-core", "zod", "@electric-sql/pglite", "glove-mcp"],
+  external: ["glove-core", "zod", "@electric-sql/pglite", "glove-mcp", "glove-sql"],
 });
