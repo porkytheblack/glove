@@ -26,7 +26,8 @@
     "mcp:notion-server": "pnpm mcp:build && tsx examples/mcp-cli/notion-server.ts",
     "mcp:notion-status": "pnpm mcp:build && tsx examples/mcp-cli/notion-status.ts",
     "mcp:gmail": "pnpm mcp:build && tsx examples/mcp-cli/gmail-agent.ts",
-    "mcp:gmail-auth": "pnpm mcp:build && tsx examples/mcp-cli/gmail-mcp-auth.ts"
+    "mcp:gmail-auth": "pnpm mcp:build && tsx examples/mcp-cli/gmail-mcp-auth.ts",
+    "scratchpad:bench": "tsx examples/scratchpad-bench/bench.ts"
   },
   "packageManager": "pnpm@10.28.2",
   "pnpm": {
