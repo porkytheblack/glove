@@ -1,6 +1,6 @@
 {
   "name": "glove-scratchpad",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The Scratchpad Computer for Glove — context-efficient multi-agent workflows via handles + deterministic SQL transforms over a durable store. Postgres-dialect manipulation surface, store-and-truncate result containment, serializable scratchpad, schema-defined subagent graphs. Uses glove-sql (a zero-dependency pure-JS Postgres-subset engine) as the default backend; PGlite optional.",
   "type": "module",
   "license": "MIT",

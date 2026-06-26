@@ -1,5 +1,76 @@
 # Changelog
 
+## glove-scratchpad 0.2.0 — containment fleets, observability & durable scratchpads
+
+**Packages:** `glove-scratchpad` 0.2.0, `glove-sql` 0.1.0 (new), `glove-mcp` 0.6.0
+
+Builds on the 0.1.0 Scratchpad Computer with the pieces production use surfaced:
+containment across a whole MCP fleet, a subscribable event stream (including token
+accounting), durable/resumable scratchpads, and the SQL engine extracted into its
+own zero-dependency package.
+
+- **Contain a whole MCP fleet in one call.** New `glove-scratchpad/mcp` subpath:
+  `mountContainedMcp` / `containMcpTools` / `containingWrap` apply store-and-truncate
+  to every bridged MCP tool at mount time, so 10+ providers' verbose payloads never
+  reach context — only stubs do. Built on `glove-mcp`'s new `wrapTool` seam.
+- **Subscribe to the scratchpad.** `sp.subscribe(subscriber)` emits a typed
+  `ScratchpadEvent` stream (ingest / query / materialize / drop / snapshot / error),
+  each event carrying byte deltas (raw bytes contained vs. stub bytes returned).
+  `createScratchpadStats` rolls them into running totals.
+- **Token-consumption tracking.** `createConsumptionTracker` (pluggable
+  `tokensForBytes`, default `defaultTokensForBytes`) turns the byte deltas into token
+  estimates, so you can measure context saved vs. spent over a run with no model in
+  the loop.
+- **Durable, resumable scratchpads.** A `ScratchpadStore` adapter contract with
+  `MemoryScratchpadStore` and `FsScratchpadStore` (`glove-scratchpad/persist-fs`),
+  plus `persistScratchpad` / `restoreScratchpad` / `autoPersistScratchpad` — snapshot
+  to disk and resume the whole store later.
+- **SQL engine extracted to `glove-sql`.** The in-memory Postgres-subset backend moved
+  into its own zero-dependency package (see below). `MemoryBackend` is still exported
+  from `glove-scratchpad` and the `glove-scratchpad/memory` subpath, so existing
+  imports keep working.
+- **Stronger restraint priming.** `mountScratchpad`'s preamble more firmly steers the
+  model to narrow with `scratchpad_query` / `scratchpad_describe` and read values only
+  at the last mile via `scratchpad_materialize`.
+- New no-key examples: `pnpm scratchpad:mcp-smoke` (containment across a multi-provider
+  MCP fleet), `pnpm scratchpad:fleet-smoke` (10-provider fleet), and
+  `pnpm scratchpad:bench` (a deterministic, $0 benchmark showing reduction grows with
+  payload size and is invariant to provider count).
+
+## glove-sql 0.1.0 — zero-dependency Postgres-subset SQL engine
+
+**Packages:** `glove-sql` 0.1.0 (new)
+
+The SQL engine behind the Scratchpad Computer, extracted so it can be used — and
+tested — on its own. Pure JS (tokenizer → recursive-descent parser → evaluator): no
+WASM, no native module, no runtime dependencies. Runs anywhere JS does.
+
+- **`MemoryBackend`** — an in-memory store whose tables are built at runtime from
+  ingested data, implementing the `SqlBackend` / `SqlResult` contracts. `dump()` /
+  `create({ load })` serialize and resume the whole store as compact JSON.
+- **Agent-grade SQL coverage.** Hardened from "the subset the scratchpad happened to
+  use" toward Postgres parity subagents can rely on, driven by a multi-agent test
+  team: three-valued NULL logic, `DISTINCT` aggregates, `ORDER BY` after `GROUP BY`,
+  correlated and scalar subqueries (with cardinality checks), set operations
+  (`UNION` / `INTERSECT` / `EXCEPT`), window functions, `CASE` / `BETWEEN` / `IN`,
+  jsonb `->` / `->>`, `::type` casts, and the `%` operator. Out-of-subset SQL throws
+  rather than mis-answering.
+- 55 tests plus an `AUDIT.md` tracking the findings the test team surfaced and how
+  each was resolved.
+
+## glove-mcp 0.6.0 — tool-wrap seam + word-overlap discovery
+
+**Packages:** `glove-mcp` 0.6.0
+
+- **`wrapTool` seam.** `mountMcp` (and the discovery subagent config) accept an
+  optional `wrapTool: McpToolWrapper` that wraps every bridged MCP tool as it is
+  folded — the hook `glove-scratchpad/mcp` uses to contain a whole fleet's results.
+  Backward compatible: omit it and nothing changes.
+- **Fixed discovery matching.** The `discovermcp` matcher used whole-string
+  `includes()`, so multi-word objectives matched only a subset of relevant providers.
+  Replaced with word-overlap scoring (`discovery/match.ts`); a fleet of providers now
+  surfaces completely.
+
 ## glove-scratchpad 0.1.0 — The Scratchpad Computer
 
 **Packages:** `glove-scratchpad` 0.1.0 (new)
