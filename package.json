@@ -4,8 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm --filter glove-core build && pnpm --filter glove-sqlite build && pnpm --filter glove-memory build && pnpm --filter glove-mesh build && pnpm --filter glove-continuum-signal build && pnpm --filter glove-mcp build && pnpm --filter glove-react build && pnpm --filter glove-next build && pnpm --filter glove-voice build && pnpm --filter glovebox-core build && pnpm --filter glovebox-kit build && pnpm --filter glovebox-client build",
+    "build": "pnpm --filter glove-core build && pnpm --filter glove-sqlite build && pnpm --filter glove-memory build && pnpm --filter glove-mesh build && pnpm --filter glove-continuum-signal build && pnpm --filter glove-mcp build && pnpm --filter glove-sql build && pnpm --filter glove-scratchpad build && pnpm --filter glove-react build && pnpm --filter glove-next build && pnpm --filter glove-voice build && pnpm --filter glovebox-core build && pnpm --filter glovebox-kit build && pnpm --filter glovebox-client build",
     "typecheck": "pnpm -r --filter './packages/*' typecheck",
+    "scratchpad:demo": "tsx examples/scratchpad-agent/demo.ts",
+    "scratchpad:graph": "tsx examples/scratchpad-agent/graph.ts",
+    "scratchpad:workflow": "tsx examples/scratchpad-agent/workflow.ts",
+    "scratchpad:agent": "tsx examples/scratchpad-agent/agent.ts",
+    "scratchpad:mcp": "tsx examples/scratchpad-mcp-workflow/agent.ts",
+    "scratchpad:mcp-smoke": "tsx examples/scratchpad-mcp-workflow/smoke.ts",
+    "scratchpad:fleet": "tsx examples/scratchpad-mcp-fleet/agent.ts",
+    "scratchpad:fleet-smoke": "tsx examples/scratchpad-mcp-fleet/smoke.ts",
     "weather:agent": "tsx examples/weather-agent/index.tsx",
     "coding:agent": "tsx examples/coding-agent/index.tsx",
     "coding:server": "tsx examples/coding-agent/server.ts",
@@ -18,7 +26,8 @@
     "mcp:notion-server": "pnpm mcp:build && tsx examples/mcp-cli/notion-server.ts",
     "mcp:notion-status": "pnpm mcp:build && tsx examples/mcp-cli/notion-status.ts",
     "mcp:gmail": "pnpm mcp:build && tsx examples/mcp-cli/gmail-agent.ts",
-    "mcp:gmail-auth": "pnpm mcp:build && tsx examples/mcp-cli/gmail-mcp-auth.ts"
+    "mcp:gmail-auth": "pnpm mcp:build && tsx examples/mcp-cli/gmail-mcp-auth.ts",
+    "scratchpad:bench": "tsx examples/scratchpad-bench/bench.ts"
   },
   "packageManager": "pnpm@10.28.2",
   "pnpm": {

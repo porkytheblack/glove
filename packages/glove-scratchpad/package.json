@@ -1,0 +1,83 @@
+{
+  "name": "glove-scratchpad",
+  "version": "0.2.0",
+  "description": "The Scratchpad Computer for Glove — context-efficient multi-agent workflows via handles + deterministic SQL transforms over a durable store. Postgres-dialect manipulation surface, store-and-truncate result containment, serializable scratchpad, schema-defined subagent graphs. Uses glove-sql (a zero-dependency pure-JS Postgres-subset engine) as the default backend; PGlite optional.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-scratchpad"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./tools": {
+      "types": "./dist/tools/index.d.ts",
+      "import": "./dist/tools/index.js"
+    },
+    "./graph": {
+      "types": "./dist/graph/index.d.ts",
+      "import": "./dist/graph/index.js"
+    },
+    "./memory": {
+      "types": "./dist/backends/memory.d.ts",
+      "import": "./dist/backends/memory.js"
+    },
+    "./pglite": {
+      "types": "./dist/backends/pglite.d.ts",
+      "import": "./dist/backends/pglite.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/index.d.ts",
+      "import": "./dist/mcp/index.js"
+    },
+    "./persist-fs": {
+      "types": "./dist/persist/fs.d.ts",
+      "import": "./dist/persist/fs.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "dependencies": {
+    "glove-core": "workspace:*",
+    "glove-sql": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "@electric-sql/pglite": "^0.5.0",
+    "glove-mcp": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@electric-sql/pglite": {
+      "optional": true
+    },
+    "glove-mcp": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.3",
+    "@types/node": "^25.2.3",
+    "glove-mcp": "workspace:*",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -298,6 +298,106 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  examples/scratchpad-agent:
+    dependencies:
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-scratchpad:
+        specifier: workspace:*
+        version: link:../../packages/glove-scratchpad
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  examples/scratchpad-bench:
+    dependencies:
+      glove-scratchpad:
+        specifier: workspace:*
+        version: link:../../packages/glove-scratchpad
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  examples/scratchpad-mcp-fleet:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
+      dotenv:
+        specifier: ^17.2.4
+        version: 17.3.1
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-mcp:
+        specifier: workspace:*
+        version: link:../../packages/glove-mcp
+      glove-scratchpad:
+        specifier: workspace:*
+        version: link:../../packages/glove-scratchpad
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  examples/scratchpad-mcp-workflow:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
+      dotenv:
+        specifier: ^17.2.4
+        version: 17.3.1
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-mcp:
+        specifier: workspace:*
+        version: link:../../packages/glove-mcp
+      glove-scratchpad:
+        specifier: workspace:*
+        version: link:../../packages/glove-scratchpad
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   examples/weather-agent:
     dependencies:
       chalk:
@@ -403,6 +503,9 @@ importers:
       '@types/node':
         specifier: ^25.2.3
         version: 25.2.3
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -431,6 +534,46 @@ importers:
       zod:
         specifier: ^4.3.6
         version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/glove-scratchpad:
+    dependencies:
+      glove-core:
+        specifier: workspace:*
+        version: link:../glove
+      glove-sql:
+        specifier: workspace:*
+        version: link:../glove-sql
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.5.3
+        version: 0.5.3
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      glove-mcp:
+        specifier: workspace:*
+        version: link:../glove-mcp
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/glove-sql:
     devDependencies:
       '@types/node':
         specifier: ^25.2.3
@@ -877,6 +1020,9 @@ packages:
   '@babel/types@7.29.0':
     resolution: {integrity: sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A==}
     engines: {node: '>=6.9.0'}
+
+  '@electric-sql/pglite@0.5.3':
+    resolution: {integrity: sha512-iTTYbA5Uesrl+N7zss0J5LopT7KE4j9aymYo+EZZh+rZbARQCUQOs+n2pay64JRUpc3fCkpfrniTNJnvYzOE+g==}
 
   '@emnapi/runtime@1.8.1':
     resolution: {integrity: sha512-mehfKSMWjjNol8659Z8KxEMrdSJDDot5SXMq00dM8BN4o+CLNXQ0xH2V7EchNHV4RmbZLmmPdEaXZc5H2FXmDg==}
@@ -4002,6 +4148,8 @@ snapshots:
     dependencies:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.28.5
+
+  '@electric-sql/pglite@0.5.3': {}
 
   '@emnapi/runtime@1.8.1':
     dependencies:

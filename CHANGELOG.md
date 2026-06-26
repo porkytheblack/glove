@@ -1,5 +1,143 @@
 # Changelog
 
+## glove-scratchpad 0.2.0 — containment fleets, observability & durable scratchpads
+
+**Packages:** `glove-scratchpad` 0.2.0, `glove-sql` 0.1.0 (new), `glove-mcp` 0.6.0
+
+Builds on the 0.1.0 Scratchpad Computer with the pieces production use surfaced:
+containment across a whole MCP fleet, a subscribable event stream (including token
+accounting), durable/resumable scratchpads, and the SQL engine extracted into its
+own zero-dependency package.
+
+- **Contain a whole MCP fleet in one call.** New `glove-scratchpad/mcp` subpath:
+  `mountContainedMcp` / `containMcpTools` / `containingWrap` apply store-and-truncate
+  to every bridged MCP tool at mount time, so 10+ providers' verbose payloads never
+  reach context — only stubs do. Built on `glove-mcp`'s new `wrapTool` seam.
+- **Subscribe to the scratchpad.** `sp.subscribe(subscriber)` emits a typed
+  `ScratchpadEvent` stream (ingest / query / materialize / drop / snapshot / error),
+  each event carrying byte deltas (raw bytes contained vs. stub bytes returned).
+  `createScratchpadStats` rolls them into running totals.
+- **Token-consumption tracking.** `createConsumptionTracker` (pluggable
+  `tokensForBytes`, default `defaultTokensForBytes`) turns the byte deltas into token
+  estimates, so you can measure context saved vs. spent over a run with no model in
+  the loop.
+- **Durable, resumable scratchpads.** A `ScratchpadStore` adapter contract with
+  `MemoryScratchpadStore` and `FsScratchpadStore` (`glove-scratchpad/persist-fs`),
+  plus `persistScratchpad` / `restoreScratchpad` / `autoPersistScratchpad` — snapshot
+  to disk and resume the whole store later.
+- **SQL engine extracted to `glove-sql`.** The in-memory Postgres-subset backend moved
+  into its own zero-dependency package (see below). `MemoryBackend` is still exported
+  from `glove-scratchpad` and the `glove-scratchpad/memory` subpath, so existing
+  imports keep working.
+- **Stronger restraint priming.** `mountScratchpad`'s preamble more firmly steers the
+  model to narrow with `scratchpad_query` / `scratchpad_describe` and read values only
+  at the last mile via `scratchpad_materialize`.
+- **External-review hardening.** `query()` / `materialize({ sql })` now reject
+  data-modifying CTEs (`WITH … AS (DELETE … RETURNING *)`) and store mode runs the
+  same single-statement / read-only guard, so the read paths are genuinely
+  side-effect-free; ref allocation reserves physical child-table names so a later
+  `name: "doc__authors"` can't collide; normalization keeps heterogeneous
+  array/scalar fields (no dropped values) and resets child `_idx` per parent row;
+  partial ingests roll back rather than orphaning tables; and a workflow graph with
+  no terminal node reports `resolved: false` instead of feigning success.
+- New no-key examples: `pnpm scratchpad:mcp-smoke` (containment across a multi-provider
+  MCP fleet), `pnpm scratchpad:fleet-smoke` (10-provider fleet), and
+  `pnpm scratchpad:bench` (a deterministic, $0 benchmark showing reduction grows with
+  payload size and is invariant to provider count).
+
+## glove-sql 0.1.0 — zero-dependency Postgres-subset SQL engine
+
+**Packages:** `glove-sql` 0.1.0 (new)
+
+The SQL engine behind the Scratchpad Computer, extracted so it can be used — and
+tested — on its own. Pure JS (tokenizer → recursive-descent parser → evaluator): no
+WASM, no native module, no runtime dependencies. Runs anywhere JS does.
+
+- **`MemoryBackend`** — an in-memory store whose tables are built at runtime from
+  ingested data, implementing the `SqlBackend` / `SqlResult` contracts. `dump()` /
+  `create({ load })` serialize and resume the whole store as compact JSON.
+- **Agent-grade SQL coverage.** Hardened from "the subset the scratchpad happened to
+  use" toward Postgres parity subagents can rely on, driven by a multi-agent test
+  team: three-valued NULL logic, `DISTINCT` aggregates, `ORDER BY` after `GROUP BY`,
+  correlated and scalar subqueries (with cardinality checks), set operations
+  (`UNION` / `INTERSECT` / `EXCEPT`), window functions, `CASE` / `BETWEEN` / `IN`,
+  jsonb `->` / `->>`, `::type` casts, and the `%` operator. Out-of-subset SQL throws
+  rather than mis-answering.
+- Hardened further under external (CodeRabbit) review: `DROP TABLE` without
+  `IF EXISTS` errors on a missing relation, `INSERT` rejects columns the table
+  never declared, and aggregate mode rejects ungrouped columns
+  (`SELECT name, count(*)` with no matching `GROUP BY`) instead of silently
+  returning a representative row.
+- 61 tests plus an `AUDIT.md` tracking the findings the test team surfaced and how
+  each was resolved.
+
+## glove-mcp 0.6.0 — tool-wrap seam + word-overlap discovery
+
+**Packages:** `glove-mcp` 0.6.0
+
+- **`wrapTool` seam.** `mountMcp` (and the discovery subagent config) accept an
+  optional `wrapTool: McpToolWrapper` that wraps every bridged MCP tool as it is
+  folded — the hook `glove-scratchpad/mcp` uses to contain a whole fleet's results.
+  Backward compatible: omit it and nothing changes.
+- **Fixed discovery matching.** The `discovermcp` matcher used whole-string
+  `includes()`, so multi-word objectives matched only a subset of relevant providers.
+  Replaced with word-overlap scoring (`discovery/match.ts`); a fleet of providers now
+  surfaces completely.
+
+## glove-scratchpad 0.1.0 — The Scratchpad Computer
+
+**Packages:** `glove-scratchpad` 0.1.0 (new)
+
+A substrate-independent profile over Glove for context-efficient multi-agent
+workflows. The context win usually attributed to "code execution for MCP" is
+recovered through topology — **handles + deterministic SQL transforms over a
+durable store** — with no terminal or VM.
+
+- **Store-and-truncate result containment.** `storeAndTruncate(tool, { scratchpad })`
+  wraps any Glove tool (`GloveFoldArgs`, not coupled to MCP): the full payload is
+  written to the store and only a stub (reference + descriptor + "read more")
+  crosses back into context. Composes with `glove-mcp`'s `bridgeMcpTool`.
+- **Postgres-dialect manipulation surface.** Subagents narrow with SQL
+  (`scratchpad_query`), reason over descriptors (`scratchpad_describe`), and read
+  values only at the last mile (`scratchpad_materialize`). The contract is a
+  defined Postgres subset (`ScratchpadBackend`); the backend is swappable.
+- **Default backend: a zero-dependency, pure-JS Postgres-subset emulator**
+  (`MemoryBackend`). An in-memory store whose tables are constructed at runtime
+  from whatever data is ingested, with a small SQL engine (tokenizer →
+  recursive-descent parser → evaluator) covering exactly the subset the
+  Scratchpad and its agents use: CREATE/DROP/`CREATE TABLE AS`, INSERT/DELETE
+  with `$n` params, and SELECT with INNER/LEFT joins, WHERE/GROUP BY/HAVING/ORDER
+  BY/LIMIT/OFFSET, CTEs, aggregates, jsonb `->`/`->>`, and `::type` casts. No
+  WASM, no native module — runs anywhere JS does. Out-of-subset SQL throws rather
+  than mis-answering.
+- **Optional `PgliteBackend`** (WASM Postgres) behind the `glove-scratchpad/pglite`
+  subpath (`@electric-sql/pglite` is an optional peer) for when a full Postgres
+  dialect is wanted. The same `Scratchpad` code path runs unchanged on either.
+- **Schema-defined subagent graphs.** `glove-scratchpad/graph` turns a plain,
+  Zod-validated `GraphDef` object (subagents + prompts + tool slices + edges)
+  into a wired topology via `buildScratchpadGraph`: per-node tool partitioning
+  (interface disclosure), scratchpad mounting, provenance stamping
+  (`actor = subagent name`), and `next`/`get` navigation.
+- **Workflow execution + an agent-facing tool.** `runScratchpadGraph(graph, { objective })`
+  walks the edges in dependency order, threading each subagent's output downstream
+  while every node works the shared scratchpad, until the terminal subagent
+  resolves the answer (DAG routing, `maxSteps` cycle guard). `mountWorkflow` folds
+  a single `workflow_run` tool that **builds and runs** a workflow in one call, so
+  the model designs a workflow from a schema object and runs it over the
+  scratchpad on its own. `buildAndRunScratchpadGraph` is the programmatic form.
+- **First-level normalization.** Ingested JSON becomes a typed root table; nested
+  arrays become child tables (FK + `_idx`); deeper nesting stays in `jsonb`,
+  reachable via `->` / `->>`.
+- **Descriptor economy + restraint priming.** A reference resolves to
+  `{value, schema, preview, provenance}`; `mountScratchpad` folds the surface
+  tools and primes the last-mile discipline.
+- **Computation as a value.** `Scratchpad.snapshot()` / `MemoryBackend.create({ load })`
+  serialize and resume the whole store (compact JSON; no data-dir overhead).
+- Examples (no API key, no database): `pnpm scratchpad:demo` shows ~37× context
+  reduction on a 500-record payload; `pnpm scratchpad:graph` constructs a
+  three-subagent graph from a schema object and prints the wired topology;
+  `pnpm scratchpad:workflow` creates a workflow and runs it to a resolved answer.
+
 ## v3.1.0 — Prompt caching
 
 **Packages:** `glove-core` 3.1.0 · `glove-react` 3.1.0 · `glove-next` 3.1.0

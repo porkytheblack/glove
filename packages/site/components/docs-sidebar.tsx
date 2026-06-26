@@ -61,6 +61,8 @@ const sections: NavSection[] = [
       { label: "Next.js", href: "/docs/next" },
       { label: "Voice", href: "/docs/voice" },
       { label: "MCP", href: "/docs/mcp" },
+      { label: "Scratchpad", href: "/docs/scratchpad" },
+      { label: "SQL Engine", href: "/docs/sql" },
       { label: "Memory", href: "/docs/memory" },
       { label: "Mesh", href: "/docs/mesh" },
       { label: "Continuum", href: "/docs/continuum", beta: true },

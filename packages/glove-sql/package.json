@@ -1,13 +1,13 @@
 {
-  "name": "glove-mcp",
-  "version": "0.6.0",
-  "description": "Model Context Protocol (MCP) integration for the Glove agent framework",
+  "name": "glove-sql",
+  "version": "0.1.0",
+  "description": "A zero-dependency, pure-JS Postgres-subset SQL engine. Tables built at runtime from ingested data; tokenizer + recursive-descent parser + evaluator covering joins, CTEs, set ops, subqueries, aggregates with FILTER, CASE, window functions, and a scalar-function library. Serialises to bytes (computation as a value). The default backend for glove-scratchpad.",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/porkytheblack/glove.git",
-    "directory": "packages/glove-mcp"
+    "directory": "packages/glove-sql"
   },
   "homepage": "https://github.com/porkytheblack/glove",
   "bugs": "https://github.com/porkytheblack/glove/issues",
@@ -18,10 +18,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./oauth": {
-      "types": "./dist/oauth.d.ts",
-      "import": "./dist/oauth.js"
     }
   },
   "files": [
@@ -31,11 +27,6 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "node --test --import tsx tests/*.test.ts"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "glove-core": "workspace:*",
-    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",

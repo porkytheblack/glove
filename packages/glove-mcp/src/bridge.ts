@@ -1,10 +1,23 @@
 import type { GloveFoldArgs } from "glove-core/glove";
 import type { ToolResultData } from "glove-core/core";
+import type { McpCatalogueEntry } from "./adapter";
 import type { McpCallToolResult, McpServerConnection, McpToolDef } from "./connect";
 import { UnauthorizedError } from "./connect";
 
 /** Tool namespace separator. Regex-safe across all model providers. */
 const NAMESPACE_SEP = "__";
+
+/**
+ * Transform a freshly-bridged MCP tool before it's folded onto the agent.
+ * The seam `mountMcp` and the discovery `activate` tool use to apply a
+ * cross-cutting wrap to every bridged tool — e.g. scratchpad containment
+ * (`glove-scratchpad`'s `containingWrap`), logging, or rate-limiting. Receives
+ * the bridged tool and the catalogue entry it came from.
+ */
+export type McpToolWrapper = (
+  tool: GloveFoldArgs<unknown>,
+  entry: McpCatalogueEntry,
+) => GloveFoldArgs<unknown>;
 
 function joinTextContent(content: McpCallToolResult["content"]): string {
   return content

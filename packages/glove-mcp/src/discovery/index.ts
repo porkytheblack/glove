@@ -6,12 +6,13 @@ import type { ModelAdapter, StoreAdapter, ToolResultData } from "glove-core/core
 
 import type { McpAdapter, McpCatalogueEntry } from "../adapter";
 import { connectMcp } from "../connect";
-import { bridgeMcpTool } from "../bridge";
+import { bridgeMcpTool, type McpToolWrapper } from "../bridge";
 import { bearer } from "../auth";
 
 import type { DiscoveryAmbiguityPolicy } from "./policy";
 import { defaultPromptFor } from "./prompt";
 import { DiscoveryMemoryStore } from "./memory-store";
+import { matchEntries } from "./match";
 
 export type { DiscoveryAmbiguityPolicy } from "./policy";
 
@@ -27,42 +28,11 @@ export interface DiscoverySubAgentConfig {
   subagentSystemPrompt?: string;
   /** Forwarded to connectMcp during activation. */
   clientInfo?: { name: string; version: string };
+  /** Transform each bridged tool before it's folded onto the main agent (e.g. containment). */
+  wrapTool?: McpToolWrapper;
 }
 
 // ─── Subagent-only tools ─────────────────────────────────────────────────────
-
-function matchEntries(
-  entries: McpCatalogueEntry[],
-  query: string | undefined,
-  tags: string[] | undefined,
-): McpCatalogueEntry[] {
-  const q = (query ?? "").trim().toLowerCase();
-  const tagFilter = (tags ?? []).map((t) => t.toLowerCase());
-
-  const scored: Array<{ entry: McpCatalogueEntry; score: number }> = [];
-  for (const entry of entries) {
-    const haystack =
-      `${entry.name} ${entry.description} ${(entry.tags ?? []).join(" ")}`.toLowerCase();
-
-    if (tagFilter.length) {
-      const entryTags = (entry.tags ?? []).map((t) => t.toLowerCase());
-      const tagsMatch = tagFilter.every((t) => entryTags.includes(t));
-      if (!tagsMatch) continue;
-    }
-
-    if (!q) {
-      scored.push({ entry, score: 1 });
-      continue;
-    }
-
-    if (haystack.includes(q)) {
-      scored.push({ entry, score: q.length });
-    }
-  }
-
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, 10).map((s) => s.entry);
-}
 
 function listCapabilitiesTool(
   adapter: McpAdapter,
@@ -102,6 +72,7 @@ function activateTool(
   entries: McpCatalogueEntry[],
   mainGlove: IGloveRunnable,
   clientInfo?: { name: string; version: string },
+  wrapTool?: McpToolWrapper,
 ): GloveFoldArgs<{ id: string }> {
   return {
     name: "activate",
@@ -130,11 +101,15 @@ function activateTool(
         });
 
         const tools = await conn.listTools();
-        const toolNames: string[] = [];
-        for (const tool of tools) {
-          mainGlove.fold(bridgeMcpTool(conn, tool, mainGlove.serverMode));
-          toolNames.push(tool.name);
-        }
+        // Build the full wrapped set first; fold only after every wrapTool call
+        // succeeds, so a throwing wrapper can't leave the session with a
+        // half-activated provider the adapter doesn't know about.
+        const wrapped = tools.map((tool) => {
+          const bridged = bridgeMcpTool(conn, tool, mainGlove.serverMode);
+          return wrapTool ? wrapTool(bridged, entry) : bridged;
+        });
+        for (const t of wrapped) mainGlove.fold(t);
+        const toolNames = tools.map((tool) => tool.name);
 
         await adapter.activate(entry.id);
 
@@ -274,7 +249,7 @@ export function discoverySubAgent(
 
       subagent.fold(listCapabilitiesTool(config.adapter, config.entries));
       subagent.fold(
-        activateTool(config.adapter, config.entries, parentGlove, config.clientInfo),
+        activateTool(config.adapter, config.entries, parentGlove, config.clientInfo, config.wrapTool),
       );
       subagent.fold(deactivateTool(config.adapter));
       if (config.ambiguityPolicy.type === "interactive") {

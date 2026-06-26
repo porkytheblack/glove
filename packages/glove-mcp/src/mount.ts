@@ -3,7 +3,7 @@ import type { ModelAdapter } from "glove-core/core";
 
 import type { McpAdapter, McpCatalogueEntry } from "./adapter";
 import { connectMcp } from "./connect";
-import { bridgeMcpTool } from "./bridge";
+import { bridgeMcpTool, type McpToolWrapper } from "./bridge";
 import { bearer } from "./auth";
 import { discoverySubAgent } from "./discovery";
 import type { DiscoveryAmbiguityPolicy } from "./discovery/policy";
@@ -21,6 +21,14 @@ export interface MountMcpConfig {
   subagentSystemPrompt?: string;
   /** Identify this client when connecting to MCP servers. */
   clientInfo?: { name: string; version: string };
+  /**
+   * Transform each bridged tool before it's folded — applied both to the
+   * reload-on-boot tools and to tools the discovery subagent activates later.
+   * Use `glove-scratchpad`'s `containingWrap` to give a whole catalogue
+   * scratchpad containment so 10+ providers can be discovered on demand AND
+   * have their results contained.
+   */
+  wrapTool?: McpToolWrapper;
 }
 
 /**
@@ -37,7 +45,7 @@ export async function mountMcp(
   glove: IGloveRunnable,
   config: MountMcpConfig,
 ): Promise<void> {
-  const { adapter, entries, subagentModel, subagentSystemPrompt, clientInfo } =
+  const { adapter, entries, subagentModel, subagentSystemPrompt, clientInfo, wrapTool } =
     config;
 
   const policy: DiscoveryAmbiguityPolicy =
@@ -58,9 +66,13 @@ export async function mountMcp(
         clientInfo,
       });
       const tools = await conn.listTools();
-      for (const tool of tools) {
-        glove.fold(bridgeMcpTool(conn, tool, glove.serverMode));
-      }
+      // Build the full wrapped set first; fold only after every wrapTool call
+      // succeeds, so a throwing wrapper can't leave a half-rehydrated provider.
+      const wrapped = tools.map((tool) => {
+        const bridged = bridgeMcpTool(conn, tool, glove.serverMode);
+        return wrapTool ? wrapTool(bridged, entry) : bridged;
+      });
+      for (const t of wrapped) glove.fold(t);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn(`[glove-mcp] failed to reload ${id}:`, err);
@@ -76,6 +88,7 @@ export async function mountMcp(
       subagentModel,
       subagentSystemPrompt,
       clientInfo,
+      wrapTool,
     }),
   );
 }
