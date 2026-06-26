@@ -23,7 +23,7 @@
 
 /**
  * The result of a query: rows plus the output field names, in order.
- * (Postgres returns far more field metadata; agents only need names.)
+ * (Postgres returns far more field metadata; callers typically only need names.)
  */
 export interface SqlResult {
   rows: Record<string, unknown>[];
@@ -45,9 +45,6 @@ export interface SqlBackend {
   /** Release any resources. */
   close(): Promise<void>;
 }
-
-/** Internal alias so the relocated engine body reads unchanged. */
-type BackendResult = SqlResult;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Catalog
@@ -1070,7 +1067,7 @@ function inferPgType(values: unknown[]): string {
 }
 
 export interface MemoryBackendOptions {
-  /** Restore from a previous {@link Scratchpad.snapshot} (bytes from `dump()`). */
+  /** Restore from bytes produced by a previous {@link MemoryBackend.dump}. */
   load?: Uint8Array;
 }
 
@@ -1102,8 +1099,8 @@ export class MemoryBackend implements SqlBackend {
 
   // ── SqlBackend ─────────────────────────────────────────────────────────────
 
-  async query(sql: string, params: unknown[] = []): Promise<BackendResult> {
-    let result: BackendResult = { rows: [], fields: [] };
+  async query(sql: string, params: unknown[] = []): Promise<SqlResult> {
+    let result: SqlResult = { rows: [], fields: [] };
     for (const stmt of this.parseAll(sql)) {
       result = this.run(stmt, params);
     }
@@ -1182,7 +1179,7 @@ export class MemoryBackend implements SqlBackend {
 
   // ── statement dispatch ────────────────────────────────────────────────────
 
-  private run(stmt: Stmt, params: unknown[]): BackendResult {
+  private run(stmt: Stmt, params: unknown[]): SqlResult {
     switch (stmt.k) {
       case "select": {
         const rs = this.execSelect(stmt, params, new Map());
@@ -2473,11 +2470,3 @@ function inferColName(expr: Expr): string {
       return "?column?";
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Public aliases
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Clearer name for the embedded engine in a glove-sql context. */
-export { MemoryBackend as MemorySqlDatabase };
-export type { MemoryBackendOptions as MemorySqlOptions };

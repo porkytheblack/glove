@@ -117,20 +117,26 @@ export interface Stub {
   readMore: string;
 }
 
-/** A row set returned by the backend. */
+/**
+ * A row set returned by the backend. Structurally identical to `glove-sql`'s
+ * `SqlResult` — kept here so the Scratchpad contract stays decoupled from any
+ * one engine.
+ */
 export interface BackendResult {
   rows: Record<string, unknown>[];
   fields: { name: string; dataTypeID?: number }[];
 }
 
 /**
- * The Postgres-dialect contract, as a swappable adapter (§6.1).
+ * The Postgres-dialect contract, as a swappable adapter (§6.1). Structurally the
+ * same four methods as `glove-sql`'s `SqlBackend`.
  *
  * The Scratchpad emits Postgres-dialect SQL against this interface and never
- * knows what is actually backing it — real Postgres, an embedded engine
- * (the shipped {@link "glove-scratchpad/pglite".PgliteBackend}), or a
- * user-built emulator over a plain object. **The subset is the standard,
- * not the backend.**
+ * knows what is actually backing it — the default is the zero-dependency
+ * {@link MemoryBackend} (from `glove-sql`), but it can equally be the optional
+ * embedded {@link "glove-scratchpad/pglite".PgliteBackend} (WASM Postgres),
+ * real Postgres over a pool, or any user-built engine. **The subset is the
+ * standard, not the backend.**
  */
 export interface ScratchpadBackend {
   /** Run a parameterised query (`$1`, `$2`, … placeholders). */

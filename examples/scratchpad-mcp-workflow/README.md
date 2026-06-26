@@ -55,26 +55,26 @@ tallies the bytes kept out of context.
 
 ## Run it
 
-Uses `OPENROUTER_API_KEY` and `OPENROUTER_MODEL` from the **repo-root `.env`**
-(a local `.env` in this folder overrides). The script rebuilds `glove-core`,
-`glove-mcp`, and `glove-scratchpad` first so you're always testing current source.
-
 ```bash
-pnpm scratchpad:mcp
+pnpm scratchpad:mcp-smoke   # no API key — deterministic datapath + byte accounting
+pnpm scratchpad:mcp         # live, via OPENROUTER_API_KEY / OPENROUTER_MODEL (repo-root .env)
 ```
 
-You'll see the tool trace — two contained payloads, the SQL the model writes to
-narrow and join, and a last-mile materialize — followed by a context accounting:
+**`smoke.ts`** (no key) is the reproducible path: it connects the two dummy MCP
+servers, contains their payloads, runs the cross-provider SQL JOIN, and prints the
+byte accounting. Because the data is seeded, the numbers are deterministic:
 
 ```
-CONTEXT ACCOUNTING
-  naive (MCP payloads dumped to context)   : ~180,000 b
-  scratchpad (stubs + SQL reads in context):   ~4,000 b
-  reduction                                : ~45× less context from tools
+CONTEXT ACCOUNTING (no model)
+   containment: 2 call(s) · 155.3 KB contained → 3.4 KB emitted (46.0× less)
+   total tool→context vs naive               : 3,627 b vs 159,043 b
 ```
 
-(Exact numbers depend on the model's query plan; the data is seeded, the payloads
-are not.)
+**`agent.ts`** (live) drives the same flow with a model — you see the tool trace
+(two contained payloads, the SQL it writes to narrow and join, a last-mile
+materialize) and a `CONTAINMENT` line (`2 call(s) · 155.3 KB contained → 3.4 KB
+emitted (~46× less)`). The payloads are deterministic; only the model's query plan
+(and thus the exact in-context read size) varies.
 
 ## Files
 
@@ -82,6 +82,7 @@ are not.)
 | ---- | ---- |
 | `data.ts` | Seeded generators for the accounts + issues (they join on `account_id`). |
 | `mcp-servers.ts` | Two real Streamable-HTTP MCP servers, in-process. |
+| `smoke.ts` | No-API-key: contain → JOIN → accounting (the deterministic reproduction). |
 | `agent.ts` | Connect → bridge → contain → mount scratchpad → drive with OpenRouter. |
 
 ## Why this is the right test for the scratchpad

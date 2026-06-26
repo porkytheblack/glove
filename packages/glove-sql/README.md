@@ -58,7 +58,6 @@ interface SqlResult { rows: Record<string, unknown>[]; fields: { name: string }[
 class MemoryBackend implements SqlBackend {
   static create(opts?: { load?: Uint8Array }): Promise<MemoryBackend>;
 }
-// `MemorySqlDatabase` / `MemorySqlOptions` are aliases for `MemoryBackend` / its options.
 ```
 
 ## License

@@ -33,7 +33,15 @@ naive (full payload in context):        142,354 b
 scratchpad (stub + stub + last mile):     3,789 b   →  37.6× less
 ```
 
-(from `pnpm scratchpad:demo` — no API key, no database, no dependencies)
+Reproduce with `pnpm scratchpad:demo` (no API key, no database, no dependencies).
+This is an *illustrative single-payload* figure — one ~500-row result narrowed
+once and read at a 10-row last mile; the factor scales with selectivity and the
+read budget, not a benchmarked average (see [Status](#status)).
+
+> **Note on `§` references.** Comments and this README cite `§N` / "Appendix B" —
+> these point to sections of the accompanying paper, *The Scratchpad Computer*.
+> They annotate which design point each piece of code implements; the code is
+> self-contained without them.
 
 ---
 
@@ -117,7 +125,7 @@ await mountContainedMcp(agent, conn, {
   shouldContain: (t) => t.name !== "ping",  // optional: opt small/control tools out
 });
 // …the agent now sees crm__* tools whose big results land in the scratchpad.
-console.log(reporter.format());  // "3 call(s) · 188 KB contained → 4 KB emitted (47.0× less)"
+console.log(reporter.format());  // e.g. "5 call(s) · 163.4 KB contained → 5.5 KB emitted (30.0× less)"
 ```
 
 `glove-mcp` is an **optional peer dependency** — installing `glove-scratchpad`
@@ -184,7 +192,7 @@ const off = sp.subscribe({
 // …or drop in the ready-made tally:
 const stats = createScratchpadStats();
 sp.subscribe(stats.subscriber);
-// later: stats.format() → "5 ingest(s) (188 KB) · 9 queries · 3 materialize(s) (24 rows) · 0 errors"
+// later: stats.format() → "5 ingest(s) (163.4 KB) · 1 query · 2 materialize(s) (9 rows) · 0 errors"
 ```
 
 `materialize` is the event to watch — it's the only one where real values cross
@@ -207,7 +215,7 @@ const consumption = createConsumptionTracker();   // optional: (bytes) => tokens
 sp.subscribe(consumption.subscriber);
 // …after the run:
 console.log(consumption.format());
-//   → "~3.2k tokens into context · ~46.0k contained (14.4× budget)"
+//   → "~3.3k tokens into context · ~41.8k contained (12.8× budget)"
 
 const r = consumption.report();
 //   { tokensIntoContext, tokensContained, reductionFactor,
@@ -263,33 +271,24 @@ The Scratchpad emits a **defined Postgres subset** and never knows what is
 backing it (§6.1 *"the dialect is the standard; the backend is an implementation
 detail"*). Two backends ship:
 
-### `MemoryBackend` (default) — `glove-scratchpad` / `glove-scratchpad/memory`
+### `MemoryBackend` (default) — the `glove-sql` engine
 
-A **zero-dependency, pure-JS Postgres-subset emulator**. It is an in-memory
-store whose tables are *constructed at runtime* from whatever data is ingested
-(no fixed schema), with a small SQL engine — tokenizer → recursive-descent
-parser → evaluator — that runs exactly the subset the Scratchpad and its agents
-use:
+The default backend is **[`glove-sql`](../glove-sql)** — a zero-dependency,
+pure-JS Postgres-subset engine (tokenizer → recursive-descent parser →
+evaluator) whose tables are *constructed at runtime* from whatever data is
+ingested (no fixed schema). It was extracted from this package into its own so
+the SQL surface can be tested and grown independently; `glove-scratchpad`
+re-exports its `MemoryBackend` (also on the `glove-scratchpad/memory` subpath),
+so nothing changes in consumer code.
 
-- **DDL** — `CREATE TABLE [IF NOT EXISTS]`, `CREATE TABLE … AS <select>`,
-  `DROP TABLE [IF EXISTS] … [CASCADE]`
-- **DML** — `INSERT … VALUES (…), (…)`, `DELETE … [WHERE …]` (with `$n` params)
-- **Query** — `SELECT [DISTINCT]` from tables, subqueries, or
-  `information_schema.columns`; `INNER` / `LEFT` / `RIGHT` / `FULL` / `CROSS`
-  joins; `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT`, `OFFSET` (ORDER BY /
-  GROUP BY by alias or ordinal); `WITH` (CTEs).
-- **Set ops** — `UNION` / `UNION ALL` / `INTERSECT` / `EXCEPT`.
-- **Subqueries** — scalar `(SELECT …)`, `IN (SELECT …)`, `EXISTS` / `NOT EXISTS`,
-  including correlated (a subquery resolves outer columns).
-- **Expressions** — `CASE` (searched + simple), `BETWEEN`, `IN`, `IS [NOT] NULL`,
-  `CAST(x AS t)` / `::t`, jsonb `->` / `->>`; aggregates
-  (`count` / `sum` / `avg` / `min` / `max`) with `FILTER (WHERE …)`; scalar fns
-  (`coalesce`, `nullif`, `round`, `floor`, `ceil`, `abs`, `sqrt`, `power`, `mod`,
-  `greatest`, `least`, `lower`, `upper`, `length`, `trim`, `substr`, `replace`,
-  `concat`, `strpos`, …).
-- **Window functions** — `func(…) OVER (PARTITION BY … ORDER BY …)`:
-  `row_number`, `rank`, `dense_rank`, aggregate windows (`sum`/`count`/… `OVER`),
-  `lag` / `lead`, `first_value`.
+It covers the SQL agents actually write — joins
+(`INNER`/`LEFT`/`RIGHT`/`FULL`/`CROSS`), `GROUP BY`/`HAVING` with aggregates,
+`FILTER (WHERE …)` and `DISTINCT`, `WITH` (CTEs), set operations, correlated
+subqueries, `CASE`/`BETWEEN`, window functions
+(`row_number`/`rank`/aggregate `OVER`/`lag`/`lead`), jsonb access, and a library
+of scalar functions. See the **[`glove-sql` README](../glove-sql/README.md)** for
+the full coverage table and **[`AUDIT.md`](../glove-sql/AUDIT.md)** for known
+limitations.
 
 Anything outside the subset throws a clear error rather than silently
 mis-answering. The whole store serializes to bytes (`dump()`) and is

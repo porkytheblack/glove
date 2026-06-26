@@ -190,7 +190,7 @@ export interface ContainmentReporter {
   readonly onContain: ContainmentListener;
   /** Snapshot the running totals. */
   report(): ContainmentReport;
-  /** One-line human summary, e.g. `3 calls · 188 KB contained → 4 KB emitted (47.0× less)`. */
+  /** One-line human summary, e.g. `5 call(s) · 163.4 KB contained → 5.5 KB emitted (30.0× less)`. */
   format(): string;
   /** Reset all counters. */
   reset(): void;

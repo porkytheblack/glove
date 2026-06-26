@@ -1,11 +1,19 @@
 # glove-sql — SQL correctness audit
 
-A 10-agent test team adversarially probed the engine across SQL dimensions
-(aggregates, joins, subqueries, windows, set-ops, NULL/type semantics, the
-scalar-function library, predicates/jsonb, CTEs/parser, and realistic analytical
-queries), each running real queries and comparing to Postgres semantics, with an
-adversarial verifier confirming every finding. **54 issues confirmed** (17 high,
-28 medium, 9 low). This file tracks them.
+This file tracks a correctness audit of the engine. The method was an
+LLM-driven adversarial sweep: ten agents, one per SQL dimension (aggregates,
+joins, subqueries, windows, set-ops, NULL/type semantics, the scalar-function
+library, predicates/jsonb, CTEs/parser, and realistic analytical queries), each
+ran real queries against the engine and compared the output to Postgres
+semantics, and a separate verifier agent re-ran and confirmed each claim. That
+process produced **54 confirmed findings**; because several root causes were
+reported independently by multiple dimension agents (e.g. DISTINCT-in-aggregates
+surfaced under aggregates, joins, windows, *and* the realism dimension), they
+**deduplicate to the distinct issues enumerated below**.
+
+The method is an aid, not a proof — it is not itself reproducible by a reviewer.
+The authoritative, reproducible artifact is `tests/sql-fixes.test.ts`, which
+encodes the fixed items below as regression tests (run `pnpm --filter glove-sql test`).
 
 ## Fixed in this PR (`tests/sql-fixes.test.ts`)
 

@@ -89,7 +89,7 @@ export interface ScratchpadStatsCollector {
   /** Pass to {@link Scratchpad.subscribe}. */
   readonly subscriber: ScratchpadSubscriber;
   stats(): ScratchpadStats;
-  /** One-line summary, e.g. `5 ingests (188 KB) · 9 queries · 3 materializes (24 rows) · 0 errors`. */
+  /** One-line summary, e.g. `5 ingest(s) (163.4 KB) · 1 query · 2 materialize(s) (9 rows) · 0 error(s)`. */
   format(): string;
   reset(): void;
 }
@@ -186,7 +186,7 @@ export interface ConsumptionTracker {
   /** Pass to {@link Scratchpad.subscribe}. */
   readonly subscriber: ScratchpadSubscriber;
   report(): ScratchpadConsumption;
-  /** One-line summary, e.g. `~3.2k tokens into context · ~46.0k contained (14.4× budget)`. */
+  /** One-line summary, e.g. `~3.3k tokens into context · ~41.8k contained (12.8× budget)`. */
   format(): string;
   reset(): void;
 }
@@ -211,7 +211,7 @@ function humanTokens(n: number): string {
  * const consumption = createConsumptionTracker();
  * sp.subscribe(consumption.subscriber);
  * // …later: console.log(consumption.format());
- * //   → "~3.2k tokens into context · ~46.0k contained (14.4× budget)"
+ * //   → "~3.3k tokens into context · ~41.8k contained (12.8× budget)"
  * ```
  */
 export function createConsumptionTracker(
