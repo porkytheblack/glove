@@ -1,7 +1,7 @@
 {
   "name": "glove-scratchpad",
   "version": "0.2.0",
-  "description": "The Scratchpad Computer for Glove — context-efficient multi-agent workflows via handles + deterministic SQL transforms over a durable store. Postgres-dialect manipulation surface, store-and-truncate result containment, serializable scratchpad, schema-defined subagent graphs. Uses glove-sql (a zero-dependency pure-JS Postgres-subset engine) as the default backend; PGlite optional.",
+  "description": "A database emulator for LLM tool use — expose an agent's capabilities as a relational database it queries with one execute_sql tool. Resources become tables, WHERE pushes arguments down, information_schema is discovery, transactions stage outbound effects, and every statement is parsed before any tool runs. Uses glove-sql (a zero-dependency pure-JS Postgres-subset engine) as the default backend; PGlite optional.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -23,13 +23,9 @@
       "types": "./dist/core/index.d.ts",
       "import": "./dist/core/index.js"
     },
-    "./tools": {
-      "types": "./dist/tools/index.d.ts",
-      "import": "./dist/tools/index.js"
-    },
-    "./graph": {
-      "types": "./dist/graph/index.d.ts",
-      "import": "./dist/graph/index.js"
+    "./db": {
+      "types": "./dist/db/index.d.ts",
+      "import": "./dist/db/index.js"
     },
     "./memory": {
       "types": "./dist/backends/memory.d.ts",
@@ -40,12 +36,8 @@
       "import": "./dist/backends/pglite.js"
     },
     "./mcp": {
-      "types": "./dist/mcp/index.d.ts",
-      "import": "./dist/mcp/index.js"
-    },
-    "./persist-fs": {
-      "types": "./dist/persist/fs.d.ts",
-      "import": "./dist/persist/fs.js"
+      "types": "./dist/db/mcp.d.ts",
+      "import": "./dist/db/mcp.js"
     }
   },
   "files": [

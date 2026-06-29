@@ -1,43 +1,10 @@
 /**
- * Core of the Scratchpad Computer: the store, the descriptor economy, and the
- * Postgres-dialect backend contract. Backend-agnostic — no SQL engine ships
- * here; bring one that satisfies {@link ScratchpadBackend} (e.g.
- * `glove-scratchpad/pglite`).
+ * Core utilities shared by the database emulator: the backend contract, JSON→row
+ * normalization, and SQL identifier hygiene. Backend-agnostic — bring a backend
+ * that satisfies {@link ScratchpadBackend} (the default is `glove-sql`'s
+ * `MemoryBackend`).
  */
-export type {
-  Reference,
-  Provenance,
-  ColumnType,
-  ColumnDescriptor,
-  TableDescriptor,
-  Descriptor,
-  Stub,
-  BackendResult,
-  ScratchpadBackend,
-} from "./types";
-
-export {
-  Scratchpad,
-  type IngestOptions,
-  type QueryOptions,
-  type QueryRows,
-  type MaterializeOptions,
-  type MaterializeResult,
-} from "./scratchpad";
-
-export {
-  createScratchpadStats,
-  createConsumptionTracker,
-  defaultTokensForBytes,
-  type ScratchpadEvent,
-  type ScratchpadOp,
-  type ScratchpadSubscriber,
-  type ScratchpadStats,
-  type ScratchpadStatsCollector,
-  type TokensForBytes,
-  type ScratchpadConsumption,
-  type ConsumptionTracker,
-} from "./events";
+export type { ColumnType, BackendResult, ScratchpadBackend } from "./types";
 
 export {
   planNormalization,
@@ -50,12 +17,4 @@ export {
   type NormColumn,
 } from "./normalize";
 
-export {
-  pgTypeToColumnType,
-  readRawColumns,
-  toColumnDescriptors,
-  readRowCount,
-  readPreview,
-} from "./descriptor";
-
-export { sanitizeIdent, quoteIdent, childTableName, uniqueRef } from "./keys";
+export { sanitizeIdent, quoteIdent, childTableName, uniqueRef, uniqueColumn } from "./keys";

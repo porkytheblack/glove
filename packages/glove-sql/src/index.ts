@@ -240,7 +240,7 @@ interface SelectItem {
 type FromItem =
   | { kind: "table"; name: string; alias: string }
   | { kind: "subquery"; select: SelectStmt; alias: string }
-  | { kind: "infoschema"; alias: string };
+  | { kind: "infoschema"; which: "columns" | "tables"; alias: string };
 
 interface JoinClause {
   type: "inner" | "left" | "right" | "full" | "cross";
@@ -297,6 +297,8 @@ interface InsertStmt {
   table: string;
   columns?: string[];
   rows: Expr[][];
+  /** `INSERT INTO t (..) SELECT ..` — the source query (mutually exclusive with `rows`). */
+  asSelect?: SelectStmt;
 }
 
 interface DeleteStmt {
@@ -305,7 +307,61 @@ interface DeleteStmt {
   where?: Expr;
 }
 
-type Stmt = SelectStmt | CreateTableStmt | DropTableStmt | InsertStmt | DeleteStmt;
+interface UpdateStmt {
+  k: "update";
+  table: string;
+  set: Array<{ col: string; value: Expr }>;
+  where?: Expr;
+}
+
+/** Transaction control. The MemoryBackend treats these as no-ops (it is
+ *  auto-commit / non-transactional); a higher layer — e.g. the glove-scratchpad
+ *  database emulator — interprets them to stage and gate side effects. */
+interface BeginStmt {
+  k: "begin";
+}
+interface CommitStmt {
+  k: "commit";
+}
+interface RollbackStmt {
+  k: "rollback";
+}
+
+/** `EXPLAIN <stmt>` — wraps the statement whose plan is requested. */
+interface ExplainStmt {
+  k: "explain";
+  statement: Stmt;
+}
+
+type Stmt =
+  | SelectStmt
+  | CreateTableStmt
+  | DropTableStmt
+  | InsertStmt
+  | DeleteStmt
+  | UpdateStmt
+  | BeginStmt
+  | CommitStmt
+  | RollbackStmt
+  | ExplainStmt;
+
+export type {
+  Stmt,
+  SelectStmt,
+  CreateTableStmt,
+  DropTableStmt,
+  InsertStmt,
+  DeleteStmt,
+  UpdateStmt,
+  BeginStmt,
+  CommitStmt,
+  RollbackStmt,
+  ExplainStmt,
+  Expr,
+  FromItem,
+  SelectItem,
+  JoinClause,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Parser
@@ -363,7 +419,39 @@ class Parser {
     if (this.isKw("drop")) return this.parseDrop();
     if (this.isKw("insert")) return this.parseInsert();
     if (this.isKw("delete")) return this.parseDelete();
+    if (this.isKw("update")) return this.parseUpdate();
+    if (this.isKw("explain")) return this.parseExplain();
+    // Transaction control — `BEGIN | START TRANSACTION`, `COMMIT | END`, `ROLLBACK | ABORT`.
+    if (this.isKw("begin") || this.isKw("start")) {
+      this.next();
+      this.acceptKw("transaction");
+      this.acceptKw("work");
+      return { k: "begin" };
+    }
+    if (this.isKw("commit") || this.isKw("end")) {
+      this.next();
+      this.acceptKw("transaction");
+      this.acceptKw("work");
+      return { k: "commit" };
+    }
+    if (this.isKw("rollback") || this.isKw("abort")) {
+      this.next();
+      this.acceptKw("transaction");
+      this.acceptKw("work");
+      return { k: "rollback" };
+    }
     throw this.err("unsupported statement");
+  }
+
+  // ── EXPLAIN ───────────────────────────────────────────────────────────────
+  private parseExplain(): ExplainStmt {
+    this.expectKw("explain");
+    // Accept & ignore the common option words / option list, e.g. EXPLAIN ANALYZE,
+    // EXPLAIN (FORMAT JSON) — the plan is computed by the interpreter, not the engine.
+    this.acceptKw("analyze");
+    this.acceptKw("verbose");
+    if (this.isOp("(")) this.skipParens();
+    return { k: "explain", statement: this.parseStatement() };
   }
 
   atEnd(): boolean {
@@ -499,6 +587,11 @@ class Parser {
       } while (this.acceptOp(","));
       this.expectOp(")");
     }
+    // INSERT … SELECT / INSERT … WITH … SELECT — the source is a query.
+    if (this.isKw("select") || this.isKw("with")) {
+      const asSelect = this.parseSelect();
+      return { k: "insert", table, columns, rows: [], asSelect };
+    }
     this.expectKw("values");
     const rows: Expr[][] = [];
     do {
@@ -513,6 +606,23 @@ class Parser {
       rows.push(row);
     } while (this.acceptOp(","));
     return { k: "insert", table, columns, rows };
+  }
+
+  // ── UPDATE ────────────────────────────────────────────────────────────────
+  private parseUpdate(): UpdateStmt {
+    this.expectKw("update");
+    const table = this.ident();
+    this.expectKw("set");
+    const set: Array<{ col: string; value: Expr }> = [];
+    do {
+      const col = this.ident();
+      this.expectOp("=");
+      const value = this.parseExpr();
+      set.push({ col, value });
+    } while (this.acceptOp(","));
+    let where: Expr | undefined;
+    if (this.acceptKw("where")) where = this.parseExpr();
+    return { k: "update", table, set, where };
   }
 
   // ── DELETE ──────────────────────────────────────────────────────────────
@@ -683,8 +793,12 @@ class Parser {
       name = `${name}.${this.ident()}`;
     }
     const alias = this.parseAlias();
-    if (name.toLowerCase() === "information_schema.columns") {
-      return { kind: "infoschema", alias: alias ?? name };
+    const lower = name.toLowerCase();
+    if (lower === "information_schema.columns") {
+      return { kind: "infoschema", which: "columns", alias: alias ?? name };
+    }
+    if (lower === "information_schema.tables") {
+      return { kind: "infoschema", which: "tables", alias: alias ?? name };
     }
     return { kind: "table", name, alias: alias ?? name };
   }
@@ -1066,9 +1180,24 @@ function inferPgType(values: unknown[]): string {
   return "jsonb";
 }
 
+/** A virtual/foreign table contributed to `information_schema` by a higher layer. */
+export interface CatalogTable {
+  name: string;
+  columns: { name: string; type: string }[];
+}
+
 export interface MemoryBackendOptions {
   /** Restore from bytes produced by a previous {@link MemoryBackend.dump}. */
   load?: Uint8Array;
+  /**
+   * Supply extra tables to `information_schema.tables` / `.columns` without
+   * materializing them — the seam the glove-scratchpad database emulator uses to
+   * advertise resource (foreign) tables for catalog discovery. The engine stays
+   * tool-agnostic: it just asks for additional catalog rows. Called on every
+   * `information_schema` query, so a changing catalog (e.g. MCP servers
+   * connecting) is reflected live.
+   */
+  catalogProvider?: () => CatalogTable[];
 }
 
 /** Sentinel: a column name is absent in a scope (distinct from a null value). */
@@ -1084,6 +1213,8 @@ export class MemoryBackend implements SqlBackend {
   private currentCtes: Map<string, RowSet> = new Map();
   /** Monotonic logical clock backing `now()` so insert order is always stable. */
   private clock: number;
+  /** Extra catalog tables advertised in `information_schema` (see options). */
+  private catalogProvider?: () => CatalogTable[];
 
   private constructor(seed: number) {
     this.clock = seed;
@@ -1093,6 +1224,7 @@ export class MemoryBackend implements SqlBackend {
     // Seed the clock from wall time for human-readable timestamps; it only ever
     // increases, so ordering is correct regardless of clock resolution.
     const be = new MemoryBackend(Date.now());
+    be.catalogProvider = opts.catalogProvider;
     if (opts.load) be.restore(opts.load);
     return be;
   }
@@ -1145,30 +1277,7 @@ export class MemoryBackend implements SqlBackend {
   }
 
   private parseAll(sql: string): Stmt[] {
-    const toks = tokenize(sql);
-    const out: Stmt[] = [];
-    // split into statements on top-level ';'
-    let segment: Token[] = [];
-    for (const t of toks) {
-      if ((t.type === "op") && t.value === ";") {
-        if (segment.some((s) => s.type !== "eof")) {
-          out.push(this.parseSegment(segment));
-        }
-        segment = [];
-        continue;
-      }
-      if (t.type === "eof") break;
-      segment.push(t);
-    }
-    if (segment.length > 0) out.push(this.parseSegment(segment));
-    return out;
-  }
-
-  private parseSegment(seg: Token[]): Stmt {
-    const p = new Parser([...seg, { type: "eof", value: "" }]);
-    const stmt = p.parseStatement();
-    if (!p.atEnd()) throw new Error("MemoryBackend: trailing tokens after statement");
-    return stmt;
+    return parseStatements(sql);
   }
 
   private getTable(name: string): CatTable {
@@ -1201,6 +1310,22 @@ export class MemoryBackend implements SqlBackend {
       case "delete":
         this.execDelete(stmt, params);
         return { rows: [], fields: [] };
+      case "update":
+        this.execUpdate(stmt, params);
+        return { rows: [], fields: [] };
+      // Transaction control is a no-op on the auto-commit MemoryBackend; a higher
+      // layer interprets BEGIN/COMMIT/ROLLBACK to stage and gate side effects.
+      case "begin":
+      case "commit":
+      case "rollback":
+        return { rows: [], fields: [] };
+      case "explain":
+        // No cost-based planner; report the statement is parseable/executable
+        // WITHOUT running it (so EXPLAIN never triggers side effects).
+        return {
+          rows: [{ "QUERY PLAN": `MemoryBackend: ${stmt.statement.k} (no cost-based planner)` }],
+          fields: [{ name: "QUERY PLAN" }],
+        };
     }
   }
 
@@ -1237,6 +1362,28 @@ export class MemoryBackend implements SqlBackend {
         }
       }
     }
+    // INSERT … SELECT: run the source query and map its output columns positionally
+    // onto the target columns.
+    if (stmt.asSelect) {
+      const rs = this.execSelect(stmt.asSelect, params, new Map());
+      for (const src of rs.rows) {
+        if (rs.columns.length !== colNames.length) {
+          throw new Error(`MemoryBackend: INSERT column/value count mismatch on "${stmt.table}"`);
+        }
+        const row: Record<string, unknown> = {};
+        const provided = new Set<string>();
+        for (let i = 0; i < colNames.length; i++) {
+          row[colNames[i]] = src[rs.columns[i]] ?? null;
+          provided.add(colNames[i]);
+        }
+        for (const col of table.columns) {
+          if (provided.has(col.name)) continue;
+          row[col.name] = col.default ? this.evalExpr(col.default, new Map(), params) : null;
+        }
+        table.rows.push(row);
+      }
+      return;
+    }
     for (const valueExprs of stmt.rows) {
       if (valueExprs.length !== colNames.length) {
         throw new Error(`MemoryBackend: INSERT column/value count mismatch on "${stmt.table}"`);
@@ -1265,6 +1412,23 @@ export class MemoryBackend implements SqlBackend {
       const jr: JoinedRow = new Map([[stmt.table, r]]);
       return !truthy(this.evalExpr(stmt.where!, jr, params));
     });
+  }
+
+  private execUpdate(stmt: UpdateStmt, params: unknown[]): void {
+    const table = this.getTable(stmt.table);
+    const declared = new Set(table.columns.map((c) => c.name));
+    for (const { col } of stmt.set) {
+      if (!declared.has(col)) {
+        throw new Error(`MemoryBackend: column "${col}" of relation "${stmt.table}" does not exist`);
+      }
+    }
+    for (const row of table.rows) {
+      const jr: JoinedRow = new Map([[stmt.table, row]]);
+      if (stmt.where && !truthy(this.evalExpr(stmt.where, jr, params))) continue;
+      for (const { col, value } of stmt.set) {
+        row[col] = this.evalExpr(value, jr, params);
+      }
+    }
   }
 
   // ── SELECT ────────────────────────────────────────────────────────────────
@@ -1655,7 +1819,10 @@ export class MemoryBackend implements SqlBackend {
       return { alias: item.alias, columns: rs.columns, rows: rs.rows };
     }
     if (item.kind === "infoschema") {
-      return { alias: item.alias, columns: INFO_COLUMNS, rows: this.infoSchemaRows() };
+      if (item.which === "tables") {
+        return { alias: item.alias, columns: INFO_TABLE_COLUMNS, rows: this.infoSchemaTableRows() };
+      }
+      return { alias: item.alias, columns: INFO_COLUMNS, rows: this.infoSchemaColumnRows() };
     }
     // CTE shadows a real table of the same name
     const cte = ctes.get(item.name);
@@ -1724,9 +1891,11 @@ export class MemoryBackend implements SqlBackend {
     return tmpl;
   }
 
-  private infoSchemaRows(): Record<string, unknown>[] {
+  private infoSchemaColumnRows(): Record<string, unknown>[] {
     const rows: Record<string, unknown>[] = [];
+    const seen = new Set<string>();
     for (const t of this.tables.values()) {
+      seen.add(t.name);
       t.columns.forEach((c, i) => {
         rows.push({
           table_catalog: "memory",
@@ -1736,6 +1905,45 @@ export class MemoryBackend implements SqlBackend {
           data_type: c.type,
           ordinal_position: i + 1,
         });
+      });
+    }
+    // Virtual / foreign tables contributed by a higher layer (e.g. the database
+    // emulator's resource catalog). Skip any already materialized in `tables`.
+    for (const t of this.catalogProvider?.() ?? []) {
+      if (seen.has(t.name)) continue;
+      t.columns.forEach((c, i) => {
+        rows.push({
+          table_catalog: "memory",
+          table_schema: "public",
+          table_name: t.name,
+          column_name: c.name,
+          data_type: c.type,
+          ordinal_position: i + 1,
+        });
+      });
+    }
+    return rows;
+  }
+
+  private infoSchemaTableRows(): Record<string, unknown>[] {
+    const rows: Record<string, unknown>[] = [];
+    const seen = new Set<string>();
+    for (const t of this.tables.values()) {
+      seen.add(t.name);
+      rows.push({
+        table_catalog: "memory",
+        table_schema: "public",
+        table_name: t.name,
+        table_type: "BASE TABLE",
+      });
+    }
+    for (const t of this.catalogProvider?.() ?? []) {
+      if (seen.has(t.name)) continue;
+      rows.push({
+        table_catalog: "memory",
+        table_schema: "public",
+        table_name: t.name,
+        table_type: "FOREIGN TABLE",
       });
     }
     return rows;
@@ -2313,6 +2521,7 @@ export class MemoryBackend implements SqlBackend {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const INFO_COLUMNS = ["table_catalog", "table_schema", "table_name", "column_name", "data_type", "ordinal_position"];
+const INFO_TABLE_COLUMNS = ["table_catalog", "table_schema", "table_name", "table_type"];
 
 function truthy(v: unknown): boolean {
   return v === true || v === 1;
@@ -2588,4 +2797,258 @@ function exprKey(e: Expr): string {
     default:
       return "?";
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Public parse + static analysis
+//
+// Exposed so a higher layer (e.g. the glove-scratchpad database emulator) can
+// inspect a statement BEFORE it executes — classify relations, push WHERE
+// equalities down as arguments, gate by statement kind — using the SAME grammar
+// the engine runs. A second, divergent parser in the consumer would let the
+// security check inspect a different language than the one that executes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type SqlScalar = string | number | boolean | null;
+
+/** A table relation found in a statement, classified by how it is used. */
+export interface RelationRef {
+  /** Physical relation name as written. */
+  name: string;
+  /** Alias it is bound to (equals `name` when no explicit alias was given). */
+  alias: string;
+  /**
+   * - `read` — appears in a FROM / JOIN / subquery / INSERT…SELECT source.
+   * - `insert` / `delete` / `update` — the write target of that statement.
+   */
+  role: "read" | "insert" | "delete" | "update";
+}
+
+function parseSegment(seg: Token[]): Stmt {
+  const p = new Parser([...seg, { type: "eof", value: "" }]);
+  const stmt = p.parseStatement();
+  if (!p.atEnd()) throw new Error("MemoryBackend: trailing tokens after statement");
+  return stmt;
+}
+
+/** Tokenize, split on top-level `;`, and parse each segment. */
+function parseStatements(sql: string): Stmt[] {
+  const toks = tokenize(sql);
+  const out: Stmt[] = [];
+  let segment: Token[] = [];
+  for (const t of toks) {
+    if (t.type === "op" && t.value === ";") {
+      if (segment.some((s) => s.type !== "eof")) out.push(parseSegment(segment));
+      segment = [];
+      continue;
+    }
+    if (t.type === "eof") break;
+    segment.push(t);
+  }
+  if (segment.length > 0) out.push(parseSegment(segment));
+  return out;
+}
+
+/** Parse SQL into the statement AST — the same parser {@link MemoryBackend} executes. */
+export function parse(sql: string): Stmt[] {
+  return parseStatements(sql);
+}
+
+/** The kind tag of a statement (`select` / `insert` / `update` / `begin` / …). */
+export function statementKind(stmt: Stmt): Stmt["k"] {
+  return stmt.k;
+}
+
+/** Visit every nested SELECT subquery within an expression. */
+function visitExprSubqueries(e: Expr, cb: (s: SelectStmt) => void): void {
+  switch (e.k) {
+    case "subquery":
+    case "exists":
+      cb(e.select);
+      break;
+    case "in":
+      if (e.sub) cb(e.sub);
+      (e.list ?? []).forEach((x) => visitExprSubqueries(x, cb));
+      visitExprSubqueries(e.e, cb);
+      break;
+    case "binary":
+    case "json":
+      visitExprSubqueries(e.l, cb);
+      visitExprSubqueries(e.r, cb);
+      break;
+    case "unary":
+    case "not":
+    case "cast":
+    case "is":
+      visitExprSubqueries(e.e, cb);
+      break;
+    case "between":
+      visitExprSubqueries(e.e, cb);
+      visitExprSubqueries(e.lo, cb);
+      visitExprSubqueries(e.hi, cb);
+      break;
+    case "func":
+      e.args.forEach((a) => visitExprSubqueries(a, cb));
+      if (e.filter) visitExprSubqueries(e.filter, cb);
+      break;
+    case "case":
+      if (e.operand) visitExprSubqueries(e.operand, cb);
+      e.whens.forEach((w) => {
+        visitExprSubqueries(w.when, cb);
+        visitExprSubqueries(w.then, cb);
+      });
+      if (e.els) visitExprSubqueries(e.els, cb);
+      break;
+  }
+}
+
+/** Expressions a SELECT evaluates (projection, where, group/having, order, join-ons). */
+function selectExprs(sel: SelectStmt): Expr[] {
+  const out: Expr[] = [];
+  for (const it of sel.items) if (it.expr) out.push(it.expr);
+  if (sel.where) out.push(sel.where);
+  for (const g of sel.groupBy) out.push(g);
+  if (sel.having) out.push(sel.having);
+  for (const o of sel.orderBy) out.push(o.expr);
+  for (const j of sel.joins) if (j.on) out.push(j.on);
+  return out;
+}
+
+/** Visit `sel` and every SELECT nested in it (CTEs, FROM/JOIN subqueries, set-ops, expr subqueries). */
+function eachSelect(sel: SelectStmt, cb: (s: SelectStmt) => void): void {
+  cb(sel);
+  for (const cte of sel.with ?? []) eachSelect(cte.select, cb);
+  if (sel.from?.kind === "subquery") eachSelect(sel.from.select, cb);
+  for (const j of sel.joins) if (j.item.kind === "subquery") eachSelect(j.item.select, cb);
+  for (const so of sel.setOps ?? []) eachSelect(so.select, cb);
+  for (const e of selectExprs(sel)) visitExprSubqueries(e, (sub) => eachSelect(sub, cb));
+}
+
+function rootSelect(stmt: Stmt): SelectStmt | null {
+  if (stmt.k === "select") return stmt;
+  if (stmt.k === "insert" && stmt.asSelect) return stmt.asSelect;
+  if (stmt.k === "createTable" && stmt.asSelect) return stmt.asSelect;
+  if (stmt.k === "explain") return rootSelect(stmt.statement);
+  return null;
+}
+
+/** Every SELECT reachable from a statement, including DELETE/UPDATE WHERE subqueries. */
+function allSelects(stmt: Stmt): SelectStmt[] {
+  const out: SelectStmt[] = [];
+  const root = rootSelect(stmt);
+  if (root) eachSelect(root, (s) => out.push(s));
+  const walkWhere = (e: Expr) => visitExprSubqueries(e, (s) => eachSelect(s, (x) => out.push(x)));
+  if (stmt.k === "delete" && stmt.where) walkWhere(stmt.where);
+  if (stmt.k === "update") {
+    for (const st of stmt.set) walkWhere(st.value);
+    if (stmt.where) walkWhere(stmt.where);
+  }
+  return out;
+}
+
+/** All table relations a statement references, each classified read vs write-target. */
+export function collectRelations(stmt: Stmt): RelationRef[] {
+  if (stmt.k === "explain") return collectRelations(stmt.statement);
+  const out: RelationRef[] = [];
+  for (const s of allSelects(stmt)) {
+    if (s.from?.kind === "table") out.push({ name: s.from.name, alias: s.from.alias, role: "read" });
+    for (const j of s.joins) {
+      if (j.item.kind === "table") out.push({ name: j.item.name, alias: j.item.alias, role: "read" });
+    }
+  }
+  if (stmt.k === "insert") out.push({ name: stmt.table, alias: stmt.table, role: "insert" });
+  if (stmt.k === "delete") out.push({ name: stmt.table, alias: stmt.table, role: "delete" });
+  if (stmt.k === "update") out.push({ name: stmt.table, alias: stmt.table, role: "update" });
+  return out;
+}
+
+/** Names defined by WITH (CTEs) anywhere in the statement — they shadow real tables. */
+export function collectCteNames(stmt: Stmt): Set<string> {
+  const names = new Set<string>();
+  for (const s of allSelects(stmt)) for (const cte of s.with ?? []) names.add(cte.name);
+  return names;
+}
+
+/**
+ * Equality / IN bindings for `alias` that can be PUSHED DOWN as arguments to a
+ * resource resolver (Steampipe-style). Walks every conjunct of every WHERE and
+ * JOIN-ON in the statement, collecting `alias.col = <literal|param>` (and the
+ * symmetric form) and `alias.col IN (<literals>)`. Unqualified columns
+ * (`col = …` with no table qualifier) are attributed too — the caller resolves
+ * any ambiguity by keeping only columns the relation actually declares.
+ * Column = column (join keys, correlations) are NOT bindings; the engine
+ * evaluates them after materialization.
+ */
+export function extractEqualityBindings(
+  stmt: Stmt,
+  alias: string,
+  params: unknown[] = [],
+): Map<string, SqlScalar[]> {
+  const eq = new Map<string, SqlScalar[]>();
+  const add = (col: string, v: SqlScalar) => {
+    const arr = eq.get(col) ?? [];
+    arr.push(v);
+    eq.set(col, arr);
+  };
+  const asLiteral = (e: Expr): { ok: boolean; v: SqlScalar } => {
+    switch (e.k) {
+      case "num":
+        return { ok: true, v: e.v };
+      case "str":
+        return { ok: true, v: e.v };
+      case "bool":
+        return { ok: true, v: e.v };
+      case "null":
+        return { ok: true, v: null };
+      case "param": {
+        const v = e.i >= 1 && e.i <= params.length ? params[e.i - 1] : null;
+        return { ok: true, v: (v ?? null) as SqlScalar };
+      }
+      default:
+        return { ok: false, v: null };
+    }
+  };
+  const colName = (e: Expr): string | null =>
+    e.k === "col" && (e.table === alias || e.table === undefined) ? e.name : null;
+  const conj = (e: Expr): void => {
+    if (e.k === "binary" && e.op === "and") {
+      conj(e.l);
+      conj(e.r);
+      return;
+    }
+    if (e.k === "binary" && e.op === "=") {
+      const lc = colName(e.l);
+      if (lc) {
+        const r = asLiteral(e.r);
+        if (r.ok) {
+          add(lc, r.v);
+          return;
+        }
+      }
+      const rc = colName(e.r);
+      if (rc) {
+        const l = asLiteral(e.l);
+        if (l.ok) add(rc, l.v);
+      }
+      return;
+    }
+    if (e.k === "in" && !e.negated && e.list && e.list.length > 0) {
+      const c = colName(e.e);
+      if (!c) return;
+      const vals: SqlScalar[] = [];
+      for (const it of e.list) {
+        const r = asLiteral(it);
+        if (!r.ok) return;
+        vals.push(r.v);
+      }
+      for (const v of vals) add(c, v);
+    }
+  };
+  for (const s of allSelects(stmt)) {
+    if (s.where) conj(s.where);
+    for (const j of s.joins) if (j.on) conj(j.on);
+  }
+  if (stmt.k === "delete" && stmt.where) conj(stmt.where);
+  if (stmt.k === "update" && stmt.where) conj(stmt.where);
+  return eq;
 }

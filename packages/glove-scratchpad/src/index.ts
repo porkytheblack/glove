@@ -1,38 +1,31 @@
 /**
- * glove-scratchpad — The Scratchpad Computer for Glove.
+ * glove-scratchpad — a database emulator for LLM tool use.
  *
- * A substrate-independent architecture for context-efficient multi-agent
- * workflows: handles + deterministic SQL transforms over a durable store. The
- * context win is recovered through *topology*, not a shell.
- *
- * Two mechanisms, decoupled from any substrate:
- *   1. Interface disclosure — partition tools across subagents (use Glove's
- *      subagents + glove-mcp discovery; nothing here is needed for it).
- *   2. Result containment — {@link storeAndTruncate} writes a tool's full result
- *      into a {@link Scratchpad} and returns only a stub.
- *
- * Most consumers import from the barrel:
+ * Instead of loading many tool definitions, expose an agent's capabilities as a
+ * relational database it queries with ONE `execute_sql` tool. **Resources** —
+ * entities/data types like `github_pr`, `linear_issue`, `emails`, `time`,
+ * `images` — become tables; their CRUD verbs map to underlying tools. The model
+ * discovers capabilities via `information_schema`, invokes them by querying their
+ * tables (pushing arguments through `WHERE`), composes across services in a
+ * single statement, and stages outbound effects with transactions. It is a SQL
+ * interpreter: every statement is parsed and inspected before any tool runs.
  *
  * ```ts
- * import { Scratchpad, MemoryBackend, mountScratchpad, storeAndTruncate } from "glove-scratchpad";
+ * import { Database, resourceFromTool, mountDatabase } from "glove-scratchpad";
  *
- * const sp = await Scratchpad.create(await MemoryBackend.create());
- * mountScratchpad(agent, { scratchpad: sp });
- * agent.fold(storeAndTruncate(someBigTool, { scratchpad: sp }));
+ * const db = await Database.create();
+ * db.register(resourceFromTool(getTimeTool, {
+ *   name: "time", volatility: "stable", columns: [{ name: "now", type: "timestamptz" }],
+ * }));
+ * mountDatabase(agent, { db });
+ * // → the agent runs `SELECT now FROM time`, discovers more via information_schema, etc.
  * ```
  *
- * The default backend is {@link MemoryBackend} — a zero-dependency, pure-JS
- * Postgres-subset emulator whose tables are constructed at runtime from whatever
- * data is ingested. A PGlite (WASM Postgres) backend is available behind the
- * `glove-scratchpad/pglite` subpath when a real Postgres dialect is wanted. The
- * contract is a defined Postgres subset ({@link ScratchpadBackend}); the backend
- * is swappable.
- *
- * For multi-subagent topologies, `glove-scratchpad/graph` builds a wired graph
- * from a plain, schema-validated definition object.
+ * The query engine is `glove-sql` (a zero-dependency pure-JS Postgres subset);
+ * the emulator materializes each resolved resource into it once per `execute`,
+ * then runs the synchronous query. Bring `glove-scratchpad/pglite` for a full
+ * Postgres dialect, or any backend satisfying {@link ScratchpadBackend}.
  */
+export * from "./db";
 export * from "./core";
-export * from "./tools";
-export * from "./persist";
-export { MemoryBackend, type MemoryBackendOptions } from "./backends/memory";
-export * from "./graph";
+export { MemoryBackend, type MemoryBackendOptions } from "glove-sql";
