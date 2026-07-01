@@ -27,10 +27,23 @@ Every finding below was adversarially verified against source; each carries a `f
 >   (no cross-turn strand); capability errors list supported ops; **over-broad
 >   UPDATE/DELETE** (range/OR/LIKE WHERE) is rejected, not silently widened.
 >
-> Engine tests: glove-sql **102/102**, glove-scratchpad **53/53**. The findings below
-> are retained as the original audit record. Remaining lower-priority items:
-> `to_char`/`regexp_*`, `ON CONFLICT`/upsert, `SAVEPOINT`, window-frame edge cases,
-> and a full `column_default` — none block the "feels like a database" bar.
+> - **Batch F — idiom completeness sweep**: string library (`split_part`, `left`/
+>   `right`, `lpad`, `concat_ws`, …), `to_char`/`make_date`, regex operators +
+>   `regexp_replace`, `IS [NOT] DISTINCT FROM`, SQL-standard `substring`/`position`,
+>   `interval` arithmetic, native `ON CONFLICT` upsert, `DISTINCT ON`; fixed
+>   `ltrim`/`rtrim` silently ignoring their chars argument.
+> - **Last-mile pass** (from the 3 residual weak-model failures — all platform
+>   gaps, not capacity floors): write results carry the **row count** (`insert …
+>   fired — 15 row(s)` — a model that saw `rows: []` reported "0 issues");
+>   **`WITH … INSERT/UPDATE/DELETE`** (data-modifying CTE readers) parse and
+>   resolve; `RETURNING` no longer eaten as an implicit alias; virtual
+>   `INSERT…SELECT…RETURNING` works; a **0-row read carries a re-check nudge**;
+>   BEGIN-wrapped SELECT scripts return their rows instead of discarding them.
+>
+> Engine tests: glove-sql **111/111**, glove-scratchpad **60/60**. The findings below
+> are retained as the original audit record. Remaining (all loud errors, none
+> silent): `SAVEPOINT`, window-frame exotica, `md5`/`regexp_matches`, a full
+> `column_default` — none block the "feels like a database" bar.
 
 ---
 

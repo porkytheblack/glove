@@ -244,6 +244,41 @@ Three things stand out:
    hardening removed. The scratchpad can't make an 8B model smart; it can stop it
    from drowning.
 
+## Last-mile pass: the "capacity floor" was mostly platform (v6)
+
+The roster run left 3 weak-model failures that looked like genuine 8B/30B capacity
+limits. Autopsying the transcripts showed **all three were platform gaps**:
+
+1. **qwen30b / compose** — its 15-row `INSERT … SELECT` *succeeded*, but the result
+   carried no row count (`rows: []`), so the model reported *"I opened 0 new GitHub
+   issues."* Postgres answers `INSERT 0 15`; we answered nothing.
+2. **qwen8b / sentry** — it ran two SELECTs in one call; our error message told it
+   to use `BEGIN … COMMIT`; it complied — and the COMMIT result **discarded the
+   SELECT rows**, so it saw nothing and reported *"there are no unresolved issues."*
+   Our own affordance taught the failure.
+3. **qwen8b / email** — its first two attempts were *canonical Postgres* (`WITH …
+   INSERT`, `INSERT … SELECT … RETURNING *`) and both failed to parse (data-modifying
+   CTEs unsupported; `RETURNING` eaten as an implicit alias), so it degraded its
+   query until the body was wrong.
+
+Fixes (all product-side, with regression tests): write results carry the **command
+tag** (`rowCount` + `insert on "x" fired — 15 row(s)`; staged/COMMIT list per-write
+counts); scripts **return the last SELECT's rows** and the multi-statement error
+steers to one-per-call; `WITH … INSERT/UPDATE/DELETE` parse and resolve;
+`returning` is reserved; virtual `INSERT…SELECT…RETURNING` works; a **0-row read
+carries a re-check nudge** (with the exact `information_schema` query to run); and
+`sentry_issues.project` documents its valid values. glove-sql 111/111,
+glove-scratchpad 60/60.
+
+Re-run (same weak tier, scratchpad arm): **qwen30b 6/7 → 7/7, qwen8b 5/7 → 6/7,
+dsflash 7/7 → 7/7** — weakest-tier total **18/21 → 20/21 (95%)**, all passes ≤4
+turns, no spirals. The one residual is now a *demonstrated* capacity floor: the
+prompt asks for the issue's **title** in the email body; qwen8b wrote
+`'Top error: ' || project`, and `RETURNING` even showed it exactly what it sent —
+a comprehension miss on an explicit instruction, with the platform path perfect
+(single statement, write fired, result observable). That is what an honest floor
+looks like: the model fails on *meaning*, not on mechanics.
+
 ## Where scratchpad decisively wins: context pressure
 
 The main matrix runs at a generous 100k limit on small result sets — the regime
