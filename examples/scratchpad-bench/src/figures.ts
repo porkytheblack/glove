@@ -111,7 +111,7 @@ const cell = (rows: RunResult[], key: string, arm: string) => rows.filter((r) =>
   const H = 132;
   const tiles = [
     { label: "Weak-model pass rate", value: `${Math.round((versions[0].a.pass / versions[0].a.n) * 100)}% → ${Math.round((versions[4].a.pass / versions[4].a.n) * 100)}%`, delta: "scratchpad arm · v1 → v5 · n = 35" },
-    { label: "Peak context vs tool baseline", value: "÷2.7", delta: "median across 6 models, roster run" },
+    { label: "Peak context vs tool baseline", value: "2.7× smaller", delta: "median across 6 models, roster run" },
     { label: "Cheapest model scoring 7/7", value: "$0.09/M", delta: "DeepSeek V4 Flash, input price" },
     { label: "Runaway spirals (30-turn cap)", value: `${versions[0].a.spirals} → 0`, delta: "eliminated in v2, never returned" },
   ];
@@ -245,7 +245,7 @@ const cell = (rows: RunResult[], key: string, arm: string) => rows.filter((r) =>
     b += `<line x1="${x(s)}" y1="${cy}" x2="${x(base)}" y2="${cy}" stroke="${BASE}" stroke-width="2"/>`;
     b += dot(x(base), cy, LIGHTBLUE) + dot(x(s), cy, DARKBLUE);
     b += text(x(base) + 12, cy + 4, base.toLocaleString(), { size: 11, fill: MUTED, nums: true });
-    b += text(W - M.r + 26, cy + 4, `÷${(base / s).toFixed(1)}`, { size: 12.5, fill: GOODTEXT, weight: 600, nums: true });
+    b += text(W - M.r + 26, cy + 4, `${(base / s).toFixed(1)}× smaller`, { size: 12.5, fill: GOODTEXT, weight: 600, nums: true });
   });
   save("fig4-context.svg", svg(W, H, b));
 }

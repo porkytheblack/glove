@@ -2,7 +2,7 @@
 
 **Turning an agent's tools into SQL, and hardening it until the cheapest models drive it like Postgres**
 
-*glove-scratchpad / glove-sql · February–July 2026 · all data, transcripts, and figure-generation code in this repository*
+*glove-scratchpad / glove-sql · July 2, 2026 · all data, transcripts, and figure-generation code in this repository*
 
 ---
 
@@ -135,7 +135,7 @@ With the platform hardened, we widened the roster in both directions: the curren
 | DeepSeek V4 Flash | cheap | 7/7 | **7/7** | 6,490 → 2,249 |
 | Qwen3 30B A3B | cheap | 3/7 | **6/7** | 4,569 → 1,898 |
 | Qwen3 8B | cheap | 4/7 | **5/7** | 4,560 → 1,828 |
-| **total** | | **30/42 (71%)** | **39/42 (93%)** | ÷2.4–3.2 |
+| **total** | | **30/42 (71%)** | **39/42 (93%)** | 2.4–3.2× smaller |
 
 ![Peak context](figures/fig4-context.svg)
 
@@ -182,7 +182,7 @@ Model-in-the-loop benchmarking found bugs that 100+ unit tests and a determinist
 
 ## 10. Limitations
 
-- **One seed, one run per cell.** n=35–84 per comparison; cells are single samples, so individual cell flips (±1 task) are within noise. The aggregate deltas (74→100, 71% vs 93%, ÷2.4–3.2 context) are far outside it.
+- **One seed, one run per cell.** n=35–84 per comparison; cells are single samples, so individual cell flips (±1 task) are within noise. The aggregate deltas (74→100, 71% vs 93%, 2.4–3.2× context reduction) are far outside it.
 - **Mocked services.** Real MCP servers have latency, auth failures, and pagination the mock world lacks; the benchmark measures the *surface*, not network reality.
 - **Seven tasks.** Chosen to span read/aggregate/join/write/compose, but a narrow slice of agent work; no long-horizon multi-session tasks.
 - **Preamble co-evolution.** v2–v3 changed both engine and prompt; their contributions are not fully separable (v5's engine-only batches were measured in isolation and were pass-positive).
