@@ -577,6 +577,13 @@ export class Database {
         `glove-scratchpad: writes are disabled for this database. Enable them or wrap the write in BEGIN … COMMIT.`,
       );
     }
+    // ON CONFLICT needs a local unique index to detect a conflict; capability
+    // tables are upstream views, so there's nothing to conflict against here.
+    if (stmt.k === "insert" && stmt.onConflict) {
+      throw new Error(
+        `glove-scratchpad: ON CONFLICT is not supported on capability tables — SELECT for the row first (read-your-writes reflects your session), then INSERT or UPDATE.`,
+      );
+    }
     // RETURNING on UPDATE/DELETE needs the matched rows, which live upstream and
     // aren't returned by the resolver — point the model at the working idiom.
     if ((stmt.k === "update" || stmt.k === "delete") && stmt.returning) {

@@ -56,7 +56,4 @@ test("a leading public. qualifier resolves like the default search_path", async 
   assert.deepEqual(await rows(b, `SELECT id FROM public.t WHERE id = 2`), [{ id: 2 }]);
 });
 
-test("trailing RETURNING/ON CONFLICT give an actionable message", async () => {
-  const b = await seeded();
-  await throws(b, `INSERT INTO t (id) VALUES (3) ON CONFLICT DO NOTHING`, /ON CONFLICT/);
-});
+// (ON CONFLICT upsert is covered end-to-end in sql-idioms.test.ts.)

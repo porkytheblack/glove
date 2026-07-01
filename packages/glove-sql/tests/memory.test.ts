@@ -213,5 +213,5 @@ test("dump → restore round-trips the whole catalog", async () => {
 test("unsupported SQL throws a clear error rather than mis-answering", async () => {
   const b = await be();
   // Outside the emulated subset → a clear error, never a wrong answer.
-  await assert.rejects(() => b.query(`SELECT regexp_replace(name, 'a', 'b') FROM "t"`), /unsupported function/i);
+  await assert.rejects(() => b.query(`SELECT md5(name) FROM "t"`), /unsupported function/i);
 });
