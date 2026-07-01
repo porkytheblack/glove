@@ -65,13 +65,6 @@ export function pagerdutyServer(world: World): ServerSpec {
         },
         update: { tool: "acknowledge_incident", args: (_set, b) => ({ id: b.one("id") }) },
       },
-      {
-        table: "pagerduty_incident",
-        description: "A single incident by id. REQUIRES WHERE id = 'PD-…'.",
-        volatility: "stable",
-        columns: [{ ...cols[0], requiredKey: true }, ...cols.slice(1)],
-        select: { tool: "get_incident", args: (b) => ({ id: b.one("id") }), extract: (d) => (d == null ? [] : [d]), fanOut: "id" },
-      },
     ],
   };
 }

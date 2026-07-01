@@ -358,8 +358,12 @@ export class Database {
         // argument AND, to the engine, a residual filter) still matches. Values
         // the resolver returned are left untouched.
         const stamped = this.stampBindings(rows, eq);
-        await materializeTable(this.backend, name, resource.columns, stamped);
+        // Track the table for teardown BEFORE materializing: if the CREATE
+        // succeeds but the bulk INSERT throws (a bad row coercion), the table
+        // still exists and must be dropped — otherwise it leaks and the next
+        // statement's CREATE fails with "relation already exists".
         ephemerals.push(name);
+        await materializeTable(this.backend, name, resource.columns, stamped);
         touched.push({
           name,
           source: "virtual",

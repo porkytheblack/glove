@@ -30,12 +30,13 @@ async function main() {
   console.log(`  sample payload: repo=${JSON.stringify(sample.repo)} title=${JSON.stringify(String(sample.title).slice(0, 40))}`);
   console.log(`  → count ${after - before === mergedClosing.length ? "OK" : "MISMATCH"}, columns ${colsOk ? "OK ✓" : "MIS-MAPPED ✗"}`);
 
-  // ── Probe B: required-key IN (…) ──────────────────────────────────────────
-  console.log("\n[B] required-key linear_issue WHERE id IN (3 ids):");
-  const ids = org.world.linearIssues.slice(0, 3).map((i) => i.id);
-  const inRes = await run(`SELECT id, state FROM linear_issue WHERE id IN ('${ids[0]}','${ids[1]}','${ids[2]}')`);
-  console.log(`  asked for ${ids.length} ids [${ids.join(", ")}] → got ${inRes.rows.length} row(s): ${JSON.stringify(inRes.rows)}`);
-  console.log(`  → ${inRes.rows.length === ids.length ? "fans out OK ✓" : "UNDER-FETCH ✗ (only first id resolved)"}`);
+  // ── Probe B: required-key IN (…) fan-out ──────────────────────────────────
+  console.log("\n[B] required-key slack_messages WHERE channel IN (3 channels):");
+  const chans = org.world.slackChannels.slice(0, 3).map((c) => c.name);
+  const inRes = await run(`SELECT DISTINCT channel FROM slack_messages WHERE channel IN ('${chans[0]}','${chans[1]}','${chans[2]}')`);
+  const got = new Set(inRes.rows.map((r) => r.channel as string));
+  console.log(`  asked for ${chans.length} channels [${chans.join(", ")}] → resolved ${got.size}: ${JSON.stringify([...got])}`);
+  console.log(`  → ${got.size === chans.length ? "fans out OK ✓" : "UNDER-FETCH ✗ (only first channel resolved)"}`);
 
   // ── Probe C: the intended JOIN solution to merged-prs-open-linear ─────────
   console.log("\n[C] JOIN github_pull_requests × linear_issues (the intended single-query solution):");

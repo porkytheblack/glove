@@ -69,6 +69,10 @@ export async function materializeTable(
     throw new Error(`glove-scratchpad: resource "${name}" declares no columns`);
   }
   const colDefs = columns.map((c) => `${quoteIdent(c.name)} ${c.type}`).join(",\n  ");
+  // DROP first so a table leaked by an earlier partially-failed materialization
+  // (or a name that collides with a prior statement's ephemeral) can never make
+  // this CREATE fail with "relation already exists".
+  await backend.exec(`DROP TABLE IF EXISTS ${quoteIdent(name)} CASCADE;`);
   await backend.exec(`CREATE TABLE ${quoteIdent(name)} (\n  ${colDefs}\n);`);
   if (rows.length === 0) return;
 

@@ -52,7 +52,7 @@ async function main() {
   db.registerAll(org.resources());
 
   const tables = await rows(db, "SELECT table_name FROM information_schema.tables ORDER BY table_name");
-  check(`information_schema lists tables (${tables.length})`, tables.length >= 14, tables.map((t) => t.table_name));
+  check(`information_schema lists tables (${tables.length})`, tables.length >= 12, tables.map((t) => t.table_name));
 
   const cols = await rows(db, "SELECT column_name FROM information_schema.columns WHERE table_name = 'github_pull_requests'");
   check("columns of github_pull_requests discoverable", cols.some((c) => c.column_name === "closes_linear"));
@@ -60,17 +60,21 @@ async function main() {
   const openPrs = await rows(db, "SELECT number, title FROM github_pull_requests WHERE state = 'open' LIMIT 5");
   check("filtered SELECT on github_pull_requests", openPrs.length > 0, openPrs.length);
 
-  // Required-key pushdown: must bind id.
-  const knownId = org.world.linearIssues[3].id;
-  const one = await rows(db, `SELECT id, title, assignee FROM linear_issue WHERE id = '${knownId}'`);
-  check(`required-key pushdown linear_issue WHERE id='${knownId}'`, one.length === 1 && one[0].id === knownId, one);
+  // Required-key pushdown: slack_messages must bind `channel` (WHERE channel = …).
+  const chan = org.world.slackChannels[0].name;
+  const one = await rows(db, `SELECT channel, text FROM slack_messages WHERE channel = '${chan}'`);
+  check(`required-key pushdown slack_messages WHERE channel='${chan}'`, one.length > 0 && one.every((r) => r.channel === chan), one.length);
   let pushdownErr = "";
   try {
-    await rows(db, "SELECT id FROM linear_issue LIMIT 1");
+    await rows(db, "SELECT text FROM slack_messages LIMIT 1");
   } catch (e) {
     pushdownErr = e instanceof Error ? e.message : String(e);
   }
   check("missing required key is a clear error", /require|equality|key/i.test(pushdownErr), pushdownErr);
+  // fanOut: WHERE channel IN (…) resolves EACH channel, not just the first.
+  const c2 = org.world.slackChannels.slice(0, 2).map((c) => c.name);
+  const fan = await rows(db, `SELECT DISTINCT channel FROM slack_messages WHERE channel IN ('${c2[0]}','${c2[1]}')`);
+  check(`required-key IN fans out (${c2.join(",")})`, new Set(fan.map((r) => r.channel)).size === 2, fan);
 
   console.log("\n[3] Cross-service composition:");
   const joined = await rows(

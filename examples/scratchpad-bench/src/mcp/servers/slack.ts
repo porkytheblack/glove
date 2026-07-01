@@ -66,7 +66,7 @@ export function slackServer(world: World): ServerSpec {
           { name: "ts", type: "timestamptz" },
           { name: "reactions", type: "bigint" },
         ],
-        select: { tool: "list_messages", args: (b) => ({ channel: b.one("channel") }) },
+        select: { tool: "list_messages", args: (b) => ({ channel: b.one("channel") }), fanOut: "channel" },
         insert: { tool: "post_message", args: (r) => ({ channel: r.channel, text: r.text }) },
       },
     ],

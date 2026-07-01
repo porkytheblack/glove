@@ -100,20 +100,6 @@ export function linearServer(world: World): ServerSpec {
           args: (set, b) => ({ id: b.one("id"), ...set }),
         },
       },
-      {
-        // A required-key resource: you MUST bind `id` (WHERE id = '…'). Exercises
-        // Steampipe-style pushdown / get-by-key against a single tool.
-        table: "linear_issue",
-        description: "A single Linear issue fetched by id. REQUIRES WHERE id = 'ENG-…'.",
-        volatility: "stable",
-        columns: [{ ...issueCols[0], requiredKey: true }, ...issueCols.slice(1)],
-        select: {
-          tool: "get_issue",
-          args: (b) => ({ id: b.one("id") }),
-          extract: (d) => (d == null ? [] : [d]),
-          fanOut: "id",
-        },
-      },
     ],
   };
 }
