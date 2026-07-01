@@ -1,0 +1,10 @@
+{"kind":"meta","modelKey":"qwen8b","model":"qwen/qwen3-8b","scenario":"email-top-error","arm":"baseline","ok":true,"errored":false,"turns":3,"toolCalls":2,"toolErrors":0,"mcpRoundTrips":2,"servicesTouched":2,"tokensIn":16911,"tokensOut":1698,"cacheRead":0,"peakContextTokens":6991,"compactions":0,"toolsInContext":32,"wallMs":40996,"costUsd":0.00279342,"expected":{"title":"OOMKilled: Billing webhook retries drop events","count":4665,"id":"SENTRY-3029"}}
+{"kind":"final_answer","text":"The email was sent to **oncall@acme.io** with the subject **\"Top error\"** and body **\"OOMKilled: Billing webhook retries drop events\"**. The email status is confirmed as \"sent\"."}
+{"t":15586,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"sentry__list_issues","input":"{\"status\":\"unresolved\"}"}]}
+{"t":15586,"type":"tokens","in":3015,"out":864,"peak":3015}
+{"t":15587,"type":"tool_result","tool":"sentry__list_issues","status":"success","data":"[{\"id\":\"SENTRY-3002\",\"title\":\"5xx: CSV export truncates large accounts\",\"culprit\":\"web/csv-export.ts\",\"level\":\"error\",\"count\":838,\"users_affected\":702,\"status\":\"unresolved\",\"project\":\"billing\",\"first_seen\":\"2026-04-10T00:00:00.000Z\",\"last_seen\":\"2026-05-30T00:00:00.000Z\"},{\"id\":\"SENTRY-3003\",\"title\"…(+9002)"}
+{"t":30645,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"email__send_email","input":"{\"to\":\"oncall@acme.io\",\"subject\":\"Top error\",\"body\":\"OOMKilled: Billing webhook retries drop events\"}"}]}
+{"t":30645,"type":"tokens","in":6905,"out":561,"peak":6905}
+{"t":30646,"type":"tool_result","tool":"email__send_email","status":"success","data":"{\"id\":\"msg-out-1\",\"to\":\"oncall@acme.io\",\"subject\":\"Top error\",\"status\":\"sent\"}"}
+{"t":40996,"type":"model_response","turn":3,"stop_reason":"stop","text":"The email was sent to **oncall@acme.io** with the subject **\"Top error\"** and body **\"OOMKilled: Billing webhook retries drop events\"**. The email status is confirmed as \"sent\".","tool_calls":[]}
+{"t":40996,"type":"tokens","in":6991,"out":273,"peak":6991}

@@ -1,53 +1,18 @@
-# Scratchpad Computer example
+# scratchpad-agent — the database emulator, no API key
 
-Three ways to see [`glove-scratchpad`](../../packages/glove-scratchpad) work. The
-first two need no API key and no database — the default `MemoryBackend` is pure
-JS with zero dependencies.
-
-## `demo.ts` — mechanism walkthrough (no API key)
-
-Drives the store + tools directly and prints **real byte counts** for what the
-model's context would carry naively (full payload) vs. with the scratchpad
-(stubs + one bounded last-mile read). Also snapshots and restores the store.
+A deterministic, zero-dependency walkthrough of [`glove-scratchpad`](../../packages/glove-scratchpad) — the **database emulator** that exposes an agent's capabilities as a relational database it queries with one `execute_sql` tool.
 
 ```bash
-pnpm scratchpad:demo
+pnpm scratchpad:db
 ```
 
-Expected: a ~37× context reduction on a 500-issue payload, end to end.
+It drives `Database.execute` directly (instead of a model) so the output is reproducible, and demonstrates the load-bearing properties end to end:
 
-## `graph.ts` — subagent graph from a schema object (no API key)
+- **Discovery** — capabilities are found via `information_schema.tables` / `.columns`, not a list baked into a prompt.
+- **WHERE-pushdown** — `SELECT … FROM web WHERE query = '…'` feeds `query` to the underlying tool as an argument; other predicates filter the rows in SQL.
+- **Composition** — `INSERT INTO notion_page SELECT … FROM web …` pipes one capability into another in a single statement; no intermediate rows return to the model.
+- **Transactions / staging** — `BEGIN … COMMIT` fires writes in order; `BEGIN … ROLLBACK` is a dry run.
+- **EXPLAIN** — which tools a query will hit (and their volatility), without running anything.
+- **Volatility** — an effectful resource is invoked exactly once per statement (the printed call counts prove it).
 
-Defines a multi-subagent workflow as a plain `GraphDef` object and lets
-`buildScratchpadGraph` construct the wired topology — folding each node's tool
-slice (interface disclosure), mounting the scratchpad surface, and stamping
-provenance. Prints the resulting nodes, tool slices, and edges.
-
-```bash
-pnpm scratchpad:graph
-```
-
-## `workflow.ts` — build and run a workflow in one call (no API key)
-
-Drives the single `workflow_run` tool: it builds a three-subagent flow from a
-schema object and runs it over the shared scratchpad until the objective
-resolves — all in one call. The subagents are stubs whose turns are scripted
-scratchpad ops, so it runs without a model — prints the topology, the per-step
-trace (references flowing `issues → open → by_priority`), and the resolved answer.
-
-```bash
-pnpm scratchpad:workflow
-```
-
-## `agent.ts` — live agent (requires `ANTHROPIC_API_KEY`)
-
-A real Glove agent whose only data source is a tool returning a large payload.
-The tool is wrapped with `storeAndTruncate`, and the agent is mounted with the
-scratchpad surface tools + restraint priming. The tool log shows the agent
-`describe` → `query` (narrow in SQL) → `materialize` a small slice, instead of
-reading the whole payload.
-
-```bash
-export ANTHROPIC_API_KEY=sk-...
-pnpm scratchpad:agent
-```
+In a real agent you'd `mountDatabase(glove, { db })` and the model would write the very same SQL through `execute_sql`. See `database.ts` for the full, commented script.

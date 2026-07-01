@@ -1,65 +1,132 @@
-# Context-reduction benchmark — no API key, $0
+# scratchpad-bench
 
-The Scratchpad Computer's headline claim is **context reduction**, and that metric
-is **deterministic**: it's a property of the data shapes and the workflow, not of
-any model. So you can measure it with **zero model calls**. This harness runs the
-*actual* scratchpad operations — contain each provider's payload → narrow it in
-SQL → JOIN across providers → materialize a small answer — over seeded data, and
-reads, via the real consumption tracker, the bytes that cross the model boundary:
+An **agentic A/B benchmark**: does exposing an agent's capabilities as a
+`glove-scratchpad` SQL database (one `execute_sql` tool) actually beat wiring the
+same capabilities up as ordinary MCP tools — on real models, on real
+multi-service tasks?
+
+> 📄 **Read the full write-up: [The Scratchpad Is a Database](PAPER.md)** — the
+> complete study with figures: the A/B results, the 74% → 100% weak-model
+> hardening arc, the Postgres-parity audit, the OSS-frontier/cheap-model roster,
+> and the design principles that fell out.
+
+It stands up **ten in-process MCP servers** mirroring a real product team's stack
+(GitHub, Linear, Email, Slack, Notion, Jira, Sentry, PagerDuty, Calendar,
+Filesystem — 32 tools over one deterministic, cross-linked seed world) and runs
+each task twice against the **same servers and the same model**:
+
+| arm | tool surface | how data enters context |
+| --- | --- | --- |
+| **baseline** | all 32 MCP tools folded directly (`bridgeMcpTool`) | every tool result streams back verbatim |
+| **scratchpad** | a single `execute_sql` (+ `explain_sql`) over the same capabilities as SQL tables | only the rows a `SELECT` returns |
+
+Both arms are driven by the real `glove-core` agent loop; nothing is mocked above
+the MCP protocol boundary. The scratchpad arm exercises the shipping engine end to
+end — `information_schema` discovery, WHERE-pushdown / required-key resolution,
+cross-service JOINs and `INSERT … SELECT`, transaction staging.
+
+## What's measured
+
+Per (model × scenario × arm) run, from the agent's own event stream:
+
+- **turns** — model round-trips
+- **tool calls** — model-visible invocations (`tool_use_result`)
+- **MCP round-trips** — underlying `tools/call`s (ground-truth meter)
+- **peak context** — largest single-call prompt = peak context-window occupancy
+- **tokens in/out**, **compactions**, **wall time**, **estimated cost**
+- **pass/fail** — graded deterministically against the seed world (writes are
+  graded on the real side effect — the outbox — which can't be faked)
+
+## Layout
 
 ```
-naive      = the raw payloads a tool-calling agent would carry in-context
-scratchpad = stubs + narrowing/join query reads + the last-mile materialize
-reduction  = naive / scratchpad     (dimensionless — exact in bytes; tokens ≈ bytes/4)
+src/
+  mcp/
+    seed.ts             # one deterministic, cross-linked org (PRNG-seeded)
+    spec.ts             # unified per-service spec → MCP tools + scratchpad tables
+    inprocess.ts        # real McpServer over InMemoryTransport → McpServerConnection
+    servers/*.ts        # the 10 services
+    index.ts            # buildMockOrg(): world + connections + resources
+  harness/
+    instrument.ts       # SubscriberAdapter → metrics + JSONL transcript
+    arms.ts             # baseline vs scratchpad builders
+    runner.ts           # one cell: build → run → grade → metrics
+  scenarios.ts          # tasks + deterministic verifiers
+  models.ts             # OpenRouter model roster (cheapest tool-capable per family)
+  run.ts                # CLI + summary/CSV/Markdown writers
+  selfcheck.ts          # no-API validation of the whole MCP+scratchpad layer
+  probe.ts              # no-API mechanics probes (INSERT…SELECT, required-key IN, JOIN)
+logs/                   # per-cell JSONL transcripts (git-tracked)
+results/                # agentic-summary.md + agentic-results.{json,csv} (git-tracked)
 ```
+
+## Running
+
+Needs `OPENROUTER_API_KEY` in the repo-root `.env` (loaded via `--env-file`).
 
 ```bash
-pnpm scratchpad:bench   # ~5s, no API key; writes results.md + results.csv
+# no API key — validate the whole layer and the engine mechanics:
+pnpm --filter glove-scratchpad-bench selfcheck
+npx tsx src/probe.ts
+
+# the benchmark (guard your spend with --budget, in USD):
+pnpm --filter glove-scratchpad-bench bench --budget=1.50
+pnpm --filter glove-scratchpad-bench bench --models=deepseek,glm --scenarios=count-open-prs --arms=baseline,scratchpad
 ```
+
+Flags: `--models`, `--scenarios`, `--arms`, `--budget`, `--scale` (world size),
+`--maxTurns`, `--maxTokens`, `--contextLimit` (compaction threshold), `--timeout`,
+`--echo`.
+
+## Bugs this benchmark caught (and fixed in the product)
+
+- **`glove-sql` — `INSERT … SELECT` column corruption.** A projection of
+  same-named columns (`SELECT 'acme/web', 'Verify: '||title`, both inferring
+  `?column?`) collapsed onto one object key, so the literal was dropped and the
+  wrong value landed in every target column. Fixed by de-duplicating output column
+  names in `projectRow` / `outputColumns` / `projectAggregate`
+  (`packages/glove-sql/src/index.ts`). Also fixes `SELECT *` across joined tables
+  that share a column name.
+- **`glove-scratchpad` — leaked ephemeral table.** A virtual table left behind by
+  a partially-failed materialization (CREATE ok, bulk INSERT throws) made the next
+  statement's CREATE fail with "relation already exists" — a valid query dying
+  under the model and triggering a panic-thrash. Fixed: track for teardown before
+  materializing + `DROP IF EXISTS` before CREATE (idempotent).
+- **Required-key `IN (…)` under-fetch (authoring footgun).** A get-by-key tool
+  exposed as a table resolved only the first value of `WHERE id IN (a,b,c)`; fixed
+  with an explicit `fanOut` in the resource spec.
+
+Engine tests: glove-sql 84/84, glove-scratchpad 40/40 (regression tests added).
+
+## Hardening the scratchpad for weak models
+
+Driven by this benchmark, `glove-scratchpad` gained anti-spiral discipline in the
+primed preamble (a single write fires directly; be decisive) plus a primed table
+catalog **with enum values surfaced**. On the five weak OpenRouter models this
+moved the scratchpad arm from **74% → 97% pass, spirals 6 → 0, median tool calls
+6 → 2, avg turns 11 → 3.5**.
+
+It also drove **read-your-writes** (`DatabasePolicy.readYourWrites`, default on):
+agents reflexively re-read their own writes, so instead of forbidding it, the
+database now folds each session's fired INSERT/UPDATE/DELETEs back over live reads
+of the same table — a re-query returns the write, killing the read-after-write
+spiral at the source (upstream stays a live view; the session is read-your-writes).
+Proven by `probe.ts [D]` and 7 unit tests.
+
+Finally, a multi-agent **database-parity audit**
+([`results/PARITY-AUDIT.md`](results/PARITY-AUDIT.md)) drove five batches of
+`glove-sql`/`glove-scratchpad` fixes so the emulator behaves like a real Postgres
+to a droid — it now **errors where Postgres errors** instead of silently
+mis-answering (fixed an inverted boolean comparison, `+`-on-text, unknown-column →
+NULL, case-sensitive identifiers), gained a `string_agg`/`date_trunc` function
+library, `INSERT … RETURNING`, `is_nullable`/enum discovery via
+`information_schema`, and transaction auto-rollback. This took the weak-model
+scratchpad arm to **35/35 (100%)** — full arc **v1 74% → v3 97% → v5 100%**. See
+[`results/FINDINGS.md`](results/FINDINGS.md).
 
 ## Results
 
-### Reduction vs payload size (5 providers, 100 accounts)
-
-| rows / provider | naive (KB) | scratchpad (KB) | **reduction** | naive (est. tok) | scratchpad (est. tok) |
-|---|---:|---:|:---:|---:|---:|
-| 100 | 79.3 | 22.0 | **3.6×** | 20.3k | 5.6k |
-| 500 | 396.1 | 22.5 | **17.6×** | 101.4k | 5.8k |
-| 1,000 | 792.1 | 22.6 | **35.0×** | 202.8k | 5.8k |
-| 5,000 | 3,962.3 | 22.7 | **174.5×** | 1,014.3k | 5.8k |
-| 20,000 | 15,845.9 | 22.8 | **696.1×** | 4,056.6k | 5.8k |
-| 50,000 | 39,612.3 | 22.9 | **1,731.2×** | 10,140.7k | 5.9k |
-
-The scratchpad's context cost stays **flat** (~22 KB) as the payload grows, so the
-reduction factor grows ~linearly with payload size.
-
-### Reduction vs provider count (1,000 rows each, 100 accounts)
-
-| providers | naive (KB) | scratchpad (KB) | **reduction** | naive (est. tok) | scratchpad (est. tok) |
-|---|---:|---:|:---:|---:|---:|
-| 1 | 158.4 | 4.5 | **35.4×** | 40.5k | 1.1k |
-| 2 | 316.8 | 9.6 | **33.0×** | 81.1k | 2.5k |
-| 3 | 475.3 | 13.9 | **34.1×** | 121.7k | 3.6k |
-| 5 | 792.1 | 22.6 | **35.0×** | 202.8k | 5.8k |
-| 10 | 1,584.3 | 44.3 | **35.7×** | 405.6k | 11.3k |
-
-The reduction is **invariant to provider count** — naive and scratchpad both scale
-linearly with breadth — so the architecture composes across many MCP providers
-without eroding the saving.
-
-## What this is (and isn't)
-
-- **It measures the reduction the architecture *enables*** when the workflow
-  follows the narrow→materialize discipline the priming induces. That's the design
-  target / upper bound, measured exactly.
-- **It is not a model evaluation.** Whether a *real* model realizes the reduction
-  is a separate, behavioral question — answered by the live runs in
-  [`scratchpad-mcp-fleet`](../scratchpad-mcp-fleet) and
-  [`scratchpad-mcp-workflow`](../scratchpad-mcp-workflow), where Kimi (via
-  OpenRouter) drives the same workflow to the correct answer at 30–46×. The
-  deterministic upper bound here is thus *achieved* in practice.
-- Token counts use a ~4-bytes/token estimate; the **reduction factor is exact**
-  (a ratio of measured byte counts, independent of the estimator).
-
-Re-run `pnpm scratchpad:bench` to regenerate `results.md` / `results.csv` (seeded,
-so the numbers are stable across runs).
+See [`results/agentic-summary.md`](results/agentic-summary.md) (regenerated on
+every run) and the per-cell transcripts under [`logs/`](logs). The older
+`results.md` / `results.csv` in this folder are a separate *deterministic*
+byte-reduction measurement (no model) and are kept for reference.

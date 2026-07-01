@@ -1,0 +1,10 @@
+{"kind":"meta","modelKey":"kimi","model":"moonshotai/kimi-k2.5","scenario":"count-open-prs","arm":"scratchpad","ok":true,"errored":false,"turns":3,"toolCalls":2,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":4081,"tokensOut":189,"cacheRead":2560,"peakContextTokens":1489,"compactions":0,"toolsInContext":2,"wallMs":9219,"costUsd":0.0019131,"expected":36}
+{"kind":"final_answer","text":"**36**"}
+{"t":4816,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_sql","input":"{\"sql\":\"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'github_pull_requests'\"}"}]}
+{"t":4817,"type":"tokens","in":1199,"out":97,"peak":1199}
+{"t":4819,"type":"tool_result","tool":"execute_sql","status":"success","data":"{\"rows\":[{\"column_name\":\"number\",\"data_type\":\"bigint\"},{\"column_name\":\"repo\",\"data_type\":\"text\"},{\"column_name\":\"title\",\"data_type\":\"text\"},{\"column_name\":\"author\",\"data_type\":\"text\"},{\"column_name\":\"state\",\"data_type\":\"text\"},{\"column_name\":\"additions\",\"data_type\":\"bigint\"},{\"column_name\":\"deletion…(+301)"}
+{"t":7612,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_sql","input":"{\"sql\":\"SELECT COUNT(*) FROM github_pull_requests WHERE state = 'open'\"}"}]}
+{"t":7612,"type":"tokens","in":1393,"out":67,"peak":1393}
+{"t":7617,"type":"tool_result","tool":"execute_sql","status":"success","data":"{\"rows\":[{\"count\":36}],\"truncated\":false,\"touched\":[{\"name\":\"github_pull_requests\",\"source\":\"virtual\",\"access\":\"read\",\"op\":\"select\",\"volatility\":\"stable\",\"bindings\":{\"state\":[\"open\"]},\"invocations\":1}]}"}
+{"t":9219,"type":"model_response","turn":3,"stop_reason":"stop","text":"**36**","tool_calls":[]}
+{"t":9219,"type":"tokens","in":1489,"out":25,"peak":1489}

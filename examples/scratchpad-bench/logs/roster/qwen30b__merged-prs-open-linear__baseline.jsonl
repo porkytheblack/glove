@@ -1,0 +1,25 @@
+{"kind":"meta","modelKey":"qwen30b","model":"qwen/qwen3-30b-a3b-instruct-2507","scenario":"merged-prs-open-linear","arm":"baseline","ok":false,"errored":false,"turns":8,"toolCalls":7,"toolErrors":0,"mcpRoundTrips":7,"servicesTouched":2,"tokensIn":29376,"tokensOut":320,"cacheRead":0,"peakContextTokens":4569,"compactions":0,"toolsInContext":32,"wallMs":33842,"costUsd":0.0015296,"expected":{"count":13,"prs":[{"pr":1009,"closes":"ENG-183"},{"pr":1010,"closes":"ENG-130"},{"pr":1022,"closes":"ENG-183"},{"pr":1026,"closes":"ENG-153"},{"pr":1030,"closes":"ENG-120"},{"pr":1040,"closes":"ENG-136"},{"pr":1042,"closes":"ENG-135"},{"pr":1050,"closes":"ENG-203"},{"pr":1053,"closes":"ENG-215"},{"pr":1057,"closes":"ENG-143"},{"pr":1058,"closes":"ENG-104"},{"pr":1069,"closes":"ENG-113"},{"pr":1078,"closes":"ENG-132"}]}}
+{"kind":"final_answer","text":"Found 2 merged pull requests that close a Linear issue whose state is not 'done':\n\n1. PR #1024 (acme/api) closes ENG-142 — state: \"done\" → **Not included** (state is done).\n2. PR #1058 (acme/api) closes ENG-104 — state: \"todo\" → **Included**.\n\nTotal count: 1\n\nFinal answer: PR #1058 closes ENG-104, which is not in 'done' state. Total count: 1."}
+{"t":2101,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"github__list_pull_requests","input":"{\"repo\":\"acme/product\",\"state\":\"merged\"}"}]}
+{"t":2101,"type":"tokens","in":3131,"out":30,"peak":3131}
+{"t":2102,"type":"tool_result","tool":"github__list_pull_requests","status":"success","data":"[]"}
+{"t":4211,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"github__list_pull_requests","input":"{\"repo\":\"acme/platform\",\"state\":\"merged\"}"}]}
+{"t":4211,"type":"tokens","in":3175,"out":30,"peak":3175}
+{"t":4212,"type":"tool_result","tool":"github__list_pull_requests","status":"success","data":"[]"}
+{"t":17720,"type":"model_response","turn":3,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"github__list_pull_requests","input":"{\"repo\":\"acme/backend\",\"state\":\"merged\"}"}]}
+{"t":17720,"type":"tokens","in":3219,"out":30,"peak":3219}
+{"t":17722,"type":"tool_result","tool":"github__list_pull_requests","status":"success","data":"[]"}
+{"t":19968,"type":"model_response","turn":4,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"github__list_pull_requests","input":"{\"repo\":\"acme/frontend\",\"state\":\"merged\"}"}]}
+{"t":19968,"type":"tokens","in":3263,"out":30,"peak":3263}
+{"t":19970,"type":"tool_result","tool":"github__list_pull_requests","status":"success","data":"[]"}
+{"t":21907,"type":"model_response","turn":5,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"github__list_pull_requests","input":"{\"repo\":\"acme/api\",\"state\":\"merged\"}"}]}
+{"t":21907,"type":"tokens","in":3307,"out":30,"peak":3307}
+{"t":21909,"type":"tool_result","tool":"github__list_pull_requests","status":"success","data":"[{\"number\":1000,\"repo\":\"acme/api\",\"title\":\"Onboarding funnel drop-off: add test for onboarding-funnel\",\"author\":\"ivan\",\"state\":\"merged\",\"additions\":571,\"deletions\":11,\"created_at\":\"2026-05-13T00:00:00.000Z\",\"merged_at\":\"2026-05-16T00:00:00.000Z\",\"base\":\"main\",\"closes_linear\":null,\"body\":\"This change…(+2165)"}
+{"t":27030,"type":"model_response","turn":6,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"linear__get_issue","input":"{\"id\":\"ENG-142\"}"}]}
+{"t":27030,"type":"tokens","in":4287,"out":25,"peak":4287}
+{"t":27031,"type":"tool_result","tool":"linear__get_issue","status":"success","data":"{\"id\":\"ENG-142\",\"title\":\"Primary DB failover is slow\",\"assignee\":\"niaj\",\"state\":\"done\",\"priority\":3,\"estimate\":1,\"team\":\"infra\",\"project\":\"Platform\",\"created_at\":\"2026-02-06T00:00:00.000Z\",\"updated_at\":\"2026-02-08T00:00:00.000Z\"}"}
+{"t":30067,"type":"model_response","turn":7,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"linear__get_issue","input":"{\"id\":\"ENG-104\"}"}]}
+{"t":30067,"type":"tokens","in":4425,"out":25,"peak":4425}
+{"t":30069,"type":"tool_result","tool":"linear__get_issue","status":"success","data":"{\"id\":\"ENG-104\",\"title\":\"Migrate auth to OAuth2 + PKCE — follow-up\",\"assignee\":\"grace\",\"state\":\"todo\",\"priority\":2,\"estimate\":3,\"team\":\"api\",\"project\":\"Payments\",\"created_at\":\"2026-05-01T00:00:00.000Z\",\"updated_at\":\"2026-05-21T00:00:00.000Z\"}"}
+{"t":33842,"type":"model_response","turn":8,"stop_reason":"stop","text":"Found 2 merged pull requests that close a Linear issue whose state is not 'done':\n\n1. PR #1024 (acme/api) closes ENG-142 — state: \"done\" → **Not included** (state is done).\n2. PR #1058 (acme/api) closes ENG-104 — state: \"todo\" → **Included*…(+104)","tool_calls":[]}
+{"t":33842,"type":"tokens","in":4569,"out":120,"peak":4569}

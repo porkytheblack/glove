@@ -120,3 +120,47 @@ test("window function over a GROUP BY result errors clearly (instead of crashing
     /window functions over a GROUP BY/,
   );
 });
+
+// ─── Duplicate output column names must not collapse row values ──────────────
+// A projection whose items infer the same name (`SELECT 'a','b'` → both
+// `?column?`, `SELECT count(*), count(*)`, `SELECT *` across joined tables that
+// share a column) used to overwrite one object key and silently drop a value —
+// corrupting, in particular, the positional value mapping of `INSERT … SELECT`.
+
+test("two unnamed literal projections keep both positional values", async () => {
+  const b = await MemoryBackend.create();
+  const r = await b.query(`SELECT 'acme/web', 'Verify: ' || 'fix bug'`);
+  assert.equal(r.fields.length, 2);
+  assert.deepEqual(
+    r.fields.map((f) => r.rows[0][f.name]),
+    ["acme/web", "Verify: fix bug"],
+  );
+});
+
+test("literal + expression over a table row keeps positional values (INSERT…SELECT source)", async () => {
+  const b = await MemoryBackend.create();
+  await b.exec(`CREATE TABLE "pr" ("title" text)`);
+  await b.query(`INSERT INTO "pr" VALUES ($1)`, ["fix bug"]);
+  const r = await b.query(`SELECT 'acme/web', 'Verify: ' || title FROM "pr"`);
+  assert.deepEqual(
+    r.fields.map((f) => r.rows[0][f.name]),
+    ["acme/web", "Verify: fix bug"],
+  );
+});
+
+test("repeated aggregate columns are not deduplicated away", async () => {
+  const b = await MemoryBackend.create();
+  await b.exec(`CREATE TABLE "t" ("n" bigint)`);
+  await b.query(`INSERT INTO "t" VALUES (1),(2),(3)`);
+  const r = await b.query(`SELECT count(*), count(*) FROM "t"`);
+  assert.equal(r.fields.length, 2);
+  assert.deepEqual(r.fields.map((f) => Number(r.rows[0][f.name])), [3, 3]);
+});
+
+test("named columns are untouched; only true duplicates get suffixed", async () => {
+  const b = await MemoryBackend.create();
+  const r = await b.query(`SELECT 1 AS a, 2 AS b, 3 AS a`);
+  // first `a` keeps its name; the duplicate is disambiguated, none dropped.
+  assert.deepEqual(r.fields.map((f) => f.name), ["a", "b", "a_2"]);
+  assert.deepEqual(r.fields.map((f) => Number(r.rows[0][f.name])), [1, 2, 3]);
+});

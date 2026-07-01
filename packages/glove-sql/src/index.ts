@@ -87,8 +87,8 @@ interface Token {
   paramIndex?: number;
 }
 
-const MULTI_OPS = ["->>", "->", "::", "<=", ">=", "<>", "!=", "||"];
-const SINGLE = new Set(["(", ")", ",", ".", "*", "+", "-", "/", "%", "=", "<", ">", ";"]);
+const MULTI_OPS = ["->>", "->", "::", "<=", ">=", "<>", "!=", "||", "!~*", "!~", "~*"];
+const SINGLE = new Set(["(", ")", ",", ".", "*", "+", "-", "/", "%", "=", "<", ">", ";", "~"]);
 
 function tokenize(sql: string): Token[] {
   const toks: Token[] = [];
@@ -222,6 +222,7 @@ type Expr =
   | { k: "is"; e: Expr; negated: boolean }
   | { k: "in"; e: Expr; list?: Expr[]; sub?: SelectStmt; negated: boolean }
   | { k: "between"; e: Expr; lo: Expr; hi: Expr; negated: boolean }
+  | { k: "interval"; months: number; ms: number }
   | { k: "case"; operand?: Expr; whens: Array<{ when: Expr; then: Expr }>; els?: Expr }
   | { k: "subquery"; select: SelectStmt }
   | { k: "exists"; select: SelectStmt }
@@ -240,7 +241,7 @@ interface SelectItem {
 type FromItem =
   | { kind: "table"; name: string; alias: string }
   | { kind: "subquery"; select: SelectStmt; alias: string }
-  | { kind: "infoschema"; alias: string };
+  | { kind: "infoschema"; which: "columns" | "tables"; alias: string };
 
 interface JoinClause {
   type: "inner" | "left" | "right" | "full" | "cross";
@@ -265,6 +266,8 @@ interface SelectStmt {
   k: "select";
   with?: Array<{ name: string; select: SelectStmt }>;
   distinct: boolean;
+  /** `DISTINCT ON (exprs)` — keep the first row per key (in ORDER BY order). */
+  distinctOn?: Expr[];
   items: SelectItem[];
   from?: FromItem;
   joins: JoinClause[];
@@ -292,26 +295,112 @@ interface DropTableStmt {
   ifExists: boolean;
 }
 
+interface OnConflict {
+  /** Conflict target columns (`ON CONFLICT (a, b)`); undefined = bare ON CONFLICT. */
+  target?: string[];
+  action: "nothing" | "update";
+  /** SET assignments for DO UPDATE (may reference `excluded.<col>`). */
+  set?: Array<{ col: string; value: Expr }>;
+}
+
 interface InsertStmt {
   k: "insert";
   table: string;
   columns?: string[];
   rows: Expr[][];
+  /** `INSERT INTO t (..) SELECT ..` — the source query (mutually exclusive with `rows`). */
+  asSelect?: SelectStmt;
+  /** `RETURNING <items>` — project the inserted rows. */
+  returning?: SelectItem[];
+  /** `ON CONFLICT [(cols)] DO NOTHING | DO UPDATE SET …` upsert. */
+  onConflict?: OnConflict;
 }
 
 interface DeleteStmt {
   k: "delete";
   table: string;
   where?: Expr;
+  returning?: SelectItem[];
+  /** Leading `WITH …` clauses, referenced by WHERE subqueries. */
+  with?: SelectStmt["with"];
 }
 
-type Stmt = SelectStmt | CreateTableStmt | DropTableStmt | InsertStmt | DeleteStmt;
+interface UpdateStmt {
+  k: "update";
+  table: string;
+  set: Array<{ col: string; value: Expr }>;
+  where?: Expr;
+  returning?: SelectItem[];
+  /** Leading `WITH …` clauses, referenced by SET/WHERE subqueries. */
+  with?: SelectStmt["with"];
+}
+
+/** Transaction control. The MemoryBackend treats these as no-ops (it is
+ *  auto-commit / non-transactional); a higher layer — e.g. the glove-scratchpad
+ *  database emulator — interprets them to stage and gate side effects. */
+interface BeginStmt {
+  k: "begin";
+}
+interface CommitStmt {
+  k: "commit";
+}
+interface RollbackStmt {
+  k: "rollback";
+}
+
+/** `EXPLAIN <stmt>` — wraps the statement whose plan is requested. */
+interface ExplainStmt {
+  k: "explain";
+  statement: Stmt;
+}
+
+type Stmt =
+  | SelectStmt
+  | CreateTableStmt
+  | DropTableStmt
+  | InsertStmt
+  | DeleteStmt
+  | UpdateStmt
+  | BeginStmt
+  | CommitStmt
+  | RollbackStmt
+  | ExplainStmt;
+
+export type {
+  Stmt,
+  SelectStmt,
+  CreateTableStmt,
+  DropTableStmt,
+  InsertStmt,
+  DeleteStmt,
+  UpdateStmt,
+  BeginStmt,
+  CommitStmt,
+  RollbackStmt,
+  ExplainStmt,
+  Expr,
+  FromItem,
+  SelectItem,
+  JoinClause,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Parser
 // ─────────────────────────────────────────────────────────────────────────────
 
-const AGG_FUNCS = new Set(["count", "sum", "avg", "min", "max"]);
+const AGG_FUNCS = new Set([
+  "count",
+  "sum",
+  "avg",
+  "min",
+  "max",
+  "string_agg",
+  "array_agg",
+  "json_agg",
+  "jsonb_agg",
+  "bool_or",
+  "bool_and",
+]);
 
 class Parser {
   private pos = 0;
@@ -358,16 +447,77 @@ class Parser {
   }
 
   parseStatement(): Stmt {
-    if (this.isKw("with") || this.isKw("select")) return this.parseSelect();
+    if (this.isKw("with")) {
+      // Data-modifying CTE readers: `WITH x AS (…) INSERT/UPDATE/DELETE …`.
+      const withs = this.parseWithClauses();
+      if (this.isKw("insert")) {
+        const s = this.parseInsert();
+        // Attach to the source query; a VALUES insert can't reference the CTEs
+        // (Postgres allows the unused clause, so we accept and drop it too).
+        if (s.asSelect) s.asSelect.with = [...withs, ...(s.asSelect.with ?? [])];
+        return s;
+      }
+      if (this.isKw("update")) {
+        const s = this.parseUpdate();
+        s.with = withs;
+        return s;
+      }
+      if (this.isKw("delete")) {
+        const s = this.parseDelete();
+        s.with = withs;
+        return s;
+      }
+      const s = this.parseSelect();
+      s.with = [...withs, ...(s.with ?? [])];
+      return s;
+    }
+    if (this.isKw("select")) return this.parseSelect();
     if (this.isKw("create")) return this.parseCreate();
     if (this.isKw("drop")) return this.parseDrop();
     if (this.isKw("insert")) return this.parseInsert();
     if (this.isKw("delete")) return this.parseDelete();
+    if (this.isKw("update")) return this.parseUpdate();
+    if (this.isKw("explain")) return this.parseExplain();
+    // Transaction control — `BEGIN | START TRANSACTION`, `COMMIT | END`, `ROLLBACK | ABORT`.
+    if (this.isKw("begin") || this.isKw("start")) {
+      this.next();
+      this.acceptKw("transaction");
+      this.acceptKw("work");
+      return { k: "begin" };
+    }
+    if (this.isKw("commit") || this.isKw("end")) {
+      this.next();
+      this.acceptKw("transaction");
+      this.acceptKw("work");
+      return { k: "commit" };
+    }
+    if (this.isKw("rollback") || this.isKw("abort")) {
+      this.next();
+      this.acceptKw("transaction");
+      this.acceptKw("work");
+      return { k: "rollback" };
+    }
     throw this.err("unsupported statement");
+  }
+
+  // ── EXPLAIN ───────────────────────────────────────────────────────────────
+  private parseExplain(): ExplainStmt {
+    this.expectKw("explain");
+    // Accept & ignore the common option words / option list, e.g. EXPLAIN ANALYZE,
+    // EXPLAIN (FORMAT JSON) — the plan is computed by the interpreter, not the engine.
+    this.acceptKw("analyze");
+    this.acceptKw("verbose");
+    if (this.isOp("(")) this.skipParens();
+    return { k: "explain", statement: this.parseStatement() };
   }
 
   atEnd(): boolean {
     return this.peek().type === "eof";
+  }
+
+  /** The next unconsumed token (for diagnostics). */
+  peekToken(): Token {
+    return this.peek();
   }
 
   // ── identifiers ───────────────────────────────────────────────────────────
@@ -499,6 +649,12 @@ class Parser {
       } while (this.acceptOp(","));
       this.expectOp(")");
     }
+    // INSERT … SELECT / INSERT … WITH … SELECT — the source is a query.
+    if (this.isKw("select") || this.isKw("with")) {
+      const asSelect = this.parseSelect();
+      const onConflict = this.parseOnConflict();
+      return { k: "insert", table, columns, rows: [], asSelect, onConflict, returning: this.parseReturning() };
+    }
     this.expectKw("values");
     const rows: Expr[][] = [];
     do {
@@ -512,7 +668,60 @@ class Parser {
       this.expectOp(")");
       rows.push(row);
     } while (this.acceptOp(","));
-    return { k: "insert", table, columns, rows };
+    const onConflict = this.parseOnConflict();
+    return { k: "insert", table, columns, rows, onConflict, returning: this.parseReturning() };
+  }
+
+  /** `ON CONFLICT [(cols)] DO NOTHING | DO UPDATE SET …` — undefined if absent. */
+  private parseOnConflict(): OnConflict | undefined {
+    if (!this.isKw("on") || !this.isKw("conflict", 1)) return undefined;
+    this.pos += 2; // on conflict
+    let target: string[] | undefined;
+    if (this.acceptOp("(")) {
+      target = [];
+      do {
+        target.push(this.ident());
+      } while (this.acceptOp(","));
+      this.expectOp(")");
+    }
+    this.expectKw("do");
+    if (this.acceptKw("nothing")) return { target, action: "nothing" };
+    this.expectKw("update");
+    this.expectKw("set");
+    const set: Array<{ col: string; value: Expr }> = [];
+    do {
+      const col = this.ident();
+      this.expectOp("=");
+      set.push({ col, value: this.parseExpr() });
+    } while (this.acceptOp(","));
+    return { target, action: "update", set };
+  }
+
+  /** `RETURNING <select-list>` — undefined if absent. */
+  private parseReturning(): SelectItem[] | undefined {
+    if (!this.acceptKw("returning")) return undefined;
+    const items: SelectItem[] = [];
+    do {
+      items.push(this.parseSelectItem());
+    } while (this.acceptOp(","));
+    return items;
+  }
+
+  // ── UPDATE ────────────────────────────────────────────────────────────────
+  private parseUpdate(): UpdateStmt {
+    this.expectKw("update");
+    const table = this.ident();
+    this.expectKw("set");
+    const set: Array<{ col: string; value: Expr }> = [];
+    do {
+      const col = this.ident();
+      this.expectOp("=");
+      const value = this.parseExpr();
+      set.push({ col, value });
+    } while (this.acceptOp(","));
+    let where: Expr | undefined;
+    if (this.acceptKw("where")) where = this.parseExpr();
+    return { k: "update", table, set, where, returning: this.parseReturning() };
   }
 
   // ── DELETE ──────────────────────────────────────────────────────────────
@@ -522,7 +731,7 @@ class Parser {
     const table = this.ident();
     let where: Expr | undefined;
     if (this.acceptKw("where")) where = this.parseExpr();
-    return { k: "delete", table, where };
+    return { k: "delete", table, where, returning: this.parseReturning() };
   }
 
   // ── SELECT ──────────────────────────────────────────────────────────────
@@ -564,22 +773,36 @@ class Parser {
   }
 
   /** A select core: WITH … SELECT … FROM/JOIN/WHERE/GROUP/HAVING — no set-op, ORDER BY, or LIMIT. */
+  /** The clause list of a leading `WITH a AS (…), b AS (…)`. */
+  parseWithClauses(): NonNullable<SelectStmt["with"]> {
+    this.expectKw("with");
+    const withClauses: NonNullable<SelectStmt["with"]> = [];
+    do {
+      const name = this.ident();
+      this.expectKw("as");
+      this.expectOp("(");
+      const sub = this.parseSelect();
+      this.expectOp(")");
+      withClauses.push({ name, select: sub });
+    } while (this.acceptOp(","));
+    return withClauses;
+  }
+
   private parseSelectCore(): SelectStmt {
     let withClauses: SelectStmt["with"];
-    if (this.acceptKw("with")) {
-      withClauses = [];
-      do {
-        const name = this.ident();
-        this.expectKw("as");
-        this.expectOp("(");
-        const sub = this.parseSelect();
-        this.expectOp(")");
-        withClauses.push({ name, select: sub });
-      } while (this.acceptOp(","));
-    }
+    if (this.isKw("with")) withClauses = this.parseWithClauses();
 
     this.expectKw("select");
     const distinct = this.acceptKw("distinct");
+    let distinctOn: Expr[] | undefined;
+    if (distinct && this.acceptKw("on")) {
+      this.expectOp("(");
+      distinctOn = [];
+      do {
+        distinctOn.push(this.parseExpr());
+      } while (this.acceptOp(","));
+      this.expectOp(")");
+    }
 
     const items: SelectItem[] = [];
     do {
@@ -590,6 +813,7 @@ class Parser {
       k: "select",
       with: withClauses,
       distinct,
+      distinctOn,
       items,
       joins: [],
       groupBy: [],
@@ -664,7 +888,10 @@ class Parser {
       this.isKw("as") ||
       this.isKw("union") ||
       this.isKw("except") ||
-      this.isKw("intersect")
+      this.isKw("intersect") ||
+      // A write's RETURNING clause follows its source SELECT / FROM item —
+      // eating it as an implicit alias derails `INSERT … SELECT … RETURNING *`.
+      this.isKw("returning")
     );
   }
 
@@ -683,8 +910,17 @@ class Parser {
       name = `${name}.${this.ident()}`;
     }
     const alias = this.parseAlias();
-    if (name.toLowerCase() === "information_schema.columns") {
-      return { kind: "infoschema", alias: alias ?? name };
+    const lower = name.toLowerCase();
+    if (lower === "information_schema.columns") {
+      return { kind: "infoschema", which: "columns", alias: alias ?? name };
+    }
+    if (lower === "information_schema.tables") {
+      return { kind: "infoschema", which: "tables", alias: alias ?? name };
+    }
+    // Postgres default search_path resolves an explicit `public.` to the bare table.
+    if (lower.startsWith("public.")) {
+      const bare = name.slice(name.indexOf(".") + 1);
+      return { kind: "table", name: bare, alias: alias ?? bare };
     }
     return { kind: "table", name, alias: alias ?? name };
   }
@@ -759,9 +995,21 @@ class Parser {
         l = { k: "binary", op, l, r: this.parseAdditive() };
         continue;
       }
+      // POSIX regex match: ~ ~* !~ !~*
+      if (this.isOp("~") || this.isOp("~*") || this.isOp("!~") || this.isOp("!~*")) {
+        const op = this.next().value;
+        l = { k: "binary", op, l, r: this.parseAdditive() };
+        continue;
+      }
       if (this.isKw("is")) {
         this.pos++;
         const negated = this.acceptKw("not");
+        // IS [NOT] DISTINCT FROM — null-safe (in)equality.
+        if (this.acceptKw("distinct")) {
+          this.expectKw("from");
+          l = { k: "binary", op: negated ? "isnotdistinct" : "isdistinct", l, r: this.parseAdditive() };
+          continue;
+        }
         this.expectKw("null");
         l = { k: "is", e: l, negated };
         continue;
@@ -902,6 +1150,22 @@ class Parser {
         this.pos++;
         return { k: "null" };
       }
+      // INTERVAL 'N unit' literal.
+      if (!t.quoted && lower === "interval" && this.peek(1).type === "string") {
+        this.pos++; // interval
+        const body = this.next().value;
+        const { months, ms } = parseIntervalLiteral(body);
+        return { k: "interval", months, ms };
+      }
+      // Paren-less temporal pseudo-functions (Postgres allows no parens).
+      if (
+        !t.quoted &&
+        (lower === "current_date" || lower === "current_timestamp" || lower === "current_time") &&
+        !this.isOp("(", 1)
+      ) {
+        this.pos++;
+        return { k: "func", name: lower, args: [] };
+      }
       // EXISTS (subquery)
       if (!t.quoted && lower === "exists" && this.isOp("(", 1)) {
         this.pos++; // exists
@@ -923,6 +1187,40 @@ class Parser {
         const type = this.parseTypeName();
         this.expectOp(")");
         return { k: "cast", e, type };
+      }
+      // EXTRACT(field FROM expr) — desugar to date_part('field', expr).
+      if (!t.quoted && lower === "extract" && this.isOp("(", 1)) {
+        this.pos++; // extract
+        this.expectOp("(");
+        const field = this.ident().toLowerCase();
+        this.expectKw("from");
+        const src = this.parseExpr();
+        this.expectOp(")");
+        return { k: "func", name: "date_part", args: [{ k: "str", v: field }, src] };
+      }
+      // SUBSTRING(str FROM start [FOR len]) — SQL-standard form (comma form falls through).
+      if (!t.quoted && lower === "substring" && this.isOp("(", 1)) {
+        this.pos++;
+        this.expectOp("(");
+        const args: Expr[] = [this.parseExpr()];
+        if (this.acceptKw("from")) {
+          args.push(this.parseExpr());
+          if (this.acceptKw("for")) args.push(this.parseExpr());
+        } else {
+          while (this.acceptOp(",")) args.push(this.parseExpr());
+        }
+        this.expectOp(")");
+        return { k: "func", name: "substr", args };
+      }
+      // POSITION(sub IN str) — the substring index. `sub` is parsed below IN.
+      if (!t.quoted && lower === "position" && this.isOp("(", 1)) {
+        this.pos++;
+        this.expectOp("(");
+        const sub = this.parseAdditive();
+        this.expectKw("in");
+        const str = this.parseExpr();
+        this.expectOp(")");
+        return { k: "func", name: "position", args: [sub, str] };
       }
       // function call?
       if (this.isOp("(", 1)) {
@@ -1066,9 +1364,34 @@ function inferPgType(values: unknown[]): string {
   return "jsonb";
 }
 
+/** A virtual/foreign table contributed to `information_schema` by a higher layer. */
+export interface CatalogColumn {
+  name: string;
+  type: string;
+  /** false ⇒ a required key / NOT NULL — surfaced as `is_nullable = 'NO'`. */
+  nullable?: boolean;
+  /** Free-text column description; valid enum values live here, so a droid can
+   *  discover them via `SELECT column_name, description FROM information_schema.columns`. */
+  description?: string;
+}
+
+export interface CatalogTable {
+  name: string;
+  columns: CatalogColumn[];
+}
+
 export interface MemoryBackendOptions {
   /** Restore from bytes produced by a previous {@link MemoryBackend.dump}. */
   load?: Uint8Array;
+  /**
+   * Supply extra tables to `information_schema.tables` / `.columns` without
+   * materializing them — the seam the glove-scratchpad database emulator uses to
+   * advertise resource (foreign) tables for catalog discovery. The engine stays
+   * tool-agnostic: it just asks for additional catalog rows. Called on every
+   * `information_schema` query, so a changing catalog (e.g. MCP servers
+   * connecting) is reflected live.
+   */
+  catalogProvider?: () => CatalogTable[];
 }
 
 /** Sentinel: a column name is absent in a scope (distinct from a null value). */
@@ -1084,6 +1407,8 @@ export class MemoryBackend implements SqlBackend {
   private currentCtes: Map<string, RowSet> = new Map();
   /** Monotonic logical clock backing `now()` so insert order is always stable. */
   private clock: number;
+  /** Extra catalog tables advertised in `information_schema` (see options). */
+  private catalogProvider?: () => CatalogTable[];
 
   private constructor(seed: number) {
     this.clock = seed;
@@ -1093,6 +1418,7 @@ export class MemoryBackend implements SqlBackend {
     // Seed the clock from wall time for human-readable timestamps; it only ever
     // increases, so ordering is correct regardless of clock resolution.
     const be = new MemoryBackend(Date.now());
+    be.catalogProvider = opts.catalogProvider;
     if (opts.load) be.restore(opts.load);
     return be;
   }
@@ -1145,34 +1471,23 @@ export class MemoryBackend implements SqlBackend {
   }
 
   private parseAll(sql: string): Stmt[] {
-    const toks = tokenize(sql);
-    const out: Stmt[] = [];
-    // split into statements on top-level ';'
-    let segment: Token[] = [];
-    for (const t of toks) {
-      if ((t.type === "op") && t.value === ";") {
-        if (segment.some((s) => s.type !== "eof")) {
-          out.push(this.parseSegment(segment));
-        }
-        segment = [];
-        continue;
-      }
-      if (t.type === "eof") break;
-      segment.push(t);
-    }
-    if (segment.length > 0) out.push(this.parseSegment(segment));
-    return out;
-  }
-
-  private parseSegment(seg: Token[]): Stmt {
-    const p = new Parser([...seg, { type: "eof", value: "" }]);
-    const stmt = p.parseStatement();
-    if (!p.atEnd()) throw new Error("MemoryBackend: trailing tokens after statement");
-    return stmt;
+    return parseStatements(sql);
   }
 
   private getTable(name: string): CatTable {
-    const t = this.tables.get(name);
+    let t = this.tables.get(name);
+    if (!t) {
+      // Case-insensitive fallback — Postgres folds an unquoted `FROM Emails` to
+      // `emails`. Physical names are lowercase, so this only ever resolves a
+      // mismatch, never masks a real one.
+      const target = name.toLowerCase();
+      for (const [k, v] of this.tables) {
+        if (k.toLowerCase() === target) {
+          t = v;
+          break;
+        }
+      }
+    }
     if (!t) throw new Error(`MemoryBackend: relation "${name}" does not exist`);
     return t;
   }
@@ -1195,12 +1510,39 @@ export class MemoryBackend implements SqlBackend {
         }
         this.tables.delete(stmt.name);
         return { rows: [], fields: [] };
-      case "insert":
-        this.execInsert(stmt, params);
-        return { rows: [], fields: [] };
+      case "insert": {
+        const rows = this.execInsert(stmt, params);
+        return stmt.returning ? this.projectReturning(stmt.table, rows, stmt.returning, params) : { rows: [], fields: [] };
+      }
       case "delete":
-        this.execDelete(stmt, params);
+      case "update": {
+        // Leading CTEs are visible to SET/WHERE subqueries via currentCtes.
+        const prev = this.currentCtes;
+        if (stmt.with) {
+          const merged = new Map(prev);
+          for (const cte of stmt.with) merged.set(cte.name, this.execSelect(cte.select, params, merged));
+          this.currentCtes = merged;
+        }
+        try {
+          const rows = stmt.k === "delete" ? this.execDelete(stmt, params) : this.execUpdate(stmt, params);
+          return stmt.returning ? this.projectReturning(stmt.table, rows, stmt.returning, params) : { rows: [], fields: [] };
+        } finally {
+          this.currentCtes = prev;
+        }
+      }
+      // Transaction control is a no-op on the auto-commit MemoryBackend; a higher
+      // layer interprets BEGIN/COMMIT/ROLLBACK to stage and gate side effects.
+      case "begin":
+      case "commit":
+      case "rollback":
         return { rows: [], fields: [] };
+      case "explain":
+        // No cost-based planner; report the statement is parseable/executable
+        // WITHOUT running it (so EXPLAIN never triggers side effects).
+        return {
+          rows: [{ "QUERY PLAN": `MemoryBackend: ${stmt.statement.k} (no cost-based planner)` }],
+          fields: [{ name: "QUERY PLAN" }],
+        };
     }
   }
 
@@ -1221,7 +1563,8 @@ export class MemoryBackend implements SqlBackend {
     this.tables.set(stmt.name, { name: stmt.name, columns: stmt.columns, rows: [] });
   }
 
-  private execInsert(stmt: InsertStmt, params: unknown[]): void {
+  private execInsert(stmt: InsertStmt, params: unknown[]): Record<string, unknown>[] {
+    const inserted: Record<string, unknown>[] = [];
     const table = this.getTable(stmt.table);
     const colNames = stmt.columns ?? table.columns.map((c) => c.name);
     if (stmt.columns) {
@@ -1237,6 +1580,28 @@ export class MemoryBackend implements SqlBackend {
         }
       }
     }
+    // INSERT … SELECT: run the source query and map its output columns positionally
+    // onto the target columns.
+    if (stmt.asSelect) {
+      const rs = this.execSelect(stmt.asSelect, params, new Map());
+      for (const src of rs.rows) {
+        if (rs.columns.length !== colNames.length) {
+          throw new Error(`MemoryBackend: INSERT column/value count mismatch on "${stmt.table}"`);
+        }
+        const row: Record<string, unknown> = {};
+        const provided = new Set<string>();
+        for (let i = 0; i < colNames.length; i++) {
+          row[colNames[i]] = src[rs.columns[i]] ?? null;
+          provided.add(colNames[i]);
+        }
+        for (const col of table.columns) {
+          if (provided.has(col.name)) continue;
+          row[col.name] = col.default ? this.evalExpr(col.default, new Map(), params) : null;
+        }
+        this.applyInsertRow(table, row, stmt, params, inserted);
+      }
+      return inserted;
+    }
     for (const valueExprs of stmt.rows) {
       if (valueExprs.length !== colNames.length) {
         throw new Error(`MemoryBackend: INSERT column/value count mismatch on "${stmt.table}"`);
@@ -1251,20 +1616,96 @@ export class MemoryBackend implements SqlBackend {
         if (provided.has(col.name)) continue;
         row[col.name] = col.default ? this.evalExpr(col.default, new Map(), params) : null;
       }
-      table.rows.push(row);
+      this.applyInsertRow(table, row, stmt, params, inserted);
     }
+    return inserted;
   }
 
-  private execDelete(stmt: DeleteStmt, params: unknown[]): void {
+  /** Insert one row, honoring ON CONFLICT (target-column upsert). `excluded.<col>`
+   *  in a DO UPDATE refers to the row that would have been inserted. */
+  private applyInsertRow(
+    table: CatTable,
+    row: Record<string, unknown>,
+    stmt: InsertStmt,
+    params: unknown[],
+    inserted: Record<string, unknown>[],
+  ): void {
+    const oc = stmt.onConflict;
+    if (oc?.target?.length) {
+      const hit = table.rows.find((er) => oc.target!.every((c) => looseEq(er[c], row[c])));
+      if (hit) {
+        if (oc.action === "nothing") return;
+        const jr: JoinedRow = new Map([
+          [stmt.table, hit],
+          ["excluded", row],
+        ]);
+        for (const { col, value } of oc.set ?? []) hit[col] = this.evalExpr(value, jr, params);
+        inserted.push(hit);
+        return;
+      }
+    }
+    table.rows.push(row);
+    inserted.push(row);
+  }
+
+  private execDelete(stmt: DeleteStmt, params: unknown[]): Record<string, unknown>[] {
     const table = this.getTable(stmt.table);
     if (!stmt.where) {
+      const all = table.rows;
       table.rows = [];
-      return;
+      return all;
     }
+    const removed: Record<string, unknown>[] = [];
     table.rows = table.rows.filter((r) => {
       const jr: JoinedRow = new Map([[stmt.table, r]]);
-      return !truthy(this.evalExpr(stmt.where!, jr, params));
+      const del = truthy(this.evalExpr(stmt.where!, jr, params));
+      if (del) removed.push(r);
+      return !del;
     });
+    return removed;
+  }
+
+  private execUpdate(stmt: UpdateStmt, params: unknown[]): Record<string, unknown>[] {
+    const table = this.getTable(stmt.table);
+    const declared = new Set(table.columns.map((c) => c.name));
+    for (const { col } of stmt.set) {
+      if (!declared.has(col)) {
+        throw new Error(`MemoryBackend: column "${col}" of relation "${stmt.table}" does not exist`);
+      }
+    }
+    const updated: Record<string, unknown>[] = [];
+    for (const row of table.rows) {
+      const jr: JoinedRow = new Map([[stmt.table, row]]);
+      if (stmt.where && !truthy(this.evalExpr(stmt.where, jr, params))) continue;
+      for (const { col, value } of stmt.set) {
+        row[col] = this.evalExpr(value, jr, params);
+      }
+      updated.push(row);
+    }
+    return updated;
+  }
+
+  /** Project a write's affected rows through a RETURNING list into a result. */
+  private projectReturning(
+    table: string,
+    rows: Record<string, unknown>[],
+    items: SelectItem[],
+    params: unknown[],
+  ): SqlResult {
+    const cols = this.getTable(table).columns.map((c) => c.name);
+    const aliasCols = new Map([[table, cols]]);
+    const out = rows.map((r) => this.projectRow(items, new Map([[table, r]]), params, aliasCols));
+    const names = out.length > 0 ? Object.keys(out[0]) : this.returningNames(items, cols);
+    return { rows: out, fields: names.map((name) => ({ name })) };
+  }
+
+  private returningNames(items: SelectItem[], cols: string[]): string[] {
+    const names: string[] = [];
+    for (const it of items) {
+      if (it.star || it.starQualifier) names.push(...cols);
+      else if (it.expr) names.push(it.alias ?? inferColName(it.expr));
+    }
+    return dedupeNames(names);
   }
 
   // ── SELECT ────────────────────────────────────────────────────────────────
@@ -1373,7 +1814,24 @@ export class MemoryBackend implements SqlBackend {
       }
     }
 
-    if (stmt.distinct) {
+    if (stmt.distinctOn?.length) {
+      // Keep the first row per DISTINCT ON key, in the (already-applied) ORDER BY
+      // order. Keys are evaluated over the output row, so the key columns must be
+      // selected (the common `DISTINCT ON (x) x, …` form).
+      const seen = new Set<string>();
+      out = out.filter((r) => {
+        const jr: JoinedRow = new Map([["", r]]);
+        let k: string;
+        try {
+          k = stableKey(stmt.distinctOn!.map((e) => this.evalExpr(e, jr, params)));
+        } catch {
+          throw new Error("MemoryBackend: a DISTINCT ON expression must also appear in the SELECT list");
+        }
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+    } else if (stmt.distinct) {
       const seen = new Set<string>();
       out = out.filter((r) => {
         const k = stableKey(columns.map((c) => r[c]));
@@ -1518,7 +1976,7 @@ export class MemoryBackend implements SqlBackend {
         cols.push(it.alias ?? inferColName(it.expr));
       }
     }
-    return cols;
+    return dedupeNames(cols);
   }
 
   private projectRow(
@@ -1527,20 +1985,27 @@ export class MemoryBackend implements SqlBackend {
     params: unknown[],
     aliasCols: Map<string, string[]>,
   ): Record<string, unknown> {
-    const row: Record<string, unknown> = {};
+    // Collect (name, value) in projection order, then dedupe names so two
+    // same-named projections can't collapse onto one object key (see dedupeNames).
+    const names: string[] = [];
+    const values: unknown[] = [];
     for (const it of items) {
       if (it.star) {
         for (const [alias, list] of aliasCols) {
           const rec = jr.get(alias) ?? {};
-          for (const c of list) row[c] = rec[c];
+          for (const c of list) { names.push(c); values.push(rec[c]); }
         }
       } else if (it.starQualifier) {
         const rec = jr.get(it.starQualifier) ?? {};
-        for (const c of aliasCols.get(it.starQualifier) ?? []) row[c] = rec[c];
+        for (const c of aliasCols.get(it.starQualifier) ?? []) { names.push(c); values.push(rec[c]); }
       } else if (it.expr) {
-        row[it.alias ?? inferColName(it.expr)] = this.evalExpr(it.expr, jr, params);
+        names.push(it.alias ?? inferColName(it.expr));
+        values.push(this.evalExpr(it.expr, jr, params));
       }
     }
+    const unique = dedupeNames(names);
+    const row: Record<string, unknown> = {};
+    for (let i = 0; i < unique.length; i++) row[unique[i]] = values[i];
     return row;
   }
 
@@ -1549,7 +2014,7 @@ export class MemoryBackend implements SqlBackend {
     joined: JoinedRow[],
     params: unknown[],
   ): { out: Record<string, unknown>[]; columns: string[]; outGroups: JoinedRow[][] } {
-    const columns = stmt.items.map((it) => it.alias ?? (it.expr ? inferColName(it.expr) : "?column?"));
+    const columns = dedupeNames(stmt.items.map((it) => it.alias ?? (it.expr ? inferColName(it.expr) : "?column?")));
 
     // GROUP BY <ordinal> → the matching SELECT item's expression.
     const groupExprs = stmt.groupBy.map((g) =>
@@ -1633,10 +2098,13 @@ export class MemoryBackend implements SqlBackend {
     for (const group of groups) {
       if (stmt.having && !truthy(this.evalAggExpr(stmt.having, group, params))) continue;
       const row: Record<string, unknown> = {};
-      for (const it of stmt.items) {
+      const vals = stmt.items.map((it) => {
         if (!it.expr) throw new Error("MemoryBackend: '*' is not valid in an aggregate select");
-        row[it.alias ?? inferColName(it.expr)] = this.evalAggExpr(it.expr, group, params);
-      }
+        return this.evalAggExpr(it.expr, group, params);
+      });
+      // `columns` is already deduped in projection order — key the row by it so
+      // aggregate rows and their field names stay in lockstep.
+      for (let i = 0; i < columns.length; i++) row[columns[i]] = vals[i];
       out.push(row);
       outGroups.push(group); // parallel to `out`, for ORDER BY over the group
     }
@@ -1655,7 +2123,10 @@ export class MemoryBackend implements SqlBackend {
       return { alias: item.alias, columns: rs.columns, rows: rs.rows };
     }
     if (item.kind === "infoschema") {
-      return { alias: item.alias, columns: INFO_COLUMNS, rows: this.infoSchemaRows() };
+      if (item.which === "tables") {
+        return { alias: item.alias, columns: INFO_TABLE_COLUMNS, rows: this.infoSchemaTableRows() };
+      }
+      return { alias: item.alias, columns: INFO_COLUMNS, rows: this.infoSchemaColumnRows() };
     }
     // CTE shadows a real table of the same name
     const cte = ctes.get(item.name);
@@ -1724,18 +2195,56 @@ export class MemoryBackend implements SqlBackend {
     return tmpl;
   }
 
-  private infoSchemaRows(): Record<string, unknown>[] {
+  private infoSchemaColumnRows(): Record<string, unknown>[] {
     const rows: Record<string, unknown>[] = [];
+    const seen = new Set<string>();
+    const rowFor = (
+      table: string,
+      c: { name: string; type: string; nullable?: boolean; description?: string },
+      i: number,
+    ) => ({
+      table_catalog: "memory",
+      table_schema: "public",
+      table_name: table,
+      column_name: c.name,
+      data_type: c.type,
+      ordinal_position: i + 1,
+      is_nullable: c.nullable === false ? "NO" : "YES",
+      column_default: null,
+      description: c.description ?? null,
+    });
     for (const t of this.tables.values()) {
-      t.columns.forEach((c, i) => {
-        rows.push({
-          table_catalog: "memory",
-          table_schema: "public",
-          table_name: t.name,
-          column_name: c.name,
-          data_type: c.type,
-          ordinal_position: i + 1,
-        });
+      seen.add(t.name);
+      t.columns.forEach((c, i) => rows.push(rowFor(t.name, c, i)));
+    }
+    // Virtual / foreign tables contributed by a higher layer (e.g. the database
+    // emulator's resource catalog). Skip any already materialized in `tables`.
+    for (const t of this.catalogProvider?.() ?? []) {
+      if (seen.has(t.name)) continue;
+      t.columns.forEach((c, i) => rows.push(rowFor(t.name, c, i)));
+    }
+    return rows;
+  }
+
+  private infoSchemaTableRows(): Record<string, unknown>[] {
+    const rows: Record<string, unknown>[] = [];
+    const seen = new Set<string>();
+    for (const t of this.tables.values()) {
+      seen.add(t.name);
+      rows.push({
+        table_catalog: "memory",
+        table_schema: "public",
+        table_name: t.name,
+        table_type: "BASE TABLE",
+      });
+    }
+    for (const t of this.catalogProvider?.() ?? []) {
+      if (seen.has(t.name)) continue;
+      rows.push({
+        table_catalog: "memory",
+        table_schema: "public",
+        table_name: t.name,
+        table_type: "BASE TABLE",
       });
     }
     return rows;
@@ -1889,6 +2398,8 @@ export class MemoryBackend implements SqlBackend {
       }
       case "col":
         return this.resolveColumn(expr, jr);
+      case "interval":
+        return { [INTERVAL]: true, months: expr.months, ms: expr.ms } as IntervalVal;
       case "cast":
         return castValue(this.evalExpr(expr.e, jr, params), expr.type);
       case "json": {
@@ -1976,21 +2487,35 @@ export class MemoryBackend implements SqlBackend {
       const outer = this.lookupColumn(expr, this.subqueryOuter[i]);
       if (outer !== COLUMN_ABSENT) return outer;
     }
-    return null;
+    // Absent in every scope ⇒ error like Postgres, rather than silently yielding
+    // NULL (which turned a typo'd column into a confident wrong answer).
+    const q = expr.table ? `${expr.table}.${expr.name}` : expr.name;
+    throw new Error(`MemoryBackend: column "${q}" does not exist`);
   }
 
   /** Resolve a column in one scope, returning {@link COLUMN_ABSENT} if not present. */
   private lookupColumn(expr: { table?: string; name: string }, jr: JoinedRow): unknown {
     if (expr.table) {
       const rec = jr.get(expr.table);
-      if (rec && expr.name in rec) return rec[expr.name];
+      if (rec) {
+        const k = ciKey(rec, expr.name);
+        if (k !== undefined) return rec[k];
+      }
       for (const [alias, r] of jr) {
-        if (alias.toLowerCase() === expr.table.toLowerCase() && expr.name in r) return r[expr.name];
+        if (alias.toLowerCase() === expr.table.toLowerCase()) {
+          const k = ciKey(r, expr.name);
+          if (k !== undefined) return r[k];
+        }
       }
       return COLUMN_ABSENT;
     }
+    // Exact match first (fast path + unambiguous), then a case-insensitive pass.
     for (const rec of jr.values()) {
-      if (expr.name in rec) return rec[expr.name];
+      if (Object.prototype.hasOwnProperty.call(rec, expr.name)) return rec[expr.name];
+    }
+    for (const rec of jr.values()) {
+      const k = ciKey(rec, expr.name);
+      if (k !== undefined) return rec[k];
     }
     return COLUMN_ABSENT;
   }
@@ -2043,24 +2568,45 @@ export class MemoryBackend implements SqlBackend {
       case "like":
       case "ilike":
         return nullish ? null : likeMatch(String(l), String(r), op === "ilike");
-      // Arithmetic with a NULL operand is NULL (never NaN).
-      case "+":
-        return nullish ? null : num(l) + num(r);
-      case "-":
-        return nullish ? null : num(l) - num(r);
-      case "*":
-        return nullish ? null : num(l) * num(r);
-      case "/": {
+      case "~":
+      case "~*":
+      case "!~":
+      case "!~*": {
         if (nullish) return null;
-        const d = num(r);
-        if (d === 0) throw new Error("MemoryBackend: division by zero");
-        return num(l) / d;
+        const m = new RegExp(String(r), op.includes("*") ? "i" : "").test(String(l));
+        return op.startsWith("!") ? !m : m;
       }
+      // IS [NOT] DISTINCT FROM — null-safe: NULLs are comparable, only one-sided NULL is "distinct".
+      case "isdistinct":
+      case "isnotdistinct": {
+        const an = l === null || l === undefined;
+        const bn = r === null || r === undefined;
+        const distinct = an !== bn ? true : an && bn ? false : !looseEq(l, r);
+        return op === "isdistinct" ? distinct : !distinct;
+      }
+      // Arithmetic with a NULL operand is NULL (never NaN); non-numeric text throws.
+      case "+":
+      case "-":
+      case "*":
+      case "/":
       case "%": {
         if (nullish) return null;
-        const d = num(r);
-        if (d === 0) throw new Error("MemoryBackend: division by zero");
-        return num(l) % d;
+        // Interval arithmetic: date ± interval → date; interval ± interval → interval.
+        if ((op === "+" || op === "-") && (isInterval(l) || isInterval(r))) {
+          if (isInterval(l) && isInterval(r)) {
+            const s = op === "-" ? -1 : 1;
+            return { [INTERVAL]: true, months: l.months + s * r.months, ms: l.ms + s * r.ms } as IntervalVal;
+          }
+          if (isInterval(r)) return addInterval(l, r, op === "-");
+          if (op === "+") return addInterval(r, l as IntervalVal, false);
+          throw new Error("MemoryBackend: cannot subtract a timestamp from an interval");
+        }
+        assertNumeric(l, op);
+        assertNumeric(r, op);
+        const ln = num(l);
+        const rn = num(r);
+        if ((op === "/" || op === "%") && rn === 0) throw new Error("MemoryBackend: division by zero");
+        return op === "+" ? ln + rn : op === "-" ? ln - rn : op === "*" ? ln * rn : op === "/" ? ln / rn : ln % rn;
       }
       // `||` concatenation propagates NULL (unlike the concat() function).
       case "||":
@@ -2084,7 +2630,49 @@ export class MemoryBackend implements SqlBackend {
   private applyScalarFunc(name: string, a: unknown[]): unknown {
     switch (name) {
       case "now":
+      case "current_timestamp":
+      case "current_time":
         return this.now();
+      case "current_date":
+        return this.now().slice(0, 10);
+      case "current_user":
+      case "session_user":
+      case "current_schema":
+        return name === "current_schema" ? "public" : "memory";
+      case "date_trunc": {
+        if (a[0] == null || a[1] == null) return null;
+        const d = new Date(String(a[1]));
+        if (Number.isNaN(d.getTime())) throw new Error(`MemoryBackend: invalid input syntax for type timestamp: "${a[1]}"`);
+        const [Y, Mo, D, H, Mi] = [d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes()];
+        const field = String(a[0]).toLowerCase();
+        const at = (...p: number[]) => new Date(Date.UTC(p[0], p[1] ?? 0, p[2] ?? 1, p[3] ?? 0, p[4] ?? 0, 0, 0)).toISOString();
+        switch (field) {
+          case "year": return at(Y);
+          case "month": return at(Y, Mo);
+          case "day": return at(Y, Mo, D);
+          case "hour": return at(Y, Mo, D, H);
+          case "minute": return at(Y, Mo, D, H, Mi);
+          default: throw new Error(`MemoryBackend: date_trunc does not support field "${field}" (use year|month|day|hour|minute)`);
+        }
+      }
+      case "date_part":
+      case "extract": {
+        if (a[0] == null || a[1] == null) return null;
+        const d = new Date(String(a[1]));
+        if (Number.isNaN(d.getTime())) throw new Error(`MemoryBackend: invalid input syntax for type timestamp: "${a[1]}"`);
+        const field = String(a[0]).toLowerCase();
+        switch (field) {
+          case "year": return d.getUTCFullYear();
+          case "month": return d.getUTCMonth() + 1;
+          case "day": return d.getUTCDate();
+          case "hour": return d.getUTCHours();
+          case "minute": return d.getUTCMinutes();
+          case "second": return d.getUTCSeconds();
+          case "dow": return d.getUTCDay();
+          case "quarter": return Math.floor(d.getUTCMonth() / 3) + 1;
+          default: throw new Error(`MemoryBackend: date_part does not support field "${field}"`);
+        }
+      }
       case "coalesce":
         return a.find((v) => v !== null && v !== undefined) ?? null;
       case "lower":
@@ -2134,11 +2722,12 @@ export class MemoryBackend implements SqlBackend {
         return looseEq(a[0], a[1]) ? null : a[0];
       // ── string ──
       case "trim":
-        return a[0] == null ? null : String(a[0]).trim();
+      case "btrim":
+        return a[0] == null ? null : stripChars(String(a[0]), a[1] != null ? String(a[1]) : " \t\n\r", true, true);
       case "ltrim":
-        return a[0] == null ? null : String(a[0]).replace(/^\s+/, "");
+        return a[0] == null ? null : stripChars(String(a[0]), a[1] != null ? String(a[1]) : " \t\n\r", true, false);
       case "rtrim":
-        return a[0] == null ? null : String(a[0]).replace(/\s+$/, "");
+        return a[0] == null ? null : stripChars(String(a[0]), a[1] != null ? String(a[1]) : " \t\n\r", false, true);
       case "substr":
       case "substring": {
         if (a[0] == null) return null;
@@ -2155,6 +2744,83 @@ export class MemoryBackend implements SqlBackend {
       }
       case "strpos":
         return a[0] == null || a[1] == null ? null : String(a[0]).indexOf(String(a[1])) + 1;
+      case "position":
+        return a[0] == null || a[1] == null ? null : String(a[1]).indexOf(String(a[0])) + 1;
+      case "char_length":
+      case "character_length":
+        return a[0] == null ? null : String(a[0]).length;
+      case "left": {
+        if (a[0] == null || a[1] == null) return null;
+        const s = String(a[0]);
+        const n = Math.trunc(num(a[1]));
+        return n >= 0 ? s.slice(0, n) : s.slice(0, Math.max(0, s.length + n));
+      }
+      case "right": {
+        if (a[0] == null || a[1] == null) return null;
+        const s = String(a[0]);
+        const n = Math.trunc(num(a[1]));
+        return n >= 0 ? s.slice(Math.max(0, s.length - n)) : s.slice(Math.min(s.length, -n));
+      }
+      case "initcap":
+        return a[0] == null ? null : String(a[0]).replace(/\b\w/g, (c) => c.toUpperCase()).replace(/\B\w/g, (c) => c.toLowerCase());
+      case "reverse":
+        return a[0] == null ? null : [...String(a[0])].reverse().join("");
+      case "repeat":
+        return a[0] == null || a[1] == null ? null : String(a[0]).repeat(Math.max(0, Math.trunc(num(a[1]))));
+      case "lpad":
+      case "rpad": {
+        if (a[0] == null || a[1] == null) return null;
+        const s = String(a[0]);
+        const len = Math.trunc(num(a[1]));
+        const fill = a[2] != null ? String(a[2]) : " ";
+        if (len <= s.length || fill === "") return s.slice(0, Math.max(0, len));
+        let pad = "";
+        while (pad.length < len - s.length) pad += fill;
+        pad = pad.slice(0, len - s.length);
+        return name === "lpad" ? pad + s : s + pad;
+      }
+      case "split_part": {
+        if (a[0] == null || a[1] == null || a[2] == null) return null;
+        const parts = String(a[0]).split(String(a[1]));
+        const idx = Math.trunc(num(a[2]));
+        return (idx > 0 ? parts[idx - 1] : parts[parts.length + idx]) ?? "";
+      }
+      case "concat_ws": {
+        const sep = a[0] == null ? "" : String(a[0]);
+        return a.slice(1).filter((v) => v !== null && v !== undefined).map((v) => String(v)).join(sep);
+      }
+      case "make_date":
+        return `${String(Math.trunc(num(a[0]))).padStart(4, "0")}-${String(Math.trunc(num(a[1]))).padStart(2, "0")}-${String(Math.trunc(num(a[2]))).padStart(2, "0")}`;
+      case "to_char": {
+        if (a[0] == null || a[1] == null) return null;
+        const d = new Date(String(a[0]));
+        if (Number.isNaN(d.getTime())) return String(a[0]); // numeric to_char: best-effort passthrough
+        const p2 = (n: number) => String(n).padStart(2, "0");
+        const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const MONTH = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        const DY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const map: Record<string, string> = {
+          YYYY: String(d.getUTCFullYear()),
+          YY: String(d.getUTCFullYear()).slice(-2),
+          MM: p2(d.getUTCMonth() + 1),
+          DD: p2(d.getUTCDate()),
+          HH24: p2(d.getUTCHours()),
+          HH: p2((d.getUTCHours() % 12) || 12),
+          MI: p2(d.getUTCMinutes()),
+          SS: p2(d.getUTCSeconds()),
+          Month: MONTH[d.getUTCMonth()],
+          Mon: MON[d.getUTCMonth()],
+          Dy: DY[d.getUTCDay()],
+        };
+        return String(a[1]).replace(/YYYY|YY|MM|DD|HH24|HH|MI|SS|Month|Mon|Dy/g, (t) => map[t] ?? t);
+      }
+      case "regexp_replace": {
+        if (a[0] == null || a[1] == null) return null;
+        const flags = a[3] != null ? String(a[3]) : "";
+        const rx = new RegExp(String(a[1]), (flags.includes("g") ? "g" : "") + (flags.includes("i") ? "i" : ""));
+        const repl = String(a[2] ?? "").replace(/\\(\d)/g, "$$$1"); // \1 → $1 backrefs
+        return String(a[0]).replace(rx, repl);
+      }
       default:
         throw new Error(`MemoryBackend: unsupported function '${name}()'`);
     }
@@ -2302,6 +2968,19 @@ export class MemoryBackend implements SqlBackend {
         return vals.reduce((m, v) => (compareValues(v, m) < 0 ? v : m));
       case "max":
         return vals.reduce((m, v) => (compareValues(v, m) > 0 ? v : m));
+      case "string_agg": {
+        const delim = expr.args[1] ? String(this.evalExpr(expr.args[1], rows[0], params) ?? "") : "";
+        return vals.map((v) => String(v)).join(delim);
+      }
+      case "array_agg":
+        return vals.slice();
+      case "json_agg":
+      case "jsonb_agg":
+        return vals.slice(); // serialized as a JSON array by the backend
+      case "bool_or":
+        return vals.some((v) => toPgBool(v));
+      case "bool_and":
+        return vals.every((v) => toPgBool(v));
       default:
         throw new Error(`MemoryBackend: unsupported aggregate '${name}'`);
     }
@@ -2312,7 +2991,18 @@ export class MemoryBackend implements SqlBackend {
 // Value helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-const INFO_COLUMNS = ["table_catalog", "table_schema", "table_name", "column_name", "data_type", "ordinal_position"];
+const INFO_COLUMNS = [
+  "table_catalog",
+  "table_schema",
+  "table_name",
+  "column_name",
+  "data_type",
+  "ordinal_position",
+  "is_nullable",
+  "column_default",
+  "description",
+];
+const INFO_TABLE_COLUMNS = ["table_catalog", "table_schema", "table_name", "table_type"];
 
 function truthy(v: unknown): boolean {
   return v === true || v === 1;
@@ -2325,12 +3015,96 @@ function num(v: unknown): number {
   return Number(v);
 }
 
+const BOOL_TRUE = new Set(["true", "t", "yes", "y", "on", "1"]);
+const BOOL_FALSE = new Set(["false", "f", "no", "n", "off", "0"]);
+
+/** Reject arithmetic on non-numeric text instead of silently yielding NaN/NULL —
+ *  `+` on strings is the classic "meant `||`" mistake, so name the fix. */
+function assertNumeric(v: unknown, op: string): void {
+  if (typeof v === "string" && v.trim() !== "" && Number.isNaN(Number(v))) {
+    throw new Error(
+      op === "+"
+        ? `MemoryBackend: operator does not exist: text + text (use || to concatenate strings)`
+        : `MemoryBackend: invalid input syntax for type numeric: "${v}"`,
+    );
+  }
+}
+
+/** Coerce a value to a Postgres boolean, throwing on an uninterpretable string
+ *  — so `active = 'false'` compares against FALSE (not JS `Boolean('false')`,
+ *  which is truthy and silently inverted the match). */
+function toPgBool(v: unknown): boolean {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (BOOL_TRUE.has(s)) return true;
+    if (BOOL_FALSE.has(s)) return false;
+    throw new Error(`MemoryBackend: invalid input syntax for type boolean: "${v}"`);
+  }
+  return Boolean(v);
+}
+
+const INTERVAL = Symbol.for("glove-sql.interval");
+type IntervalVal = { [INTERVAL]: true; months: number; ms: number };
+const isInterval = (v: unknown): v is IntervalVal =>
+  typeof v === "object" && v !== null && (v as Record<symbol, unknown>)[INTERVAL] === true;
+
+/** Parse an interval literal body like `7 days`, `1 month`, `2 years 3 hours`. */
+function parseIntervalLiteral(s: string): { months: number; ms: number } {
+  let months = 0;
+  let ms = 0;
+  const re = /(-?\d+)\s*(years?|months?|weeks?|days?|hours?|minutes?|mins?|seconds?|secs?)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) {
+    const n = parseInt(m[1], 10);
+    const u = m[2].toLowerCase();
+    if (u.startsWith("year")) months += n * 12;
+    else if (u.startsWith("month")) months += n;
+    else if (u.startsWith("week")) ms += n * 7 * 86_400_000;
+    else if (u.startsWith("day")) ms += n * 86_400_000;
+    else if (u.startsWith("hour")) ms += n * 3_600_000;
+    else if (u.startsWith("min")) ms += n * 60_000;
+    else if (u.startsWith("sec")) ms += n * 1000;
+  }
+  return { months, ms };
+}
+
+/** Apply an interval to a timestamp/date value, preserving date-only shape. */
+function addInterval(dateVal: unknown, iv: IntervalVal, subtract: boolean): string {
+  const d = new Date(String(dateVal));
+  if (Number.isNaN(d.getTime())) throw new Error(`MemoryBackend: interval arithmetic on a non-timestamp: "${dateVal}"`);
+  const sign = subtract ? -1 : 1;
+  const d2 = new Date(d.getTime() + sign * iv.ms);
+  if (iv.months) d2.setUTCMonth(d2.getUTCMonth() + sign * iv.months);
+  return String(dateVal).length <= 10 ? d2.toISOString().slice(0, 10) : d2.toISOString();
+}
+
+/** Strip the given characters (default whitespace) from one or both ends. */
+function stripChars(s: string, chars: string, left: boolean, right: boolean): string {
+  const set = new Set([...chars]);
+  let i = 0;
+  let j = s.length;
+  if (left) while (i < j && set.has(s[i])) i++;
+  if (right) while (j > i && set.has(s[j - 1])) j--;
+  return s.slice(i, j);
+}
+
+/** The row key matching `name`, case-insensitively (Postgres folds unquoted
+ *  identifiers to lowercase). Exact match wins; undefined if truly absent. */
+function ciKey(rec: Record<string, unknown>, name: string): string | undefined {
+  if (Object.prototype.hasOwnProperty.call(rec, name)) return name;
+  const target = name.toLowerCase();
+  for (const k in rec) if (k.toLowerCase() === target) return k;
+  return undefined;
+}
+
 function looseEq(a: unknown, b: unknown): boolean {
   if (a === null || a === undefined || b === null || b === undefined) return false;
   if (typeof a === "number" || typeof b === "number") {
     return num(a) === num(b);
   }
-  if (typeof a === "boolean" || typeof b === "boolean") return Boolean(a) === Boolean(b);
+  if (typeof a === "boolean" || typeof b === "boolean") return toPgBool(a) === toPgBool(b);
   // jsonb / array / object: deep value equality, not JS reference identity.
   if (typeof a === "object" || typeof b === "object") {
     try {
@@ -2525,6 +3299,23 @@ function walkExpr(expr: Expr, visit: (e: Expr) => void): void {
   }
 }
 
+/**
+ * Disambiguate duplicate output column names (`x`, `x`, `x` → `x`, `x_2`, `x_3`).
+ * Result rows are objects keyed by column name, so two projections that infer
+ * the same name (e.g. `SELECT 'a', 'b'` → both `?column?`, or `SELECT count(*),
+ * count(*)`) would otherwise collapse onto one key and silently drop a value —
+ * corrupting, in particular, `INSERT … SELECT` whose positional value mapping
+ * relies on one distinct field per selected column.
+ */
+function dedupeNames(names: string[]): string[] {
+  const seen = new Map<string, number>();
+  return names.map((n) => {
+    const c = (seen.get(n) ?? 0) + 1;
+    seen.set(n, c);
+    return c === 1 ? n : `${n}_${c}`;
+  });
+}
+
 function inferColName(expr: Expr): string {
   switch (expr.k) {
     case "col":
@@ -2588,4 +3379,265 @@ function exprKey(e: Expr): string {
     default:
       return "?";
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Public parse + static analysis
+//
+// Exposed so a higher layer (e.g. the glove-scratchpad database emulator) can
+// inspect a statement BEFORE it executes — classify relations, push WHERE
+// equalities down as arguments, gate by statement kind — using the SAME grammar
+// the engine runs. A second, divergent parser in the consumer would let the
+// security check inspect a different language than the one that executes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type SqlScalar = string | number | boolean | null;
+
+/** A table relation found in a statement, classified by how it is used. */
+export interface RelationRef {
+  /** Physical relation name as written. */
+  name: string;
+  /** Alias it is bound to (equals `name` when no explicit alias was given). */
+  alias: string;
+  /**
+   * - `read` — appears in a FROM / JOIN / subquery / INSERT…SELECT source.
+   * - `insert` / `delete` / `update` — the write target of that statement.
+   */
+  role: "read" | "insert" | "delete" | "update";
+}
+
+function parseSegment(seg: Token[]): Stmt {
+  const p = new Parser([...seg, { type: "eof", value: "" }]);
+  const stmt = p.parseStatement();
+  if (!p.atEnd()) {
+    const tok = p.peekToken();
+    throw new Error(`MemoryBackend: unexpected token "${tok.value}" after a complete statement (did an earlier clause end early, or is this an unsupported feature?)`);
+  }
+  return stmt;
+}
+
+/** Tokenize, split on top-level `;`, and parse each segment. */
+function parseStatements(sql: string): Stmt[] {
+  const toks = tokenize(sql);
+  const out: Stmt[] = [];
+  let segment: Token[] = [];
+  for (const t of toks) {
+    if (t.type === "op" && t.value === ";") {
+      if (segment.some((s) => s.type !== "eof")) out.push(parseSegment(segment));
+      segment = [];
+      continue;
+    }
+    if (t.type === "eof") break;
+    segment.push(t);
+  }
+  if (segment.length > 0) out.push(parseSegment(segment));
+  return out;
+}
+
+/** Parse SQL into the statement AST — the same parser {@link MemoryBackend} executes. */
+export function parse(sql: string): Stmt[] {
+  return parseStatements(sql);
+}
+
+/** The kind tag of a statement (`select` / `insert` / `update` / `begin` / …). */
+export function statementKind(stmt: Stmt): Stmt["k"] {
+  return stmt.k;
+}
+
+/** Visit every nested SELECT subquery within an expression. */
+function visitExprSubqueries(e: Expr, cb: (s: SelectStmt) => void): void {
+  switch (e.k) {
+    case "subquery":
+    case "exists":
+      cb(e.select);
+      break;
+    case "in":
+      if (e.sub) cb(e.sub);
+      (e.list ?? []).forEach((x) => visitExprSubqueries(x, cb));
+      visitExprSubqueries(e.e, cb);
+      break;
+    case "binary":
+    case "json":
+      visitExprSubqueries(e.l, cb);
+      visitExprSubqueries(e.r, cb);
+      break;
+    case "unary":
+    case "not":
+    case "cast":
+    case "is":
+      visitExprSubqueries(e.e, cb);
+      break;
+    case "between":
+      visitExprSubqueries(e.e, cb);
+      visitExprSubqueries(e.lo, cb);
+      visitExprSubqueries(e.hi, cb);
+      break;
+    case "func":
+      e.args.forEach((a) => visitExprSubqueries(a, cb));
+      if (e.filter) visitExprSubqueries(e.filter, cb);
+      break;
+    case "case":
+      if (e.operand) visitExprSubqueries(e.operand, cb);
+      e.whens.forEach((w) => {
+        visitExprSubqueries(w.when, cb);
+        visitExprSubqueries(w.then, cb);
+      });
+      if (e.els) visitExprSubqueries(e.els, cb);
+      break;
+  }
+}
+
+/** Expressions a SELECT evaluates (projection, where, group/having, order, join-ons). */
+function selectExprs(sel: SelectStmt): Expr[] {
+  const out: Expr[] = [];
+  for (const it of sel.items) if (it.expr) out.push(it.expr);
+  if (sel.where) out.push(sel.where);
+  for (const g of sel.groupBy) out.push(g);
+  if (sel.having) out.push(sel.having);
+  for (const o of sel.orderBy) out.push(o.expr);
+  for (const j of sel.joins) if (j.on) out.push(j.on);
+  return out;
+}
+
+/** Visit `sel` and every SELECT nested in it (CTEs, FROM/JOIN subqueries, set-ops, expr subqueries). */
+function eachSelect(sel: SelectStmt, cb: (s: SelectStmt) => void): void {
+  cb(sel);
+  for (const cte of sel.with ?? []) eachSelect(cte.select, cb);
+  if (sel.from?.kind === "subquery") eachSelect(sel.from.select, cb);
+  for (const j of sel.joins) if (j.item.kind === "subquery") eachSelect(j.item.select, cb);
+  for (const so of sel.setOps ?? []) eachSelect(so.select, cb);
+  for (const e of selectExprs(sel)) visitExprSubqueries(e, (sub) => eachSelect(sub, cb));
+}
+
+function rootSelect(stmt: Stmt): SelectStmt | null {
+  if (stmt.k === "select") return stmt;
+  if (stmt.k === "insert" && stmt.asSelect) return stmt.asSelect;
+  if (stmt.k === "createTable" && stmt.asSelect) return stmt.asSelect;
+  if (stmt.k === "explain") return rootSelect(stmt.statement);
+  return null;
+}
+
+/** Every SELECT reachable from a statement, including DELETE/UPDATE WHERE subqueries. */
+function allSelects(stmt: Stmt): SelectStmt[] {
+  const out: SelectStmt[] = [];
+  const root = rootSelect(stmt);
+  if (root) eachSelect(root, (s) => out.push(s));
+  const walkWhere = (e: Expr) => visitExprSubqueries(e, (s) => eachSelect(s, (x) => out.push(x)));
+  if (stmt.k === "delete" && stmt.where) walkWhere(stmt.where);
+  if (stmt.k === "update") {
+    for (const st of stmt.set) walkWhere(st.value);
+    if (stmt.where) walkWhere(stmt.where);
+  }
+  if ((stmt.k === "delete" || stmt.k === "update") && stmt.with) {
+    for (const cte of stmt.with) eachSelect(cte.select, (s) => out.push(s));
+  }
+  return out;
+}
+
+/** All table relations a statement references, each classified read vs write-target. */
+export function collectRelations(stmt: Stmt): RelationRef[] {
+  if (stmt.k === "explain") return collectRelations(stmt.statement);
+  const out: RelationRef[] = [];
+  for (const s of allSelects(stmt)) {
+    if (s.from?.kind === "table") out.push({ name: s.from.name, alias: s.from.alias, role: "read" });
+    for (const j of s.joins) {
+      if (j.item.kind === "table") out.push({ name: j.item.name, alias: j.item.alias, role: "read" });
+    }
+  }
+  if (stmt.k === "insert") out.push({ name: stmt.table, alias: stmt.table, role: "insert" });
+  if (stmt.k === "delete") out.push({ name: stmt.table, alias: stmt.table, role: "delete" });
+  if (stmt.k === "update") out.push({ name: stmt.table, alias: stmt.table, role: "update" });
+  return out;
+}
+
+/** Names defined by WITH (CTEs) anywhere in the statement — they shadow real tables. */
+export function collectCteNames(stmt: Stmt): Set<string> {
+  const names = new Set<string>();
+  for (const s of allSelects(stmt)) for (const cte of s.with ?? []) names.add(cte.name);
+  if ((stmt.k === "delete" || stmt.k === "update") && stmt.with) for (const cte of stmt.with) names.add(cte.name);
+  return names;
+}
+
+/**
+ * Equality / IN bindings for `alias` that can be PUSHED DOWN as arguments to a
+ * resource resolver (Steampipe-style). Walks every conjunct of every WHERE and
+ * JOIN-ON in the statement, collecting `alias.col = <literal|param>` (and the
+ * symmetric form) and `alias.col IN (<literals>)`. Unqualified columns
+ * (`col = …` with no table qualifier) are attributed too — the caller resolves
+ * any ambiguity by keeping only columns the relation actually declares.
+ * Column = column (join keys, correlations) are NOT bindings; the engine
+ * evaluates them after materialization.
+ */
+export function extractEqualityBindings(
+  stmt: Stmt,
+  alias: string,
+  params: unknown[] = [],
+): Map<string, SqlScalar[]> {
+  const eq = new Map<string, SqlScalar[]>();
+  const add = (col: string, v: SqlScalar) => {
+    const arr = eq.get(col) ?? [];
+    arr.push(v);
+    eq.set(col, arr);
+  };
+  const asLiteral = (e: Expr): { ok: boolean; v: SqlScalar } => {
+    switch (e.k) {
+      case "num":
+        return { ok: true, v: e.v };
+      case "str":
+        return { ok: true, v: e.v };
+      case "bool":
+        return { ok: true, v: e.v };
+      case "null":
+        return { ok: true, v: null };
+      case "param": {
+        const v = e.i >= 1 && e.i <= params.length ? params[e.i - 1] : null;
+        return { ok: true, v: (v ?? null) as SqlScalar };
+      }
+      default:
+        return { ok: false, v: null };
+    }
+  };
+  const colName = (e: Expr): string | null =>
+    e.k === "col" && (e.table === alias || e.table === undefined) ? e.name : null;
+  const conj = (e: Expr): void => {
+    if (e.k === "binary" && e.op === "and") {
+      conj(e.l);
+      conj(e.r);
+      return;
+    }
+    if (e.k === "binary" && e.op === "=") {
+      const lc = colName(e.l);
+      if (lc) {
+        const r = asLiteral(e.r);
+        if (r.ok) {
+          add(lc, r.v);
+          return;
+        }
+      }
+      const rc = colName(e.r);
+      if (rc) {
+        const l = asLiteral(e.l);
+        if (l.ok) add(rc, l.v);
+      }
+      return;
+    }
+    if (e.k === "in" && !e.negated && e.list && e.list.length > 0) {
+      const c = colName(e.e);
+      if (!c) return;
+      const vals: SqlScalar[] = [];
+      for (const it of e.list) {
+        const r = asLiteral(it);
+        if (!r.ok) return;
+        vals.push(r.v);
+      }
+      for (const v of vals) add(c, v);
+    }
+  };
+  for (const s of allSelects(stmt)) {
+    if (s.where) conj(s.where);
+    for (const j of s.joins) if (j.on) conj(j.on);
+  }
+  if (stmt.k === "delete" && stmt.where) conj(stmt.where);
+  if (stmt.k === "update" && stmt.where) conj(stmt.where);
+  return eq;
 }
