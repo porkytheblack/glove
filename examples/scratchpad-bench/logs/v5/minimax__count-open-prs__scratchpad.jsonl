@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"minimax","model":"minimax/minimax-m2.5","scenario":"count-open-prs","arm":"scratchpad","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":3336,"tokensOut":111,"cacheRead":1600,"peakContextTokens":1724,"compactions":0,"toolsInContext":2,"wallMs":4096,"costUsd":0.00045359999999999997,"expected":36}
+{"kind":"final_answer","text":"There are **36** open pull requests across all repositories."}
+{"t":2956,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_sql","input":"{\"sql\":\"SELECT COUNT(*) AS open_pull_requests FROM github_pull_requests WHERE state = 'open';\"}"}]}
+{"t":2956,"type":"tokens","in":1612,"out":81,"peak":1612}
+{"t":2961,"type":"tool_result","tool":"execute_sql","status":"success","data":"{\"rows\":[{\"open_pull_requests\":36}],\"truncated\":false,\"touched\":[{\"name\":\"github_pull_requests\",\"source\":\"virtual\",\"access\":\"read\",\"op\":\"select\",\"volatility\":\"stable\",\"bindings\":{\"state\":[\"open\"]},\"invocations\":1}]}"}
+{"t":4096,"type":"model_response","turn":2,"stop_reason":"stop","text":"There are **36** open pull requests across all repositories.","tool_calls":[]}
+{"t":4096,"type":"tokens","in":1724,"out":30,"peak":1724}

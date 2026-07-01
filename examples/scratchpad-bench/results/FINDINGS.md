@@ -172,6 +172,42 @@ inherent to the capability surface, not the overlay. Worth a preamble note ("get
 `INSERT … SELECT` right the first time; preview the SELECT before you write") more
 than a code change.
 
+## Database-parity pass: making it feel like a real DB (v5)
+
+A multi-agent audit ([`PARITY-AUDIT.md`](PARITY-AUDIT.md), 4 mappers → 6 parity-lens
+finders → per-gap adversarial verify → synthesis, 47 agents) asked a sharper
+question than pass rate: *does the scratchpad behave like a database a droid already
+knows how to drive?* It found **30 confirmed gaps** sharing one corrosive root —
+the engine **silently mis-answered where Postgres errors** (a typo'd column, `+`
+on text, `= 'HIGH'`, `= 'false'`, a bare `current_date`, a forgotten `COMMIT` all
+returned a confident wrong answer), contradicting glove-sql's own "throw rather
+than mis-answer" tenet. Headline claims were re-verified by hand against the engine.
+
+Five batches closed it (all with regression tests — glove-sql 102/102,
+glove-scratchpad 53/53):
+
+- **A — loud errors + idiom resolution**: boolean `= 'false'` was *inverted*
+  (`Boolean('false')` is truthy) — fixed; `+`-on-text throws with a `||` hint;
+  **unknown column throws** instead of returning NULL; column/table refs resolve
+  case-insensitively; `current_date`/`current_timestamp`, leading `public.`,
+  actionable parse errors, `table_type='BASE TABLE'`.
+- **C — function library**: `string_agg`/`array_agg`/`json_agg`/`bool_or`/`bool_and`,
+  `date_trunc`/`date_part`/`EXTRACT(field FROM ts)`.
+- **D — introspection**: `information_schema.columns` exposes `is_nullable`
+  (required keys) and `description` (enum values) — keys and valid values are now
+  discoverable via SQL, not just the primed hint.
+- **B — RETURNING**: `INSERT/UPDATE/DELETE … RETURNING` on native tables; virtual
+  `INSERT … RETURNING` in the scratchpad.
+- **E — write safety**: transaction **auto-rollback on error** (kills the
+  stranded-`BEGIN` footgun); capability errors list supported ops; **over-broad
+  UPDATE/DELETE** (range/OR WHERE) is rejected rather than silently widened.
+
+Measured effect on the weak-model scratchpad arm (v4 → v5): **34/35 → 35/35 (100%)**,
+0 spirals, median 2 tool calls, avg 3.7 turns — the parity work fixed the last
+residual (glm/compose, via auto-rollback) **without** the new loud errors
+destabilizing any weak model. Full arc across every round: **v1 74% → v3 97% →
+v5 100%.**
+
 ## Where scratchpad decisively wins: context pressure
 
 The main matrix runs at a generous 100k limit on small result sets — the regime

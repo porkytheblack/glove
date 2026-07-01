@@ -6,6 +6,34 @@ Every finding below was adversarially verified against source; each carries a `f
 
 ---
 
+> ## ✅ Resolved in the parity pass (batches A–E)
+>
+> The bulk of this audit has since been implemented. All three cross-cutting root
+> causes are closed, along with most individual gaps:
+>
+> - **Batch A — loud errors + idiom resolution** (`glove-sql`): boolean `= 'false'`
+>   no longer inverted; `+`-on-text throws with a `||` hint; **unknown column throws**
+>   (`column "x" does not exist`) instead of NULL; column/table refs resolve
+>   case-insensitively; `current_date`/`current_timestamp` resolve; leading `public.`
+>   strips; actionable "unexpected token"/ON CONFLICT messages; `table_type='BASE TABLE'`.
+> - **Batch C — function library** (`glove-sql`): `string_agg`/`array_agg`/`json_agg`/
+>   `bool_or`/`bool_and`; `date_trunc`/`date_part`/`EXTRACT(field FROM ts)`.
+> - **Batch D — introspection** (`glove-sql` + `catalog.ts`): `information_schema.columns`
+>   now exposes `is_nullable` (required keys) and `description` (enum values) — the
+>   catalog boundary no longer drops metadata; keys/enums are SQL-discoverable.
+> - **Batch B — RETURNING**: `INSERT/UPDATE/DELETE … RETURNING` on native tables;
+>   virtual `INSERT … RETURNING` in the scratchpad (UPDATE/DELETE redirect to SELECT).
+> - **Batch E — write safety** (`scratchpad`): transaction **auto-rollback on error**
+>   (no cross-turn strand); capability errors list supported ops; **over-broad
+>   UPDATE/DELETE** (range/OR/LIKE WHERE) is rejected, not silently widened.
+>
+> Engine tests: glove-sql **102/102**, glove-scratchpad **53/53**. The findings below
+> are retained as the original audit record. Remaining lower-priority items:
+> `to_char`/`regexp_*`, `ON CONFLICT`/upsert, `SAVEPOINT`, window-frame edge cases,
+> and a full `column_default` — none block the "feels like a database" bar.
+
+---
+
 > **Empirically re-verified.** After the agent audit, the headline engine claims were
 > reproduced directly against `glove-sql` (MemoryBackend): `'a'+'b'` → `null`;
 > `active = 'false'` matches the **true** rows (inverted); `SELECT ID`/`WHERE Name` →

@@ -106,7 +106,17 @@ agents reflexively re-read their own writes, so instead of forbidding it, the
 database now folds each session's fired INSERT/UPDATE/DELETEs back over live reads
 of the same table — a re-query returns the write, killing the read-after-write
 spiral at the source (upstream stays a live view; the session is read-your-writes).
-Proven by `probe.ts [D]` and 7 unit tests. See
+Proven by `probe.ts [D]` and 7 unit tests.
+
+Finally, a multi-agent **database-parity audit**
+([`results/PARITY-AUDIT.md`](results/PARITY-AUDIT.md)) drove five batches of
+`glove-sql`/`glove-scratchpad` fixes so the emulator behaves like a real Postgres
+to a droid — it now **errors where Postgres errors** instead of silently
+mis-answering (fixed an inverted boolean comparison, `+`-on-text, unknown-column →
+NULL, case-sensitive identifiers), gained a `string_agg`/`date_trunc` function
+library, `INSERT … RETURNING`, `is_nullable`/enum discovery via
+`information_schema`, and transaction auto-rollback. This took the weak-model
+scratchpad arm to **35/35 (100%)** — full arc **v1 74% → v3 97% → v5 100%**. See
 [`results/FINDINGS.md`](results/FINDINGS.md).
 
 ## Results
