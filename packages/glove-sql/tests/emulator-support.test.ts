@@ -94,7 +94,7 @@ test("information_schema.tables lists base tables", async () => {
   assert.deepEqual(r.rows, [{ table_name: "t", table_type: "BASE TABLE" }]);
 });
 
-test("catalogProvider advertises foreign tables in information_schema", async () => {
+test("catalogProvider tables appear as BASE TABLE (droid-enumerable)", async () => {
   const b = await MemoryBackend.create({
     catalogProvider: () => [
       { name: "github_pr", columns: [{ name: "id", type: "bigint" }, { name: "title", type: "text" }] },
@@ -102,8 +102,10 @@ test("catalogProvider advertises foreign tables in information_schema", async ()
   });
   await b.exec(`CREATE TABLE "local" ("x" bigint)`);
   const tables = await b.query(`SELECT table_name, table_type FROM information_schema.tables ORDER BY table_name`);
+  // Capability tables enumerate as BASE TABLE so the canonical
+  // `WHERE table_type = 'BASE TABLE'` discovery filter returns them.
   assert.deepEqual(tables.rows, [
-    { table_name: "github_pr", table_type: "FOREIGN TABLE" },
+    { table_name: "github_pr", table_type: "BASE TABLE" },
     { table_name: "local", table_type: "BASE TABLE" },
   ]);
   const cols = await b.query(

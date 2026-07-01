@@ -83,9 +83,10 @@ test("ephemeral tables are torn down after the query", async () => {
   const db = await Database.create();
   db.register(reads("a", [{ name: "id", type: "bigint" }], [{ id: 1 }]));
   await db.execute(`SELECT id FROM a`);
-  // After teardown, the materialized table is gone; only the FOREIGN catalog entry remains.
+  // After teardown, the materialized table is gone; only the catalog entry remains
+  // (advertised as BASE TABLE so a droid's table_type filter finds it).
   const tables = await db.execute(`SELECT table_name, table_type FROM information_schema.tables`);
-  assert.deepEqual(tables.rows, [{ table_name: "a", table_type: "FOREIGN TABLE" }]);
+  assert.deepEqual(tables.rows, [{ table_name: "a", table_type: "BASE TABLE" }]);
 });
 
 test("result rows are bounded and truncation is reported", async () => {

@@ -458,6 +458,11 @@ class Parser {
     return this.peek().type === "eof";
   }
 
+  /** The next unconsumed token (for diagnostics). */
+  peekToken(): Token {
+    return this.peek();
+  }
+
   // ── identifiers ───────────────────────────────────────────────────────────
   private ident(): string {
     const t = this.peek();
@@ -800,6 +805,11 @@ class Parser {
     if (lower === "information_schema.tables") {
       return { kind: "infoschema", which: "tables", alias: alias ?? name };
     }
+    // Postgres default search_path resolves an explicit `public.` to the bare table.
+    if (lower.startsWith("public.")) {
+      const bare = name.slice(name.indexOf(".") + 1);
+      return { kind: "table", name: bare, alias: alias ?? bare };
+    }
     return { kind: "table", name, alias: alias ?? name };
   }
 
@@ -1015,6 +1025,15 @@ class Parser {
       if (!t.quoted && lower === "null") {
         this.pos++;
         return { k: "null" };
+      }
+      // Paren-less temporal pseudo-functions (Postgres allows no parens).
+      if (
+        !t.quoted &&
+        (lower === "current_date" || lower === "current_timestamp" || lower === "current_time") &&
+        !this.isOp("(", 1)
+      ) {
+        this.pos++;
+        return { k: "func", name: lower, args: [] };
       }
       // EXISTS (subquery)
       if (!t.quoted && lower === "exists" && this.isOp("(", 1)) {
@@ -1281,7 +1300,19 @@ export class MemoryBackend implements SqlBackend {
   }
 
   private getTable(name: string): CatTable {
-    const t = this.tables.get(name);
+    let t = this.tables.get(name);
+    if (!t) {
+      // Case-insensitive fallback — Postgres folds an unquoted `FROM Emails` to
+      // `emails`. Physical names are lowercase, so this only ever resolves a
+      // mismatch, never masks a real one.
+      const target = name.toLowerCase();
+      for (const [k, v] of this.tables) {
+        if (k.toLowerCase() === target) {
+          t = v;
+          break;
+        }
+      }
+    }
     if (!t) throw new Error(`MemoryBackend: relation "${name}" does not exist`);
     return t;
   }
@@ -1953,7 +1984,7 @@ export class MemoryBackend implements SqlBackend {
         table_catalog: "memory",
         table_schema: "public",
         table_name: t.name,
-        table_type: "FOREIGN TABLE",
+        table_type: "BASE TABLE",
       });
     }
     return rows;
@@ -2194,21 +2225,35 @@ export class MemoryBackend implements SqlBackend {
       const outer = this.lookupColumn(expr, this.subqueryOuter[i]);
       if (outer !== COLUMN_ABSENT) return outer;
     }
-    return null;
+    // Absent in every scope ⇒ error like Postgres, rather than silently yielding
+    // NULL (which turned a typo'd column into a confident wrong answer).
+    const q = expr.table ? `${expr.table}.${expr.name}` : expr.name;
+    throw new Error(`MemoryBackend: column "${q}" does not exist`);
   }
 
   /** Resolve a column in one scope, returning {@link COLUMN_ABSENT} if not present. */
   private lookupColumn(expr: { table?: string; name: string }, jr: JoinedRow): unknown {
     if (expr.table) {
       const rec = jr.get(expr.table);
-      if (rec && expr.name in rec) return rec[expr.name];
+      if (rec) {
+        const k = ciKey(rec, expr.name);
+        if (k !== undefined) return rec[k];
+      }
       for (const [alias, r] of jr) {
-        if (alias.toLowerCase() === expr.table.toLowerCase() && expr.name in r) return r[expr.name];
+        if (alias.toLowerCase() === expr.table.toLowerCase()) {
+          const k = ciKey(r, expr.name);
+          if (k !== undefined) return r[k];
+        }
       }
       return COLUMN_ABSENT;
     }
+    // Exact match first (fast path + unambiguous), then a case-insensitive pass.
     for (const rec of jr.values()) {
-      if (expr.name in rec) return rec[expr.name];
+      if (Object.prototype.hasOwnProperty.call(rec, expr.name)) return rec[expr.name];
+    }
+    for (const rec of jr.values()) {
+      const k = ciKey(rec, expr.name);
+      if (k !== undefined) return rec[k];
     }
     return COLUMN_ABSENT;
   }
@@ -2261,24 +2306,19 @@ export class MemoryBackend implements SqlBackend {
       case "like":
       case "ilike":
         return nullish ? null : likeMatch(String(l), String(r), op === "ilike");
-      // Arithmetic with a NULL operand is NULL (never NaN).
+      // Arithmetic with a NULL operand is NULL (never NaN); non-numeric text throws.
       case "+":
-        return nullish ? null : num(l) + num(r);
       case "-":
-        return nullish ? null : num(l) - num(r);
       case "*":
-        return nullish ? null : num(l) * num(r);
-      case "/": {
-        if (nullish) return null;
-        const d = num(r);
-        if (d === 0) throw new Error("MemoryBackend: division by zero");
-        return num(l) / d;
-      }
+      case "/":
       case "%": {
         if (nullish) return null;
-        const d = num(r);
-        if (d === 0) throw new Error("MemoryBackend: division by zero");
-        return num(l) % d;
+        assertNumeric(l, op);
+        assertNumeric(r, op);
+        const ln = num(l);
+        const rn = num(r);
+        if ((op === "/" || op === "%") && rn === 0) throw new Error("MemoryBackend: division by zero");
+        return op === "+" ? ln + rn : op === "-" ? ln - rn : op === "*" ? ln * rn : op === "/" ? ln / rn : ln % rn;
       }
       // `||` concatenation propagates NULL (unlike the concat() function).
       case "||":
@@ -2302,7 +2342,15 @@ export class MemoryBackend implements SqlBackend {
   private applyScalarFunc(name: string, a: unknown[]): unknown {
     switch (name) {
       case "now":
+      case "current_timestamp":
+      case "current_time":
         return this.now();
+      case "current_date":
+        return this.now().slice(0, 10);
+      case "current_user":
+      case "session_user":
+      case "current_schema":
+        return name === "current_schema" ? "public" : "memory";
       case "coalesce":
         return a.find((v) => v !== null && v !== undefined) ?? null;
       case "lower":
@@ -2544,12 +2592,51 @@ function num(v: unknown): number {
   return Number(v);
 }
 
+const BOOL_TRUE = new Set(["true", "t", "yes", "y", "on", "1"]);
+const BOOL_FALSE = new Set(["false", "f", "no", "n", "off", "0"]);
+
+/** Reject arithmetic on non-numeric text instead of silently yielding NaN/NULL —
+ *  `+` on strings is the classic "meant `||`" mistake, so name the fix. */
+function assertNumeric(v: unknown, op: string): void {
+  if (typeof v === "string" && v.trim() !== "" && Number.isNaN(Number(v))) {
+    throw new Error(
+      op === "+"
+        ? `MemoryBackend: operator does not exist: text + text (use || to concatenate strings)`
+        : `MemoryBackend: invalid input syntax for type numeric: "${v}"`,
+    );
+  }
+}
+
+/** Coerce a value to a Postgres boolean, throwing on an uninterpretable string
+ *  — so `active = 'false'` compares against FALSE (not JS `Boolean('false')`,
+ *  which is truthy and silently inverted the match). */
+function toPgBool(v: unknown): boolean {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (BOOL_TRUE.has(s)) return true;
+    if (BOOL_FALSE.has(s)) return false;
+    throw new Error(`MemoryBackend: invalid input syntax for type boolean: "${v}"`);
+  }
+  return Boolean(v);
+}
+
+/** The row key matching `name`, case-insensitively (Postgres folds unquoted
+ *  identifiers to lowercase). Exact match wins; undefined if truly absent. */
+function ciKey(rec: Record<string, unknown>, name: string): string | undefined {
+  if (Object.prototype.hasOwnProperty.call(rec, name)) return name;
+  const target = name.toLowerCase();
+  for (const k in rec) if (k.toLowerCase() === target) return k;
+  return undefined;
+}
+
 function looseEq(a: unknown, b: unknown): boolean {
   if (a === null || a === undefined || b === null || b === undefined) return false;
   if (typeof a === "number" || typeof b === "number") {
     return num(a) === num(b);
   }
-  if (typeof a === "boolean" || typeof b === "boolean") return Boolean(a) === Boolean(b);
+  if (typeof a === "boolean" || typeof b === "boolean") return toPgBool(a) === toPgBool(b);
   // jsonb / array / object: deep value equality, not JS reference identity.
   if (typeof a === "object" || typeof b === "object") {
     try {
@@ -2854,7 +2941,19 @@ export interface RelationRef {
 function parseSegment(seg: Token[]): Stmt {
   const p = new Parser([...seg, { type: "eof", value: "" }]);
   const stmt = p.parseStatement();
-  if (!p.atEnd()) throw new Error("MemoryBackend: trailing tokens after statement");
+  if (!p.atEnd()) {
+    const tok = p.peekToken();
+    const kw = tok.value.toLowerCase();
+    if (kw === "returning") {
+      throw new Error(
+        "MemoryBackend: RETURNING is not supported here — run the write, then SELECT the row (writes are readable in the same session).",
+      );
+    }
+    if (kw === "on") {
+      throw new Error("MemoryBackend: ON CONFLICT / upsert is not supported — check for the row first, then INSERT or UPDATE.");
+    }
+    throw new Error(`MemoryBackend: unexpected token "${tok.value}" after a complete statement (did an earlier clause end early, or is this an unsupported feature?)`);
+  }
   return stmt;
 }
 
