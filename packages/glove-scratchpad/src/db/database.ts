@@ -542,6 +542,13 @@ export class Database {
         `glove-scratchpad: writes are disabled for this database. Enable them or wrap the write in BEGIN … COMMIT.`,
       );
     }
+    // RETURNING on UPDATE/DELETE needs the matched rows, which live upstream and
+    // aren't returned by the resolver — point the model at the working idiom.
+    if ((stmt.k === "update" || stmt.k === "delete") && stmt.returning) {
+      throw new Error(
+        `glove-scratchpad: RETURNING on ${stmt.k.toUpperCase()} is not supported — run the ${stmt.k}, then SELECT the rows (your write is reflected this session: read-your-writes).`,
+      );
+    }
     const params = opts.params ?? [];
 
     let staged: StagedWrite;
@@ -596,13 +603,59 @@ export class Database {
       },
     ];
 
+    const returning = stmt.k === "insert" ? stmt.returning : undefined;
     if (this.txn) {
       this.txn.stage(staged);
-      return { ...emptyResult(), touched, staged: this.txn.preview(), message: `staged ${staged.op} on "${target}"` };
+      const base = { ...emptyResult(), touched, staged: this.txn.preview(), message: `staged ${staged.op} on "${target}"` };
+      if (returning) {
+        const proj = await this.projectWriteReturning(target, resource, staged.detail.rows ?? [], undefined, text);
+        return { ...base, rows: proj.rows, fields: proj.fields };
+      }
+      return base;
     }
-    await staged.run(ctx);
+    const out = await staged.run(ctx);
     this.recordWrite(staged);
+    if (returning) {
+      const proj = await this.projectWriteReturning(target, resource, staged.detail.rows ?? [], out, text);
+      return { ...emptyResult(), touched, rows: proj.rows, fields: proj.fields, message: `insert on "${target}" fired` };
+    }
     return { ...emptyResult(), touched, message: `${staged.op} on "${target}" fired` };
+  }
+
+  /** Project a virtual INSERT's rows through its RETURNING list. The inserted
+   *  rows (plus any server-assigned fields the resolver returned) are null-filled
+   *  to the table's columns and run through the engine, so RETURNING supports
+   *  expressions and never trips the unknown-column guard. */
+  private async projectWriteReturning(
+    target: string,
+    resource: ResourceTable,
+    rows: Record<string, unknown>[],
+    resolverOut: unknown,
+    text: string,
+  ): Promise<{ rows: Record<string, unknown>[]; fields: { name: string }[] }> {
+    const outRows = Array.isArray(resolverOut)
+      ? (resolverOut as Record<string, unknown>[])
+      : resolverOut && typeof resolverOut === "object"
+        ? [resolverOut as Record<string, unknown>]
+        : [];
+    const full = rows.map((r, i) => {
+      const base: Record<string, unknown> = {};
+      for (const c of resource.columns) base[c.name] = null;
+      const merged = { ...base, ...r };
+      if (outRows[i] && typeof outRows[i] === "object") Object.assign(merged, outRows[i]);
+      return merged;
+    });
+    const m = /\breturning\b([\s\S]+)$/i.exec(text);
+    const list = m ? m[1].trim() : "*";
+    const name = `__returning_${target}`;
+    const ephemerals: string[] = [name];
+    try {
+      await materializeTable(this.backend, name, resource.columns, full);
+      const res = await this.backend.query(`SELECT ${list} FROM ${quoteIdent(name)}`);
+      return { rows: res.rows, fields: res.fields.map((f) => ({ name: f.name })) };
+    } finally {
+      await this.teardown(ephemerals);
+    }
   }
 
   /** Build the rows for an INSERT, resolving an `INSERT … SELECT` source if present. */

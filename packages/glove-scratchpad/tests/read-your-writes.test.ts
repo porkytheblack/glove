@@ -135,6 +135,27 @@ test("INSERT with a required key that already exists replaces, not doubles", asy
   assert.deepEqual(seen.rows, [{ title: "new" }]); // one row, the written value wins
 });
 
+test("INSERT … RETURNING projects the inserted row (virtual write)", async () => {
+  const { resource, sent } = outbox();
+  const db = await Database.create({ policy: { writes: true } });
+  db.register(resource);
+  const r = await db.execute(
+    `INSERT INTO emails (to_addr, subject, body) VALUES ('c@x.io', 'Top error', 'boom') RETURNING to_addr, subject`,
+  );
+  assert.deepEqual(r.rows, [{ to_addr: "c@x.io", subject: "Top error" }]);
+  assert.equal(sent.length, 1);
+});
+
+test("RETURNING on UPDATE/DELETE redirects to SELECT", async () => {
+  const { resource } = outbox();
+  const db = await Database.create({ policy: { writes: true } });
+  db.register(resource);
+  await assert.rejects(
+    () => db.execute(`UPDATE emails SET subject='x' WHERE id='m1' RETURNING id`),
+    /RETURNING on UPDATE is not supported/,
+  );
+});
+
 test("clearWrites() forgets the overlay", async () => {
   const { resource } = outbox();
   const db = await Database.create({ policy: { writes: true } });

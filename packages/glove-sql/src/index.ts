@@ -299,12 +299,15 @@ interface InsertStmt {
   rows: Expr[][];
   /** `INSERT INTO t (..) SELECT ..` — the source query (mutually exclusive with `rows`). */
   asSelect?: SelectStmt;
+  /** `RETURNING <items>` — project the inserted rows. */
+  returning?: SelectItem[];
 }
 
 interface DeleteStmt {
   k: "delete";
   table: string;
   where?: Expr;
+  returning?: SelectItem[];
 }
 
 interface UpdateStmt {
@@ -312,6 +315,7 @@ interface UpdateStmt {
   table: string;
   set: Array<{ col: string; value: Expr }>;
   where?: Expr;
+  returning?: SelectItem[];
 }
 
 /** Transaction control. The MemoryBackend treats these as no-ops (it is
@@ -607,7 +611,7 @@ class Parser {
     // INSERT … SELECT / INSERT … WITH … SELECT — the source is a query.
     if (this.isKw("select") || this.isKw("with")) {
       const asSelect = this.parseSelect();
-      return { k: "insert", table, columns, rows: [], asSelect };
+      return { k: "insert", table, columns, rows: [], asSelect, returning: this.parseReturning() };
     }
     this.expectKw("values");
     const rows: Expr[][] = [];
@@ -622,7 +626,17 @@ class Parser {
       this.expectOp(")");
       rows.push(row);
     } while (this.acceptOp(","));
-    return { k: "insert", table, columns, rows };
+    return { k: "insert", table, columns, rows, returning: this.parseReturning() };
+  }
+
+  /** `RETURNING <select-list>` — undefined if absent. */
+  private parseReturning(): SelectItem[] | undefined {
+    if (!this.acceptKw("returning")) return undefined;
+    const items: SelectItem[] = [];
+    do {
+      items.push(this.parseSelectItem());
+    } while (this.acceptOp(","));
+    return items;
   }
 
   // ── UPDATE ────────────────────────────────────────────────────────────────
@@ -639,7 +653,7 @@ class Parser {
     } while (this.acceptOp(","));
     let where: Expr | undefined;
     if (this.acceptKw("where")) where = this.parseExpr();
-    return { k: "update", table, set, where };
+    return { k: "update", table, set, where, returning: this.parseReturning() };
   }
 
   // ── DELETE ──────────────────────────────────────────────────────────────
@@ -649,7 +663,7 @@ class Parser {
     const table = this.ident();
     let where: Expr | undefined;
     if (this.acceptKw("where")) where = this.parseExpr();
-    return { k: "delete", table, where };
+    return { k: "delete", table, where, returning: this.parseReturning() };
   }
 
   // ── SELECT ──────────────────────────────────────────────────────────────
@@ -1367,15 +1381,18 @@ export class MemoryBackend implements SqlBackend {
         }
         this.tables.delete(stmt.name);
         return { rows: [], fields: [] };
-      case "insert":
-        this.execInsert(stmt, params);
-        return { rows: [], fields: [] };
-      case "delete":
-        this.execDelete(stmt, params);
-        return { rows: [], fields: [] };
-      case "update":
-        this.execUpdate(stmt, params);
-        return { rows: [], fields: [] };
+      case "insert": {
+        const rows = this.execInsert(stmt, params);
+        return stmt.returning ? this.projectReturning(stmt.table, rows, stmt.returning, params) : { rows: [], fields: [] };
+      }
+      case "delete": {
+        const rows = this.execDelete(stmt, params);
+        return stmt.returning ? this.projectReturning(stmt.table, rows, stmt.returning, params) : { rows: [], fields: [] };
+      }
+      case "update": {
+        const rows = this.execUpdate(stmt, params);
+        return stmt.returning ? this.projectReturning(stmt.table, rows, stmt.returning, params) : { rows: [], fields: [] };
+      }
       // Transaction control is a no-op on the auto-commit MemoryBackend; a higher
       // layer interprets BEGIN/COMMIT/ROLLBACK to stage and gate side effects.
       case "begin":
@@ -1409,7 +1426,8 @@ export class MemoryBackend implements SqlBackend {
     this.tables.set(stmt.name, { name: stmt.name, columns: stmt.columns, rows: [] });
   }
 
-  private execInsert(stmt: InsertStmt, params: unknown[]): void {
+  private execInsert(stmt: InsertStmt, params: unknown[]): Record<string, unknown>[] {
+    const inserted: Record<string, unknown>[] = [];
     const table = this.getTable(stmt.table);
     const colNames = stmt.columns ?? table.columns.map((c) => c.name);
     if (stmt.columns) {
@@ -1444,8 +1462,9 @@ export class MemoryBackend implements SqlBackend {
           row[col.name] = col.default ? this.evalExpr(col.default, new Map(), params) : null;
         }
         table.rows.push(row);
+        inserted.push(row);
       }
-      return;
+      return inserted;
     }
     for (const valueExprs of stmt.rows) {
       if (valueExprs.length !== colNames.length) {
@@ -1462,22 +1481,29 @@ export class MemoryBackend implements SqlBackend {
         row[col.name] = col.default ? this.evalExpr(col.default, new Map(), params) : null;
       }
       table.rows.push(row);
+      inserted.push(row);
     }
+    return inserted;
   }
 
-  private execDelete(stmt: DeleteStmt, params: unknown[]): void {
+  private execDelete(stmt: DeleteStmt, params: unknown[]): Record<string, unknown>[] {
     const table = this.getTable(stmt.table);
     if (!stmt.where) {
+      const all = table.rows;
       table.rows = [];
-      return;
+      return all;
     }
+    const removed: Record<string, unknown>[] = [];
     table.rows = table.rows.filter((r) => {
       const jr: JoinedRow = new Map([[stmt.table, r]]);
-      return !truthy(this.evalExpr(stmt.where!, jr, params));
+      const del = truthy(this.evalExpr(stmt.where!, jr, params));
+      if (del) removed.push(r);
+      return !del;
     });
+    return removed;
   }
 
-  private execUpdate(stmt: UpdateStmt, params: unknown[]): void {
+  private execUpdate(stmt: UpdateStmt, params: unknown[]): Record<string, unknown>[] {
     const table = this.getTable(stmt.table);
     const declared = new Set(table.columns.map((c) => c.name));
     for (const { col } of stmt.set) {
@@ -1485,13 +1511,39 @@ export class MemoryBackend implements SqlBackend {
         throw new Error(`MemoryBackend: column "${col}" of relation "${stmt.table}" does not exist`);
       }
     }
+    const updated: Record<string, unknown>[] = [];
     for (const row of table.rows) {
       const jr: JoinedRow = new Map([[stmt.table, row]]);
       if (stmt.where && !truthy(this.evalExpr(stmt.where, jr, params))) continue;
       for (const { col, value } of stmt.set) {
         row[col] = this.evalExpr(value, jr, params);
       }
+      updated.push(row);
     }
+    return updated;
+  }
+
+  /** Project a write's affected rows through a RETURNING list into a result. */
+  private projectReturning(
+    table: string,
+    rows: Record<string, unknown>[],
+    items: SelectItem[],
+    params: unknown[],
+  ): SqlResult {
+    const cols = this.getTable(table).columns.map((c) => c.name);
+    const aliasCols = new Map([[table, cols]]);
+    const out = rows.map((r) => this.projectRow(items, new Map([[table, r]]), params, aliasCols));
+    const names = out.length > 0 ? Object.keys(out[0]) : this.returningNames(items, cols);
+    return { rows: out, fields: names.map((name) => ({ name })) };
+  }
+
+  private returningNames(items: SelectItem[], cols: string[]): string[] {
+    const names: string[] = [];
+    for (const it of items) {
+      if (it.star || it.starQualifier) names.push(...cols);
+      else if (it.expr) names.push(it.alias ?? inferColName(it.expr));
+    }
+    return dedupeNames(names);
   }
 
   // ── SELECT ────────────────────────────────────────────────────────────────
@@ -3030,11 +3082,6 @@ function parseSegment(seg: Token[]): Stmt {
   if (!p.atEnd()) {
     const tok = p.peekToken();
     const kw = tok.value.toLowerCase();
-    if (kw === "returning") {
-      throw new Error(
-        "MemoryBackend: RETURNING is not supported here — run the write, then SELECT the row (writes are readable in the same session).",
-      );
-    }
     if (kw === "on") {
       throw new Error("MemoryBackend: ON CONFLICT / upsert is not supported — check for the row first, then INSERT or UPDATE.");
     }
