@@ -73,7 +73,7 @@ Flags: `--models`, `--scenarios`, `--arms`, `--budget`, `--scale` (world size),
 `--maxTurns`, `--maxTokens`, `--contextLimit` (compaction threshold), `--timeout`,
 `--echo`.
 
-## Bugs this benchmark caught
+## Bugs this benchmark caught (and fixed in the product)
 
 - **`glove-sql` — `INSERT … SELECT` column corruption.** A projection of
   same-named columns (`SELECT 'acme/web', 'Verify: '||title`, both inferring
@@ -81,12 +81,26 @@ Flags: `--models`, `--scenarios`, `--arms`, `--budget`, `--scale` (world size),
   wrong value landed in every target column. Fixed by de-duplicating output column
   names in `projectRow` / `outputColumns` / `projectAggregate`
   (`packages/glove-sql/src/index.ts`). Also fixes `SELECT *` across joined tables
-  that share a column name. (80/80 engine tests still green.)
+  that share a column name.
+- **`glove-scratchpad` — leaked ephemeral table.** A virtual table left behind by
+  a partially-failed materialization (CREATE ok, bulk INSERT throws) made the next
+  statement's CREATE fail with "relation already exists" — a valid query dying
+  under the model and triggering a panic-thrash. Fixed: track for teardown before
+  materializing + `DROP IF EXISTS` before CREATE (idempotent).
 - **Required-key `IN (…)` under-fetch (authoring footgun).** A get-by-key tool
-  exposed as a table resolved only the first value of `WHERE id IN (a,b,c)`
-  because the default binding uses `.one()`. Here it's handled with an explicit
-  `fanOut` in the resource spec (`src/mcp/spec.ts`) — the correct pattern for
-  turning a single-fetch tool into an `IN`-queryable table.
+  exposed as a table resolved only the first value of `WHERE id IN (a,b,c)`; fixed
+  with an explicit `fanOut` in the resource spec.
+
+Engine tests: glove-sql 84/84, glove-scratchpad 40/40 (regression tests added).
+
+## Hardening the scratchpad for weak models
+
+Driven by this benchmark, `glove-scratchpad` gained anti-spiral discipline in the
+primed preamble (don't re-read to verify a write; a single write fires directly;
+be decisive) plus a primed table catalog **with enum values surfaced**. On the
+five weak OpenRouter models this moved the scratchpad arm from **74% → 97% pass,
+spirals 6 → 0, median tool calls 6 → 2, avg turns 11 → 3.5** — see
+[`results/FINDINGS.md`](results/FINDINGS.md).
 
 ## Results
 

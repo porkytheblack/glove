@@ -95,6 +95,48 @@ Not a blowout — a **tradeoff**, and the axes separate cleanly:
 
 See `agentic-summary.md` for the per-model tables and aggregate reduction factors.
 
+## Optimizing the scratchpad for weak models (v1 → v3)
+
+The v1 matrix showed the scratchpad's failure mode was **weak models spiralling**
+in the open SQL surface (6/35 runs hit the 30-turn cap). Three rounds of
+hardening — all in `glove-scratchpad`, all measured on the same 5-model × 7-scenario
+scratchpad arm:
+
+| version | change | pass | spirals | median tool calls | avg turns | avg peak |
+|---|---|:--:|:--:|:--:|:--:|:--:|
+| **v1** | (baseline) | 26/35 (74%) | 6 | 6 | 11.0 | 2961 |
+| **v2** | engine teardown fix + preamble discipline + drop distractor tables | 25/35 | **0** | 3 | 4.1 | 2150 |
+| **v3** | + surface enum values in the primed catalog | **34/35 (97%)** | 0 | **2** | **3.5** | 2178 |
+
+What each round did:
+
+- **v2 — kill the spirals.** (1) The ephemeral-table teardown bug (above) was the
+  detonator: a valid query would die with "already exists" and the model would
+  panic-thrash. (2) The preamble gained anti-spiral discipline — don't re-read to
+  verify a write (killed a 25-call read-after-write loop), a single write fires
+  directly (BEGIN only to stage several), be decisive / stop when you have the
+  answer. (3) The primed table catalog removed the discovery round-trip. (4)
+  Dropping the duplicate required-key singleton tables removed the "requires
+  equality on id" confusion. Result: **spirals 6 → 0, avg turns 11 → 4**, and the
+  six spiral-fails became passes. But pass rate stayed flat — because a model that
+  no longer thrashes *commits to its first interpretation*, exposing enum errors
+  the thrashing used to stumble past (`urgency = 'HIGH'` vs `'high'`; "unresolved"
+  read as `!= 'resolved'`, catching an `ignored` issue).
+
+- **v3 — feed the models the valid values.** Those enum values already lived in
+  the column descriptions (`status: unresolved | resolved | ignored`), but the
+  model couldn't see them — `information_schema.columns` returns only name+type.
+  Surfacing described columns in the primed catalog (~+300 tokens) let weak models
+  pick the right filter values: **25 → 34 pass**, recovering nine cells, efficiency
+  held. Every model now passes ≥6/7.
+
+Net v1 → v3: **74% → 97% pass, spirals 6 → 0, tool calls 6 → 2 (median), turns
+11 → 3.5, peak 2961 → 2178** — i.e. the scratchpad went from "wins on context but
+weak models spiral" to "wins on context AND weak models breeze through it," which
+was the goal. The single residual (glm on the multi-write compose) is a
+transaction-lifecycle slip: it ran `BEGIN; INSERT … SELECT` and stopped without
+`COMMIT`, so the staged write silently never fired.
+
 ## Where scratchpad decisively wins: context pressure
 
 The main matrix runs at a generous 100k limit on small result sets — the regime

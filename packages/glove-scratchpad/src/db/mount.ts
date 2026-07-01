@@ -25,12 +25,20 @@ Operating discipline:
 The only data that enters your context is the rows a SELECT returns — so narrow with WHERE / LIMIT and read just what you need.`;
 
 /** A compact "here are your tables" catalog line, primed so the model needn't
- *  spend a round-trip listing them (and can't guess a wrong table name). */
+ *  spend a round-trip listing them (and can't guess a wrong table name). Columns
+ *  that carry a description are surfaced too — that's where authors put the valid
+ *  enum values / required-key hints (`status: unresolved | resolved | ignored`),
+ *  which weak models otherwise can't see (information_schema gives only
+ *  name+type) and get wrong (`'HIGH'` vs `'high'`, `!= 'resolved'`). */
 function catalogHint(db: Database): string {
   const tables = db.catalog.list();
   if (tables.length === 0) return "";
-  const lines = tables.map((t) => `- ${t.name}: ${t.description ?? t.name}`);
-  return `\n\nTables available to you:\n${lines.join("\n")}`;
+  const lines = tables.map((t) => {
+    const described = t.columns.filter((c) => c.description).map((c) => `${c.name} (${c.description})`);
+    const detail = described.length ? `\n    columns — ${described.join("; ")}` : "";
+    return `- ${t.name}: ${t.description ?? t.name}${detail}`;
+  });
+  return `\n\nTables available to you (use exact values as shown; run information_schema.columns for full column lists):\n${lines.join("\n")}`;
 }
 
 export interface MountDatabaseConfig extends DatabaseToolOptions {
