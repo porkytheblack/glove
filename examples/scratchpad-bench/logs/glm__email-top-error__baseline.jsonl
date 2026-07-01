@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"glm","model":"z-ai/glm-4.7-flash","scenario":"email-top-error","arm":"baseline","ok":false,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":6003,"tokensOut":151,"cacheRead":5824,"peakContextTokens":3011,"compactions":0,"toolsInContext":32,"wallMs":5290,"costUsd":0.00042058,"expected":{"title":"OOMKilled: Billing webhook retries drop events","count":4665,"id":"SENTRY-3029"}}
+{"kind":"final_answer","text":"There are no open (unresolved) Sentry issues in the system. Since no issue was found, the email was not sent."}
+{"t":2383,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"sentry__list_issues","input":"{\"status\":\"open\"}"}]}
+{"t":2383,"type":"tokens","in":2992,"out":79,"peak":2992}
+{"t":2385,"type":"tool_result","tool":"sentry__list_issues","status":"success","data":"[]"}
+{"t":5290,"type":"model_response","turn":2,"stop_reason":"stop","text":"There are no open (unresolved) Sentry issues in the system. Since no issue was found, the email was not sent.","tool_calls":[]}
+{"t":5290,"type":"tokens","in":3011,"out":72,"peak":3011}

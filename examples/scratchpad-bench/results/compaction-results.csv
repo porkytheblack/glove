@@ -1,0 +1,13 @@
+modelKey,model,scenario,arm,ok,errored,turns,toolCalls,toolErrors,mcpRoundTrips,servicesTouched,tokensIn,tokensOut,peakContextTokens,compactions,toolsInContext,wallMs,costUsd
+"deepseek","deepseek/deepseek-v3.2","count-open-prs","baseline",false,false,2,1,0,1,1,19323,78,16359,0,32,7987,0.004452
+"deepseek","deepseek/deepseek-v3.2","count-open-prs","scratchpad",true,false,4,3,0,1,1,6230,335,1904,0,2,16704,0.001542
+"deepseek","deepseek/deepseek-v3.2","high-urgency-triggered","baseline",true,false,2,1,0,1,1,7703,297,4732,0,32,11479,0.001866
+"deepseek","deepseek/deepseek-v3.2","high-urgency-triggered","scratchpad",true,false,7,6,0,3,1,13094,710,2624,0,2,32396,0.003242
+"glm","z-ai/glm-4.7-flash","count-open-prs","baseline",false,false,2,1,0,1,1,18936,188,15969,0,32,5111,0.001211
+"glm","z-ai/glm-4.7-flash","count-open-prs","scratchpad",true,false,4,3,0,1,1,4879,225,1403,0,2,7572,0.000383
+"glm","z-ai/glm-4.7-flash","high-urgency-triggered","baseline",true,false,2,1,0,1,1,7633,474,4659,0,32,7871,0.000648
+"glm","z-ai/glm-4.7-flash","high-urgency-triggered","scratchpad",false,false,6,8,1,5,1,8252,794,1782,0,2,17358,0.000813
+"kimi","moonshotai/kimi-k2.5","count-open-prs","baseline",true,false,2,1,0,1,1,15043,1501,13780,0,32,34912,0.008681
+"kimi","moonshotai/kimi-k2.5","count-open-prs","scratchpad",true,false,4,3,0,1,1,4156,224,1244,0,2,9087,0.002012
+"kimi","moonshotai/kimi-k2.5","high-urgency-triggered","baseline",true,false,2,1,0,1,1,4203,348,2934,0,32,10327,0.002281
+"kimi","moonshotai/kimi-k2.5","high-urgency-triggered","scratchpad",true,false,4,3,0,1,1,4257,436,1380,0,2,17200,0.002479

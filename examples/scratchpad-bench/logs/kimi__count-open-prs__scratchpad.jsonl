@@ -1,0 +1,13 @@
+{"kind":"meta","modelKey":"kimi","model":"moonshotai/kimi-k2.5","scenario":"count-open-prs","arm":"scratchpad","ok":true,"errored":false,"turns":4,"toolCalls":3,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":4162,"tokensOut":222,"cacheRead":2560,"peakContextTokens":1250,"compactions":0,"toolsInContext":2,"wallMs":15494,"costUsd":0.0020103,"expected":36}
+{"kind":"final_answer","text":"36"}
+{"t":4992,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_sql","input":"{\"sql\":\"SELECT table_name FROM information_schema.tables\"}"}]}
+{"t":4992,"type":"tokens","in":810,"out":73,"peak":810}
+{"t":4993,"type":"tool_result","tool":"execute_sql","status":"success","data":"{\"rows\":[{\"table_name\":\"github_pull_requests\"},{\"table_name\":\"github_issues\"},{\"table_name\":\"linear_issues\"},{\"table_name\":\"linear_issue\"},{\"table_name\":\"emails\"},{\"table_name\":\"slack_channels\"},{\"table_name\":\"slack_messages\"},{\"table_name\":\"notion_pages\"},{\"table_name\":\"jira_issues\"},{\"table_name\":…(+178)"}
+{"t":9665,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_sql","input":"{\"sql\":\"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'github_pull_requests'\"}"}]}
+{"t":9665,"type":"tokens","in":954,"out":64,"peak":954}
+{"t":9666,"type":"tool_result","tool":"execute_sql","status":"success","data":"{\"rows\":[{\"column_name\":\"number\",\"data_type\":\"bigint\"},{\"column_name\":\"repo\",\"data_type\":\"text\"},{\"column_name\":\"title\",\"data_type\":\"text\"},{\"column_name\":\"author\",\"data_type\":\"text\"},{\"column_name\":\"state\",\"data_type\":\"text\"},{\"column_name\":\"additions\",\"data_type\":\"bigint\"},{\"column_name\":\"deletion…(+301)"}
+{"t":14217,"type":"model_response","turn":3,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_sql","input":"{\"sql\":\"SELECT COUNT(*) AS open_pr_count FROM github_pull_requests WHERE state = 'open'\"}"}]}
+{"t":14217,"type":"tokens","in":1148,"out":68,"peak":1148}
+{"t":14222,"type":"tool_result","tool":"execute_sql","status":"success","data":"{\"rows\":[{\"open_pr_count\":36}],\"truncated\":false,\"touched\":[{\"name\":\"github_pull_requests\",\"source\":\"virtual\",\"access\":\"read\",\"op\":\"select\",\"volatility\":\"stable\",\"bindings\":{\"state\":[\"open\"]},\"invocations\":1}]}"}
+{"t":15493,"type":"model_response","turn":4,"stop_reason":"stop","text":"36","tool_calls":[]}
+{"t":15493,"type":"tokens","in":1250,"out":17,"peak":1250}

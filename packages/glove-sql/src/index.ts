@@ -1682,7 +1682,7 @@ export class MemoryBackend implements SqlBackend {
         cols.push(it.alias ?? inferColName(it.expr));
       }
     }
-    return cols;
+    return dedupeNames(cols);
   }
 
   private projectRow(
@@ -1691,20 +1691,27 @@ export class MemoryBackend implements SqlBackend {
     params: unknown[],
     aliasCols: Map<string, string[]>,
   ): Record<string, unknown> {
-    const row: Record<string, unknown> = {};
+    // Collect (name, value) in projection order, then dedupe names so two
+    // same-named projections can't collapse onto one object key (see dedupeNames).
+    const names: string[] = [];
+    const values: unknown[] = [];
     for (const it of items) {
       if (it.star) {
         for (const [alias, list] of aliasCols) {
           const rec = jr.get(alias) ?? {};
-          for (const c of list) row[c] = rec[c];
+          for (const c of list) { names.push(c); values.push(rec[c]); }
         }
       } else if (it.starQualifier) {
         const rec = jr.get(it.starQualifier) ?? {};
-        for (const c of aliasCols.get(it.starQualifier) ?? []) row[c] = rec[c];
+        for (const c of aliasCols.get(it.starQualifier) ?? []) { names.push(c); values.push(rec[c]); }
       } else if (it.expr) {
-        row[it.alias ?? inferColName(it.expr)] = this.evalExpr(it.expr, jr, params);
+        names.push(it.alias ?? inferColName(it.expr));
+        values.push(this.evalExpr(it.expr, jr, params));
       }
     }
+    const unique = dedupeNames(names);
+    const row: Record<string, unknown> = {};
+    for (let i = 0; i < unique.length; i++) row[unique[i]] = values[i];
     return row;
   }
 
@@ -1713,7 +1720,7 @@ export class MemoryBackend implements SqlBackend {
     joined: JoinedRow[],
     params: unknown[],
   ): { out: Record<string, unknown>[]; columns: string[]; outGroups: JoinedRow[][] } {
-    const columns = stmt.items.map((it) => it.alias ?? (it.expr ? inferColName(it.expr) : "?column?"));
+    const columns = dedupeNames(stmt.items.map((it) => it.alias ?? (it.expr ? inferColName(it.expr) : "?column?")));
 
     // GROUP BY <ordinal> → the matching SELECT item's expression.
     const groupExprs = stmt.groupBy.map((g) =>
@@ -1797,10 +1804,13 @@ export class MemoryBackend implements SqlBackend {
     for (const group of groups) {
       if (stmt.having && !truthy(this.evalAggExpr(stmt.having, group, params))) continue;
       const row: Record<string, unknown> = {};
-      for (const it of stmt.items) {
+      const vals = stmt.items.map((it) => {
         if (!it.expr) throw new Error("MemoryBackend: '*' is not valid in an aggregate select");
-        row[it.alias ?? inferColName(it.expr)] = this.evalAggExpr(it.expr, group, params);
-      }
+        return this.evalAggExpr(it.expr, group, params);
+      });
+      // `columns` is already deduped in projection order — key the row by it so
+      // aggregate rows and their field names stay in lockstep.
+      for (let i = 0; i < columns.length; i++) row[columns[i]] = vals[i];
       out.push(row);
       outGroups.push(group); // parallel to `out`, for ORDER BY over the group
     }
@@ -2732,6 +2742,23 @@ function walkExpr(expr: Expr, visit: (e: Expr) => void): void {
       break;
     // subquery / exists: separate scope — not descended for window collection
   }
+}
+
+/**
+ * Disambiguate duplicate output column names (`x`, `x`, `x` → `x`, `x_2`, `x_3`).
+ * Result rows are objects keyed by column name, so two projections that infer
+ * the same name (e.g. `SELECT 'a', 'b'` → both `?column?`, or `SELECT count(*),
+ * count(*)`) would otherwise collapse onto one key and silently drop a value —
+ * corrupting, in particular, `INSERT … SELECT` whose positional value mapping
+ * relies on one distinct field per selected column.
+ */
+function dedupeNames(names: string[]): string[] {
+  const seen = new Map<string, number>();
+  return names.map((n) => {
+    const c = (seen.get(n) ?? 0) + 1;
+    seen.set(n, c);
+    return c === 1 ? n : `${n}_${c}`;
+  });
 }
 
 function inferColName(expr: Expr): string {
