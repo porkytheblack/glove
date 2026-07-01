@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"kimi27","model":"moonshotai/kimi-k2.7-code","scenario":"busiest-assignee","arm":"baseline","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":3802,"tokensOut":296,"cacheRead":2048,"peakContextTokens":2529,"compactions":0,"toolsInContext":32,"wallMs":6414,"costUsd":0.0038494799999999997,"expected":{"top":"niaj","count":3,"tied":["niaj"]}}
+{"kind":"final_answer","text":"**niaj** has the most in-progress Linear issues, with **3** issues assigned:\n- ENG-124\n- ENG-198\n- ENG-206"}
+{"t":1991,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"linear__list_issues","input":"{\"state\":\"in_progress\"}"}]}
+{"t":1991,"type":"tokens","in":1273,"out":79,"peak":1273}
+{"t":1993,"type":"tool_result","tool":"linear__list_issues","status":"success","data":"[{\"id\":\"ENG-100\",\"title\":\"Mobile crash on iOS 18 cold start\",\"assignee\":\"heidi\",\"state\":\"in_progress\",\"priority\":1,\"estimate\":3,\"team\":\"mobile\",\"project\":\"Platform\",\"created_at\":\"2026-05-09T00:00:00.000Z\",\"updated_at\":\"2026-05-20T00:00:00.000Z\"},{\"id\":\"ENG-102\",\"title\":\"Mobile crash on iOS 18 cold s…(+3351)"}
+{"t":6414,"type":"model_response","turn":2,"stop_reason":"stop","text":"**niaj** has the most in-progress Linear issues, with **3** issues assigned:\n- ENG-124\n- ENG-198\n- ENG-206","tool_calls":[]}
+{"t":6414,"type":"tokens","in":2529,"out":217,"peak":2529}

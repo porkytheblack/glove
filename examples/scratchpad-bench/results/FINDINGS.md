@@ -208,6 +208,42 @@ residual (glm/compose, via auto-rollback) **without** the new loud errors
 destabilizing any weak model. Full arc across every round: **v1 74% → v3 97% →
 v5 100%.**
 
+## Expanded roster: OSS frontier + cheapest models (A/B)
+
+To test how far the hardening + parity work generalizes, the full scenario suite
+was run on a wider roster — current OSS frontier (kimi-k2.7-code, glm-5,
+minimax-m3, deepseek-v3.2) and the cheapest tool-capable models (deepseek-v4-flash,
+qwen3-30b, qwen3-8b) — on **both arms** (84 runs, ~$0.27,
+[`roster-results.json`](roster-results.json), `src/roster.ts`):
+
+| model | tier | pass base→scr | peak base→scr |
+|---|---|:--:|:--:|
+| Kimi K2.7 Code | frontier | 5/7 → **7/7** | 4466 → 1750 |
+| GLM-5 | frontier | 4/7 → **7/7** | 6318 → 2008 |
+| MiniMax M3 | frontier | 7/7 → **7/7** | 6423 → 2179 |
+| DeepSeek V3.2 | frontier | — | — |
+| DeepSeek V4 Flash | weak | 7/7 → **7/7** | 6490 → 2249 |
+| Qwen3 30B A3B | weak | 3/7 → **6/7** | 4569 → 1898 |
+| Qwen3 8B | weak | 4/7 → **5/7** | 4560 → 1828 |
+
+Aggregate: **scratchpad 39/42 (93%) vs baseline 30/42 (71%)**; frontier **21/21 (100%)
+vs 16/21**; weak **18/21 vs 14/21**; peak context **2.5–2.7× smaller** everywhere.
+
+Three things stand out:
+
+1. **Even frontier models fail the baseline** — GLM-5 4/7, kimi-k2.7 5/7 — for the
+   same reason weak models did: pulling a large tool-result list into context to
+   "eyeball" a count/JOIN saturates the window and miscounts. The scratchpad's
+   `COUNT`/`JOIN` fixes it, taking every frontier model to 7/7. The context win is
+   capability-independent.
+2. **A $0.09/M model (deepseek-v4-flash) scores 7/7 with the scratchpad** — the
+   parity work genuinely lets a cheap model punch at frontier level on these tasks.
+3. **The floor is real but cheap.** qwen3-8b/30b still miss 1–2 of the hardest
+   cells, but they miss *fast* (3–4 turns, no spirals) — decisive wrong answers
+   from genuine 8B/30B capacity limits, not the context/thrash failures the
+   hardening removed. The scratchpad can't make an 8B model smart; it can stop it
+   from drowning.
+
 ## Where scratchpad decisively wins: context pressure
 
 The main matrix runs at a generous 100k limit on small result sets — the regime
