@@ -367,7 +367,19 @@ export type {
 // Parser
 // ─────────────────────────────────────────────────────────────────────────────
 
-const AGG_FUNCS = new Set(["count", "sum", "avg", "min", "max"]);
+const AGG_FUNCS = new Set([
+  "count",
+  "sum",
+  "avg",
+  "min",
+  "max",
+  "string_agg",
+  "array_agg",
+  "json_agg",
+  "jsonb_agg",
+  "bool_or",
+  "bool_and",
+]);
 
 class Parser {
   private pos = 0;
@@ -1056,6 +1068,16 @@ class Parser {
         const type = this.parseTypeName();
         this.expectOp(")");
         return { k: "cast", e, type };
+      }
+      // EXTRACT(field FROM expr) — desugar to date_part('field', expr).
+      if (!t.quoted && lower === "extract" && this.isOp("(", 1)) {
+        this.pos++; // extract
+        this.expectOp("(");
+        const field = this.ident().toLowerCase();
+        this.expectKw("from");
+        const src = this.parseExpr();
+        this.expectOp(")");
+        return { k: "func", name: "date_part", args: [{ k: "str", v: field }, src] };
       }
       // function call?
       if (this.isOp("(", 1)) {
@@ -2351,6 +2373,40 @@ export class MemoryBackend implements SqlBackend {
       case "session_user":
       case "current_schema":
         return name === "current_schema" ? "public" : "memory";
+      case "date_trunc": {
+        if (a[0] == null || a[1] == null) return null;
+        const d = new Date(String(a[1]));
+        if (Number.isNaN(d.getTime())) throw new Error(`MemoryBackend: invalid input syntax for type timestamp: "${a[1]}"`);
+        const [Y, Mo, D, H, Mi] = [d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes()];
+        const field = String(a[0]).toLowerCase();
+        const at = (...p: number[]) => new Date(Date.UTC(p[0], p[1] ?? 0, p[2] ?? 1, p[3] ?? 0, p[4] ?? 0, 0, 0)).toISOString();
+        switch (field) {
+          case "year": return at(Y);
+          case "month": return at(Y, Mo);
+          case "day": return at(Y, Mo, D);
+          case "hour": return at(Y, Mo, D, H);
+          case "minute": return at(Y, Mo, D, H, Mi);
+          default: throw new Error(`MemoryBackend: date_trunc does not support field "${field}" (use year|month|day|hour|minute)`);
+        }
+      }
+      case "date_part":
+      case "extract": {
+        if (a[0] == null || a[1] == null) return null;
+        const d = new Date(String(a[1]));
+        if (Number.isNaN(d.getTime())) throw new Error(`MemoryBackend: invalid input syntax for type timestamp: "${a[1]}"`);
+        const field = String(a[0]).toLowerCase();
+        switch (field) {
+          case "year": return d.getUTCFullYear();
+          case "month": return d.getUTCMonth() + 1;
+          case "day": return d.getUTCDate();
+          case "hour": return d.getUTCHours();
+          case "minute": return d.getUTCMinutes();
+          case "second": return d.getUTCSeconds();
+          case "dow": return d.getUTCDay();
+          case "quarter": return Math.floor(d.getUTCMonth() / 3) + 1;
+          default: throw new Error(`MemoryBackend: date_part does not support field "${field}"`);
+        }
+      }
       case "coalesce":
         return a.find((v) => v !== null && v !== undefined) ?? null;
       case "lower":
@@ -2568,6 +2624,19 @@ export class MemoryBackend implements SqlBackend {
         return vals.reduce((m, v) => (compareValues(v, m) < 0 ? v : m));
       case "max":
         return vals.reduce((m, v) => (compareValues(v, m) > 0 ? v : m));
+      case "string_agg": {
+        const delim = expr.args[1] ? String(this.evalExpr(expr.args[1], rows[0], params) ?? "") : "";
+        return vals.map((v) => String(v)).join(delim);
+      }
+      case "array_agg":
+        return vals.slice();
+      case "json_agg":
+      case "jsonb_agg":
+        return vals.slice(); // serialized as a JSON array by the backend
+      case "bool_or":
+        return vals.some((v) => toPgBool(v));
+      case "bool_and":
+        return vals.every((v) => toPgBool(v));
       default:
         throw new Error(`MemoryBackend: unsupported aggregate '${name}'`);
     }
