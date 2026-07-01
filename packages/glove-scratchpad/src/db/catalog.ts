@@ -32,11 +32,21 @@ export class Catalog {
     return [...this.resources.values()];
   }
 
-  /** Rows for `MemoryBackend.catalogProvider` — virtual tables in information_schema. */
-  catalogTables(): Array<{ name: string; columns: { name: string; type: string }[] }> {
+  /** Rows for `MemoryBackend.catalogProvider` — virtual tables in information_schema.
+   *  Carries requiredKey (→ is_nullable='NO') and description (enum/allowed values)
+   *  so a droid can discover keys and valid values via SQL, not just the preamble. */
+  catalogTables(): Array<{
+    name: string;
+    columns: { name: string; type: string; nullable?: boolean; description?: string }[];
+  }> {
     return this.list().map((r) => ({
       name: r.name,
-      columns: r.columns.map((c) => ({ name: c.name, type: c.type })),
+      columns: r.columns.map((c) => ({
+        name: c.name,
+        type: c.type,
+        nullable: c.requiredKey ? false : undefined,
+        description: c.description,
+      })),
     }));
   }
 }

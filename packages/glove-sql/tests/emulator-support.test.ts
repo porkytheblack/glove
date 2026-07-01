@@ -117,6 +117,30 @@ test("catalogProvider tables appear as BASE TABLE (droid-enumerable)", async () 
   ]);
 });
 
+test("catalog columns expose is_nullable (required keys) and description (enum values)", async () => {
+  const b = await MemoryBackend.create({
+    catalogProvider: () => [
+      {
+        name: "issues",
+        columns: [
+          { name: "id", type: "text", nullable: false, description: "e.g. ENG-123" },
+          { name: "state", type: "text", description: "todo | doing | done" },
+        ],
+      },
+    ],
+  });
+  const cols = await b.query(
+    `SELECT column_name, is_nullable, description FROM information_schema.columns WHERE table_name = 'issues' ORDER BY ordinal_position`,
+  );
+  assert.deepEqual(cols.rows, [
+    { column_name: "id", is_nullable: "NO", description: "e.g. ENG-123" },
+    { column_name: "state", is_nullable: "YES", description: "todo | doing | done" },
+  ]);
+  // Discover required keys purely via SQL.
+  const keys = await b.query(`SELECT column_name FROM information_schema.columns WHERE table_name='issues' AND is_nullable='NO'`);
+  assert.deepEqual(keys.rows, [{ column_name: "id" }]);
+});
+
 test("a materialized table shadows its catalog entry (no dupes)", async () => {
   const b = await MemoryBackend.create({
     catalogProvider: () => [{ name: "github_pr", columns: [{ name: "id", type: "bigint" }] }],

@@ -1222,9 +1222,19 @@ function inferPgType(values: unknown[]): string {
 }
 
 /** A virtual/foreign table contributed to `information_schema` by a higher layer. */
+export interface CatalogColumn {
+  name: string;
+  type: string;
+  /** false ⇒ a required key / NOT NULL — surfaced as `is_nullable = 'NO'`. */
+  nullable?: boolean;
+  /** Free-text column description; valid enum values live here, so a droid can
+   *  discover them via `SELECT column_name, description FROM information_schema.columns`. */
+  description?: string;
+}
+
 export interface CatalogTable {
   name: string;
-  columns: { name: string; type: string }[];
+  columns: CatalogColumn[];
 }
 
 export interface MemoryBackendOptions {
@@ -1957,33 +1967,30 @@ export class MemoryBackend implements SqlBackend {
   private infoSchemaColumnRows(): Record<string, unknown>[] {
     const rows: Record<string, unknown>[] = [];
     const seen = new Set<string>();
+    const rowFor = (
+      table: string,
+      c: { name: string; type: string; nullable?: boolean; description?: string },
+      i: number,
+    ) => ({
+      table_catalog: "memory",
+      table_schema: "public",
+      table_name: table,
+      column_name: c.name,
+      data_type: c.type,
+      ordinal_position: i + 1,
+      is_nullable: c.nullable === false ? "NO" : "YES",
+      column_default: null,
+      description: c.description ?? null,
+    });
     for (const t of this.tables.values()) {
       seen.add(t.name);
-      t.columns.forEach((c, i) => {
-        rows.push({
-          table_catalog: "memory",
-          table_schema: "public",
-          table_name: t.name,
-          column_name: c.name,
-          data_type: c.type,
-          ordinal_position: i + 1,
-        });
-      });
+      t.columns.forEach((c, i) => rows.push(rowFor(t.name, c, i)));
     }
     // Virtual / foreign tables contributed by a higher layer (e.g. the database
     // emulator's resource catalog). Skip any already materialized in `tables`.
     for (const t of this.catalogProvider?.() ?? []) {
       if (seen.has(t.name)) continue;
-      t.columns.forEach((c, i) => {
-        rows.push({
-          table_catalog: "memory",
-          table_schema: "public",
-          table_name: t.name,
-          column_name: c.name,
-          data_type: c.type,
-          ordinal_position: i + 1,
-        });
-      });
+      t.columns.forEach((c, i) => rows.push(rowFor(t.name, c, i)));
     }
     return rows;
   }
@@ -2647,7 +2654,17 @@ export class MemoryBackend implements SqlBackend {
 // Value helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-const INFO_COLUMNS = ["table_catalog", "table_schema", "table_name", "column_name", "data_type", "ordinal_position"];
+const INFO_COLUMNS = [
+  "table_catalog",
+  "table_schema",
+  "table_name",
+  "column_name",
+  "data_type",
+  "ordinal_position",
+  "is_nullable",
+  "column_default",
+  "description",
+];
 const INFO_TABLE_COLUMNS = ["table_catalog", "table_schema", "table_name", "table_type"];
 
 function truthy(v: unknown): boolean {
