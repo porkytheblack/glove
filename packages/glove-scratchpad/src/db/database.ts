@@ -129,6 +129,33 @@ function scalarEq(a: SqlScalar, b: SqlScalar): boolean {
 }
 
 /** Evaluate a literal/param expression to a scalar — INSERT/UPDATE values only. */
+/** A clear "this capability can't do X" error that lists what it CAN do. */
+function capabilityError(table: string, op: string, r: ResourceTable): string {
+  const ops = [r.select && "SELECT", r.insert && "INSERT", r.update && "UPDATE", r.delete && "DELETE"]
+    .filter(Boolean)
+    .join(", ");
+  return `glove-scratchpad: relation "${table}" does not support ${op} (this capability supports: ${ops || "nothing"}). It has no such tool — there is no way to ${op.toLowerCase()} here.`;
+}
+
+/** An UPDATE/DELETE WHERE is safe iff it's an AND of equality/IN on `col = value`
+ *  — exactly what gets pushed to the resolver. Anything else (range, OR, LIKE,
+ *  IS NULL, NOT IN, function) can't be honored and would over-write. */
+function isPushableWrite(where: Expr | undefined): boolean {
+  if (!where) return true; // an unqualified UPDATE/DELETE targets all rows, by choice
+  const isCol = (e: Expr) => e.k === "col";
+  const isVal = (e: Expr) => e.k === "num" || e.k === "str" || e.k === "bool" || e.k === "null" || e.k === "param";
+  const walk = (e: Expr): boolean => {
+    if (e.k === "binary") {
+      if (e.op === "and") return walk(e.l) && walk(e.r);
+      if (e.op === "=") return (isCol(e.l) && isVal(e.r)) || (isVal(e.l) && isCol(e.r));
+      return false;
+    }
+    if (e.k === "in") return !e.negated && !!e.list && isCol(e.e) && e.list.every(isVal);
+    return false;
+  };
+  return walk(where);
+}
+
 function evalLiteral(e: Expr, params: unknown[]): SqlScalar {
   switch (e.k) {
     case "num":
@@ -277,7 +304,15 @@ export class Database {
       actor: opts.actor ?? this.actor,
     };
     let last = emptyResult();
-    for (const { text, stmt } of parsed) last = await this.runStatement(stmt, text, opts, ctx);
+    try {
+      for (const { text, stmt } of parsed) last = await this.runStatement(stmt, text, opts, ctx);
+    } catch (e) {
+      // A statement that throws while a transaction is open aborts it — otherwise
+      // the open txn strands across turns and every later write silently stages
+      // into a batch that never commits. Match psql: error ⇒ transaction gone.
+      if (this.txn) this.txn = null;
+      throw e;
+    }
     return last;
   }
 
@@ -551,11 +586,20 @@ export class Database {
     }
     const params = opts.params ?? [];
 
+    // A range/OR/LIKE predicate in an UPDATE/DELETE WHERE can't be pushed to the
+    // resolver (which only receives equality/IN bindings), so the write would
+    // silently affect MORE rows than the SQL says. Reject rather than over-write.
+    if ((stmt.k === "update" || stmt.k === "delete") && !isPushableWrite(stmt.where)) {
+      throw new Error(
+        `glove-scratchpad: this ${stmt.k.toUpperCase()}'s WHERE has a predicate that can't be pushed to the tool — only equality (col = value) and IN are honored, so a range/OR/LIKE filter would affect more rows than intended. Narrow the WHERE to equality, or SELECT the key(s) first and ${stmt.k} by key.`,
+      );
+    }
+
     let staged: StagedWrite;
     const ephemerals: string[] = [];
     try {
       if (stmt.k === "insert") {
-        if (!resource.insert) throw new Error(`glove-scratchpad: relation "${target}" is not insertable.`);
+        if (!resource.insert) throw new Error(capabilityError(target, "INSERT", resource));
         const rows = await this.insertRows(stmt, text, resource, params, ctx, ephemerals);
         staged = {
           resource: target,
@@ -565,7 +609,7 @@ export class Database {
           run: (c) => resource.insert!(rows, c),
         };
       } else if (stmt.k === "update") {
-        if (!resource.update) throw new Error(`glove-scratchpad: relation "${target}" is not updatable.`);
+        if (!resource.update) throw new Error(capabilityError(target, "UPDATE", resource));
         const eq = this.bindingsFor(stmt, [target], resource, params);
         const set: Record<string, unknown> = {};
         for (const { col, value } of stmt.set) set[col] = evalLiteral(value, params);
@@ -577,7 +621,7 @@ export class Database {
           run: (c) => resource.update!(set, makeBindings(eq), c),
         };
       } else {
-        if (!resource.delete) throw new Error(`glove-scratchpad: relation "${target}" is not deletable.`);
+        if (!resource.delete) throw new Error(capabilityError(target, "DELETE", resource));
         const eq = this.bindingsFor(stmt, [target], resource, params);
         staged = {
           resource: target,
