@@ -5,6 +5,11 @@ An **agentic A/B benchmark**: does exposing an agent's capabilities as a
 same capabilities up as ordinary MCP tools — on real models, on real
 multi-service tasks?
 
+> 📄 **Read the full write-up: [The Scratchpad Is a Database](PAPER.md)** — the
+> complete study with figures: the A/B results, the 74% → 100% weak-model
+> hardening arc, the Postgres-parity audit, the OSS-frontier/cheap-model roster,
+> and the design principles that fell out.
+
 It stands up **ten in-process MCP servers** mirroring a real product team's stack
 (GitHub, Linear, Email, Slack, Notion, Jira, Sentry, PagerDuty, Calendar,
 Filesystem — 32 tools over one deterministic, cross-linked seed world) and runs
