@@ -13,7 +13,7 @@ export function sentryServer(world: World): ServerSpec {
     { name: "count", type: "bigint", description: "event count" },
     { name: "users_affected", type: "bigint" },
     { name: "status", type: "text", description: "unresolved | resolved | ignored" },
-    { name: "project", type: "text" },
+    { name: "project", type: "text", description: "service name: web-frontend | api-gateway | billing | mobile-bff | search" },
     { name: "first_seen", type: "timestamptz" },
     { name: "last_seen", type: "timestamptz" },
   ];

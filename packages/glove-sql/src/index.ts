@@ -321,6 +321,8 @@ interface DeleteStmt {
   table: string;
   where?: Expr;
   returning?: SelectItem[];
+  /** Leading `WITH …` clauses, referenced by WHERE subqueries. */
+  with?: SelectStmt["with"];
 }
 
 interface UpdateStmt {
@@ -329,6 +331,8 @@ interface UpdateStmt {
   set: Array<{ col: string; value: Expr }>;
   where?: Expr;
   returning?: SelectItem[];
+  /** Leading `WITH …` clauses, referenced by SET/WHERE subqueries. */
+  with?: SelectStmt["with"];
 }
 
 /** Transaction control. The MemoryBackend treats these as no-ops (it is
@@ -443,7 +447,31 @@ class Parser {
   }
 
   parseStatement(): Stmt {
-    if (this.isKw("with") || this.isKw("select")) return this.parseSelect();
+    if (this.isKw("with")) {
+      // Data-modifying CTE readers: `WITH x AS (…) INSERT/UPDATE/DELETE …`.
+      const withs = this.parseWithClauses();
+      if (this.isKw("insert")) {
+        const s = this.parseInsert();
+        // Attach to the source query; a VALUES insert can't reference the CTEs
+        // (Postgres allows the unused clause, so we accept and drop it too).
+        if (s.asSelect) s.asSelect.with = [...withs, ...(s.asSelect.with ?? [])];
+        return s;
+      }
+      if (this.isKw("update")) {
+        const s = this.parseUpdate();
+        s.with = withs;
+        return s;
+      }
+      if (this.isKw("delete")) {
+        const s = this.parseDelete();
+        s.with = withs;
+        return s;
+      }
+      const s = this.parseSelect();
+      s.with = [...withs, ...(s.with ?? [])];
+      return s;
+    }
+    if (this.isKw("select")) return this.parseSelect();
     if (this.isKw("create")) return this.parseCreate();
     if (this.isKw("drop")) return this.parseDrop();
     if (this.isKw("insert")) return this.parseInsert();
@@ -745,19 +773,24 @@ class Parser {
   }
 
   /** A select core: WITH … SELECT … FROM/JOIN/WHERE/GROUP/HAVING — no set-op, ORDER BY, or LIMIT. */
+  /** The clause list of a leading `WITH a AS (…), b AS (…)`. */
+  parseWithClauses(): NonNullable<SelectStmt["with"]> {
+    this.expectKw("with");
+    const withClauses: NonNullable<SelectStmt["with"]> = [];
+    do {
+      const name = this.ident();
+      this.expectKw("as");
+      this.expectOp("(");
+      const sub = this.parseSelect();
+      this.expectOp(")");
+      withClauses.push({ name, select: sub });
+    } while (this.acceptOp(","));
+    return withClauses;
+  }
+
   private parseSelectCore(): SelectStmt {
     let withClauses: SelectStmt["with"];
-    if (this.acceptKw("with")) {
-      withClauses = [];
-      do {
-        const name = this.ident();
-        this.expectKw("as");
-        this.expectOp("(");
-        const sub = this.parseSelect();
-        this.expectOp(")");
-        withClauses.push({ name, select: sub });
-      } while (this.acceptOp(","));
-    }
+    if (this.isKw("with")) withClauses = this.parseWithClauses();
 
     this.expectKw("select");
     const distinct = this.acceptKw("distinct");
@@ -855,7 +888,10 @@ class Parser {
       this.isKw("as") ||
       this.isKw("union") ||
       this.isKw("except") ||
-      this.isKw("intersect")
+      this.isKw("intersect") ||
+      // A write's RETURNING clause follows its source SELECT / FROM item —
+      // eating it as an implicit alias derails `INSERT … SELECT … RETURNING *`.
+      this.isKw("returning")
     );
   }
 
@@ -1478,13 +1514,21 @@ export class MemoryBackend implements SqlBackend {
         const rows = this.execInsert(stmt, params);
         return stmt.returning ? this.projectReturning(stmt.table, rows, stmt.returning, params) : { rows: [], fields: [] };
       }
-      case "delete": {
-        const rows = this.execDelete(stmt, params);
-        return stmt.returning ? this.projectReturning(stmt.table, rows, stmt.returning, params) : { rows: [], fields: [] };
-      }
+      case "delete":
       case "update": {
-        const rows = this.execUpdate(stmt, params);
-        return stmt.returning ? this.projectReturning(stmt.table, rows, stmt.returning, params) : { rows: [], fields: [] };
+        // Leading CTEs are visible to SET/WHERE subqueries via currentCtes.
+        const prev = this.currentCtes;
+        if (stmt.with) {
+          const merged = new Map(prev);
+          for (const cte of stmt.with) merged.set(cte.name, this.execSelect(cte.select, params, merged));
+          this.currentCtes = merged;
+        }
+        try {
+          const rows = stmt.k === "delete" ? this.execDelete(stmt, params) : this.execUpdate(stmt, params);
+          return stmt.returning ? this.projectReturning(stmt.table, rows, stmt.returning, params) : { rows: [], fields: [] };
+        } finally {
+          this.currentCtes = prev;
+        }
       }
       // Transaction control is a no-op on the auto-commit MemoryBackend; a higher
       // layer interprets BEGIN/COMMIT/ROLLBACK to stage and gate side effects.
@@ -3484,6 +3528,9 @@ function allSelects(stmt: Stmt): SelectStmt[] {
     for (const st of stmt.set) walkWhere(st.value);
     if (stmt.where) walkWhere(stmt.where);
   }
+  if ((stmt.k === "delete" || stmt.k === "update") && stmt.with) {
+    for (const cte of stmt.with) eachSelect(cte.select, (s) => out.push(s));
+  }
   return out;
 }
 
@@ -3507,6 +3554,7 @@ export function collectRelations(stmt: Stmt): RelationRef[] {
 export function collectCteNames(stmt: Stmt): Set<string> {
   const names = new Set<string>();
   for (const s of allSelects(stmt)) for (const cte of s.with ?? []) names.add(cte.name);
+  if ((stmt.k === "delete" || stmt.k === "update") && stmt.with) for (const cte of stmt.with) names.add(cte.name);
   return names;
 }
 

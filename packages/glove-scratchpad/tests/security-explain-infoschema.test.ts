@@ -33,7 +33,7 @@ test("CREATE / DROP TABLE are never permitted from SQL", async () => {
 test("multi-statement input is rejected unless it is a transaction script", async () => {
   const db = await db0();
   db.register(readResource("t"));
-  await assert.rejects(() => db.execute(`SELECT id FROM t; SELECT id FROM t`), /single statement/);
+  await assert.rejects(() => db.execute(`SELECT id FROM t; SELECT id FROM t`), /ONE statement per call/);
 });
 
 test("writing to an unknown relation errors", async () => {

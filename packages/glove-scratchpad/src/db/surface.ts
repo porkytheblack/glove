@@ -65,9 +65,11 @@ export function buildExecuteSqlTool(
             rows: r.rows,
             truncated: r.truncated,
             touched: r.touched,
+            ...(r.rowCount !== undefined ? { rowCount: r.rowCount } : {}),
             ...(r.committed !== undefined ? { committed: r.committed } : {}),
             ...(r.staged ? { staged: r.staged } : {}),
             ...(r.message ? { message: r.message } : {}),
+            ...(r.note ? { note: r.note } : {}),
           },
         };
       } catch (err) {

@@ -108,6 +108,10 @@ export interface ExecuteResult {
   staged?: StagedWriteView[];
   /** Human-facing note ("BEGIN", "staged", "ROLLBACK: N discarded", …). */
   message?: string;
+  /** Rows an INSERT wrote — the Postgres command-tag count (`INSERT 0 N`). */
+  rowCount?: number;
+  /** Guidance attached to the result (e.g. a 0-rows re-check nudge). */
+  note?: string;
 }
 
 export interface ExplainResult {
@@ -222,10 +226,49 @@ function splitSql(sql: string): string[] {
 }
 
 /** Strip `INSERT INTO <table> [(cols)]` so the remainder is the source query. */
+/** Positions of a top-level keyword (outside quotes, paren depth 0). */
+function topLevelKeyword(text: string, keyword: string, from = 0): number {
+  let depth = 0;
+  let i = from;
+  const n = text.length;
+  const isWord = (c: string | undefined) => c !== undefined && /[\w$]/.test(c);
+  while (i < n) {
+    const c = text[i];
+    if (c === "'") {
+      i++;
+      while (i < n && (text[i] !== "'" || text[i + 1] === "'")) i += text[i] === "'" ? 2 : 1;
+      i++;
+      continue;
+    }
+    if (c === '"') {
+      i++;
+      while (i < n && text[i] !== '"') i++;
+      i++;
+      continue;
+    }
+    if (c === "(") depth++;
+    else if (c === ")") depth--;
+    else if (depth === 0 && text.slice(i, i + keyword.length).toLowerCase() === keyword && !isWord(text[i - 1]) && !isWord(text[i + keyword.length])) {
+      return i;
+    }
+    i++;
+  }
+  return -1;
+}
+
+/** The standalone source query of an `[WITH …] INSERT INTO t (…) SELECT … [RETURNING …]`:
+ *  the WITH prefix (if any) + everything after the INSERT header, minus the
+ *  RETURNING tail (which belongs to the write, not the source). */
 function insertSourceText(text: string): string {
-  const m = text.match(/^\s*insert\s+into\s+("(?:[^"]|"")*"|[A-Za-z_][\w$]*)\s*(\([^)]*\))?\s*/i);
+  const at = topLevelKeyword(text, "insert");
+  if (at < 0) throw new Error("glove-scratchpad: could not parse the INSERT … SELECT source query.");
+  const prefix = text.slice(0, at); // leading WITH clauses, or empty
+  const m = text.slice(at).match(/^insert\s+into\s+("(?:[^"]|"")*"|[A-Za-z_][\w$]*)\s*(\([^)]*\))?\s*/i);
   if (!m) throw new Error("glove-scratchpad: could not parse the INSERT … SELECT source query.");
-  return text.slice(m[0].length);
+  let tail = text.slice(at + m[0].length);
+  const ret = topLevelKeyword(tail, "returning");
+  if (ret >= 0) tail = tail.slice(0, ret);
+  return prefix + tail;
 }
 
 export class Database {
@@ -295,7 +338,8 @@ export class Database {
     });
     if (parsed.length > 1 && parsed[0].stmt.k !== "begin" && !this.txn) {
       throw new Error(
-        "glove-scratchpad: only a single statement is allowed, except a BEGIN … COMMIT/ROLLBACK transaction script.",
+        "glove-scratchpad: run ONE statement per call — each call returns that statement's result. " +
+          "(To ask several questions, make several calls. BEGIN … COMMIT scripts are ONLY for staging several WRITES together.)",
       );
     }
     const ctx: ResourceContext = {
@@ -304,14 +348,30 @@ export class Database {
       actor: opts.actor ?? this.actor,
     };
     let last = emptyResult();
+    let lastRead: ExecuteResult | undefined;
     try {
-      for (const { text, stmt } of parsed) last = await this.runStatement(stmt, text, opts, ctx);
+      for (const { text, stmt } of parsed) {
+        last = await this.runStatement(stmt, text, opts, ctx);
+        if (last.fields.length > 0) lastRead = last;
+      }
     } catch (e) {
       // A statement that throws while a transaction is open aborts it — otherwise
       // the open txn strands across turns and every later write silently stages
       // into a batch that never commits. Match psql: error ⇒ transaction gone.
       if (this.txn) this.txn = null;
       throw e;
+    }
+    // A script's final statement (COMMIT) has no rows of its own; if the script
+    // also SELECTed, hand those rows back rather than silently discarding them —
+    // a model that (mis)wraps reads in BEGIN … COMMIT still sees its data.
+    if (parsed.length > 1 && last.fields.length === 0 && lastRead && lastRead !== last) {
+      return {
+        ...last,
+        rows: lastRead.rows,
+        fields: lastRead.fields,
+        truncated: lastRead.truncated,
+        note: "rows shown are from the script's last SELECT",
+      };
     }
     return last;
   }
@@ -337,7 +397,14 @@ export class Database {
           this.recordWrite(w);
           committed++;
         }
-        return { ...emptyResult(), committed, message: `COMMIT: ${committed} write(s) fired` };
+        const summary = writes
+          .map((w) => `${w.op} on "${w.resource}"${w.op === "insert" ? ` (${w.detail.rows?.length ?? 0} rows)` : ""}`)
+          .join(", ");
+        return {
+          ...emptyResult(),
+          committed,
+          message: `COMMIT: ${committed} write(s) fired${summary ? ` — ${summary}` : ""}`,
+        };
       }
       case "rollback": {
         if (!this.txn) throw new Error("glove-scratchpad: ROLLBACK without an open transaction.");
@@ -378,7 +445,18 @@ export class Database {
       const res = await this.backend.query(`SELECT * FROM (${text}) AS _q LIMIT ${limit + 1}`, params);
       const truncated = res.rows.length > limit;
       const rows = truncated ? res.rows.slice(0, limit) : res.rows;
-      return { rows, fields: res.fields.map((f) => ({ name: f.name })), truncated, touched };
+      const out: ExecuteResult = { rows, fields: res.fields.map((f) => ({ name: f.name })), truncated, touched };
+      // A weak model reads an empty result as "the answer is zero" even when its
+      // filter was simply wrong ('billing-%' on an id column, 'HIGH' vs 'high').
+      // Nudge it to re-check before concluding — free when the emptiness is real.
+      if (rows.length === 0 && touched.length > 0) {
+        const t = touched[0].name;
+        out.note =
+          `0 rows matched. If you expected data, re-check your filter values before concluding it doesn't exist: ` +
+          `column descriptions list valid values (SELECT column_name, description FROM information_schema.columns WHERE table_name = '${t}') ` +
+          `and a sample shows real values (SELECT * FROM ${t} LIMIT 5).`;
+      }
+      return out;
     } finally {
       await this.teardown(ephemerals);
     }
@@ -655,9 +733,19 @@ export class Database {
     ];
 
     const returning = stmt.k === "insert" ? stmt.returning : undefined;
+    // The Postgres command tag (`INSERT 0 N`) — without it, a model that runs an
+    // INSERT … SELECT sees `rows: []` and concludes it wrote nothing.
+    const rowCount = staged.op === "insert" ? (staged.detail.rows?.length ?? 0) : undefined;
+    const tag = rowCount !== undefined ? ` — ${rowCount} row(s)` : "";
     if (this.txn) {
       this.txn.stage(staged);
-      const base = { ...emptyResult(), touched, staged: this.txn.preview(), message: `staged ${staged.op} on "${target}"` };
+      const base = {
+        ...emptyResult(),
+        touched,
+        staged: this.txn.preview(),
+        rowCount,
+        message: `staged ${staged.op} on "${target}"${tag} (COMMIT to fire, ROLLBACK to discard)`,
+      };
       if (returning) {
         const proj = await this.projectWriteReturning(target, resource, staged.detail.rows ?? [], undefined, text);
         return { ...base, rows: proj.rows, fields: proj.fields };
@@ -668,9 +756,9 @@ export class Database {
     this.recordWrite(staged);
     if (returning) {
       const proj = await this.projectWriteReturning(target, resource, staged.detail.rows ?? [], out, text);
-      return { ...emptyResult(), touched, rows: proj.rows, fields: proj.fields, message: `insert on "${target}" fired` };
+      return { ...emptyResult(), touched, rows: proj.rows, fields: proj.fields, rowCount, message: `insert on "${target}" fired${tag}` };
     }
-    return { ...emptyResult(), touched, message: `${staged.op} on "${target}" fired` };
+    return { ...emptyResult(), touched, rowCount, message: `${staged.op} on "${target}" fired${tag}` };
   }
 
   /** Project a virtual INSERT's rows through its RETURNING list. The inserted
