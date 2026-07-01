@@ -96,10 +96,17 @@ Engine tests: glove-sql 84/84, glove-scratchpad 40/40 (regression tests added).
 ## Hardening the scratchpad for weak models
 
 Driven by this benchmark, `glove-scratchpad` gained anti-spiral discipline in the
-primed preamble (don't re-read to verify a write; a single write fires directly;
-be decisive) plus a primed table catalog **with enum values surfaced**. On the
-five weak OpenRouter models this moved the scratchpad arm from **74% → 97% pass,
-spirals 6 → 0, median tool calls 6 → 2, avg turns 11 → 3.5** — see
+primed preamble (a single write fires directly; be decisive) plus a primed table
+catalog **with enum values surfaced**. On the five weak OpenRouter models this
+moved the scratchpad arm from **74% → 97% pass, spirals 6 → 0, median tool calls
+6 → 2, avg turns 11 → 3.5**.
+
+It also drove **read-your-writes** (`DatabasePolicy.readYourWrites`, default on):
+agents reflexively re-read their own writes, so instead of forbidding it, the
+database now folds each session's fired INSERT/UPDATE/DELETEs back over live reads
+of the same table — a re-query returns the write, killing the read-after-write
+spiral at the source (upstream stays a live view; the session is read-your-writes).
+Proven by `probe.ts [D]` and 7 unit tests. See
 [`results/FINDINGS.md`](results/FINDINGS.md).
 
 ## Results

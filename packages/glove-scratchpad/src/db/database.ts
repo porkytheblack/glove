@@ -42,6 +42,28 @@ import {
 export interface DatabasePolicy {
   /** Master switch for INSERT/UPDATE/DELETE. Default false (read-only). */
   writes?: boolean;
+  /**
+   * Fold this session's own fired writes back into subsequent reads of the same
+   * table, so a SELECT after an INSERT/UPDATE/DELETE reflects the write even
+   * though the upstream service (a live view) hasn't caught up. This makes the
+   * database read-your-writes for the actor — the model an agent expects ("I
+   * created it, so I can see it"). Default true.
+   */
+  readYourWrites?: boolean;
+}
+
+/** One recorded write, replayed over live rows at read time — see {@link Database.applyOverlay}. */
+type OverlayEntry =
+  | { op: "insert"; rows: Record<string, unknown>[] }
+  | { op: "update"; match: Record<string, SqlScalar[]>; set: Record<string, unknown> }
+  | { op: "delete"; match: Record<string, SqlScalar[]> };
+
+/** A row matches a recorded write's bindings iff every bound column holds one of the bound values. */
+function overlayMatch(row: Record<string, unknown>, match: Record<string, SqlScalar[]>): boolean {
+  for (const [col, vals] of Object.entries(match)) {
+    if (!vals.some((v) => scalarEq(row[col] as SqlScalar, v))) return false;
+  }
+  return true; // empty match ⇒ matches all (an unqualified UPDATE/DELETE)
 }
 
 export interface DatabaseOptions {
@@ -185,6 +207,8 @@ export class Database {
   private txn: Transaction | null = null;
   /** IMMUTABLE resolver results, cached for the database's lifetime. */
   private immutableCache = new Map<string, Record<string, unknown>[]>();
+  /** This session's fired writes, replayed over live reads for read-your-writes. */
+  private overlay = new Map<string, OverlayEntry[]>();
 
   private constructor(
     readonly backend: SqlBackend,
@@ -200,7 +224,12 @@ export class Database {
     const catalog = new Catalog();
     const backend =
       opts.backend ?? (await MemoryBackend.create({ catalogProvider: () => catalog.catalogTables() }));
-    return new Database(backend, catalog, { writes: opts.policy?.writes ?? false }, opts.actor);
+    return new Database(
+      backend,
+      catalog,
+      { writes: opts.policy?.writes ?? false, readYourWrites: opts.policy?.readYourWrites ?? true },
+      opts.actor,
+    );
   }
 
   /** Register a resource table. Chainable. */
@@ -270,6 +299,7 @@ export class Database {
         let committed = 0;
         for (const w of writes) {
           await w.run(ctx);
+          this.recordWrite(w);
           committed++;
         }
         return { ...emptyResult(), committed, message: `COMMIT: ${committed} write(s) fired` };
@@ -358,12 +388,17 @@ export class Database {
         // argument AND, to the engine, a residual filter) still matches. Values
         // the resolver returned are left untouched.
         const stamped = this.stampBindings(rows, eq);
+        // Fold in this session's own writes to the same table (read-your-writes)
+        // — the upstream is a live view that hasn't caught up, but the actor
+        // should see what it just wrote. The engine's residual WHERE still
+        // filters the merged set, so overlay rows only surface when they match.
+        const merged = this.applyOverlay(name, stamped, resource);
         // Track the table for teardown BEFORE materializing: if the CREATE
         // succeeds but the bulk INSERT throws (a bad row coercion), the table
         // still exists and must be dropped — otherwise it leaks and the next
         // statement's CREATE fails with "relation already exists".
         ephemerals.push(name);
-        await materializeTable(this.backend, name, resource.columns, stamped);
+        await materializeTable(this.backend, name, resource.columns, merged);
         touched.push({
           name,
           source: "virtual",
@@ -431,6 +466,60 @@ export class Database {
     if (resource.volatility === "immutable") this.immutableCache.set(key, rows);
     if (resource.volatility === "stable") ctx.cache.set(key, rows);
     return rows;
+  }
+
+  // ── read-your-writes overlay ─────────────────────────────────────────────────
+
+  /** Record a fired write so the actor can read it back (see {@link applyOverlay}). */
+  private recordWrite(w: StagedWrite): void {
+    if (!this.policy.readYourWrites) return;
+    const log = this.overlay.get(w.resource) ?? [];
+    if (w.op === "insert") log.push({ op: "insert", rows: w.detail.rows ?? [] });
+    else if (w.op === "update") log.push({ op: "update", match: w.detail.bindings ?? {}, set: w.detail.set ?? {} });
+    else log.push({ op: "delete", match: w.detail.bindings ?? {} });
+    this.overlay.set(w.resource, log);
+  }
+
+  /**
+   * Replay this session's writes over a resource's freshly-fetched live rows, in
+   * write order: inserts append, updates patch matching rows, deletes drop them.
+   * Applied per statement (outside the resolver cache), so read-your-writes holds
+   * even when the live snapshot is cached. Inserts carrying a required-key value
+   * that already exists upstream replace it (a re-fetch that caught up won't
+   * double), otherwise they append.
+   */
+  private applyOverlay(
+    name: string,
+    live: Record<string, unknown>[],
+    resource: ResourceTable,
+  ): Record<string, unknown>[] {
+    const log = this.overlay.get(name);
+    if (!log || log.length === 0) return live;
+    const keyCols = resource.columns.filter((c) => c.requiredKey).map((c) => c.name);
+    let rows = live.slice();
+    for (const e of log) {
+      if (e.op === "insert") {
+        if (keyCols.length > 0) {
+          const insKeys = e.rows
+            .filter((ins) => keyCols.every((k) => ins[k] != null))
+            .map((ins) => keyCols.map((k) => ins[k] as SqlScalar));
+          if (insKeys.length > 0) {
+            rows = rows.filter((r) => !insKeys.some((ik) => keyCols.every((k, i) => scalarEq(r[k] as SqlScalar, ik[i]))));
+          }
+        }
+        rows = rows.concat(e.rows);
+      } else if (e.op === "update") {
+        rows = rows.map((r) => (overlayMatch(r, e.match) ? { ...r, ...e.set } : r));
+      } else {
+        rows = rows.filter((r) => !overlayMatch(r, e.match));
+      }
+    }
+    return rows;
+  }
+
+  /** Forget this session's recorded writes (reset the read-your-writes overlay). */
+  clearWrites(): void {
+    this.overlay.clear();
   }
 
   // ── write path ────────────────────────────────────────────────────────────
@@ -512,6 +601,7 @@ export class Database {
       return { ...emptyResult(), touched, staged: this.txn.preview(), message: `staged ${staged.op} on "${target}"` };
     }
     await staged.run(ctx);
+    this.recordWrite(staged);
     return { ...emptyResult(), touched, message: `${staged.op} on "${target}" fired` };
   }
 

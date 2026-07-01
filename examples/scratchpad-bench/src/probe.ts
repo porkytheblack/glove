@@ -50,6 +50,16 @@ async function main() {
   ).length;
   console.log(`  JOIN returned ${joined.rows.length} rows (expected ${expected}) → ${joined.rows.length === expected ? "OK ✓" : "MISMATCH ✗"}`);
 
+  // ── Probe D: read-your-writes (the droid instinct) ────────────────────────
+  console.log("\n[D] read-your-writes — INSERT an email, then SELECT it back:");
+  const inboxBefore = (await run(`SELECT COUNT(*) AS n FROM emails`)).rows[0].n;
+  await run(`INSERT INTO emails (to_addr, subject, body) VALUES ('oncall@acme.io', 'Top error', 'boom')`);
+  const readback = await run(`SELECT to_addr, subject FROM emails WHERE subject = 'Top error'`);
+  const inboxAfter = (await run(`SELECT COUNT(*) AS n FROM emails`)).rows[0].n;
+  const found = readback.rows.length === 1 && readback.rows[0].to_addr === "oncall@acme.io";
+  console.log(`  inbox count ${inboxBefore} → ${inboxAfter} (+1); re-SELECT of the sent row → ${readback.rows.length} row`);
+  console.log(`  → ${found ? "the write is readable back this session ✓" : "NOT reflected ✗ (would spiral a verifying model)"}`);
+
   await org.close();
 }
 main().catch((e) => { console.error(e); process.exit(1); });

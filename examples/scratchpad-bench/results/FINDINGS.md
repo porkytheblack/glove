@@ -41,14 +41,13 @@ a single-fetch tool surfaced as an `IN`-queryable table must fan out — applies
 
 Observed in transcripts, most sharply in weaker models and the write scenarios:
 
-- **Read-after-write on virtual tables.** Scratchpad tables are *live views*: a
-  sent `emails` row (fired to the outbox) does **not** appear in a later
-  `SELECT … FROM emails` (which re-runs the inbox list). Models that try to
-  *verify* a write by re-querying spiral — deepseek burned 25 tool calls / 26
-  turns on `email-top-error` chasing a row that would never show up, vs 2 tool
-  calls in the baseline. Mitigation worth trying: state in the preamble that the
-  `COMMIT` confirmation is authoritative and a write won't reflect in reads of the
-  same table.
+- **Read-after-write on virtual tables** *(now solved — see "Read-your-writes"
+  below).* Scratchpad tables are *live views*: a sent `emails` row (fired to the
+  outbox) originally did **not** appear in a later `SELECT … FROM emails` (which
+  re-runs the inbox list). Models that tried to *verify* a write by re-querying
+  spiralled — deepseek burned 25 tool calls / 26 turns on `email-top-error`
+  chasing a row that would never show up. This is now fixed at the source with a
+  read-your-writes overlay, so a re-query returns the write.
 - **Transaction lifecycle.** `BEGIN` without a matching `COMMIT`/`ROLLBACK` before
   the next statement raises "a transaction is already open"; some models forget.
 - **Discovery overhead is real.** On a trivial single-service question
@@ -136,6 +135,42 @@ weak models spiral" to "wins on context AND weak models breeze through it," whic
 was the goal. The single residual (glm on the multi-write compose) is a
 transaction-lifecycle slip: it ran `BEGIN; INSERT … SELECT` and stopped without
 `COMMIT`, so the staged write silently never fired.
+
+## Read-your-writes: closing the read-after-write gap (v4)
+
+The preamble told models *not* to re-read their writes — but agents ("droids")
+re-read reflexively, and you can't prompt an instinct away. The v1 read-after-write
+spirals came from a re-query returning **nothing** (the upstream is a live view
+that hasn't caught up), which reads to the model as "my write failed."
+
+The fix makes read-your-writes **true** rather than forbidden. `glove-scratchpad`
+now keeps a per-session write overlay: every fired INSERT/UPDATE/DELETE is recorded
+and, at read time, replayed over the resource's freshly-fetched live rows (in write
+order — inserts append, updates patch, deletes drop) before the engine runs the
+query. The upstream service stays a live view; the *session* becomes read-your-writes,
+which is the model an agent already has ("I created it, so I can see it"). It's a
+`DatabasePolicy` flag (`readYourWrites`, default on) and dedups inserts by required
+key so an upstream that *does* reflect the write won't double it. Proven
+deterministically by `probe.ts [D]` (INSERT an email → SELECT finds it, inbox
+50 → 51) and 7 unit tests (insert/update/delete visible, ROLLBACK discards,
+required-key replace, flag-off = old semantics); glove-scratchpad **47/47**.
+
+Measured effect (scratchpad arm, v3 → v4): **pass-neutral, 34/35, 0 spirals** — the
+overlay is a robustness net *under* the preamble, not a pass-rate lever, since the
+graders score the real outbox and by v3 the preamble already suppressed the spirals.
+Its value is that a model which re-reads anyway now succeeds instead of spiralling,
+and the false "your write won't appear" line is gone from the preamble.
+
+One honest wrinkle it surfaced: on `compose` the single failing cell moved
+(glm ✗→✓, minimax ✓→✗; compose stayed 4/5 both runs). The minimax trace is
+instructive — it wrote several malformed `INSERT … SELECT`s, and read-your-writes
+let it *see* the resulting bad rows on re-query; it then tried `DELETE FROM
+github_issues` to clean up and hit "not deletable" (the `create_issue` capability
+has no delete). So the overlay gave the model visibility into its own mistake, but
+**irreversible capabilities (no DELETE) mean a wrong write can't be self-healed** —
+inherent to the capability surface, not the overlay. Worth a preamble note ("get
+`INSERT … SELECT` right the first time; preview the SELECT before you write") more
+than a code change.
 
 ## Where scratchpad decisively wins: context pressure
 
