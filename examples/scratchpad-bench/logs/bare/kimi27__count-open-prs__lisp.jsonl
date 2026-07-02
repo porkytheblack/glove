@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"kimi27","model":"moonshotai/kimi-k2.7-code","scenario":"count-open-prs","arm":"lisp","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":885,"tokensOut":83,"cacheRead":640,"peakContextTokens":469,"compactions":0,"toolsInContext":2,"wallMs":8407,"costUsd":0.0009454000000000001,"toolMix":{"execute_lisp":1},"expected":36}
+{"kind":"final_answer","text":"36"}
+{"t":3629,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":" ","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(count (github_pull_requests {:state \\\"open\\\"}))\"}"}]}
+{"t":3629,"type":"tokens","in":416,"out":44,"peak":416}
+{"t":3629,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":36}"}
+{"t":8407,"type":"model_response","turn":2,"stop_reason":"stop","text":" 36","tool_calls":[]}
+{"t":8407,"type":"tokens","in":469,"out":39,"peak":469}

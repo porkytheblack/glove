@@ -1,0 +1,13 @@
+{"kind":"meta","modelKey":"dsflash","model":"deepseek/deepseek-v4-flash","scenario":"count-open-prs","arm":"lisp","ok":true,"errored":false,"turns":4,"toolCalls":3,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":5047,"tokensOut":266,"cacheRead":2176,"peakContextTokens":1587,"compactions":0,"toolsInContext":2,"wallMs":15975,"costUsd":0.0005021100000000001,"toolMix":{"execute_lisp":3},"expected":36}
+{"kind":"final_answer","text":"There are currently **36** GitHub pull requests in the 'open' state across all repositories."}
+{"t":2708,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(tables)\"}"}]}
+{"t":2708,"type":"tokens","in":712,"out":82,"peak":712}
+{"t":2709,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[{\"name\":\"github_pull_requests\",\"description\":\"Pull requests across all acme repos.\",\"volatility\":\"stable\",\"ops\":[\"read\"]},{\"name\":\"github_issues\",\"description\":\"GitHub issues. INSERT opens a new issue.\",\"volatility\":\"stable\",\"ops\":[\"read\",\"insert!\"]},{\"name\":\"linear_issues\",\"description\":\"…(+1479)"}
+{"t":6305,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(describe :github_pull_requests)\"}"}]}
+{"t":6305,"type":"tokens","in":1231,"out":84,"peak":1231}
+{"t":6305,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":{\"name\":\"github_pull_requests\",\"description\":\"Pull requests across all acme repos.\",\"volatility\":\"stable\",\"ops\":[\"read\"],\"columns\":[{\"name\":\"number\",\"type\":\"bigint\"},{\"name\":\"repo\",\"type\":\"text\"},{\"name\":\"title\",\"type\":\"text\"},{\"name\":\"author\",\"type\":\"text\"},{\"name\":\"state\",\"type\":\"text\",\"d…(+490)"}
+{"t":12938,"type":"model_response","turn":3,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(count (github_pull_requests {:state \\\"open\\\"}))\"}"}]}
+{"t":12938,"type":"tokens","in":1517,"out":70,"peak":1517}
+{"t":12940,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":36}"}
+{"t":15975,"type":"model_response","turn":4,"stop_reason":"stop","text":"There are currently **36** GitHub pull requests in the 'open' state across all repositories.","tool_calls":[]}
+{"t":15975,"type":"tokens","in":1587,"out":30,"peak":1587}

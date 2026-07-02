@@ -227,7 +227,54 @@ frontier.
 
 ![Complex suite](figures/fig11-complex.svg)
 
-## 9. What the benchmark caught (that tests didn't)
+## 9. Take away the manual: how much is the prompt doing?
+
+Every result so far rides on a hand-tuned system preamble (~1–1.3k tokens):
+the operating discipline, the primed catalog, the enum values, the write
+semantics. Real adopters won't write that. So we added a `--bare` mode: the
+model gets one sentence of role and the tools' own descriptions — nothing
+else. Table names, columns, valid values, and write behavior must be
+**discovered in-band** (`information_schema`, `(tables)`, `(describe)`), the
+channel §4's batches deliberately built out.
+
+![Primed vs bare](figures/fig12-bare.svg)
+
+| | SQL scratchpad | Lisp REPL |
+|---|:--:|:--:|
+| primed | 76/77 (99%) | 74/77 (96%) |
+| **bare** | **59/77 (77%)** | **55/77 (71%)** |
+
+The 20-point headline hides a sharply tiered reality:
+
+1. **Frontier and strong-mid models don't need the manual.** Kimi K2.7, GLM-5,
+   MiMo v2.5, DeepSeek V4 Flash: 27/28 → 27/28 on SQL. They walk
+   `information_schema`, probe enum values with `SELECT DISTINCT status`
+   unprompted, and get on with it. Median peak context actually **drops**
+   (2,033 → 1,401 tokens) — discovery costs *less* context than the preamble
+   it replaces, because you only discover what the task needs.
+2. **Mid-tier models lose 1–2 cells each**, and the lost cells are precisely
+   the failure classes the preamble had patched: deepseek re-picked the
+   `ignored` Sentry issue (the §4.2 enum-comprehension error, back from the
+   dead), and two models re-grew 30-turn spirals on the JOIN task. The
+   discipline lines were suppressing real instincts, not decorating.
+3. **The weak tail collapses — because it never looks.** Qwen3-30B: 7/7 → 2/7.
+   Qwen3-8B: 6/7 → 1/7. The discovery-usage numbers make the mechanism exact:
+   every model above 30B made discovery calls in **86–100%** of bare cells;
+   qwen30b did in **4 of 14**, qwen8b in **3 of 14**. The failing transcripts
+   all read the same way: guess a table name (`pull_requests`), see an error
+   or an empty result, and conclude *"No tables exist in the database"* or
+   *"There are 0 unresolved issues."* The data was one `(tables)` call away,
+   at every moment.
+
+So the honest accounting for §11's principles: **in-band discovery fully
+replaces the manual for any model that reads it — the manual exists for the
+models that don't look.** A surface aimed at capable models can ship with no
+prompt at all and *save* context; a surface that must carry an 8B tail needs
+the primed catalog not as documentation but as a prosthetic for the discovery
+step those models skip. (Priming is also cheap insurance for the mid-tier's
+relapse classes — enum values and anti-spiral discipline earn their tokens.)
+
+## 10. What the benchmark caught (that tests didn't)
 
 Model-in-the-loop benchmarking found bugs that 100+ unit tests and a deterministic self-check had not, because models exercise the surface the way adversarial fuzzers don't — *plausibly*:
 
@@ -239,7 +286,7 @@ Model-in-the-loop benchmarking found bugs that 100+ unit tests and a determinist
 | `RETURNING` parsed as an implicit alias | the single most canonical write-idiom failed |
 | own error message steering reads into `BEGIN` scripts that discard rows | a model followed instructions and lost its data |
 
-## 10. Design principles (the transferable part)
+## 11. Design principles (the transferable part)
 
 1. **A silent wrong answer is the worst possible output.** Every silent-NULL, silent-inversion, silent-truncation became a confident wrong answer downstream. Erroring loudly — with the fix named in the message — is the single highest-leverage property of an agent-facing surface.
 2. **Make truth cheap, then trust follows.** Row-count command tags, read-your-writes, and RETURNING exist so the model never has to *wonder* whether something happened. Every verification loop we killed was a place the platform had made truth expensive.
@@ -248,7 +295,7 @@ Model-in-the-loop benchmarking found bugs that 100+ unit tests and a determinist
 5. **Errors are UX.** "Run one statement per call," "use `||` to concatenate," "this capability supports SELECT, INSERT" — messages that name the next action convert a failed turn into a corrected one. Our own vague message *caused* a benchmark failure.
 6. **Optimize for the weakest driver.** Everything above was invisible to frontier models — they route around potholes. The 8B models are the instrumentation that shows where the potholes are. Fixing for them made the road smooth for everyone, at zero cost to the strong.
 
-## 11. Limitations
+## 12. Limitations
 
 - **One seed, one run per cell.** n=35–84 per comparison; cells are single samples, so individual cell flips (±1 task) are within noise. The aggregate deltas (74→100, 71% vs 93%, 2.4–3.2× context reduction) are far outside it.
 - **Mocked services.** Real MCP servers have latency, auth failures, and pagination the mock world lacks; the benchmark measures the *surface*, not network reality.
@@ -256,7 +303,7 @@ Model-in-the-loop benchmarking found bugs that 100+ unit tests and a determinist
 - **Preamble co-evolution.** v2–v3 changed both engine and prompt; their contributions are not fully separable (v5's engine-only batches were measured in isolation and were pass-positive).
 - **Grader strictness.** Deterministic graders can mark a semantically-adequate answer wrong (and did, for case variants — we count those against the platform, which is the conservative direction).
 
-## 12. Reproducing
+## 13. Reproducing
 
 ```bash
 # no API key — validate the layer + engine mechanics:
@@ -265,6 +312,9 @@ npx tsx src/probe.ts
 
 # the benchmark (OPENROUTER_API_KEY in repo-root .env; guard spend):
 pnpm --filter glove-scratchpad-bench bench --budget=1.50
+
+# the bare-prompt ablation (no preamble; discovery-only):
+pnpm bench --arms=scratchpad,lisp --bare --out=bare --budget=1.50
 
 # the Lisp arm (same catalog, third surface):
 pnpm --filter glove-lisp test
@@ -275,7 +325,7 @@ pnpm bench --arms=baseline,scratchpad,lisp --budget=1.50
 npx tsx src/figures.ts
 ```
 
-Total spend for every experiment in this paper: **≈ $1.84** across 655 model runs (the SQL study ≈ $0.85 over 327 runs; the Lisp replication ≈ $1.00 over 328). Per-cell JSONL transcripts are git-tracked under `logs/`; the raw results behind every figure are in `results/*.json`; the audit is `results/PARITY-AUDIT.md` and the running lab notebook is `results/FINDINGS.md`.
+Total spend for every experiment in this paper: **≈ $3.50** across 1040 model runs (SQL study, Lisp replication, choice study, complex suite, and the bare-prompt ablation). Per-cell JSONL transcripts are git-tracked under `logs/`; the raw results behind every figure are in `results/*.json`; the audit is `results/PARITY-AUDIT.md` and the running lab notebook is `results/FINDINGS.md`.
 
 ---
 

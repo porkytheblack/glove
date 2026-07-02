@@ -1,0 +1,19 @@
+{"kind":"meta","modelKey":"glm5","model":"z-ai/glm-5","scenario":"sentry-billing-unresolved","arm":"lisp","ok":true,"errored":false,"turns":6,"toolCalls":5,"toolErrors":1,"mcpRoundTrips":2,"servicesTouched":1,"tokensIn":7995,"tokensOut":435,"cacheRead":3392,"peakContextTokens":2029,"compactions":0,"toolsInContext":2,"wallMs":70549,"costUsd":0.0056322,"toolMix":{"execute_lisp":5},"expected":{"count":7,"ids":["SENTRY-3002","SENTRY-3015","SENTRY-3019","SENTRY-3031","SENTRY-3036","SENTRY-3037","SENTRY-3056"]}}
+{"kind":"final_answer","text":"There are **7 unresolved Sentry issues** in the 'billing' project. Their IDs are:\n\n- SENTRY-3002\n- SENTRY-3015\n- SENTRY-3019\n- SENTRY-3031\n- SENTRY-3036\n- SENTRY-3037\n- SENTRY-3056"}
+{"t":11546,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(tables)\"}"}]}
+{"t":11546,"type":"tokens","in":593,"out":98,"peak":593}
+{"t":11547,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[{\"name\":\"github_pull_requests\",\"description\":\"Pull requests across all acme repos.\",\"volatility\":\"stable\",\"ops\":[\"read\"]},{\"name\":\"github_issues\",\"description\":\"GitHub issues. INSERT opens a new issue.\",\"volatility\":\"stable\",\"ops\":[\"read\",\"insert!\"]},{\"name\":\"linear_issues\",\"description\":\"…(+1479)"}
+{"t":16718,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(describe :name \\\"sentry_issues\\\")\"}"}]}
+{"t":16718,"type":"tokens","in":1028,"out":48,"peak":1028}
+{"t":16719,"type":"tool_result","tool":"execute_lisp","status":"error","data":"null","message":"describe takes one resource name — (describe :github_pull_requests)"}
+{"t":45891,"type":"model_response","turn":3,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(describe \\\"sentry_issues\\\")\"}"}]}
+{"t":45891,"type":"tokens","in":1049,"out":19,"peak":1049}
+{"t":45892,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":{\"name\":\"sentry_issues\",\"description\":\"Sentry error groups. UPDATE (WHERE id=…) SET status='resolved' resolves an issue.\",\"volatility\":\"stable\",\"ops\":[\"read\",\"update!\"],\"columns\":[{\"name\":\"id\",\"type\":\"text\"},{\"name\":\"title\",\"type\":\"text\"},{\"name\":\"culprit\",\"type\":\"text\"},{\"name\":\"level\",\"ty…(+567)"}
+{"t":51146,"type":"model_response","turn":4,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(sentry_issues {:project \\\"billing\\\", :status \\\"unresolved\\\"})\"}"}]}
+{"t":51146,"type":"tokens","in":1304,"out":59,"peak":1304}
+{"t":51149,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[{\"id\":\"SENTRY-3002\",\"title\":\"5xx: CSV export truncates large accounts\",\"culprit\":\"web/csv-export.ts\",\"level\":\"error\",\"count\":838,\"users_affected\":702,\"status\":\"unresolved\",\"project\":\"billing\",\"first_seen\":\"2026-04-10T00:00:00.000Z\",\"last_seen\":\"2026-05-30T00:00:00.000Z\"},{\"id\":\"SENTRY-3015…(+1655)"}
+{"t":60047,"type":"model_response","turn":5,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(count (sentry_issues {:project \\\"billing\\\", :status \\\"unresolved\\\"}))\"}"}]}
+{"t":60047,"type":"tokens","in":1992,"out":121,"peak":1992}
+{"t":60049,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":7}"}
+{"t":70549,"type":"model_response","turn":6,"stop_reason":"stop","text":"There are **7 unresolved Sentry issues** in the 'billing' project. Their IDs are:\n\n- SENTRY-3002\n- SENTRY-3015\n- SENTRY-3019\n- SENTRY-3031\n- SENTRY-3036\n- SENTRY-3037\n- SENTRY-3056","tool_calls":[]}
+{"t":70549,"type":"tokens","in":2029,"out":90,"peak":2029}
