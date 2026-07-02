@@ -53,10 +53,20 @@ export interface EntityInsert {
 export interface EntityUpdate {
   tool: string;
   args?: (set: Row, b: Bindings) => Row;
+  /** Fan a single-target tool out over `WHERE <col> IN (…)` — one call per value.
+   *  Without it, a multi-value match silently updates only the first target. */
+  fanOut?: string;
 }
 export interface EntityDelete {
   tool: string;
   args?: (b: Bindings) => Row;
+}
+
+/** True when a binding carries exactly ONE value — a multi-value (IN) binding
+ *  must NOT be narrowed to its first value by `b.one`; leave the arg off and let
+ *  the surface's residual filter (or a fanOut) handle it. */
+export function single(b: Bindings, col: string): boolean {
+  return b.has(col) && b.all(col).length === 1;
 }
 
 /** One scratchpad table, wired verb-by-verb to the MCP tools above. */
@@ -148,10 +158,19 @@ export function serverResources(
       }),
       ...(e.update && {
         update: async (set: Row, b: Bindings) => {
-          const args = e.update!.args
-            ? e.update!.args(set, b)
-            : { ...bindingsToArgs(b), ...set };
-          return callJson(conn, e.update!.tool, args);
+          const runOne = async (bb: Bindings) => {
+            const args = e.update!.args ? e.update!.args(set, bb) : { ...bindingsToArgs(bb), ...set };
+            return callJson(conn, e.update!.tool, args);
+          };
+          const fo = e.update!.fanOut;
+          if (fo && b.all(fo).length > 1) {
+            const out: unknown[] = [];
+            for (const v of b.all(fo)) {
+              out.push(await runOne(makeBindings(new Map<string, SqlScalar[]>([[fo, [v]]]))));
+            }
+            return out;
+          }
+          return runOne(b);
         },
       }),
       ...(e.delete && {

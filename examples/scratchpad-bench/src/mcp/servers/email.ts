@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { single } from "../spec";
 import type { ServerSpec } from "../spec";
 import type { World } from "../seed";
 
@@ -63,8 +64,8 @@ export function emailServer(world: World): ServerSpec {
         select: {
           tool: "list_messages",
           args: (b) => ({
-            ...(b.has("unread") && { unread: b.one("unread") }),
-            ...(b.has("labels") && { label: b.one("labels") }),
+            ...(single(b, "unread") && { unread: b.one("unread") }),
+            ...(single(b, "labels") && { label: b.one("labels") }),
           }),
         },
         insert: {

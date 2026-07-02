@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { single } from "../spec";
 import type { ServerSpec } from "../spec";
 import type { World } from "../seed";
 
@@ -58,12 +59,12 @@ export function pagerdutyServer(world: World): ServerSpec {
         select: {
           tool: "list_incidents",
           args: (b) => ({
-            ...(b.has("status") && { status: b.one("status") }),
-            ...(b.has("urgency") && { urgency: b.one("urgency") }),
-            ...(b.has("service") && { service: b.one("service") }),
+            ...(single(b, "status") && { status: b.one("status") }),
+            ...(single(b, "urgency") && { urgency: b.one("urgency") }),
+            ...(single(b, "service") && { service: b.one("service") }),
           }),
         },
-        update: { tool: "acknowledge_incident", args: (_set, b) => ({ id: b.one("id") }) },
+        update: { tool: "acknowledge_incident", args: (_set, b) => ({ id: b.one("id") }), fanOut: "id" },
       },
     ],
   };

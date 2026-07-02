@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { single } from "../spec";
 import type { ServerSpec } from "../spec";
 import type { World } from "../seed";
 
@@ -85,10 +86,10 @@ export function linearServer(world: World): ServerSpec {
         select: {
           tool: "list_issues",
           args: (b) => ({
-            ...(b.has("assignee") && { assignee: b.one("assignee") }),
-            ...(b.has("state") && { state: b.one("state") }),
-            ...(b.has("team") && { team: b.one("team") }),
-            ...(b.has("project") && { project: b.one("project") }),
+            ...(single(b, "assignee") && { assignee: b.one("assignee") }),
+            ...(single(b, "state") && { state: b.one("state") }),
+            ...(single(b, "team") && { team: b.one("team") }),
+            ...(single(b, "project") && { project: b.one("project") }),
           }),
         },
         insert: {

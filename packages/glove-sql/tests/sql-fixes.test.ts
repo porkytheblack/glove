@@ -164,3 +164,20 @@ test("named columns are untouched; only true duplicates get suffixed", async () 
   assert.deepEqual(r.fields.map((f) => f.name), ["a", "b", "a_2"]);
   assert.deepEqual(r.fields.map((f) => Number(r.rows[0][f.name])), [1, 2, 3]);
 });
+
+test("unqualified predicates bind only to their own scope's relations", async () => {
+  const { extractEqualityBindings, parse } = await import("../src/index");
+  const [stmt] = parse(
+    `SELECT id FROM linear_issues WHERE state='done' AND id IN (SELECT closes_linear FROM github_pull_requests)`,
+  );
+  const outer = extractEqualityBindings(stmt, "linear_issues");
+  const inner = extractEqualityBindings(stmt, "github_pull_requests");
+  assert.deepEqual([...outer.keys()], ["state"]); // the outer relation keeps its predicate
+  assert.deepEqual([...inner.keys()], []); // the subquery relation must NOT inherit it
+  // qualified predicates still bind across correlated scopes
+  const [stmt2] = parse(
+    `SELECT li.id FROM linear_issues li WHERE EXISTS (SELECT 1 FROM github_pull_requests p WHERE p.state = 'merged' AND li.state = 'done')`,
+  );
+  assert.deepEqual([...extractEqualityBindings(stmt2, "p").keys()], ["state"]);
+  assert.deepEqual([...extractEqualityBindings(stmt2, "li").keys()], ["state"]);
+});
