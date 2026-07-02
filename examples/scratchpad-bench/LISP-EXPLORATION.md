@@ -339,7 +339,51 @@ second landing: **SQL as the default for the weakest tail, the REPL wherever
 branching, staged multi-writes, or session state matter — and they coexist
 behind one `ResourceTable` registration.**
 
-## 11. Reproducing
+## 11. The choice study and the complex suite
+
+Two follow-on questions, both run live (results in `results/bothstudy-*` and
+`results/complex-*`, analysis via `src/both-analysis.ts`):
+
+**What does a model pick when BOTH surfaces are mounted?** A fourth arm mounts
+`execute_sql` and `execute_lisp` together over one catalog behind a neutral
+two-surface preamble. Across 11 models x 9 scenarios (99 cells, 91 pass, 2
+provider errors):
+
+- **Revealed preference is SQL: 83 cells sql-only, 8 lisp-only, 6 mixed.**
+  Muscle memory dominates when either surface would do.
+- **The exception is exactly the branch-shaped task**: on `incident-branch`,
+  5 of 11 models switched to Lisp unprompted — models sense when if-composition
+  fits. On everything argmax/aggregate/join-shaped, SQL swept.
+- **No choice penalty**: pass-when-sql 79/83, pass-when-lisp 7/8, mixed 5/6 —
+  mounting both surfaces does not confuse even the weak tier, and the arm's
+  totals match the single-surface arms cell-for-cell.
+
+**What happens when the tasks get genuinely hard?** Three complex scenarios —
+a negation join (`reconcile-ghost-issues`: 'done' issues claimed only by
+never-merged PRs), a multi-metric grouped report, and a conditional
+ack-fan-out escalation — across all four arms (33 cells/arm):
+
+| arm | pass | median peak ctx |
+|---|:--:|:--:|
+| baseline | 22/33 | 9,731 |
+| SQL scratchpad | 22/33 | 2,362 |
+| **Lisp** | **24/33** | 3,735 |
+| both | 22/33 | 2,628 |
+
+Three findings. (1) **Complexity is the next frontier**: every arm drops from
+92–99% on the simple suite to 67–73% here — the remaining failures are
+composition quality, not surface mechanics. (2) **The Lisp arm leads on the
+negation join (9/11) while the SQL arm is WORST there (6/11)**: models write
+subtly wrong `NOT EXISTS`/`NOT IN` SQL but reach the same logic naturally as
+`(filter #(not (some merged? …)))` — the one task family where the REPL beats
+SQL on *reads*. (3) **"Both" buys robustness, not synergy**: it matches the
+better single surface per task shape but never exceeds it, at SQL-like peak
+context. Preparing this suite also caught three latent platform bugs before
+any model did (cross-scope binding leak, cross-alias fetch starvation,
+multi-value arg narrowing) — deterministic probing of harder tasks is itself
+a bug-finder.
+
+## 12. Reproducing
 
 ```bash
 pnpm --filter glove-lisp test          # 63 unit tests

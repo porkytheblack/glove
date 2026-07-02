@@ -209,6 +209,15 @@ one the model already speaks, behaves exactly as the model expects, and makes
 truth cheaper than fabrication. Do that, and two very different languages
 converge on the same number.
 
+Two follow-on studies sharpen it (full data in the exploration doc): mounting
+**both** surfaces at once shows models' revealed preference is SQL (83/99
+cells) *except* on branch-shaped tasks, where half switch to Lisp unprompted —
+and having both costs nothing (91/99). And on a harder suite (negation join,
+multi-metric report, conditional fan-out escalation) every arm falls to
+67–73% — with the REPL ahead overall (24/33) and SQL *worst* at the negation
+join its own grammar makes hard to state (6/11 vs Lisp's 9/11). Task
+complexity, not surface parity, is the open frontier.
+
 ## 9. What the benchmark caught (that tests didn't)
 
 Model-in-the-loop benchmarking found bugs that 100+ unit tests and a deterministic self-check had not, because models exercise the surface the way adversarial fuzzers don't — *plausibly*:

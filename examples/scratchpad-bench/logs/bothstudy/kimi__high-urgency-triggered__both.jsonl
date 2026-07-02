@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"kimi","model":"moonshotai/kimi-k2.5","scenario":"high-urgency-triggered","arm":"both","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":3356,"tokensOut":186,"cacheRead":3072,"peakContextTokens":1743,"compactions":0,"toolsInContext":4,"wallMs":7043,"costUsd":0.0016351500000000001,"toolMix":{"execute_sql":1},"expected":{"count":4,"ids":["PD-407","PD-416","PD-433","PD-439"]}}
+{"kind":"final_answer","text":"**4** HIGH-urgency PagerDuty incidents are in the 'triggered' state:\n\n- PD-407\n- PD-416\n- PD-433\n- PD-439"}
+{"t":3828,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_sql","input":"{\"sql\":\"SELECT id FROM pagerduty_incidents WHERE urgency = 'high' AND status = 'triggered'\"}"}]}
+{"t":3828,"type":"tokens","in":1613,"out":104,"peak":1613}
+{"t":3833,"type":"tool_result","tool":"execute_sql","status":"success","data":"{\"rows\":[{\"id\":\"PD-407\"},{\"id\":\"PD-416\"},{\"id\":\"PD-433\"},{\"id\":\"PD-439\"}],\"truncated\":false,\"touched\":[{\"name\":\"pagerduty_incidents\",\"source\":\"virtual\",\"access\":\"read\",\"op\":\"select\",\"volatility\":\"stable\",\"bindings\":{\"urgency\":[\"high\"],\"status\":[\"triggered\"]},\"invocations\":1}]}"}
+{"t":7042,"type":"model_response","turn":2,"stop_reason":"stop","text":"**4** HIGH-urgency PagerDuty incidents are in the 'triggered' state:\n\n- PD-407\n- PD-416\n- PD-433\n- PD-439","tool_calls":[]}
+{"t":7042,"type":"tokens","in":1743,"out":82,"peak":1743}

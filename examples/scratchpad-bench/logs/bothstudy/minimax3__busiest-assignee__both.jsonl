@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"minimax3","model":"minimax/minimax-m3","scenario":"busiest-assignee","arm":"both","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":4420,"tokensOut":187,"cacheRead":4068,"peakContextTokens":2277,"compactions":0,"toolsInContext":4,"wallMs":3973,"costUsd":0.0015504000000000002,"toolMix":{"execute_sql":1},"expected":{"top":"niaj","count":3,"tied":["niaj"]}}
+{"kind":"final_answer","text":"**niaj** has the most Linear issues in the `in_progress` state, with **3** issues assigned to them."}
+{"t":2008,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_sql","input":"{\"sql\":\"SELECT assignee, COUNT(*) AS cnt FROM linear_issues WHERE state = 'in_progress' AND assignee IS NOT NULL GROUP BY assignee ORDER BY cnt DESC LIMIT 1;\"}"}]}
+{"t":2008,"type":"tokens","in":2143,"out":126,"peak":2143}
+{"t":2011,"type":"tool_result","tool":"execute_sql","status":"success","data":"{\"rows\":[{\"assignee\":\"niaj\",\"cnt\":3}],\"truncated\":false,\"touched\":[{\"name\":\"linear_issues\",\"source\":\"virtual\",\"access\":\"read\",\"op\":\"select\",\"volatility\":\"stable\",\"bindings\":{\"state\":[\"in_progress\"]},\"invocations\":1}]}"}
+{"t":3973,"type":"model_response","turn":2,"stop_reason":"stop","text":"**niaj** has the most Linear issues in the `in_progress` state, with **3** issues assigned to them.","tool_calls":[]}
+{"t":3973,"type":"tokens","in":2277,"out":61,"peak":2277}

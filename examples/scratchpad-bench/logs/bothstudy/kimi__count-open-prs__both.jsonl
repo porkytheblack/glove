@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"kimi","model":"moonshotai/kimi-k2.5","scenario":"count-open-prs","arm":"both","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":3310,"tokensOut":105,"cacheRead":1536,"peakContextTokens":1703,"compactions":0,"toolsInContext":4,"wallMs":6393,"costUsd":0.0014538749999999999,"toolMix":{"execute_sql":1},"expected":36}
+{"kind":"final_answer","text":"36"}
+{"t":5006,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_sql","input":"{\"sql\":\"SELECT COUNT(*) FROM github_pull_requests WHERE state = 'open'\"}"}]}
+{"t":5006,"type":"tokens","in":1607,"out":88,"peak":1607}
+{"t":5011,"type":"tool_result","tool":"execute_sql","status":"success","data":"{\"rows\":[{\"count\":36}],\"truncated\":false,\"touched\":[{\"name\":\"github_pull_requests\",\"source\":\"virtual\",\"access\":\"read\",\"op\":\"select\",\"volatility\":\"stable\",\"bindings\":{\"state\":[\"open\"]},\"invocations\":1}]}"}
+{"t":6393,"type":"model_response","turn":2,"stop_reason":"stop","text":"36","tool_calls":[]}
+{"t":6393,"type":"tokens","in":1703,"out":17,"peak":1703}
