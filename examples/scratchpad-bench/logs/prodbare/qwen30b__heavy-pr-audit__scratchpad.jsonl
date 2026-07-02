@@ -1,0 +1,22 @@
+{"kind":"meta","modelKey":"qwen30b","model":"qwen/qwen3-30b-a3b-instruct-2507","scenario":"heavy-pr-audit","arm":"scratchpad","ok":false,"errored":false,"turns":7,"toolCalls":6,"toolErrors":2,"mcpRoundTrips":0,"servicesTouched":0,"tokensIn":6590,"tokensOut":331,"cacheRead":6288,"peakContextTokens":1159,"compactions":0,"toolsInContext":2,"wallMs":4202,"costUsd":0.00039239000000000006,"toolMix":{"explain_sql":4,"execute_sql":2},"expected":{"total":6,"perRepo":{"acme/infra":3,"acme/mobile":2,"acme/web":1},"largest":1044}}
+{"kind":"final_answer","text":"The required database tables could not be accessed due to an underlying system limitation. As a result, it is not possible to retrieve the requested data about open pull requests, their repository counts, totals, or the PR with the most additions. Please verify system access or contact support for assistance."}
+{"t":776,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"explain_sql","input":"{\"sql\":\"SELECT COUNT(*) AS total_count, repo_id, MAX(additions) AS max_additions FROM pull_requests WHERE state = 'open' AND additions > 400 AND closed_issues IS NULL GROUP BY repo_id ORDER BY total_count DESC\"}"}]}
+{"t":776,"type":"tokens","in":688,"out":67,"peak":688}
+{"t":779,"type":"tool_result","tool":"explain_sql","status":"success","data":"{\"statementKind\":\"select\",\"readOnly\":true,\"relations\":[{\"name\":\"pull_requests\",\"source\":\"stored\",\"access\":\"read\",\"bindings\":{},\"invocations\":0}]}"}
+{"t":1430,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_sql","input":"{\"sql\":\"SELECT COUNT(*) AS total_count, repo_id, MAX(additions) AS max_additions FROM pull_requests WHERE state = 'open' AND additions > 400 AND closed_issues IS NULL GROUP BY repo_id ORDER BY total_count DESC\"}"}]}
+{"t":1430,"type":"tokens","in":802,"out":67,"peak":802}
+{"t":1432,"type":"tool_result","tool":"execute_sql","status":"error","data":"null","message":"MemoryBackend: relation \"pull_requests\" does not exist"}
+{"t":1917,"type":"model_response","turn":3,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"explain_sql","input":"{\"sql\":\"SELECT table_name FROM information_schema.tables\"}"}]}
+{"t":1917,"type":"tokens","in":895,"out":26,"peak":895}
+{"t":1918,"type":"tool_result","tool":"explain_sql","status":"success","data":"{\"statementKind\":\"select\",\"readOnly\":true,\"relations\":[]}"}
+{"t":2465,"type":"model_response","turn":4,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"explain_sql","input":"{\"sql\":\"SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'\"}"}]}
+{"t":2465,"type":"tokens","in":947,"out":33,"peak":947}
+{"t":2466,"type":"tool_result","tool":"explain_sql","status":"success","data":"{\"statementKind\":\"select\",\"readOnly\":true,\"relations\":[]}"}
+{"t":3002,"type":"model_response","turn":5,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"explain_sql","input":"{\"sql\":\"SELECT schemaname, tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')\"}"}]}
+{"t":3002,"type":"tokens","in":1006,"out":40,"peak":1006}
+{"t":3004,"type":"tool_result","tool":"explain_sql","status":"success","data":"{\"statementKind\":\"select\",\"readOnly\":true,\"relations\":[{\"name\":\"pg_tables\",\"source\":\"stored\",\"access\":\"read\",\"bindings\":{},\"invocations\":0}]}"}
+{"t":3641,"type":"model_response","turn":6,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_sql","input":"{\"sql\":\"SELECT schemaname, tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')\"}"}]}
+{"t":3641,"type":"tokens","in":1093,"out":40,"peak":1093}
+{"t":3643,"type":"tool_result","tool":"execute_sql","status":"error","data":"null","message":"MemoryBackend: relation \"pg_tables\" does not exist"}
+{"t":4202,"type":"model_response","turn":7,"stop_reason":"stop","text":"The required database tables could not be accessed due to an underlying system limitation. As a result, it is not possible to retrieve the requested data about open pull requests, their repository counts, totals, or the PR with the most add…(+70)","tool_calls":[]}
+{"t":4202,"type":"tokens","in":1159,"out":58,"peak":1159}

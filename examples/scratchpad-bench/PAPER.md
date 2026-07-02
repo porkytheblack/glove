@@ -274,7 +274,53 @@ the primed catalog not as documentation but as a prosthetic for the discovery
 step those models skip. (Priming is also cheap insurance for the mid-tier's
 relapse classes — enum values and anti-spiral discipline earn their tokens.)
 
-## 10. What the benchmark caught (that tests didn't)
+## 10. Production scale: 40 servers, 367 tools, 95% noise
+
+Everything so far ran against ten servers and 32 tools — a toy next to a real
+agent platform, where users connect *dozens* of MCP servers whose tools mostly
+don't matter for any given task. So we generated a **distractor fleet**: 30
+plausible SaaS/infra servers (Stripe, Datadog, Kubernetes, Salesforce,
+Zendesk, Twilio, Confluence, CircleCI, Snowflake, Auth0, Vercel, Terraform,
+LaunchDarkly, Okta, NetSuite, Elasticsearch, …) with production-verbose
+descriptions and pagination/sort/dry-run knobs — **40 servers, 367 tools, 72
+entity tables**, of which any task needs at most four. The baseline arm's
+standing tool-schema payload alone is **~39k tokens**. Three aggressive
+scenarios ride on top: a five-effect incident-commander chain across four
+services, a grouped-negation audit, and a needle sweep where 3 of 72 tables
+matter.
+
+![Production scale](figures/fig13-prod.svg)
+
+Four findings:
+
+1. **The baseline inverts.** At small scale it was accurate-but-expensive; at
+   production scale it is the *least* accurate arm (17/33) at **12× the
+   context** (median peak 47,878 vs ~4,100) and **~6× the cost** ($1.26 vs
+   $0.20–0.25 per 33 tasks, 6.79M tokens in vs ~0.8M). The five-effect write
+   chain buries it (3/11): orchestrating multi-service writes while carrying
+   367 schemas is exactly the regime tool-folding cannot survive. This is the
+   paper's headline restated as an ops bill: **the scratchpad's value is
+   proportional to how much of your tool surface is irrelevant** — and in
+   production, almost all of it is.
+2. **The surfaces barely notice the noise.** The scratchpad holds 70% at a
+   4.1k median peak — statistically unchanged from the 12-table world. The
+   72-table catalog costs the primed preamble ~3k more tokens, but discovery
+   (`information_schema` over 72 tables, `(tables)` over 72 functions) still
+   lands on the right entities.
+3. **Bare-at-scale sharpens the §9 verdict.** Bare SQL drops 23→16 while bare
+   Lisp holds 19→20 — and the bare failure texture is not discovery (models
+   found the tables) but **discipline**: five of the bare incident-commander
+   cells are 30-turn spirals. At production scale the load-bearing preamble
+   lines are the anti-thrash ones, not the catalog.
+4. **A new failure class appears above the surfaces: task-language
+   comprehension.** The needle sweep's dominant failure — identical across
+   SQL, Lisp, and both — is a *modifier-attachment misread*: "count (a)…,
+   (b)…, and (c)… whose titles mention the phrase" gets the filter applied
+   only to (c), producing confident 33/85/2 answers everywhere. The surface
+   executed each model's misreading flawlessly. Once mechanics are solved,
+   the bottleneck moves up the stack.
+
+## 11. What the benchmark caught (that tests didn't)
 
 Model-in-the-loop benchmarking found bugs that 100+ unit tests and a deterministic self-check had not, because models exercise the surface the way adversarial fuzzers don't — *plausibly*:
 
@@ -286,7 +332,7 @@ Model-in-the-loop benchmarking found bugs that 100+ unit tests and a determinist
 | `RETURNING` parsed as an implicit alias | the single most canonical write-idiom failed |
 | own error message steering reads into `BEGIN` scripts that discard rows | a model followed instructions and lost its data |
 
-## 11. Design principles (the transferable part)
+## 12. Design principles (the transferable part)
 
 1. **A silent wrong answer is the worst possible output.** Every silent-NULL, silent-inversion, silent-truncation became a confident wrong answer downstream. Erroring loudly — with the fix named in the message — is the single highest-leverage property of an agent-facing surface.
 2. **Make truth cheap, then trust follows.** Row-count command tags, read-your-writes, and RETURNING exist so the model never has to *wonder* whether something happened. Every verification loop we killed was a place the platform had made truth expensive.
@@ -295,7 +341,7 @@ Model-in-the-loop benchmarking found bugs that 100+ unit tests and a determinist
 5. **Errors are UX.** "Run one statement per call," "use `||` to concatenate," "this capability supports SELECT, INSERT" — messages that name the next action convert a failed turn into a corrected one. Our own vague message *caused* a benchmark failure.
 6. **Optimize for the weakest driver.** Everything above was invisible to frontier models — they route around potholes. The 8B models are the instrumentation that shows where the potholes are. Fixing for them made the road smooth for everyone, at zero cost to the strong.
 
-## 12. Limitations
+## 13. Limitations
 
 - **One seed, one run per cell.** n=35–84 per comparison; cells are single samples, so individual cell flips (±1 task) are within noise. The aggregate deltas (74→100, 71% vs 93%, 2.4–3.2× context reduction) are far outside it.
 - **Mocked services.** Real MCP servers have latency, auth failures, and pagination the mock world lacks; the benchmark measures the *surface*, not network reality.
@@ -303,7 +349,7 @@ Model-in-the-loop benchmarking found bugs that 100+ unit tests and a determinist
 - **Preamble co-evolution.** v2–v3 changed both engine and prompt; their contributions are not fully separable (v5's engine-only batches were measured in isolation and were pass-positive).
 - **Grader strictness.** Deterministic graders can mark a semantically-adequate answer wrong (and did, for case variants — we count those against the platform, which is the conservative direction).
 
-## 13. Reproducing
+## 14. Reproducing
 
 ```bash
 # no API key — validate the layer + engine mechanics:
@@ -312,6 +358,10 @@ npx tsx src/probe.ts
 
 # the benchmark (OPENROUTER_API_KEY in repo-root .env; guard spend):
 pnpm --filter glove-scratchpad-bench bench --budget=1.50
+
+# production scale (40 servers / 367 tools / 72 tables):
+pnpm bench --arms=baseline,scratchpad,lisp,both --distractors=30 \
+  --scenarios=incident-commander,heavy-pr-audit,needle-sweep --budget=3.0
 
 # the bare-prompt ablation (no preamble; discovery-only):
 pnpm bench --arms=scratchpad,lisp --bare --out=bare --budget=1.50
@@ -325,7 +375,7 @@ pnpm bench --arms=baseline,scratchpad,lisp --budget=1.50
 npx tsx src/figures.ts
 ```
 
-Total spend for every experiment in this paper: **≈ $3.50** across 1040 model runs (SQL study, Lisp replication, choice study, complex suite, and the bare-prompt ablation). Per-cell JSONL transcripts are git-tracked under `logs/`; the raw results behind every figure are in `results/*.json`; the audit is `results/PARITY-AUDIT.md` and the running lab notebook is `results/FINDINGS.md`.
+Total spend for every experiment in this paper: **≈ $5.97** across 1238 model runs (SQL study, Lisp replication, choice study, complex suite, bare-prompt ablation, and the production-scale fleet). Per-cell JSONL transcripts are git-tracked under `logs/`; the raw results behind every figure are in `results/*.json`; the audit is `results/PARITY-AUDIT.md` and the running lab notebook is `results/FINDINGS.md`.
 
 ---
 

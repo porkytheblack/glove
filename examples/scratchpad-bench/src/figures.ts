@@ -625,3 +625,68 @@ const SCEN7 = ["count-open-prs", "sentry-billing-unresolved", "merged-prs-open-l
   }
   save("fig12-bare.svg", svg(W, H, b));
 }
+
+// ══ Fig 13 — production scale: 40 servers / 367 tools / 72 tables ═══════════
+{
+  const prod = load("prod-results.json");
+  const W = 920;
+  const H = 400;
+  const ARMS = [
+    { key: "baseline", label: "baseline (367 tools)", color: GRAY },
+    { key: "scratchpad", label: "SQL", color: BLUE },
+    { key: "lisp", label: "Lisp", color: AQUA },
+    { key: "both", label: "both", color: DARKBLUE },
+  ];
+  const SCX = [
+    { id: "incident-commander", label: "incident commander", sub: "5 effects · 4 services" },
+    { id: "heavy-pr-audit", label: "heavy-PR audit", sub: "grouped negation" },
+    { id: "needle-sweep", label: "needle sweep", sub: "3 of 72 tables matter" },
+  ];
+  const M = { l: 56, r: 320, t: 96, b: 74 };
+  const pw = W - M.l - M.r;
+  const ph = H - M.t - M.b;
+  const y = (frac: number) => M.t + ph - frac * ph;
+  let b = text(16, 28, "Production scale: the tool baseline inverts — worst accuracy at 12× the context", { size: 15, fill: INK, weight: 600 });
+  b += text(16, 46, "40 servers · 367 tools · 72 tables, ~95% noise · 11 models per cell · pass rate + arm economics", { size: 12, fill: INK2 });
+  ARMS.forEach((a, i) => {
+    b += `<rect x="${16 + i * 175}" y="58" width="12" height="12" rx="3" fill="${a.color}"/>` + text(34 + i * 175, 68, a.label, { size: 12, fill: INK2 });
+  });
+  for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+    b += grid(M.l, W - M.r - 16, y(t));
+    b += text(M.l - 8, y(t) + 4, `${Math.round(t * 100)}%`, { size: 11, fill: MUTED, anchor: "end", nums: true });
+  }
+  const slot = pw / SCX.length;
+  const bw = 20;
+  SCX.forEach((s, si) => {
+    const cx = M.l + si * slot + slot / 2;
+    ARMS.forEach((a, ai) => {
+      const rows = prod.filter((r) => r.scenario === s.id && r.arm === a.key);
+      const p = rows.filter((r) => r.ok).length;
+      const frac = rows.length ? p / rows.length : 0;
+      const xx = cx + (ai - 1.5) * (bw + 2) - bw / 2 + bw / 2;
+      b += column(xx, y(frac), bw, ph - (y(frac) - M.t), a.color);
+      b += text(xx + bw / 2, y(frac) - 7, `${p}`, { size: 10.5, fill: INK, anchor: "middle", weight: 600, nums: true });
+    });
+    b += text(cx, M.t + ph + 20, s.label, { size: 12.5, fill: INK, anchor: "middle", weight: 600 });
+    b += text(cx, M.t + ph + 36, s.sub, { size: 10.5, fill: MUTED, anchor: "middle" });
+  });
+  b += `<line x1="${M.l}" y1="${M.t + ph}" x2="${W - M.r - 16}" y2="${M.t + ph}" stroke="${BASE}" stroke-width="1"/>`;
+  // economics panel (right)
+  const ex = W - M.r + 8;
+  b += text(ex, 96, "Arm economics (33 tasks each)", { size: 12.5, fill: INK, weight: 600 });
+  const rowsE = ARMS.map((a) => {
+    const rows = prod.filter((r) => r.arm === a.key);
+    const peak = [...rows.map((r) => r.peakContextTokens)].sort((x, z) => x - z)[Math.floor(rows.length / 2)] ?? 0;
+    const cost = rows.reduce((s2, r) => s2 + (r.costUsd ?? 0), 0);
+    const pass = rows.filter((r) => r.ok).length;
+    return { a, peak, cost, pass, n: rows.length };
+  });
+  rowsE.forEach((e, i) => {
+    const yy = 122 + i * 62;
+    b += `<rect x="${ex}" y="${yy - 12}" width="12" height="12" rx="3" fill="${e.a.color}"/>`;
+    b += text(ex + 18, yy - 2, e.a.label, { size: 11.5, fill: INK, weight: 600 });
+    b += text(ex + 18, yy + 14, `pass ${e.pass}/${e.n} · median peak ${e.peak.toLocaleString()} tok`, { size: 11, fill: INK2, nums: true });
+    b += text(ex + 18, yy + 30, `arm cost $${e.cost.toFixed(2)}`, { size: 11, fill: e.cost > 1 ? CRIT : GOODTEXT, weight: 600, nums: true });
+  });
+  save("fig13-prod.svg", svg(W, H, b));
+}
