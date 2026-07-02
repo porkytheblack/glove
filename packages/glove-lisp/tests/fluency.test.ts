@@ -120,7 +120,7 @@ test("a tool-side validation failure is one readable line", async () => {
 });
 
 test("effect iteration: doall/run!/doseq/map-indexed all work", async () => {
-  const s = new LispSession({ policy: { writes: true } });
+  const s = LispSession.create({ policy: { writes: true } });
   const sent: unknown[] = [];
   s.register(
     defineResource({
@@ -141,7 +141,7 @@ test("effect iteration: doall/run!/doseq/map-indexed all work", async () => {
 });
 
 test("bulk insert from (map …) is one call with the full count", async () => {
-  const s = new LispSession({ policy: { writes: true } });
+  const s = LispSession.create({ policy: { writes: true } });
   const sent: unknown[] = [];
   s.register(
     defineResource({
@@ -174,7 +174,7 @@ test("Java interop and tool-name symbols get targeted errors", async () => {
 
 test("a re-read after a fired write does not double-count (overlay dedup)", async () => {
   const world: Record<string, unknown>[] = [];
-  const s = new LispSession({ policy: { writes: true } });
+  const s = LispSession.create({ policy: { writes: true } });
   s.register(
     defineResource({
       name: "issues2",
