@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"glm","model":"z-ai/glm-4.7-flash","scenario":"busiest-assignee","arm":"lisp","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":3961,"tokensOut":236,"cacheRead":1856,"peakContextTokens":2042,"compactions":0,"toolsInContext":2,"wallMs":7901,"costUsd":0.00033206,"expected":{"top":"niaj","count":3,"tied":["niaj"]}}
+{"kind":"final_answer","text":"- Login: niaj\n- Count: 3"}
+{"t":5895,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(def linear-in-progress (filter #(= \\\"in_progress\\\" (:state %)) (linear_issues)))\\n(def assignee-counts (frequencies (map :assignee linear-in-progress)))\\n(def max-assignee (apply max-key val assignee-counts))\\n{:login (key max-assignee) :count (val max-assignee)}\"}"}]}
+{"t":5895,"type":"tokens","in":1919,"out":195,"peak":1919}
+{"t":5902,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":{\"login\":\"niaj\",\"count\":3},\"defined\":[\"linear-in-progress\",\"assignee-counts\",\"max-assignee\"]}"}
+{"t":7901,"type":"model_response","turn":2,"stop_reason":"stop","text":"- Login: niaj\n- Count: 3","tool_calls":[]}
+{"t":7901,"type":"tokens","in":2042,"out":41,"peak":2042}

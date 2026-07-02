@@ -328,6 +328,9 @@ importers:
       glove-core:
         specifier: workspace:*
         version: link:../../packages/glove
+      glove-lisp:
+        specifier: workspace:*
+        version: link:../../packages/glove-lisp
       glove-mcp:
         specifier: workspace:*
         version: link:../../packages/glove-mcp
@@ -431,6 +434,28 @@ importers:
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/glove-lisp:
+    dependencies:
+      glove-core:
+        specifier: workspace:*
+        version: link:../glove
+      glove-scratchpad:
+        specifier: workspace:*
+        version: link:../glove-scratchpad
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
       tsx:
         specifier: ^4.19.0
         version: 4.21.0

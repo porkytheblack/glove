@@ -1,0 +1,19 @@
+{"kind":"meta","modelKey":"kimi","model":"moonshotai/kimi-k2.5","scenario":"busiest-assignee","arm":"lisp","ok":true,"errored":false,"turns":6,"toolCalls":5,"toolErrors":3,"mcpRoundTrips":3,"servicesTouched":1,"tokensIn":12974,"tokensOut":701,"cacheRead":11480,"peakContextTokens":2473,"compactions":0,"toolsInContext":2,"wallMs":32248,"costUsd":0.006284774999999999,"expected":{"top":"niaj","count":3,"tied":["niaj"]}}
+{"kind":"final_answer","text":"**niaj** has the most Linear issues in 'in_progress' state, with **3** issues assigned to them."}
+{"t":7139,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"I'll query the Linear issues to find the assignee with the most 'in_progress' issues.","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(describe :linear_issues)\"}"}]}
+{"t":7139,"type":"tokens","in":1752,"out":125,"peak":1752}
+{"t":7148,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":{\"name\":\"linear_issues\",\"description\":\"Linear issues. INSERT creates one; UPDATE (WHERE id=…) changes state/assignee/priority.\",\"volatility\":\"stable\",\"ops\":[\"read\",\"insert!\",\"update!\"],\"columns\":[{\"name\":\"id\",\"type\":\"text\",\"description\":\"e.g. ENG-123\"},{\"name\":\"title\",\"type\":\"text\"},{\"name\"…(+513)"}
+{"t":12831,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(->> (linear_issues {:state \\\"in_progress\\\"})\\n     (group-by :assignee)\\n     (map (fn [[assignee issues]] {:assignee assignee :count (count issues)}))\\n     (sort-by :count >)\\n     first)\"}"}]}
+{"t":12831,"type":"tokens","in":2015,"out":97,"peak":2015}
+{"t":12835,"type":"tool_result","tool":"execute_lisp","status":"error","data":"null","message":"fn: parameters must be plain symbols, got [assignee issues]"}
+{"t":18164,"type":"model_response","turn":3,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(->> (linear_issues {:state \\\"in_progress\\\"})\\n     (group-by :assignee)\\n     (map (fn [pair] {:assignee (first pair) :count (count (second pair))}))\\n     (sort-by :count >)\\n     first)\"}"}]}
+{"t":18164,"type":"tokens","in":2124,"out":146,"peak":2124}
+{"t":18176,"type":"tool_result","tool":"execute_lisp","status":"error","data":"null","message":"unknown symbol 'second'. Run (tables) to list your capabilities and (describe :name) for one of them."}
+{"t":22677,"type":"model_response","turn":4,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(->> (linear_issues {:state \\\"in_progress\\\"})\\n     (group-by :assignee)\\n     (map (fn [pair] (let [[assignee issues] pair] {:assignee assignee :count (count issues)})))\\n     (sort-by :count >)\\n     first)\"}"}]}
+{"t":22678,"type":"tokens","in":2246,"out":124,"peak":2246}
+{"t":22681,"type":"tool_result","tool":"execute_lisp","status":"error","data":"null","message":"let: binding names must be plain symbols, got [assignee issues]"}
+{"t":29941,"type":"model_response","turn":5,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(->> (linear_issues {:state \\\"in_progress\\\"})\\n     (group-by :assignee)\\n     (map (fn [entry] {:assignee (key entry) :count (count (val entry))}))\\n     (sort-by :count >)\\n     first)\"}"}]}
+{"t":29941,"type":"tokens","in":2364,"out":157,"peak":2364}
+{"t":29947,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":{\"assignee\":\"niaj\",\"count\":3}}"}
+{"t":32248,"type":"model_response","turn":6,"stop_reason":"stop","text":"**niaj** has the most Linear issues in 'in_progress' state, with **3** issues assigned to them.","tool_calls":[]}
+{"t":32248,"type":"tokens","in":2473,"out":52,"peak":2473}

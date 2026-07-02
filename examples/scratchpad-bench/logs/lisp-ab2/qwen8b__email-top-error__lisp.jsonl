@@ -1,0 +1,2 @@
+{"kind":"meta","modelKey":"qwen8b","model":"qwen/qwen3-8b","scenario":"email-top-error","arm":"lisp","ok":false,"errored":true,"errorMessage":"429 Provider returned error","turns":0,"toolCalls":0,"toolErrors":0,"mcpRoundTrips":0,"servicesTouched":0,"tokensIn":0,"tokensOut":0,"cacheRead":0,"peakContextTokens":0,"compactions":0,"toolsInContext":2,"wallMs":2613,"costUsd":0,"expected":null}
+{"kind":"final_answer","text":""}

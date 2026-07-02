@@ -333,3 +333,152 @@ const cell = (rows: RunResult[], key: string, arm: string) => rows.filter((r) =>
 }
 
 console.log("all figures written to figures/");
+
+// ══ Lisp arm figures (fig7–fig9) ══════════════════════════════════════════════
+// Best-known lisp cells: later runs override earlier per (model, scenario).
+const AQUA = "#1baf7a"; // categorical slot 2 — sub-3:1 on light surface, so every
+// bar carries a visible end label (the relief rule) and the paper keeps a table.
+const lispBest = new Map<string, RunResult>();
+for (const f of ["lisp-ab3-results.json", "lisp-ab4-results.json", "lisp-ab5-results.json"]) {
+  try {
+    for (const r of JSON.parse(readFileSync(join(RES, f), "utf8")) as RunResult[]) {
+      lispBest.set(`${r.modelKey}|${r.scenario}`, r);
+    }
+  } catch {
+    /* run not present */
+  }
+}
+const sqlBest = new Map<string, RunResult>();
+for (const f of ["agentic-results.json", "v5-results.json", "roster-results.json", "lastmile-results.json"]) {
+  try {
+    for (const r of JSON.parse(readFileSync(join(RES, f), "utf8")) as RunResult[]) {
+      sqlBest.set(`${r.modelKey}|${r.scenario}|${r.arm}`, r);
+    }
+  } catch {
+    /* run not present */
+  }
+}
+const LISP_MODELS: { key: string; label: string; tier: string }[] = [
+  { key: "kimi27", label: "Kimi K2.7 Code", tier: "frontier" },
+  { key: "glm5", label: "GLM-5", tier: "frontier" },
+  { key: "minimax3", label: "MiniMax M3", tier: "frontier" },
+  { key: "deepseek", label: "DeepSeek V3.2", tier: "frontier" },
+  { key: "kimi", label: "Kimi K2.5", tier: "mid" },
+  { key: "minimax", label: "MiniMax M2.5", tier: "mid" },
+  { key: "xiaomi", label: "Xiaomi MiMo v2.5", tier: "mid" },
+  { key: "glm", label: "GLM 4.7 Flash", tier: "mid" },
+  { key: "dsflash", label: "DeepSeek V4 Flash", tier: "weak" },
+  { key: "qwen30b", label: "Qwen3 30B A3B", tier: "weak" },
+  { key: "qwen8b", label: "Qwen3 8B", tier: "weak" },
+];
+const SCEN7 = ["count-open-prs", "sentry-billing-unresolved", "merged-prs-open-linear", "busiest-assignee", "high-urgency-triggered", "email-top-error", "compose-verify-issues"];
+
+// ── Fig 7: three arms per model ──
+{
+  const W = 880;
+  const H = 96 + 11 * 62 + 40;
+  const M = { l: 172, r: 150, t: 96 };
+  const pw = W - M.l - M.r;
+  const rowH = 62;
+  const x = (v: number) => M.l + (v / 7) * pw;
+  let b = text(16, 28, "Same catalog, three surfaces: the REPL reaches graded parity with SQL", { size: 15, fill: INK, weight: 600 });
+  b += text(16, 46, "Tasks passed out of 7 per model · identical servers, tasks, and graders in every arm", { size: 12, fill: INK2 });
+  b += `<rect x="16" y="58" width="12" height="12" rx="3" fill="${GRAY}"/>` + text(34, 68, "baseline: 32 tools", { size: 12, fill: INK2 });
+  b += `<rect x="176" y="58" width="12" height="12" rx="3" fill="${BLUE}"/>` + text(194, 68, "SQL: execute_sql", { size: 12, fill: INK2 });
+  b += `<rect x="336" y="58" width="12" height="12" rx="3" fill="${AQUA}"/>` + text(354, 68, "Lisp: execute_lisp", { size: 12, fill: INK2 });
+  for (const t of [0, 1, 2, 3, 4, 5, 6, 7]) {
+    b += `<line x1="${x(t)}" y1="${M.t}" x2="${x(t)}" y2="${M.t + 11 * rowH}" stroke="${GRID}" stroke-width="1"/>`;
+    b += text(x(t), M.t + 11 * rowH + 18, String(t), { size: 11, fill: MUTED, anchor: "middle", nums: true });
+  }
+  LISP_MODELS.forEach((m, i) => {
+    const yTop = M.t + i * rowH;
+    const base = SCEN7.filter((s) => sqlBest.get(`${m.key}|${s}|baseline`)?.ok).length;
+    const sql = SCEN7.filter((s) => sqlBest.get(`${m.key}|${s}|scratchpad`)?.ok).length;
+    const lispCells = SCEN7.map((s) => lispBest.get(`${m.key}|${s}`));
+    const lisp = lispCells.filter((r) => r?.ok).length;
+    const lispErr = lispCells.filter((r) => r?.errored).length;
+    b += text(M.l - 10, yTop + 22, m.label, { size: 12.5, fill: INK, anchor: "end", weight: 600 });
+    b += text(M.l - 10, yTop + 37, m.tier === "frontier" ? "OSS frontier" : m.tier === "mid" ? "mid tier" : "cheap / weak", { size: 10.5, fill: MUTED, anchor: "end" });
+    b += hbar(M.l, yTop + 6, Math.max(x(base) - M.l, 2), 14, GRAY);
+    b += hbar(M.l, yTop + 22, Math.max(x(sql) - M.l, 2), 14, BLUE);
+    b += hbar(M.l, yTop + 38, Math.max(x(lisp) - M.l, 2), 14, AQUA);
+    b += text(x(base) + 7, yTop + 17, `${base}/7`, { size: 11, fill: INK2, nums: true });
+    b += text(x(sql) + 7, yTop + 33, `${sql}/7`, { size: 11, fill: INK, weight: 600, nums: true });
+    b += text(x(lisp) + 7, yTop + 49, `${lisp}/7${lispErr ? ` (+${lispErr} provider err)` : ""}`, { size: 11, fill: INK, weight: 600, nums: true });
+  });
+  save("fig7-threearms.svg", svg(W, H, b));
+}
+
+// ── Fig 8: the lisp fluency arc ──
+{
+  const rounds = [
+    { v: "run 1", note: "as designed", pass: 62 },
+    { v: "run 2", note: "+ batch 1", pass: 64 },
+    { v: "run 3", note: "+ batch 2", pass: 72 },
+    { v: "run 4", note: "+ batch 3", pass: 73 },
+    { v: "run 5", note: "+ batch 4", pass: 74 },
+  ];
+  const W = 760;
+  const H = 368;
+  const M = { l: 56, r: 24, t: 84, b: 64 };
+  const pw = W - M.l - M.r;
+  const ph = H - M.t - M.b;
+  const y = (pct: number) => M.t + ph - (pct / 100) * ph;
+  let b = text(16, 28, "The Lisp arm repeats the SQL arc: 81% → 96% in four transcript-driven batches", { size: 15, fill: INK, weight: 600 });
+  b += text(16, 46, "11 models × 7 tasks per run (n = 77) · same grading · two residual misses are provider 429s", { size: 12, fill: INK2 });
+  for (const t of [0, 25, 50, 75, 100]) {
+    b += grid(M.l, W - M.r, y(t));
+    b += text(M.l - 8, y(t) + 4, `${t}%`, { size: 11, fill: MUTED, anchor: "end", nums: true });
+  }
+  const bw = 24;
+  const slot = pw / rounds.length;
+  rounds.forEach((r, i) => {
+    const pct = (r.pass / 77) * 100;
+    const xx = M.l + i * slot + slot / 2 - bw / 2;
+    b += column(xx, y(pct), bw, ph - (y(pct) - M.t), RAMP5[i]);
+    b += text(xx + bw / 2, y(pct) - 8, `${r.pass}/77`, { size: 12.5, fill: INK, anchor: "middle", weight: 600, nums: true });
+    b += text(M.l + i * slot + slot / 2, M.t + ph + 20, r.v, { size: 12.5, fill: INK, anchor: "middle", weight: 600 });
+    b += text(M.l + i * slot + slot / 2, M.t + ph + 36, r.note, { size: 11, fill: MUTED, anchor: "middle" });
+  });
+  b += `<line x1="${M.l}" y1="${M.t + ph}" x2="${W - M.r}" y2="${M.t + ph}" stroke="${BASE}" stroke-width="1"/>`;
+  save("fig8-lisp-arc.svg", svg(W, H, b));
+}
+
+// ── Fig 9: the structural scenarios ──
+{
+  const W = 760;
+  const H = 330;
+  const M = { l: 56, r: 24, t: 96, b: 56 };
+  const pw = W - M.l - M.r;
+  const ph = H - M.t - M.b;
+  const groups = [
+    { label: "incident-branch", sub: "decide-and-act, graded on the correct branch", vals: [{ n: 9, d: 10 }, { n: 9, d: 10 }, { n: 10, d: 10 }] },
+    { label: "open-prs-breakdown", sub: "two-part answer from one read", vals: [{ n: 7, d: 11 }, { n: 11, d: 11 }, { n: 9, d: 10 }] },
+  ];
+  const y = (frac: number) => M.t + ph - frac * ph;
+  let b = text(16, 28, "The scenarios SQL can't shape: the REPL sweeps decide-and-act", { size: 15, fill: INK, weight: 600 });
+  b += text(16, 46, "Pass rate per arm · Lisp is the only 10/10 on branching, in one call on three models", { size: 12, fill: INK2 });
+  b += `<rect x="16" y="58" width="12" height="12" rx="3" fill="${GRAY}"/>` + text(34, 68, "baseline", { size: 12, fill: INK2 });
+  b += `<rect x="116" y="58" width="12" height="12" rx="3" fill="${BLUE}"/>` + text(134, 68, "SQL", { size: 12, fill: INK2 });
+  b += `<rect x="196" y="58" width="12" height="12" rx="3" fill="${AQUA}"/>` + text(214, 68, "Lisp", { size: 12, fill: INK2 });
+  for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+    b += grid(M.l, W - M.r, y(t));
+    b += text(M.l - 8, y(t) + 4, `${Math.round(t * 100)}%`, { size: 11, fill: MUTED, anchor: "end", nums: true });
+  }
+  const colors = [GRAY, BLUE, AQUA];
+  const slot = pw / groups.length;
+  const bw = 24;
+  groups.forEach((g, gi) => {
+    const cx = M.l + gi * slot + slot / 2;
+    g.vals.forEach((v, vi) => {
+      const xx = cx + (vi - 1) * (bw + 2) - bw / 2;
+      const frac = v.n / v.d;
+      b += column(xx, y(frac), bw, ph - (y(frac) - M.t), colors[vi]);
+      b += text(xx + bw / 2, y(frac) - 8, `${v.n}/${v.d}`, { size: 11.5, fill: INK, anchor: "middle", weight: 600, nums: true });
+    });
+    b += text(cx, M.t + ph + 20, g.label, { size: 12.5, fill: INK, anchor: "middle", weight: 600 });
+    b += text(cx, M.t + ph + 36, g.sub, { size: 11, fill: MUTED, anchor: "middle" });
+  });
+  b += `<line x1="${M.l}" y1="${M.t + ph}" x2="${W - M.r}" y2="${M.t + ph}" stroke="${BASE}" stroke-width="1"/>`;
+  save("fig9-structural.svg", svg(W, H, b));
+}

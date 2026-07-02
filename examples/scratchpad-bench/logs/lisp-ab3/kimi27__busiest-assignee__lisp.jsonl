@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"kimi27","model":"moonshotai/kimi-k2.7-code","scenario":"busiest-assignee","arm":"lisp","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":3809,"tokensOut":247,"cacheRead":3584,"peakContextTokens":1972,"compactions":0,"toolsInContext":2,"wallMs":8776,"costUsd":0.0036831599999999996,"expected":{"top":"niaj","count":3,"tied":["niaj"]}}
+{"kind":"final_answer","text":"**niaj** has the most Linear issues in `in_progress`, with **3** issues assigned."}
+{"t":5667,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(def in-progress-issues (linear_issues {:state \\\"in_progress\\\"}))\\n(def counts (frequencies (map :assignee in-progress-issues)))\\n(def top (apply max-key val counts))\\n{:login (key top) :count (val top) :total-in-progress (count in-progress-issues)}\"}"}]}
+{"t":5667,"type":"tokens","in":1837,"out":169,"peak":1837}
+{"t":5672,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":{\"login\":\"niaj\",\"count\":3,\"total-in-progress\":15},\"defined\":[\"in-progress-issues\",\"counts\",\"top\"]}"}
+{"t":8776,"type":"model_response","turn":2,"stop_reason":"stop","text":"**niaj** has the most Linear issues in `in_progress`, with **3** issues assigned.","tool_calls":[]}
+{"t":8776,"type":"tokens","in":1972,"out":78,"peak":1972}

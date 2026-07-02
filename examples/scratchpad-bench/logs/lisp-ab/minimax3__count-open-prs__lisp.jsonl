@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"minimax3","model":"minimax/minimax-m3","scenario":"count-open-prs","arm":"lisp","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":4136,"tokensOut":56,"cacheRead":2020,"peakContextTokens":2097,"compactions":0,"toolsInContext":2,"wallMs":8583,"costUsd":0.001308,"expected":36}
+{"kind":"final_answer","text":"36"}
+{"t":7099,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(count (github_pull_requests {:state \\\"open\\\"}))\"}"}]}
+{"t":7099,"type":"tokens","in":2039,"out":54,"peak":2039}
+{"t":7102,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":36}"}
+{"t":8583,"type":"model_response","turn":2,"stop_reason":"stop","text":"36","tool_calls":[]}
+{"t":8583,"type":"tokens","in":2097,"out":2,"peak":2097}

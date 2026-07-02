@@ -1,0 +1,2 @@
+modelKey,model,scenario,arm,ok,errored,turns,toolCalls,toolErrors,mcpRoundTrips,servicesTouched,tokensIn,tokensOut,peakContextTokens,compactions,toolsInContext,wallMs,costUsd
+"qwen30b","qwen/qwen3-30b-a3b-instruct-2507","merged-prs-open-linear","lisp",true,false,6,5,4,75,2,15844,1076,3504,0,2,7907,0.000997

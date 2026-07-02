@@ -1,0 +1,10 @@
+{"kind":"meta","modelKey":"glm5","model":"z-ai/glm-5","scenario":"busiest-assignee","arm":"lisp","ok":true,"errored":false,"turns":3,"toolCalls":2,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":6298,"tokensOut":228,"cacheRead":5888,"peakContextTokens":2217,"compactions":0,"toolsInContext":2,"wallMs":7608,"costUsd":0.004216559999999999,"expected":{"top":"niaj","count":3,"tied":["niaj"]}}
+{"kind":"final_answer","text":"The person with the most Linear issues in the 'in_progress' state is **niaj** with exactly **3** issues assigned to them."}
+{"t":2398,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(describe :linear_issues)\"}"}]}
+{"t":2398,"type":"tokens","in":1927,"out":57,"peak":1927}
+{"t":2400,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":{\"name\":\"linear_issues\",\"description\":\"Linear issues. INSERT creates one; UPDATE (WHERE id=…) changes state/assignee/priority.\",\"volatility\":\"stable\",\"ops\":[\"read\",\"insert!\",\"update!\"],\"columns\":[{\"name\":\"id\",\"type\":\"text\",\"description\":\"e.g. ENG-123\"},{\"name\":\"title\",\"type\":\"text\"},{\"name\"…(+513)"}
+{"t":4435,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(def in-progress (linear_issues {:state \\\"in_progress\\\"}))\\n(def counts (frequencies (map :assignee in-progress)))\\n(apply max-key val counts)\"}"}]}
+{"t":4435,"type":"tokens","in":2154,"out":112,"peak":2154}
+{"t":4438,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[\"niaj\",3],\"defined\":[\"in-progress\",\"counts\"]}"}
+{"t":7608,"type":"model_response","turn":3,"stop_reason":"stop","text":"The person with the most Linear issues in the 'in_progress' state is **niaj** with exactly **3** issues assigned to them.","tool_calls":[]}
+{"t":7608,"type":"tokens","in":2217,"out":59,"peak":2217}

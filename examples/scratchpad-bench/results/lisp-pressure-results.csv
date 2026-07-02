@@ -1,0 +1,4 @@
+modelKey,model,scenario,arm,ok,errored,turns,toolCalls,toolErrors,mcpRoundTrips,servicesTouched,tokensIn,tokensOut,peakContextTokens,compactions,toolsInContext,wallMs,costUsd
+"deepseek","deepseek/deepseek-v3.2","count-open-prs","lisp",true,false,2,1,0,1,1,4508,88,2298,0,2,9360,0.001063
+"glm","z-ai/glm-4.7-flash","count-open-prs","lisp",true,false,2,1,0,1,1,4015,123,2023,0,2,4989,0.000290
+"kimi","moonshotai/kimi-k2.5","count-open-prs","lisp",true,false,2,1,0,1,1,3706,105,1879,0,2,6570,0.001602

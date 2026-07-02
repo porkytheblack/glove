@@ -93,8 +93,9 @@ function summaryMd(rows: RunResult[]): string {
     lines.push(`\n## ${mrows[0]?.model ?? mk}\n`);
     lines.push("| scenario | arm | pass | turns | tool calls | peak ctx (tok) | tokens in/out | compactions | cost $ |");
     lines.push("|---|---|:--:|--:|--:|--:|--:|--:|--:|");
+    const armsPresent = [...new Set(rows.map((r) => r.arm))];
     for (const s of [...new Set(mrows.map((r) => r.scenario))]) {
-      for (const arm of ["baseline", "scratchpad"] as ArmName[]) {
+      for (const arm of armsPresent) {
         const r = mrows.find((x) => x.scenario === s && x.arm === arm);
         if (!r) continue;
         const pass = r.errored ? "ERR" : r.ok ? "✅" : "❌";
@@ -103,12 +104,12 @@ function summaryMd(rows: RunResult[]): string {
     }
   }
 
-  // Aggregate reduction (scratchpad vs baseline), successful pairs only.
-  lines.push("\n## Aggregate: scratchpad vs baseline\n");
+  // Aggregate reduction (each arm vs baseline), successful pairs only.
+  lines.push("\n## Aggregate: arms compared\n");
   lines.push("Averaged over all runs (lower is better for every column except pass-rate).\n");
   lines.push("| arm | pass rate | avg turns | avg tool calls | avg peak ctx | avg tokens in | avg tokens out | avg compactions | avg cost $ |");
   lines.push("|---|:--:|--:|--:|--:|--:|--:|--:|--:|");
-  for (const arm of ["baseline", "scratchpad"] as ArmName[]) {
+  for (const arm of [...new Set(rows.map((r) => r.arm))]) {
     const a = rows.filter((r) => r.arm === arm);
     if (!a.length) continue;
     const avg = (f: (r: RunResult) => number) => a.reduce((s, r) => s + f(r), 0) / a.length;
@@ -116,11 +117,12 @@ function summaryMd(rows: RunResult[]): string {
     lines.push(`| ${arm} | ${(passRate * 100).toFixed(0)}% | ${avg((r) => r.turns).toFixed(1)} | ${avg((r) => r.toolCalls).toFixed(1)} | ${fmt(Math.round(avg((r) => r.peakContextTokens)))} | ${fmt(Math.round(avg((r) => r.tokensIn)))} | ${fmt(Math.round(avg((r) => r.tokensOut)))} | ${avg((r) => r.compactions).toFixed(2)} | ${avg((r) => r.costUsd).toFixed(4)} |`);
   }
   const base = rows.filter((r) => r.arm === "baseline");
-  const scr = rows.filter((r) => r.arm === "scratchpad");
-  if (base.length && scr.length) {
+  for (const other of [...new Set(rows.map((r) => r.arm))].filter((a) => a !== "baseline")) {
+    const alt = rows.filter((r) => r.arm === other);
+    if (!base.length || !alt.length) continue;
     const avg = (arr: RunResult[], f: (r: RunResult) => number) => arr.reduce((s, r) => s + f(r), 0) / arr.length;
-    const ratio = (f: (r: RunResult) => number) => (avg(base, f) / Math.max(1e-9, avg(scr, f)));
-    lines.push("\n**Reduction factors (baseline ÷ scratchpad):** " +
+    const ratio = (f: (r: RunResult) => number) => (avg(base, f) / Math.max(1e-9, avg(alt, f)));
+    lines.push(`\n**Reduction factors (baseline ÷ ${other}):** ` +
       `tool calls ${ratio((r) => r.toolCalls).toFixed(1)}×, ` +
       `peak context ${ratio((r) => r.peakContextTokens).toFixed(1)}×, ` +
       `input tokens ${ratio((r) => r.tokensIn).toFixed(1)}×, ` +
