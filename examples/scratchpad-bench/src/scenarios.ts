@@ -136,6 +136,51 @@ export const SCENARIOS: Scenario[] = [
       return { pass, expected: { count: expected }, note: `${opened.length} issue(s) opened` };
     },
   },
+  {
+    id: "incident-branch",
+    title: "Decide-and-act: all-clear to Slack OR alert email (branching write)",
+    requiresWrites: true,
+    prompt:
+      "Check PagerDuty. If there are NO incidents with urgency 'high' currently in the 'triggered' state, post exactly " +
+      "'All clear.' to the 'incidents' Slack channel and do nothing else. If there ARE any, do NOT post to Slack — " +
+      "instead send ONE email to 'oncall@acme.io' with the subject 'Triage' whose body lists every such incident's id. " +
+      "Then tell me which action you took and how many such incidents there are.",
+    verify: (text, w) => {
+      const live = w.pagerIncidents.filter((i) => i.urgency === "high" && i.status === "triggered");
+      const ids = live.map((i) => i.id);
+      const mails = w.outbox.filter(
+        (o) => o.kind === "email.send" && norm(String((o.payload as { subject?: string }).subject ?? "")).includes("triage"),
+      );
+      const slacks = w.outbox.filter(
+        (o) => o.kind === "slack.post_message" && norm(String((o.payload as { text?: string }).text ?? "")).includes("all clear"),
+      );
+      if (ids.length > 0) {
+        const body = mails.length === 1 ? String((mails[0].payload as { body?: string }).body ?? "") : "";
+        const pass =
+          mails.length === 1 && slacks.length === 0 && fractionPresent(body, ids) >= 0.75 && hasNumber(text, ids.length);
+        return { pass, expected: { branch: "email", count: ids.length, ids }, note: `${mails.length} mail(s), ${slacks.length} slack(s)` };
+      }
+      const pass = slacks.length === 1 && mails.length === 0;
+      return { pass, expected: { branch: "slack", count: 0 }, note: `${mails.length} mail(s), ${slacks.length} slack(s)` };
+    },
+  },
+  {
+    id: "open-prs-breakdown",
+    title: "Two-part: total open PRs, then which repo leads (reuse)",
+    prompt:
+      "Two related questions — answer both precisely: (a) exactly how many OPEN pull requests are there across all " +
+      "repositories? (b) among those open pull requests, which repository has the most, and how many does it have?",
+    verify: (text, w) => {
+      const open = w.githubPrs.filter((p) => p.state === "open");
+      const byRepo = new Map<string, number>();
+      for (const p of open) byRepo.set(p.repo, (byRepo.get(p.repo) ?? 0) + 1);
+      const max = Math.max(...byRepo.values());
+      const leaders = [...byRepo.entries()].filter(([, n]) => n === max).map(([r]) => r);
+      const t = norm(text);
+      const pass = hasNumber(text, open.length) && hasNumber(text, max) && leaders.some((r) => t.includes(norm(r)));
+      return { pass, expected: { total: open.length, top: leaders, topCount: max } };
+    },
+  },
 ];
 
 export function scenarioById(id: string): Scenario | undefined {

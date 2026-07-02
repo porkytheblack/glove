@@ -92,6 +92,8 @@ export interface LispExecuteResult {
   note?: string;
   /** Symbols (def'd) this call — they persist for later calls. */
   defined?: string[];
+  /** Per-def summaries (count + a small peek of real values) for list defs. */
+  defs?: Record<string, unknown>;
   /** println output, if any. */
   stdout?: string[];
 }
@@ -277,7 +279,30 @@ export class LispSession {
       elided: didElide,
       touched: [...call.touched.values()],
     };
-    if (defined.length) out.defined = defined;
+    if (defined.length) {
+      out.defined = defined;
+      // Per-def summaries with a peek of REAL values. A model whose last form
+      // was a scalar (count) otherwise reports rows it never saw — one computed
+      // a perfect 13-row join, returned its count, then fabricated the pairs.
+      const defs: Record<string, unknown> = {};
+      for (const n of defined) {
+        const looked = this.root.lookup(n);
+        const v = looked.found ? looked.value : undefined;
+        if (Array.isArray(v) && v.length > 0) {
+          const el = v[0];
+          const peek =
+            el !== null && typeof el === "object" && !Array.isArray(el)
+              ? Object.fromEntries(
+                  Object.entries(el as Record<string, unknown>)
+                    .slice(0, 4)
+                    .map(([k, x]) => [k, typeof x === "string" && x.length > 40 ? x.slice(0, 40) + "…" : x]),
+                )
+              : v.slice(0, 3);
+          defs[n] = { count: v.length, peek };
+        }
+      }
+      if (Object.keys(defs).length) out.defs = defs;
+    }
     if (stdout.length) out.stdout = stdout;
     if (call.messages.length) out.message = call.messages.join(" ");
     if (this.pending && this.pending.length) out.staged = this.preview();

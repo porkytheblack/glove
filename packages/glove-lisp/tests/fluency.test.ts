@@ -217,3 +217,12 @@ test("def echoes a peek of real values (anti-fabrication)", async () => {
   assert.equal(v.count, 3);
   assert.equal((v.peek as Record<string, unknown>).id, "A"); // real data to quote
 });
+
+test("results carry per-def peeks even when the last form is a scalar", async () => {
+  const s = await session();
+  const r = await s.execute(`(def hits (filter :link (issues))) (count hits)`);
+  assert.equal(r.value, 1);
+  const defs = r.defs as Record<string, { count: number; peek: Record<string, unknown> }>;
+  assert.equal(defs.hits.count, 1);
+  assert.equal(defs.hits.peek.id, "B"); // real values to quote, not fabricate
+});

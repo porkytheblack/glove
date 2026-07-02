@@ -96,6 +96,7 @@ export function buildExecuteLispTool(session: LispSession, opts: LispToolOptions
             value: r.value,
             ...(r.elided ? { elided: true } : {}),
             ...(r.defined ? { defined: r.defined } : {}),
+            ...(r.defs ? { defs: r.defs } : {}),
             ...(r.stdout ? { stdout: r.stdout } : {}),
             ...(r.message ? { message: r.message } : {}),
             ...(r.staged ? { staged: r.staged } : {}),
