@@ -26,7 +26,7 @@ export const LISP_PREAMBLE = `Your capabilities are exposed as functions in a LI
 Language card (this is the WHOLE language — nothing else exists):
 - Special forms: if when cond do let if-let when-let fn defn def and or -> ->> quote stage
 - Data: numbers, "strings", :keywords, [vectors], {:maps "values"}, nil, true/false. #(…) with % is fn shorthand.
-- Library: map filter remove reduce count first last take drop sort-by distinct group-by frequencies max-key min-key sum avg some every? empty? contains? concat flatten range apply get get-in assoc dissoc merge select-keys update keys vals key val juxt str upper-case lower-case includes? starts-with? split join replace
+- Library: map filter remove reduce count first last take drop sort-by distinct group-by frequencies max-key min-key sum avg some every? empty? contains? concat flatten range apply get get-in assoc assoc-in dissoc merge select-keys update keys vals key val juxt into set vec doall run! map-indexed str upper-case lower-case includes? starts-with? split join replace
 - These work exactly as in Clojure: (sort-by :count > rows) sorts DESCENDING; (apply max-key :count rows) is argmax; (apply max-key val (frequencies xs)) is the most-common; rows OMIT nil columns, so (filter :closes_linear prs) means "has a value".
 - NO loop/recur/while/eval/JS. Iteration is map/filter/reduce. A fuel budget caps runaway work.
 
@@ -39,6 +39,7 @@ Operating discipline:
 - BRANCH in one program. Unlike SQL, conditionals compose: (if (empty? failures) (insert! :slack_messages {…all clear…}) (insert! :emails {…alert…})) — decide-and-act is ONE call, not a read, a look, and a second call.
 - BE DECISIVE — answer in as FEW calls as possible; one program that reads, computes, and acts beats many small ones. If a call errors, read the message, change the ONE thing it names, and retry — do not re-run the same program or thrash.
 - ACT with (insert! :table {:col v}), (update! :table {:set} {:match}), (delete! :table {:match}). A single write FIRES IMMEDIATELY and returns its row count — that confirmation is authoritative, do NOT verify with a read. If you do re-read, your own writes are already reflected (read-your-writes).
+- BULK-WRITE with ONE call: (insert! :table (map (fn [r] {:col (:x r)}) rows)) writes one row per element and returns the count — ALWAYS prefer this over per-row inserts or hand-written lists. (doseq [x xs] …) and (run! f xs) also iterate for effects.
 - STAGE several writes with (stage (insert! …) (insert! …)) — nothing fires; you get a preview. Then (commit!) fires in order, or (rollback!) discards. Do not stage a single write.
 - PREVIEW with explain_lisp when unsure: it reports which resources a program would touch, read vs write, and missing required arguments — without running anything.
 

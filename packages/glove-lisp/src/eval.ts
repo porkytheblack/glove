@@ -167,6 +167,16 @@ export async function evalForm(form: Form, env: Env, ctx: EvalCtx): Promise<unkn
   if (form instanceof Sym) {
     const r = env.lookup(form.name);
     if (!r.found) {
+      if (form.name.startsWith(".")) {
+        throw new LispError(
+          `'${form.name}': Java interop is not available — use the library fns instead (starts-with?, ends-with?, includes?, lower-case, upper-case, split, replace).`,
+        );
+      }
+      if (form.name === "execute_lisp" || form.name === "explain_lisp") {
+        throw new LispError(
+          `'${form.name}' is a TOOL, not a function — you are already inside it. Call the ${form.name} tool directly for your next program.`,
+        );
+      }
       const hint = closest(form.name, env.allNames());
       throw new LispError(
         `unknown symbol '${form.name}'${hint ? ` — did you mean '${hint}'?` : ""}. Run (tables) to list your capabilities and (describe :name) for one of them.`,
@@ -266,6 +276,23 @@ export async function evalForm(form: Form, env: Env, ctx: EvalCtx): Promise<unkn
         let out: unknown = null;
         for (const f of items.slice(2)) out = await evalForm(f, local, ctx);
         return out;
+      }
+      case "doseq": {
+        // (doseq [x coll] body…) — evaluate body per element, for effects.
+        if (items.length < 3) throw new LispError("doseq takes (doseq [x coll] body…)");
+        const vec = expectVec(items[1], "doseq: the binding");
+        if (vec.items.length !== 2 || !(vec.items[0] instanceof Sym)) {
+          throw new LispError("doseq: the binding must be [name coll] — one name, one collection");
+        }
+        const seq = await evalForm(vec.items[1], env, ctx);
+        const elements = Array.isArray(seq) ? seq : seq === null || seq === undefined ? [] : [seq];
+        chargeFuel(ctx, elements.length);
+        for (const el of elements) {
+          const local = new Env(env);
+          local.set((vec.items[0] as Sym).name, el);
+          for (const f of items.slice(2)) await evalForm(f, local, ctx);
+        }
+        return null;
       }
       case "if-let":
       case "when-let": {

@@ -628,6 +628,83 @@ export function stdlib(): Map<string, NativeFn> {
     return Object.values(m);
   });
 
+  // ── effect iteration & collection building (Clojure muscle memory) ─────────
+  // Evaluation is strict, so doall is identity — it exists because models wrap
+  // (map #(insert! …) rows) in it reflexively and an unknown-symbol error sent
+  // them hand-unrolling 15 inserts instead.
+  def("doall", (a) => (arity(a, "doall", 1), a[0]), "(doall coll) — forces evaluation (already strict here)");
+  def(
+    "run!",
+    async (a, ctx) => {
+      arity(a, "run!", 2);
+      const c = coll(a[1], "run!");
+      chargeFuel(ctx, c.length);
+      for (const el of c) await apply(a[0], [el], ctx);
+      return null;
+    },
+    "(run! f coll) — apply f to each element for its effect, returns nil",
+  );
+  def(
+    "map-indexed",
+    async (a, ctx) => {
+      arity(a, "map-indexed", 2);
+      const c = coll(a[1], "map-indexed");
+      chargeFuel(ctx, c.length);
+      const out: unknown[] = [];
+      for (let i = 0; i < c.length; i++) out.push(await apply(a[0], [i, c[i]], ctx));
+      return out;
+    },
+    "(map-indexed (fn [i x] …) coll)",
+  );
+  def(
+    "into",
+    (a) => {
+      arity(a, "into", 2);
+      const src = coll(a[1], "into");
+      const target = a[0];
+      if (isPlainObject(target)) {
+        const out: Record<string, unknown> = { ...target };
+        for (const el of src) {
+          if (Array.isArray(el) && el.length === 2) out[asKey(el[0])] = el[1];
+          else if (isPlainObject(el)) Object.assign(out, el);
+          else throw new LispError(`into a map: elements must be [k v] pairs or maps, got ${printForm(el)}`);
+        }
+        return out;
+      }
+      if (Array.isArray(target) || target === null || target === undefined) return [...(target ?? []), ...src];
+      throw new LispError(`into: the target must be a map or a vector, got ${printForm(target)}`);
+    },
+    "(into {} pairs) or (into [] coll)",
+  );
+  def("set", (a, ctx) => {
+    arity(a, "set", 1);
+    const c = coll(a[0], "set");
+    chargeFuel(ctx, c.length);
+    const seen = new Set<string>();
+    const out: unknown[] = [];
+    for (const el of c) {
+      const k = groupKey(el);
+      if (!seen.has(k)) {
+        seen.add(k);
+        out.push(el);
+      }
+    }
+    return out; // sets are distinct lists here; contains? is already membership
+  });
+  def("vec", (a) => (arity(a, "vec", 1), [...coll(a[0], "vec")]));
+  def("assoc-in", (a) => {
+    arity(a, "assoc-in", 3);
+    const path = coll(a[1], "assoc-in");
+    if (path.length === 0) throw new LispError("assoc-in: the path is empty");
+    const build = (cur: unknown, i: number): unknown => {
+      const k = asKey(path[i]);
+      const base = isPlainObject(cur) ? { ...cur } : {};
+      base[k] = i === path.length - 1 ? a[2] : build(base[k], i + 1);
+      return base;
+    };
+    return build(a[0], 0);
+  });
+
   // Map entries iterate as [k v] pairs (see coll); key/val extract the halves —
   // `(apply max-key val (frequencies …))` is the canonical Clojure argmax.
   def("key", (a) => {

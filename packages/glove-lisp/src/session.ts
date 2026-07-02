@@ -644,7 +644,13 @@ export class LispSession {
             rows = rows.filter((r) => !insKeys.some((ik) => keyCols.every((k, i) => scalarEq(r[k], ik[i]))));
           }
         }
-        rows = rows.concat(e.rows);
+        // An upstream that already reflects the write must not be double-counted:
+        // skip an overlay row when some live row carries all its values (the
+        // fired insert came back through the read). Without this, a re-read
+        // after commit showed 30 "Verify:" issues where 15 were written.
+        const reflected = (ins: Record<string, unknown>): boolean =>
+          rows.some((r) => Object.entries(ins).every(([k, v]) => v === null || v === undefined || scalarEq(r[k] as SqlScalar, v as SqlScalar)));
+        rows = rows.concat(e.rows.filter((ins) => !reflected(ins)));
       } else if (e.op === "update") {
         rows = rows.map((r) => (overlayMatch(r, e.match) ? { ...r, ...e.set } : r));
       } else {

@@ -118,3 +118,76 @@ test("a tool-side validation failure is one readable line", async () => {
     (e: Error) => /insert! on "emails": the tool rejected the row — :body expected string/.test(e.message) && !e.message.includes("\n"),
   );
 });
+
+test("effect iteration: doall/run!/doseq/map-indexed all work", async () => {
+  const s = new LispSession({ policy: { writes: true } });
+  const sent: unknown[] = [];
+  s.register(
+    defineResource({
+      name: "emails",
+      volatility: "volatile",
+      columns: [{ name: "body", type: "text" }],
+      select: async () => [],
+      insert: async (rows: Record<string, unknown>[]) => void sent.push(...rows),
+    }),
+  );
+  const w = { allowWrites: true };
+  await s.execute(`(doall (map #(insert! :emails {:body (str "a" %)}) [1 2]))`, w);
+  await s.execute(`(run! #(insert! :emails {:body (str "b" %)}) [1 2])`, w);
+  await s.execute(`(doseq [x [1 2]] (insert! :emails {:body (str "c" x)}))`, w);
+  assert.equal(sent.length, 6);
+  const r = await s.execute(`(map-indexed (fn [i x] [i x]) ["p" "q"])`);
+  assert.deepEqual(r.value, [[0, "p"], [1, "q"]]);
+});
+
+test("bulk insert from (map …) is one call with the full count", async () => {
+  const s = new LispSession({ policy: { writes: true } });
+  const sent: unknown[] = [];
+  s.register(
+    defineResource({
+      name: "issues",
+      volatility: "volatile",
+      columns: [{ name: "title", type: "text" }],
+      select: async () => [],
+      insert: async (rows: Record<string, unknown>[]) => void sent.push(...rows),
+    }),
+  );
+  const r = await s.execute(`(insert! :issues (map (fn [t] {:title (str "Verify: " t)}) ["a" "b" "c"]))`, { allowWrites: true });
+  assert.equal(sent.length, 3);
+  assert.match(JSON.stringify(r.value), /"count":3/);
+});
+
+test("into/set/vec/assoc-in behave like Clojure", async () => {
+  const s = await session();
+  assert.deepEqual(await val(s, `(into {} [[:a 1] [:b 2]])`), { a: 1, b: 2 });
+  assert.deepEqual(await val(s, `(into [] (map :id (issues)))`), ["A", "B", "C"]);
+  assert.deepEqual(await val(s, `(set [1 2 2 3 1])`), [1, 2, 3]);
+  assert.equal(await val(s, `(contains? (set (map :id (issues))) "B")`), true);
+  assert.deepEqual(await val(s, `(assoc-in {:a {:b 1}} [:a :c] 2)`), { a: { b: 1, c: 2 } });
+});
+
+test("Java interop and tool-name symbols get targeted errors", async () => {
+  const s = await session();
+  await assert.rejects(() => s.execute(`(.startsWith "ab" "a")`), /Java interop is not available/);
+  await assert.rejects(() => s.execute(`(explain_lisp "(tables)")`), /is a TOOL, not a function/);
+});
+
+test("a re-read after a fired write does not double-count (overlay dedup)", async () => {
+  const world: Record<string, unknown>[] = [];
+  const s = new LispSession({ policy: { writes: true } });
+  s.register(
+    defineResource({
+      name: "issues2",
+      volatility: "volatile",
+      columns: [
+        { name: "title", type: "text" },
+        { name: "repo", type: "text" },
+      ],
+      select: async () => world.slice(), // upstream REFLECTS writes
+      insert: async (rows: Record<string, unknown>[]) => void world.push(...rows.map((r) => ({ ...r, number: world.length + 1 }))),
+    }),
+  );
+  await s.execute(`(insert! :issues2 [{:title "Verify: x" :repo "w"} {:title "Verify: y" :repo "w"}])`, { allowWrites: true });
+  const n = await s.execute(`(count (filter #(starts-with? (:title %) "Verify:") (issues2)))`);
+  assert.equal(n.value, 2); // was 4: live + overlay copies
+});
