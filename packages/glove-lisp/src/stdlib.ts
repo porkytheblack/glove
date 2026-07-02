@@ -220,6 +220,11 @@ export function stdlib(): Map<string, NativeFn> {
         for (const el of c) out.push(await apply(a[0], [el], ctx));
         return out;
       }
+      if (isFnLike(a[1])) {
+        throw new LispError(
+          "map with two functions — did you mean (map (comp f g) coll), or a ->> pipeline: (->> coll (map f) (map g))?",
+        );
+      }
       const c1 = coll(a[1], "map");
       const c2 = coll(a[2], "map");
       const n = Math.min(c1.length, c2.length);
