@@ -14,7 +14,7 @@ Agents talk to the world through tools, and tools have two costs that grow with 
 
 We built a benchmark of **ten mocked-but-real MCP servers** (GitHub, Linear, Slack, Email, Sentry, PagerDuty, Notion, Jira, Calendar, Filesystem — 32 tools over one deterministic seed world) and ran **seven cross-service tasks** through the real agent loop twice per model: once with all 32 tools folded directly (*baseline*), once with the single SQL surface (*scratchpad*). Runs are graded deterministically; writes are graded on the real side-effect outbox, which cannot be faked.
 
-Three findings. **(1)** The initial comparison was a tradeoff, not a win: the scratchpad always cut peak context 2–4×, but weak models spiralled in the open SQL surface (74% pass, six 30-turn runaways). **(2)** Nearly every weak-model failure traced to a *platform* gap rather than a model limit — most damningly, places where the engine **silently mis-answered where Postgres would error** (an inverted boolean comparison, unknown columns returning NULL, writes reporting no row count). Five rounds of fixes — engine bugs, prompt discipline, SQL-discoverable metadata, read-your-writes, Postgres parity — took the same five budget models from **74% → 100%** with zero spirals, cutting median tool calls from 6 to 2. **(3)** The result generalizes in both directions: on the current OSS frontier (Kimi K2.7, GLM-5, MiniMax M3) the scratchpad arm scores **21/21 vs 16/21** for the tool baseline — even frontier models miscount long tool-result lists — and a **$0.09/M-token model scores 7/7**, indistinguishable from the frontier on these tasks. The one remaining failure across the cheapest tier is a demonstrated comprehension floor, not a mechanics gap.
+Three findings. **(1)** The initial comparison was a tradeoff, not a win: the scratchpad always cut peak context 2–4×, but weak models spiralled in the open SQL surface (74% pass, six 30-turn runaways). **(2)** Nearly every weak-model failure traced to a *platform* gap rather than a model limit — most damningly, places where the engine **silently mis-answered where Postgres would error** (an inverted boolean comparison, unknown columns returning NULL, writes reporting no row count). Five rounds of fixes — engine bugs, prompt discipline, SQL-discoverable metadata, read-your-writes, Postgres parity — took the same five budget models from **74% → 100%** with zero spirals, cutting median tool calls from 6 to 2. **(3)** The result generalizes in both directions: on the current OSS frontier (Kimi K2.7, GLM-5, MiniMax M3) the scratchpad arm scores **21/21 vs 16/21** for the tool baseline — even frontier models miscount long tool-result lists — and a **$0.09/M-token model scores 7/7**, indistinguishable from the frontier on these tasks. The one remaining failure across the cheapest tier is a demonstrated comprehension floor, not a mechanics gap. **(4)** The method replicates across languages: exposing the *same* resource catalog as a **Clojure-flavored Lisp REPL** (one `execute_lisp` tool) and running the identical protocol took a third arm from 81% to **graded parity with SQL (74/75 vs 76/77)** in four transcript-driven fluency batches — and on a decide-and-act scenario the REPL was the only arm to sweep all models, three of them in a single call, because `if` composes where SQL structurally cannot.
 
 The transferable lesson is a design stance: **the scratchpad only works if it behaves like the database the model already knows.** Every place it silently deviated from Postgres muscle-memory was a place a weak model failed; every fix that made truth cheaper to see — command tags, read-your-writes, loud errors, in-band discovery — bought more capability than any prompt instruction.
 
@@ -159,7 +159,57 @@ The fixes are all product-side: write results now carry the **command tag** (`ro
 
 Re-run: **Qwen3-30B 6/7 → 7/7, Qwen3-8B 5/7 → 6/7, DeepSeek V4 Flash 7/7 (control)** — the cheapest tier at 20/21 (95%). The single residual is now a *demonstrated* floor: the prompt asks for the issue's **title** in the email body; Qwen3-8B wrote `'Top error: ' || project`, and `RETURNING` showed it exactly what it sent — it confirmed happily. It failed on **meaning, not mechanics**. That is what an honest floor looks like.
 
-## 8. What the benchmark caught (that tests didn't)
+## 8. Replication in another language: is the scratchpad a REPL?
+
+The essay behind this work named two honest limits of SQL — conditional
+branching doesn't reduce to one statement, and exactly-once effects needed a
+whole pre-resolution subsystem — and §7 added a third (grammar-corner
+misparses). All three share a root: SQL programs are strings in a big grammar,
+run by a planner the interface doesn't control. So we rebuilt the surface as a
+**sandboxed, Clojure-flavored Lisp** (`glove-lisp`: one `execute_lisp` tool,
+~1,900 lines vs SQL's ~4,600) over the *same* `ResourceTable` catalog — every
+design property ported (in-band discovery, pushdown, command tags,
+read-your-writes, staging, loud errors) plus the three SQL can't offer:
+branching in one program, exactly-once effects by construction, and
+inspection for free (the program *is* the syntax tree).
+
+The bet was fluency: SQL muscle memory is universal; Clojure's may not reach
+an 8B model. Running the identical protocol answered it:
+
+![Three arms](figures/fig7-threearms.svg)
+
+![Lisp fluency arc](figures/fig8-lisp-arc.svg)
+
+The same autopsy loop that hardened SQL (v1→v5) repeated beat-for-beat, four
+batches in five runs: a comparator silently ignored (`(sort-by :count > coll)`
+returned *ascending* — one silent wrong answer failed five models at once, the
+Lisp arm's inverted-boolean), variadic `max-key` and the argmax idioms, rows
+omitting nil columns so `contains?`/`filter` mean "has a value", effect
+iteration (`doall`/`doseq`/`run!` — a model hand-unrolled 15 inserts and lost
+to a typo), `(count write-result)` as the row count, `def` echoing peeks of
+real values so weak models quote data instead of fabricating it, binding
+destructuring, and errors that name writes which already fired (closing an
+observed double-send). Final: **74/77 (96%), 74/75 (99%) graded — parity with
+SQL** — with identical peak-context profiles, and the 16k pressure demo holds
+(3/3 at 1.9–2.3k peak).
+
+Two scenarios added to probe the structural claims:
+
+![Structural scenarios](figures/fig9-structural.svg)
+
+On decide-and-act (post all-clear OR email the incident list, graded on the
+*correct* side effect firing) the REPL is the only 10/10 — the weakest graded
+model passes *only* there, and three models did read-decide-act in **one tool
+call**, which SQL cannot express. The full exploration, protocol, and
+per-batch story: [Is the Scratchpad a REPL?](LISP-EXPLORATION.md).
+
+The replication upgrades the paper's thesis from a claim about SQL to a claim
+about **surfaces**: what matters is not the language but that the language is
+one the model already speaks, behaves exactly as the model expects, and makes
+truth cheaper than fabrication. Do that, and two very different languages
+converge on the same number.
+
+## 9. What the benchmark caught (that tests didn't)
 
 Model-in-the-loop benchmarking found bugs that 100+ unit tests and a deterministic self-check had not, because models exercise the surface the way adversarial fuzzers don't — *plausibly*:
 
@@ -171,7 +221,7 @@ Model-in-the-loop benchmarking found bugs that 100+ unit tests and a determinist
 | `RETURNING` parsed as an implicit alias | the single most canonical write-idiom failed |
 | own error message steering reads into `BEGIN` scripts that discard rows | a model followed instructions and lost its data |
 
-## 9. Design principles (the transferable part)
+## 10. Design principles (the transferable part)
 
 1. **A silent wrong answer is the worst possible output.** Every silent-NULL, silent-inversion, silent-truncation became a confident wrong answer downstream. Erroring loudly — with the fix named in the message — is the single highest-leverage property of an agent-facing surface.
 2. **Make truth cheap, then trust follows.** Row-count command tags, read-your-writes, and RETURNING exist so the model never has to *wonder* whether something happened. Every verification loop we killed was a place the platform had made truth expensive.
@@ -180,7 +230,7 @@ Model-in-the-loop benchmarking found bugs that 100+ unit tests and a determinist
 5. **Errors are UX.** "Run one statement per call," "use `||` to concatenate," "this capability supports SELECT, INSERT" — messages that name the next action convert a failed turn into a corrected one. Our own vague message *caused* a benchmark failure.
 6. **Optimize for the weakest driver.** Everything above was invisible to frontier models — they route around potholes. The 8B models are the instrumentation that shows where the potholes are. Fixing for them made the road smooth for everyone, at zero cost to the strong.
 
-## 10. Limitations
+## 11. Limitations
 
 - **One seed, one run per cell.** n=35–84 per comparison; cells are single samples, so individual cell flips (±1 task) are within noise. The aggregate deltas (74→100, 71% vs 93%, 2.4–3.2× context reduction) are far outside it.
 - **Mocked services.** Real MCP servers have latency, auth failures, and pagination the mock world lacks; the benchmark measures the *surface*, not network reality.
@@ -188,7 +238,7 @@ Model-in-the-loop benchmarking found bugs that 100+ unit tests and a determinist
 - **Preamble co-evolution.** v2–v3 changed both engine and prompt; their contributions are not fully separable (v5's engine-only batches were measured in isolation and were pass-positive).
 - **Grader strictness.** Deterministic graders can mark a semantically-adequate answer wrong (and did, for case variants — we count those against the platform, which is the conservative direction).
 
-## 11. Reproducing
+## 12. Reproducing
 
 ```bash
 # no API key — validate the layer + engine mechanics:
@@ -198,11 +248,16 @@ npx tsx src/probe.ts
 # the benchmark (OPENROUTER_API_KEY in repo-root .env; guard spend):
 pnpm --filter glove-scratchpad-bench bench --budget=1.50
 
+# the Lisp arm (same catalog, third surface):
+pnpm --filter glove-lisp test
+pnpm --filter glove-scratchpad-bench probe:lisp
+pnpm bench --arms=baseline,scratchpad,lisp --budget=1.50
+
 # regenerate every figure in this paper from the raw results:
 npx tsx src/figures.ts
 ```
 
-Total spend for every experiment in this paper: **≈ $0.85** across 327 model runs. Per-cell JSONL transcripts are git-tracked under `logs/`; the raw results behind every figure are in `results/*.json`; the audit is `results/PARITY-AUDIT.md` and the running lab notebook is `results/FINDINGS.md`.
+Total spend for every experiment in this paper: **≈ $1.84** across 655 model runs (the SQL study ≈ $0.85 over 327 runs; the Lisp replication ≈ $1.00 over 328). Per-cell JSONL transcripts are git-tracked under `logs/`; the raw results behind every figure are in `results/*.json`; the audit is `results/PARITY-AUDIT.md` and the running lab notebook is `results/FINDINGS.md`.
 
 ---
 

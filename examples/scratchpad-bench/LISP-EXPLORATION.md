@@ -56,7 +56,7 @@ mount on it with zero new world code — so the A/B is pure surface-vs-surface.
 
 ## 3. Property-by-property mapping
 
-Every design principle from the paper (§9), translated:
+Every design principle from the paper (§10), translated:
 
 | Property | SQL surface | Lisp surface |
 |---|---|---|
