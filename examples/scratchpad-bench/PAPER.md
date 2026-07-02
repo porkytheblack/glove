@@ -209,14 +209,23 @@ one the model already speaks, behaves exactly as the model expects, and makes
 truth cheaper than fabrication. Do that, and two very different languages
 converge on the same number.
 
-Two follow-on studies sharpen it (full data in the exploration doc): mounting
-**both** surfaces at once shows models' revealed preference is SQL (83/99
-cells) *except* on branch-shaped tasks, where half switch to Lisp unprompted —
-and having both costs nothing (91/99). And on a harder suite (negation join,
-multi-metric report, conditional fan-out escalation) every arm falls to
-67–73% — with the REPL ahead overall (24/33) and SQL *worst* at the negation
-join its own grammar makes hard to state (6/11 vs Lisp's 9/11). Task
-complexity, not surface parity, is the open frontier.
+Two follow-on studies sharpen it. Mounting **both** surfaces at once (one
+catalog, a neutral preamble) shows models' revealed preference is SQL — 83 of
+99 cells — *except* on branch-shaped tasks, where five of eleven models switch
+to Lisp unprompted. Having both costs nothing: 91/99, matching the
+single-surface arms cell-for-cell.
+
+![Choice study](figures/fig10-choice.svg)
+
+And on a genuinely hard suite (a negation join, a multi-metric grouped report,
+a conditional fan-out escalation) every arm falls to 67–73% — with the REPL
+ahead overall (24/33) and SQL *worst* at the negation join its own grammar
+makes hard to state (6/11 vs Lisp's 9/11: models write subtly wrong
+`NOT EXISTS`, but state the same logic naturally as
+`(filter #(not (some …)))`). Task complexity, not surface parity, is the open
+frontier.
+
+![Complex suite](figures/fig11-complex.svg)
 
 ## 9. What the benchmark caught (that tests didn't)
 
