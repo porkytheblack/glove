@@ -27,6 +27,10 @@ export interface ArmConfig {
   maxTurns: number;
   compactionContextLimit: number;
   echo?: boolean;
+  /** false = BARE mode: no primed preamble/catalog/discipline — the model gets
+   *  only the role and the tools' own descriptions, and must DISCOVER the rest
+   *  (information_schema / (tables) / (describe)). The realistic adopter setup. */
+  prime?: boolean;
 }
 
 export interface BuiltArm {
@@ -92,8 +96,8 @@ export async function buildScratchpadArm(model: ModelAdapter, org: MockOrg, cfg:
 
   const db = await Database.create({ policy: { writes: true } });
   db.registerAll(org.resources());
-  // Folds execute_sql + explain_sql and prepends the DATABASE_PREAMBLE.
-  mountDatabase(runnable, { db, allowWrites: true });
+  // Folds execute_sql + explain_sql; primes unless bare mode.
+  mountDatabase(runnable, { db, allowWrites: true, prime: cfg.prime !== false });
 
   const sub = new BenchSubscriber({ echo: cfg.echo });
   glove.addSubscriber(sub);
@@ -107,8 +111,8 @@ export async function buildLispArm(model: ModelAdapter, org: MockOrg, cfg: ArmCo
 
   const lisp = LispSession.create({ policy: { writes: true } });
   lisp.registerAll(org.resources());
-  // Folds execute_lisp + explain_lisp and prepends the LISP_PREAMBLE.
-  mountLisp(runnable, { session: lisp, allowWrites: true });
+  // Folds execute_lisp + explain_lisp; primes unless bare mode.
+  mountLisp(runnable, { session: lisp, allowWrites: true, prime: cfg.prime !== false });
 
   const sub = new BenchSubscriber({ echo: cfg.echo });
   glove.addSubscriber(sub);
@@ -141,7 +145,7 @@ ${cat}`;
 }
 
 export async function buildBothArm(model: ModelAdapter, org: MockOrg, cfg: ArmConfig): Promise<BuiltArm> {
-  const glove = baseGlove(model, `${bothPreamble(org)}\n\n${SHARED_ROLE}`, cfg);
+  const glove = baseGlove(model, cfg.prime === false ? SHARED_ROLE : `${bothPreamble(org)}\n\n${SHARED_ROLE}`, cfg);
   const runnable = glove.build();
 
   const db = await Database.create({ policy: { writes: true } });
