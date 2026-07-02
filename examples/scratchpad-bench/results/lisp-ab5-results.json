@@ -1,0 +1,81 @@
+[
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "merged-prs-open-linear",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 4,
+    "mcpRoundTrips": 75,
+    "servicesTouched": 2,
+    "tokensIn": 15844,
+    "tokensOut": 1076,
+    "cacheRead": 15104,
+    "peakContextTokens": 3504,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 7907,
+    "costUsd": 0.00099664,
+    "finalText": "There are 13 merged pull requests that close a Linear issue whose state is not 'done'. The PR numbers and corresponding Linear issue IDs are:\n\n- PR 1009 → ENG-183\n- PR 1010 → ENG-130\n- PR 1022 → ENG-183\n- PR 1024 → ENG-153\n- PR 1026 → ENG-120\n- PR 1027 → ENG-136\n- PR 1030 → ENG-135\n- PR 1040 → ENG-203\n- PR 1042 → ENG-215\n- PR 1050 → ENG-143\n- PR 1053 → ENG-104\n- PR 1057 → ENG-113\n- PR 1058 → ENG-132",
+    "expected": {
+      "count": 13,
+      "prs": [
+        {
+          "pr": 1009,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-130"
+        },
+        {
+          "pr": 1022,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1026,
+          "closes": "ENG-153"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-120"
+        },
+        {
+          "pr": 1040,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1042,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1050,
+          "closes": "ENG-203"
+        },
+        {
+          "pr": 1053,
+          "closes": "ENG-215"
+        },
+        {
+          "pr": 1057,
+          "closes": "ENG-143"
+        },
+        {
+          "pr": 1058,
+          "closes": "ENG-104"
+        },
+        {
+          "pr": 1069,
+          "closes": "ENG-113"
+        },
+        {
+          "pr": 1078,
+          "closes": "ENG-132"
+        }
+      ]
+    }
+  }
+]

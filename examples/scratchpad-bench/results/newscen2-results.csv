@@ -1,0 +1,7 @@
+modelKey,model,scenario,arm,ok,errored,turns,toolCalls,toolErrors,mcpRoundTrips,servicesTouched,tokensIn,tokensOut,peakContextTokens,compactions,toolsInContext,wallMs,costUsd
+"xiaomi","xiaomi/mimo-v2.5","incident-branch","lisp",true,false,3,2,0,2,2,6962,317,2482,0,2,9840,0.000820
+"xiaomi","xiaomi/mimo-v2.5","open-prs-breakdown","lisp",true,false,2,1,0,1,1,4458,219,2325,0,2,5818,0.000529
+"qwen30b","qwen/qwen3-30b-a3b-instruct-2507","incident-branch","lisp",true,false,2,1,0,2,2,4455,256,2389,0,2,4312,0.000271
+"qwen30b","qwen/qwen3-30b-a3b-instruct-2507","open-prs-breakdown","lisp",false,false,19,18,17,18,1,61903,2179,4712,0,2,27698,0.003509
+"qwen8b","qwen/qwen3-8b","incident-branch","lisp",false,true,0,0,0,0,0,0,0,0,0,2,3561,0.000000
+"qwen8b","qwen/qwen3-8b","open-prs-breakdown","lisp",false,true,1,1,0,1,1,2013,3801,2013,0,2,71501,0.001952
