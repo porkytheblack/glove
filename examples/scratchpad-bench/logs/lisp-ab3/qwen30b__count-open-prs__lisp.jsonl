@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"qwen30b","model":"qwen/qwen3-30b-a3b-instruct-2507","scenario":"count-open-prs","arm":"lisp","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":4031,"tokensOut":34,"cacheRead":2016,"peakContextTokens":2040,"compactions":0,"toolsInContext":2,"wallMs":2151,"costUsd":0.00020800999999999998,"expected":36}
+{"kind":"final_answer","text":"36"}
+{"t":1774,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(count (github_pull_requests {:state \\\"open\\\"}))\"}"}]}
+{"t":1774,"type":"tokens","in":1991,"out":31,"peak":1991}
+{"t":1777,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":36}"}
+{"t":2151,"type":"model_response","turn":2,"stop_reason":"stop","text":"36","tool_calls":[]}
+{"t":2151,"type":"tokens","in":2040,"out":3,"peak":2040}

@@ -1,8 +1,8 @@
 # Is the Scratchpad a REPL? — exploring Lisp as the agent tool interface
 
 *A design exploration building on ["The Scratchpad Is a Database"](PAPER.md)
-and the SQL-as-tool-interface essay. Status: surface built and deterministically
-validated; model-in-the-loop A/B wired but not yet run.*
+and the SQL-as-tool-interface essay. Status: **live A/B run and hardened** —
+three fluency batches took the arm from 62/77 to 72/77 (94%), see §10.*
 
 ---
 
@@ -224,3 +224,97 @@ The mechanism that decides between them is the same instrumentation the paper
 used: run the weak tier, read every failing transcript, and ask "platform gap
 or capacity floor?" — the Lisp surface was built so that every gap found has an
 obvious place to fix.
+## 10. Results: the live A/B (11 models × 7 tasks)
+
+§6's bet — "fluency is the whole bet" — was tested and resolved the same way
+the SQL arm was: run, read every failing transcript, fix the platform, repeat.
+Three fluency batches in three rounds (all models from the paper's roster;
+`results/lisp-ab{,2,3}-*`):
+
+| round | build | pass | notes |
+|---|---|:--:|---|
+| 1 | as merged | 62/77 (81%) | frontier fine (20/21); weak tail struggles |
+| 2 | + batch 1 | 64/77 (83%) | 5 of the 13 misses were provider 429s |
+| 3 | + batches 2–2b | 72/77 (94%) | 2 of 5 misses provider errors |
+| 4 | + batch 3 (residual models re-run) | **73/77 (95%)** | 2 misses are provider 429s → **73/75 (97%) graded** |
+
+Final per-model (three arms, same servers/tasks/graders — baseline & SQL from
+the paper's runs):
+
+| model | tier | baseline | SQL scratchpad | Lisp |
+|---|---|:--:|:--:|:--:|
+| Kimi K2.7 Code | frontier | 5/7 | 7/7 | **7/7** |
+| GLM-5 | frontier | 4/7 | 7/7 | **7/7** |
+| MiniMax M3 | frontier | 7/7 | 7/7 | **7/7** |
+| DeepSeek V3.2 | frontier | 6/7 | 7/7 | **7/7** |
+| Kimi K2.5 | mid | 6/7 | 7/7 | **7/7** |
+| MiniMax M2.5 | mid | 6/7 | 7/7 | **7/7** |
+| Xiaomi MiMo v2.5 | mid | 6/7 | 7/7 | **7/7** |
+| GLM 4.7 Flash | mid | 5/7 | 7/7 | **7/7** |
+| DeepSeek V4 Flash | weak | 7/7 | 7/7 | **7/7** |
+| Qwen3 30B A3B | weak | 3/7 | 7/7 | 6/7 |
+| Qwen3 8B | weak | 4/7 | 6/7 | 4/7¹² |
+| **total** | | 59/77 (77%) | 76/77 (99%) | **73/77 (95%)** |
+
+¹ two cells lost to provider 429s, not graded failures. ² qwen8b's one real
+miss (email body must contain the issue's *title*; it wrote the id) is the SAME
+comprehension slip it makes on the SQL arm — a shared capacity floor, not a
+surface difference. The single cell where Lisp genuinely trails SQL is
+qwen30b / merged-prs (right count, ids not quoted).
+
+Peak context matches the SQL arm (~1.9–3.2k median per model vs the baseline's
+4.5–6.5k) — the off-context property holds identically.
+
+### What the transcripts taught (the fluency batches)
+
+Every failure cluster was a **platform gap**, and every fix followed the
+paper's rule — make the instinct correct, loudly reject the rest:
+
+- **Batch 1 — the comparator that silently lied.** `(sort-by :count > coll)`
+  ignored the comparator (only a `:desc` keyword worked): ascending order made
+  `first` pick the *minimum* — one silent wrong answer failed the email task on
+  five models at once. Plus: variadic `max-key`/`min-key` (`(apply max-key
+  :count rows)` — its arity error was a 20-turn thrash on three models), rows
+  now **omit nil columns** so `(contains? % :closes_linear)` means "has a
+  value" (the compose cluster opened 27 issues instead of 15), `get`/`get-in`
+  on a list of maps redirect loudly, `if-let`/`when-let`/`key`/`val`/`juxt`,
+  empty-`stage`/`rollback!` made loud, zod dumps reduced to one line.
+- **Batch 2 — effect iteration.** Models spell "insert per row" as
+  `doall`+`map`, `doseq`, `run!`, `map-indexed` — all missing; deepseek
+  hand-unrolled 15 inserts (one typo = fail) and glm died trying. All added;
+  the preamble now names the best form: `(insert! :table (map fn rows))` —
+  one call, full count. Read-your-writes overlay gained content-dedup (a
+  re-read after commit double-counted reflected writes: 30 where 15 were
+  written). `.startsWith`-style interop and tool-name symbols get targeted
+  redirects.
+- **Batch 3 — count the write, peek the def.** A model bulk-inserted all 15
+  rows perfectly then reported "5" — `(count (insert! …))` counted the result
+  *map's keys*; `count` on a write result now returns its `:count`. And two
+  cells computed the right count then **fabricated ids** they never read —
+  `def`'s echo now carries a small elided peek of real values.
+
+### Verdict against §9
+
+Outcome 1-adjacent with an honest asterisk: the hardened Lisp arm **beats the
+tool baseline decisively (95% vs 77%) and matches the SQL arm on 10 of 11
+models**, with the same context profile and with branching/exactly-once
+properties SQL structurally lacks. Of the difference to SQL's 99%: two cells
+are provider luck, one is a comprehension floor shared by both arms, and
+exactly one (qwen30b / merged-prs) is a real surface deficit — consistent with
+§6's prediction that SQL muscle memory reaches a little further down the
+capability ladder than Clojure's, but the gap collapsed from 14 cells to one
+once the surface honored the idioms models actually write. The
+surfaces share the catalog; the honest recommendation is unchanged from §9's
+second landing: **SQL as the default for the weakest tail, the REPL wherever
+branching, staged multi-writes, or session state matter — and they coexist
+behind one `ResourceTable` registration.**
+
+## 11. Reproducing
+
+```bash
+pnpm --filter glove-lisp test          # 63 unit tests
+pnpm --filter glove-scratchpad-bench probe:lisp   # 9 deterministic probes
+pnpm bench --arms=baseline,scratchpad,lisp        # the full A/B (needs OPENROUTER_API_KEY)
+npx tsx src/lisp-compare.ts lisp-ab3-results.json # the three-arm table
+```
+

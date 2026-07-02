@@ -1,0 +1,16 @@
+{"kind":"meta","modelKey":"xiaomi","model":"xiaomi/mimo-v2.5","scenario":"busiest-assignee","arm":"lisp","ok":true,"errored":false,"turns":5,"toolCalls":4,"toolErrors":2,"mcpRoundTrips":3,"servicesTouched":1,"tokensIn":12326,"tokensOut":458,"cacheRead":11456,"peakContextTokens":2733,"compactions":0,"toolsInContext":2,"wallMs":9572,"costUsd":0.00142247,"expected":{"top":"niaj","count":3,"tied":["niaj"]}}
+{"kind":"final_answer","text":"The person with the most **in_progress** Linear issues is **niaj** with **3** issues assigned to them."}
+{"t":2866,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(describe :linear_issues)\"}"}]}
+{"t":2866,"type":"tokens","in":2122,"out":67,"peak":2122}
+{"t":2867,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":{\"name\":\"linear_issues\",\"description\":\"Linear issues. INSERT creates one; UPDATE (WHERE id=…) changes state/assignee/priority.\",\"volatility\":\"stable\",\"ops\":[\"read\",\"insert!\",\"update!\"],\"columns\":[{\"name\":\"id\",\"type\":\"text\",\"description\":\"e.g. ENG-123\"},{\"name\":\"title\",\"type\":\"text\"},{\"name\"…(+513)"}
+{"t":4904,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(let [in-progress (linear_issues {:state \\\"in_progress\\\"})\\n      by-assignee (group-by :assignee in-progress)\\n      counts (map (fn [[assignee issues]] {:assignee assignee :count (count issues)}) by-assignee)\\n      top (apply max-key :count counts)]\\n  top)\"}"}]}
+{"t":4904,"type":"tokens","in":2369,"out":140,"peak":2369}
+{"t":4907,"type":"tool_result","tool":"execute_lisp","status":"error","data":"null","message":"fn: parameters must be plain symbols, got [assignee issues]"}
+{"t":6875,"type":"model_response","turn":3,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(let [in-progress (linear_issues {:state \\\"in_progress\\\"})\\n      by-assignee (group-by :assignee in-progress)\\n      counts (map (fn [pair] {:assignee (first pair) :count (count (second pair))}) by-assignee)\\n      top (apply max-key :count counts)]\\n  top)\"}"}]}
+{"t":6876,"type":"tokens","in":2486,"out":101,"peak":2486}
+{"t":6878,"type":"tool_result","tool":"execute_lisp","status":"error","data":"null","message":"unknown symbol 'second'. Run (tables) to list your capabilities and (describe :name) for one of them."}
+{"t":8512,"type":"model_response","turn":4,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(let [in-progress (linear_issues {:state \\\"in_progress\\\"})\\n      by-assignee (group-by :assignee in-progress)\\n      counts (map (fn [pair] {:assignee (first pair) :count (count (last pair))}) by-assignee)\\n      top (apply max-key :count counts)]\\n  top)\"}"}]}
+{"t":8512,"type":"tokens","in":2616,"out":108,"peak":2616}
+{"t":8515,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":{\"assignee\":\"niaj\",\"count\":3}}"}
+{"t":9572,"type":"model_response","turn":5,"stop_reason":"stop","text":"The person with the most **in_progress** Linear issues is **niaj** with **3** issues assigned to them.","tool_calls":[]}
+{"t":9572,"type":"tokens","in":2733,"out":42,"peak":2733}

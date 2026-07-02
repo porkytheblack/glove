@@ -1,0 +1,10 @@
+{"kind":"meta","modelKey":"qwen8b","model":"qwen/qwen3-8b","scenario":"sentry-billing-unresolved","arm":"lisp","ok":true,"errored":false,"turns":3,"toolCalls":2,"toolErrors":0,"mcpRoundTrips":2,"servicesTouched":1,"tokensIn":6200,"tokensOut":4695,"cacheRead":0,"peakContextTokens":2158,"compactions":0,"toolsInContext":2,"wallMs":106824,"costUsd":0.00285675,"expected":{"count":7,"ids":["SENTRY-3002","SENTRY-3015","SENTRY-3019","SENTRY-3031","SENTRY-3036","SENTRY-3037","SENTRY-3056"]}}
+{"kind":"final_answer","text":"There are exactly 7 unresolved Sentry issues in the 'billing' project. Their IDs are:\n\nSENTRY-3002  \nSENTRY-3015  \nSENTRY-3019  \nSENTRY-3031  \nSENTRY-3036  \nSENTRY-3037  \nSENTRY-3056"}
+{"t":82319,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(count (sentry_issues {:status \\\"unresolved\\\" :project \\\"billing\\\"}))\"}"}]}
+{"t":82319,"type":"tokens","in":1994,"out":3459,"peak":1994}
+{"t":82323,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":7}"}
+{"t":100582,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(map :id (sentry_issues {:status \\\"unresolved\\\" :project \\\"billing\\\"}))\"}"}]}
+{"t":100583,"type":"tokens","in":2048,"out":967,"peak":2048}
+{"t":100585,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[\"SENTRY-3002\",\"SENTRY-3015\",\"SENTRY-3019\",\"SENTRY-3031\",\"SENTRY-3036\",\"SENTRY-3037\",\"SENTRY-3056\"]}"}
+{"t":106824,"type":"model_response","turn":3,"stop_reason":"stop","text":"There are exactly 7 unresolved Sentry issues in the 'billing' project. Their IDs are:\n\nSENTRY-3002  \nSENTRY-3015  \nSENTRY-3019  \nSENTRY-3031  \nSENTRY-3036  \nSENTRY-3037  \nSENTRY-3056","tool_calls":[]}
+{"t":106824,"type":"tokens","in":2158,"out":269,"peak":2158}
