@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { single } from "../spec";
 import type { ServerSpec } from "../spec";
 import type { World } from "../seed";
 
@@ -54,9 +55,9 @@ export function sentryServer(world: World): ServerSpec {
         select: {
           tool: "list_issues",
           args: (b) => ({
-            ...(b.has("project") && { project: b.one("project") }),
-            ...(b.has("status") && { status: b.one("status") }),
-            ...(b.has("level") && { level: b.one("level") }),
+            ...(single(b, "project") && { project: b.one("project") }),
+            ...(single(b, "status") && { status: b.one("status") }),
+            ...(single(b, "level") && { level: b.one("level") }),
           }),
         },
         update: { tool: "resolve_issue", args: (_set, b) => ({ id: b.one("id") }) },

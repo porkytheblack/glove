@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"qwen30b","model":"qwen/qwen3-30b-a3b-instruct-2507","scenario":"count-open-prs","arm":"scratchpad","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":1411,"tokensOut":35,"cacheRead":1408,"peakContextTokens":754,"compactions":0,"toolsInContext":2,"wallMs":3004,"costUsd":0.00007719999999999999,"toolMix":{"execute_sql":1},"expected":36}
+{"kind":"final_answer","text":"36"}
+{"t":2624,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_sql","input":"{\"sql\":\"SELECT COUNT(*) FROM github_pull_requests WHERE state = 'open';\"}"}]}
+{"t":2624,"type":"tokens","in":657,"out":32,"peak":657}
+{"t":2630,"type":"tool_result","tool":"execute_sql","status":"success","data":"{\"rows\":[{\"count\":36}],\"truncated\":false,\"touched\":[{\"name\":\"github_pull_requests\",\"source\":\"virtual\",\"access\":\"read\",\"op\":\"select\",\"volatility\":\"stable\",\"bindings\":{\"state\":[\"open\"]},\"invocations\":1}]}"}
+{"t":3004,"type":"model_response","turn":2,"stop_reason":"stop","text":"36","tool_calls":[]}
+{"t":3004,"type":"tokens","in":754,"out":3,"peak":754}

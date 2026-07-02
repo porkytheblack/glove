@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { single } from "../spec";
 import type { ServerSpec } from "../spec";
 import type { World } from "../seed";
 
@@ -48,7 +49,7 @@ export function calendarServer(world: World): ServerSpec {
         description: "Calendar events. INSERT (title, start, attendees) schedules an event.",
         volatility: "stable",
         columns: cols,
-        select: { tool: "list_events", args: (b) => ({ ...(b.has("organizer") && { organizer: b.one("organizer") }) }) },
+        select: { tool: "list_events", args: (b) => ({ ...(single(b, "organizer") && { organizer: b.one("organizer") }) }) },
         insert: { tool: "create_event", args: (r) => ({ title: r.title, start: r.start, attendees: r.attendees ?? "" }) },
       },
     ],

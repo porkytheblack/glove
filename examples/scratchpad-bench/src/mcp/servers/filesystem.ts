@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { single } from "../spec";
 import type { ServerSpec } from "../spec";
 import type { World } from "../seed";
 
@@ -47,7 +48,7 @@ export function filesystemServer(world: World): ServerSpec {
         description: "Repository files. SELECT filters by path prefix/substring via WHERE.",
         volatility: "stable",
         columns: cols,
-        select: { tool: "list_files", args: (b) => ({ ...(b.has("prefix") && { prefix: b.one("prefix") }) }) },
+        select: { tool: "list_files", args: (b) => ({ ...(single(b, "prefix") && { prefix: b.one("prefix") }) }) },
       },
     ],
   };

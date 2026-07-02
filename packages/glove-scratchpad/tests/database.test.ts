@@ -125,3 +125,27 @@ test("INSERT … SELECT composes a read resource into a write resource (no rows 
   assert.deepEqual(created, [{ title: "feat: x" }]);
   assert.equal(r.touched.some((t) => t.name === "notion_page" && t.access === "write"), true);
 });
+
+test("two aliases of one relation with different predicates fetch broadly (no cross-alias narrowing)", async () => {
+  const db = await Database.create();
+  db.register(
+    reads("issues", [{ name: "id", type: "text" }, { name: "state", type: "text" }], [
+      { id: "A", state: "done" },
+      { id: "B", state: "done" },
+      { id: "D", state: "todo" },
+    ]),
+  );
+  db.register(
+    reads("prs", [{ name: "n", type: "bigint" }, { name: "closes", type: "text" }, { name: "state", type: "text" }], [
+      { n: 1, closes: "A", state: "merged" },
+      { n: 2, closes: "B", state: "open" },
+    ]),
+  );
+  // ghost = done, claimed, but never by a MERGED pr → B
+  const r = await db.execute(
+    `SELECT i.id FROM issues i WHERE i.state = 'done'
+       AND EXISTS (SELECT 1 FROM prs p WHERE p.closes = i.id)
+       AND NOT EXISTS (SELECT 1 FROM prs p2 WHERE p2.closes = i.id AND p2.state = 'merged')`,
+  );
+  assert.deepEqual(r.rows, [{ id: "B" }]); // was []: p2's state='merged' starved p's fetch
+});

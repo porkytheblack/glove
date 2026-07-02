@@ -482,3 +482,146 @@ const SCEN7 = ["count-open-prs", "sentry-billing-unresolved", "merged-prs-open-l
   b += `<line x1="${M.l}" y1="${M.t + ph}" x2="${W - M.r}" y2="${M.t + ph}" stroke="${BASE}" stroke-width="1"/>`;
   save("fig9-structural.svg", svg(W, H, b));
 }
+
+// ══ Fig 10 — the choice study; Fig 11 — the complex suite ═══════════════════
+{
+  const study = load("bothstudy-results.json");
+  const W = 880;
+  const H = 96 + 9 * 40 + 44;
+  const M = { l: 236, r: 130, t: 96 };
+  const rowH = 40;
+  const pw = W - M.l - M.r;
+  const SC = [...new Set(study.map((r) => r.scenario))];
+  const mixOf = (r: RunResult) => {
+    const m = (r as unknown as { toolMix?: Record<string, number> }).toolMix ?? {};
+    const sql = (m.execute_sql ?? 0) + (m.explain_sql ?? 0);
+    const lisp = (m.execute_lisp ?? 0) + (m.explain_lisp ?? 0);
+    return sql > 0 && lisp === 0 ? "sql" : lisp > 0 && sql === 0 ? "lisp" : sql > 0 && lisp > 0 ? "mixed" : "none";
+  };
+  let b = text(16, 28, "Given both surfaces, models choose SQL — until the task is branch-shaped", { size: 15, fill: INK, weight: 600 });
+  b += text(16, 46, "Arm 'both' (execute_sql + execute_lisp, neutral preamble) · 11 models per scenario · which surface each cell used", { size: 12, fill: INK2 });
+  b += `<rect x="16" y="58" width="12" height="12" rx="3" fill="${BLUE}"/>` + text(34, 68, "SQL only", { size: 12, fill: INK2 });
+  b += `<rect x="116" y="58" width="12" height="12" rx="3" fill="${AQUA}"/>` + text(134, 68, "Lisp only", { size: 12, fill: INK2 });
+  b += `<rect x="216" y="58" width="12" height="12" rx="3" fill="${GRAY}"/>` + text(234, 68, "mixed", { size: 12, fill: INK2 });
+  SC.forEach((s, i) => {
+    const rows = study.filter((r) => r.scenario === s);
+    const c = { sql: 0, lisp: 0, mixed: 0, none: 0 };
+    for (const r of rows) c[mixOf(r)]++;
+    const y0 = M.t + i * rowH;
+    const total = rows.length;
+    const seg = (n: number) => (n / total) * pw;
+    let x = M.l;
+    b += text(M.l - 10, y0 + 17, s, { size: 12, fill: INK, anchor: "end", weight: 600 });
+    for (const [key, color] of [["sql", BLUE], ["lisp", AQUA], ["mixed", GRAY]] as const) {
+      const wSeg = seg(c[key]);
+      if (wSeg > 0) {
+        b += `<rect x="${x}" y="${y0 + 4}" width="${Math.max(wSeg - 2, 1)}" height="18" rx="3" fill="${color}"/>`;
+        if (wSeg > 26) b += text(x + wSeg / 2 - 1, y0 + 17, String(c[key]), { size: 11, fill: key === "lisp" ? INK : SURFACE, anchor: "middle", weight: 600, nums: true });
+        x += wSeg;
+      }
+    }
+    const p = rows.filter((r) => r.ok).length;
+    b += text(M.l + pw + 12, y0 + 17, `${p}/${total} pass`, { size: 11, fill: MUTED, nums: true });
+  });
+  save("fig10-choice.svg", svg(W, H, b));
+}
+{
+  const complex = load("complex-results.json");
+  const W = 880;
+  const H = 356;
+  const M = { l: 56, r: 24, t: 96, b: 74 };
+  const pw = W - M.l - M.r;
+  const ph = H - M.t - M.b;
+  const ARMS = [
+    { key: "baseline", label: "baseline", color: GRAY },
+    { key: "scratchpad", label: "SQL", color: BLUE },
+    { key: "lisp", label: "Lisp", color: AQUA },
+    { key: "both", label: "both", color: DARKBLUE },
+  ];
+  const SCX = [
+    { id: "reconcile-ghost-issues", label: "negation join" },
+    { id: "repo-health-report", label: "grouped report" },
+    { id: "escalate-hot-services", label: "conditional escalation" },
+  ];
+  const y = (frac: number) => M.t + ph - frac * ph;
+  let b = text(16, 28, "The hard suite: every arm drops to 67–73% — and SQL is worst at its own negation join", { size: 15, fill: INK, weight: 600 });
+  b += text(16, 46, "Pass rate per arm, 11 models per cell · complexity, not surface parity, is the open frontier", { size: 12, fill: INK2 });
+  ARMS.forEach((a, i) => {
+    b += `<rect x="${16 + i * 130}" y="58" width="12" height="12" rx="3" fill="${a.color}"/>` + text(34 + i * 130, 68, a.label, { size: 12, fill: INK2 });
+  });
+  for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+    b += grid(M.l, W - M.r, y(t));
+    b += text(M.l - 8, y(t) + 4, `${Math.round(t * 100)}%`, { size: 11, fill: MUTED, anchor: "end", nums: true });
+  }
+  const slot = pw / SCX.length;
+  const bw = 22;
+  SCX.forEach((s, si) => {
+    const cx = M.l + si * slot + slot / 2;
+    ARMS.forEach((a, ai) => {
+      const rows = complex.filter((r) => r.scenario === s.id && r.arm === a.key);
+      const p = rows.filter((r) => r.ok).length;
+      const frac = rows.length ? p / rows.length : 0;
+      const xx = cx + (ai - 1.5) * (bw + 2) - bw / 2 + bw / 2;
+      b += column(xx, y(frac), bw, ph - (y(frac) - M.t), a.color);
+      b += text(xx + bw / 2, y(frac) - 7, `${p}/${rows.length}`, { size: 10.5, fill: INK, anchor: "middle", weight: 600, nums: true });
+    });
+    b += text(cx, M.t + ph + 20, s.label, { size: 12.5, fill: INK, anchor: "middle", weight: 600 });
+    b += text(cx, M.t + ph + 36, s.id, { size: 10.5, fill: MUTED, anchor: "middle" });
+  });
+  b += `<line x1="${M.l}" y1="${M.t + ph}" x2="${W - M.r}" y2="${M.t + ph}" stroke="${BASE}" stroke-width="1"/>`;
+  save("fig11-complex.svg", svg(W, H, b));
+}
+
+// ══ Fig 12 — take away the manual: primed vs bare ═══════════════════════════
+{
+  const bare = load("bare-results.json");
+  const primedS = new Map<string, RunResult>();
+  for (const f of ["v5-results.json", "roster-results.json", "lastmile-results.json"]) {
+    try {
+      for (const r of JSON.parse(readFileSync(join(RES, f), "utf8")) as RunResult[]) {
+        if (r.arm === "scratchpad") primedS.set(`${r.modelKey}|${r.scenario}`, r);
+      }
+    } catch { /* absent */ }
+  }
+  const primedL = new Map<string, RunResult>();
+  for (const f of ["lisp-ab3-results.json", "lisp-ab4-results.json", "lisp-ab5-results.json"]) {
+    try {
+      for (const r of JSON.parse(readFileSync(join(RES, f), "utf8")) as RunResult[]) {
+        primedL.set(`${r.modelKey}|${r.scenario}`, r);
+      }
+    } catch { /* absent */ }
+  }
+  const W = 920;
+  const H = 96 + 11 * 40 + 40;
+  const rowH = 40;
+  const panels = [
+    { title: "SQL scratchpad", primed: primedS, x0: 56 },
+    { title: "Lisp REPL", primed: primedL, x0: 500 },
+  ];
+  const pw = 320;
+  let b = text(16, 28, "Take away the manual: the preamble is load-bearing only below ~30B", { size: 15, fill: INK, weight: 600 });
+  b += text(16, 46, "Tasks passed of 7 per model — primed preamble → bare (role only; discovery in-band) · dark = primed, light = bare", { size: 12, fill: INK2 });
+  b += dot(22, 62, DARKBLUE) + text(34, 66, "primed", { size: 12, fill: INK2 });
+  b += dot(104, 62, LIGHTBLUE) + text(116, 66, "bare", { size: 12, fill: INK2 });
+  for (const p of panels) {
+    const x = (v: number) => p.x0 + 130 + (v / 7) * (pw - 130);
+    b += text(p.x0 + 130, 92, p.title, { size: 12.5, fill: INK, weight: 600 });
+    for (const t of [0, 7]) {
+      b += `<line x1="${x(t)}" y1="${100}" x2="${x(t)}" y2="${100 + 11 * rowH - 14}" stroke="${GRID}" stroke-width="1"/>`;
+    }
+    ROSTER_MODELS.concat([]).length; // noop keep tslint calm
+    const models = ["kimi27", "glm5", "minimax3", "deepseek", "kimi", "minimax", "xiaomi", "glm", "dsflash", "qwen30b", "qwen8b"];
+    const labels: Record<string, string> = { kimi27: "Kimi K2.7", glm5: "GLM-5", minimax3: "MiniMax M3", deepseek: "DeepSeek V3.2", kimi: "Kimi K2.5", minimax: "MiniMax M2.5", xiaomi: "MiMo v2.5", glm: "GLM 4.7 Flash", dsflash: "DS V4 Flash", qwen30b: "Qwen3 30B", qwen8b: "Qwen3 8B" };
+    models.forEach((m, i) => {
+      const cy = 108 + i * rowH;
+      const pv = SCEN7.filter((s) => p.primed.get(`${m}|${s}`)?.ok).length;
+      const arm = p.title.startsWith("SQL") ? "scratchpad" : "lisp";
+      const bv = bare.filter((r) => r.modelKey === m && r.arm === arm && r.ok).length;
+      b += text(p.x0 + 122, cy + 4, labels[m], { size: 11.5, fill: INK, anchor: "end", weight: 600 });
+      if (pv !== bv) b += `<line x1="${x(bv)}" y1="${cy}" x2="${x(pv)}" y2="${cy}" stroke="${BASE}" stroke-width="2"/>`;
+      b += dot(x(pv), cy, DARKBLUE) + dot(x(bv), cy, LIGHTBLUE);
+      b += text(x(7) + 12, cy + 4, `${pv}→${bv}`, { size: 11, fill: bv < pv - 1 ? CRIT : MUTED, weight: bv < pv - 1 ? 600 : 400, nums: true });
+    });
+  }
+  save("fig12-bare.svg", svg(W, H, b));
+}

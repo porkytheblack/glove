@@ -3597,16 +3597,21 @@ export function extractEqualityBindings(
         return { ok: false, v: null };
     }
   };
-  const colName = (e: Expr): string | null =>
-    e.k === "col" && (e.table === alias || e.table === undefined) ? e.name : null;
-  const conj = (e: Expr): void => {
+  // An UNQUALIFIED predicate (`state = 'done'`) belongs to the scope whose FROM
+  // declares the alias — attributing it across scopes silently narrowed a
+  // subquery's fetch (outer `state='done'` leaked into `IN (SELECT … FROM
+  // github_pull_requests)` and emptied it). Qualified predicates (`p.col = v`)
+  // are alias-checked and safe anywhere (correlation included).
+  const colName = (e: Expr, allowUnqualified: boolean): string | null =>
+    e.k === "col" && (e.table === alias || (e.table === undefined && allowUnqualified)) ? e.name : null;
+  const conj = (e: Expr, allowUnqualified: boolean): void => {
     if (e.k === "binary" && e.op === "and") {
-      conj(e.l);
-      conj(e.r);
+      conj(e.l, allowUnqualified);
+      conj(e.r, allowUnqualified);
       return;
     }
     if (e.k === "binary" && e.op === "=") {
-      const lc = colName(e.l);
+      const lc = colName(e.l, allowUnqualified);
       if (lc) {
         const r = asLiteral(e.r);
         if (r.ok) {
@@ -3614,7 +3619,7 @@ export function extractEqualityBindings(
           return;
         }
       }
-      const rc = colName(e.r);
+      const rc = colName(e.r, allowUnqualified);
       if (rc) {
         const l = asLiteral(e.l);
         if (l.ok) add(rc, l.v);
@@ -3622,7 +3627,7 @@ export function extractEqualityBindings(
       return;
     }
     if (e.k === "in" && !e.negated && e.list && e.list.length > 0) {
-      const c = colName(e.e);
+      const c = colName(e.e, allowUnqualified);
       if (!c) return;
       const vals: SqlScalar[] = [];
       for (const it of e.list) {
@@ -3633,11 +3638,18 @@ export function extractEqualityBindings(
       for (const v of vals) add(c, v);
     }
   };
+  const localAliases = (s: SelectStmt): Set<string> => {
+    const names = new Set<string>();
+    if (s.from) names.add(s.from.alias);
+    for (const j of s.joins) names.add(j.item.alias);
+    return names;
+  };
   for (const s of allSelects(stmt)) {
-    if (s.where) conj(s.where);
-    for (const j of s.joins) if (j.on) conj(j.on);
+    const local = localAliases(s).has(alias);
+    if (s.where) conj(s.where, local);
+    for (const j of s.joins) if (j.on) conj(j.on, local);
   }
-  if (stmt.k === "delete" && stmt.where) conj(stmt.where);
-  if (stmt.k === "update" && stmt.where) conj(stmt.where);
+  if (stmt.k === "delete" && stmt.where) conj(stmt.where, stmt.table === alias);
+  if (stmt.k === "update" && stmt.where) conj(stmt.where, stmt.table === alias);
   return eq;
 }

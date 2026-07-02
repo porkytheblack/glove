@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { single } from "../spec";
 import type { ServerSpec } from "../spec";
 import type { World } from "../seed";
 
@@ -65,10 +66,10 @@ export function jiraServer(world: World): ServerSpec {
         select: {
           tool: "search_issues",
           args: (b) => ({
-            ...(b.has("assignee") && { assignee: b.one("assignee") }),
-            ...(b.has("status") && { status: b.one("status") }),
-            ...(b.has("priority") && { priority: b.one("priority") }),
-            ...(b.has("sprint") && { sprint: b.one("sprint") }),
+            ...(single(b, "assignee") && { assignee: b.one("assignee") }),
+            ...(single(b, "status") && { status: b.one("status") }),
+            ...(single(b, "priority") && { priority: b.one("priority") }),
+            ...(single(b, "sprint") && { sprint: b.one("sprint") }),
           }),
         },
         update: { tool: "transition_issue", args: (set, b) => ({ key: b.one("key"), status: set.status }) },

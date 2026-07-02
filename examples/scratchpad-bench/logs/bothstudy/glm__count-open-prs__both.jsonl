@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"glm","model":"z-ai/glm-4.7-flash","scenario":"count-open-prs","arm":"both","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":3877,"tokensOut":203,"cacheRead":1920,"peakContextTokens":1978,"compactions":0,"toolsInContext":4,"wallMs":56594,"costUsd":0.00031382,"toolMix":{"execute_sql":1},"expected":36}
+{"kind":"final_answer","text":"There are 36 pull requests currently in the 'open' state across all repositories."}
+{"t":45319,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_sql","input":"{\"sql\":\"SELECT COUNT(*) FROM github_pull_requests WHERE state = 'open'\"}"}]}
+{"t":45319,"type":"tokens","in":1899,"out":100,"peak":1899}
+{"t":45328,"type":"tool_result","tool":"execute_sql","status":"success","data":"{\"rows\":[{\"count\":36}],\"truncated\":false,\"touched\":[{\"name\":\"github_pull_requests\",\"source\":\"virtual\",\"access\":\"read\",\"op\":\"select\",\"volatility\":\"stable\",\"bindings\":{\"state\":[\"open\"]},\"invocations\":1}]}"}
+{"t":56593,"type":"model_response","turn":2,"stop_reason":"stop","text":"There are 36 pull requests currently in the 'open' state across all repositories.","tool_calls":[]}
+{"t":56594,"type":"tokens","in":1978,"out":103,"peak":1978}

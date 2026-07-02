@@ -35,9 +35,11 @@ const num = (v: unknown, d: number): number => (typeof v === "string" && v.lengt
 const selModels: BenchModel[] = list(args.models).length ? list(args.models).map((k) => modelByKey(k)).filter(Boolean) as BenchModel[] : MODELS;
 const selScenarios: Scenario[] = list(args.scenarios).length ? list(args.scenarios).map((id) => scenarioById(id)).filter(Boolean) as Scenario[] : SCENARIOS;
 const selArms: ArmName[] = (list(args.arms).length ? list(args.arms) : ["baseline", "scratchpad"]) as ArmName[];
+const bare = "bare" in args;
 
 const opts = {
-  maxTurns: num(args.maxTurns, 24),
+  prime: !bare,
+    maxTurns: num(args.maxTurns, 24),
   compactionContextLimit: num(args.contextLimit, 100_000),
   maxTokens: num(args.maxTokens, 4096),
   timeoutMs: num(args.timeout, 150_000),

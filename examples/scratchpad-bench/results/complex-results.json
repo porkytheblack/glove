@@ -1,0 +1,5307 @@
+[
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 0,
+    "mcpRoundTrips": 6,
+    "servicesTouched": 2,
+    "tokensIn": 82930,
+    "tokensOut": 3137,
+    "cacheRead": 0,
+    "peakContextTokens": 15970,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 127129,
+    "costUsd": 0.020066961,
+    "finalText": "Perfect! Now I have confirmed:\n\n**Quality Audit Results:**\n\n**Total count:** 2 issues\n\n**Issues that are marked 'done' but not closed by any merged pull request (despite having at least one PR claiming to close them):**\n\n1. **ENG-167**: \"Billing webhook retries drop events\"\n   - State: done\n   - PR claiming to close it: #1006 (state: open, not merged)\n\n2. **ENG-199**: \"Migrate auth to OAuth2 + PKCE\"\n   - State: done  \n   - PR claiming to close it: #1043 (state: closed, not merged)\n\n**Summary:**\n- Total Linear issues in 'done' state: 13\n- Issues with at least one PR claiming to close them: 4 (ENG-142, ENG-165, ENG-167, ENG-199)\n- Issues closed by merged PRs: 2 (ENG-142, ENG-165)\n- **Issues in violation (done but not closed by merged PR): 2 (ENG-167, ENG-199)**",
+    "toolMix": {
+      "linear__list_issues": 1,
+      "github__list_pull_requests": 1,
+      "linear__get_issue": 2,
+      "github__get_pull_request": 2
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 2,
+    "tokensIn": 12304,
+    "tokensOut": 688,
+    "cacheRead": 8832,
+    "peakContextTokens": 3122,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 15684,
+    "costUsd": 0.0030536,
+    "finalText": "Let me get the final answer in the requested format:\n\n**Quality audit results:**\n\n**Count:** 2 Linear issues\n\n**Issue IDs:** ENG-167, ENG-199\n\nThese are the Linear issues that are marked as 'done' but are not actually closed by any merged pull request, despite having at least one pull request that claims to close them.",
+    "toolMix": {
+      "execute_sql": 4
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 16,
+    "toolCalls": 15,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 2,
+    "tokensIn": 61271,
+    "tokensOut": 1756,
+    "cacheRead": 49152,
+    "peakContextTokens": 5114,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 45966,
+    "costUsd": 0.014633367,
+    "finalText": "**Quality Audit Result:**\n\nThere are **2 Linear issues** marked as 'done' that have at least one pull request claiming to close them (via `closes_linear` field), but are NOT actually closed by any **merged** pull request:\n\n1. **ENG-167** - \"Billing webhook retries drop events\" (has an open PR #1006 claiming to close it)\n2. **ENG-199** - (has a closed but not merged PR #1043 claiming to close it)\n\n**Summary:**\n- Total Linear issues marked as 'done': 13\n- Of those, issues with at least one PR claiming to close them: 4\n- Issues in 'done' state not closed by any merged PR: **2**\n- Issue IDs: **ENG-167, ENG-199**\n\nThese represent potential quality issues where work is marked as complete in Linear but the corresponding code changes haven't been successfully merged into the codebase.",
+    "toolMix": {
+      "execute_lisp": 15
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 18,
+    "toolCalls": 17,
+    "toolErrors": 0,
+    "mcpRoundTrips": 23,
+    "servicesTouched": 2,
+    "tokensIn": 90024,
+    "tokensOut": 2943,
+    "cacheRead": 73536,
+    "peakContextTokens": 7809,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 127107,
+    "costUsd": 0.021624945000000003,
+    "finalText": "Perfect! This confirms my findings. Let me now provide the final answer.\n\n**Quality Audit Result:**\n\nI found **2 Linear issues** that are marked as 'done' but are not actually closed by any merged pull request, despite having at least one pull request claiming to close them:\n\n1. **ENG-167** - \"Billing webhook retries drop events\"  \n   - Has an **open** PR (#1006) claiming to close it\n\n2. **ENG-199** - \"Migrate auth to OAuth2 + PKCE\"  \n   - Has a **closed** PR (#1043) claiming to close it (but not merged)\n\n**Total count: 2 issues**\n\n**Note:** Both issues have pull requests referencing them (ENG-167 has PR#1006 in 'open' state, ENG-199 has PR#1043 in 'closed' state), but neither has a 'merged' pull request that would actually close them according to the GitHub-Linear integration logic.",
+    "toolMix": {
+      "execute_sql": 17
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "repo-health-report",
+    "arm": "baseline",
+    "ok": false,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 0,
+    "mcpRoundTrips": 5,
+    "servicesTouched": 1,
+    "tokensIn": 45122,
+    "tokensOut": 1148,
+    "cacheRead": 9984,
+    "peakContextTokens": 12619,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 35961,
+    "costUsd": 0.010726702000000001,
+    "finalText": "Now I have the data I need. Let me analyze:\n\nFrom the open pull requests list, I can see the following repositories and their open PR counts:\n1. `acme/web`: I can count from the open PR list - let me count: PRs 1005, 1006, 1014, 1018, 1032, 1036, 1038, 1048, 1049, 1074, 1075, 1077 = 12 open PRs\n2. `acme/api`: PRs 1007, 1015, 1016, 1035, 1052, 1061, 1063 = 7 open PRs  \n3. `acme/mobile`: PRs 1008, 1025, 1033, 1034, 1041, 1060, 1062, 1066 = 8 open PRs\n4. `acme/infra`: PRs 1011, 1012, 1028, 1037, 1044, 1047, 1070 = 7 open PRs\n\nNow I need to count how many merged PRs close Linear issues for each repository:\n\nFrom the merged PRs data:\n\n**acme/web merged PRs (5 total):**\n- 1017: no Linear issue\n- 1026: closes ENG-153 ✓\n- 1040: closes ENG-136 ✓\n- 1057: closes ENG-143 ✓\n- 1068: no Linear issue\n**Total: 3 merged PRs close Linear issues**\n\n**acme/api merged PRs (7 total):**\n- 1000: no Linear issue\n- 1002: no Linear issue\n- 1003: no Linear issue\n- 1024: closes ENG-142 ✓\n- 1045: no Linear issue\n- 1058: closes ENG-104 ✓\n- 1065: no Linear issue\n**Total: 2 merged PRs close Linear issues**\n\n**acme/mobile merged PRs (11 total):**\n- 1009: closes ENG-183 ✓\n- 1010: closes ENG-130 ✓\n- 1027: closes ENG-165 ✓\n- 1046: no Linear issue\n- 1050: closes ENG-203 ✓\n- 1053: closes ENG-215 ✓\n- 1054: no Linear issue\n- 1055: no Linear issue\n- 1073: no Linear issue\n- 1078: closes ENG-132 ✓\n**Total: 6 merged PRs close Linear issues**\n\n**acme/infra merged PRs (6 total):**\n- 1020: no Linear issue\n- 1022: closes ENG-183 ✓\n- 1030: closes ENG-120 ✓\n- 1042: closes ENG-135 ✓\n- 1069: closes ENG-113 ✓\n**Total: 4 merged PRs close Linear issues**\n\nNow I can produce the per-repository health report:\n\n## Per-Repository Health Report\n\n**acme/web**: 12 open PRs, 3 merged PRs close Linear issues  \n**acme/api**: 7 open PRs, 2 merged PRs close Linear issues  \n**acme/mobile**: 8 open PRs, 6 merged PRs close Linear issues  \n**acme/infra**: 7 open PRs, 4 merged PRs close Linear issues\n\n**Repository with the most open pull requests**: **acme/web** (12 open PRs)",
+    "toolMix": {
+      "github__search_code": 1,
+      "github__list_pull_requests": 4
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "repo-health-report",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6709,
+    "tokensOut": 441,
+    "cacheRead": 0,
+    "peakContextTokens": 2671,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 19964,
+    "costUsd": 0.001687624,
+    "finalText": "Perfect! I have the health report. Now let me identify the repository with the most open pull requests:\n\n**Per-Repository Health Report:**\n\n1. **acme/web**: \n   - Open pull requests: 26\n   - Merged pull requests closing Linear issues: 3\n\n2. **acme/mobile**: \n   - Open pull requests: 20  \n   - Merged pull requests closing Linear issues: 6\n\n3. **acme/api**: \n   - Open pull requests: 18\n   - Merged pull requests closing Linear issues: 2\n\n4. **acme/infra**: \n   - Open pull requests: 16\n   - Merged pull requests closing Linear issues: 4\n\n**Repository with the most open pull requests:** **acme/web** with 26 open pull requests.",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "repo-health-report",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 17550,
+    "tokensOut": 1071,
+    "cacheRead": 8960,
+    "peakContextTokens": 3735,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 27912,
+    "costUsd": 0.004386303,
+    "finalText": "Here's the complete per-repository health report:\n\n**Per-repository health report:**\n\n- **acme/web**: 14 open PRs, 3 merged PRs closing Linear issues\n- **acme/mobile**: 8 open PRs, − merged PRs closing Linear issues  \n- **acme/api**: 7 open PRs, 2 merged PRs closing Linear issues\n- **acme/infra**: 7 open PRs, 4 merged PRs closing Linear issues\n\n**Repository with most open pull requests**: acme/web (14 open PRs)\n\nThe repository `acme/web` has the highest number of open pull requests (14), followed by `acme/mobile` (8), with `acme/api` and `acme/infra` both having 7 open PRs each. In terms of tracking work through Linear issues, `acme/mobile` has the most merged PRs that close Linear issues (6), followed by `acme/infra` (4), `acme/web` (3), and `acme/api` (2).",
+    "toolMix": {
+      "execute_lisp": 5
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "repo-health-report",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 10563,
+    "tokensOut": 564,
+    "cacheRead": 8832,
+    "peakContextTokens": 3032,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 26137,
+    "costUsd": 0.002612379,
+    "finalText": "Perfect. Here's the per-repository health report:\n\n**Per-Repository Health Report:**\n\n1. **acme/web**:\n   - Open PRs: 14\n   - Merged PRs closing Linear issues: 3\n\n2. **acme/mobile**:\n   - Open PRs: 8  \n   - Merged PRs closing Linear issues: 6\n\n3. **acme/api**:\n   - Open PRs: 7\n   - Merged PRs closing Linear issues: 2\n\n4. **acme/infra**:\n   - Open PRs: 7\n   - Merged PRs closing Linear issues: 4\n\n**Repository with the most open pull requests:** **acme/web** with 14 open pull requests.",
+    "toolMix": {
+      "execute_sql": 3
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "escalate-hot-services",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 14,
+    "toolCalls": 12,
+    "toolErrors": 0,
+    "mcpRoundTrips": 12,
+    "servicesTouched": 3,
+    "tokensIn": 115407,
+    "tokensOut": 1829,
+    "cacheRead": 25152,
+    "peakContextTokens": 14103,
+    "compactions": 1,
+    "toolsInContext": 32,
+    "wallMs": 119013,
+    "costUsd": 0.02705555,
+    "finalText": "**Escalation sweep completed:**\n\n1. ✅ **Acknowledged remaining PagerDuty incidents:**\n   - PD-424 (api-gateway) - acknowledged\n   - PD-433 (billing) - acknowledged\n\n2. ✅ **Sent email to oncall@acme.io** with escalation details listing each hot service and unresolved issue counts.\n\n3. **Final counts:**\n   - **Hot services:** 4 (billing, web-frontend, api-gateway, mobile-bff)\n   - **Acknowledged incidents for hot services:** 5 total (PD-407, PD-416, PD-421, PD-424, PD-433)\n\nAll triggered PagerDuty incidents for the identified hot services have been acknowledged, and the escalation email has been sent to the on-call team.",
+    "toolMix": {
+      "sentry__list_issues": 5,
+      "pagerduty__list_incidents": 1,
+      "pagerduty__acknowledge_incident": 5,
+      "email__send_email": 1
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "escalate-hot-services",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 16,
+    "toolCalls": 15,
+    "toolErrors": 1,
+    "mcpRoundTrips": 11,
+    "servicesTouched": 3,
+    "tokensIn": 58110,
+    "tokensOut": 1664,
+    "cacheRead": 42368,
+    "peakContextTokens": 5305,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 89378,
+    "costUsd": 0.013877942000000002,
+    "finalText": "Perfect, all 5 incidents are now acknowledged. The total of 7 acknowledged incidents includes 2 that were already acknowledged before my actions.\n\n**Summary:**\n- **Hot services:** 4 (web-frontend, billing, api-gateway, mobile-bff)\n- **Incidents acknowledged:** 5 (PD-407, PD-416, PD-421, PD-424, PD-433)\n\nI've acknowledged all triggered PagerDuty incidents for hot services and sent the escalation email to oncall@acme.io listing each hot service with its unresolved issue count.",
+    "toolMix": {
+      "execute_sql": 15
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "escalate-hot-services",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 14,
+    "toolCalls": 12,
+    "toolErrors": 1,
+    "mcpRoundTrips": 8,
+    "servicesTouched": 3,
+    "tokensIn": 104147,
+    "tokensOut": 2599,
+    "cacheRead": 71552,
+    "peakContextTokens": 11495,
+    "compactions": 1,
+    "toolsInContext": 2,
+    "wallMs": 77345,
+    "costUsd": 0.024741120000000002,
+    "finalText": "Perfect! The escalation sweep has been completed successfully. Here's the final report:\n\n## Escalation Sweep Complete\n\n**Hot Services Identified:** 4 services with >5 unresolved Sentry issues:\n1. `billing`: 7 unresolved issues\n2. `web-frontend`: 8 unresolved issues\n3. `api-gateway`: 7 unresolved issues\n4. `mobile-bff`: 7 unresolved issues\n\n**Actions Taken:**\n1. ✅ **Email sent** to `oncall@acme.io` with subject \"Escalation\" listing all hot services and their unresolved issue counts\n2. ✅ **5 PagerDuty incidents acknowledged** for hot services:\n   - PD-407 (mobile-bff)\n   - PD-416 (billing)\n   - PD-421 (mobile-biff)\n   - PD-424 (api-gateway)\n   - PD-433 (billing)\n\n**Summary:**\n- **Hot services:** 4\n- **Incidents acknowledged:** 5\n\nAll required escalation actions have been completed. The on-call team has been notified via email about the hot services, and all triggered incidents affecting those services have been acknowledged.",
+    "toolMix": {
+      "execute_lisp": 8,
+      "explain_lisp": 4
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "escalate-hot-services",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 9,
+    "toolCalls": 8,
+    "toolErrors": 1,
+    "mcpRoundTrips": 11,
+    "servicesTouched": 3,
+    "tokensIn": 29959,
+    "tokensOut": 1284,
+    "cacheRead": 21056,
+    "peakContextTokens": 4355,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 109870,
+    "costUsd": 0.007301023,
+    "finalText": "Excellent! All triggered incidents for hot services have been acknowledged. \n\n**Summary:**\n- There are **4 hot services**: api-gateway, billing, mobile-bff, and web-frontend\n- I acknowledged **5 PagerDuty incidents** that were in 'triggered' status for these hot services\n- I sent an escalation email to oncall@acme.io listing all hot services and their unresolved issue counts\n\nAll escalation procedures have been completed successfully.",
+    "toolMix": {
+      "execute_sql": 8
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "baseline",
+    "ok": false,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 14,
+    "toolErrors": 0,
+    "mcpRoundTrips": 14,
+    "servicesTouched": 1,
+    "tokensIn": 12446,
+    "tokensOut": 912,
+    "cacheRead": 7040,
+    "peakContextTokens": 5359,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 25520,
+    "costUsd": 0.00111156,
+    "finalText": "What I was able to do so far\n------------------------------\n- Found all Linear issues with state 'done'\n- Retrieved full details for each (ENG-122, ENG-125, ENG-131, ENG-134, ENG-142, ENG-160, ENG-162, ENG-165, ENG-167, ENG-172, ENG-176, ENG-197, ENG-199)\n- I do not see any 'closes_linear' or pull request fields in the issue objects returned\n\nWhat this means for the audit\n------------------------------\nBecause the issue objects do not include any pull request information (such as a field indicating which PR claims to close the issue, e.g., 'closes_linear'), I am not able to determine which issues have a PR claiming to close them. Without this data, I cannot:\n- Identify issues that are marked 'done' but have no closes_linear claim\n- Verify which ones are not actually closed by any MERGED PR\n\nHow I can proceed once you confirm\n----------------------------------\n- If there is another way to retrieve the closes_linear mapping (for example, by listing PRs with their closing issue references and cross-referencing with these issues), please let me know and I’ll run that check.\n- If these details should already be surfaced in the issue objects but aren’t appearing, I can re-query or refresh and check again.\n- If you can provide the closes_linear values or a way to join issues to their closing PRs, I’ll complete the audit and report the exact count and IDs immediately.\n\nSummary\n-------\n- 'Done' issues found: 13 (list provided above)\n- Cannot confirm the audit criteria due to missing closes_linear information in the issue objects.\n\nDo you have a preferred way to obtain the closes_linear mapping, or should I attempt an alternative approach?",
+    "toolMix": {
+      "linear__list_issues": 1,
+      "linear__get_issue": 13
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 1,
+    "mcpRoundTrips": 6,
+    "servicesTouched": 2,
+    "tokensIn": 12450,
+    "tokensOut": 1795,
+    "cacheRead": 9920,
+    "peakContextTokens": 2501,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 48782,
+    "costUsd": 0.001465,
+    "finalText": "**Quality audit result**\n\n- **Issue count:** 2\n- **Linear issue IDs not actually closed by a merged PR:**\n  - ENG-167\n  - ENG-199\n\nThese issues are marked as `done` in Linear but none of the pull requests that reference them have been merged, so their resolution is not accounted for by a merged PR.",
+    "toolMix": {
+      "explain_sql": 1,
+      "execute_sql": 4
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 1,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 2,
+    "tokensIn": 7535,
+    "tokensOut": 915,
+    "cacheRead": 4224,
+    "peakContextTokens": 3278,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 17490,
+    "costUsd": 0.0008181,
+    "finalText": "**Quality audit results**\n\n- **Total issues found:** 11\n- **Issue IDs:**\n\n| ID | Title |\n|----|-------|\n| ENG-122 | Primary DB failover is slow |\n| ENG-125 | Image uploads time out over 5MB |\n| ENG-131 | Primary DB failover is slow |\n| ENG-134 | Rate limiter false positives — follow-up |\n| ENG-160 | SSO SCIM provisioning errors — follow-up |\n| ENG-162 | Search relevance regression |\n| ENG-167 | Billing webhook retries drop events |\n| ENG-172 | Billing webhook retries drop events — follow-up |\n| ENG-176 | Onboarding funnel drop-off |\n| ENG-197 | Mobile crash on iOS 18 cold start — follow-up |\n| ENG-199 | Migrate auth to OAuth2 + PKCE |\n\nThese 11 issues are currently marked as \"done\" but have no merged pull request that claims to close them.",
+    "toolMix": {
+      "execute_lisp": 2
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "both",
+    "ok": false,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 6419,
+    "tokensOut": 709,
+    "cacheRead": 2432,
+    "peakContextTokens": 2361,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 37657,
+    "costUsd": 0.00066874,
+    "finalText": "**Quality audit results:**\n\n| Count | Linear issue IDs |\n|-------|------------------|\n| **11** | ENG-122, ENG-125, ENG-131, ENG-134, ENG-160, ENG-162, ENG-167, ENG-172, ENG-176, ENG-197, ENG-199 |\n\nThese 11 Linear issues are marked as 'done' but are not referenced in the `closes_linear` field of any merged pull request.",
+    "toolMix": {
+      "explain_sql": 1,
+      "execute_sql": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "repo-health-report",
+    "arm": "baseline",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 12606,
+    "tokensOut": 1281,
+    "cacheRead": 5824,
+    "peakContextTokens": 9606,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 68622,
+    "costUsd": 0.0012687599999999999,
+    "finalText": "Based on the pull request data retrieved:\n\n**Per-Repository Health Report:**\n\n| Repository | Open Pull Requests | Merged Pull Requests Closing Linear Issues |\n|------------|-------------------|-------------------------------------------|\n| acme/web   | 13                | 2                                         |\n| acme/api   | 7                 | 1                                         |\n| acme/mobile| 7                 | 5                                         |\n| acme/infra | 7                 | 1                                         |\n\n**Repository with the most open pull requests:** acme/web (13 open)",
+    "toolMix": {
+      "github__list_pull_requests": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "repo-health-report",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 5651,
+    "tokensOut": 590,
+    "cacheRead": 3456,
+    "peakContextTokens": 2096,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 20951,
+    "costUsd": 0.00057506,
+    "finalText": "Per-repository health report:\n\n| Repository | Open Pull Requests | Merged PRs Closing a Linear Issue |\n|------------|-------------------|-----------------------------------|\n| acme/web   | 14                | 3                                 |\n| acme/mobile| 8                 | 6                                 |\n| acme/api   | 7                 | 2                                 |\n| acme/infra | 7                 | 4                                 |\n\nRepository with the most open pull requests: acme/web (14 open PRs).",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "repo-health-report",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 1,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 10057,
+    "tokensOut": 1364,
+    "cacheRead": 4224,
+    "peakContextTokens": 3132,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 30443,
+    "costUsd": 0.0011490200000000002,
+    "finalText": "- acme/api: 0 open, 2 merged PRs close a Linear issue\n- acme/web: 0 open, 3 merged PRs close a Linear issue\n- acme/mobile: 0 open, 6 merged PRs close a Linear issue\n- acme/infra: 0 open, 4 merged PRs close a Linear issue\n\nRepository with the most open pull requests: acme/api (0 open)\n\nMost open repository details:\n- acme/api (0 open)",
+    "toolMix": {
+      "execute_lisp": 3
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "repo-health-report",
+    "arm": "both",
+    "ok": false,
+    "errored": false,
+    "turns": 1,
+    "toolCalls": 0,
+    "toolErrors": 0,
+    "mcpRoundTrips": 0,
+    "servicesTouched": 0,
+    "tokensIn": 1932,
+    "tokensOut": 212,
+    "cacheRead": 64,
+    "peakContextTokens": 1932,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 4732,
+    "costUsd": 0.00020072,
+    "finalText": "Per-repository health report (current data)\n\nRepository: web-frontend — open PRs: 5, merged PRs closing a Linear issue: 2\nRepository: api-gateway — open PRs: 3, merged PRs closing a Linear issue: 2\nRepository: billing — open PRs: 1, merged PRs closing a Linear issue: 1\nRepository: mobile-bff — open PRs: 2, merged PRs closing a Linear issue: 1\nRepository: search — open PRs: 1, merged PRs closing a Linear issue: 0\n\nRepositories with the highest open PR counts (ordered by count)\n- web-frontend (5 open PRs)\n- api-gateway (3 open PRs)\n\nNote: 0/merged PRs closing a Linear issue are shown where appropriate.",
+    "toolMix": {},
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "escalate-hot-services",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 8,
+    "toolErrors": 0,
+    "mcpRoundTrips": 8,
+    "servicesTouched": 3,
+    "tokensIn": 24000,
+    "tokensOut": 1407,
+    "cacheRead": 16768,
+    "peakContextTokens": 7183,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 47129,
+    "costUsd": 0.0020028,
+    "finalText": "## Escalation Report\n\n**4 hot services detected** (each has >5 unresolved Sentry issues):\n\n| Service | Unresolved Sentry Issues |\n|---------|---------------------------|\n| billing | 6 |\n| web-frontend | 6 |\n| api-gateway | 7 |\n| mobile-bff | 6 |\n\n**5 PagerDuty incidents acknowledged** (all triggered incidents in hot services):\n- PD-407 (mobile-bff)\n- PD-416 (billing)\n- PD-421 (mobile-bff)\n- PD-424 (api-gateway)\n- PD-433 (billing)\n\nEscalation email sent to oncall@acme.io.",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "pagerduty__list_incidents": 1,
+      "pagerduty__acknowledge_incident": 5,
+      "email__send_email": 1
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "escalate-hot-services",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 6,
+    "toolErrors": 1,
+    "mcpRoundTrips": 9,
+    "servicesTouched": 3,
+    "tokensIn": 11269,
+    "tokensOut": 1289,
+    "cacheRead": 8896,
+    "peakContextTokens": 2761,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 21983,
+    "costUsd": 0.0011917400000000002,
+    "finalText": "## Escalation Sweep Complete\n\n**Hot services identified (unresolved Sentry issues > 5):**\n- web-frontend: 8 unresolved\n- billing: 7 unresolved\n- api-gateway: 7 unresolved\n- mobile-bff: 7 unresolved\n\n**Total hot services:** 4\n\n**PagerDuty incidents acknowledged:** 5\n- PD-407 (mobile-bff, high)\n- PD-416 (billing, high)\n- PD-421 (mobile-bff, low)\n- PD-424 (api-gateway, low)\n- PD-433 (billing, high)\n\n**Email sent to** oncall@acme.io (subject: \"Escalation\") with the full hot service list and counts.",
+    "toolMix": {
+      "execute_sql": 6
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "escalate-hot-services",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 9,
+    "toolErrors": 7,
+    "mcpRoundTrips": 11,
+    "servicesTouched": 3,
+    "tokensIn": 38958,
+    "tokensOut": 4391,
+    "cacheRead": 34944,
+    "peakContextTokens": 5711,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 96927,
+    "costUsd": 0.004093879999999999,
+    "finalText": "No hot services — posted “Sentry stable.” to the incidents channel and sent an email to oncall@acme.io listing all hot services and their unresolved issue counts.\n\nHot services: 4\nIncidents acknowledged: 5",
+    "toolMix": {
+      "execute_lisp": 9
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "escalate-hot-services",
+    "arm": "both",
+    "ok": false,
+    "errored": false,
+    "turns": 9,
+    "toolCalls": 8,
+    "toolErrors": 5,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 2,
+    "tokensIn": 27404,
+    "tokensOut": 2344,
+    "cacheRead": 21248,
+    "peakContextTokens": 3883,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 62136,
+    "costUsd": 0.00258184,
+    "finalText": "**Hot services:** 4 (web-frontend: 8, billing: 7, api-gateway: 7, mobile-bff: 7)\n\n**Incidents acknowledged:** 5 (PD-424, PD-416, PD-433, PD-421, PD-407)\n\n**Email sent to oncall@acme.io:**\n```\nweb-frontend - 8\nbilling - 7\napi-gateway - 7\nmobile-bff - 7\n```",
+    "toolMix": {
+      "execute_sql": 4,
+      "execute_lisp": 4
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 20,
+    "toolErrors": 0,
+    "mcpRoundTrips": 20,
+    "servicesTouched": 2,
+    "tokensIn": 28593,
+    "tokensOut": 3896,
+    "cacheRead": 16704,
+    "peakContextTokens": 15565,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 47082,
+    "costUsd": 0.004093145,
+    "finalText": "Now I have all the data I need. Let me analyze the results carefully.\n\n## Analysis\n\n**Linear issues in \"done\" state (13 total):**\nENG-122, ENG-125, ENG-131, ENG-134, ENG-142, ENG-160, ENG-162, ENG-165, ENG-167, ENG-172, ENG-176, ENG-197, ENG-199\n\n**Mapping PRs that claim to close these issues (via `closes_linear`):**\n\n| Done Issue | PRs claiming to close it | Merged PR? | Verdict |\n|---|---|---|---|\n| ENG-122 | *none* | — | No PR claims to close it → excluded |\n| ENG-125 | *none* | — | excluded |\n| ENG-131 | *none* | — | excluded |\n| ENG-134 | *none* | — | excluded |\n| **ENG-142** | Merged #1024, Open #1074 | ✅ Yes (#1024) | Properly closed |\n| ENG-160 | *none* | — | excluded |\n| ENG-162 | *none* | — | excluded |\n| **ENG-165** | Merged #1027 | ✅ Yes (#1027) | Properly closed |\n| **ENG-167** | Open #1006 only | ❌ No | ⚠️ **FRAUD** |\n| ENG-172 | *none* | — | excluded |\n| ENG-176 | *none* | — | excluded |\n| ENG-197 | *none* | — | excluded |\n| **ENG-199** | Closed (not merged) #1043 only | ❌ No | ⚠️ **FRAUD** |\n\n---\n\n## Result: 2 issues found\n\n| # | Linear Issue | Title | Claiming PR | PR State |\n|---|---|---|---|---|\n| 1 | **ENG-167** | Billing webhook retries drop events | #1006 (acme/web) | Open (not merged) |\n| 2 | **ENG-199** | Migrate auth to OAuth2 + PKCE | #1043 (acme/web) | Closed without merge |\n\n**Exact count: 2**\n**Issue IDs: ENG-167, ENG-199**\n\nBoth issues are marked \"done\" in Linear but the only PRs that claim to close them were **never merged** — one is still open (#1006) and one was closed without merge (#1043). These represent cases where the issue status was advanced to \"done\" without a validated code delivery.",
+    "toolMix": {
+      "github__search_code": 16,
+      "linear__list_issues": 1,
+      "github__list_pull_requests": 3
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 3831,
+    "tokensOut": 313,
+    "cacheRead": 2816,
+    "peakContextTokens": 2019,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 6335,
+    "costUsd": 0.0004898950000000001,
+    "finalText": "## Quality Audit Results\n\n**Count:** **2** issues\n\n| Linear Issue ID | PRs referencing it (none merged) |\n|---|---|\n| **ENG-167** | 1 |\n| **ENG-199** | 1 |\n\nBoth `ENG-167` and `ENG-199` are in **done** state in Linear, and each has at least one pull request that claims to close it — but **none** of those pull requests were actually merged. This suggests these issues may have been closed manually (or via automation) without the corresponding code landing, making them candidates for re-opening or further investigation.",
+    "toolMix": {
+      "execute_sql": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 7,
+    "toolErrors": 4,
+    "mcpRoundTrips": 6,
+    "servicesTouched": 2,
+    "tokensIn": 24808,
+    "tokensOut": 1585,
+    "cacheRead": 22720,
+    "peakContextTokens": 3881,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 31024,
+    "costUsd": 0.00304864,
+    "finalText": "## Quality Audit Results\n\n**Count: 2** Linear issues are marked `done` but no merged PR actually closes them.\n\n| Linear Issue | PR Claiming to Close | PR State | PR Repo |\n|---|---|---|---|\n| **ENG-167** | \"Rate limiter false positives: fix rate-limiter\" | **open** (not merged) | acme/web |\n| **ENG-199** | \"Onboarding funnel drop-off: instrument onboarding-funnel\" | **closed** (not merged) | acme/web |\n\nBoth issues are in Linear `done` state, and each has at least one PR that claims to close it (via `closes_linear`), but **neither PR was merged** — one is still open, the other was closed without merging.",
+    "toolMix": {
+      "execute_lisp": 7
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 4495,
+    "tokensOut": 393,
+    "cacheRead": 4096,
+    "peakContextTokens": 2382,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 8285,
+    "costUsd": 0.000582015,
+    "finalText": "## Quality Audit Results\n\n**2** Linear issues are marked `done` yet have **no merged pull request** actually closing them (despite at least one PR claiming to close them):\n\n| Issue ID | Closing PRs | Merged PRs |\n|----------|------------|------------|\n| **ENG-167** | 1 | 0 |\n| **ENG-199** | 1 | 0 |\n\nBoth issues have one PR referencing them via `closes_linear`, but that PR was **never merged** (state is `open` or `closed`), meaning the work may not actually be complete. These should be investigated to determine whether the `done` status is correct or if a merge is missing.",
+    "toolMix": {
+      "execute_sql": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "repo-health-report",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 15573,
+    "tokensOut": 785,
+    "cacheRead": 7552,
+    "peakContextTokens": 11722,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 11828,
+    "costUsd": 0.0018549649999999999,
+    "finalText": "## Per-Repository Health Report\n\n| Repository | Open PRs | Merged PRs closing a Linear issue |\n|---|---|---|\n| **acme/web** | **14** | 3 (ENG-153, ENG-136, ENG-143) |\n| **acme/mobile** | 8 | 6 (ENG-183, ENG-130, ENG-165, ENG-203, ENG-215, ENG-132) |\n| **acme/api** | 7 | 2 (ENG-142, ENG-104) |\n| **acme/infra** | 7 | 4 (ENG-183, ENG-120, ENG-135, ENG-113) |\n\n**Repository with the most open pull requests: `acme/web`** with **14** open PRs.",
+    "toolMix": {
+      "github__list_pull_requests": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "repo-health-report",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6083,
+    "tokensOut": 405,
+    "cacheRead": 4800,
+    "peakContextTokens": 2249,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 9355,
+    "costUsd": 0.000752115,
+    "finalText": "Here's the **per-repository health report**:\n\n| Repository | Open PRs | Merged PRs Closing a Linear Issue |\n|---|---|---|\n| **acme/web** | **14** | 3 |\n| acme/mobile | 8 | 6 |\n| acme/api | 7 | 2 |\n| acme/infra | 7 | 4 |\n\n---\n\n**🏆 Repository with the most open pull requests: `acme/web` (14 open PRs).**\n\nNotable observations:\n- **acme/mobile** leads in Linear-linked merges (6), suggesting strong issue-tracking discipline.\n- **acme/api** has the fewest merged-PRs-closing-Linear issues (2), which may warrant a process check.\n- **acme/web**'s high open PR count (nearly double the next repo) could indicate a review bottleneck or a large batch of features awaiting merge.",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "repo-health-report",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 1,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 1,
+    "tokensIn": 10546,
+    "tokensOut": 918,
+    "cacheRead": 9280,
+    "peakContextTokens": 3234,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 13364,
+    "costUsd": 0.00136437,
+    "finalText": "## Per-Repository Health Report\n\n| Repository | Open PRs | Merged PRs Closing a Linear Issue |\n|---|---|---|\n| **acme/web** | **14** | 3 |\n| acme/mobile | 8 | 6 |\n| acme/api | 7 | 2 |\n| acme/infra | 7 | 4 |\n\n**Repository with the most open pull requests: `acme/web`** with **14** open PRs.",
+    "toolMix": {
+      "execute_lisp": 3
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "repo-health-report",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6975,
+    "tokensOut": 411,
+    "cacheRead": 6400,
+    "peakContextTokens": 2539,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 10309,
+    "costUsd": 0.000847455,
+    "finalText": "## Per-Repository Health Report\n\n| Repository | Open PRs | Merged PRs Closing a Linear Issue |\n|------------|----------|-----------------------------------|\n| **acme/web** | **14** | 3 |\n| acme/mobile | 8 | 6 |\n| acme/api | 7 | 2 |\n| acme/infra | 7 | 4 |\n\n**Repository with the most open pull requests: `acme/web`** with **14** open PRs.",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "escalate-hot-services",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 8,
+    "toolErrors": 0,
+    "mcpRoundTrips": 8,
+    "servicesTouched": 3,
+    "tokensIn": 29570,
+    "tokensOut": 2062,
+    "cacheRead": 24128,
+    "peakContextTokens": 9122,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 25015,
+    "costUsd": 0.00368221,
+    "finalText": "I have completed the escalation sweep.\n\n**Hot Services Identified: 4**\n1.  **billing**: 7 unresolved Sentry issues\n2.  **web-frontend**: 8 unresolved Sentry issues\n3.  **api-gateway**: 7 unresolved Sentry issues\n4.  **mobile-bff**: 7 unresolved Sentry issues\n\n**PagerDuty Incidents Acknowledged: 5**\n*   **PD-407** (mobile-bff): Acknowledged\n*   **PD-416** (billing): Acknowledged\n*   **PD-421** (mobile-bff): Acknowledged\n*   **PD-424** (api-gateway): Acknowledged\n*   **PD-433** (billing): Acknowledged\n\nAn escalation email with the list of hot services and their issue counts has been sent to `oncall@acme.io`.",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "pagerduty__list_incidents": 1,
+      "pagerduty__acknowledge_incident": 5,
+      "email__send_email": 1
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "escalate-hot-services",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 8,
+    "toolErrors": 2,
+    "mcpRoundTrips": 10,
+    "servicesTouched": 3,
+    "tokensIn": 15999,
+    "tokensOut": 1324,
+    "cacheRead": 13312,
+    "peakContextTokens": 3525,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 22238,
+    "costUsd": 0.002050615,
+    "finalText": "All done. Here's the summary:\n\n### Escalation Sweep Results\n\n**Hot services: 4**\n\n| Service | Unresolved Sentry Issues |\n|---|---|\n| web-frontend | 8 |\n| billing | 7 |\n| api-gateway | 7 |\n| mobile-bff | 7 |\n\n**PagerDuty incidents acknowledged: 5**\n- **PD-407** — mobile-bff: Checkout latency spikes at peak (high)\n- **PD-416** — billing: SSO SCIM provisioning errors (high)\n- **PD-421** — mobile-bff: Image uploads time out over 5MB (low)\n- **PD-424** — api-gateway: Billing webhook retries drop events (low)\n- **PD-433** — billing: Image uploads time out over 5MB (high)\n\n**Email sent** to `oncall@acme.io` with subject \"Escalation\" listing all hot services and their issue counts.",
+    "toolMix": {
+      "execute_sql": 8
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "escalate-hot-services",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 4,
+    "mcpRoundTrips": 9,
+    "servicesTouched": 3,
+    "tokensIn": 23912,
+    "tokensOut": 2075,
+    "cacheRead": 21184,
+    "peakContextTokens": 4506,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 32592,
+    "costUsd": 0.00309176,
+    "finalText": "Here's the escalation sweep summary:\n\n**4 hot services** identified (each with >5 unresolved Sentry issues):\n| Service | Unresolved Issues |\n|---|---|\n| web-frontend | 8 |\n| api-gateway | 7 |\n| billing | 7 |\n| mobile-bff | 7 |\n\n**5 PagerDuty incidents acknowledged** (triggered incidents whose service is hot):\n- **PD-407** — Checkout latency spikes at peak (mobile-bff, high)\n- **PD-421** — Image uploads time out over 5MB (mobile-bff, low)\n- **PD-424** — Billing webhook retries drop events (api-gateway, low)\n- **PD-416** — SSO SCIM provisioning errors (billing, high)\n- **PD-433** — Image uploads time out over 5MB (billing, high)\n\n**3 triggered incidents NOT acknowledged** (their service is not hot):\n- PD-404, PD-408, PD-439 — all on \"search\" (only 5 unresolved issues, not >5)\n\n**1 escalation email sent** to `oncall@acme.io` with subject \"Escalation\" listing all hot services and their counts.",
+    "toolMix": {
+      "execute_lisp": 6
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "escalate-hot-services",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 11,
+    "toolErrors": 1,
+    "mcpRoundTrips": 9,
+    "servicesTouched": 3,
+    "tokensIn": 16963,
+    "tokensOut": 1204,
+    "cacheRead": 15104,
+    "peakContextTokens": 3766,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 21069,
+    "costUsd": 0.002118235,
+    "finalText": "All done. Here's the summary:\n\n**Hot services (4):**\n| Service | Unresolved Sentry Issues |\n|---|---|\n| web-frontend | 8 |\n| billing | 7 |\n| api-gateway | 7 |\n| mobile-bff | 7 |\n\n**PagerDuty incidents acknowledged (5):**\n- **PD-407** — Checkout latency spikes at peak (mobile-bff, high)\n- **PD-416** — SSO SCIM provisioning errors (billing, high)\n- **PD-421** — Image uploads time out over 5MB (mobile-bff, low)\n- **PD-424** — Billing webhook retries drop events (api-gateway, low)\n- **PD-433** — Image uploads time out over 5MB (billing, high)\n\n**Email sent** to `oncall@acme.io` with subject \"Escalation\" listing all hot services and their counts.\n\n**Final tally:** 4 hot services, 5 incidents acknowledged.",
+    "toolMix": {
+      "execute_sql": 11
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 2,
+    "tokensIn": 36696,
+    "tokensOut": 2713,
+    "cacheRead": 21264,
+    "peakContextTokens": 15398,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 31003,
+    "costUsd": 0.005705760000000001,
+    "finalText": "Now I have all the data needed to perform the quality audit. Let me analyze:\n\n**Linear issues in 'done' state (13 total):**\n- ENG-122, ENG-125, ENG-131, ENG-134, ENG-142, ENG-160, ENG-162, ENG-165, ENG-167, ENG-172, ENG-176, ENG-197, ENG-199\n\n**Find issues that have at least one PR claiming to close them (via closes_linear) but NO merged PR:**\n\nGoing through each done issue:\n\n| Issue | Has PR claiming to close? | Merged PR closing it? |\n|-------|---------------------------|----------------------|\n| ENG-122 | No | No |\n| ENG-125 | Yes (PR #1016 - open) | No |\n| ENG-131 | No | No |\n| ENG-134 | No | No |\n| ENG-142 | Yes (PR #1024 - merged, PR #1074 - open) | YES ✓ |\n| ENG-160 | No | No |\n| ENG-162 | No | No |\n| ENG-165 | Yes (PR #1027 - merged) | YES ✓ |\n| ENG-167 | Yes (PR #1006 - open) | No |\n| ENG-172 | No | No |\n| ENG-176 | No | No |\n| ENG-197 | No | No |\n| ENG-199 | Yes (PR #1043 - closed, not merged) | No |\n\n---\n\n## Quality Audit Results\n\n**Count:** 2\n\n**Issue IDs:**\n- **ENG-125** — PR #1016 (open) claims to close it, but no merged PR\n- **ENG-167** — PR #1006 (open) claims to close it, but no merged PR",
+    "toolMix": {
+      "linear__list_issues": 1,
+      "github__list_pull_requests": 2,
+      "github__search_code": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 11,
+    "toolCalls": 10,
+    "toolErrors": 0,
+    "mcpRoundTrips": 14,
+    "servicesTouched": 2,
+    "tokensIn": 38513,
+    "tokensOut": 1791,
+    "cacheRead": 28592,
+    "peakContextTokens": 7532,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 18372,
+    "costUsd": 0.005481239999999999,
+    "finalText": "**Result: 2 issues found**\n\n| Issue ID | Linear State | PR State(s) |\n|----------|--------------|-------------|\n| ENG-167 | done | open |\n| ENG-199 | done | closed |\n\nThese two Linear issues are marked as `done` in Linear but are not actually closed by any **merged** pull request — only by PRs in `open` or `closed` (non-merged) states.",
+    "toolMix": {
+      "execute_sql": 10
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 2,
+    "mcpRoundTrips": 6,
+    "servicesTouched": 2,
+    "tokensIn": 14456,
+    "tokensOut": 1597,
+    "cacheRead": 10752,
+    "peakContextTokens": 3664,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 14396,
+    "costUsd": 0.00250128,
+    "finalText": "**Quality Audit Results**\n\n**Count:** 2 issues\n\n**Issue IDs:** \n- `ENG-167`\n- `ENG-199`\n\n**Verification:**\n| Issue | PR(s) claiming to close it | PR State |\n|-------|---------------------------|----------|\n| ENG-167 | #1006 (Rate limiter false positives) | open |\n| ENG-199 | #1043 (Onboarding funnel drop-off) | closed |\n\nBoth Linear issues have state \"done\", and each has a pull request that claims to close it via `closes_linear`, but neither PR has been merged — one is still open, the other was closed without merging.",
+    "toolMix": {
+      "execute_lisp": 4
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 7,
+    "toolErrors": 1,
+    "mcpRoundTrips": 12,
+    "servicesTouched": 2,
+    "tokensIn": 26343,
+    "tokensOut": 1960,
+    "cacheRead": 19072,
+    "peakContextTokens": 4991,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 18872,
+    "costUsd": 0.00410196,
+    "finalText": "**Quality Audit Results**\n\n**Count:** 2 issues\n\n**Issue IDs:**\n| Issue ID | State | PRs claiming to close (state) |\n|----------|-------|------------------------------|\n| ENG-167 | done | #1006 (open) |\n| ENG-199 | done | #1043 (closed) |\n\nThese are Linear issues marked as 'done' that have at least one PR referencing them via `closes_linear`, but none of those PRs have been merged — the referencing PRs are either still open (ENG-167) or were closed without merging (ENG-199).",
+    "toolMix": {
+      "execute_sql": 7
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "repo-health-report",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 2,
+    "tokensIn": 37826,
+    "tokensOut": 1808,
+    "cacheRead": 23888,
+    "peakContextTokens": 13830,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 26291,
+    "costUsd": 0.00540696,
+    "finalText": "## Per-Repository Health Report\n\n| Repository | Open PRs | Merged PRs Closing Linear Issues |\n|------------|----------|----------------------------------|\n| acme/api | 7 | 0 |\n| acme/infra | 7 | 4 |\n| acme/mobile | 8 | 6 |\n| acme/web | 14 | 3 |\n\n**Repository with most open pull requests:** acme/web (14 open PRs)",
+    "toolMix": {
+      "github__search_code": 1,
+      "filesystem__list_files": 1,
+      "github__list_pull_requests": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "repo-health-report",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 5714,
+    "tokensOut": 622,
+    "cacheRead": 5136,
+    "peakContextTokens": 2160,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 6184,
+    "costUsd": 0.00098424,
+    "finalText": "## Per-Repository Health Report\n\n| Repository | Open PRs | Merged PRs Closing Linear |\n|------------|----------|---------------------------|\n| acme/web   | 14       | 3                         |\n| acme/mobile| 8        | 6                         |\n| acme/api   | 7        | 2                         |\n| acme/infra | 7        | 4                         |\n\n**Repository with the most open pull requests:** `acme/web` (14 open PRs)",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "repo-health-report",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 12285,
+    "tokensOut": 869,
+    "cacheRead": 10912,
+    "peakContextTokens": 2897,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 8931,
+    "costUsd": 0.00189132,
+    "finalText": "Per-repository health report:\n\n| Repository | Open PRs | Merged PRs Closing Linear Issue |\n|------------|----------|--------------------------------|\n| acme/api | 7 | 2 |\n| acme/web | 14 | 3 |\n| acme/mobile | 8 | 6 |\n| acme/infra | 7 | 4 |\n\n**Repository with the most open pull requests: acme/web** (14 open PRs)",
+    "toolMix": {
+      "execute_lisp": 4
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "repo-health-report",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6433,
+    "tokensOut": 512,
+    "cacheRead": 5920,
+    "peakContextTokens": 2358,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 5238,
+    "costUsd": 0.00101772,
+    "finalText": "## Per-Repository Health Report\n\n| Repository | Open PRs | Merged PRs that Close Linear Issue |\n|------------|----------|-----------------------------------|\n| acme/api   | 7        | 2                                 |\n| acme/infra | 7        | 4                                 |\n| acme/mobile| 8        | 6                                 |\n| acme/web   | 14       | 3                                 |\n\n**Repository with most open pull requests:** **acme/web** (14 open PRs)",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "escalate-hot-services",
+    "arm": "baseline",
+    "ok": false,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 13,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 4,
+    "tokensIn": 67422,
+    "tokensOut": 6305,
+    "cacheRead": 57552,
+    "peakContextTokens": 12653,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 60729,
+    "costUsd": 0.01111704,
+    "finalText": "4 hot services, 5 incidents acknowledged.",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "pagerduty__list_incidents": 1,
+      "pagerduty__acknowledge_incident": 8,
+      "email__send_email": 1,
+      "slack__post_message": 1,
+      "slack__list_messages": 1
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "escalate-hot-services",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 7,
+    "toolErrors": 1,
+    "mcpRoundTrips": 10,
+    "servicesTouched": 4,
+    "tokensIn": 19943,
+    "tokensOut": 1990,
+    "cacheRead": 18320,
+    "peakContextTokens": 3265,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 24865,
+    "costUsd": 0.00334836,
+    "finalText": "**Escalation sweep complete.**\n\n- **Hot services found:** 4 (billing: 7, web-frontend: 8, api-gateway: 7, mobile-bff: 7)\n- **PagerDuty incidents acknowledged:** 5 (PD-407, PD-416, PD-421, PD-424, PD-433)\n- **Email sent:** Yes — to oncall@acme.io with subject \"Escalation\" listing all hot services and their unresolved Sentry issue counts.",
+    "toolMix": {
+      "execute_sql": 7
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "escalate-hot-services",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 9,
+    "toolCalls": 8,
+    "toolErrors": 2,
+    "mcpRoundTrips": 11,
+    "servicesTouched": 3,
+    "tokensIn": 27236,
+    "tokensOut": 1688,
+    "cacheRead": 25376,
+    "peakContextTokens": 3925,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 19267,
+    "costUsd": 0.00407856,
+    "finalText": "**Escalation sweep complete.**\n\n- **Hot services:** 4 (billing: 7, web-frontend: 8, api-gateway: 7, mobile-bff: 7)\n- **Incidents acknowledged:** 5 (PD-407, PD-416, PD-421, PD-424, PD-433)\n\nSent escalation email to oncall@acme.io with subject \"Escalation\" listing each hot service and its unresolved Sentry issue count.",
+    "toolMix": {
+      "execute_lisp": 8
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "escalate-hot-services",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 13,
+    "toolCalls": 12,
+    "toolErrors": 5,
+    "mcpRoundTrips": 10,
+    "servicesTouched": 3,
+    "tokensIn": 53457,
+    "tokensOut": 2146,
+    "cacheRead": 48256,
+    "peakContextTokens": 7077,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 41813,
+    "costUsd": 0.00744492,
+    "finalText": "**Escalation complete.**\n\n- **Hot services:** 4 (billing: 7, web-frontend: 8, api-gateway: 7, mobile-bff: 7)\n- **PagerDuty incidents acknowledged:** 5 (PD-407, PD-416, PD-421, PD-424, PD-433)\n\nEmail sent to oncall@acme.io with subject \"Escalation\" listing each hot service and its unresolved Sentry issue count. No message was posted to the incidents channel since there ARE hot services.",
+    "toolMix": {
+      "execute_lisp": 7,
+      "execute_sql": 5
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "baseline",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 11675,
+    "tokensOut": 2513,
+    "cacheRead": 2574,
+    "peakContextTokens": 10381,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 85136,
+    "costUsd": 0.00946695,
+    "finalText": "**Quality Audit Results**\n\nI found **13 Linear issues with state='done'** and cross-referenced them against all **pull requests that have a non-null `closes_linear` field**.\n\n**Issues incorrectly marked 'done' (not closed by any merged PR):**\n\n| Issue ID | Claimed by PR | PR State |\n|----------|---------------|----------|\n| **ENG-122** | *(none)* | — |\n| **ENG-125** | *(none)* | — |\n| **ENG-131** | *(none)* | — |\n| **ENG-134** | *(none)* | — |\n| **ENG-160** | *(none)* | — |\n| **ENG-162** | *(none)* | — |\n| **ENG-165** | #1027 | open |\n| **ENG-167** | #1006 | open |\n| **ENG-172** | *(none)* | — |\n| **ENG-176** | *(none)* | — |\n| **ENG-197** | *(none)* | — |\n| **ENG-199** | #1043 | closed |\n\n**Count: 12 issues**\n\n**The single exception (properly closed):**\n- **ENG-142** — closed by merged PR #1024 (acme/api)\n\n**Summary:** 12 out of 13 \"done\" Linear issues are **not** actually closed by any merged pull request. Only ENG-142 is correctly validated by a merged PR.",
+    "toolMix": {
+      "linear__list_issues": 1,
+      "github__list_pull_requests": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 3,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 5294,
+    "tokensOut": 4499,
+    "cacheRead": 4536,
+    "peakContextTokens": 2009,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 133276,
+    "costUsd": 0.011095725,
+    "finalText": "",
+    "toolMix": {
+      "execute_sql": 3
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 4295,
+    "tokensOut": 560,
+    "cacheRead": 3650,
+    "peakContextTokens": 2437,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 18745,
+    "costUsd": 0.0027446249999999997,
+    "finalText": "**Count: 2**\n\n**Issue IDs:** ENG-167, ENG-199\n\nThese 2 Linear issues are marked as \"done\" and are claimed by at least one pull request, but none of those pull requests have been merged.",
+    "toolMix": {
+      "execute_lisp": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "both",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "Request was aborted.",
+    "turns": 16,
+    "toolCalls": 22,
+    "toolErrors": 0,
+    "mcpRoundTrips": 34,
+    "servicesTouched": 2,
+    "tokensIn": 62670,
+    "tokensOut": 4180,
+    "cacheRead": 56166,
+    "peakContextTokens": 6389,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 180012,
+    "costUsd": 0.03196575,
+    "finalText": "",
+    "toolMix": {
+      "explain_sql": 1,
+      "execute_sql": 21
+    },
+    "expected": null
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "repo-health-report",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 9001,
+    "tokensOut": 943,
+    "cacheRead": 2573,
+    "peakContextTokens": 7708,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 34653,
+    "costUsd": 0.00528495,
+    "finalText": "Based on the retrieved pull request data, here is the per-repository health report:\n\n| Repository | Open PRs | Merged PRs closing Linear issues |\n|------------|----------|----------------------------------|\n| **acme/web** | 14 | 3 |\n| **acme/mobile** | 8 | 6 |\n| **acme/api** | 7 | 2 |\n| **acme/infra** | 7 | 4 |\n\n**Repository with the most open pull requests:** `acme/web` (14 open PRs)",
+    "toolMix": {
+      "github__list_pull_requests": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "repo-health-report",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 5004,
+    "tokensOut": 526,
+    "cacheRead": 4656,
+    "peakContextTokens": 1884,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 27088,
+    "costUsd": 0.0029416499999999996,
+    "finalText": "**Per-repository health report**\n\n| Repository | Open PRs | Merged PRs closing Linear issue |\n|------------|----------|--------------------------------|\n| acme/web   | 14       | 3 |\n| acme/mobile| 8        | 6 |\n| acme/api   | 7        | 2 |\n| acme/infra | 7        | 4 |\n\n**Repository with the most open pull requests:** `acme/web` (14 open PRs)",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "repo-health-report",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6569,
+    "tokensOut": 612,
+    "cacheRead": 5697,
+    "peakContextTokens": 2474,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 31990,
+    "costUsd": 0.0037026750000000003,
+    "finalText": "**Repository Health Report:**\n\n| Repository | Open PRs | Merged PRs closing Linear issues |\n|------------|----------|----------------------------------|\n| acme/api | 7 | 2 |\n| acme/web | 14 | 3 |\n| acme/mobile | 8 | 6 |\n| acme/infra | 7 | 4 |\n\n**Repository with most open pull requests:** `acme/web` (14 open)",
+    "toolMix": {
+      "execute_lisp": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "repo-health-report",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 5404,
+    "tokensOut": 573,
+    "cacheRead": 4709,
+    "peakContextTokens": 1992,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 22595,
+    "costUsd": 0.003186825,
+    "finalText": "**Per-repository health report:**\n\n| Repository | Open PRs | Merged PRs that close Linear issue |\n|------------|----------|-----------------------------------|\n| acme/web   | 14       | 3                                 |\n| acme/mobile| 8        | 6                                 |\n| acme/api   | 7        | 2                                 |\n| acme/infra | 7        | 4                                 |\n\n**Repository with the most open pull requests: acme/web** (14 open PRs)",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "escalate-hot-services",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 8,
+    "toolErrors": 0,
+    "mcpRoundTrips": 8,
+    "servicesTouched": 3,
+    "tokensIn": 16275,
+    "tokensOut": 1620,
+    "cacheRead": 11870,
+    "peakContextTokens": 5477,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 53899,
+    "costUsd": 0.009383625,
+    "finalText": "**Escalation sweep complete.**\n\n- **Hot services**: 4 (api-gateway: 7, billing: 7, mobile-bff: 7, web-frontend: 8 unresolved issues)\n- **PagerDuty incidents acknowledged**: 5 (PD-407, PD-416, PD-421, PD-424, PD-433 — all for hot services)\n- **Email sent**: Escalation email to oncall@acme.io listing the 4 hot services and their issue counts",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "pagerduty__list_incidents": 1,
+      "pagerduty__acknowledge_incident": 5,
+      "email__send_email": 1
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "escalate-hot-services",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 7,
+    "toolErrors": 3,
+    "mcpRoundTrips": 12,
+    "servicesTouched": 3,
+    "tokensIn": 17547,
+    "tokensOut": 1426,
+    "cacheRead": 15368,
+    "peakContextTokens": 2917,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 71971,
+    "costUsd": 0.009467775,
+    "finalText": "**Escalation sweep complete.**\n\n- **Hot services:** 4 (billing: 7, web-frontend: 8, api-gateway: 7, mobile-bff: 7)\n- **Incidents acknowledged:** 8 (PD-404, PD-407, PD-408, PD-416, PD-421, PD-424, PD-433, PD-439)\n- **Email sent:** Escalation notice to oncall@acme.io listing all hot services and their issue counts.",
+    "toolMix": {
+      "execute_sql": 7
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "escalate-hot-services",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 7,
+    "toolErrors": 2,
+    "mcpRoundTrips": 8,
+    "servicesTouched": 3,
+    "tokensIn": 24423,
+    "tokensOut": 1302,
+    "cacheRead": 12105,
+    "peakContextTokens": 3818,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 46489,
+    "costUsd": 0.011795175,
+    "finalText": "Escalation sweep complete.\n\n**Results:**\n- **Hot services detected: 4** (billing: 7, web-frontend: 8, api-gateway: 7, mobile-bff: 7 unresolved Sentry issues)\n- **Incidents acknowledged: 5** (PD-407, PD-416, PD-421, PD-424, PD-433 — all triggered incidents for hot services)\n- **Escalation email sent** to `oncall@acme.io` with the hot service list.",
+    "toolMix": {
+      "execute_lisp": 7
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "escalate-hot-services",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 7,
+    "toolErrors": 3,
+    "mcpRoundTrips": 9,
+    "servicesTouched": 3,
+    "tokensIn": 20306,
+    "tokensOut": 1644,
+    "cacheRead": 15555,
+    "peakContextTokens": 3334,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 88206,
+    "costUsd": 0.01094385,
+    "finalText": "## Escalation sweep complete.\n\n**Hot services detected:** 4\n- api-gateway: 7 unresolved issues\n- billing: 7 unresolved issues  \n- mobile-bff: 7 unresolved issues\n- web-frontend: 8 unresolved issues\n\n**Actions taken:**\n- ✅ Acknowledged **5 PagerDuty incidents** (PD-407, PD-416, PD-421, PD-424, PD-433)\n- ✅ Sent escalation email to oncall@acme.io with hot service summary",
+    "toolMix": {
+      "execute_sql": 3,
+      "execute_lisp": 4
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 2,
+    "tokensIn": 28265,
+    "tokensOut": 540,
+    "cacheRead": 16576,
+    "peakContextTokens": 10468,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 42092,
+    "costUsd": 0.0228061,
+    "finalText": "Count: **2**\n\nIssue IDs:\n- **ENG-167**\n- **ENG-199**\n\nThese Linear issues are in state `done`, have at least one pull request that claims to close them via `closes_linear`, but none of those linked PRs are `merged`.",
+    "toolMix": {
+      "linear__list_issues": 1,
+      "github__list_pull_requests": 3
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 3186,
+    "tokensOut": 405,
+    "cacheRead": 2688,
+    "peakContextTokens": 1721,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 25392,
+    "costUsd": 0.0037751399999999997,
+    "finalText": "**Count: 0**\n\nNo Linear issues are in state `done` while having at least one pull request that claims to close them (`closes_linear`) but no *merged* pull request actually closing them.",
+    "toolMix": {
+      "execute_sql": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 11,
+    "toolCalls": 10,
+    "toolErrors": 7,
+    "mcpRoundTrips": 10,
+    "servicesTouched": 2,
+    "tokensIn": 38333,
+    "tokensOut": 2137,
+    "cacheRead": 34048,
+    "peakContextTokens": 5162,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 127259,
+    "costUsd": 0.03584592,
+    "finalText": "**Quality audit result:**\n\n- **Count:** 2\n- **Issue IDs:** `ENG-167`, `ENG-199`\n\nBoth Linear issues are in the `done` state, are claimed as closed by at least one pull request, but no merged pull request actually closes them.",
+    "toolMix": {
+      "execute_lisp": 10
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 3499,
+    "tokensOut": 415,
+    "cacheRead": 3072,
+    "peakContextTokens": 1860,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 28523,
+    "costUsd": 0.00404176,
+    "finalText": "Count: **2** Linear issues are marked `done` but not closed by any merged PR.\n\nIssue IDs:\n- **ENG-167**\n- **ENG-199**",
+    "toolMix": {
+      "execute_sql": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "repo-health-report",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 8989,
+    "tokensOut": 773,
+    "cacheRead": 1280,
+    "peakContextTokens": 7695,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 78225,
+    "costUsd": 0.00935736,
+    "finalText": "Per-repository health report:\n\n- **acme/api**: 7 open PRs, 2 merged PRs close a Linear issue\n- **acme/infra**: 7 open PRs, 4 merged PRs close a Linear issue\n- **acme/mobile**: 8 open PRs, 6 merged PRs close a Linear issue\n- **acme/web**: 14 open PRs, 3 merged PRs close a Linear issue\n\nRepository with the most open pull requests: **acme/web** (14).",
+    "toolMix": {
+      "github__list_pull_requests": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "repo-health-report",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 5012,
+    "tokensOut": 494,
+    "cacheRead": 2560,
+    "peakContextTokens": 1888,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 44558,
+    "costUsd": 0.00543788,
+    "finalText": "Per-repository health report:\n\n| Repository | Open PRs | Merged PRs closing Linear issue |\n|---|---|---|\n| acme/web | 14 | 3 |\n| acme/mobile | 8 | 6 |\n| acme/api | 7 | 2 |\n| acme/infra | 7 | 4 |\n\nRepository with the most open pull requests: **acme/web** (14 open PRs).",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "repo-health-report",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6446,
+    "tokensOut": 509,
+    "cacheRead": 5888,
+    "peakContextTokens": 2497,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 31416,
+    "costUsd": 0.006551540000000001,
+    "finalText": "Per-repository health report:\n\n| Repository | Open PRs | Merged PRs closing a Linear issue |\n|---|---|---|\n| acme/api | 7 | 2 |\n| acme/infra | 7 | 4 |\n| acme/mobile | 8 | 6 |\n| acme/web | 14 | 3 |\n\n**Repository with the most open pull requests:** `acme/web` (14 open PRs).",
+    "toolMix": {
+      "execute_lisp": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "repo-health-report",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 5692,
+    "tokensOut": 351,
+    "cacheRead": 4864,
+    "peakContextTokens": 2139,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 27046,
+    "costUsd": 0.00544058,
+    "finalText": "Per-repository health report:\n\n- **acme/web**: 14 open PRs, 3 merged PRs closing a Linear issue\n- **acme/mobile**: 8 open PRs, 6 merged PRs closing a Linear issue\n- **acme/api**: 7 open PRs, 2 merged PRs closing a Linear issue\n- **acme/infra**: 7 open PRs, 4 merged PRs closing a Linear issue\n\nRepository with the most open pull requests: **acme/web** (14).",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "escalate-hot-services",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 8,
+    "toolErrors": 0,
+    "mcpRoundTrips": 8,
+    "servicesTouched": 3,
+    "tokensIn": 16547,
+    "tokensOut": 1031,
+    "cacheRead": 11840,
+    "peakContextTokens": 5740,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 88952,
+    "costUsd": 0.015853279999999997,
+    "finalText": "Done.\n\n- Hot services: 4 (billing: 7, web-frontend: 8, api-gateway: 7, mobile-bff: 7)\n- Triggered PagerDuty incidents on hot services acknowledged: 5 (PD-407, PD-416, PD-421, PD-424, PD-433)\n- Escalation email sent to oncall@acme.io.",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "pagerduty__list_incidents": 1,
+      "pagerduty__acknowledge_incident": 5,
+      "email__send_email": 1
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "escalate-hot-services",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 9,
+    "toolErrors": 4,
+    "mcpRoundTrips": 8,
+    "servicesTouched": 3,
+    "tokensIn": 22230,
+    "tokensOut": 826,
+    "cacheRead": 20096,
+    "peakContextTokens": 2879,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 70598,
+    "costUsd": 0.0193412,
+    "finalText": "Escalation sweep complete. Hot services: 4 (billing: 7, web-frontend: 8, api-gateway: 7, mobile-bff: 7). PagerDuty incidents acknowledged: 5 (PD-407, PD-416, PD-421, PD-424, PD-433). Email sent to oncall@acme.io.",
+    "toolMix": {
+      "execute_sql": 9
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "escalate-hot-services",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 3,
+    "mcpRoundTrips": 12,
+    "servicesTouched": 3,
+    "tokensIn": 21375,
+    "tokensOut": 1778,
+    "cacheRead": 18240,
+    "peakContextTokens": 4254,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 131913,
+    "costUsd": 0.0220405,
+    "finalText": "Escalation sweep complete.\n\n- Hot services: **4**\n- PagerDuty incidents acknowledged: **5**\n\nAcknowledged all 5 triggered PagerDuty incidents associated with hot services, and sent one escalation email to `oncall@acme.io` listing the hot services and their unresolved Sentry issue counts.",
+    "toolMix": {
+      "execute_lisp": 6
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "escalate-hot-services",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 18,
+    "toolCalls": 19,
+    "toolErrors": 9,
+    "mcpRoundTrips": 17,
+    "servicesTouched": 3,
+    "tokensIn": 77315,
+    "tokensOut": 2896,
+    "cacheRead": 70912,
+    "peakContextTokens": 6002,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 111283,
+    "costUsd": 0.0673491,
+    "finalText": "Escalation sweep complete.\n\n- Hot services: **4**\n  - api-gateway: 7 unresolved issues\n  - billing: 7 unresolved issues\n  - mobile-bff: 7 unresolved issues\n  - web-frontend: 8 unresolved issues\n- PagerDuty incidents acknowledged: **5** (PD-407, PD-416, PD-421, PD-424, PD-433)\n- Escalation email sent to oncall@acme.io.",
+    "toolMix": {
+      "execute_sql": 5,
+      "execute_lisp": 14
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "baseline",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 15603,
+    "tokensOut": 1771,
+    "cacheRead": 0,
+    "peakContextTokens": 12476,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 38685,
+    "costUsd": 0.01276212,
+    "finalText": "Now let me analyze the data to find Linear issues with state 'done' that are claimed by at least one PR, but not actually closed by a MERGED pull request.\n\nFrom the data:\n\n**Linear issues with state 'done':**\nENG-122, ENG-125, ENG-131, ENG-134, ENG-142, ENG-160, ENG-162, ENG-165, ENG-167, ENG-172, ENG-176, ENG-197, ENG-199\n\n**Pull requests claiming to close Linear issues (with their merge status):**\n- ENG-142: PR 1024 (merged), PR 1074 (open)\n- ENG-165: PR 1027 (merged)\n- ENG-199: PR 1043 (closed, not merged)\n\nCross-referencing:\n\n| Done Issue | PRs Claiming to Close | Has Merged PR? |\n|------------|----------------------|----------------|\n| ENG-142 | PR 1024 (merged), PR 1074 (open) | ✅ Yes |\n| ENG-165 | PR 1027 (merged) | ✅ Yes |\n| ENG-199 | PR 1043 (closed) | ❌ No |\n\n---\n\n**Result: 1 issue**\n\n**Issue ID: ENG-199**",
+    "toolMix": {
+      "linear__list_issues": 1,
+      "github__list_pull_requests": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 5,
+    "servicesTouched": 2,
+    "tokensIn": 10603,
+    "tokensOut": 895,
+    "cacheRead": 8000,
+    "peakContextTokens": 2539,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 31700,
+    "costUsd": 0.0080802,
+    "finalText": "**Result:** 2 Linear issues match the audit criteria.\n\n**Issue IDs:**\n- ENG-167\n- ENG-199\n\n**Details:**\n- ENG-167: has 1 PR claiming to close it (state: **open**)\n- ENG-199: has 1 PR claiming to close it (state: **closed** — not merged)\n\nBoth issues are marked as `done` in Linear, yet neither is actually closed by a merged pull request.",
+    "toolMix": {
+      "explain_sql": 1,
+      "execute_sql": 3
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 2,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 2,
+    "tokensIn": 12582,
+    "tokensOut": 995,
+    "cacheRead": 11392,
+    "peakContextTokens": 3019,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 39477,
+    "costUsd": 0.009459599999999999,
+    "finalText": "**Quality Audit Results**\n\nFound **2 Linear issues** marked as 'done' that are NOT actually closed by any merged pull request (among issues that at least one PR claims to close):\n\n| Issue ID |\n|----------|\n| ENG-167 |\n| ENG-199 |\n\nThese issues are claimed by pull requests, but those PRs were not merged — meaning the work was never actually integrated, yet the issues are marked as done.",
+    "toolMix": {
+      "execute_lisp": 4
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 4168,
+    "tokensOut": 585,
+    "cacheRead": 3840,
+    "peakContextTokens": 2225,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 21788,
+    "costUsd": 0.0036239999999999996,
+    "finalText": "**Quality Audit Results:**\n\n**Count:** 2 Linear issues\n\n**Issue IDs:**\n- ENG-167\n- ENG-199\n\nThese issues are marked as 'done' in Linear and are cited by at least one pull request (via `closes_linear`), but none of those pull requests are in 'merged' state — meaning they were never actually closed by a completed merge.",
+    "toolMix": {
+      "execute_sql": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "repo-health-report",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 12731,
+    "tokensOut": 2991,
+    "cacheRead": 5824,
+    "peakContextTokens": 9731,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 49850,
+    "costUsd": 0.013381319999999999,
+    "finalText": "## Per-Repository Health Report\n\n| Repository | Open PRs | Merged PRs Closing Linear Issues |\n|-----------|----------|----------------------------------|\n| acme/web | 14 | 3 |\n| acme/api | 7 | 2 |\n| acme/mobile | 8 | 7 |\n| acme/infra | 7 | 4 |\n\n**Repository with most open PRs:** `acme/web` (14 open pull requests)",
+    "toolMix": {
+      "github__list_pull_requests": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "repo-health-report",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 5644,
+    "tokensOut": 583,
+    "cacheRead": 3328,
+    "peakContextTokens": 2094,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 21666,
+    "costUsd": 0.004505759999999999,
+    "finalText": "## Per-Repository Health Report\n\n| Repository | Open Pull Requests | Merged PRs Closing Linear Issue |\n|------------|-------------------|---------------------------------|\n| acme/web | 14 | 3 |\n| acme/mobile | 8 | 6 |\n| acme/api | 7 | 2 |\n| acme/infra | 7 | 4 |\n\n**Repository with the most open pull requests: acme/web (14 open PRs)**",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "repo-health-report",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 10603,
+    "tokensOut": 743,
+    "cacheRead": 1920,
+    "peakContextTokens": 3127,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 30730,
+    "costUsd": 0.007788359999999999,
+    "finalText": "## Per-Repository Health Report\n\n| Repository | Open PRs | Merged PRs Closing Linear Issue |\n|------------|----------|----------------------------------|\n| acme/web   | 14       | 3                                |\n| acme/mobile| 8        | 6                                |\n| acme/api   | 7        | 2                                |\n| acme/infra | 7        | 4                                |\n\n**Repository with the most open pull requests: `acme/web`** (14 open PRs)",
+    "toolMix": {
+      "execute_lisp": 3
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "repo-health-report",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6537,
+    "tokensOut": 362,
+    "cacheRead": 2432,
+    "peakContextTokens": 2394,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 12391,
+    "costUsd": 0.00461724,
+    "finalText": "## Per-Repository Health Report\n\n| Repository | Open PRs | Merged PRs closing a Linear issue |\n|---|---|---|\n| **acme/web** | 14 | 3 |\n| **acme/mobile** | 8 | 6 |\n| **acme/api** | 7 | 2 |\n| **acme/infra** | 7 | 4 |\n\n**Repository with the most open pull requests: `acme/web`** (14 open PRs).",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "escalate-hot-services",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 8,
+    "toolErrors": 0,
+    "mcpRoundTrips": 8,
+    "servicesTouched": 3,
+    "tokensIn": 17305,
+    "tokensOut": 1044,
+    "cacheRead": 6400,
+    "peakContextTokens": 7266,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 32814,
+    "costUsd": 0.01238748,
+    "finalText": "**Escalation sweep complete.**\n\n- **Hot services:** 4 (billing, web-frontend, api-gateway, mobile-bff)\n- **Incidents acknowledged:** 5 (PD-407, PD-416, PD-421, PD-424, PD-433)\n- **Escalation email sent** to oncall@acme.io with subject \"Escalation\"",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "pagerduty__list_incidents": 1,
+      "pagerduty__acknowledge_incident": 5,
+      "email__send_email": 1
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "escalate-hot-services",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 7,
+    "toolErrors": 1,
+    "mcpRoundTrips": 9,
+    "servicesTouched": 3,
+    "tokensIn": 14462,
+    "tokensOut": 1129,
+    "cacheRead": 8000,
+    "peakContextTokens": 2977,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 43444,
+    "costUsd": 0.01084488,
+    "finalText": "**Escalation sweep complete.**\n\n**Summary:**\n- **Hot services:** 4 (api-gateway, billing, mobile-bff, web-frontend)\n- **Incidents acknowledged:** 5 (PD-407, PD-416, PD-421, PD-424, PD-433)\n\n**Actions taken:**\n1. Acknowledged 5 triggered PagerDuty incidents across the hot services\n2. Sent escalation email to oncall@acme.io listing all hot services with their unresolved issue counts",
+    "toolMix": {
+      "execute_sql": 7
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "escalate-hot-services",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 4,
+    "toolErrors": 1,
+    "mcpRoundTrips": 9,
+    "servicesTouched": 3,
+    "tokensIn": 16960,
+    "tokensOut": 1182,
+    "cacheRead": 7936,
+    "peakContextTokens": 6377,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 51533,
+    "costUsd": 0.012445439999999999,
+    "finalText": "**Escalation sweep complete.**\n\n**Results:**\n- **4 hot services** with more than 5 unresolved Sentry issues: billing, web-frontend, api-gateway, and mobile-bff\n- **5 PagerDuty incidents** acknowledged (all triggered incidents matching hot services)\n- **1 escalation email** sent to oncall@acme.io with subject \"Escalation\" listing each hot service and its unresolved issue count",
+    "toolMix": {
+      "execute_lisp": 4
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "escalate-hot-services",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 0,
+    "mcpRoundTrips": 8,
+    "servicesTouched": 3,
+    "tokensIn": 9128,
+    "tokensOut": 847,
+    "cacheRead": 4224,
+    "peakContextTokens": 2546,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 26749,
+    "costUsd": 0.007103040000000001,
+    "finalText": "**Escalation complete.**\n\n**Hot services:** 4\n- billing (7 unresolved issues)\n- web-frontend (8 unresolved issues)\n- api-gateway (7 unresolved issues)\n- mobile-bff (7 unresolved issues)\n\n**Acknowledged PagerDuty incidents:** 5 (PD-407, PD-416, PD-421, PD-424, PD-433)\n\n**Email sent:** One escalation email to oncall@acme.io listing all hot services and their issue counts.",
+    "toolMix": {
+      "execute_sql": 3
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 2,
+    "tokensIn": 22827,
+    "tokensOut": 1881,
+    "cacheRead": 3310,
+    "peakContextTokens": 12507,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 26154,
+    "costUsd": 0.0091053,
+    "finalText": "Now I have the full data. Let me analyze it methodically.\n\n**Linear issues in 'done' state (13 total):**\nENG-122, ENG-125, ENG-131, ENG-134, ENG-142, ENG-160, ENG-162, ENG-165, ENG-167, ENG-172, ENG-176, ENG-197, ENG-199\n\n**Merged PRs and which Linear issues they close:**\n- #1009 (merged) → ENG-183\n- #1010 (merged) → ENG-130\n- #1022 (merged) → ENG-183\n- #1024 (merged) → ENG-142\n- #1026 (merged) → ENG-153\n- #1027 (merged) → ENG-165\n- #1030 (merged) → ENG-120\n- #1040 (merged) → ENG-136\n- #1042 (merged) → ENG-135\n- #1050 (merged) → ENG-203\n- #1053 (merged) → ENG-215\n- #1057 (merged) → ENG-143\n- #1058 (merged) → ENG-104\n- #1069 (merged) → ENG-113\n- #1078 (merged) → ENG-132\n\n**Set of issues closed by any MERGED PR:**\n{ENG-183, ENG-130, ENG-142, ENG-153, ENG-165, ENG-120, ENG-136, ENG-135, ENG-203, ENG-215, ENG-143, ENG-104, ENG-113, ENG-132}\n\n**Step 1: Filter done issues to those that at least one PR (merged or otherwise) claims to close via `closes_linear`:**\n\nAll PRs claiming to close (from merged + open + closed lists) reference these issues:\nENG-101, ENG-104, ENG-107, ENG-108, ENG-109, ENG-112, ENG-113, ENG-117, ENG-118, ENG-120, ENG-130, ENG-132, ENG-133, ENG-135, ENG-136, ENG-142, ENG-143, ENG-144, ENG-148, ENG-149, ENG-150, ENG-153, ENG-158, ENG-165, ENG-167, ENG-173, ENG-174, ENG-177, ENG-183, ENG-185, ENG-186, ENG-189, ENG-194, ENG-195, ENG-198, ENG-199, ENG-202, ENG-203, ENG-214, ENG-215\n\nIntersect with 'done' set {ENG-122, ENG-125, ENG-131, ENG-134, ENG-142, ENG-160, ENG-162, ENG-165, ENG-167, ENG-172, ENG-176, ENG-197, ENG-199}:\n- ENG-142 (claimed by #1024 merged, #1074 open) ✓\n- ENG-165 (claimed by #1027 merged) ✓\n- ENG-167 (claimed by #1006 open) ✓\n- ENG-199 (claimed by #1043 closed) ✓\n\n**Step 2: From those, keep only ones NOT closed by any MERGED PR:**\n- ENG-142: closed by merged #1024 → EXCLUDE\n- ENG-165: closed by merged #1027 → EXCLUDE\n- ENG-167: only claimed by open #1006 (not merged) → INCLUDE\n- ENG-199: only claimed by closed #1043 (not merged; merged_at is null) → INCLUDE\n\n## Quality audit result\n\n**Count: 2**\n\nDone-state Linear issues that are claimed to be closed by some PR but have **no merged PR** actually closing them:\n\n1. **ENG-167** — \"Billing webhook retries drop events\" (assignee: carol). Only `closes_linear` reference: PR #1006 (open).\n2. **ENG-199** — \"Migrate auth to OAuth2 + PKCE\" (assignee: frank). Only `closes_linear` reference: PR #1043 (closed, not merged — `merged_at` is null).\n\nBoth issues are marked Done in Linear without an underlying merged PR — this is the kind of \"phantom done\" the audit is meant to surface.",
+    "toolMix": {
+      "linear__list_issues": 1,
+      "github__list_pull_requests": 3
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 2,
+    "tokensIn": 6402,
+    "tokensOut": 681,
+    "cacheRead": 5694,
+    "peakContextTokens": 2362,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 10264,
+    "costUsd": 0.0027377999999999994,
+    "finalText": "## Quality Audit Result\n\n**Count: 0** Linear issues match the criteria.\n\n**Details from the data:**\n- 13 Linear issues are in state `done`.\n- 15 pull requests claim to close a Linear issue (via `closes_linear`).\n- All 15 of those PRs are in state `merged`.\n\n**Every Linear issue marked `done` is backed by at least one merged PR** that claims to close it. There is no mismatch — no `done` issues are \"phantom closed\" by an unmerged or missing PR.",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 5,
+    "mcpRoundTrips": 12,
+    "servicesTouched": 2,
+    "tokensIn": 22652,
+    "tokensOut": 2712,
+    "cacheRead": 21226,
+    "peakContextTokens": 4124,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 48945,
+    "costUsd": 0.01005,
+    "finalText": "Quality audit results:\n\n- **Total Linear issues in `done` state:** 13\n- **Unique Linear issues claimed via `closes_linear` (any PR):** 40\n- **Of those, actually closed by a MERGED PR:** 14\n- **Done issues that are claimed by some PR but NOT closed by any merged PR: 2**\n\nThe \"ghost\" done issues (claimed by a PR, but no merged PR closes them) are:\n\n| id | title | assignee |\n|---|---|---|\n| ENG-167 | Billing webhook retries drop events | carol |\n| ENG-199 | *(see Linear)* | — |\n\nBoth `ENG-167` and `ENG-199` are marked done in Linear, and at least one PR lists them in `closes_linear`, but no MERGED PR closes them — worth investigating (stale PR, wrong state, or task completed without a merge).",
+    "toolMix": {
+      "execute_lisp": 6
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 8,
+    "servicesTouched": 2,
+    "tokensIn": 13822,
+    "tokensOut": 1465,
+    "cacheRead": 12245,
+    "peakContextTokens": 3420,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 19871,
+    "costUsd": 0.005904599999999999,
+    "finalText": "Confirmed. (My first call's empty result was likely a planner quirk with the `COUNT(*) OVER ()` window — the un-windowed version returns the correct set.)\n\n## Quality audit result\n\n**Count: 2 Linear issues** are marked `done` but are not actually closed by any MERGED PR (each has a claiming PR, just not merged):\n\n| Linear ID | Claiming PR | PR state | Repo |\n|---|---|---|---|\n| **ENG-167** | #1006 | open | acme/web |\n| **ENG-199** | #1043 | closed | acme/web |\n\nThese should be reviewed — they were marked done in Linear, but their closing PR (#1006 is still open, #1043 was closed without merging), so the work isn't actually shipped. Recommend either re-opening the Linear issue or pushing the PR to merge.",
+    "toolMix": {
+      "execute_sql": 4
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "repo-health-report",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 14407,
+    "tokensOut": 772,
+    "cacheRead": 3196,
+    "peakContextTokens": 11311,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 9798,
+    "costUsd": 0.0052485,
+    "finalText": "I have all the data. Let me tally per repository.\n\n**acme/api**\n- Open PRs: 1007, 1015, 1016, 1035, 1052, 1061, 1063 → **7**\n- Merged with closes_linear ≠ null: 1024 (ENG-142), 1058 (ENG-104) → **2**\n- Merged with closes_linear = null: 1000, 1002, 1003, 1045, 1065\n\n**acme/web**\n- Open PRs: 1005, 1006, 1014, 1018, 1031, 1032, 1036, 1038, 1048, 1049, 1064, 1074, 1075, 1077 → **14**\n- Merged with closes_linear ≠ null: 1026 (ENG-153), 1040 (ENG-136), 1057 (ENG-143) → **3**\n- Merged with closes_linear = null: 1017, 1068\n\n**acme/mobile**\n- Open PRs: 1008, 1025, 1033, 1034, 1041, 1060, 1062, 1066 → **8**\n- Merged with closes_linear ≠ null: 1009 (ENG-183), 1010 (ENG-130), 1027 (ENG-165), 1050 (ENG-203), 1053 (ENG-215), 1078 (ENG-132) → **6**\n- Merged with closes_linear = null: 1046, 1054, 1055, 1073\n\n**acme/infra**\n- Open PRs: 1011, 1012, 1028, 1037, 1044, 1047, 1070 → **7**\n- Merged with closes_linear ≠ null: 1022 (ENG-183), 1030 (ENG-120), 1042 (ENG-135), 1069 (ENG-113) → **4**\n- Merged with closes_linear = null: 1020\n\n## Per-Repository Health Report\n\n| Repository | Open PRs | Merged PRs that close a Linear issue |\n|---|---|---|\n| acme/api | 7 | 2 |\n| acme/web | 14 | 3 |\n| acme/mobile | 8 | 6 |\n| acme/infra | 7 | 4 |\n\n**Repository with the most open pull requests: `acme/web` (14 open PRs).**",
+    "toolMix": {
+      "github__list_pull_requests": 1
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "repo-health-report",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6335,
+    "tokensOut": 309,
+    "cacheRead": 6151,
+    "peakContextTokens": 2331,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 5802,
+    "costUsd": 0.0022713,
+    "finalText": "## Per-Repository PR Health Report\n\n| Repository | Open PRs | Merged PRs closing a Linear issue |\n|---|---:|---:|\n| acme/web | 14 | 3 |\n| acme/mobile | 8 | 6 |\n| acme/api | 7 | 2 |\n| acme/infra | 7 | 4 |\n\n**Repository with the most open pull requests: `acme/web` (14 open PRs).**",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "repo-health-report",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 7278,
+    "tokensOut": 327,
+    "cacheRead": 6810,
+    "peakContextTokens": 2625,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 7257,
+    "costUsd": 0.0025757999999999996,
+    "finalText": "# Per-repository health report\n\n| Repository | Open PRs | Merged PRs closing a Linear issue |\n|---|---:|---:|\n| acme/web | 14 | 3 |\n| acme/mobile | 8 | 6 |\n| acme/api | 7 | 2 |\n| acme/infra | 7 | 4 |\n\n**Most open pull requests: `acme/web` (14).**",
+    "toolMix": {
+      "execute_lisp": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "repo-health-report",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 7147,
+    "tokensOut": 399,
+    "cacheRead": 6358,
+    "peakContextTokens": 2607,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 6832,
+    "costUsd": 0.0026229,
+    "finalText": "## Per-Repository Health Report\n\n| Repository | Open PRs | Merged PRs closing a Linear issue |\n|---|---|---|\n| acme/web | 14 | 3 |\n| acme/mobile | 8 | 6 |\n| acme/api | 7 | 2 |\n| acme/infra | 7 | 4 |\n\n**Repository with the most open pull requests: `acme/web` (14 open PRs).**\n\nA couple of quick observations:\n- `acme/mobile` has the strongest Linear linkage — 6 of its merged PRs close Linear issues (out of presumably more total merges), the highest count in the table.\n- `acme/web` stands out on the open side: 14 open PRs is nearly double any other repo, and worth a triage pass.",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "escalate-hot-services",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 9,
+    "toolErrors": 0,
+    "mcpRoundTrips": 9,
+    "servicesTouched": 4,
+    "tokensIn": 17838,
+    "tokensOut": 1035,
+    "cacheRead": 10577,
+    "peakContextTokens": 7680,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 16544,
+    "costUsd": 0.0065934,
+    "finalText": "## Escalation sweep complete\n\n**Hot services (>5 unresolved Sentry issues): 4**\n- **billing** — 7\n- **web-frontend** — 8\n- **api-gateway** — 7\n- **mobile-bff** — 7\n\n(search had 4 — not hot, so no Slack message was posted)\n\n**PagerDuty incidents acknowledged: 5** (all triggered incidents on hot services)\n- PD-407 — mobile-bff (high)\n- PD-416 — billing (high)\n- PD-421 — mobile-bff (low)\n- PD-424 — api-gateway (low)\n- PD-433 — billing (high)\n\nExcluded as non-hot: PD-404, PD-408, PD-439 (all `search`).\n\n**Email sent:** to `oncall@acme.io`, subject \"Escalation\", listing the 4 hot services and their counts.",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "pagerduty__list_incidents": 1,
+      "slack__list_channels": 1,
+      "pagerduty__acknowledge_incident": 5,
+      "email__send_email": 1
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "escalate-hot-services",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 12,
+    "toolErrors": 4,
+    "mcpRoundTrips": 9,
+    "servicesTouched": 3,
+    "tokensIn": 21595,
+    "tokensOut": 1335,
+    "cacheRead": 19860,
+    "peakContextTokens": 3902,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 16679,
+    "costUsd": 0.0080805,
+    "finalText": "Escalation sweep complete.\n\n**Hot services (4):**\n- web-frontend: 8 unresolved Sentry issues\n- billing: 7 unresolved\n- api-gateway: 7 unresolved\n- mobile-bff: 7 unresolved\n\n**Acknowledged PagerDuty incidents (5):** PD-407 (mobile-bff, high), PD-416 (billing, high), PD-421 (mobile-bff, low), PD-424 (api-gateway, low), PD-433 (billing, high). The 3 triggered incidents on `search` (PD-404, PD-408, PD-439) were skipped because search is not a hot service.\n\nEmail sent to oncall@acme.io with subject \"Escalation\" listing all four hot services. No \"Sentry stable\" message was posted to #incidents since hot services exist.",
+    "toolMix": {
+      "execute_sql": 12
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "escalate-hot-services",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 20,
+    "toolCalls": 19,
+    "toolErrors": 12,
+    "mcpRoundTrips": 9,
+    "servicesTouched": 4,
+    "tokensIn": 74855,
+    "tokensOut": 2403,
+    "cacheRead": 71932,
+    "peakContextTokens": 5689,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 52743,
+    "costUsd": 0.0253401,
+    "finalText": "Escalation sweep complete.\n\n**Hot services (4):** billing (7), web-frontend (8), api-gateway (7), mobile-bff (7) — all exceeding 5 unresolved Sentry issues. `search` was not hot (4).\n\n**Incidents acknowledged (5):**\n- PD-407 — mobile-bff (high)\n- PD-416 — billing (high)\n- PD-421 — mobile-bff (low)\n- PD-424 — api-gateway (low)\n- PD-433 — billing (high)\n\n**Email sent** to oncall@acme.io (subject: \"Escalation\") listing all 4 hot services and their unresolved issue counts. No Slack post was made because the \"stable\" branch did not apply.",
+    "toolMix": {
+      "execute_lisp": 19
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "escalate-hot-services",
+    "arm": "both",
+    "ok": false,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 7,
+    "toolErrors": 2,
+    "mcpRoundTrips": 16,
+    "servicesTouched": 4,
+    "tokensIn": 21755,
+    "tokensOut": 1454,
+    "cacheRead": 20620,
+    "peakContextTokens": 3978,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 21449,
+    "costUsd": 0.0082713,
+    "finalText": "Escalation sweep complete.\n\n**Hot services (4):**\n- web-frontend: 8 unresolved Sentry issues\n- billing: 7\n- api-gateway: 7\n- mobile-bff: 7\n\n**PagerDuty incidents acknowledged (5):**\n- PD-407 (mobile-bff, high)\n- PD-416 (billing, high)\n- PD-421 (mobile-bff, low)\n- PD-424 (api-gateway, low)\n- PD-433 (billing, high)\n\nEmail sent to oncall@acme.io with subject \"Escalation\" and the per-service unresolved counts. No Slack post was made — the \"Sentry stable.\" message is only posted when there are zero hot services.",
+    "toolMix": {
+      "execute_sql": 7
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 5,
+    "toolErrors": 0,
+    "mcpRoundTrips": 5,
+    "servicesTouched": 2,
+    "tokensIn": 29264,
+    "tokensOut": 4530,
+    "cacheRead": 11008,
+    "peakContextTokens": 11167,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 93428,
+    "costUsd": 0.0034491599999999997,
+    "finalText": "Now I have all the data I need. Let me systematically work through this.\n\n**Step 1: List all Linear issues in \"done\" state.**\n- ENG-122, ENG-125, ENG-131, ENG-134, ENG-142, ENG-160, ENG-162, ENG-165, ENG-167, ENG-172, ENG-176, ENG-197, ENG-199\n\n**Step 2: Find every PR (any state) that has a non-null `closes_linear` field.**\n\nFrom the merged PRs:\n- #1009 → ENG-183 (merged)\n- #1010 → ENG-130 (merged)\n- #1022 → ENG-183 (merged)\n- #1024 → **ENG-142** (merged) ✅\n- #1026 → ENG-153 (merged)\n- #1027 → **ENG-165** (merged) ✅\n- #1030 → ENG-120 (merged)\n- #1040 → ENG-136 (merged)\n- #1042 → ENG-135 (merged)\n- #1050 → ENG-203 (merged)\n- #1053 → ENG-215 (merged)\n- #1057 → ENG-143 (merged)\n- #1058 → ENG-104 (merged)\n- #1069 → ENG-113 (merged)\n- #1078 → ENG-132 (merged)\n\nFrom the open PRs:\n- #1005 → ENG-130\n- #1006 → **ENG-167** (open, not merged)\n- #1007 → ENG-109\n- #1008 → ENG-150\n- #1011 → ENG-195\n- #1016 → ENG-117\n- #1018 → ENG-149\n- #1025 → ENG-202\n- #1032 → ENG-186\n- #1033 → ENG-185\n- #1035 → ENG-148\n- #1036 → ENG-185\n- #1049 → ENG-112\n- #1052 → ENG-133\n- #1060 → ENG-109\n- #1061 → ENG-107\n- #1062 → ENG-198\n- #1064 → ENG-194\n- #1066 → ENG-158\n- #1074 → **ENG-142** (open, also has a merged PR)\n- #1075 → ENG-214\n\n**Step 3: Intersect** — \"done\" issues that appear in at least one PR's `closes_linear`:\n- **ENG-142** — claimed by PR #1024 (merged) ✅\n- **ENG-165** — claimed by PR #1027 (merged) ✅\n- **ENG-167** — claimed by PR #1006 (open, **not merged**) ❌\n\nAll other \"done\" issues (ENG-122, ENG-125, ENG-131, ENG-134, ENG-160, ENG-162, ENG-172, ENG-176, ENG-197, ENG-199) are never referenced by any PR's `closes_linear`, so they are excluded per the requirement.\n\n---\n\n## Report\n\n**Count: 1**\n\n**Offending issue: ENG-167** (\"Billing webhook retries drop events\")\n\n- State in Linear: **done**\n- PR #1006 (open, *not merged*) claims via `closes_linear: \"ENG-167\"` to close it\n- No **merged** PR claims to close ENG-167\n\nTherefore, ENG-167 is marked done in Linear without ever being actually closed by a merged pull request.",
+    "toolMix": {
+      "linear__list_issues": 1,
+      "github__search_code": 1,
+      "github__list_pull_requests": 2,
+      "github__get_pull_request": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 9,
+    "toolCalls": 10,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 2,
+    "tokensIn": 33789,
+    "tokensOut": 4737,
+    "cacheRead": 19200,
+    "peakContextTokens": 5301,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 77026,
+    "costUsd": 0.0038936699999999997,
+    "finalText": "Here are the complete results of the audit:\n\n**Count: 2 issues**\n\n| Linear Issue | PR # | PR State | Merged At | Notes |\n|---|---|---|---|---|\n| **ENG-167** | #1006 | `open` | `null` | PR is open, never merged |\n| **ENG-199** | #1043 | `closed` | `null` | PR is closed but *not* merged |\n\n**Explanation of the logic:**\n\n1. There are **13** Linear issues with state `done`.\n2. Of those, only **4** are referenced by any PR's `closes_linear` field: ENG-142, ENG-165, ENG-167, ENG-199.\n3. ENG-142 → has a merged PR ✓ — properly closed.\n4. ENG-165 → has a merged PR ✓ — properly closed.\n5. **ENG-167** → PR #1006 is `open` (not merged) ✗ — **flagged.**\n6. **ENG-199** → PR #1043 is `closed` (not merged, `merged_at` is null) ✗ — **flagged.**\n\nSo the two issues marked `done` in Linear but lacking an actual merged PR to close them are **ENG-167** (\"Billing webhook retries drop events\") and **ENG-199** (\"Migrate auth to OAuth2 + PKCE\"). You may want to investigate these — either the PR is still in progress (ENG-167) or the state should be something other than `done` until a merge actually happens.",
+    "toolMix": {
+      "execute_sql": 10
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 13,
+    "toolCalls": 19,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 2,
+    "tokensIn": 54115,
+    "tokensOut": 2707,
+    "cacheRead": 37632,
+    "peakContextTokens": 5639,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 62262,
+    "costUsd": 0.00535761,
+    "finalText": "Here are the results:\n\n**Count: 2** — Linear issues that are `done` but have no MERGED pull request closing them, despite being claimed by at least one PR:\n\n| ID | Title | Assignee | Priority | Claiming PR | PR State |\n|---|---|---|---|---|---|\n| **ENG-167** | Billing webhook retries drop events | carol | P3 | PR #1006 (web) | **open** |\n| **ENG-199** | Migrate auth to OAuth2 + PKCE | frank | P3 | PR #1043 (web) | **closed** (not merged) |\n\nBoth issues are marked done in Linear, but the PRs that reference them are not merged — one is still open (#1006 → ENG-167) and the other was closed without merging (#1043 → ENG-199). These should either be truly merged, reopened in Linear, or the Linear state should be corrected to reflect reality.",
+    "toolMix": {
+      "execute_lisp": 19
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 11,
+    "toolErrors": 0,
+    "mcpRoundTrips": 11,
+    "servicesTouched": 2,
+    "tokensIn": 37199,
+    "tokensOut": 3282,
+    "cacheRead": 16896,
+    "peakContextTokens": 7466,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 43545,
+    "costUsd": 0.00393867,
+    "finalText": "Let me trace through the data systematically.\n\n**Linear issues with state = `done`:** ENG-122, ENG-125, ENG-131, ENG-134, ENG-142, ENG-160, ENG-162, ENG-165, ENG-167, ENG-172, ENG-176, ENG-197, ENG-199\n\nOf those, only these are **claimed by at least one pull request** (via `closes_linear`): ENG-142, ENG-165, ENG-167, ENG-199\n\nNow checking which of those have **NO merged PR** claiming to close them:\n\n| Issue | PRs referencing it | Has merged PR? |\n|-------|-------------------|----------------|\n| ENG-142 | merged + open | ✅ Yes |\n| ENG-165 | merged | ✅ Yes |\n| **ENG-167** | open only | ❌ No |\n| **ENG-199** | closed only (not merged) | ❌ No |\n\n**Result: Count = 2**\n\nThe issues that are marked `done` in Linear but are **not** actually closed by any merged pull request (while being referenced by at least one PR):\n\n1. **ENG-167** — \"Rate limiter false positives\" — only referenced by PR #1006 (state: `open`)\n2. **ENG-199** — only referenced by a PR with state `closed` (not merged)",
+    "toolMix": {
+      "execute_sql": 11
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "repo-health-report",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 12567,
+    "tokensOut": 1869,
+    "cacheRead": 2816,
+    "peakContextTokens": 9657,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 17896,
+    "costUsd": 0.00146745,
+    "finalText": "Here is the per-repository health report.\n\n## Repository Health Report\n\n| Repository | Open PRs | Merged PRs closing a Linear issue |\n|---|---|---|\n| **acme/web** | 14 | 3 |\n| **acme/api** | 7 | 2 |\n| **acme/mobile** | 8 | 6 |\n| **acme/infra** | 7 | 4 |\n\n### Details\n\n**acme/web** — 14 open pull requests (#1005, #1006, #1014, #1018, #1031, #1032, #1036, #1038, #1048, #1049, #1064, #1074, #1075, #1077). Of its 5 merged PRs, 3 reference a Linear issue (ENG-153, ENG-136, ENG-143).\n\n**acme/api** — 7 open pull requests (#1007, #1015, #1016, #1035, #1052, #1061, #1063). Of its 7 merged PRs, 2 reference a Linear issue (ENG-142, ENG-104).\n\n**acme/mobile** — 8 open pull requests (#1008, #1025, #1033, #1034, #1041, #1060, #1062, #1066). Of its 10 merged PRs, 6 reference a Linear issue (ENG-183, ENG-130, ENG-165, ENG-203, ENG-215, ENG-132).\n\n**acme/infra** — 7 open pull requests (#1011, #1012, #1028, #1037, #1044, #1047, #1070). Of its 5 merged PRs, 4 reference a Linear issue (ENG-183, ENG-120, ENG-135, ENG-113).\n\n### Most Open PRs\n🏆 **acme/web** with **14** open pull requests.",
+    "toolMix": {
+      "github__list_pull_requests": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "repo-health-report",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6288,
+    "tokensOut": 418,
+    "cacheRead": 2048,
+    "peakContextTokens": 2341,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 11572,
+    "costUsd": 0.00064116,
+    "finalText": "## Per-Repository Health Report\n\n| Repository | Open PRs | Merged PRs Closing Linear Issue |\n|---|---|---|\n| **acme/api** | 7 | 2 |\n| **acme/infra** | 7 | 4 |\n| **acme/mobile** | 8 | 6 |\n| **acme/web** | 14 | 3 |\n\n**Repository with the most open pull requests: acme/web** (14 open PRs — nearly twice as many as any other repo).",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "repo-health-report",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 13031,
+    "tokensOut": 617,
+    "cacheRead": 3584,
+    "peakContextTokens": 2967,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 19404,
+    "costUsd": 0.00128385,
+    "finalText": "## Per-Repository Health Report\n\n| Repository | Open PRs | Merged PRs That Close a Linear Issue |\n|------------|---------|--------------------------------------|\n| **acme/api** | 7 | 2 |\n| **acme/web** | 14 | 3 |\n| **acme/mobile** | 8 | 6 |\n| **acme/infra** | 7 | 4 |\n\n**📌 Repository with the most open pull requests: `acme/web` (14 open PRs).**",
+    "toolMix": {
+      "execute_lisp": 4
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "repo-health-report",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 7261,
+    "tokensOut": 517,
+    "cacheRead": 2048,
+    "peakContextTokens": 2694,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 33211,
+    "costUsd": 0.0007465499999999999,
+    "finalText": "## Per-Repository Health Report\n\n| Repository | Open PRs | Merged PRs Closing Linear Issue |\n|---|---|---|\n| **acme/api** | 7 | 2 |\n| **acme/infra** | 7 | 4 |\n| **acme/mobile** | 8 | 6 |\n| **acme/web** | 14 | 3 |\n\n**🏆 Repository with the most open pull requests: `acme/web`** (14 open PRs).",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "escalate-hot-services",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 9,
+    "toolErrors": 0,
+    "mcpRoundTrips": 9,
+    "servicesTouched": 4,
+    "tokensIn": 17882,
+    "tokensOut": 1623,
+    "cacheRead": 2816,
+    "peakContextTokens": 7857,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 20212,
+    "costUsd": 0.0019015199999999999,
+    "finalText": "## Escalation Sweep Complete\n\n### Hot Services (unresolved Sentry issues > 5)\n\n| Service | Unresolved Issues |\n|---|---|\n| **billing** | 7 |\n| **web-frontend** | 8 |\n| **api-gateway** | 7 |\n| **mobile-bff** | 7 |\n\n**search** has 4 unresolved issues — not hot.\n\n### Actions Taken\n\n1. ✅ **Acknowledged 5 triggered PagerDuty incidents** on hot services:\n   - PD-407 (mobile-bff) → acknowledged\n   - PD-416 (billing) → acknowledged\n   - PD-421 (mobile-bff) → acknowledged\n   - PD-424 (api-gateway) → acknowledged\n   - PD-433 (billing) → acknowledged\n\n   *(PD-404, PD-408, PD-439 (search) were skipped — search is not hot.)*\n\n2. ✅ **Sent escalation email** to `oncall@acme.io` with subject \"Escalation\" listing each hot service and its unresolved issue count.\n\n### Summary\n- **Hot services:** 4\n- **Incidents acknowledged:** 5",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "pagerduty__list_incidents": 1,
+      "slack__list_channels": 1,
+      "pagerduty__acknowledge_incident": 5,
+      "email__send_email": 1
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "escalate-hot-services",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 14,
+    "toolErrors": 1,
+    "mcpRoundTrips": 10,
+    "servicesTouched": 3,
+    "tokensIn": 22124,
+    "tokensOut": 2532,
+    "cacheRead": 12416,
+    "peakContextTokens": 4440,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 40528,
+    "costUsd": 0.00244692,
+    "finalText": "All done! Here's the full summary:\n\n---\n\n## 🔥 Hot Services (unresolved Sentry issues > 5)\n\n| Service | Unresolved Count |\n|---|---|\n| **web-frontend** | 8 |\n| **billing** | 7 |\n| **api-gateway** | 7 |\n| **mobile-bff** | 7 |\n\n## Actions Taken\n\n**1. Email sent** — to `oncall@acme.io` with subject *\"Escalation\"* listing all 4 hot services and their counts.\n\n**2. Acknowledged 5 PagerDuty incidents** (triggered → acknowledged):\n\n| Incident ID | Service | Urgency |\n|---|---|---|\n| PD-407 | mobile-bff | high |\n| PD-416 | billing | high |\n| PD-421 | mobile-bff | low |\n| PD-424 | api-gateway | low |\n| PD-433 | billing | high |\n\n*(3 other triggered incidents on **search** were skipped — search is not a hot service.)*\n\n**3. Results: 4 hot services, 5 incidents acknowledged.**",
+    "toolMix": {
+      "execute_sql": 14
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "escalate-hot-services",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 9,
+    "toolCalls": 15,
+    "toolErrors": 0,
+    "mcpRoundTrips": 11,
+    "servicesTouched": 4,
+    "tokensIn": 55988,
+    "tokensOut": 1981,
+    "cacheRead": 18176,
+    "peakContextTokens": 8003,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 50340,
+    "costUsd": 0.005395499999999999,
+    "finalText": "Here's the full escalation sweep results:\n\n**Hot services** (more than 5 unresolved Sentry issues) — 4 total:\n| Service | Unresolved Issues |\n|---|---|\n| `web-frontend` | 8 |\n| `billing` | 7 |\n| `api-gateway` | 7 |\n| `mobile-bff` | 7 |\n\n*(`search` had only 4 — not hot)*\n\n**Actions taken:**\n\n1. ✅ **Acknowledged 5 triggered PagerDuty incidents** for hot services:\n   - `PD-407` — mobile-bff (high urgency)\n   - `PD-416` — billing (high urgency)\n   - `PD-421` — mobile-bff (low urgency)\n   - `PD-424` — api-gateway (low urgency)\n   - `PD-433` — billing (high urgency)\n\n2. ✅ **Sent escalation email** to `oncall@acme.io` with subject \"Escalation\" listing each hot service and its unresolved count.\n\n**Summary:** 4 hot services identified, 5 PagerDuty incidents acknowledged.",
+    "toolMix": {
+      "execute_lisp": 15
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "escalate-hot-services",
+    "arm": "both",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 8,
+    "toolErrors": 0,
+    "mcpRoundTrips": 8,
+    "servicesTouched": 3,
+    "tokensIn": 16313,
+    "tokensOut": 1680,
+    "cacheRead": 9216,
+    "peakContextTokens": 4113,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 30308,
+    "costUsd": 0.00177057,
+    "finalText": "All done. Here's the full summary:\n\n## Hot Services (unresolved Sentry issues > 5)\n\n| Service | Unresolved Count |\n|---|---|\n| **web-frontend** | 8 |\n| **api-gateway** | 7 |\n| **billing** | 7 |\n| **mobile-bff** | 7 |\n\n*(search had 4 — not hot, skipped)*\n\n## Acknowledgments\n\nI acknowledged all 5 triggered PagerDuty incidents whose service is hot:\n\n| Incident | Service | Urgency |\n|---|---|---|\n| PD-407 — Checkout latency spikes | mobile-bff | high |\n| PD-416 — SSO SCIM provisioning errors | billing | high |\n| PD-421 — Image uploads time out over 5MB | mobile-bff | low |\n| PD-424 — Billing webhook retries drop events | api-gateway | low |\n| PD-433 — Image uploads time out over 5MB | billing | high |\n\n## Email\n\nSent one email to **oncall@acme.io** with subject **\"Escalation\"** containing the full list of hot services and their counts.\n\n**Result: 4 hot services, 5 incidents acknowledged.**",
+    "toolMix": {
+      "execute_sql": 8
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "baseline",
+    "ok": false,
+    "errored": false,
+    "turns": 20,
+    "toolCalls": 18,
+    "toolErrors": 0,
+    "mcpRoundTrips": 18,
+    "servicesTouched": 2,
+    "tokensIn": 122143,
+    "tokensOut": 743,
+    "cacheRead": 112080,
+    "peakContextTokens": 8778,
+    "compactions": 1,
+    "toolsInContext": 32,
+    "wallMs": 73248,
+    "costUsd": 0.006248320000000001,
+    "finalText": "The Linear issue **ENG-172** (\"Billing webhook retries drop events — follow-up\") is in state **done**, but it was **not** closed by any merged PR.\n\nIt was claimed to be closed by PR #1078 in `acme/mobile`, but that PR actually closes **ENG-132**, not ENG-172. The PR's body says: \"Closes ENG-132.\" Therefore, the claim is incorrect — ENG-172 is **not** closed by any merged PR despite being in the \"done\" state.\n\nSince **ENG-172** is a \"done\" issue that is **claimed** by a merged PR (even if incorrectly), it satisfies the condition:\n- It is in state 'done'\n- It is **claimed** by a merged PR (via `closes_linear` in PR #1078, though it's incorrect)\n- But it is **not actually closed** by that PR (the PR closes ENG-132 instead)\n\nThus, **ENG-172** is the only such issue matching the criteria.\n\n✅ Final Answer:\n**One issue meets the condition: ENG-172**",
+    "toolMix": {
+      "linear__list_issues": 1,
+      "github__list_pull_requests": 4,
+      "linear__get_issue": 12,
+      "github__get_pull_request": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 0,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 2,
+    "tokensIn": 7863,
+    "tokensOut": 265,
+    "cacheRead": 7440,
+    "peakContextTokens": 2278,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 4510,
+    "costUsd": 0.00044350000000000005,
+    "finalText": "There are 0 Linear issues with state 'done' that are not closed by any merged pull request, despite being referenced in at least one PR's `closes_linear` field.",
+    "toolMix": {
+      "explain_sql": 1,
+      "execute_sql": 2
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 4295,
+    "tokensOut": 140,
+    "cacheRead": 4128,
+    "peakContextTokens": 2272,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 3970,
+    "costUsd": 0.00024135,
+    "finalText": "There are 2 Linear issues in 'done' state that are not closed by any merged pull request:\n\n- ENG-142\n- ENG-165",
+    "toolMix": {
+      "execute_lisp": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "both",
+    "ok": false,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 2,
+    "tokensIn": 6417,
+    "tokensOut": 205,
+    "cacheRead": 6128,
+    "peakContextTokens": 2362,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 6087,
+    "costUsd": 0.0003598,
+    "finalText": "There are 0 Linear issues with state 'done' that are not closed by any merged pull request, despite at least one pull request claiming to close them.",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "repo-health-report",
+    "arm": "baseline",
+    "ok": false,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 11,
+    "toolErrors": 0,
+    "mcpRoundTrips": 11,
+    "servicesTouched": 2,
+    "tokensIn": 40446,
+    "tokensOut": 379,
+    "cacheRead": 30224,
+    "peakContextTokens": 13443,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 6279,
+    "costUsd": 0.0020943100000000003,
+    "finalText": "acme/website: 0, 0\nacme/api: 4, 2\nacme/mobile: 6, 3\n\nThe repository with the most open pull requests is acme/mobile.",
+    "toolMix": {
+      "github__list_pull_requests": 7,
+      "linear__list_issues": 1,
+      "linear__get_issue": 3
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "repo-health-report",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3495,
+    "tokensOut": 139,
+    "cacheRead": 3408,
+    "peakContextTokens": 1827,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 4820,
+    "costUsd": 0.00020115999999999998,
+    "finalText": "The repository with the most open pull requests is `acme/web`, which has 14 open pull requests. For `acme/web`, 3 of its merged pull requests close a Linear issue.\n\nNo other repositories were returned in the results, so this report is complete.",
+    "toolMix": {
+      "execute_sql": 1
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "repo-health-report",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 9,
+    "toolCalls": 8,
+    "toolErrors": 5,
+    "mcpRoundTrips": 8,
+    "servicesTouched": 1,
+    "tokensIn": 28740,
+    "tokensOut": 2064,
+    "cacheRead": 28272,
+    "peakContextTokens": 4294,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 29747,
+    "costUsd": 0.00182916,
+    "finalText": "The per-repository health report is as follows:\n\n- [\\\"nil\\\", 36, 15]\n\nThe repository with the most open pull requests is \"nil\", which has 36 open pull requests and 15 merged pull requests that close a Linear issue.",
+    "toolMix": {
+      "execute_lisp": 8
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "repo-health-report",
+    "arm": "both",
+    "ok": false,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 1,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 1,
+    "tokensIn": 6689,
+    "tokensOut": 537,
+    "cacheRead": 6512,
+    "peakContextTokens": 2529,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 5528,
+    "costUsd": 0.00043648000000000005,
+    "finalText": "The per-repository health report is as follows:\n\n- Repository `nil` has 36 open pull requests and 15 merged pull requests that close a Linear issue.\n\nThe repository with the most open pull requests is `nil`.",
+    "toolMix": {
+      "execute_lisp": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "escalate-hot-services",
+    "arm": "baseline",
+    "ok": false,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 3,
+    "tokensIn": 25280,
+    "tokensOut": 95,
+    "cacheRead": 20640,
+    "peakContextTokens": 7625,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 2095,
+    "costUsd": 0.00128205,
+    "finalText": "Sentry stable.",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "pagerduty__list_incidents": 1,
+      "slack__post_message": 1
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "escalate-hot-services",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 12,
+    "toolCalls": 14,
+    "toolErrors": 5,
+    "mcpRoundTrips": 16,
+    "servicesTouched": 3,
+    "tokensIn": 35095,
+    "tokensOut": 835,
+    "cacheRead": 33616,
+    "peakContextTokens": 3739,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 9592,
+    "costUsd": 0.0019134000000000002,
+    "finalText": "There are 4 hot services: billing (7 unresolved issues), web-frontend (8), api-gateway (7), and mobile-bff (7). I acknowledged 8 PagerDuty incidents. Since there are hot services, I did not post 'Sentry stable.' to Slack. Instead, I sent an email to oncall@acme.io with subject 'Escalation' and body listing each hot service and its unresolved issue count.",
+    "toolMix": {
+      "explain_sql": 3,
+      "execute_sql": 11
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "escalate-hot-services",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 11,
+    "toolCalls": 10,
+    "toolErrors": 10,
+    "mcpRoundTrips": 30,
+    "servicesTouched": 3,
+    "tokensIn": 46022,
+    "tokensOut": 4100,
+    "cacheRead": 43120,
+    "peakContextTokens": 6783,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 56112,
+    "costUsd": 0.0030801,
+    "finalText": "The error `unknown symbol 'list'` suggests a syntax issue. In Clojure, `list` is a valid function, but the system may be interpreting it incorrectly. Use `vector` instead, which is the correct way to create a list-like structure.\n\nThe `insert!` on `emails` has already fired — one email sent — so we do not repeat it. We only need to return the final result as a vector of counts.\n\nI will now correctly return the final counts using `vector` and avoid any redundant writes. The program is now fixed and ready to run.",
+    "toolMix": {
+      "execute_lisp": 10
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "escalate-hot-services",
+    "arm": "both",
+    "ok": false,
+    "errored": false,
+    "turns": 31,
+    "toolCalls": 30,
+    "toolErrors": 29,
+    "mcpRoundTrips": 12,
+    "servicesTouched": 2,
+    "tokensIn": 137683,
+    "tokensOut": 7446,
+    "cacheRead": 135632,
+    "peakContextTokens": 7120,
+    "compactions": 1,
+    "toolsInContext": 4,
+    "wallMs": 71835,
+    "costUsd": 0.00829889,
+    "finalText": "Reached the maximum number of turns (30) for this request. Please send a new message to continue.",
+    "toolMix": {
+      "execute_lisp": 27,
+      "commit!": 2,
+      "execute_sql": 1
+    },
+    "expected": {
+      "branch": "email",
+      "hot": [
+        "billing",
+        "web-frontend",
+        "api-gateway",
+        "mobile-bff"
+      ],
+      "acks": [
+        "PD-407",
+        "PD-416",
+        "PD-421",
+        "PD-424",
+        "PD-433"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 15477,
+    "tokensOut": 5472,
+    "cacheRead": 0,
+    "peakContextTokens": 8090,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 114220,
+    "costUsd": 0.00431964,
+    "finalText": "There are **10** Linear issues in state 'done' that are not closed by any merged pull request. These issues are:\n\n1. **ENG-122**  \n2. **ENG-125**  \n3. **ENG-131**  \n4. **ENG-134**  \n5. **ENG-160**  \n6. **ENG-162**  \n7. **ENG-167**  \n8. **ENG-172**  \n9. **ENG-197**  \n10. **ENG-199**  \n\nNo PRs in the merged list close these issues.",
+    "toolMix": {
+      "linear__list_issues": 1,
+      "github__list_pull_requests": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 1,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 2,
+    "tokensIn": 5495,
+    "tokensOut": 7468,
+    "cacheRead": 0,
+    "peakContextTokens": 2042,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 140177,
+    "costUsd": 0.00402,
+    "finalText": "The query returned zero rows, indicating there are no Linear issues in the 'done' state that are not closed by any merged pull request. This could mean either no such issues exist or the conditions are not met. The exact count is **0**, and no issue IDs are reported.\n\n**Answer:**  \nCount: 0  \nNo issues found.",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "lisp",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "This operation was aborted",
+    "turns": 2,
+    "toolCalls": 2,
+    "toolErrors": 2,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 2,
+    "tokensIn": 4276,
+    "tokensOut": 5706,
+    "cacheRead": 0,
+    "peakContextTokens": 2253,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 180080,
+    "costUsd": 0.00308082,
+    "finalText": "",
+    "toolMix": {
+      "execute_lisp": 2
+    },
+    "expected": null
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "both",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 4104,
+    "tokensOut": 4092,
+    "cacheRead": 0,
+    "peakContextTokens": 2173,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 74806,
+    "costUsd": 0.00233388,
+    "finalText": "The SQL query executed returned 0 rows, indicating there are no Linear issues in the 'done' state that are not closed by any merged pull requests. \n\n**Answer:**  \nCount: 0  \nNo issues found meeting the criteria.",
+    "toolMix": {
+      "execute_sql": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "ENG-167",
+        "ENG-199"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "repo-health-report",
+    "arm": "baseline",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 13913,
+    "tokensOut": 4905,
+    "cacheRead": 0,
+    "peakContextTokens": 10890,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 143096,
+    "costUsd": 0.0038768099999999996,
+    "finalText": "Here is the per-repository health report:\n\n1. **acme/web**  \n   - Open PRs: 12  \n   - Merged PRs closing Linear issues: 3  \n   - **Most open PRs** ✅  \n\n2. **acme/api**  \n   - Open PRs: 7  \n   - Merged PRs closing Linear issues: 2  \n\n3. **acme/mobile**  \n   - Open PRs: 7  \n   - Merged PRs closing Linear issues: 5  \n\n4. **acme/infra**  \n   - Open PRs: 6  \n   - Merged PRs closing Linear issues: 3  \n\n**Repository with the most open pull requests:** `acme/web` (12 open PRs).",
+    "toolMix": {
+      "github__list_pull_requests": 2
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "repo-health-report",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3514,
+    "tokensOut": 4364,
+    "cacheRead": 0,
+    "peakContextTokens": 1850,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 72215,
+    "costUsd": 0.0023854799999999997,
+    "finalText": "The per-repository health report cannot be generated because the `github_pull_requests` table lacks a repository identifier column. However, based on the available data:\n\n- **Total open pull requests**: 36 (repo: `unknown`)\n- **Total merged pull requests closing Linear issues**: 15 (repo: `unknown`)\n\nSince no repository column exists, the \"most open PRs\" cannot be determined across repos. The single repo (`unknown`) has 36 open PRs. \n\nAnswer:  \n`unknown` repository has 36 open PRs and 15 merged PRs closing Linear issues. The repo with the most open PRs is `unknown`.",
+    "toolMix": {
+      "execute_sql": 1
+    },
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "repo-health-report",
+    "arm": "lisp",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "400 Provider returned error",
+    "turns": 3,
+    "toolCalls": 3,
+    "toolErrors": 3,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 7218,
+    "tokensOut": 7410,
+    "cacheRead": 0,
+    "peakContextTokens": 2786,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 135956,
+    "costUsd": 0.00420066,
+    "finalText": "",
+    "toolMix": {
+      "execute_lisp": 3
+    },
+    "expected": null
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "repo-health-report",
+    "arm": "both",
+    "ok": false,
+    "errored": false,
+    "turns": 1,
+    "toolCalls": 0,
+    "toolErrors": 0,
+    "mcpRoundTrips": 0,
+    "servicesTouched": 0,
+    "tokensIn": 1932,
+    "tokensOut": 1748,
+    "cacheRead": 0,
+    "peakContextTokens": 1932,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 31047,
+    "costUsd": 0.00101844,
+    "finalText": "The data required to produce a per-repository health report is incomplete. The `github_pull_requests` table lacks a repository identifier column, making it impossible to group results by repository. Without this field, we cannot determine which repository each pull request belongs to. \n\nTo proceed, the dataset would need a `repository` column in `github_pull_requests` or another table linking PRs to repositories.",
+    "toolMix": {},
+    "expected": {
+      "perRepo": {
+        "acme/api": {
+          "open": 7,
+          "mc": 2
+        },
+        "acme/web": {
+          "open": 14,
+          "mc": 3
+        },
+        "acme/mobile": {
+          "open": 8,
+          "mc": 6
+        },
+        "acme/infra": {
+          "open": 7,
+          "mc": 4
+        }
+      },
+      "top": [
+        "acme/web"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "escalate-hot-services",
+    "arm": "baseline",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "This operation was aborted",
+    "turns": 2,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 2,
+    "tokensIn": 10088,
+    "tokensOut": 7288,
+    "cacheRead": 0,
+    "peakContextTokens": 6989,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 180003,
+    "costUsd": 0.00449016,
+    "finalText": "",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "pagerduty__list_incidents": 3
+    },
+    "expected": null
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "escalate-hot-services",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "This operation was aborted",
+    "turns": 3,
+    "toolCalls": 3,
+    "toolErrors": 3,
+    "mcpRoundTrips": 0,
+    "servicesTouched": 0,
+    "tokensIn": 5852,
+    "tokensOut": 6841,
+    "cacheRead": 0,
+    "peakContextTokens": 2162,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 180008,
+    "costUsd": 0.0037806899999999997,
+    "finalText": "",
+    "toolMix": {
+      "execute_sql": 3
+    },
+    "expected": null
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "escalate-hot-services",
+    "arm": "lisp",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "This operation was aborted",
+    "turns": 2,
+    "toolCalls": 2,
+    "toolErrors": 2,
+    "mcpRoundTrips": 0,
+    "servicesTouched": 0,
+    "tokensIn": 4436,
+    "tokensOut": 8673,
+    "cacheRead": 0,
+    "peakContextTokens": 2336,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 180033,
+    "costUsd": 0.00443517,
+    "finalText": "",
+    "toolMix": {
+      "execute_lisp": 2
+    },
+    "expected": null
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "escalate-hot-services",
+    "arm": "both",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "This operation was aborted",
+    "turns": 5,
+    "toolCalls": 5,
+    "toolErrors": 4,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 3,
+    "tokensIn": 11572,
+    "tokensOut": 8614,
+    "cacheRead": 0,
+    "peakContextTokens": 2628,
+    "compactions": 0,
+    "toolsInContext": 4,
+    "wallMs": 180004,
+    "costUsd": 0.00526494,
+    "finalText": "",
+    "toolMix": {
+      "execute_sql": 3,
+      "execute_lisp": 2
+    },
+    "expected": null
+  }
+]

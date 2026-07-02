@@ -533,14 +533,26 @@ export class Database {
     params: unknown[],
   ): Map<string, SqlScalar[]> {
     const declared = new Set(resource.columns.map((c) => c.name));
-    const eq = new Map<string, SqlScalar[]>();
-    for (const alias of aliases) {
+    const perAlias = aliases.map((alias) => {
+      const m = new Map<string, SqlScalar[]>();
       for (const [col, vals] of extractEqualityBindings(stmt, alias, params)) {
-        if (!declared.has(col)) continue;
-        const cur = eq.get(col) ?? [];
-        for (const v of vals) if (!cur.some((x) => scalarEq(x, v))) cur.push(v);
-        eq.set(col, cur);
+        if (declared.has(col)) m.set(col, vals);
       }
+      return m;
+    });
+    if (perAlias.length === 1) return perAlias[0];
+    // The relation is materialized ONCE but referenced under several aliases.
+    // Push down only bindings EVERY alias agrees on — a predicate on one alias
+    // (p2.state='merged' inside a NOT EXISTS) must not narrow the fetch that
+    // another alias (a bare EXISTS over all rows) depends on; the engine's
+    // residual pass keeps per-alias semantics over the broader fetch.
+    const eq = new Map<string, SqlScalar[]>();
+    for (const [col, vals] of perAlias[0]) {
+      const agreed = perAlias.every((m) => {
+        const o = m.get(col);
+        return o !== undefined && o.length === vals.length && o.every((v, i) => scalarEq(v, vals[i]));
+      });
+      if (agreed) eq.set(col, vals);
     }
     return eq;
   }

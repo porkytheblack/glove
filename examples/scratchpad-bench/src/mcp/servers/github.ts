@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { single } from "../spec";
 import type { ServerSpec } from "../spec";
 import type { World } from "../seed";
 
@@ -96,9 +97,9 @@ export function githubServer(world: World): ServerSpec {
         select: {
           tool: "list_pull_requests",
           args: (b) => ({
-            ...(b.has("repo") && { repo: b.one("repo") }),
-            ...(b.has("state") && { state: b.one("state") }),
-            ...(b.has("author") && { author: b.one("author") }),
+            ...(single(b, "repo") && { repo: b.one("repo") }),
+            ...(single(b, "state") && { state: b.one("state") }),
+            ...(single(b, "author") && { author: b.one("author") }),
           }),
         },
       },
@@ -110,9 +111,9 @@ export function githubServer(world: World): ServerSpec {
         select: {
           tool: "list_issues",
           args: (b) => ({
-            ...(b.has("repo") && { repo: b.one("repo") }),
-            ...(b.has("state") && { state: b.one("state") }),
-            ...(b.has("labels") && { labels: b.one("labels") }),
+            ...(single(b, "repo") && { repo: b.one("repo") }),
+            ...(single(b, "state") && { state: b.one("state") }),
+            ...(single(b, "labels") && { labels: b.one("labels") }),
           }),
         },
         insert: { tool: "create_issue", args: (r) => ({ repo: r.repo, title: r.title, body: r.body ?? "" }) },

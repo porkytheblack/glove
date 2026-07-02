@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { single } from "../spec";
 import type { ServerSpec } from "../spec";
 import type { World } from "../seed";
 
@@ -57,8 +58,8 @@ export function notionServer(world: World): ServerSpec {
         select: {
           tool: "search_pages",
           args: (b) => ({
-            ...(b.has("title") && { query: b.one("title") }),
-            ...(b.has("database") && { database: b.one("database") }),
+            ...(single(b, "title") && { query: b.one("title") }),
+            ...(single(b, "database") && { database: b.one("database") }),
           }),
         },
         insert: { tool: "create_page", args: (r) => ({ title: r.title, database: r.database ?? "Docs", body: r.body ?? "" }) },

@@ -181,6 +181,94 @@ export const SCENARIOS: Scenario[] = [
       return { pass, expected: { total: open.length, top: leaders, topCount: max } };
     },
   },
+  // ── the complex suite: multi-hop composition, negation, conditional fan-out ──
+  {
+    id: "reconcile-ghost-issues",
+    title: "Negation join: 'done' issues whose closing PR never merged",
+    prompt:
+      "Quality audit: find every Linear issue whose state is 'done' but that is NOT actually closed by any MERGED " +
+      "pull request — consider only issues that at least one pull request claims to close (via its closes_linear " +
+      "field). Report the exact count and every such issue id.",
+    verify: (text, w) => {
+      const byIssue = new Map<string, string[]>();
+      for (const p of w.githubPrs) {
+        if (p.closes_linear) byIssue.set(p.closes_linear, [...(byIssue.get(p.closes_linear) ?? []), p.state]);
+      }
+      const ghosts = w.linearIssues
+        .filter((i) => i.state === "done" && byIssue.has(i.id) && !byIssue.get(i.id)!.includes("merged"))
+        .map((i) => i.id);
+      const pass = hasNumber(text, ghosts.length) && fractionPresent(text, ghosts) >= 0.99;
+      return { pass, expected: { count: ghosts.length, ids: ghosts } };
+    },
+  },
+  {
+    id: "repo-health-report",
+    title: "Multi-metric grouped report across every repository",
+    prompt:
+      "Produce a per-repository health report. For EACH repository give exactly two numbers: (1) how many OPEN " +
+      "pull requests it has, and (2) how many of its MERGED pull requests close a Linear issue. Then name the " +
+      "repository with the most open pull requests.",
+    verify: (text, w) => {
+      const per = new Map<string, { open: number; mc: number }>();
+      for (const p of w.githubPrs) {
+        const e = per.get(p.repo) ?? { open: 0, mc: 0 };
+        if (p.state === "open") e.open++;
+        if (p.state === "merged" && p.closes_linear) e.mc++;
+        per.set(p.repo, e);
+      }
+      const entries = [...per.entries()];
+      const max = Math.max(...entries.map(([, e]) => e.open));
+      const leaders = entries.filter(([, e]) => e.open === max).map(([r]) => r);
+      const t = norm(text);
+      const numbers = entries.flatMap(([, e]) => [e.open, e.mc]);
+      const present = numbers.filter((n) => hasNumber(text, n)).length;
+      const reposNamed = entries.filter(([r]) => t.includes(norm(r))).length;
+      const pass = present >= numbers.length - 1 && reposNamed === entries.length && leaders.some((r) => t.includes(norm(r))) && hasNumber(text, max);
+      return { pass, expected: { perRepo: Object.fromEntries(entries), top: leaders }, note: `${present}/${numbers.length} numbers, ${reposNamed}/${entries.length} repos named` };
+    },
+  },
+  {
+    id: "escalate-hot-services",
+    title: "Conditional escalation: ack fan-out + rollup email OR all-clear (write)",
+    requiresWrites: true,
+    prompt:
+      "Escalation sweep. A service is HOT if it has MORE THAN 5 unresolved Sentry issues (the Sentry 'project' " +
+      "field is the service name). If there are NO hot services, post exactly 'Sentry stable.' to the 'incidents' " +
+      "Slack channel and stop. Otherwise: (1) acknowledge EVERY PagerDuty incident currently in 'triggered' status " +
+      "whose service is hot (any urgency), and (2) send ONE email to 'oncall@acme.io' with subject 'Escalation' " +
+      "whose body lists each hot service and its unresolved issue count. Finally report how many hot services there " +
+      "are and how many incidents you acknowledged.",
+    verify: (text, w) => {
+      const unres = new Map<string, number>();
+      for (const si of w.sentryIssues) {
+        if (si.status === "unresolved") unres.set(si.project, (unres.get(si.project) ?? 0) + 1);
+      }
+      const hot = [...unres.entries()].filter(([, n]) => n > 5).map(([svc]) => svc);
+      const expectAck = w.pagerIncidents.filter((i) => i.status === "triggered" && hot.includes(i.service)).map((i) => i.id);
+      const acked = w.outbox.filter((o) => o.kind === "pagerduty.ack").map((o) => String((o.payload as { id?: string }).id));
+      const mails = w.outbox.filter(
+        (o) => o.kind === "email.send" && norm(String((o.payload as { subject?: string }).subject ?? "")).includes("escalation"),
+      );
+      const stable = w.outbox.filter(
+        (o) => o.kind === "slack.post_message" && norm(String((o.payload as { text?: string }).text ?? "")).includes("sentry stable"),
+      );
+      if (hot.length === 0) {
+        return { pass: stable.length === 1 && mails.length === 0 && acked.length === 0, expected: { branch: "slack" } };
+      }
+      const ackSet = new Set(acked);
+      const ackedRight = expectAck.every((id) => ackSet.has(id)) && acked.length === expectAck.length;
+      const body = mails.length === 1 ? String((mails[0].payload as { body?: string }).body ?? "") : "";
+      const bodyNames = hot.filter((svc) => norm(body).includes(norm(svc))).length;
+      const pass =
+        ackedRight && mails.length === 1 && stable.length === 0 && bodyNames >= Math.ceil(hot.length * 0.75) &&
+        hasNumber(text, hot.length) && hasNumber(text, expectAck.length);
+      return {
+        pass,
+        expected: { branch: "email", hot, acks: expectAck },
+        note: `acked ${acked.length}/${expectAck.length}, ${mails.length} mail(s), body named ${bodyNames}/${hot.length}`,
+      };
+    },
+  },
 ];
 
 export function scenarioById(id: string): Scenario | undefined {
