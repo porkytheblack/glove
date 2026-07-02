@@ -19,11 +19,20 @@ each task twice against the **same servers and the same model**:
 | --- | --- | --- |
 | **baseline** | all 32 MCP tools folded directly (`bridgeMcpTool`) | every tool result streams back verbatim |
 | **scratchpad** | a single `execute_sql` (+ `explain_sql`) over the same capabilities as SQL tables | only the rows a `SELECT` returns |
+| **lisp** | a single `execute_lisp` (+ `explain_lisp`) over the same capabilities as functions in a persistent Clojure-flavored REPL ([`glove-lisp`](../../packages/glove-lisp)) | only the last form's (elided) value; `def` keeps intermediates in the session |
 
-Both arms are driven by the real `glove-core` agent loop; nothing is mocked above
+All arms are driven by the real `glove-core` agent loop; nothing is mocked above
 the MCP protocol boundary. The scratchpad arm exercises the shipping engine end to
 end — `information_schema` discovery, WHERE-pushdown / required-key resolution,
 cross-service JOINs and `INSERT … SELECT`, transaction staging.
+
+The lisp arm is a follow-on exploration — see
+[**Is the Scratchpad a REPL?**](LISP-EXPLORATION.md) for the hypothesis
+(branching in one call, exactly-once effects by construction, free
+inspectability) and its no-API-key validation
+(`pnpm --filter glove-scratchpad-bench probe:lisp` drives all seven scenarios
+through the Lisp surface). It is opt-in:
+`pnpm bench --arms=baseline,scratchpad,lisp`.
 
 ## What's measured
 

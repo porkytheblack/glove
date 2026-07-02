@@ -1,5 +1,5 @@
 /**
- * The two arms under test, built over the SAME mock org and model:
+ * The three arms under test, built over the SAME mock org and model:
  *
  *   - "baseline": every MCP tool from all ten servers folded directly into the
  *     agent (the realistic "I connected 10 MCP servers" setup). All ~32 tool
@@ -7,16 +7,21 @@
  *   - "scratchpad": a single `execute_sql` tool (+ `explain_sql`) over the same
  *     capabilities exposed as SQL tables. The model discovers via
  *     information_schema and only the rows a SELECT returns enter context.
+ *   - "lisp": a single `execute_lisp` tool (+ `explain_lisp`) over the same
+ *     capabilities exposed as functions in a persistent Clojure-flavored REPL.
+ *     Only the last form's (elided) value enters context; `def` keeps
+ *     intermediates in the session; branching composes inside one program.
  */
 import { Glove, Displaymanager, MemoryStore, type ModelAdapter } from "glove-core";
 import { Database } from "glove-scratchpad";
 import { bridgeMcpTool } from "glove-mcp";
 import { mountDatabase } from "glove-scratchpad";
+import { LispSession, mountLisp } from "glove-lisp";
 import type { MockOrg } from "../mcp/index";
 import { totalToolCount } from "../mcp/index";
 import { BenchSubscriber } from "./instrument";
 
-export type ArmName = "baseline" | "scratchpad";
+export type ArmName = "baseline" | "scratchpad" | "lisp";
 
 export interface ArmConfig {
   maxTurns: number;
@@ -30,6 +35,7 @@ export interface BuiltArm {
   sub: BenchSubscriber;
   toolsInContext: number;
   db?: Database;
+  lisp?: LispSession;
 }
 
 const COMPACTION_INSTRUCTIONS =
@@ -93,6 +99,21 @@ export async function buildScratchpadArm(model: ModelAdapter, org: MockOrg, cfg:
   glove.addSubscriber(sub);
   // 2 tools in context (execute_sql, explain_sql) vs the baseline's ~32.
   return { arm: "scratchpad", runnable, sub, toolsInContext: 2, db };
+}
+
+export async function buildLispArm(model: ModelAdapter, org: MockOrg, cfg: ArmConfig): Promise<BuiltArm> {
+  const glove = baseGlove(model, SHARED_ROLE, cfg);
+  const runnable = glove.build();
+
+  const lisp = LispSession.create({ policy: { writes: true } });
+  lisp.registerAll(org.resources());
+  // Folds execute_lisp + explain_lisp and prepends the LISP_PREAMBLE.
+  mountLisp(runnable, { session: lisp, allowWrites: true });
+
+  const sub = new BenchSubscriber({ echo: cfg.echo });
+  glove.addSubscriber(sub);
+  // 2 tools in context (execute_lisp, explain_lisp) vs the baseline's ~32.
+  return { arm: "lisp", runnable, sub, toolsInContext: 2, lisp };
 }
 
 export function baselineToolTotal(org: MockOrg): number {

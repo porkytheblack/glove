@@ -1,0 +1,41 @@
+{
+  "name": "glove-lisp",
+  "version": "0.1.0",
+  "description": "A Lisp REPL for LLM tool use — expose an agent's capabilities as functions in a tiny, sandboxed, Clojure-flavored Lisp it drives with one execute_lisp tool. Resources become functions, arguments push down as maps, (tables)/(describe) is discovery, def keeps intermediate data out of context, and every program is a syntax tree you inspect before any tool runs. Consumes the same ResourceTable contract as glove-scratchpad, so one resource catalog mounts on either surface.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-lisp"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "dependencies": {
+    "glove-core": "workspace:*",
+    "glove-scratchpad": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}

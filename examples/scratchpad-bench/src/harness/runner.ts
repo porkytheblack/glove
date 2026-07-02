@@ -5,7 +5,7 @@
  */
 import { createAdapter } from "glove-core";
 import type { ArmName, ArmConfig } from "./arms";
-import { buildBaselineArm, buildScratchpadArm, baselineToolTotal } from "./arms";
+import { buildBaselineArm, buildScratchpadArm, buildLispArm, baselineToolTotal } from "./arms";
 import { buildMockOrg } from "../mcp/index";
 import type { Scenario } from "../scenarios";
 import type { BenchModel } from "../models";
@@ -69,7 +69,9 @@ export async function runOne(
   const built =
     arm === "baseline"
       ? await buildBaselineArm(model, org, opts)
-      : await buildScratchpadArm(model, org, opts);
+      : arm === "lisp"
+        ? await buildLispArm(model, org, opts)
+        : await buildScratchpadArm(model, org, opts);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
