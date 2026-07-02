@@ -24,7 +24,7 @@ function issues() {
 }
 
 async function session() {
-  const s = new LispSession({ policy: { writes: true } });
+  const s = LispSession.create({ policy: { writes: true } });
   s.register(issues());
   return s;
 }
@@ -96,7 +96,7 @@ test("rollback! with nothing staged errors like commit!", async () => {
 });
 
 test("a tool-side validation failure is one readable line", async () => {
-  const s = new LispSession({ policy: { writes: true } });
+  const s = LispSession.create({ policy: { writes: true } });
   s.register(
     defineResource({
       name: "emails",
