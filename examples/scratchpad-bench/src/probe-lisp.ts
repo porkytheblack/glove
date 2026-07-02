@@ -146,9 +146,12 @@ async function main() {
     const c2 = await run(`(count (filter #(= (:state %) "open") all-prs))`);
     const expectedAll = org.world.githubPrs.length;
     const expectedOpen = org.world.githubPrs.filter((p) => p.state === "open").length;
+    const dv = d.value as { defined?: string; count?: number; peek?: unknown };
     check(
       "def summary + later reuse",
-      JSON.stringify(d.value) === JSON.stringify({ defined: "all-prs", count: expectedAll }) &&
+      dv.defined === "all-prs" &&
+        dv.count === expectedAll &&
+        dv.peek !== undefined && // a peek of real values rides along (anti-fabrication)
         c1.value === expectedAll &&
         c2.value === expectedOpen,
       `def→${JSON.stringify(d.value)}, counts ${c1.value}/${c2.value} (expected ${expectedAll}/${expectedOpen})`,

@@ -53,8 +53,8 @@ export class NativeFn {
 
 export class Lambda {
   constructor(
-    readonly params: string[],
-    readonly rest: string | undefined,
+    readonly params: Form[],
+    readonly rest: Form | undefined,
     readonly body: Form[],
     readonly env: Env,
     readonly name = "fn",
@@ -93,8 +93,8 @@ export async function apply(fnVal: unknown, args: unknown[], ctx: EvalCtx): Prom
       );
     }
     const local = new Env(fnVal.env);
-    fnVal.params.forEach((p, i) => local.set(p, args[i]));
-    if (fnVal.rest) local.set(fnVal.rest, args.slice(min));
+    fnVal.params.forEach((p, i) => destructure(p, args[i], local, fnVal.name));
+    if (fnVal.rest) destructure(fnVal.rest, args.slice(min), local, fnVal.name);
     const inner: EvalCtx = { ...ctx, depth: ctx.depth + 1 };
     let result: unknown = null;
     for (const form of fnVal.body) result = await evalForm(form, local, inner);
@@ -124,21 +124,69 @@ function expectVec(f: Form, what: string): Vec {
   return f;
 }
 
-function paramList(vec: Vec, name: string): { params: string[]; rest?: string } {
-  const params: string[] = [];
-  let rest: string | undefined;
+/** Bind a Clojure-style pattern to a value: a symbol, a positional vector
+ *  (with `&` rest and nesting — `[[repo cnt]]` in a group-by pipeline is
+ *  bread-and-butter), or `{:keys [a b]}` for maps. */
+export function destructure(pattern: Form, value: unknown, env: Env, where: string): void {
+  if (pattern instanceof Sym) {
+    env.set(pattern.name, value);
+    return;
+  }
+  if (pattern instanceof Vec) {
+    const seq = Array.isArray(value) ? value : value === null || value === undefined ? [] : null;
+    if (seq === null) {
+      throw new LispError(`${where}: cannot destructure ${printForm(value)} with ${printForm(pattern)} — the value is not a list`);
+    }
+    for (let i = 0; i < pattern.items.length; i++) {
+      const p = pattern.items[i];
+      if (p instanceof Sym && p.name === "&") {
+        const r = pattern.items[i + 1];
+        if (!r || i + 2 !== pattern.items.length) throw new LispError(`${where}: '&' must be followed by exactly one rest pattern`);
+        destructure(r, seq.slice(i), env, where);
+        return;
+      }
+      destructure(p, seq[i] ?? null, env, where);
+    }
+    return;
+  }
+  if (pattern instanceof MapLit) {
+    const m = value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+    for (const [k, v] of pattern.pairs) {
+      if (k instanceof Keyword && k.name === "keys" && v instanceof Vec) {
+        for (const it of v.items) {
+          if (!(it instanceof Sym)) throw new LispError(`${where}: {:keys […]} entries must be plain symbols`);
+          env.set(it.name, m[it.name] ?? null);
+        }
+      } else if (k instanceof Sym && v instanceof Keyword) {
+        env.set(k.name, m[v.name] ?? null);
+      } else if (k instanceof Keyword && k.name === "as" && v instanceof Sym) {
+        env.set(v.name, value);
+      } else {
+        throw new LispError(`${where}: unsupported map binding — use {:keys [a b]} or {name :key}`);
+      }
+    }
+    return;
+  }
+  throw new LispError(`${where}: binding must be a symbol, [vector], or {:keys […]} — got ${printForm(pattern)}`);
+}
+
+function paramList(vec: Vec, name: string): { params: Form[]; rest?: Form } {
+  const params: Form[] = [];
+  let rest: Form | undefined;
   for (let i = 0; i < vec.items.length; i++) {
     const p = vec.items[i];
-    if (!(p instanceof Sym)) throw new LispError(`${name}: parameters must be plain symbols, got ${printForm(p)}`);
-    if (p.name === "&") {
+    if (p instanceof Sym && p.name === "&") {
       const r = vec.items[i + 1];
-      if (!(r instanceof Sym) || i + 2 !== vec.items.length) {
+      if (!r || i + 2 !== vec.items.length) {
         throw new LispError(`${name}: '&' must be followed by exactly one rest parameter`);
       }
-      rest = r.name;
+      rest = r;
       return { params, rest };
     }
-    params.push(p.name);
+    if (!(p instanceof Sym) && !(p instanceof Vec) && !(p instanceof MapLit)) {
+      throw new LispError(`${name}: parameters must be symbols or destructuring forms, got ${printForm(p)}`);
+    }
+    params.push(p);
   }
   return { params, rest };
 }
@@ -269,9 +317,7 @@ export async function evalForm(form: Form, env: Env, ctx: EvalCtx): Promise<unkn
         if (vec.items.length % 2 !== 0) throw new LispError("let bindings must be name/value pairs — (let [a 1 b 2] …)");
         const local = new Env(env);
         for (let i = 0; i < vec.items.length; i += 2) {
-          const n = vec.items[i];
-          if (!(n instanceof Sym)) throw new LispError(`let: binding names must be plain symbols, got ${printForm(n)}`);
-          local.set(n.name, await evalForm(vec.items[i + 1], local, ctx));
+          destructure(vec.items[i], await evalForm(vec.items[i + 1], local, ctx), local, "let");
         }
         let out: unknown = null;
         for (const f of items.slice(2)) out = await evalForm(f, local, ctx);
@@ -281,15 +327,21 @@ export async function evalForm(form: Form, env: Env, ctx: EvalCtx): Promise<unkn
         // (doseq [x coll] body…) — evaluate body per element, for effects.
         if (items.length < 3) throw new LispError("doseq takes (doseq [x coll] body…)");
         const vec = expectVec(items[1], "doseq: the binding");
-        if (vec.items.length !== 2 || !(vec.items[0] instanceof Sym)) {
-          throw new LispError("doseq: the binding must be [name coll] — one name, one collection");
+        if (vec.items.length !== 2) {
+          throw new LispError("doseq: the binding must be [name coll] — one name (or destructuring form), one collection");
         }
         const seq = await evalForm(vec.items[1], env, ctx);
-        const elements = Array.isArray(seq) ? seq : seq === null || seq === undefined ? [] : [seq];
+        const elements = Array.isArray(seq)
+          ? seq
+          : seq === null || seq === undefined
+            ? []
+            : typeof seq === "object"
+              ? Object.entries(seq as Record<string, unknown>).map(([k, v]) => [k, v]) // maps iterate as [k v]
+              : [seq];
         chargeFuel(ctx, elements.length);
         for (const el of elements) {
           const local = new Env(env);
-          local.set((vec.items[0] as Sym).name, el);
+          destructure(vec.items[0], el, local, "doseq");
           for (const f of items.slice(2)) await evalForm(f, local, ctx);
         }
         return null;
@@ -300,13 +352,13 @@ export async function evalForm(form: Form, env: Env, ctx: EvalCtx): Promise<unkn
         const kind = head.name;
         if (items.length < 3) throw new LispError(`${kind} takes (${kind} [name test] body…)`);
         const vec = expectVec(items[1], `${kind}: the binding`);
-        if (vec.items.length !== 2 || !(vec.items[0] instanceof Sym)) {
+        if (vec.items.length !== 2) {
           throw new LispError(`${kind}: the binding must be [name test] — one name, one value`);
         }
         const bound = await evalForm(vec.items[1], env, ctx);
         if (truthy(bound)) {
           const local = new Env(env);
-          local.set((vec.items[0] as Sym).name, bound);
+          destructure(vec.items[0], bound, local, kind);
           if (kind === "if-let") return evalForm(items[2], local, ctx);
           let out: unknown = null;
           for (const f of items.slice(2)) out = await evalForm(f, local, ctx);

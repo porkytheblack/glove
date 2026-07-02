@@ -643,6 +643,11 @@ export function stdlib(): Map<string, NativeFn> {
   // (map #(insert! …) rows) in it reflexively and an unknown-symbol error sent
   // them hand-unrolling 15 inserts instead.
   def("doall", (a) => (arity(a, "doall", 1), a[0]), "(doall coll) — forces evaluation (already strict here)");
+  def("second", (a) => {
+    arity(a, "second", 1);
+    const c = coll(a[0], "second");
+    return c.length > 1 ? c[1] : null;
+  });
   def(
     "run!",
     async (a, ctx) => {
@@ -775,6 +780,9 @@ export function stdlib(): Map<string, NativeFn> {
     fns.set(`clojure.string/${short}`, target);
   }
   fns.set("string/join", fns.get("join")!);
+  // mapv/filterv are the vector-returning spellings — identical here.
+  fns.set("mapv", fns.get("map")!);
+  fns.set("filterv", fns.get("filter")!);
 
   // `println` — returns nil, output lands on the session's stdout buffer.
   def("println", (a, ctx) => {

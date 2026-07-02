@@ -226,3 +226,37 @@ test("results carry per-def peeks even when the last form is a scalar", async ()
   assert.equal(defs.hits.count, 1);
   assert.equal(defs.hits.peek.id, "B"); // real values to quote, not fabricate
 });
+
+test("destructuring in fn/let/doseq — the group-by pipeline idiom", async () => {
+  const s = await session();
+  // (map (fn [[k v]] …) (group-by …)) — qwen30b's exact shape
+  const r = await s.execute(`(->> (issues) (group-by :id) (map (fn [[id rows]] [id (count rows)])) (apply max-key second))`);
+  assert.deepEqual(r.value, ["A", 1]);
+  assert.equal(await (await s.execute(`(let [[a b] [10 20]] (+ a b))`)).value, 30);
+  assert.equal(await (await s.execute(`(let [{:keys [id count]} (first (issues))] (str id "/" count))`)).value, "A/220");
+  const out = await s.execute(`(def acc []) (doseq [[k v] {:a 1 :b 2}] nil) "ok"`);
+  assert.equal(out.value, "ok");
+});
+
+test("second / mapv / filterv exist", async () => {
+  const s = await session();
+  assert.equal((await s.execute(`(second [1 2 3])`)).value, 2);
+  assert.deepEqual((await s.execute(`(mapv :id (filterv :link (issues)))`)).value, ["B"]);
+});
+
+test("an error AFTER a fired write names the writes that already fired", async () => {
+  const s = LispSession.create({ policy: { writes: true } });
+  s.register(
+    defineResource({
+      name: "emails",
+      volatility: "volatile",
+      columns: [{ name: "body", type: "text" }],
+      select: async () => [],
+      insert: async () => {},
+    }),
+  );
+  await assert.rejects(
+    () => s.execute(`(do (insert! :emails {:body "x"}) (bogus-fn))`, { allowWrites: true }),
+    /ALREADY FIRED in this program before the error .*insert! on "emails".*WITHOUT repeating/s,
+  );
+});

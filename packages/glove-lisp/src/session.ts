@@ -270,7 +270,20 @@ export class LispSession {
 
     const before = new Set(this.root.ownNames());
     let value: unknown = null;
-    for (const form of forms) value = await evalForm(form, this.root, ctx);
+    try {
+      for (const form of forms) value = await evalForm(form, this.root, ctx);
+    } catch (err) {
+      // A write that fired BEFORE the error stands (call-by-value has no
+      // rollback) — say so, or the model re-runs the whole program and
+      // double-sends. This exact footgun sent two Triage emails in the A/B.
+      if (call.messages.length > 0) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new LispError(
+          `${msg}\nNOTE: ${call.messages.length} write(s) had ALREADY FIRED in this program before the error (${call.messages.join(" ")}) — they are done; fix the error and re-run WITHOUT repeating them.`,
+        );
+      }
+      throw err;
+    }
     const defined = this.root.ownNames().filter((n) => !before.has(n));
 
     const { value: elided, elided: didElide } = elide(value, this.elideLimits);
