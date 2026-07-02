@@ -1,6 +1,6 @@
 {
   "name": "glove-sql",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A zero-dependency, pure-JS Postgres-subset SQL engine. Tables built at runtime from ingested data; tokenizer + recursive-descent parser + evaluator covering joins, CTEs, set ops, subqueries, aggregates with FILTER, CASE, window functions, and a scalar-function library. Serialises to bytes (computation as a value). The default backend for glove-scratchpad.",
   "type": "module",
   "license": "MIT",
