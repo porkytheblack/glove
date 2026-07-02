@@ -39,6 +39,7 @@ const bare = "bare" in args;
 
 const opts = {
   prime: !bare,
+  distractors: num(args.distractors, 0),
     maxTurns: num(args.maxTurns, 24),
   compactionContextLimit: num(args.contextLimit, 100_000),
   maxTokens: num(args.maxTokens, 4096),

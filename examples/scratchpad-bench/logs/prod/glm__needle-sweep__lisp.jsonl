@@ -1,0 +1,2 @@
+{"kind":"meta","modelKey":"glm","model":"z-ai/glm-4.7-flash","scenario":"needle-sweep","arm":"lisp","ok":false,"errored":true,"errorMessage":"Cannot read properties of undefined (reading '0')","turns":0,"toolCalls":0,"toolErrors":0,"mcpRoundTrips":0,"servicesTouched":0,"tokensIn":0,"tokensOut":0,"cacheRead":0,"peakContextTokens":0,"compactions":0,"toolsInContext":2,"wallMs":29393,"costUsd":0,"toolMix":{},"expected":null}
+{"kind":"final_answer","text":""}

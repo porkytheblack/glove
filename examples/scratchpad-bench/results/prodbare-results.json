@@ -1,0 +1,2124 @@
+[
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "incident-commander",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 31,
+    "toolCalls": 30,
+    "toolErrors": 3,
+    "mcpRoundTrips": 17,
+    "servicesTouched": 5,
+    "tokensIn": 102898,
+    "tokensOut": 2975,
+    "cacheRead": 71424,
+    "peakContextTokens": 6307,
+    "compactions": 1,
+    "toolsInContext": 2,
+    "wallMs": 179244,
+    "costUsd": 0.024584067,
+    "finalText": "Reached the maximum number of turns (30) for this request. Please send a new message to continue.",
+    "toolMix": {
+      "explain_sql": 3,
+      "execute_sql": 27
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "incident-commander",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 31,
+    "toolCalls": 30,
+    "toolErrors": 8,
+    "mcpRoundTrips": 15,
+    "servicesTouched": 4,
+    "tokensIn": 115305,
+    "tokensOut": 2885,
+    "cacheRead": 85184,
+    "peakContextTokens": 6408,
+    "compactions": 1,
+    "toolsInContext": 2,
+    "wallMs": 177128,
+    "costUsd": 0.027394400000000003,
+    "finalText": "Reached the maximum number of turns (30) for this request. Please send a new message to continue.",
+    "toolMix": {
+      "execute_lisp": 29,
+      "explain_lisp": 1
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "heavy-pr-audit",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 9,
+    "toolErrors": 0,
+    "mcpRoundTrips": 6,
+    "servicesTouched": 1,
+    "tokensIn": 25052,
+    "tokensOut": 1307,
+    "cacheRead": 11328,
+    "peakContextTokens": 3733,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 61050,
+    "costUsd": 0.0061852090000000005,
+    "finalText": "## Summary\n\nBased on the analysis of open pull requests across all repositories:\n\n### Count per Repository:\n- **acme/infra**: 3 open PRs with >400 additions that don't close Linear issues\n- **acme/mobile**: 2 open PRs with >400 additions that don't close Linear issues  \n- **acme/web**: 1 open PR with >400 additions that doesn't close Linear issues\n\n### Total Count:\n**6** open pull requests total have more than 400 additions and don't close any Linear issues.\n\n### PR with Most Additions:\n**acme/infra #1044** has the most additions (653) among all open pull requests with >400 additions that don't close Linear issues.\n\n### Complete List of Matching PRs:\n1. acme/infra #1028 (506 additions)\n2. acme/infra #1044 (653 additions)\n3. acme/infra #1047 (519 additions)\n4. acme/mobile #1034 (553 additions)\n5. acme/mobile #1041 (500 additions)\n6. acme/web #1077 (621 additions)",
+    "toolMix": {
+      "execute_sql": 9
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "heavy-pr-audit",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 9,
+    "toolErrors": 1,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 35483,
+    "tokensOut": 1088,
+    "cacheRead": 14336,
+    "peakContextTokens": 6124,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 53635,
+    "costUsd": 0.008498791,
+    "finalText": "Now I have all the information needed. Let me summarize the findings:\n\n**Results:**\n\n1. **Count for each repository:**\n   - `acme/infra`: 3 PRs\n   - `acme/mobile`: 2 PRs  \n   - `acme/web`: 1 PR\n\n2. **Total count:** 6 PRs\n\n3. **PR number with the most additions:** #1044 (with 653 additions)\n\n**Summary:**\nAcross all repositories, there are 6 open pull requests with more than 400 additions that do not close any Linear issue. The repositories with such PRs are: acme/infra (3 PRs), acme/mobile (2 PRs), and acme/web (1 PR). The PR with the most additions is #1044.",
+    "toolMix": {
+      "explain_lisp": 2,
+      "execute_lisp": 7
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "needle-sweep",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 11,
+    "toolCalls": 10,
+    "toolErrors": 0,
+    "mcpRoundTrips": 6,
+    "servicesTouched": 3,
+    "tokensIn": 25133,
+    "tokensOut": 1007,
+    "cacheRead": 18816,
+    "peakContextTokens": 3250,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 26976,
+    "costUsd": 0.006100858000000001,
+    "finalText": "Now let me calculate the grand total and present all the counts:\n\nBased on the data retrieved:\n\n(a) **UNRESOLVED Sentry issues** with titles mentioning 'SSO SCIM provisioning': **4 issues**\n\n(b) **Linear issues NOT in 'done' and NOT in 'canceled' state** with titles mentioning 'SSO SCIM provisioning': **6 issues**\n\n(c) **OPEN GitHub pull requests** with titles mentioning 'SSO SCIM provisioning': **2 pull requests**\n\n**Grand total**: 4 + 6 + 2 = **12 total items**\n\nTo summarize:\n- Sentry unresolved issues: 4\n- Linear active issues: 6  \n- GitHub open PRs:四项\n- Grand total: 12",
+    "toolMix": {
+      "execute_sql": 10
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "needle-sweep",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 9,
+    "toolErrors": 1,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 3,
+    "tokensIn": 25920,
+    "tokensOut": 1074,
+    "cacheRead": 19456,
+    "peakContextTokens": 3568,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 27158,
+    "costUsd": 0.006304062,
+    "finalText": "Based on my analysis of all our systems, here are the exact counts for issues mentioning \"SSO SCIM provisioning\" problems:\n\n**(a) UNRESOLVED Sentry issues:** 6  \n**(b) Linear issues NOT in 'done' and NOT in 'canceled' state:** 6  \n**(c) OPEN GitHub pull requests:** 2  \n\n**Grand total:** 14\n\nThe phrase \"SSO SCIM provisioning\" appears in 14 total items across our systems that represent active or unresolved work items.",
+    "toolMix": {
+      "execute_lisp": 9
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "incident-commander",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 20,
+    "toolCalls": 19,
+    "toolErrors": 7,
+    "mcpRoundTrips": 10,
+    "servicesTouched": 4,
+    "tokensIn": 49171,
+    "tokensOut": 2628,
+    "cacheRead": 38873,
+    "peakContextTokens": 3891,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 215993,
+    "costUsd": 0.00400146,
+    "finalText": "## Incident Commander Sweep Results\n\n**Service:** api-gateway  \n**Sentry issue:** SENTRY-3028 (5xx: Image uploads time out over 5MB)  \n**Incidents acknowledged:** 1 (PD-424)\n\n### Summary\n1. ✅ Found the unresolved Sentry issue with highest users_affected: **SENTRY-3028** (863 users affected, from project **api-gateway**)\n2. ✅ Acknowledged 1 PagerDuty incident with status 'triggered' for service **api-gateway**: **PD-424**\n3. ✅ Created Linear issue titled exactly: **'Postmortem: 5xx: Image uploads time out over 5MB'**\n4. ⚠️ Slack message posting encountered schema mismatch issues (expected channel+text parameters, but was passed channel_id+content)\n5. ✅ Created email to 'oncall@acme.io' with subject 'Incident' containing the Sentry issue id and the acknowledged incident id\n\nThe specific details:\n- Sentry issue: **SENTRY-3028** (863 users affected)\n- Acknowledged PagerDuty incidents: **PD-424**",
+    "toolMix": {
+      "execute_sql": 19
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "incident-commander",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 30,
+    "toolCalls": 28,
+    "toolErrors": 13,
+    "mcpRoundTrips": 12,
+    "servicesTouched": 5,
+    "tokensIn": 97809,
+    "tokensOut": 3695,
+    "cacheRead": 79474,
+    "peakContextTokens": 5811,
+    "compactions": 1,
+    "toolsInContext": 2,
+    "wallMs": 118726,
+    "costUsd": 0.0073465399999999995,
+    "finalText": "All remaining steps are complete:\n\n**Service:** billing  \n**Sentry issue ID:** SENTRY-3002  \n**Acknowledged incidents:** 2 (PD-416, PD-433)  \n\n**Actions taken:**\n- **Email sent** to oncall@acme.io with subject \"Incident\" containing Sentry issue SENTRY-3002 and acknowledged incident IDs PD-416, PD-433.\n- **Slack posted** to the incidents channel confirming the incident commander sweep for service billing.",
+    "toolMix": {
+      "execute_lisp": 28
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "heavy-pr-audit",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 8,
+    "toolErrors": 1,
+    "mcpRoundTrips": 6,
+    "servicesTouched": 2,
+    "tokensIn": 12916,
+    "tokensOut": 1445,
+    "cacheRead": 8867,
+    "peakContextTokens": 2255,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 61743,
+    "costUsd": 0.00135296,
+    "finalText": "Here are the results for open pull requests with more than 400 additions that do NOT close any Linear issue:\n\n## Count by Repository:\n- **acme/infra**: 3 PRs\n- **acme/mobile**: 2 PRs\n- **acme/web**: 1 PR\n\n## Total Count: 6 PRs\n\n## PR with Most Additions:\n- **Repository**: acme/infra\n- **PR Number**: 1044\n- **Additions**: 653",
+    "toolMix": {
+      "execute_sql": 8
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "heavy-pr-audit",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 9,
+    "toolErrors": 1,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 18311,
+    "tokensOut": 1028,
+    "cacheRead": 16192,
+    "peakContextTokens": 2350,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 32923,
+    "costUsd": 0.00150986,
+    "finalText": "Based on the query across all repositories for open pull requests with additions > 400 that do NOT close any Linear issue:\n\n**Count per repository:**\n- acme/infra: 3\n- acme/mobile: 2\n- acme/web: 1\n\n**Total count:** 6\n\n**Single pull request with the most additions:**\n- Number: 1044\n- Repository: acme/infra\n- Additions: 653",
+    "toolMix": {
+      "execute_lisp": 9
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "needle-sweep",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 3,
+    "tokensIn": 8428,
+    "tokensOut": 991,
+    "cacheRead": 6848,
+    "peakContextTokens": 2000,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 21635,
+    "costUsd": 0.00090208,
+    "finalText": "Here are the exact counts:\n\n| Metric | Count |\n|--------|-------|\n| **(a) Unresolved Sentry issues** | **40** |\n| **(b) Linear issues (not done, not canceled)** | **85** |\n| **(c) Open GitHub PRs mentioning \"SSO SCIM provisioning\"** | **2** |\n| **Grand total** | **127** |",
+    "toolMix": {
+      "execute_sql": 5
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "needle-sweep",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 7724,
+    "tokensOut": 477,
+    "cacheRead": 6272,
+    "peakContextTokens": 1993,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 7572,
+    "costUsd": 0.0006542399999999999,
+    "finalText": "Across all of our systems:\n- (a) UNRESOLVED Sentry issues: 0\n- (b) Linear issues NOT in 'done' and NOT in 'canceled' state: 0\n- (c) OPEN GitHub pull requests whose titles mention 'SSO SCIM provisioning': 0\n\nGrand total: 0",
+    "toolMix": {
+      "execute_lisp": 4
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "incident-commander",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 16,
+    "toolErrors": 6,
+    "mcpRoundTrips": 7,
+    "servicesTouched": 5,
+    "tokensIn": 25078,
+    "tokensOut": 2199,
+    "cacheRead": 21248,
+    "peakContextTokens": 4291,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 33114,
+    "costUsd": 0.00324891,
+    "finalText": "All five steps are complete. Here's the report:\n\n---\n\n**Incident Commander Sweep — Summary**\n\n| Field | Value |\n|---|---|\n| **Affected service** | `api-gateway` |\n| **Sentry issue ID** | `SENTRY-3028` |\n| **Sentry issue title** | *5xx: Image uploads time out over 5MB* |\n| **Users affected** | 863 |\n| **Incidents acknowledged** | **1** (`PD-424` — \"Billing webhook retries drop events — page\") |\n\n**Actions taken:**\n\n1. ✅ Identified `api-gateway` as the affected service from the highest-impact unresolved Sentry issue (SENTRY-3028, 863 users affected).\n2. ✅ Acknowledged **1** PagerDuty incident (`PD-424`) that was in `triggered` status for `api-gateway`.\n3. ✅ Created Linear issue **LIN-9001** titled *\"Postmortem: 5xx: Image uploads time out over 5MB\"*.\n4. ✅ Posted incident notification to the `#incidents` Slack channel (channel ID `C03`).\n5. ✅ Sent email to `oncall@acme.io` (subject: *Incident*) containing Sentry issue ID `SENTRY-3028` and acknowledged incident ID `PD-424`.",
+    "toolMix": {
+      "execute_sql": 16
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "incident-commander",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 17,
+    "toolCalls": 21,
+    "toolErrors": 8,
+    "mcpRoundTrips": 11,
+    "servicesTouched": 5,
+    "tokensIn": 54993,
+    "tokensOut": 3052,
+    "cacheRead": 51648,
+    "peakContextTokens": 4481,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 53958,
+    "costUsd": 0.006628825,
+    "finalText": "All actions completed successfully. Here's the summary:\n\n| Detail | Value |\n|---|---|\n| **Affected Service** | `api-gateway` |\n| **Sentry Issue ID** | `SENTRY-3028` — *5xx: Image uploads time out over 5MB* (863 users affected) |\n| **Incidents Acknowledged** | **1** (`PD-424` — Billing webhook retries drop events) |\n\n**What was done:**\n\n1. **PagerDuty**: Acknowledged `PD-424` (the only triggered incident for `api-gateway`).\n2. **Linear**: Created issue **ENG-220** titled *Postmortem: 5xx: Image uploads time out over 5MB*.\n3. **Slack**: Posted to `#incidents` channel naming `api-gateway` as the affected service.\n4. **Email**: Sent to `oncall@acme.io` with subject *Incident*, body containing Sentry issue `SENTRY-3028` and acknowledged incident `PD-424`.",
+    "toolMix": {
+      "execute_lisp": 20,
+      "explain_lisp": 1
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "heavy-pr-audit",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 7,
+    "toolErrors": 0,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 1,
+    "tokensIn": 8071,
+    "tokensOut": 597,
+    "cacheRead": 6336,
+    "peakContextTokens": 2352,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 11119,
+    "costUsd": 0.001014615,
+    "finalText": "Here are the results:\n\n## Count by Repository\n\n| Repository | PR Count |\n|---|---|\n| acme/infra | 3 |\n| acme/mobile | 2 |\n| acme/web | 1 |\n\n**Total count:** 6 open pull requests with >400 additions and no linked Linear issue.\n\n**Most additions:** **PR #1044** (acme/infra) with **653 additions**.",
+    "toolMix": {
+      "execute_sql": 7
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "heavy-pr-audit",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6334,
+    "tokensOut": 556,
+    "cacheRead": 5824,
+    "peakContextTokens": 2190,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 9526,
+    "costUsd": 0.0008207500000000001,
+    "finalText": "Here are the results for **open PRs with >400 additions that don't close any Linear issue**:\n\n### Count by Repository\n| Repository | PR Count |\n|---|---|\n| `acme/infra` | 3 |\n| `acme/mobile` | 2 |\n| `acme/web` | 1 |\n\n### Total Count: **6**\n\n### PR with the Most Additions\n- **PR #1044** in `acme/infra` — **653 additions**\n- Title: *\"Mobile crash on iOS 18 cold start: add test for ios18-crash\"*",
+    "toolMix": {
+      "execute_lisp": 3
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "needle-sweep",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 9,
+    "toolErrors": 0,
+    "mcpRoundTrips": 6,
+    "servicesTouched": 3,
+    "tokensIn": 10099,
+    "tokensOut": 845,
+    "cacheRead": 8192,
+    "peakContextTokens": 2522,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 13607,
+    "costUsd": 0.001296995,
+    "finalText": "Here are the counts for **\"SSO SCIM provisioning\"** across all systems:\n\n| Source | Filter | Count |\n|---|---|---|\n| **(a) Sentry** | unresolved issues | **4** |\n| **(b) Linear** | state ≠ done AND state ≠ canceled | **6** |\n| **(c) GitHub PRs** | open pull requests | **2** |\n| **Grand Total** | | **12** |",
+    "toolMix": {
+      "execute_sql": 9
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "needle-sweep",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 7,
+    "toolErrors": 2,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 3,
+    "tokensIn": 13274,
+    "tokensOut": 1173,
+    "cacheRead": 10688,
+    "peakContextTokens": 3142,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 18001,
+    "costUsd": 0.00172221,
+    "finalText": "Here are the exact counts for titles mentioning **\"SSO SCIM provisioning\"**:\n\n| Source | Filter | Count |\n|---|---|---|\n| **(a) Sentry issues** | Unresolved only | **4** |\n| **(b) Linear issues** | State ≠ done **and** state ≠ canceled | **6** |\n| **(c) GitHub PRs** | State = open | **2** |\n\n**Grand total: 12**",
+    "toolMix": {
+      "execute_lisp": 7
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "incident-commander",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 18,
+    "toolCalls": 17,
+    "toolErrors": 2,
+    "mcpRoundTrips": 9,
+    "servicesTouched": 5,
+    "tokensIn": 50852,
+    "tokensOut": 2891,
+    "cacheRead": 47616,
+    "peakContextTokens": 4311,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 52944,
+    "costUsd": 0.00748992,
+    "finalText": "**Incident Commander Sweep Complete**\n\n| Item | Result |\n|------|--------|\n| **Affected Service** | web-frontend |\n| **Sentry Issue ID** | SENTRY-3055 |\n| **Sentry Issue Title** | TypeError: Primary DB failover is slow |\n| **Users Affected** | 899 |\n| **PagerDuty Incidents Acknowledged** | 0 (no triggered incidents for web-frontend) |\n\n**Actions Taken:**\n1. ✅ Identified the highest users-affected unresolved Sentry issue: SENTRY-3055 (\"TypeError: Primary DB failover is slow\" in project \"web-frontend\")\n2. ✅ Checked for triggered PagerDuty incidents for web-frontend — none found\n3. ✅ Created Linear issue: \"Postmortem: TypeError: Primary DB failover is slow\"\n4. ✅ Posted to Slack #incidents channel: \"Incident alert: web-frontend service affected\"\n5. ✅ Sent email to oncall@acme.io with subject \"Incident\" containing Sentry issue id SENTRY-3055 and noting zero acknowledged incidents",
+    "toolMix": {
+      "execute_sql": 17
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "incident-commander",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 31,
+    "toolCalls": 30,
+    "toolErrors": 20,
+    "mcpRoundTrips": 19,
+    "servicesTouched": 3,
+    "tokensIn": 99161,
+    "tokensOut": 4447,
+    "cacheRead": 93248,
+    "peakContextTokens": 5059,
+    "compactions": 1,
+    "toolsInContext": 2,
+    "wallMs": 123114,
+    "costUsd": 0.01403388,
+    "finalText": "Reached the maximum number of turns (30) for this request. Please send a new message to continue.",
+    "toolMix": {
+      "execute_lisp": 30
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "heavy-pr-audit",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 9,
+    "toolCalls": 8,
+    "toolErrors": 0,
+    "mcpRoundTrips": 6,
+    "servicesTouched": 1,
+    "tokensIn": 15418,
+    "tokensOut": 1928,
+    "cacheRead": 13520,
+    "peakContextTokens": 2522,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 48433,
+    "costUsd": 0.0027755999999999996,
+    "finalText": "Here are the results:\n\n**Count per repository:**\n| Repository | Count |\n|------------|-------|\n| acme/infra | 3 |\n| acme/mobile | 2 |\n| acme/web | 1 |\n\n**Total count:** 6\n\n**PR with the most additions:** PR #1044 (in acme/infra) with 653 additions",
+    "toolMix": {
+      "execute_sql": 8
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "heavy-pr-audit",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 1,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 12218,
+    "tokensOut": 1004,
+    "cacheRead": 10320,
+    "peakContextTokens": 2399,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 31853,
+    "costUsd": 0.00194808,
+    "finalText": "**Results:**\n\n| Repository | Count |\n|------------|-------|\n| acme/infra | 3 |\n| acme/mobile | 2 |\n| acme/web | 1 |\n\n- **Total count:** 6 open PRs with >400 additions that do NOT close a Linear issue\n\n- **PR with most additions:** PR #1044 (653 additions) in acme/web",
+    "toolMix": {
+      "execute_lisp": 6
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "needle-sweep",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 11,
+    "toolCalls": 10,
+    "toolErrors": 0,
+    "mcpRoundTrips": 6,
+    "servicesTouched": 3,
+    "tokensIn": 19329,
+    "tokensOut": 934,
+    "cacheRead": 17440,
+    "peakContextTokens": 2408,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 21901,
+    "costUsd": 0.0027677999999999995,
+    "finalText": "Here are the three counts and the grand total:\n\n| Metric | Count |\n|--------|-------|\n| (a) UNRESOLVED Sentry issues | **33** |\n| (b) Linear issues NOT in 'done' and NOT in 'canceled' | **85** |\n| (c) OPEN GitHub pull requests mentioning \"SSO SCIM provisioning\" | **2** |\n| **Grand Total** | **120** |",
+    "toolMix": {
+      "execute_sql": 10
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "needle-sweep",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 9,
+    "toolErrors": 1,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 3,
+    "tokensIn": 20864,
+    "tokensOut": 998,
+    "cacheRead": 16816,
+    "peakContextTokens": 2656,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 34537,
+    "costUsd": 0.00298272,
+    "finalText": "| Metric | Count |\n|--------|-------|\n| (a) UNRESOLVED Sentry issues | 33 |\n| (b) Linear issues NOT done & NOT canceled | 85 |\n| (c) OPEN GitHub PRs with \"SSO SCIM provisioning\" in title | 2 |\n| **Grand Total** | **120** |",
+    "toolMix": {
+      "execute_lisp": 9
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "incident-commander",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 9,
+    "toolCalls": 8,
+    "toolErrors": 1,
+    "mcpRoundTrips": 8,
+    "servicesTouched": 5,
+    "tokensIn": 19063,
+    "tokensOut": 1494,
+    "cacheRead": 16544,
+    "peakContextTokens": 3091,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 140486,
+    "costUsd": 0.010173975,
+    "finalText": "",
+    "toolMix": {
+      "execute_sql": 8
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "incident-commander",
+    "arm": "lisp",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "Request was aborted.",
+    "turns": 20,
+    "toolCalls": 20,
+    "toolErrors": 13,
+    "mcpRoundTrips": 19,
+    "servicesTouched": 2,
+    "tokensIn": 62153,
+    "tokensOut": 3151,
+    "cacheRead": 53568,
+    "peakContextTokens": 4751,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 240020,
+    "costUsd": 0.029688149999999996,
+    "finalText": "",
+    "toolMix": {
+      "execute_lisp": 18,
+      "explain_lisp": 2
+    },
+    "expected": null
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "heavy-pr-audit",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 1,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 7458,
+    "tokensOut": 639,
+    "cacheRead": 6240,
+    "peakContextTokens": 1686,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 54164,
+    "costUsd": 0.004090725,
+    "finalText": "",
+    "toolMix": {
+      "execute_sql": 5
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "heavy-pr-audit",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 5841,
+    "tokensOut": 743,
+    "cacheRead": 3808,
+    "peakContextTokens": 2144,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 50279,
+    "costUsd": 0.00369495,
+    "finalText": "**Counts by repository:**\n- acme/infra: 3\n- acme/mobile: 2\n- acme/web: 1\n\n**Total count:** 6\n\n**PR with the most additions:** **#1044** (acme/infra, 653 additions)",
+    "toolMix": {
+      "execute_lisp": 4
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "needle-sweep",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 7,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 3,
+    "tokensIn": 4809,
+    "tokensOut": 666,
+    "cacheRead": 2818,
+    "peakContextTokens": 1828,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 30975,
+    "costUsd": 0.003152025,
+    "finalText": "Here are the counts:\n\n| Source | Count |\n|--------|-------|\n| (a) UNRESOLVED Sentry issues | **0** |\n| (b) Linear issues (not done/canceled) | **6** |\n| (c) OPEN GitHub pull requests | **0** |\n\n**Grand total: 6**",
+    "toolMix": {
+      "execute_sql": 7
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "needle-sweep",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 5,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 3,
+    "tokensIn": 6316,
+    "tokensOut": 865,
+    "cacheRead": 2560,
+    "peakContextTokens": 2485,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 33058,
+    "costUsd": 0.004120125,
+    "finalText": "Based on data retrieved:\n\n- **(a) UNRESOLVED Sentry issues:** **4**\n- **(b) Linear issues NOT in 'done' and NOT in 'canceled':** **6**\n- **(c) OPEN GitHub pull requests:** **2**\n\n**Grand total: 12**",
+    "toolMix": {
+      "execute_lisp": 5
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "incident-commander",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 14,
+    "toolCalls": 19,
+    "toolErrors": 1,
+    "mcpRoundTrips": 12,
+    "servicesTouched": 5,
+    "tokensIn": 38651,
+    "tokensOut": 1266,
+    "cacheRead": 33613,
+    "peakContextTokens": 4091,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 46239,
+    "costUsd": 0.03303274,
+    "finalText": "Incident commander sweep complete.\n\n- **Affected service:** `api-gateway`\n- **Sentry issue id:** `SENTRY-3028` (\"5xx: Image uploads time out over 5MB\")\n- **Incidents acknowledged:** `1` (`PD-424`)\n\nActions taken:\n1. Identified the unresolved Sentry issue with the highest `users_affected`.\n2. Acknowledged PagerDuty incident `PD-424` for `api-gateway`.\n3. Created Linear issue titled exactly `Postmortem: 5xx: Image uploads time out over 5MB`.\n4. Posted to the `#incidents` Slack channel naming `api-gateway`.\n5. Sent one email to `oncall@acme.io` with subject `Incident` containing `SENTRY-3028` and `PD-424`.",
+    "toolMix": {
+      "execute_sql": 18,
+      "explain_sql": 1
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "incident-commander",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 31,
+    "toolCalls": 30,
+    "toolErrors": 14,
+    "mcpRoundTrips": 11,
+    "servicesTouched": 2,
+    "tokensIn": 99551,
+    "tokensOut": 1636,
+    "cacheRead": 90653,
+    "peakContextTokens": 5481,
+    "compactions": 1,
+    "toolsInContext": 2,
+    "wallMs": 99617,
+    "costUsd": 0.07939373999999999,
+    "finalText": "Reached the maximum number of turns (30) for this request. Please send a new message to continue.",
+    "toolMix": {
+      "execute_lisp": 29,
+      "explain_lisp": 1
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "heavy-pr-audit",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 8,
+    "toolErrors": 0,
+    "mcpRoundTrips": 5,
+    "servicesTouched": 1,
+    "tokensIn": 15555,
+    "tokensOut": 588,
+    "cacheRead": 12686,
+    "peakContextTokens": 3126,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 26947,
+    "costUsd": 0.0135687,
+    "finalText": "Based on the GitHub PR data:\n\n**Count per repository:**\n- `acme/infra`: 3\n- `acme/mobile`: 2\n- `acme/web`: 1\n\n**Total count:** 6\n\n**PR with the most additions:** #1044 in `acme/infra` with 653 additions.",
+    "toolMix": {
+      "execute_sql": 8
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "heavy-pr-audit",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 1,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 6994,
+    "tokensOut": 638,
+    "cacheRead": 6354,
+    "peakContextTokens": 1969,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 28201,
+    "costUsd": 0.00740856,
+    "finalText": "Across all repositories, there are **6** open pull requests with more than 400 additions that do not close any Linear issue.\n\n| Repository | Count |\n|---|---|\n| acme/infra | 3 |\n| acme/mobile | 2 |\n| acme/web | 1 |\n\nThe single such PR with the most additions is **acme/infra #1044**, with **653 additions**.",
+    "toolMix": {
+      "execute_lisp": 4
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "needle-sweep",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 5,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 3,
+    "tokensIn": 6233,
+    "tokensOut": 530,
+    "cacheRead": 4610,
+    "peakContextTokens": 1821,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 21618,
+    "costUsd": 0.00646742,
+    "finalText": "(a) Unresolved Sentry issues: **4**  \n(b) Linear issues not in done/canceled: **6**  \n(c) Open GitHub pull requests: **2**  \n\n**Grand total: 12**",
+    "toolMix": {
+      "execute_sql": 5
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "needle-sweep",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 7,
+    "toolErrors": 1,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 3,
+    "tokensIn": 14119,
+    "tokensOut": 698,
+    "cacheRead": 12287,
+    "peakContextTokens": 2642,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 28338,
+    "costUsd": 0.012891060000000001,
+    "finalText": "Counts for items mentioning \"SSO SCIM provisioning\":\n\n- (a) UNRESOLVED Sentry issues: **4**\n- (b) Linear issues not in done/canceled: **6**\n- (c) OPEN GitHub pull requests: **2**\n\nGrand total: **12**",
+    "toolMix": {
+      "execute_lisp": 7
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "incident-commander",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 11,
+    "toolErrors": 0,
+    "mcpRoundTrips": 7,
+    "servicesTouched": 5,
+    "tokensIn": 11402,
+    "tokensOut": 1191,
+    "cacheRead": 2752,
+    "peakContextTokens": 2850,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 48860,
+    "costUsd": 0.009127920000000001,
+    "finalText": "**Incident Commander Sweep — Complete**\n\n| Field | Value |\n|---|---|\n| **Affected service** | `api-gateway` |\n| **Sentry issue id** | `SENTRY-3028` |\n| **PagerDuty incidents acknowledged** | 1 (`PD-424`) |\n\n**Actions taken:**\n1. ✅ Identified unresolved Sentry issue `SENTRY-3028` (highest `users_affected` = 863) → project `api-gateway`\n2. ✅ Acknowledged PagerDuty incident `PD-424` (triggered → acknowledged)\n3. ✅ Created Linear issue titled **\"Postmortem: 5xx: Image uploads time out over 5MB\"**\n4. ✅ Posted to #incidents Slack channel: \"Affected service: api-gateway\"\n5. ✅ Sent email to oncall@acme.io — subject \"Incident\", body contains SENTRY-3028 and PD-424",
+    "toolMix": {
+      "execute_sql": 11
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "incident-commander",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 11,
+    "toolCalls": 16,
+    "toolErrors": 3,
+    "mcpRoundTrips": 7,
+    "servicesTouched": 5,
+    "tokensIn": 30910,
+    "tokensOut": 2169,
+    "cacheRead": 22912,
+    "peakContextTokens": 4906,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 90515,
+    "costUsd": 0.022710479999999998,
+    "finalText": "All five actions completed successfully. Here's the final report:\n\n---\n\n**Incident Commander Sweep — Complete**\n\n| Item | Value |\n|---|---|\n| **Affected service** | **api-gateway** |\n| **Sentry issue id** | **SENTRY-3028** |\n| **Sentry issue title** | 5xx: Image uploads time out over 5MB |\n| **Users affected** | 863 |\n| **PagerDuty incidents acknowledged** | **1** (PD-424) |\n| **Linear issue created** | \"Postmortem: 5xx: Image uploads time out over 5MB\" |\n| **Slack message** | Posted to #incidents naming api-gateway |\n| **Email sent** | To oncall@acme.io, subject \"Incident\", body containing SENTRY-3028 and PD-424 |",
+    "toolMix": {
+      "execute_lisp": 14,
+      "explain_lisp": 2
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "heavy-pr-audit",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 7,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 1,
+    "tokensIn": 9061,
+    "tokensOut": 678,
+    "cacheRead": 3456,
+    "peakContextTokens": 2110,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 33176,
+    "costUsd": 0.00673836,
+    "finalText": "Let me correct the PR number based on the actual query result:\n\n### PR with the most additions\n**PR #1044** (653 additions, in acme/infra)\n\n*(The earlier aggregate `MAX(number)` gave 1047, but ordering by `additions DESC` confirms the actual PR with the most additions is #1044.)*",
+    "toolMix": {
+      "execute_sql": 7
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "heavy-pr-audit",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 7,
+    "toolErrors": 1,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 9100,
+    "tokensOut": 425,
+    "cacheRead": 4544,
+    "peakContextTokens": 2124,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 29724,
+    "costUsd": 0.006276,
+    "finalText": "Here's the full report:\n\n### Open PRs with >400 additions that do NOT close any Linear issue\n\n**By repository:**\n\n| Repository | Count |\n|---|---|\n| `acme/infra` | 3 |\n| `acme/mobile` | 2 |\n| `acme/web` | 1 |\n\n**Total count:** 6\n\n**PR with the most additions:** **#1044** (`acme/infra` — *\"Mobile crash on iOS 18 cold start: add test for ios18-crash\"*) with **653 additions**.",
+    "toolMix": {
+      "execute_lisp": 7
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "needle-sweep",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 6,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 3,
+    "tokensIn": 5486,
+    "tokensOut": 572,
+    "cacheRead": 640,
+    "peakContextTokens": 2083,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 25236,
+    "costUsd": 0.00438984,
+    "finalText": "Here are the exact counts for titles mentioning **\"SSO SCIM provisioning\"**:\n\n| Source | Criteria | Count |\n|---|---|---|\n| **Sentry** | Unresolved issues (`status ≠ resolved`) | **6** |\n| **Linear** | Issues not `done` and not `canceled` | **6** |\n| **GitHub PRs** | Open pull requests (`state = open`) | **2** |\n| | **Grand Total** | **14** |\n\n**Grand total across all three systems: 14.**",
+    "toolMix": {
+      "execute_sql": 5,
+      "explain_sql": 1
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "needle-sweep",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 9,
+    "toolErrors": 3,
+    "mcpRoundTrips": 6,
+    "servicesTouched": 3,
+    "tokensIn": 9348,
+    "tokensOut": 1063,
+    "cacheRead": 5568,
+    "peakContextTokens": 3467,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 33149,
+    "costUsd": 0.007649759999999999,
+    "finalText": "Here are the exact counts for issues whose titles mention **\"SSO SCIM provisioning\"**:\n\n| Source | Filter | Count |\n|---|---|---|\n| **(a) Sentry** | status = unresolved | **4** |\n| **(b) Linear** | state ≠ done, state ≠ canceled | **6** |\n| **(c) GitHub PRs** | state = open | **2** |\n| | **Grand total** | **12** |\n\n**Sentry details** (4): Four unresolved error groups — two `5xx`, one `NullPointer`, one `OOMKilled` — all titled *\"SSO SCIM provisioning errors\"* (IDs like SENTRY-3003, etc.).\n\n**Linear details** (6): Six issues in active states (e.g., `in_review`, `in_progress`, `todo`, `backlog`) with that phrase in the title (e.g., ENG-161).\n\n**GitHub PR details** (2): Two open PRs, including #1005 in `acme/web` (\"SSO SCIM provisioning errors: instrument…\"), author heidi.",
+    "toolMix": {
+      "execute_lisp": 9
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "incident-commander",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 14,
+    "toolCalls": 24,
+    "toolErrors": 4,
+    "mcpRoundTrips": 15,
+    "servicesTouched": 5,
+    "tokensIn": 49541,
+    "tokensOut": 2486,
+    "cacheRead": 45705,
+    "peakContextTokens": 5796,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 36296,
+    "costUsd": 0.0178455,
+    "finalText": "All actions verified. Sweep complete.\n\n## Incident Commander Sweep Report\n\n- **Affected service:** `api-gateway`\n- **Sentry issue id:** `SENTRY-3028` — \"5xx: Image uploads time out over 5MB\" (863 users affected, highest among unresolved)\n- **PagerDuty incidents acknowledged:** **1** (PD-424 — \"Billing webhook retries drop events — page\")\n\n### Actions completed (all committed atomically)\n| # | System | Result |\n|---|---|---|\n| 1 | Sentry | Identified SENTRY-3028 (project = `api-gateway`) — top unresolved by users_affected |\n| 2 | PagerDuty | PD-424 status: `triggered` → `acknowledged` (1 incident) |\n| 3 | Linear | Created **ENG-220** titled exactly `Postmortem: 5xx: Image uploads time out over 5MB` (state: todo, team: infra) |\n| 4 | Slack | Posted to `#incidents` naming service `api-gateway` |\n| 5 | Email | Sent to `oncall@acme.io`, subject `Incident`, body containing `SENTRY-3028` and `PD-424` |",
+    "toolMix": {
+      "execute_sql": 23,
+      "explain_sql": 1
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "incident-commander",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 29,
+    "toolCalls": 27,
+    "toolErrors": 8,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 5,
+    "tokensIn": 130166,
+    "tokensOut": 2641,
+    "cacheRead": 119264,
+    "peakContextTokens": 8306,
+    "compactions": 1,
+    "toolsInContext": 2,
+    "wallMs": 69875,
+    "costUsd": 0.042219,
+    "finalText": "All four steps executed successfully.\n\n**Final report**\n- **Affected service:** `api-gateway`\n- **Sentry issue id:** `SENTRY-3028` (title: \"5xx: Image uploads time out over 5MB\", 863 users affected, unresolved)\n- **PagerDuty incidents acknowledged:** **1** — `PD-424` (\"Billing webhook retries drop events — page\", urgency low, assignee judy)\n\n**Writes performed**\n1. `update! :pagerduty_incidents` SET `{:status \"acknowledged\"}` WHERE `{:id \"PD-424\"}` → 1 row\n2. `insert! :linear_issues` → `ENG-220`, title \"Postmortem: 5xx: Image uploads time out over 5MB\"\n3. `insert! :slack_messages` → posted to `#incidents`\n4. `insert! :emails` → `msg-out-1` to `oncall@acme.io`, subject \"Incident\", body containing `SENTRY-3028` and `PD-424`",
+    "toolMix": {
+      "execute_lisp": 26,
+      "explain_lisp": 1
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "heavy-pr-audit",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 8244,
+    "tokensOut": 640,
+    "cacheRead": 6850,
+    "peakContextTokens": 2263,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 11485,
+    "costUsd": 0.0032411999999999996,
+    "finalText": "Here are the results.\n\n## Open PRs with >400 additions and no closing Linear issue\n\n**Counts per repository:**\n- `acme/infra`: 3\n- `acme/mobile`: 2\n- `acme/web`: 1\n- **Total: 6**\n\n**PR with the most additions: acme/infra #1044** (653 additions — *\"Mobile crash on iOS 18 cold start: add test for ios18-crash\"*)\n\nAll 6 qualifying PRs for reference:\n\n| Repo | PR # | Additions | Title |\n|---|---|---|---|\n| acme/infra | 1044 | 653 | Mobile crash on iOS 18 cold start: add test for ios18-crash |\n| acme/web | 1077 | 621 | Primary DB failover is slow: refactor db-failover |\n| acme/mobile | 1034 | 553 | Search relevance regression: fix search-relevance |\n| acme/infra | 1047 | 519 | Checkout latency spikes at peak: fix checkout-latency |\n| acme/infra | 1028 | 506 | Migrate auth to OAuth2 + PKCE: fix oauth-migration |\n| acme/mobile | 1041 | 500 | CSV export truncates large accounts: instrument csv-export |",
+    "toolMix": {
+      "execute_sql": 4
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "heavy-pr-audit",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 9,
+    "toolErrors": 3,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 1,
+    "tokensIn": 34038,
+    "tokensOut": 688,
+    "cacheRead": 28225,
+    "peakContextTokens": 5829,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 19885,
+    "costUsd": 0.011036999999999998,
+    "finalText": "Results — open PRs with > 400 additions and no `closes_linear` value, across all repositories:\n\n**Per-repository counts**\n- acme/infra: 3 (PRs #1028, #1044, #1047)\n- acme/mobile: 2 (PRs #1034, #1041)\n- acme/web: 1 (PR #1077)\n\n**Total: 6**\n\n**PR with the most additions: #1044** in `acme/infra` — \"Mobile crash on iOS 18 cold start: add test for ios18-crash\" with **653 additions**.",
+    "toolMix": {
+      "execute_lisp": 9
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "needle-sweep",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 3,
+    "tokensIn": 8476,
+    "tokensOut": 717,
+    "cacheRead": 7682,
+    "peakContextTokens": 2252,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 11588,
+    "costUsd": 0.0034031999999999995,
+    "finalText": "**\"SSO SCIM provisioning\" — counts across systems**\n\n| System | Filter | Count |\n|---|---|---|\n| (a) Sentry issues | status ≠ `resolved` | **6** |\n| (b) Linear issues | state ∉ {`done`, `canceled`} | **6** |\n| (c) GitHub pull requests | state = `open` | **2** |\n| **Grand total** | | **14** |",
+    "toolMix": {
+      "execute_sql": 4
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "needle-sweep",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 13,
+    "toolCalls": 28,
+    "toolErrors": 13,
+    "mcpRoundTrips": 15,
+    "servicesTouched": 3,
+    "tokensIn": 41225,
+    "tokensOut": 1817,
+    "cacheRead": 36945,
+    "peakContextTokens": 5838,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 30452,
+    "costUsd": 0.014547899999999999,
+    "finalText": "All results verified directly from data. Here are the counts:\n\n## \"SSO SCIM provisioning\" — matching items\n\n| Source | Filter applied | Count |\n|---|---|---|\n| (a) Sentry | status = unresolved | **4** |\n| (b) Linear | state ∉ {done, canceled} | **6** |\n| (c) GitHub PRs | state = open | **2** |\n| **Grand total** | | **12** |\n\n### Detail\n- **Sentry (4, all unresolved):** SENTRY-3003, SENTRY-3010, SENTRY-3015, SENTRY-3066 — all on the `api/sso-provisioning.ts` culprit\n- **Linear (6):** ENG-161, ENG-173, ENG-180, ENG-187, ENG-192, ENG-218 — none in `done`/`canceled`\n- **GitHub PRs (2, open):** #1005 and #1032 in `acme/web`",
+    "toolMix": {
+      "execute_lisp": 28
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "incident-commander",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 9,
+    "toolCalls": 17,
+    "toolErrors": 0,
+    "mcpRoundTrips": 7,
+    "servicesTouched": 5,
+    "tokensIn": 29408,
+    "tokensOut": 2556,
+    "cacheRead": 5504,
+    "peakContextTokens": 4697,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 49440,
+    "costUsd": 0.0031068,
+    "finalText": "## Incident Commander Sweep — Complete\n\nHere's a summary of every action taken:\n\n### 1. Sentry Issue (Highest users_affected, Unresolved)\n| Field | Value |\n|---|---|\n| **Issue ID** | `SENTRY-3028` |\n| **Title** | *5xx: Image uploads time out over 5MB* |\n| **Project (Service)** | `api-gateway` |\n| **Users Affected** | 863 |\n\n### 2. PagerDuty Incidents Acknowledged\nFound **1 triggered incident** for `api-gateway`:\n\n| ID | Title |\n|---|---|\n| `PD-424` | Billing webhook retries drop events — page |\n\n✅ Status updated to `acknowledged`.\n\n### 3. Linear Issue Created\n- **Title:** `Postmortem: 5xx: Image uploads time out over 5MB`\n- **State:** backlog, **Team:** Engineering\n\n### 4. Slack Message Posted to `#incidents`\n> *Incident affecting service: api-gateway*\n\n### 5. Email Sent to `oncall@acme.io`\n- **Subject:** `Incident`\n- **Body:**\n  ```\n  Sentry issue: SENTRY-3028\n  Acknowledged incidents: PD-424\n  ```\n\n---\n\n### Final Report\n\n| Item | Value |\n|---|---|\n| **Affected Service** | `api-gateway` |\n| **Sentry Issue ID** | `SENTRY-3028` |\n| **Incidents Acknowledged** | **1** (PD-424) |",
+    "toolMix": {
+      "execute_sql": 13,
+      "explain_sql": 4
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "incident-commander",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 13,
+    "toolCalls": 20,
+    "toolErrors": 3,
+    "mcpRoundTrips": 10,
+    "servicesTouched": 5,
+    "tokensIn": 72375,
+    "tokensOut": 2821,
+    "cacheRead": 35200,
+    "peakContextTokens": 7665,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 59939,
+    "costUsd": 0.00702153,
+    "finalText": "All steps are complete. Here's the incident commander summary:\n\n---\n\n## ✅ Incident Commander Sweep — Complete\n\n| Step | Result |\n|------|--------|\n| **1. Top unresolved Sentry issue** | **SENTRY-3028** — _\"5xx: Image uploads time out over 5MB\"_ — **863 users affected** → service: **`api-gateway`** |\n| **2. Acknowledge triggered PD incidents** | **1 incident acknowledged** — **PD-424** (`Billing webhook retries drop events — page`) |\n| **3. Create Linear postmortem issue** | **ENG-220** — titled _\"Postmortem: 5xx: Image uploads time out over 5MB\"_ |\n| **4. Slack #incidents message** | Posted: _\"Affected service: api-gateway\"_ |\n| **5. Email to oncall@acme.io** | Sent with subject _\"Incident\"_ and body containing `SENTRY-3028` and `PD-424` |\n\n### Final report\n- **Affected service:** `api-gateway`\n- **Sentry issue ID:** `SENTRY-3028`\n- **Incidents acknowledged:** **1** (PD-424)",
+    "toolMix": {
+      "execute_lisp": 19,
+      "explain_lisp": 1
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "heavy-pr-audit",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 9,
+    "toolErrors": 0,
+    "mcpRoundTrips": 6,
+    "servicesTouched": 1,
+    "tokensIn": 9354,
+    "tokensOut": 960,
+    "cacheRead": 4224,
+    "peakContextTokens": 2896,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 22417,
+    "costUsd": 0.00101466,
+    "finalText": "Here are the results:\n\n### Count per repository (with any such PRs)\n| Repository | Count |\n|------------|-------|\n| **acme/infra** | 3 |\n| **acme/mobile** | 2 |\n| **acme/web** | 1 |\n\n### Total count across all repositories\n**6** open pull requests\n\n### Single PR with the most additions\n**PR #1044** on **acme/infra** — **653 additions**",
+    "toolMix": {
+      "execute_sql": 9
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "heavy-pr-audit",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 1,
+    "tokensIn": 16308,
+    "tokensOut": 945,
+    "cacheRead": 4352,
+    "peakContextTokens": 3451,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 27770,
+    "costUsd": 0.00163782,
+    "finalText": "Here are the results:\n\n## Per-Repository Counts\n\n| Repository | Count | PR Numbers |\n|---|---|---|\n| **acme/infra** | 3 | #1028, #1044, #1047 |\n| **acme/mobile** | 2 | #1034, #1041 |\n| **acme/web** | 1 | #1077 |\n\n## Summary\n\n- **Total open PRs with >400 additions and no closed Linear issue:** **6**\n- **PR with the most additions:** **#1044** (acme/infra) with **653 additions**",
+    "toolMix": {
+      "execute_lisp": 6
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "needle-sweep",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 10,
+    "toolErrors": 0,
+    "mcpRoundTrips": 6,
+    "servicesTouched": 3,
+    "tokensIn": 9675,
+    "tokensOut": 1128,
+    "cacheRead": 2048,
+    "peakContextTokens": 2860,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 20907,
+    "costUsd": 0.0010737899999999998,
+    "finalText": "Here are the results:\n\n| Category | Count |\n|---|---|\n| **(a) UNRESOLVED Sentry issues** | **4** |\n| **(b) Linear issues NOT in 'done'/'canceled'** | **6** |\n| **(c) OPEN GitHub pull requests** | **2** |\n| **Grand total** | **12** |\n\nAll items were filtered by title containing \"SSO SCIM provisioning\" (case-insensitive). \n\n- **Sentry**: counted issues with `status = 'unresolved'`.\n- **Linear**: counted issues with `state NOT IN ('done', 'canceled')` (i.e., backlog, todo, in_progress, in_review).\n- **GitHub PRs**: counted PRs with `state = 'open'`.",
+    "toolMix": {
+      "execute_sql": 10
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "needle-sweep",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 12,
+    "toolCalls": 24,
+    "toolErrors": 5,
+    "mcpRoundTrips": 11,
+    "servicesTouched": 3,
+    "tokensIn": 98718,
+    "tokensOut": 5140,
+    "cacheRead": 36864,
+    "peakContextTokens": 13686,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 80471,
+    "costUsd": 0.009809819999999999,
+    "finalText": "Here are the exact counts for items whose **title** mentions **\"SSO SCIM provisioning\"** (case-insensitive):\n\n| Category | Count | Items |\n|---|---|---|\n| **(a) UNRESOLVED Sentry issues** | **4** | SENTRY-3003, SENTRY-3010, SENTRY-3015, SENTRY-3066 |\n| **(b) Linear issues (not done/canceled)** | **6** | ENG-161 (in_review), ENG-173 (in_progress), ENG-180 (in_review), ENG-187 (in_review), ENG-192 (todo), ENG-218 (in_progress) |\n| **(c) OPEN GitHub pull requests** | **2** | PR #1005, PR #1032 |\n\n**Grand Total: 4 + 6 + 2 = 12**",
+    "toolMix": {
+      "execute_lisp": 24
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "incident-commander",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 14,
+    "toolCalls": 15,
+    "toolErrors": 2,
+    "mcpRoundTrips": 11,
+    "servicesTouched": 4,
+    "tokensIn": 27554,
+    "tokensOut": 764,
+    "cacheRead": 24976,
+    "peakContextTokens": 3211,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 10967,
+    "costUsd": 0.00152286,
+    "finalText": "The affected service is `api-gateway`.  \nThe Sentry issue ID is `SENTRY-3028`.  \nNo PagerDuty incidents were acknowledged because there were no incidents with status `triggered` for the `api-gateway` service.",
+    "toolMix": {
+      "explain_sql": 2,
+      "execute_sql": 13
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "incident-commander",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 31,
+    "toolCalls": 30,
+    "toolErrors": 27,
+    "mcpRoundTrips": 77,
+    "servicesTouched": 2,
+    "tokensIn": 121880,
+    "tokensOut": 8780,
+    "cacheRead": 117760,
+    "peakContextTokens": 8019,
+    "compactions": 1,
+    "toolsInContext": 2,
+    "wallMs": 99643,
+    "costUsd": 0.0077622,
+    "finalText": "Reached the maximum number of turns (30) for this request. Please send a new message to continue.",
+    "toolMix": {
+      "execute_lisp": 30
+    },
+    "expected": {
+      "service": "api-gateway",
+      "sentry": "SENTRY-3028",
+      "acks": [
+        "PD-424"
+      ],
+      "postmortem": "Postmortem: 5xx: Image uploads time out over 5MB"
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "heavy-pr-audit",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 2,
+    "mcpRoundTrips": 0,
+    "servicesTouched": 0,
+    "tokensIn": 6590,
+    "tokensOut": 331,
+    "cacheRead": 6288,
+    "peakContextTokens": 1159,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 4202,
+    "costUsd": 0.00039239000000000006,
+    "finalText": "The required database tables could not be accessed due to an underlying system limitation. As a result, it is not possible to retrieve the requested data about open pull requests, their repository counts, totals, or the PR with the most additions. Please verify system access or contact support for assistance.",
+    "toolMix": {
+      "explain_sql": 4,
+      "execute_sql": 2
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "heavy-pr-audit",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 2,
+    "mcpRoundTrips": 72,
+    "servicesTouched": 1,
+    "tokensIn": 3937,
+    "tokensOut": 625,
+    "cacheRead": 3648,
+    "peakContextTokens": 1368,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 5641,
+    "costUsd": 0.00031560000000000003,
+    "finalText": "Across all repositories, there are no open pull requests with more than 400 additions that do not close any Linear issue.\n\n- Count per repository: 0 (no such PRs exist in any repository)\n- Total count: 0\n- PR number with the most additions: null (no qualifying PRs found)",
+    "toolMix": {
+      "execute_lisp": 3
+    },
+    "expected": {
+      "total": 6,
+      "perRepo": {
+        "acme/infra": 3,
+        "acme/mobile": 2,
+        "acme/web": 1
+      },
+      "largest": 1044
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "needle-sweep",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 7,
+    "toolErrors": 2,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 3,
+    "tokensIn": 4401,
+    "tokensOut": 389,
+    "cacheRead": 3968,
+    "peakContextTokens": 1377,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 4948,
+    "costUsd": 0.00029396,
+    "finalText": "(a) UNRESOLVED Sentry issues: 4  \n(b) Linear issues NOT in 'done' and NOT in 'canceled' state: 3  \n(c) OPEN GitHub pull requests: 2  \nGrand total: 9",
+    "toolMix": {
+      "explain_sql": 3,
+      "execute_sql": 4
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "needle-sweep",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 3,
+    "tokensIn": 1492,
+    "tokensOut": 232,
+    "cacheRead": 1360,
+    "peakContextTokens": 857,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 2100,
+    "costUsd": 0.00011868000000000001,
+    "finalText": "(a) UNRESOLVED Sentry issues: 4  \n(b) Linear issues NOT in 'done' and NOT in 'canceled' state: 6  \n(c) OPEN GitHub pull requests: 2  \nGrand total: 12",
+    "toolMix": {
+      "execute_lisp": 1
+    },
+    "expected": {
+      "sentry": 4,
+      "linear": 6,
+      "prs": 2,
+      "total": 12
+    }
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "incident-commander",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "429 Provider returned error",
+    "turns": 0,
+    "toolCalls": 0,
+    "toolErrors": 0,
+    "mcpRoundTrips": 0,
+    "servicesTouched": 0,
+    "tokensIn": 0,
+    "tokensOut": 0,
+    "cacheRead": 0,
+    "peakContextTokens": 0,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 4721,
+    "costUsd": 0,
+    "finalText": "",
+    "toolMix": {},
+    "expected": null
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "incident-commander",
+    "arm": "lisp",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "429 Provider returned error",
+    "turns": 0,
+    "toolCalls": 0,
+    "toolErrors": 0,
+    "mcpRoundTrips": 0,
+    "servicesTouched": 0,
+    "tokensIn": 0,
+    "tokensOut": 0,
+    "cacheRead": 0,
+    "peakContextTokens": 0,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 3176,
+    "costUsd": 0,
+    "finalText": "",
+    "toolMix": {},
+    "expected": null
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "heavy-pr-audit",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "429 Provider returned error",
+    "turns": 0,
+    "toolCalls": 0,
+    "toolErrors": 0,
+    "mcpRoundTrips": 0,
+    "servicesTouched": 0,
+    "tokensIn": 0,
+    "tokensOut": 0,
+    "cacheRead": 0,
+    "peakContextTokens": 0,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 2868,
+    "costUsd": 0,
+    "finalText": "",
+    "toolMix": {},
+    "expected": null
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "heavy-pr-audit",
+    "arm": "lisp",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "429 Provider returned error",
+    "turns": 0,
+    "toolCalls": 0,
+    "toolErrors": 0,
+    "mcpRoundTrips": 0,
+    "servicesTouched": 0,
+    "tokensIn": 0,
+    "tokensOut": 0,
+    "cacheRead": 0,
+    "peakContextTokens": 0,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 2921,
+    "costUsd": 0,
+    "finalText": "",
+    "toolMix": {},
+    "expected": null
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "needle-sweep",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "429 Provider returned error",
+    "turns": 0,
+    "toolCalls": 0,
+    "toolErrors": 0,
+    "mcpRoundTrips": 0,
+    "servicesTouched": 0,
+    "tokensIn": 0,
+    "tokensOut": 0,
+    "cacheRead": 0,
+    "peakContextTokens": 0,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 2642,
+    "costUsd": 0,
+    "finalText": "",
+    "toolMix": {},
+    "expected": null
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "needle-sweep",
+    "arm": "lisp",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "429 Provider returned error",
+    "turns": 3,
+    "toolCalls": 3,
+    "toolErrors": 3,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 2618,
+    "tokensOut": 3975,
+    "cacheRead": 0,
+    "peakContextTokens": 1113,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 65674,
+    "costUsd": 0.0021029100000000004,
+    "finalText": "",
+    "toolMix": {
+      "execute_lisp": 3
+    },
+    "expected": null
+  }
+]
