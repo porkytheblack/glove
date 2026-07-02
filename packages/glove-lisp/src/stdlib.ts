@@ -15,8 +15,13 @@
  * Bulk operations charge fuel proportional to collection size, so the fuel
  * budget bounds real work, not just form count.
  */
-import { apply, chargeFuel, EvalCtx, LispError, NativeFn } from "./eval";
+import { apply, chargeFuel, EvalCtx, Lambda, LispError, NativeFn } from "./eval";
 import { asKey, eq, isPlainObject, Keyword, printForm, truthy } from "./values";
+
+/** A function value (native or user-defined) — e.g. a comparator like `>`. */
+function isFnLike(v: unknown): boolean {
+  return v instanceof NativeFn || v instanceof Lambda;
+}
 
 type Args = unknown[];
 
@@ -363,11 +368,44 @@ export function stdlib(): Map<string, NativeFn> {
       chargeFuel(ctx, c.length);
       const keyed: Array<[unknown, unknown]> = [];
       for (const el of c) keyed.push([await apply(a[0], [el], ctx), el]);
-      const desc = a.length === 3 && (a[1] === Keyword.for("desc") || a[1] === "desc");
-      keyed.sort((x, y) => compareVals(x[0], y[0]) * (desc ? -1 : 1));
+      // Middle argument: :desc/:asc, or a COMPARATOR fn — Clojure's
+      // `(sort-by :count > coll)`. Ignoring the comparator silently returned
+      // ascending order, making `first` pick the MINIMUM — a silent wrong answer.
+      const mid = a.length === 3 ? a[1] : undefined;
+      if (mid === undefined || mid === Keyword.for("asc") || mid === "asc") {
+        keyed.sort((x, y) => compareVals(x[0], y[0]));
+      } else if (mid === Keyword.for("desc") || mid === "desc") {
+        keyed.sort((x, y) => compareVals(y[0], x[0]));
+      } else if (isFnLike(mid)) {
+        // async-safe merge sort, comparator applied to the KEYS
+        const cmp = async (kx: unknown, ky: unknown): Promise<number> => {
+          const r = await apply(mid, [kx, ky], ctx);
+          if (typeof r === "number") return r;
+          if (truthy(r)) return -1;
+          return truthy(await apply(mid, [ky, kx], ctx)) ? 1 : 0;
+        };
+        const ms = async (arr: Array<[unknown, unknown]>): Promise<Array<[unknown, unknown]>> => {
+          if (arr.length <= 1) return arr;
+          const half = arr.length >> 1;
+          const l = await ms(arr.slice(0, half));
+          const r = await ms(arr.slice(half));
+          const out: Array<[unknown, unknown]> = [];
+          let i = 0;
+          let j = 0;
+          while (i < l.length && j < r.length) out.push((await cmp(l[i][0], r[j][0])) <= 0 ? l[i++] : r[j++]);
+          while (i < l.length) out.push(l[i++]);
+          while (j < r.length) out.push(r[j++]);
+          return out;
+        };
+        return (await ms(keyed)).map(([, el]) => el);
+      } else {
+        throw new LispError(
+          `sort-by: the middle argument must be :desc, :asc, or a comparator like > — got ${printForm(mid)}. Try (sort-by keyfn > coll).`,
+        );
+      }
       return keyed.map(([, el]) => el);
     },
-    "(sort-by keyfn coll) or (sort-by keyfn :desc coll)",
+    "(sort-by keyfn coll), (sort-by keyfn :desc coll), or (sort-by keyfn > coll)",
   );
   def("distinct", (a, ctx) => {
     arity(a, "distinct", 1);
@@ -413,8 +451,10 @@ export function stdlib(): Map<string, NativeFn> {
     def(
       name,
       async (a, ctx) => {
-        arity(a, name, 2);
-        const c = coll(a[1], name);
+        if (a.length < 2) throw new LispError(`${name} takes (${name} keyfn coll) or (${name} keyfn x y …)`);
+        // Two shapes: (max-key f coll) over a collection, and Clojure's variadic
+        // (max-key f x y & more) — which is what (apply max-key f rows) expands to.
+        const c = a.length === 2 ? coll(a[1], name) : a.slice(1);
         chargeFuel(ctx, c.length);
         if (c.length === 0) return null;
         let best = c[0];
@@ -428,7 +468,7 @@ export function stdlib(): Map<string, NativeFn> {
         }
         return best;
       },
-      `(${name} keyfn coll) — the element with the ${name.startsWith("max") ? "largest" : "smallest"} key`,
+      `(${name} keyfn coll) or (${name} keyfn x y …) — the element with the ${name.startsWith("max") ? "largest" : "smallest"} key`,
     );
   byKey("max-key", (d) => d > 0);
   byKey("min-key", (d) => d < 0);
@@ -489,6 +529,13 @@ export function stdlib(): Map<string, NativeFn> {
     const [m, k, dflt] = a;
     if (m === null || m === undefined) return dflt ?? null;
     if (Array.isArray(m)) {
+      // A keyword/string key against a LIST of maps silently returned the
+      // default and read as a wrong answer — name the two likely intents.
+      if (typeof k !== "number" && m.length > 0 && isPlainObject(m[0])) {
+        throw new LispError(
+          `get: ${printForm(k)} against a list of ${m.length} map(s) — did you mean (map ${printForm(k)} the-list), or (${printForm(k)} (first the-list))?`,
+        );
+      }
       const i = typeof k === "number" ? k : NaN;
       return Number.isInteger(i) && i >= 0 && i < m.length ? m[i] : (dflt ?? null);
     }
@@ -504,8 +551,14 @@ export function stdlib(): Map<string, NativeFn> {
     let cur: unknown = a[0];
     for (const k of path) {
       if (cur === null || cur === undefined) return a[2] ?? null;
-      if (Array.isArray(cur)) cur = typeof k === "number" ? cur[k] : undefined;
-      else if (isPlainObject(cur)) cur = cur[asKey(k)];
+      if (Array.isArray(cur)) {
+        if (typeof k !== "number" && cur.length > 0 && isPlainObject(cur[0])) {
+          throw new LispError(
+            `get-in: ${printForm(k)} against a list of ${cur.length} map(s) — did you mean (map ${printForm(k)} …) or (${printForm(k)} (first …))?`,
+          );
+        }
+        cur = typeof k === "number" ? cur[k] : undefined;
+      } else if (isPlainObject(cur)) cur = cur[asKey(k)];
       else return a[2] ?? null;
     }
     return cur === undefined ? (a[2] ?? null) : cur;
@@ -574,6 +627,31 @@ export function stdlib(): Map<string, NativeFn> {
     if (!isPlainObject(m)) throw new LispError(`vals: expected a map, got ${printForm(m)}`);
     return Object.values(m);
   });
+
+  // Map entries iterate as [k v] pairs (see coll); key/val extract the halves —
+  // `(apply max-key val (frequencies …))` is the canonical Clojure argmax.
+  def("key", (a) => {
+    arity(a, "key", 1);
+    const p = coll(a[0], "key");
+    if (p.length !== 2) throw new LispError(`key: expected a [k v] map entry, got ${printForm(a[0])}`);
+    return p[0];
+  });
+  def("val", (a) => {
+    arity(a, "val", 1);
+    const p = coll(a[0], "val");
+    if (p.length !== 2) throw new LispError(`val: expected a [k v] map entry, got ${printForm(a[0])}`);
+    return p[1];
+  });
+  def(
+    "juxt",
+    (a) =>
+      new NativeFn("juxt-fn", async (b, ctx2) => {
+        const out: unknown[] = [];
+        for (const f of a) out.push(await apply(f, b, ctx2));
+        return out;
+      }),
+    "(juxt f g …) — a fn returning [(f x) (g x) …]",
+  );
 
   // ── strings ───────────────────────────────────────────────────────────────
   def("str", (a) => a.map(toDisplay).join(""));

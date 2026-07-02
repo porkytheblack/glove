@@ -1,0 +1,2725 @@
+[
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "count-open-prs",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 4080,
+    "tokensOut": 81,
+    "cacheRead": 1920,
+    "peakContextTokens": 2084,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 10338,
+    "costUsd": 0.0009621030000000001,
+    "finalText": "There are **36** open pull requests across all repositories.",
+    "expected": 36
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 4258,
+    "tokensOut": 247,
+    "cacheRead": 3840,
+    "peakContextTokens": 2257,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 12862,
+    "costUsd": 0.001059803,
+    "finalText": "There are **7 unresolved Sentry issues** in the 'billing' project. Their IDs are:\n\n1. SENTRY-3002\n2. SENTRY-3015\n3. SENTRY-3019\n4. SENTRY-3031\n5. SENTRY-3036\n6. SENTRY-3037\n7. SENTRY-3056",
+    "expected": {
+      "count": 7,
+      "ids": [
+        "SENTRY-3002",
+        "SENTRY-3015",
+        "SENTRY-3019",
+        "SENTRY-3031",
+        "SENTRY-3036",
+        "SENTRY-3037",
+        "SENTRY-3056"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "merged-prs-open-linear",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 9,
+    "toolErrors": 1,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 26307,
+    "tokensOut": 1203,
+    "cacheRead": 16832,
+    "peakContextTokens": 3486,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 67365,
+    "costUsd": 0.006436932,
+    "finalText": "Perfect! Let me now format the final answer with the required information:\n\n**Find every MERGED pull request that closes a Linear issue whose state is NOT 'done'. Report each PR number together with the Linear issue id it closes, and the total count.**\n\n**Results:**\n1. PR #1009 closes Linear issue ENG-183 (state: todo)\n2. PR #1010 closes Linear issue ENG-130 (state: todo)\n3. PR #1022 closes Linear issue ENG-183 (state: todo)\n4. PR #1026 closes Linear issue ENG-153 (state: todo)\n5. PR #1030 closes Linear issue ENG-120 (state: in_progress)\n6. PR #1040 closes Linear issue ENG-136 (state: canceled)\n7. PR #1042 closes Linear issue ENG-135 (state: in_review)\n8. PR #1050 closes Linear issue ENG-203 (state: canceled)\n9. PR #1053 closes Linear issue ENG-215 (state: backlog)\n10. PR #1057 closes Linear issue ENG-143 (state: backlog)\n11. PR #1058 closes Linear issue ENG-104 (state: todo)\n12. PR #1069 closes Linear issue ENG-113 (state: in_progress)\n13. PR #1078 closes Linear issue ENG-132 (state: canceled)\n\n**Total count: 13 merged pull requests**\n\n**Note:** There are 27 total merged PRs, 15 of which close Linear issues. Out of those, 13 close Linear issues that are NOT in 'done' state (they are in: todo, in_progress, canceled, in_review, or backlog states).",
+    "expected": {
+      "count": 13,
+      "prs": [
+        {
+          "pr": 1009,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-130"
+        },
+        {
+          "pr": 1022,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1026,
+          "closes": "ENG-153"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-120"
+        },
+        {
+          "pr": 1040,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1042,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1050,
+          "closes": "ENG-203"
+        },
+        {
+          "pr": 1053,
+          "closes": "ENG-215"
+        },
+        {
+          "pr": 1057,
+          "closes": "ENG-143"
+        },
+        {
+          "pr": 1058,
+          "closes": "ENG-104"
+        },
+        {
+          "pr": 1069,
+          "closes": "ENG-113"
+        },
+        {
+          "pr": 1078,
+          "closes": "ENG-132"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "busiest-assignee",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 21,
+    "toolCalls": 20,
+    "toolErrors": 10,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 72386,
+    "tokensOut": 1734,
+    "cacheRead": 61248,
+    "peakContextTokens": 4776,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 105773,
+    "costUsd": 0.017171156,
+    "finalText": "Excellent! The verification matches. Now let me provide the final answer.\n\nThe person with the most Linear issues in the 'in_progress' state is **niaj** with **3** issues assigned to them.",
+    "expected": {
+      "top": "niaj",
+      "count": 3,
+      "tied": [
+        "niaj"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "high-urgency-triggered",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3972,
+    "tokensOut": 251,
+    "cacheRead": 0,
+    "peakContextTokens": 2003,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 9532,
+    "costUsd": 0.000995681,
+    "finalText": "Perfect! I found **4 high-urgency PagerDuty incidents** that are still in the 'triggered' state (not acknowledged, not resolved). \n\nThe incident IDs are:\n1. PD-407\n2. PD-416  \n3. PD-433\n4. PD-439\n\nAll 4 incidents have urgency \"high\" and status \"triggered\", meaning they haven't been acknowledged or resolved yet.",
+    "expected": {
+      "count": 4,
+      "ids": [
+        "PD-407",
+        "PD-416",
+        "PD-433",
+        "PD-439"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "email-top-error",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 2,
+    "tokensIn": 18986,
+    "tokensOut": 731,
+    "cacheRead": 16896,
+    "peakContextTokens": 3339,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 44381,
+    "costUsd": 0.004598527000000001,
+    "finalText": "Perfect! Here's what I found and did:\n\n1. **Found the top unresolved Sentry issue**: SENTRY-3052 with title \"OOMKilled: Mobile crash on iOS 18 cold start\" has the highest event count at 220 events (among 33 unresolved issues).\n\n2. **Sent the email**: Successfully sent an email to 'oncall@acme.io' with subject \"Top error\" containing the exact issue title as the body.\n\n3. **Confirmation**: The email was sent with ID `msg-out-1` and contains the body: \"OOMKilled: Mobile crash on iOS 18 cold start\"\n\nThe operation is complete. The on-call team has been notified about the highest-frequency unresolved error in the system.",
+    "expected": {
+      "title": "OOMKilled: Billing webhook retries drop events",
+      "count": 4665,
+      "id": "SENTRY-3029"
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "compose-verify-issues",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 12,
+    "toolCalls": 11,
+    "toolErrors": 1,
+    "mcpRoundTrips": 18,
+    "servicesTouched": 1,
+    "tokensIn": 40235,
+    "tokensOut": 1292,
+    "cacheRead": 34496,
+    "peakContextTokens": 4582,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 66767,
+    "costUsd": 0.009656971,
+    "finalText": "Excellent! I have successfully created 15 GitHub issues in the 'acme/web' repository, one for each merged pull request that closes a Linear issue.\n\n## Summary\n\nI opened **15 GitHub issues** in the 'acme/web' repository. Each issue has a title formatted as \"Verify: \" followed by the corresponding pull request's title, and was created for every merged pull request across all repositories that closes a Linear issue.\n\nThe issues were created in a single operation, covering all relevant repositories as requested.",
+    "expected": {
+      "count": 15
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "count-open-prs",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3609,
+    "tokensOut": 106,
+    "cacheRead": 1792,
+    "peakContextTokens": 1820,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 15422,
+    "costUsd": 0.00025894,
+    "finalText": "There are **36** GitHub pull requests currently in the 'open' state.",
+    "expected": 36
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3685,
+    "tokensOut": 804,
+    "cacheRead": 3456,
+    "peakContextTokens": 1893,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 21934,
+    "costUsd": 0.0005427,
+    "finalText": "- **UNRESOLVED Sentry issues in the 'billing' project:** SENTRY-3002, SENTRY-3015, SENTRY-3019, SENTRY-3031, SENTRY-3036, SENTRY-3037, SENTRY-3056\n- **Count:** 7",
+    "expected": {
+      "count": 7,
+      "ids": [
+        "SENTRY-3002",
+        "SENTRY-3015",
+        "SENTRY-3019",
+        "SENTRY-3031",
+        "SENTRY-3036",
+        "SENTRY-3037",
+        "SENTRY-3056"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "merged-prs-open-linear",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 1,
+    "tokensIn": 21604,
+    "tokensOut": 485,
+    "cacheRead": 3584,
+    "peakContextTokens": 7572,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 13926,
+    "costUsd": 0.00149024,
+    "finalText": "(count (github_pull_requests {:state \"merged\"}))",
+    "expected": {
+      "count": 13,
+      "prs": [
+        {
+          "pr": 1009,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-130"
+        },
+        {
+          "pr": 1022,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1026,
+          "closes": "ENG-153"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-120"
+        },
+        {
+          "pr": 1040,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1042,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1050,
+          "closes": "ENG-203"
+        },
+        {
+          "pr": 1053,
+          "closes": "ENG-215"
+        },
+        {
+          "pr": 1057,
+          "closes": "ENG-143"
+        },
+        {
+          "pr": 1058,
+          "closes": "ENG-104"
+        },
+        {
+          "pr": 1069,
+          "closes": "ENG-113"
+        },
+        {
+          "pr": 1078,
+          "closes": "ENG-132"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "busiest-assignee",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6006,
+    "tokensOut": 568,
+    "cacheRead": 3520,
+    "peakContextTokens": 2179,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 29460,
+    "costUsd": 0.00058756,
+    "finalText": "**heidi** has the most Linear issues in the 'in_progress' state, with **2** issues.",
+    "expected": {
+      "top": "niaj",
+      "count": 3,
+      "tied": [
+        "niaj"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "high-urgency-triggered",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 1,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 5676,
+    "tokensOut": 346,
+    "cacheRead": 5376,
+    "peakContextTokens": 1982,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 64794,
+    "costUsd": 0.00047895999999999995,
+    "finalText": "4 HIGH-urgency PagerDuty incidents remain in the 'triggered' state:\n- PD-407\n- PD-416\n- PD-433\n- PD-439",
+    "expected": {
+      "count": 4,
+      "ids": [
+        "PD-407",
+        "PD-416",
+        "PD-433",
+        "PD-439"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "email-top-error",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 9,
+    "toolErrors": 4,
+    "mcpRoundTrips": 8,
+    "servicesTouched": 2,
+    "tokensIn": 24368,
+    "tokensOut": 2057,
+    "cacheRead": 22720,
+    "peakContextTokens": 3035,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 62584,
+    "costUsd": 0.00228488,
+    "finalText": "Unresolved Sentry issue with the highest event count:\n- ID: SENTRY-3029\n- Title: \"OOMKilled: Billing webhook retries drop events\"\n- Level: error\n- Project: search\n- Event Count: 4,665\n- Status: unresolved\n\nEmail sent:\n- To: oncall@acme.io\n- Subject: \"Top error\"\n- Status: sent\n- Row ID: msg-out-2\n- Body (extracted from the issue title):\n  Unresolved Sentry issue with highest event count:\n\n  Level: error\n  Project: search\n  Event Count: 4665\n  Title: OOMKilled: Billing webhook retries drop events",
+    "expected": {
+      "title": "OOMKilled: Billing webhook retries drop events",
+      "count": 4665,
+      "id": "SENTRY-3029"
+    }
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "compose-verify-issues",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 3,
+    "mcpRoundTrips": 32,
+    "servicesTouched": 1,
+    "tokensIn": 13859,
+    "tokensOut": 946,
+    "cacheRead": 12352,
+    "peakContextTokens": 3031,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 34905,
+    "costUsd": 0.00120994,
+    "finalText": "I opened 27 issues in acme/web (one per merged PR that closes a Linear issue). I didn't see a repo name in the PR records, so I added :repo \"acme/web\". The exact titles are not included in the return value; if you want that list, let me know and I can output it.",
+    "expected": {
+      "count": 15
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "count-open-prs",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3866,
+    "tokensOut": 161,
+    "cacheRead": 1856,
+    "peakContextTokens": 1959,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 6429,
+    "costUsd": 0.00045101,
+    "finalText": "There are currently **36** open GitHub pull requests across all repositories.",
+    "expected": 36
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6401,
+    "tokensOut": 280,
+    "cacheRead": 5824,
+    "peakContextTokens": 2326,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 7028,
+    "costUsd": 0.0007505049999999998,
+    "finalText": "There are **7** unresolved Sentry issues in the `billing` project:\n\n| # | Issue ID |\n|---|----------|\n| 1 | SENTRY-3002 |\n| 2 | SENTRY-3015 |\n| 3 | SENTRY-3019 |\n| 4 | SENTRY-3031 |\n| 5 | SENTRY-3036 |\n| 6 | SENTRY-3037 |\n| 7 | SENTRY-3056 |",
+    "expected": {
+      "count": 7,
+      "ids": [
+        "SENTRY-3002",
+        "SENTRY-3015",
+        "SENTRY-3019",
+        "SENTRY-3031",
+        "SENTRY-3036",
+        "SENTRY-3037",
+        "SENTRY-3056"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "merged-prs-open-linear",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 9,
+    "toolErrors": 5,
+    "mcpRoundTrips": 10,
+    "servicesTouched": 2,
+    "tokensIn": 31919,
+    "tokensOut": 1817,
+    "cacheRead": 29056,
+    "peakContextTokens": 4368,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 30266,
+    "costUsd": 0.0038602550000000004,
+    "finalText": "Here are all **13 merged pull requests** that close a Linear issue whose state is **not `done`**:\n\n| PR # | Linear Issue | Issue State |\n|------|-------------|-------------|\n| 1009 | ENG-183 | todo |\n| 1010 | ENG-130 | todo |\n| 1022 | ENG-183 | todo |\n| 1026 | ENG-153 | todo |\n| 1030 | ENG-120 | in_progress |\n| 1040 | ENG-136 | canceled |\n| 1042 | ENG-135 | in_review |\n| 1050 | ENG-203 | canceled |\n| 1053 | ENG-215 | backlog |\n| 1057 | ENG-143 | backlog |\n| 1058 | ENG-104 | todo |\n| 1069 | ENG-113 | in_progress |\n| 1078 | ENG-132 | canceled |\n\n**Total count: 13**\n\nThese are all merged PRs where the linked Linear issue has **not** reached `done`. The states range across `todo` (5), `backlog` (2), `in_progress` (2), `in_review` (1), and `canceled` (3) — suggesting the PR code was merged but the corresponding Linear issues were never formally marked complete (or were canceled outright).",
+    "expected": {
+      "count": 13,
+      "prs": [
+        {
+          "pr": 1009,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-130"
+        },
+        {
+          "pr": 1022,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1026,
+          "closes": "ENG-153"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-120"
+        },
+        {
+          "pr": 1040,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1042,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1050,
+          "closes": "ENG-203"
+        },
+        {
+          "pr": 1053,
+          "closes": "ENG-215"
+        },
+        {
+          "pr": 1057,
+          "closes": "ENG-143"
+        },
+        {
+          "pr": 1058,
+          "closes": "ENG-104"
+        },
+        {
+          "pr": 1069,
+          "closes": "ENG-113"
+        },
+        {
+          "pr": 1078,
+          "closes": "ENG-132"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "busiest-assignee",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 3,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 1,
+    "tokensIn": 18406,
+    "tokensOut": 597,
+    "cacheRead": 16704,
+    "peakContextTokens": 3034,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 14206,
+    "costUsd": 0.00209979,
+    "finalText": "The person with the most **in_progress** Linear issues is **niaj** with exactly **3** issues assigned to them.",
+    "expected": {
+      "top": "niaj",
+      "count": 3,
+      "tied": [
+        "niaj"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "high-urgency-triggered",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 4152,
+    "tokensOut": 201,
+    "cacheRead": 3712,
+    "peakContextTokens": 2238,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 3530,
+    "costUsd": 0.00049224,
+    "finalText": "There are **4** HIGH-urgency PagerDuty incidents still in the `triggered` state:\n\n| # | ID | Title | Service |\n|---|-----|-------|---------|\n| 1 | **PD-407** | Checkout latency spikes at peak | mobile-bff |\n| 2 | **PD-416** | SSO SCIM provisioning errors | billing |\n| 3 | **PD-433** | Image uploads time out over 5MB | billing |\n| 4 | **PD-439** | Billing webhook retries drop events | search |",
+    "expected": {
+      "count": 4,
+      "ids": [
+        "PD-407",
+        "PD-416",
+        "PD-433",
+        "PD-439"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "email-top-error",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 4092,
+    "tokensOut": 260,
+    "cacheRead": 3712,
+    "peakContextTokens": 2160,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 4237,
+    "costUsd": 0.00050246,
+    "finalText": "Done. Here's what I sent:\n\n| Field | Value |\n|---|---|\n| **To** | `oncall@acme.io` |\n| **Subject** | `Top error` |\n| **Body** | `OOMKilled: Mobile crash on iOS 18 cold start` |\n| **Sentry issue** | `mobile-bff` · `error` level · **220 events** · unresolved |\n\nThe email has been sent successfully (1 row inserted).",
+    "expected": {
+      "title": "OOMKilled: Billing webhook retries drop events",
+      "count": 4665,
+      "id": "SENTRY-3029"
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "compose-verify-issues",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 6,
+    "toolErrors": 2,
+    "mcpRoundTrips": 16,
+    "servicesTouched": 1,
+    "tokensIn": 15325,
+    "tokensOut": 772,
+    "cacheRead": 13824,
+    "peakContextTokens": 3125,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 13455,
+    "costUsd": 0.0018252849999999998,
+    "finalText": "**I opened exactly 15 GitHub issues** in the `acme/web` repository, one for each merged PR that closes a Linear issue.\n\nHere's what was done:\n- Queried all merged pull requests across all repositories\n- Filtered to those with a `closes_linear` value (i.e., they close a Linear issue) — found **15** such PRs\n- For each, created a new issue in `acme/web` with the title `Verify: <PR title>`, with a body noting the source repo and Linear issue reference\n\nAll 15 insertions fired successfully.",
+    "expected": {
+      "count": 15
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "count-open-prs",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3673,
+    "tokensOut": 120,
+    "cacheRead": 1792,
+    "peakContextTokens": 1864,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 2613,
+    "costUsd": 0.00049836,
+    "finalText": "36",
+    "expected": 36
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 1,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 7209,
+    "tokensOut": 326,
+    "cacheRead": 4448,
+    "peakContextTokens": 2754,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 4644,
+    "costUsd": 0.00102156,
+    "finalText": "The unresolved Sentry issues in the 'billing' project are:\n\n**IDs:** SENTRY-3002, SENTRY-3015, SENTRY-3019, SENTRY-3031, SENTRY-3036, SENTRY-3037, SENTRY-3056\n\n**Count: 7**",
+    "expected": {
+      "count": 7,
+      "ids": [
+        "SENTRY-3002",
+        "SENTRY-3015",
+        "SENTRY-3019",
+        "SENTRY-3031",
+        "SENTRY-3036",
+        "SENTRY-3037",
+        "SENTRY-3056"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "merged-prs-open-linear",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 2,
+    "tokensIn": 19769,
+    "tokensOut": 843,
+    "cacheRead": 16576,
+    "peakContextTokens": 4806,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 8356,
+    "costUsd": 0.0027769199999999996,
+    "finalText": "Here are the merged PRs that close Linear issues NOT in 'done' state:\n\n| PR Number | Linear Issue | Issue State |\n|-----------|--------------|-------------|\n| 1009 | ENG-183 | todo |\n| 1010 | ENG-130 | todo |\n| 1022 | ENG-183 | todo |\n| 1026 | ENG-153 | todo |\n| 1030 | ENG-120 | in_progress |\n| 1040 | ENG-136 | canceled |\n| 1042 | ENG-135 | in_review |\n| 1050 | ENG-203 | canceled |\n| 1053 | ENG-215 | backlog |\n| 1057 | ENG-143 | backlog |\n| 1058 | ENG-104 | todo |\n| 1069 | ENG-113 | in_progress |\n| 1078 | ENG-132 | canceled |\n\n**Total count: 13** merged PRs close Linear issues that are not yet done.",
+    "expected": {
+      "count": 13,
+      "prs": [
+        {
+          "pr": 1009,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-130"
+        },
+        {
+          "pr": 1022,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1026,
+          "closes": "ENG-153"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-120"
+        },
+        {
+          "pr": 1040,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1042,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1050,
+          "closes": "ENG-203"
+        },
+        {
+          "pr": 1053,
+          "closes": "ENG-215"
+        },
+        {
+          "pr": 1057,
+          "closes": "ENG-143"
+        },
+        {
+          "pr": 1058,
+          "closes": "ENG-104"
+        },
+        {
+          "pr": 1069,
+          "closes": "ENG-113"
+        },
+        {
+          "pr": 1078,
+          "closes": "ENG-132"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "busiest-assignee",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 3,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 1,
+    "tokensIn": 14046,
+    "tokensOut": 906,
+    "cacheRead": 12624,
+    "peakContextTokens": 2861,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 9475,
+    "costUsd": 0.0021203999999999997,
+    "finalText": "The person with the most Linear issues in the 'in_progress' state is **niaj** with **3 issues** assigned to them.",
+    "expected": {
+      "top": "niaj",
+      "count": 3,
+      "tied": [
+        "niaj"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "high-urgency-triggered",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3767,
+    "tokensOut": 266,
+    "cacheRead": 3584,
+    "peakContextTokens": 1951,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 3088,
+    "costUsd": 0.0005797199999999999,
+    "finalText": "There are **4** HIGH-urgency PagerDuty incidents still in 'triggered' state:\n\n- PD-407\n- PD-416\n- PD-433\n- PD-439",
+    "expected": {
+      "count": 4,
+      "ids": [
+        "PD-407",
+        "PD-416",
+        "PD-433",
+        "PD-439"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "email-top-error",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 1,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 2,
+    "tokensIn": 8729,
+    "tokensOut": 737,
+    "cacheRead": 7904,
+    "peakContextTokens": 2570,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 7728,
+    "costUsd": 0.00140124,
+    "finalText": "Done. I found the unresolved Sentry issue with the highest event count and sent the email.\n\n**Summary:**\n- **Top unresolved issue:** SENTRY-3029\n- **Title:** \"OOMKilled: Billing webhook retries drop events\"\n- **Event count:** 4,665\n- **Email sent to:** oncall@acme.io\n- **Subject:** \"Top error\"\n- **Body:** OOMKilled: Billing webhook retries drop events",
+    "expected": {
+      "title": "OOMKilled: Billing webhook retries drop events",
+      "count": 4665,
+      "id": "SENTRY-3029"
+    }
+  },
+  {
+    "modelKey": "minimax",
+    "model": "minimax/minimax-m2.5",
+    "scenario": "compose-verify-issues",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 11,
+    "toolCalls": 10,
+    "toolErrors": 1,
+    "mcpRoundTrips": 28,
+    "servicesTouched": 1,
+    "tokensIn": 42463,
+    "tokensOut": 4613,
+    "cacheRead": 36416,
+    "peakContextTokens": 7640,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 47728,
+    "costUsd": 0.0073098,
+    "finalText": "I opened **27 new GitHub issues** in the `acme/web` repository, one for each merged pull request that closes a Linear issue. Each issue has a title prefixed with \"Verify: \" followed by the original PR title.",
+    "expected": {
+      "count": 15
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "count-open-prs",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3294,
+    "tokensOut": 129,
+    "cacheRead": 1536,
+    "peakContextTokens": 1673,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 9455,
+    "costUsd": 0.001496475,
+    "finalText": "There are **36** open GitHub pull requests across all repositories.",
+    "expected": 36
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3393,
+    "tokensOut": 299,
+    "cacheRead": 3072,
+    "peakContextTokens": 1770,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 16166,
+    "costUsd": 0.00187785,
+    "finalText": "There are **7** unresolved Sentry issues in the 'billing' project.\n\nThe IDs are: `SENTRY-3002`, `SENTRY-3015`, `SENTRY-3019`, `SENTRY-3031`, `SENTRY-3036`, `SENTRY-3037`, `SENTRY-3056`",
+    "expected": {
+      "count": 7,
+      "ids": [
+        "SENTRY-3002",
+        "SENTRY-3015",
+        "SENTRY-3019",
+        "SENTRY-3031",
+        "SENTRY-3036",
+        "SENTRY-3037",
+        "SENTRY-3056"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "merged-prs-open-linear",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 1,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 10413,
+    "tokensOut": 949,
+    "cacheRead": 8704,
+    "peakContextTokens": 2511,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 40754,
+    "costUsd": 0.0058266,
+    "finalText": "**Found 13 merged pull requests closing Linear issues not in 'done' state:**\n\n| PR # | Linear Issue |\n|------|--------------|\n| 1009 | ENG-183 |\n| 1010 | ENG-130 |\n| 1022 | ENG-183 |\n| 1026 | ENG-153 |\n| 1030 | ENG-120 |\n| 1040 | ENG-136 |\n| 1042 | ENG-135 |\n| 1050 | ENG-203 |\n| 1053 | ENG-215 |\n| 1057 | ENG-143 |\n| 1058 | ENG-104 |\n| 1069 | ENG-113 |\n| 1078 | ENG-132 |\n\n**Total count: 13**",
+    "expected": {
+      "count": 13,
+      "prs": [
+        {
+          "pr": 1009,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-130"
+        },
+        {
+          "pr": 1022,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1026,
+          "closes": "ENG-153"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-120"
+        },
+        {
+          "pr": 1040,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1042,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1050,
+          "closes": "ENG-203"
+        },
+        {
+          "pr": 1053,
+          "closes": "ENG-215"
+        },
+        {
+          "pr": 1057,
+          "closes": "ENG-143"
+        },
+        {
+          "pr": 1058,
+          "closes": "ENG-104"
+        },
+        {
+          "pr": 1069,
+          "closes": "ENG-113"
+        },
+        {
+          "pr": 1078,
+          "closes": "ENG-132"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "busiest-assignee",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 3,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 1,
+    "tokensIn": 14650,
+    "tokensOut": 719,
+    "cacheRead": 13056,
+    "peakContextTokens": 2533,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 36842,
+    "costUsd": 0.006949725,
+    "finalText": "**niaj** has the most Linear issues in the 'in_progress' state, with **3** issues assigned to them.",
+    "expected": {
+      "top": "niaj",
+      "count": 3,
+      "tied": [
+        "niaj"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "high-urgency-triggered",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3369,
+    "tokensOut": 234,
+    "cacheRead": 3072,
+    "peakContextTokens": 1742,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 10442,
+    "costUsd": 0.0017372249999999998,
+    "finalText": "There are **4** HIGH-urgency PagerDuty incidents still in the 'triggered' state:\n\n- PD-407\n- PD-416\n- PD-433\n- PD-439",
+    "expected": {
+      "count": 4,
+      "ids": [
+        "PD-407",
+        "PD-416",
+        "PD-433",
+        "PD-439"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "email-top-error",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 5190,
+    "tokensOut": 602,
+    "cacheRead": 4608,
+    "peakContextTokens": 1847,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 27662,
+    "costUsd": 0.0031653000000000002,
+    "finalText": "Sent an email to `oncall@acme.io` with subject **\"Top error\"** and body:\n\n> **OOMKilled: Billing webhook retries drop events**\n\nThis was the unresolved Sentry issue with the highest event count (selected from 4 unresolved issues). 1 email queued for delivery.",
+    "expected": {
+      "title": "OOMKilled: Billing webhook retries drop events",
+      "count": 4665,
+      "id": "SENTRY-3029"
+    }
+  },
+  {
+    "modelKey": "kimi",
+    "model": "moonshotai/kimi-k2.5",
+    "scenario": "compose-verify-issues",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 7,
+    "toolErrors": 1,
+    "mcpRoundTrips": 17,
+    "servicesTouched": 1,
+    "tokensIn": 19752,
+    "tokensOut": 678,
+    "cacheRead": 16384,
+    "peakContextTokens": 4072,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 39418,
+    "costUsd": 0.00877995,
+    "finalText": "I found **15 merged pull requests** across all repositories that close Linear issues, and I opened **15 new GitHub issues** in the 'acme/web' repository—one for each PR with titles prefixed by \"Verify: \".",
+    "expected": {
+      "count": 15
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "count-open-prs",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3294,
+    "tokensOut": 89,
+    "cacheRead": 1536,
+    "peakContextTokens": 1673,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 4494,
+    "costUsd": 0.0027490600000000002,
+    "finalText": "36",
+    "expected": 36
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3390,
+    "tokensOut": 183,
+    "cacheRead": 1536,
+    "peakContextTokens": 1767,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 6792,
+    "costUsd": 0.0031490999999999997,
+    "finalText": "There are **7** unresolved Sentry issues in the `billing` project.\n\nIDs: `SENTRY-3002`, `SENTRY-3015`, `SENTRY-3019`, `SENTRY-3031`, `SENTRY-3036`, `SENTRY-3037`, `SENTRY-3056`.",
+    "expected": {
+      "count": 7,
+      "ids": [
+        "SENTRY-3002",
+        "SENTRY-3015",
+        "SENTRY-3019",
+        "SENTRY-3031",
+        "SENTRY-3036",
+        "SENTRY-3037",
+        "SENTRY-3056"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "merged-prs-open-linear",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 3,
+    "mcpRoundTrips": 5,
+    "servicesTouched": 2,
+    "tokensIn": 16129,
+    "tokensOut": 1253,
+    "cacheRead": 12544,
+    "peakContextTokens": 3033,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 41024,
+    "costUsd": 0.01632096,
+    "finalText": "Found **13 merged PRs** that close a Linear issue whose state is not `done`:\n\n| PR number | Linear issue |\n|-----------|--------------|\n| 1009 | ENG-183 |\n| 1010 | ENG-130 |\n| 1022 | ENG-183 |\n| 1026 | ENG-153 |\n| 1030 | ENG-120 |\n| 1040 | ENG-136 |\n| 1042 | ENG-135 |\n| 1050 | ENG-203 |\n| 1053 | ENG-215 |\n| 1057 | ENG-143 |\n| 1058 | ENG-104 |\n| 1069 | ENG-113 |\n| 1078 | ENG-132 |\n\n**Total: 13**",
+    "expected": {
+      "count": 13,
+      "prs": [
+        {
+          "pr": 1009,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-130"
+        },
+        {
+          "pr": 1022,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1026,
+          "closes": "ENG-153"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-120"
+        },
+        {
+          "pr": 1040,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1042,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1050,
+          "closes": "ENG-203"
+        },
+        {
+          "pr": 1053,
+          "closes": "ENG-215"
+        },
+        {
+          "pr": 1057,
+          "closes": "ENG-143"
+        },
+        {
+          "pr": 1058,
+          "closes": "ENG-104"
+        },
+        {
+          "pr": 1069,
+          "closes": "ENG-113"
+        },
+        {
+          "pr": 1078,
+          "closes": "ENG-132"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "busiest-assignee",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 7,
+    "toolErrors": 4,
+    "mcpRoundTrips": 5,
+    "servicesTouched": 1,
+    "tokensIn": 19639,
+    "tokensOut": 570,
+    "cacheRead": 16128,
+    "peakContextTokens": 2960,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 23103,
+    "costUsd": 0.01652786,
+    "finalText": "The person with the most `in_progress` Linear issues is **niaj**, with **3** issues.",
+    "expected": {
+      "top": "niaj",
+      "count": 3,
+      "tied": [
+        "niaj"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "high-urgency-triggered",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3365,
+    "tokensOut": 225,
+    "cacheRead": 3072,
+    "peakContextTokens": 1738,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 7043,
+    "costUsd": 0.0032776,
+    "finalText": "There are **4** high-urgency PagerDuty incidents still in the `triggered` state:\n\n- PD-407\n- PD-416\n- PD-433\n- PD-439",
+    "expected": {
+      "count": 4,
+      "ids": [
+        "PD-407",
+        "PD-416",
+        "PD-433",
+        "PD-439"
+      ]
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "email-top-error",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 2,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 2,
+    "tokensIn": 10062,
+    "tokensOut": 479,
+    "cacheRead": 8704,
+    "peakContextTokens": 2363,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 16418,
+    "costUsd": 0.00912238,
+    "finalText": "Sent an email to `oncall@acme.io` with subject **\"Top error\"** and body:\n\n> **OOMKilled: Billing webhook retries drop events**\n\nThis is the unresolved Sentry issue with the highest event count: **SENTRY-3029**, **4,665 events**, project `search`.",
+    "expected": {
+      "title": "OOMKilled: Billing webhook retries drop events",
+      "count": 4665,
+      "id": "SENTRY-3029"
+    }
+  },
+  {
+    "modelKey": "kimi27",
+    "model": "moonshotai/kimi-k2.7-code",
+    "scenario": "compose-verify-issues",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 16,
+    "servicesTouched": 1,
+    "tokensIn": 10553,
+    "tokensOut": 656,
+    "cacheRead": 8960,
+    "peakContextTokens": 2632,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 22203,
+    "costUsd": 0.01010522,
+    "finalText": "I found 15 merged pull requests across Acme repositories that close a Linear issue, and I opened 15 new GitHub issues in `acme/web`, each titled exactly `Verify: ` followed by the corresponding pull request's title.",
+    "expected": {
+      "count": 15
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "count-open-prs",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3625,
+    "tokensOut": 150,
+    "cacheRead": 1792,
+    "peakContextTokens": 1828,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 6015,
+    "costUsd": 0.002463,
+    "finalText": "There are currently **36** open GitHub pull requests across all repositories.",
+    "expected": 36
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3713,
+    "tokensOut": 286,
+    "cacheRead": 3520,
+    "peakContextTokens": 1913,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 5762,
+    "costUsd": 0.00277692,
+    "finalText": "There are **7** unresolved Sentry issues in the 'billing' project.\n\n**IDs:**\n- SENTRY-3002\n- SENTRY-3015\n- SENTRY-3019\n- SENTRY-3031\n- SENTRY-3036\n- SENTRY-3037\n- SENTRY-3056",
+    "expected": {
+      "count": 7,
+      "ids": [
+        "SENTRY-3002",
+        "SENTRY-3015",
+        "SENTRY-3019",
+        "SENTRY-3031",
+        "SENTRY-3036",
+        "SENTRY-3037",
+        "SENTRY-3056"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "merged-prs-open-linear",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 3955,
+    "tokensOut": 479,
+    "cacheRead": 3520,
+    "peakContextTokens": 2145,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 7753,
+    "costUsd": 0.00329268,
+    "finalText": "**13 merged pull requests close Linear issues that are not yet 'done':**\n\n| PR # | Linear Issue ID |\n|------|-----------------|\n| 1009 | ENG-183 |\n| 1010 | ENG-130 |\n| 1022 | ENG-183 |\n| 1026 | ENG-153 |\n| 1030 | ENG-120 |\n| 1040 | ENG-136 |\n| 1042 | ENG-135 |\n| 1050 | ENG-203 |\n| 1053 | ENG-215 |\n| 1057 | ENG-143 |\n| 1058 | ENG-104 |\n| 1069 | ENG-113 |\n| 1078 | ENG-132 |\n\n**Total count: 13 PRs**",
+    "expected": {
+      "count": 13,
+      "prs": [
+        {
+          "pr": 1009,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-130"
+        },
+        {
+          "pr": 1022,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1026,
+          "closes": "ENG-153"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-120"
+        },
+        {
+          "pr": 1040,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1042,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1050,
+          "closes": "ENG-203"
+        },
+        {
+          "pr": 1053,
+          "closes": "ENG-215"
+        },
+        {
+          "pr": 1057,
+          "closes": "ENG-143"
+        },
+        {
+          "pr": 1058,
+          "closes": "ENG-104"
+        },
+        {
+          "pr": 1069,
+          "closes": "ENG-113"
+        },
+        {
+          "pr": 1078,
+          "closes": "ENG-132"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "busiest-assignee",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 2,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 1,
+    "tokensIn": 13137,
+    "tokensOut": 705,
+    "cacheRead": 12160,
+    "peakContextTokens": 2526,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 16591,
+    "costUsd": 0.009235799999999999,
+    "finalText": "**niaj** has the most Linear issues in the 'in_progress' state assigned to them, with exactly **3** issues.",
+    "expected": {
+      "top": "niaj",
+      "count": 3,
+      "tied": [
+        "niaj"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "high-urgency-triggered",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3697,
+    "tokensOut": 225,
+    "cacheRead": 3520,
+    "peakContextTokens": 1893,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 5075,
+    "costUsd": 0.0026502,
+    "finalText": "There are **4** HIGH-urgency PagerDuty incidents still in the 'triggered' state.\n\nTheir IDs are:\n- PD-407\n- PD-416\n- PD-433\n- PD-439",
+    "expected": {
+      "count": 4,
+      "ids": [
+        "PD-407",
+        "PD-416",
+        "PD-433",
+        "PD-439"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "email-top-error",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 8394,
+    "tokensOut": 493,
+    "cacheRead": 7744,
+    "peakContextTokens": 2303,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 7878,
+    "costUsd": 0.00598296,
+    "finalText": "Done! Here's what I found and sent:\n\n**Top unresolved Sentry issue:**\n- **Title:** \"OOMKilled: Billing webhook retries drop events\"\n- **ID:** SENTRY-3029\n- **Event count:** 4,665\n\n**Email sent:**\n- **To:** oncall@acme.io\n- **Subject:** Top error\n- **Body:** \"The top unresolved Sentry issue is: OOMKilled: Billing webhook retries drop events\"\n- **Status:** Sent (message ID: msg-out-1)",
+    "expected": {
+      "title": "OOMKilled: Billing webhook retries drop events",
+      "count": 4665,
+      "id": "SENTRY-3029"
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "compose-verify-issues",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 0,
+    "mcpRoundTrips": 16,
+    "servicesTouched": 1,
+    "tokensIn": 18574,
+    "tokensOut": 779,
+    "cacheRead": 16064,
+    "peakContextTokens": 4084,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 16621,
+    "costUsd": 0.01264008,
+    "finalText": "I opened **15 GitHub issues** in the `acme/web` repository. Each issue has a title starting with \"Verify: \" followed by the corresponding merged pull request's title, as requested.",
+    "expected": {
+      "count": 15
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "count-open-prs",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 4136,
+    "tokensOut": 56,
+    "cacheRead": 2020,
+    "peakContextTokens": 2097,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 8583,
+    "costUsd": 0.001308,
+    "finalText": "36",
+    "expected": 36
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6364,
+    "tokensOut": 268,
+    "cacheRead": 5846,
+    "peakContextTokens": 2207,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 7374,
+    "costUsd": 0.0022308,
+    "finalText": "There are **7** unresolved Sentry issues in the `billing` project:\n\n- SENTRY-3002\n- SENTRY-3015\n- SENTRY-3019\n- SENTRY-3031\n- SENTRY-3036\n- SENTRY-3037\n- SENTRY-3056",
+    "expected": {
+      "count": 7,
+      "ids": [
+        "SENTRY-3002",
+        "SENTRY-3015",
+        "SENTRY-3019",
+        "SENTRY-3031",
+        "SENTRY-3036",
+        "SENTRY-3037",
+        "SENTRY-3056"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "merged-prs-open-linear",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 9,
+    "toolErrors": 3,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 2,
+    "tokensIn": 28435,
+    "tokensOut": 1201,
+    "cacheRead": 26917,
+    "peakContextTokens": 3980,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 24641,
+    "costUsd": 0.0099717,
+    "finalText": "Found **13** merged PRs that close a Linear issue whose state is not `done`:\n\n| PR | Linear Issue | Current State |\n|---:|:---|:---|\n| 1009 | ENG-183 | todo |\n| 1010 | ENG-130 | todo |\n| 1022 | ENG-183 | todo |\n| 1026 | ENG-153 | todo |\n| 1030 | ENG-120 | in_progress |\n| 1040 | ENG-136 | canceled |\n| 1042 | ENG-135 | in_review |\n| 1050 | ENG-203 | canceled |\n| 1053 | ENG-215 | backlog |\n| 1057 | ENG-143 | backlog |\n| 1058 | ENG-104 | todo |\n| 1069 | ENG-113 | in_progress |\n| 1078 | ENG-132 | canceled |\n\nWorth flagging: ENG-183 is closed by *two* merged PRs (1009 and 1022), and several issues are `canceled` or still in earlier workflow states — these are the most likely candidates to be auto-transitioned to `done` (or investigated for premature closure).",
+    "expected": {
+      "count": 13,
+      "prs": [
+        {
+          "pr": 1009,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-130"
+        },
+        {
+          "pr": 1022,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1026,
+          "closes": "ENG-153"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-120"
+        },
+        {
+          "pr": 1040,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1042,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1050,
+          "closes": "ENG-203"
+        },
+        {
+          "pr": 1053,
+          "closes": "ENG-215"
+        },
+        {
+          "pr": 1057,
+          "closes": "ENG-143"
+        },
+        {
+          "pr": 1058,
+          "closes": "ENG-104"
+        },
+        {
+          "pr": 1069,
+          "closes": "ENG-113"
+        },
+        {
+          "pr": 1078,
+          "closes": "ENG-132"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "busiest-assignee",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 14,
+    "toolCalls": 13,
+    "toolErrors": 10,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 41670,
+    "tokensOut": 1163,
+    "cacheRead": 36610,
+    "peakContextTokens": 3761,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 53243,
+    "costUsd": 0.0138966,
+    "finalText": "**niaj** has the most Linear issues in the `in_progress` state, with exactly **3** issues assigned to them.\n\nFull breakdown of `in_progress` issues by assignee:\n- niaj: 3\n- heidi, dave, mallory, carol: 2 each\n- erin, ivan, grace, frank: 1 each",
+    "expected": {
+      "top": "niaj",
+      "count": 3,
+      "tied": [
+        "niaj"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "high-urgency-triggered",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 4204,
+    "tokensOut": 212,
+    "cacheRead": 3812,
+    "peakContextTokens": 2158,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 4021,
+    "costUsd": 0.0015156000000000002,
+    "finalText": "**4 incidents** are high-urgency and still in `triggered` state:\n\n- **PD-407**\n- **PD-416**\n- **PD-433**\n- **PD-439**",
+    "expected": {
+      "count": 4,
+      "ids": [
+        "PD-407",
+        "PD-416",
+        "PD-433",
+        "PD-439"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "email-top-error",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 1,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 2,
+    "tokensIn": 12101,
+    "tokensOut": 508,
+    "cacheRead": 8842,
+    "peakContextTokens": 2696,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 23183,
+    "costUsd": 0.0042399,
+    "finalText": "Sent. The top unresolved Sentry issue is **SENTRY-3052** — *\"OOMKilled: Mobile crash on iOS 18 cold start\"* (220 events, 293 users affected, project `mobile-bff`).\n\nEmail fired:\n- **to:** oncall@acme.io\n- **subject:** Top error\n- **body:** OOMKilled: Mobile crash on iOS 18 cold start\n- **status:** sent (msg-out-1)",
+    "expected": {
+      "title": "OOMKilled: Billing webhook retries drop events",
+      "count": 4665,
+      "id": "SENTRY-3029"
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "compose-verify-issues",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 0,
+    "mcpRoundTrips": 16,
+    "servicesTouched": 1,
+    "tokensIn": 16902,
+    "tokensOut": 482,
+    "cacheRead": 12319,
+    "peakContextTokens": 4185,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 25741,
+    "costUsd": 0.0056489999999999995,
+    "finalText": "I opened **15 issues** in `acme/web`.\n\n- Searched all 27 merged PRs across every Acme repo\n- Found 15 that close a Linear issue (the other 12 merged PRs had no `closes_linear` link, so they were correctly skipped)\n- Created one `Verify: <PR title>` issue per qualifying PR, all in `acme/web`",
+    "expected": {
+      "count": 15
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "count-open-prs",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 4015,
+    "tokensOut": 120,
+    "cacheRead": 0,
+    "peakContextTokens": 2044,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 7188,
+    "costUsd": 0.00038295,
+    "finalText": "There are currently **36** open GitHub pull requests across all repositories.",
+    "expected": 36
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 9126,
+    "tokensOut": 363,
+    "cacheRead": 6016,
+    "peakContextTokens": 2495,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 13600,
+    "costUsd": 0.00088668,
+    "finalText": "There are **7** unresolved Sentry issues in the **billing** project. Their IDs are:\n\n| # | ID |\n|---|---------|\n| 1 | SENTRY-3002 |\n| 2 | SENTRY-3015 |\n| 3 | SENTRY-3019 |\n| 4 | SENTRY-3031 |\n| 5 | SENTRY-3036 |\n| 6 | SENTRY-3037 |\n| 7 | SENTRY-3056 |\n\n**Count: 7**",
+    "expected": {
+      "count": 7,
+      "ids": [
+        "SENTRY-3002",
+        "SENTRY-3015",
+        "SENTRY-3019",
+        "SENTRY-3031",
+        "SENTRY-3036",
+        "SENTRY-3037",
+        "SENTRY-3056"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "merged-prs-open-linear",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 13,
+    "toolCalls": 14,
+    "toolErrors": 2,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 40769,
+    "tokensOut": 2398,
+    "cacheRead": 23552,
+    "peakContextTokens": 4279,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 51565,
+    "costUsd": 0.00410085,
+    "finalText": "Here are the results:\n\n**Total: 13 merged PRs** close a Linear issue whose state is not 'done'.\n\n| PR # | Closes Linear Issue | Linear State |\n|------|-------------------|-------------|\n| 1009 | ENG-183 | todo |\n| 1010 | ENG-130 | todo |\n| 1022 | ENG-183 | todo |\n| 1026 | ENG-153 | todo |\n| 1030 | ENG-120 | in_progress |\n| 1040 | ENG-136 | canceled |\n| 1042 | ENG-135 | in_review |\n| 1050 | ENG-203 | canceled |\n| 1053 | ENG-215 | backlog |\n| 1057 | ENG-143 | backlog |\n| 1058 | ENG-104 | todo |\n| 1069 | ENG-113 | in_progress |\n| 1078 | ENG-132 | canceled |\n\n**Breakdown:** There were 27 merged PRs total. 15 of them reference a Linear issue via `closes_linear`. 14 unique Linear issues were found (ENG-183 is referenced by two PRs). Of those, 12 are **not** done (states: todo, in_progress, in_review, backlog, canceled) — and together they are closed by **13 merged PRs**.",
+    "expected": {
+      "count": 13,
+      "prs": [
+        {
+          "pr": 1009,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-130"
+        },
+        {
+          "pr": 1022,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1026,
+          "closes": "ENG-153"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-120"
+        },
+        {
+          "pr": 1040,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1042,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1050,
+          "closes": "ENG-203"
+        },
+        {
+          "pr": 1053,
+          "closes": "ENG-215"
+        },
+        {
+          "pr": 1057,
+          "closes": "ENG-143"
+        },
+        {
+          "pr": 1058,
+          "closes": "ENG-104"
+        },
+        {
+          "pr": 1069,
+          "closes": "ENG-113"
+        },
+        {
+          "pr": 1078,
+          "closes": "ENG-132"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "busiest-assignee",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 7,
+    "toolErrors": 2,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 20751,
+    "tokensOut": 1062,
+    "cacheRead": 16256,
+    "peakContextTokens": 3306,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 29974,
+    "costUsd": 0.00205875,
+    "finalText": "The person with the most Linear issues in the **in_progress** state is **niaj** with **3** issues:\n\n1. **ENG-124** — CSV export truncates large accounts\n2. **ENG-198** — Checkout latency spikes at peak — follow-up\n3. **ENG-206** — Onboarding funnel drop-off",
+    "expected": {
+      "top": "niaj",
+      "count": 3,
+      "tied": [
+        "niaj"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "high-urgency-triggered",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6730,
+    "tokensOut": 308,
+    "cacheRead": 5504,
+    "peakContextTokens": 2533,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 9139,
+    "costUsd": 0.00066114,
+    "finalText": "There are **4** HIGH-urgency PagerDuty incidents still in the **triggered** state:\n\n| ID | Title | Service | Assignee |\n|---|---|---|---|\n| **PD-407** | Checkout latency spikes at peak — page | mobile-bff | grace |\n| **PD-416** | SSO SCIM provisioning errors — page | billing | heidi |\n| **PD-433** | Image uploads time out over 5MB — page | billing | erin |\n| **PD-439** | Billing webhook retries drop events — page | search | alice |",
+    "expected": {
+      "count": 4,
+      "ids": [
+        "PD-407",
+        "PD-416",
+        "PD-433",
+        "PD-439"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "email-top-error",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 13,
+    "toolCalls": 13,
+    "toolErrors": 1,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 45387,
+    "tokensOut": 3037,
+    "cacheRead": 25088,
+    "peakContextTokens": 4644,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 62876,
+    "costUsd": 0.004631489999999999,
+    "finalText": "Done! Here's a summary:\n\n**Top unresolved Sentry issue found:**\n- **ID:** SENTRY-3029\n- **Title:** *OOMKilled: Billing webhook retries drop events*\n- **Event count:** 4,665\n\n**Email sent:**\n- **To:** `oncall@acme.io`\n- **Subject:** `Top error`\n- **Body:** *OOMKilled: Billing webhook retries drop events*\n- **Status:** ✅ Sent (message id: `msg-out-1`)",
+    "expected": {
+      "title": "OOMKilled: Billing webhook retries drop events",
+      "count": 4665,
+      "id": "SENTRY-3029"
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "compose-verify-issues",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 9,
+    "toolCalls": 9,
+    "toolErrors": 0,
+    "mcpRoundTrips": 18,
+    "servicesTouched": 1,
+    "tokensIn": 30792,
+    "tokensOut": 2308,
+    "cacheRead": 22400,
+    "peakContextTokens": 4653,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 43155,
+    "costUsd": 0.00318672,
+    "finalText": "I opened **15** new GitHub issues in the `acme/web` repository. Here's what I did:\n\n1. **Read all merged PRs** — found 27 total across all repositories.\n2. **Filtered to those that close a Linear issue** (`closes_linear` is non-nil) — 15 PRs matched.\n3. **Opened one GitHub issue per PR** in `acme/web` with title `\"Verify: <PR title>\"`.\n\nThe 15 issues created correspond to these merged PRs (across `acme/mobile`, `acme/infra`, `acme/api`, and `acme/web` repos):\n\n| PR # | Repository | Title |\n|------|-----------|-------|\n| 1009 | acme/mobile | Billing webhook retries drop events: guard against billing-webhooks |\n| 1010 | acme/mobile | Search relevance regression: refactor search-relevance |\n| 1022 | acme/infra | Mobile crash on iOS 18 cold start: refactor ios18-crash |\n| 1024 | acme/api | Onboarding funnel drop-off: add test for onboarding-funnel |\n| 1026 | acme/web | Onboarding funnel drop-off: fix onboarding-funnel |\n| 1027 | acme/mobile | Migrate auth to OAuth2 + PKCE: refactor oauth-migration |\n| 1030 | acme/infra | Rate limiter false positives: refactor rate-limiter |\n| 1040 | acme/web | CSV export truncates large accounts: guard against csv-export |\n| 1042 | acme/infra | Search relevance regression: add test for search-relevance |\n| 1050 | acme/mobile | Push notifications not delivered: add test for push-notifications |\n| 1053 | acme/mobile | Onboarding funnel drop-off: add test for onboarding-funnel |\n| 1057 | acme/web | Mobile crash on iOS 18 cold start: refactor ios18-crash |\n| 1058 | acme/api | Billing webhook retries drop events: add test for billing-webhooks |\n| 1069 | acme/infra | Onboarding funnel drop-off: refactor onboarding-funnel |\n| 1078 | acme/mobile | Billing webhook retries drop events: fix billing-webhooks |\n\n**Total: 15 issues opened.**",
+    "expected": {
+      "count": 15
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "count-open-prs",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3623,
+    "tokensOut": 34,
+    "cacheRead": 1808,
+    "peakContextTokens": 1836,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 2045,
+    "costUsd": 0.00018761,
+    "finalText": "36",
+    "expected": 36
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3664,
+    "tokensOut": 129,
+    "cacheRead": 3600,
+    "peakContextTokens": 1874,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 1543,
+    "costUsd": 0.00020771,
+    "finalText": "There are 7 unresolved Sentry issues in the 'billing' project. The issue IDs are: ENG-101, ENG-102, ENG-105, ENG-108, ENG-110, ENG-112, ENG-115.",
+    "expected": {
+      "count": 7,
+      "ids": [
+        "SENTRY-3002",
+        "SENTRY-3015",
+        "SENTRY-3019",
+        "SENTRY-3031",
+        "SENTRY-3036",
+        "SENTRY-3037",
+        "SENTRY-3056"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "merged-prs-open-linear",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 15,
+    "servicesTouched": 2,
+    "tokensIn": 4040,
+    "tokensOut": 411,
+    "cacheRead": 3680,
+    "peakContextTokens": 2240,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 3427,
+    "costUsd": 0.00028009000000000004,
+    "finalText": "There are 15 merged pull requests that close Linear issues whose state is not 'done'. Here is the list:\n\n- PR #1009 closes Linear issue ENG-183\n- PR #1010 closes Linear issue ENG-130\n- PR #1022 closes Linear issue ENG-183\n- PR #1024 closes Linear issue ENG-142\n- PR #1026 closes Linear issue ENG-153\n- PR #1027 closes Linear issue ENG-165\n- PR #1030 closes Linear issue ENG-120\n- PR #1040 closes Linear issue ENG-136\n- PR #1042 closes Linear issue ENG-135\n- PR #1050 closes Linear issue ENG-203\n- PR #1053 closes Linear issue ENG-215\n- PR #1057 closes Linear issue ENG-143\n- PR #1058 closes Linear issue ENG-104\n- PR #1069 closes Linear issue ENG-113\n- PR #1078 closes Linear issue ENG-132\n\nTotal count: 15",
+    "expected": {
+      "count": 13,
+      "prs": [
+        {
+          "pr": 1009,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-130"
+        },
+        {
+          "pr": 1022,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1026,
+          "closes": "ENG-153"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-120"
+        },
+        {
+          "pr": 1040,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1042,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1050,
+          "closes": "ENG-203"
+        },
+        {
+          "pr": 1053,
+          "closes": "ENG-215"
+        },
+        {
+          "pr": 1057,
+          "closes": "ENG-143"
+        },
+        {
+          "pr": 1058,
+          "closes": "ENG-104"
+        },
+        {
+          "pr": 1069,
+          "closes": "ENG-113"
+        },
+        {
+          "pr": 1078,
+          "closes": "ENG-132"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "busiest-assignee",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 24,
+    "toolCalls": 23,
+    "toolErrors": 22,
+    "mcpRoundTrips": 22,
+    "servicesTouched": 1,
+    "tokensIn": 93669,
+    "tokensOut": 3777,
+    "cacheRead": 91856,
+    "peakContextTokens": 6424,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 30607,
+    "costUsd": 0.005401080000000001,
+    "finalText": "The person with the most Linear issues in the 'in_progress' state is **niaj**, and they have **3** such issues.",
+    "expected": {
+      "top": "niaj",
+      "count": 3,
+      "tied": [
+        "niaj"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "high-urgency-triggered",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3716,
+    "tokensOut": 130,
+    "cacheRead": 3632,
+    "peakContextTokens": 1922,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 1165,
+    "costUsd": 0.00021050000000000002,
+    "finalText": "There are 4 HIGH-urgency PagerDuty incidents still in the 'triggered' state. Their IDs are: PD-407, PD-416, PD-433, PD-439.",
+    "expected": {
+      "count": 4,
+      "ids": [
+        "PD-407",
+        "PD-416",
+        "PD-433",
+        "PD-439"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "email-top-error",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 4,
+    "mcpRoundTrips": 5,
+    "servicesTouched": 2,
+    "tokensIn": 13041,
+    "tokensOut": 681,
+    "cacheRead": 12768,
+    "peakContextTokens": 2651,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 5209,
+    "costUsd": 0.00078144,
+    "finalText": "Sent an email to 'oncall@acme.io' with subject \"Top error\" containing the title of the unresolved Sentry issue with the highest event count. The email was successfully sent.",
+    "expected": {
+      "title": "OOMKilled: Billing webhook retries drop events",
+      "count": 4665,
+      "id": "SENTRY-3029"
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "compose-verify-issues",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 28,
+    "servicesTouched": 1,
+    "tokensIn": 4203,
+    "tokensOut": 163,
+    "cacheRead": 3696,
+    "peakContextTokens": 2376,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 2122,
+    "costUsd": 0.00024112000000000002,
+    "finalText": "I opened 27 new GitHub issues in the 'acme/web' repository, one for each merged pull request that closes a Linear issue.",
+    "expected": {
+      "count": 15
+    }
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "count-open-prs",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3623,
+    "tokensOut": 543,
+    "cacheRead": 0,
+    "peakContextTokens": 1836,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 13737,
+    "costUsd": 0.0006791099999999999,
+    "finalText": "The exact number of GitHub pull requests in the 'open' state across all repositories is **36**.",
+    "expected": 36
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 5588,
+    "tokensOut": 6228,
+    "cacheRead": 0,
+    "peakContextTokens": 1954,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 105168,
+    "costUsd": 0.0034731600000000003,
+    "finalText": "The unresolved Sentry issues in the 'billing' project are:  \n**SENTRY-3002, SENTRY-3015, SENTRY-3019, SENTRY-3031, SENTRY-3036, SENTRY-3037, SENTRY-3056**  \nTotal of **7** issues.",
+    "expected": {
+      "count": 7,
+      "ids": [
+        "SENTRY-3002",
+        "SENTRY-3015",
+        "SENTRY-3019",
+        "SENTRY-3031",
+        "SENTRY-3036",
+        "SENTRY-3037",
+        "SENTRY-3056"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "merged-prs-open-linear",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 2,
+    "mcpRoundTrips": 8,
+    "servicesTouched": 2,
+    "tokensIn": 10537,
+    "tokensOut": 6185,
+    "cacheRead": 0,
+    "peakContextTokens": 2429,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 99147,
+    "costUsd": 0.00404769,
+    "finalText": "The query returned zero results, indicating there are no merged pull requests closing Linear issues in a state other than 'done'. \n\n**Answer:**  \nNo matching pull requests found. Total count: 0.",
+    "expected": {
+      "count": 13,
+      "prs": [
+        {
+          "pr": 1009,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-130"
+        },
+        {
+          "pr": 1022,
+          "closes": "ENG-183"
+        },
+        {
+          "pr": 1026,
+          "closes": "ENG-153"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-120"
+        },
+        {
+          "pr": 1040,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1042,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1050,
+          "closes": "ENG-203"
+        },
+        {
+          "pr": 1053,
+          "closes": "ENG-215"
+        },
+        {
+          "pr": 1057,
+          "closes": "ENG-143"
+        },
+        {
+          "pr": 1058,
+          "closes": "ENG-104"
+        },
+        {
+          "pr": 1069,
+          "closes": "ENG-113"
+        },
+        {
+          "pr": 1078,
+          "closes": "ENG-132"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "busiest-assignee",
+    "arm": "lisp",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "This operation was aborted",
+    "turns": 3,
+    "toolCalls": 3,
+    "toolErrors": 2,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 1,
+    "tokensIn": 6169,
+    "tokensOut": 8509,
+    "cacheRead": 0,
+    "peakContextTokens": 2244,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 180019,
+    "costUsd": 0.00456933,
+    "finalText": "",
+    "expected": null
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "high-urgency-triggered",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3682,
+    "tokensOut": 3644,
+    "cacheRead": 0,
+    "peakContextTokens": 1888,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 75646,
+    "costUsd": 0.00208164,
+    "finalText": "There are 4 high-urgency PagerDuty incidents still in the 'triggered' state. Their IDs are:\n\n- PD-407\n- PD-416\n- PD-433\n- PD-439",
+    "expected": {
+      "count": 4,
+      "ids": [
+        "PD-407",
+        "PD-416",
+        "PD-433",
+        "PD-439"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "email-top-error",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 3780,
+    "tokensOut": 3813,
+    "cacheRead": 0,
+    "peakContextTokens": 1968,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 69375,
+    "costUsd": 0.00216945,
+    "finalText": "The unresolved Sentry issue with the highest event count is the \"search\" project. An email was sent to 'oncall@acme.io' with subject 'Top error' and body: **search**. \n\nConfirming: Email fired (1 row), and the sent body matches the project name from the issue. No title field exists in sentry_issues, so project name was used.",
+    "expected": {
+      "title": "OOMKilled: Billing webhook retries drop events",
+      "count": 4665,
+      "id": "SENTRY-3029"
+    }
+  },
+  {
+    "modelKey": "qwen8b",
+    "model": "qwen/qwen3-8b",
+    "scenario": "compose-verify-issues",
+    "arm": "lisp",
+    "ok": false,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 2,
+    "mcpRoundTrips": 34,
+    "servicesTouched": 1,
+    "tokensIn": 8733,
+    "tokensOut": 5496,
+    "cacheRead": 0,
+    "peakContextTokens": 2609,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 118708,
+    "costUsd": 0.0035211599999999997,
+    "finalText": "The process created 15 new GitHub issues in the 'acme/web' repository, each titled \"Verify: \" followed by the corresponding merged pull request title that closed a Linear issue.\n\n**Answer:**  \n15 issues were opened.",
+    "expected": {
+      "count": 15
+    }
+  }
+]

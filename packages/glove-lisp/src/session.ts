@@ -112,6 +112,40 @@ function scalarEq(a: unknown, b: unknown): boolean {
   return valEq(a, b);
 }
 
+/** A multi-line zod/MCP validation dump is unreadable mid-transcript — reduce it
+ *  to one line naming the field, what was expected, and what arrived. */
+function rewrapToolError(err: unknown, write: { op: string; resource: string }): LispError {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/Input validation error|invalid_type|-32602/.test(msg)) {
+    const issues: string[] = [];
+    const re = /"expected":\s*"([^"]+)"[\s\S]*?"path":\s*\[\s*"?([^\]"]*)"?\s*\][\s\S]*?(?:"received"|"message"):\s*"([^"]+)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(msg)) !== null && issues.length < 3) {
+      issues.push(`:${m[2] || "?"} expected ${m[1]}, got ${m[3]}`);
+    }
+    const detail = issues.length ? issues.join("; ") : "a field has the wrong type or is missing";
+    return new LispError(
+      `${write.op}! on "${write.resource}": the tool rejected the row — ${detail}. Run (describe :${write.resource}) for column types, and pass strings for text columns (use "" not nil).`,
+    );
+  }
+  return err instanceof LispError ? err : new LispError(msg);
+}
+
+/** Drop nil-valued keys from a row (Clojure APIs omit absent fields). */
+function stripNilColumns(r: Record<string, unknown>): Record<string, unknown> {
+  let hasNil = false;
+  for (const k in r) {
+    if (r[k] === null || r[k] === undefined) {
+      hasNil = true;
+      break;
+    }
+  }
+  if (!hasNil) return r;
+  const out: Record<string, unknown> = {};
+  for (const k in r) if (r[k] !== null && r[k] !== undefined) out[k] = r[k];
+  return out;
+}
+
 function overlayMatch(row: Record<string, unknown>, match: Record<string, SqlScalar[]>): boolean {
   for (const [col, vals] of Object.entries(match)) {
     if (!vals.some((v) => scalarEq(row[col], v))) return false;
@@ -392,6 +426,11 @@ export class LispSession {
       new NativeFn("rollback!", (args) => {
         if (args.length !== 0) throw new LispError("rollback! takes no arguments");
         const n = this.pending?.length ?? 0;
+        if (n === 0) {
+          throw new LispError(
+            "nothing is staged — rollback! only discards writes staged with (stage …). Nothing has fired; there is nothing to undo.",
+          );
+        }
         this.pending = null;
         return { rolledBack: n };
       }),
@@ -410,6 +449,15 @@ export class LispSession {
       let out: unknown = null;
       for (const f of items) out = await evalForm(f, env, ctx);
       const staged = this.preview();
+      if (staged.length === 0) {
+        // A body that evaluated but staged nothing (e.g. plain maps instead of
+        // write calls) would otherwise "succeed" silently and strand the model
+        // at a no-op (commit!).
+        this.pending = null;
+        throw new LispError(
+          "stage ran its body but no writes were staged — the body must CALL the write fns: (stage (insert! :table {…}) (insert! :table {…})). Plain maps or lists are just values.",
+        );
+      }
       ctx.call.messages.push(
         `staged ${staged.length} write(s) — nothing has fired yet. Inspect them, then (commit!) to fire in order or (rollback!) to discard.`,
       );
@@ -449,7 +497,12 @@ export class LispSession {
         const filtered = this.residualFilter(merged, eqMap);
         chargeFuel(ctx, filtered.length);
         if (filtered.length === 0) sctx.call.sawEmptyRead = resource.name;
-        return filtered;
+        // Rows omit nil-valued columns — the shape a Clojure API returns.
+        // `(:col row)` still yields nil, but `(contains? row :col)` and
+        // `(filter :col rows)` now mean "has a value", which is what a model
+        // writing them intends. Nil-filled rows made contains? always-true —
+        // a silent wrong answer on every "has a link?" filter.
+        return filtered.map(stripNilColumns);
       },
       `(${resource.name}) or (${resource.name} {:col value, …})`,
     );
@@ -548,7 +601,12 @@ export class LispSession {
         "writes are staged and pending — run (commit!) to fire them or (rollback!) to discard before writing outside the stage",
       );
     }
-    const result = await write.run(ctx.call.ctx);
+    let result: unknown;
+    try {
+      result = await write.run(ctx.call.ctx);
+    } catch (err) {
+      throw rewrapToolError(err, write);
+    }
     this.recordOverlay(write);
     this.touch(ctx, write.resource, write.op, 1);
     ctx.call.messages.push(`${this.commandTag(write)}.`);

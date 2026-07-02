@@ -267,6 +267,26 @@ export async function evalForm(form: Form, env: Env, ctx: EvalCtx): Promise<unkn
         for (const f of items.slice(2)) out = await evalForm(f, local, ctx);
         return out;
       }
+      case "if-let":
+      case "when-let": {
+        // (if-let [name test] then else?) / (when-let [name test] body…)
+        const kind = head.name;
+        if (items.length < 3) throw new LispError(`${kind} takes (${kind} [name test] body…)`);
+        const vec = expectVec(items[1], `${kind}: the binding`);
+        if (vec.items.length !== 2 || !(vec.items[0] instanceof Sym)) {
+          throw new LispError(`${kind}: the binding must be [name test] — one name, one value`);
+        }
+        const bound = await evalForm(vec.items[1], env, ctx);
+        if (truthy(bound)) {
+          const local = new Env(env);
+          local.set((vec.items[0] as Sym).name, bound);
+          if (kind === "if-let") return evalForm(items[2], local, ctx);
+          let out: unknown = null;
+          for (const f of items.slice(2)) out = await evalForm(f, local, ctx);
+          return out;
+        }
+        return kind === "if-let" && items.length === 4 ? evalForm(items[3], env, ctx) : null;
+      }
       case "and": {
         let out: unknown = true;
         for (const f of items.slice(1)) {

@@ -24,15 +24,17 @@ export interface LispToolOptions {
 export const LISP_PREAMBLE = `Your capabilities are exposed as functions in a LISP REPL (Clojure-flavored). You have ONE tool, execute_lisp, and you work entirely in Lisp. The REPL is PERSISTENT: anything you (def name …) stays available in later calls.
 
 Language card (this is the WHOLE language — nothing else exists):
-- Special forms: if when cond do let fn defn def and or -> ->> quote stage
+- Special forms: if when cond do let if-let when-let fn defn def and or -> ->> quote stage
 - Data: numbers, "strings", :keywords, [vectors], {:maps "values"}, nil, true/false. #(…) with % is fn shorthand.
-- Library: map filter remove reduce count first last take drop sort-by distinct group-by frequencies max-key min-key sum avg some every? empty? contains? concat flatten range apply get get-in assoc dissoc merge select-keys update keys vals str upper-case lower-case includes? starts-with? split join replace
+- Library: map filter remove reduce count first last take drop sort-by distinct group-by frequencies max-key min-key sum avg some every? empty? contains? concat flatten range apply get get-in assoc dissoc merge select-keys update keys vals key val juxt str upper-case lower-case includes? starts-with? split join replace
+- These work exactly as in Clojure: (sort-by :count > rows) sorts DESCENDING; (apply max-key :count rows) is argmax; (apply max-key val (frequencies xs)) is the most-common; rows OMIT nil columns, so (filter :closes_linear prs) means "has a value".
 - NO loop/recur/while/eval/JS. Iteration is map/filter/reduce. A fuel budget caps runaway work.
 
 Operating discipline:
 - DISCOVER before you act: (tables) lists your resources; (describe :name) shows a resource's columns, valid values, and required arguments. The catalog below is already current — spend discovery calls only when unsure.
 - READ a resource by calling it: (github_pull_requests) returns all rows as a list of maps; (github_pull_requests {:state "open"}) pushes arguments down (they are tool inputs AND filters). A vector value fans out like IN: {:channel ["a" "b"]}. Required columns are named in errors and (describe …).
 - COMPUTE in the REPL, not in your head. Counting, grouping, joining, argmax — write the expression and return ONLY the final value: (count (github_pull_requests {:state "open"})). Data flows between capabilities inside the program — it does NOT round-trip through you.
+- RETURN WHAT YOU MUST REPORT. If the answer needs ids or names, return them (a count plus a small (map :id …) list) — never state values you did not read.
 - KEEP BIG DATA OUT OF YOUR CONTEXT. (def prs (github_pull_requests)) stores the rows in the REPL and echoes only a summary; then (count prs), (take 5 prs), (map :title prs). Never end a program with a huge list you don't need.
 - BRANCH in one program. Unlike SQL, conditionals compose: (if (empty? failures) (insert! :slack_messages {…all clear…}) (insert! :emails {…alert…})) — decide-and-act is ONE call, not a read, a look, and a second call.
 - BE DECISIVE — answer in as FEW calls as possible; one program that reads, computes, and acts beats many small ones. If a call errors, read the message, change the ONE thing it names, and retry — do not re-run the same program or thrash.

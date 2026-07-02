@@ -1,0 +1,10 @@
+{"kind":"meta","modelKey":"qwen8b","model":"qwen/qwen3-8b","scenario":"sentry-billing-unresolved","arm":"lisp","ok":true,"errored":false,"turns":3,"toolCalls":2,"toolErrors":0,"mcpRoundTrips":2,"servicesTouched":1,"tokensIn":5588,"tokensOut":6228,"cacheRead":0,"peakContextTokens":1954,"compactions":0,"toolsInContext":2,"wallMs":105168,"costUsd":0.0034731600000000003,"expected":{"count":7,"ids":["SENTRY-3002","SENTRY-3015","SENTRY-3019","SENTRY-3031","SENTRY-3036","SENTRY-3037","SENTRY-3056"]}}
+{"kind":"final_answer","text":"The unresolved Sentry issues in the 'billing' project are:  \n**SENTRY-3002, SENTRY-3015, SENTRY-3019, SENTRY-3031, SENTRY-3036, SENTRY-3037, SENTRY-3056**  \nTotal of **7** issues."}
+{"t":71326,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(count (sentry_issues {:project \\\"billing\\\" :status \\\"unresolved\\\"}))\"}"}]}
+{"t":71327,"type":"tokens","in":1790,"out":4147,"peak":1790}
+{"t":71333,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":7}"}
+{"t":97741,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(map :id (sentry_issues {:project \\\"billing\\\" :status \\\"unresolved\\\"}))\"}"}]}
+{"t":97741,"type":"tokens","in":1844,"out":1620,"peak":1844}
+{"t":97741,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[\"SENTRY-3002\",\"SENTRY-3015\",\"SENTRY-3019\",\"SENTRY-3031\",\"SENTRY-3036\",\"SENTRY-3037\",\"SENTRY-3056\"]}"}
+{"t":105168,"type":"model_response","turn":3,"stop_reason":"stop","text":"The unresolved Sentry issues in the 'billing' project are:  \n**SENTRY-3002, SENTRY-3015, SENTRY-3019, SENTRY-3031, SENTRY-3036, SENTRY-3037, SENTRY-3056**  \nTotal of **7** issues.","tool_calls":[]}
+{"t":105168,"type":"tokens","in":1954,"out":461,"peak":1954}
