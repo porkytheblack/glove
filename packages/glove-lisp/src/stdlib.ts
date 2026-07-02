@@ -154,7 +154,12 @@ export function stdlib(): Map<string, NativeFn> {
     if (v === null || v === undefined) return 0;
     if (Array.isArray(v)) return v.length;
     if (typeof v === "string") return v.length;
-    if (isPlainObject(v)) return Object.keys(v).length;
+    if (isPlainObject(v)) {
+      // (count (insert! …)) means the ROW count, not the result map's key count
+      // — a model reported "5" (the map's 5 keys) after a perfect 15-row insert.
+      if (typeof v.count === "number" && "op" in v && ("fired" in v || "staged" in v)) return v.count;
+      return Object.keys(v).length;
+    }
     throw new LispError(`count: expected a list, string, or map, got ${printForm(v)}`);
   });
   def("first", (a) => (arity(a, "first", 1), coll(a[0], "first")[0] ?? null));

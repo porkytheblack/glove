@@ -345,11 +345,23 @@ export async function evalForm(form: Form, env: Env, ctx: EvalCtx): Promise<unkn
   return apply(fnVal, args, ctx);
 }
 
-/** What `def` echoes back: a summary, never the (possibly huge) value itself. */
+/** What `def` echoes back: a summary, never the (possibly huge) value itself.
+ *  Lists carry a small PEEK of real values — a model that must report ids reads
+ *  them from the peek (or asks for more) instead of fabricating plausible ones. */
 function defSummary(name: string, value: unknown): Record<string, unknown> {
   const out: Record<string, unknown> = { defined: name };
-  if (Array.isArray(value)) out.count = value.length;
-  else if (value instanceof Lambda || value instanceof NativeFn) out.kind = "function";
+  if (Array.isArray(value)) {
+    out.count = value.length;
+    if (value.length > 0) {
+      const el = value[0];
+      if (el !== null && typeof el === "object" && !Array.isArray(el)) {
+        const entries = Object.entries(el as Record<string, unknown>).slice(0, 4);
+        out.peek = Object.fromEntries(entries.map(([k, v]) => [k, typeof v === "string" && v.length > 40 ? v.slice(0, 40) + "…" : v]));
+      } else if (typeof el === "string" || typeof el === "number" || typeof el === "boolean") {
+        out.peek = value.slice(0, 3);
+      }
+    }
+  } else if (value instanceof Lambda || value instanceof NativeFn) out.kind = "function";
   else if (value !== null && typeof value === "object") out.kind = "map";
   else out.value = value;
   return out;

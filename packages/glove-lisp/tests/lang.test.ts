@@ -122,7 +122,7 @@ test("string library incl. str/ and clojure.string/ aliases", async () => {
 test("def persists across execute calls; def echoes a summary, not the value", async () => {
   const s = session();
   const r1 = await s.execute("(def xs [1 2 3 4 5])");
-  assert.deepEqual(r1.value, { defined: "xs", count: 5 });
+  assert.deepEqual(r1.value, { defined: "xs", count: 5, peek: [1, 2, 3] });
   assert.deepEqual(r1.defined, ["xs"]);
   const r2 = await s.execute("(sum xs)");
   assert.equal(r2.value, 15);

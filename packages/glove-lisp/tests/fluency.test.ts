@@ -191,3 +191,29 @@ test("a re-read after a fired write does not double-count (overlay dedup)", asyn
   const n = await s.execute(`(count (filter #(starts-with? (:title %) "Verify:") (issues2)))`);
   assert.equal(n.value, 2); // was 4: live + overlay copies
 });
+
+test("(count write-result) is the ROW count, not the map's key count", async () => {
+  const s = LispSession.create({ policy: { writes: true } });
+  const sent: unknown[] = [];
+  s.register(
+    defineResource({
+      name: "gh",
+      volatility: "volatile",
+      columns: [{ name: "title", type: "text" }],
+      select: async () => [],
+      insert: async (rows: Record<string, unknown>[]) => void sent.push(...rows),
+    }),
+  );
+  const r = await s.execute(`(count (insert! :gh (map (fn [t] {:title t}) ["a" "b" "c" "d"])))`, { allowWrites: true });
+  assert.equal(r.value, 4); // was 5 — the result map's key count
+  const plain = await s.execute(`(count {:a 1 :b 2})`);
+  assert.equal(plain.value, 2); // ordinary maps still count entries
+});
+
+test("def echoes a peek of real values (anti-fabrication)", async () => {
+  const s = await session();
+  const r = await s.execute(`(def xs (issues))`);
+  const v = r.value as Record<string, unknown>;
+  assert.equal(v.count, 3);
+  assert.equal((v.peek as Record<string, unknown>).id, "A"); // real data to quote
+});
