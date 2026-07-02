@@ -52,6 +52,8 @@ export interface RunOptions extends ArmConfig {
   timeoutMs: number;
   scale?: number;
   seed?: number;
+  /** Distractor MCP servers to mount alongside the core ten (production noise). */
+  distractors?: number;
 }
 
 export async function runOne(
@@ -60,7 +62,7 @@ export async function runOne(
   arm: ArmName,
   opts: RunOptions,
 ): Promise<{ result: RunResult; transcript: TranscriptEntry[] }> {
-  const org = await buildMockOrg({ seed: opts.seed ?? 1337, scale: opts.scale });
+  const org = await buildMockOrg({ seed: opts.seed ?? 1337, scale: opts.scale, distractors: opts.distractors });
   const model = createAdapter({
     provider: "openrouter",
     model: bm.model,

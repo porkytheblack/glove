@@ -48,9 +48,15 @@ export interface MockOrg {
   close(): Promise<void>;
 }
 
-export async function buildMockOrg(opts: { seed?: number; scale?: number; meter?: CallMeter } = {}): Promise<MockOrg> {
+export async function buildMockOrg(
+  opts: { seed?: number; scale?: number; meter?: CallMeter; distractors?: number } = {},
+): Promise<MockOrg> {
   const world = buildWorld(opts.seed ?? 1337, opts.scale);
   const specs = SERVER_FACTORIES.map((f) => f(world));
+  if (opts.distractors && opts.distractors > 0) {
+    const { distractorServers } = await import("./distractors");
+    specs.push(...distractorServers(world, (opts.seed ?? 1337) + 1, opts.distractors));
+  }
   const meter: CallMeter = opts.meter ?? new Map();
   const connections = await Promise.all(specs.map((s) => buildConnection(s, meter)));
 

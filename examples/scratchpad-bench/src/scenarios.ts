@@ -269,6 +269,87 @@ export const SCENARIOS: Scenario[] = [
       };
     },
   },
+  // ── the production suite: run with --distractors=30 (40 servers / ~370 tools) ──
+  {
+    id: "incident-commander",
+    title: "Incident commander: argmax → ack → issue → slack → email (4-service write chain)",
+    requiresWrites: true,
+    prompt:
+      "Incident commander sweep: (1) find the UNRESOLVED Sentry issue with the highest users_affected — its " +
+      "'project' field names the affected service. (2) Acknowledge every PagerDuty incident currently in " +
+      "'triggered' status for that service. (3) Create a Linear issue titled exactly 'Postmortem: ' followed by " +
+      "that Sentry issue's title. (4) Post a message to the 'incidents' Slack channel that names the affected " +
+      "service. (5) Send ONE email to 'oncall@acme.io' with subject 'Incident' whose body contains the Sentry " +
+      "issue id and every acknowledged incident id. Finally report the service, the Sentry issue id, and how many " +
+      "incidents you acknowledged.",
+    verify: (text, w) => {
+      const worst = [...w.sentryIssues.filter((i) => i.status === "unresolved")].sort((a, b) => b.users_affected - a.users_affected)[0];
+      const svc = worst.project;
+      const expectAck = w.pagerIncidents.filter((i) => i.status === "triggered" && i.service === svc).map((i) => i.id);
+      const acked = w.outbox.filter((o) => o.kind === "pagerduty.ack").map((o) => String((o.payload as { id?: string }).id));
+      const issues = w.outbox.filter(
+        (o) => o.kind === "linear.create_issue" && String((o.payload as { title?: string }).title ?? "") === `Postmortem: ${worst.title}`,
+      );
+      const slacks = w.outbox.filter(
+        (o) => o.kind === "slack.post_message" && norm(String((o.payload as { text?: string }).text ?? "")).includes(norm(svc)),
+      );
+      const mails = w.outbox.filter(
+        (o) => o.kind === "email.send" && norm(String((o.payload as { subject?: string }).subject ?? "")).includes("incident"),
+      );
+      const body = mails.length >= 1 ? norm(String((mails[0].payload as { body?: string }).body ?? "")) : "";
+      const ackSet = new Set(acked);
+      const pass =
+        expectAck.every((id) => ackSet.has(id)) && acked.length === expectAck.length &&
+        issues.length === 1 && slacks.length >= 1 && mails.length === 1 &&
+        body.includes(norm(worst.id)) && expectAck.every((id) => body.includes(norm(id))) &&
+        norm(text).includes(norm(svc)) && hasNumber(text, expectAck.length);
+      return {
+        pass,
+        expected: { service: svc, sentry: worst.id, acks: expectAck, postmortem: `Postmortem: ${worst.title}` },
+        note: `acks ${acked.length}/${expectAck.length}, issues ${issues.length}, slacks ${slacks.length}, mails ${mails.length}`,
+      };
+    },
+  },
+  {
+    id: "heavy-pr-audit",
+    title: "Per-repo audit: big unlinked open PRs (grouped negation)",
+    prompt:
+      "Across ALL repositories, find OPEN pull requests with MORE THAN 400 additions that do NOT close any Linear " +
+      "issue. Report: the count for each repository that has any, the total count, and the PR number of the single " +
+      "such pull request with the most additions.",
+    verify: (text, w) => {
+      const hits = w.githubPrs.filter((p) => p.state === "open" && p.additions > 400 && !p.closes_linear);
+      const per = new Map<string, number>();
+      let largest = hits[0];
+      for (const p of hits) {
+        per.set(p.repo, (per.get(p.repo) ?? 0) + 1);
+        if (p.additions > largest.additions) largest = p;
+      }
+      const t = norm(text);
+      const reposNamed = [...per.keys()].filter((r) => t.includes(norm(r))).length;
+      const countsPresent = [...per.values()].filter((n) => hasNumber(text, n)).length;
+      const pass =
+        hasNumber(text, hits.length) && hasNumber(text, largest.number) &&
+        reposNamed === per.size && countsPresent >= per.size - 1;
+      return { pass, expected: { total: hits.length, perRepo: Object.fromEntries(per), largest: largest.number } };
+    },
+  },
+  {
+    id: "needle-sweep",
+    title: "Cross-system needle: count every live artifact mentioning a phrase",
+    prompt:
+      "Reports keep mentioning 'SSO SCIM provisioning' problems. Across all of our systems, count exactly: " +
+      "(a) UNRESOLVED Sentry issues, (b) Linear issues NOT in 'done' and NOT in 'canceled' state, and (c) OPEN " +
+      "GitHub pull requests — whose titles mention that phrase. Give the three counts and the grand total.",
+    verify: (text, w) => {
+      const needle = "SSO SCIM provisioning";
+      const a = w.sentryIssues.filter((i) => i.status === "unresolved" && i.title.includes(needle)).length;
+      const b = w.linearIssues.filter((i) => i.state !== "done" && i.state !== "canceled" && i.title.includes(needle)).length;
+      const c = w.githubPrs.filter((p) => p.state === "open" && p.title.includes(needle)).length;
+      const pass = hasNumber(text, a) && hasNumber(text, b) && hasNumber(text, c) && hasNumber(text, a + b + c);
+      return { pass, expected: { sentry: a, linear: b, prs: c, total: a + b + c } };
+    },
+  },
 ];
 
 export function scenarioById(id: string): Scenario | undefined {
