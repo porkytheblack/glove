@@ -172,22 +172,6 @@ section { padding: 6rem clamp(1.25rem, 4vw, 2rem); max-width: var(--maxw); margi
 }
 .btn-secondary:hover { border-color: var(--border-strong); color: var(--text-primary); background: var(--bg-elevated); }
 
-/* ─── Key Terms ─── */
-.key-terms { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 2.25rem; max-width: 600px; }
-.key-term { display: grid; grid-template-columns: 108px 1fr; gap: 1rem; align-items: baseline; padding: 0.85rem 0; border-bottom: 1px solid var(--border-subtle); }
-.key-term:last-child { border-bottom: none; }
-.key-term-label { font-family: var(--mono); font-size: 0.8rem; font-weight: 500; color: var(--accent); }
-.key-term-def { font-size: 0.95rem; color: var(--text-secondary); line-height: 1.65; font-weight: 300; }
-
-/* ─── Idea Grid ─── */
-#idea { border-top: 1px solid var(--border-subtle); }
-.idea-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 3.5rem; }
-.idea-block { padding: 2rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--bg-elevated); transition: border-color 0.3s, background 0.3s, transform 0.3s; }
-.idea-block:hover { border-color: var(--border); background: var(--bg-surface); transform: translateY(-2px); }
-.idea-block h3 { font-size: 1.02rem; font-weight: 500; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.65rem; }
-.idea-block h3 .num { font-family: var(--mono); font-size: 0.7rem; color: var(--accent-soft); width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 7px; flex-shrink: 0; background: var(--accent-dim); }
-.idea-block p { font-size: 0.925rem; color: var(--text-secondary); line-height: 1.7; font-weight: 300; }
-
 /* ─── Platform / Capabilities ─── */
 #platform { border-top: 1px solid var(--border-subtle); overflow: hidden; }
 .platform-deco { position: absolute; top: 3rem; right: -4rem; width: 340px; height: 340px; opacity: 0.5; pointer-events: none; color: var(--accent); z-index: 0; -webkit-mask-image: radial-gradient(circle at 60% 40%, #000, transparent 70%); mask-image: radial-gradient(circle at 60% 40%, #000, transparent 70%); }
@@ -249,38 +233,11 @@ section { padding: 6rem clamp(1.25rem, 4vw, 2rem); max-width: var(--maxw); margi
 .arch-layer-desc { font-size: 0.925rem; color: var(--text-secondary); line-height: 1.7; font-weight: 300; }
 .arch-layer-desc strong { color: var(--text-primary); font-weight: 500; }
 
-/* ─── Display Stack Flow ─── */
-#display-stack { border-top: 1px solid var(--border-subtle); }
-.stack-flow { margin-top: 3.5rem; display: flex; flex-direction: column; }
-.stack-step { display: grid; grid-template-columns: 56px 1fr 280px; gap: 2rem; padding: 2rem 0; border-bottom: 1px solid var(--border-subtle); align-items: start; }
-.stack-step:last-child { border-bottom: none; }
-.step-num { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 0.72rem; color: var(--text-tertiary); flex-shrink: 0; }
-.step-num.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); box-shadow: 0 0 0 4px var(--accent-glow); }
-.step-content h4 { font-size: 0.98rem; font-weight: 500; margin-bottom: 0.4rem; }
-.step-content p { font-size: 0.875rem; color: var(--text-secondary); line-height: 1.6; font-weight: 300; }
-.step-code { font-family: var(--mono); font-size: 0.75rem; color: var(--accent); background: var(--accent-dim); border: 1px solid var(--accent-line); border-radius: 6px; padding: 0.4rem 0.75rem; margin-top: 0.75rem; display: inline-block; max-width: 100%; overflow-x: auto; word-break: break-all; }
-.step-stack { background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden; flex-shrink: 0; }
-.step-stack-header { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border-subtle); font-family: var(--mono); font-size: 0.65rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; }
-.step-stack-body { padding: 0.75rem; min-height: 60px; display: flex; flex-direction: column; gap: 0.4rem; }
-.step-stack-empty { font-size: 0.75rem; color: var(--text-tertiary); font-style: italic; padding: 0.5rem 0; }
-.step-slot { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.65rem; border-radius: 6px; font-size: 0.75rem; font-family: var(--mono); }
-.step-slot.forget { background: var(--accent-dim); border: 1px solid rgba(158,212,184,0.1); color: var(--text-secondary); }
-.step-slot.waiting { background: rgba(158,212,184,0.12); border: 1px solid rgba(158,212,184,0.22); color: var(--accent); animation: pulse 2s ease-in-out infinite; }
-.step-slot.resolved { background: rgba(140,196,148,0.08); border: 1px solid rgba(140,196,148,0.15); color: var(--success); }
-.slot-status { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; }
-
-/* ─── Code Block ─── */
-#code { border-top: 1px solid var(--border-subtle); }
-.code-example-label { font-family: var(--mono); font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 3rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
-.code-example-label::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--accent-soft); }
+/* ─── Code Block (docs code fences) ─── */
 .code-block { background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius); overflow: hidden; max-width: 100%; }
 .code-block-header { padding: 0.7rem 1.1rem; border-bottom: 1px solid var(--border-subtle); font-family: var(--mono); font-size: 0.7rem; color: var(--text-tertiary); display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-width: 0; background: rgba(20, 29, 24, 0.4); }
 .code-block-header span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .code-block pre { padding: 1rem 1.25rem; overflow-x: auto; font-family: var(--mono); font-size: 0.8rem; line-height: 1.6; color: var(--text-secondary); }
-.code-block pre .kw { color: #c4a7e7; }
-.code-block pre .fn { color: var(--accent); }
-.code-block pre .str { color: #a8cd8f; }
-.code-block pre .cm { color: var(--text-tertiary); font-style: italic; }
 
 /* ─── Shiki syntax highlighting ─── */
 .code-block-content { overflow: hidden; }
@@ -295,14 +252,6 @@ section { padding: 6rem clamp(1.25rem, 4vw, 2rem); max-width: var(--maxw); margi
 .adapter-card:hover { background: var(--bg-surface); }
 .adapter-card h3 { font-family: var(--mono); font-size: 0.82rem; font-weight: 500; color: var(--accent); margin-bottom: 0.75rem; }
 .adapter-card p { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.7; font-weight: 300; }
-
-/* ─── Tradeoffs ─── */
-#tradeoffs { border-top: 1px solid var(--border-subtle); }
-.tradeoff-list { margin-top: 3rem; display: flex; flex-direction: column; gap: 0; }
-.tradeoff { display: grid; grid-template-columns: 150px 1fr; gap: 2rem; padding: 1.75rem 0; border-bottom: 1px solid var(--border-subtle); }
-.tradeoff:last-child { border-bottom: none; }
-.tradeoff-label { font-family: var(--mono); font-size: 0.82rem; color: var(--warn); padding-top: 0.15rem; }
-.tradeoff-text { font-size: 0.925rem; color: var(--text-secondary); line-height: 1.7; font-weight: 300; }
 
 /* ─── CTA Section ─── */
 .cta-section { text-align: center; padding: 8rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--border-subtle); max-width: var(--maxw); margin: 0 auto; position: relative; }
@@ -410,14 +359,11 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
 
 /* ─── Tablet (<=1024px) ─── */
 @media (max-width: 1024px) {
-  .idea-grid { gap: 0.85rem; }
   .cap-grid { grid-template-columns: repeat(2, 1fr); }
   .arch-layer { grid-template-columns: 150px 1fr; padding: 1.5rem; gap: 1.5rem; }
-  .stack-step { grid-template-columns: 48px 1fr 220px; gap: 1.5rem; }
   .docs-layout { grid-template-columns: 210px 1fr; }
   .docs-sidebar { padding: 2rem 1rem 2rem 1.5rem; }
   .docs-main { padding: 2rem 1.5rem 6rem 2rem; }
-  .tradeoff { grid-template-columns: 130px 1fr; gap: 1.5rem; }
   .platform-deco { display: none; }
 }
 
@@ -439,11 +385,6 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
   section { padding: 4.5rem 1.5rem; }
   .section-desc { font-size: 1rem; }
 
-  .idea-grid { grid-template-columns: 1fr; gap: 0.85rem; margin-top: 2.5rem; }
-  .idea-block { padding: 1.5rem; }
-  .key-terms { max-width: 100%; }
-  .key-term { grid-template-columns: 92px 1fr; gap: 0.75rem; }
-
   .cap-group { margin-top: 2.75rem; }
   .cap-grid { grid-template-columns: 1fr; gap: 0.75rem; }
   .cap-group-head { gap: 0.5rem 0.6rem; }
@@ -452,12 +393,6 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
   .arch-layer { grid-template-columns: 1fr; gap: 0.5rem; padding: 1.25rem; }
   .arch-layer-name { padding-top: 0; }
 
-  .stack-flow { margin-top: 2.5rem; }
-  .stack-step { grid-template-columns: 1fr; gap: 1rem; padding: 1.5rem 0; }
-  .step-num { display: none; }
-  .step-stack { max-width: 100%; }
-  .step-code { word-break: break-all; overflow-wrap: break-word; }
-
   .code-block { border-radius: 8px; }
   .code-block pre { font-size: 0.75rem; padding: 0.75rem 1rem; }
   .code-block-content pre.shiki { font-size: 0.75rem; padding: 0.75rem 1rem; }
@@ -465,9 +400,6 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
 
   .adapter-grid { grid-template-columns: 1fr; margin-top: 2.5rem; }
   .adapter-card { padding: 1.5rem; }
-
-  .tradeoff { grid-template-columns: 1fr; gap: 0.5rem; padding: 1.25rem 0; }
-  .tradeoff-label { font-size: 0.78rem; }
 
   .cta-section { padding: 5rem 1.5rem; }
   .cta-actions { flex-direction: column; align-items: center; gap: 0.75rem; }
@@ -529,13 +461,7 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
   .code-block pre { font-size: 0.7rem; padding: 0.65rem 0.85rem; }
   .code-block-content pre.shiki { font-size: 0.7rem; padding: 0.65rem 0.85rem; }
   .code-block-header { padding: 0.5rem 0.85rem; }
-  .step-code { font-size: 0.65rem; padding: 0.3rem 0.6rem; }
 
-  .key-term { grid-template-columns: 80px 1fr; gap: 0.5rem; }
-  .key-term-label { font-size: 0.75rem; }
-  .key-term-def { font-size: 0.9rem; }
-
-  .idea-block { padding: 1.25rem; }
   .cap-card { padding: 1.25rem; }
   .arch-layer { padding: 1rem; }
   .adapter-card { padding: 1.25rem; }

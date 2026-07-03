@@ -73,12 +73,6 @@ const icons: Record<string, ReactNode> = {
       <path d="M12 12.5v4a3 3 0 0 1-3 3H7.5" />
     </svg>
   ),
-  glovebox: (
-    <svg {...iconProps}>
-      <path d="M12 2.8 20.4 7v10L12 21.2 3.6 17V7z" />
-      <path d="M3.8 7 12 11.5 20.2 7M12 11.5v9.4" opacity=".55" />
-    </svg>
-  ),
 };
 
 type Cap = {
@@ -183,7 +177,7 @@ const capabilityGroups: CapGroup[] = [
   {
     cat: "var(--c-network)",
     name: "Coordination",
-    line: "How agents work together and extend",
+    line: "How agents work together",
     caps: [
       {
         icon: "mesh",
@@ -212,6 +206,13 @@ const capabilityGroups: CapGroup[] = [
           </>
         ),
       },
+    ],
+  },
+  {
+    cat: "var(--c-deploy)",
+    name: "Extend & Integrate",
+    line: "Shape the agent, reach the world",
+    caps: [
       {
         icon: "extensions",
         kicker: "Hooks · Skills · Subagents",
@@ -225,13 +226,6 @@ const capabilityGroups: CapGroup[] = [
           </>
         ),
       },
-    ],
-  },
-  {
-    cat: "var(--c-deploy)",
-    name: "Connect & Deploy",
-    line: "Reaching the outside world, and shipping",
-    caps: [
       {
         icon: "mcp",
         kicker: "Integrations",
@@ -242,20 +236,6 @@ const capabilityGroups: CapGroup[] = [
             Bridge Model Context Protocol servers — Notion, Gmail, Linear — in as
             first-class tools. A discovery subagent finds and activates them
             mid-conversation.
-          </>
-        ),
-      },
-      {
-        icon: "glovebox",
-        kicker: "Sandboxed service",
-        name: "Glovebox",
-        href: "/docs/glovebox",
-        badge: "beta",
-        desc: (
-          <>
-            Package an agent as a network-addressable service in an isolated
-            container — with system tools like ffmpeg, pandoc, and Chromium
-            baked in — behind one authenticated endpoint.
           </>
         ),
       },
@@ -271,7 +251,7 @@ export default function LandingPage() {
         <a className="hero-badge" href="/docs/v3">
           <span className="dot" />
           <span>
-            <strong>v3.0</strong> — memory, mesh & sandboxed deploys
+            <strong>v3.0</strong> — memory, mesh & the scratchpad
           </span>
         </a>
         <GloveLogo className="hero-icon" />
@@ -280,20 +260,20 @@ export default function LandingPage() {
         </h1>
         <p className="hero-sub">
           Glove is your open-source TypeScript toolkit for{" "}
-          <strong>multi-agent orchestration systems</strong> — agents with tools
-          and UI, memory, a shared mailbox, a mesh to talk over, and a way to
+          <strong>multi-agent orchestration systems</strong> — agents with
+          tools, memory, a shared mailbox, a mesh to talk over, and a way to
           ship.
         </p>
         <div className="hero-pills">
           {[
-            "Display Stack",
             "Memory",
             "Inbox",
             "Mesh",
             "Scratchpad",
+            "Continuum",
             "Voice",
             "MCP",
-            "Sandbox",
+            "Subagents",
           ].map((p) => (
             <span key={p} className="hero-pill">
               {p}
@@ -338,83 +318,6 @@ export default function LandingPage() {
         </a>
       </section>
 
-      {/* ── The Idea ────────────────────────────────────────────── */}
-      <section id="idea">
-        <p className="section-label">The idea</p>
-        <h2 className="section-title">
-          What if every app was a single chat interface?
-        </h2>
-        <p className="section-desc">
-          Traditional apps encode user flows in UI — pages, routes, navigation
-          hierarchies. Glove replaces that wiring with an agent. The developer
-          defines capabilities. The agent does the orchestration.
-        </p>
-        <div className="key-terms">
-          <div className="key-term">
-            <span className="key-term-label">Agent</span>
-            <span className="key-term-def">An AI that reads what users ask for and decides which of your app&apos;s capabilities to use.</span>
-          </div>
-          <div className="key-term">
-            <span className="key-term-label">Tool</span>
-            <span className="key-term-def">A capability — a function the agent can call. Search a database, call an API, compute a result.</span>
-          </div>
-          <div className="key-term">
-            <span className="key-term-label">Renderer</span>
-            <span className="key-term-def">A React component that shows the result. Product grids, forms, confirmation dialogs.</span>
-          </div>
-        </div>
-        <div className="idea-grid">
-          <RevealOnScroll>
-            <div className="idea-block">
-              <h3>
-                <span className="num">01</span> Tools are the backend
-              </h3>
-              <p>
-                Every action your app can take — search, checkout, track an
-                order — is a tool. The agent decides when to call them based on
-                what the user asks for.
-              </p>
-            </div>
-          </RevealOnScroll>
-          <RevealOnScroll>
-            <div className="idea-block">
-              <h3>
-                <span className="num">02</span> Renderers are the UI
-              </h3>
-              <p>
-                Product grids, forms, confirmation dialogs — they&#39;re all
-                renderers on a display stack. Tools push them. The agent
-                orchestrates which ones appear and when.
-              </p>
-            </div>
-          </RevealOnScroll>
-          <RevealOnScroll>
-            <div className="idea-block">
-              <h3>
-                <span className="num">03</span> The conversation is navigation
-              </h3>
-              <p>
-                No routes, no page transitions, no navigation state machines.
-                The user says what they want. The agent figures out the path to
-                get there.
-              </p>
-            </div>
-          </RevealOnScroll>
-          <RevealOnScroll>
-            <div className="idea-block">
-              <h3>
-                <span className="num">04</span> Human-in-the-loop is native
-              </h3>
-              <p>
-                Tools can pause and wait for user input. Permission requests,
-                form submissions, confirmations — all first-class primitives,
-                not afterthoughts.
-              </p>
-            </div>
-          </RevealOnScroll>
-        </div>
-      </section>
-
       {/* ── Platform / Capabilities ─────────────────────────────── */}
       <section id="platform" className="platform">
         <svg
@@ -433,16 +336,14 @@ export default function LandingPage() {
           <circle cx="70" cy="175" r="2.5" fill="currentColor" stroke="none" />
           <path d="M40 40 100 90M150 30 100 90M100 90 30 140M100 90 160 150M30 140 70 175M160 150 70 175M40 40 150 30" opacity=".45" />
         </svg>
-        <p className="section-label">The platform</p>
         <h2 className="section-title">
-          It stopped being just a chat box. It&apos;s a{" "}
-          <strong>runtime.</strong>
+          Agents outgrew the chatbox, and <strong>need more.</strong>
         </h2>
         <p className="section-desc">
-          Rendering UI is one thing Glove does. The agent also remembers, keeps
-          a mailbox, talks to peers, runs on a schedule, reaches external
-          services, and ships as a sandboxed box — each an independent piece you
-          can adopt on its own.
+          An agent that only calls tools and prints text hits a wall fast. Glove
+          gives it the rest — memory, a mailbox, peers to coordinate with, a
+          schedule to run on, and external services to reach — each an
+          independent piece you can adopt on its own.
         </p>
 
         {capabilityGroups.map((group) => (
@@ -498,7 +399,6 @@ export default function LandingPage() {
 
       {/* ── Architecture ────────────────────────────────────────── */}
       <section id="architecture">
-        <p className="section-label">Architecture</p>
         <h2 className="section-title">Five components. One runtime.</h2>
         <p className="section-desc">
           Built on adapters — interfaces that decouple the runtime from specific
@@ -551,361 +451,8 @@ export default function LandingPage() {
         </RevealOnScroll>
       </section>
 
-      {/* ── Display Stack ───────────────────────────────────────── */}
-      <section id="display-stack">
-        <p className="section-label">The display stack</p>
-        <h2 className="section-title">See it in action.</h2>
-        <p className="section-desc">
-          A user asks to buy running shoes. Here&#39;s what happens inside the
-          runtime — step by step.
-        </p>
-        <RevealOnScroll>
-          <div className="stack-flow">
-            {/* Step 1 */}
-            <div className="stack-step">
-              <div className="step-num">1</div>
-              <div className="step-content">
-                <h4>User sends a message</h4>
-                <p>
-                  &ldquo;Find me running shoes under 100 bucks&rdquo;
-                </p>
-                <p style={{ marginTop: "0.5rem" }}>
-                  The agent interprets the intent and calls the{" "}
-                  <code
-                    style={{
-                      fontFamily: "var(--mono)",
-                      fontSize: "0.8em",
-                      color: "var(--accent)",
-                    }}
-                  >
-                    search_products
-                  </code>{" "}
-                  tool.
-                </p>
-              </div>
-              <div className="step-stack">
-                <div className="step-stack-header">Display stack</div>
-                <div className="step-stack-body">
-                  <span className="step-stack-empty">empty</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Step 2 */}
-            <div className="stack-step">
-              <div className="step-num active">2</div>
-              <div className="step-content">
-                <h4>Tool pushes a renderer</h4>
-                <p>
-                  The search tool finds results and pushes a product grid to the
-                  display stack. The tool doesn&#39;t wait — it returns
-                  immediately.
-                </p>
-                <span className="step-code">
-                  {`pushAndForget({ renderer: "product_grid" })`}
-                </span>
-              </div>
-              <div className="step-stack">
-                <div className="step-stack-header">Display stack</div>
-                <div className="step-stack-body">
-                  <div className="step-slot forget">
-                    <span>product_grid</span>
-                    <span className="slot-status">rendered</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Step 3 */}
-            <div className="stack-step">
-              <div className="step-num">3</div>
-              <div className="step-content">
-                <h4>User continues the conversation</h4>
-                <p>
-                  &ldquo;Add the Nike ones to my cart and check out&rdquo;
-                </p>
-                <p style={{ marginTop: "0.5rem" }}>
-                  The agent calls{" "}
-                  <code
-                    style={{
-                      fontFamily: "var(--mono)",
-                      fontSize: "0.8em",
-                      color: "var(--accent)",
-                    }}
-                  >
-                    add_to_cart
-                  </code>
-                  , then{" "}
-                  <code
-                    style={{
-                      fontFamily: "var(--mono)",
-                      fontSize: "0.8em",
-                      color: "var(--accent)",
-                    }}
-                  >
-                    checkout
-                  </code>
-                  .
-                </p>
-              </div>
-              <div className="step-stack">
-                <div className="step-stack-header">Display stack</div>
-                <div className="step-stack-body">
-                  <div className="step-slot forget">
-                    <span>product_grid</span>
-                    <span className="slot-status">rendered</span>
-                  </div>
-                  <div className="step-slot forget">
-                    <span>cart_summary</span>
-                    <span className="slot-status">rendered</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Step 4 */}
-            <div className="stack-step">
-              <div className="step-num active">4</div>
-              <div className="step-content">
-                <h4>Tool pauses for input</h4>
-                <p>
-                  The checkout tool needs payment details. It pushes a payment
-                  form and <strong>waits</strong>. The tool&#39;s execution is
-                  suspended until the user submits.
-                </p>
-                <span className="step-code">
-                  {`pushAndWait({ renderer: "payment_form" })`}
-                </span>
-              </div>
-              <div className="step-stack">
-                <div className="step-stack-header">Display stack</div>
-                <div className="step-stack-body">
-                  <div className="step-slot forget">
-                    <span>product_grid</span>
-                    <span className="slot-status">rendered</span>
-                  </div>
-                  <div className="step-slot forget">
-                    <span>cart_summary</span>
-                    <span className="slot-status">rendered</span>
-                  </div>
-                  <div className="step-slot waiting">
-                    <span>payment_form</span>
-                    <span className="slot-status">waiting</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Step 5 */}
-            <div className="stack-step">
-              <div className="step-num">5</div>
-              <div className="step-content">
-                <h4>User submits, tool resumes</h4>
-                <p>
-                  The form resolves with payment data. The checkout tool picks
-                  up where it left off, creates the order, and pushes a
-                  confirmation.
-                </p>
-                <span className="step-code">
-                  resolve(slot_id, paymentData)
-                </span>
-              </div>
-              <div className="step-stack">
-                <div className="step-stack-header">Display stack</div>
-                <div className="step-stack-body">
-                  <div className="step-slot resolved">
-                    <span>order_confirmation</span>
-                    <span className="slot-status">done</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </RevealOnScroll>
-      </section>
-
-      {/* ── Code ────────────────────────────────────────────────── */}
-      <section id="code">
-        <p className="section-label">Developer experience</p>
-        <h2 className="section-title">
-          Define capabilities. Ship applications.
-        </h2>
-        <p className="section-desc">
-          A tool is a function with a name and a schema. Register tools with{" "}
-          <code
-            style={{
-              fontFamily: "var(--mono)",
-              fontSize: "0.9em",
-              color: "var(--accent)",
-            }}
-          >
-            .fold()
-          </code>
-          . The agent figures out when to call them.
-        </p>
-
-        {/* ── Simple example ── */}
-        <RevealOnScroll>
-          <p className="code-example-label">Simple — a weather tool</p>
-          <div className="code-block">
-            <div className="code-block-header">
-              <span>lib/glove.ts</span>
-              <span>TypeScript</span>
-            </div>
-            <pre>
-              <span className="kw">const</span> client ={" "}
-              <span className="kw">new</span>{" "}
-              <span className="fn">GloveClient</span>
-              {"({\n"}
-              {"  endpoint: "}
-              <span className="str">&quot;/api/chat&quot;</span>
-              {",\n"}
-              {"  systemPrompt: "}
-              <span className="str">&quot;You are a helpful weather assistant.&quot;</span>
-              {",\n"}
-              {"  tools: [{\n"}
-              {"    name: "}
-              <span className="str">&quot;get_weather&quot;</span>
-              {",\n"}
-              {"    description: "}
-              <span className="str">&quot;Get current weather for a city&quot;</span>
-              {",\n"}
-              {"    inputSchema: z."}
-              <span className="fn">object</span>
-              {"({ city: z."}
-              <span className="fn">string</span>
-              {"() }),\n"}
-              {"    "}
-              <span className="kw">async</span>{" "}
-              <span className="fn">do</span>
-              {"(input) {\n"}
-              {"      "}
-              <span className="kw">return await</span>{" "}
-              <span className="fn">fetchWeather</span>
-              {"(input.city);\n"}
-              {"    },\n"}
-              {"  }],\n"}
-              {"});\n\n"}
-              <span className="cm">{"// That's a working AI app."}</span>
-              {"\n"}
-              <span className="cm">{"// User says \"weather in Tokyo\" → agent calls get_weather → shows result."}</span>
-            </pre>
-          </div>
-        </RevealOnScroll>
-
-        {/* ── Advanced example ── */}
-        <RevealOnScroll>
-          <p className="code-example-label">Advanced — tools with interactive UI</p>
-          <div className="code-block">
-            <div className="code-block-header">
-              <span>app.ts</span>
-              <span>TypeScript</span>
-            </div>
-            <pre>
-              <span className="kw">const</span> app ={" "}
-              <span className="kw">new</span>{" "}
-              <span className="fn">Glove</span>
-              {"({\n"}
-              {"  store, model, displayManager,\n"}
-              {"  systemPrompt: "}
-              <span className="str">
-                &quot;You are a shopping assistant...&quot;
-              </span>
-              {",\n"}
-              {"})\n"}
-              {"  ."}
-              <span className="fn">fold</span>
-              {"({\n"}
-              {"    name: "}
-              <span className="str">&quot;search_products&quot;</span>
-              {",\n"}
-              {"    description: "}
-              <span className="str">
-                &quot;Search the product catalog&quot;
-              </span>
-              {",\n"}
-              {"    inputSchema: z."}
-              <span className="fn">object</span>
-              {"({ query: z."}
-              <span className="fn">string</span>
-              {"() }),\n"}
-              {"    "}
-              <span className="kw">async</span>{" "}
-              <span className="fn">do</span>
-              {"(input, display) {\n"}
-              {"      "}
-              <span className="kw">const</span> results ={" "}
-              <span className="kw">await</span> catalog.
-              <span className="fn">search</span>
-              {"(input.query);\n"}
-              {"      "}
-              <span className="cm">{"// Show a product grid — tool keeps running"}</span>
-              {"\n"}
-              {"      "}
-              <span className="kw">await</span> display.
-              <span className="fn">pushAndForget</span>
-              {"({ renderer: "}
-              <span className="str">&quot;product_grid&quot;</span>
-              {", input: results });\n"}
-              {"      "}
-              <span className="kw">return</span>
-              {" results;\n"}
-              {"    },\n"}
-              {"  })\n"}
-              {"  ."}
-              <span className="fn">fold</span>
-              {"({\n"}
-              {"    name: "}
-              <span className="str">&quot;checkout&quot;</span>
-              {",\n"}
-              {"    description: "}
-              <span className="str">
-                &quot;Start the checkout process&quot;
-              </span>
-              {",\n"}
-              {"    inputSchema: z."}
-              <span className="fn">object</span>
-              {"({ cartId: z."}
-              <span className="fn">string</span>
-              {"() }),\n"}
-              {"    "}
-              <span className="kw">async</span>{" "}
-              <span className="fn">do</span>
-              {"(input, display) {\n"}
-              {"      "}
-              <span className="kw">const</span> cart ={" "}
-              <span className="kw">await</span> carts.
-              <span className="fn">get</span>
-              {"(input.cartId);\n"}
-              {"      "}
-              <span className="cm">
-                {"// Show a payment form — tool PAUSES until user submits"}
-              </span>
-              {"\n"}
-              {"      "}
-              <span className="kw">const</span> payment ={" "}
-              <span className="kw">await</span> display.
-              <span className="fn">pushAndWait</span>
-              {"({ renderer: "}
-              <span className="str">&quot;payment_form&quot;</span>
-              {", input: cart });\n"}
-              {"      "}
-              <span className="kw">return await</span> orders.
-              <span className="fn">create</span>
-              {"(cart, payment);\n"}
-              {"    },\n"}
-              {"  })\n"}
-              {"  ."}
-              <span className="fn">build</span>
-              {"();"}
-            </pre>
-          </div>
-        </RevealOnScroll>
-      </section>
-
       {/* ── Adapters ────────────────────────────────────────────── */}
       <section id="adapters">
-        <p className="section-label">Adapters</p>
         <h2 className="section-title">Swap anything. Change nothing.</h2>
         <p className="section-desc">
           Every layer is an interface. The runtime doesn&#39;t care what&#39;s
@@ -946,46 +493,10 @@ export default function LandingPage() {
         </RevealOnScroll>
       </section>
 
-      {/* ── Trade-offs ──────────────────────────────────────────── */}
-      <section id="tradeoffs">
-        <p className="section-label">Trade-offs</p>
-        <h2 className="section-title">Honest about what this costs.</h2>
-        <RevealOnScroll>
-          <div className="tradeoff-list">
-            <div className="tradeoff">
-              <span className="tradeoff-label">Latency</span>
-              <span className="tradeoff-text">
-                Every interaction round-trips through an LLM. 50ms becomes
-                1&ndash;2 seconds. Acceptable for complex workflows. For high-frequency
-                actions, renderers can trigger tools directly — bypassing the
-                agent for deterministic operations.
-              </span>
-            </div>
-            <div className="tradeoff">
-              <span className="tradeoff-label">Determinism</span>
-              <span className="tradeoff-text">
-                A button always does what it says. Natural language probably does
-                what you mean. The gap is real. Critical paths need
-                deterministic fallbacks — renderer-initiated actions that skip
-                the model entirely.
-              </span>
-            </div>
-            <div className="tradeoff">
-              <span className="tradeoff-label">Cost</span>
-              <span className="tradeoff-text">
-                Every turn consumes tokens. Compaction helps with context limits
-                but not cumulative cost. Fewer, more capable tools mean fewer
-                round-trips. Design tools intentionally.
-              </span>
-            </div>
-          </div>
-        </RevealOnScroll>
-      </section>
-
       {/* ── CTA ─────────────────────────────────────────────────── */}
       <div className="cta-section">
         <h2>
-          Define capabilities. <strong>Ship applications.</strong>
+          Build something <strong>cool.</strong>
         </h2>
         <p>Glove is open source and ready to build on.</p>
         <div className="cta-actions">
