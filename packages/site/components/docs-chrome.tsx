@@ -2,44 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-
-interface DocEntry {
-  href: string;
-  label: string;
-  section: string;
-}
-
-// Linear reading order across the docs — drives breadcrumbs + prev/next.
-const order: DocEntry[] = [
-  { href: "/docs/intro", label: "What is Glove?", section: "Getting Started" },
-  { href: "/docs/getting-started", label: "Getting Started", section: "Getting Started" },
-  { href: "/docs/concepts", label: "Core Concepts", section: "Getting Started" },
-  { href: "/docs/display-stack", label: "The Display Stack", section: "Core" },
-  { href: "/docs/inbox", label: "The Inbox", section: "Core" },
-  { href: "/docs/extensions", label: "Hooks, Skills & Subagents", section: "Core" },
-  { href: "/docs/server-side", label: "Server-Side Agents", section: "Core" },
-  { href: "/docs/core", label: "Core API", section: "Core" },
-  { href: "/docs/memory", label: "Memory", section: "Memory & State" },
-  { href: "/docs/scratchpad", label: "Scratchpad", section: "Memory & State" },
-  { href: "/docs/sql", label: "SQL Engine", section: "Memory & State" },
-  { href: "/docs/mesh", label: "Mesh", section: "Multi-Agent" },
-  { href: "/docs/continuum", label: "Continuum", section: "Multi-Agent" },
-  { href: "/docs/mcp", label: "MCP", section: "Integrate & Deploy" },
-  { href: "/docs/glovebox", label: "Glovebox", section: "Integrate & Deploy" },
-  { href: "/docs/react", label: "React", section: "Framework Packages" },
-  { href: "/docs/next", label: "Next.js", section: "Framework Packages" },
-  { href: "/docs/voice", label: "Voice", section: "Framework Packages" },
-  { href: "/docs/showcase/travel-planner", label: "Travel Planner", section: "Showcase" },
-  { href: "/docs/showcase/coding-agent", label: "Coding Agent", section: "Showcase" },
-  { href: "/docs/showcase/coffee-shop", label: "Coffee Shop", section: "Showcase" },
-  { href: "/docs/showcase/lola", label: "Lola", section: "Showcase" },
-  { href: "/docs/showcase/ecommerce-store", label: "Ecommerce Store", section: "Showcase" },
-  { href: "/docs/showcase/terminal-agent", label: "Terminal Agent", section: "Showcase" },
-  { href: "/docs/showcase/glovebox", label: "Glovebox Example", section: "Showcase" },
-  { href: "/docs/agent-skill", label: "Agent Skill", section: "Resources" },
-  { href: "/docs/v3", label: "v3.0.0 Release Notes", section: "Resources" },
-  { href: "/docs/memory/why", label: "Why Memory", section: "Resources" },
-];
+import { docsOrder as order } from "@/lib/docs-nav";
 
 const byHref = new Map(order.map((e) => [e.href, e]));
 
