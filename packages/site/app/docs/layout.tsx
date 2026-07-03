@@ -1,4 +1,5 @@
 import { DocsSidebar } from "@/components/docs-sidebar";
+import { DocsBreadcrumb, DocsPager } from "@/components/docs-chrome";
 
 export default function DocsLayout({
   children,
@@ -8,7 +9,11 @@ export default function DocsLayout({
   return (
     <div className="docs-layout">
       <DocsSidebar />
-      {children}
+      <div className="docs-main">
+        <DocsBreadcrumb />
+        {children}
+        <DocsPager />
+      </div>
     </div>
   );
 }

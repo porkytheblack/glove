@@ -20,7 +20,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 const siteUrl = "https://glove.dterminal.net";
-const description = "Agentic runtime for building applications as conversations.";
+const description =
+  "Your open-source TypeScript toolkit for multi-agent orchestration systems — tools and UI, memory, a mailbox, a mesh of agents, and a way to ship them.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -40,7 +41,7 @@ export const metadata: Metadata = {
         url: "/og-data.png",
         width: 1200,
         height: 630,
-        alt: "Glove — Agentic runtime for building applications as conversations",
+        alt: "Glove — a toolkit for multi-agent orchestration systems",
       },
     ],
   },
