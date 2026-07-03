@@ -243,6 +243,23 @@ const capabilityGroups: CapGroup[] = [
   },
 ];
 
+const usedBy: {
+  name: string;
+  href: string;
+  icon: string;
+  tile?: string;
+  pad?: boolean;
+}[] = [
+  { name: "Proxima", href: "https://proximadroids.com", icon: "/brand/proxima-icon.svg" },
+  {
+    name: "Origin",
+    href: "https://www.origin-industries.systems/",
+    icon: "/brand/origin-icon.png",
+    tile: "#FBF8F1",
+    pad: true,
+  },
+];
+
 export default function LandingPage() {
   return (
     <main>
@@ -305,17 +322,31 @@ export default function LandingPage() {
       {/* ── Used by ─────────────────────────────────────────────── */}
       <section className="usedby" aria-label="Used in production by">
         <span className="usedby-label">Used in production by</span>
-        <a
-          className="usedby-logo"
-          href="https://proximadroids.com"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="/brand/proxima-icon.svg" alt="Proxima" width={32} height={32} />
-          <span className="usedby-name">Proxima</span>
-          <span className="usedby-sep" aria-hidden="true" />
-          <span className="usedby-tag">Droids for your team</span>
-        </a>
+        <div className="usedby-row">
+          {usedBy.map((c) => (
+            <a
+              key={c.name}
+              className="usedby-logo"
+              href={c.href}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span
+                className="usedby-badge"
+                style={c.tile ? { background: c.tile } : undefined}
+              >
+                <img
+                  src={c.icon}
+                  alt={c.name}
+                  width={32}
+                  height={32}
+                  className={c.pad ? "pad" : undefined}
+                />
+              </span>
+              <span className="usedby-name">{c.name}</span>
+            </a>
+          ))}
+        </div>
       </section>
 
       {/* ── Platform / Capabilities ─────────────────────────────── */}
