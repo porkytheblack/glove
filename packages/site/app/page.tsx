@@ -88,6 +88,7 @@ type Cap = {
   href: string;
   badge?: "beta" | "new";
   desc: ReactNode;
+  meta?: string;
 };
 
 type CapGroup = {
@@ -162,6 +163,7 @@ const capabilityGroups: CapGroup[] = [
             <code>execute_sql</code> tool — with transactions as a real dry-run.
           </>
         ),
+        meta: "Benchmarked — up to 35× less context, higher accuracy",
       },
       {
         icon: "inbox",
@@ -274,12 +276,13 @@ export default function LandingPage() {
         </a>
         <GloveLogo className="hero-icon" />
         <h1>
-          Build entire apps as <strong>conversations.</strong>
+          Build agents that do <strong>cool things.</strong>
         </h1>
         <p className="hero-sub">
-          An open-source TypeScript framework for agentic apps. You define what
-          your app can do — <strong>tools, UI, memory, integrations</strong> —
-          and an agent orchestrates it all from plain conversation.
+          Glove is your open-source TypeScript toolkit for{" "}
+          <strong>multi-agent orchestration systems</strong> — agents with tools
+          and UI, memory, a shared mailbox, a mesh to talk over, and a way to
+          ship.
         </p>
         <div className="hero-pills">
           {[
@@ -317,6 +320,22 @@ export default function LandingPage() {
             Explore the platform
           </a>
         </div>
+      </section>
+
+      {/* ── Used by ─────────────────────────────────────────────── */}
+      <section className="usedby" aria-label="Used in production by">
+        <span className="usedby-label">Used in production by</span>
+        <a
+          className="usedby-logo"
+          href="https://proximadroids.com"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <img src="/brand/proxima-icon.svg" alt="Proxima" width={32} height={32} />
+          <span className="usedby-name">Proxima</span>
+          <span className="usedby-sep" aria-hidden="true" />
+          <span className="usedby-tag">Droids for your team</span>
+        </a>
       </section>
 
       {/* ── The Idea ────────────────────────────────────────────── */}
@@ -468,6 +487,7 @@ export default function LandingPage() {
                       </div>
                     </div>
                     <p className="cap-desc">{cap.desc}</p>
+                    {cap.meta && <div className="cap-meta">{cap.meta}</div>}
                   </a>
                 ))}
               </div>

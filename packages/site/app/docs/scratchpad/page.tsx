@@ -57,6 +57,31 @@ const calloutStyle: React.CSSProperties = {
   margin: "1.5rem 0",
   color: "var(--text-secondary)",
 };
+const statGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: "0.9rem",
+  margin: "2rem 0",
+};
+const statTileStyle: React.CSSProperties = {
+  border: "1px solid var(--border-subtle)",
+  borderRadius: "12px",
+  background: "var(--bg-elevated)",
+  padding: "1.25rem 1.35rem",
+};
+const statNumStyle: React.CSSProperties = {
+  fontFamily: "var(--mono)",
+  fontSize: "1.5rem",
+  fontWeight: 500,
+  color: "var(--accent)",
+  letterSpacing: "-0.02em",
+  marginBottom: "0.5rem",
+};
+const statLabelStyle: React.CSSProperties = {
+  fontSize: "0.82rem",
+  color: "var(--text-tertiary)",
+  lineHeight: 1.55,
+};
 
 function PropTable({
   headers,
@@ -146,6 +171,112 @@ COMMIT;`}
         <code>pnpm scratchpad:db</code> (drives <code>Database.execute</code>{" "}
         directly so the transcript is deterministic).
       </div>
+
+      {/* ================================================================== */}
+      {/* BENCHMARK                                                          */}
+      {/* ================================================================== */}
+      <h2 id="benchmark">Benchmark: tools-as-SQL, measured</h2>
+
+      <p>
+        The obvious question is whether this actually pays off, or just moves
+        the complexity around. So we built an{" "}
+        <strong>agentic A/B benchmark</strong>: ten in-process MCP servers
+        mirroring a real product team&apos;s stack — GitHub, Linear, Email,
+        Slack, Notion, Jira, Sentry, PagerDuty, Calendar, Filesystem, {" "}
+        <strong>32 tools over one deterministic, cross-linked seed world</strong>{" "}
+        — run through the real <code>glove-core</code> agent loop twice per
+        model: once with all 32 tools folded directly (<em>baseline</em>), once
+        with a single <code>execute_sql</code> over the same capabilities as
+        tables (<em>scratchpad</em>). Runs are graded deterministically; writes
+        are graded on the real side-effect outbox, which can&apos;t be faked.
+      </p>
+
+      <div style={statGridStyle}>
+        <div style={statTileStyle}>
+          <div style={statNumStyle}>21/21</div>
+          <div style={statLabelStyle}>
+            scratchpad vs <strong style={{ color: "var(--text-secondary)" }}>16/21</strong>{" "}
+            baseline on the OSS frontier — even frontier models miscount long
+            tool-result lists
+          </div>
+        </div>
+        <div style={statTileStyle}>
+          <div style={statNumStyle}>74% → 100%</div>
+          <div style={statLabelStyle}>
+            weak-model pass rate across five rounds of hardening — spirals 6 → 0,
+            median tool calls 6 → 2
+          </div>
+        </div>
+        <div style={statTileStyle}>
+          <div style={statNumStyle}>up to 1731×</div>
+          <div style={statLabelStyle}>
+            less context than paging results back verbatim — the scratchpad
+            holds a flat ~22&nbsp;KB while the naive payload grows linearly
+          </div>
+        </div>
+      </div>
+
+      <p>
+        Three findings fell out. <strong>(1)</strong> The scratchpad always cut
+        peak context 2–4× — 32 schemas never enter the window and only selected
+        rows do — but the first pass was a tradeoff, not a blowout: weak models
+        spiralled in the open SQL surface (74% pass, six 30-turn runaways).{" "}
+        <strong>(2)</strong> Nearly every weak-model failure traced to a{" "}
+        <em>platform</em> gap, not a model limit — most damningly, places where
+        the engine <strong>silently mis-answered where Postgres would error</strong>.
+        Five rounds of fixes (engine bugs, prompt discipline, SQL-discoverable
+        metadata, read-your-writes, Postgres parity) took the same five budget
+        models from <strong>74% → 100%</strong> with zero spirals.{" "}
+        <strong>(3)</strong> At production scale — 40 servers, 367 tools, ~95%
+        noise — the tool-folding baseline <strong>inverts</strong>: it becomes
+        the <em>least</em> accurate arm at 12× the context and ~6× the cost,
+        while the scratchpad&apos;s footprint is statistically unchanged.
+      </p>
+
+      <p>
+        The context win is a property of the data, not the model. Measured
+        deterministically (no API key) — asking one cross-service question as
+        the world grows:
+      </p>
+
+      <table className="pattern-table">
+        <thead>
+          <tr>
+            <th>rows / service</th>
+            <th>naive (est. tokens)</th>
+            <th>scratchpad (est. tokens)</th>
+            <th>reduction</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>100</td><td>20.3k</td><td>5.6k</td><td><code>3.6×</code></td></tr>
+          <tr><td>1,000</td><td>202.8k</td><td>5.8k</td><td><code>35.0×</code></td></tr>
+          <tr><td>5,000</td><td>1.01M</td><td>5.8k</td><td><code>174.5×</code></td></tr>
+          <tr><td>20,000</td><td>4.06M</td><td>5.8k</td><td><code>696.1×</code></td></tr>
+          <tr><td>50,000</td><td>10.14M</td><td>5.9k</td><td><code>1731.2×</code></td></tr>
+        </tbody>
+      </table>
+
+      <p>
+        The transferable lesson is a design stance:{" "}
+        <strong>
+          the scratchpad only works if it behaves like the database the model
+          already knows
+        </strong>
+        . Every place it silently deviated from Postgres muscle-memory was a
+        place a weak model failed; every fix that made truth cheaper to see —
+        command tags, read-your-writes, loud errors, in-band discovery — bought
+        more capability than any prompt instruction. The full study, with all
+        transcripts, figures, and the v1→v5 hardening arc, is in the repo:{" "}
+        <a
+          href="https://github.com/porkytheblack/glove/blob/main/examples/scratchpad-bench/PAPER.md"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          The Scratchpad Is a Database
+        </a>
+        .
+      </p>
 
       {/* ================================================================== */}
       {/* INSTALL                                                            */}

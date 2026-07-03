@@ -226,7 +226,18 @@ section { padding: 6rem clamp(1.25rem, 4vw, 2rem); max-width: var(--maxw); margi
 .cap-kicker { font-family: var(--mono); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.09em; color: var(--cat, var(--accent-soft)); margin-bottom: 0.35rem; opacity: 0.85; }
 .cap-desc { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.65; font-weight: 300; }
 .cap-desc code { font-family: var(--mono); font-size: 0.82em; color: var(--accent); }
-.cap-meta { margin-top: 0.35rem; font-family: var(--mono); font-size: 0.68rem; color: var(--text-tertiary); }
+.cap-meta { margin-top: 0.35rem; display: inline-flex; align-items: center; gap: 0.4rem; font-family: var(--mono); font-size: 0.68rem; color: var(--cat, var(--accent-soft)); }
+.cap-meta::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--cat, var(--accent)); flex-shrink: 0; }
+
+/* ─── Used by ─── */
+.usedby { display: flex; flex-direction: column; align-items: center; gap: 1.1rem; padding-top: 2.75rem; padding-bottom: 2.75rem; border-top: 1px solid var(--border-subtle); }
+.usedby-label { font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.14em; color: var(--text-tertiary); }
+.usedby-logo { display: inline-flex; align-items: center; gap: 0.75rem; text-decoration: none; padding: 0.5rem 1.1rem 0.5rem 0.5rem; border: 1px solid var(--border-subtle); border-radius: 999px; background: var(--bg-elevated); transition: border-color 0.2s, background 0.2s, transform 0.2s; }
+.usedby-logo:hover { border-color: color-mix(in srgb, #ED9874 45%, var(--border)); background: var(--bg-surface); transform: translateY(-1px); }
+.usedby-logo img { width: 32px; height: 32px; border-radius: 8px; display: block; }
+.usedby-name { font-size: 0.98rem; font-weight: 600; color: var(--text-primary); letter-spacing: -0.01em; }
+.usedby-sep { width: 1px; height: 14px; background: var(--border); }
+.usedby-tag { font-size: 0.85rem; color: var(--text-tertiary); font-weight: 300; }
 
 /* ─── Architecture Stack ─── */
 #architecture { border-top: 1px solid var(--border-subtle); }
@@ -318,6 +329,9 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
 .footer-col a { font-size: 0.85rem; color: var(--text-secondary); text-decoration: none; transition: color 0.2s; }
 .footer-col a:hover { color: var(--accent); }
 .footer-bottom { margin-top: 3rem; padding-top: 1.75rem; border-top: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; font-size: 0.8rem; color: var(--text-tertiary); }
+.footer-credit { display: inline-flex; align-items: center; gap: 0.5rem; }
+.cradle-logo { width: 17px; height: 17px; color: var(--text-secondary); flex-shrink: 0; }
+.cradle-name { font-family: var(--mono); color: var(--text-secondary); }
 .footer-bottom a { color: var(--text-secondary); text-decoration: none; transition: color 0.2s; }
 .footer-bottom a:hover { color: var(--text-primary); }
 
@@ -509,6 +523,8 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
 
   section { padding: 3.5rem 1.25rem; }
   .section-title { font-size: 1.6rem; }
+
+  .usedby-sep, .usedby-tag { display: none; }
 
   .code-block pre { font-size: 0.7rem; padding: 0.65rem 0.85rem; }
   .code-block-content pre.shiki { font-size: 0.7rem; padding: 0.65rem 0.85rem; }
