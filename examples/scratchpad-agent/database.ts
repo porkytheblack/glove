@@ -61,26 +61,33 @@ async function main() {
   );
 
   // web: volatile; `query` is a required-key column (a tool argument, pushed via WHERE).
+  // The OUTPUT columns are declared with a Zod schema (`z.number().int()` → bigint,
+  // etc.) instead of hand-written pg-type strings — one source of truth.
   db.register(
     resourceFromTool(webSearch, {
       name: "web",
       volatility: "volatile",
-      columns: [
-        { name: "title", type: "text" },
-        { name: "url", type: "text" },
-        { name: "score", type: "bigint" },
-      ],
+      schema: z.object({
+        title: z.string(),
+        url: z.string(),
+        score: z.number().int(),
+      }),
     }),
   );
 
   // notion_page: insert-only (a "create" capability), staged + fired on COMMIT.
-  const created: Record<string, unknown>[] = [];
+  // Zod-first: the schema IS the columns AND the row type — `rows` below is typed
+  // `{ title: string; url: string }[]`, checked end to end (a typo is a build error).
+  const created: { title: string; url: string }[] = [];
   db.register(
     defineResource({
       name: "notion_page",
       description: "Pages in a Notion database.",
       volatility: "volatile",
-      columns: [{ name: "title", type: "text" }, { name: "url", type: "text" }],
+      schema: z.object({
+        title: z.string().describe("Page title"),
+        url: z.string().describe("Canonical URL"),
+      }),
       insert: async (rows) => {
         calls.send++;
         created.push(...rows);

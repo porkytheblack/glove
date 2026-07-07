@@ -26,7 +26,9 @@ export { Catalog } from "./catalog";
 export {
   defineResource,
   resourceFromTool,
+  columnsFromZod,
   type DefineResourceSpec,
+  type DefineZodResourceSpec,
   type ResourceFromToolSpec,
 } from "./resource";
 
@@ -37,6 +39,7 @@ export {
   type ResourceColumn,
   type ResourceContext,
   type Bindings,
+  type TypedBindings,
   type Volatility,
   type SqlScalar,
 } from "./provider";
