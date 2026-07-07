@@ -49,19 +49,21 @@ pnpm add glove-mcp
 
 ```ts
 import { Database, resourceFromTool, defineResource, mountDatabase } from "glove-scratchpad";
+import { z } from "zod";
 
 const db = await Database.create({ policy: { writes: true } });
 
-// A read-only tool → a one-row `time` table.
+// A read-only tool → a one-row `time` table. Columns come from a Zod schema
+// (z.date() → timestamptz), so the shape is one source of truth.
 db.register(resourceFromTool(getTimeTool, {
   name: "time", volatility: "stable",
-  columns: [{ name: "now", type: "timestamptz" }, { name: "tomorrow", type: "text" }],
+  schema: z.object({ now: z.date(), tomorrow: z.string() }),
 }));
 
 // A search tool → a `web` table whose required `query` column is a pushed-down argument.
 db.register(resourceFromTool(searchTool, {
   name: "web", volatility: "volatile",
-  columns: [{ name: "title", type: "text" }, { name: "url", type: "text" }],
+  schema: z.object({ title: z.string(), url: z.string() }),
 }));
 
 // Fold the single tool + prime the model to discover → invoke → act → stage.
@@ -78,8 +80,8 @@ For a runnable, no-API-key tour of every property below, see
 | Concept | Code |
 | --- | --- |
 | Resource (a table) | `ResourceTable` (`glove-scratchpad/db`) |
-| Author a resource | `defineResource({ name, columns, volatility, select?, insert?, update?, delete? })` |
-| One tool → one resource | `resourceFromTool(tool, { name, volatility, columns, op? })` |
+| Author a resource | `defineResource({ name, schema, keys?, volatility, select?, insert?, update?, delete? })` — a Zod `schema` is the columns AND the end-to-end row type (or pass `columns` directly) |
+| One tool → one resource | `resourceFromTool(tool, { name, volatility, schema \| columns, op? })` |
 | The interpreter | `Database` — `execute(sql)` / `explain(sql)` |
 | The single agent tool | `mountDatabase(glove, { db })` → folds `execute_sql` + `explain_sql` |
 | MCP servers → tables | `mcpResources` / `mountMcpDatabase` (`glove-scratchpad/mcp`) |
@@ -112,23 +114,38 @@ tool N times. Pre-resolution invokes it once.
 ## Resources as tables
 
 A resource is an entity with columns and any subset of CRUD verbs, each wired
-independently:
+independently. Define it with a **Zod schema** and one object is your columns AND
+your end-to-end row type — the schema flows into every resolver, so `select`
+returns rows of it, `insert` takes them, `update`'s `set` is a partial, and
+`bindings.one("col")` autocompletes the schema's column names:
 
 ```ts
+import { z } from "zod";
+
 const githubPr = defineResource({
   name: "github_pr",
   volatility: "stable",
-  columns: [
-    { name: "number", type: "bigint", requiredKey: true },  // an API argument
-    { name: "title", type: "text" },
-    { name: "merged", type: "boolean" },
-  ],
-  select: (b) => listPrs({ number: b.one("number") }),       // SELECT  → a list/get tool
-  insert: (rows) => createPr(rows[0]),                       // INSERT  → a create tool
-  update: (set, b) => updatePr(b.one("number"), set),        // UPDATE  → an update tool
-  delete: (b) => closePr(b.one("number")),                   // DELETE  → a close tool
+  schema: z.object({
+    number: z.number().int().describe("PR number"),   // an API argument (see keys)
+    title: z.string(),
+    merged: z.boolean(),
+  }),
+  keys: ["number"],                                    // required WHERE-pushdown key(s), typed to the schema
+  select: (b) => listPrs({ number: b.one("number") }), // SELECT  → a list/get tool
+  insert: (rows) => createPr(rows[0]),                 // INSERT  → a create tool  (rows typed to the schema)
+  update: (set, b) => updatePr(b.one("number"), set),  // UPDATE  → an update tool (set: Partial<row>)
+  delete: (b) => closePr(b.one("number")),             // DELETE  → a close tool
 });
 ```
+
+Zod field types map to Postgres types (`z.number().int()` → `bigint`,
+`z.number()` → `double precision`, `z.boolean()` → `boolean`, `z.date()` /
+`z.iso.datetime()` → `timestamptz`, nested objects/arrays → `jsonb`);
+`.describe(...)` becomes the column description (where authors put the enum /
+allowed-value hints the model reads); `.meta({ pgType: "…" })` forces an exact
+type. Prefer the schema, but a raw `columns: [{ name, type, requiredKey? }]` list
+still works when you'd rather write the pg types by hand (`columnsFromZod` is
+exported if you want the mapping standalone).
 
 A read-only `time` has only `select`; an `emails` (send) is `insert`-only; an
 `images` generator is a `select`-shaped but **volatile** function-as-relation
@@ -136,10 +153,11 @@ A read-only `time` has only `select`; an `emails` (send) is `insert`-only; an
 presence is the capability gate: SELECTing a write-only resource, or writing one
 with no writer, is a clear error.
 
-A resolver returns arbitrary JSON; the interpreter shapes it into rows against the
-declared columns (nested values land in `jsonb`, reachable via `-> / ->>`). DDL
-comes from the **declared** columns so the schema is stable for `information_schema`
-even when a call returns zero rows.
+A resolver returns rows shaped by the schema; the interpreter maps them onto the
+declared columns (nested values land in `jsonb`, reachable via `-> / ->>`).
+Required-key columns are auto-stamped from the pushed-down WHERE, so a `select`
+may omit them. DDL comes from the **declared** columns so the schema is stable
+for `information_schema` even when a call returns zero rows.
 
 ## Volatility
 

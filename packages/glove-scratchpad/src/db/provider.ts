@@ -57,6 +57,29 @@ export interface Bindings {
   has(col: string): boolean;
 }
 
+/** The scalar a `Row[K]` field is bound to in SQL. Non-scalar (jsonb/date) row
+ *  fields collapse to `never` under {@link SqlScalar}; keep them addressable by
+ *  falling back to the whole scalar space rather than `never`. */
+type BoundValue<T> = [Extract<T, SqlScalar>] extends [never] ? SqlScalar : Extract<T, SqlScalar>;
+
+/**
+ * A {@link Bindings} view whose column names are typed to a resource's row type
+ * `Row` — so `b.one("query")` autocompletes the schema's columns and rejects
+ * typos at compile time. Structurally a `Bindings` at runtime (same three
+ * methods); the type just narrows the `col` argument. This is what a Zod-defined
+ * resource's resolvers receive, closing the loop from schema → column names →
+ * pushed-down arguments.
+ */
+export interface TypedBindings<Row> {
+  readonly eq: ReadonlyMap<string, SqlScalar[]>;
+  /** First value bound to `col`, or `undefined` if unbound. Column names autocomplete. */
+  one<K extends keyof Row & string>(col: K): BoundValue<Row[K]> | undefined;
+  /** All values bound to `col` (empty if unbound). */
+  all<K extends keyof Row & string>(col: K): BoundValue<Row[K]>[];
+  /** Whether `col` carries any pushed-down binding. */
+  has(col: keyof Row & string): boolean;
+}
+
 export interface ResourceContext {
   /** Forwarded from the active request so resolvers can abort long work. */
   signal?: AbortSignal;

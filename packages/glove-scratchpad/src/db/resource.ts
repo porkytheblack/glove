@@ -3,6 +3,10 @@
  *
  *   - {@link defineResource} — the primary, explicit contract. Wire each CRUD
  *     verb to a resolver (often a different underlying Glove tool per verb).
+ *     Pass a Zod `schema` and ONE object is your columns AND your end-to-end row
+ *     type: it flows into every resolver (`select` returns rows of it, `insert`
+ *     takes them, `update`'s `set` is a partial) and into `bindings.one("col")`,
+ *     which now autocompletes the schema's column names.
  *   - {@link resourceFromTool} — convenience for the trivial single-verb case:
  *     turn ONE Glove tool into a one-verb resource (`get_time` → `time`,
  *     a search tool → rows, `send_email` → an INSERT-only `emails`).
@@ -18,6 +22,7 @@ import type {
   ResourceColumn,
   ResourceContext,
   ResourceTable,
+  TypedBindings,
   Volatility,
 } from "./provider";
 
@@ -48,24 +53,165 @@ export interface DefineResourceSpec {
   delete?: (bindings: Bindings, ctx: ResourceContext) => Promise<unknown>;
 }
 
-/** Build a {@link ResourceTable} from an explicit spec, validating its shape. */
-export function defineResource(spec: DefineResourceSpec): ResourceTable {
-  if (!spec.name || !spec.name.trim()) throw new Error("defineResource: name is required");
-  if (!spec.columns || spec.columns.length === 0) {
-    throw new Error(`defineResource("${spec.name}"): at least one column is required`);
+// ── Zod → columns ─────────────────────────────────────────────────────────────
+
+/** A Zod object schema — the source of a resource's columns AND its row type. */
+type AnyZodObject = z.ZodObject<any, any>;
+
+/** Read the unwrapped (optional/nullable/default/… stripped) Zod `def.type` per
+ *  field. Two column types — `bigint` and `date` — are unrepresentable in JSON
+ *  Schema, so we read them straight from the runtime shape rather than the
+ *  round-tripped output. */
+function baseDefTypes(schema: AnyZodObject): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  const shape = (schema as { shape?: Record<string, unknown> }).shape ?? {};
+  const wrappers = new Set(["optional", "nullable", "default", "catch", "readonly", "nonoptional"]);
+  for (const [key, field] of Object.entries(shape)) {
+    let inner = field as { def?: { type?: string; innerType?: unknown } } | undefined;
+    while (inner?.def && wrappers.has(inner.def.type ?? "")) {
+      inner = inner.def.innerType as typeof inner;
+    }
+    out[key] = inner?.def?.type;
   }
-  if (!spec.select && !spec.insert && !spec.update && !spec.delete) {
+  return out;
+}
+
+/** Map one JSON-Schema property (+ its base Zod `def.type`) to a Postgres-dialect
+ *  type string. An explicit `.meta({ pgType })` override always wins. */
+function propToPg(prop: Record<string, any> | undefined, baseType: string | undefined): string {
+  if (prop && typeof prop.pgType === "string") return prop.pgType; // z.string().meta({ pgType: "timestamptz" })
+  if (baseType === "bigint") return "bigint";
+  if (baseType === "date") return "timestamptz";
+  const t = Array.isArray(prop?.type) ? prop!.type.find((x: string) => x !== "null") : prop?.type;
+  switch (t) {
+    case "integer":
+      return "bigint";
+    case "number":
+      return "double precision";
+    case "boolean":
+      return "boolean";
+    case "string":
+      return prop?.format === "date-time" || prop?.format === "date" ? "timestamptz" : "text";
+    default:
+      return "jsonb"; // object / array / unrepresentable → reachable via -> / ->>
+  }
+}
+
+/**
+ * Derive {@link ResourceColumn}s from a Zod object schema — one declaration is
+ * both the table's columns (name, Postgres type, description) and the row type
+ * the resolvers speak. Field types map to Postgres types (`z.number().int()` →
+ * `bigint`, `z.number()` → `double precision`, `z.boolean()` → `boolean`,
+ * `z.date()` / `z.iso.datetime()` → `timestamptz`, nested objects/arrays →
+ * `jsonb`); `.describe(...)` becomes the column description (where authors put
+ * enum/allowed-value hints); `.meta({ pgType })` forces an exact type. Names in
+ * `keys` are marked as required-key (WHERE-pushdown argument) columns.
+ */
+export function columnsFromZod(schema: AnyZodObject, keys: readonly string[] = []): ResourceColumn[] {
+  const json = z.toJSONSchema(schema, { unrepresentable: "any" }) as { properties?: Record<string, any> };
+  const props = json.properties ?? {};
+  for (const k of keys) {
+    if (!(k in props)) {
+      throw new Error(`columnsFromZod: key "${k}" is not a property of the schema.`);
+    }
+  }
+  const bases = baseDefTypes(schema);
+  const keySet = new Set(keys);
+  return Object.entries(props).map(([name, prop]) => {
+    const col: ResourceColumn = { name, type: propToPg(prop, bases[name]) };
+    if (prop && typeof prop.description === "string") col.description = prop.description;
+    if (keySet.has(name)) col.requiredKey = true;
+    return col;
+  });
+}
+
+/** The row type of a resource's Zod schema. */
+type Row<S extends AnyZodObject> = z.infer<S>;
+
+/** Rows a `select` returns or an `insert` accepts: required-key columns are
+ *  auto-stamped from the pushed-down WHERE, so a resolver MAY omit them. */
+type WriteRow<S extends AnyZodObject, K extends keyof Row<S>> = Omit<Row<S>, K> &
+  Partial<Pick<Row<S>, K>>;
+
+type MaybeArray<T> = T | readonly T[];
+
+/**
+ * A Zod-first resource spec. `schema` is the single source of truth: it becomes
+ * the columns (via {@link columnsFromZod}) AND the row type that flows through
+ * every resolver, so the whole definition is type-checked end to end.
+ */
+export interface DefineZodResourceSpec<
+  S extends AnyZodObject,
+  K extends keyof Row<S> & string = never,
+> {
+  name: string;
+  description?: string;
+  volatility: Volatility;
+  /** Columns AND end-to-end row type in one object. */
+  schema: S;
+  /** Columns that MUST be equated in WHERE (pushdown arguments). Typed to `schema`'s keys. */
+  keys?: readonly K[];
+  /** Read rows. Returns rows of the schema (key columns optional — they're stamped). */
+  select?: (bindings: TypedBindings<Row<S>>, ctx: ResourceContext) => Promise<MaybeArray<WriteRow<S, K>>>;
+  /** Create rows of the schema. */
+  insert?: (rows: WriteRow<S, K>[], ctx: ResourceContext) => Promise<unknown>;
+  /** Update columns (`set`, a partial row) for the WHERE-matched keys. */
+  update?: (set: Partial<Row<S>>, bindings: TypedBindings<Row<S>>, ctx: ResourceContext) => Promise<unknown>;
+  /** Delete the WHERE-matched keys. */
+  delete?: (bindings: TypedBindings<Row<S>>, ctx: ResourceContext) => Promise<unknown>;
+}
+
+/** Build a {@link ResourceTable} from an explicit column list. */
+export function defineResource(spec: DefineResourceSpec): ResourceTable;
+/**
+ * Build a {@link ResourceTable} from a Zod schema — end-to-end typed. The schema
+ * is your columns and your row type at once; resolvers, `set` payloads, and
+ * `bindings.one(col)` are all inferred from it.
+ *
+ * ```ts
+ * defineResource({
+ *   name: "github_pr",
+ *   volatility: "stable",
+ *   schema: z.object({
+ *     number: z.number().int().describe("PR number"),
+ *     title: z.string(),
+ *     merged: z.boolean(),
+ *   }),
+ *   keys: ["number"],                                  // required WHERE-pushdown key
+ *   select: (b) => listPrs({ number: b.one("number") }),  // b.one autocompletes columns
+ *   insert: (rows) => createPr(rows[0]),                  // rows: { number?, title, merged }[]
+ *   update: (set, b) => updatePr(b.one("number"), set),   // set: Partial<{ number; title; merged }>
+ *   delete: (b) => closePr(b.one("number")),
+ * });
+ * ```
+ */
+export function defineResource<S extends AnyZodObject, const K extends keyof Row<S> & string = never>(
+  spec: DefineZodResourceSpec<S, K>,
+): ResourceTable;
+export function defineResource(
+  spec: DefineResourceSpec | DefineZodResourceSpec<AnyZodObject, string>,
+): ResourceTable {
+  if (!spec.name || !spec.name.trim()) throw new Error("defineResource: name is required");
+  const columns =
+    "schema" in spec ? columnsFromZod(spec.schema, spec.keys ?? []) : spec.columns;
+  if (!columns || columns.length === 0) {
+    throw new Error(
+      `defineResource("${spec.name}"): at least one column is required (declare "columns" or a "schema").`,
+    );
+  }
+  const { select, insert, update, delete: del } = spec as DefineResourceSpec;
+  if (!select && !insert && !update && !del) {
     throw new Error(`defineResource("${spec.name}"): at least one of select/insert/update/delete is required`);
   }
   return {
     name: spec.name,
     description: spec.description ?? spec.name,
-    columns: spec.columns,
+    columns,
     volatility: spec.volatility,
-    select: spec.select,
-    insert: spec.insert,
-    update: spec.update,
-    delete: spec.delete,
+    select,
+    insert,
+    update,
+    delete: del,
   };
 }
 
@@ -82,6 +228,12 @@ export interface ResourceFromToolSpec {
    * volatile read (a stable schema can't be inferred from a zero-row first call).
    */
   columns?: ResourceColumn[];
+  /**
+   * Declare the output columns with a Zod object instead of {@link columns} —
+   * the field types map to Postgres types (see {@link columnsFromZod}). The
+   * tool's own input schema still supplies the required-key columns.
+   */
+  schema?: z.ZodObject<any, any>;
   /**
    * Override / augment the input-schema-derived key columns. Map a tool input
    * field to a column name and mark it required (a WHERE-pushdown argument).
@@ -161,9 +313,11 @@ function inputColumns(tool: GloveFoldArgs<unknown>, spec: ResourceFromToolSpec):
 /** Turn one Glove tool into a single-verb resource. */
 export function resourceFromTool<I>(tool: GloveFoldArgs<I>, spec: ResourceFromToolSpec): ResourceTable {
   const op = spec.op ?? "select";
-  if (op === "select" && spec.volatility === "volatile" && !spec.columns) {
+  // Output columns come from either the explicit list or a Zod schema.
+  const declaredColumns = spec.columns ?? (spec.schema ? columnsFromZod(spec.schema) : undefined);
+  if (op === "select" && spec.volatility === "volatile" && !declaredColumns) {
     throw new Error(
-      `resourceFromTool("${spec.name}"): a volatile SELECT resource must declare columns (the schema can't be inferred from data)`,
+      `resourceFromTool("${spec.name}"): a volatile SELECT resource must declare columns (via "columns" or "schema" — the schema can't be inferred from data)`,
     );
   }
   const keys = inputColumns(tool as GloveFoldArgs<unknown>, spec);
@@ -171,7 +325,7 @@ export function resourceFromTool<I>(tool: GloveFoldArgs<I>, spec: ResourceFromTo
   // Columns = declared output columns ∪ key columns (deduped by name), with
   // requiredKey set from the input schema.
   const byName = new Map<string, ResourceColumn>();
-  for (const c of spec.columns ?? []) byName.set(c.name, { ...c });
+  for (const c of declaredColumns ?? []) byName.set(c.name, { ...c });
   for (const k of keys) {
     const existing = byName.get(k.column);
     if (existing) {
