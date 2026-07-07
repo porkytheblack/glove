@@ -1,5 +1,34 @@
 # Changelog
 
+## glove-scratchpad 0.4.0 — Zod-first resource definitions
+
+**Packages:** `glove-scratchpad` 0.4.0
+
+Define a resource with a single Zod `schema` and it is your columns AND your
+end-to-end row type at once. The inferred type flows through the whole
+definition, so the resource is type-checked from schema to resolver — a typo in a
+column, key, or write payload is a compile error, not a silent runtime bug.
+
+- **`defineResource` gains a Zod-first overload.** Pass `schema` (a `z.object`)
+  plus typed `keys` and the row type flows into every resolver: `select` returns
+  rows of it, `insert` takes them, `update`'s `set` is a partial, and
+  `bindings.one("col")` autocompletes the schema's column names. The existing
+  `columns: [{ name, type }]` form is unchanged and fully backward compatible
+  (the overload dispatches on whether `schema` is present).
+- **`columnsFromZod(schema, keys?)`** (exported) maps Zod field types to Postgres
+  types — `z.number().int()` → `bigint`, `z.number()` → `double precision`,
+  `z.boolean()` → `boolean`, `z.date()` / `z.iso.datetime()` → `timestamptz`,
+  nested objects/arrays → `jsonb`; reads `.describe(...)` as the column
+  description (where authors put enum/allowed-value hints the model reads); and
+  honors a `.meta({ pgType: "…" })` override for exact control.
+- **`TypedBindings<Row>`** narrows `one` / `all` / `has` to a resource's columns.
+- **`resourceFromTool`** accepts a `schema` as an alternative to `columns` for
+  its output columns; the tool's own input schema still supplies the
+  required-key columns.
+
+Required-key columns are auto-stamped from the pushed-down `WHERE`, so a `select`
+may omit them and the return/insert row types reflect that.
+
 ## glove-scratchpad 0.2.0 — containment fleets, observability & durable scratchpads
 
 **Packages:** `glove-scratchpad` 0.2.0, `glove-sql` 0.1.0 (new), `glove-mcp` 0.6.0
