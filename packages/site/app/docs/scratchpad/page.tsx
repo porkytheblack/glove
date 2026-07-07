@@ -301,19 +301,21 @@ pnpm add glove-mcp`}
 
       <CodeBlock
         code={`import { Database, resourceFromTool, defineResource, mountDatabase } from "glove-scratchpad";
+import { z } from "zod";
 
 const db = await Database.create({ policy: { writes: true } });
 
-// A read-only tool → a one-row \`time\` table.
+// A read-only tool → a one-row \`time\` table. Columns come from a Zod schema
+// (z.date() → timestamptz), so the shape is one source of truth.
 db.register(resourceFromTool(getTimeTool, {
   name: "time", volatility: "stable",
-  columns: [{ name: "now", type: "timestamptz" }, { name: "tomorrow", type: "text" }],
+  schema: z.object({ now: z.date(), tomorrow: z.string() }),
 }));
 
 // A search tool → a \`web\` table whose required \`query\` column is a pushed-down argument.
 db.register(resourceFromTool(searchTool, {
   name: "web", volatility: "volatile",
-  columns: [{ name: "title", type: "text" }, { name: "url", type: "text" }],
+  schema: z.object({ title: z.string(), url: z.string() }),
 }));
 
 // Fold the single tool + prime the model to discover → invoke → act → stage.
@@ -337,22 +339,52 @@ mountDatabase(agent, { db });`}
         <code>resourceFromTool</code> is the convenience for the single-verb case.
       </p>
 
+      <p>
+        Define it with a <strong>Zod schema</strong> and one object is your
+        columns <em>and</em> your end-to-end row type — the schema flows into
+        every resolver, so <code>select</code> returns rows of it,{" "}
+        <code>insert</code> takes them, <code>update</code>&apos;s <code>set</code>{" "}
+        is a partial, and <code>bindings.one(&quot;col&quot;)</code> autocompletes
+        the schema&apos;s column names. A typo in a column, key, or write payload
+        is a compile error, not a silent runtime bug.
+      </p>
+
       <CodeBlock
-        code={`const githubPr = defineResource({
+        code={`import { z } from "zod";
+
+const githubPr = defineResource({
   name: "github_pr",
   volatility: "stable",
-  columns: [
-    { name: "number", type: "bigint", requiredKey: true },  // an API argument
-    { name: "title", type: "text" },
-    { name: "merged", type: "boolean" },
-  ],
-  select: (b) => listPrs({ number: b.one("number") }),       // SELECT  → a list/get tool
-  insert: (rows) => createPr(rows[0]),                       // INSERT  → a create tool
-  update: (set, b) => updatePr(b.one("number"), set),        // UPDATE  → an update tool
-  delete: (b) => closePr(b.one("number")),                   // DELETE  → a close tool
+  schema: z.object({
+    number: z.number().int().describe("PR number"),   // an API argument (see keys)
+    title: z.string(),
+    merged: z.boolean(),
+  }),
+  keys: ["number"],                                    // required WHERE-pushdown key(s), typed to the schema
+  select: (b) => listPrs({ number: b.one("number") }), // SELECT  → a list/get tool  (b.one autocompletes columns)
+  insert: (rows) => createPr(rows[0]),                 // INSERT  → a create tool     (rows typed to the schema)
+  update: (set, b) => updatePr(b.one("number"), set),  // UPDATE  → an update tool    (set: Partial<row>)
+  delete: (b) => closePr(b.one("number")),             // DELETE  → a close tool
 });`}
         language="ts"
       />
+
+      <p>
+        Zod field types map to Postgres types (<code>z.number().int()</code> →{" "}
+        <code>bigint</code>, <code>z.number()</code> →{" "}
+        <code>double precision</code>, <code>z.boolean()</code> →{" "}
+        <code>boolean</code>, <code>z.date()</code> /{" "}
+        <code>z.iso.datetime()</code> → <code>timestamptz</code>, nested
+        objects/arrays → <code>jsonb</code>); <code>.describe(…)</code> becomes
+        the column description (where authors put the enum / allowed-value hints
+        the model reads); <code>.meta(&#123; pgType: &quot;…&quot; &#125;)</code>{" "}
+        forces an exact type. Prefer the schema, but a raw{" "}
+        <code>columns: [&#123; name, type, requiredKey? &#125;]</code> list still
+        works when you&apos;d rather write the pg types by hand (
+        <code>columnsFromZod</code> is exported if you want the mapping
+        standalone). Required-key columns are auto-stamped from the pushed-down
+        WHERE, so a <code>select</code> may omit them.
+      </p>
 
       <p>
         A read-only <code>time</code> has only <code>select</code>; an{" "}
@@ -541,6 +573,13 @@ await mountMcpDatabase(db, conn, {
       <CodeBlock
         code={`const db = await Database.create({ policy?: { writes }, backend?, actor? });
 db.register(resource);                  // or registerAll([...])
+
+// Author a resource: Zod schema (typed) or an explicit column list.
+defineResource({ name, volatility, schema, keys?, select?, insert?, update?, delete? });
+defineResource({ name, volatility, columns, select?, insert?, update?, delete? });
+resourceFromTool(tool, { name, volatility, schema | columns, op?, inputs?, rows? });
+columnsFromZod(schema, keys?);          // Zod object → ResourceColumn[] (standalone)
+
 await db.execute(sql, { params?, limit?, allowWrites?, signal? });
 //   → { rows, truncated, touched, staged?, committed?, message? }
 await db.explain(sql, { params? });     // → { statementKind, readOnly, relations, staged? }
