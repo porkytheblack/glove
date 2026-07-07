@@ -30,6 +30,7 @@ Glove is an open-source TypeScript framework for building AI-powered application
 | `glovebox-core` | Authoring + `glovebox` build CLI. `glovebox.wrap(runnable, config)` packages a built Glove agent into a deployable artifact (Dockerfile + nixpacks.toml + bundled server + manifest + auth key). Storage DSL (`rule.*`, `composite`) and wire protocol types live here too. The unscoped `glovebox` name is taken on npm — install as `glovebox-core`; the CLI binary is still `glovebox`. | `pnpm add glovebox-core` |
 | `glovebox-kit` | In-container runtime. `startGlovebox({ app, port, key, manifestPath, ... })` boots the WS server, auto-injects glovebox skills/hooks, and bridges Glove's display stack onto the wire. Storage adapters: `InlineStorage`, `UrlStorage`, `LocalServerStorage`, `S3Storage`. | (transitive — bundled by `glovebox build`) |
 | `glovebox-client` | Client SDK. `GloveboxClient.make({ endpoints })`, `client.box(name).prompt(text, { files })`, `result.read(name)`, `box.environment()`. Symmetric `ClientStorage` interface with a default inline+url implementation. | `pnpm add glovebox-client` |
+| `glove-scratchpad` | **Database emulator for tool use.** Expose an agent's capabilities as a relational DB it queries with ONE `execute_sql` tool instead of loading dozens of tool defs. **Resources become tables** (`defineResource` with a Zod `schema`, or `resourceFromTool`); CRUD verbs map to underlying tools; `WHERE` pushes arguments down; `information_schema` is discovery; transactions stage outbound effects. `mountDatabase(glove, { db })`. MCP servers → tables via `glove-scratchpad/mcp`. Query engine is `glove-sql` (bundled); PGlite optional. | `pnpm add glove-scratchpad` |
 
 **Most projects need just `glove-react` + `glove-next`.** `glove-core` is included as a dependency of `glove-react`. For server-side or non-React agents, use `glove-core` directly — see [Server-Side Agents](#server-side-agents) below. For agents that need third-party tools via the Model Context Protocol, see [MCP Integration](#mcp-integration-glove-mcp).
 
@@ -44,6 +45,7 @@ Glove is an open-source TypeScript framework for building AI-powered application
 - **`glove-memory`** — Memory layer with four sibling subsystems (entity graph / episodic timeline / resource filesystem / ambient context) and matching `useMemoryReader` / `useMemoryCurator`, `useEpisodicReader` / `useEpisodicCurator`, `useResourcesReader` / `useResourcesCurator`, and `useContext` helper families. Storage-agnostic adapter contracts plus reference `InMemory*` adapters for dev/test.
 - **`glove-mesh`** — Inter-agent messaging on top of the inbox primitive: `mountMesh(glove, { adapter, identity })` registers an agent and folds `glove_mesh_send_message` / `_broadcast` / `_list_agents` / `_acknowledge`. `MeshAdapter` is the consumer-supplied transport (BYO); ships `InMemoryMeshAdapter` + `MeshNetwork` for in-process dev/test. Each agent keeps its own inbox; incoming messages land as resolved `InboxItem`s so the existing inbox-injection path surfaces them on the next `ask()`. No authentication — sender ids are unverified.
 - **`glove-continuum-signal`** — Subprocess-based runtime substrate modeled on `station-signal` but agent-shaped. `agent("name").input(zod).triggered()|.concurrent()` builder produces branded agents; `ContinuumRunner` discovers them from a directory, pre-warms concurrent ones, dispatches triggered runs from an adapter queue (per-spawn isolation), and routes `notify` IPC envelopes to warm subprocesses inline. `ContinuumAdapter` is the persistence contract (`MemoryAdapter` ships; consumers BYO for SQLite/Postgres/etc.). Single fat `onAgentEvent(envelope)` subscriber forwards every Glove `SubscriberEvent` from any child upstream with the agent identity attached. Mesh integrates by being mounted per-agent inside the factory — no special IPC machinery.
+- **`glove-scratchpad`** — Database emulator for LLM tool use. Instead of loading many tool definitions, expose capabilities as a relational database queried with one `execute_sql` tool. Resources (`github_pr`, `emails`, `time`, `images`, …) become tables; CRUD verbs map to (possibly different) underlying tools. `Database.create()`, `defineResource({ name, schema, keys?, volatility, select?, insert?, update?, delete? })` (Zod-first — the schema is columns AND the end-to-end row type) or `resourceFromTool(tool, { name, volatility, schema })`, `mountDatabase(glove, { db })` folds `execute_sql` + `explain_sql` and primes the prompt. Discovery via `information_schema`; `WHERE` equalities push down as arguments (Steampipe's required-key model); writes stage inside `BEGIN … COMMIT` for preview; `EXPLAIN` reports which tools a query hits with no resolver calls. Every statement is parsed and security-gated before any tool runs. MCP servers become tables via `glove-scratchpad/mcp` (`mcpResources` / `mountMcpDatabase`). Backend is `glove-sql` (bundled, zero-dep) or `PgliteBackend` (`glove-scratchpad/pglite`).
 
 ## Architecture at a Glance
 
@@ -1735,6 +1737,155 @@ The v1 kit and protocol are deliberately narrow. Plan around these limitations:
 - **Per-base preregistered subagents** — the `@transcoder` (media), `@pdfwright` (docs), `@analyst` (python), `@scraper` (browser) mentions land in v2; in v1 you wire those yourself if you want them.
 
 See [api-reference.md — glovebox / glovebox-kit / glovebox-client](api-reference.md) for full type signatures, and [examples.md — Pattern: Glovebox PDF Extractor](examples.md) for a worked example.
+
+## Scratchpad (`glove-scratchpad`)
+
+A **database emulator for LLM tool use.** Instead of loading dozens of tool definitions into the context window, expose an agent's capabilities as a relational database it queries with a **single `execute_sql` tool**. The model already knows SQL fluently at every size, so it discovers, invokes, and composes capabilities by writing queries. **Resources become tables** — a resource is an entity/data type (`github_pr`, `linear_issue`, `emails`, `time`, `images`) and its CRUD verbs map to (possibly different) underlying tools.
+
+It is, at heart, a SQL interpreter: every statement is parsed and inspected *before* any tool runs. That buys discovery (`information_schema`), composition (JOINs / `INSERT … SELECT`), preview (`EXPLAIN`, transactions), and a real security surface (a syntax tree you can reject) — for free, because the database already solved them decades ago.
+
+### When to use it
+
+- The agent has many capabilities and loading every tool definition bloats context. One `execute_sql` tool replaces the whole catalogue; the model discovers capabilities via `information_schema`.
+- You want to **compose** across services in one statement (`INSERT INTO notion_page SELECT … FROM github_pr WHERE merged`) without intermediate rows round-tripping back into context.
+- You want to **stage and preview** outbound effects (approval-gated writes) with `BEGIN … COMMIT`, or dry-run with `ROLLBACK`.
+- You're bridging a large MCP fleet and want a uniform, queryable shape over it (`glove-scratchpad/mcp`).
+
+If you only need a handful of first-party tools, plain `glove.fold(...)` is simpler. Scratchpad earns its keep when the catalogue is large or you want composition/preview.
+
+### Quick start
+
+```ts
+import { Database, resourceFromTool, defineResource, mountDatabase } from "glove-scratchpad";
+import { z } from "zod";
+
+const db = await Database.create({ policy: { writes: true } });   // writes off by default
+
+// A read-only tool → a one-row `time` table. Columns come from a Zod schema.
+db.register(resourceFromTool(getTimeTool, {
+  name: "time", volatility: "stable",
+  schema: z.object({ now: z.date(), tomorrow: z.string() }),
+}));
+
+// A search tool → a volatile `web` table; the tool's required `query` input
+// becomes a required-key column pushed down through WHERE.
+db.register(resourceFromTool(searchTool, {
+  name: "web", volatility: "volatile",
+  schema: z.object({ title: z.string(), url: z.string() }),
+}));
+
+mountDatabase(agent, { db });   // folds execute_sql (+ explain_sql) and primes the prompt
+```
+
+The model then works entirely in SQL: `SELECT table_name FROM information_schema.tables`, `SELECT title, url FROM web WHERE query = 'sql engines'`, etc.
+
+### Resources as tables (Zod-first)
+
+A resource is an entity with columns and any subset of CRUD verbs, each wired independently. **Define it with a Zod `schema` and one object is your columns AND your end-to-end row type** — the schema flows into every resolver, so `select` returns rows of it, `insert` takes them, `update`'s `set` is a partial, and `bindings.one("col")` autocompletes the schema's column names. A typo in a column, key, or write payload is a compile error, not a silent runtime bug.
+
+```ts
+import { z } from "zod";
+
+const githubPr = defineResource({
+  name: "github_pr",
+  volatility: "stable",
+  schema: z.object({
+    number: z.number().int().describe("PR number"),   // an API argument (see keys)
+    title: z.string(),
+    merged: z.boolean(),
+  }),
+  keys: ["number"],                                    // required WHERE-pushdown key(s), typed to the schema
+  select: (b) => listPrs({ number: b.one("number") }), // SELECT → a list/get tool (b.one autocompletes columns)
+  insert: (rows) => createPr(rows[0]),                 // INSERT → a create tool (rows typed to the schema)
+  update: (set, b) => updatePr(b.one("number"), set),  // UPDATE → an update tool (set: Partial<row>)
+  delete: (b) => closePr(b.one("number")),             // DELETE → a close tool
+});
+```
+
+Each verb is OPTIONAL and independently wired: a read-only `time` has only `select`; an `emails` (send) resource is `insert`-only; an `images` generator is a `select`-shaped but **volatile** function-as-relation (`SELECT url FROM images WHERE prompt = '…'` — `prompt` is an argument). Verb presence is the capability gate: SELECTing a write-only resource, or writing one with no writer, is a clear error. Required-key columns are auto-stamped from the pushed-down WHERE, so a `select` may omit them.
+
+**Zod → Postgres type mapping** (via `columnsFromZod`, exported standalone):
+
+| Zod | Postgres column type |
+|-----|----------------------|
+| `z.number().int()`, `z.bigint()` | `bigint` |
+| `z.number()` | `double precision` |
+| `z.boolean()` | `boolean` |
+| `z.string()` | `text` |
+| `z.date()`, `z.iso.datetime()` | `timestamptz` |
+| `z.object(...)`, `z.array(...)`, unrepresentable | `jsonb` (reachable via `-> / ->>`) |
+| any field `.meta({ pgType: "…" })` | that exact type (override wins) |
+
+`.describe(...)` on a field becomes the column description — that's where authors put enum / allowed-value hints (`status: unresolved | resolved | ignored`) the model reads via `information_schema` and the primed catalog. Prefer the schema, but a raw `columns: [{ name, type, requiredKey? }]` list still works when you'd rather write the pg types by hand.
+
+`resourceFromTool(tool, spec)` is the convenience for the trivial single-verb case (turn ONE tool into a one-verb resource). It derives required-key columns from the tool's own input schema (a required Zod field or `jsonSchema.required` entry) and takes `schema` (or `columns`) for the OUTPUT columns; `op` picks the verb (default `"select"`). A volatile SELECT MUST declare its columns (a stable schema can't be inferred from a zero-row first call).
+
+### Volatility
+
+Every resource declares Postgres's `immutable | stable | volatile`. The interpreter resolves a resource EXACTLY ONCE per `execute` regardless (so an effectful read is never invoked N times by the planner); volatility additionally governs caching:
+
+- **immutable** — cached for the database's lifetime (pure lookups).
+- **stable** — cached within one `execute` (a turn-stable read, e.g. `time`).
+- **volatile** — re-resolved each statement, never cached (effectful/nondeterministic reads and all writes).
+
+### How a query runs (pre-resolution)
+
+`glove-sql` is synchronous; resources are async and effectful, so `Database.execute` can't hook resolution inside the engine — it **pre-resolves**: **parse** → **security-gate** (statement-kind whitelist, read-only by default, `CREATE`/`DROP` refused, multi-statement only as a `BEGIN … COMMIT` script) → **collect** every referenced relation → **push down** the `WHERE`/`JOIN-ON` equalities as arguments (missing required keys are a clear error) → **resolve** each resource once → **materialize** its rows into the engine → **run** the now-synchronous query → **tear down** the ephemeral tables. Resolving once up front is what makes the volatility guarantee hold.
+
+Read-your-writes: `policy.readYourWrites` (default true) folds this session's own fired writes back into later reads of the same table, so a row you INSERT shows up in a subsequent SELECT even though the upstream live view hasn't caught up.
+
+### Discovery, transactions, EXPLAIN
+
+- **Discovery is `information_schema`.** No separate step — resources are advertised in `information_schema.tables` / `.columns` (via a catalog callback), so the agent lands in an unfamiliar database, lists tables, inspects columns, and figures out its own capabilities.
+- **Transactions = preview & staging.** A write against a resource is a side-effecting tool call. Inside `BEGIN … COMMIT` it is **staged**, not fired — recorded with the exact resolver + arguments. `db.preview()` (and the `staged` field on the result) is the approval surface; `COMMIT` fires them in order; `ROLLBACK` discards — a true dry run. A single write outside a transaction fires immediately. Writes are off unless the `Database` is created with `policy: { writes: true }`.
+- **EXPLAIN** (`db.explain(sql)`, the `explain_sql` tool, or `EXPLAIN <stmt>` through `execute_sql`) runs the pre-pass only — **no resolver calls** — and reports which resources a statement will hit, each one's volatility, read/write access, and the resolved arguments. Explaining a `generate_image` query costs nothing.
+
+### MCP servers → tables (`glove-scratchpad/mcp`)
+
+Most MCP tools are CRUD over some resource type, so decompose a server into resources and give each a table. `glove-mcp` is an optional peer dependency.
+
+```ts
+import { connectMcp } from "glove-mcp";
+import { mountMcpDatabase } from "glove-scratchpad/mcp";
+
+const conn = await connectMcp({ namespace: "github", url });
+await mountMcpDatabase(db, conn, {
+  table: (t) => t.name === "list_pull_requests"
+    ? { name: "github_pr", op: "select", volatility: "stable",
+        schema: z.object({ title: z.string(), merged: z.boolean() }),
+        rows: (d) => JSON.parse(d as string) }
+    : null,                       // skip the rest, or map them too
+});
+// → INSERT INTO linear_issue SELECT … FROM github_pr WHERE merged  composes two servers in one statement.
+```
+
+A read tool (`readOnlyHint`) defaults to a `select` resource; others default to a volatile `insert`. MCP results rarely carry clean column lists, so declare `schema`/`columns` (and a `rows` extractor) via `table(tool)` to make a server's data genuinely queryable beyond the default single `result` column.
+
+### Backends
+
+The manipulation surface is a defined Postgres subset; the backend is swappable (`ScratchpadBackend`).
+
+- **`glove-sql`** (default) — a zero-dependency pure-JS Postgres-subset engine: joins, `GROUP BY`/`HAVING`, CTEs, set ops, correlated subqueries, window functions, `jsonb` access, scalar functions, `information_schema`, `INSERT … SELECT`, `UPDATE`. Anything outside the subset throws a clear error rather than mis-answering.
+- **`PgliteBackend`** (`glove-scratchpad/pglite`) — embedded Postgres (WASM) for a full dialect. `@electric-sql/pglite` is an optional peer.
+- **Bring your own** — implement `ScratchpadBackend` over real Postgres, SQLite, or a remote service.
+
+### Quick reference — where things live
+
+| Need | Symbol |
+|------|--------|
+| Create the interpreter | `Database.create({ policy?, backend?, actor? })` from `glove-scratchpad` |
+| Author a resource (Zod-first) | `defineResource({ name, schema, keys?, volatility, select?, insert?, update?, delete? })` |
+| Author a resource (explicit columns) | `defineResource({ name, columns, volatility, … })` |
+| One tool → one resource | `resourceFromTool(tool, { name, volatility, schema \| columns, op? })` |
+| Zod object → columns (standalone) | `columnsFromZod(schema, keys?)` |
+| Typed pushed-down args in a resolver | `TypedBindings<Row>` (`b.one("col")` autocompletes) |
+| Run / preview SQL | `db.execute(sql, opts)` / `db.explain(sql)` / `db.preview()` |
+| Fold the single agent tool + prime | `mountDatabase(glove, { db, prime?, explain?, allowWrites? })` |
+| MCP servers → tables | `mcpResources` / `mountMcpDatabase` from `glove-scratchpad/mcp` |
+| Full Postgres dialect backend | `PgliteBackend` from `glove-scratchpad/pglite` |
+| BYO backend contract | `ScratchpadBackend` |
+
+See [`examples/scratchpad-agent`](../../examples/scratchpad-agent) for a runnable, no-API-key tour (`pnpm scratchpad:db`).
 
 ## Display Stack Patterns
 
