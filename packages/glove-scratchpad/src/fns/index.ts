@@ -25,4 +25,5 @@ export {
   type FnDescription,
   type FnParam,
 } from "./signature";
+export { deriveShape, sampleResultShapes, type SampleShapesOptions } from "./shape";
 export { closest, DEFAULT_ELIDE, elide, type ElideLimits, type ElideOptions } from "./shared";

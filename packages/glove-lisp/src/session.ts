@@ -471,6 +471,7 @@ export class LispSession {
               description: fn.description,
               ...(fn.readOnlyHint !== undefined ? { readOnly: fn.readOnlyHint } : {}),
               params: d.params,
+              ...(d.returns ? { returns: d.returns } : {}),
               usage: `(${fn.name}${req ? ` {${req}}` : d.params.length ? " {…}" : ""}) — calling it FIRES the tool immediately (no staging)`,
             };
           }

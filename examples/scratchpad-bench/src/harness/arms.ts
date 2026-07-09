@@ -17,7 +17,7 @@ import { Database } from "glove-scratchpad";
 import { bridgeMcpTool } from "glove-mcp";
 import { mountDatabase } from "glove-scratchpad";
 import { fnsFromMcp } from "glove-scratchpad/fns/mcp";
-import type { ToolFn } from "glove-scratchpad/fns";
+import { sampleResultShapes, type ToolFn } from "glove-scratchpad/fns";
 import { LispSession, mountLisp } from "glove-lisp";
 import { JsSession, mountJs } from "glove-js";
 import type { MockOrg } from "../mcp/index";
@@ -132,7 +132,12 @@ export async function buildLispArm(model: ModelAdapter, org: MockOrg, cfg: ArmCo
  */
 async function catalogFromOrg(org: MockOrg): Promise<ToolFn[]> {
   const perServer = await Promise.all(org.connections.map((c) => fnsFromMcp(c)));
-  return perServer.flat();
+  const fns = perServer.flat();
+  // Discovery parity with table mode: sample each read-only function once so the
+  // primed catalog / describe carries the RESULT shape (field names + enums), not
+  // just the input signature — the model needn't guess `.count` vs `.eventCount`.
+  await sampleResultShapes(fns);
+  return fns;
 }
 
 export async function buildJsArm(model: ModelAdapter, org: MockOrg, cfg: ArmConfig): Promise<BuiltArm> {

@@ -100,10 +100,11 @@ function catalogHint(session: LispSession): string {
         .map((p) => `:${p.name}${p.required ? "" : "?"}${p.enum ? ` (${p.enum.map((e) => JSON.stringify(e)).join("|")})` : ""}`)
         .join(" ");
       const desc = fn.description?.split("\n", 1)[0]?.trim();
-      return `- (${fn.name}${params ? ` {${params}}` : ""})${desc ? ` — ${desc}` : ""}`;
+      const returns = d.returns ? ` → ${d.returns}` : "";
+      return `- (${fn.name}${params ? ` {${params}}` : ""})${returns}${desc ? ` — ${desc}` : ""}`;
     });
     sections.push(
-      `Functions available to you (call by name with an argument map; run (describe :name) for details):\n${lines.join("\n")}`,
+      `Functions available to you (call by name with an argument map; a row's fields are shown after →; run (describe :name) for details):\n${lines.join("\n")}`,
     );
   }
   return sections.length ? `\n\n${sections.join("\n\n")}` : "";

@@ -34,6 +34,14 @@ export interface ToolFn {
   inputSchema?: Record<string, unknown>;
   /** Informational effect hint (preamble grouping, `fns()` output). Never gates. */
   readOnlyHint?: boolean;
+  /**
+   * A TS-like description of what a call RETURNS (e.g. `{ id: string, count:
+   * number }[]`), for discovery. Absent unless populated by
+   * {@link ../fns/shape!sampleResultShapes} — the input schema says how to CALL a
+   * function; this says what a row looks like, so the model needn't guess field
+   * names. Surfaced by `describe(...)` and the primed catalog.
+   */
+  resultShape?: string;
   /** Fire the tool. Returns plain data (JSON-parsed where possible). Throws on error. */
   call(args: Record<string, unknown>, ctx?: ToolFnContext): Promise<unknown>;
 }

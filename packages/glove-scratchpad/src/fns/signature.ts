@@ -26,6 +26,8 @@ export interface FnDescription {
   /** True when the schema accepts keys beyond the declared params. */
   open?: boolean;
   readOnlyHint?: boolean;
+  /** A TS-like type of what the function returns (from {@link ToolFn.resultShape}). */
+  returns?: string;
 }
 
 interface SchemaView {
@@ -113,6 +115,7 @@ export function describeFn(fn: ToolFn): FnDescription {
   if (fn.description) out.description = fn.description;
   if (open && !unknown) out.open = true;
   if (fn.readOnlyHint !== undefined) out.readOnlyHint = fn.readOnlyHint;
+  if (fn.resultShape) out.returns = fn.resultShape;
   return out;
 }
 
@@ -136,7 +139,8 @@ export function fnSignature(fn: ToolFn): string {
   const desc = firstLine
     ? ` — ${firstLine.length > MAX_SIG_DESCRIPTION ? firstLine.slice(0, MAX_SIG_DESCRIPTION) + "…" : firstLine}`
     : "";
-  return `${fn.name}(${args})${desc}`;
+  const returns = fn.resultShape ? ` → ${fn.resultShape}` : "";
+  return `${fn.name}(${args})${returns}${desc}`;
 }
 
 /** Required keys the call is missing — checked before the call fires. */
