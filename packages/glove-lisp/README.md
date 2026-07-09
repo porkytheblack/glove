@@ -69,6 +69,58 @@ mountLisp(agent, { session, allowWrites: true });
 
 Now the model works entirely in Lisp through `execute_lisp` (and `explain_lisp`).
 
+## Function mode (when you don't want to model tables)
+
+The `ResourceTable` contract above asks you to model each capability as an
+entity — columns, required-key pushdown, a volatility class. That is the right
+shape when the data is worth querying and the wrong amount of ceremony when the
+tools are unknown up front (an arbitrary MCP server discovered at runtime has no
+columns to declare). **Function mode** is the light path: register a
+[`ToolFn`](../glove-scratchpad/src/fns) and calling it invokes the underlying
+tool with your argument map, returning its data verbatim.
+
+```ts
+import { LispSession, mountLisp } from "glove-lisp";
+import { fnsFromMcp } from "glove-scratchpad/fns/mcp";
+import { defineFn } from "glove-scratchpad";
+
+const session = LispSession.create();
+
+// A whole MCP server → functions, no table specs:
+session.registerFns(await fnsFromMcp(githubConn));   // github__list_pull_requests, …
+
+// Or author one inline:
+session.registerFn(defineFn({
+  name: "email__send",
+  input: z.object({ to: z.string(), subject: z.string() }),
+  readOnlyHint: false,
+  handler: (args) => sendEmail(args),
+}));
+
+mountLisp(agent, { session });
+```
+
+The model then works the same way, but calls are plain function applications:
+
+```clojure
+(if (empty? (github__list_pull_requests {:state "open"}))
+  (email__send {:to "ops@acme.io" :subject "no open PRs"})
+  (def prs (github__list_pull_requests {:state "open"})))
+```
+
+- **No columns, no pushdown, no `WHERE`-filtering.** The argument map is the
+  tool's input, verbatim; the result is whatever the tool returns.
+- **No `insert!`/`update!`/`delete!`, no staging.** The write verb *is* the
+  function — a call **fires immediately**, always (the `writes` policy and
+  `(stage …)` do not apply). Register effectful functions only on a session you
+  are comfortable firing.
+- **Discovery is `(fns)` / `(describe :name)`** (required parameters marked);
+  the primed catalog lists them.
+- Everything else is identical: `def` persistence, structural elision, loud
+  errors with did-you-mean, the fuel/depth budget.
+- **Functions and resources coexist** in one session — `(tables)` lists
+  resources, `(fns)` lists functions; a name backs only one of them.
+
 ## Why a Lisp (when the SQL emulator already works)
 
 The [scratchpad benchmark](../../examples/scratchpad-bench/PAPER.md) showed the

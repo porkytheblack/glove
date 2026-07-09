@@ -3,6 +3,7 @@
  * `explain_lisp`) and prime the model to discover → read → compute → act.
  */
 import { z } from "zod";
+import { describeFn } from "glove-scratchpad";
 import type { GloveFoldArgs, IGloveRunnable } from "glove-core/glove";
 import type { ToolResultData } from "glove-core/core";
 import { explainProgram } from "./explain";
@@ -45,18 +46,78 @@ Operating discipline:
 
 The only data that enters your context is the value of the LAST form — so return counts, small selections, or summaries, and def the rest.`;
 
-/** A compact "here are your resources" catalog, primed so the model needn't
- *  spend a round-trip listing them (and can't guess a wrong name). Columns that
- *  carry a description are surfaced too — that's where valid enum values live. */
+/**
+ * The function-mode preamble (no ResourceTable). Capabilities are plain
+ * functions: calling one invokes the underlying tool with your argument map and
+ * returns its data. There is no table model, no pushdown, no staging — a call
+ * fires when its form evaluates.
+ */
+export const LISP_FN_PREAMBLE = `Your capabilities are exposed as functions in a LISP REPL (Clojure-flavored). You have ONE tool, execute_lisp, and you work entirely in Lisp. The REPL is PERSISTENT: anything you (def name …) stays available in later calls.
+
+Language card (this is the WHOLE language — nothing else exists):
+- Special forms: if when cond do let if-let when-let fn defn def and or -> ->> quote
+- Data: numbers, "strings", :keywords, [vectors], {:maps "values"}, nil, true/false. #(…) with % is fn shorthand.
+- Library: map filter remove reduce count first last take drop sort-by distinct group-by frequencies max-key min-key sum avg some every? empty? contains? concat flatten range apply get get-in assoc assoc-in dissoc merge select-keys update keys vals key val juxt into set vec doall run! map-indexed str upper-case lower-case includes? starts-with? split join replace
+- These work exactly as in Clojure: (sort-by :count > rows) sorts DESCENDING; (apply max-key :count rows) is argmax; (apply max-key val (frequencies xs)) is the most-common.
+- NO loop/recur/while/eval/JS. Iteration is map/filter/reduce. A fuel budget caps runaway work.
+
+Operating discipline:
+- DISCOVER before you act: (fns) lists your functions; (describe :name) shows one function's parameters (required ones are marked). The catalog below is already current — spend discovery calls only when unsure.
+- CALL a function by name, passing its arguments as ONE map: (github__list_pull_requests {:state "open"}). Argument names and required ones come from (describe :name). The result is whatever the tool returns — usually a list of maps or a value.
+- COMPUTE in the REPL, not in your head. Counting, grouping, joining, argmax — write the expression and return ONLY the final value: (count (github__list_pull_requests {:state "open"})). Data flows between functions inside the program — it does NOT round-trip through you.
+- RETURN WHAT YOU MUST REPORT. If the answer needs ids or names, return them (a count plus a small (map :id …) list) — never state values you did not read.
+- KEEP BIG DATA OUT OF YOUR CONTEXT. (def prs (github__list_pull_requests)) stores the rows in the REPL and echoes only a summary; then (count prs), (take 5 prs), (map :title prs). Never end a program with a huge list you don't need.
+- BRANCH in one program. Conditionals compose: (if (empty? incidents) (slack__post {…all clear…}) (email__send {…alert…})) — decide-and-act is ONE call, not a read, a look, and a second call.
+- BE DECISIVE — answer in as FEW calls as possible; one program that reads, computes, and acts beats many small ones. If a call errors, read the message, change the ONE thing it names, and retry — do not re-run the same program or thrash.
+- CALLS FIRE IMMEDIATELY. Calling an effectful function performs the effect and returns its result — there is NO staging, undo, or dry run. Check parameters with (describe :name) BEFORE an effectful call. If a program errors AFTER an effectful call already fired, do NOT re-run the whole program (it would repeat the effect) — fix and continue from where it failed.
+
+The only data that enters your context is the value of the LAST form — so return counts, small selections, or summaries, and def the rest.`;
+
+/** Appended after {@link LISP_PREAMBLE} when a session has BOTH resources and
+ *  functions, so the resource-mode agent also knows the function surface. */
+export const LISP_FN_SECTION = `Some capabilities are exposed as FUNCTIONS (alongside the resources above). Discover them with (fns) and (describe :name); call one by passing its arguments as a map — (github__list_pull_requests {:state "open"}) — and it returns the tool's data directly. Functions have NO pushdown and NO staging: an effectful function fires the moment it is called.`;
+
+/** A compact catalog of the session's resources AND functions, primed so the
+ *  model needn't spend a round-trip listing them (and can't guess a wrong name). */
 function catalogHint(session: LispSession): string {
+  const sections: string[] = [];
   const tables = session.list();
-  if (tables.length === 0) return "";
-  const lines = tables.map((t) => {
-    const described = t.columns.filter((c) => c.description).map((c) => `${c.name} (${c.description})`);
-    const detail = described.length ? `\n    columns — ${described.join("; ")}` : "";
-    return `- ${t.name}: ${t.description ?? t.name}${detail}`;
-  });
-  return `\n\nResources available to you (use exact values as shown; run (describe :name) for full column lists):\n${lines.join("\n")}`;
+  if (tables.length > 0) {
+    const lines = tables.map((t) => {
+      const described = t.columns.filter((c) => c.description).map((c) => `${c.name} (${c.description})`);
+      const detail = described.length ? `\n    columns — ${described.join("; ")}` : "";
+      return `- ${t.name}: ${t.description ?? t.name}${detail}`;
+    });
+    sections.push(
+      `Resources available to you (use exact values as shown; run (describe :name) for full column lists):\n${lines.join("\n")}`,
+    );
+  }
+  const fns = session.listFns();
+  if (fns.length > 0) {
+    const lines = fns.map((fn) => {
+      const d = describeFn(fn);
+      const params = d.params
+        .map((p) => `:${p.name}${p.required ? "" : "?"}${p.enum ? ` (${p.enum.map((e) => JSON.stringify(e)).join("|")})` : ""}`)
+        .join(" ");
+      const desc = fn.description?.split("\n", 1)[0]?.trim();
+      return `- (${fn.name}${params ? ` {${params}}` : ""})${desc ? ` — ${desc}` : ""}`;
+    });
+    sections.push(
+      `Functions available to you (call by name with an argument map; run (describe :name) for details):\n${lines.join("\n")}`,
+    );
+  }
+  return sections.length ? `\n\n${sections.join("\n\n")}` : "";
+}
+
+/** Select the preamble that fits the session's surface: functions-only,
+ *  resources-only, or both. */
+export function buildLispPreamble(session: LispSession): string {
+  const hasResources = session.list().length > 0;
+  const hasFns = session.listFns().length > 0;
+  let base = LISP_PREAMBLE;
+  if (hasFns && !hasResources) base = LISP_FN_PREAMBLE;
+  else if (hasFns) base = `${LISP_PREAMBLE}\n\n${LISP_FN_SECTION}`;
+  return base + catalogHint(session);
 }
 
 const inputSchema = z.object({
@@ -119,7 +180,11 @@ export function buildExplainLispTool(session: LispSession): GloveFoldArgs<{ code
     async do(input): Promise<ToolResultData> {
       try {
         const resources = new Map(session.list().map((r) => [r.name, r]));
-        const known = new Set<string>([...BUILTIN_NAMES, ...session.definitions()]);
+        const known = new Set<string>([
+          ...BUILTIN_NAMES,
+          ...session.listFns().map((f) => f.name),
+          ...session.definitions(),
+        ]);
         return { status: "success", data: explainProgram(input.code, resources, known) };
       } catch (err) {
         return errResult(err);
@@ -140,7 +205,7 @@ const BUILTIN_NAMES = [
   "get", "get-in", "assoc", "dissoc", "merge", "select-keys", "update", "keys", "vals",
   "str", "upper-case", "lower-case", "capitalize", "trim", "includes?", "starts-with?", "ends-with?",
   "split", "join", "replace", "subs", "println", "prn", "print",
-  "tables", "describe", "insert!", "update!", "delete!", "commit!", "rollback!",
+  "tables", "fns", "describe", "insert!", "update!", "delete!", "commit!", "rollback!",
 ];
 
 export interface MountLispConfig extends LispToolOptions {
@@ -158,7 +223,7 @@ export function mountLisp(glove: IGloveRunnable, config: MountLispConfig): IGlov
   if (explain !== false) glove.fold(buildExplainLispTool(session));
   if (prime !== false) {
     const existing = glove.getSystemPrompt();
-    const preamble = LISP_PREAMBLE + catalogHint(session);
+    const preamble = buildLispPreamble(session);
     glove.setSystemPrompt(existing ? `${preamble}\n\n${existing}` : preamble);
   }
   return glove;
