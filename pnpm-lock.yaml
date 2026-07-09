@@ -365,6 +365,9 @@ importers:
       glove-mcp:
         specifier: workspace:*
         version: link:../../packages/glove-mcp
+      glove-python:
+        specifier: workspace:*
+        version: link:../../packages/glove-python
       glove-scratchpad:
         specifier: workspace:*
         version: link:../../packages/glove-scratchpad

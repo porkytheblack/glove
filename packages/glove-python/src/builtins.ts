@@ -184,20 +184,23 @@ export function makeBuiltins(sink: StdoutSink): Record<string, unknown> {
   return Object.freeze(B);
 }
 
-function reduceExtreme(a: unknown[], k: Record<string, unknown>, api: InterpApi, dir: number): unknown {
+async function reduceExtreme(a: unknown[], k: Record<string, unknown>, api: InterpApi, dir: number): Promise<unknown> {
   const items = a.length === 1 ? materialize(a[0], api) : a;
   if (items.length === 0) {
     if ("default" in k) return k.default;
     throw new PyError(`${dir > 0 ? "max" : "min"}() arg is an empty sequence`);
   }
   const key = k.key;
+  const useKey = key !== undefined && key !== null && api.isCallable(key);
   let best = items[0];
-  let bestK = key && api.isCallable(key) ? undefined : items[0];
-  // key application is sync-only here (min/max key callbacks are rare); if a
-  // closure key is given, fall back to comparing the raw values.
-  void bestK;
+  let bestK = useKey ? await api.apply(key, [items[0]]) : items[0];
   for (const v of items) {
-    if (dir > 0 ? cmp(v, best) > 0 : cmp(v, best) < 0) best = v;
+    api.charge(1);
+    const vk = useKey ? await api.apply(key, [v]) : v;
+    if (dir > 0 ? cmp(vk, bestK) > 0 : cmp(vk, bestK) < 0) {
+      best = v;
+      bestK = vk;
+    }
   }
   return best;
 }

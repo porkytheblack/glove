@@ -20,11 +20,12 @@ import { fnsFromMcp } from "glove-scratchpad/fns/mcp";
 import { sampleResultShapes, type ToolFn } from "glove-scratchpad/fns";
 import { LispSession, mountLisp } from "glove-lisp";
 import { JsSession, mountJs } from "glove-js";
+import { PySession, mountPy } from "glove-python";
 import type { MockOrg } from "../mcp/index";
 import { totalToolCount } from "../mcp/index";
 import { BenchSubscriber } from "./instrument";
 
-export type ArmName = "baseline" | "scratchpad" | "lisp" | "both" | "jsrepl" | "lispfns";
+export type ArmName = "baseline" | "scratchpad" | "lisp" | "both" | "jsrepl" | "lispfns" | "pyrepl";
 
 export interface ArmConfig {
   maxTurns: number;
@@ -44,6 +45,7 @@ export interface BuiltArm {
   db?: Database;
   lisp?: LispSession;
   js?: JsSession;
+  py?: PySession;
 }
 
 const COMPACTION_INSTRUCTIONS =
@@ -154,6 +156,23 @@ export async function buildJsArm(model: ModelAdapter, org: MockOrg, cfg: ArmConf
   glove.addSubscriber(sub);
   // 1 tool in context (execute_js) vs the baseline's ~32.
   return { arm: "jsrepl", runnable, sub, toolsInContext: 1, js };
+}
+
+export async function buildPyArm(model: ModelAdapter, org: MockOrg, cfg: ArmConfig): Promise<BuiltArm> {
+  const glove = baseGlove(model, SHARED_ROLE, cfg);
+  const runnable = glove.build();
+
+  // glove-python is fn-catalog only — a call fires immediately (no staging).
+  // Same catalog as jsrepl/lispfns, driven with Python instead of JS/Clojure.
+  const py = PySession.create();
+  py.registerAll(await catalogFromOrg(org));
+  // Folds a single execute_python; primes unless bare mode.
+  mountPy(runnable, { session: py, prime: cfg.prime !== false });
+
+  const sub = new BenchSubscriber({ echo: cfg.echo });
+  glove.addSubscriber(sub);
+  // 1 tool in context (execute_python) vs the baseline's ~32.
+  return { arm: "pyrepl", runnable, sub, toolsInContext: 1, py };
 }
 
 export async function buildLispFnArm(model: ModelAdapter, org: MockOrg, cfg: ArmConfig): Promise<BuiltArm> {

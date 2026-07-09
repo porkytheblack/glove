@@ -5,7 +5,7 @@
  */
 import { createAdapter } from "glove-core";
 import type { ArmName, ArmConfig } from "./arms";
-import { buildBaselineArm, buildScratchpadArm, buildLispArm, buildBothArm, buildJsArm, buildLispFnArm, baselineToolTotal } from "./arms";
+import { buildBaselineArm, buildScratchpadArm, buildLispArm, buildBothArm, buildJsArm, buildLispFnArm, buildPyArm, baselineToolTotal } from "./arms";
 import { buildMockOrg } from "../mcp/index";
 import type { Scenario } from "../scenarios";
 import type { BenchModel } from "../models";
@@ -81,7 +81,9 @@ export async function runOne(
             ? await buildJsArm(model, org, opts)
             : arm === "lispfns"
               ? await buildLispFnArm(model, org, opts)
-              : await buildScratchpadArm(model, org, opts);
+              : arm === "pyrepl"
+                ? await buildPyArm(model, org, opts)
+                : await buildScratchpadArm(model, org, opts);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
