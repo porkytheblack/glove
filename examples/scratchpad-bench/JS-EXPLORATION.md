@@ -223,18 +223,68 @@ Head-to-heads (win–win, rest ties): jsrepl **1–8** lispfns · lispfns **2–
    recovered to 6/9. The dotted `github.list_pull_requests({…})` form, closest to a
    tool signature, is the most confusable.
 
+### Hardening: two fluency batches (the Lisp method, applied to JS)
+
+The unhardened run's two failure clusters — a *framing* gap (the model calls
+catalog functions as folded tools) and a *result-shape* gap (the model guesses
+field names / enum values the catalog never shows) — are exactly the kind the
+Lisp arm closed by reading every failing transcript and fixing the platform. Two
+batches did the same here, re-running just the affected arms on the same seed:
+
+- **Batch 1 — framing (preamble).** The preamble now opens with a wrong-vs-right
+  example: the functions are NOT tools, `execute_js` is the ONLY tool, you call
+  the functions *inside* it. Plus a shape-discipline line (inspect `rows[0]`
+  before assuming a field).
+- **Batch 2 — result-shape discovery (`sampleResultShapes`).** Each read-only
+  function is sampled once at mount and its returned row rendered as a TS-like
+  type in `describe(...)` and the primed catalog — `sentry__list_issues(…) →
+  { …, count: number, status: "unresolved"|"resolved"|"ignored" }[]`. This is the
+  one thing table mode gets from `information_schema`; function mode now has it.
+
+`jsrepl` across the batches:
+
+| model | tier | orig | +framing | +shapes |
+|---|---|:--:|:--:|:--:|
+| DeepSeek V3.2 | frontier | 10/10 | 10/10 | 9/9¹ |
+| MiniMax M3 | frontier | 8/10 | 10/10 | 9/10 |
+| GLM-5 | frontier | 9/10 | 9/10 | **10/10** |
+| Xiaomi MiMo v2.5 | mid | 10/10 | 10/10 | 10/10 |
+| **Qwen3 30B A3B** | weak | **0/10** | **5/10** | **9/10** |
+| DeepSeek V4 Flash | weak | 10/10 | 10/10 | 10/10 |
+| **total** | | **47/60 (78%)** | **54/60 (90%)** | **57/59 (97%)** |
+
+¹ one provider error, not a graded failure.
+
+Framing alone rescued Qwen3-30B from 0 → 5 and MiniMax-M3 to a clean 10/10 —
+78% → 90% from a prompt-only change. Result shapes then fixed the field-guessing
+(GLM-5's `email-top-error` 9 → 10) and carried Qwen3-30B 5 → 9, landing at
+**97% (57/59) — the top arm**, above lisp (95%), SQL (92%), and baseline (90%).
+The two residual misses are MiniMax-M3's `email-top-error` (a one-cell wobble;
+GLM-5 now passes it) and Qwen3-30B's `reconcile-ghost-issues` (the hardest
+negation task, hit the turn cap).
+
+Two honest costs. **Context:** shapes raise `jsrepl` median peak from 2,630 to
+3,793 tokens — still below baseline's 4,783, but the off-context edge narrows
+from 1.8× to ~1.3×; a ~1.2k-token catalog buys +7 points of accuracy, and the
+trade is worth it for a surface going 78 → 97%. **Surface-specificity:** the same
+shapes are neutral-to-slightly-negative on `lispfns` (92% → 88%, essentially all
+Qwen3-30B variance) — Lisp function mode wasn't guessing fields, so the extra
+catalog is cost without benefit. The lesson mirrors the Lisp paper's: enrichment
+should be matched to where the fluency actually strains.
+
 ### Verdict against §9
 
-This is **§9's outcome 3-shaped for the weak tail only, and it is a platform gap
-with an obvious fix** — exactly the Lisp arm's own starting point (its first run
-was 62/77 before three fluency batches took it to 74/77). The JS surface's first,
-unhardened run reproduces the context benefit, reaches parity on frontier/mid, and
-localizes its single failure cluster to one weak model's confusion between "call
-this function inside `execute_js`" and "call this tool." The fix is preamble/catalog
-hardening (present the catalog only through `fns()`/`describe`, or frame it
-explicitly as "functions you call inside execute_js — the ONLY tool is execute_js"),
-not anything in the language or the sandbox. Fluency, again, is the whole bet — and
-here the gap is in how the surface is *introduced*, the cheapest possible thing to fix.
+**§9's outcome 1, earned through hardening.** The first run reproduced the
+context benefit and reached frontier/mid parity but face-planted on the weak tail;
+two fluency batches — framing, then result-shape discovery — took `jsrepl` from
+78% to **97%, the strongest arm in the matrix**, with the single structural fix
+(sampling read-only shapes) being exactly the discovery affordance table mode had
+and function mode lacked. The remaining differences are one-cell noise and the
+single hardest task. JavaScript's ubiquity delivered on the fluency bet once the
+surface was *introduced* correctly and made to *show its data's shape* — neither
+of which is a language or sandbox change. The honest recommendation: **jsrepl as
+a first-class fluency surface, with result-shape sampling on where the models
+guess fields (JS) and off where they don't (Lisp fn-mode).**
 
 ## 11. The cost of a real language: an adversarial sandbox review
 

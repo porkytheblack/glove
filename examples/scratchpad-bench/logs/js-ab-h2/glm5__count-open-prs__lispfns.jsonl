@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"glm5","model":"z-ai/glm-5","scenario":"count-open-prs","arm":"lispfns","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":13,"servicesTouched":10,"tokensIn":5769,"tokensOut":159,"cacheRead":2816,"peakContextTokens":2901,"compactions":0,"toolsInContext":1,"wallMs":4978,"costUsd":0.0037666799999999997,"toolMix":{"execute_lisp":1},"expected":17}
+{"kind":"final_answer","text":"17"}
+{"t":2814,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(count (github__list_pull_requests {:state \\\"open\\\"}))\"}"}]}
+{"t":2814,"type":"tokens","in":2868,"out":136,"peak":2868}
+{"t":2816,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":17}"}
+{"t":4978,"type":"model_response","turn":2,"stop_reason":"stop","text":"17","tool_calls":[]}
+{"t":4978,"type":"tokens","in":2901,"out":23,"peak":2901}

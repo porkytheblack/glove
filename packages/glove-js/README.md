@@ -141,15 +141,19 @@ Draft v0.1 — a fluency exploration alongside `glove-lisp`. The evaluator subse
 and sandbox are covered by unit tests (`pnpm --filter glove-js test`), and the
 sandbox boundary survived an adversarial escape review.
 
-A first live A/B (6 models × 10 tasks × 5 arms — see
+A live A/B (6 models × 10 tasks × 5 arms — see
 [`examples/scratchpad-bench/JS-EXPLORATION.md`](../../examples/scratchpad-bench/JS-EXPLORATION.md))
-found that `execute_js` reproduces the SQL/Lisp **off-context benefit** (1.8×
-less peak context than folding every tool) and is fully competitive on frontier
-and mid-tier models, while **function mode reaches parity with the ResourceTable
-contract**. Its one weak-tail failure cluster is a preamble *framing* gap (the
-weakest model called the catalog functions as if they were folded tools instead
-of writing an `execute_js` program), not a language or sandbox problem — the
-same kind of gap the Lisp surface closed over successive fluency batches.
+found that `execute_js` reproduces the SQL/Lisp **off-context benefit** and is
+fully competitive on frontier/mid models, while **function mode reaches parity
+with the ResourceTable contract**. The first run's weak-tail misses were two
+fluency gaps — the model calling catalog functions as folded tools, and guessing
+result field names the catalog never showed — both closed over two hardening
+batches: a preamble that frames `execute_js` as the only tool, and
+**result-shape discovery** (`sampleResultShapes` samples each read-only function
+once and surfaces a TS-like row type in `describe(...)` and the catalog, e.g.
+`sentry__list_issues(…) → { …, count: number, status: "unresolved"|"resolved"|"ignored" }[]`).
+That took `jsrepl` from **78% → 90% → 97%** — the top arm, above Lisp (95%) and
+SQL (92%) — for a modest peak-context increase.
 
 ## License
 
