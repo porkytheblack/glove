@@ -179,18 +179,18 @@ function bindPattern(
       return;
     }
     case "ObjectPattern": {
-      const obj = (value ?? {}) as Record<string, unknown>;
+      const obj = value ?? {};
       const taken = new Set<string>();
       for (const prop of pattern.properties as AstNode[]) {
         if (prop.type === "RestElement") {
-          const rest: Record<string, unknown> = {};
-          for (const k of Object.keys(obj)) if (!taken.has(k)) rest[k] = obj[k];
-          bindPattern(prop.argument as AstNode, rest, scope, declareConst, ctx);
+          bindPattern(prop.argument as AstNode, restProps(obj, taken), scope, declareConst, ctx);
           continue;
         }
         const key = propKeyName(prop);
         taken.add(key);
-        bindPattern(prop.value as AstNode, obj?.[key], scope, declareConst, ctx);
+        // Route through the member gate so `const { constructor: c } = {}` is
+        // blocked exactly like `({}).constructor` — destructuring is member access.
+        bindPattern(prop.value as AstNode, getMember(obj, key, apiFor(ctx)), scope, declareConst, ctx);
       }
       return;
     }
@@ -776,11 +776,16 @@ function assignPattern(pattern: AstNode, value: unknown, scope: Scope, ctx: Eval
     return;
   }
   if (pattern.type === "ObjectPattern") {
-    const obj = (value ?? {}) as Record<string, unknown>;
+    const obj = value ?? {};
+    const taken = new Set<string>();
     for (const prop of pattern.properties as AstNode[]) {
-      if (prop.type === "RestElement") continue;
+      if (prop.type === "RestElement") {
+        assignPattern(prop.argument as AstNode, restProps(obj, taken), scope, ctx);
+        continue;
+      }
       const key = propKeyName(prop);
-      assignPattern(prop.value as AstNode, obj?.[key], scope, ctx);
+      taken.add(key);
+      assignPattern(prop.value as AstNode, getMember(obj, key, apiFor(ctx)), scope, ctx);
     }
     return;
   }
@@ -791,6 +796,20 @@ function assignPattern(pattern: AstNode, value: unknown, scope: Scope, ctx: Eval
 
 export function truthy(v: unknown): boolean {
   return Boolean(v);
+}
+
+const REST_SKIP = new Set(["__proto__", "constructor", "prototype"]);
+
+/** Own enumerable keys not already destructured, for an object-rest pattern —
+ *  skipping the escape keys so `const { ...rest } = obj` can't smuggle one. */
+function restProps(obj: unknown, taken: Set<string>): Record<string, unknown> {
+  const rest: Record<string, unknown> = {};
+  if (obj && typeof obj === "object") {
+    for (const k of Object.keys(obj as object)) {
+      if (!taken.has(k) && !REST_SKIP.has(k)) rest[k] = (obj as Record<string, unknown>)[k];
+    }
+  }
+  return rest;
 }
 
 function toIterable(v: unknown): Iterable<unknown> {
