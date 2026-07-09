@@ -17,13 +17,14 @@ const RES = join(import.meta.dirname, "..", "results");
 const file = process.argv[2] ?? "js-ab-results.json";
 const rows: RunResult[] = JSON.parse(readFileSync(join(RES, file), "utf8"));
 
-const ARMS = ["baseline", "scratchpad", "lisp", "jsrepl", "lispfns"] as const;
+const ARMS = ["baseline", "scratchpad", "lisp", "jsrepl", "lispfns", "pyrepl"] as const;
 const ARM_LABEL: Record<string, string> = {
   baseline: "baseline",
   scratchpad: "SQL",
   lisp: "lisp",
   jsrepl: "jsrepl",
   lispfns: "lispfns",
+  pyrepl: "pyrepl",
 };
 const MODEL_LABEL: Record<string, string> = {
   kimi27: "Kimi K2.7 Code",
@@ -112,6 +113,10 @@ if (armsPresent.includes("lispfns") && armsPresent.includes("lisp"))
   console.log(`function mode vs table mode (lisp): ${h2h("lispfns", "lisp")}`);
 if (armsPresent.includes("jsrepl") && armsPresent.includes("scratchpad"))
   console.log(`jsrepl vs SQL: ${h2h("jsrepl", "scratchpad")}`);
+if (armsPresent.includes("pyrepl") && armsPresent.includes("jsrepl"))
+  console.log(`\nPython vs JS (same fn catalog): ${h2h("pyrepl", "jsrepl")}`);
+if (armsPresent.includes("pyrepl") && armsPresent.includes("lispfns"))
+  console.log(`Python vs Clojure (same fn catalog): ${h2h("pyrepl", "lispfns")}`);
 
 const errored = rows.filter((r) => r.errored);
 if (errored.length) console.log(`\ncells lost to provider errors (not graded failures): ${errored.length}`);
