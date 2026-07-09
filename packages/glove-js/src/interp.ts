@@ -20,6 +20,7 @@ import type { AstNode } from "./parse";
 import { Scope } from "./scope";
 import { getMember, setMember, deleteMember, callMember, type InterpApi } from "./members";
 import { HostCtor } from "./host";
+import { assertSafeRegex } from "./regex-safety";
 
 /** Raised by fuel exhaustion / abort — NOT catchable by a program's try/catch. */
 export class BudgetError extends JsError {}
@@ -243,6 +244,23 @@ function hoistFunctions(body: AstNode[], scope: Scope, ctx: EvalCtx): void {
   void ctx;
 }
 
+/** Identifier names bound by a `for`-init VariableDeclaration (for per-iteration
+ *  fresh bindings). Simple identifiers cover the common `for (let i = …)`; a
+ *  destructuring init falls back to whatever names its patterns bind. */
+function declNames(decl: AstNode): string[] {
+  const out: string[] = [];
+  const walk = (p: AstNode | null): void => {
+    if (!p) return;
+    if (p.type === "Identifier") out.push(p.name as string);
+    else if (p.type === "ArrayPattern") for (const el of p.elements as (AstNode | null)[]) walk(el);
+    else if (p.type === "ObjectPattern") for (const pr of p.properties as AstNode[]) walk((pr.value ?? pr.argument) as AstNode);
+    else if (p.type === "AssignmentPattern") walk(p.left as AstNode);
+    else if (p.type === "RestElement") walk(p.argument as AstNode);
+  };
+  for (const d of decl.declarations as AstNode[]) walk(d.id as AstNode);
+  return out;
+}
+
 function makeClosure(node: AstNode, scope: Scope): Closure {
   const body = node.body as AstNode;
   const exprBody = node.type === "ArrowFunctionExpression" && body.type !== "BlockStatement";
@@ -309,22 +327,46 @@ async function evalStmt(node: AstNode, scope: Scope, ctx: EvalCtx): Promise<unkn
       return last;
     }
     case "ForStatement": {
-      const forScope = scope.child();
-      let last: unknown;
-      if (node.init) {
-        if ((node.init as AstNode).type === "VariableDeclaration") await evalStmt(node.init as AstNode, forScope, ctx);
-        else await evalExpr(node.init as AstNode, forScope, ctx);
+      const init = node.init as AstNode | null;
+      const lexical = init?.type === "VariableDeclaration" && init.kind !== "var";
+      const outer = scope.child();
+      let names: string[] = [];
+      if (init) {
+        if (init.type === "VariableDeclaration") {
+          await evalStmt(init, outer, ctx);
+          if (lexical) names = declNames(init);
+        } else {
+          await evalExpr(init, outer, ctx);
+        }
       }
-      while (node.test ? truthy(await evalExpr(node.test as AstNode, forScope, ctx)) : true) {
+      let last: unknown;
+      // Per-iteration bindings for `let` (spec CreatePerIterationEnvironment):
+      // the body's binding is COPIED to a fresh one before the increment runs, so
+      // a closure created in the body captures that iteration's value — the
+      // increment mutates the next iteration's copy, not the captured one.
+      const fresh = (from: Scope): Scope => {
+        const s = scope.child();
+        for (const n of names) s.declare(n, from.lookup(n).value, false);
+        return s;
+      };
+      let env = lexical ? fresh(outer) : outer;
+      for (;;) {
+        if (node.test && !truthy(await evalExpr(node.test as AstNode, env, ctx))) break;
         chargeFuel(ctx);
         checkAbort(ctx);
         try {
-          last = await evalStmt(node.body as AstNode, forScope.child(), ctx);
+          last = await evalStmt(node.body as AstNode, env.child(), ctx);
         } catch (sig) {
           if (sig instanceof BreakSignal) break;
           if (!(sig instanceof ContinueSignal)) throw sig;
         }
-        if (node.update) await evalExpr(node.update as AstNode, forScope, ctx);
+        if (lexical) {
+          const next = fresh(env);
+          if (node.update) await evalExpr(node.update as AstNode, next, ctx);
+          env = next;
+        } else if (node.update) {
+          await evalExpr(node.update as AstNode, env, ctx);
+        }
       }
       return last;
     }
@@ -428,8 +470,14 @@ async function evalExpr(node: AstNode, scope: Scope, ctx: EvalCtx): Promise<unkn
   chargeFuel(ctx);
   checkAbort(ctx);
   switch (node.type) {
-    case "Literal":
-      return node.regex ? new RegExp((node.regex as { pattern: string; flags: string }).pattern, (node.regex as { flags: string }).flags) : node.value;
+    case "Literal": {
+      if (node.regex) {
+        const { pattern, flags } = node.regex as { pattern: string; flags: string };
+        assertSafeRegex(pattern);
+        return new RegExp(pattern, flags);
+      }
+      return node.value;
+    }
     case "Identifier": {
       const name = node.name as string;
       if (name in BANNED_IDENTIFIERS) throw new JsError(BANNED_IDENTIFIERS[name]);
@@ -470,6 +518,12 @@ async function evalExpr(node: AstNode, scope: Scope, ctx: EvalCtx): Promise<unkn
         }
         out[key] = await evalExpr(prop.value as AstNode, scope, ctx);
       }
+      // A callable `then` makes the object a thenable; because the interpreter is
+      // async, returning it would trigger promise-assimilation and hang the host
+      // forever. Reject it — the model can rename the property.
+      if (isCallable(out.then)) {
+        throw new JsError("an object with a callable 'then' is not allowed — it would hang async evaluation. Rename the property.");
+      }
       return out;
     }
     case "ArrowFunctionExpression":
@@ -496,15 +550,21 @@ async function evalExpr(node: AstNode, scope: Scope, ctx: EvalCtx): Promise<unkn
     }
     case "MemberExpression":
       return (await evalMember(node, scope, ctx)).value;
-    case "ChainExpression":
-      return evalExpr(node.expression as AstNode, scope, ctx);
+    case "ChainExpression": {
+      // A whole `a?.b.c()` chain short-circuits to undefined when any optional
+      // link is nullish — not just the one link that carried the `?.`.
+      const r = await evalChain(node.expression as AstNode, scope, ctx);
+      return r === SHORT ? undefined : r;
+    }
     case "CallExpression":
       return evalCall(node, scope, ctx);
     case "NewExpression":
       return evalNew(node, scope, ctx);
     case "AwaitExpression": {
+      // Only await REAL promises. A model-built thenable ({ then: hostFn }) could
+      // hijack await and hang the host forever (its `then` never resolves).
       const v = await evalExpr(node.argument as AstNode, scope, ctx);
-      return v && typeof (v as { then?: unknown }).then === "function" ? await v : v;
+      return v instanceof Promise ? await v : v;
     }
     default:
       throw new JsError(`unsupported expression: ${node.type}`);
@@ -525,9 +585,19 @@ async function evalTemplate(node: AstNode, scope: Scope, ctx: EvalCtx): Promise<
   let out = "";
   for (let i = 0; i < quasis.length; i++) {
     out += (quasis[i].value as { cooked: string }).cooked;
-    if (i < exprs.length) out += stringify(await evalExpr(exprs[i], scope, ctx));
+    if (i < exprs.length) out += templateString(await evalExpr(exprs[i], scope, ctx));
   }
   return out;
+}
+
+/** JS-faithful string coercion for `${…}`: arrays join with ",", plain objects
+ *  become "[object Object]" — same as real template interpolation. */
+function templateString(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (v === null) return "null";
+  if (v === undefined) return "undefined";
+  if (v instanceof Closure || v instanceof HostCtor || typeof v === "function") return "[function]";
+  return String(v);
 }
 
 function stringify(v: unknown): string {
@@ -542,6 +612,53 @@ function stringify(v: unknown): string {
     }
   }
   return String(v);
+}
+
+/** Sentinel: an optional-chain link was nullish, so the rest of the chain is skipped. */
+const SHORT = Symbol("short-circuit");
+
+/** Evaluate a node inside an optional chain, propagating {@link SHORT} when an
+ *  optional link is nullish so the whole chain resolves to undefined. */
+async function evalChain(node: AstNode, scope: Scope, ctx: EvalCtx): Promise<unknown> {
+  chargeFuel(ctx);
+  if (node.type === "MemberExpression") {
+    const object = await evalChain(node.object as AstNode, scope, ctx);
+    if (object === SHORT) return SHORT;
+    // an optional link on a nullish base short-circuits the rest of the chain;
+    // a non-optional access on null/undefined still throws (real JS, via getMember)
+    if (node.optional && (object === null || object === undefined)) return SHORT;
+    const key = node.computed
+      ? String(await evalExpr(node.property as AstNode, scope, ctx))
+      : ((node.property as AstNode).name as string);
+    return getMember(object, key, apiFor(ctx));
+  }
+  if (node.type === "CallExpression") {
+    const callee = node.callee as AstNode;
+    if (callee.type === "MemberExpression") {
+      const object = await evalChain(callee.object as AstNode, scope, ctx);
+      if (object === SHORT) return SHORT;
+      if (callee.optional && (object === null || object === undefined)) return SHORT;
+      const key = callee.computed
+        ? String(await evalExpr(callee.property as AstNode, scope, ctx))
+        : ((callee.property as AstNode).name as string);
+      if (node.optional) {
+        const fnv = getMember(object, key, apiFor(ctx));
+        if (fnv === null || fnv === undefined) return SHORT;
+      }
+      const args = await evalArgs(node.arguments as AstNode[], scope, ctx);
+      return callMember(object, key, args, apiFor(ctx));
+    }
+    const fn = await evalChain(callee, scope, ctx);
+    if (fn === SHORT) return SHORT;
+    if (node.optional && (fn === null || fn === undefined)) return SHORT;
+    const args = await evalArgs(node.arguments as AstNode[], scope, ctx);
+    if (fn instanceof HostCtor) {
+      if (fn.callable) return fn.callable(args);
+      throw new JsError(`${fn.name} must be called with new — write new ${fn.name}(...).`);
+    }
+    return applyFunction(fn, args, ctx);
+  }
+  return evalExpr(node, scope, ctx);
 }
 
 /** Resolve a MemberExpression to both its object and its value (so a call can
@@ -564,9 +681,9 @@ async function evalMember(
 
 async function evalCall(node: AstNode, scope: Scope, ctx: EvalCtx): Promise<unknown> {
   const callee = node.callee as AstNode;
-  const args = await evalArgs(node.arguments as AstNode[], scope, ctx);
 
   if (callee.type === "MemberExpression") {
+    // JS order: evaluate the receiver, then the arguments, then call.
     const object = await evalExpr(callee.object as AstNode, scope, ctx);
     if (callee.optional && (object === null || object === undefined)) return undefined;
     const key = callee.computed
@@ -576,11 +693,13 @@ async function evalCall(node: AstNode, scope: Scope, ctx: EvalCtx): Promise<unkn
       const fnv = getMember(object, key, apiFor(ctx));
       if (fnv === null || fnv === undefined) return undefined;
     }
+    const args = await evalArgs(node.arguments as AstNode[], scope, ctx);
     return callMember(object, key, args, apiFor(ctx));
   }
 
   const fn = await evalExpr(callee, scope, ctx);
   if (node.optional && (fn === null || fn === undefined)) return undefined;
+  const args = await evalArgs(node.arguments as AstNode[], scope, ctx);
   if (fn instanceof HostCtor) {
     if (fn.callable) return fn.callable(args);
     throw new JsError(`${fn.name} must be called with new — write new ${fn.name}(...).`);
@@ -668,7 +787,11 @@ async function evalBinary(node: AstNode, scope: Scope, ctx: EvalCtx): Promise<un
   const l = await evalExpr(node.left as AstNode, scope, ctx);
   const r = await evalExpr(node.right as AstNode, scope, ctx);
   switch (op) {
-    case "+": return (l as number) + (r as number);
+    case "+": {
+      const sum = (l as number) + (r as number);
+      chargeConcat(ctx, sum); // meter string growth so `s += s` can't OOM for ~0 fuel
+      return sum;
+    }
     case "-": return (l as number) - (r as number);
     case "*": return (l as number) * (r as number);
     case "/": return (l as number) / (r as number);
@@ -709,17 +832,70 @@ async function evalLogical(node: AstNode, scope: Scope, ctx: EvalCtx): Promise<u
 async function evalAssignment(node: AstNode, scope: Scope, ctx: EvalCtx): Promise<unknown> {
   const op = node.operator as string;
   const left = node.left as AstNode;
-  if (op === "=") {
+
+  if (left.type === "ArrayPattern" || left.type === "ObjectPattern") {
     const value = await evalExpr(node.right as AstNode, scope, ctx);
-    await assignTo(left, value, scope, ctx);
+    assignPattern(left, value, scope, ctx);
     return value;
   }
-  // compound assignment: x += y etc. left is Identifier or MemberExpression.
-  const cur = await evalExpr(left, scope, ctx);
-  const rhs = await evalExpr(node.right as AstNode, scope, ctx);
-  const value = applyCompound(op, cur, rhs);
-  await assignTo(left, value, scope, ctx);
+
+  // Resolve the assignment target ONCE (the object/key subexpression is
+  // evaluated a single time, before the RHS — matching JS and firing any
+  // effectful receiver exactly once).
+  const rhs = node.right as AstNode;
+  const eval1 = apiFor(ctx);
+  const isMember = left.type === "MemberExpression";
+  let object: unknown;
+  let key = "";
+  if (isMember) {
+    object = await evalExpr(left.object as AstNode, scope, ctx);
+    key = left.computed
+      ? String(await evalExpr(left.property as AstNode, scope, ctx))
+      : ((left.property as AstNode).name as string);
+  } else if (left.type !== "Identifier") {
+    throw new JsError(`invalid assignment target: ${left.type}`);
+  }
+  const read = (): unknown =>
+    isMember ? getMember(object, key, eval1) : lookupOrThrow(left.name as string, scope);
+  const write = (v: unknown): void => {
+    if (isMember) setMember(object, key, v);
+    else scope.assign(left.name as string, v);
+  };
+
+  if (op === "=") {
+    const value = await evalExpr(rhs, scope, ctx);
+    write(value);
+    return value;
+  }
+  // short-circuit compound assignment: RHS only runs when the LHS says so.
+  if (op === "||=" || op === "&&=" || op === "??=") {
+    const cur = read();
+    const proceed = op === "||=" ? !truthy(cur) : op === "&&=" ? truthy(cur) : cur === null || cur === undefined;
+    if (!proceed) return cur;
+    const value = await evalExpr(rhs, scope, ctx);
+    write(value);
+    return value;
+  }
+  const cur = read();
+  const value = applyCompound(op, cur, await evalExpr(rhs, scope, ctx));
+  if (op === "+=") chargeConcat(ctx, value);
+  write(value);
   return value;
+}
+
+const CONCAT_FREE = 256;
+
+/** Charge fuel for a large string result so exponential concatenation
+ *  (`s += s` in a loop) is bounded by the budget instead of running to V8's
+ *  ~512MB string cap. Small strings are free. */
+function chargeConcat(ctx: EvalCtx, v: unknown): void {
+  if (typeof v === "string" && v.length > CONCAT_FREE) chargeFuel(ctx, v.length);
+}
+
+function lookupOrThrow(name: string, scope: Scope): unknown {
+  const r = scope.lookup(name);
+  if (!r.found) throw new JsError(`'${name}' is not defined.`);
+  return r.value;
 }
 
 function applyCompound(op: string, l: unknown, r: unknown): unknown {

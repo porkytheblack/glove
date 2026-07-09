@@ -130,3 +130,44 @@ test("Object.assign does not copy __proto__", async () => {
   const r = await s.execute("const o = Object.assign({}, JSON.parse('{\"__proto__\":{\"x\":1}}')); typeof o.x");
   assert.equal(r.value, "undefined");
 });
+
+// ── budget bypasses found by adversarial review ──────────────────────────────
+
+test("Error.stack does not leak host paths; name/message still readable", async () => {
+  const s = JsSession.create();
+  assert.equal((await s.execute('const e = new Error("x"); typeof e.stack')).value, "undefined");
+  assert.equal((await s.execute('const e = new Error("boom"); e.message')).value, "boom");
+  await expectError("new Error('x').constructor", /not allowed/);
+});
+
+test("catastrophic-backtracking regexes are rejected at construction and compile", async () => {
+  await expectError('/(a+)+$/.test("aaa")', /catastrophic backtracking/);
+  await expectError('new RegExp("(a+)+$")', /catastrophic backtracking/);
+  await expectError('new RegExp("(a*)*")', /catastrophic backtracking/);
+  await expectError('"aaaa!".match("(a+)+$")', /catastrophic backtracking/);
+  // safe regexes still work
+  const s = JsSession.create();
+  assert.equal((await s.execute('/\\d+/.test("abc123")')).value, true);
+  assert.equal((await s.execute('"a,b,c".split(/,/).length')).value, 3);
+  assert.equal((await s.execute('/(ab)+/.test("abab")')).value, true);
+});
+
+test("bulk allocation is metered / capped, not free", async () => {
+  await expectError('"a".repeat(500000000)', /too large/);
+  await expectError('"a".padStart(500000000)', /too large/);
+  await expectError("Array.from({ length: 50000000 })", /too large/);
+  // exponential string doubling hits the fuel budget, not a host OOM
+  await expectError("let s = 'a'; for (let i = 0; i < 40; i++) s += s; s", /computation budget exceeded/);
+  // normal sizes still work
+  const s = JsSession.create();
+  assert.equal((await s.execute('"ab".repeat(3)')).value, "ababab");
+  assert.equal((await s.execute("Array.from({ length: 5 }).length")).value, 5);
+});
+
+test("a model-built thenable cannot hang async evaluation", async () => {
+  await expectError("({ then: () => {} })", /callable 'then' is not allowed/);
+  await expectError("const o = { then: x => x }; o", /callable 'then' is not allowed/);
+  // a non-callable `then` is fine (just data)
+  const s = JsSession.create();
+  assert.equal((await s.execute("const o = { then: 5 }; o.then")).value, 5);
+});

@@ -128,3 +128,47 @@ test("the last top-level expression is the returned value", async () => {
   const r = await s.execute("const a = 1; const b = 2; a + b");
   assert.equal(r.value, 3);
 });
+
+// ── semantics fixed after adversarial review (match real Node.js) ─────────────
+
+test("for (let …) creates a per-iteration binding (closures capture the right i)", async () => {
+  assert.deepEqual(await run("const fns = []; for (let i = 0; i < 3; i++) fns.push(() => i); fns.map(f => f())"), [0, 1, 2]);
+});
+
+test("optional chaining short-circuits the WHOLE chain", async () => {
+  assert.equal(await run("const a = null; typeof a?.b.c"), "undefined");
+  assert.equal(await run("const a = { b: null }; typeof a?.b?.c.d"), "undefined");
+  assert.equal(await run("const a = { b: { c: 7 } }; a?.b?.c"), 7);
+});
+
+test("short-circuit compound assignment does not evaluate the RHS when it shouldn't", async () => {
+  // x is truthy → ||= keeps it, RHS never runs
+  assert.equal(await run("const log = []; let x = 5; x ||= (log.push(1), 10); log.length"), 0);
+  // x is falsy → ||= runs the RHS
+  assert.deepEqual(await run("const log = []; let x = 0; x ||= (log.push(1), 10); [x, log.length]"), [10, 1]);
+  assert.equal(await run("let x = null; x ??= 3; x"), 3);
+});
+
+test("compound member assignment fires the receiver exactly once", async () => {
+  assert.deepEqual(
+    await run("let calls = 0; const arr = [10]; const f = () => { calls++; return arr; }; f()[0] += 5; [calls, arr[0]]"),
+    [1, 15],
+  );
+});
+
+test("evaluation order is receiver/target before args/RHS (program order for effects)", async () => {
+  assert.equal(
+    await run("const o = []; const recv = () => { o.push('recv'); return { m: x => x }; }; const arg = () => { o.push('arg'); return 1; }; recv().m(arg()); o.join(',')"),
+    "recv,arg",
+  );
+  assert.equal(
+    await run("const o = []; const t = () => { o.push('t'); return {}; }; const r = () => { o.push('r'); return 1; }; t().x = r(); o.join(',')"),
+    "t,r",
+  );
+});
+
+test("template interpolation uses String() semantics", async () => {
+  assert.equal(await run("`${[1, 2, 3]}`"), "1,2,3");
+  assert.equal(await run("`${({ a: 1 })}`"), "[object Object]");
+  assert.equal(await run("`${null} ${undefined} ${42}`"), "null undefined 42");
+});

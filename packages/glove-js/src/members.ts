@@ -22,6 +22,11 @@
 import { JsError } from "./errors";
 import { closest } from "glove-scratchpad/fns";
 import { HostCtor } from "./host";
+import { assertSafeRegex } from "./regex-safety";
+
+/** Hard ceiling on a single bulk allocation (chars / elements) — a backstop
+ *  above the per-op fuel charge so even a high-fuel session can't OOM the host. */
+const MAX_ALLOC = 10_000_000;
 
 /** The interpreter surface the reimplemented methods need. Passed in to avoid a
  *  runtime import cycle (interp.ts imports this module). */
@@ -99,6 +104,7 @@ const REGEXP_METHODS = new Set(["test", "exec", "toString"]);
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
   if (v instanceof Set || v instanceof Map || v instanceof Date || v instanceof RegExp) return false;
+  if (v instanceof Error) return false;
   return true;
 }
 
@@ -109,6 +115,7 @@ function typeName(v: unknown): string {
   if (v instanceof Map) return "Map";
   if (v instanceof Date) return "Date";
   if (v instanceof RegExp) return "RegExp";
+  if (v instanceof Error) return "Error";
   return typeof v;
 }
 
@@ -143,6 +150,15 @@ const MISSING = Symbol("missing");
 function readDataProp(obj: unknown, key: string): unknown | typeof MISSING {
   if (obj instanceof HostCtor) {
     return Object.hasOwn(obj.statics, key) ? obj.statics[key] : MISSING;
+  }
+  if (obj instanceof Error) {
+    // Only the safe fields — NOT `stack` (leaks host absolute paths + interpreter
+    // internals), consistent with how caught host errors are sanitized to
+    // { name, message } before a program's catch clause sees them.
+    if (key === "message") return obj.message;
+    if (key === "name") return obj.name;
+    if (key === "cause") return (obj as Error & { cause?: unknown }).cause;
+    return MISSING;
   }
   if (typeof obj === "function") {
     // Host namespace functions (Number, String, …) carry their statics as own
@@ -279,6 +295,25 @@ export async function callMember(
 }
 
 function callStringMethod(str: string, key: string, args: unknown[], api: InterpApi): unknown {
+  // Bulk allocators: charge fuel proportional to the output and hard-cap it, so
+  // a program can't build a 512MB string for ~0 fuel.
+  if (key === "repeat") {
+    const count = Math.max(0, Math.floor(Number(args[0]) || 0));
+    const out = count * str.length;
+    if (out > MAX_ALLOC) throw new JsError(`repeat would build ${out} characters — too large (max ${MAX_ALLOC}).`);
+    api.charge(out);
+    return callStr(key, str, args);
+  }
+  if (key === "padStart" || key === "padEnd") {
+    const target = Math.max(0, Math.floor(Number(args[0]) || 0));
+    if (target > MAX_ALLOC) throw new JsError(`${key} target length ${target} is too large (max ${MAX_ALLOC}).`);
+    api.charge(Math.max(0, target - str.length));
+    return callStr(key, str, args);
+  }
+  // Methods that compile a string argument into a regex — guard the pattern.
+  if ((key === "match" || key === "matchAll" || key === "search") && typeof args[0] === "string") {
+    assertSafeRegex(args[0]);
+  }
   if (STRING_FN_REPLACERS.has(key)) {
     if (api.isCallable(args[1])) {
       throw new JsError(

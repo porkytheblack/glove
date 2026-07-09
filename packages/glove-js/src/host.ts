@@ -1,3 +1,5 @@
+import { assertSafeRegex } from "./regex-safety";
+
 /**
  * Host constructors the model may reach via `new` (or call): the ONLY things
  * `new` is allowed on. Branded so members.ts can expose their statics
@@ -27,8 +29,16 @@ export function hostConstructors(): Record<string, HostCtor> {
     ),
     RegExp: new HostCtor(
       "RegExp",
-      (a) => new RegExp(a[0] as string, a[1] as string | undefined),
-      (a) => new RegExp(a[0] as string, a[1] as string | undefined),
+      (a) => {
+        const src = a[0] instanceof RegExp ? a[0].source : String(a[0] ?? "");
+        assertSafeRegex(src);
+        return new RegExp(a[0] as string, a[1] as string | undefined);
+      },
+      (a) => {
+        const src = a[0] instanceof RegExp ? a[0].source : String(a[0] ?? "");
+        assertSafeRegex(src);
+        return new RegExp(a[0] as string, a[1] as string | undefined);
+      },
     ),
     Error: new HostCtor(
       "Error",

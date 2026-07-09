@@ -126,12 +126,20 @@ function makeObject(): Record<string, unknown> {
   });
 }
 
+const MAX_ALLOC = 10_000_000;
+
 function makeArrayNamespace(): Record<string, unknown> {
   return Object.freeze({
     isArray: (x: unknown) => Array.isArray(x),
     from: (x: unknown, mapFn?: unknown) => {
       if (mapFn !== undefined) {
         throw new JsError("Array.from with a map function is not supported — use Array.from(x).map(fn).");
+      }
+      // A length-only array-like (Array.from({ length: N })) would materialize N
+      // elements for ~0 fuel — hard-cap it (the interpreter can't charge here).
+      const len = (x as { length?: unknown })?.length;
+      if (typeof len === "number" && !(Symbol.iterator in Object(x)) && len > MAX_ALLOC) {
+        throw new JsError(`Array.from would build ${len} elements — too large (max ${MAX_ALLOC}).`);
       }
       return Array.from(x as Iterable<unknown> | ArrayLike<unknown>);
     },
