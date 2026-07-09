@@ -1,0 +1,10 @@
+{"kind":"meta","modelKey":"qwen30b","model":"qwen/qwen3-30b-a3b-instruct-2507","scenario":"high-urgency-triggered","arm":"jsrepl","ok":false,"errored":false,"turns":3,"toolCalls":2,"toolErrors":2,"mcpRoundTrips":0,"servicesTouched":0,"tokensIn":6156,"tokensOut":92,"cacheRead":6048,"peakContextTokens":2111,"compactions":0,"toolsInContext":1,"wallMs":1907,"costUsd":0.00032528,"toolMix":{"pagerduty__list_incidents":2},"expected":{"count":5,"ids":["PD-400","PD-401","PD-403","PD-411","PD-418"]}}
+{"kind":"final_answer","text":"It appears there is no available tool to list PagerDuty incidents. Please verify the correct tool name or provide additional context."}
+{"t":969,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"pagerduty__list_incidents","input":"{\"status\":\"triggered\",\"urgency\":\"high\"}"}]}
+{"t":969,"type":"tokens","in":1993,"out":33,"peak":1993}
+{"t":969,"type":"tool_result","tool":"pagerduty__list_incidents","status":"error","data":"null","message":"No tool called pagerduty__list_incidents exists."}
+{"t":1464,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"pagerduty__list_incidents","input":"{\"status\":\"triggered\",\"urgency\":\"high\"}"}]}
+{"t":1464,"type":"tokens","in":2052,"out":33,"peak":2052}
+{"t":1464,"type":"tool_result","tool":"pagerduty__list_incidents","status":"error","data":"null","message":"No tool called pagerduty__list_incidents exists."}
+{"t":1907,"type":"model_response","turn":3,"stop_reason":"stop","text":"It appears there is no available tool to list PagerDuty incidents. Please verify the correct tool name or provide additional context.","tool_calls":[]}
+{"t":1907,"type":"tokens","in":2111,"out":26,"peak":2111}

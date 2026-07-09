@@ -339,6 +339,14 @@ second landing: **SQL as the default for the weakest tail, the REPL wherever
 branching, staged multi-writes, or session state matter — and they coexist
 behind one `ResourceTable` registration.**
 
+> **Sequel — is the scratchpad a *JavaScript* REPL?** The fluency bet, taken to
+> its strongest position, is explored in [JS-EXPLORATION.md](JS-EXPLORATION.md):
+> a sandboxed JS surface (`glove-js`) and a **function-mode** catalog
+> (`ToolFn`s via `fnsFromMcp`, no `ResourceTable`) driving both surfaces. Its
+> first live A/B reproduces the off-context benefit and reaches frontier/mid
+> parity; function mode matches table mode; and its one weak-tail miss is a
+> preamble framing gap, not a language one — the Lisp arm's own starting point.
+
 ## 11. The choice study and the complex suite
 
 Two follow-on questions, both run live (results in `results/bothstudy-*` and

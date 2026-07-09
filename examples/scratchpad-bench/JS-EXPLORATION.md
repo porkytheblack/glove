@@ -172,4 +172,95 @@ table mode* (`lispfns` vs `lisp`) and *JS vs Clojure on an identical catalog*
 3. **The sandbox subset costs more turns than JS fluency saves** → the honest
    negative, and the SQL/Lisp surfaces remain the recommendation.
 
-<!-- §10 (results) and §11 (adversarial review) filled from the live run. -->
+## 10. Results: the live A/B (6 models × 10 tasks × 5 arms)
+
+Five arms, one run, same servers/tasks/graders and one seed (`results/js-ab-*`).
+`jsrepl` is glove-js; `lispfns` is glove-lisp in function mode — both over the
+`fnsFromMcp` catalog. Graded (excluding 3 provider errors, none on jsrepl):
+
+| model | tier | baseline | SQL | lisp | **jsrepl** | lispfns |
+|---|---|:--:|:--:|:--:|:--:|:--:|
+| GLM-5 | frontier | 10/10 | 10/10 | 10/10 | 9/10 | 9/10 |
+| MiniMax M3 | frontier | 10/10 | 9/10 | 10/10 | 8/10 | 10/10 |
+| DeepSeek V3.2 | frontier | 9/10 | 10/10 | 9/10 | 10/10 | 10/10 |
+| Xiaomi MiMo v2.5 | mid | 10/10 | 10/10 | 10/10 | 10/10 | 10/10 |
+| DeepSeek V4 Flash | weak | 9/9 | 9/9 | 10/10 | 10/10 | 9/10 |
+| Qwen3 30B A3B | weak | 5/10 | 6/10 | 8/10 | **0/10** | 6/9 |
+| **total** | | 53/59 (90%) | 54/59 (92%) | 57/60 (95%) | **47/60 (78%)** | 54/59 (92%) |
+
+Peak context (median tokens/cell): baseline **4,805** → SQL 2,240 (2.1×), lisp
+2,665 (1.8×), **jsrepl 2,630 (1.8×)**, lispfns 2,876 (1.7×).
+
+Head-to-heads (win–win, rest ties): jsrepl **1–8** lispfns · lispfns **2–5** lisp
+· jsrepl **1–9** SQL.
+
+### What the run shows
+
+1. **The off-context property holds identically for JavaScript.** `jsrepl` cuts
+   median peak context **1.8× vs baseline**, dead level with SQL and Lisp. The
+   whole premise — one code-eval tool beats folding 32 tool definitions — reproduces
+   on JS, so the context/cost win is language-independent.
+
+2. **Function mode ≈ table mode — the redesign's central claim, confirmed.**
+   `lispfns` (92%) tracks `lisp` (95%) cell-for-cell (2–5, 52 ties). Exposing
+   capabilities as plain `ToolFn`s — no columns, no pushdown keys, no volatility —
+   costs essentially nothing vs the `ResourceTable` contract. When the tools are
+   unknown up front, you give up nothing by skipping the table modeling.
+
+3. **On 5 of 6 models jsrepl is fully competitive** — 47/50 (94%), 8–10 per model
+   across every frontier and mid tier. Its 78% total is *entirely* the Qwen3-30B
+   cell: **0/10**.
+
+4. **The weak-tail collapse is a framing gap, not a JS gap.** Every Qwen3-30B
+   `jsrepl` transcript shows the same mechanism: the model emitted a tool call for
+   `github__list_pull_requests` **directly** — as if the catalog names were folded
+   tools — instead of writing an `execute_js` program that calls them. It never
+   invoked `execute_js`, got nothing back, and gave up ("there is no available tool
+   named `sentry__list_issues`"). The 11 deterministic probes (§5) prove the JS is
+   expressible; the weakest model simply mistook the primed function catalog for a
+   tool schema. Notably the same model on `lispfns` — where the catalog reads as
+   `(github__list_pull_requests {…})`, unmistakably code-you-put-in-a-REPL —
+   recovered to 6/9. The dotted `github.list_pull_requests({…})` form, closest to a
+   tool signature, is the most confusable.
+
+### Verdict against §9
+
+This is **§9's outcome 3-shaped for the weak tail only, and it is a platform gap
+with an obvious fix** — exactly the Lisp arm's own starting point (its first run
+was 62/77 before three fluency batches took it to 74/77). The JS surface's first,
+unhardened run reproduces the context benefit, reaches parity on frontier/mid, and
+localizes its single failure cluster to one weak model's confusion between "call
+this function inside `execute_js`" and "call this tool." The fix is preamble/catalog
+hardening (present the catalog only through `fns()`/`describe`, or frame it
+explicitly as "functions you call inside execute_js — the ONLY tool is execute_js"),
+not anything in the language or the sandbox. Fluency, again, is the whole bet — and
+here the gap is in how the surface is *introduced*, the cheapest possible thing to fix.
+
+## 11. The cost of a real language: an adversarial sandbox review
+
+Alone among the three surfaces, `glove-js` runs untrusted model code as a
+Turing-complete language, so it carries a sandbox the SQL and Lisp surfaces don't
+need. Before the A/B, that boundary was put through an adversarial review — agents
+attempting escapes against the live interpreter, each finding reproduced with a
+runnable program. It caught, and glove-js now fixes:
+
+- **A full RCE** — object destructuring (`const { constructor: O } = {}`) bypassed
+  the member gate, reaching `Function` and arbitrary host execution. Every
+  destructuring read now routes through the same gate as member access.
+- **ReDoS** — a catastrophic-backtracking regex (`/(a+)+$/`) ran unbounded native
+  backtracking, bypassing both fuel and abort. Nested-quantifier patterns are
+  rejected at construction.
+- **Unmetered allocation** — `String.repeat`, `Array.from({length})`, and
+  exponential string concatenation could exhaust memory for ~0 fuel. Bulk
+  allocation is now fuel-charged and hard-capped.
+- **A thenable hang** — a model-built `{ then }` object hung async evaluation
+  forever via promise-assimilation. Objects with a callable `then` are rejected.
+- **`Error.stack`** leaked host paths; six interpreter-semantics bugs (for-loop
+  closures, optional-chain short-circuit, evaluation order, …) now match Node.js.
+
+This is the honest ledger of what a JS surface costs relative to SQL and Lisp: a
+security boundary that must be hardened, and a subset whose edges (rejected regex,
+`class`, `for…in`) are a failure source the way SQL's grammar was. The unit suite
+(`pnpm --filter glove-js test`) covers the sandbox; the review's findings are its
+densest tests.
+

@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"glm5","model":"z-ai/glm-5","scenario":"sentry-billing-unresolved","arm":"baseline","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":6409,"tokensOut":145,"cacheRead":6080,"peakContextTokens":3311,"compactions":0,"toolsInContext":32,"wallMs":5355,"costUsd":0.0041237999999999995,"toolMix":{"sentry__list_issues":1},"expected":{"count":2,"ids":["SENTRY-3004","SENTRY-3007"]}}
+{"kind":"final_answer","text":"There are **2** unresolved Sentry issues in the 'billing' project:\n\n- SENTRY-3004\n- SENTRY-3007"}
+{"t":2615,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"sentry__list_issues","input":"{\"project\":\"billing\",\"status\":\"unresolved\"}"}]}
+{"t":2615,"type":"tokens","in":3098,"out":90,"peak":3098}
+{"t":2617,"type":"tool_result","tool":"sentry__list_issues","status":"success","data":"[{\"id\":\"SENTRY-3004\",\"title\":\"TypeError: Push notifications not delivered\",\"culprit\":\"mobile/push-notifications.ts\",\"level\":\"warning\",\"count\":54,\"users_affected\":649,\"status\":\"unresolved\",\"project\":\"billing\",\"first_seen\":\"2026-04-21T00:00:00.000Z\",\"last_seen\":\"2026-05-18T00:00:00.000Z\"},{\"id\":\"SENTR…(+270)"}
+{"t":5355,"type":"model_response","turn":2,"stop_reason":"stop","text":"There are **2** unresolved Sentry issues in the 'billing' project:\n\n- SENTRY-3004\n- SENTRY-3007","tool_calls":[]}
+{"t":5355,"type":"tokens","in":3311,"out":55,"peak":3311}

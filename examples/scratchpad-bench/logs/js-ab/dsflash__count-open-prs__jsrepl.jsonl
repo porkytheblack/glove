@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"dsflash","model":"deepseek/deepseek-v4-flash","scenario":"count-open-prs","arm":"jsrepl","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":4456,"tokensOut":107,"cacheRead":2048,"peakContextTokens":2275,"compactions":0,"toolsInContext":1,"wallMs":10348,"costUsd":0.00042029999999999997,"toolMix":{"execute_js":1},"expected":17}
+{"kind":"final_answer","text":"There are **17** open GitHub pull requests across all repositories."}
+{"t":6558,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_js","input":"{\"code\":\"github__list_pull_requests({ state: \\\"open\\\" }).length\"}"}]}
+{"t":6558,"type":"tokens","in":2181,"out":80,"peak":2181}
+{"t":6560,"type":"tool_result","tool":"execute_js","status":"success","data":"{\"value\":17,\"called\":[{\"name\":\"github__list_pull_requests\",\"calls\":1}]}"}
+{"t":10348,"type":"model_response","turn":2,"stop_reason":"stop","text":"There are **17** open GitHub pull requests across all repositories.","tool_calls":[]}
+{"t":10348,"type":"tokens","in":2275,"out":27,"peak":2275}
