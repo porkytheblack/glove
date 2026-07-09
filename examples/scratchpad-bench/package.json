@@ -7,11 +7,13 @@
   "scripts": {
     "bench": "tsx --env-file=../../.env src/run.ts",
     "selfcheck": "tsx src/selfcheck.ts",
-    "probe:lisp": "tsx src/probe-lisp.ts"
+    "probe:lisp": "tsx src/probe-lisp.ts",
+    "probe:js": "tsx src/probe-js.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "glove-core": "workspace:*",
+    "glove-js": "workspace:*",
     "glove-lisp": "workspace:*",
     "glove-mcp": "workspace:*",
     "glove-scratchpad": "workspace:*",

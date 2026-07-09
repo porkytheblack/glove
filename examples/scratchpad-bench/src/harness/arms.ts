@@ -16,12 +16,15 @@ import { Glove, Displaymanager, MemoryStore, type ModelAdapter } from "glove-cor
 import { Database } from "glove-scratchpad";
 import { bridgeMcpTool } from "glove-mcp";
 import { mountDatabase } from "glove-scratchpad";
+import { fnsFromMcp } from "glove-scratchpad/fns/mcp";
+import type { ToolFn } from "glove-scratchpad/fns";
 import { LispSession, mountLisp } from "glove-lisp";
+import { JsSession, mountJs } from "glove-js";
 import type { MockOrg } from "../mcp/index";
 import { totalToolCount } from "../mcp/index";
 import { BenchSubscriber } from "./instrument";
 
-export type ArmName = "baseline" | "scratchpad" | "lisp" | "both";
+export type ArmName = "baseline" | "scratchpad" | "lisp" | "both" | "jsrepl" | "lispfns";
 
 export interface ArmConfig {
   maxTurns: number;
@@ -40,6 +43,7 @@ export interface BuiltArm {
   toolsInContext: number;
   db?: Database;
   lisp?: LispSession;
+  js?: JsSession;
 }
 
 const COMPACTION_INSTRUCTIONS =
@@ -118,6 +122,48 @@ export async function buildLispArm(model: ModelAdapter, org: MockOrg, cfg: ArmCo
   glove.addSubscriber(sub);
   // 2 tools in context (execute_lisp, explain_lisp) vs the baseline's ~32.
   return { arm: "lisp", runnable, sub, toolsInContext: 2, lisp };
+}
+
+/**
+ * The FUNCTION-MODE catalog: every tool of every server as a `ToolFn`, derived
+ * from the SAME connections the resource arms use (via `fnsFromMcp`). No
+ * columns, no pushdown keys, no volatility — the tool's own schema is the
+ * contract. Effects hit the identical MCP handlers, so the A/B stays fair.
+ */
+async function catalogFromOrg(org: MockOrg): Promise<ToolFn[]> {
+  const perServer = await Promise.all(org.connections.map((c) => fnsFromMcp(c)));
+  return perServer.flat();
+}
+
+export async function buildJsArm(model: ModelAdapter, org: MockOrg, cfg: ArmConfig): Promise<BuiltArm> {
+  const glove = baseGlove(model, SHARED_ROLE, cfg);
+  const runnable = glove.build();
+
+  // glove-js is fn-catalog only — a call fires immediately (no staging).
+  const js = JsSession.create();
+  js.registerAll(await catalogFromOrg(org));
+  // Folds a single execute_js (no explain_js); primes unless bare mode.
+  mountJs(runnable, { session: js, prime: cfg.prime !== false });
+
+  const sub = new BenchSubscriber({ echo: cfg.echo });
+  glove.addSubscriber(sub);
+  // 1 tool in context (execute_js) vs the baseline's ~32.
+  return { arm: "jsrepl", runnable, sub, toolsInContext: 1, js };
+}
+
+export async function buildLispFnArm(model: ModelAdapter, org: MockOrg, cfg: ArmConfig): Promise<BuiltArm> {
+  const glove = baseGlove(model, SHARED_ROLE, cfg);
+  const runnable = glove.build();
+
+  // The Lisp surface in FUNCTION MODE — the same catalog as jsrepl, driven with
+  // Clojure instead of JS. `registerFns` (not `registerAll`) → LISP_FN_PREAMBLE.
+  const lisp = LispSession.create({ policy: { writes: true } });
+  lisp.registerFns(await catalogFromOrg(org));
+  mountLisp(runnable, { session: lisp, allowWrites: true, prime: cfg.prime !== false });
+
+  const sub = new BenchSubscriber({ echo: cfg.echo });
+  glove.addSubscriber(sub);
+  return { arm: "lispfns", runnable, sub, toolsInContext: 1, lisp };
 }
 
 /** A neutral two-surface preamble: both cards, one catalog, free choice. */
