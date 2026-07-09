@@ -28,4 +28,21 @@
  */
 export * from "./db";
 export * from "./core";
+export {
+  assertFnName,
+  defineFn,
+  describeFn,
+  FnCatalog,
+  fnFromTool,
+  fnSignature,
+  missingRequired,
+  parseToolData,
+  unknownKeys,
+  type DefineFnSpec,
+  type FnDescription,
+  type FnFromToolOptions,
+  type FnParam,
+  type ToolFn,
+  type ToolFnContext,
+} from "./fns";
 export { MemoryBackend, type MemoryBackendOptions } from "glove-sql";

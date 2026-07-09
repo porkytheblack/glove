@@ -38,6 +38,14 @@
     "./mcp": {
       "types": "./dist/db/mcp.d.ts",
       "import": "./dist/db/mcp.js"
+    },
+    "./fns": {
+      "types": "./dist/fns/index.d.ts",
+      "import": "./dist/fns/index.js"
+    },
+    "./fns/mcp": {
+      "types": "./dist/fns/mcp.d.ts",
+      "import": "./dist/fns/mcp.js"
     }
   },
   "files": [

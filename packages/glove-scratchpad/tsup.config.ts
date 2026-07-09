@@ -6,6 +6,8 @@ export default defineConfig({
     "src/core/index.ts",
     "src/db/index.ts",
     "src/db/mcp.ts",
+    "src/fns/index.ts",
+    "src/fns/mcp.ts",
     "src/backends/memory.ts",
     "src/backends/pglite.ts",
   ],
