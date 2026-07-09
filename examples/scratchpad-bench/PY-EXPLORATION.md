@@ -2,7 +2,9 @@
 
 *A design exploration building on ["The Scratchpad Is a Database"](PAPER.md),
 ["Is the Scratchpad a REPL?"](LISP-EXPLORATION.md), and ["Is the Scratchpad a
-JavaScript REPL?"](JS-EXPLORATION.md). Status: **live A/B run** — see §7.*
+JavaScript REPL?"](JS-EXPLORATION.md). Status: **live A/B complete** — `pyrepl`
+is parity-class with the hardened `jsrepl`/`lispfns` (88% vs 93%, the gap all
+shared failure classes). See §7.*
 
 ---
 
@@ -112,21 +114,66 @@ mode has it too.
 
 ## 7. The A/B — results
 
-<!-- RESULTS-PENDING: filled from results/py-ab-results.json via
-     `npx tsx src/js-compare.ts py-ab-results.json` once the run completes. -->
+Three function-mode arms, **same servers, tasks, seed, and graders** — the only
+difference is the language the model writes. 6 models × 10 scenarios × 3 arms =
+180 cells, $0.86 total.
 
-*(Run in progress — `--arms=pyrepl,jsrepl,lispfns --models=deepseek,minimax3,glm5,xiaomi,qwen30b,dsflash` over 10 scenarios. This section is filled from the completed results file.)*
+| model | tier | jsrepl | lispfns | **pyrepl** |
+|---|---|:--:|:--:|:--:|
+| GLM-5 | frontier | 10/10 | 9/10 | 9/10 |
+| MiniMax M3 | frontier | 9/10 | 10/10 | 9/10 |
+| DeepSeek V3.2 | frontier | 9/10 | 10/10 | 9/10 |
+| Xiaomi MiMo v2.5 | mid | 10/10 | 10/10 | 9/10 |
+| DeepSeek V4 Flash | weak | 10/10 | 10/10 | 10/10 |
+| Qwen3 30B A3B | weak | 8/10 | 7/10 | 7/10 |
+| **total** | | **56/60 (93%)** | **56/60 (93%)** | **53/60 (88%)** |
+
+Head-to-head on the shared catalog: `pyrepl` 2–5 `jsrepl` (53 ties), `pyrepl`
+2–5 `lispfns` (53 ties). Median peak context per cell: `pyrepl` 4,214,
+`jsrepl` 3,900, `lispfns` 3,545 — all a fraction of the folded-tools baseline
+(~4,800 in the JS run), so the off-context benefit reproduces on Python.
+
+**What the 7 pyrepl misses were — and what they weren't.** None was a language or
+sandbox failure; the 11 deterministic probes (§5) prove every task is correctly
+expressible in Python, and no cell failed on a parse error, a rejected
+construct, or a sandbox block. The graded losses split three ways, all shared
+failure classes seen across the arms:
+
+- **Two frontier "id-list" cells** (`high-urgency-triggered`, MiniMax-M3 and
+  GLM-5) — the model got the count right but under-listed the ids: MiniMax-M3
+  wrote "PD-400, PD-401, PD-403, *and 2 more*" and GLM-5 guessed a sequential run
+  (`PD-400…PD-404`) instead of returning what it read. Both landed at 3/5 ids,
+  just under the verifier's 70% threshold. The same models pass the cell on
+  `jsrepl`; this is one-cell variance on a "report what you read" discipline the
+  preamble already states.
+- **`open-prs-breakdown` (part b)** — three models got the total (17) right but
+  the per-repo *leader* wrong (7/4/8 instead of 9), a grouping/argmax reasoning
+  slip. The probe's `sorted(by_repo.items(), key=lambda kv: kv[1], reverse=True)[0]`
+  gets it right, so the surface can express it — the models wrote weaker code.
+- **The weak tail** (`Qwen3 30B`) — the two remaining misses hit the 24-turn cap
+  on the hardest tasks, the identical mode that costs `lispfns` and `jsrepl`
+  their weak-tail cells too.
 
 ## 8. Verdict
 
-*(Filled with §7.)*
+**`pyrepl` is a parity-class fluency surface — competitive with the hardened
+`jsrepl` and `lispfns`, 3 cells (5%) back in a 60-cell run, entirely on shared
+failure classes rather than anything Python-specific.** The structural claim the
+JS work established holds a third time: *function mode over a shared `ToolFn`
+catalog reaches the table contract's accuracy, and the language is a fluency
+knob, not a capability one.* Frontier and mid models drive the Python surface as
+fluently as the JS one (9–10/10 each); the gap is two just-under-threshold
+id-list cells and the same weak-model turn-cap tail every arm carries.
 
-The structural claim under test is the same one the JS work confirmed:
-**function mode over a shared `ToolFn` catalog reaches parity with the table
-contract, and the choice of language is a fluency knob, not a capability one.**
-Python adds the most idiomatic data-manipulation surface of the three and the
-keyword-argument call shape closest to how tools are documented; the A/B measures
-whether that fluency converts to graded accuracy across the model tiers.
+Python earns its place for what it *adds*, not for beating the others by points:
+the most idiomatic data-manipulation surface of the three (comprehensions,
+`sorted(key=)`, dict grouping read most naturally here) and the
+**keyword-argument call shape** — `github.list_pull_requests(state="open")` —
+that maps a tool's documented parameters straight onto the call, which is exactly
+what a model writes when it thinks "call this function." The honest
+recommendation mirrors the JS verdict: **offer `pyrepl` as a first-class fluency
+surface and pick the language per model/deployment**, since on this matrix the
+three are separated by noise, not by capability.
 
 ## 9. The sandbox (what a real language costs)
 

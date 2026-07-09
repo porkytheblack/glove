@@ -1,0 +1,25 @@
+{"kind":"meta","modelKey":"qwen30b","model":"qwen/qwen3-30b-a3b-instruct-2507","scenario":"email-top-error","arm":"lispfns","ok":true,"errored":false,"turns":8,"toolCalls":7,"toolErrors":3,"mcpRoundTrips":15,"servicesTouched":10,"tokensIn":38913,"tokensOut":323,"cacheRead":35440,"peakContextTokens":6492,"compactions":0,"toolsInContext":1,"wallMs":4996,"costUsd":0.00200702,"toolMix":{"sentry__list_issues":2,"execute_lisp":4,"email__send_email":1},"expected":{"title":"TypeError: Onboarding funnel drop-off","count":4666,"id":"SENTRY-3002"}}
+{"kind":"final_answer","text":"I found the UNRESOLVED Sentry issue with the highest event count:\n\n- **Title**: TypeError: Onboarding funnel drop-off\n- **Event count**: 4,666\n\nI sent an email to 'oncall@acme.io' with the subject 'Top error' and the body containing the exact title of the issue.\n\nThe email was successfully sent (ID: msg-out-1)."}
+{"t":522,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"sentry__list_issues","input":"{\"status\":\"unresolved\"}"}]}
+{"t":522,"type":"tokens","in":2889,"out":24,"peak":2889}
+{"t":522,"type":"tool_result","tool":"sentry__list_issues","status":"error","data":"null","message":"No tool called sentry__list_issues exists."}
+{"t":949,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(fns)\"}"}]}
+{"t":949,"type":"tokens","in":2937,"out":23,"peak":2937}
+{"t":951,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[{\"name\":\"github__list_pull_requests\",\"description\":\"List pull requests, optionally filtered by repo, state (open/merged/closed), or author.\",\"args\":[\":repo?\",\":state?\",\":author?\"],\"effect\":\"read\"},{\"name\":\"github__get_pull_request\",\"description\":\"Get a single pull request by repo and numbe…(+3248)"}
+{"t":1366,"type":"model_response","turn":3,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"sentry__list_issues","input":"{\"status\":\"unresolved\"}"}]}
+{"t":1366,"type":"tokens","in":3827,"out":24,"peak":3827}
+{"t":1366,"type":"tool_result","tool":"sentry__list_issues","status":"error","data":"null","message":"No tool called sentry__list_issues exists."}
+{"t":1796,"type":"model_response","turn":4,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(sentry__list_issues {:status \\\"unresolved\\\"})\"}"}]}
+{"t":1796,"type":"tokens","in":3875,"out":32,"peak":3875}
+{"t":1798,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[{\"id\":\"SENTRY-3000\",\"title\":\"OOMKilled: Onboarding funnel drop-off\",\"culprit\":\"web/onboarding-funnel.ts\",\"level\":\"error\",\"count\":2054,\"users_affected\":568,\"status\":\"unresolved\",\"project\":\"api-gateway\",\"first_seen\":\"2026-04-20T00:00:00.000Z\",\"last_seen\":\"2026-05-24T00:00:00.000Z\"},{\"id\":\"SE…(+5121)"}
+{"t":2349,"type":"model_response","turn":5,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(apply max-key :count (sentry__list_issues {:status \\\"unresolved\\\"}))\"}"}]}
+{"t":2349,"type":"tokens","in":6162,"out":38,"peak":6162}
+{"t":2351,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":{\"id\":\"SENTRY-3002\",\"title\":\"TypeError: Onboarding funnel drop-off\",\"culprit\":\"web/onboarding-funnel.ts\",\"level\":\"error\",\"count\":4666,\"users_affected\":343,\"status\":\"unresolved\",\"project\":\"web-frontend\",\"first_seen\":\"2026-05-03T00:00:00.000Z\",\"last_seen\":\"2026-05-25T00:00:00.000Z\"}}"}
+{"t":3240,"type":"model_response","turn":6,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"email__send_email","input":"{\"to\":\"oncall@acme.io\",\"subject\":\"Top error\",\"body\":\"TypeError: Onboarding funnel drop-off\"}"}]}
+{"t":3240,"type":"tokens","in":6331,"out":46,"peak":6331}
+{"t":3240,"type":"tool_result","tool":"email__send_email","status":"error","data":"null","message":"No tool called email__send_email exists."}
+{"t":3863,"type":"model_response","turn":7,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(email__send_email {:to \\\"oncall@acme.io\\\" :subject \\\"Top error\\\" :body \\\"TypeError: Onboarding funnel drop-off\\\"})\"}"}]}
+{"t":3863,"type":"tokens","in":6400,"out":52,"peak":6400}
+{"t":3865,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":{\"id\":\"msg-out-1\",\"to\":\"oncall@acme.io\",\"subject\":\"Top error\",\"status\":\"sent\"}}"}
+{"t":4996,"type":"model_response","turn":8,"stop_reason":"stop","text":"I found the UNRESOLVED Sentry issue with the highest event count:\n\n- **Title**: TypeError: Onboarding funnel drop-off\n- **Event count**: 4,666\n\nI sent an email to 'oncall@acme.io' with the subject 'Top error' and the body containing the exa…(+72)","tool_calls":[]}
+{"t":4996,"type":"tokens","in":6492,"out":84,"peak":6492}

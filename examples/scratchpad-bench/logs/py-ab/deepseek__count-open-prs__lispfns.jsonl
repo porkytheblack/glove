@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"deepseek","model":"deepseek/deepseek-v3.2","scenario":"count-open-prs","arm":"lispfns","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":13,"servicesTouched":10,"tokensIn":6408,"tokensOut":91,"cacheRead":6144,"peakContextTokens":3251,"compactions":0,"toolsInContext":1,"wallMs":4189,"costUsd":0.001498645,"toolMix":{"execute_lisp":1},"expected":17}
+{"kind":"final_answer","text":"There are 17 GitHub pull requests currently in the 'open' state across all repositories."}
+{"t":2459,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"I'll check how many GitHub pull requests are currently open across all repositories.\n\n","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(count (github__list_pull_requests {:state \\\"open\\\"}))\"}"}]}
+{"t":2459,"type":"tokens","in":3157,"out":73,"peak":3157}
+{"t":2464,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":17}"}
+{"t":4189,"type":"model_response","turn":2,"stop_reason":"stop","text":"There are 17 GitHub pull requests currently in the 'open' state across all repositories.","tool_calls":[]}
+{"t":4189,"type":"tokens","in":3251,"out":18,"peak":3251}

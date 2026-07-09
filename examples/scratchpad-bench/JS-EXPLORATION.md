@@ -2,7 +2,8 @@
 
 *A design exploration building on ["The Scratchpad Is a Database"](PAPER.md) and
 ["Is the Scratchpad a REPL?"](LISP-EXPLORATION.md). Status: **live A/B run** —
-see §10.*
+see §10. A third language followed: ["Is the Scratchpad a Python
+REPL?"](PY-EXPLORATION.md) (`pyrepl`, parity-class at 88%).*
 
 ---
 

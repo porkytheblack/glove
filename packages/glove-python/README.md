@@ -148,7 +148,19 @@ evaluator subset and sandbox are covered by 68 unit tests
 rejection cases; all 11 deterministic capability probes pass
 (`pnpm --filter glove-scratchpad-bench probe:py`).
 
-<!-- AB-RESULTS -->
+A live A/B (6 models × 10 tasks × 3 function-mode arms, same servers/seed/graders
+— see [`examples/scratchpad-bench/PY-EXPLORATION.md`](../../examples/scratchpad-bench/PY-EXPLORATION.md))
+found `pyrepl` **parity-class with the hardened `jsrepl` and `lispfns`**: 88%
+(53/60) vs 93% (56/60) each, a 3-cell gap in a 60-cell run driven entirely by
+shared failure classes (two just-under-threshold id-list cells where frontier
+models under-listed ids, per-repo argmax reasoning slips, and the weak model's
+turn-cap tail) — **not** by any language or sandbox limit: no cell failed on a
+parse error, a rejected construct, or a sandbox block, and all 11 deterministic
+probes pass. Frontier/mid models drive Python as fluently as JavaScript (9–10/10
+each). The off-context context benefit reproduces (median peak ~4.2k tokens/cell,
+a fraction of folding ~32 tool defs). The verdict: a first-class fluency surface
+— pick the language per model/deployment, since the three are separated by noise,
+not capability.
 
 ## License
 
