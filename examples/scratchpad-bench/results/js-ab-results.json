@@ -1,0 +1,903 @@
+[
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "count-open-prs",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 7701,
+    "tokensOut": 87,
+    "cacheRead": 0,
+    "peakContextTokens": 4737,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 6995,
+    "costUsd": 0.0017933700000000003,
+    "finalText": "Based on the retrieved data, there are **17** GitHub pull requests currently in the 'open' state across all repositories.",
+    "toolMix": {
+      "github__list_pull_requests": 1
+    },
+    "expected": 17
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "count-open-prs",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3834,
+    "tokensOut": 98,
+    "cacheRead": 0,
+    "peakContextTokens": 1994,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 4599,
+    "costUsd": 0.0009116,
+    "finalText": "There are **17** GitHub pull requests currently in the 'open' state across all repositories.",
+    "toolMix": {
+      "execute_sql": 1
+    },
+    "expected": 17
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "count-open-prs",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 4299,
+    "tokensOut": 52,
+    "cacheRead": 2112,
+    "peakContextTokens": 2298,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 5843,
+    "costUsd": 0.001002307,
+    "finalText": "There are **17** GitHub pull requests currently in the 'open' state across all repositories.",
+    "toolMix": {
+      "execute_lisp": 1
+    },
+    "expected": 17
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "count-open-prs",
+    "arm": "jsrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 4521,
+    "tokensOut": 85,
+    "cacheRead": 4224,
+    "peakContextTokens": 2315,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 5300,
+    "costUsd": 0.0010644640000000002,
+    "finalText": "There are currently **17** open pull requests across all GitHub repositories.",
+    "toolMix": {
+      "execute_js": 1
+    },
+    "expected": 17
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "count-open-prs",
+    "arm": "lispfns",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 4836,
+    "tokensOut": 88,
+    "cacheRead": 4608,
+    "peakContextTokens": 2463,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 5850,
+    "costUsd": 0.001137628,
+    "finalText": "There are 17 pull requests currently in the 'open' state across all repositories.",
+    "toolMix": {
+      "execute_lisp": 1
+    },
+    "expected": 17
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6241,
+    "tokensOut": 165,
+    "cacheRead": 2816,
+    "peakContextTokens": 3272,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 7174,
+    "costUsd": 0.001485784,
+    "finalText": "Based on the data retrieved, there are **2 unresolved Sentry issues** in the 'billing' project:\n\n1. **SENTRY-3004** - \"TypeError: Push notifications not delivered\"\n2. **SENTRY-3007** - \"NullPointer: Mobile crash on iOS 18 cold start\"\n\n**Exact count:** 2 unresolved issues",
+    "toolMix": {
+      "sentry__list_issues": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "SENTRY-3004",
+        "SENTRY-3007"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 8805,
+    "tokensOut": 363,
+    "cacheRead": 7680,
+    "peakContextTokens": 2518,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 18664,
+    "costUsd": 0.002140854,
+    "finalText": "**Results:**\n\nUnresolved Sentry issues in the 'billing' project:\n1. **SENTRY-3007** (error level, 433 events)\n2. **SENTRY-3004** (warning level, 54 events)\n\n**Total count:** Exactly 2 unresolved Sentry issues in the 'billing' project.",
+    "toolMix": {
+      "execute_sql": 3
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "SENTRY-3004",
+        "SENTRY-3007"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 4751,
+    "tokensOut": 227,
+    "cacheRead": 4224,
+    "peakContextTokens": 2536,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 12810,
+    "costUsd": 0.00116584,
+    "finalText": "Perfect! There are **2 unresolved Sentry issues** in the 'billing' project. Their IDs are:\n\n1. SENTRY-3004\n2. SENTRY-3007\n\n**Count: 2 unresolved issues**",
+    "toolMix": {
+      "execute_lisp": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "SENTRY-3004",
+        "SENTRY-3007"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "jsrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 4672,
+    "tokensOut": 156,
+    "cacheRead": 1476,
+    "peakContextTokens": 2461,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 5836,
+    "costUsd": 0.001123396,
+    "finalText": "There are **2 unresolved Sentry issues** in the 'billing' project:\n\n1. SENTRY-3004\n2. SENTRY-3007\n\nThe exact count is 2 unresolved issues.",
+    "toolMix": {
+      "execute_js": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "SENTRY-3004",
+        "SENTRY-3007"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "lispfns",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 5036,
+    "tokensOut": 176,
+    "cacheRead": 4608,
+    "peakContextTokens": 2658,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 9280,
+    "costUsd": 0.001213612,
+    "finalText": "There are exactly **2 unresolved Sentry issues** in the 'billing' project.\n\nTheir IDs are:\n1. SENTRY-3004\n2. SENTRY-3007",
+    "toolMix": {
+      "execute_lisp": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "SENTRY-3004",
+        "SENTRY-3007"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "merged-prs-open-linear",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 10,
+    "toolErrors": 0,
+    "mcpRoundTrips": 10,
+    "servicesTouched": 2,
+    "tokensIn": 13883,
+    "tokensOut": 985,
+    "cacheRead": 5632,
+    "peakContextTokens": 6110,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 41037,
+    "costUsd": 0.003517062,
+    "finalText": "Now let me analyze which Linear issues are NOT in 'done' state:\n\n- ENG-136: state = \"canceled\" → NOT done ✓\n- ENG-103: state = \"backlog\" → NOT done ✓\n- ENG-151: state = \"in_progress\" → NOT done ✓\n- ENG-117: state = \"canceled\" → NOT done ✓\n- ENG-134: state = \"done\" → NOT included ✗\n- ENG-135: state = \"in_review\" → NOT done ✓\n- ENG-124: state = \"in_progress\" → NOT done ✓\n- ENG-147: state = \"canceled\" → NOT done ✓\n- ENG-102: state = \"in_progress\" → NOT done ✓\n\nSo I have 8 PRs that close Linear issues that are not in 'done' state. Let me compile the final report:\n\n**Merged Pull Requests Closing Linear Issues Not in 'Done' State:**\n\n1. **PR #1002** → closes **ENG-136** (state: canceled)\n2. **PR #1003** → closes **ENG-103** (state: backlog)\n3. **PR #1010** → closes **ENG-151** (state: in_progress)\n4. **PR #1017** → closes **ENG-117** (state: canceled)\n5. **PR #1025** → closes **ENG-135** (state: in_review)\n6. **PR #1030** → closes **ENG-124** (state: in_progress)\n7. **PR #1033** → closes **ENG-147** (state: canceled)\n8. **PR #1037** → closes **ENG-102** (state: in_progress)\n\n**Total Count: 8**\n\nNote: PR #1024 closes ENG-134 which is in 'done' state, so it was excluded from the report.",
+    "toolMix": {
+      "github__list_pull_requests": 1,
+      "linear__get_issue": 9
+    },
+    "expected": {
+      "count": 8,
+      "prs": [
+        {
+          "pr": 1002,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1003,
+          "closes": "ENG-103"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-151"
+        },
+        {
+          "pr": 1017,
+          "closes": "ENG-117"
+        },
+        {
+          "pr": 1025,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-124"
+        },
+        {
+          "pr": 1033,
+          "closes": "ENG-147"
+        },
+        {
+          "pr": 1037,
+          "closes": "ENG-102"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "merged-prs-open-linear",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 0,
+    "mcpRoundTrips": 8,
+    "servicesTouched": 2,
+    "tokensIn": 20070,
+    "tokensOut": 991,
+    "cacheRead": 10752,
+    "peakContextTokens": 3927,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 31478,
+    "costUsd": 0.004935943,
+    "finalText": "**Results:**\n\nI found 8 merged pull requests that close Linear issues whose state is NOT 'done':\n\n1. PR #1002 closes Linear issue ENG-136 (state: canceled)\n2. PR #1003 closes Linear issue ENG-103 (state: backlog)\n3. PR #1010 closes Linear issue ENG-151 (state: in_progress)\n4. PR #1017 closes Linear issue ENG-117 (state: canceled)\n5. PR #1025 closes Linear issue ENG-135 (state: in_review)\n6. PR #1030 closes Linear issue ENG-124 (state: in_progress)\n7. PR #1033 closes Linear issue ENG-147 (state: canceled)\n8. PR #1037 closes Linear issue ENG-102 (state: in_progress)\n\n**Total count: 8**\n\nThe Linear issue states found are: canceled (3), backlog (1), in_progress (3), and in_review (1). None of these Linear issues are in the 'done' state despite their corresponding pull requests being merged.",
+    "toolMix": {
+      "execute_sql": 6
+    },
+    "expected": {
+      "count": 8,
+      "prs": [
+        {
+          "pr": 1002,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1003,
+          "closes": "ENG-103"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-151"
+        },
+        {
+          "pr": 1017,
+          "closes": "ENG-117"
+        },
+        {
+          "pr": 1025,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-124"
+        },
+        {
+          "pr": 1033,
+          "closes": "ENG-147"
+        },
+        {
+          "pr": 1037,
+          "closes": "ENG-102"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "merged-prs-open-linear",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 16145,
+    "tokensOut": 805,
+    "cacheRead": 12288,
+    "peakContextTokens": 3418,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 38883,
+    "costUsd": 0.00397332,
+    "finalText": "Perfect! Here's the complete report:\n\n**Total count: 8 merged pull requests**\n\n**Merged PRs closing Linear issues not in 'done' state:**\n\n1. PR #1002 closes Linear issue ENG-136 (state: canceled)\n2. PR #1003 closes Linear issue ENG-103 (state: backlog)\n3. PR #1010 closes Linear issue ENG-151 (state: in_progress)\n4. PR #1017 closes Linear issue ENG-117 (state: canceled)\n5. PR #1025 closes Linear issue ENG-135 (state: in_review)\n6. PR #1030 closes Linear issue ENG-124 (state: in_progress)\n7. PR #1033 closes Linear issue ENG-147 (state: canceled)\n8. PR #1037 closes Linear issue ENG-102 (state: in_progress)\n\nAll 8 merged pull requests close Linear issues that are in various non-'done' states: canceled, backlog, in_progress, and in_review.",
+    "toolMix": {
+      "execute_lisp": 5
+    },
+    "expected": {
+      "count": 8,
+      "prs": [
+        {
+          "pr": 1002,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1003,
+          "closes": "ENG-103"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-151"
+        },
+        {
+          "pr": 1017,
+          "closes": "ENG-117"
+        },
+        {
+          "pr": 1025,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-124"
+        },
+        {
+          "pr": 1033,
+          "closes": "ENG-147"
+        },
+        {
+          "pr": 1037,
+          "closes": "ENG-102"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "merged-prs-open-linear",
+    "arm": "jsrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 10,
+    "servicesTouched": 2,
+    "tokensIn": 20372,
+    "tokensOut": 1795,
+    "cacheRead": 12928,
+    "peakContextTokens": 6226,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 72206,
+    "costUsd": 0.005280873000000001,
+    "finalText": "## Summary\n\nI found **8 merged pull requests** that close Linear issues whose state is NOT 'done'. Here's the complete report:\n\n### Total Count: 8\n\n### PR Details:\n1. **PR #1002** (acme/web) - Closes **ENG-136** (canceled)\n2. **PR #1003** (acme/api) - Closes **ENG-103** (backlog)\n3. **PR #1010** (acme/api) - Closes **ENG-151** (in_progress)\n4. **PR #1017** (acme/infra) - Closes **ENG-117** (canceled)\n5. **PR #1025** (acme/mobile) - Closes **ENG-135** (in_review)\n6. **PR #1030** (acme/mobile) - Closes **ENG-124** (in_progress)\n7. **PR #1033** (acme/infra) - Closes **ENG-147** (canceled)\n8. **PR #1037** (acme/web) - Closes **ENG-102** (in_progress)\n\n**Note**: All these Linear issues are in various non-'done' states including: canceled, backlog, in_progress, and in_review.",
+    "toolMix": {
+      "execute_js": 4
+    },
+    "expected": {
+      "count": 8,
+      "prs": [
+        {
+          "pr": 1002,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1003,
+          "closes": "ENG-103"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-151"
+        },
+        {
+          "pr": 1017,
+          "closes": "ENG-117"
+        },
+        {
+          "pr": 1025,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-124"
+        },
+        {
+          "pr": 1033,
+          "closes": "ENG-147"
+        },
+        {
+          "pr": 1037,
+          "closes": "ENG-102"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "merged-prs-open-linear",
+    "arm": "lispfns",
+    "ok": true,
+    "errored": false,
+    "turns": 13,
+    "toolCalls": 12,
+    "toolErrors": 0,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 2,
+    "tokensIn": 63046,
+    "tokensOut": 1819,
+    "cacheRead": 57024,
+    "peakContextTokens": 7220,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 95223,
+    "costUsd": 0.015061451000000002,
+    "finalText": "## Summary\n\n**Found 8 merged pull requests that close Linear issues NOT in 'done' state:**\n\nPR #1002 closes Linear issue ENG-136  \nPR #1003 closes Linear issue ENG-103  \nPR #1010 closes Linear issue ENG-151  \nPR #1017 closes Linear issue ENG-117  \nPR #1025 closes Linear issue ENG-135  \nPR #1030 closes Linear issue ENG-124  \nPR #1033 closes Linear issue ENG-147  \nPR #1037 closes Linear issue ENG-102  \n\n**Total count:** 8 merged pull requests\n\nThese are all merged PRs that reference Linear issues which are currently in states other than 'done' (such as canceled, backlog, in_progress, in_review, etc.). This suggests that while the code changes have been merged, the corresponding Linear tickets haven't been updated to reflect completion.",
+    "toolMix": {
+      "execute_lisp": 12
+    },
+    "expected": {
+      "count": 8,
+      "prs": [
+        {
+          "pr": 1002,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1003,
+          "closes": "ENG-103"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-151"
+        },
+        {
+          "pr": 1017,
+          "closes": "ENG-117"
+        },
+        {
+          "pr": 1025,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-124"
+        },
+        {
+          "pr": 1033,
+          "closes": "ENG-147"
+        },
+        {
+          "pr": 1037,
+          "closes": "ENG-102"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "busiest-assignee",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6705,
+    "tokensOut": 209,
+    "cacheRead": 5696,
+    "peakContextTokens": 3729,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 10962,
+    "costUsd": 0.001607132,
+    "finalText": "Let me count the issues per assignee from the results:\n\n1. heidi: 1 issue (ENG-100)\n2. dave: 2 issues (ENG-102, ENG-112)\n3. mallory: 1 issue (ENG-113)\n4. carol: 1 issue (ENG-120)\n5. niaj: 1 issue (ENG-124)\n6. erin: 1 issue (ENG-145)\n7. ivan: 1 issue (ENG-151)\n\n**Answer:** Dave has the most Linear issues in the 'in_progress' state assigned to them, with exactly **2 issues**. Their login is **dave**.",
+    "toolMix": {
+      "linear__list_issues": 1
+    },
+    "expected": {
+      "top": "dave",
+      "count": 2,
+      "tied": [
+        "dave"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "busiest-assignee",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 1,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 8764,
+    "tokensOut": 394,
+    "cacheRead": 5568,
+    "peakContextTokens": 2506,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 14912,
+    "costUsd": 0.002142098,
+    "finalText": "Perfect! The results show that **Dave** has the most Linear issues in the 'in_progress' state assigned to them, with exactly **2 issues**.\n\n**Answer:** Dave has the most Linear issues in 'in_progress' state assigned to them, with 2 issues.",
+    "toolMix": {
+      "execute_sql": 3
+    },
+    "expected": {
+      "top": "dave",
+      "count": 2,
+      "tied": [
+        "dave"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "busiest-assignee",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 16171,
+    "tokensOut": 408,
+    "cacheRead": 10368,
+    "peakContextTokens": 3225,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 22882,
+    "costUsd": 0.0038431030000000005,
+    "finalText": "**Answer:** Dave has the most Linear issues in the 'in_progress' state assigned to them, with exactly 2 issues.",
+    "toolMix": {
+      "execute_lisp": 5
+    },
+    "expected": {
+      "top": "dave",
+      "count": 2,
+      "tied": [
+        "dave"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "busiest-assignee",
+    "arm": "jsrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 9,
+    "toolErrors": 5,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 1,
+    "tokensIn": 38581,
+    "tokensOut": 2710,
+    "cacheRead": 26304,
+    "peakContextTokens": 5365,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 81018,
+    "costUsd": 0.009764578999999999,
+    "finalText": "**Answer:** Dave has 2 Linear issues in the 'in_progress' state assigned to them.",
+    "toolMix": {
+      "execute_js": 9
+    },
+    "expected": {
+      "top": "dave",
+      "count": 2,
+      "tied": [
+        "dave"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "busiest-assignee",
+    "arm": "lispfns",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 1,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 7953,
+    "tokensOut": 458,
+    "cacheRead": 4800,
+    "peakContextTokens": 2894,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 16137,
+    "costUsd": 0.0019783310000000003,
+    "finalText": "The person with the most Linear issues in the 'in_progress' state assigned to them is **dave** with **2** issues.",
+    "toolMix": {
+      "execute_lisp": 2
+    },
+    "expected": {
+      "top": "dave",
+      "count": 2,
+      "tied": [
+        "dave"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "high-urgency-triggered",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 6335,
+    "tokensOut": 149,
+    "cacheRead": 5696,
+    "peakContextTokens": 3364,
+    "compactions": 0,
+    "toolsInContext": 32,
+    "wallMs": 9008,
+    "costUsd": 0.0015018220000000003,
+    "finalText": "There are **5** HIGH-urgency PagerDuty incidents still in the 'triggered' state (not acknowledged, not resolved).\n\nTheir IDs are:\n- PD-400\n- PD-401  \n- PD-403\n- PD-411\n- PD-418",
+    "toolMix": {
+      "pagerduty__list_incidents": 1
+    },
+    "expected": {
+      "count": 5,
+      "ids": [
+        "PD-400",
+        "PD-401",
+        "PD-403",
+        "PD-411",
+        "PD-418"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "high-urgency-triggered",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 3953,
+    "tokensOut": 156,
+    "cacheRead": 3456,
+    "peakContextTokens": 2106,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 8813,
+    "costUsd": 0.000958745,
+    "finalText": "There are **5** HIGH-urgency PagerDuty incidents still in the 'triggered' state. Their IDs are:\n\n1. PD-400\n2. PD-401  \n3. PD-403\n4. PD-411\n5. PD-418",
+    "toolMix": {
+      "execute_sql": 1
+    },
+    "expected": {
+      "count": 5,
+      "ids": [
+        "PD-400",
+        "PD-401",
+        "PD-403",
+        "PD-411",
+        "PD-418"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "high-urgency-triggered",
+    "arm": "lisp",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 4732,
+    "tokensOut": 201,
+    "cacheRead": 2112,
+    "peakContextTokens": 2515,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 7333,
+    "costUsd": 0.001152571,
+    "finalText": "There are **5** high-urgency PagerDuty incidents still in the 'triggered' state (not acknowledged, not resolved).\n\nTheir IDs are:\n- PD-400\n- PD-401  \n- PD-403\n- PD-411\n- PD-418",
+    "toolMix": {
+      "execute_lisp": 1
+    },
+    "expected": {
+      "count": 5,
+      "ids": [
+        "PD-400",
+        "PD-401",
+        "PD-403",
+        "PD-411",
+        "PD-418"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "high-urgency-triggered",
+    "arm": "jsrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 1,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 7231,
+    "tokensOut": 393,
+    "cacheRead": 2112,
+    "peakContextTokens": 2735,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 16618,
+    "costUsd": 0.0017906979999999999,
+    "finalText": "Perfect! I found **5 HIGH-urgency PagerDuty incidents** that are still in the 'triggered' state (not acknowledged, not resolved). \n\nHere are their IDs:\n- PD-400\n- PD-401  \n- PD-403\n- PD-411\n- PD-418\n\nAll 5 incidents have high urgency and are currently triggered, meaning they need immediate attention and haven't been acknowledged or resolved yet.",
+    "toolMix": {
+      "execute_js": 2
+    },
+    "expected": {
+      "count": 5,
+      "ids": [
+        "PD-400",
+        "PD-401",
+        "PD-403",
+        "PD-411",
+        "PD-418"
+      ]
+    }
+  }
+]
