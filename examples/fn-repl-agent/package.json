@@ -1,0 +1,23 @@
+{
+  "name": "glove-fn-repl-example",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lisp": "tsx fn-repl.ts lisp",
+    "js": "tsx fn-repl.ts js",
+    "both": "tsx fn-repl.ts both"
+  },
+  "dependencies": {
+    "glove-core": "workspace:*",
+    "glove-scratchpad": "workspace:*",
+    "glove-lisp": "workspace:*",
+    "glove-js": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}
