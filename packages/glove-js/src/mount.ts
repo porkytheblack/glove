@@ -19,7 +19,12 @@ export interface JsToolOptions {
  * REPL (where the data lives), branch in the same program, and answer with the
  * one value that matters.
  */
-export const JS_PREAMBLE = `Your capabilities are exposed as async functions in a JavaScript REPL. You have ONE tool, execute_js, and you work entirely in JavaScript. The REPL is PERSISTENT: any top-level const/let you declare stays available in later calls.
+export const JS_PREAMBLE = `Your capabilities are functions inside a persistent JavaScript REPL. You have EXACTLY ONE tool: execute_js. Everything you do is a JavaScript program you pass to execute_js as a "code" string. The REPL is PERSISTENT: any top-level const/let you declare stays available in later calls.
+
+READ THIS FIRST — the functions listed below are NOT tools. They cannot be called directly; they exist ONLY inside an execute_js program. There is no \`github__list_pull_requests\` tool, no \`sentry__list_issues\` tool — the ONLY tool is execute_js. To use a capability you MUST wrap it:
+  ✗ WRONG: call the tool github__list_pull_requests  → it does not exist, nothing happens
+  ✓ RIGHT: execute_js({ code: 'github.list_pull_requests({ state: "open" }).length' })
+If you ever find yourself with no data, it is almost always because you tried to call a capability as a tool instead of inside execute_js. Always call execute_js.
 
 Language card (this is the WHOLE language — nothing else exists):
 - const/let, arrow functions and function declarations, template literals, destructuring (with defaults and ...rest), spread, optional chaining (?.), for…of / for / while (a fuel budget caps runaway loops), if/else, switch, try/catch, throw.
@@ -30,6 +35,7 @@ Language card (this is the WHOLE language — nothing else exists):
 Operating discipline:
 - DISCOVER before you act: fns() lists your functions; describe("name") shows one function's parameters (required ones are marked). The catalog below is already current — spend discovery calls only when unsure.
 - CALL a function by name, passing its arguments as ONE object: github.list_pull_requests({ state: "open" }) (or the flat form github__list_pull_requests({ state: "open" })). The result is whatever the tool returns — usually an array of objects, or a value.
+- KNOW THE SHAPE BEFORE YOU USE IT. You do NOT know a result's field names or a field's allowed values in advance — the catalog shows a function's INPUTS, not the shape of its rows. Before you filter, sort, argmax, or read a property, inspect one row FIRST: return \`rows[0]\` or \`Object.keys(rows[0])\` from an initial call (or bind \`const rows = fn(...)\` and read \`rows[0]\`), then use the EXACT field names and values you saw. Guessing a field (e.g. \`.eventCount\` when the real field is \`.count\`) returns \`undefined\` and a silently WRONG answer — an argmax over undefined just returns the first row. Likewise for filters: push the constraint into the arguments (\`{ status: "unresolved" }\` — see describe) rather than fetching everything and filtering by a guessed enum value; if unsure what values a field takes, inspect the rows.
 - COMPUTE in the REPL, not in your head. Counting, grouping, joining, argmax — write the expression and let the LAST expression be your answer: github.list_pull_requests({ state: "open" }).length. Data flows between functions inside the program — it does NOT round-trip through you.
 - RETURN WHAT YOU MUST REPORT. If the answer needs ids or names, return them (a count plus a small .map(x => x.id) list) — never state values you did not read.
 - KEEP BIG DATA OUT OF YOUR CONTEXT. const prs = github.list_pull_requests() stores the rows in the REPL and echoes only a summary; then prs.length, prs.slice(0, 5), prs.map(p => p.title). Never end a program with a huge array you don't need.
@@ -45,7 +51,7 @@ function catalogHint(session: JsSession): string {
   const fns = session.list();
   if (fns.length === 0) return "";
   const lines = fns.map((fn) => `- ${fnSignature(fn)}`);
-  return `\n\nFunctions available to you (call with an argument object; run describe("name") for details):\n${lines.join("\n")}`;
+  return `\n\nFunctions you can call INSIDE execute_js (these are not tools — signatures show INPUTS only; inspect a row for its fields):\n${lines.join("\n")}`;
 }
 
 /** Build the full preamble (language card + operating discipline + catalog). */
@@ -69,9 +75,11 @@ export function buildExecuteJsTool(session: JsSession, opts: JsToolOptions = {})
   return {
     name: "execute_js",
     description:
-      "Run a JavaScript program against your capability REPL (persistent). Your tools ARE async functions. " +
+      "The ONLY tool: run a JavaScript program (the `code` string) against your capability REPL (persistent). " +
+      "Your capabilities are FUNCTIONS you call INSIDE this program — they are NOT tools you can call directly. " +
       'DISCOVER: fns(), then describe("name"). ' +
-      "CALL a capability by name — github.list_pull_requests({ state: \"open\" }) — arguments go in ONE object; promises resolve automatically. " +
+      "CALL a capability by name inside the code — github.list_pull_requests({ state: \"open\" }) — arguments go in ONE object; promises resolve automatically. " +
+      "INSPECT a row (Object.keys(rows[0])) before filtering/sorting on a field — the signatures show inputs, not result fields; never guess a field name. " +
       "COMPUTE in the program (.length / .filter / .reduce / group with a Map) and let the LAST expression be the answer; " +
       "top-level const keeps big intermediates in the REPL across calls. " +
       "BRANCH inside one program with if/else — decide-and-act is one call. Calling an effectful function FIRES it immediately (no staging).",
