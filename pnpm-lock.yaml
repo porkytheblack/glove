@@ -356,6 +356,9 @@ importers:
       glove-core:
         specifier: workspace:*
         version: link:../../packages/glove
+      glove-js:
+        specifier: workspace:*
+        version: link:../../packages/glove-js
       glove-lisp:
         specifier: workspace:*
         version: link:../../packages/glove-lisp
