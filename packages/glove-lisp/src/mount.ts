@@ -77,9 +77,24 @@ The only data that enters your context is the value of the LAST form — so retu
  *  functions, so the resource-mode agent also knows the function surface. */
 export const LISP_FN_SECTION = `Some capabilities are exposed as FUNCTIONS (alongside the resources above). Discover them with (fns) and (describe :name); call one by passing its arguments as a map — (github__list_pull_requests {:state "open"}) — and it returns the tool's data directly. Functions have NO pushdown and NO staging: an effectful function fires the moment it is called.`;
 
+/** How the function catalog reaches the model — see glove-python's
+ *  {@link DiscoveryMode}. `progressive` (default) lists nothing; the model
+ *  discovers servers → functions → schemas. Resources (table mode) are
+ *  unaffected — they always list. */
+export type DiscoveryMode = "progressive" | "full" | "auto";
+
+const AUTO_FULL_MAX_FNS = 40;
+
+function resolveMode(mode: DiscoveryMode | undefined, session: LispSession): "progressive" | "full" {
+  const m = mode ?? "progressive";
+  if (m === "auto") return session.listFns().length <= AUTO_FULL_MAX_FNS ? "full" : "progressive";
+  return m;
+}
+
 /** A compact catalog of the session's resources AND functions, primed so the
- *  model needn't spend a round-trip listing them (and can't guess a wrong name). */
-function catalogHint(session: LispSession): string {
+ *  model needn't spend a round-trip listing them (and can't guess a wrong name).
+ *  In `progressive` mode the FUNCTION section is replaced by a discovery path. */
+function catalogHint(session: LispSession, mode: "progressive" | "full"): string {
   const sections: string[] = [];
   const tables = session.list();
   if (tables.length > 0) {
@@ -93,7 +108,7 @@ function catalogHint(session: LispSession): string {
     );
   }
   const fns = session.listFns();
-  if (fns.length > 0) {
+  if (fns.length > 0 && mode === "full") {
     const lines = fns.map((fn) => {
       const d = describeFn(fn);
       const params = d.params
@@ -106,19 +121,28 @@ function catalogHint(session: LispSession): string {
     sections.push(
       `Functions available to you (call by name with an argument map; a row's fields are shown after →; run (describe :name) for details):\n${lines.join("\n")}`,
     );
+  } else if (fns.length > 0) {
+    const servers = session.discoverServers();
+    sections.push(
+      `DISCOVER YOUR FUNCTIONS — they are NOT listed here. ${fns.length} functions across ${servers.length} servers; find the few you need progressively:\n` +
+        `1. (servers) — the servers and how many functions each exposes.\n` +
+        `2. (fns :github) — that server's function signatures.\n` +
+        `3. (describe :github__list_pull_requests) — one function's parameters + result shape.\n` +
+        `Each is also a tool (list_servers / list_functions / describe_function) you can fire in a batch. Then call a function by name: (github__list_pull_requests {…}).`,
+    );
   }
   return sections.length ? `\n\n${sections.join("\n\n")}` : "";
 }
 
 /** Select the preamble that fits the session's surface: functions-only,
  *  resources-only, or both. */
-export function buildLispPreamble(session: LispSession): string {
+export function buildLispPreamble(session: LispSession, mode: "progressive" | "full" = "progressive"): string {
   const hasResources = session.list().length > 0;
   const hasFns = session.listFns().length > 0;
   let base = LISP_PREAMBLE;
   if (hasFns && !hasResources) base = LISP_FN_PREAMBLE;
   else if (hasFns) base = `${LISP_PREAMBLE}\n\n${LISP_FN_SECTION}`;
-  return base + catalogHint(session);
+  return base + catalogHint(session, mode);
 }
 
 const inputSchema = z.object({
@@ -209,22 +233,73 @@ const BUILTIN_NAMES = [
   "tables", "fns", "describe", "insert!", "update!", "delete!", "commit!", "rollback!",
 ];
 
+/** The three native discovery tools — the same tiers as the REPL builtins
+ *  (`(servers)` / `(fns :server)` / `(describe :name)`), for models that prefer a
+ *  batch of tool calls before writing code. Only relevant when the session has
+ *  functions (fn mode). */
+export function buildDiscoveryTools(session: LispSession): Array<GloveFoldArgs<Record<string, never>> | GloveFoldArgs<{ server: string }> | GloveFoldArgs<{ name: string }>> {
+  return [
+    {
+      name: "list_servers",
+      description:
+        "Discovery tier 1: list your capability servers (MCP namespaces) with how many functions each exposes. Also available in the REPL as (servers).",
+      inputSchema: z.object({}),
+      async do(): Promise<ToolResultData> {
+        return { status: "success", data: session.discoverServers() };
+      },
+    },
+    {
+      name: "list_functions",
+      description:
+        "Discovery tier 2: list one server's functions and their argument keywords. Also available in the REPL as (fns :server).",
+      inputSchema: z.object({ server: z.string().describe('A server name from list_servers, e.g. "github".') }),
+      async do(input: { server: string }): Promise<ToolResultData> {
+        try {
+          return { status: "success", data: session.discoverFunctions(input.server) };
+        } catch (err) {
+          return errResult(err);
+        }
+      },
+    },
+    {
+      name: "describe_function",
+      description:
+        "Discovery tier 3: the full parameters + result shape of one function. Also available in the REPL as (describe :name).",
+      inputSchema: z.object({ name: z.string().describe('A function name, e.g. "github__list_pull_requests".') }),
+      async do(input: { name: string }): Promise<ToolResultData> {
+        try {
+          return { status: "success", data: session.describeFunction(input.name) };
+        } catch (err) {
+          return errResult(err);
+        }
+      },
+    },
+  ];
+}
+
 export interface MountLispConfig extends LispToolOptions {
   session: LispSession;
   /** Prepend {@link LISP_PREAMBLE} + the resource catalog. Default true. */
   prime?: boolean;
   /** Also fold `explain_lisp`. Default true. */
   explain?: boolean;
+  /** How the FUNCTION catalog reaches the model (fn mode). Default `progressive`. See {@link DiscoveryMode}. */
+  discovery?: DiscoveryMode;
 }
 
 /** Fold the REPL tool(s) onto a built Glove and prime it. Returns the runnable. */
 export function mountLisp(glove: IGloveRunnable, config: MountLispConfig): IGloveRunnable {
-  const { session, prime, explain, ...toolOpts } = config;
+  const { session, prime, explain, discovery, ...toolOpts } = config;
   glove.fold(buildExecuteLispTool(session, toolOpts));
   if (explain !== false) glove.fold(buildExplainLispTool(session));
+  // Discovery tools only make sense when there are functions to discover.
+  if (session.listFns().length > 0) {
+    for (const tool of buildDiscoveryTools(session)) glove.fold(tool as GloveFoldArgs<unknown>);
+  }
   if (prime !== false) {
+    const mode = resolveMode(discovery, session);
     const existing = glove.getSystemPrompt();
-    const preamble = buildLispPreamble(session);
+    const preamble = buildLispPreamble(session, mode);
     glove.setSystemPrompt(existing ? `${preamble}\n\n${existing}` : preamble);
   }
   return glove;

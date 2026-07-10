@@ -45,18 +45,39 @@ Operating discipline:
 
 The only data that enters your context is the value of the LAST expression — so return counts, small selections, or summaries, and bind the rest to a const.`;
 
-/** A compact "here are your functions" catalog, primed so the model needn't
- *  spend a round-trip listing them (and can't guess a wrong name). */
-function catalogHint(session: JsSession): string {
-  const fns = session.list();
-  if (fns.length === 0) return "";
-  const lines = fns.map((fn) => `- ${fnSignature(fn)}`);
-  return `\n\nFunctions you can call INSIDE execute_js (these are not tools — signatures show INPUTS only; inspect a row for its fields):\n${lines.join("\n")}`;
+/** How the capability catalog reaches the model — see glove-python's
+ *  {@link DiscoveryMode} for the full rationale. `progressive` (default) lists
+ *  nothing and the model discovers servers → functions → schemas. */
+export type DiscoveryMode = "progressive" | "full" | "auto";
+
+const AUTO_FULL_MAX_FNS = 40;
+
+function resolveMode(mode: DiscoveryMode | undefined, session: JsSession): "progressive" | "full" {
+  const m = mode ?? "progressive";
+  if (m === "auto") return session.list().length <= AUTO_FULL_MAX_FNS ? "full" : "progressive";
+  return m;
 }
 
-/** Build the full preamble (language card + operating discipline + catalog). */
-export function buildJsPreamble(session: JsSession): string {
-  return JS_PREAMBLE + catalogHint(session);
+/** The catalog hint — a full signature dump, or (progressive) just the discovery
+ *  path + the server/function counts, so nothing scales into the prompt. */
+function catalogHint(session: JsSession, mode: "progressive" | "full"): string {
+  const fns = session.list();
+  if (fns.length === 0) return "";
+  if (mode === "full") {
+    const lines = fns.map((fn) => `- ${fnSignature(fn)}`);
+    return `\n\nFunctions you can call INSIDE execute_js (these are not tools — signatures show INPUTS only; inspect a row for its fields):\n${lines.join("\n")}`;
+  }
+  const servers = session.discoverServers();
+  return `\n\nDISCOVER YOUR CAPABILITIES — they are NOT listed here. You have ${fns.length} functions across ${servers.length} servers; find the few you need progressively:
+1. list_servers() — the servers and how many functions each exposes.
+2. list_functions({ server: "github" }) — that server's function signatures.
+3. describe_function({ name: "github__list_pull_requests" }) — one function's parameters + result shape.
+Each is available BOTH as a tool AND inside execute_js (as servers() / fns("github") / describe("name")). A capable model can script the whole sweep in one program — e.g. servers().map(s => fns(s.name)) — or fire the discovery tools in a batch first, then write one program. Call a function by its name once you know it.`;
+}
+
+/** Build the preamble (language card + operating discipline + catalog hint). */
+export function buildJsPreamble(session: JsSession, mode: "progressive" | "full" = "progressive"): string {
+  return JS_PREAMBLE + catalogHint(session, mode);
 }
 
 const inputSchema = z.object({
@@ -77,7 +98,7 @@ export function buildExecuteJsTool(session: JsSession, opts: JsToolOptions = {})
     description:
       "The ONLY tool: run a JavaScript program (the `code` string) against your capability REPL (persistent). " +
       "Your capabilities are FUNCTIONS you call INSIDE this program — they are NOT tools you can call directly. " +
-      'DISCOVER: fns(), then describe("name"). ' +
+      'DISCOVER progressively: list_servers → list_functions({ server }) → describe_function({ name }) (as tools), or servers()/fns("server")/describe("name") inside the code. ' +
       "CALL a capability by name inside the code — github.list_pull_requests({ state: \"open\" }) — arguments go in ONE object; promises resolve automatically. " +
       "INSPECT a row (Object.keys(rows[0])) before filtering/sorting on a field — the signatures show inputs, not result fields; never guess a field name. " +
       "COMPUTE in the program (.length / .filter / .reduce / group with a Map) and let the LAST expression be the answer; " +
@@ -106,19 +127,65 @@ export function buildExecuteJsTool(session: JsSession, opts: JsToolOptions = {})
   };
 }
 
-export interface MountJsConfig extends JsToolOptions {
-  session: JsSession;
-  /** Prepend {@link JS_PREAMBLE} + the function catalog. Default true. */
-  prime?: boolean;
+/** The three native discovery tools — the same tiers as the REPL builtins
+ *  (`servers()` / `fns(server)` / `describe(name)`). */
+export function buildDiscoveryTools(session: JsSession): Array<GloveFoldArgs<Record<string, never>> | GloveFoldArgs<{ server: string }> | GloveFoldArgs<{ name: string }>> {
+  return [
+    {
+      name: "list_servers",
+      description:
+        "Discovery tier 1: list your capability servers (MCP namespaces) with how many functions each exposes. Then list_functions for one. Also available inside execute_js as servers().",
+      inputSchema: z.object({}),
+      async do(): Promise<ToolResultData> {
+        return { status: "success", data: session.discoverServers() };
+      },
+    },
+    {
+      name: "list_functions",
+      description:
+        "Discovery tier 2: list one server's functions and their input signatures. Then describe_function for a full schema, or just call the function inside execute_js. Also available in the REPL as fns(\"server\").",
+      inputSchema: z.object({ server: z.string().describe('A server name from list_servers, e.g. "github".') }),
+      async do(input: { server: string }): Promise<ToolResultData> {
+        try {
+          return { status: "success", data: session.discoverFunctions(input.server) };
+        } catch (err) {
+          return errResult(err);
+        }
+      },
+    },
+    {
+      name: "describe_function",
+      description:
+        "Discovery tier 3: the full parameters + result shape of one function. Also available in the REPL as describe(\"name\").",
+      inputSchema: z.object({ name: z.string().describe('A function name, e.g. "github__list_pull_requests".') }),
+      async do(input: { name: string }): Promise<ToolResultData> {
+        try {
+          return { status: "success", data: session.describeFunction(input.name) };
+        } catch (err) {
+          return errResult(err);
+        }
+      },
+    },
+  ];
 }
 
-/** Fold `execute_js` onto a built Glove and prime it. Returns the runnable. */
+export interface MountJsConfig extends JsToolOptions {
+  session: JsSession;
+  /** Prepend {@link JS_PREAMBLE} + the catalog hint. Default true. */
+  prime?: boolean;
+  /** How the catalog reaches the model. Default `progressive`. See {@link DiscoveryMode}. */
+  discovery?: DiscoveryMode;
+}
+
+/** Fold `execute_js` + the discovery tools onto a built Glove and prime it. */
 export function mountJs(glove: IGloveRunnable, config: MountJsConfig): IGloveRunnable {
-  const { session, prime, ...toolOpts } = config;
+  const { session, prime, discovery, ...toolOpts } = config;
   glove.fold(buildExecuteJsTool(session, toolOpts));
+  for (const tool of buildDiscoveryTools(session)) glove.fold(tool as GloveFoldArgs<unknown>);
   if (prime !== false) {
+    const mode = resolveMode(discovery, session);
     const existing = glove.getSystemPrompt();
-    const preamble = buildJsPreamble(session);
+    const preamble = buildJsPreamble(session, mode);
     glove.setSystemPrompt(existing ? `${preamble}\n\n${existing}` : preamble);
   }
   return glove;

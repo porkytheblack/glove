@@ -37,8 +37,12 @@ const selScenarios: Scenario[] = list(args.scenarios).length ? list(args.scenari
 const selArms: ArmName[] = (list(args.arms).length ? list(args.arms) : ["baseline", "scratchpad"]) as ArmName[];
 const bare = "bare" in args;
 
+const discovery: "progressive" | "full" | "auto" | undefined =
+  args.discovery === "full" || args.discovery === "auto" || args.discovery === "progressive" ? args.discovery : undefined;
+
 const opts = {
   prime: !bare,
+  ...(discovery ? { discovery } : {}),
   distractors: num(args.distractors, 0),
     maxTurns: num(args.maxTurns, 24),
   compactionContextLimit: num(args.contextLimit, 100_000),

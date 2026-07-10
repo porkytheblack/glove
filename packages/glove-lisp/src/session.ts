@@ -23,10 +23,13 @@ import {
   describeFn,
   makeBindings,
   missingRequired,
+  serverSummaries,
+  fnsForServer,
   toRows,
   unknownKeys,
   type ResourceContext,
   type ResourceTable,
+  type ServerSummary,
   type SqlScalar,
   type ToolFn,
 } from "glove-scratchpad";
@@ -292,6 +295,57 @@ export class LispSession {
     return [...this.fns.values()];
   }
 
+  // ── progressive discovery (shared by the `(servers)`/`(fns …)` builtins and
+  //    the native discovery tools) ──────────────────────────────────────────
+  /** Tier 1 — the servers (MCP namespaces) in the fn catalog, with fn counts. */
+  discoverServers(): ServerSummary[] {
+    return serverSummaries(this.listFns());
+  }
+
+  /** Tier 2 — one server's functions as `{ name, args, effect }` rows. */
+  discoverFunctions(server: string): Array<Record<string, unknown>> {
+    const fns = fnsForServer(this.listFns(), server);
+    if (fns.length === 0) {
+      const hint = closest(server, this.discoverServers().map((s) => s.name));
+      throw new LispError(
+        `no server named "${server}"${hint ? ` — did you mean :${hint}?` : ""}. Run (servers) to list them.`,
+      );
+    }
+    return fns.map((fn) => this.fnRow(fn));
+  }
+
+  private fnRow(fn: ToolFn): Record<string, unknown> {
+    const d = describeFn(fn);
+    return {
+      name: fn.name,
+      description: fn.description,
+      args: d.params.map((p) => (p.required ? `:${p.name}` : `:${p.name}?`)),
+      ...(fn.readOnlyHint === false ? { effect: "write" } : fn.readOnlyHint === true ? { effect: "read" } : {}),
+    };
+  }
+
+  /** Tier 3 — one function's full schema (for the `describe_function` tool). */
+  describeFunction(name: string): Record<string, unknown> {
+    const fn = this.fns.get(name);
+    if (!fn) {
+      const hint = closest(name, [...this.fns.keys()]);
+      throw new LispError(
+        `no function named "${name}"${hint ? ` — did you mean :${hint}?` : ""}. Run (fns :server) to list a server's functions.`,
+      );
+    }
+    const d = describeFn(fn);
+    const req = d.params.filter((p) => p.required).map((p) => `:${p.name} …`).join(" ");
+    return {
+      name: fn.name,
+      kind: "function",
+      description: fn.description,
+      ...(fn.readOnlyHint !== undefined ? { readOnly: fn.readOnlyHint } : {}),
+      params: d.params,
+      ...(d.returns ? { returns: d.returns } : {}),
+      usage: `(${fn.name}${req ? ` {${req}}` : d.params.length ? " {…}" : ""}) — calling it FIRES the tool immediately (no staging)`,
+    };
+  }
+
   /** Writes currently staged and awaiting `(commit!)`. */
   preview(): LispStagedView[] {
     return (this.pending ?? []).map((w) => ({ resource: w.resource, op: w.op, ...w.detail }));
@@ -419,18 +473,19 @@ export class LispSession {
       ),
     );
 
+    // (servers) — tier 1: the MCP servers you can drill into.
+    this.builtins.set("servers", new NativeFn("servers", () => this.discoverServers()));
+
+    // (fns) — all functions; (fns :github) — just that server's functions.
     this.builtins.set(
       "fns",
-      new NativeFn("fns", () =>
-        this.listFns().map((fn) => {
-          const d = describeFn(fn);
-          return {
-            name: fn.name,
-            description: fn.description,
-            args: d.params.map((p) => (p.required ? `:${p.name}` : `:${p.name}?`)),
-            ...(fn.readOnlyHint === false ? { effect: "write" } : fn.readOnlyHint === true ? { effect: "read" } : {}),
-          };
-        }),
+      new NativeFn(
+        "fns",
+        (args) =>
+          args.length > 0
+            ? this.discoverFunctions(this.nameArg(args[0], "fns"))
+            : this.listFns().map((fn) => this.fnRow(fn)),
+        "(fns) or (fns :server)",
       ),
     );
 

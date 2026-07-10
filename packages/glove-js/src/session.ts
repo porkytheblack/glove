@@ -12,8 +12,12 @@ import {
   fnSignature,
   missingRequired,
   unknownKeys,
+  serverSummaries,
+  fnsForServer,
   DEFAULT_ELIDE,
   type ElideLimits,
+  type FnDescription,
+  type ServerSummary,
   type ToolFn,
 } from "glove-scratchpad/fns";
 import { JsError } from "./errors";
@@ -59,7 +63,7 @@ interface Runtime {
   called: Map<string, number>;
 }
 
-const RESERVED = new Set(["fns", "describe"]);
+const RESERVED = new Set(["fns", "describe", "servers"]);
 
 export class JsSession {
   private root: Scope;
@@ -133,6 +137,46 @@ export class JsSession {
     return [...this.toolFns.values()];
   }
 
+  // ── progressive discovery (shared by the REPL builtins and the native tools) ─
+
+  /** Tier 1 — the servers (MCP namespaces) in the catalog, with fn counts. */
+  discoverServers(): ServerSummary[] {
+    return serverSummaries(this.list());
+  }
+
+  /** Tier 2 — one server's functions as `{ name, signature, effect }`. */
+  discoverFunctions(server: string): Array<{ name: string; description?: string; signature: string; effect?: string }> {
+    const fns = fnsForServer(this.list(), server);
+    if (fns.length === 0) {
+      const hint = closest(server, this.discoverServers().map((s) => s.name));
+      throw new JsError(
+        `no server named '${server}'${hint ? ` — did you mean '${hint}'?` : ""}. Call fns() with no argument, or servers(), to list them.`,
+      );
+    }
+    return fns.map((fn) => this.fnRow(fn));
+  }
+
+  /** Tier 3 — one function's full schema (params + result shape). */
+  describeFunction(name: string): FnDescription {
+    const fn = this.toolFns.get(name);
+    if (!fn) {
+      const hint = closest(name, [...this.toolFns.keys()]);
+      throw new JsError(
+        `no function named '${name}'${hint ? ` — did you mean '${hint}'?` : ""}. Call fns("server") to list a server's functions.`,
+      );
+    }
+    return describeFn(fn);
+  }
+
+  private fnRow(fn: ToolFn): { name: string; description?: string; signature: string; effect?: string } {
+    return {
+      name: fn.name,
+      description: fn.description,
+      signature: fnSignature(fn),
+      ...(fn.readOnlyHint === false ? { effect: "write" } : fn.readOnlyHint === true ? { effect: "read" } : {}),
+    };
+  }
+
   /** Names declared at top level so far — the session's scratchpad contents. */
   definitions(): string[] {
     return this.root.ownNames().filter((n) => !this.globalNames.has(n) && !this.namespaces.has(n) && !RESERVED.has(n) && !this.toolFns.has(n));
@@ -141,32 +185,19 @@ export class JsSession {
   // ── the model-facing surface ───────────────────────────────────────────────
 
   private installSurface(): void {
+    // servers() — tier 1: the MCP servers you can drill into.
+    this.root.declare("servers", () => this.discoverServers(), true);
+    // fns(server?) — tier 2: a server's functions (or ALL functions if no arg).
     this.root.declare(
       "fns",
-      () =>
-        this.list().map((fn) => ({
-          name: fn.name,
-          description: fn.description,
-          signature: fnSignature(fn),
-          ...(fn.readOnlyHint === false ? { effect: "write" } : fn.readOnlyHint === true ? { effect: "read" } : {}),
-        })),
+      (server?: unknown) =>
+        server !== undefined && server !== null
+          ? this.discoverFunctions(String(server))
+          : this.list().map((fn) => this.fnRow(fn)),
       true,
     );
-    this.root.declare(
-      "describe",
-      (name: unknown) => {
-        const key = String(name);
-        const fn = this.toolFns.get(key);
-        if (!fn) {
-          const hint = closest(key, this.toolFns.keys ? [...this.toolFns.keys()] : []);
-          throw new JsError(
-            `no function named '${key}'${hint ? ` — did you mean '${hint}'?` : ""}. Call fns() to list them.`,
-          );
-        }
-        return describeFn(fn);
-      },
-      true,
-    );
+    // describe(name) — tier 3: one function's full schema.
+    this.root.declare("describe", (name: unknown) => this.describeFunction(String(name)), true);
   }
 
   /** A ToolFn as a native function: validates the argument object, fires the

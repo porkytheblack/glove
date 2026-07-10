@@ -45,6 +45,10 @@ export interface FnFromToolOptions {
   readOnlyHint?: boolean;
   /** Override result parsing. Default {@link parseToolData}. */
   parse?: (data: unknown) => unknown;
+  /** Origin server (namespace) for progressive discovery grouping. */
+  server?: string;
+  /** One-line description of the origin server. */
+  serverDescription?: string;
 }
 
 /** Read a tool's input schema as JSON Schema, whichever way it was declared. */
@@ -77,6 +81,8 @@ export function fnFromTool<I>(tool: GloveFoldArgs<I>, opts: FnFromToolOptions = 
     description: tool.description,
     inputSchema: toolInputJsonSchema(tool as GloveFoldArgs<unknown>),
     readOnlyHint: opts.readOnlyHint,
+    ...(opts.server !== undefined ? { server: opts.server } : {}),
+    ...(opts.serverDescription !== undefined ? { serverDescription: opts.serverDescription } : {}),
     async call(args, ctx = {}) {
       let input: unknown = args;
       if (zod && typeof zod.safeParse === "function") {

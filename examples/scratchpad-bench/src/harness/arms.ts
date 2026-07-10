@@ -35,6 +35,10 @@ export interface ArmConfig {
    *  only the role and the tools' own descriptions, and must DISCOVER the rest
    *  (information_schema / (tables) / (describe)). The realistic adopter setup. */
   prime?: boolean;
+  /** Catalog priming for the fn-mode arms: `progressive` (default) primes no
+   *  signatures and the model discovers servers→functions→schemas; `full` primes
+   *  every signature; `auto` picks by catalog size. */
+  discovery?: "progressive" | "full" | "auto";
 }
 
 export interface BuiltArm {
@@ -152,7 +156,7 @@ export async function buildJsArm(model: ModelAdapter, org: MockOrg, cfg: ArmConf
   const js = JsSession.create();
   js.registerAll(await catalogFromOrg(org));
   // Folds a single execute_js (no explain_js); primes unless bare mode.
-  mountJs(runnable, { session: js, prime: cfg.prime !== false });
+  mountJs(runnable, { session: js, prime: cfg.prime !== false, discovery: cfg.discovery });
 
   const sub = new BenchSubscriber({ echo: cfg.echo });
   glove.addSubscriber(sub);
@@ -169,7 +173,7 @@ export async function buildPyArm(model: ModelAdapter, org: MockOrg, cfg: ArmConf
   const py = PySession.create();
   py.registerAll(await catalogFromOrg(org));
   // Folds a single execute_python; primes unless bare mode.
-  mountPy(runnable, { session: py, prime: cfg.prime !== false });
+  mountPy(runnable, { session: py, prime: cfg.prime !== false, discovery: cfg.discovery });
 
   const sub = new BenchSubscriber({ echo: cfg.echo });
   glove.addSubscriber(sub);
@@ -185,7 +189,7 @@ export async function buildLispFnArm(model: ModelAdapter, org: MockOrg, cfg: Arm
   // Clojure instead of JS. `registerFns` (not `registerAll`) → LISP_FN_PREAMBLE.
   const lisp = LispSession.create({ policy: { writes: true } });
   lisp.registerFns(await catalogFromOrg(org));
-  mountLisp(runnable, { session: lisp, allowWrites: true, prime: cfg.prime !== false });
+  mountLisp(runnable, { session: lisp, allowWrites: true, prime: cfg.prime !== false, discovery: cfg.discovery });
 
   const sub = new BenchSubscriber({ echo: cfg.echo });
   glove.addSubscriber(sub);

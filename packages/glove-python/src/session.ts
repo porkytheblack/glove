@@ -18,8 +18,12 @@ import {
   fnSignature,
   missingRequired,
   unknownKeys,
+  serverSummaries,
+  fnsForServer,
   DEFAULT_ELIDE,
   type ElideLimits,
+  type FnDescription,
+  type ServerSummary,
   type ToolFn,
 } from "glove-scratchpad/fns";
 import { PyError } from "./errors";
@@ -61,7 +65,7 @@ export interface PyExecuteResult {
   note?: string;
 }
 
-const RESERVED = new Set(["fns", "describe"]);
+const RESERVED = new Set(["fns", "describe", "servers"]);
 
 /** Opaque printing for the model-facing value: Python's non-JSON values. */
 function opaque(v: unknown): string | undefined {
@@ -143,6 +147,47 @@ export class PySession {
     return [...this.toolFns.values()];
   }
 
+  // ── progressive discovery (shared by the REPL builtins and the native tools) ─
+
+  /** Tier 1 — the servers (MCP namespaces) in the catalog, with fn counts. */
+  discoverServers(): ServerSummary[] {
+    return serverSummaries(this.list());
+  }
+
+  /** Tier 2 — one server's functions as `{ name, signature, effect }`. */
+  discoverFunctions(server: string): Array<{ name: string; description?: string; signature: string; effect?: string }> {
+    const fns = fnsForServer(this.list(), server);
+    if (fns.length === 0) {
+      const known = this.discoverServers().map((s) => s.name);
+      const hint = closest(server, known);
+      throw new PyError(
+        `no server named '${server}'${hint ? ` — did you mean '${hint}'?` : ""}. Call servers() to list them.`,
+      );
+    }
+    return fns.map((fn) => this.fnRow(fn));
+  }
+
+  /** Tier 3 — one function's full schema (params + result shape). */
+  describeFunction(name: string): FnDescription {
+    const fn = this.toolFns.get(name);
+    if (!fn) {
+      const hint = closest(name, [...this.toolFns.keys()]);
+      throw new PyError(
+        `no function named '${name}'${hint ? ` — did you mean '${hint}'?` : ""}. Call fns("server") to list a server's functions.`,
+      );
+    }
+    return describeFn(fn);
+  }
+
+  private fnRow(fn: ToolFn): { name: string; description?: string; signature: string; effect?: string } {
+    return {
+      name: fn.name,
+      description: fn.description,
+      signature: fnSignature(fn),
+      ...(fn.readOnlyHint === false ? { effect: "write" } : fn.readOnlyHint === true ? { effect: "read" } : {}),
+    };
+  }
+
   /** Names bound at top level so far — the session's scratchpad contents. */
   definitions(): string[] {
     return this.root
@@ -153,31 +198,19 @@ export class PySession {
   // ── the model-facing surface ───────────────────────────────────────────────
 
   private installSurface(): void {
+    // servers() — tier 1: the MCP servers you can drill into.
+    this.root.set("servers", new NativeFn("servers", () => this.discoverServers()));
+    // fns(server?) — tier 2: a server's functions (or ALL functions if no arg).
     this.root.set(
       "fns",
-      new NativeFn("fns", () =>
-        this.list().map((fn) => ({
-          name: fn.name,
-          description: fn.description,
-          signature: fnSignature(fn),
-          ...(fn.readOnlyHint === false ? { effect: "write" } : fn.readOnlyHint === true ? { effect: "read" } : {}),
-        })),
+      new NativeFn("fns", (args) =>
+        args[0] !== undefined && args[0] !== null
+          ? this.discoverFunctions(String(args[0]))
+          : this.list().map((fn) => this.fnRow(fn)),
       ),
     );
-    this.root.set(
-      "describe",
-      new NativeFn("describe", (args) => {
-        const key = String(args[0]);
-        const fn = this.toolFns.get(key);
-        if (!fn) {
-          const hint = closest(key, [...this.toolFns.keys()]);
-          throw new PyError(
-            `no function named '${key}'${hint ? ` — did you mean '${hint}'?` : ""}. Call fns() to list them.`,
-          );
-        }
-        return describeFn(fn);
-      }),
-    );
+    // describe(name) — tier 3: one function's full schema.
+    this.root.set("describe", new NativeFn("describe", (args) => this.describeFunction(String(args[0]))));
   }
 
   /** A ToolFn as a NativeFn: validates the argument object (from kwargs or a

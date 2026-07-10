@@ -42,6 +42,15 @@ export interface ToolFn {
    * names. Surfaced by `describe(...)` and the primed catalog.
    */
   resultShape?: string;
+  /**
+   * Origin server (an MCP namespace, e.g. `github`) — the grouping key for
+   * progressive discovery (`servers()` / `list_servers`). Populated by
+   * {@link ../fns/mcp!fnsFromMcp}; absent for hand-authored fns unless the name is
+   * `namespace__tool` (then {@link ../fns/discovery!serverOf} derives it).
+   */
+  server?: string;
+  /** One-line description of the origin server, for the `servers()` listing. */
+  serverDescription?: string;
   /** Fire the tool. Returns plain data (JSON-parsed where possible). Throws on error. */
   call(args: Record<string, unknown>, ctx?: ToolFnContext): Promise<unknown>;
 }

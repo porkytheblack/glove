@@ -25,6 +25,24 @@ export interface FnsFromMcpOptions {
   filter?: (tool: McpToolDef) => string | null | undefined;
   /** Override result parsing. Default: JSON-parse text that looks like JSON. */
   parse?: (data: unknown) => unknown;
+  /**
+   * One-line description of this server, surfaced by `servers()` / `list_servers`
+   * during progressive discovery. Defaults to the server's own MCP `instructions`
+   * (if it set any), else omitted (the surface synthesizes one from the fn names).
+   */
+  serverDescription?: string;
+}
+
+/** Best-effort server description from the MCP handshake (server `instructions`). */
+function serverInstructions(conn: McpServerConnection): string | undefined {
+  try {
+    const raw = conn.raw as { getInstructions?: () => string | undefined };
+    const instr = raw.getInstructions?.();
+    if (typeof instr === "string" && instr.trim()) return instr.trim().split("\n")[0].slice(0, 200);
+  } catch {
+    /* raw client may not expose it — fall through */
+  }
+  return undefined;
 }
 
 /** Bridge every tool a connection exposes into {@link ToolFn}s. */
@@ -34,6 +52,7 @@ export async function fnsFromMcp(
 ): Promise<ToolFn[]> {
   const serverMode = opts.serverMode ?? true;
   const defs = await conn.listTools();
+  const serverDescription = opts.serverDescription ?? serverInstructions(conn);
   const out: ToolFn[] = [];
   for (const def of defs) {
     const renamed = opts.filter ? opts.filter(def) : undefined;
@@ -44,6 +63,8 @@ export async function fnsFromMcp(
         ...(renamed !== undefined ? { name: renamed } : {}),
         readOnlyHint: def.annotations?.readOnlyHint === true ? true : undefined,
         parse: opts.parse,
+        server: conn.namespace,
+        ...(serverDescription !== undefined ? { serverDescription } : {}),
       }),
     );
   }

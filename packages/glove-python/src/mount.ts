@@ -34,7 +34,7 @@ Language card (this is the WHOLE language — a Python subset; nothing else exis
 - Tool calls take KEYWORD arguments: github.list_pull_requests(state="open") — results are plain data (lists of dicts). Dict rows also support attribute access: p["title"] and p.title both work.
 
 Operating discipline:
-- DISCOVER before you act: fns() lists your functions; describe("name") shows one function's parameters (required ones are marked). The catalog below is already current — spend discovery calls only when unsure.
+- DISCOVER before you act: servers() lists your capability servers, fns("server") lists that server's functions, describe("name") shows one function's parameters (required ones are marked) — the same three tiers exist as the tools list_servers / list_functions / describe_function. See the discovery note below.
 - CALL a function by name, passing its arguments as KEYWORDS: github.list_pull_requests(state="open") (or the flat form github__list_pull_requests(state="open")). The result is whatever the tool returns — usually a list of dicts, or a value.
 - KNOW THE SHAPE BEFORE YOU USE IT. You do NOT know a result's field names or a field's allowed values in advance — the catalog shows a function's INPUTS, not the shape of its rows. Before you filter, sort, argmax, or read a property, inspect one row FIRST: return \`rows[0]\` or \`list(rows[0].keys())\` from an initial call (or bind \`rows = fn(...)\` and read \`rows[0]\`), then use the EXACT field names and values you saw. Guessing a field (e.g. \`.eventCount\` when the real field is \`.count\`) is a silently WRONG answer. Likewise for filters: push the constraint into the arguments (\`status="unresolved"\` — see describe) rather than fetching everything and filtering by a guessed enum value; if unsure what values a field takes, inspect the rows.
 - COMPUTE in the REPL, not in your head. Counting, grouping, joining, argmax — write the expression and let the LAST expression be your answer: len(github.list_pull_requests(state="open")). Data flows between functions inside the program — it does NOT round-trip through you.
@@ -46,18 +46,43 @@ Operating discipline:
 
 The only data that enters your context is the value of the LAST expression — so return counts, small selections, or summaries, and bind the rest to a name.`;
 
-/** A compact "here are your functions" catalog, primed so the model needn't
- *  spend a round-trip listing them (and can't guess a wrong name). */
-function catalogHint(session: PySession): string {
-  const fns = session.list();
-  if (fns.length === 0) return "";
-  const lines = fns.map((fn) => `- ${fnSignature(fn)}`);
-  return `\n\nFunctions you can call INSIDE execute_python (these are not tools — signatures show INPUTS only; inspect a row for its fields):\n${lines.join("\n")}`;
+/** How the capability catalog reaches the model.
+ *  - `progressive` (default): nothing is listed — the model discovers servers →
+ *    functions → schemas via the discovery tools / REPL builtins. Scales to
+ *    hundreds of tools without a fixed context cost.
+ *  - `full`: every function signature is primed into the prompt (best for small
+ *    catalogs — no discovery round-trip).
+ *  - `auto`: `full` below {@link AUTO_FULL_MAX_FNS} functions, else `progressive`. */
+export type DiscoveryMode = "progressive" | "full" | "auto";
+
+const AUTO_FULL_MAX_FNS = 40;
+
+function resolveMode(mode: DiscoveryMode | undefined, session: PySession): "progressive" | "full" {
+  const m = mode ?? "progressive";
+  if (m === "auto") return session.list().length <= AUTO_FULL_MAX_FNS ? "full" : "progressive";
+  return m;
 }
 
-/** Build the full preamble (language card + operating discipline + catalog). */
-export function buildPyPreamble(session: PySession): string {
-  return PY_PREAMBLE + catalogHint(session);
+/** The catalog hint — a full signature dump, or (progressive) just the discovery
+ *  path and the server/function counts, so nothing scales into the prompt. */
+function catalogHint(session: PySession, mode: "progressive" | "full"): string {
+  const fns = session.list();
+  if (fns.length === 0) return "";
+  if (mode === "full") {
+    const lines = fns.map((fn) => `- ${fnSignature(fn)}`);
+    return `\n\nFunctions you can call INSIDE execute_python (these are not tools — signatures show INPUTS only; inspect a row for its fields):\n${lines.join("\n")}`;
+  }
+  const servers = session.discoverServers();
+  return `\n\nDISCOVER YOUR CAPABILITIES — they are NOT listed here. You have ${fns.length} functions across ${servers.length} servers; find the few you need progressively:
+1. list_servers() — the servers and how many functions each exposes.
+2. list_functions(server="github") — that server's function signatures.
+3. describe_function(name="github__list_pull_requests") — one function's parameters + result shape.
+Each is available BOTH as a tool AND inside execute_python (as servers() / fns("github") / describe("name")). A capable model can script the whole sweep in one program — e.g. { s["name"]: fns(s["name"]) for s in servers() } — or fire the discovery tools in a batch first, then write one program. Call a function by its name once you know it.`;
+}
+
+/** Build the preamble (language card + operating discipline + catalog hint). */
+export function buildPyPreamble(session: PySession, mode: "progressive" | "full" = "progressive"): string {
+  return PY_PREAMBLE + catalogHint(session, mode);
 }
 
 const inputSchema = z.object({
@@ -78,7 +103,7 @@ export function buildExecutePythonTool(session: PySession, opts: PyToolOptions =
     description:
       "The ONLY tool: run a Python program (the `code` string) against your capability REPL (persistent). " +
       "Your capabilities are FUNCTIONS you call INSIDE this program — they are NOT tools you can call directly. " +
-      'DISCOVER: fns(), then describe("name"). ' +
+      'DISCOVER progressively: list_servers → list_functions(server) → describe_function(name) (as tools), or servers()/fns("server")/describe("name") inside the code. ' +
       'CALL a capability by name inside the code — github.list_pull_requests(state="open") — arguments are KEYWORDS. ' +
       "INSPECT a row (list(rows[0].keys())) before filtering/sorting on a field — the signatures show inputs, not result fields; never guess a field name. " +
       "COMPUTE in the program (len / comprehensions / sorted / a dict grouping) and let the LAST expression be the answer; " +
@@ -107,19 +132,72 @@ export function buildExecutePythonTool(session: PySession, opts: PyToolOptions =
   };
 }
 
-export interface MountPyConfig extends PyToolOptions {
-  session: PySession;
-  /** Prepend {@link PY_PREAMBLE} + the function catalog. Default true. */
-  prime?: boolean;
+/** The three native discovery tools — the same tiers as the REPL builtins
+ *  (`servers()` / `fns(server)` / `describe(name)`), so a model that prefers a
+ *  batch of tool calls can gather what it needs before writing any code. */
+export function buildDiscoveryTools(session: PySession): Array<GloveFoldArgs<Record<string, never>> | GloveFoldArgs<{ server: string }> | GloveFoldArgs<{ name: string }>> {
+  return [
+    {
+      name: "list_servers",
+      description:
+        "Discovery tier 1: list your capability servers (MCP namespaces) with how many functions each exposes. Then list_functions for one. Also available inside execute_python as servers().",
+      inputSchema: z.object({}),
+      async do(): Promise<ToolResultData> {
+        return { status: "success", data: session.discoverServers() };
+      },
+    },
+    {
+      name: "list_functions",
+      description:
+        "Discovery tier 2: list one server's functions and their input signatures. Then describe_function for a full schema, or just call the function inside execute_python. Also available in the REPL as fns(\"server\").",
+      inputSchema: z.object({ server: z.string().describe('A server name from list_servers, e.g. "github".') }),
+      async do(input: { server: string }): Promise<ToolResultData> {
+        try {
+          return { status: "success", data: session.discoverFunctions(input.server) };
+        } catch (err) {
+          return errResult(err);
+        }
+      },
+    },
+    {
+      name: "describe_function",
+      description:
+        "Discovery tier 3: the full parameters + result shape of one function. Also available in the REPL as describe(\"name\").",
+      inputSchema: z.object({ name: z.string().describe('A function name, e.g. "github__list_pull_requests".') }),
+      async do(input: { name: string }): Promise<ToolResultData> {
+        try {
+          return { status: "success", data: session.describeFunction(input.name) };
+        } catch (err) {
+          return errResult(err);
+        }
+      },
+    },
+  ];
 }
 
-/** Fold `execute_python` onto a built Glove and prime it. Returns the runnable. */
+export interface MountPyConfig extends PyToolOptions {
+  session: PySession;
+  /** Prepend {@link PY_PREAMBLE} + the catalog hint. Default true. */
+  prime?: boolean;
+  /**
+   * How the catalog reaches the model. Default `progressive` — nothing is
+   * listed; the model discovers servers → functions → schemas. See
+   * {@link DiscoveryMode}.
+   */
+  discovery?: DiscoveryMode;
+}
+
+/** Fold `execute_python` + the discovery tools onto a built Glove and prime it. */
 export function mountPy(glove: IGloveRunnable, config: MountPyConfig): IGloveRunnable {
-  const { session, prime, ...toolOpts } = config;
+  const { session, prime, discovery, ...toolOpts } = config;
   glove.fold(buildExecutePythonTool(session, toolOpts));
+  // Discovery tools are always available (weak models batch them; strong models
+  // may prefer the REPL builtins) — they carry no per-function context cost.
+  for (const tool of buildDiscoveryTools(session)) glove.fold(tool as GloveFoldArgs<unknown>);
   if (prime !== false) {
+    const mode = resolveMode(discovery, session);
     const existing = glove.getSystemPrompt();
-    const preamble = buildPyPreamble(session);
+    const preamble = buildPyPreamble(session, mode);
     glove.setSystemPrompt(existing ? `${preamble}\n\n${existing}` : preamble);
   }
   return glove;

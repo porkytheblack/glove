@@ -1,0 +1,44 @@
+/** Progressive discovery in function mode — (servers)/(fns :server) builtins,
+ *  native tools, and the progressive vs full preamble. */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { z } from "zod";
+import { defineFn } from "glove-scratchpad/fns";
+import { LispSession } from "../src/session";
+import { buildLispPreamble, buildDiscoveryTools } from "../src/mount";
+
+function fixture(): LispSession {
+  const s = LispSession.create({ policy: { writes: true } });
+  const mk = (name: string) =>
+    defineFn({ name, description: `${name} desc`, input: z.object({ state: z.string().optional() }), readOnlyHint: true, handler: () => [{ id: 1 }] });
+  s.registerFns([mk("github__list_pull_requests"), mk("github__create_issue"), mk("sentry__list_issues")]);
+  return s;
+}
+
+test("(servers) and (fns :server) scope by origin; (fns) returns all", async () => {
+  const s = fixture();
+  assert.deepEqual(((await s.execute("(map :name (servers))")).value as string[]).sort(), ["github", "sentry"]);
+  assert.deepEqual((await s.execute("(map :name (fns :sentry))")).value, ["sentry__list_issues"]);
+  assert.equal(((await s.execute("(fns)")).value as unknown[]).length, 3);
+});
+
+test("(fns :unknown) suggests the closest server", async () => {
+  await assert.rejects(() => fixture().execute("(fns :githbu)"), /no server named "githbu" — did you mean :github/);
+});
+
+test("progressive preamble primes no fn signatures; full does", () => {
+  const s = fixture();
+  assert.doesNotMatch(buildLispPreamble(s, "progressive"), /- \(github__list_pull_requests/);
+  assert.match(buildLispPreamble(s, "progressive"), /\(servers\)/);
+  assert.match(buildLispPreamble(s, "full"), /- \(github__list_pull_requests/);
+});
+
+test("native discovery tools mirror the builtins; a call still fires after discovery", async () => {
+  const s = fixture();
+  const [listServers, listFunctions, describeFunction] = buildDiscoveryTools(s);
+  const servers = (await listServers.do({}, null as never, null as never)).data as Array<{ name: string }>;
+  assert.deepEqual(servers.map((x) => x.name).sort(), ["github", "sentry"]);
+  assert.equal(((await listFunctions.do({ server: "github" } as never, null as never, null as never)).data as unknown[]).length, 2);
+  assert.equal((( await describeFunction.do({ name: "sentry__list_issues" } as never, null as never, null as never)).data as { name: string }).name, "sentry__list_issues");
+  assert.equal(((await s.execute('(github__list_pull_requests {:state "open"})')).value as unknown[]).length, 1);
+});

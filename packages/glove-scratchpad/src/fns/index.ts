@@ -26,4 +26,12 @@ export {
   type FnParam,
 } from "./signature";
 export { deriveShape, sampleResultShapes, type SampleShapesOptions } from "./shape";
+export {
+  serverOf,
+  groupByServer,
+  serverSummaries,
+  fnsForServer,
+  serverFunctionSignatures,
+  type ServerSummary,
+} from "./discovery";
 export { closest, DEFAULT_ELIDE, elide, type ElideLimits, type ElideOptions } from "./shared";
