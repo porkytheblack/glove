@@ -1,0 +1,10 @@
+{"kind":"meta","modelKey":"qwen30b","model":"qwen/qwen3-30b-a3b-instruct-2507","scenario":"count-open-prs","arm":"jsrepl","ok":true,"errored":false,"turns":3,"toolCalls":2,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":7393,"tokensOut":56,"cacheRead":7120,"peakContextTokens":2575,"compactions":0,"toolsInContext":1,"wallMs":3249,"costUsd":0.00038029000000000003,"toolMix":{"search_functions":1,"execute_js":1},"expected":17}
+{"kind":"final_answer","text":"17"}
+{"t":1710,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"search_functions","input":"{\"query\":\"open pull requests\"}"}]}
+{"t":1710,"type":"tokens","in":2307,"out":22,"peak":2307}
+{"t":1711,"type":"tool_result","tool":"search_functions","status":"success","data":"[{\"name\":\"github__list_pull_requests\",\"description\":\"List pull requests, optionally filtered by repo, state (open/merged/closed), or author.\",\"signature\":\"github__list_pull_requests({repo?: string, state?: string, author?: string}) — List pull requests, optionally filtered by repo, state (open/merge…(+454)"}
+{"t":2823,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_js","input":"{\"code\":\"github.list_pull_requests({ state: 'open' }).length\"}"}]}
+{"t":2823,"type":"tokens","in":2511,"out":31,"peak":2511}
+{"t":2824,"type":"tool_result","tool":"execute_js","status":"success","data":"{\"value\":17,\"called\":[{\"name\":\"github__list_pull_requests\",\"calls\":1}]}"}
+{"t":3249,"type":"model_response","turn":3,"stop_reason":"stop","text":"17","tool_calls":[]}
+{"t":3249,"type":"tokens","in":2575,"out":3,"peak":2575}

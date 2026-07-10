@@ -226,6 +226,25 @@ discovery — search makes finding cheap but does not make a weak model reason d
 story is unchanged: `full`/`auto` still eager-sample small catalogs where 72-ish reads are
 cheap and a primed signature list reads fine.
 
+That is the 367-tool picture, where search is an unambiguous win. A **small-scale re-run draws
+the boundary of it**: the 32-tool core suite (three models × ten scenarios × three arms,
+`py-ab-prog2` vs the eager-progressive `py-ab-prog`). Search cuts hops here too (browse 192 →
+35, 121 searches) and frontier/mid accuracy holds within noise (deepseek 30→28, xiaomi 28→26
+of 30). For the weak model it is genuinely mixed, and instructively so: search *recovered*
+Qwen3-30B where the earlier progressive step had cost it — pyrepl **5→6**, jsrepl **6→8** — but
+it *regressed* the Lisp arm **8→4**. The transcripts name the cause precisely. Exposing
+discovery as native tools invites a weak model to call the *discovered capability* as a native
+tool too: all four flipped Lisp cells dead-ended the same way — Qwen emitted a bare capability
+tool call (`github__list_pull_requests` in three, `pagerduty__list_incidents` in the fourth),
+got "no such tool," and stopped, never writing the `(github__list_pull_requests {…})` form
+into `execute_lisp` at all (the run shows `execute_lisp` was never called). Its Python and JS
+runs made the same slip but recovered *into* the REPL; in Lisp it dead-ended.
+So the search tier **sharpens** the knob guidance rather than dissolving it: progressive +
+search is a *scale* play (its win grows with the catalog), and a weak-model-heavy *small*
+deployment should still prime `full`/`auto`. The clean fix is legible from the failure — steer
+an unknown-tool call whose name matches a REPL function back into the REPL ("that is a
+function; call it as `(name …)`") — and is the obvious next step, left as one.
+
 ## 9. The cost of a real language: the sandbox
 
 A code surface runs untrusted model code as a Turing-complete language, so it carries a sandbox the SQL surface doesn't need. Each surface's escape hatch is different, and each is closed at the boundary.
