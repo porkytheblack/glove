@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"glm5","model":"z-ai/glm-5","scenario":"count-open-prs","arm":"polyglot","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":13,"servicesTouched":10,"tokensIn":6171,"tokensOut":115,"cacheRead":3008,"peakContextTokens":3137,"compactions":0,"toolsInContext":3,"wallMs":10089,"costUsd":0.0039234,"toolMix":{"execute_python":1},"expected":17}
+{"kind":"final_answer","text":"There are currently **17** open pull requests across all repositories."}
+{"t":3693,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_python","input":"{\"code\":\"open_prs = github__list_pull_requests(state=\\\"open\\\")\\nlen(open_prs)\"}"}]}
+{"t":3693,"type":"tokens","in":3034,"out":88,"peak":3034}
+{"t":3695,"type":"tool_result","tool":"execute_python","status":"success","data":"{\"value\":17,\"called\":[{\"name\":\"github__list_pull_requests\",\"calls\":1}],\"defined\":[\"open_prs\"],\"defs\":{\"open_prs\":{\"count\":17,\"peek\":{\"number\":1000,\"repo\":\"acme/infra\",\"title\":\"SSO SCIM provisioning errors: fix sso-pr…\",\"author\":\"niaj\"}}}}"}
+{"t":10089,"type":"model_response","turn":2,"stop_reason":"stop","text":"There are currently **17** open pull requests across all repositories.","tool_calls":[]}
+{"t":10089,"type":"tokens","in":3137,"out":27,"peak":3137}

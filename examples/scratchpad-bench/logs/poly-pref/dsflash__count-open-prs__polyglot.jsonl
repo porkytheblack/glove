@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"dsflash","model":"deepseek/deepseek-v4-flash","scenario":"count-open-prs","arm":"polyglot","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":13,"servicesTouched":10,"tokensIn":6722,"tokensOut":107,"cacheRead":0,"peakContextTokens":3443,"compactions":0,"toolsInContext":3,"wallMs":5958,"costUsd":0.00062424,"toolMix":{"execute_python":1},"expected":17}
+{"kind":"final_answer","text":"There are currently **17** open GitHub pull requests across all repositories."}
+{"t":2142,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_python","input":"{\"code\":\"open_prs = github.list_pull_requests(state=\\\"open\\\")\\nlen(open_prs)\\n\"}"}]}
+{"t":2142,"type":"tokens","in":3279,"out":77,"peak":3279}
+{"t":2144,"type":"tool_result","tool":"execute_python","status":"success","data":"{\"value\":17,\"called\":[{\"name\":\"github__list_pull_requests\",\"calls\":1}],\"defined\":[\"open_prs\"],\"defs\":{\"open_prs\":{\"count\":17,\"peek\":{\"number\":1000,\"repo\":\"acme/infra\",\"title\":\"SSO SCIM provisioning errors: fix sso-pr…\",\"author\":\"niaj\"}}}}"}
+{"t":5958,"type":"model_response","turn":2,"stop_reason":"stop","text":"There are currently **17** open GitHub pull requests across all repositories.","tool_calls":[]}
+{"t":5958,"type":"tokens","in":3443,"out":30,"peak":3443}

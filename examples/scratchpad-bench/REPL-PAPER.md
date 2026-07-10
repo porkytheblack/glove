@@ -12,7 +12,7 @@
 
 ["The Scratchpad Is a Database"](PAPER.md) showed that folding an agent's capabilities behind **one code-eval tool** beats loading dozens of tool definitions — on correctness, on context, and on cost — because the model computes over results in a sandbox instead of round-tripping every intermediate through its context window. That paper's surface was SQL. This one asks whether the *surface* matters: we expose the **same capabilities as functions** in a persistent, sandboxed REPL behind a single `execute_*` tool, and build that surface three times — in **Clojure** (`glove-lisp`), **JavaScript** (`glove-js`), and **Python** (`glove-python`) — over one shared `ToolFn` catalog derived from the same MCP servers. A capability call is a function call; discovery is `fns()` / `describe()`; the data stays in the session and only the last expression's value returns to context.
 
-Four findings. **(1) Function mode reaches the table contract.** Exposing capabilities as plain `ToolFn`s — no columns, no pushdown keys, no volatility classes to declare — tracks the SQL/`ResourceTable` arm cell-for-cell (Lisp function mode 92% vs Lisp table mode 95% on the same run). When the tools are unknown up front, you give up nothing by skipping the table modeling. **(2) Off-context data flow is language-independent.** In a five-arm run on one roster, every folded-behind-one-tool surface holds peak context **~2× below** the tool baseline (SQL 2.1×, Lisp 1.8×, JS 1.8×) — the whole premise reproduces regardless of language. **(3) Fluency is a knob you tune, not a language you're stuck with.** JavaScript's first run face-planted on the weakest model (0/10) for two *framing* reasons — the model called catalog functions as if they were folded tools, and guessed result field names the catalog never showed. Two transcript-driven batches (a preamble that frames `execute_js` as the only tool, then result-shape discovery that samples each read-only function once and shows its row type) took `jsrepl` from **78% → 90% → 97%**, the top arm in the matrix. **(4) The third language inherited the tuning for free.** Python — built last, with the framing and result-shapes baked in from day one — landed at **88% (53/60), parity-class** with the hardened JS and Lisp arms (both 93%) in an apples-to-apples 6-model × 10-task × 3-arm run; its seven misses are shared failure classes (a model under-listing ids just under a grading threshold, an argmax reasoning slip, the weak model's turn-cap tail), not one parse error, rejected construct, or sandbox escape.
+Six findings. **(1) Function mode reaches the table contract.** Exposing capabilities as plain `ToolFn`s — no columns, no pushdown keys, no volatility classes to declare — tracks the SQL/`ResourceTable` arm cell-for-cell (Lisp function mode 92% vs Lisp table mode 95% on the same run). When the tools are unknown up front, you give up nothing by skipping the table modeling. **(2) Off-context data flow is language-independent.** In a five-arm run on one roster, every folded-behind-one-tool surface holds peak context **~2× below** the tool baseline (SQL 2.1×, Lisp 1.8×, JS 1.8×) — the whole premise reproduces regardless of language. **(3) Fluency is a knob you tune, not a language you're stuck with.** JavaScript's first run face-planted on the weakest model (0/10) for two *framing* reasons — the model called catalog functions as if they were folded tools, and guessed result field names the catalog never showed. Two transcript-driven batches (a preamble that frames `execute_js` as the only tool, then result-shape discovery that samples each read-only function once and shows its row type) took `jsrepl` from **78% → 90% → 97%**, the top arm in the matrix. **(4) The third language inherited the tuning for free.** Python — built last, with the framing and result-shapes baked in from day one — landed at **88% (53/60), parity-class** with the hardened JS and Lisp arms (both 93%) in an apples-to-apples 6-model × 10-task × 3-arm run; its seven misses are shared failure classes (a model under-listing ids just under a grading threshold, an argmax reasoning slip, the weak model's turn-cap tail), not one parse error, rejected construct, or sandbox escape. **(5) Models prefer Python — by revealed preference.** Mount all three languages over one catalog with a neutral preamble and let the model choose, and it reaches for Python in 95% of cells; counterbalanced with the languages presented in reversed order, Python still wins 83% (Clojure 7%, even first-listed) — a genuine preference, not an ordering artifact, and the fluency bet confirmed from the other direction. **(6) At production scale, the discovery mechanism matters as much as the language.** Under 40 servers / 367 tools, function mode holds accuracy (pyrepl the top arm, 10/12) but its *primed* catalog costs ~21k peak context versus SQL's 4.5k — SQL discovers on demand via `information_schema` while the function catalog is front-loaded — still ~2× below the folded baseline's 47k, but ~5× SQL's. A primed catalog that scales with tool count is the one place SQL still wins; making the function catalog discoverable rather than primed is the fix.
 
 The transferable lesson extends the database paper's: **the surface must behave like something the model already knows, and it must show the model the shape of what it's working with.** The language is a fluency knob — pick the one your models are most fluent in — but the two things that actually move the weak-model tail, correct *framing* of the one tool and *result-shape discovery*, are surface properties, not language ones.
 
@@ -97,7 +97,64 @@ Across the 60 shared cells, `pyrepl` and `jsrepl` differ on 7 (2–5), `pyrepl` 
 
 Python earns its place not by beating the others — on this matrix the three are separated by noise — but by what it *adds*: the most idiomatic data-manipulation surface of the three (comprehensions, `sorted(key=)`, dict grouping read most naturally here) and the keyword-argument call shape that maps a tool's documented parameters straight onto the call.
 
-## 7. The cost of a real language: the sandbox
+## 7. Preference: which language do models reach for when free?
+
+The three surfaces are equivalent on accuracy — so given a free choice, which does
+a model pick? We built a **polyglot** arm: one glove with `execute_python`,
+`execute_js`, and `execute_lisp` all mounted over the same catalog, a neutral
+preamble presenting the three as equals, "pick the one you're most fluent in." The
+revealed preference is which `execute_*` the model actually calls (`toolMix`).
+
+![Free to choose, models pick Python — even when it's listed last](figures/repl-preference.svg)
+
+The answer is emphatic: **Python.** With Python listed first, models chose it in
+57 of 60 cells (95%). The obvious objection is an ordering artifact — Python was
+simply listed first — so we ran the study again **counterbalanced**, with the
+languages presented in reversed order (Lisp first, Python last). Python still won
+**50 of 60 cells (83%)**; Clojure was chosen 7% even with the first-listed
+advantage, and JavaScript 5%. A small ordering effect exists (Python 95% → 83%),
+but the dominant signal survives it: on data-shaped tasks, models reach for Python
+whether it is offered first or last. This is the fluency bet (§5) confirmed by
+*revealed preference* rather than pass rate — the same conclusion from the other
+direction. Having three surfaces mounted at once costs nothing: pass 53/60 and
+55/60, matching the single-surface arms.
+
+## 8. Under production noise: 40 servers, 367 tools
+
+Everything so far ran against ten servers and 32 tools. Real agent platforms carry
+*dozens* of MCP servers whose tools mostly don't matter for any task. Following the
+database paper, we mounted a distractor fleet — **40 servers, 367 tools** — and ran
+the three hardest scenarios (a five-effect incident-commander chain, a
+grouped-negation audit, a needle sweep where 3 of 72 entities matter) across four
+models. The function-mode arms carry *all 367 tools* as functions.
+
+![At 367 tools, every surface holds accuracy — the difference is context](figures/repl-noise.svg)
+
+Two honest findings, one good and one a real cost:
+
+- **Function mode holds accuracy under noise.** `pyrepl` was the *most* accurate arm
+  (10/12), above baseline and SQL (9/12 each); `jsrepl`/`lispfns` held at 8/11–8/12.
+  The 367-function catalog didn't drown the model — discovery and computation still
+  land on the right entities. (Unlike the database paper's 11-model run, the folded
+  *baseline* did not collapse on accuracy here — with four mostly-frontier models it
+  held 9/12 — but at a cost the next point makes plain.)
+- **The primed catalog is function mode's scaling tax.** This is where the fn-catalog
+  approach pays for its simplicity: it *primes every signature*, so at 367 tools the
+  REPL arms carry a **~21–24k-token** peak context, versus SQL's **4.5k**. SQL wins
+  here because `information_schema` is discovered *on demand* — the catalog never
+  enters context until queried — while the function catalog is front-loaded. The REPL
+  arms are still **~2× below the folded baseline's 47k**, so the off-context benefit
+  holds against tool-folding; but against SQL's on-demand discovery, function mode is
+  **~5× larger**. The mitigation is obvious and future work: make the function catalog
+  discoverable (`fns()` / `describe()` already exist) rather than fully primed — trading
+  a round-trip for the context, exactly the tradeoff SQL already makes.
+
+The transferable read: function mode is the right contract when tools are unknown up
+front and the surface is modest, but at platform scale the *discovery mechanism*
+matters as much as the language — a primed catalog that scales with tool count is the
+one place SQL's information_schema still beats it.
+
+## 9. The cost of a real language: the sandbox
 
 A code surface runs untrusted model code as a Turing-complete language, so it carries a sandbox the SQL surface doesn't need. Each surface's escape hatch is different, and each is closed at the boundary.
 
@@ -109,7 +166,7 @@ A code surface runs untrusted model code as a Turing-complete language, so it ca
 
 This is the honest ledger of what a code surface costs relative to SQL and Lisp: a security boundary that must be hardened, and a subset whose edges (a rejected regex, `class`, `import`) are a failure source the way SQL's grammar corners were. The unit suites cover the boundary — including the dunder-escape and `import os` cases for Python — and the review's findings are their densest tests.
 
-## 8. Design principles (the transferable part)
+## 10. Design principles (the transferable part)
 
 - **One tool, in-band discovery.** `fns()` / `describe()` + a primed catalog; the model discovers, it doesn't get a wall of schemas.
 - **Off-context data flow.** Bind big intermediates to a session name; only the last expression's value returns, structurally elided.
@@ -117,19 +174,21 @@ This is the honest ledger of what a code surface costs relative to SQL and Lisp:
 - **Loud, correctable errors.** Reject out-of-subset code with a targeted message; on a bad call, name the one thing to change (did-you-mean on names, params, fields).
 - **Frame the one tool correctly.** The single highest-leverage fix for the weak tail: make unmistakable that the functions live *inside* the eval tool. Prompt-only, +12 points.
 - **Show the shape.** Result-shape discovery is the one affordance table mode had that function mode lacked; sample read-only functions and surface row types — but only where the models actually guess fields (JS/Python), off where they don't (Lisp fn-mode).
-- **Fluency is the knob.** Pick the language your models are most fluent in. On this matrix the three are separated by noise once framing and shapes are in place.
+- **Fluency is the knob.** Pick the language your models are most fluent in — and if you offer a choice, expect Python (§7). On this matrix the three are separated by noise once framing and shapes are in place.
+- **Discovery must scale, not just exist.** At platform scale a *primed* catalog that grows with tool count becomes the dominant context cost (§8). Prefer on-demand discovery (SQL's `information_schema`, or `fns()`/`describe()` used instead of a fully-primed preamble) once the tool surface is large.
 
-## 9. Limitations
+## 11. Limitations
 
 - **Rosters and denominators differ across runs.** The five-arm surface comparison and the JS hardening ladder ran on 6 models; the full Lisp/SQL roster ran on 11; the Python A/B on 6. Pass rates here are **graded** (provider errors excluded); the committed `*-summary.md` files use an all-runs denominator, so their headline percentages differ by a point or two. Peak context is reported as **median**. The appendix table labels each number's source run.
 - **Cross-surface bars mix runs deliberately.** The fluency ladder (§5) and the off-context chart (§4) each come from a single run to stay apples-to-apples; the one cross-run number — Python arms carry the result-shape catalog, so their raw peak (3.5–4.2k) sits above the shape-off arms — is stated, not hidden.
 - **Integer precision.** The JS/Python interpreters use IEEE doubles; Python's arbitrary-precision ints lose precision past 2^53. Fine for counts and ids in this domain; noted.
 - **Subset edges are a real surface.** Anything outside each language's subset rejects loudly — a boundary, like SQL's grammar. The per-language explorations enumerate what's in and out.
-- **Single seed, one world shape.** Results are on the `--seed=1337` org; the database paper's production-scale (40 servers, 367 tools) and context-pressure runs argue the mechanism holds at scale, but those were not re-run per language.
+- **Single seed, one world shape.** Results are on the `--seed=1337` org. The production-scale run (§8) is 4 models × 3 scenarios; the folded baseline did not invert on *accuracy* here as it did in the database paper's 11-model run, so §8's claim is scoped to context, not to a baseline-accuracy collapse.
+- **The preference study has a residual ordering effect.** Counterbalancing (§7) shows Python's dominance is genuine (95% → 83% when listed last), but the ~12-point gap between orders is a real, if minor, presentation effect; the neutral preamble also lists Python's call form first in prose. The finding is "Python is strongly preferred," not a precise share.
 
 Deeper per-language detail lives in the three explorations: [LISP-EXPLORATION](LISP-EXPLORATION.md), [JS-EXPLORATION](JS-EXPLORATION.md), [PY-EXPLORATION](PY-EXPLORATION.md).
 
-## 10. Reproducing
+## 12. Reproducing
 
 ```bash
 # free — prove each surface can express every task (no API key)
@@ -143,6 +202,16 @@ pnpm --filter glove-scratchpad-bench bench \
   --arms=pyrepl,jsrepl,lispfns \
   --scenarios=count-open-prs,sentry-billing-unresolved,merged-prs-open-linear,busiest-assignee,high-urgency-triggered,email-top-error,compose-verify-issues,incident-branch,open-prs-breakdown,reconcile-ghost-issues \
   --out=py-ab
+
+# the preference study (all three REPLs mounted; measure which is chosen),
+# counterbalanced by presentation order
+pnpm bench --arms=polyglot --out=poly-pref            # Python listed first
+POLYGLOT_ORDER=lisp,js,python pnpm bench --arms=polyglot --out=poly-pref-rev
+npx tsx src/poly-analysis.ts poly-pref-results.json poly-pref-rev-results.json
+
+# production scale (40 servers / 367 tools) — REPL fn arms + references
+pnpm bench --arms=baseline,scratchpad,pyrepl,jsrepl,lispfns --distractors=30 \
+  --scenarios=incident-commander,heavy-pr-audit,needle-sweep --out=repl-noise
 
 # the cross-surface report + regenerate every figure in this paper
 npx tsx src/js-compare.ts py-ab-results.json
@@ -192,3 +261,26 @@ median peak context: pyrepl 4,214 · jsrepl 3,900 · lispfns 3,545 (all carry re
 | baseline (32 tools) | 59/77 (77%) |
 | SQL (scratchpad) | 76/77 (99%) |
 | lisp (table mode) | 74/77 (96%) · graded 74/75 (99%) |
+
+**E. Preference — the polyglot choice study** (6 models × 10 tasks, `poly-pref` / `poly-pref-rev`, share of cells choosing each language):
+
+| language | Python first | Lisp first (reversed) |
+|---|:--:|:--:|
+| Python | 95% (57/60) | 83% (50/60) |
+| JavaScript | 0% | 5% (3/60) |
+| Clojure | 0% | 7% (4/60) |
+| mixed | 5% (3/60) | 5% (3/60) |
+
+pass: 53/60 (default) · 55/60 (reversed) — having three surfaces costs nothing.
+
+**F. Production scale — 40 servers, 367 tools** (4 models × 3 scenarios, `repl-noise`):
+
+| arm | pass | median peak | vs baseline |
+|---|:--:|:--:|:--:|
+| baseline (367 tools folded) | 9/12 | 47,133 | — |
+| SQL (scratchpad) | 9/12 | 4,499 | 10.5× smaller |
+| **pyrepl** | **10/12** | 20,920 | 2.3× smaller |
+| jsrepl | 8/11 | 20,913 | 2.3× smaller |
+| lispfns | 8/12 | 24,017 | 2.0× smaller |
+
+Function mode holds accuracy (pyrepl the top arm); its *primed* catalog is ~5× SQL's on-demand `information_schema`, still ~2× below the folded baseline.

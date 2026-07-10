@@ -1019,10 +1019,11 @@ const passOf = (rows: RunResult[]): number => gradedRows(rows).filter((r) => r.o
   save("repl-h2h.svg", svg(W, H, b));
 }
 
-// ══ repl-preference — the polyglot choice study (which language, when free) ═══
+// ══ repl-preference — the counterbalanced choice study (which language, free) ═
 {
-  const pref = loadOpt("poly-pref-results.json");
-  if (pref.length) {
+  const def = loadOpt("poly-pref-results.json");
+  const rev = loadOpt("poly-pref-rev-results.json");
+  if (def.length && rev.length) {
     const leanOf = (r: RunResult): "python" | "js" | "lisp" | "mixed" | "none" => {
       const m = (r.toolMix ?? {}) as Record<string, number>;
       const nz = ([["python", m.execute_python], ["js", m.execute_js], ["lisp", m.execute_lisp]] as const).filter(([, n]) => (n ?? 0) > 0);
@@ -1030,49 +1031,61 @@ const passOf = (rows: RunResult[]): number => gradedRows(rows).filter((r) => r.o
       if (nz.length > 1) return "mixed";
       return nz[0][0];
     };
+    const share = (rows: RunResult[], k: string) => (rows.filter((r) => leanOf(r) === k).length / rows.length) * 100;
     const LANGS = [
       { key: "python", label: "Python", color: BLUE },
       { key: "js", label: "JavaScript", color: AQUA },
       { key: "lisp", label: "Clojure", color: AMBER },
       { key: "mixed", label: "mixed", color: BASE },
-    ] as const;
-    const W = 900;
-    const H = 380;
-    const M = { l: 172, r: 24, t: 96, b: 44 };
+    ];
+    const W = 820;
+    const H = 392;
+    const M = { l: 52, r: 226, t: 96, b: 56 };
     const pw = W - M.l - M.r;
-    const rowH = 40;
-    const models = PY_MODELS.filter((m) => pref.some((r) => r.modelKey === m.key));
-    const nScen = new Set(pref.map((r) => r.scenario)).size;
-    const x = (v: number) => M.l + (v / nScen) * pw;
-    let b = text(16, 28, "Given three languages over one catalog, which do models reach for?", { size: 15, fill: INK, weight: 600 });
-    b += text(16, 46, `Revealed preference · the polyglot arm mounts execute_python/js/lisp with a neutral preamble · cells per model (of ${nScen})`, { size: 12, fill: INK2 });
+    const ph = H - M.t - M.b;
+    const y = (pct: number) => M.t + ph - (pct / 100) * ph;
+    let b = text(16, 28, "Free to choose among three REPL languages, models pick Python", { size: 15, fill: INK, weight: 600 });
+    b += text(16, 46, "Which execute_* tool the model calls · 6 models × 10 tasks · one neutral preamble, counterbalanced by presentation order", { size: 12, fill: INK2 });
+    // legend for the two orders
+    b += `<rect x="16" y="58" width="12" height="12" rx="3" fill="${INK2}"/>` + text(34, 68, "Python listed first", { size: 12, fill: INK2 });
+    b += `<rect x="176" y="58" width="12" height="12" rx="3" fill="none" stroke="${INK2}" stroke-width="1.5"/>` + text(194, 68, "Lisp listed first (reversed)", { size: 12, fill: INK2 });
+    for (const t of [0, 25, 50, 75, 100]) {
+      b += grid(M.l, W - M.r, y(t));
+      b += text(M.l - 8, y(t) + 4, `${t}%`, { size: 11, fill: MUTED, anchor: "end", nums: true });
+    }
+    const slot = pw / LANGS.length;
+    const bw = 26;
     LANGS.forEach((l, i) => {
-      const lx = 16 + i * 132;
-      b += `<rect x="${lx}" y="58" width="12" height="12" rx="3" fill="${l.color}"/>` + text(lx + 18, 68, l.label, { size: 12, fill: INK2 });
+      const cx = M.l + i * slot + slot / 2;
+      const d = share(def, l.key);
+      const rv = share(rev, l.key);
+      // default = solid fill; reversed = outlined (same hue) with 2px gap
+      b += column(cx - bw - 1, y(d), bw, ph - (y(d) - M.t), l.color);
+      const rvH = ph - (y(rv) - M.t);
+      b += `<rect x="${cx + 1}" y="${y(rv)}" width="${bw}" height="${Math.max(0, rvH)}" rx="3" fill="${SURFACE}" stroke="${l.color}" stroke-width="2"/>`;
+      b += text(cx - bw / 2 - 1, y(d) - 7, `${Math.round(d)}`, { size: 11, fill: INK, anchor: "middle", weight: 700, nums: true });
+      b += text(cx + bw / 2 + 1, y(rv) - 7, `${Math.round(rv)}`, { size: 11, fill: INK, anchor: "middle", weight: 700, nums: true });
+      b += text(cx, M.t + ph + 20, l.label, { size: 12, fill: INK, anchor: "middle", weight: 600 });
     });
-    models.forEach((m, i) => {
-      const yTop = M.t + i * rowH;
-      const rows = pref.filter((r) => r.modelKey === m.key);
-      b += text(M.l - 12, yTop + 16, m.label, { size: 12.5, fill: INK, anchor: "end", weight: 600 });
-      b += text(M.l - 12, yTop + 30, m.tier, { size: 10, fill: MUTED, anchor: "end" });
-      let cx = M.l;
-      LANGS.forEach((l) => {
-        const n = rows.filter((r) => leanOf(r) === l.key).length;
-        if (!n) return;
-        const w = (n / nScen) * pw;
-        b += hbar(cx, yTop + 4, Math.max(0, w - 2), 22, l.color);
-        if (w > 22) b += text(cx + w / 2 - 1, yTop + 19, `${n}`, { size: 11, fill: l.color === AQUA || l.color === BASE ? INK : SURFACE, anchor: "middle", weight: 700, nums: true });
-        cx += w;
-      });
-    });
-    // total lean strip
-    const tot = LANGS.map((l) => ({ l, n: pref.filter((r) => leanOf(r) === l.key).length }));
-    const totStr = "overall: " + tot.filter((t) => t.n).map((t) => `${t.l.label} ${t.n}`).join(" · ");
-    b += text(W - M.r, 68, totStr, { size: 12, fill: INK, anchor: "end", weight: 600, nums: true });
-    for (const t of [0, nScen]) b += `<line x1="${x(t)}" y1="${M.t}" x2="${x(t)}" y2="${M.t + models.length * rowH}" stroke="${GRID}" stroke-width="1"/>`;
+    b += `<line x1="${M.l}" y1="${M.t + ph}" x2="${W - M.r}" y2="${M.t + ph}" stroke="${BASE}" stroke-width="1"/>`;
+    // takeaway panel (right)
+    const ex = W - M.r + 16;
+    b += text(ex, M.t + 6, "The preference is genuine", { size: 12.5, fill: INK, weight: 600 });
+    const notes = [
+      "Python wins 95% first-listed,",
+      "and still 83% when Lisp leads —",
+      "so it is not an ordering effect.",
+      "",
+      "Clojure is chosen ≤7% even",
+      "with the first-listed advantage.",
+      "",
+      "Having three surfaces costs",
+      "nothing: pass 53/60 vs 55/60.",
+    ];
+    notes.forEach((n, i) => b += text(ex, M.t + 30 + i * 17, n, { size: 11, fill: n.endsWith("effect.") || n.endsWith("nothing:") ? INK2 : INK2 }));
     save("repl-preference.svg", svg(W, H, b));
   } else {
-    console.log("skip repl-preference.svg (no poly-pref-results.json)");
+    console.log("skip repl-preference.svg (need poly-pref + poly-pref-rev results)");
   }
 }
 
@@ -1088,46 +1101,49 @@ const passOf = (rows: RunResult[]): number => gradedRows(rows).filter((r) => r.o
       { key: "lispfns", label: "lispfns", sub: "execute_lisp", color: AMBER },
     ];
     const armRows = (k: string): RunResult[] => noise.filter((r) => r.arm === k && !r.errored);
-    const W = 920;
-    const H = 300;
-    let b = text(16, 28, "Under production noise (40 servers · 367 tools), tool-folding inverts — the surfaces barely notice", { size: 15, fill: INK, weight: 600 });
-    b += text(16, 46, "3 aggressive scenarios × 4 models · pass rate and median peak context per arm · fn catalogs carry all 367 tools", { size: 12, fill: INK2 });
-    // left panel — pass rate
-    const pM = { l: 92, t: 84, b: 40 };
+    const W = 940;
+    const H = 320;
+    let b = text(16, 28, "At 367 tools, every surface holds accuracy — the difference is context", { size: 15, fill: INK, weight: 600 });
+    b += text(16, 46, "40 servers · 367 tools · 3 aggressive scenarios × 4 models · baseline folds all 367 schemas; SQL discovers on demand; the fn catalogs are primed", { size: 12, fill: INK2 });
+    const pM = { l: 96, t: 92, b: 44 };
     const pph = H - pM.t - pM.b;
-    const panelW = (W - 32 - 40) / 2;
-    const py = (pct: number) => pM.t + pph - (pct / 100) * pph;
-    b += text(16, 76, "Tasks passed", { size: 12.5, fill: INK, weight: 600 });
-    for (const t of [0, 50, 100]) {
-      b += grid(16 + pM.l - 40, 16 + panelW, py(t));
-      b += text(16 + pM.l - 46, py(t) + 4, `${t}%`, { size: 10.5, fill: MUTED, anchor: "end", nums: true });
-    }
-    const slotA = (panelW - pM.l) / ARMS.length;
+    const panelW = (W - 32 - 48) / 2;
     const bw = 26;
+    // left panel — pass rate (flat)
+    const py = (pct: number) => pM.t + pph - (pct / 100) * pph;
+    b += text(16, 82, "Tasks passed (of 12)", { size: 12.5, fill: INK, weight: 600 });
+    for (const t of [0, 50, 100]) {
+      b += grid(16 + pM.l - 44, 16 + panelW, py(t));
+      b += text(16 + pM.l - 50, py(t) + 4, `${t}%`, { size: 10.5, fill: MUTED, anchor: "end", nums: true });
+    }
+    const slotA = (panelW - pM.l + 20) / ARMS.length;
     ARMS.forEach((a, i) => {
       const rows = armRows(a.key);
       const p = rows.filter((r) => r.ok).length;
       const pct = rows.length ? (p / rows.length) * 100 : 0;
-      const cx = 16 + pM.l + i * slotA + slotA / 2;
+      const cx = 16 + pM.l - 10 + i * slotA + slotA / 2;
       b += column(cx - bw / 2, py(pct), bw, pph - (py(pct) - pM.t), a.color);
       b += text(cx, py(pct) - 7, `${p}/${rows.length}`, { size: 10.5, fill: INK, anchor: "middle", weight: 600, nums: true });
       b += text(cx, pM.t + pph + 16, a.label, { size: 10.5, fill: INK, anchor: "middle", weight: 600 });
     });
-    // right panel — median peak context (log-ish; baseline towers)
-    const rx0 = 16 + panelW + 40;
-    const maxTok = Math.max(...ARMS.map((a) => median(armRows(a.key).map((r) => r.peakContextTokens))), 1);
+    b += `<line x1="${16 + pM.l - 44}" y1="${pM.t + pph}" x2="${16 + panelW}" y2="${pM.t + pph}" stroke="${BASE}" stroke-width="1"/>`;
+    // right panel — median peak context (the real story; headroom so baseline doesn't hit the title)
+    const rx0 = 16 + panelW + 48;
+    const baseTok = median(armRows("baseline").map((r) => r.peakContextTokens));
+    const maxTok = baseTok * 1.18;
     const ry = (v: number) => pM.t + pph - (v / maxTok) * pph;
-    b += text(rx0, 76, "Median peak context (tokens)", { size: 12.5, fill: INK, weight: 600 });
-    const slotB = (panelW - 40) / ARMS.length;
+    b += text(rx0, 82, "Median peak context (tokens)", { size: 12.5, fill: INK, weight: 600 });
+    const slotB = (panelW + 20) / ARMS.length;
     ARMS.forEach((a, i) => {
       const tok = median(armRows(a.key).map((r) => r.peakContextTokens));
-      const cx = rx0 + 40 + i * slotB + slotB / 2;
+      const cx = rx0 + i * slotB + slotB / 2;
       b += column(cx - bw / 2, ry(tok), bw, pph - (ry(tok) - pM.t), a.color);
-      b += text(cx, ry(tok) - 7, tok >= 1000 ? `${(tok / 1000).toFixed(0)}k` : `${tok}`, { size: 10.5, fill: INK, anchor: "middle", weight: 600, nums: true });
+      b += text(cx, ry(tok) - 20, `${(tok / 1000).toFixed(tok >= 10000 ? 0 : 1)}k`, { size: 10.5, fill: INK, anchor: "middle", weight: 700, nums: true });
+      if (a.key !== "baseline") b += text(cx, ry(tok) - 7, `${(baseTok / tok).toFixed(1)}×`, { size: 9.5, fill: GOODTEXT, anchor: "middle", weight: 600, nums: true });
       b += text(cx, pM.t + pph + 16, a.label, { size: 10.5, fill: INK, anchor: "middle", weight: 600 });
     });
-    b += `<line x1="${16 + pM.l - 40}" y1="${pM.t + pph}" x2="${16 + panelW}" y2="${pM.t + pph}" stroke="${BASE}" stroke-width="1"/>`;
-    b += `<line x1="${rx0 + 40}" y1="${pM.t + pph}" x2="${W - 16}" y2="${pM.t + pph}" stroke="${BASE}" stroke-width="1"/>`;
+    b += `<line x1="${rx0 - 8}" y1="${pM.t + pph}" x2="${W - 16}" y2="${pM.t + pph}" stroke="${BASE}" stroke-width="1"/>`;
+    b += text(16, H - 8, "Function mode holds accuracy under noise (pyrepl 10/12, the best arm) but its primed catalog costs ~5× SQL's on-demand discovery — still ~2× below the folded baseline.", { size: 10.5, fill: MUTED });
     save("repl-noise.svg", svg(W, H, b));
   } else {
     console.log("skip repl-noise.svg (no repl-noise-results.json)");
