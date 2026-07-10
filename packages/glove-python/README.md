@@ -148,6 +148,8 @@ evaluator subset and sandbox are covered by 68 unit tests
 rejection cases; all 11 deterministic capability probes pass
 (`pnpm --filter glove-scratchpad-bench probe:py`).
 
+![Python is parity-class with the hardened JS and Lisp arms](../../examples/scratchpad-bench/figures/repl-pyab.svg)
+
 A live A/B (6 models × 10 tasks × 3 function-mode arms, same servers/seed/graders
 — see [`examples/scratchpad-bench/PY-EXPLORATION.md`](../../examples/scratchpad-bench/PY-EXPLORATION.md))
 found `pyrepl` **parity-class with the hardened `jsrepl` and `lispfns`**: 88%

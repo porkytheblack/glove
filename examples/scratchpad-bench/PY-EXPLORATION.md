@@ -65,6 +65,8 @@ function."
 
 ## 4. The surface, concretely
 
+![How a program runs, behind the sandbox gate](figures/repl-pipeline.svg)
+
 The whole language is the Python a model reaches for to transform data:
 
 - Assignment + tuple unpacking, `def`/`lambda`, `if`/`elif`/`else`, `for`/`while`
@@ -118,6 +120,8 @@ Three function-mode arms, **same servers, tasks, seed, and graders** — the onl
 difference is the language the model writes. 6 models × 10 scenarios × 3 arms =
 180 cells, $0.86 total.
 
+![Python is parity-class with the hardened JS and Lisp arms](figures/repl-pyab.svg)
+
 | model | tier | jsrepl | lispfns | **pyrepl** |
 |---|---|:--:|:--:|:--:|
 | GLM-5 | frontier | 10/10 | 9/10 | 9/10 |
@@ -127,6 +131,8 @@ difference is the language the model writes. 6 models × 10 scenarios × 3 arms 
 | DeepSeek V4 Flash | weak | 10/10 | 10/10 | 10/10 |
 | Qwen3 30B A3B | weak | 8/10 | 7/10 | 7/10 |
 | **total** | | **56/60 (93%)** | **56/60 (93%)** | **53/60 (88%)** |
+
+![Head-to-head on the shared catalog: the surfaces mostly tie](figures/repl-h2h.svg)
 
 Head-to-head on the shared catalog: `pyrepl` 2–5 `jsrepl` (53 ties), `pyrepl`
 2–5 `lispfns` (53 ties). Median peak context per cell: `pyrepl` 4,214,

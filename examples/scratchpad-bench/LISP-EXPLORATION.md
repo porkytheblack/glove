@@ -2,7 +2,9 @@
 
 *A design exploration building on ["The Scratchpad Is a Database"](PAPER.md)
 and the SQL-as-tool-interface essay. Status: **live A/B run and hardened** —
-three fluency batches took the arm from 62/77 to 72/77 (94%), see §10.*
+three fluency batches took the arm from 62/77 to 72/77 (94%), see §10. The
+cross-language synthesis is ["The Scratchpad Is a REPL"](REPL-PAPER.md)
+(Lisp · JS · Python over one function catalog).*
 
 ---
 

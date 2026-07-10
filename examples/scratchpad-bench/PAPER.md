@@ -207,7 +207,12 @@ The replication upgrades the paper's thesis from a claim about SQL to a claim
 about **surfaces**: what matters is not the language but that the language is
 one the model already speaks, behaves exactly as the model expects, and makes
 truth cheaper than fabrication. Do that, and two very different languages
-converge on the same number.
+converge on the same number. A companion paper carries this to a *third*
+language and a shared function catalog —
+[The Scratchpad Is a REPL](REPL-PAPER.md): one `ToolFn` catalog behind
+`execute_lisp` / `execute_js` / `execute_python`, where the finding is that
+**fluency is a knob you tune** (JS hardened 78 → 97%) and Python, built with the
+tuning baked in, lands parity-class from day one.
 
 Two follow-on studies sharpen it. Mounting **both** surfaces at once (one
 catalog, a neutral preamble) shows models' revealed preference is SQL — 83 of
