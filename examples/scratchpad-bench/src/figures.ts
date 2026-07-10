@@ -1149,3 +1149,59 @@ const passOf = (rows: RunResult[]): number => gradedRows(rows).filter((r) => r.o
     console.log("skip repl-noise.svg (no repl-noise-results.json)");
   }
 }
+
+// ══ repl-progressive — the payoff: primed catalog vs progressive discovery ════
+{
+  const full = loadOpt("repl-noise-results.json"); // discovery: full (committed)
+  const prog = loadOpt("repl-noise-prog-results.json"); // discovery: progressive
+  if (full.length && prog.length) {
+    const ARMS = [
+      { key: "pyrepl", label: "pyrepl", color: BLUE },
+      { key: "jsrepl", label: "jsrepl", color: AQUA },
+      { key: "lispfns", label: "lispfns", color: AMBER },
+    ];
+    const rowsOf = (rs: RunResult[], k: string) => rs.filter((r) => r.arm === k && !r.errored);
+    const sqlPeak = median(rowsOf(full, "scratchpad").map((r) => r.peakContextTokens));
+    const basePeak = median(rowsOf(full, "baseline").map((r) => r.peakContextTokens));
+    const W = 900;
+    const H = 336;
+    const M = { l: 150, r: 150, t: 96, b: 44 };
+    const pw = W - M.l - M.r;
+    const rowH = 62;
+    const maxTok = 26000;
+    const x = (v: number) => M.l + (Math.min(v, maxTok) / maxTok) * pw;
+    let b = text(16, 28, "Progressive discovery cuts function mode's peak context toward SQL's — accuracy intact", { size: 15, fill: INK, weight: 600 });
+    b += text(16, 46, "40 servers · 367 tools · 3 hard scenarios × 4 models · primed catalog (full) vs discover servers→functions→schemas (progressive)", { size: 12, fill: INK2 });
+    b += `<rect x="16" y="58" width="12" height="12" rx="3" fill="${GRAY}"/>` + text(34, 68, "full (every signature primed)", { size: 12, fill: INK2 });
+    b += `<rect x="250" y="58" width="12" height="12" rx="3" fill="${BLUE}"/>` + text(268, 68, "progressive (nothing primed)", { size: 12, fill: INK2 });
+    // gridlines
+    for (const t of [0, 5000, 10000, 15000, 20000, 25000]) {
+      b += `<line x1="${x(t)}" y1="${M.t - 6}" x2="${x(t)}" y2="${M.t + ARMS.length * rowH}" stroke="${GRID}" stroke-width="1"/>`;
+      b += text(x(t), M.t + ARMS.length * rowH + 16, t === 0 ? "0" : `${t / 1000}k`, { size: 10.5, fill: MUTED, anchor: "middle", nums: true });
+    }
+    // SQL reference line
+    b += `<line x1="${x(sqlPeak)}" y1="${M.t - 6}" x2="${x(sqlPeak)}" y2="${M.t + ARMS.length * rowH}" stroke="${GOOD}" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+    b += text(x(sqlPeak), M.t - 12, `SQL ${(sqlPeak / 1000).toFixed(1)}k`, { size: 10.5, fill: GOODTEXT, anchor: "middle", weight: 600, nums: true });
+    ARMS.forEach((a, i) => {
+      const yTop = M.t + i * rowH;
+      const fRows = rowsOf(full, a.key);
+      const pRows = rowsOf(prog, a.key);
+      const fPeak = median(fRows.map((r) => r.peakContextTokens));
+      const pPeak = median(pRows.map((r) => r.peakContextTokens));
+      const fPass = `${fRows.filter((r) => r.ok).length}/${fRows.length}`;
+      const pPass = `${pRows.filter((r) => r.ok).length}/${pRows.length}`;
+      b += text(M.l - 12, yTop + 20, a.label, { size: 12.5, fill: INK, anchor: "end", weight: 600 });
+      b += text(M.l - 12, yTop + 36, "median peak", { size: 10, fill: MUTED, anchor: "end" });
+      // full bar (gray) then progressive bar (arm color), 2px gap
+      b += hbar(M.l, yTop + 6, x(fPeak) - M.l, 18, GRAY);
+      b += text(x(fPeak) + 8, yTop + 19, `${(fPeak / 1000).toFixed(1)}k · pass ${fPass}`, { size: 10.5, fill: INK2, nums: true });
+      b += hbar(M.l, yTop + 28, Math.max(2, x(pPeak) - M.l), 18, a.color);
+      b += text(x(pPeak) + 8, yTop + 41, `${(pPeak / 1000).toFixed(1)}k · pass ${pPass}  (${(fPeak / pPeak).toFixed(1)}× smaller)`, { size: 10.5, fill: GOODTEXT, weight: 600, nums: true });
+    });
+    b += `<line x1="${M.l}" y1="${M.t + ARMS.length * rowH}" x2="${W - M.r}" y2="${M.t + ARMS.length * rowH}" stroke="${BASE}" stroke-width="1"/>`;
+    b += text(16, H - 8, `Baseline (367 tools folded) sits at ${(basePeak / 1000).toFixed(0)}k — off this scale. Progressive discovery pays a few discovery round-trips to reach SQL-class context without the primed catalog.`, { size: 10.5, fill: MUTED });
+    save("repl-progressive.svg", svg(W, H, b));
+  } else {
+    console.log("skip repl-progressive.svg (need repl-noise + repl-noise-prog results)");
+  }
+}
