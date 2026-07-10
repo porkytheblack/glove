@@ -12,7 +12,7 @@
 
 ["The Scratchpad Is a Database"](PAPER.md) showed that folding an agent's capabilities behind **one code-eval tool** beats loading dozens of tool definitions — on correctness, on context, and on cost — because the model computes over results in a sandbox instead of round-tripping every intermediate through its context window. That paper's surface was SQL. This one asks whether the *surface* matters: we expose the **same capabilities as functions** in a persistent, sandboxed REPL behind a single `execute_*` tool, and build that surface three times — in **Clojure** (`glove-lisp`), **JavaScript** (`glove-js`), and **Python** (`glove-python`) — over one shared `ToolFn` catalog derived from the same MCP servers. A capability call is a function call; discovery is `fns()` / `describe()`; the data stays in the session and only the last expression's value returns to context.
 
-Six findings. **(1) Function mode reaches the table contract.** Exposing capabilities as plain `ToolFn`s — no columns, no pushdown keys, no volatility classes to declare — tracks the SQL/`ResourceTable` arm cell-for-cell (Lisp function mode 92% vs Lisp table mode 95% on the same run). When the tools are unknown up front, you give up nothing by skipping the table modeling. **(2) Off-context data flow is language-independent.** In a five-arm run on one roster, every folded-behind-one-tool surface holds peak context **~2× below** the tool baseline (SQL 2.1×, Lisp 1.8×, JS 1.8×) — the whole premise reproduces regardless of language. **(3) Fluency is a knob you tune, not a language you're stuck with.** JavaScript's first run face-planted on the weakest model (0/10) for two *framing* reasons — the model called catalog functions as if they were folded tools, and guessed result field names the catalog never showed. Two transcript-driven batches (a preamble that frames `execute_js` as the only tool, then result-shape discovery that samples each read-only function once and shows its row type) took `jsrepl` from **78% → 90% → 97%**, the top arm in the matrix. **(4) The third language inherited the tuning for free.** Python — built last, with the framing and result-shapes baked in from day one — landed at **88% (53/60), parity-class** with the hardened JS and Lisp arms (both 93%) in an apples-to-apples 6-model × 10-task × 3-arm run; its seven misses are shared failure classes (a model under-listing ids just under a grading threshold, an argmax reasoning slip, the weak model's turn-cap tail), not one parse error, rejected construct, or sandbox escape. **(5) Models prefer Python — by revealed preference.** Mount all three languages over one catalog with a neutral preamble and let the model choose, and it reaches for Python in 95% of cells; counterbalanced with the languages presented in reversed order, Python still wins 83% (Clojure 7%, even first-listed) — a genuine preference, not an ordering artifact, and the fluency bet confirmed from the other direction. **(6) At production scale, the discovery mechanism matters as much as the language.** Under 40 servers / 367 tools, function mode holds accuracy (pyrepl the top arm, 10/12) but its *primed* catalog costs ~21k peak context versus SQL's 4.5k — SQL discovers on demand via `information_schema` while the function catalog is front-loaded — still ~2× below the folded baseline's 47k, but ~5× SQL's. A primed catalog that scales with tool count is the one place SQL still wins; making the function catalog discoverable rather than primed is the fix.
+Six findings. **(1) Function mode reaches the table contract.** Exposing capabilities as plain `ToolFn`s — no columns, no pushdown keys, no volatility classes to declare — tracks the SQL/`ResourceTable` arm cell-for-cell (Lisp function mode 92% vs Lisp table mode 95% on the same run). When the tools are unknown up front, you give up nothing by skipping the table modeling. **(2) Off-context data flow is language-independent.** In a five-arm run on one roster, every folded-behind-one-tool surface holds peak context **~2× below** the tool baseline (SQL 2.1×, Lisp 1.8×, JS 1.8×) — the whole premise reproduces regardless of language. **(3) Fluency is a knob you tune, not a language you're stuck with.** JavaScript's first run face-planted on the weakest model (0/10) for two *framing* reasons — the model called catalog functions as if they were folded tools, and guessed result field names the catalog never showed. Two transcript-driven batches (a preamble that frames `execute_js` as the only tool, then result-shape discovery that samples each read-only function once and shows its row type) took `jsrepl` from **78% → 90% → 97%**, the top arm in the matrix. **(4) The third language inherited the tuning for free.** Python — built last, with the framing and result-shapes baked in from day one — landed at **88% (53/60), parity-class** with the hardened JS and Lisp arms (both 93%) in an apples-to-apples 6-model × 10-task × 3-arm run; its seven misses are shared failure classes (a model under-listing ids just under a grading threshold, an argmax reasoning slip, the weak model's turn-cap tail), not one parse error, rejected construct, or sandbox escape. **(5) Models prefer Python — by revealed preference.** Mount all three languages over one catalog with a neutral preamble and let the model choose, and it reaches for Python in 95% of cells; counterbalanced with the languages presented in reversed order, Python still wins 83% (Clojure 7%, even first-listed) — a genuine preference, not an ordering artifact, and the fluency bet confirmed from the other direction. **(6) At production scale, the discovery mechanism matters as much as the language.** Under 40 servers / 367 tools, function mode holds accuracy (pyrepl the top arm, 10/12) but its *primed* catalog costs ~21k peak context versus SQL's 4.5k — SQL discovers on demand via `information_schema` while the function catalog is front-loaded — still ~2× below the folded baseline's 47k, but ~5× SQL's. A primed catalog that scales with tool count is the one place SQL still wins — so we built the fix and measured it: **progressive, nested discovery** (list servers → a server's functions → one schema, exposed both as REPL functions and as native tools) cuts the fn arms to **5.3–6.9k (3.0–4.5× smaller, next to SQL's 4.5k)** with accuracy within noise, and is neutral-to-positive at small scale (pyrepl 88→92%, lispfns 93→97%) — only the weakest model dips, which `discovery: "auto"` covers.
 
 The transferable lesson extends the database paper's: **the surface must behave like something the model already knows, and it must show the model the shape of what it's working with.** The language is a fluency knob — pick the one your models are most fluent in — but the two things that actually move the weak-model tail, correct *framing* of the one tool and *result-shape discovery*, are surface properties, not language ones.
 
@@ -145,14 +145,46 @@ Two honest findings, one good and one a real cost:
   enters context until queried — while the function catalog is front-loaded. The REPL
   arms are still **~2× below the folded baseline's 47k**, so the off-context benefit
   holds against tool-folding; but against SQL's on-demand discovery, function mode is
-  **~5× larger**. The mitigation is obvious and future work: make the function catalog
-  discoverable (`fns()` / `describe()` already exist) rather than fully primed — trading
-  a round-trip for the context, exactly the tradeoff SQL already makes.
+  **~5× larger**. The mitigation is obvious: make the function catalog *discoverable*
+  rather than fully primed — trade a round-trip for the context, exactly the tradeoff
+  SQL already makes. So we built it and measured it.
+
+### The fix, measured: progressive discovery
+
+We made discovery **nested and lazy**: nothing is primed — not even the server list.
+The model finds its capabilities in three tiers — **list the servers**, then **list
+one server's functions**, then **read one function's schema** — exposed two ways so
+it fits both capability tiers. They are REPL functions (`servers()` / `fns("server")`
+/ `describe("name")`), so a capable model scripts the whole sweep in one program; and
+they are native tools (`list_servers` / `list_functions` / `describe_function`), so a
+weaker model fires a batch, reads the results into context, then writes one program.
+A `discovery: "progressive" | "full" | "auto"` knob picks the regime; progressive is
+the default. Re-running the same 367-tool matrix with progressive discovery:
+
+![Progressive discovery cuts peak context toward SQL's, accuracy intact](figures/repl-progressive.svg)
+
+**Peak context collapses toward SQL's, and accuracy holds.** The fn arms drop from
+~21–24k to **5.3–6.9k median peak — 3.0–4.5× smaller**, landing next to SQL's 4.5k
+on-demand line and ~8× under the folded baseline. Accuracy is within noise across the
+36-cell matrix (pyrepl 10→8/12, jsrepl 8→9/12, lispfns 8→8/12). The models used the
+tiers exactly as intended — across the run, ~11 `list_servers`, ~30 `list_functions`,
+and 6–22 `describe_function` calls found the 3–4 functions each task needed out of 367.
+
+**And it doesn't cost small-scale accuracy — it slightly helps.** The worry with
+"nothing primed" was the weak tail (the 97% JS result leaned on the primed catalog).
+Re-running the 32-tool core suite progressive vs full: pyrepl **88% → 92%**, lispfns
+**93% → 97%**, jsrepl flat — at *lower* peak (3.2–3.8k vs 3.5–4.2k). Removing the
+catalog clutter *helped* the frontier and mid models (each 9→10/10) because they
+discover precisely what they need. The one honest casualty is the weakest model:
+Qwen3-30B's pyrepl fell 7→5/10 progressive, the multi-step discovery being one hop too
+many for it — which is exactly what `discovery: "auto"` (prime full below a small
+catalog, progressive above) is for in a weak-model-heavy deployment.
 
 The transferable read: function mode is the right contract when tools are unknown up
-front and the surface is modest, but at platform scale the *discovery mechanism*
-matters as much as the language — a primed catalog that scales with tool count is the
-one place SQL's information_schema still beats it.
+front, and with progressive discovery it *also* scales — the primed catalog was the
+one place SQL's `information_schema` still beat it, and lazy, nested, dual-surfaced
+discovery closes that gap while, for capable models, reading cleaner than a wall of
+signatures.
 
 ## 9. The cost of a real language: the sandbox
 
@@ -284,3 +316,13 @@ pass: 53/60 (default) · 55/60 (reversed) — having three surfaces costs nothin
 | lispfns | 8/12 | 24,017 | 2.0× smaller |
 
 Function mode holds accuracy (pyrepl the top arm); its *primed* catalog is ~5× SQL's on-demand `information_schema`, still ~2× below the folded baseline.
+
+**G. Progressive discovery — full vs progressive** (`repl-noise` vs `repl-noise-prog` at 367 tools; `py-ab` vs `py-ab-prog` at 32 tools):
+
+| arm | 367 tools: full peak → prog peak (pass) | 32 tools: full → prog pass |
+|---|---|---|
+| pyrepl | 20,920 → **5,823** (3.6× · 10→8/12) | 88% → **92%** |
+| jsrepl | 20,913 → **6,947** (3.0× · 8→9/12) | 93% → 92% |
+| lispfns | 24,017 → **5,342** (4.5× · 8→8/12) | 93% → **97%** |
+
+Progressive brings the fn arms next to SQL's on-demand peak (4,499) — ~8× under the folded baseline's 47,133 — with accuracy within noise at scale and neutral-to-positive small. Discovery-tool usage across the progressive noise run: ~11 `list_servers`, ~30 `list_functions`, 6–22 `describe_function` per arm.

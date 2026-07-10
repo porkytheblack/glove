@@ -1,0 +1,10 @@
+{"kind":"meta","modelKey":"xiaomi","model":"xiaomi/mimo-v2.5","scenario":"count-open-prs","arm":"jsrepl","ok":true,"errored":false,"turns":3,"toolCalls":2,"toolErrors":0,"mcpRoundTrips":13,"servicesTouched":10,"tokensIn":7306,"tokensOut":109,"cacheRead":2176,"peakContextTokens":2591,"compactions":0,"toolsInContext":1,"wallMs":5873,"costUsd":0.00079765,"toolMix":{"list_servers":1,"execute_js":1},"expected":17}
+{"kind":"final_answer","text":"There are **17** GitHub pull requests currently in the 'open' state across all repositories."}
+{"t":1380,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"list_servers","input":"{}"}]}
+{"t":1380,"type":"tokens","in":2191,"out":25,"peak":2191}
+{"t":1380,"type":"tool_result","tool":"list_servers","status":"success","data":"[{\"name\":\"github\",\"functionCount\":5,\"sample\":[\"github__list_pull_requests\",\"github__get_pull_request\",\"github__list_issues\",\"github__create_issue\",\"github__search_code\"]},{\"name\":\"linear\",\"functionCount\":4,\"sample\":[\"linear__list_issues\",\"linear__get_issue\",\"linear__create_issue\",\"linear__update_iss…(+942)"}
+{"t":3764,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_js","input":"{\"code\":\"github.list_pull_requests({ state: \\\"open\\\" }).length\"}"}]}
+{"t":3764,"type":"tokens","in":2524,"out":54,"peak":2524}
+{"t":3765,"type":"tool_result","tool":"execute_js","status":"success","data":"{\"value\":17,\"called\":[{\"name\":\"github__list_pull_requests\",\"calls\":1}]}"}
+{"t":5873,"type":"model_response","turn":3,"stop_reason":"stop","text":"There are **17** GitHub pull requests currently in the 'open' state across all repositories.","tool_calls":[]}
+{"t":5873,"type":"tokens","in":2591,"out":30,"peak":2591}

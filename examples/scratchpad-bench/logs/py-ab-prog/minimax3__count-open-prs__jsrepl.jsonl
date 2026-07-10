@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"minimax3","model":"minimax/minimax-m3","scenario":"count-open-prs","arm":"jsrepl","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":13,"servicesTouched":10,"tokensIn":4834,"tokensOut":122,"cacheRead":2404,"peakContextTokens":2454,"compactions":0,"toolsInContext":1,"wallMs":3617,"costUsd":0.0015965999999999997,"toolMix":{"execute_js":1},"expected":17}
+{"kind":"final_answer","text":"17"}
+{"t":2992,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_js","input":"{\"code\":\"github.list_pull_requests({ state: \\\"open\\\" }).length\"}"}]}
+{"t":2992,"type":"tokens","in":2380,"out":120,"peak":2380}
+{"t":2994,"type":"tool_result","tool":"execute_js","status":"success","data":"{\"value\":17,\"called\":[{\"name\":\"github__list_pull_requests\",\"calls\":1}]}"}
+{"t":3617,"type":"model_response","turn":2,"stop_reason":"stop","text":"17","tool_calls":[]}
+{"t":3617,"type":"tokens","in":2454,"out":2,"peak":2454}
