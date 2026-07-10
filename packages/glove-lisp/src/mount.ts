@@ -124,11 +124,10 @@ function catalogHint(session: LispSession, mode: "progressive" | "full"): string
   } else if (fns.length > 0) {
     const servers = session.discoverServers();
     sections.push(
-      `DISCOVER YOUR FUNCTIONS — they are NOT listed here. ${fns.length} functions across ${servers.length} servers; find the few you need progressively:\n` +
-        `1. (servers) — the servers and how many functions each exposes.\n` +
-        `2. (fns :github) — that server's function signatures.\n` +
-        `3. (describe :github__list_pull_requests) — one function's parameters + result shape.\n` +
-        `Each is also a tool (list_servers / list_functions / describe_function) you can fire in a batch. Then call a function by name: (github__list_pull_requests {…}).`,
+      `DISCOVER YOUR FUNCTIONS — they are NOT listed here. ${fns.length} functions across ${servers.length} servers; find the few you need:\n` +
+        `- FASTEST: (search "open pull requests") — jump straight to the matching functions.\n` +
+        `- Or browse: (servers) → (fns :github) → (describe :github__list_pull_requests) for parameters + result shape.\n` +
+        `Each is also a tool (search_functions / list_servers / list_functions / describe_function) you can fire in a batch. (describe :name) before filtering on a field (it shows the row shape). Then call a function by name: (github__list_pull_requests {…}).`,
     );
   }
   return sections.length ? `\n\n${sections.join("\n\n")}` : "";
@@ -237,8 +236,19 @@ const BUILTIN_NAMES = [
  *  (`(servers)` / `(fns :server)` / `(describe :name)`), for models that prefer a
  *  batch of tool calls before writing code. Only relevant when the session has
  *  functions (fn mode). */
-export function buildDiscoveryTools(session: LispSession): Array<GloveFoldArgs<Record<string, never>> | GloveFoldArgs<{ server: string }> | GloveFoldArgs<{ name: string }>> {
+export function buildDiscoveryTools(
+  session: LispSession,
+): [GloveFoldArgs<{ query: string }>, GloveFoldArgs<Record<string, never>>, GloveFoldArgs<{ server: string }>, GloveFoldArgs<{ name: string }>] {
   return [
+    {
+      name: "search_functions",
+      description:
+        "Discovery: jump straight to the functions matching a free-text query (e.g. \"open pull requests\"). Also available in the REPL as (search \"query\").",
+      inputSchema: z.object({ query: z.string().describe('What you want to do, e.g. "send email".') }),
+      async do(input: { query: string }): Promise<ToolResultData> {
+        return { status: "success", data: session.searchFunctions(input.query) };
+      },
+    },
     {
       name: "list_servers",
       description:
@@ -268,7 +278,7 @@ export function buildDiscoveryTools(session: LispSession): Array<GloveFoldArgs<R
       inputSchema: z.object({ name: z.string().describe('A function name, e.g. "github__list_pull_requests".') }),
       async do(input: { name: string }): Promise<ToolResultData> {
         try {
-          return { status: "success", data: session.describeFunction(input.name) };
+          return { status: "success", data: await session.describeFunction(input.name) };
         } catch (err) {
           return errResult(err);
         }

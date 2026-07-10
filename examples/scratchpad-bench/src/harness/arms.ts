@@ -138,13 +138,14 @@ export async function buildLispArm(model: ModelAdapter, org: MockOrg, cfg: ArmCo
  * columns, no pushdown keys, no volatility — the tool's own schema is the
  * contract. Effects hit the identical MCP handlers, so the A/B stays fair.
  */
-async function catalogFromOrg(org: MockOrg): Promise<ToolFn[]> {
+async function catalogFromOrg(org: MockOrg, discovery?: ArmConfig["discovery"]): Promise<ToolFn[]> {
   const perServer = await Promise.all(org.connections.map((c) => fnsFromMcp(c)));
   const fns = perServer.flat();
-  // Discovery parity with table mode: sample each read-only function once so the
-  // primed catalog / describe carries the RESULT shape (field names + enums), not
-  // just the input signature — the model needn't guess `.count` vs `.eventCount`.
-  await sampleResultShapes(fns);
+  // Result-shape parity with table mode: in `full` mode sample each read-only
+  // function once up front so the primed catalog / describe carries the RESULT
+  // shape. In `progressive` (default), shapes warm LAZILY on `describe(...)` — so
+  // we do NOT fire N live reads at mount (the whole point of progressive).
+  if (discovery === "full") await sampleResultShapes(fns);
   return fns;
 }
 
@@ -154,7 +155,7 @@ export async function buildJsArm(model: ModelAdapter, org: MockOrg, cfg: ArmConf
 
   // glove-js is fn-catalog only — a call fires immediately (no staging).
   const js = JsSession.create();
-  js.registerAll(await catalogFromOrg(org));
+  js.registerAll(await catalogFromOrg(org, cfg.discovery));
   // Folds a single execute_js (no explain_js); primes unless bare mode.
   mountJs(runnable, { session: js, prime: cfg.prime !== false, discovery: cfg.discovery });
 
@@ -171,7 +172,7 @@ export async function buildPyArm(model: ModelAdapter, org: MockOrg, cfg: ArmConf
   // glove-python is fn-catalog only — a call fires immediately (no staging).
   // Same catalog as jsrepl/lispfns, driven with Python instead of JS/Clojure.
   const py = PySession.create();
-  py.registerAll(await catalogFromOrg(org));
+  py.registerAll(await catalogFromOrg(org, cfg.discovery));
   // Folds a single execute_python; primes unless bare mode.
   mountPy(runnable, { session: py, prime: cfg.prime !== false, discovery: cfg.discovery });
 
@@ -188,7 +189,7 @@ export async function buildLispFnArm(model: ModelAdapter, org: MockOrg, cfg: Arm
   // The Lisp surface in FUNCTION MODE — the same catalog as jsrepl, driven with
   // Clojure instead of JS. `registerFns` (not `registerAll`) → LISP_FN_PREAMBLE.
   const lisp = LispSession.create({ policy: { writes: true } });
-  lisp.registerFns(await catalogFromOrg(org));
+  lisp.registerFns(await catalogFromOrg(org, cfg.discovery));
   mountLisp(runnable, { session: lisp, allowWrites: true, prime: cfg.prime !== false, discovery: cfg.discovery });
 
   const sub = new BenchSubscriber({ echo: cfg.echo });
@@ -217,23 +218,25 @@ function polyglotOrder(): Array<"python" | "js" | "lisp"> {
   return valid.length === 3 ? valid : ["python", "js", "lisp"];
 }
 
-function polyglotPreamble(fns: ToolFn[], order: Array<"python" | "js" | "lisp">): string {
-  const catalog = fns.map((fn) => `- ${fnSignature(fn)}`).join("\n");
+function polyglotPreamble(fns: ToolFn[], order: Array<"python" | "js" | "lisp">, progressive: boolean): string {
   const cards = order.map((k) => POLY_CARDS[k]).join("\n");
+  const discover = progressive
+    ? `The functions are NOT listed here — DISCOVER them: search_functions("what you want") jumps to matching functions, or browse list_servers → list_functions(server) → describe_function(name). These are tools AND available in each REPL (search/servers/fns/describe). ${fns.length} functions across ${new Set(fns.map((f) => (f.server ?? f.name.split("__")[0]))).size} servers.`
+    : `The functions are NOT tools — they exist only INSIDE an eval program. Discover with fns() / describe("name") (python/js) or (tables) / (describe :name) (lisp).\n\nThe same functions, available in all three (signatures show INPUTS only; inspect a row for its fields):\n${fns.map((fn) => `- ${fnSignature(fn)}`).join("\n")}`;
   return `Your capabilities are FUNCTIONS in a persistent, sandboxed REPL. You have THREE equivalent eval tools over the SAME functions — pick the language you are most fluent in and STAY in it for a task (each is fully capable; a result is authoritative from its own tool, do not re-verify across languages):
 
 ${cards}
 
-The functions are NOT tools — they exist only INSIDE an eval program. Discover with fns() / describe("name") (python/js) or (tables) / (describe :name) (lisp). Call a function by name with its arguments; the result is plain data. COMPUTE in the program and let the LAST expression be your answer — the data flows between functions inside the program, it does not round-trip through you. Only the last value returns to your context, so return counts/small selections and bind the rest. BRANCH in one program with if/else. A call FIRES its effect immediately (no staging). If a call errors, change the one thing it names and retry — do not switch languages to escape an error.
+Call a function by name with its arguments; the result is plain data. COMPUTE in the program and let the LAST expression be your answer — the data flows between functions inside the program, it does not round-trip through you. Only the last value returns to your context, so return counts/small selections and bind the rest. BRANCH in one program with if/else. A call FIRES its effect immediately (no staging). If a call errors, change the one thing it names and retry — do not switch languages to escape an error.
 
-The same functions, available in all three (signatures show INPUTS only; inspect a row for its fields):
-${catalog}`;
+${discover}`;
 }
 
 export async function buildPolyglotArm(model: ModelAdapter, org: MockOrg, cfg: ArmConfig): Promise<BuiltArm> {
-  const fns = await catalogFromOrg(org);
+  const fns = await catalogFromOrg(org, cfg.discovery);
   const order = polyglotOrder();
-  const glove = baseGlove(model, cfg.prime === false ? SHARED_ROLE : `${polyglotPreamble(fns, order)}\n\n${SHARED_ROLE}`, cfg);
+  const progressive = (cfg.discovery ?? "progressive") !== "full";
+  const glove = baseGlove(model, cfg.prime === false ? SHARED_ROLE : `${polyglotPreamble(fns, order, progressive)}\n\n${SHARED_ROLE}`, cfg);
   const runnable = glove.build();
 
   // Three fn-mode surfaces over the identical catalog; the model chooses.

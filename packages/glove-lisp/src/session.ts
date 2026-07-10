@@ -25,6 +25,8 @@ import {
   missingRequired,
   serverSummaries,
   fnsForServer,
+  searchFns,
+  sampleOne,
   toRows,
   unknownKeys,
   type ResourceContext,
@@ -212,6 +214,8 @@ type SessionCtx = EvalCtx & { call: CallState; stdout: string[] };
 export class LispSession {
   private resources = new Map<string, ResourceTable>();
   private fns = new Map<string, ToolFn>();
+  /** Memoized server grouping; invalidated when a function is registered. */
+  private serverCache?: ServerSummary[];
   private builtins: Env;
   private root: Env;
   private immutableCache = new Map<string, Record<string, unknown>[]>();
@@ -278,6 +282,7 @@ export class LispSession {
       );
     }
     this.fns.set(fn.name, fn);
+    this.serverCache = undefined; // catalog changed — regroup on next discover
     this.builtins.set(fn.name, this.callFnFor(fn));
   }
 
@@ -299,7 +304,12 @@ export class LispSession {
   //    the native discovery tools) ──────────────────────────────────────────
   /** Tier 1 — the servers (MCP namespaces) in the fn catalog, with fn counts. */
   discoverServers(): ServerSummary[] {
-    return serverSummaries(this.listFns());
+    return (this.serverCache ??= serverSummaries(this.listFns()));
+  }
+
+  /** Search — jump straight to the functions matching a free-text query. */
+  searchFunctions(query: string): Array<Record<string, unknown>> {
+    return searchFns(this.listFns(), String(query)).map((fn) => this.fnRow(fn));
   }
 
   /** Tier 2 — one server's functions as `{ name, args, effect }` rows. */
@@ -324,8 +334,9 @@ export class LispSession {
     };
   }
 
-  /** Tier 3 — one function's full schema (for the `describe_function` tool). */
-  describeFunction(name: string): Record<string, unknown> {
+  /** Tier 3 — one function's full schema (for the `describe_function` tool).
+   *  Warms the result shape on demand (one read) rather than at mount. */
+  async describeFunction(name: string): Promise<Record<string, unknown>> {
     const fn = this.fns.get(name);
     if (!fn) {
       const hint = closest(name, [...this.fns.keys()]);
@@ -333,6 +344,7 @@ export class LispSession {
         `no function named "${name}"${hint ? ` — did you mean :${hint}?` : ""}. Run (fns :server) to list a server's functions.`,
       );
     }
+    if (!fn.resultShape) await sampleOne(fn, { ctx: { actor: this.actor } });
     const d = describeFn(fn);
     const req = d.params.filter((p) => p.required).map((p) => `:${p.name} …`).join(" ");
     return {
@@ -493,7 +505,7 @@ export class LispSession {
       "describe",
       new NativeFn(
         "describe",
-        (args) => {
+        async (args) => {
           if (args.length !== 1) {
             throw new LispError("describe takes one name — (describe :github_pull_requests) or (describe :github__list_prs)");
           }
@@ -516,20 +528,8 @@ export class LispSession {
                 : `write-only — see insert!/update!/delete!`,
             };
           }
-          const fn = this.fns.get(name);
-          if (fn) {
-            const d = describeFn(fn);
-            const req = d.params.filter((p) => p.required).map((p) => `:${p.name} …`).join(" ");
-            return {
-              name: fn.name,
-              kind: "function",
-              description: fn.description,
-              ...(fn.readOnlyHint !== undefined ? { readOnly: fn.readOnlyHint } : {}),
-              params: d.params,
-              ...(d.returns ? { returns: d.returns } : {}),
-              usage: `(${fn.name}${req ? ` {${req}}` : d.params.length ? " {…}" : ""}) — calling it FIRES the tool immediately (no staging)`,
-            };
-          }
+          // a function — lazily warm its result shape, then describe (shared with the tool)
+          if (this.fns.has(name)) return this.describeFunction(name);
           const hint = closest(name, [...this.resources.keys(), ...this.fns.keys()]);
           throw new LispError(
             `unknown name "${name}"${hint ? ` — did you mean :${hint}?` : ""}. Run (tables) or (fns) to list what's available.`,
@@ -537,6 +537,12 @@ export class LispSession {
         },
         "(describe :name)",
       ),
+    );
+
+    // (search "query") — jump straight to the functions matching a query.
+    this.builtins.set(
+      "search",
+      new NativeFn("search", (args) => this.searchFunctions(args[0] === undefined ? "" : this.nameArg(args[0], "search")), '(search "query")'),
     );
 
     this.builtins.set(

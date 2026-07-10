@@ -25,13 +25,14 @@ export {
   type FnDescription,
   type FnParam,
 } from "./signature";
-export { deriveShape, sampleResultShapes, type SampleShapesOptions } from "./shape";
+export { deriveShape, sampleOne, sampleResultShapes, type SampleShapesOptions } from "./shape";
 export {
   serverOf,
   groupByServer,
   serverSummaries,
   fnsForServer,
   serverFunctionSignatures,
+  searchFns,
   type ServerSummary,
 } from "./discovery";
 export { closest, DEFAULT_ELIDE, elide, type ElideLimits, type ElideOptions } from "./shared";

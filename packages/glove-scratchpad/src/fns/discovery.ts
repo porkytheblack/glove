@@ -69,3 +69,27 @@ export function fnsForServer(fns: ToolFn[], server: string): ToolFn[] {
 export function serverFunctionSignatures(fns: ToolFn[], server: string): string[] {
   return fnsForServer(fns, server).map((fn) => fnSignature(fn));
 }
+
+/**
+ * Rank functions against a free-text query by WORD overlap over
+ * `name + description + server` — the "jump straight to the relevant functions"
+ * tier, so a model with hundreds of functions across dozens of servers needn't
+ * scan them server by server. Scores by how many query words appear (weighted by
+ * word length) with a bonus when the whole phrase appears contiguously; returns
+ * the top matches, highest score first. Ported from glove-mcp's `matchEntries`.
+ */
+export function searchFns(fns: ToolFn[], query: string, limit = 10): ToolFn[] {
+  const q = (query ?? "").trim().toLowerCase();
+  const words = q.split(/[^a-z0-9]+/).filter((w) => w.length >= 2);
+  if (!words.length) return fns.slice(0, limit); // empty query → an arbitrary window
+  const scored: Array<{ fn: ToolFn; score: number }> = [];
+  for (const fn of fns) {
+    const haystack = `${fn.name} ${fn.description ?? ""} ${serverOf(fn) ?? ""} ${fn.serverDescription ?? ""}`.toLowerCase();
+    let score = 0;
+    for (const w of words) if (haystack.includes(w)) score += w.length;
+    if (q.length >= 2 && haystack.includes(q)) score += q.length; // contiguous-phrase bonus
+    if (score > 0) scored.push({ fn, score });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, limit).map((s) => s.fn);
+}

@@ -86,24 +86,33 @@ export interface SampleShapesOptions {
 }
 
 /**
- * Populate `resultShape` on every read-only function by sampling it once.
- * Mutates the passed functions in place and returns them (for chaining). Safe:
- * only `readOnlyHint === true` functions are ever called, errors are swallowed,
- * and each is invoked at most once.
+ * Sample ONE function's result shape on demand: if it's read-only, callable with
+ * no required args, and not already sampled, call it once and cache the inferred
+ * type on `fn.resultShape`. Returns the shape (or undefined). This is the LAZY
+ * path — used by `describe(...)` so a huge catalog warms only the functions the
+ * model actually inspects, instead of firing hundreds of live reads at mount.
+ * Safe: only `readOnlyHint === true` functions are called; errors are swallowed.
+ */
+export async function sampleOne(fn: ToolFn, opts: SampleShapesOptions = {}): Promise<string | undefined> {
+  if (fn.resultShape) return fn.resultShape;
+  if (fn.readOnlyHint !== true) return undefined;
+  if (!opts.includeRequired && !hasNoRequired(fn)) return undefined;
+  try {
+    const shape = deriveShape(await fn.call({}, opts.ctx));
+    if (shape) fn.resultShape = shape;
+    return fn.resultShape;
+  } catch {
+    return undefined; // shape unavailable — leave it unset
+  }
+}
+
+/**
+ * Eagerly populate `resultShape` on every read-only function by sampling each
+ * once. Mutates in place and returns them (for chaining). Use for `full`-mode /
+ * small catalogs where paying the reads up front is cheap; progressive discovery
+ * prefers {@link sampleOne} on demand.
  */
 export async function sampleResultShapes(fns: ToolFn[], opts: SampleShapesOptions = {}): Promise<ToolFn[]> {
-  await Promise.all(
-    fns.map(async (fn) => {
-      if (fn.readOnlyHint !== true || fn.resultShape) return;
-      if (!opts.includeRequired && !hasNoRequired(fn)) return;
-      try {
-        const result = await fn.call({}, opts.ctx);
-        const shape = deriveShape(result);
-        if (shape) fn.resultShape = shape;
-      } catch {
-        // shape unavailable — leave it unset
-      }
-    }),
-  );
+  await Promise.all(fns.map((fn) => sampleOne(fn, opts)));
   return fns;
 }

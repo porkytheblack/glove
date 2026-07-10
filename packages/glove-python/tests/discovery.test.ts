@@ -70,7 +70,7 @@ test("auto mode primes full below the threshold", () => {
 
 test("the native discovery tools mirror the REPL builtins", async () => {
   const s = fixture();
-  const [listServers, listFunctions, describeFunction] = buildDiscoveryTools(s);
+  const [searchFunctions, listServers, listFunctions, describeFunction] = buildDiscoveryTools(s);
   const servers = (await listServers.do({}, null as never, null as never)).data as Array<{ name: string }>;
   assert.deepEqual(servers.map((x) => x.name).sort(), ["github", "sentry"]);
   const fns = (await listFunctions.do({ server: "github" } as never, null as never, null as never)).data as Array<{ name: string }>;
@@ -79,6 +79,42 @@ test("the native discovery tools mirror the REPL builtins", async () => {
   assert.equal(desc.name, "sentry__list_issues");
   const bad = await listFunctions.do({ server: "nope" } as never, null as never, null as never);
   assert.equal(bad.status, "error");
+  // search jumps straight to a matching function
+  const hits = (await searchFunctions.do({ query: "pull requests" } as never, null as never, null as never)).data as Array<{ name: string }>;
+  assert.ok(hits.some((h) => h.name === "github__list_pull_requests"));
+});
+
+test("search() jumps to matching functions, ranked", async () => {
+  const s = fixture();
+  const hits = (await s.execute('[f["name"] for f in search("pull requests")]')).value as string[];
+  assert.ok(hits.includes("github__list_pull_requests"));
+});
+
+test("describe() warms the result shape lazily — no shapes sampled at mount", async () => {
+  let sampleCalls = 0;
+  const s = PySession.create();
+  s.register(
+    defineFn({
+      name: "github__list_pull_requests",
+      input: z.object({ state: z.string().optional() }),
+      readOnlyHint: true,
+      handler: () => {
+        sampleCalls++;
+        return [{ number: 1, state: "open" }];
+      },
+    }),
+  );
+  // registering + discovering must NOT fire the tool
+  await s.execute("servers()");
+  await s.execute('fns("github")');
+  assert.equal(sampleCalls, 0);
+  // describe warms the shape (one real call) and surfaces `returns`
+  const d = (await s.execute('describe("github__list_pull_requests")')).value as { returns?: string };
+  assert.equal(sampleCalls, 1);
+  assert.match(String(d.returns), /number|state/);
+  // second describe is cached — no extra call
+  await s.execute('describe("github__list_pull_requests")');
+  assert.equal(sampleCalls, 1);
 });
 
 test("all functions stay callable with nothing primed — a scripted sweep then a call", async () => {

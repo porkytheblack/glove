@@ -68,11 +68,10 @@ function catalogHint(session: JsSession, mode: "progressive" | "full"): string {
     return `\n\nFunctions you can call INSIDE execute_js (these are not tools — signatures show INPUTS only; inspect a row for its fields):\n${lines.join("\n")}`;
   }
   const servers = session.discoverServers();
-  return `\n\nDISCOVER YOUR CAPABILITIES — they are NOT listed here. You have ${fns.length} functions across ${servers.length} servers; find the few you need progressively:
-1. list_servers() — the servers and how many functions each exposes.
-2. list_functions({ server: "github" }) — that server's function signatures.
-3. describe_function({ name: "github__list_pull_requests" }) — one function's parameters + result shape.
-Each is available BOTH as a tool AND inside execute_js (as servers() / fns("github") / describe("name")). A capable model can script the whole sweep in one program — e.g. servers().map(s => fns(s.name)) — or fire the discovery tools in a batch first, then write one program. Call a function by its name once you know it.`;
+  return `\n\nDISCOVER YOUR CAPABILITIES — they are NOT listed here. You have ${fns.length} functions across ${servers.length} servers; find the few you need:
+- FASTEST: search_functions({ query: "open pull requests" }) — jump straight to the matching functions when you know what you want.
+- Or browse: list_servers() → list_functions({ server: "github" }) → describe_function({ name: "github__list_pull_requests" }) for parameters + result shape.
+Each is available BOTH as a tool AND inside execute_js (as search("…") / servers() / fns("github") / describe("name")). A capable model can script the sweep in one program — e.g. search("send email") — or fire the discovery tools in a batch first, then write one program. describe() a function before filtering on a field (it shows the row shape). Call a function by its name once you know it.`;
 }
 
 /** Build the preamble (language card + operating discipline + catalog hint). */
@@ -98,7 +97,7 @@ export function buildExecuteJsTool(session: JsSession, opts: JsToolOptions = {})
     description:
       "The ONLY tool: run a JavaScript program (the `code` string) against your capability REPL (persistent). " +
       "Your capabilities are FUNCTIONS you call INSIDE this program — they are NOT tools you can call directly. " +
-      'DISCOVER progressively: list_servers → list_functions({ server }) → describe_function({ name }) (as tools), or servers()/fns("server")/describe("name") inside the code. ' +
+      'DISCOVER: search_functions({ query }) jumps to matching functions, or browse list_servers → list_functions({ server }) → describe_function({ name }) (as tools), or search()/servers()/fns("server")/describe("name") inside the code. ' +
       "CALL a capability by name inside the code — github.list_pull_requests({ state: \"open\" }) — arguments go in ONE object; promises resolve automatically. " +
       "INSPECT a row (Object.keys(rows[0])) before filtering/sorting on a field — the signatures show inputs, not result fields; never guess a field name. " +
       "COMPUTE in the program (.length / .filter / .reduce / group with a Map) and let the LAST expression be the answer; " +
@@ -127,10 +126,21 @@ export function buildExecuteJsTool(session: JsSession, opts: JsToolOptions = {})
   };
 }
 
-/** The three native discovery tools — the same tiers as the REPL builtins
- *  (`servers()` / `fns(server)` / `describe(name)`). */
-export function buildDiscoveryTools(session: JsSession): Array<GloveFoldArgs<Record<string, never>> | GloveFoldArgs<{ server: string }> | GloveFoldArgs<{ name: string }>> {
+/** The native discovery tools — the same tiers as the REPL builtins
+ *  (`search()` / `servers()` / `fns(server)` / `describe(name)`). */
+export function buildDiscoveryTools(
+  session: JsSession,
+): [GloveFoldArgs<{ query: string }>, GloveFoldArgs<Record<string, never>>, GloveFoldArgs<{ server: string }>, GloveFoldArgs<{ name: string }>] {
   return [
+    {
+      name: "search_functions",
+      description:
+        "Discovery: jump straight to the functions matching a free-text query (e.g. \"open pull requests\") — the fast path when you know what you want but not which server. Also available in the REPL as search(\"query\").",
+      inputSchema: z.object({ query: z.string().describe('What you want to do, e.g. "send email" or "list open PRs".') }),
+      async do(input: { query: string }): Promise<ToolResultData> {
+        return { status: "success", data: session.searchFunctions(input.query) };
+      },
+    },
     {
       name: "list_servers",
       description:
@@ -160,7 +170,7 @@ export function buildDiscoveryTools(session: JsSession): Array<GloveFoldArgs<Rec
       inputSchema: z.object({ name: z.string().describe('A function name, e.g. "github__list_pull_requests".') }),
       async do(input: { name: string }): Promise<ToolResultData> {
         try {
-          return { status: "success", data: session.describeFunction(input.name) };
+          return { status: "success", data: await session.describeFunction(input.name) };
         } catch (err) {
           return errResult(err);
         }

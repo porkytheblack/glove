@@ -114,8 +114,14 @@ The model then works the same way, but calls are plain function applications:
   function — a call **fires immediately**, always (the `writes` policy and
   `(stage …)` do not apply). Register effectful functions only on a session you
   are comfortable firing.
-- **Discovery is `(fns)` / `(describe :name)`** (required parameters marked);
-  the primed catalog lists them.
+- **Discovery is progressive** — nothing is primed by default. `(search "open
+  pull requests")` jumps to matching functions; or browse `(servers)` → `(fns
+  :github)` → `(describe :name)` (servers → a server's functions → one function's
+  params + result shape, required ones marked). The same tiers are also native
+  tools (`search_functions` / `list_servers` / `list_functions` /
+  `describe_function`), so a weak model fires them as tool calls and a capable one
+  scripts the sweep in one program; result shapes warm lazily on first `describe`.
+  (`discovery: "full"` primes every signature for small catalogs.)
 - Everything else is identical: `def` persistence, structural elision, loud
   errors with did-you-mean, the fuel/depth budget.
 - **Functions and resources coexist** in one session — `(tables)` lists

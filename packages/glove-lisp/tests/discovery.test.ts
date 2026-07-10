@@ -26,6 +26,22 @@ test("(fns :unknown) suggests the closest server", async () => {
   await assert.rejects(() => fixture().execute("(fns :githbu)"), /no server named "githbu" — did you mean :github/);
 });
 
+test("(search \"…\") ranks matching functions in the REPL", async () => {
+  const hits = (await fixture().execute('(map :name (search "pull requests"))')).value as string[];
+  assert.ok(hits.includes("github__list_pull_requests"));
+});
+
+test("(describe :name) warms the result shape lazily — nothing sampled at mount", async () => {
+  let calls = 0;
+  const s = LispSession.create({ policy: { writes: true } });
+  s.registerFns([defineFn({ name: "github__list_pull_requests", input: z.object({ state: z.string().optional() }), readOnlyHint: true, handler: () => { calls++; return [{ number: 1 }]; } })]);
+  await s.execute("(servers)");
+  assert.equal(calls, 0);
+  const d = (await s.execute('(describe :github__list_pull_requests)')).value as { returns?: string };
+  assert.equal(calls, 1);
+  assert.match(String(d.returns), /number/);
+});
+
 test("progressive preamble primes no fn signatures; full does", () => {
   const s = fixture();
   assert.doesNotMatch(buildLispPreamble(s, "progressive"), /- \(github__list_pull_requests/);
@@ -35,10 +51,12 @@ test("progressive preamble primes no fn signatures; full does", () => {
 
 test("native discovery tools mirror the builtins; a call still fires after discovery", async () => {
   const s = fixture();
-  const [listServers, listFunctions, describeFunction] = buildDiscoveryTools(s);
+  const [searchFunctions, listServers, listFunctions, describeFunction] = buildDiscoveryTools(s);
   const servers = (await listServers.do({}, null as never, null as never)).data as Array<{ name: string }>;
   assert.deepEqual(servers.map((x) => x.name).sort(), ["github", "sentry"]);
   assert.equal(((await listFunctions.do({ server: "github" } as never, null as never, null as never)).data as unknown[]).length, 2);
   assert.equal((( await describeFunction.do({ name: "sentry__list_issues" } as never, null as never, null as never)).data as { name: string }).name, "sentry__list_issues");
+  const hits = (await searchFunctions.do({ query: "pull requests" } as never, null as never, null as never)).data as Array<{ name: string }>;
+  assert.ok(hits.some((h) => h.name === "github__list_pull_requests"));
   assert.equal(((await s.execute('(github__list_pull_requests {:state "open"})')).value as unknown[]).length, 1);
 });

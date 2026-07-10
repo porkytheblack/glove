@@ -46,8 +46,16 @@ in every model's training data.
 
 What the surface keeps from that work:
 
-- **One tool, in-band discovery.** `fns()` lists your functions; `describe("name")`
-  shows a function's parameters. The primed catalog means the model rarely needs to.
+- **One tool, progressive in-band discovery.** Nothing is primed by default —
+  the model discovers capabilities in tiers: `search("open pull requests")` jumps
+  straight to matching functions, or it browses `servers()` → `fns("github")` →
+  `describe("name")` (server list → a server's functions → one function's params +
+  result shape). The same tiers exist as native tools (`search_functions` /
+  `list_servers` / `list_functions` / `describe_function`), so a weak model can
+  fire them as tool calls and a capable one can script the whole sweep in one
+  program. Result shapes warm lazily — a function's row type is sampled the first
+  time it's described, not for the whole catalog at mount. (`discovery: "full"`
+  primes every signature up front for small catalogs; `"auto"` picks per size.)
 - **Off-context data flow.** `const prs = github.list_pull_requests()` stores the
   rows in the REPL and echoes only a summary; the model then works with
   `prs.length`, `prs.slice(0, 5)`, `prs.map(p => p.title)`.
@@ -131,7 +139,7 @@ the function).
 | A capability | `ToolFn` — the same catalog as glove-lisp's function mode (`defineFn` / `fnFromTool` / `fnsFromMcp`) |
 | The interpreter | `JsSession` — `execute(code)` returns `{ value, called, defined, defs, stdout, note }` |
 | The single agent tool | `mountJs(glove, { session })` → folds `execute_js` and primes the model |
-| Discovery | `fns()`, `describe("name")` + a primed catalog in the system prompt |
+| Discovery | progressive by default — `search("…")` / `servers()` / `fns("server")` / `describe("name")` as REPL builtins, mirrored by the `search_functions` / `list_servers` / `list_functions` / `describe_function` tools; `discovery: "full" \| "auto"` primes signatures for small catalogs |
 | The parser | `parseProgram(code)` — acorn + a whitelist validation walk |
 | The sandbox boundary | member access mediated by `members.ts` (the security-critical file) |
 

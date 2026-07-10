@@ -20,6 +20,8 @@ import {
   unknownKeys,
   serverSummaries,
   fnsForServer,
+  searchFns,
+  sampleOne,
   DEFAULT_ELIDE,
   type ElideLimits,
   type FnDescription,
@@ -65,7 +67,7 @@ export interface PyExecuteResult {
   note?: string;
 }
 
-const RESERVED = new Set(["fns", "describe", "servers"]);
+const RESERVED = new Set(["fns", "describe", "servers", "search"]);
 
 /** Opaque printing for the model-facing value: Python's non-JSON values. */
 function opaque(v: unknown): string | undefined {
@@ -80,6 +82,8 @@ export class PySession {
   private builtinNames: Set<string>;
   private toolFns = new Map<string, ToolFn>();
   private namespaces = new Map<string, Record<string, unknown>>();
+  /** Memoized server grouping; invalidated when a function is registered. */
+  private serverCache?: ServerSummary[];
   private actor?: string;
   private fuelBudget: number;
   private maxDepth: number;
@@ -121,6 +125,7 @@ export class PySession {
       throw new Error(`glove-python: cannot register function "${name}" — that name is already a namespace object.`);
     }
     this.toolFns.set(name, fn);
+    this.serverCache = undefined; // catalog changed — regroup on next discover
     this.root.set(name, this.bindTool(fn));
 
     const sep = name.indexOf("__");
@@ -151,7 +156,7 @@ export class PySession {
 
   /** Tier 1 — the servers (MCP namespaces) in the catalog, with fn counts. */
   discoverServers(): ServerSummary[] {
-    return serverSummaries(this.list());
+    return (this.serverCache ??= serverSummaries(this.list()));
   }
 
   /** Tier 2 — one server's functions as `{ name, signature, effect }`. */
@@ -167,8 +172,14 @@ export class PySession {
     return fns.map((fn) => this.fnRow(fn));
   }
 
-  /** Tier 3 — one function's full schema (params + result shape). */
-  describeFunction(name: string): FnDescription {
+  /** Search — jump straight to the functions matching a free-text query. */
+  searchFunctions(query: string): Array<{ name: string; description?: string; signature: string; effect?: string }> {
+    return searchFns(this.list(), String(query)).map((fn) => this.fnRow(fn));
+  }
+
+  /** Tier 3 — one function's full schema (params + result shape). Warms the
+   *  result shape on demand (one read) rather than sampling the whole catalog. */
+  async describeFunction(name: string): Promise<FnDescription> {
     const fn = this.toolFns.get(name);
     if (!fn) {
       const hint = closest(name, [...this.toolFns.keys()]);
@@ -176,6 +187,7 @@ export class PySession {
         `no function named '${name}'${hint ? ` — did you mean '${hint}'?` : ""}. Call fns("server") to list a server's functions.`,
       );
     }
+    if (!fn.resultShape) await sampleOne(fn, { ctx: { actor: this.actor } });
     return describeFn(fn);
   }
 
@@ -200,6 +212,8 @@ export class PySession {
   private installSurface(): void {
     // servers() — tier 1: the MCP servers you can drill into.
     this.root.set("servers", new NativeFn("servers", () => this.discoverServers()));
+    // search(query) — jump straight to the functions matching a query.
+    this.root.set("search", new NativeFn("search", (args) => this.searchFunctions(String(args[0] ?? ""))));
     // fns(server?) — tier 2: a server's functions (or ALL functions if no arg).
     this.root.set(
       "fns",
