@@ -186,6 +186,46 @@ one place SQL's `information_schema` still beat it, and lazy, nested, dual-surfa
 discovery closes that gap while, for capable models, reading cleaner than a wall of
 signatures.
 
+### Further hardening: a search tier and lazy shapes
+
+Progressive discovery as first shipped still carried two rough edges at platform scale,
+both visible in the run above. First, *finding* the 3–4 relevant functions still cost a
+browse: across the 36-cell matrix the models spent **124 `list_servers` + `list_functions`
+hops** scanning the 40-server fleet before landing on what a task needed. Second — the
+subtler one — priming nothing did *not* mean touching nothing: the shape-sampling step that
+gives `describe(…)` its result-row types eager-fired one live read on **every** read-only,
+no-required-arg function *at mount*. For the 367-tool catalog that is **72 live reads before
+the first model turn** — real latency, and in a real deployment 72 "read-only-hinted" calls
+fired unauthenticated, which quietly contradicts progressive's whole premise.
+
+Two changes close both. A **`search_functions(query)` tier** ranks the catalog by word
+overlap and returns the top matches, so a model jumps straight to the right functions in one
+hop instead of walking servers — exposed, like the other tiers, both as a REPL builtin
+(`search("open pull requests")`) and a native tool. And **shape sampling goes lazy**: a
+function's row type is sampled the first time it is `describe`d (cached thereafter), not for
+the whole catalog at mount. Re-running the same 367-tool matrix:
+
+| metric (summed over 36 cells) | progressive | + search + lazy |
+| --- | --: | --: |
+| `list_servers` + `list_functions` browse hops | 124 | **16** |
+| `search_functions` calls | 0 | 95 |
+| `describe_function` calls | 43 | 73 |
+| live reads fired **at mount** (shape sampling) | 72 | **0** |
+| accuracy (all fn arms) | 25/36 | 26/36 |
+| median peak context | 5.3–6.9k | 4.8–7.0k |
+
+**Search absorbs the browse: discovery hops drop ~8× (124 → 16).** Models search, then
+`describe` the hit — describes rise (43 → 73) as browsing collapses, and every describe now
+warms exactly the one shape it needs. Accuracy is unmoved (25 → 26/36; per-arm pyrepl 8→8,
+jsrepl 9→9, lispfns 8→9) and peak context stays SQL-class (median 4.8–7.0k), so the extra
+tool schema pays for itself. The mount goes from 72 speculative reads to **zero** — shapes
+are now strictly pay-per-inspect. The weak-tail model benefits most directionally: Qwen3-30B's
+discovery cost fell from a five-function browse to a single `search_functions` call per task
+(pass nudged 2/9 → 3/9), though its residual misses are turn-cap/execution-loop, not
+discovery — search makes finding cheap but does not make a weak model reason deeper. The knob
+story is unchanged: `full`/`auto` still eager-sample small catalogs where 72-ish reads are
+cheap and a primed signature list reads fine.
+
 ## 9. The cost of a real language: the sandbox
 
 A code surface runs untrusted model code as a Turing-complete language, so it carries a sandbox the SQL surface doesn't need. Each surface's escape hatch is different, and each is closed at the boundary.
