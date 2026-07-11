@@ -1,27 +1,26 @@
 name: Release
 
-# Publishes the changed packages to npm. Two ways in:
-#   • Cut a GitHub Release  → publishes for real.
-#   • Run manually (Actions → Release → Run workflow) → tick "dry_run" to
-#     pack-and-check without publishing, or leave it off to publish.
-# Versioning is manual: bump the package.json `version` in your PR first.
-# `pnpm publish -r` skips any package whose version is already on npm, so
-# unchanged packages (e.g. glove-core) are no-ops — only bumped/new ones ship.
+# Publishes changed packages to npm automatically on every merge to main.
+# Versioning is manual: bump the package.json `version` in your PR; on merge,
+# `pnpm publish -r` ships only packages whose version isn't already on npm
+# (unchanged ones are no-ops) and rewrites workspace:* deps to concrete
+# versions. So a normal merge that bumps nothing publishes nothing.
 #
-# Requires an `NPM_TOKEN` repository secret (npm automation token with publish
-# rights). Set it under Settings → Secrets and variables → Actions.
+# Control real-vs-dry with a repository VARIABLE (Settings → Secrets and
+# variables → Actions → Variables tab), not code:
+#   • DRY_RUN = true  → pack + validate, no upload
+#   • unset / anything else → publish for real
+#
+# Requires an NPM_TOKEN repository SECRET (npm automation token, publish rights).
 on:
-  release:
-    types: [published]
-  workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Pack and validate without publishing"
-        type: boolean
-        default: true
+  push:
+    branches: [main]
+    paths:
+      - "packages/**"
+  workflow_dispatch: {} # manual re-run escape hatch; obeys the same DRY_RUN var
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-main
   cancel-in-progress: false
 
 permissions:
@@ -57,7 +56,7 @@ jobs:
           build
 
       # `-r publish` publishes only packages whose version isn't yet on npm.
-      # workspace:* deps are rewritten to concrete versions automatically.
+      # Set the DRY_RUN repo variable to true to validate without uploading.
       - name: Publish
         run: >-
           pnpm -r
@@ -69,6 +68,6 @@ jobs:
           --filter glove-js
           --filter glove-lisp
           publish --access public --no-git-checks
-          ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+          ${{ vars.DRY_RUN == 'true' && '--dry-run' || '' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
