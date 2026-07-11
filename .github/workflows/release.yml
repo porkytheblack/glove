@@ -1,36 +1,39 @@
 name: Release
 
-# Publishes changed packages to npm automatically on every merge to main.
-# Versioning is manual: bump the package.json `version` in your PR; on merge,
-# `pnpm publish -r` ships only packages whose version isn't already on npm
-# (unchanged ones are no-ops) and rewrites workspace:* deps to concrete
-# versions. So a normal merge that bumps nothing publishes nothing.
+# Auto-bump + publish via Changesets. Declare intent in your PR with
+# `pnpm changeset` (pick patch/minor/major + a note); this workflow does the rest:
 #
-# Control real-vs-dry with a repository VARIABLE (Settings → Secrets and
-# variables → Actions → Variables tab), not code:
-#   • DRY_RUN = true  → pack + validate, no upload
-#   • unset / anything else → publish for real
+#   • Push to main WITH pending changesets  → opens/updates a "Version Packages"
+#     PR that applies the bumps and writes CHANGELOGs. That PR is the preview —
+#     review it, then merge.
+#   • Push to main with NO pending changesets (the Version PR just merged, or a
+#     package's version is simply ahead of npm) → runs `pnpm release`, which
+#     builds the publishable set and `changeset publish`es anything not yet on npm.
 #
-# Requires an NPM_TOKEN repository SECRET (npm automation token, publish rights).
+# Requires:
+#   • NPM_TOKEN secret (npm automation token, publish rights).
+#   • Settings → Actions → General: "Allow GitHub Actions to create and approve
+#     pull requests" enabled, so the action can open the Version PR.
 on:
   push:
     branches: [main]
-    paths:
-      - "packages/**"
-  workflow_dispatch: {} # manual re-run escape hatch; obeys the same DRY_RUN var
 
 concurrency:
   group: release-main
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write # commit version bumps / push the Version PR branch
+  pull-requests: write # open the "Version Packages" PR
 
 jobs:
-  publish:
+  release:
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 so changesets can read git history for changelogs.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # pnpm version is pinned by the root package.json `packageManager` field.
       - uses: pnpm/action-setup@v4
@@ -44,30 +47,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # dist/ is gitignored, so build before publish. The `...` filters pull in
-      # each REPL's workspace deps (glove-core, glove-scratchpad, glove-sql,
-      # glove-mcp) and build everything in topological order.
-      - name: Build the publishable set
-        run: >-
-          pnpm
-          --filter "glove-python..."
-          --filter "glove-js..."
-          --filter "glove-lisp..."
-          build
-
-      # `-r publish` publishes only packages whose version isn't yet on npm.
-      # Set the DRY_RUN repo variable to true to validate without uploading.
-      - name: Publish
-        run: >-
-          pnpm -r
-          --filter glove-core
-          --filter glove-scratchpad
-          --filter glove-sql
-          --filter glove-mcp
-          --filter glove-python
-          --filter glove-js
-          --filter glove-lisp
-          publish --access public --no-git-checks
-          ${{ vars.DRY_RUN == 'true' && '--dry-run' || '' }}
+      - uses: changesets/action@v1
+        with:
+          version: pnpm run version # applies changesets: bumps + CHANGELOGs
+          publish: pnpm run release # build the publishable set + changeset publish
+          commit: "chore: version packages"
+          title: "chore: version packages"
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -6,6 +6,9 @@
   "scripts": {
     "build": "pnpm --filter glove-core build && pnpm --filter glove-sqlite build && pnpm --filter glove-memory build && pnpm --filter glove-mesh build && pnpm --filter glove-continuum-signal build && pnpm --filter glove-mcp build && pnpm --filter glove-sql build && pnpm --filter glove-scratchpad build && pnpm --filter glove-react build && pnpm --filter glove-next build && pnpm --filter glove-voice build && pnpm --filter glovebox-core build && pnpm --filter glovebox-kit build && pnpm --filter glovebox-client build",
     "typecheck": "pnpm -r --filter './packages/*' typecheck",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "pnpm --filter \"glove-python...\" --filter \"glove-js...\" --filter \"glove-lisp...\" build && changeset publish",
     "scratchpad:db": "tsx examples/scratchpad-agent/database.ts",
     "weather:agent": "tsx examples/weather-agent/index.tsx",
     "coding:agent": "tsx examples/coding-agent/index.tsx",
@@ -28,6 +31,8 @@
     ]
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.7.0",
+    "@changesets/cli": "^2.31.0",
     "tsup": "^8.5.1",
     "tsx": "^4.19.0",
     "typescript": "^5.9.3"

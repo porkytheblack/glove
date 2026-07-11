@@ -571,6 +571,24 @@ pnpm build
 pnpm typecheck
 ```
 
+## Releasing
+
+Versioning and npm publishing are automated with [Changesets](https://github.com/changesets/changesets) — you never hand-edit a `version`.
+
+1. In your PR, describe the release intent:
+
+   ```bash
+   pnpm changeset
+   ```
+
+   Pick the affected packages and a bump (patch / minor / major), write a one-line summary, and commit the generated `.changeset/*.md` file alongside your change.
+
+2. On merge to `main`, CI opens (or updates) a **"Version Packages"** PR that applies the bumps and writes each package's `CHANGELOG.md`. Review it like any PR.
+
+3. **Merging that PR publishes** the affected packages to npm (only versions not already published; `workspace:*` deps are resolved to concrete versions automatically). Dependents of a bumped package are re-released for you.
+
+No changeset? Then the change ships nothing — pure refactors, docs, and tests don't need a release. See `.github/workflows/release.yml`.
+
 ## Grants
 
 Glove Voice is supported by ElevenLabs.
