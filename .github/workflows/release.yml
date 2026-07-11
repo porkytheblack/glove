@@ -1,0 +1,74 @@
+name: Release
+
+# Publishes the changed packages to npm. Two ways in:
+#   • Cut a GitHub Release  → publishes for real.
+#   • Run manually (Actions → Release → Run workflow) → tick "dry_run" to
+#     pack-and-check without publishing, or leave it off to publish.
+# Versioning is manual: bump the package.json `version` in your PR first.
+# `pnpm publish -r` skips any package whose version is already on npm, so
+# unchanged packages (e.g. glove-core) are no-ops — only bumped/new ones ship.
+#
+# Requires an `NPM_TOKEN` repository secret (npm automation token with publish
+# rights). Set it under Settings → Secrets and variables → Actions.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack and validate without publishing"
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm version is pinned by the root package.json `packageManager` field.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          # Writes an .npmrc that authenticates via NODE_AUTH_TOKEN.
+          registry-url: "https://registry.npmjs.org"
+
+      - run: pnpm install --frozen-lockfile
+
+      # dist/ is gitignored, so build before publish. The `...` filters pull in
+      # each REPL's workspace deps (glove-core, glove-scratchpad, glove-sql,
+      # glove-mcp) and build everything in topological order.
+      - name: Build the publishable set
+        run: >-
+          pnpm
+          --filter "glove-python..."
+          --filter "glove-js..."
+          --filter "glove-lisp..."
+          build
+
+      # `-r publish` publishes only packages whose version isn't yet on npm.
+      # workspace:* deps are rewritten to concrete versions automatically.
+      - name: Publish
+        run: >-
+          pnpm -r
+          --filter glove-core
+          --filter glove-scratchpad
+          --filter glove-sql
+          --filter glove-mcp
+          --filter glove-python
+          --filter glove-js
+          --filter glove-lisp
+          publish --access public --no-git-checks
+          ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

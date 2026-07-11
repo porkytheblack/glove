@@ -25,6 +25,7 @@
   ],
   "scripts": {
     "build": "tsup",
+    "prepublishOnly": "pnpm build",
     "typecheck": "tsc --noEmit",
     "test": "node --test --import tsx tests/*.test.ts"
   },

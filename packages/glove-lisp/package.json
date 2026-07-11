@@ -1,6 +1,6 @@
 {
   "name": "glove-lisp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A Lisp REPL for LLM tool use — expose an agent's capabilities as functions in a tiny, sandboxed, Clojure-flavored Lisp it drives with one execute_lisp tool. Resources become functions, arguments push down as maps, (tables)/(describe) is discovery, def keeps intermediate data out of context, and every program is a syntax tree you inspect before any tool runs. Consumes the same ResourceTable contract as glove-scratchpad, so one resource catalog mounts on either surface.",
   "type": "module",
   "license": "MIT",
@@ -25,6 +25,7 @@
   ],
   "scripts": {
     "build": "tsup",
+    "prepublishOnly": "pnpm build",
     "typecheck": "tsc --noEmit",
     "test": "node --test --import tsx tests/*.test.ts"
   },
