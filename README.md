@@ -573,7 +573,7 @@ pnpm typecheck
 
 ## Releasing
 
-Versioning and npm publishing are automated with [Changesets](https://github.com/changesets/changesets) — you never hand-edit a `version`.
+Versioning is automated with [Changesets](https://github.com/changesets/changesets) — you never hand-edit a `version`. Publishing to npm is done manually by a maintainer.
 
 1. In your PR, describe the release intent:
 
@@ -583,11 +583,17 @@ Versioning and npm publishing are automated with [Changesets](https://github.com
 
    Pick the affected packages and a bump (patch / minor / major), write a one-line summary, and commit the generated `.changeset/*.md` file alongside your change.
 
-2. On merge to `main`, CI opens (or updates) a **"Version Packages"** PR that applies the bumps and writes each package's `CHANGELOG.md`. Review it like any PR.
+2. On merge to `main`, CI opens (or updates) a **"Version Packages"** PR that applies the bumps and writes each package's `CHANGELOG.md`. Review and merge it — the new versions land on `main`. Dependents of a bumped package are re-versioned for you.
 
-3. **Merging that PR publishes** the affected packages to npm (only versions not already published; `workspace:*` deps are resolved to concrete versions automatically). Dependents of a bumped package are re-released for you.
+3. **A maintainer publishes manually** from a clean `main`, logged in to npm with 2FA:
 
-No changeset? Then the change ships nothing — pure refactors, docs, and tests don't need a release. See `.github/workflows/release.yml`.
+   ```bash
+   pnpm release
+   ```
+
+   This builds the packages and `changeset publish`es everything whose version isn't yet on npm (`workspace:*` deps are resolved to concrete versions automatically). CI does not publish — npm is deprecating the 2FA-bypassing tokens that automated publishing would require.
+
+No changeset? Then the change ships nothing — pure refactors, docs, and tests don't need a release. Versioning runs in `.github/workflows/release.yml`.
 
 ## Grants
 

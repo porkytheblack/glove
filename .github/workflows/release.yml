@@ -1,25 +1,25 @@
-name: Release
+name: Version
 
-# Auto-bump + publish via Changesets. Declare intent in your PR with
-# `pnpm changeset` (pick patch/minor/major + a note); this workflow does the rest:
+# Auto-bumps versions via Changesets. It does NOT publish to npm — publishing is
+# a manual step (npm is deprecating the 2FA-bypassing tokens that CI would need,
+# so releases are cut by a maintainer running `pnpm release` locally, logged in
+# with 2FA).
 #
-#   • Push to main WITH pending changesets  → opens/updates a "Version Packages"
-#     PR that applies the bumps and writes CHANGELOGs. That PR is the preview —
-#     review it, then merge.
-#   • Push to main with NO pending changesets (the Version PR just merged, or a
-#     package's version is simply ahead of npm) → runs `pnpm release`, which
-#     builds the publishable set and `changeset publish`es anything not yet on npm.
+# Declare intent in your PR with `pnpm changeset` (pick patch/minor/major + a
+# note). Then, on push to main WITH pending changesets, this workflow opens or
+# updates a "Version Packages" PR that applies the bumps and writes CHANGELOGs.
+# Review and merge that PR; the version bumps land on main, and a maintainer
+# publishes manually.
 #
-# Requires:
-#   • NPM_TOKEN secret (npm automation token, publish rights).
-#   • Settings → Actions → General: "Allow GitHub Actions to create and approve
-#     pull requests" enabled, so the action can open the Version PR.
+# Requires: Settings → Actions → General → "Allow GitHub Actions to create and
+# approve pull requests" enabled, so the action can open the Version PR.
+# (No NPM_TOKEN — nothing here publishes.)
 on:
   push:
     branches: [main]
 
 concurrency:
-  group: release-main
+  group: version-main
   cancel-in-progress: false
 
 permissions:
@@ -27,7 +27,7 @@ permissions:
   pull-requests: write # open the "Version Packages" PR
 
 jobs:
-  release:
+  version:
     runs-on: ubuntu-latest
     steps:
       # fetch-depth: 0 so changesets can read git history for changelogs.
@@ -42,17 +42,14 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          # Writes an .npmrc that authenticates via NODE_AUTH_TOKEN.
-          registry-url: "https://registry.npmjs.org"
 
       - run: pnpm install --frozen-lockfile
 
+      # No `publish` input → the action only opens/updates the Version PR.
       - uses: changesets/action@v1
         with:
           version: pnpm run version # applies changesets: bumps + CHANGELOGs
-          publish: pnpm run release # build the publishable set + changeset publish
           commit: "chore: version packages"
           title: "chore: version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
