@@ -16,12 +16,16 @@ import { Glove, Displaymanager, MemoryStore, type ModelAdapter } from "glove-cor
 import { Database } from "glove-scratchpad";
 import { bridgeMcpTool } from "glove-mcp";
 import { mountDatabase } from "glove-scratchpad";
+import { fnsFromMcp } from "glove-scratchpad/fns/mcp";
+import { sampleResultShapes, fnSignature, type ToolFn } from "glove-scratchpad/fns";
 import { LispSession, mountLisp } from "glove-lisp";
+import { JsSession, mountJs } from "glove-js";
+import { PySession, mountPy } from "glove-python";
 import type { MockOrg } from "../mcp/index";
 import { totalToolCount } from "../mcp/index";
 import { BenchSubscriber } from "./instrument";
 
-export type ArmName = "baseline" | "scratchpad" | "lisp" | "both";
+export type ArmName = "baseline" | "scratchpad" | "lisp" | "both" | "jsrepl" | "lispfns" | "pyrepl" | "polyglot";
 
 export interface ArmConfig {
   maxTurns: number;
@@ -31,6 +35,10 @@ export interface ArmConfig {
    *  only the role and the tools' own descriptions, and must DISCOVER the rest
    *  (information_schema / (tables) / (describe)). The realistic adopter setup. */
   prime?: boolean;
+  /** Catalog priming for the fn-mode arms: `progressive` (default) primes no
+   *  signatures and the model discovers servers→functions→schemas; `full` primes
+   *  every signature; `auto` picks by catalog size. */
+  discovery?: "progressive" | "full" | "auto";
 }
 
 export interface BuiltArm {
@@ -40,6 +48,10 @@ export interface BuiltArm {
   toolsInContext: number;
   db?: Database;
   lisp?: LispSession;
+  js?: JsSession;
+  py?: PySession;
+  /** For the polyglot arm — the three fn-mode sessions the model chooses between. */
+  poly?: { py: PySession; js: JsSession; lisp: LispSession };
 }
 
 const COMPACTION_INSTRUCTIONS =
@@ -118,6 +130,134 @@ export async function buildLispArm(model: ModelAdapter, org: MockOrg, cfg: ArmCo
   glove.addSubscriber(sub);
   // 2 tools in context (execute_lisp, explain_lisp) vs the baseline's ~32.
   return { arm: "lisp", runnable, sub, toolsInContext: 2, lisp };
+}
+
+/**
+ * The FUNCTION-MODE catalog: every tool of every server as a `ToolFn`, derived
+ * from the SAME connections the resource arms use (via `fnsFromMcp`). No
+ * columns, no pushdown keys, no volatility — the tool's own schema is the
+ * contract. Effects hit the identical MCP handlers, so the A/B stays fair.
+ */
+async function catalogFromOrg(org: MockOrg, discovery?: ArmConfig["discovery"]): Promise<ToolFn[]> {
+  const perServer = await Promise.all(org.connections.map((c) => fnsFromMcp(c)));
+  const fns = perServer.flat();
+  // Result-shape parity with table mode: in `full` mode sample each read-only
+  // function once up front so the primed catalog / describe carries the RESULT
+  // shape. In `progressive` (default), shapes warm LAZILY on `describe(...)` — so
+  // we do NOT fire N live reads at mount (the whole point of progressive).
+  if (discovery === "full") await sampleResultShapes(fns);
+  return fns;
+}
+
+export async function buildJsArm(model: ModelAdapter, org: MockOrg, cfg: ArmConfig): Promise<BuiltArm> {
+  const glove = baseGlove(model, SHARED_ROLE, cfg);
+  const runnable = glove.build();
+
+  // glove-js is fn-catalog only — a call fires immediately (no staging).
+  const js = JsSession.create();
+  js.registerAll(await catalogFromOrg(org, cfg.discovery));
+  // Folds a single execute_js (no explain_js); primes unless bare mode.
+  mountJs(runnable, { session: js, prime: cfg.prime !== false, discovery: cfg.discovery });
+
+  const sub = new BenchSubscriber({ echo: cfg.echo });
+  glove.addSubscriber(sub);
+  // 1 tool in context (execute_js) vs the baseline's ~32.
+  return { arm: "jsrepl", runnable, sub, toolsInContext: 1, js };
+}
+
+export async function buildPyArm(model: ModelAdapter, org: MockOrg, cfg: ArmConfig): Promise<BuiltArm> {
+  const glove = baseGlove(model, SHARED_ROLE, cfg);
+  const runnable = glove.build();
+
+  // glove-python is fn-catalog only — a call fires immediately (no staging).
+  // Same catalog as jsrepl/lispfns, driven with Python instead of JS/Clojure.
+  const py = PySession.create();
+  py.registerAll(await catalogFromOrg(org, cfg.discovery));
+  // Folds a single execute_python; primes unless bare mode.
+  mountPy(runnable, { session: py, prime: cfg.prime !== false, discovery: cfg.discovery });
+
+  const sub = new BenchSubscriber({ echo: cfg.echo });
+  glove.addSubscriber(sub);
+  // 1 tool in context (execute_python) vs the baseline's ~32.
+  return { arm: "pyrepl", runnable, sub, toolsInContext: 1, py };
+}
+
+export async function buildLispFnArm(model: ModelAdapter, org: MockOrg, cfg: ArmConfig): Promise<BuiltArm> {
+  const glove = baseGlove(model, SHARED_ROLE, cfg);
+  const runnable = glove.build();
+
+  // The Lisp surface in FUNCTION MODE — the same catalog as jsrepl, driven with
+  // Clojure instead of JS. `registerFns` (not `registerAll`) → LISP_FN_PREAMBLE.
+  const lisp = LispSession.create({ policy: { writes: true } });
+  lisp.registerFns(await catalogFromOrg(org, cfg.discovery));
+  mountLisp(runnable, { session: lisp, allowWrites: true, prime: cfg.prime !== false, discovery: cfg.discovery });
+
+  const sub = new BenchSubscriber({ echo: cfg.echo });
+  glove.addSubscriber(sub);
+  return { arm: "lispfns", runnable, sub, toolsInContext: 1, lisp };
+}
+
+/**
+ * A neutral THREE-language preamble: the same function catalog is reachable
+ * through execute_python, execute_js, and execute_lisp; the model picks the
+ * language it's most fluent in. We measure the revealed preference (which
+ * execute_* it calls) via toolMix — the REPL analogue of the SQL-vs-Lisp choice
+ * study.
+ */
+const POLY_CARDS: Record<string, string> = {
+  python: "- execute_python — Python: github.list_pull_requests(state=\"open\"); comprehensions, f-strings, sorted(key=…); bind with prs = …",
+  js: "- execute_js — JavaScript: github.list_pull_requests({ state: \"open\" }); .filter/.map/.reduce; bind with const prs = …",
+  lisp: "- execute_lisp — Clojure: (github_pull_requests {:state \"open\"}); filter/map/group-by/->>; bind with (def prs …)",
+};
+
+/** The language presentation order — counterbalanced via POLYGLOT_ORDER to
+ *  separate a genuine preference from a first-listed ordering effect. */
+function polyglotOrder(): Array<"python" | "js" | "lisp"> {
+  const raw = (process.env.POLYGLOT_ORDER ?? "python,js,lisp").split(",").map((s) => s.trim());
+  const valid = raw.filter((s): s is "python" | "js" | "lisp" => s === "python" || s === "js" || s === "lisp");
+  return valid.length === 3 ? valid : ["python", "js", "lisp"];
+}
+
+function polyglotPreamble(fns: ToolFn[], order: Array<"python" | "js" | "lisp">, progressive: boolean): string {
+  const cards = order.map((k) => POLY_CARDS[k]).join("\n");
+  const discover = progressive
+    ? `The functions are NOT listed here — DISCOVER them: search_functions("what you want") jumps to matching functions, or browse list_servers → list_functions(server) → describe_function(name). These are tools AND available in each REPL (search/servers/fns/describe). ${fns.length} functions across ${new Set(fns.map((f) => (f.server ?? f.name.split("__")[0]))).size} servers.`
+    : `The functions are NOT tools — they exist only INSIDE an eval program. Discover with fns() / describe("name") (python/js) or (tables) / (describe :name) (lisp).\n\nThe same functions, available in all three (signatures show INPUTS only; inspect a row for its fields):\n${fns.map((fn) => `- ${fnSignature(fn)}`).join("\n")}`;
+  return `Your capabilities are FUNCTIONS in a persistent, sandboxed REPL. You have THREE equivalent eval tools over the SAME functions — pick the language you are most fluent in and STAY in it for a task (each is fully capable; a result is authoritative from its own tool, do not re-verify across languages):
+
+${cards}
+
+Call a function by name with its arguments; the result is plain data. COMPUTE in the program and let the LAST expression be your answer — the data flows between functions inside the program, it does not round-trip through you. Only the last value returns to your context, so return counts/small selections and bind the rest. BRANCH in one program with if/else. A call FIRES its effect immediately (no staging). If a call errors, change the one thing it names and retry — do not switch languages to escape an error.
+
+${discover}`;
+}
+
+export async function buildPolyglotArm(model: ModelAdapter, org: MockOrg, cfg: ArmConfig): Promise<BuiltArm> {
+  const fns = await catalogFromOrg(org, cfg.discovery);
+  const order = polyglotOrder();
+  const progressive = (cfg.discovery ?? "progressive") !== "full";
+  const glove = baseGlove(model, cfg.prime === false ? SHARED_ROLE : `${polyglotPreamble(fns, order, progressive)}\n\n${SHARED_ROLE}`, cfg);
+  const runnable = glove.build();
+
+  // Three fn-mode surfaces over the identical catalog; the model chooses.
+  const py = PySession.create();
+  py.registerAll(fns);
+  const js = JsSession.create();
+  js.registerAll(fns);
+  const lisp = LispSession.create({ policy: { writes: true } });
+  lisp.registerFns(fns);
+  // Fold in the counterbalanced order too (tool-array order can bias choice).
+  const mounters: Record<string, () => void> = {
+    python: () => mountPy(runnable, { session: py, prime: false }),
+    js: () => mountJs(runnable, { session: js, prime: false }),
+    lisp: () => mountLisp(runnable, { session: lisp, allowWrites: true, prime: false }),
+  };
+  for (const k of order) mounters[k]();
+
+  const sub = new BenchSubscriber({ echo: cfg.echo });
+  glove.addSubscriber(sub);
+  // 3 tools in context (execute_python/js/lisp) over one catalog.
+  return { arm: "polyglot", runnable, sub, toolsInContext: 3, poly: { py, js, lisp } };
 }
 
 /** A neutral two-surface preamble: both cards, one catalog, free choice. */

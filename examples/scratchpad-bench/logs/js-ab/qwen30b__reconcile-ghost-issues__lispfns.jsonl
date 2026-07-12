@@ -1,0 +1,5 @@
+{"kind":"meta","modelKey":"qwen30b","model":"qwen/qwen3-30b-a3b-instruct-2507","scenario":"reconcile-ghost-issues","arm":"lispfns","ok":false,"errored":true,"errorMessage":"400 Provider returned error","turns":1,"toolCalls":1,"toolErrors":1,"mcpRoundTrips":0,"servicesTouched":0,"tokensIn":2186,"tokensOut":21,"cacheRead":2112,"peakContextTokens":2186,"compactions":0,"toolsInContext":1,"wallMs":10279,"costUsd":0.00011329,"toolMix":{"linear__list_issues":1},"expected":null}
+{"kind":"final_answer","text":""}
+{"t":531,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"linear__list_issues","input":"{:state \"done\"}}"}]}
+{"t":531,"type":"tokens","in":2186,"out":21,"peak":2186}
+{"t":531,"type":"tool_result","tool":"linear__list_issues","status":"error","data":"null","message":"No tool called linear__list_issues exists."}

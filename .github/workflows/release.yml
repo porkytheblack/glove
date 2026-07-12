@@ -1,0 +1,55 @@
+name: Version
+
+# Auto-bumps versions via Changesets. It does NOT publish to npm — publishing is
+# a manual step (npm is deprecating the 2FA-bypassing tokens that CI would need,
+# so releases are cut by a maintainer running `pnpm release` locally, logged in
+# with 2FA).
+#
+# Declare intent in your PR with `pnpm changeset` (pick patch/minor/major + a
+# note). Then, on push to main WITH pending changesets, this workflow opens or
+# updates a "Version Packages" PR that applies the bumps and writes CHANGELOGs.
+# Review and merge that PR; the version bumps land on main, and a maintainer
+# publishes manually.
+#
+# Requires: Settings → Actions → General → "Allow GitHub Actions to create and
+# approve pull requests" enabled, so the action can open the Version PR.
+# (No NPM_TOKEN — nothing here publishes.)
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: version-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write # commit version bumps / push the Version PR branch
+  pull-requests: write # open the "Version Packages" PR
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 so changesets can read git history for changelogs.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # pnpm version is pinned by the root package.json `packageManager` field.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # No `publish` input → the action only opens/updates the Version PR.
+      - uses: changesets/action@v1
+        with:
+          version: pnpm run version # applies changesets: bumps + CHANGELOGs
+          commit: "chore: version packages"
+          title: "chore: version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,10 @@
+{"kind":"meta","modelKey":"qwen30b","model":"qwen/qwen3-30b-a3b-instruct-2507","scenario":"count-open-prs","arm":"lispfns","ok":true,"errored":false,"turns":3,"toolCalls":2,"toolErrors":1,"mcpRoundTrips":13,"servicesTouched":10,"tokensIn":8737,"tokensOut":59,"cacheRead":5808,"peakContextTokens":2962,"compactions":0,"toolsInContext":1,"wallMs":1136,"costUsd":0.00044806,"toolMix":{"github__list_pull_requests":1,"execute_lisp":1},"expected":17}
+{"kind":"final_answer","text":"17"}
+{"t":459,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"github__list_pull_requests","input":"{\"state\":\"open\"}"}]}
+{"t":459,"type":"tokens","in":2864,"out":23,"peak":2864}
+{"t":460,"type":"tool_result","tool":"github__list_pull_requests","status":"error","data":"null","message":"No tool called github__list_pull_requests exists."}
+{"t":897,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(count (github__list_pull_requests {:state \\\"open\\\"}))\"}"}]}
+{"t":897,"type":"tokens","in":2911,"out":33,"peak":2911}
+{"t":898,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":17}"}
+{"t":1136,"type":"model_response","turn":3,"stop_reason":"stop","text":"17","tool_calls":[]}
+{"t":1136,"type":"tokens","in":2962,"out":3,"peak":2962}

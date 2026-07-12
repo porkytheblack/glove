@@ -1,0 +1,10 @@
+{"kind":"meta","modelKey":"xiaomi","model":"xiaomi/mimo-v2.5","scenario":"busiest-assignee","arm":"lispfns","ok":true,"errored":false,"turns":3,"toolCalls":2,"toolErrors":0,"mcpRoundTrips":14,"servicesTouched":10,"tokensIn":10914,"tokensOut":226,"cacheRead":9792,"peakContextTokens":4007,"compactions":0,"toolsInContext":1,"wallMs":9168,"costUsd":0.00120925,"toolMix":{"execute_lisp":2},"expected":{"top":"dave","count":2,"tied":["dave"]}}
+{"kind":"final_answer","text":"**Dave** has the most Linear issues in the `in_progress` state, with **2** issues assigned to him:\n\n- **ENG-102** — Mobile crash on iOS 18 cold start\n- **ENG-112** — Onboarding funnel drop-off"}
+{"t":1947,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(linear__list_issues {:state \\\"in_progress\\\"})\"}"}]}
+{"t":1947,"type":"tokens","in":2995,"out":84,"peak":2995}
+{"t":1948,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[{\"id\":\"ENG-100\",\"title\":\"Mobile crash on iOS 18 cold start\",\"assignee\":\"heidi\",\"state\":\"in_progress\",\"priority\":1,\"estimate\":3,\"team\":\"mobile\",\"project\":\"Platform\",\"created_at\":\"2026-05-09T00:00:00.000Z\",\"updated_at\":\"2026-05-20T00:00:00.000Z\"},{\"id\":\"ENG-102\",\"title\":\"Mobile crash on iOS …(+1667)"}
+{"t":4108,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(->> (linear__list_issues {:state \\\"in_progress\\\"})\\n     (map :assignee)\\n     frequencies\\n     (sort-by val >)\\n     first)\"}"}]}
+{"t":4108,"type":"tokens","in":3912,"out":76,"peak":3912}
+{"t":4111,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[\"dave\",2]}"}
+{"t":9168,"type":"model_response","turn":3,"stop_reason":"stop","text":"**Dave** has the most Linear issues in the `in_progress` state, with **2** issues assigned to him:\n\n- **ENG-102** — Mobile crash on iOS 18 cold start\n- **ENG-112** — Onboarding funnel drop-off","tool_calls":[]}
+{"t":9168,"type":"tokens","in":4007,"out":66,"peak":4007}

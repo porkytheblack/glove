@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"minimax3","model":"minimax/minimax-m3","scenario":"busiest-assignee","arm":"lispfns","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":13,"servicesTouched":10,"tokensIn":6386,"tokensOut":197,"cacheRead":6116,"peakContextTokens":3259,"compactions":0,"toolsInContext":1,"wallMs":3844,"costUsd":0.0021522,"toolMix":{"execute_lisp":1},"expected":{"top":"dave","count":2,"tied":["dave"]}}
+{"kind":"final_answer","text":"**dave** has the most Linear issues in the `in_progress` state, with **2** issues assigned to them."}
+{"t":2654,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(def in-progress (linear__list_issues {:state \\\"in_progress\\\"}))\\n(count in-progress)\\n(apply max-key val (frequencies (map :assignee in-progress)))\"}"}]}
+{"t":2654,"type":"tokens","in":3127,"out":142,"peak":3127}
+{"t":2655,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[\"dave\",2],\"defined\":[\"in-progress\"],\"defs\":{\"in-progress\":{\"count\":8,\"peek\":{\"id\":\"ENG-100\",\"title\":\"Mobile crash on iOS 18 cold start\",\"assignee\":\"heidi\",\"state\":\"in_progress\"}}}}"}
+{"t":3844,"type":"model_response","turn":2,"stop_reason":"stop","text":"**dave** has the most Linear issues in the `in_progress` state, with **2** issues assigned to them.","tool_calls":[]}
+{"t":3844,"type":"tokens","in":3259,"out":55,"peak":3259}

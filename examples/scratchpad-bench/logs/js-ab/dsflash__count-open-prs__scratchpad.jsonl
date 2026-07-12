@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"dsflash","model":"deepseek/deepseek-v4-flash","scenario":"count-open-prs","arm":"scratchpad","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":3774,"tokensOut":110,"cacheRead":0,"peakContextTokens":1951,"compactions":0,"toolsInContext":2,"wallMs":17991,"costUsd":0.00035946,"toolMix":{"execute_sql":1},"expected":17}
+{"kind":"final_answer","text":"There are **17** GitHub pull requests currently in the **open** state across all repositories."}
+{"t":13764,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_sql","input":"{\"sql\":\"SELECT count(*) AS open_pr_count FROM github_pull_requests WHERE state = 'open';\"}"}]}
+{"t":13764,"type":"tokens","in":1823,"out":80,"peak":1823}
+{"t":13768,"type":"tool_result","tool":"execute_sql","status":"success","data":"{\"rows\":[{\"open_pr_count\":17}],\"truncated\":false,\"touched\":[{\"name\":\"github_pull_requests\",\"source\":\"virtual\",\"access\":\"read\",\"op\":\"select\",\"volatility\":\"stable\",\"bindings\":{\"state\":[\"open\"]},\"invocations\":1}]}"}
+{"t":17991,"type":"model_response","turn":2,"stop_reason":"stop","text":"There are **17** GitHub pull requests currently in the **open** state across all repositories.","tool_calls":[]}
+{"t":17991,"type":"tokens","in":1951,"out":30,"peak":1951}

@@ -1,0 +1,10 @@
+{"kind":"meta","modelKey":"dsflash","model":"deepseek/deepseek-v4-flash","scenario":"busiest-assignee","arm":"lisp","ok":true,"errored":false,"turns":3,"toolCalls":2,"toolErrors":0,"mcpRoundTrips":2,"servicesTouched":1,"tokensIn":8177,"tokensOut":311,"cacheRead":4096,"peakContextTokens":3041,"compactions":0,"toolsInContext":2,"wallMs":10516,"costUsd":0.0007919099999999999,"toolMix":{"execute_lisp":2},"expected":{"top":"dave","count":2,"tied":["dave"]}}
+{"kind":"final_answer","text":"**Dave** has the most Linear issues in the `in_progress` state, with **2 issues**:\n\n- ENG-102 — \"Mobile crash on iOS 18 cold start\"\n- ENG-112 — \"Onboarding funnel drop-off\""}
+{"t":3447,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(linear_issues {:state \\\"in_progress\\\"})\"}"}]}
+{"t":3447,"type":"tokens","in":2197,"out":89,"peak":2197}
+{"t":3448,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[{\"id\":\"ENG-100\",\"title\":\"Mobile crash on iOS 18 cold start\",\"assignee\":\"heidi\",\"state\":\"in_progress\",\"priority\":1,\"estimate\":3,\"team\":\"mobile\",\"project\":\"Platform\",\"created_at\":\"2026-05-09T00:00:00.000Z\",\"updated_at\":\"2026-05-20T00:00:00.000Z\"},{\"id\":\"ENG-102\",\"title\":\"Mobile crash on iOS …(+1667)"}
+{"t":6639,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(let [issues (linear_issues {:state \\\"in_progress\\\"})\\n      freq (frequencies (map :assignee issues))]\\n  (apply max-key val freq))\"}"}]}
+{"t":6639,"type":"tokens","in":2939,"out":97,"peak":2939}
+{"t":6640,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[\"dave\",2]}"}
+{"t":10516,"type":"model_response","turn":3,"stop_reason":"stop","text":"**Dave** has the most Linear issues in the `in_progress` state, with **2 issues**:\n\n- ENG-102 — \"Mobile crash on iOS 18 cold start\"\n- ENG-112 — \"Onboarding funnel drop-off\"","tool_calls":[]}
+{"t":10516,"type":"tokens","in":3041,"out":125,"peak":3041}

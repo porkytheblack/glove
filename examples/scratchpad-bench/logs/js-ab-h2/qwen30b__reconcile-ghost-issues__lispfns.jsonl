@@ -1,0 +1,55 @@
+{"kind":"meta","modelKey":"qwen30b","model":"qwen/qwen3-30b-a3b-instruct-2507","scenario":"reconcile-ghost-issues","arm":"lispfns","ok":false,"errored":false,"turns":18,"toolCalls":17,"toolErrors":11,"mcpRoundTrips":15,"servicesTouched":10,"tokensIn":78216,"tokensOut":815,"cacheRead":2832,"peakContextTokens":5439,"compactions":0,"toolsInContext":1,"wallMs":73773,"costUsd":0.00406565,"toolMix":{"linear__list_issues":2,"execute_lisp":13,"github__list_pull_requests":1,"describe":1},"expected":{"count":1,"ids":["ENG-142"]}}
+{"kind":"final_answer","text":"There is 1 Linear issue with state \"done\" that is not closed by any merged pull request, despite being referenced in a `closes_linear` field. The issue ID is `ENG-134`."}
+{"t":467,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"linear__list_issues","input":"{:state \"done\"}}"}]}
+{"t":467,"type":"tokens","in":2896,"out":21,"peak":2896}
+{"t":467,"type":"tool_result","tool":"linear__list_issues","status":"error","data":"null","message":"No tool called linear__list_issues exists."}
+{"t":3041,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(fns)\"}"}]}
+{"t":3042,"type":"tokens","in":2949,"out":22,"peak":2949}
+{"t":3043,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[{\"name\":\"github__list_pull_requests\",\"description\":\"List pull requests, optionally filtered by repo, state (open/merged/closed), or author.\",\"args\":[\":repo?\",\":state?\",\":author?\"],\"effect\":\"read\"},{\"name\":\"github__get_pull_request\",\"description\":\"Get a single pull request by repo and numbe…(+3248)"}
+{"t":6752,"type":"model_response","turn":3,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"linear__list_issues","input":" {\"state\" \"done\"}"}]}
+{"t":6752,"type":"tokens","in":3839,"out":21,"peak":3839}
+{"t":6752,"type":"tool_result","tool":"linear__list_issues","status":"error","data":"null","message":"No tool called linear__list_issues exists."}
+{"t":9880,"type":"model_response","turn":4,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":" {\"code\":\"(def done-linear-issues (linear__list_issues {:state \"done\"})) (count done-linear-issues)\"}"}]}
+{"t":9880,"type":"tokens","in":3885,"out":42,"peak":3885}
+{"t":9880,"type":"tool_result","tool":"execute_lisp","status":"error","data":"Failed to validate the input args provided for the tool:: {\"errors\":[\"Invalid input: expected object, received string\"]}","message":"TOOL_INPUT_INVALID"}
+{"t":14128,"type":"model_response","turn":5,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":" {\"code\":\"(def done-linear-issues (linear__list_issues {:state \"done\"})) (count done-linear-issues)\"}"}]}
+{"t":14128,"type":"tokens","in":3970,"out":42,"peak":3970}
+{"t":14128,"type":"tool_result","tool":"execute_lisp","status":"error","data":"Failed to validate the input args provided for the tool:: {\"errors\":[\"Invalid input: expected object, received string\"]}","message":"TOOL_INPUT_INVALID"}
+{"t":17384,"type":"model_response","turn":6,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":" {\"code\":\"(def done-linear-issues (linear__list_issues {:state \"done\"})) (count done-linear-issues)\"}"}]}
+{"t":17384,"type":"tokens","in":4055,"out":42,"peak":4055}
+{"t":17384,"type":"tool_result","tool":"execute_lisp","status":"error","data":"Failed to validate the input args provided for the tool:: {\"errors\":[\"Invalid input: expected object, received string\"]}","message":"TOOL_INPUT_INVALID"}
+{"t":21460,"type":"model_response","turn":7,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":" {\"code\":\"(def done-linear-issues (linear__list_issues {:state \"done\"})) (count done-linear-issues)\"}"}]}
+{"t":21460,"type":"tokens","in":4140,"out":42,"peak":4140}
+{"t":21460,"type":"tool_result","tool":"execute_lisp","status":"error","data":"Failed to validate the input args provided for the tool:: {\"errors\":[\"Invalid input: expected object, received string\"]}","message":"TOOL_INPUT_INVALID"}
+{"t":25268,"type":"model_response","turn":8,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":" {\"code\":\"(def done-linear-issues (linear__list_issues {:state \"done\"})) (count done-linear-issues)\"}"}]}
+{"t":25268,"type":"tokens","in":4225,"out":42,"peak":4225}
+{"t":25268,"type":"tool_result","tool":"execute_lisp","status":"error","data":"Failed to validate the input args provided for the tool:: {\"errors\":[\"Invalid input: expected object, received string\"]}","message":"TOOL_INPUT_INVALID"}
+{"t":33036,"type":"model_response","turn":9,"stop_reason":"tool_calls","text":"The function name is `linear__list_issues`, and it expects a map of arguments. The error suggests that the argument `:state` is being passed as a raw string instead of a keyword. Let's retry with proper keyword syntax.\n\n","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(def done-linear-issues (linear__list_issues {:state :done})) (count done-linear-issues)\"}"}]}
+{"t":33036,"type":"tokens","in":4310,"out":90,"peak":4310}
+{"t":33038,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":5,\"defined\":[\"done-linear-issues\"],\"defs\":{\"done-linear-issues\":{\"count\":5,\"peek\":{\"id\":\"ENG-122\",\"title\":\"Primary DB failover is slow\",\"assignee\":\"heidi\",\"state\":\"done\"}}}}"}
+{"t":38838,"type":"model_response","turn":10,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"github__list_pull_requests","input":"{\"closes_linear\":true}"}]}
+{"t":38838,"type":"tokens","in":4465,"out":23,"peak":4465}
+{"t":38838,"type":"tool_result","tool":"github__list_pull_requests","status":"error","data":"null","message":"No tool called github__list_pull_requests exists."}
+{"t":42125,"type":"model_response","turn":11,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(def prs (github__list_pull_requests {:closes_linear true})) (count prs)\"}"}]}
+{"t":42125,"type":"tokens","in":4513,"out":39,"peak":4513}
+{"t":42126,"type":"tool_result","tool":"execute_lisp","status":"error","data":"null","message":"function \"github__list_pull_requests\" has no parameter :closes_linear. (describe :github__list_pull_requests) shows its parameters."}
+{"t":44976,"type":"model_response","turn":12,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"describe","input":"{\"name\":\"github__list_pull_requests\"}"}]}
+{"t":44976,"type":"tokens","in":4596,"out":22,"peak":4596}
+{"t":44976,"type":"tool_result","tool":"describe","status":"error","data":"null","message":"No tool called describe exists."}
+{"t":48738,"type":"model_response","turn":13,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(describe :github__list_pull_requests)\"}"}]}
+{"t":48738,"type":"tokens","in":4638,"out":27,"peak":4638}
+{"t":48740,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":{\"name\":\"github__list_pull_requests\",\"kind\":\"function\",\"description\":\"List pull requests, optionally filtered by repo, state (open/merged/closed), or author.\",\"readOnly\":true,\"params\":[{\"name\":\"repo\",\"type\":\"string\"},{\"name\":\"state\",\"type\":\"string\"},{\"name\":\"author\",\"type\":\"string\"}],\"retur…(+388)"}
+{"t":52325,"type":"model_response","turn":14,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(def prs (github__list_pull_requests {})) (count prs)\"}"}]}
+{"t":52325,"type":"tokens","in":4859,"out":35,"peak":4859}
+{"t":52326,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":40,\"defined\":[\"prs\"],\"defs\":{\"prs\":{\"count\":40,\"peek\":{\"number\":1000,\"repo\":\"acme/infra\",\"title\":\"SSO SCIM provisioning errors: fix sso-pr…\",\"author\":\"niaj\"}}}}"}
+{"t":59116,"type":"model_response","turn":15,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":" {\"code\":\"(def merged-prs (filter #(= (:state %) \"merged\") prs)) (def closed-linear-ids (set (map :closes_linear merged-prs))) (def done-linear-issues (linear__list_issues {:state :done})) (def unclosed-done-issues (filter #(contains? closed-linear-ids (:id %)) done-linear-issues)) (count unclosed-done-issues)\"}"}]}
+{"t":59116,"type":"tokens","in":4963,"out":104,"peak":4963}
+{"t":59116,"type":"tool_result","tool":"execute_lisp","status":"error","data":"Failed to validate the input args provided for the tool:: {\"errors\":[\"Invalid input: expected object, received string\"]}","message":"TOOL_INPUT_INVALID"}
+{"t":65575,"type":"model_response","turn":16,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(def merged-prs (filter #(= (:state %) :merged) prs)) (def closed-linear-ids (set (map :closes_linear merged-prs))) (def done-linear-issues (linear__list_issues {:state :done})) (def unclosed-done-issues (filter #(contains? closed-linear-ids (:id %)) done-linear-issues)) (count unclosed-done-issues)\"}"}]}
+{"t":65575,"type":"tokens","in":5110,"out":104,"peak":5110}
+{"t":65578,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":1,\"defined\":[\"merged-prs\",\"closed-linear-ids\",\"unclosed-done-issues\"],\"defs\":{\"merged-prs\":{\"count\":15,\"peek\":{\"number\":1002,\"repo\":\"acme/web\",\"title\":\"Mobile crash on iOS 18 cold start: guard…\",\"author\":\"dave\"}},\"closed-linear-ids\":{\"count\":10,\"peek\":[\"ENG-136\",\"ENG-103\",null]},\"unclosed-d…(+134)"}
+{"t":69570,"type":"model_response","turn":17,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(def unclosed-done-issues (filter #(contains? closed-linear-ids (:id %)) done-linear-issues)) (map :id unclosed-done-issues)\"}"}]}
+{"t":69570,"type":"tokens","in":5364,"out":53,"peak":5364}
+{"t":69570,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[\"ENG-134\"]}"}
+{"t":73773,"type":"model_response","turn":18,"stop_reason":"stop","text":"There is 1 Linear issue with state \"done\" that is not closed by any merged pull request, despite being referenced in a `closes_linear` field. The issue ID is `ENG-134`.","tool_calls":[]}
+{"t":73773,"type":"tokens","in":5439,"out":44,"peak":5439}

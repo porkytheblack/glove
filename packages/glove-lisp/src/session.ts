@@ -20,11 +20,20 @@
  */
 import {
   bindingsKey,
+  describeFn,
   makeBindings,
+  missingRequired,
+  serverSummaries,
+  fnsForServer,
+  searchFns,
+  sampleOne,
   toRows,
+  unknownKeys,
   type ResourceContext,
   type ResourceTable,
+  type ServerSummary,
   type SqlScalar,
+  type ToolFn,
 } from "glove-scratchpad";
 import { closest, Env } from "./env";
 import { chargeFuel, evalForm, EvalCtx, LispError, NativeFn } from "./eval";
@@ -67,7 +76,8 @@ export interface LispExecuteOptions {
 
 export interface TouchedResource {
   name: string;
-  op: "select" | "insert" | "update" | "delete";
+  /** `"call"` is a function-mode invocation (see {@link LispSession.registerFn}). */
+  op: "select" | "insert" | "update" | "delete" | "call";
   /** Resolver invocations (a cached read is 0 calls). */
   calls: number;
 }
@@ -114,23 +124,41 @@ function scalarEq(a: unknown, b: unknown): boolean {
   return valEq(a, b);
 }
 
-/** A multi-line zod/MCP validation dump is unreadable mid-transcript — reduce it
- *  to one line naming the field, what was expected, and what arrived. */
+/** Reduce a multi-line zod/MCP validation dump to one line naming the field,
+ *  what was expected, and what arrived (unreadable in full mid-transcript). */
+function parseValidationDetail(msg: string): string | null {
+  if (!/Input validation error|invalid_type|-32602/.test(msg)) return null;
+  const issues: string[] = [];
+  const re = /"expected":\s*"([^"]+)"[\s\S]*?"path":\s*\[\s*"?([^\]"]*)"?\s*\][\s\S]*?(?:"received"|"message"):\s*"([^"]+)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(msg)) !== null && issues.length < 3) {
+    issues.push(`:${m[2] || "?"} expected ${m[1]}, got ${m[3]}`);
+  }
+  return issues.length ? issues.join("; ") : "a field has the wrong type or is missing";
+}
+
+/** Rewrap a write resolver error (resource mode). */
 function rewrapToolError(err: unknown, write: { op: string; resource: string }): LispError {
   const msg = err instanceof Error ? err.message : String(err);
-  if (/Input validation error|invalid_type|-32602/.test(msg)) {
-    const issues: string[] = [];
-    const re = /"expected":\s*"([^"]+)"[\s\S]*?"path":\s*\[\s*"?([^\]"]*)"?\s*\][\s\S]*?(?:"received"|"message"):\s*"([^"]+)"/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(msg)) !== null && issues.length < 3) {
-      issues.push(`:${m[2] || "?"} expected ${m[1]}, got ${m[3]}`);
-    }
-    const detail = issues.length ? issues.join("; ") : "a field has the wrong type or is missing";
+  const detail = parseValidationDetail(msg);
+  if (detail !== null) {
     return new LispError(
       `${write.op}! on "${write.resource}": the tool rejected the row — ${detail}. Run (describe :${write.resource}) for column types, and pass strings for text columns (use "" not nil).`,
     );
   }
   return err instanceof LispError ? err : new LispError(msg);
+}
+
+/** Rewrap a function-mode call error (see {@link LispSession.registerFn}). */
+function rewrapFnError(err: unknown, name: string): LispError {
+  const msg = err instanceof Error ? err.message : String(err);
+  const detail = parseValidationDetail(msg);
+  if (detail !== null) {
+    return new LispError(
+      `function "${name}": the tool rejected the input — ${detail}. Run (describe :${name}) for the expected types, and pass strings for text fields (use "" not nil).`,
+    );
+  }
+  return err instanceof LispError ? err : new LispError(`function "${name}": ${msg}`);
 }
 
 /** Drop nil-valued keys from a row (Clojure APIs omit absent fields). */
@@ -178,12 +206,16 @@ interface CallState {
   messages: string[];
   allowWrites: boolean;
   sawEmptyRead?: string;
+  sawEmptyFn?: string;
 }
 
 type SessionCtx = EvalCtx & { call: CallState; stdout: string[] };
 
 export class LispSession {
   private resources = new Map<string, ResourceTable>();
+  private fns = new Map<string, ToolFn>();
+  /** Memoized server grouping; invalidated when a function is registered. */
+  private serverCache?: ServerSummary[];
   private builtins: Env;
   private root: Env;
   private immutableCache = new Map<string, Record<string, unknown>[]>();
@@ -224,9 +256,106 @@ export class LispSession {
     for (const r of resources) this.register(r);
   }
 
-  /** The registered catalog (for the mount preamble and for `(tables)`). */
+  /**
+   * Register a {@link ToolFn} in FUNCTION MODE — the light alternative to a
+   * {@link ResourceTable}. Calling `(github__list_prs {:state "open"})` invokes
+   * the tool with that map as its input verbatim (no columns, no pushdown, no
+   * WHERE-filtering). The result is whatever the tool returns.
+   *
+   * IMPORTANT: a function call FIRES IMMEDIATELY, always. The session's `writes`
+   * policy and staging (`stage`/`commit!`) do NOT apply to functions — the write
+   * verb IS the function. Only register effectful functions on a session the
+   * caller is comfortable firing.
+   *
+   * Functions and resources can coexist in one session (both land in the same
+   * callable namespace); a name may back only one of them.
+   */
+  registerFn(fn: ToolFn): void {
+    if (this.builtins.has(fn.name)) {
+      const kind = this.resources.has(fn.name)
+        ? "a resource"
+        : this.fns.has(fn.name)
+          ? "another function"
+          : "a library primitive";
+      throw new Error(
+        `glove-lisp: cannot register function "${fn.name}" — the name is already ${kind}. Rename it (defineFn's "name", fnFromTool's opts.name, or fnsFromMcp's opts.filter).`,
+      );
+    }
+    this.fns.set(fn.name, fn);
+    this.serverCache = undefined; // catalog changed — regroup on next discover
+    this.builtins.set(fn.name, this.callFnFor(fn));
+  }
+
+  registerFns(fns: ToolFn[]): void {
+    for (const fn of fns) this.registerFn(fn);
+  }
+
+  /** The registered resource catalog (for the mount preamble and for `(tables)`). */
   list(): ResourceTable[] {
     return [...this.resources.values()];
+  }
+
+  /** The registered function catalog (for the mount preamble and for `(fns)`). */
+  listFns(): ToolFn[] {
+    return [...this.fns.values()];
+  }
+
+  // ── progressive discovery (shared by the `(servers)`/`(fns …)` builtins and
+  //    the native discovery tools) ──────────────────────────────────────────
+  /** Tier 1 — the servers (MCP namespaces) in the fn catalog, with fn counts. */
+  discoverServers(): ServerSummary[] {
+    return (this.serverCache ??= serverSummaries(this.listFns()));
+  }
+
+  /** Search — jump straight to the functions matching a free-text query. */
+  searchFunctions(query: string): Array<Record<string, unknown>> {
+    return searchFns(this.listFns(), String(query)).map((fn) => this.fnRow(fn));
+  }
+
+  /** Tier 2 — one server's functions as `{ name, args, effect }` rows. */
+  discoverFunctions(server: string): Array<Record<string, unknown>> {
+    const fns = fnsForServer(this.listFns(), server);
+    if (fns.length === 0) {
+      const hint = closest(server, this.discoverServers().map((s) => s.name));
+      throw new LispError(
+        `no server named "${server}"${hint ? ` — did you mean :${hint}?` : ""}. Run (servers) to list them.`,
+      );
+    }
+    return fns.map((fn) => this.fnRow(fn));
+  }
+
+  private fnRow(fn: ToolFn): Record<string, unknown> {
+    const d = describeFn(fn);
+    return {
+      name: fn.name,
+      description: fn.description,
+      args: d.params.map((p) => (p.required ? `:${p.name}` : `:${p.name}?`)),
+      ...(fn.readOnlyHint === false ? { effect: "write" } : fn.readOnlyHint === true ? { effect: "read" } : {}),
+    };
+  }
+
+  /** Tier 3 — one function's full schema (for the `describe_function` tool).
+   *  Warms the result shape on demand (one read) rather than at mount. */
+  async describeFunction(name: string): Promise<Record<string, unknown>> {
+    const fn = this.fns.get(name);
+    if (!fn) {
+      const hint = closest(name, [...this.fns.keys()]);
+      throw new LispError(
+        `no function named "${name}"${hint ? ` — did you mean :${hint}?` : ""}. Run (fns :server) to list a server's functions.`,
+      );
+    }
+    if (!fn.resultShape) await sampleOne(fn, { ctx: { actor: this.actor } });
+    const d = describeFn(fn);
+    const req = d.params.filter((p) => p.required).map((p) => `:${p.name} …`).join(" ");
+    return {
+      name: fn.name,
+      kind: "function",
+      description: fn.description,
+      ...(fn.readOnlyHint !== undefined ? { readOnly: fn.readOnlyHint } : {}),
+      params: d.params,
+      ...(d.returns ? { returns: d.returns } : {}),
+      usage: `(${fn.name}${req ? ` {${req}}` : d.params.length ? " {…}" : ""}) — calling it FIRES the tool immediately (no staging)`,
+    };
   }
 
   /** Writes currently staged and awaiting `(commit!)`. */
@@ -328,6 +457,15 @@ export class LispSession {
       out.note =
         `0 items came back. If you expected data, re-check your argument values before concluding it doesn't exist — ` +
         `(describe :${call.sawEmptyRead}) lists each column's valid values, and calling the resource with no arguments shows real rows.`;
+    } else if (
+      Array.isArray(value) &&
+      value.length === 0 &&
+      call.sawEmptyFn &&
+      out.touched.some((t) => t.op === "call")
+    ) {
+      out.note =
+        `0 items came back. If you expected data, re-check your argument values before concluding it doesn't exist — ` +
+        `(describe :${call.sawEmptyFn}) shows the function's parameters.`;
     }
     return out;
   }
@@ -347,31 +485,64 @@ export class LispSession {
       ),
     );
 
+    // (servers) — tier 1: the MCP servers you can drill into.
+    this.builtins.set("servers", new NativeFn("servers", () => this.discoverServers()));
+
+    // (fns) — all functions; (fns :github) — just that server's functions.
+    this.builtins.set(
+      "fns",
+      new NativeFn(
+        "fns",
+        (args) =>
+          args.length > 0
+            ? this.discoverFunctions(this.nameArg(args[0], "fns"))
+            : this.listFns().map((fn) => this.fnRow(fn)),
+        "(fns) or (fns :server)",
+      ),
+    );
+
     this.builtins.set(
       "describe",
       new NativeFn(
         "describe",
-        (args) => {
-          if (args.length !== 1) throw new LispError("describe takes one resource name — (describe :github_pull_requests)");
-          const r = this.resolveResource(args[0], "describe");
-          return {
-            name: r.name,
-            description: r.description,
-            volatility: r.volatility,
-            ops: [r.select && "read", r.insert && "insert!", r.update && "update!", r.delete && "delete!"].filter(Boolean),
-            columns: r.columns.map((c) => ({
-              name: c.name,
-              type: c.type,
-              ...(c.requiredKey ? { required: true } : {}),
-              ...(c.description ? { description: c.description } : {}),
-            })),
-            usage: r.select
-              ? `(${r.name}) or (${r.name} {:col value}) — a {…} map pushes arguments down; vector values fan out like IN`
-              : `write-only — see insert!/update!/delete!`,
-          };
+        async (args) => {
+          if (args.length !== 1) {
+            throw new LispError("describe takes one name — (describe :github_pull_requests) or (describe :github__list_prs)");
+          }
+          const name = this.nameArg(args[0], "describe");
+          const r = this.resources.get(name);
+          if (r) {
+            return {
+              name: r.name,
+              description: r.description,
+              volatility: r.volatility,
+              ops: [r.select && "read", r.insert && "insert!", r.update && "update!", r.delete && "delete!"].filter(Boolean),
+              columns: r.columns.map((c) => ({
+                name: c.name,
+                type: c.type,
+                ...(c.requiredKey ? { required: true } : {}),
+                ...(c.description ? { description: c.description } : {}),
+              })),
+              usage: r.select
+                ? `(${r.name}) or (${r.name} {:col value}) — a {…} map pushes arguments down; vector values fan out like IN`
+                : `write-only — see insert!/update!/delete!`,
+            };
+          }
+          // a function — lazily warm its result shape, then describe (shared with the tool)
+          if (this.fns.has(name)) return this.describeFunction(name);
+          const hint = closest(name, [...this.resources.keys(), ...this.fns.keys()]);
+          throw new LispError(
+            `unknown name "${name}"${hint ? ` — did you mean :${hint}?` : ""}. Run (tables) or (fns) to list what's available.`,
+          );
         },
-        "(describe :resource-name)",
+        "(describe :name)",
       ),
+    );
+
+    // (search "query") — jump straight to the functions matching a query.
+    this.builtins.set(
+      "search",
+      new NativeFn("search", (args) => this.searchFunctions(args[0] === undefined ? "" : this.nameArg(args[0], "search")), '(search "query")'),
     );
 
     this.builtins.set(
@@ -509,6 +680,63 @@ export class LispSession {
   }
 
   // ── reads ─────────────────────────────────────────────────────────────────
+
+  // ── function mode ───────────────────────────────────────────────────────────
+
+  /** A registered {@link ToolFn} as a native Lisp function: at most one argument
+   *  map, keyword→string deep-converted, missing/unknown keys rejected loudly,
+   *  then fired. The result is returned as-is (any JSON value). */
+  private callFnFor(fn: ToolFn): NativeFn {
+    return new NativeFn(
+      fn.name,
+      async (args, ctx) => {
+        if (args.length > 1 || (args.length === 1 && !isPlainObject(args[0]) && args[0] !== null)) {
+          throw new LispError(
+            `(${fn.name} …) takes at most one argument map — e.g. (${fn.name} {:arg value}). (describe :${fn.name}) shows its parameters.`,
+          );
+        }
+        const argMap = this.plainDeep((args[0] ?? {}) as Record<string, unknown>) as Record<string, unknown>;
+        const missing = missingRequired(fn, argMap);
+        if (missing.length > 0) {
+          throw new LispError(
+            `function "${fn.name}" requires ${missing.map((m) => `:${m}`).join(", ")} — call (${fn.name} {:${missing[0]} …}). (describe :${fn.name}) shows its parameters.`,
+          );
+        }
+        const unknown = unknownKeys(fn, argMap);
+        if (unknown.length > 0) {
+          const u = unknown[0];
+          throw new LispError(
+            `function "${fn.name}" has no parameter :${u.key}${u.hint ? ` — did you mean :${u.hint}?` : ""}. (describe :${fn.name}) shows its parameters.`,
+          );
+        }
+        const sctx = ctx as SessionCtx;
+        let result: unknown;
+        try {
+          result = await fn.call(argMap, { signal: sctx.call.ctx.signal, actor: sctx.call.ctx.actor });
+        } catch (err) {
+          throw rewrapFnError(err, fn.name);
+        }
+        this.touch(sctx, fn.name, "call", 1);
+        chargeFuel(ctx, Array.isArray(result) ? result.length : 1);
+        if (Array.isArray(result) && result.length === 0) sctx.call.sawEmptyFn = fn.name;
+        return result;
+      },
+      `(${fn.name}) or (${fn.name} {:arg value, …})`,
+    );
+  }
+
+  /** Deep Keyword→name conversion for a function argument map (keys are already
+   *  strings from the reader; values may be keywords, nested in arrays/objects). */
+  private plainDeep(v: unknown): unknown {
+    if (v instanceof Keyword) return v.name;
+    if (Array.isArray(v)) return v.map((x) => this.plainDeep(x));
+    if (isPlainObject(v)) {
+      const out: Record<string, unknown> = {};
+      for (const [k, val] of Object.entries(v)) out[k] = this.plainDeep(val);
+      return out;
+    }
+    return v;
+  }
 
   private readFnFor(resource: ResourceTable): NativeFn {
     return new NativeFn(
@@ -699,6 +927,15 @@ export class LispSession {
   }
 
   // ── shared checks ─────────────────────────────────────────────────────────
+
+  /** Extract a resource/function name from a keyword, string, or the callable
+   *  itself (a bare symbol resolves to its NativeFn). */
+  private nameArg(arg: unknown, fn: string): string {
+    if (arg instanceof Keyword) return arg.name;
+    if (typeof arg === "string") return arg;
+    if (arg instanceof NativeFn) return arg.name;
+    throw new LispError(`${fn}: name it with a keyword, e.g. (${fn} :name) — got ${printForm(arg)}`);
+  }
 
   private resolveResource(nameArg: unknown, fn: string): ResourceTable {
     let name: string;

@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"glm5","model":"z-ai/glm-5","scenario":"sentry-billing-unresolved","arm":"lispfns","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":4455,"tokensOut":265,"cacheRead":4224,"peakContextTokens":2287,"compactions":0,"toolsInContext":1,"wallMs":5227,"costUsd":0.0031817999999999994,"toolMix":{"execute_lisp":1},"expected":{"count":2,"ids":["SENTRY-3004","SENTRY-3007"]}}
+{"kind":"final_answer","text":"There are **2 unresolved Sentry issues** in the 'billing' project.\n\nIDs:\n- SENTRY-3004\n- SENTRY-3007"}
+{"t":3232,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(def issues (sentry__list_issues {:project \\\"billing\\\" :status \\\"unresolved\\\"}))\\n{:count (count issues)\\n :ids (map :id issues)}\"}"}]}
+{"t":3232,"type":"tokens","in":2168,"out":193,"peak":2168}
+{"t":3234,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":{\"count\":2,\"ids\":[\"SENTRY-3004\",\"SENTRY-3007\"]},\"defined\":[\"issues\"],\"defs\":{\"issues\":{\"count\":2,\"peek\":{\"id\":\"SENTRY-3004\",\"title\":\"TypeError: Push notifications not delive…\",\"culprit\":\"mobile/push-notifications.ts\",\"level\":\"warning\"}}}}"}
+{"t":5227,"type":"model_response","turn":2,"stop_reason":"stop","text":"There are **2 unresolved Sentry issues** in the 'billing' project.\n\nIDs:\n- SENTRY-3004\n- SENTRY-3007","tool_calls":[]}
+{"t":5227,"type":"tokens","in":2287,"out":72,"peak":2287}

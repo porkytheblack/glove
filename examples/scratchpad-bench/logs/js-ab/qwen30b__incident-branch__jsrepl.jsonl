@@ -1,0 +1,16 @@
+{"kind":"meta","modelKey":"qwen30b","model":"qwen/qwen3-30b-a3b-instruct-2507","scenario":"incident-branch","arm":"jsrepl","ok":false,"errored":false,"turns":5,"toolCalls":4,"toolErrors":4,"mcpRoundTrips":0,"servicesTouched":0,"tokensIn":10837,"tokensOut":163,"cacheRead":10576,"peakContextTokens":2261,"compactions":0,"toolsInContext":1,"wallMs":3274,"costUsd":0.0005728199999999999,"toolMix":{"pagerduty__list_incidents":2,"fns":1,"describe":1},"expected":{"branch":"email","count":5,"ids":["PD-400","PD-401","PD-403","PD-411","PD-418"]}}
+{"kind":"final_answer","text":"I cannot proceed because the required tools (`pagerduty__list_incidents`, `fns`, and `describe`) are not available in the current environment. Please verify the tool catalog or provide alternative means to access incident data."}
+{"t":578,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"pagerduty__list_incidents","input":"{\"status\":\"triggered\",\"urgency\":\"high\"}"}]}
+{"t":578,"type":"tokens","in":2061,"out":42,"peak":2061}
+{"t":578,"type":"tool_result","tool":"pagerduty__list_incidents","status":"error","data":"null","message":"No tool called pagerduty__list_incidents exists."}
+{"t":1098,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"pagerduty__list_incidents","input":"{\"status\":\"triggered\",\"urgency\":\"high\"}"}]}
+{"t":1098,"type":"tokens","in":2120,"out":33,"peak":2120}
+{"t":1098,"type":"tool_result","tool":"pagerduty__list_incidents","status":"error","data":"null","message":"No tool called pagerduty__list_incidents exists."}
+{"t":1516,"type":"model_response","turn":3,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"fns","input":"{}"}]}
+{"t":1516,"type":"tokens","in":2179,"out":16,"peak":2179}
+{"t":1516,"type":"tool_result","tool":"fns","status":"error","data":"null","message":"No tool called fns exists."}
+{"t":2077,"type":"model_response","turn":4,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"describe","input":"{\"name\":\"pagerduty__list_incidents\"}"}]}
+{"t":2077,"type":"tokens","in":2216,"out":25,"peak":2216}
+{"t":2077,"type":"tool_result","tool":"describe","status":"error","data":"null","message":"No tool called describe exists."}
+{"t":3274,"type":"model_response","turn":5,"stop_reason":"stop","text":"I cannot proceed because the required tools (`pagerduty__list_incidents`, `fns`, and `describe`) are not available in the current environment. Please verify the tool catalog or provide alternative means to access incident data.","tool_calls":[]}
+{"t":3274,"type":"tokens","in":2261,"out":47,"peak":2261}

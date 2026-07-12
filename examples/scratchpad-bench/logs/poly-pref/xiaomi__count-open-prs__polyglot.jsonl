@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"xiaomi","model":"xiaomi/mimo-v2.5","scenario":"count-open-prs","arm":"polyglot","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":13,"servicesTouched":10,"tokensIn":6539,"tokensOut":138,"cacheRead":3136,"peakContextTokens":3362,"compactions":0,"toolsInContext":3,"wallMs":6089,"costUsd":0.000725235,"toolMix":{"execute_python":1},"expected":17}
+{"kind":"final_answer","text":"There are exactly **17** GitHub pull requests currently in the open state across all repositories."}
+{"t":4458,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_python","input":"{\"code\":\"open_prs = github__list_pull_requests(state=\\\"open\\\")\\nlen(open_prs)\"}"}]}
+{"t":4458,"type":"tokens","in":3177,"out":99,"peak":3177}
+{"t":4460,"type":"tool_result","tool":"execute_python","status":"success","data":"{\"value\":17,\"called\":[{\"name\":\"github__list_pull_requests\",\"calls\":1}],\"defined\":[\"open_prs\"],\"defs\":{\"open_prs\":{\"count\":17,\"peek\":{\"number\":1000,\"repo\":\"acme/infra\",\"title\":\"SSO SCIM provisioning errors: fix sso-pr…\",\"author\":\"niaj\"}}}}"}
+{"t":6089,"type":"model_response","turn":2,"stop_reason":"stop","text":"There are exactly **17** GitHub pull requests currently in the open state across all repositories.","tool_calls":[]}
+{"t":6089,"type":"tokens","in":3362,"out":39,"peak":3362}

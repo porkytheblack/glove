@@ -222,6 +222,56 @@ volatile `insert`. MCP results rarely carry clean column lists, so declare
 `columns` (and a `rows` extractor) via `table(tool)` to make a server's data
 genuinely queryable.
 
+## Function catalog (`glove-scratchpad/fns`) — the light alternative
+
+Modeling a capability as a table (columns, required-key pushdown, a volatility
+class) is the right shape when the data is worth *querying* — and too much
+ceremony when the tools are unknown up front. An arbitrary MCP server discovered
+at runtime has no columns to declare; the table mapping above falls back to a
+single useless `result` column unless you hand-author each one.
+
+The `fns` subpath is the lightweight path: a capability is a **`ToolFn`** — a
+name, its own input schema (JSON Schema or Zod), and a `call`. No columns, no
+keys, no volatility. It doesn't run SQL; instead you mount the catalog on a REPL
+surface — [`glove-lisp`](../glove-lisp)'s function mode or
+[`glove-js`](../glove-js) — where the model calls the function directly and
+composes with the language's own primitives.
+
+```ts
+import { defineFn, fnFromTool } from "glove-scratchpad/fns";
+import { fnsFromMcp } from "glove-scratchpad/fns/mcp";   // optional-peer subpath
+
+// A whole MCP server → functions, no per-tool specs:
+const fns = await fnsFromMcp(conn);            // github__list_pull_requests, …
+
+// Wrap an existing Glove tool, or author one inline:
+const search = fnFromTool(webSearchTool);
+const send = defineFn({
+  name: "email__send",
+  input: z.object({ to: z.string(), subject: z.string() }),
+  readOnlyHint: false,
+  handler: (args) => sendEmail(args),
+});
+
+// Then mount on a REPL surface (see glove-lisp / glove-js):
+session.registerFns([...fns, search, send]);
+```
+
+**Prefer tables** when the data is relational and you want to compose it with
+JOINs, aggregate it, or stage writes with `BEGIN … COMMIT`. **Prefer functions**
+when the catalogue is unknown, heterogeneous, or you just want to call a tool and
+branch on its result — a function fires immediately when called; there is no
+staging. Both consume the same underlying Glove tools, so the choice is per
+agent, not per tool.
+
+| Need | Symbol (from `glove-scratchpad/fns`) |
+|------|--------------------------------------|
+| Author a function inline | `defineFn({ name, input?, readOnlyHint?, handler })` |
+| Wrap one Glove tool | `fnFromTool(tool, { name?, readOnlyHint?, parse? })` |
+| Bridge a whole MCP server | `fnsFromMcp(conn, opts?)` (from `glove-scratchpad/fns/mcp`) |
+| A registry | `FnCatalog` |
+| Render a signature / params | `fnSignature(fn)`, `describeFn(fn)` |
+
 ## Backends
 
 The manipulation surface is a defined Postgres subset; the backend behind it is

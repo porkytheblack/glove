@@ -1,0 +1,60 @@
+name: CI
+
+# Gates typecheck + unit tests so a broken `tsc` or a failing suite can't land
+# unnoticed. The only other workflow, glovebox-images.yml, runs on `push` to
+# main under docker/** and never on pull requests.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repl:
+    name: typecheck + test (core + scratchpad + REPLs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm version is pinned by the root package.json `packageManager` field.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The REPL packages import glove-core and glove-scratchpad through their
+      # built dist/ (package `exports`), so those must be built before the REPLs
+      # can typecheck or run their tsx-loaded tests. The `...` filter pulls in
+      # scratchpad's own workspace deps (glove-core, glove-sql, glove-mcp) in
+      # topological order.
+      - name: Build shared deps
+        run: pnpm --filter "glove-scratchpad..." build
+
+      # Scoped to the packages this workstream develops. A repo-wide gate would
+      # first need the full build graph to be green (e.g. glove-react consumes
+      # glove-voice's built .d.ts), which is a separate concern.
+      - name: Typecheck
+        run: >-
+          pnpm
+          --filter glove-core
+          --filter glove-scratchpad
+          --filter glove-python
+          --filter glove-js
+          --filter glove-lisp
+          typecheck
+
+      - name: Test
+        run: >-
+          pnpm
+          --filter glove-scratchpad
+          --filter glove-python
+          --filter glove-js
+          --filter glove-lisp
+          test

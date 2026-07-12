@@ -1,0 +1,43 @@
+{
+  "name": "glove-js",
+  "version": "0.1.0",
+  "description": "A JavaScript REPL for LLM tool use — expose an agent's capabilities as async functions in a tiny, sandboxed JS interpreter it drives with one execute_js tool. Tools become functions, results are plain data, top-level const/let persist across calls, big values stay out of context via elision, and a fuel budget bounds runaway work. Consumes the same ToolFn catalog as glove-lisp's function mode.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-js"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "dependencies": {
+    "acorn": "^8.15.0",
+    "glove-core": "workspace:*",
+    "glove-scratchpad": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}

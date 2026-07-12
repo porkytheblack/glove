@@ -1,0 +1,44 @@
+{
+  "name": "glove-python",
+  "version": "0.1.0",
+  "description": "A Python REPL for LLM tool use — expose an agent's capabilities as functions in a tiny, sandboxed Python interpreter it drives with one execute_python tool. Tools become functions called with kwargs, results are plain data, module-level names persist across calls, big values stay out of context via elision, and a fuel budget bounds runaway work. Consumes the same ToolFn catalog as glove-js and glove-lisp's function mode.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-python"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "dependencies": {
+    "@lezer/common": "^1.2.1",
+    "@lezer/python": "^1.1.14",
+    "glove-core": "workspace:*",
+    "glove-scratchpad": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,10 @@
+{"kind":"meta","modelKey":"xiaomi","model":"xiaomi/mimo-v2.5","scenario":"busiest-assignee","arm":"lisp","ok":true,"errored":false,"turns":3,"toolCalls":2,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":7199,"tokensOut":325,"cacheRead":6592,"peakContextTokens":2621,"compactions":0,"toolsInContext":2,"wallMs":8599,"costUsd":0.000846895,"toolMix":{"execute_lisp":2},"expected":{"top":"dave","count":2,"tied":["dave"]}}
+{"kind":"final_answer","text":"The person with the most Linear issues in the **in_progress** state is **dave**, with **2** issues assigned to them."}
+{"t":2985,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(describe :linear_issues)\"}"}]}
+{"t":2985,"type":"tokens","in":2122,"out":115,"peak":2122}
+{"t":2986,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":{\"name\":\"linear_issues\",\"description\":\"Linear issues. INSERT creates one; UPDATE (WHERE id=…) changes state/assignee/priority.\",\"volatility\":\"stable\",\"ops\":[\"read\",\"insert!\",\"update!\"],\"columns\":[{\"name\":\"id\",\"type\":\"text\",\"description\":\"e.g. ENG-123\"},{\"name\":\"title\",\"type\":\"text\"},{\"name\"…(+513)"}
+{"t":6322,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(let [in-progress (linear_issues {:state \\\"in_progress\\\"})\\n      by-assignee (group-by :assignee in-progress)\\n      counts (map (fn [[person issues]] {:person person :count (count issues)}) by-assignee)\\n      top (apply max-key :count counts)]\\n  {:person (:person top) :count (:count top)})\"}"}]}
+{"t":6322,"type":"tokens","in":2456,"out":142,"peak":2456}
+{"t":6324,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":{\"person\":\"dave\",\"count\":2}}"}
+{"t":8599,"type":"model_response","turn":3,"stop_reason":"stop","text":"The person with the most Linear issues in the **in_progress** state is **dave**, with **2** issues assigned to them.","tool_calls":[]}
+{"t":8599,"type":"tokens","in":2621,"out":68,"peak":2621}

@@ -1,6 +1,6 @@
 {
   "name": "glove-scratchpad",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "A database emulator for LLM tool use — expose an agent's capabilities as a relational database it queries with one execute_sql tool. Resources become tables, WHERE pushes arguments down, information_schema is discovery, transactions stage outbound effects, and every statement is parsed before any tool runs. Uses glove-sql (a zero-dependency pure-JS Postgres-subset engine) as the default backend; PGlite optional.",
   "type": "module",
   "license": "MIT",
@@ -38,6 +38,14 @@
     "./mcp": {
       "types": "./dist/db/mcp.d.ts",
       "import": "./dist/db/mcp.js"
+    },
+    "./fns": {
+      "types": "./dist/fns/index.d.ts",
+      "import": "./dist/fns/index.js"
+    },
+    "./fns/mcp": {
+      "types": "./dist/fns/mcp.d.ts",
+      "import": "./dist/fns/mcp.js"
     }
   },
   "files": [
@@ -45,6 +53,7 @@
   ],
   "scripts": {
     "build": "tsup",
+    "prepublishOnly": "pnpm build",
     "typecheck": "tsc --noEmit",
     "test": "node --test --import tsx tests/*.test.ts"
   },

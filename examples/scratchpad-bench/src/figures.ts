@@ -690,3 +690,518 @@ const SCEN7 = ["count-open-prs", "sentry-billing-unresolved", "merged-prs-open-l
   });
   save("fig13-prod.svg", svg(W, H, b));
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REPL synthesis figures (REPL-PAPER.md) — the tools-as-functions surfaces.
+// One ToolFn catalog → three one-tool REPLs (execute_lisp/js/python).
+// ═══════════════════════════════════════════════════════════════════════════
+const AMBER = "#b07820"; // categorical slot 3 (a REPL arm) — bars are labeled, so the sub-3:1 WARN is relieved
+
+// optional loader — a figure that needs a not-yet-committed results file skips
+// cleanly rather than crashing the whole generator.
+const loadOpt = (f: string): RunResult[] => {
+  try {
+    return load(f);
+  } catch {
+    return [];
+  }
+};
+
+// shared diagram primitives (rounded box + arrowhead), house palette
+function box(x: number, y: number, w: number, h: number, o: { fill?: string; stroke?: string; rx?: number } = {}): string {
+  const { fill = SURFACE, stroke = "rgba(11,11,11,0.14)", rx = 8 } = o;
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${fill}" stroke="${stroke}"/>`;
+}
+function arrow(x1: number, y1: number, x2: number, y2: number, color = MUTED): string {
+  const a = Math.atan2(y2 - y1, x2 - x1);
+  const s = 7;
+  const p1 = `${(x2 - s * Math.cos(a - 0.42)).toFixed(1)},${(y2 - s * Math.sin(a - 0.42)).toFixed(1)}`;
+  const p2 = `${(x2 - s * Math.cos(a + 0.42)).toFixed(1)},${(y2 - s * Math.sin(a + 0.42)).toFixed(1)}`;
+  return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="1.5"/><polygon points="${x2.toFixed(1)},${y2.toFixed(1)} ${p1} ${p2}" fill="${color}"/>`;
+}
+
+const pyab = load("py-ab-results.json");
+const PY_MODELS = [
+  { key: "deepseek", label: "DeepSeek V3.2", tier: "frontier" },
+  { key: "minimax3", label: "MiniMax M3", tier: "frontier" },
+  { key: "glm5", label: "GLM-5", tier: "frontier" },
+  { key: "xiaomi", label: "Xiaomi MiMo v2.5", tier: "mid" },
+  { key: "dsflash", label: "DeepSeek V4 Flash", tier: "weak" },
+  { key: "qwen30b", label: "Qwen3 30B A3B", tier: "weak" },
+];
+const PY_ARMS = [
+  { key: "pyrepl", label: "pyrepl", color: BLUE },
+  { key: "jsrepl", label: "jsrepl", color: AQUA },
+  { key: "lispfns", label: "lispfns", color: AMBER },
+];
+const gradedRows = (rows: RunResult[]): RunResult[] => rows.filter((r) => !r.errored);
+const passOf = (rows: RunResult[]): number => gradedRows(rows).filter((r) => r.ok).length;
+
+// ══ repl-arch — the surface: one catalog, three one-tool REPLs ═══════════════
+{
+  const W = 960;
+  const H = 430;
+  let b = text(16, 28, "One capability catalog, three one-tool REPL surfaces", { size: 15, fill: INK, weight: 600 });
+  b += text(16, 46, "The tools are FUNCTIONS the model calls inside a persistent sandbox — not tool definitions loaded into context", { size: 12, fill: INK2 });
+
+  // 1 — MCP servers (left)
+  const sx = 16;
+  const sy = 92;
+  b += box(sx, sy, 176, 150);
+  b += text(sx + 88, sy + 24, "MCP servers", { size: 12.5, fill: INK, anchor: "middle", weight: 600 });
+  ["GitHub", "Sentry", "Linear", "PagerDuty", "Slack, Notion…"].forEach((s, i) => {
+    b += text(sx + 88, sy + 48 + i * 20, s, { size: 11.5, fill: INK2, anchor: "middle" });
+  });
+  b += text(sx + 88, sy + 168, "~32 tools", { size: 11, fill: MUTED, anchor: "middle", nums: true });
+
+  // arrow → fnsFromMcp → catalog
+  const cx = 292;
+  const cy = 92;
+  const cwd = 220;
+  b += arrow(sx + 176 + 6, sy + 75, cx - 6, cy + 75);
+  b += text((sx + 176 + cx) / 2, sy + 66, "fnsFromMcp", { size: 11, fill: MUTED, anchor: "middle" });
+
+  // 2 — shared ToolFn catalog (center)
+  b += box(cx, cy, cwd, 150, { stroke: BLUE, fill: "#f4f8fe" });
+  b += text(cx + cwd / 2, cy + 24, "Shared ToolFn catalog", { size: 12.5, fill: DARKBLUE, anchor: "middle", weight: 600 });
+  b += text(cx + cwd / 2, cy + 46, "name · input schema · call", { size: 11.5, fill: INK2, anchor: "middle" });
+  b += text(cx + cwd / 2, cy + 64, "readOnlyHint (read/write)", { size: 11.5, fill: INK2, anchor: "middle" });
+  b += text(cx + cwd / 2, cy + 92, "discovery, in-band:", { size: 11, fill: MUTED, anchor: "middle" });
+  b += text(cx + cwd / 2, cy + 110, "fns() · describe()", { size: 11.5, fill: INK2, anchor: "middle" });
+  b += text(cx + cwd / 2, cy + 128, "sampleResultShapes", { size: 11.5, fill: INK2, anchor: "middle" });
+
+  // 3 — three REPL surfaces (right, stacked)
+  const rx = 592;
+  const rw = 352;
+  const surfaces = [
+    { tool: "execute_lisp", pkg: "glove-lisp", ex: '(github_pull_requests {:state "open"})', color: AMBER },
+    { tool: "execute_js", pkg: "glove-js", ex: 'github.list_pull_requests({ state: "open" })', color: AQUA },
+    { tool: "execute_python", pkg: "glove-python", ex: 'github.list_pull_requests(state="open")', color: BLUE },
+  ];
+  const rh = 42;
+  const gap = 10;
+  surfaces.forEach((s, i) => {
+    const y = cy + i * (rh + gap);
+    b += arrow(cx + cwd + 6, cy + 75, rx - 6, y + rh / 2);
+    b += box(rx, y, rw, rh, { stroke: s.color });
+    b += `<rect x="${rx}" y="${y}" width="5" height="${rh}" rx="2" fill="${s.color}"/>`;
+    b += text(rx + 14, y + 18, s.tool, { size: 12, fill: INK, weight: 600 });
+    b += text(rx + 14, y + 33, s.ex, { size: 10.5, fill: INK2 });
+    b += text(rx + rw - 12, y + 18, s.pkg, { size: 10.5, fill: MUTED, anchor: "end" });
+  });
+  b += text(rx, cy + 3 * (rh + gap) + 2, "one tool each · persistent · sandboxed", { size: 10.5, fill: MUTED });
+
+  // off-context loop callout (bottom, spanning)
+  const by = 288;
+  b += box(16, by, W - 32, 118, { fill: "#faf9f5", stroke: GRID });
+  b += text(32, by + 26, "The off-context loop — the reason it works", { size: 12.5, fill: INK, weight: 600 });
+  const steps = [
+    "① call fires immediately (exactly-once effect)",
+    "② result data stays in the session (a top-level binding — prs, rows)",
+    "③ the model computes over it in the sandbox (filter · group · argmax · branch)",
+    "④ only the LAST expression's value returns to context — bounded by structural elision",
+  ];
+  steps.forEach((s, i) => {
+    b += text(32, by + 50 + i * 17, s, { size: 11.5, fill: INK2 });
+  });
+  save("repl-arch.svg", svg(W, H, b));
+}
+
+// ══ repl-pipeline — how a Python program runs (parse→validate→run→gate) ═══════
+{
+  const W = 960;
+  const H = 250;
+  let b = text(16, 28, "How a program runs: parse → validate → run, behind a sandbox gate", { size: 15, fill: INK, weight: 600 });
+  b += text(16, 46, "glove-python · the same async tree-walker architecture as glove-js, with Python semantics", { size: 12, fill: INK2 });
+  const stages = [
+    { t: "parse", s: "@lezer/python", d: ["pure-JS, no WASM", "f-strings, comprehensions"] },
+    { t: "normalize + reject", s: "CST → AST", d: ["subset only —", "import/class/dunder rejected"] },
+    { t: "run", s: "async tree-walk", d: ["fuel budget · depth cap", "AbortSignal · exactly-once"] },
+    { t: "member gate", s: "members.ts", d: ["dunder (__*) blocked", "per-type method allowlist"] },
+  ];
+  const n = stages.length;
+  const pad = 16;
+  const gapx = 44;
+  const bw = (W - pad * 2 - gapx * (n - 1)) / n;
+  const y = 92;
+  const bh = 116;
+  stages.forEach((st, i) => {
+    const x = pad + i * (bw + gapx);
+    const emphasis = i === 3;
+    b += box(x, y, bw, bh, { stroke: emphasis ? CRIT : "rgba(11,11,11,0.14)", fill: emphasis ? "#fdf5f5" : SURFACE });
+    b += text(x + bw / 2, y + 28, st.t, { size: 13, fill: emphasis ? CRIT : INK, anchor: "middle", weight: 600 });
+    b += text(x + bw / 2, y + 50, st.s, { size: 11.5, fill: INK2, anchor: "middle" });
+    st.d.forEach((d, j) => b += text(x + bw / 2, y + 74 + j * 17, d, { size: 10.5, fill: MUTED, anchor: "middle" }));
+    if (i < n - 1) b += arrow(x + bw + 6, y + bh / 2, x + bw + gapx - 6, y + bh / 2);
+  });
+  b += text(16, y + bh + 34, "Values are plain JS (no Python object graph), so blocking __-attributes closes the ().__class__.__subclasses__() escape at its first hop.", { size: 11, fill: INK2 });
+  save("repl-pipeline.svg", svg(W, H, b));
+}
+
+// ══ repl-pyab — Python A/B: pass by model, three fn-mode arms ═════════════════
+{
+  const W = 940;
+  const H = 452;
+  const M = { l: 52, r: 24, t: 96, b: 60 };
+  const pw = W - M.l - M.r;
+  const ph = H - M.t - M.b;
+  const y = (pct: number) => M.t + ph - (pct / 100) * ph;
+  let b = text(16, 28, "Same catalog, three languages: Python is parity-class with the hardened JS and Lisp arms", { size: 15, fill: INK, weight: 600 });
+  b += text(16, 46, "Tasks passed (%) · 6 models × 10 scenarios × 3 function-mode arms · same servers, seed, and graders · graded (0 provider errors)", { size: 12, fill: INK2 });
+  // legend
+  PY_ARMS.forEach((a, i) => {
+    const lx = 16 + i * 132;
+    b += `<rect x="${lx}" y="58" width="12" height="12" rx="3" fill="${a.color}"/>` + text(lx + 18, 68, a.label, { size: 12, fill: INK2 });
+  });
+  for (const t of [0, 25, 50, 75, 100]) {
+    b += grid(M.l, W - M.r, y(t));
+    b += text(M.l - 8, y(t) + 4, `${t}%`, { size: 11, fill: MUTED, anchor: "end", nums: true });
+  }
+  const slot = pw / PY_MODELS.length;
+  const bw = 26;
+  const inner = 4;
+  PY_MODELS.forEach((m, i) => {
+    const cx0 = M.l + i * slot + slot / 2;
+    PY_ARMS.forEach((a, ai) => {
+      const rows = pyab.filter((r) => r.modelKey === m.key && r.arm === a.key);
+      const p = passOf(rows);
+      const n = gradedRows(rows).length;
+      const pct = n ? (p / n) * 100 : 0;
+      const x = cx0 + (ai - 1) * (bw + inner) - bw / 2;
+      b += column(x, y(pct), bw, ph - (y(pct) - M.t), a.color);
+      b += text(x + bw / 2, y(pct) - 7, `${p}`, { size: 11, fill: INK, anchor: "middle", weight: 600, nums: true });
+    });
+    b += text(cx0, M.t + ph + 20, m.label, { size: 12, fill: INK, anchor: "middle", weight: 600 });
+    b += text(cx0, M.t + ph + 36, m.tier, { size: 10.5, fill: MUTED, anchor: "middle" });
+  });
+  b += `<line x1="${M.l}" y1="${M.t + ph}" x2="${W - M.r}" y2="${M.t + ph}" stroke="${BASE}" stroke-width="1"/>`;
+  // totals — one compact right-aligned line on the legend row
+  const tot = PY_ARMS.map((a) => {
+    const rows = pyab.filter((r) => r.arm === a.key);
+    return { label: a.label, p: passOf(rows), n: gradedRows(rows).length };
+  });
+  const totStr = "totals: " + tot.map((t) => `${t.label} ${t.p}/${t.n} (${Math.round((t.p / t.n) * 100)}%)`).join("   ·   ");
+  b += text(W - M.r, 68, totStr, { size: 12, fill: INK, anchor: "end", weight: 600, nums: true });
+  save("repl-pyab.svg", svg(W, H, b));
+}
+
+// ══ repl-surfaces — the fluency ladder (78→90→97) + pyrepl born-hardened ══════
+{
+  const W = 760;
+  const H = 392;
+  const M = { l: 52, r: 24, t: 92, b: 76 };
+  const pw = W - M.l - M.r;
+  const ph = H - M.t - M.b;
+  const y = (pct: number) => M.t + ph - (pct / 100) * ph;
+  const jsPct = (f: string) => {
+    const rows = load(f).filter((r) => r.arm === "jsrepl");
+    const g = gradedRows(rows);
+    return { p: g.filter((r) => r.ok).length, n: g.length };
+  };
+  const j0 = jsPct("js-ab-results.json");
+  const j1 = jsPct("js-ab-h1-results.json");
+  const j2 = jsPct("js-ab-h2-results.json");
+  const pyTot = { p: passOf(pyab.filter((r) => r.arm === "pyrepl")), n: gradedRows(pyab.filter((r) => r.arm === "pyrepl")).length };
+  const bars = [
+    { label: "jsrepl", note: "as first written", v: j0, color: RAMP5[0] },
+    { label: "+ framing", note: "execute_js is the only tool", v: j1, color: RAMP5[2] },
+    { label: "+ result shapes", note: "describe() shows row types", v: j2, color: RAMP5[4] },
+    { label: "pyrepl", note: "born hardened", v: pyTot, color: BLUE, gap: true },
+  ];
+  let b = text(16, 28, "Fluency is a knob you tune, not a language you're stuck with", { size: 15, fill: INK, weight: 600 });
+  b += text(16, 46, "jsrepl graded pass rate across two hardening batches → pyrepl inherits the same framing and shapes from day one", { size: 12, fill: INK2 });
+  for (const t of [0, 25, 50, 75, 100]) {
+    b += grid(M.l, W - M.r, y(t));
+    b += text(M.l - 8, y(t) + 4, `${t}%`, { size: 11, fill: MUTED, anchor: "end", nums: true });
+  }
+  const bw = 56;
+  const slot = pw / bars.length;
+  bars.forEach((bar, i) => {
+    const pct = (bar.v.p / bar.v.n) * 100;
+    const x = M.l + i * slot + slot / 2 - bw / 2 + (bar.gap ? 16 : 0);
+    b += column(x, y(pct), bw, ph - (y(pct) - M.t), bar.color);
+    b += text(x + bw / 2, y(pct) - 22, `${Math.round(pct)}%`, { size: 14, fill: INK, anchor: "middle", weight: 700, nums: true });
+    b += text(x + bw / 2, y(pct) - 7, `${bar.v.p}/${bar.v.n}`, { size: 10.5, fill: INK2, anchor: "middle", nums: true });
+    b += text(x + bw / 2, M.t + ph + 20, bar.label, { size: 12, fill: INK, anchor: "middle", weight: 600 });
+    b += text(x + bw / 2, M.t + ph + 36, bar.note, { size: 10, fill: MUTED, anchor: "middle" });
+  });
+  // divider between the JS ladder and pyrepl
+  const dx = M.l + 3 * slot + 8;
+  b += `<line x1="${dx}" y1="${M.t}" x2="${dx}" y2="${M.t + ph}" stroke="${GRID}" stroke-width="1" stroke-dasharray="3 3"/>`;
+  b += `<line x1="${M.l}" y1="${M.t + ph}" x2="${W - M.r}" y2="${M.t + ph}" stroke="${BASE}" stroke-width="1"/>`;
+  save("repl-surfaces.svg", svg(W, H, b));
+}
+
+// ══ repl-context — off-context benefit (median peak, 5-arm run) ══════════════
+{
+  const W = 880;
+  const H = 300;
+  const M = { l: 178, r: 148, t: 84, b: 60 };
+  const pw = W - M.l - M.r;
+  const rowH = 34;
+  const maxTok = 5200;
+  const x = (v: number) => M.l + (v / maxTok) * pw;
+  const js = load("js-ab-results.json");
+  const peak = (arm: string): number => median(js.filter((r) => r.arm === arm).map((r) => r.peakContextTokens));
+  const baseTok = peak("baseline");
+  const rows = [
+    { label: "baseline", sub: "~32 tools folded directly", arm: "baseline", color: GRAY, ref: true },
+    { label: "SQL", sub: "execute_sql", arm: "scratchpad", color: BLUE },
+    { label: "lisp", sub: "execute_lisp", arm: "lisp", color: BLUE },
+    { label: "jsrepl", sub: "execute_js", arm: "jsrepl", color: BLUE },
+    { label: "lispfns", sub: "execute_lisp (fn mode)", arm: "lispfns", color: BLUE },
+  ];
+  let b = text(16, 28, "Folding capabilities behind one tool cuts peak context ~2×", { size: 15, fill: INK, weight: 600 });
+  b += text(16, 46, "Median peak context tokens per cell · the 5-arm run where every surface shares one roster and grader", { size: 12, fill: INK2 });
+  for (const t of [0, 2000, 4000]) {
+    b += `<line x1="${x(t)}" y1="${M.t - 6}" x2="${x(t)}" y2="${M.t + rows.length * rowH}" stroke="${GRID}" stroke-width="1"/>`;
+    b += text(x(t), M.t + rows.length * rowH + 16, t === 0 ? "0" : `${t / 1000}k`, { size: 11, fill: MUTED, anchor: "middle", nums: true });
+  }
+  rows.forEach((r, i) => {
+    const yTop = M.t + i * rowH;
+    const tok = peak(r.arm);
+    b += text(M.l - 12, yTop + 15, r.label, { size: 12.5, fill: INK, anchor: "end", weight: 600 });
+    b += text(M.l - 12, yTop + 29, r.sub, { size: 10, fill: MUTED, anchor: "end" });
+    b += hbar(M.l, yTop + 6, x(tok) - M.l, 18, r.color);
+    const factor = r.ref ? "" : `  ${(baseTok / tok).toFixed(1)}× smaller`;
+    b += text(x(tok) + 8, yTop + 19, `${tok.toLocaleString()}${factor}`, { size: 11.5, fill: r.ref ? INK2 : GOODTEXT, weight: r.ref ? 400 : 600, nums: true });
+  });
+  b += text(16, M.t + rows.length * rowH + 44, "The three fn-mode REPL surfaces are equivalent here; in the Python run they cluster at 3.5–4.2k with result-shape discovery on — the row data still never enters context, only a one-time catalog.", { size: 10.5, fill: MUTED });
+  save("repl-context.svg", svg(W, H, b));
+}
+
+// ══ repl-h2h — head-to-head on the shared catalog: mostly ties ═══════════════
+{
+  const W = 820;
+  const H = 236;
+  const M = { l: 150, r: 24, t: 84, b: 44 };
+  const pw = W - M.l - M.r;
+  const rowH = 40;
+  const scenarios = [...new Set(pyab.map((r) => r.scenario))];
+  const h2h = (a: string, bk: string): { aw: number; bw: number; tie: number } => {
+    let aw = 0, bw = 0, tie = 0;
+    for (const m of PY_MODELS)
+      for (const s of scenarios) {
+        const ra = pyab.find((r) => r.modelKey === m.key && r.scenario === s && r.arm === a);
+        const rb = pyab.find((r) => r.modelKey === m.key && r.scenario === s && r.arm === bk);
+        if (!ra || !rb || ra.errored || rb.errored) continue;
+        if (ra.ok && !rb.ok) aw++;
+        else if (rb.ok && !ra.ok) bw++;
+        else tie++;
+      }
+    return { aw, bw, tie };
+  };
+  const colorOf = (k: string): string => PY_ARMS.find((a) => a.key === k)!.color;
+  const pairs = [
+    { a: "pyrepl", b: "jsrepl" },
+    { a: "pyrepl", b: "lispfns" },
+    { a: "jsrepl", b: "lispfns" },
+  ].map((p) => ({ ...p, ...h2h(p.a, p.b) }));
+  const total = pairs[0].aw + pairs[0].bw + pairs[0].tie; // 60
+  const x = (v: number) => M.l + (v / total) * pw;
+  let b = text(16, 28, "Head-to-head, same servers and tasks: the surfaces mostly tie", { size: 15, fill: INK, weight: 600 });
+  b += text(16, 46, "Per-cell wins across 60 shared cells · a gray middle = both arms passed (or both failed) — the parity is the point", { size: 12, fill: INK2 });
+  pairs.forEach((p, i) => {
+    const yTop = M.t + i * rowH;
+    b += text(M.l - 12, yTop + 18, `${p.a} vs ${p.b}`, { size: 12, fill: INK, anchor: "end", weight: 600 });
+    const wA = x(p.aw) - M.l;
+    const wT = (p.tie / total) * pw;
+    const wB = (p.bw / total) * pw;
+    // left wins (a) | ties (gray) | right wins (b), with 2px surface gaps
+    if (p.aw) b += hbar(M.l, yTop + 4, wA, 20, colorOf(p.a));
+    b += `<rect x="${M.l + wA + (p.aw ? 2 : 0)}" y="${yTop + 4}" width="${Math.max(0, wT - (p.aw ? 2 : 0) - (p.bw ? 2 : 0))}" height="20" fill="${GRID}"/>`;
+    if (p.bw) b += hbar(M.l + wA + wT + 2, yTop + 4, Math.max(0, wB - 2), 20, colorOf(p.b));
+    b += text(M.l + wA + wT / 2, yTop + 18, `${p.tie} ties`, { size: 11, fill: INK2, anchor: "middle", nums: true });
+    // win counts inside the tie zone, adjacent to each colored segment, in ink
+    if (p.aw) b += text(M.l + wA + 8, yTop + 18, `${p.aw} ${p.a}`, { size: 10.5, fill: INK, weight: 600, nums: true });
+    if (p.bw) b += text(M.l + wA + wT - 8, yTop + 18, `${p.b} ${p.bw}`, { size: 10.5, fill: INK, anchor: "end", weight: 600, nums: true });
+  });
+  save("repl-h2h.svg", svg(W, H, b));
+}
+
+// ══ repl-preference — the counterbalanced choice study (which language, free) ═
+{
+  const def = loadOpt("poly-pref-results.json");
+  const rev = loadOpt("poly-pref-rev-results.json");
+  if (def.length && rev.length) {
+    const leanOf = (r: RunResult): "python" | "js" | "lisp" | "mixed" | "none" => {
+      const m = (r.toolMix ?? {}) as Record<string, number>;
+      const nz = ([["python", m.execute_python], ["js", m.execute_js], ["lisp", m.execute_lisp]] as const).filter(([, n]) => (n ?? 0) > 0);
+      if (nz.length === 0) return "none";
+      if (nz.length > 1) return "mixed";
+      return nz[0][0];
+    };
+    const share = (rows: RunResult[], k: string) => (rows.filter((r) => leanOf(r) === k).length / rows.length) * 100;
+    const LANGS = [
+      { key: "python", label: "Python", color: BLUE },
+      { key: "js", label: "JavaScript", color: AQUA },
+      { key: "lisp", label: "Clojure", color: AMBER },
+      { key: "mixed", label: "mixed", color: BASE },
+    ];
+    const W = 820;
+    const H = 392;
+    const M = { l: 52, r: 226, t: 96, b: 56 };
+    const pw = W - M.l - M.r;
+    const ph = H - M.t - M.b;
+    const y = (pct: number) => M.t + ph - (pct / 100) * ph;
+    let b = text(16, 28, "Free to choose among three REPL languages, models pick Python", { size: 15, fill: INK, weight: 600 });
+    b += text(16, 46, "Which execute_* tool the model calls · 6 models × 10 tasks · one neutral preamble, counterbalanced by presentation order", { size: 12, fill: INK2 });
+    // legend for the two orders
+    b += `<rect x="16" y="58" width="12" height="12" rx="3" fill="${INK2}"/>` + text(34, 68, "Python listed first", { size: 12, fill: INK2 });
+    b += `<rect x="176" y="58" width="12" height="12" rx="3" fill="none" stroke="${INK2}" stroke-width="1.5"/>` + text(194, 68, "Lisp listed first (reversed)", { size: 12, fill: INK2 });
+    for (const t of [0, 25, 50, 75, 100]) {
+      b += grid(M.l, W - M.r, y(t));
+      b += text(M.l - 8, y(t) + 4, `${t}%`, { size: 11, fill: MUTED, anchor: "end", nums: true });
+    }
+    const slot = pw / LANGS.length;
+    const bw = 26;
+    LANGS.forEach((l, i) => {
+      const cx = M.l + i * slot + slot / 2;
+      const d = share(def, l.key);
+      const rv = share(rev, l.key);
+      // default = solid fill; reversed = outlined (same hue) with 2px gap
+      b += column(cx - bw - 1, y(d), bw, ph - (y(d) - M.t), l.color);
+      const rvH = ph - (y(rv) - M.t);
+      b += `<rect x="${cx + 1}" y="${y(rv)}" width="${bw}" height="${Math.max(0, rvH)}" rx="3" fill="${SURFACE}" stroke="${l.color}" stroke-width="2"/>`;
+      b += text(cx - bw / 2 - 1, y(d) - 7, `${Math.round(d)}`, { size: 11, fill: INK, anchor: "middle", weight: 700, nums: true });
+      b += text(cx + bw / 2 + 1, y(rv) - 7, `${Math.round(rv)}`, { size: 11, fill: INK, anchor: "middle", weight: 700, nums: true });
+      b += text(cx, M.t + ph + 20, l.label, { size: 12, fill: INK, anchor: "middle", weight: 600 });
+    });
+    b += `<line x1="${M.l}" y1="${M.t + ph}" x2="${W - M.r}" y2="${M.t + ph}" stroke="${BASE}" stroke-width="1"/>`;
+    // takeaway panel (right)
+    const ex = W - M.r + 16;
+    b += text(ex, M.t + 6, "The preference is genuine", { size: 12.5, fill: INK, weight: 600 });
+    const notes = [
+      "Python wins 95% first-listed,",
+      "and still 83% when Lisp leads —",
+      "so it is not an ordering effect.",
+      "",
+      "Clojure is chosen ≤7% even",
+      "with the first-listed advantage.",
+      "",
+      "Having three surfaces costs",
+      "nothing: pass 53/60 vs 55/60.",
+    ];
+    notes.forEach((n, i) => b += text(ex, M.t + 30 + i * 17, n, { size: 11, fill: n.endsWith("effect.") || n.endsWith("nothing:") ? INK2 : INK2 }));
+    save("repl-preference.svg", svg(W, H, b));
+  } else {
+    console.log("skip repl-preference.svg (need poly-pref + poly-pref-rev results)");
+  }
+}
+
+// ══ repl-noise — production scale: 40 servers, 367 tools ══════════════════════
+{
+  const noise = loadOpt("repl-noise-results.json");
+  if (noise.length) {
+    const ARMS = [
+      { key: "baseline", label: "baseline", sub: "367 tools folded", color: GRAY },
+      { key: "scratchpad", label: "SQL", sub: "execute_sql", color: DARKBLUE },
+      { key: "pyrepl", label: "pyrepl", sub: "execute_python", color: BLUE },
+      { key: "jsrepl", label: "jsrepl", sub: "execute_js", color: AQUA },
+      { key: "lispfns", label: "lispfns", sub: "execute_lisp", color: AMBER },
+    ];
+    const armRows = (k: string): RunResult[] => noise.filter((r) => r.arm === k && !r.errored);
+    const W = 940;
+    const H = 320;
+    let b = text(16, 28, "At 367 tools, every surface holds accuracy — the difference is context", { size: 15, fill: INK, weight: 600 });
+    b += text(16, 46, "40 servers · 367 tools · 3 aggressive scenarios × 4 models · baseline folds all 367 schemas; SQL discovers on demand; the fn catalogs are primed", { size: 12, fill: INK2 });
+    const pM = { l: 96, t: 92, b: 44 };
+    const pph = H - pM.t - pM.b;
+    const panelW = (W - 32 - 48) / 2;
+    const bw = 26;
+    // left panel — pass rate (flat)
+    const py = (pct: number) => pM.t + pph - (pct / 100) * pph;
+    b += text(16, 82, "Tasks passed (of 12)", { size: 12.5, fill: INK, weight: 600 });
+    for (const t of [0, 50, 100]) {
+      b += grid(16 + pM.l - 44, 16 + panelW, py(t));
+      b += text(16 + pM.l - 50, py(t) + 4, `${t}%`, { size: 10.5, fill: MUTED, anchor: "end", nums: true });
+    }
+    const slotA = (panelW - pM.l + 20) / ARMS.length;
+    ARMS.forEach((a, i) => {
+      const rows = armRows(a.key);
+      const p = rows.filter((r) => r.ok).length;
+      const pct = rows.length ? (p / rows.length) * 100 : 0;
+      const cx = 16 + pM.l - 10 + i * slotA + slotA / 2;
+      b += column(cx - bw / 2, py(pct), bw, pph - (py(pct) - pM.t), a.color);
+      b += text(cx, py(pct) - 7, `${p}/${rows.length}`, { size: 10.5, fill: INK, anchor: "middle", weight: 600, nums: true });
+      b += text(cx, pM.t + pph + 16, a.label, { size: 10.5, fill: INK, anchor: "middle", weight: 600 });
+    });
+    b += `<line x1="${16 + pM.l - 44}" y1="${pM.t + pph}" x2="${16 + panelW}" y2="${pM.t + pph}" stroke="${BASE}" stroke-width="1"/>`;
+    // right panel — median peak context (the real story; headroom so baseline doesn't hit the title)
+    const rx0 = 16 + panelW + 48;
+    const baseTok = median(armRows("baseline").map((r) => r.peakContextTokens));
+    const maxTok = baseTok * 1.18;
+    const ry = (v: number) => pM.t + pph - (v / maxTok) * pph;
+    b += text(rx0, 82, "Median peak context (tokens)", { size: 12.5, fill: INK, weight: 600 });
+    const slotB = (panelW + 20) / ARMS.length;
+    ARMS.forEach((a, i) => {
+      const tok = median(armRows(a.key).map((r) => r.peakContextTokens));
+      const cx = rx0 + i * slotB + slotB / 2;
+      b += column(cx - bw / 2, ry(tok), bw, pph - (ry(tok) - pM.t), a.color);
+      b += text(cx, ry(tok) - 20, `${(tok / 1000).toFixed(tok >= 10000 ? 0 : 1)}k`, { size: 10.5, fill: INK, anchor: "middle", weight: 700, nums: true });
+      if (a.key !== "baseline") b += text(cx, ry(tok) - 7, `${(baseTok / tok).toFixed(1)}×`, { size: 9.5, fill: GOODTEXT, anchor: "middle", weight: 600, nums: true });
+      b += text(cx, pM.t + pph + 16, a.label, { size: 10.5, fill: INK, anchor: "middle", weight: 600 });
+    });
+    b += `<line x1="${rx0 - 8}" y1="${pM.t + pph}" x2="${W - 16}" y2="${pM.t + pph}" stroke="${BASE}" stroke-width="1"/>`;
+    b += text(16, H - 8, "Function mode holds accuracy under noise (pyrepl 10/12, the best arm) but its primed catalog costs ~5× SQL's on-demand discovery — still ~2× below the folded baseline.", { size: 10.5, fill: MUTED });
+    save("repl-noise.svg", svg(W, H, b));
+  } else {
+    console.log("skip repl-noise.svg (no repl-noise-results.json)");
+  }
+}
+
+// ══ repl-progressive — the payoff: primed catalog vs progressive discovery ════
+{
+  const full = loadOpt("repl-noise-results.json"); // discovery: full (committed)
+  const prog = loadOpt("repl-noise-prog-results.json"); // discovery: progressive
+  if (full.length && prog.length) {
+    const ARMS = [
+      { key: "pyrepl", label: "pyrepl", color: BLUE },
+      { key: "jsrepl", label: "jsrepl", color: AQUA },
+      { key: "lispfns", label: "lispfns", color: AMBER },
+    ];
+    const rowsOf = (rs: RunResult[], k: string) => rs.filter((r) => r.arm === k && !r.errored);
+    const sqlPeak = median(rowsOf(full, "scratchpad").map((r) => r.peakContextTokens));
+    const basePeak = median(rowsOf(full, "baseline").map((r) => r.peakContextTokens));
+    const W = 900;
+    const H = 336;
+    const M = { l: 150, r: 150, t: 96, b: 44 };
+    const pw = W - M.l - M.r;
+    const rowH = 62;
+    const maxTok = 26000;
+    const x = (v: number) => M.l + (Math.min(v, maxTok) / maxTok) * pw;
+    let b = text(16, 28, "Progressive discovery cuts function mode's peak context toward SQL's — accuracy intact", { size: 15, fill: INK, weight: 600 });
+    b += text(16, 46, "40 servers · 367 tools · 3 hard scenarios × 4 models · primed catalog (full) vs discover servers→functions→schemas (progressive)", { size: 12, fill: INK2 });
+    b += `<rect x="16" y="58" width="12" height="12" rx="3" fill="${GRAY}"/>` + text(34, 68, "full (every signature primed)", { size: 12, fill: INK2 });
+    b += `<rect x="250" y="58" width="12" height="12" rx="3" fill="${BLUE}"/>` + text(268, 68, "progressive (nothing primed)", { size: 12, fill: INK2 });
+    // gridlines
+    for (const t of [0, 5000, 10000, 15000, 20000, 25000]) {
+      b += `<line x1="${x(t)}" y1="${M.t - 6}" x2="${x(t)}" y2="${M.t + ARMS.length * rowH}" stroke="${GRID}" stroke-width="1"/>`;
+      b += text(x(t), M.t + ARMS.length * rowH + 16, t === 0 ? "0" : `${t / 1000}k`, { size: 10.5, fill: MUTED, anchor: "middle", nums: true });
+    }
+    // SQL reference line
+    b += `<line x1="${x(sqlPeak)}" y1="${M.t - 6}" x2="${x(sqlPeak)}" y2="${M.t + ARMS.length * rowH}" stroke="${GOOD}" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+    b += text(x(sqlPeak), M.t - 12, `SQL ${(sqlPeak / 1000).toFixed(1)}k`, { size: 10.5, fill: GOODTEXT, anchor: "middle", weight: 600, nums: true });
+    ARMS.forEach((a, i) => {
+      const yTop = M.t + i * rowH;
+      const fRows = rowsOf(full, a.key);
+      const pRows = rowsOf(prog, a.key);
+      const fPeak = median(fRows.map((r) => r.peakContextTokens));
+      const pPeak = median(pRows.map((r) => r.peakContextTokens));
+      const fPass = `${fRows.filter((r) => r.ok).length}/${fRows.length}`;
+      const pPass = `${pRows.filter((r) => r.ok).length}/${pRows.length}`;
+      b += text(M.l - 12, yTop + 20, a.label, { size: 12.5, fill: INK, anchor: "end", weight: 600 });
+      b += text(M.l - 12, yTop + 36, "median peak", { size: 10, fill: MUTED, anchor: "end" });
+      // full bar (gray) then progressive bar (arm color), 2px gap
+      b += hbar(M.l, yTop + 6, x(fPeak) - M.l, 18, GRAY);
+      b += text(x(fPeak) + 8, yTop + 19, `${(fPeak / 1000).toFixed(1)}k · pass ${fPass}`, { size: 10.5, fill: INK2, nums: true });
+      b += hbar(M.l, yTop + 28, Math.max(2, x(pPeak) - M.l), 18, a.color);
+      b += text(x(pPeak) + 8, yTop + 41, `${(pPeak / 1000).toFixed(1)}k · pass ${pPass}  (${(fPeak / pPeak).toFixed(1)}× smaller)`, { size: 10.5, fill: GOODTEXT, weight: 600, nums: true });
+    });
+    b += `<line x1="${M.l}" y1="${M.t + ARMS.length * rowH}" x2="${W - M.r}" y2="${M.t + ARMS.length * rowH}" stroke="${BASE}" stroke-width="1"/>`;
+    b += text(16, H - 8, `Baseline (367 tools folded) sits at ${(basePeak / 1000).toFixed(0)}k — off this scale. Progressive discovery pays a few discovery round-trips to reach SQL-class context without the primed catalog.`, { size: 10.5, fill: MUTED });
+    save("repl-progressive.svg", svg(W, H, b));
+  } else {
+    console.log("skip repl-progressive.svg (need repl-noise + repl-noise-prog results)");
+  }
+}

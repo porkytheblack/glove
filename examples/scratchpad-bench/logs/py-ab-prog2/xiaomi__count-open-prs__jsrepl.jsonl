@@ -1,0 +1,10 @@
+{"kind":"meta","modelKey":"xiaomi","model":"xiaomi/mimo-v2.5","scenario":"count-open-prs","arm":"jsrepl","ok":true,"errored":false,"turns":3,"toolCalls":2,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":7670,"tokensOut":217,"cacheRead":7040,"peakContextTokens":2711,"compactions":0,"toolsInContext":1,"wallMs":34455,"costUsd":0.0008661099999999999,"toolMix":{"search_functions":1,"execute_js":1},"expected":17}
+{"kind":"final_answer","text":"There are **17** GitHub pull requests currently in the 'open' state across all repositories."}
+{"t":13154,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"search_functions","input":"{\"query\":\"open pull requests\"}"}]}
+{"t":13154,"type":"tokens","in":2377,"out":109,"peak":2377}
+{"t":13156,"type":"tool_result","tool":"search_functions","status":"success","data":"[{\"name\":\"github__list_pull_requests\",\"description\":\"List pull requests, optionally filtered by repo, state (open/merged/closed), or author.\",\"signature\":\"github__list_pull_requests({repo?: string, state?: string, author?: string}) — List pull requests, optionally filtered by repo, state (open/merge…(+454)"}
+{"t":27802,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_js","input":"{\"code\":\"const openPRs = github.list_pull_requests({ state: \\\"open\\\" });\\nopenPRs.length;\"}"}]}
+{"t":27802,"type":"tokens","in":2582,"out":78,"peak":2582}
+{"t":27805,"type":"tool_result","tool":"execute_js","status":"success","data":"{\"value\":17,\"called\":[{\"name\":\"github__list_pull_requests\",\"calls\":1}],\"defined\":[\"openPRs\"],\"defs\":{\"openPRs\":{\"count\":17,\"peek\":{\"number\":1000,\"repo\":\"acme/infra\",\"title\":\"SSO SCIM provisioning errors: fix sso-pr…\",\"author\":\"niaj\"}}}}"}
+{"t":34454,"type":"model_response","turn":3,"stop_reason":"stop","text":"There are **17** GitHub pull requests currently in the 'open' state across all repositories.","tool_calls":[]}
+{"t":34454,"type":"tokens","in":2711,"out":30,"peak":2711}

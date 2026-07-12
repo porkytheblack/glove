@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"deepseek","model":"deepseek/deepseek-v3.2","scenario":"count-open-prs","arm":"jsrepl","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":13,"servicesTouched":10,"tokensIn":6984,"tokensOut":90,"cacheRead":4332,"peakContextTokens":3549,"compactions":0,"toolsInContext":1,"wallMs":4780,"costUsd":0.001630206,"toolMix":{"execute_js":1},"expected":17}
+{"kind":"final_answer","text":"There are currently **17** open pull requests across all GitHub repositories."}
+{"t":3209,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"I'll use the GitHub capability to list open pull requests across all repositories and count them","tool_calls":[{"name":"execute_js","input":"{\"code\":\"github.list_pull_requests({ state: \\\"open\\\" }).length\"}"}]}
+{"t":3209,"type":"tokens","in":3435,"out":75,"peak":3435}
+{"t":3216,"type":"tool_result","tool":"execute_js","status":"success","data":"{\"value\":17,\"called\":[{\"name\":\"github__list_pull_requests\",\"calls\":1}]}"}
+{"t":4780,"type":"model_response","turn":2,"stop_reason":"stop","text":"There are currently **17** open pull requests across all GitHub repositories.","tool_calls":[]}
+{"t":4780,"type":"tokens","in":3549,"out":15,"peak":3549}

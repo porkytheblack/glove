@@ -1,0 +1,10 @@
+{"kind":"meta","modelKey":"qwen30b","model":"qwen/qwen3-30b-a3b-instruct-2507","scenario":"open-prs-breakdown","arm":"lispfns","ok":true,"errored":false,"turns":3,"toolCalls":2,"toolErrors":0,"mcpRoundTrips":13,"servicesTouched":10,"tokensIn":8960,"tokensOut":125,"cacheRead":8800,"peakContextTokens":3073,"compactions":0,"toolsInContext":1,"wallMs":2015,"costUsd":0.00047175,"toolMix":{"execute_lisp":2},"expected":{"total":17,"top":["acme/infra"],"topCount":9}}
+{"kind":"final_answer","text":"(a) There are exactly 17 open pull requests across all repositories.\n\n(b) The repository with the most open pull requests is `acme/infra`, which has 9."}
+{"t":646,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(def all-prs (github__list_pull_requests {:state \\\"open\\\"}))\\n(count all-prs)\"}"}]}
+{"t":646,"type":"tokens","in":2886,"out":43,"peak":2886}
+{"t":647,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":17,\"defined\":[\"all-prs\"],\"defs\":{\"all-prs\":{\"count\":17,\"peek\":{\"number\":1000,\"repo\":\"acme/infra\",\"title\":\"SSO SCIM provisioning errors: fix sso-pr…\",\"author\":\"niaj\"}}}}"}
+{"t":1403,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(def repo-counts (frequencies (map :repo all-prs)))\\n(max-key val repo-counts)\"}"}]}
+{"t":1403,"type":"tokens","in":3001,"out":44,"peak":3001}
+{"t":1404,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[\"acme/infra\",9],\"defined\":[\"repo-counts\"]}"}
+{"t":2015,"type":"model_response","turn":3,"stop_reason":"stop","text":"(a) There are exactly 17 open pull requests across all repositories.\n\n(b) The repository with the most open pull requests is `acme/infra`, which has 9.","tool_calls":[]}
+{"t":2015,"type":"tokens","in":3073,"out":38,"peak":3073}

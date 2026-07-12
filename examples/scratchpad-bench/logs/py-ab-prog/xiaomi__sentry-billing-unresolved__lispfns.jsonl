@@ -1,0 +1,16 @@
+{"kind":"meta","modelKey":"xiaomi","model":"xiaomi/mimo-v2.5","scenario":"sentry-billing-unresolved","arm":"lispfns","ok":true,"errored":false,"turns":5,"toolCalls":4,"toolErrors":0,"mcpRoundTrips":13,"servicesTouched":10,"tokensIn":11723,"tokensOut":446,"cacheRead":10912,"peakContextTokens":2616,"compactions":0,"toolsInContext":1,"wallMs":37489,"costUsd":0.001355795,"toolMix":{"list_servers":1,"describe_function":1,"execute_lisp":2},"expected":{"count":2,"ids":["SENTRY-3004","SENTRY-3007"]}}
+{"kind":"final_answer","text":"There are **2** unresolved Sentry issues in the `billing` project:\n\n- `SENTRY-3004`\n- `SENTRY-3007`"}
+{"t":4924,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"list_servers","input":"{}"}]}
+{"t":4924,"type":"tokens","in":1891,"out":35,"peak":1891}
+{"t":4924,"type":"tool_result","tool":"list_servers","status":"success","data":"[{\"name\":\"github\",\"functionCount\":5,\"sample\":[\"github__list_pull_requests\",\"github__get_pull_request\",\"github__list_issues\",\"github__create_issue\",\"github__search_code\"]},{\"name\":\"linear\",\"functionCount\":4,\"sample\":[\"linear__list_issues\",\"linear__get_issue\",\"linear__create_issue\",\"linear__update_iss…(+942)"}
+{"t":11179,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"describe_function","input":"{\"name\":\"sentry__list_issues\"}"}]}
+{"t":11179,"type":"tokens","in":2224,"out":93,"peak":2224}
+{"t":11180,"type":"tool_result","tool":"describe_function","status":"success","data":"{\"name\":\"sentry__list_issues\",\"kind\":\"function\",\"description\":\"List Sentry issues, optionally filtered by project, status, or level.\",\"readOnly\":true,\"params\":[{\"name\":\"project\",\"type\":\"string\"},{\"name\":\"status\",\"type\":\"string\"},{\"name\":\"level\",\"type\":\"string\"}],\"returns\":\"{ id: string, title: strin…(+361)"}
+{"t":27474,"type":"model_response","turn":3,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(def billing-issues (sentry__list_issues {:project \\\"billing\\\" :status \\\"unresolved\\\"}))\\n(count billing-issues)\"}"}]}
+{"t":27474,"type":"tokens","in":2436,"out":208,"peak":2436}
+{"t":27476,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":2,\"defined\":[\"billing-issues\"],\"defs\":{\"billing-issues\":{\"count\":2,\"peek\":{\"id\":\"SENTRY-3004\",\"title\":\"TypeError: Push notifications not delive…\",\"culprit\":\"mobile/push-notifications.ts\",\"level\":\"warning\"}}}}"}
+{"t":32634,"type":"model_response","turn":4,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(map :id billing-issues)\"}"}]}
+{"t":32634,"type":"tokens","in":2556,"out":41,"peak":2556}
+{"t":32634,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":[\"SENTRY-3004\",\"SENTRY-3007\"]}"}
+{"t":37489,"type":"model_response","turn":5,"stop_reason":"stop","text":"There are **2** unresolved Sentry issues in the `billing` project:\n\n- `SENTRY-3004`\n- `SENTRY-3007`","tool_calls":[]}
+{"t":37489,"type":"tokens","in":2616,"out":69,"peak":2616}

@@ -1,0 +1,2065 @@
+[
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "count-open-prs",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 6812,
+    "tokensOut": 102,
+    "cacheRead": 6400,
+    "peakContextTokens": 3499,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 6128,
+    "costUsd": 0.0015949340000000003,
+    "finalText": "There are currently 17 open pull requests across all repositories.",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": 17
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 6933,
+    "tokensOut": 189,
+    "cacheRead": 6400,
+    "peakContextTokens": 3615,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 8736,
+    "costUsd": 0.001652484,
+    "finalText": "There are **2 unresolved Sentry issues** in the 'billing' project:\n\n**IDs:**\n- SENTRY-3004\n- SENTRY-3007",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "SENTRY-3004",
+        "SENTRY-3007"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "merged-prs-open-linear",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 1,
+    "mcpRoundTrips": 14,
+    "servicesTouched": 10,
+    "tokensIn": 34770,
+    "tokensOut": 1690,
+    "cacheRead": 27328,
+    "peakContextTokens": 7641,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 64585,
+    "costUsd": 0.008542000000000001,
+    "finalText": "Perfect! I found 8 merged pull requests that close Linear issues whose state is NOT 'done'. Here's the report:\n\n## Summary\n\n**Total Count:** 8 merged pull requests close Linear issues that are not in 'done' state.\n\n## Details\n\n| PR Number | Repository | Linear Issue ID | Linear Issue Title | Linear Issue State |\n|-----------|------------|-----------------|-------------------|-------------------|\n| 1002 | acme/web | ENG-136 | Search relevance regression — follow-up | canceled |\n| 1003 | acme/api | ENG-103 | Mobile crash on iOS 18 cold start — follow-up | backlog |\n| 1010 | acme/api | ENG-151 | Migrate auth to OAuth2 + PKCE | in_progress |\n| 1017 | acme/infra | ENG-117 | Image uploads time out over 5MB — follow-up | canceled |\n| 1025 | acme/mobile | ENG-135 | Primary DB failover is slow — follow-up | in_review |\n| 1030 | acme/mobile | ENG-124 | CSV export truncates large accounts | in_progress |\n| 1033 | acme/infra | ENG-147 | Checkout latency spikes at peak | canceled |\n| 1037 | acme/web | ENG-102 | Mobile crash on iOS 18 cold start | in_progress |\n\n**Note:** All these PRs have been merged, but the Linear issues they reference are still in various non-done states (canceled, backlog, in_progress, in_review). This might indicate that either:\n1. The Linear issues need to be transitioned to 'done' status\n2. Or there's a workflow mismatch where PRs are being merged before Linear issues are marked complete",
+    "toolMix": {
+      "execute_python": 5
+    },
+    "expected": {
+      "count": 8,
+      "prs": [
+        {
+          "pr": 1002,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1003,
+          "closes": "ENG-103"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-151"
+        },
+        {
+          "pr": 1017,
+          "closes": "ENG-117"
+        },
+        {
+          "pr": 1025,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-124"
+        },
+        {
+          "pr": 1033,
+          "closes": "ENG-147"
+        },
+        {
+          "pr": 1037,
+          "closes": "ENG-102"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "busiest-assignee",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 7103,
+    "tokensOut": 386,
+    "cacheRead": 6464,
+    "peakContextTokens": 3778,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 15680,
+    "costUsd": 0.001758985,
+    "finalText": "The person with the most Linear issues in the 'in_progress' state is **dave** with **2 issues**.\n\nHere are the details:\n- **Assignee**: dave\n- **Count**: 2 issues\n- **Total in_progress issues across all assignees**: 8\n- **All 8 issues have assignees** (none are unassigned)",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "top": "dave",
+      "count": 2,
+      "tied": [
+        "dave"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "high-urgency-triggered",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 6935,
+    "tokensOut": 211,
+    "cacheRead": 6400,
+    "peakContextTokens": 3615,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 9301,
+    "costUsd": 0.0016604880000000001,
+    "finalText": "There are **5 high-urgency PagerDuty incidents** still in the 'triggered' state (not acknowledged, not resolved).\n\nTheir IDs are:\n1. PD-400\n2. PD-401  \n3. PD-403\n4. PD-411\n5. PD-418",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "count": 5,
+      "ids": [
+        "PD-400",
+        "PD-401",
+        "PD-403",
+        "PD-411",
+        "PD-418"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "email-top-error",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 14,
+    "servicesTouched": 10,
+    "tokensIn": 16358,
+    "tokensOut": 627,
+    "cacheRead": 9664,
+    "peakContextTokens": 6827,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 23599,
+    "costUsd": 0.003961043000000001,
+    "finalText": "Perfect! I've successfully:\n\n1. **Found 19 unresolved Sentry issues**\n2. **Identified the issue with the highest event count**: \"TypeError: Onboarding funnel drop-off\" with 4,666 events (ID: SENTRY-3002, Project: web-frontend)\n3. **Sent an email** to 'oncall@acme.io' with:\n   - **Subject**: \"Top error\"\n   - **Body**: \"TypeError: Onboarding funnel drop-off\"\n\n**Confirmation**: Email sent successfully with the exact title of the unresolved Sentry issue that has the highest event count.",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": {
+      "title": "TypeError: Onboarding funnel drop-off",
+      "count": 4666,
+      "id": "SENTRY-3002"
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "compose-verify-issues",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 22,
+    "servicesTouched": 10,
+    "tokensIn": 14605,
+    "tokensOut": 675,
+    "cacheRead": 6464,
+    "peakContextTokens": 6250,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 24873,
+    "costUsd": 0.00357607,
+    "finalText": "Perfect! I have successfully created GitHub issues for every merged pull request that closes a Linear issue. \n\n**Summary:**\n- Found 15 total merged pull requests across all repositories\n- 9 of these merged pull requests close Linear issues (have non-empty `closes_linear` field)\n- Created 9 new GitHub issues in the 'acme/web' repository as instructed\n- Each issue title follows the format: \"Verify: \" + pull request title\n\n**I opened exactly 9 new GitHub issues.**",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": {
+      "count": 9
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "incident-branch",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 14,
+    "servicesTouched": 10,
+    "tokensIn": 7291,
+    "tokensOut": 417,
+    "cacheRead": 3328,
+    "peakContextTokens": 3902,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 13364,
+    "costUsd": 0.0018126700000000002,
+    "finalText": "I found **5 incidents** with urgency 'high' currently in the 'triggered' state on PagerDuty.\n\n**Action taken**: Sent email to `oncall@acme.io` listing all 5 incident IDs with subject \"Triage\".\n\nSince there were incidents that matched the criteria, I did NOT post to Slack. Instead, I sent exactly one email as instructed.",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "branch": "email",
+      "count": 5,
+      "ids": [
+        "PD-400",
+        "PD-401",
+        "PD-403",
+        "PD-411",
+        "PD-418"
+      ]
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "open-prs-breakdown",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 1,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 10963,
+    "tokensOut": 601,
+    "cacheRead": 9984,
+    "peakContextTokens": 4019,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 22955,
+    "costUsd": 0.00271667,
+    "finalText": "(a) There are exactly **17 open pull requests** across all repositories.\n\n(b) The repository with the most open pull requests is **acme/infra**, which has **9 open PRs**.\n\nTo provide complete context, here's the breakdown by repository:\n- acme/infra: 9 open PRs  \n- acme/web: 4 open PRs\n- acme/api: 3 open PRs  \n- acme/mobile: 1 open PR",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": {
+      "total": 17,
+      "top": [
+        "acme/infra"
+      ],
+      "topCount": 9
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 11,
+    "toolCalls": 10,
+    "toolErrors": 1,
+    "mcpRoundTrips": 25,
+    "servicesTouched": 10,
+    "tokensIn": 99581,
+    "tokensOut": 4829,
+    "cacheRead": 63872,
+    "peakContextTokens": 13253,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 106823,
+    "costUsd": 0.024460396,
+    "finalText": "Perfect! Now I have the complete and accurate picture. Let me provide the final answer with the exact count and issue IDs:\n\n**Quality Audit Results:**\n\n**Exact Count:** 1 Linear issue matches the audit criteria.\n\n**Issue IDs:** \n- ENG-142\n\n**Detailed Findings:**\n\n1. **Total Linear issues marked 'done':** 5\n2. **Issues claimed by at least one PR:** 2 (ENG-134 and ENG-142)\n3. **Issues with merged PR claims:** 1 (ENG-134 has merged PR #1024)\n4. **Audit target (marked 'done', claimed by PR, but NOT closed by merged PR):** 1 issue\n\n**The problematic issue:**\n- **ENG-142:** \"Primary DB failover is slow\" \n  - Assignee: niaj\n  - Project: Platform\n  - Claimed by 2 open PRs: \n    - PR #1007 (acme/infra) - State: open\n    - PR #1036 (acme/web) - State: open\n\nThis issue is marked as 'done' in Linear, and two pull requests claim to close it, but neither PR has been merged yet. This represents a quality gap where work is marked complete but the actual code changes haven't been merged.",
+    "toolMix": {
+      "execute_python": 10
+    },
+    "expected": {
+      "count": 1,
+      "ids": [
+        "ENG-142"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "count-open-prs",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 6653,
+    "tokensOut": 71,
+    "cacheRead": 3300,
+    "peakContextTokens": 3390,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 2634,
+    "costUsd": 0.0020811000000000002,
+    "finalText": "**17**",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": 17
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 6710,
+    "tokensOut": 174,
+    "cacheRead": 6372,
+    "peakContextTokens": 3444,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 4307,
+    "costUsd": 0.0022218,
+    "finalText": "Unresolved Sentry issues in `billing` (2 total):\n- SENTRY-3004 — TypeError: Push notifications not delive… (warning)\n- SENTRY-3007",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "SENTRY-3004",
+        "SENTRY-3007"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "merged-prs-open-linear",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 0,
+    "mcpRoundTrips": 22,
+    "servicesTouched": 10,
+    "tokensIn": 43797,
+    "tokensOut": 908,
+    "cacheRead": 36288,
+    "peakContextTokens": 7586,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 16911,
+    "costUsd": 0.0142287,
+    "finalText": "## Merged PRs closing a Linear issue that is NOT `done`\n\n| PR # | Repo | Linear ID | Linear State |\n|------|-----------|-----------|--------------|\n| 1002 | acme/web   | ENG-136 | canceled    |\n| 1003 | acme/api   | ENG-103 | backlog     |\n| 1010 | acme/api   | ENG-151 | in_progress |\n| 1017 | acme/infra | ENG-117 | canceled    |\n| 1025 | acme/mobile| ENG-135 | in_review   |\n| 1030 | acme/mobile| ENG-124 | in_progress |\n| 1033 | acme/infra | ENG-147 | canceled    |\n| 1037 | acme/web   | ENG-102 | in_progress |\n\n**Total count: 8**\n\n(Out of 15 merged PRs, 9 reference a Linear issue. Of those 9, 1 — PR #1024 closing ENG-134 — has Linear state `done` and is excluded, leaving 8.)",
+    "toolMix": {
+      "execute_python": 6
+    },
+    "expected": {
+      "count": 8,
+      "prs": [
+        {
+          "pr": 1002,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1003,
+          "closes": "ENG-103"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-151"
+        },
+        {
+          "pr": 1017,
+          "closes": "ENG-117"
+        },
+        {
+          "pr": 1025,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-124"
+        },
+        {
+          "pr": 1033,
+          "closes": "ENG-147"
+        },
+        {
+          "pr": 1037,
+          "closes": "ENG-102"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "busiest-assignee",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 1,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 10265,
+    "tokensOut": 304,
+    "cacheRead": 9814,
+    "peakContextTokens": 3622,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 5305,
+    "costUsd": 0.0034443,
+    "finalText": "**dave** has the most Linear issues in the `in_progress` state, with **2** issues assigned. (All other assignees — heidi, mallory, carol, niaj, erin, ivan — have 1 each.)",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": {
+      "top": "dave",
+      "count": 2,
+      "tied": [
+        "dave"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "high-urgency-triggered",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 6727,
+    "tokensOut": 189,
+    "cacheRead": 6372,
+    "peakContextTokens": 3457,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 3719,
+    "costUsd": 0.0022449,
+    "finalText": "5 high-urgency triggered incidents:\n\n- **PD-400** — SSO SCIM provisioning errors — page (mobile-bff)\n- **PD-401**\n- **PD-403**\n- **PD-411**\n- **PD-418**",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "count": 5,
+      "ids": [
+        "PD-400",
+        "PD-401",
+        "PD-403",
+        "PD-411",
+        "PD-418"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "email-top-error",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 14,
+    "servicesTouched": 10,
+    "tokensIn": 11788,
+    "tokensOut": 442,
+    "cacheRead": 10614,
+    "peakContextTokens": 4331,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 6697,
+    "costUsd": 0.0040668,
+    "finalText": "Done. Here's the confirmation:\n\n**Top unresolved Sentry issue:**\n- **ID:** SENTRY-3002\n- **Title:** `TypeError: Onboarding funnel drop-off`\n- **Event count:** 4,666 (highest among 19 unresolved issues)\n- **Project:** web-frontend\n- **Level:** error\n\n**Email sent:**\n- **To:** oncall@acme.io\n- **Subject:** Top error\n- **Body:** `Top error: TypeError: Onboarding funnel drop-off`\n- **Message ID:** msg-out-1\n- **Status:** sent ✅",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": {
+      "title": "TypeError: Onboarding funnel drop-off",
+      "count": 4666,
+      "id": "SENTRY-3002"
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "compose-verify-issues",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 22,
+    "servicesTouched": 10,
+    "tokensIn": 11389,
+    "tokensOut": 539,
+    "cacheRead": 10070,
+    "peakContextTokens": 4352,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 6933,
+    "costUsd": 0.0040635,
+    "finalText": "I opened **9 issues**, one in `acme/web` for each merged PR across all repositories that closes a Linear issue.\n\nBreakdown by source repo:\n- acme/web: 3 (PRs #1002, #1024, #1037)\n- acme/api: 2 (PRs #1003, #1010)\n- acme/infra: 2 (PRs #1017, #1033)\n- acme/mobile: 2 (PRs #1025, #1030)\n\nNew issues created in acme/web: #2030, #2031, #2032, #2033, #2034, #2035, #2036, #2037, #2038 — all titled \"Verify: <PR title>\".",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": {
+      "count": 9
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "incident-branch",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 15,
+    "servicesTouched": 10,
+    "tokensIn": 10756,
+    "tokensOut": 498,
+    "cacheRead": 10070,
+    "peakContextTokens": 3822,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 9096,
+    "costUsd": 0.0038243999999999995,
+    "finalText": "**Action taken:** Sent one email to `oncall@acme.io` (subject: \"Triage\") and did **not** post to Slack.\n\n**Triggered, high-urgency incidents: 5**\n- PD-400 — SSO SCIM provisioning errors — page\n- PD-401 — Primary DB failover is slow — page\n- PD-403 — Primary DB failover is slow — page\n- PD-411 — Onboarding funnel drop-off — page\n- PD-418 — Search relevance regression — page\n\nEmail body listed each id on its own line. Email confirmed as `sent` (id `msg-out-1`).",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": {
+      "branch": "email",
+      "count": 5,
+      "ids": [
+        "PD-400",
+        "PD-401",
+        "PD-403",
+        "PD-411",
+        "PD-418"
+      ]
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "open-prs-breakdown",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 6833,
+    "tokensOut": 263,
+    "cacheRead": 6372,
+    "peakContextTokens": 3549,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 3842,
+    "costUsd": 0.0023655,
+    "finalText": "(a) **17 open pull requests** across all repositories.\n(b) **acme/infra** has the most, with **9** open PRs.\n\nBreakdown by repo:\n- acme/infra: 9\n- acme/web: 4\n- acme/api: 3\n- acme/mobile: 1",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "total": 17,
+      "top": [
+        "acme/infra"
+      ],
+      "topCount": 9
+    }
+  },
+  {
+    "modelKey": "minimax3",
+    "model": "minimax/minimax-m3",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "polyglot",
+    "ok": false,
+    "errored": false,
+    "turns": 25,
+    "toolCalls": 25,
+    "toolErrors": 15,
+    "mcpRoundTrips": 32,
+    "servicesTouched": 10,
+    "tokensIn": 138767,
+    "tokensOut": 4342,
+    "cacheRead": 133450,
+    "peakContextTokens": 9007,
+    "compactions": 1,
+    "toolsInContext": 3,
+    "wallMs": 80589,
+    "costUsd": 0.04684049999999999,
+    "finalText": "Reached the maximum number of turns (24) for this request. Please send a new message to continue.",
+    "toolMix": {
+      "execute_python": 25
+    },
+    "expected": {
+      "count": 1,
+      "ids": [
+        "ENG-142"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "count-open-prs",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 7779,
+    "tokensOut": 122,
+    "cacheRead": 3008,
+    "peakContextTokens": 4744,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 7703,
+    "costUsd": 0.0049016400000000005,
+    "finalText": "There are **17** open pull requests across all repositories.",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": 17
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 6308,
+    "tokensOut": 168,
+    "cacheRead": 6016,
+    "peakContextTokens": 3270,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 5526,
+    "costUsd": 0.00410736,
+    "finalText": "There are **2** unresolved Sentry issues in the 'billing' project:\n\n- SENTRY-3004\n- SENTRY-3007",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "SENTRY-3004",
+        "SENTRY-3007"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "merged-prs-open-linear",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 22,
+    "servicesTouched": 10,
+    "tokensIn": 10615,
+    "tokensOut": 755,
+    "cacheRead": 9536,
+    "peakContextTokens": 4044,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 19447,
+    "costUsd": 0.0078186,
+    "finalText": "Here are the **8 merged pull requests** that close a Linear issue whose state is NOT 'done':\n\n| PR Number | Repo | Linear Issue | Linear State |\n|-----------|------|--------------|--------------|\n| #1002 | acme/web | ENG-136 | canceled |\n| #1003 | acme/api | ENG-103 | backlog |\n| #1010 | acme/api | ENG-151 | in_progress |\n| #1017 | acme/infra | ENG-117 | canceled |\n| #1025 | acme/mobile | ENG-135 | in_review |\n| #1030 | acme/mobile | ENG-124 | in_progress |\n| #1033 | acme/infra | ENG-147 | canceled |\n| #1037 | acme/web | ENG-102 | in_progress |\n\n**Total count: 8**\n\nNote: This is concerning — these PRs were merged but the Linear issues they claim to close remain in non-done states (canceled, backlog, in_progress, or in_review). This suggests the Linear workflow may not be properly integrated with GitHub merges, or these PRs were merged prematurely.",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": {
+      "count": 8,
+      "prs": [
+        {
+          "pr": 1002,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1003,
+          "closes": "ENG-103"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-151"
+        },
+        {
+          "pr": 1017,
+          "closes": "ENG-117"
+        },
+        {
+          "pr": 1025,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-124"
+        },
+        {
+          "pr": 1033,
+          "closes": "ENG-147"
+        },
+        {
+          "pr": 1037,
+          "closes": "ENG-102"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "busiest-assignee",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 1,
+    "mcpRoundTrips": 14,
+    "servicesTouched": 10,
+    "tokensIn": 12941,
+    "tokensOut": 450,
+    "cacheRead": 12416,
+    "peakContextTokens": 3438,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 18730,
+    "costUsd": 0.008628599999999998,
+    "finalText": "**Dave** has the most Linear issues in the 'in_progress' state assigned to them, with exactly **2** issues.",
+    "toolMix": {
+      "execute_python": 3
+    },
+    "expected": {
+      "top": "dave",
+      "count": 2,
+      "tied": [
+        "dave"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "high-urgency-triggered",
+    "arm": "polyglot",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 6234,
+    "tokensOut": 213,
+    "cacheRead": 6016,
+    "peakContextTokens": 3192,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 7177,
+    "costUsd": 0.0041493599999999995,
+    "finalText": "There are **5** HIGH-urgency PagerDuty incidents still in the 'triggered' state.\n\nTheir IDs are: **PD-400, PD-401, PD-403, PD-404, PD-405**",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "count": 5,
+      "ids": [
+        "PD-400",
+        "PD-401",
+        "PD-403",
+        "PD-411",
+        "PD-418"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "email-top-error",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 14,
+    "servicesTouched": 10,
+    "tokensIn": 9734,
+    "tokensOut": 401,
+    "cacheRead": 9280,
+    "peakContextTokens": 3389,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 12492,
+    "costUsd": 0.00661032,
+    "finalText": "**Done.** I found the unresolved Sentry issue with the highest event count and sent the email.\n\n**Top unresolved Sentry issue:**\n- **ID:** SENTRY-3002\n- **Title:** TypeError: Onboarding funnel drop-off\n- **Count:** 4,666 events\n- **Project:** web-frontend\n- **Users affected:** 343\n\n**Email sent:**\n- **To:** oncall@acme.io\n- **Subject:** Top error\n- **Body:** TypeError: Onboarding funnel drop-off\n- **Status:** Sent (message ID: msg-out-1)",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": {
+      "title": "TypeError: Onboarding funnel drop-off",
+      "count": 4666,
+      "id": "SENTRY-3002"
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "compose-verify-issues",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 22,
+    "servicesTouched": 10,
+    "tokensIn": 10781,
+    "tokensOut": 801,
+    "cacheRead": 9600,
+    "peakContextTokens": 4135,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 20483,
+    "costUsd": 0.00800652,
+    "finalText": "**I opened 9 GitHub issues** in the `acme/web` repository.\n\nThese verification issues correspond to merged pull requests across all repositories that close Linear issues:\n\n| Repository | PR # | Linear Issue | GitHub Issue Created |\n|------------|------|--------------|---------------------|\n| acme/web | #1002 | ENG-136 | #2030 |\n| acme/api | #1003 | ENG-103 | #2031 |\n| acme/api | #1010 | ENG-151 | #2032 |\n| acme/infra | #1017 | ENG-117 | #2033 |\n| acme/web | #1024 | ENG-134 | #2034 |\n| acme/mobile | #1025 | ENG-135 | #2035 |\n| acme/mobile | #1030 | ENG-124 | #2036 |\n| acme/infra | #1033 | ENG-147 | #2037 |\n| acme/web | #1037 | ENG-102 | #2038 |\n\nEach issue title follows the format: `Verify: ` + the original PR title.",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": {
+      "count": 9
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "incident-branch",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 14,
+    "servicesTouched": 10,
+    "tokensIn": 9770,
+    "tokensOut": 468,
+    "cacheRead": 9280,
+    "peakContextTokens": 3426,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 14405,
+    "costUsd": 0.006760559999999999,
+    "finalText": "**Action taken:** Sent an email to `oncall@acme.io` with subject \"Triage\" listing the incident IDs.\n\n**Number of high urgency triggered incidents:** 5\n\n**Incident IDs:** PD-400, PD-401, PD-403, PD-411, PD-418",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": {
+      "branch": "email",
+      "count": 5,
+      "ids": [
+        "PD-400",
+        "PD-401",
+        "PD-403",
+        "PD-411",
+        "PD-418"
+      ]
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "open-prs-breakdown",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 6348,
+    "tokensOut": 337,
+    "cacheRead": 6016,
+    "peakContextTokens": 3291,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 8307,
+    "costUsd": 0.00445584,
+    "finalText": "**(a) Total open pull requests:** 17\n\n**(b) Repository with the most open pull requests:** `acme/infra` with **9** open pull requests.\n\nFull breakdown by repository:\n- `acme/infra`: 9\n- `acme/web`: 4\n- `acme/api`: 3\n- `acme/mobile`: 1",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "total": 17,
+      "top": [
+        "acme/infra"
+      ],
+      "topCount": 9
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 1,
+    "mcpRoundTrips": 18,
+    "servicesTouched": 10,
+    "tokensIn": 20659,
+    "tokensOut": 2099,
+    "cacheRead": 18240,
+    "peakContextTokens": 5230,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 41223,
+    "costUsd": 0.01642548,
+    "finalText": "## Quality Audit Results\n\n**Count: 1**\n\n**Issue ID: ENG-142**\n\n---\n\n### Details:\n\n**ENG-142** (\"Primary DB failover is slow\") is marked as `done` in Linear, but **both PRs that claim to close it are still OPEN**:\n- PR #1007 in `acme/infra` (state: `open`)\n- PR #1036 in `acme/web` (state: `open`)\n\nNo merged PR actually closed this issue, yet it's marked as complete.\n\n---\n\n### Excluded from audit (per requirement):\nThe other 4 'done' issues (ENG-122, ENG-125, ENG-131, ENG-134) were excluded because:\n- ENG-134 has PR #1024 which is **merged** ✓\n- ENG-122, ENG-125, ENG-131 have **no PRs claiming to close them** (requirement says only consider issues that at least one PR claims to close)",
+    "toolMix": {
+      "execute_python": 4
+    },
+    "expected": {
+      "count": 1,
+      "ids": [
+        "ENG-142"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "count-open-prs",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 6539,
+    "tokensOut": 138,
+    "cacheRead": 3136,
+    "peakContextTokens": 3362,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 6089,
+    "costUsd": 0.000725235,
+    "finalText": "There are exactly **17** GitHub pull requests currently in the open state across all repositories.",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": 17
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 1,
+    "mcpRoundTrips": 14,
+    "servicesTouched": 10,
+    "tokensIn": 13966,
+    "tokensOut": 486,
+    "cacheRead": 13184,
+    "peakContextTokens": 3811,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 10017,
+    "costUsd": 0.00160251,
+    "finalText": "There are exactly **2** unresolved Sentry issues in the **billing** project:\n\n| ID | Title | Level | Culprit | Users Affected | Occurrences |\n|---|---|---|---|---|---|\n| **SENTRY-3004** | TypeError: Push notifications not delivered | warning | mobile/push-notifications.ts | 649 | 54 |\n| **SENTRY-3007** | NullPointer: Mobile crash on iOS 18 cold start | error | mobile/ios18-crash.ts | 792 | 433 |",
+    "toolMix": {
+      "execute_python": 3
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "SENTRY-3004",
+        "SENTRY-3007"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "merged-prs-open-linear",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 14,
+    "servicesTouched": 10,
+    "tokensIn": 26969,
+    "tokensOut": 1090,
+    "cacheRead": 23488,
+    "peakContextTokens": 6487,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 23543,
+    "costUsd": 0.0031369450000000004,
+    "finalText": "Here are the results:\n\n## Merged PRs closing Linear issues that are NOT 'done'\n\n| PR #  | Linear Issue ID | Linear State    |\n|-------|-----------------|-----------------|\n| 1002  | ENG-136         | canceled        |\n| 1003  | ENG-103         | backlog         |\n| 1010  | ENG-151         | in_progress     |\n| 1017  | ENG-117         | canceled        |\n| 1025  | ENG-135         | in_review       |\n| 1030  | ENG-124         | in_progress     |\n| 1033  | ENG-147         | canceled        |\n| 1037  | ENG-102         | in_progress     |\n\n### Total count: **8**\n\n**Summary:** Out of 15 merged PRs, 8 close a Linear issue whose state is not `done`. The breakdown by Linear state is:\n- **in_progress:** 4 (ENG-151, ENG-124, ENG-102, plus ENG-102)\n- **canceled:** 3 (ENG-136, ENG-117, ENG-147)\n- **backlog:** 1 (ENG-103)\n- **in_review:** 1 (ENG-135)",
+    "toolMix": {
+      "execute_python": 4
+    },
+    "expected": {
+      "count": 8,
+      "prs": [
+        {
+          "pr": 1002,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1003,
+          "closes": "ENG-103"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-151"
+        },
+        {
+          "pr": 1017,
+          "closes": "ENG-117"
+        },
+        {
+          "pr": 1025,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-124"
+        },
+        {
+          "pr": 1033,
+          "closes": "ENG-147"
+        },
+        {
+          "pr": 1037,
+          "closes": "ENG-102"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "busiest-assignee",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 1,
+    "mcpRoundTrips": 14,
+    "servicesTouched": 10,
+    "tokensIn": 14109,
+    "tokensOut": 505,
+    "cacheRead": 13312,
+    "peakContextTokens": 3805,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 12317,
+    "costUsd": 0.001622845,
+    "finalText": "**dave** has the most Linear issues in the `in_progress` state assigned to them, with exactly **2** issues.\n\nHere's the full breakdown of all 8 in-progress issues by assignee:\n\n| Assignee | Count |\n|----------|-------|\n| **dave** | **2** |\n| heidi | 1 |\n| mallory | 1 |\n| carol | 1 |\n| niaj | 1 |\n| erin | 1 |\n| ivan | 1 |",
+    "toolMix": {
+      "execute_python": 3
+    },
+    "expected": {
+      "top": "dave",
+      "count": 2,
+      "tied": [
+        "dave"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "high-urgency-triggered",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 6595,
+    "tokensOut": 231,
+    "cacheRead": 6272,
+    "peakContextTokens": 3411,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 4400,
+    "costUsd": 0.000757155,
+    "finalText": "There are **5** HIGH-urgency PagerDuty incidents still in the `triggered` state. Their IDs are:\n\n1. **PD-400**\n2. **PD-401**\n3. **PD-403**\n4. **PD-411**\n5. **PD-418**",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "count": 5,
+      "ids": [
+        "PD-400",
+        "PD-401",
+        "PD-403",
+        "PD-411",
+        "PD-418"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "email-top-error",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 14,
+    "servicesTouched": 10,
+    "tokensIn": 6787,
+    "tokensOut": 361,
+    "cacheRead": 6272,
+    "peakContextTokens": 3585,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 7535,
+    "costUsd": 0.000813715,
+    "finalText": "**Done.** Here's what was sent:\n\n| Field | Value |\n|-------|-------|\n| **To** | `oncall@acme.io` |\n| **Subject** | `Top error` |\n| **Body** | `The top unresolved Sentry issue is: TypeError: Onboarding funnel drop-off` |\n| **Issue count** | 4,666 events |\n| **Project** | `web-frontend` |\n| **Culprit** | `web/onboarding-funnel.ts` |",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "title": "TypeError: Onboarding funnel drop-off",
+      "count": 4666,
+      "id": "SENTRY-3002"
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "compose-verify-issues",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 2,
+    "mcpRoundTrips": 26,
+    "servicesTouched": 10,
+    "tokensIn": 32518,
+    "tokensOut": 1635,
+    "cacheRead": 29376,
+    "peakContextTokens": 5918,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 23274,
+    "costUsd": 0.0038721899999999997,
+    "finalText": "Done. I opened **9 issues** in `acme/web`, one for each merged PR that closes a Linear issue. Here's the full list:\n\n| # | Verification Issue Title | Source PR | Linear Issue |\n|---|---|---|---|\n| 1 | Verify: Mobile crash on iOS 18 cold start: guard against ios18-crash | acme/web#1002 | ENG-136 |\n| 2 | Verify: Mobile crash on iOS 18 cold start: guard against ios18-crash | acme/api#1003 | ENG-103 |\n| 3 | Verify: Mobile crash on iOS 18 cold start: fix ios18-crash | acme/api#1010 | ENG-151 |\n| 4 | Verify: Search relevance regression: fix search-relevance | acme/infra#1017 | ENG-117 |\n| 5 | Verify: Rate limiter false positives: add test for rate-limiter | acme/web#1024 | ENG-134 |\n| 6 | Verify: Primary DB failover is slow: guard against db-failover | acme/mobile#1025 | ENG-135 |\n| 7 | Verify: Migrate auth to OAuth2 + PKCE: fix oauth-migration | acme/mobile#1030 | ENG-124 |\n| 8 | Verify: Image uploads time out over 5MB: add test for image-uploads | acme/infra#1033 | ENG-147 |\n| 9 | Verify: SSO SCIM provisioning errors: refactor sso-provisioning | acme/web#1037 | ENG-102 |\n\nOut of 15 total merged PRs across all repos, 9 referenced a Linear issue via `closes_linear` and received a corresponding verification issue. The 6 PRs without Linear references (acme/infra#1005, #1006, #1014, acme/mobile#1016, acme/api#1023, acme/api#1029) were correctly skipped.",
+    "toolMix": {
+      "execute_python": 6
+    },
+    "expected": {
+      "count": 9
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "incident-branch",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 15,
+    "servicesTouched": 10,
+    "tokensIn": 10545,
+    "tokensOut": 454,
+    "cacheRead": 9856,
+    "peakContextTokens": 3769,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 10278,
+    "costUsd": 0.0012343450000000002,
+    "finalText": "There were **5** incidents in `triggered` state with `urgency: high`:\n\n| ID | Title |\n|----|-------|\n| PD-400 | SSO SCIM provisioning errors — page |\n| PD-401 | Primary DB failover is slow — page |\n| PD-403 | Primary DB failover is slow — page |\n| PD-411 | Onboarding funnel drop-off — page |\n| PD-418 | Search relevance regression — page |\n\n**Action taken:** Since high-urgency triggered incidents exist, I did **not** post to Slack. Instead, I sent **one email** to `oncall@acme.io` with subject **\"Triage\"** listing all 5 incident IDs.",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": {
+      "branch": "email",
+      "count": 5,
+      "ids": [
+        "PD-400",
+        "PD-401",
+        "PD-403",
+        "PD-411",
+        "PD-418"
+      ]
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "open-prs-breakdown",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 1,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 18489,
+    "tokensOut": 953,
+    "cacheRead": 17216,
+    "peakContextTokens": 4236,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 19945,
+    "costUsd": 0.0022081849999999997,
+    "finalText": "Here are the precise answers:\n\n**(a)** There are **17** open pull requests across all repositories.\n\n**(b)** **acme/infra** has the most open PRs, with **9**. The full breakdown:\n\n| Repository | Open PRs |\n|---|---|\n| acme/infra | 9 |\n| acme/web | 4 |\n| acme/api | 3 |\n| acme/mobile | 1 |",
+    "toolMix": {
+      "execute_python": 4
+    },
+    "expected": {
+      "total": 17,
+      "top": [
+        "acme/infra"
+      ],
+      "topCount": 9
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 0,
+    "mcpRoundTrips": 16,
+    "servicesTouched": 10,
+    "tokensIn": 17904,
+    "tokensOut": 1187,
+    "cacheRead": 15360,
+    "peakContextTokens": 5566,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 19354,
+    "costUsd": 0.00221228,
+    "finalText": "## Quality Audit Result\n\n**Count: 1**\n\n| Linear ID | Title | State | Assignee | Team | Project | Claimed by PR(s) |\n|-----------|-------|-------|----------|------|---------|-------------------|\n| **ENG-142** | Primary DB failover is slow | done | niaj | infra | Platform | **#1007** (acme/infra, **open**) and **#1036** (acme/web, **open**) |\n\n### Summary\n\n**ENG-142** is marked `done` in Linear and two pull requests (#1007 on `acme/infra` and #1036 on `acme/web`) claim to close it via their `closes_linear` field — but **neither PR has been merged** (both are still `open`). This is the only \"done\" Linear issue with this discrepancy. It appears the issue was marked complete in Linear without a corresponding merged PR to verify the fix.",
+    "toolMix": {
+      "execute_python": 3
+    },
+    "expected": {
+      "count": 1,
+      "ids": [
+        "ENG-142"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "count-open-prs",
+    "arm": "polyglot",
+    "ok": false,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 1,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 11187,
+    "tokensOut": 64,
+    "cacheRead": 6160,
+    "peakContextTokens": 5075,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 2514,
+    "costUsd": 0.00057151,
+    "finalText": "18",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": 17
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 6267,
+    "tokensOut": 113,
+    "cacheRead": 6080,
+    "peakContextTokens": 3235,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 1495,
+    "costUsd": 0.00033482,
+    "finalText": "The UNRESOLVED Sentry issues in the 'billing' project have the following IDs: SENTRY-3004, SENTRY-3007. There are exactly 2 such issues.",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "SENTRY-3004",
+        "SENTRY-3007"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "merged-prs-open-linear",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 22,
+    "servicesTouched": 10,
+    "tokensIn": 6556,
+    "tokensOut": 333,
+    "cacheRead": 6224,
+    "peakContextTokens": 3514,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 3349,
+    "costUsd": 0.0003910700000000001,
+    "finalText": "The following merged pull requests close Linear issues that are not in 'done' state:\n\n- PR #1002 closes ENG-136\n- PR #1003 closes ENG-103\n- PR #1010 closes ENG-151\n- PR #1017 closes ENG-117\n- PR #1025 closes ENG-135\n- PR #1030 closes ENG-124\n- PR #1033 closes ENG-147\n- PR #1037 closes ENG-102\n\nTotal count: 8",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "count": 8,
+      "prs": [
+        {
+          "pr": 1002,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1003,
+          "closes": "ENG-103"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-151"
+        },
+        {
+          "pr": 1017,
+          "closes": "ENG-117"
+        },
+        {
+          "pr": 1025,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-124"
+        },
+        {
+          "pr": 1033,
+          "closes": "ENG-147"
+        },
+        {
+          "pr": 1037,
+          "closes": "ENG-102"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "busiest-assignee",
+    "arm": "polyglot",
+    "ok": false,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 1,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 9698,
+    "tokensOut": 370,
+    "cacheRead": 9552,
+    "peakContextTokens": 3449,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 3798,
+    "costUsd": 0.0005552,
+    "finalText": "The query returned no results. There are no Linear issues in the 'in_progress' state assigned to any user. The count is 0, and no assignee is listed.",
+    "toolMix": {
+      "execute_python": 1,
+      "execute_js": 1
+    },
+    "expected": {
+      "top": "dave",
+      "count": 2,
+      "tied": [
+        "dave"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "high-urgency-triggered",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 1,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 9452,
+    "tokensOut": 167,
+    "cacheRead": 9232,
+    "peakContextTokens": 3306,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 3067,
+    "costUsd": 0.0005043300000000001,
+    "finalText": "There are 5 HIGH-urgency PagerDuty incidents still in the 'triggered' state. Their IDs are: PD-400, PD-401, PD-403, PD-411, PD-418.",
+    "toolMix": {
+      "execute_python": 1,
+      "execute_js": 1
+    },
+    "expected": {
+      "count": 5,
+      "ids": [
+        "PD-400",
+        "PD-401",
+        "PD-403",
+        "PD-411",
+        "PD-418"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "email-top-error",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 15,
+    "servicesTouched": 10,
+    "tokensIn": 6467,
+    "tokensOut": 233,
+    "cacheRead": 6240,
+    "peakContextTokens": 3413,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 2832,
+    "costUsd": 0.00036762000000000003,
+    "finalText": "Sent to oncall@acme.io: 'Top error' with body: 'TypeError: Onboarding funnel drop-off'",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "title": "TypeError: Onboarding funnel drop-off",
+      "count": 4666,
+      "id": "SENTRY-3002"
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "compose-verify-issues",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 1,
+    "mcpRoundTrips": 22,
+    "servicesTouched": 10,
+    "tokensIn": 9749,
+    "tokensOut": 298,
+    "cacheRead": 9408,
+    "peakContextTokens": 3461,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 5689,
+    "costUsd": 0.00054407,
+    "finalText": "I opened 9 new GitHub issues in the acme/web repository.",
+    "toolMix": {
+      "execute_python": 1,
+      "execute_js": 1
+    },
+    "expected": {
+      "count": 9
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "incident-branch",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 2,
+    "mcpRoundTrips": 14,
+    "servicesTouched": 10,
+    "tokensIn": 14263,
+    "tokensOut": 802,
+    "cacheRead": 13648,
+    "peakContextTokens": 4069,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 8640,
+    "costUsd": 0.0008655300000000001,
+    "finalText": "I sent an email to oncall@acme.io with incident IDs: PD-400, PD-401, PD-403, PD-411, PD-418. There were 5 incidents with high urgency in the triggered state.",
+    "toolMix": {
+      "execute_python": 3
+    },
+    "expected": {
+      "branch": "email",
+      "count": 5,
+      "ids": [
+        "PD-400",
+        "PD-401",
+        "PD-403",
+        "PD-411",
+        "PD-418"
+      ]
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "open-prs-breakdown",
+    "arm": "polyglot",
+    "ok": false,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 1,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 9589,
+    "tokensOut": 247,
+    "cacheRead": 9408,
+    "peakContextTokens": 3360,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 2865,
+    "costUsd": 0.00052638,
+    "finalText": "(a) There are exactly 17 open pull requests across all repositories.\n\n(b) The repository with the most open pull requests is `acme/infra`, which has 7 open pull requests.",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": {
+      "total": 17,
+      "top": [
+        "acme/infra"
+      ],
+      "topCount": 9
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "polyglot",
+    "ok": false,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 2,
+    "mcpRoundTrips": 14,
+    "servicesTouched": 10,
+    "tokensIn": 14204,
+    "tokensOut": 881,
+    "cacheRead": 13600,
+    "peakContextTokens": 4118,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 9266,
+    "costUsd": 0.00087759,
+    "finalText": "There are 4 Linear issues that are in 'done' state but were not closed by any merged pull request. The issue IDs are:\n\n- ENG-122\n- ENG-134\n- ENG-145\n- ENG-157",
+    "toolMix": {
+      "execute_python": 3
+    },
+    "expected": {
+      "count": 1,
+      "ids": [
+        "ENG-142"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "count-open-prs",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 6722,
+    "tokensOut": 107,
+    "cacheRead": 0,
+    "peakContextTokens": 3443,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 5958,
+    "costUsd": 0.00062424,
+    "finalText": "There are currently **17** open GitHub pull requests across all repositories.",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": 17
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "sentry-billing-unresolved",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 14385,
+    "tokensOut": 296,
+    "cacheRead": 8192,
+    "peakContextTokens": 5713,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 28899,
+    "costUsd": 0.00134793,
+    "finalText": "There are **2 unresolved Sentry issues** in the **billing** project:\n\n| ID | Title | Level | Culprit |\n|---|---|---|---|\n| **SENTRY-3004** | TypeError: Push notifications not delivered | warning | mobile/push-notifications.ts |\n| **SENTRY-3007** | NullPointer: Mobile crash on iOS 18 cold start | error | mobile/ios18-crash.ts |",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": {
+      "count": 2,
+      "ids": [
+        "SENTRY-3004",
+        "SENTRY-3007"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "merged-prs-open-linear",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 9,
+    "toolCalls": 8,
+    "toolErrors": 0,
+    "mcpRoundTrips": 22,
+    "servicesTouched": 10,
+    "tokensIn": 51051,
+    "tokensOut": 1172,
+    "cacheRead": 22528,
+    "peakContextTokens": 6692,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 39500,
+    "costUsd": 0.00480555,
+    "finalText": "Here are the **8 merged PRs** that close a Linear issue whose state is **not** 'done':\n\n| PR # | Repo | Closes Linear | Linear State |\n|------|------|--------------|--------------|\n| #1002 | acme/web | ENG-136 | canceled |\n| #1003 | acme/api | ENG-103 | backlog |\n| #1010 | acme/api | ENG-151 | in_progress |\n| #1017 | acme/infra | ENG-117 | canceled |\n| #1025 | acme/mobile | ENG-135 | in_review |\n| #1030 | acme/mobile | ENG-124 | in_progress |\n| #1033 | acme/infra | ENG-147 | canceled |\n| #1037 | acme/web | ENG-102 | in_progress |\n\n**Total: 8** (out of 9 merged PRs that reference a Linear issue — the 1 excluded is #1024 / ENG-134, which is already `done`).",
+    "toolMix": {
+      "execute_python": 8
+    },
+    "expected": {
+      "count": 8,
+      "prs": [
+        {
+          "pr": 1002,
+          "closes": "ENG-136"
+        },
+        {
+          "pr": 1003,
+          "closes": "ENG-103"
+        },
+        {
+          "pr": 1010,
+          "closes": "ENG-151"
+        },
+        {
+          "pr": 1017,
+          "closes": "ENG-117"
+        },
+        {
+          "pr": 1025,
+          "closes": "ENG-135"
+        },
+        {
+          "pr": 1030,
+          "closes": "ENG-124"
+        },
+        {
+          "pr": 1033,
+          "closes": "ENG-147"
+        },
+        {
+          "pr": 1037,
+          "closes": "ENG-102"
+        }
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "busiest-assignee",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 2,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 37395,
+    "tokensOut": 653,
+    "cacheRead": 16896,
+    "peakContextTokens": 6042,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 25502,
+    "costUsd": 0.00348309,
+    "finalText": "The person with the most Linear issues in the **in_progress** state is **dave** with **2** issues:\n\n1. **ENG-102** – \"Mobile crash on iOS 18 cold start\"\n2. **ENG-112** – \"Onboarding funnel drop-off\"\n\nAll other assignees (heidi, mallory, carol, niaj, erin, ivan) have only 1 each.",
+    "toolMix": {
+      "execute_python": 6
+    },
+    "expected": {
+      "top": "dave",
+      "count": 2,
+      "tied": [
+        "dave"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "high-urgency-triggered",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 7046,
+    "tokensOut": 262,
+    "cacheRead": 3072,
+    "peakContextTokens": 3733,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 12444,
+    "costUsd": 0.0006812999999999999,
+    "finalText": "There are **5** high-urgency PagerDuty incidents still in the **triggered** state:\n\n| ID | Title | Service | Assignee |\n|---|---|---|---|\n| **PD-400** | SSO SCIM provisioning errors — page | mobile-bff | ivan |\n| **PD-401** | Primary DB failover is slow — page | api-gateway | alice |\n| **PD-403** | Primary DB failover is slow — page | billing | dave |\n| **PD-411** | Onboarding funnel drop-off — page | web-frontend | erin |\n| **PD-418** | Search relevance regression — page | mobile-bff | frank |\n\n**IDs:** `PD-400`, `PD-401`, `PD-403`, `PD-411`, `PD-418`",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "count": 5,
+      "ids": [
+        "PD-400",
+        "PD-401",
+        "PD-403",
+        "PD-411",
+        "PD-418"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "email-top-error",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 14,
+    "servicesTouched": 10,
+    "tokensIn": 27319,
+    "tokensOut": 525,
+    "cacheRead": 14464,
+    "peakContextTokens": 6376,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 25549,
+    "costUsd": 0.0025532099999999998,
+    "finalText": "**Done.** Here's what happened:\n\n1. **Found the top unresolved Sentry issue** — `SENTRY-3002` with title **\"TypeError: Onboarding funnel drop-off\"** (4,666 events, the highest count among all unresolved issues).\n\n2. **Sent email** to `oncall@acme.io` with:\n   - **Subject:** `Top error`\n   - **Body:** `TypeError: Onboarding funnel drop-off`\n\n3. **Confirmation:** The email was sent successfully (id: `msg-out-1`).",
+    "toolMix": {
+      "execute_python": 4
+    },
+    "expected": {
+      "title": "TypeError: Onboarding funnel drop-off",
+      "count": 4666,
+      "id": "SENTRY-3002"
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "compose-verify-issues",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 22,
+    "servicesTouched": 10,
+    "tokensIn": 12334,
+    "tokensOut": 1292,
+    "cacheRead": 9856,
+    "peakContextTokens": 4972,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 18146,
+    "costUsd": 0.0013426199999999999,
+    "finalText": "I opened **9 GitHub issues** in `acme/web`. Here's what was done:\n\nFor each merged PR that closed a Linear issue (i.e., `closes_linear` was non-`None`), I created a new issue titled `\"Verify: <PR title>\"` in the `acme/web` repository. The 9 PRs and their corresponding issues are:\n\n| PR # | Repo | PR Title | Linear Issue | Created Issue # |\n|------|------|----------|--------------|-----------------|\n| #1002 | acme/web | Mobile crash on iOS 18 cold start: guard against ios18-crash | ENG-136 | #2030 |\n| #1003 | acme/api | Mobile crash on iOS 18 cold start: guard against ios18-crash | ENG-103 | #2031 |\n| #1010 | acme/api | Mobile crash on iOS 18 cold start: fix ios18-crash | ENG-151 | #2032 |\n| #1017 | acme/infra | Search relevance regression: fix search-relevance | ENG-117 | #2033 |\n| #1024 | acme/web | Rate limiter false positives: add test for rate-limiter | ENG-134 | #2034 |\n| #1025 | acme/mobile | Primary DB failover is slow: guard against db-failover | ENG-135 | #2035 |\n| #1030 | acme/mobile | Migrate auth to OAuth2 + PKCE: fix oauth-migration | ENG-124 | #2036 |\n| #1033 | acme/infra | Image uploads time out over 5MB: add test for image-uploads | ENG-147 | #2037 |\n| #1037 | acme/web | SSO SCIM provisioning errors: refactor sso-provisioning | ENG-102 | #2038 |\n\n**Total issues opened: 9**",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": {
+      "count": 9
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "incident-branch",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 15,
+    "servicesTouched": 10,
+    "tokensIn": 11262,
+    "tokensOut": 490,
+    "cacheRead": 6144,
+    "peakContextTokens": 4062,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 17086,
+    "costUsd": 0.00110178,
+    "finalText": "Here's what I did:\n\n**Action taken:** Sent an email to **oncall@acme.io** with subject **\"Triage\"** — I did **not** post to Slack because there were high-urgency triggered incidents.\n\n**Count:** **5** triggered high-urgency incidents:\n\n- PD-400 — SSO SCIM provisioning errors — page\n- PD-401 — Primary DB failover is slow — page\n- PD-403 — Primary DB failover is slow — page\n- PD-411 — Onboarding funnel drop-off — page\n- PD-418 — Search relevance regression — page\n\nAll five IDs were listed in the email body.",
+    "toolMix": {
+      "execute_python": 2
+    },
+    "expected": {
+      "branch": "email",
+      "count": 5,
+      "ids": [
+        "PD-400",
+        "PD-401",
+        "PD-403",
+        "PD-411",
+        "PD-418"
+      ]
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "open-prs-breakdown",
+    "arm": "polyglot",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 1,
+    "mcpRoundTrips": 13,
+    "servicesTouched": 10,
+    "tokensIn": 25629,
+    "tokensOut": 481,
+    "cacheRead": 16640,
+    "peakContextTokens": 5775,
+    "compactions": 0,
+    "toolsInContext": 3,
+    "wallMs": 17845,
+    "costUsd": 0.00239319,
+    "finalText": "**(a)** There are **17** open pull requests across all repositories.\n\n**(b)** The repository with the most open PRs is **acme/infra** with **9** open pull requests. Here's the full breakdown by repo:\n\n| Repository | Open PRs |\n|---|---|\n| `acme/infra` | **9** |\n| `acme/web` | 4 |\n| `acme/api` | 3 |\n| `acme/mobile` | 1 |",
+    "toolMix": {
+      "execute_python": 4
+    },
+    "expected": {
+      "total": 17,
+      "top": [
+        "acme/infra"
+      ],
+      "topCount": 9
+    }
+  },
+  {
+    "modelKey": "dsflash",
+    "model": "deepseek/deepseek-v4-flash",
+    "scenario": "reconcile-ghost-issues",
+    "arm": "polyglot",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "Operation aborted",
+    "turns": 13,
+    "toolCalls": 12,
+    "toolErrors": 5,
+    "mcpRoundTrips": 34,
+    "servicesTouched": 10,
+    "tokensIn": 99819,
+    "tokensOut": 4398,
+    "cacheRead": 34944,
+    "peakContextTokens": 11441,
+    "compactions": 1,
+    "toolsInContext": 3,
+    "wallMs": 163286,
+    "costUsd": 0.00977535,
+    "finalText": "",
+    "toolMix": {
+      "execute_python": 12
+    },
+    "expected": null
+  }
+]

@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"deepseek","model":"deepseek/deepseek-v3.2","scenario":"count-open-prs","arm":"polyglot","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":13,"servicesTouched":10,"tokensIn":6812,"tokensOut":102,"cacheRead":6400,"peakContextTokens":3499,"compactions":0,"toolsInContext":3,"wallMs":6128,"costUsd":0.0015949340000000003,"toolMix":{"execute_python":1},"expected":17}
+{"kind":"final_answer","text":"There are currently 17 open pull requests across all repositories."}
+{"t":4471,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"I'll get the count of open pull requests across all repositories","tool_calls":[{"name":"execute_python","input":"{\"code\":\"# Get all open pull requests across all repositories\\nopen_prs = github.list_pull_requests(state=\\\"open\\\")\\ncount = len(open_prs)\\ncount\"}"}]}
+{"t":4471,"type":"tokens","in":3313,"out":89,"peak":3313}
+{"t":4483,"type":"tool_result","tool":"execute_python","status":"success","data":"{\"value\":17,\"called\":[{\"name\":\"github__list_pull_requests\",\"calls\":1}],\"defined\":[\"open_prs\",\"count\"],\"defs\":{\"open_prs\":{\"count\":17,\"peek\":{\"number\":1000,\"repo\":\"acme/infra\",\"title\":\"SSO SCIM provisioning errors: fix sso-pr…\",\"author\":\"niaj\"}}}}"}
+{"t":6129,"type":"model_response","turn":2,"stop_reason":"stop","text":"There are currently 17 open pull requests across all repositories.","tool_calls":[]}
+{"t":6129,"type":"tokens","in":3499,"out":13,"peak":3499}

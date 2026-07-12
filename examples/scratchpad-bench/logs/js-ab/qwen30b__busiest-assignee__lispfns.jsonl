@@ -1,0 +1,22 @@
+{"kind":"meta","modelKey":"qwen30b","model":"qwen/qwen3-30b-a3b-instruct-2507","scenario":"busiest-assignee","arm":"lispfns","ok":false,"errored":false,"turns":7,"toolCalls":6,"toolErrors":6,"mcpRoundTrips":0,"servicesTouched":0,"tokensIn":16318,"tokensOut":319,"cacheRead":16032,"peakContextTokens":2554,"compactions":0,"toolsInContext":1,"wallMs":4262,"costUsd":0.00087651,"toolMix":{"linear__list_issues":3,"fns":1,"describe":1,"linear__get_issues":1},"expected":{"top":"dave","count":2,"tied":["dave"]}}
+{"kind":"final_answer","text":"The system continues to reject known function names related to Linear issues. Given that no valid function names are accessible, I cannot proceed with retrieving or analyzing Linear issues.\n\nPlease verify the correct function names or available capabilities in the system. For now, I cannot determine who has the most 'in_progress' Linear issues."}
+{"t":553,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"linear__list_issues","input":"{\"state\":\"in_progress\"}"}]}
+{"t":553,"type":"tokens","in":2165,"out":23,"peak":2165}
+{"t":553,"type":"tool_result","tool":"linear__list_issues","status":"error","data":"null","message":"No tool called linear__list_issues exists."}
+{"t":1007,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"linear__list_issues","input":"{\"state\":\"in_progress\"}"}]}
+{"t":1007,"type":"tokens","in":2211,"out":23,"peak":2211}
+{"t":1007,"type":"tool_result","tool":"linear__list_issues","status":"error","data":"null","message":"No tool called linear__list_issues exists."}
+{"t":1387,"type":"model_response","turn":3,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"linear__list_issues","input":"{\"state\":\"in_progress\"}"}]}
+{"t":1387,"type":"tokens","in":2257,"out":23,"peak":2257}
+{"t":1387,"type":"tool_result","tool":"linear__list_issues","status":"error","data":"null","message":"No tool called linear__list_issues exists."}
+{"t":2173,"type":"model_response","turn":4,"stop_reason":"tool_calls","text":"It appears there is a persistent error with the `linear__list_issues` function. This suggests the function may not be available or correctly named in the current environment. \n\nLet me check the available functions to confirm the correct nam…(+46)","tool_calls":[{"name":"fns","input":"{}"}]}
+{"t":2173,"type":"tokens","in":2303,"out":69,"peak":2303}
+{"t":2174,"type":"tool_result","tool":"fns","status":"error","data":"null","message":"No tool called fns exists."}
+{"t":2785,"type":"model_response","turn":5,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"describe","input":"{\"name\":\"linear__list_issues\"}"}]}
+{"t":2785,"type":"tokens","in":2393,"out":22,"peak":2393}
+{"t":2785,"type":"tool_result","tool":"describe","status":"error","data":"null","message":"No tool called describe exists."}
+{"t":3585,"type":"model_response","turn":6,"stop_reason":"tool_calls","text":"I'm unable to access the function catalog or verify the correct function name due to system limitations. However, given the repeated error with `linear__list_issues`, it’s possible the correct function is named differently or requires a dif…(+157)","tool_calls":[{"name":"linear__get_issues","input":"{\"state\":\"in_progress\"}"}]}
+{"t":3585,"type":"tokens","in":2435,"out":96,"peak":2435}
+{"t":3585,"type":"tool_result","tool":"linear__get_issues","status":"error","data":"null","message":"No tool called linear__get_issues exists."}
+{"t":4262,"type":"model_response","turn":7,"stop_reason":"stop","text":"The system continues to reject known function names related to Linear issues. Given that no valid function names are accessible, I cannot proceed with retrieving or analyzing Linear issues.\n\nPlease verify the correct function names or avail…(+106)","tool_calls":[]}
+{"t":4262,"type":"tokens","in":2554,"out":63,"peak":2554}

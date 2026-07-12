@@ -1,0 +1,13 @@
+{"kind":"meta","modelKey":"dsflash","model":"deepseek/deepseek-v4-flash","scenario":"count-open-prs","arm":"jsrepl","ok":true,"errored":false,"turns":4,"toolCalls":3,"toolErrors":0,"mcpRoundTrips":13,"servicesTouched":10,"tokensIn":11628,"tokensOut":264,"cacheRead":5248,"peakContextTokens":3348,"compactions":0,"toolsInContext":1,"wallMs":10260,"costUsd":0.00109404,"toolMix":{"list_servers":1,"list_functions":1,"execute_js":1},"expected":17}
+{"kind":"final_answer","text":"There are currently **17** open pull requests across all GitHub repositories."}
+{"t":1907,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"list_servers","input":"{}"}]}
+{"t":1907,"type":"tokens","in":2306,"out":47,"peak":2306}
+{"t":1908,"type":"tool_result","tool":"list_servers","status":"success","data":"[{\"name\":\"github\",\"functionCount\":5,\"sample\":[\"github__list_pull_requests\",\"github__get_pull_request\",\"github__list_issues\",\"github__create_issue\",\"github__search_code\"]},{\"name\":\"linear\",\"functionCount\":4,\"sample\":[\"linear__list_issues\",\"linear__get_issue\",\"linear__create_issue\",\"linear__update_iss…(+942)"}
+{"t":5290,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"\n\n","tool_calls":[{"name":"list_functions","input":"{\"server\":\"github\"}"}]}
+{"t":5290,"type":"tokens","in":2719,"out":45,"peak":2719}
+{"t":5291,"type":"tool_result","tool":"list_functions","status":"success","data":"[{\"name\":\"github__list_pull_requests\",\"description\":\"List pull requests, optionally filtered by repo, state (open/merged/closed), or author.\",\"signature\":\"github__list_pull_requests({repo?: string, state?: string, author?: string}) → { number: number, repo: \\\"acme/infra\\\"|\\\"acme/web\\\"|\\\"acme/api\\\"|\\…(+1537)"}
+{"t":8114,"type":"model_response","turn":3,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_js","input":"{\"code\":\"github.list_pull_requests({ state: \\\"open\\\" }).length\"}"}]}
+{"t":8114,"type":"tokens","in":3255,"out":142,"peak":3255}
+{"t":8116,"type":"tool_result","tool":"execute_js","status":"success","data":"{\"value\":17,\"called\":[{\"name\":\"github__list_pull_requests\",\"calls\":1}]}"}
+{"t":10260,"type":"model_response","turn":4,"stop_reason":"stop","text":"There are currently **17** open pull requests across all GitHub repositories.","tool_calls":[]}
+{"t":10260,"type":"tokens","in":3348,"out":30,"peak":3348}

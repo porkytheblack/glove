@@ -1,0 +1,22 @@
+{"kind":"meta","modelKey":"qwen30b","model":"qwen/qwen3-30b-a3b-instruct-2507","scenario":"reconcile-ghost-issues","arm":"pyrepl","ok":false,"errored":false,"turns":7,"toolCalls":6,"toolErrors":3,"mcpRoundTrips":15,"servicesTouched":10,"tokensIn":31984,"tokensOut":280,"cacheRead":29216,"peakContextTokens":6074,"compactions":0,"toolsInContext":1,"wallMs":4252,"costUsd":0.0016524,"toolMix":{"linear__list_issues":2,"fns":1,"execute_python":3},"expected":{"count":1,"ids":["ENG-142"]}}
+{"kind":"final_answer","text":"There are 4 Linear issues whose state is 'done' but are not closed by any merged pull request:\n\n- ENG-122\n- ENG-125\n- ENG-131\n- ENG-134"}
+{"t":499,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"linear__list_issues","input":"{\"state\":\"done\"}"}]}
+{"t":499,"type":"tokens","in":3198,"out":30,"peak":3198}
+{"t":499,"type":"tool_result","tool":"linear__list_issues","status":"error","data":"null","message":"No tool called linear__list_issues exists."}
+{"t":848,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"fns","input":"{}"}]}
+{"t":848,"type":"tokens","in":3243,"out":16,"peak":3243}
+{"t":848,"type":"tool_result","tool":"fns","status":"error","data":"null","message":"No tool called fns exists."}
+{"t":1285,"type":"model_response","turn":3,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_python","input":"{\"code\":\"fns()\"}"}]}
+{"t":1285,"type":"tokens","in":3280,"out":22,"peak":3280}
+{"t":1287,"type":"tool_result","tool":"execute_python","status":"success","data":"{\"value\":[{\"name\":\"github__list_pull_requests\",\"description\":\"List pull requests, optionally filtered by repo, state (open/merged/closed), or author.\",\"signature\":\"github__list_pull_requests({repo?: string, state?: string, author?: string}) → { number: number, repo: \\\"acme/infra\\\"|\\\"acme/web\\\"|\\\"acm…(+7009)"}
+{"t":1812,"type":"model_response","turn":4,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"linear__list_issues","input":"{\"state\":\"done\"}"}]}
+{"t":1812,"type":"tokens","in":5181,"out":22,"peak":5181}
+{"t":1813,"type":"tool_result","tool":"linear__list_issues","status":"error","data":"null","message":"No tool called linear__list_issues exists."}
+{"t":2229,"type":"model_response","turn":5,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_python","input":"{\"code\":\"linear.list_issues(state=\\\"done\\\")\"}"}]}
+{"t":2229,"type":"tokens","in":5226,"out":26,"peak":5226}
+{"t":2231,"type":"tool_result","tool":"execute_python","status":"success","data":"{\"value\":[{\"id\":\"ENG-122\",\"title\":\"Primary DB failover is slow\",\"assignee\":\"heidi\",\"state\":\"done\",\"priority\":0,\"estimate\":3,\"team\":\"mobile\",\"project\":\"Payments\",\"created_at\":\"2026-04-20T00:00:00.000Z\",\"updated_at\":\"2026-04-28T00:00:00.000Z\"},{\"id\":\"ENG-125\",\"title\":\"Image uploads time out over 5MB\",…(+936)"}
+{"t":3368,"type":"model_response","turn":6,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_python","input":"{\"code\":\"prs = github.list_pull_requests(state=\\\"merged\\\")\\nmerged_closes = {pr[\\\"closes_linear\\\"] for pr in prs if pr.get(\\\"closes_linear\\\")}\\n\\ndone_issues = linear.list_issues(state=\\\"done\\\")\\ndone_not_closed = [i for i in done_issues if i[\\\"id\\\"] not in merged_closes]\\nlen(done_not_closed), [i[\\\"id\\\"] for i in done_not_closed]\"}"}]}
+{"t":3368,"type":"tokens","in":5782,"out":114,"peak":5782}
+{"t":3370,"type":"tool_result","tool":"execute_python","status":"success","data":"{\"value\":4,\"called\":[{\"name\":\"github__list_pull_requests\",\"calls\":1},{\"name\":\"linear__list_issues\",\"calls\":1}],\"defined\":[\"prs\",\"merged_closes\",\"done_issues\",\"done_not_closed\"],\"defs\":{\"prs\":{\"count\":15,\"peek\":{\"number\":1002,\"repo\":\"acme/web\",\"title\":\"Mobile crash on iOS 18 cold start: guard…\",\"auth…(+262)"}
+{"t":4252,"type":"model_response","turn":7,"stop_reason":"stop","text":"There are 4 Linear issues whose state is 'done' but are not closed by any merged pull request:\n\n- ENG-122\n- ENG-125\n- ENG-131\n- ENG-134","tool_calls":[]}
+{"t":4252,"type":"tokens","in":6074,"out":50,"peak":6074}

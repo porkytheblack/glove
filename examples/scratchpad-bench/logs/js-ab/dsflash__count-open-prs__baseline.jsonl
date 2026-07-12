@@ -1,0 +1,7 @@
+{"kind":"meta","modelKey":"dsflash","model":"deepseek/deepseek-v4-flash","scenario":"count-open-prs","arm":"baseline","ok":true,"errored":false,"turns":2,"toolCalls":1,"toolErrors":0,"mcpRoundTrips":1,"servicesTouched":1,"tokensIn":7636,"tokensOut":425,"cacheRead":0,"peakContextTokens":4697,"compactions":0,"toolsInContext":32,"wallMs":36612,"costUsd":0.00076374,"toolMix":{"github__list_pull_requests":1},"expected":17}
+{"kind":"final_answer","text":"There are **17** open pull requests across all repositories."}
+{"t":3818,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"github__list_pull_requests","input":"{\"state\":\"open\"}"}]}
+{"t":3818,"type":"tokens","in":2939,"out":95,"peak":2939}
+{"t":3820,"type":"tool_result","tool":"github__list_pull_requests","status":"success","data":"[{\"number\":1000,\"repo\":\"acme/infra\",\"title\":\"SSO SCIM provisioning errors: fix sso-provisioning\",\"author\":\"niaj\",\"state\":\"open\",\"additions\":94,\"deletions\":234,\"created_at\":\"2026-05-23T00:00:00.000Z\",\"merged_at\":null,\"base\":\"main\",\"closes_linear\":null,\"body\":\"This change addresses sso scim provisioni…(+5350)"}
+{"t":36612,"type":"model_response","turn":2,"stop_reason":"stop","text":"There are **17** open pull requests across all repositories.","tool_calls":[]}
+{"t":36612,"type":"tokens","in":4697,"out":330,"peak":4697}

@@ -1,0 +1,2015 @@
+[
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "incident-commander",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 9,
+    "toolCalls": 7,
+    "toolErrors": 0,
+    "mcpRoundTrips": 7,
+    "servicesTouched": 5,
+    "tokensIn": 300183,
+    "tokensOut": 832,
+    "cacheRead": 42624,
+    "peakContextTokens": 44818,
+    "compactions": 2,
+    "toolsInContext": 367,
+    "wallMs": 56426,
+    "costUsd": 0.069027283,
+    "finalText": "Here's your final report:\n\n**Service:** mobile-bff  \n**Sentry issue:** SENTRY-3018  \n**Acknowledged incidents:** 2 (PD-400, PD-418)  \n\nThe following actions have been completed:\n1. Created Linear issue ENG-160 for postmortem\n2. Posted Slack notification to #incidents channel\n3. Sent email to oncall@acme.io with incident details",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "pagerduty__list_incidents": 1,
+      "pagerduty__acknowledge_incident": 2,
+      "linear__create_issue": 1,
+      "slack__post_message": 1,
+      "email__send_email": 1
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "incident-commander",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 17,
+    "toolCalls": 16,
+    "toolErrors": 1,
+    "mcpRoundTrips": 11,
+    "servicesTouched": 5,
+    "tokensIn": 88816,
+    "tokensOut": 1797,
+    "cacheRead": 67904,
+    "peakContextTokens": 6832,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 81868,
+    "costUsd": 0.020955235000000003,
+    "finalText": "Good. Now let me compile the final report:\n\n## Incident Commander Sweep Complete\n\n1. **Affected Service**: `mobile-bff`\n2. **Sentry Issue ID**: `SENTRY-3018` (NullPointer: Push notifications not delivered)\n3. **Incidents Acknowledged**: 2 incidents (PD-400 and PD-418)\n\n**Actions Taken**:\n- Found unresolved Sentry issue SENTRY-3018 affecting mobile-bff service with 876 users affected\n- Acknowledged 2 PagerDuty incidents for mobile-bff service: PD-400 and PD-418  \n- Created Linear issue titled \"Postmortem: NullPointer: Push notifications not delivered\"\n- Posted message to #incidents Slack channel: \"Affected service: mobile-bff\"\n- Sent email to oncall@acme.io with subject \"Incident\" containing Sentry issue ID and acknowledged incident IDs\n\n**Summary**: Service: mobile-bff, Sentry Issue: SENTRY-3018, Acknowledged Incidents: 2",
+    "toolMix": {
+      "execute_sql": 16
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "incident-commander",
+    "arm": "pyrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 6,
+    "toolErrors": 0,
+    "mcpRoundTrips": 79,
+    "servicesTouched": 40,
+    "tokensIn": 148762,
+    "tokensOut": 1054,
+    "cacheRead": 103232,
+    "peakContextTokens": 21883,
+    "compactions": 1,
+    "toolsInContext": 1,
+    "wallMs": 40128,
+    "costUsd": 0.034428020000000004,
+    "finalText": "Perfect! The email has been sent successfully. Now I'll provide the final report as requested.\n\n**Final Report:**\n\n- **Affected service:** `mobile-bff`\n- **Sentry issue ID:** `SENTRY-3018`\n- **Incidents acknowledged:** `2` (PD-400 and PD-418)\n\nAll tasks have been completed:\n1. ✅ Identified Sentry issue SENTRY-3018 (876 users affected in mobile-bff)\n2. ✅ Acknowledged both triggered PagerDuty incidents for mobile-bff (PD-400 and PD-418)\n3. ✅ Created Linear issue ENG-160 (postmortem task)\n4. ✅ Posted to Slack incidents channel\n5. ✅ Sent email to oncall@acme.io with Sentry issue ID and acknowledged incident IDs\n6. ✅ Provided final report above",
+    "toolMix": {
+      "execute_python": 6
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "incident-commander",
+    "arm": "jsrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 8,
+    "toolErrors": 3,
+    "mcpRoundTrips": 79,
+    "servicesTouched": 40,
+    "tokensIn": 192424,
+    "tokensOut": 1681,
+    "cacheRead": 125440,
+    "peakContextTokens": 22317,
+    "compactions": 1,
+    "toolsInContext": 1,
+    "wallMs": 54672,
+    "costUsd": 0.044641679000000004,
+    "finalText": "Now I'll provide the final report:\n\n**Final Report:**\n\n1. **Service name:** mobile-bff\n2. **Sentry issue id:** SENTRY-3018\n3. **Incidents acknowledged:** 2 incidents (PD-400 and PD-418)\n\n**All steps completed:**\n- ✓ Step 1: Identified Sentry issue SENTRY-3018 affecting mobile-bff with 876 users affected\n- ✓ Step 2: Acknowledged 2 triggered PagerDuty incidents for mobile-bff (PD-400, PD-418)\n- ✓ Step 3: Created Linear issue ENG-160 with title \"Postmortem: NullPointer: Push notifications not delivered\"\n- ✓ Step 4: Posted to Slack incidents channel about affected service \"mobile-bff\"\n- ✓ Step 5: Sent email to oncall@acme.io with Sentry issue id and acknowledged incident ids\n- ✓ Step 6: Final report provided above",
+    "toolMix": {
+      "execute_js": 8
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "incident-commander",
+    "arm": "lispfns",
+    "ok": true,
+    "errored": false,
+    "turns": 9,
+    "toolCalls": 7,
+    "toolErrors": 0,
+    "mcpRoundTrips": 79,
+    "servicesTouched": 40,
+    "tokensIn": 193067,
+    "tokensOut": 1015,
+    "cacheRead": 118400,
+    "peakContextTokens": 24598,
+    "compactions": 1,
+    "toolsInContext": 1,
+    "wallMs": 57701,
+    "costUsd": 0.044560488,
+    "finalText": "All requested actions completed:\n\n1. **Slack message posted** to 'incidents' channel: \"Incident affecting service: mobile-bff\"\n\n2. **Email sent** to 'oncall@acme.io' with subject \"Incident\" and body containing:\n   - Sentry issue id: SENTRY-3018  \n   - Acknowledged incident ids: PD-400, PD-418\n\n3. **Final report:**\n   - **Service:** mobile-bff\n   - **Sentry issue id:** SENTRY-3018\n   - **Incidents acknowledged:** 2",
+    "toolMix": {
+      "execute_lisp": 7
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "heavy-pr-audit",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 6,
+    "toolErrors": 0,
+    "mcpRoundTrips": 6,
+    "servicesTouched": 1,
+    "tokensIn": 136301,
+    "tokensOut": 1217,
+    "cacheRead": 43584,
+    "peakContextTokens": 46997,
+    "compactions": 0,
+    "toolsInContext": 367,
+    "wallMs": 34302,
+    "costUsd": 0.03163036,
+    "finalText": "Perfect! My analysis was correct. Now let me provide the final report.\n\n**Report:**\n\n**Repository counts:**\n- `acme/api`: 1 PR\n- `acme/infra`: 3 PRs  \n- `acme/web`: 1 PR\n\n**Total count:** 5 open pull requests with >400 additions that don't close any Linear issue.\n\n**PR with most additions:** #1034 in `acme/web` with 603 additions.\n\n**Complete list of qualifying PRs:**\n1. #1020 in `acme/api` (413 additions)\n2. #1026 in `acme/infra` (558 additions)\n3. #1027 in `acme/infra` (426 additions)\n4. #1032 in `acme/infra` (432 additions)\n5. #1034 in `acme/web` (603 additions - **most additions**)",
+    "toolMix": {
+      "github__list_pull_requests": 1,
+      "github__get_pull_request": 5
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "heavy-pr-audit",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 6,
+    "toolErrors": 1,
+    "mcpRoundTrips": 4,
+    "servicesTouched": 1,
+    "tokensIn": 29084,
+    "tokensOut": 902,
+    "cacheRead": 18880,
+    "peakContextTokens": 4814,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 34086,
+    "costUsd": 0.006969622,
+    "finalText": "Now I have all the information needed. Let me summarize:\n\n**Results:**\n\n1. **Total count across all repositories:** 5 open pull requests\n\n2. **Count for each repository:**\n   - `acme/infra`: 3 open PRs (numbers: 1026, 1027, 1032)\n   - `acme/api`: 1 open PR (number: 1020)\n   - `acme/web`:振 1 open PR (number: 1034)\n\n3. **Single pull request with the most additions:** PR #1034 in the `acme/web` repository with 603 additions. Title: \"Onboarding funnel drop-off: guard against onboarding-funnel\"\n\nAll these pull requests are open, have more than 400 additions, and do not close any Linear issue.",
+    "toolMix": {
+      "execute_sql": 6
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "heavy-pr-audit",
+    "arm": "pyrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 13,
+    "toolCalls": 10,
+    "toolErrors": 3,
+    "mcpRoundTrips": 74,
+    "servicesTouched": 40,
+    "tokensIn": 232987,
+    "tokensOut": 1531,
+    "cacheRead": 166080,
+    "peakContextTokens": 21683,
+    "compactions": 2,
+    "toolsInContext": 1,
+    "wallMs": 79632,
+    "costUsd": 0.053879156,
+    "finalText": "Based on the conversation summary, I'll provide a concise report of the analysis performed.\n\n**Analysis Report: Large Open PRs Without Linear Issue Closure**\n\n**Total Count:** There are 5 open pull requests with >400 additions that do not close a Linear issue.\n\n**Breakdown by Repository:**\n- `acme/api`: 1 PR (#1020)\n- `acme/infra`: 3 PRs (#1026, #1027, #1032) \n- `acme/web`: 1 PR (#1034)\n\n**PR with Most Additions:** PR #1034 in `acme/web` has the highest number of additions at 603.\n\n**Summary:** The analysis shows that among the 17 total open PRs across all repositories, 5 are large changes (>400 additions) that don't reference Linear issues for tracking. These are distributed across three repositories, with `acme/infra` having the most (3) such PRs.",
+    "toolMix": {
+      "execute_python": 10
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "heavy-pr-audit",
+    "arm": "jsrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 1,
+    "mcpRoundTrips": 73,
+    "servicesTouched": 40,
+    "tokensIn": 63382,
+    "tokensOut": 1196,
+    "cacheRead": 61824,
+    "peakContextTokens": 21865,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 25939,
+    "costUsd": 0.014924706,
+    "finalText": "Perfect! I've found the open pull requests with more than 400 additions that don't close any Linear issue. Here's the report:\n\n## Results\n\n**Total Count:** 5 pull requests across all repositories\n\n**Count by Repository:**\n- `acme/api`: 1 PR\n- `acme/infra`: 3 PRs  \n- `acme/web`: 1 PR\n\n**PR with Most Additions:**\n- **PR #1034** (`acme/web` repository)\n- **Additions:** 603\n\n## Summary\nThere are 5 open pull requests across all repositories that have more than 400 additions and don't close any Linear issue. The repository with the most such PRs is `acme/infra` (3 PRs). The single pull request with the highest number of additions is PR #1034 in the `acme/web` repository with 603 additions.",
+    "toolMix": {
+      "execute_js": 2
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "heavy-pr-audit",
+    "arm": "lispfns",
+    "ok": true,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 8,
+    "toolErrors": 3,
+    "mcpRoundTrips": 73,
+    "servicesTouched": 40,
+    "tokensIn": 218162,
+    "tokensOut": 1063,
+    "cacheRead": 214336,
+    "peakContextTokens": 24719,
+    "compactions": 1,
+    "toolsInContext": 1,
+    "wallMs": 57448,
+    "costUsd": 0.050323707,
+    "finalText": "**Open PRs with >400 additions and no Linear issue closure:**\n\n1. **Count by repository:**\n   - 1 in acme/api\n   - 3 in acme/infra  \n   - 1 in acme/web\n\n2. **Total count:** 5 PRs\n\n3. **PR with most additions:** #1034 (603 additions)",
+    "toolMix": {
+      "execute_lisp": 8
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "needle-sweep",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 3,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 3,
+    "tokensIn": 178215,
+    "tokensOut": 778,
+    "cacheRead": 85248,
+    "peakContextTokens": 48843,
+    "compactions": 1,
+    "toolsInContext": 367,
+    "wallMs": 40706,
+    "costUsd": 0.041078089,
+    "finalText": "Based on the data retrieved:\n\n**Counts across all systems:**\n\n**(a) UNRESOLVED Sentry issues** mentioning \"SSO SCIM provisioning\": **1**  \n- SENTRY-3026: \"TimeoutError: SSO SCIM provisioning errors\"\n\n**(b) Linear issues NOT in 'done' and NOT in 'canceled' state** mentioning \"SSO SCIM provisioning\": **0**  \n- Only matching issue (ENG-148) is in \"canceled\" state (excluded)\n\n**(c) OPEN GitHub pull requests** mentioning \"SSO SCIM provisioning\": **3**  \n- PR #1000: \"SSO SCIM provisioning errors: fix sso-provisioning\"\n- PR #1015: \"SSO SCIM provisioning errors: refactor sso-provisioning\"\n- PR #1031: \"SSO SCIM provisioning errors: refactor sso-provisioning\"\n\n**Grand total:** 1 + 0 + 3 = **4**",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "linear__list_issues": 1,
+      "github__list_pull_requests": 1
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "needle-sweep",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 11,
+    "toolCalls": 10,
+    "toolErrors": 0,
+    "mcpRoundTrips": 6,
+    "servicesTouched": 3,
+    "tokensIn": 49911,
+    "tokensOut": 1358,
+    "cacheRead": 37696,
+    "peakContextTokens": 5740,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 65789,
+    "costUsd": 0.011895413,
+    "finalText": "Let me check if there are any issues in Okta apps that might be related to SSO SCIM provisioning, but the request specifically asks for the three categories mentioned: (a) UNRESOLVED Sentry issues, (b) Linear issues NOT in 'done' and NOT in 'canceled' state, and (c) OPEN GitHub pull requests whose titles mention that phrase.\n\nBased on my queries, here are the exact counts:\n\n## Results:\n\n**(a) UNRESOLVED Sentry issues:** 19\n\n**(b) Linear issues NOT in 'done' and NOT in 'canceled' state:** 44\n\n**(c) OPEN GitHub pull requests mentioning \"SSO SCIM provisioning\":** 3\n\n**Grand total:** 66 (19 + 44 + 3)\n\nThe counts show 66 total items across these three categories that could be related to SSO SCIM provisioning problems as mentioned in reports.",
+    "toolMix": {
+      "explain_sql": 1,
+      "execute_sql": 9
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "needle-sweep",
+    "arm": "pyrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 9,
+    "toolCalls": 7,
+    "toolErrors": 1,
+    "mcpRoundTrips": 76,
+    "servicesTouched": 40,
+    "tokensIn": 171970,
+    "tokensOut": 2194,
+    "cacheRead": 83072,
+    "peakContextTokens": 22667,
+    "compactions": 1,
+    "toolsInContext": 1,
+    "wallMs": 76790,
+    "costUsd": 0.04013367200000001,
+    "finalText": "Based on the data retrieved:\n\n**Exact counts across all systems for issues mentioning \"SSO SCIM provisioning\":**\n\n(a) **UNRESOLVED Sentry issues**: **1** issue (SENTRY-3026)  \n    - Out of 19 total unresolved Sentry issues\n\n(b) **Linear issues NOT in 'done' and NOT in 'canceled' state**: **0** issues  \n    - Out of 60 total Linear issues retrieved\n\n(c) **OPEN GitHub pull requests**: **3** PRs  \n    - PR #1000 in acme/infra: \"SSO SCIM provisioning errors: fix sso-provisioning\"\n    - PR #1015 in acme/infra: \"SSO SCIM provisioning errors: refactor sso-provisioning\"\n    - PR #1031 in acme/infra: \"SSO SCIM provisioning errors: refactor sso-provisioning\"\n    - Out of 17 total open GitHub PRs\n\n**Grand total**: **4** items across all three systems",
+    "toolMix": {
+      "execute_python": 7
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "needle-sweep",
+    "arm": "jsrepl",
+    "ok": false,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 6,
+    "toolErrors": 0,
+    "mcpRoundTrips": 75,
+    "servicesTouched": 40,
+    "tokensIn": 149092,
+    "tokensOut": 1104,
+    "cacheRead": 40128,
+    "peakContextTokens": 22325,
+    "compactions": 1,
+    "toolsInContext": 1,
+    "wallMs": 63555,
+    "costUsd": 0.03452074000000001,
+    "finalText": "Here are the exact counts across all systems:\n\n**(a) UNRESOLVED Sentry issues:** 19  \n**(b) Linear issues NOT in 'done' and NOT in 'canceled' state:** 44  \n**(c) OPEN GitHub pull requests whose titles mention \"SSO SCIM provisioning\":** 3\n\n**Grand total:** 66",
+    "toolMix": {
+      "execute_js": 6
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "needle-sweep",
+    "arm": "lispfns",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 75,
+    "servicesTouched": 40,
+    "tokensIn": 47647,
+    "tokensOut": 437,
+    "cacheRead": 46720,
+    "peakContextTokens": 24145,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 11854,
+    "costUsd": 0.011061054,
+    "finalText": "Based on the data retrieved:\n\n**(a) UNRESOLVED Sentry issues:** 19  \n**(b) Linear issues NOT in 'done' and NOT in 'canceled' state:** 44  \n**(c) OPEN GitHub pull requests whose titles mention 'SSO SCIM provisioning':** 3  \n\n**Grand total:** 66\n\nThe counts show that there are 19 unresolved Sentry issues, 44 active Linear issues (not done or canceled), and 3 open GitHub PRs specifically mentioning SSO SCIM provisioning in their titles.",
+    "toolMix": {
+      "execute_lisp": 1
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "incident-commander",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 7,
+    "toolErrors": 0,
+    "mcpRoundTrips": 7,
+    "servicesTouched": 5,
+    "tokensIn": 184862,
+    "tokensOut": 862,
+    "cacheRead": 136896,
+    "peakContextTokens": 47133,
+    "compactions": 1,
+    "toolsInContext": 367,
+    "wallMs": 52445,
+    "costUsd": 0.11257223999999999,
+    "finalText": "All actions completed successfully.\n\n**Final Report:**\n- **Service:** mobile-bff\n- **Sentry issue ID:** SENTRY-3018\n- **Acknowledged incidents:** 2 (PD-400, PD-418)\n\n**Actions taken:**\n- Acknowledged PD-400 (SSO SCIM provisioning errors)\n- Acknowledged PD-418 (Search relevance regression)\n- Created Linear issue **ENG-160**: \"Postmortem: NullPointer: Push notifications not delivered\"\n- Posted to #incidents: \"Affected service: mobile-bff\"\n- Sent email to oncall@acme.io with SENTRY-3018, PD-400, and PD-418 referenced",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "pagerduty__list_incidents": 1,
+      "pagerduty__acknowledge_incident": 2,
+      "linear__create_issue": 1,
+      "slack__post_message": 1,
+      "email__send_email": 1
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "incident-commander",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 8,
+    "toolErrors": 0,
+    "mcpRoundTrips": 7,
+    "servicesTouched": 5,
+    "tokensIn": 22851,
+    "tokensOut": 1114,
+    "cacheRead": 18304,
+    "peakContextTokens": 4406,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 30525,
+    "costUsd": 0.01584948,
+    "finalText": "**Incident Commander Sweep Complete**\n\n- **Service:** mobile-bff\n- **Sentry Issue ID:** SENTRY-3018\n- **Acknowledged Incidents:** 2 (PD-400, PD-418)\n\nAll actions completed:\n1. ✅ Found unresolved Sentry issue SENTRY-3018 with 876 users affected in service mobile-bff\n2. ✅ Acknowledged 2 PagerDuty incidents (PD-400, PD-418) for mobile-bff\n3. ✅ Created Linear issue titled \"Postmortem: NullPointer: Push notifications not delivered\"\n4. ✅ Posted message to #incidents channel naming mobile-bff\n5. ✅ Sent email to oncall@acme.io with Sentry issue ID and both acknowledged incident IDs",
+    "toolMix": {
+      "execute_sql": 8
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "incident-commander",
+    "arm": "pyrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 6,
+    "toolErrors": 0,
+    "mcpRoundTrips": 79,
+    "servicesTouched": 40,
+    "tokensIn": 139178,
+    "tokensOut": 860,
+    "cacheRead": 98816,
+    "peakContextTokens": 20220,
+    "compactions": 1,
+    "toolsInContext": 1,
+    "wallMs": 49859,
+    "costUsd": 0.085158,
+    "finalText": "**Incident Response Complete**\n\n| Field | Value |\n|-------|-------|\n| Service | `mobile-bff` |\n| Sentry issue id | `SENTRY-3018` |\n| Number of incidents acknowledged | `2` |\n\nEmail sent to `oncall@acme.io` with subject `Incident` containing Sentry issue `SENTRY-3018` and acknowledged incident ids `PD-400` and `PD-418`.",
+    "toolMix": {
+      "execute_python": 6
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "incident-commander",
+    "arm": "jsrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 6,
+    "toolErrors": 0,
+    "mcpRoundTrips": 79,
+    "servicesTouched": 40,
+    "tokensIn": 139509,
+    "tokensOut": 1161,
+    "cacheRead": 118400,
+    "peakContextTokens": 20426,
+    "compactions": 1,
+    "toolsInContext": 1,
+    "wallMs": 51365,
+    "costUsd": 0.08593452,
+    "finalText": "**Final Report:**\n\n✅ **Service:** `mobile-bff`\n\n✅ **Sentry issue:** `SENTRY-3018` — NullPointer: Push notifications not delivered (876 users affected)\n\n✅ **PagerDuty incidents acknowledged:** `2` (`PD-400`, `PD-418`)\n\n✅ **Linear issue created:** `ENG-160` — Postmortem: NullPointer: Push notifications not delivered\n\n✅ **Slack notification posted:** Channel `incidents`\n\n✅ **Email sent:** To `oncall@acme.io` with subject `Incident` containing SENTRY-3018 and acknowledged incident IDs PD-400, PD-418",
+    "toolMix": {
+      "execute_js": 6
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "incident-commander",
+    "arm": "lispfns",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 79,
+    "servicesTouched": 40,
+    "tokensIn": 113272,
+    "tokensOut": 1108,
+    "cacheRead": 90176,
+    "peakContextTokens": 22908,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 38039,
+    "costUsd": 0.07009056,
+    "finalText": "**Incident Commander Sweep Complete**\n\n| Step | Result |\n|------|--------|\n| **Service** | mobile-bff |\n| **Sentry issue** | SENTRY-3018 (876 users affected) |\n| **Incidents acknowledged** | 2 (PD-400, PD-418) |\n\nAll actions executed:\n1. ✅ Found Sentry issue `SENTRY-3018` — project `mobile-bff`\n2. ✅ Acknowledged 2 triggered PagerDuty incidents for mobile-bff: `PD-400`, `PD-418`\n3. ✅ Created Linear issue: \"Postmortem: NullPointer: Push notifications not delivered\"\n4. ✅ Posted to #incidents: \"Incident affecting service: mobile-bff\"\n5. ✅ Sent email to oncall@acme.io with Sentry issue id and both acknowledged incident ids",
+    "toolMix": {
+      "execute_lisp": 4
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "heavy-pr-audit",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 91729,
+    "tokensOut": 1096,
+    "cacheRead": 89920,
+    "peakContextTokens": 46726,
+    "compactions": 0,
+    "toolsInContext": 367,
+    "wallMs": 20916,
+    "costUsd": 0.05714172,
+    "finalText": "Based on the data retrieved, here's the report:\n\n**Open PRs with >400 additions that do NOT close any Linear issue:**\n\n| Repository | Count | PR Numbers |\n|------------|-------|------------|\n| acme/api | 1 | #1020 (413 additions) |\n| acme/infra | 3 | #1026 (558), #1027 (426), #1032 (432) |\n| acme/web | 1 | #1034 (603 additions) |\n\n**Total count:** 5 pull requests\n\n**PR with the most additions:** PR #1034 (603 additions) in acme/web",
+    "toolMix": {
+      "github__list_pull_requests": 1
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "heavy-pr-audit",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 1,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 13609,
+    "tokensOut": 656,
+    "cacheRead": 12736,
+    "peakContextTokens": 3742,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 20972,
+    "costUsd": 0.00942492,
+    "finalText": "**Results:**\n\n| Repository | PR Count |\n|------------|----------|\n| acme/infra | 3 |\n| acme/api | 1 |\n| acme/web | 1 |\n\n**Total count:** 5 open PRs  \n**PR with most additions:** #1034",
+    "toolMix": {
+      "execute_sql": 3
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "heavy-pr-audit",
+    "arm": "pyrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 1,
+    "mcpRoundTrips": 73,
+    "servicesTouched": 40,
+    "tokensIn": 118594,
+    "tokensOut": 915,
+    "cacheRead": 117632,
+    "peakContextTokens": 20218,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 34267,
+    "costUsd": 0.0729132,
+    "finalText": "**Results:**\n\n| Repository | Count |\n|------------|-------|\n| acme/api | 1 |\n| acme/infra | 3 |\n| acme/web | 1 |\n\n**Total count:** 5\n\n**PR with most additions:** #1034 (acme/web, 603 additions)",
+    "toolMix": {
+      "execute_python": 5
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "heavy-pr-audit",
+    "arm": "jsrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 73,
+    "servicesTouched": 40,
+    "tokensIn": 39098,
+    "tokensOut": 445,
+    "cacheRead": 38592,
+    "peakContextTokens": 19727,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 16312,
+    "costUsd": 0.0243132,
+    "finalText": "**Results: Open PRs with >400 additions that do NOT close a Linear issue**\n\n| Repository | Count |\n|------------|-------|\n| acme/api   | 1     |\n| acme/infra | 3     |\n| acme/web   | 1     |\n\n- **Total count:** 5\n- **PR with the most additions:** PR #1034 (acme/web) — 603 additions",
+    "toolMix": {
+      "execute_js": 1
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "heavy-pr-audit",
+    "arm": "lispfns",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 3,
+    "toolErrors": 0,
+    "mcpRoundTrips": 73,
+    "servicesTouched": 40,
+    "tokensIn": 89565,
+    "tokensOut": 450,
+    "cacheRead": 89024,
+    "peakContextTokens": 22613,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 23682,
+    "costUsd": 0.054603,
+    "finalText": "**Open PRs with >400 additions and no Linear issue closure:**\n\n| Repository | Count |\n|------------|-------|\n| acme/api   | 1     |\n| acme/infra | 3     |\n| acme/web   | 1     |\n\n**Total count:** 5\n\n**PR with most additions:** #1034 (603 additions)",
+    "toolMix": {
+      "execute_lisp": 3
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "needle-sweep",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 3,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 3,
+    "tokensIn": 98464,
+    "tokensOut": 1244,
+    "cacheRead": 89920,
+    "peakContextTokens": 53439,
+    "compactions": 0,
+    "toolsInContext": 367,
+    "wallMs": 29457,
+    "costUsd": 0.061466879999999995,
+    "finalText": "Based on my analysis of all three systems:\n\n**(a) Sentry UNRESOLVED issues:** **1**\n- SENTRY-3026: \"TimeoutError: SSO SCIM provisioning errors\"\n\n**(b) Linear issues NOT in 'done' and NOT in 'canceled':** **0**\n- ENG-148 (\"SSO SCIM provisioning errors\") exists but is in state \"canceled\" — excluded\n\n**(c) GitHub OPEN pull requests:** **3**\n- PR #1000 (acme/infra): \"SSO SCIM provisioning errors: fix sso-provisioning\"\n- PR #1015 (acme/infra): \"SSO SCIM provisioning errors: refactor sso-provisioning\"\n- PR #1031 (acme/infra): \"SSO SCIM provisioning errors: refactor sso-provisioning\"\n\n---\n\n**Grand total: 4** (1 + 0 + 3)",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "linear__list_issues": 1,
+      "github__list_pull_requests": 1
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "needle-sweep",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 3,
+    "tokensIn": 10653,
+    "tokensOut": 634,
+    "cacheRead": 9728,
+    "peakContextTokens": 3922,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 19920,
+    "costUsd": 0.00760908,
+    "finalText": "Here are the counts for issues mentioning \"SSO SCIM provisioning\":\n\n| Source | Count |\n|--------|-------|\n| (a) Sentry unresolved issues | **1** |\n| (b) Linear issues (not done/canceled) | **0** |\n| (c) GitHub open pull requests | **3** |\n| **Grand Total** | **4** |",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "needle-sweep",
+    "arm": "pyrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 4,
+    "toolErrors": 0,
+    "mcpRoundTrips": 78,
+    "servicesTouched": 40,
+    "tokensIn": 60895,
+    "tokensOut": 1103,
+    "cacheRead": 59136,
+    "peakContextTokens": 20979,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 32342,
+    "costUsd": 0.038654759999999996,
+    "finalText": "Here are the exact counts for items whose titles mention **\"SSO SCIM provisioning\"**:\n\n| Source | Count | IDs |\n|--------|-------|-----|\n| (a) Sentry unresolved issues | **1** | SENTRY-3026 |\n| (b) Linear issues (not done/canceled) | **0** | — |\n| (c) GitHub open pull requests | **3** | acme/infra#1000, acme/infra#1015, acme/infra#1031 |\n| **Grand Total** | **4** | |\n\n**Breakdown:**\n- **Sentry:** 1 unresolved issue (TimeoutError in `api/sso-provisioning.ts`)\n- **Linear:** 0 issues in todo/backlog/in_progress/in_review states\n- **GitHub:** 3 open PRs (all in `acme/infra` repo addressing the SSO SCIM provisioning errors)",
+    "toolMix": {
+      "execute_python": 4
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "needle-sweep",
+    "arm": "jsrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 75,
+    "servicesTouched": 40,
+    "tokensIn": 59571,
+    "tokensOut": 1046,
+    "cacheRead": 58432,
+    "peakContextTokens": 20291,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 28116,
+    "costUsd": 0.03775092,
+    "finalText": "Here are the exact counts for items whose titles mention \"SSO SCIM provisioning\":\n\n| System | Filter | Count | Details |\n|--------|--------|-------|---------|\n| **Sentry** | Unresolved | **1** | SENTRY-3026: \"TimeoutError: SSO SCIM provisioning errors\" |\n| **Linear** | Not done, not canceled | **0** | — |\n| **GitHub** | Open PRs | **3** | PR #1000, #1015, #1031 (all in acme/infra) |\n| **Grand Total** | | **4** | |\n\n**Breakdown:**\n- **(a) Sentry unresolved issues:** 1 (SENTRY-3026)\n- **(b) Linear issues not done/canceled:** 0\n- **(c) GitHub open PRs:** 3 (PRs #1000, #1015, #1031 in acme/infra)\n- **Grand total:** 4",
+    "toolMix": {
+      "execute_js": 2
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "glm5",
+    "model": "z-ai/glm-5",
+    "scenario": "needle-sweep",
+    "arm": "lispfns",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 75,
+    "servicesTouched": 40,
+    "tokensIn": 45126,
+    "tokensOut": 839,
+    "cacheRead": 44352,
+    "peakContextTokens": 22879,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 20822,
+    "costUsd": 0.028686479999999997,
+    "finalText": "**Counts for items mentioning \"SSO SCIM provisioning\" in titles:**\n\n| Source | Count | IDs |\n|--------|-------|-----|\n| (a) Sentry — UNRESOLVED | **1** | SENTRY-3026 |\n| (b) Linear — NOT done, NOT canceled | **0** | — |\n| (c) GitHub — OPEN pull requests | **3** | PR #1000, #1015, #1031 |\n\n**Grand Total: 4**",
+    "toolMix": {
+      "execute_lisp": 1
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "incident-commander",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 7,
+    "toolErrors": 0,
+    "mcpRoundTrips": 7,
+    "servicesTouched": 5,
+    "tokensIn": 290065,
+    "tokensOut": 969,
+    "cacheRead": 221184,
+    "peakContextTokens": 59331,
+    "compactions": 2,
+    "toolsInContext": 367,
+    "wallMs": 49941,
+    "costUsd": 0.030728145,
+    "finalText": "All six steps are done. Here's the final report:\n\n| Field | Value |\n|---|---|\n| **Affected service** | `mobile-bff` |\n| **Sentry issue id** | `SENTRY-3018` (876 users affected) |\n| **PagerDuty incidents acknowledged** | **2** — `PD-400`, `PD-418` |\n| **Linear postmortem** | `ENG-160` created |\n| **Slack notification** | Posted to `#incidents` |\n| **Email to oncall** | Sent to `oncall@acme.io` |\n\nNo outstanding actions remain.",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "pagerduty__list_incidents": 1,
+      "linear__create_issue": 1,
+      "slack__post_message": 1,
+      "pagerduty__acknowledge_incident": 2,
+      "email__send_email": 1
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "incident-commander",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 11,
+    "toolCalls": 14,
+    "toolErrors": 4,
+    "mcpRoundTrips": 9,
+    "servicesTouched": 5,
+    "tokensIn": 52626,
+    "tokensOut": 1988,
+    "cacheRead": 46080,
+    "peakContextTokens": 6220,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 31463,
+    "costUsd": 0.006082369999999999,
+    "finalText": "All five steps completed successfully. Here's the summary:\n\n---\n\n**Incident Commander Sweep — Complete**\n\n| Item | Detail |\n|---|---|\n| **Affected Service** | `mobile-bff` |\n| **Sentry Issue** | `SENTRY-3018` — *NullPointer: Push notifications not delivered* (876 users affected) |\n| **Incidents Acknowledged** | **2** — `PD-400` (SSO SCIM provisioning errors) and `PD-418` (Search relevance regression) |\n| **Linear Postmortem** | `ENG-2042` — *Postmortem: NullPointer: Push notifications not delivered* (state: backlog) |\n| **Slack** | Message posted to `#incidents` naming `mobile-bff` and all issue/incident IDs |\n| **Email** | Sent to `oncall@acme.io` with subject \"Incident\", body containing SENTRY-3018, PD-400, PD-418, and ENG-2042 |",
+    "toolMix": {
+      "execute_sql": 14
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "incident-commander",
+    "arm": "pyrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 10,
+    "toolCalls": 8,
+    "toolErrors": 1,
+    "mcpRoundTrips": 79,
+    "servicesTouched": 40,
+    "tokensIn": 182677,
+    "tokensOut": 1238,
+    "cacheRead": 157248,
+    "peakContextTokens": 20777,
+    "compactions": 1,
+    "toolsInContext": 1,
+    "wallMs": 43912,
+    "costUsd": 0.019527725,
+    "finalText": "All steps completed. Here's the final summary:\n\n- **Affected service:** `mobile-bff`  \n- **Sentry issue id:** `SENTRY-3018`  \n- **Acknowledged incidents count:** **2** (PD-400, PD-418)  \n- **Linear issue created:** `ENG-160` (title: `Postmortem: NullPointer: Push notifications not delivered`)  \n- **Slack notification:** posted to `#incidents`  \n- **Email sent:** to `oncall@acme.io` with subject `Incident`, referencing SENTRY-3018, PD-400, and PD-418.",
+    "toolMix": {
+      "execute_python": 8
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "incident-commander",
+    "arm": "jsrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 80,
+    "servicesTouched": 40,
+    "tokensIn": 60673,
+    "tokensOut": 1001,
+    "cacheRead": 39744,
+    "peakContextTokens": 20913,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 14919,
+    "costUsd": 0.006650944999999999,
+    "finalText": "All actions completed successfully. Here's the summary:\n\n| Item | Detail |\n|---|---|\n| **Affected service** | `mobile-bff` |\n| **Sentry issue** | `SENTRY-3018` — *NullPointer: Push notifications not delivered* (876 users affected) |\n| **Acknowledged PD incidents** | **2** — `PD-400`, `PD-418` (both now in `acknowledged` status) |\n| **Linear postmortem** | Created as `ENG-160` — *Postmortem: NullPointer: Push notifications not delivered* |\n| **Slack** | Posted to `#incidents` naming the `mobile-bff` service |\n| **Email** | Sent to `oncall@acme.io` with subject \"Incident\" containing the Sentry issue id and both acknowledged incident ids |",
+    "toolMix": {
+      "execute_js": 2
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "incident-commander",
+    "arm": "lispfns",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 8,
+    "toolErrors": 0,
+    "mcpRoundTrips": 81,
+    "servicesTouched": 40,
+    "tokensIn": 94430,
+    "tokensOut": 1087,
+    "cacheRead": 70016,
+    "peakContextTokens": 24321,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 17105,
+    "costUsd": 0.01021951,
+    "finalText": "All done. Here's the sweep summary:\n\n| Step | Detail |\n|------|--------|\n| **Affected service** | **mobile-bff** |\n| **Sentry issue** | **SENTRY-3018** — *NullPointer: Push notifications not delivered* (876 users affected) |\n| **Incidents acknowledged** | **2** — PD-400 and PD-418 |\n| **Linear postmortem** | ENG-160 created |\n| **Slack notification** | Posted to #incidents |\n| **Email** | Sent to oncall@acme.io |",
+    "toolMix": {
+      "execute_lisp": 8
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "heavy-pr-audit",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 115629,
+    "tokensOut": 1113,
+    "cacheRead": 105920,
+    "peakContextTokens": 58830,
+    "compactions": 0,
+    "toolsInContext": 367,
+    "wallMs": 16083,
+    "costUsd": 0.012452685,
+    "finalText": "Now let me analyze the results. I have the full list of open PRs. Let me filter for PRs with **>400 additions** and **no Linear issue linked** (`closes_linear` is null).\n\nHere's the breakdown from the data retrieved:\n\n---\n\n## Open PRs with >400 additions and NO Linear issue linked\n\n| # | Repo | PR | Additions |\n|---|------|----|-----------|\n| 1 | `acme/api` | #1020 | 413 |\n| 2 | `acme/infra` | #1026 | 558 |\n| 3 | `acme/infra` | #1027 | 426 |\n| 4 | `acme/infra` | #1032 | 432 |\n| 5 | `acme/web` | #1034 | 603 |\n\n---\n\n### Count by Repository\n| Repository | Count |\n|------------|-------|\n| `acme/infra` | **3** |\n| `acme/api` | **1** |\n| `acme/web` | **1** |\n\n### Total Count: **5**\n\n### PR with the Most Additions: **PR #1026** (`acme/infra`) with **558 additions**\n> *\"Primary DB failover is slow: refactor db-failover\"* by mallory",
+    "toolMix": {
+      "github__list_pull_requests": 1
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "heavy-pr-audit",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 1,
+    "servicesTouched": 1,
+    "tokensIn": 10755,
+    "tokensOut": 458,
+    "cacheRead": 9728,
+    "peakContextTokens": 3999,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 7754,
+    "costUsd": 0.001257515,
+    "finalText": "Here are the results:\n\n---\n\n### Count by Repository (repos with ≥1 qualifying PR)\n\n| Repository | Count |\n|---|---|\n| acme/infra | 3 |\n| acme/api | 1 |\n| acme/web | 1 |\n\n### Total Count\n**5** open pull requests across all repos have >400 additions and don't close any Linear issue.\n\n### PR with the Most Additions\n**PR #1034** in **acme/web** — **603 additions**",
+    "toolMix": {
+      "execute_sql": 2
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "heavy-pr-audit",
+    "arm": "pyrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 1,
+    "mcpRoundTrips": 73,
+    "servicesTouched": 40,
+    "tokensIn": 100985,
+    "tokensOut": 1251,
+    "cacheRead": 76480,
+    "peakContextTokens": 21007,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 28313,
+    "costUsd": 0.010953705,
+    "finalText": "Here are the results:\n\n**5 open PRs** across all repos have **more than 400 additions** and **do not close any Linear issue**:\n\n### By Repository\n| Repository | Count |\n|---|---|\n| `acme/infra` | 3 |\n| `acme/api` | 1 |\n| `acme/web` | 1 |\n\n### Total Count: **5**\n\n### PR with the Most Additions\n**PR #1034** in `acme/web` — **603 additions**\n\n---\n\nAll 5 qualifying PRs for reference:\n\n| PR # | Repo | Additions | Linear Issue |\n|---|---|---|---|\n| #1020 | acme/api | 413 | — |\n| #1026 | acme/infra | 558 | — |\n| #1027 | acme/infra | 426 | — |\n| #1032 | acme/infra | 432 | — |\n| **#1034** | **acme/web** | **603** | — |",
+    "toolMix": {
+      "execute_python": 4
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "heavy-pr-audit",
+    "arm": "jsrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 73,
+    "servicesTouched": 40,
+    "tokensIn": 39374,
+    "tokensOut": 308,
+    "cacheRead": 33792,
+    "peakContextTokens": 19872,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 7126,
+    "costUsd": 0.00422051,
+    "finalText": "Here are the results for **open PRs with >400 additions that don't close any Linear issue**:\n\n### Count per repository\n| Repository | Count |\n|---|---|\n| `acme/infra` | 3 |\n| `acme/api` | 1 |\n| `acme/web` | 1 |\n\n### Total: **5** pull requests\n\n### PR with the most additions\n**#1034** in `acme/web` — *\"Onboarding funnel drop-off: guard against onboarding-funnel\"* — **603 additions**",
+    "toolMix": {
+      "execute_js": 1
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "heavy-pr-audit",
+    "arm": "lispfns",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 73,
+    "servicesTouched": 40,
+    "tokensIn": 67797,
+    "tokensOut": 462,
+    "cacheRead": 65280,
+    "peakContextTokens": 22926,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 12083,
+    "costUsd": 0.007248045,
+    "finalText": "Here are the results:\n\n### Open PRs with >400 additions and no linked Linear issue\n\n| Repository | Count |\n|---|---|\n| `acme/infra` | 3 |\n| `acme/api` | 1 |\n| `acme/web` | 1 |\n| **Total** | **5** |\n\n### PR with the most additions\n\n**PR #1034** on `acme/web` with **603 additions** — the single largest open PR that has no Linear issue linked.",
+    "toolMix": {
+      "execute_lisp": 2
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "needle-sweep",
+    "arm": "baseline",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 4,
+    "toolErrors": 1,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 3,
+    "tokensIn": 171097,
+    "tokensOut": 499,
+    "cacheRead": 155072,
+    "peakContextTokens": 57245,
+    "compactions": 1,
+    "toolsInContext": 367,
+    "wallMs": 19908,
+    "costUsd": 0.018104904999999998,
+    "finalText": "Here are the counts for items whose titles mention **\"SSO SCIM provisioning\"**:\n\n| System | Filter | Count |\n|---|---|---|\n| **(a) Sentry issues** | Unresolved | **1** — `SENTRY-3026` (\"TimeoutError: SSO SCIM provisioning errors\") |\n| **(b) Linear issues** | Not 'done' and not 'canceled' | **0** — the only match (`ENG-148`) is in **canceled** state |\n| **(c) GitHub pull requests** | Open | **3** — `acme/infra#1000`, `acme/infra#1015`, `acme/infra#1031` |\n\n### Grand total: **4**",
+    "toolMix": {
+      "sentry__search_issues": 1,
+      "sentry__list_issues": 1,
+      "linear__list_issues": 1,
+      "github__list_pull_requests": 1
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "needle-sweep",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "toolCalls": 5,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 3,
+    "tokensIn": 15501,
+    "tokensOut": 858,
+    "cacheRead": 14144,
+    "peakContextTokens": 4499,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 14106,
+    "costUsd": 0.001867845,
+    "finalText": "Here are the counts for items whose titles mention **\"SSO SCIM provisioning\"**:\n\n| Source | Count |\n|---|---|\n| **(a)** Unresolved Sentry issues | **1** |\n| **(b)** Linear issues (not done, not canceled) | **0** |\n| **(c)** Open GitHub pull requests | **3** |\n| **Grand Total** | **4** |\n\n**Summary:** There are **4 total** open/unresolved items across your systems mentioning \"SSO SCIM provisioning\" — **1 Sentry error** and **3 open GitHub PRs**. No active Linear issues were found with that phrase. The Sentry issue is the one to focus on for root-cause resolution; the 3 PRs may already be addressing it.",
+    "toolMix": {
+      "explain_sql": 1,
+      "execute_sql": 4
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "needle-sweep",
+    "arm": "pyrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 9,
+    "toolCalls": 7,
+    "toolErrors": 1,
+    "mcpRoundTrips": 75,
+    "servicesTouched": 40,
+    "tokensIn": 161194,
+    "tokensOut": 1191,
+    "cacheRead": 152512,
+    "peakContextTokens": 20920,
+    "compactions": 1,
+    "toolsInContext": 1,
+    "wallMs": 32312,
+    "costUsd": 0.01725885,
+    "finalText": "Here are the counts of items mentioning **\"SSO SCIM provisioning\"** across all systems:\n\n| System | Filter | Count | Items |\n|---|---|---|---|\n| **(a) Sentry issues** | Unresolved | **1** | SENTRY-3026 (`TimeoutError: SSO SCIM provisioning errors`) |\n| **(b) Linear issues** | Not done & not canceled | **0** | ENG-148 exists but is *canceled* → excluded |\n| **(c) GitHub PRs** | Open | **3** | PR #1000, #1015, #1031 (all in `acme/infra`) |\n\n### Grand total: **4**",
+    "toolMix": {
+      "execute_python": 7
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "needle-sweep",
+    "arm": "jsrepl",
+    "ok": false,
+    "errored": false,
+    "turns": 7,
+    "toolCalls": 5,
+    "toolErrors": 2,
+    "mcpRoundTrips": 75,
+    "servicesTouched": 40,
+    "tokensIn": 123281,
+    "tokensOut": 2269,
+    "cacheRead": 111872,
+    "peakContextTokens": 21951,
+    "compactions": 1,
+    "toolsInContext": 1,
+    "wallMs": 41452,
+    "costUsd": 0.013579825,
+    "finalText": "",
+    "toolMix": {
+      "execute_js": 5
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "needle-sweep",
+    "arm": "lispfns",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 4,
+    "toolErrors": 2,
+    "mcpRoundTrips": 78,
+    "servicesTouched": 40,
+    "tokensIn": 115702,
+    "tokensOut": 1578,
+    "cacheRead": 112128,
+    "peakContextTokens": 23942,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 24686,
+    "costUsd": 0.01259055,
+    "finalText": "Here are the counts for titles mentioning **\"SSO SCIM provisioning\"**:\n\n| Source | Filter | Matches |\n|---|---|---|\n| **(a) Sentry issues** | unresolved status | **1** — *TimeoutError: SSO SCIM provisioning errors* |\n| **(b) Linear issues** | not \"done\" and not \"canceled\" | **0** |\n| **(c) GitHub PRs** | open status | **3** — *SSO SCIM provisioning errors: fix sso-provisioning*, *SSO SCIM provisioning errors: refactor sso-provisioning*, *SSO SCIM provisioning errors: refactor sso-provisioning* |\n\n### **Grand total: 4**\n\nAll 4 items are still active/open — the one Sentry error is unresolved, and all three PRs are open. No Linear issues matched.",
+    "toolMix": {
+      "execute_lisp": 4
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "incident-commander",
+    "arm": "baseline",
+    "ok": false,
+    "errored": false,
+    "turns": 5,
+    "toolCalls": 3,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 2,
+    "tokensIn": 178962,
+    "tokensOut": 136,
+    "cacheRead": 133168,
+    "peakContextTokens": 45454,
+    "compactions": 1,
+    "toolsInContext": 367,
+    "wallMs": 20915,
+    "costUsd": 0.00897394,
+    "finalText": "- **Service**: api-gateway  \n- **Sentry issue ID**: SENTRY-3000  \n- **Number of acknowledged incidents**: 1",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "pagerduty__list_incidents": 1,
+      "pagerduty__acknowledge_incident": 1
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "incident-commander",
+    "arm": "scratchpad",
+    "ok": true,
+    "errored": false,
+    "turns": 13,
+    "toolCalls": 17,
+    "toolErrors": 2,
+    "mcpRoundTrips": 10,
+    "servicesTouched": 5,
+    "tokensIn": 57864,
+    "tokensOut": 875,
+    "cacheRead": 53280,
+    "peakContextTokens": 5280,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 47920,
+    "costUsd": 0.0030594500000000005,
+    "finalText": "The affected service is **mobile-bff**.  \nThe Sentry issue ID is **SENTRY-3018**.  \nYou acknowledged **2 incidents** (PD-400, PD-418).",
+    "toolMix": {
+      "explain_sql": 6,
+      "execute_sql": 11
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "incident-commander",
+    "arm": "pyrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 79,
+    "servicesTouched": 40,
+    "tokensIn": 39613,
+    "tokensOut": 345,
+    "cacheRead": 19840,
+    "peakContextTokens": 20071,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 16901,
+    "costUsd": 0.0020462,
+    "finalText": "The affected service is `mobile-bff`. The Sentry issue ID is `SENTRY-3000`. A total of 2 incidents were acknowledged.",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "incident-commander",
+    "arm": "jsrepl",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "This operation was aborted",
+    "turns": 10,
+    "toolCalls": 9,
+    "toolErrors": 9,
+    "mcpRoundTrips": 72,
+    "servicesTouched": 40,
+    "tokensIn": 182374,
+    "tokensOut": 3268,
+    "cacheRead": 61536,
+    "peakContextTokens": 21076,
+    "compactions": 1,
+    "toolsInContext": 1,
+    "wallMs": 150010,
+    "costUsd": 0.009739620000000001,
+    "finalText": "",
+    "toolMix": {
+      "execute_js": 9
+    },
+    "expected": null
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "incident-commander",
+    "arm": "lispfns",
+    "ok": false,
+    "errored": false,
+    "turns": 27,
+    "toolCalls": 22,
+    "toolErrors": 8,
+    "mcpRoundTrips": 86,
+    "servicesTouched": 40,
+    "tokensIn": 504974,
+    "tokensOut": 2685,
+    "cacheRead": 478240,
+    "peakContextTokens": 24017,
+    "compactions": 5,
+    "toolsInContext": 1,
+    "wallMs": 108553,
+    "costUsd": 0.025758850000000003,
+    "finalText": "All incidents acknowledged and email sent.",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "pagerduty__list_incidents": 1,
+      "execute_lisp": 20
+    },
+    "expected": {
+      "service": "mobile-bff",
+      "sentry": "SENTRY-3018",
+      "acks": [
+        "PD-400",
+        "PD-418"
+      ],
+      "postmortem": "Postmortem: NullPointer: Push notifications not delivered"
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "heavy-pr-audit",
+    "arm": "baseline",
+    "ok": false,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 6,
+    "toolErrors": 0,
+    "mcpRoundTrips": 6,
+    "servicesTouched": 2,
+    "tokensIn": 132970,
+    "tokensOut": 295,
+    "cacheRead": 88336,
+    "peakContextTokens": 44674,
+    "compactions": 0,
+    "toolsInContext": 367,
+    "wallMs": 8877,
+    "costUsd": 0.006704550000000001,
+    "finalText": "The pull request with the most additions (648) is #1039 in the acme/api repository, which does not close any Linear issue.\n\nOnly one repository, acme/api, has pull requests meeting the criteria (over 400 additions, open, not closing a Linear issue). It has a count of 1.\n\nTotal count across all repositories: 1.",
+    "toolMix": {
+      "github__list_pull_requests": 4,
+      "linear__get_issue": 2
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "heavy-pr-audit",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 6,
+    "toolCalls": 5,
+    "toolErrors": 1,
+    "mcpRoundTrips": 2,
+    "servicesTouched": 1,
+    "tokensIn": 20817,
+    "tokensOut": 439,
+    "cacheRead": 17296,
+    "peakContextTokens": 3872,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 9441,
+    "costUsd": 0.00112426,
+    "finalText": "- Total count of open pull requests with more than 400 additions that do not close any Linear issue: **5**  \n- Number of distinct repositories with such PRs: **3**  \n- The pull request with the most additions (603) has number **1034**.",
+    "toolMix": {
+      "explain_sql": 2,
+      "execute_sql": 3
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "heavy-pr-audit",
+    "arm": "pyrepl",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 73,
+    "servicesTouched": 40,
+    "tokensIn": 39256,
+    "tokensOut": 267,
+    "cacheRead": 19632,
+    "peakContextTokens": 19808,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 5393,
+    "costUsd": 0.0020135300000000004,
+    "finalText": "- Repository counts for open pull requests with >400 additions that do not close a Linear issue:\n  - `acme/api`: 1\n  - `acme/infra`: 3\n  - `acme/web`: 1\n- Total count: 5\n- PR number with the most additions: 1020",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "heavy-pr-audit",
+    "arm": "jsrepl",
+    "ok": true,
+    "errored": false,
+    "turns": 14,
+    "toolCalls": 11,
+    "toolErrors": 9,
+    "mcpRoundTrips": 74,
+    "servicesTouched": 40,
+    "tokensIn": 238256,
+    "tokensOut": 1607,
+    "cacheRead": 217744,
+    "peakContextTokens": 20256,
+    "compactions": 2,
+    "toolsInContext": 1,
+    "wallMs": 72668,
+    "costUsd": 0.01221813,
+    "finalText": "The count of open pull requests with more than 400 additions that do not close any Linear issue is:\n\n- `acme/api`: 1\n- `acme/infra`: 3\n- `acme/web`: 1\n\nThe total count across all repositories is 5.\n\nThe pull request with the most additions is #1034.",
+    "toolMix": {
+      "execute_js": 11
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "heavy-pr-audit",
+    "arm": "lispfns",
+    "ok": false,
+    "errored": false,
+    "turns": 8,
+    "toolCalls": 6,
+    "toolErrors": 2,
+    "mcpRoundTrips": 76,
+    "servicesTouched": 40,
+    "tokensIn": 164295,
+    "tokensOut": 410,
+    "cacheRead": 160944,
+    "peakContextTokens": 24501,
+    "compactions": 1,
+    "toolsInContext": 1,
+    "wallMs": 13191,
+    "costUsd": 0.00829265,
+    "finalText": "The pull request with the most additions among those that are open, have more than 400 additions, and do not close any Linear issue is:\n\n- **PR #1034** (acme/web): 603 additions, closes_linear: nil.",
+    "toolMix": {
+      "github__list_pull_requests": 1,
+      "execute_lisp": 5
+    },
+    "expected": {
+      "total": 5,
+      "perRepo": {
+        "acme/api": 1,
+        "acme/infra": 3,
+        "acme/web": 1
+      },
+      "largest": 1034
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "needle-sweep",
+    "arm": "baseline",
+    "ok": false,
+    "errored": false,
+    "turns": 11,
+    "toolCalls": 11,
+    "toolErrors": 2,
+    "mcpRoundTrips": 9,
+    "servicesTouched": 3,
+    "tokensIn": 358884,
+    "tokensOut": 694,
+    "cacheRead": 354720,
+    "peakContextTokens": 46385,
+    "compactions": 3,
+    "toolsInContext": 367,
+    "wallMs": 40160,
+    "costUsd": 0.01807606,
+    "finalText": "The outstanding action to update GitHub issue #2030 with the tracking of the investigation in Linear (ENG-160) cannot be completed using the available tools, as the `github__update_issue` function is not accessible. You will need to manually update the GitHub issue or use an alternate method to include the reference to Linear issue ENG-160.",
+    "toolMix": {
+      "sentry__list_issues": 1,
+      "linear__list_issues": 3,
+      "github__list_pull_requests": 1,
+      "github__get_pull_request": 2,
+      "github__create_issue": 1,
+      "linear__create_issue": 1,
+      "github__update_issue": 2
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "needle-sweep",
+    "arm": "scratchpad",
+    "ok": false,
+    "errored": false,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "mcpRoundTrips": 3,
+    "servicesTouched": 3,
+    "tokensIn": 10190,
+    "tokensOut": 301,
+    "cacheRead": 9808,
+    "peakContextTokens": 3663,
+    "compactions": 0,
+    "toolsInContext": 2,
+    "wallMs": 4744,
+    "costUsd": 0.00056669,
+    "finalText": "- (a) UNRESOLVED Sentry issues: 0  \n- (b) Linear issues NOT in 'done' and NOT in 'canceled': 44  \n- (c) OPEN GitHub pull requests mentioning 'SSO SCIM provisioning': 3  \n- Grand total: 47",
+    "toolMix": {
+      "explain_sql": 1,
+      "execute_sql": 1
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "needle-sweep",
+    "arm": "pyrepl",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "toolCalls": 1,
+    "toolErrors": 0,
+    "mcpRoundTrips": 78,
+    "servicesTouched": 40,
+    "tokensIn": 39377,
+    "tokensOut": 303,
+    "cacheRead": 39056,
+    "peakContextTokens": 19909,
+    "compactions": 0,
+    "toolsInContext": 1,
+    "wallMs": 4306,
+    "costUsd": 0.00202642,
+    "finalText": "The counts are as follows:\n\n(a) UNRESOLVED Sentry issues mentioning \"SSO SCIM provisioning\": **1**  \n(b) Linear issues NOT in 'done' and NOT in 'canceled' state mentioning \"SSO SCIM provisioning\": **3**  \n(c) OPEN GitHub pull requests mentioning \"SSO SCIM provisioning\": **2**  \n\nGrand total: **6**",
+    "toolMix": {
+      "execute_python": 1
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "needle-sweep",
+    "arm": "jsrepl",
+    "ok": false,
+    "errored": false,
+    "turns": 14,
+    "toolCalls": 11,
+    "toolErrors": 10,
+    "mcpRoundTrips": 75,
+    "servicesTouched": 40,
+    "tokensIn": 243018,
+    "tokensOut": 3172,
+    "cacheRead": 240736,
+    "peakContextTokens": 21240,
+    "compactions": 2,
+    "toolsInContext": 1,
+    "wallMs": 92385,
+    "costUsd": 0.01275358,
+    "finalText": "- **Unresolved Sentry issues**: 19  \n- **Active Linear issues (not 'done' or 'canceled')**: 15  \n- **Open GitHub pull requests with 'SSO SCIM provisioning' in title**: 1  \n- **Grand total**: 35",
+    "toolMix": {
+      "execute_js": 11
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "needle-sweep",
+    "arm": "lispfns",
+    "ok": false,
+    "errored": false,
+    "turns": 25,
+    "toolCalls": 20,
+    "toolErrors": 18,
+    "mcpRoundTrips": 76,
+    "servicesTouched": 40,
+    "tokensIn": 485300,
+    "tokensOut": 3294,
+    "cacheRead": 481328,
+    "peakContextTokens": 23614,
+    "compactions": 4,
+    "toolsInContext": 1,
+    "wallMs": 105751,
+    "costUsd": 0.02489086,
+    "finalText": "The three open GitHub pull requests with \"SSO SCIM provisioning\" in the title are:\n\n- `acme/infra#1000` — titled: \"SSO SCIM provisioning errors: fix sso-pr...\"\n- `acme/infra#1015` — titled: \"Fix SCIM provisioning loop in SSO connector\"\n- `acme/api#1031` — titled: \"SSO SCIM provisioning: add retry logic on 5xx failures\"\n\n✅ **Final answer: 3**",
+    "toolMix": {
+      "execute_lisp": 20
+    },
+    "expected": {
+      "sentry": 1,
+      "linear": 0,
+      "prs": 3,
+      "total": 4
+    }
+  }
+]

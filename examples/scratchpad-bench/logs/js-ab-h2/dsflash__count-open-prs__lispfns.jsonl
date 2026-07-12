@@ -1,0 +1,10 @@
+{"kind":"meta","modelKey":"dsflash","model":"deepseek/deepseek-v4-flash","scenario":"count-open-prs","arm":"lispfns","ok":true,"errored":false,"turns":3,"toolCalls":2,"toolErrors":0,"mcpRoundTrips":13,"servicesTouched":10,"tokensIn":9846,"tokensOut":173,"cacheRead":0,"peakContextTokens":3385,"compactions":0,"toolsInContext":1,"wallMs":12131,"costUsd":0.00091728,"toolMix":{"execute_lisp":2},"expected":17}
+{"kind":"final_answer","text":"There are **17** GitHub pull requests currently in the **open** state across all repositories."}
+{"t":3172,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(def open-prs (github__list_pull_requests {:state \\\"open\\\"}))\"}"}]}
+{"t":3172,"type":"tokens","in":3149,"out":80,"peak":3149}
+{"t":3174,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":{\"defined\":\"open-prs\",\"count\":17,\"peek\":{\"number\":1000,\"repo\":\"acme/infra\",\"title\":\"SSO SCIM provisioning errors: fix sso-pr…\",\"author\":\"niaj\"}},\"defined\":[\"open-prs\"],\"defs\":{\"open-prs\":{\"count\":17,\"peek\":{\"number\":1000,\"repo\":\"acme/infra\",\"title\":\"SSO SCIM provisioning errors: fix sso-pr……(+21)"}
+{"t":10041,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_lisp","input":"{\"code\":\"(count open-prs)\"}"}]}
+{"t":10041,"type":"tokens","in":3312,"out":66,"peak":3312}
+{"t":10042,"type":"tool_result","tool":"execute_lisp","status":"success","data":"{\"value\":17}"}
+{"t":12131,"type":"model_response","turn":3,"stop_reason":"stop","text":"There are **17** GitHub pull requests currently in the **open** state across all repositories.","tool_calls":[]}
+{"t":12131,"type":"tokens","in":3385,"out":27,"peak":3385}

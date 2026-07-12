@@ -1,0 +1,10 @@
+{"kind":"meta","modelKey":"qwen30b","model":"qwen/qwen3-30b-a3b-instruct-2507","scenario":"count-open-prs","arm":"polyglot","ok":false,"errored":false,"turns":3,"toolCalls":2,"toolErrors":1,"mcpRoundTrips":13,"servicesTouched":10,"tokensIn":11187,"tokensOut":64,"cacheRead":6160,"peakContextTokens":5075,"compactions":0,"toolsInContext":3,"wallMs":2514,"costUsd":0.00057151,"toolMix":{"execute_python":2},"expected":17}
+{"kind":"final_answer","text":"18"}
+{"t":1411,"type":"model_response","turn":1,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_python","input":"{\"code\":\"prs = github.list_pull_requests(state=\\\"open\\\"); len(prs)\"}"}]}
+{"t":1411,"type":"tokens","in":3029,"out":34,"peak":3029}
+{"t":1412,"type":"tool_result","tool":"execute_python","status":"error","data":"null","message":"unsupported statement: StatementGroup"}
+{"t":2039,"type":"model_response","turn":2,"stop_reason":"tool_calls","text":"","tool_calls":[{"name":"execute_python","input":"{\"code\":\"github.list_pull_requests(state=\\\"open\\\")\"}"}]}
+{"t":2039,"type":"tokens","in":3083,"out":27,"peak":3083}
+{"t":2040,"type":"tool_result","tool":"execute_python","status":"success","data":"{\"value\":[{\"number\":1000,\"repo\":\"acme/infra\",\"title\":\"SSO SCIM provisioning errors: fix sso-provisioning\",\"author\":\"niaj\",\"state\":\"open\",\"additions\":94,\"deletions\":234,\"created_at\":\"2026-05-23T00:00:00.000Z\",\"merged_at\":null,\"base\":\"main\",\"closes_linear\":null,\"body\":\"This change addresses sso scim p…(+5419)"}
+{"t":2514,"type":"model_response","turn":3,"stop_reason":"stop","text":"18","tool_calls":[]}
+{"t":2514,"type":"tokens","in":5075,"out":3,"peak":5075}

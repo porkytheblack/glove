@@ -2,7 +2,9 @@
 
 *A design exploration building on ["The Scratchpad Is a Database"](PAPER.md)
 and the SQL-as-tool-interface essay. Status: **live A/B run and hardened** —
-three fluency batches took the arm from 62/77 to 72/77 (94%), see §10.*
+three fluency batches took the arm from 62/77 to 72/77 (94%), see §10. The
+cross-language synthesis is ["The Scratchpad Is a REPL"](REPL-PAPER.md)
+(Lisp · JS · Python over one function catalog).*
 
 ---
 
@@ -338,6 +340,14 @@ surfaces share the catalog; the honest recommendation is unchanged from §9's
 second landing: **SQL as the default for the weakest tail, the REPL wherever
 branching, staged multi-writes, or session state matter — and they coexist
 behind one `ResourceTable` registration.**
+
+> **Sequel — is the scratchpad a *JavaScript* REPL?** The fluency bet, taken to
+> its strongest position, is explored in [JS-EXPLORATION.md](JS-EXPLORATION.md):
+> a sandboxed JS surface (`glove-js`) and a **function-mode** catalog
+> (`ToolFn`s via `fnsFromMcp`, no `ResourceTable`) driving both surfaces. Its
+> first live A/B reproduces the off-context benefit and reaches frontier/mid
+> parity; function mode matches table mode; and its one weak-tail miss is a
+> preamble framing gap, not a language one — the Lisp arm's own starting point.
 
 ## 11. The choice study and the complex suite
 
