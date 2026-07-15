@@ -4,7 +4,7 @@ import type { EpisodicMemoryAdapter } from "../../episodic/adapter";
 import { errorResult, publicEpisode, renderEpisodeKindsSection } from "./shared";
 
 const SearchInputSchema = z.object({
-  query: z.string().min(1).describe("Natural-language query — searched semantically over episode content."),
+  query: z.string().min(1).describe("Query describing the topic — matched against episode content (semantically or by fuzzy keyword match, depending on how the memory adapter is configured)."),
   filter: z
     .object({
       kind: z.union([z.string(), z.array(z.string())]).optional(),
@@ -29,7 +29,7 @@ export function buildEpisodicSearchTool(adapter: EpisodicMemoryAdapter): GloveFo
   return {
     name: "glove_episodic_search",
     description:
-      `Semantic search over episode content, blended with a recency bias. Use for "remind me what we discussed about X" — when you have a phrasing of the topic but no exact participant or time window.\n\n` +
+      `Search episode content by topic, blended with a recency bias. Depending on how the memory adapter is configured this is either embedding-based semantic search or in-process fuzzy/keyword matching — either way, use it for "remind me what we discussed about X" when you have a phrasing of the topic but no exact participant or time window.\n\n` +
       `Available filters narrow the candidate set before ranking.\n\n` +
       `${renderEpisodeKindsSection(adapter.schema)}`,
     inputSchema: SearchInputSchema,

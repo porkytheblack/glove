@@ -35,7 +35,14 @@ import type {
 export interface EpisodicMemoryAdapter {
   identifier: string;
   schema: MemorySchema;
-  /** True when the adapter supports `searchEpisodes`. Drives whether the search reader tool is registered. */
+  /**
+   * True when the adapter supports `searchEpisodes` — content search is
+   * available and the `glove_episodic_search` reader tool should be
+   * registered. The backing implementation may be embedding/vector-based or a
+   * purely lexical/fuzzy match: this flag only advertises that `searchEpisodes`
+   * is callable, not how it ranks. An adapter can therefore offer content
+   * search with no embeddings and no external services at all.
+   */
   supportsSemanticSearch: boolean;
 
   // ─── Write operations ─────────────────────────────────────────────────

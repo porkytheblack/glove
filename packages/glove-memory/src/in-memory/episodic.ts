@@ -30,8 +30,19 @@ import {
 interface InMemoryEpisodicOpts {
   schema: MemorySchema;
   identifier?: string;
-  /** Optional embedder. When provided, semantic search is enabled. */
+  /**
+   * Optional embedder. When provided, `searchEpisodes` runs vector cosine
+   * similarity and `supportsSemanticSearch` is true.
+   */
   embedder?: EmbeddingAdapter;
+  /**
+   * Enable in-process fuzzy (lexical) search over episode content when no
+   * `embedder` is supplied. Turns on `searchEpisodes` — and therefore the
+   * `glove_episodic_search` reader tool — with zero external services, no
+   * embedding vectors, and no out-of-band embed loop. Ignored when `embedder`
+   * is set (vector search takes precedence).
+   */
+  fuzzySearch?: boolean;
 }
 
 /**
@@ -53,9 +64,14 @@ interface InMemoryEpisodicOpts {
  * may pick different decay shapes; the spec only fixes the shape of the
  * blend, not the curve.
  *
- * If an `EmbeddingAdapter` is supplied, semantic search runs naive cosine
- * similarity over locally-stored vectors. Fine for tests; companion
- * adapters use proper vector indices.
+ * **Search modes.** If an `EmbeddingAdapter` is supplied, `searchEpisodes`
+ * runs naive cosine similarity over locally-stored vectors. With no embedder
+ * but `fuzzySearch: true`, it instead runs in-process lexical matching
+ * (exact-phrase, substring, and bigram-Dice fuzzy) over episode content — no
+ * embeddings, no external service, no out-of-band embed loop. With neither,
+ * `supportsSemanticSearch` is false and the search reader tool is not
+ * registered. Both modes are naive linear scans — fine for tests; companion
+ * adapters use proper vector or text indices.
  */
 export class InMemoryEpisodicAdapter implements EpisodicMemoryAdapter {
   identifier: string;
@@ -65,13 +81,19 @@ export class InMemoryEpisodicAdapter implements EpisodicMemoryAdapter {
   private readonly episodes = new Map<string, Episode>();
   private readonly embeddings = new Map<string, number[]>();
   private readonly embedder?: EmbeddingAdapter;
+  /** True when running in embedding-free fuzzy (lexical) search mode. */
+  private readonly fuzzy: boolean;
   private nextId = 1;
 
   constructor(opts: InMemoryEpisodicOpts) {
     this.schema = opts.schema;
     this.identifier = opts.identifier ?? `in-memory-episodic-${Date.now()}`;
     this.embedder = opts.embedder;
-    this.supportsSemanticSearch = Boolean(opts.embedder);
+    // Vector search wins when an embedder is present; otherwise fall back to
+    // in-process fuzzy matching when the consumer opts in. Either one makes
+    // `searchEpisodes` callable and registers the search reader tool.
+    this.fuzzy = !opts.embedder && Boolean(opts.fuzzySearch);
+    this.supportsSemanticSearch = Boolean(opts.embedder) || this.fuzzy;
   }
 
   // ─── Write ──────────────────────────────────────────────────────────────
@@ -258,16 +280,23 @@ export class InMemoryEpisodicAdapter implements EpisodicMemoryAdapter {
   // ─── Semantic search ────────────────────────────────────────────────────
 
   async searchEpisodes(query: string, opts: SemanticSearchOpts = {}): Promise<EpisodeSearchResult[]> {
-    if (!this.embedder) {
+    if (!this.embedder && !this.fuzzy) {
       throw new EpisodicMemoryError(
         "semantic_search_unsupported",
-        "This adapter was constructed without an EmbeddingAdapter.",
+        "This adapter was constructed without an EmbeddingAdapter and without fuzzySearch enabled.",
       );
     }
-    const [queryVec] = await this.embedder.embed([query]);
-    if (!queryVec) {
-      throw new EpisodicMemoryError("embedding_unavailable", "Embedder returned no vector for the query.");
+
+    // Vector mode needs a query embedding up front; fuzzy mode scores lexically.
+    let queryVec: number[] | undefined;
+    if (this.embedder) {
+      [queryVec] = await this.embedder.embed([query]);
+      if (!queryVec) {
+        throw new EpisodicMemoryError("embedding_unavailable", "Embedder returned no vector for the query.");
+      }
     }
+    const normalisedQuery = query.trim().toLowerCase();
+    const queryTokens = this.fuzzy ? tokenize(query) : [];
 
     const limit = opts.limit ?? 5;
     const recencyWeight = clamp(opts.recencyWeight ?? 0.2, 0, 1);
@@ -286,9 +315,7 @@ export class InMemoryEpisodicAdapter implements EpisodicMemoryAdapter {
 
     const candidates: EpisodeSearchResult[] = [];
     for (const ep of this.episodes.values()) {
-      if (ep.embeddingStatus !== "fresh") continue;
-      const vec = this.embeddings.get(ep.id);
-      if (!vec) continue;
+      // Structural filters are cheap — apply them before scoring.
       if (kindFilter && !kindFilter.has(ep.kind)) continue;
       if (participantFilter && !ep.participants.some((p) => participantFilter.has(p.entityId))) continue;
       if (timeStart !== undefined || timeEnd !== undefined) {
@@ -298,8 +325,21 @@ export class InMemoryEpisodicAdapter implements EpisodicMemoryAdapter {
         if (timeEnd !== undefined && startMs > timeEnd) continue;
       }
 
-      const distance = cosineDistance(queryVec, vec);
-      const semanticScore = 1 - distance;
+      let semanticScore: number;
+      let distance: number;
+      if (this.embedder) {
+        // Vector mode: only episodes with a fresh embedding are candidates.
+        if (ep.embeddingStatus !== "fresh") continue;
+        const vec = this.embeddings.get(ep.id);
+        if (!vec) continue;
+        distance = cosineDistance(queryVec!, vec);
+        semanticScore = 1 - distance;
+      } else {
+        // Fuzzy mode: lexical similarity over content, no embeddings required.
+        semanticScore = lexicalScore(normalisedQuery, queryTokens, ep.content);
+        if (semanticScore <= 0) continue;
+        distance = 1 - semanticScore;
+      }
 
       const ageMs = Math.max(0, now - occurredAtEnd(ep.occurredAt).getTime());
       const recencyScore = Math.exp(-Math.LN2 * (ageMs / halfLifeMs));
@@ -502,6 +542,96 @@ function cosineDistance(a: number[], b: number[]): number {
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
+}
+
+// ─── Fuzzy (lexical) search helpers ────────────────────────────────────────
+
+/**
+ * Lexical similarity of a query to an episode's content, in [0, 1]. The fuzzy
+ * search mode uses this as a drop-in replacement for cosine similarity.
+ *
+ * - An exact (case-insensitive) phrase hit scores 1.
+ * - Otherwise the score is the mean over query tokens of each token's best
+ *   match against the content's tokens: an exact token match scores 1, a
+ *   substring match (stems like license/licensing) scores at least 0.85, and
+ *   everything else falls back to a bigram Dice coefficient so typos and
+ *   shared stems still register — but only above `FUZZY_TOKEN_MIN`, so
+ *   unrelated words (which still share a few incidental bigrams) score 0 and
+ *   genuinely irrelevant episodes are excluded entirely.
+ *
+ * `normalisedQuery` is the lowercased, trimmed query; `queryTokens` its word
+ * tokens — both precomputed once by the caller so this stays cheap in the
+ * per-episode loop.
+ */
+function lexicalScore(normalisedQuery: string, queryTokens: string[], content: string): number {
+  if (!normalisedQuery) return 0;
+  const haystack = content.toLowerCase();
+  if (haystack.includes(normalisedQuery)) return 1;
+  if (queryTokens.length === 0) return 0;
+  const contentTokens = Array.from(new Set(tokenize(content)));
+  if (contentTokens.length === 0) return 0;
+
+  let total = 0;
+  for (const qt of queryTokens) {
+    let best = 0;
+    for (const ct of contentTokens) {
+      let sim: number;
+      if (ct === qt) {
+        sim = 1;
+      } else if (Math.min(qt.length, ct.length) >= 3 && (ct.includes(qt) || qt.includes(ct))) {
+        sim = Math.max(0.85, diceCoefficient(qt, ct));
+      } else {
+        const dice = diceCoefficient(qt, ct);
+        sim = dice >= FUZZY_TOKEN_MIN ? dice : 0;
+      }
+      if (sim > best) best = sim;
+      if (best === 1) break;
+    }
+    total += best;
+  }
+  return total / queryTokens.length;
+}
+
+/**
+ * Minimum bigram-Dice similarity for a fuzzy token match to count. Below this,
+ * two tokens are treated as unrelated (score 0). Tuned so common typos
+ * (licensing/licencing ≈ 0.75, compliance/complaince ≈ 0.67) still match while
+ * incidental bigram overlap between unrelated words does not.
+ */
+const FUZZY_TOKEN_MIN = 0.6;
+
+/** Lowercase alphanumeric word tokens. */
+function tokenize(s: string): string[] {
+  return s.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+}
+
+/**
+ * Sørensen–Dice coefficient over character bigrams — a cheap, dependency-free
+ * string similarity in [0, 1] that tolerates typos and shared stems.
+ */
+function diceCoefficient(a: string, b: string): number {
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return 0;
+  const bigramsA = bigrams(a);
+  const counts = new Map<string, number>();
+  for (const g of bigramsA) counts.set(g, (counts.get(g) ?? 0) + 1);
+  const bigramsB = bigrams(b);
+  let intersection = 0;
+  for (const g of bigramsB) {
+    const c = counts.get(g);
+    if (c && c > 0) {
+      counts.set(g, c - 1);
+      intersection++;
+    }
+  }
+  return (2 * intersection) / (bigramsA.length + bigramsB.length);
+}
+
+/** Overlapping character bigrams of a string. */
+function bigrams(s: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < s.length - 1; i++) out.push(s.slice(i, i + 2));
+  return out;
 }
 
 void FILTER_OP_KEYS;
