@@ -1147,6 +1147,9 @@ import {
 
 const entity = new InMemoryEntityAdapter({ schema });
 const episodic = new InMemoryEpisodicAdapter({ schema, embedder });   // omit embedder → supportsSemanticSearch = false
+// Embedding-free content search: `{ schema, fuzzySearch: true }` runs in-process
+// lexical/fuzzy search over episode content — no embedder, no external service,
+// supportsSemanticSearch = true. `embedder` wins if both are supplied.
 const resources = new InMemoryResourcesAdapter({ schema, embedder }); // ditto
 const context = new InMemoryContextAdapter({ schema });
 ```

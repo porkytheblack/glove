@@ -2364,6 +2364,8 @@ new InMemoryEpisodicAdapter({
   identifier?: string;
   /** When provided, supportsSemanticSearch becomes true and naive cosine similarity is used. */
   embedder?: EmbeddingAdapter;
+  /** No embedder? Set true for in-process fuzzy/lexical content search (exact-phrase + substring + bigram-Dice typo tolerance). supportsSemanticSearch becomes true; no external service or vectors. Ignored when `embedder` is set. */
+  fuzzySearch?: boolean;
 });
 
 new InMemoryResourcesAdapter({

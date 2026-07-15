@@ -283,7 +283,7 @@ Why this beats one Glove with everything attached:
 
 | Tool | Purpose |
 |------|---------|
-| `glove_episodic_search` | Semantic search over episode content *(only registered when adapter advertises `supportsSemanticSearch`)* |
+| `glove_episodic_search` | Content search over episodes — embedding-based semantic or in-process fuzzy/lexical, depending on the adapter *(only registered when adapter advertises `supportsSemanticSearch`)* |
 | `glove_episodic_find` | Structured filter — by kind, participant, time range, properties |
 | `glove_episodic_timeline` | Chronological listing for an entity or time window |
 | `glove_episodic_record` | Append a new episode *(curator)* |
@@ -326,6 +326,19 @@ Why this beats one Glove with everything attached:
 Episodic and resources adapters generate embeddings out-of-band. Writes mark records `embeddingStatus: "missing"` (initial) or `"stale"` (content change) and return immediately. A separate process — typically a [Station](https://station.dterminal.net) signal — picks them up via `findEpisodesNeedingEmbedding` / `findFilesNeedingEmbedding`, calls the configured `EmbeddingAdapter`, and writes vectors back via `setEmbedding`.
 
 The `EmbeddingAdapter` contract is intentionally tiny — consumers plug in whatever provider they want without the package taking on a model dependency.
+
+### Content search without embeddings (fuzzy mode)
+
+Embeddings are **opt-in, not required**. Episodic memory works with no embedder at all — `glove_episodic_find` (kind / participant / time / property filters) and `glove_episodic_timeline` need nothing. Only `glove_episodic_search` (free-text content search) needs a ranking backend, and that backend doesn't have to be vectors.
+
+Pass `fuzzySearch: true` (and no `embedder`) to `InMemoryEpisodicAdapter` for in-process lexical search over episode content — exact-phrase and substring hits plus a bigram-Dice fuzzy fallback that tolerates typos. It sets `supportsSemanticSearch: true` (so `glove_episodic_search` is registered), and needs zero external services, no vectors, and no out-of-band embed loop.
+
+```ts
+// No embeddings, no external service — content search still works.
+const episodic = new InMemoryEpisodicAdapter({ schema, fuzzySearch: true });
+```
+
+`embedder` wins when both are supplied (vector search takes precedence, and `fuzzySearch` is ignored). With neither, `supportsSemanticSearch` is `false` and the search tool is simply not registered — `find` + `timeline` remain fully available. `searchEpisodes` is backend-agnostic: the `supportsSemanticSearch` flag advertises that content search is callable, not how it ranks, so a BYO adapter can offer fuzzy, embedding, or hybrid search behind the same contract.
 
 ### Implementation choices in the in-memory adapters
 
