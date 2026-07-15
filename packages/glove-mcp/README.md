@@ -12,7 +12,7 @@ Requires `glove-core` as a peer; HTTP transport only in v1.
 
 ## Minimal usage
 
-Wire a static catalogue of MCP servers into a `Glove` instance via `mountMcp`. The framework's only auth seam is `McpAdapter.getAccessToken(id) -> string` — return a bearer token, however you obtained it.
+Wire a static catalogue of MCP servers into a `Glove` instance via `mountMcp`. The auth seam is `McpAdapter.getAccessToken(id) -> string` — return a bearer token, however you obtained it. For servers that don't take a bearer token, implement `getAuthHeaders(id) -> Record<string, string>` instead (see [Auth model](#auth-model)).
 
 ```ts
 import { Glove } from "glove-core/glove";
@@ -58,7 +58,7 @@ await mountMcp(runnable, {
 
 ## Auth model
 
-One method, one return type. The framework wraps the string in `Authorization: Bearer ...` and never touches refresh logic.
+Two optional seams on the adapter. The common case is `getAccessToken` — the framework wraps the returned string in `Authorization: Bearer ...` and never touches refresh logic. When a server wants something other than a bearer token (e.g. Composio's `x-api-key`), implement `getAuthHeaders` and return the full header map yourself; it takes precedence over `getAccessToken` when both are defined. With neither, connections are made without auth headers.
 
 ```ts
 interface McpAdapter {
@@ -66,11 +66,33 @@ interface McpAdapter {
   getActive(): Promise<string[]>;
   activate(id: string): Promise<void>;
   deactivate(id: string): Promise<void>;
-  getAccessToken(id: string): Promise<string>;
+  getAccessToken?(id: string): Promise<string>;
+  getAuthHeaders?(id: string): Promise<Record<string, string>>;
 }
 ```
 
-`getAccessToken` is called every time a connection is established (session boot + each fresh activation). Throwing causes the activation to fail gracefully — the model sees an error, the conversation continues.
+```ts
+class ComposioAdapter implements McpAdapter {
+  // ...getActive / activate / deactivate...
+  async getAuthHeaders(id: string) {
+    return { "x-api-key": process.env.COMPOSIO_API_KEY! };
+  }
+}
+```
+
+Both seams are called every time a connection is established (session boot + each fresh activation). Throwing causes the activation to fail gracefully — the model sees an error, the conversation continues.
+
+For direct `connectMcp` calls, the matching helpers are `bearer(tokenOrThunk)` and `headers(mapOrThunk)`:
+
+```ts
+import { connectMcp, headers } from "glove-mcp";
+
+const conn = await connectMcp({
+  namespace: "composio",
+  url: "https://mcp.composio.dev/...",
+  auth: headers({ "x-api-key": process.env.COMPOSIO_API_KEY! }),
+});
+```
 
 When a token expires mid-call, the bridged tool returns:
 
@@ -153,7 +175,9 @@ The reference CLIs in `examples/mcp-cli/` are a single-user shape: `FsOAuthStore
 - **`McpAdapter`** — the per-conversation interface consumers implement.
 - **`McpCatalogueEntry`** — static description of an MCP server the app supports.
 - **`connectMcp`** / **`bridgeMcpTool`** — lower-level building blocks if you need to bypass `mountMcp`.
-- **`bearer(getter)`** — helper that wraps a `() => Promise<string>` token getter into a `ConnectMcpAuth`.
+- **`bearer(getter)`** — helper that wraps a token (or `() => Promise<string>` getter) into a `ConnectMcpAuth` emitting `Authorization: Bearer ...`.
+- **`headers(mapOrGetter)`** — helper that wraps a header map (or getter) into a `ConnectMcpAuth`, for non-bearer servers (e.g. `x-api-key`).
+- **`adapterAuth(adapter, id)`** — resolves an entry's `ConnectMcpAuth` from the adapter's seams (`getAuthHeaders` first, then `getAccessToken`).
 - **`MCP_NAMESPACE_SEP`** — the `__` separator constant.
 
 From `glove-mcp/oauth`:

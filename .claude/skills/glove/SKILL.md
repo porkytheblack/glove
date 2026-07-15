@@ -796,11 +796,12 @@ Two pieces, deliberately split:
     getActive(): Promise<string[]>;              // ids active in this conversation
     activate(id: string): Promise<void>;         // called by the discovery subagent
     deactivate(id: string): Promise<void>;       // for the consumer's UI; v1 limitation: doesn't unload tools
-    getAccessToken(id: string): Promise<string>; // SOLE auth seam — return a bearer string
+    getAccessToken?(id: string): Promise<string>;                // bearer seam — return a token string
+    getAuthHeaders?(id: string): Promise<Record<string, string>>; // custom-header seam — e.g. { "x-api-key": ... }; wins over getAccessToken
   }
   ```
 
-`getAccessToken` is the only auth seam. The framework wraps the returned string in `Authorization: Bearer ...`. Token acquisition, refresh, and persistence are entirely the consumer's responsibility — env vars, vault, your own OAuth flow, the opt-in `runMcpOAuth` helper, all valid.
+`getAccessToken` / `getAuthHeaders` are the only auth seams. The common case is `getAccessToken` — the framework wraps the returned string in `Authorization: Bearer ...`. For servers that don't take a bearer token (e.g. Composio's `x-api-key`), implement `getAuthHeaders` and return the full header map; it takes precedence when both are defined, and with neither, connections are made without auth headers. Credential acquisition, refresh, and persistence are entirely the consumer's responsibility — env vars, vault, your own OAuth flow, the opt-in `runMcpOAuth` helper, all valid.
 
 ### `mountMcp` — the canonical entry point
 
@@ -859,18 +860,24 @@ The **ambiguity policy** controls what happens when the subagent finds multiple 
 
 `serverMode: true` on the `Glove` config is the canonical "I am headless" flag — drives both the default ambiguity policy and the default `requiresPermission` on bridged tools (never gate).
 
-### Auth model — bearer-only
+### Auth model — static headers (bearer or custom)
 
-The framework only knows about static bearer tokens. `connectMcp` ships an `auth: bearer(token | () => token)` helper; pass either a string or a thunk that resolves a fresh token per connection. `mountMcp` and the discovery `activate` tool both use the thunk form so every connection re-reads `getAccessToken`.
+The framework only knows about static headers per connection. `connectMcp` ships two helpers: `auth: bearer(token | () => token)` for `Authorization: Bearer ...`, and `auth: headers(map | () => map)` for servers that want custom headers (e.g. Composio's `x-api-key`). Both accept a thunk that re-resolves per connection. `mountMcp` and the discovery `activate` tool resolve auth via `adapterAuth(adapter, id)` — `getAuthHeaders` when defined, else `getAccessToken` wrapped as a bearer, else no auth headers.
 
 ```typescript
-import { bearer, connectMcp } from "glove-mcp";
+import { bearer, headers, connectMcp } from "glove-mcp";
 
 const conn = await connectMcp({
   namespace: "notion",
   url: "https://mcp.notion.com/mcp",
-  auth: bearer(() => adapter.getAccessToken("notion")),
+  auth: bearer(() => adapter.getAccessToken!("notion")),
   clientInfo: { name: "My App", version: "1.0.0" },
+});
+
+const composio = await connectMcp({
+  namespace: "composio",
+  url: "https://mcp.composio.dev/...",
+  auth: headers({ "x-api-key": process.env.COMPOSIO_API_KEY! }),
 });
 ```
 
@@ -918,6 +925,8 @@ The agent code itself doesn't change — `McpAdapter.getAccessToken` is the only
 | One-off connect (preflight, custom flow) | `connectMcp({ namespace, url, auth })` |
 | Bridge a tool by hand | `bridgeMcpTool(connection, tool, serverMode)` |
 | Bearer header helper | `bearer(token | () => token)` |
+| Custom headers helper (non-bearer, e.g. `x-api-key`) | `headers(map | () => map)` |
+| Adapter → auth resolver | `adapterAuth(adapter, id)` |
 | Discovery subagent factory | `discoverySubAgent({ adapter, entries, ambiguityPolicy })` (returns `DefineSubAgentArgs`; pass to `glove.defineSubAgent(...)`) |
 | Tool namespace separator | `MCP_NAMESPACE_SEP` (`"__"`) |
 | 401 detection on raw connect | `UnauthorizedError` |

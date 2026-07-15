@@ -4,7 +4,7 @@ import type { ModelAdapter } from "glove-core/core";
 import type { McpAdapter, McpCatalogueEntry } from "./adapter";
 import { connectMcp } from "./connect";
 import { bridgeMcpTool, type McpToolWrapper } from "./bridge";
-import { bearer } from "./auth";
+import { adapterAuth } from "./auth";
 import { discoverySubAgent } from "./discovery";
 import type { DiscoveryAmbiguityPolicy } from "./discovery/policy";
 
@@ -62,7 +62,7 @@ export async function mountMcp(
       const conn = await connectMcp({
         namespace: id,
         url: entry.url,
-        auth: bearer(() => adapter.getAccessToken(id)),
+        auth: adapterAuth(adapter, id),
         clientInfo,
       });
       const tools = await conn.listTools();

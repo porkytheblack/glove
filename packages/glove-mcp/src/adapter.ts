@@ -44,8 +44,10 @@ export interface McpAdapter {
   deactivate(id: string): Promise<void>;
 
   /**
-   * Resolve a fresh access token for this entry id. Sole auth seam — the
-   * framework wraps the returned string in `Authorization: Bearer ...`.
+   * Resolve a fresh access token for this entry id. The framework wraps the
+   * returned string in `Authorization: Bearer ...`. Implement this OR
+   * `getAuthHeaders` (which takes precedence when both are defined); with
+   * neither, connections are made without auth headers.
    *
    * Called every time a connection is established (session boot + activation).
    * Throwing here causes the activation/reload to fail gracefully.
@@ -56,5 +58,13 @@ export interface McpAdapter {
    * your app, refresh, update your store, and the next connection picks
    * up the new value. See `glove-mcp/oauth` for an opt-in OAuth-flow runner.
    */
-  getAccessToken(id: string): Promise<string>;
+  getAccessToken?(id: string): Promise<string>;
+
+  /**
+   * Resolve the full auth header map for this entry id, for servers that
+   * don't take a bearer token — e.g. `{ "x-api-key": "..." }`. Takes
+   * precedence over `getAccessToken` when both are defined. Same call
+   * timing and error semantics as `getAccessToken`.
+   */
+  getAuthHeaders?(id: string): Promise<Record<string, string>>;
 }

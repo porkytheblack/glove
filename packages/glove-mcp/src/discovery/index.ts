@@ -7,7 +7,7 @@ import type { ModelAdapter, StoreAdapter, ToolResultData } from "glove-core/core
 import type { McpAdapter, McpCatalogueEntry } from "../adapter";
 import { connectMcp } from "../connect";
 import { bridgeMcpTool, type McpToolWrapper } from "../bridge";
-import { bearer } from "../auth";
+import { adapterAuth } from "../auth";
 
 import type { DiscoveryAmbiguityPolicy } from "./policy";
 import { defaultPromptFor } from "./prompt";
@@ -96,7 +96,7 @@ function activateTool(
         const conn = await connectMcp({
           namespace: entry.id,
           url: entry.url,
-          auth: bearer(() => adapter.getAccessToken(entry.id)),
+          auth: adapterAuth(adapter, entry.id),
           clientInfo,
         });
 

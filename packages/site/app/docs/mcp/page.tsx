@@ -102,7 +102,8 @@ export default function McpPage() {
         servers into a Glove agent. Hosted MCPs (Notion, Gmail, Linear,
         GitHub, …) become first-class tools — namespaced, permission-aware,
         and discoverable mid-conversation. The framework stays agnostic: it
-        knows about bearer tokens, nothing more. OAuth dances, refresh
+        knows about static headers — a bearer token, or a custom header map
+        for servers that want one — nothing more. OAuth dances, refresh
         schedules, and credential storage live entirely in your app.
       </p>
 
@@ -200,9 +201,8 @@ await mountMcp(glove, { adapter: new MyAdapter("convo-1"), entries });`}
       <h2 id="adapter">The McpAdapter</h2>
 
       <p>
-        Per-conversation, mirrors <code>StoreAdapter</code>. Five methods.
-        State it holds: which entries are active, and how to resolve a
-        token.
+        Per-conversation, mirrors <code>StoreAdapter</code>. State it
+        holds: which entries are active, and how to resolve credentials.
       </p>
 
       <PropTable
@@ -212,7 +212,8 @@ await mountMcp(glove, { adapter: new MyAdapter("convo-1"), entries });`}
           ["getActive", "() => Promise<string[]>", "Active entry ids in this conversation. Read by mountMcp at boot for reload."],
           ["activate", "(id) => Promise<void>", "Mark active. Called by the discovery subagent after a successful connect + fold."],
           ["deactivate", "(id) => Promise<void>", "Mark inactive. v1 limitation: doesn't unfold tools from the running Glove — refresh the session for that."],
-          ["getAccessToken", "(id) => Promise<string>", "Sole auth seam. Returns a bearer token; framework wraps it as Authorization: Bearer …. Throwing fails activation/reload gracefully."],
+          ["getAccessToken?", "(id) => Promise<string>", "Bearer auth seam. Returns a token; framework wraps it as Authorization: Bearer …. Throwing fails activation/reload gracefully."],
+          ["getAuthHeaders?", "(id) => Promise<Record<string, string>>", "Custom-header auth seam for non-bearer servers (e.g. { \"x-api-key\": … }). Takes precedence over getAccessToken when both are defined; with neither, connections carry no auth headers."],
         ]}
       />
 
@@ -349,13 +350,38 @@ glove.defineSubAgent(discoverySubAgent(config));`}
       <h2 id="auth">Auth model</h2>
 
       <p>
-        The framework&apos;s auth surface is exactly one method:{" "}
-        <code>McpAdapter.getAccessToken(id) =&gt; Promise&lt;string&gt;</code>.
-        It hands the string to <code>connectMcp</code> as{" "}
-        <code>Authorization: Bearer &lt;string&gt;</code>. That&apos;s the
-        whole protocol. Where you got the token, how you refresh it, and
-        where you persist it are all your concern.
+        The framework&apos;s auth surface is two optional methods. The
+        common case is{" "}
+        <code>McpAdapter.getAccessToken(id) =&gt; Promise&lt;string&gt;</code>{" "}
+        — it hands the string to <code>connectMcp</code> as{" "}
+        <code>Authorization: Bearer &lt;string&gt;</code>. For servers that
+        don&apos;t take a bearer token (Composio&apos;s{" "}
+        <code>x-api-key</code>, for example), implement{" "}
+        <code>getAuthHeaders(id) =&gt; Promise&lt;Record&lt;string, string&gt;&gt;</code>{" "}
+        and return the full header map yourself; it takes precedence when
+        both are defined. That&apos;s the whole protocol. Where you got the
+        credentials, how you refresh them, and where you persist them are
+        all your concern.
       </p>
+
+      <CodeBlock
+        code={`class ComposioAdapter implements McpAdapter {
+  // ...getActive / activate / deactivate...
+  async getAuthHeaders(id: string) {
+    return { "x-api-key": process.env.COMPOSIO_API_KEY! };
+  }
+}
+
+// Or, calling connectMcp directly:
+import { connectMcp, headers } from "glove-mcp";
+
+const conn = await connectMcp({
+  namespace: "composio",
+  url: "https://mcp.composio.dev/...",
+  auth: headers({ "x-api-key": process.env.COMPOSIO_API_KEY! }),
+});`}
+        language="ts"
+      />
 
       <p>
         When a token expires mid-call, the bridged tool returns:
@@ -446,10 +472,11 @@ class MyAdapter implements McpAdapter {
       />
 
       <p>
-        If you have static tokens already (env vars, internal integration
-        secrets, vault reads, your own OAuth from elsewhere), skip{" "}
-        <code>glove-mcp/oauth</code> entirely.{" "}
-        <code>getAccessToken</code> is the only seam.
+        If you have static credentials already (env vars, internal
+        integration secrets, vault reads, your own OAuth from elsewhere),
+        skip <code>glove-mcp/oauth</code> entirely.{" "}
+        <code>getAccessToken</code> / <code>getAuthHeaders</code> are the
+        only seams.
       </p>
 
       {/* ================================================================== */}

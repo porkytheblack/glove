@@ -1250,7 +1250,7 @@ interface McpCatalogueEntry {
 
 ### McpAdapter
 
-Per-conversation, mirrors `StoreAdapter`. Sole auth seam is `getAccessToken`; the framework wraps the returned string as `Authorization: Bearer …`.
+Per-conversation, mirrors `StoreAdapter`. Auth seams are `getAccessToken` (the framework wraps the returned string as `Authorization: Bearer …`) and `getAuthHeaders` (full header map for non-bearer servers, e.g. `x-api-key`; wins when both are defined). With neither, connections carry no auth headers.
 
 ```ts
 interface McpAdapter {
@@ -1258,7 +1258,8 @@ interface McpAdapter {
   getActive(): Promise<string[]>;
   activate(id: string): Promise<void>;
   deactivate(id: string): Promise<void>;          // v1: doesn't unfold tools — refresh session for that
-  getAccessToken(id: string): Promise<string>;
+  getAccessToken?(id: string): Promise<string>;
+  getAuthHeaders?(id: string): Promise<Record<string, string>>;
 }
 ```
 
@@ -1360,14 +1361,21 @@ const MCP_NAMESPACE_SEP = "__";   // tool name separator
 - `requiresPermission`: `serverMode === true` → always false; else true unless `tool.annotations.readOnlyHint === true`.
 - `do`: maps `result.isError` → `{ status: "error", message: textOrFallback, data: result.content }`. 401 → `{ status: "error", message: "auth_expired", data: null }`. Otherwise success with `data` = joined text content, `renderData` = full `content[]`.
 
-### bearer
+### bearer / headers / adapterAuth
 
 ```ts
 type BearerToken = string | (() => Promise<string> | string);
 function bearer(token: BearerToken): ConnectMcpAuth;
+
+type CustomHeaders =
+  | Record<string, string>
+  | (() => Promise<Record<string, string>> | Record<string, string>);
+function headers(custom: CustomHeaders): ConnectMcpAuth;
+
+function adapterAuth(adapter: McpAdapter, id: string): ConnectMcpAuth | undefined;
 ```
 
-Wraps a token (or thunk) as a `ConnectMcpAuth` returning `Authorization: Bearer …` headers. Most consumers don't call this — `mountMcp` and discovery do internally with `bearer(() => adapter.getAccessToken(id))`.
+`bearer` wraps a token (or thunk) as a `ConnectMcpAuth` returning `Authorization: Bearer …` headers. `headers` wraps a header map (or thunk) verbatim — for non-bearer servers (e.g. `{ "x-api-key": … }`). `adapterAuth` resolves an entry's auth from the adapter's seams: `getAuthHeaders` first, then `getAccessToken` via `bearer`, else `undefined` (no auth). Most consumers don't call these — `mountMcp` and discovery use `adapterAuth(adapter, id)` internally.
 
 ### UnauthorizedError
 
