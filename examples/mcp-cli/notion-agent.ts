@@ -17,7 +17,7 @@ import {
   type TokenConsumptionCounter,
 } from "glove-core";
 import {
-  bearer,
+  adapterAuth,
   connectMcp,
   mountMcp,
   type McpAdapter,
@@ -139,7 +139,7 @@ async function preflight(entry: McpCatalogueEntry, adapter: McpAdapter) {
   const conn = await connectMcp({
     namespace: entry.id,
     url: entry.url,
-    auth: bearer(() => adapter.getAccessToken(entry.id)),
+    auth: adapterAuth(adapter, entry.id),
     clientInfo: MCP_CLIENT_INFO,
   });
   const tools = await conn.listTools();
