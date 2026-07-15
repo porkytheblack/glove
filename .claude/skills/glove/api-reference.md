@@ -1794,6 +1794,8 @@ interface EmbeddingAdapter {
 
 Out-of-band lifecycle: writes mark records `embeddingStatus: "missing" | "stale"` and return immediately; an external loop calls `findEpisodesNeedingEmbedding` / `findFilesNeedingEmbedding` → `embed` → `setEmbedding`.
 
+This lifecycle is a **generic background-indexing seam**, not embedding-specific. A BYO adapter sets `supportsSemanticSearch: true`, implements `searchEpisodes`, and lets a background worker build any index (vectors, SQLite FTS5, Postgres `tsvector`, BM25, Meilisearch, Tantivy) off `findEpisodesNeedingEmbedding` → `setEmbedding` (which commits the index artifact and marks the row `fresh`). `find` / `timeline` read the primary store and stay current; only `searchEpisodes` waits on the worker. See the `glove-memory` README "Custom adapter with a background-built index" for the full contract (honor `opts.filter`, return `{ episode, score, distance }` sorted by score, strip `provenance`, normalize relevance to [0,1] before the recency blend).
+
 ### Error hierarchy
 
 All extend `MemoryError extends Error` with a `code: string`.
@@ -1987,11 +1989,12 @@ interface EpisodicMemoryAdapter {
   /** Bulk participant rewrite — used by orchestrators to reconcile after entity merge. */
   replaceParticipantId(oldId: string, newId: string, provenance: Provenance): Promise<{ updated: number }>;
 
-  // Embedding lifecycle
+  // Background-index lifecycle (index type is the adapter's choice — vectors, FTS, BM25, …).
+  // `findEpisodesNeedingEmbedding` = the worker's dirty queue; `setEmbedding` = commit artifact + mark fresh.
   findEpisodesNeedingEmbedding(opts?: { limit?: number }): Promise<Array<{ id: string; content: string }>>;
   setEmbedding(id: string, vector: number[]): Promise<void>;
 
-  // Only callable when supportsSemanticSearch === true
+  // Backend-agnostic content search. Only callable/registered when supportsSemanticSearch === true.
   searchEpisodes?(query: string, opts?: SemanticSearchOpts): Promise<EpisodeSearchResult[]>;
 }
 

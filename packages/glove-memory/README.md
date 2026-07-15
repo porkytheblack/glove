@@ -325,7 +325,7 @@ Why this beats one Glove with everything attached:
 
 Episodic and resources adapters generate embeddings out-of-band. Writes mark records `embeddingStatus: "missing"` (initial) or `"stale"` (content change) and return immediately. A separate process — typically a [Station](https://station.dterminal.net) signal — picks them up via `findEpisodesNeedingEmbedding` / `findFilesNeedingEmbedding`, calls the configured `EmbeddingAdapter`, and writes vectors back via `setEmbedding`.
 
-The `EmbeddingAdapter` contract is intentionally tiny — consumers plug in whatever provider they want without the package taking on a model dependency.
+The `EmbeddingAdapter` contract is intentionally tiny — consumers plug in whatever provider they want without the package taking on a model dependency. The same `embeddingStatus` / `findEpisodesNeedingEmbedding` / `setEmbedding` lifecycle doubles as a **generic background-indexing seam** for any search backend, not just embeddings — see [Custom adapter with a background-built index](#custom-adapter-with-a-background-built-index-byo-search) below.
 
 ### Content search without embeddings (fuzzy mode)
 
@@ -339,6 +339,36 @@ const episodic = new InMemoryEpisodicAdapter({ schema, fuzzySearch: true });
 ```
 
 `embedder` wins when both are supplied (vector search takes precedence, and `fuzzySearch` is ignored). With neither, `supportsSemanticSearch` is `false` and the search tool is simply not registered — `find` + `timeline` remain fully available. `searchEpisodes` is backend-agnostic: the `supportsSemanticSearch` flag advertises that content search is callable, not how it ranks, so a BYO adapter can offer fuzzy, embedding, or hybrid search behind the same contract.
+
+### Custom adapter with a background-built index (BYO search)
+
+For production, implement your own `EpisodicMemoryAdapter` over your store and search backend. The `embeddingStatus` + `findEpisodesNeedingEmbedding` + `setEmbedding` methods are a **generic background-indexing lifecycle**, not embedding-specific — the index can be a vector store, SQLite FTS5, Postgres `tsvector`, a BM25 inverted index, Meilisearch, Tantivy, whatever. To back `glove_episodic_search` with it: set `supportsSemanticSearch: true` and implement `searchEpisodes`. The method groups play distinct roles:
+
+- **Writes** (`recordEpisode` / `updateEpisode` / `deleteEpisode`) — persist to your primary store, mark the row `missing` (new) or `stale` (content changed), and return immediately. No indexing on the hot path.
+- **Structured reads** (`findEpisodes` / `episodesForEntity` / `episodesBetween`) — query the primary store directly. Always current; they don't depend on the index.
+- **Index lifecycle** (`findEpisodesNeedingEmbedding` / `setEmbedding`) — your background worker's queue and commit. `findEpisodesNeedingEmbedding({ limit })` returns the dirty rows; the worker builds the index artifact and calls `setEmbedding(id, vector)` to commit it and flip the row to `fresh`.
+- **`searchEpisodes(query, opts)`** — what the tool calls. Query your index, apply `opts.filter`, return `EpisodeSearchResult[]` (`{ episode, score, distance }`) highest `score` first.
+
+```ts
+// Background worker — a Station signal, cron, or queue consumer. Index type is your choice.
+async function reindexPass() {
+  const pending = await adapter.findEpisodesNeedingEmbedding({ limit: 100 });
+  if (!pending.length) return;
+  const artifacts = await buildIndexArtifacts(pending.map((p) => p.content)); // vectors, FTS docs, BM25 postings…
+  for (let i = 0; i < pending.length; i++) {
+    await adapter.setEmbedding(pending[i].id, artifacts[i]); // commit to the index + mark fresh
+  }
+}
+```
+
+Rules to match the reference adapter's behavior:
+
+- **`supportsSemanticSearch: true` is the switch** — without it `useEpisodicReader` never folds `glove_episodic_search` and your `searchEpisodes` is dead code.
+- **Eventual consistency is inherent** — a just-recorded episode is visible to `find` / `timeline` immediately but to `search` only after the worker catches up.
+- **`searchEpisodes` must honor `opts.filter`** (`kind`, `participantIds`, `timeRange`), return `{ episode, score, distance }` sorted by `score` descending, and strip `provenance` from returned episodes (reader tools expect that).
+- **Normalize relevance to [0, 1]** before blending with recency (`score = (1 - recencyWeight) * relevance + recencyWeight * recencyScore`, default `recencyWeight = 0.2`, 30-day half-life), or `recencyWeight` won't behave like the reference adapter — BM25 scores are unbounded, so divide by the top hit or squash.
+- **Re-flag on content change only** — participant / property / occurredAt patches don't change the searchable text, so don't reindex them (mirror `updateEpisode` in the in-memory adapter).
+- **`setEmbedding`'s `vector` param is only meaningful for a vector index.** For FTS / BM25 / an external search service, ignore it and treat `setEmbedding` as "write my doc + mark fresh". It's non-optional on the interface, so you still implement it.
 
 ### Implementation choices in the in-memory adapters
 

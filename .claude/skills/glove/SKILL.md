@@ -997,7 +997,7 @@ Each helper folds the relevant tool surface onto a Glove. All return the same `G
 
 | Tool | Purpose |
 |------|---------|
-| `glove_episodic_search` | Semantic search over episode content *(only when `supportsSemanticSearch`)* |
+| `glove_episodic_search` | Content search over episodes — embedding-based semantic or in-process fuzzy/lexical, depending on the adapter *(only when `supportsSemanticSearch`)* |
 | `glove_episodic_find` | Structured filter — by kind, participant, time range, properties |
 | `glove_episodic_timeline` | Chronological listing for an entity or time window |
 | `glove_episodic_record` | Append a new episode *(curator)* |
@@ -1120,6 +1120,24 @@ for (let i = 0; i < pending.length; i++) {
 ```
 
 Resources use `findFilesNeedingEmbedding` / `setEmbedding` (both optional on `ResourceFsAdapter`, present only when `supportsSemanticSearch === true`). Stale marking on episodes is **content-only** in the in-memory adapter — `kind` / `participants` / `properties` / `occurredAt` patches don't re-embed; consumers wanting different behaviour can delete + re-record. The recency blend in `searchEpisodes` defaults to `recencyWeight = 0.2` with a 30-day half-life.
+
+### Custom episodic adapter with a background index (BYO search)
+
+The `embeddingStatus` + `findEpisodesNeedingEmbedding` + `setEmbedding` lifecycle is a **generic background-indexing seam**, not embedding-specific — the index can be vectors, SQLite FTS5, Postgres `tsvector`, BM25, Meilisearch, Tantivy, etc. To back `glove_episodic_search` with a custom index, implement `EpisodicMemoryAdapter` with `supportsSemanticSearch: true` and a `searchEpisodes` method. The method groups play distinct roles:
+
+- **Writes** (`recordEpisode` / `updateEpisode` / `deleteEpisode`) persist to the primary store, mark the row `missing` (new) / `stale` (content changed), and return fast — no indexing on the hot path.
+- **Structured reads** (`findEpisodes` / `episodesForEntity` / `episodesBetween`) hit the primary store directly and are always current — they don't touch the index.
+- **Index lifecycle** (`findEpisodesNeedingEmbedding` → build artifact → `setEmbedding`) is the background worker's queue + commit. `setEmbedding(id, vector)` commits the index artifact and flips the row to `fresh`.
+- **`searchEpisodes(query, opts)`** is what the tool calls: query the index, apply `opts.filter` (`kind` / `participantIds` / `timeRange`), return `EpisodeSearchResult[]` (`{ episode, score, distance }`) highest-`score`-first.
+
+```ts
+// Out-of-band worker (Station signal / cron / queue). Index type is your choice.
+const pending = await adapter.findEpisodesNeedingEmbedding({ limit: 100 });
+const artifacts = await buildIndex(pending.map((p) => p.content)); // vectors | FTS docs | BM25 postings
+for (let i = 0; i < pending.length; i++) await adapter.setEmbedding(pending[i].id, artifacts[i]);
+```
+
+Contract rules (match the reference adapter): `supportsSemanticSearch: true` is the switch that folds the search tool — without it `searchEpisodes` is dead code; a just-written episode is searchable only after the worker catches up (eventual consistency — `find`/`timeline` see it immediately); `searchEpisodes` must honor `opts.filter`, sort by `score` desc, and strip `provenance`; normalize relevance to [0,1] before the recency blend (`(1 - recencyWeight) * relevance + recencyWeight * recencyScore`, default `recencyWeight = 0.2`, 30-day half-life) since BM25 scores are unbounded; re-flag on content change only; `setEmbedding`'s `vector` param is only meaningful for a vector index — for lexical/external indexes ignore it and treat `setEmbedding` as "write doc + mark fresh" (still required by the interface).
 
 ### Reconciliation primitives
 

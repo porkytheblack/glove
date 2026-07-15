@@ -428,7 +428,7 @@ const curator = new Glove({ /* ... */ })
           </tr>
         </thead>
         <tbody>
-          <tr><td><code>glove_episodic_search</code></td><td>Semantic search over episode content <em>(only registered when adapter advertises <code>supportsSemanticSearch</code>)</em></td></tr>
+          <tr><td><code>glove_episodic_search</code></td><td>Content search over episodes — embedding-based semantic or in-process fuzzy/lexical, depending on the adapter <em>(only registered when adapter advertises <code>supportsSemanticSearch</code>)</em></td></tr>
           <tr><td><code>glove_episodic_find</code></td><td>Structured filter — by kind, participant, time range, properties</td></tr>
           <tr><td><code>glove_episodic_timeline</code></td><td>Chronological listing for an entity or time window</td></tr>
           <tr><td><code>glove_episodic_record</code></td><td>Append a new episode <em>(curator)</em></td></tr>
@@ -510,7 +510,107 @@ const curator = new Glove({ /* ... */ })
       <p>
         The <code>EmbeddingAdapter</code> contract is intentionally tiny —
         consumers plug in whatever provider they want without the package
-        taking on a model dependency.
+        taking on a model dependency. The same <code>embeddingStatus</code> /{" "}
+        <code>findEpisodesNeedingEmbedding</code> / <code>setEmbedding</code>{" "}
+        lifecycle doubles as a{" "}
+        <strong>generic background-indexing seam</strong> for any search
+        backend — not just embeddings (see below).
+      </p>
+
+      {/* ------------------------------------------------------------------ */}
+      <h3>Content search without embeddings (fuzzy mode)</h3>
+
+      <p>
+        Embeddings are <strong>opt-in, not required</strong>.{" "}
+        <code>glove_episodic_find</code> (kind / participant / time / property
+        filters) and <code>glove_episodic_timeline</code> need nothing. Only{" "}
+        <code>glove_episodic_search</code> needs a ranking backend, and that
+        backend doesn&apos;t have to be vectors. Pass{" "}
+        <code>fuzzySearch: true</code> (and no <code>embedder</code>) to{" "}
+        <code>InMemoryEpisodicAdapter</code> for in-process lexical search over
+        episode content — exact-phrase and substring hits plus a bigram-Dice
+        fuzzy fallback that tolerates typos. It sets{" "}
+        <code>supportsSemanticSearch: true</code> with zero external services,
+        no vectors, and no out-of-band embed loop. <code>embedder</code> wins
+        when both are supplied.
+      </p>
+
+      <CodeBlock
+        filename="content search, no embeddings"
+        language="ts"
+        code={`// No embeddings, no external service — content search still works.
+const episodic = new InMemoryEpisodicAdapter({ schema, fuzzySearch: true });`}
+      />
+
+      {/* ------------------------------------------------------------------ */}
+      <h3>Custom adapter with a background-built index (BYO search)</h3>
+
+      <p>
+        For production, implement your own{" "}
+        <code>EpisodicMemoryAdapter</code>. The <code>embeddingStatus</code> +{" "}
+        <code>findEpisodesNeedingEmbedding</code> + <code>setEmbedding</code>{" "}
+        methods are a{" "}
+        <strong>generic background-indexing lifecycle</strong> — the index can
+        be a vector store, SQLite FTS5, Postgres <code>tsvector</code>, BM25,
+        Meilisearch, Tantivy. To back <code>glove_episodic_search</code> with
+        it, set <code>supportsSemanticSearch: true</code> and implement{" "}
+        <code>searchEpisodes</code>.
+      </p>
+
+      <ul>
+        <li>
+          <strong>Writes</strong> (<code>recordEpisode</code> /{" "}
+          <code>updateEpisode</code> / <code>deleteEpisode</code>) persist to
+          the primary store, mark the row <code>missing</code> /{" "}
+          <code>stale</code>, and return immediately — no indexing on the hot
+          path.
+        </li>
+        <li>
+          <strong>Structured reads</strong> (<code>findEpisodes</code> /{" "}
+          <code>episodesForEntity</code> / <code>episodesBetween</code>) query
+          the primary store directly and stay current — they don&apos;t depend
+          on the index.
+        </li>
+        <li>
+          <strong>Index lifecycle</strong>:{" "}
+          <code>findEpisodesNeedingEmbedding</code> returns the dirty rows; the
+          background worker builds the index artifact and calls{" "}
+          <code>setEmbedding(id, vector)</code> to commit it and mark the row{" "}
+          <code>fresh</code>.
+        </li>
+        <li>
+          <strong>
+            <code>searchEpisodes(query, opts)</code>
+          </strong>{" "}
+          queries the index, applies <code>opts.filter</code>, and returns{" "}
+          <code>&#123; episode, score, distance &#125;</code> sorted by{" "}
+          <code>score</code> descending (strip <code>provenance</code>;
+          normalize relevance to [0, 1] before the recency blend).
+        </li>
+      </ul>
+
+      <CodeBlock
+        filename="out-of-band reindex worker"
+        language="ts"
+        code={`// A Station signal, cron, or queue consumer. Index type is your choice.
+async function reindexPass() {
+  const pending = await adapter.findEpisodesNeedingEmbedding({ limit: 100 });
+  if (!pending.length) return;
+  const artifacts = await buildIndex(pending.map((p) => p.content)); // vectors | FTS docs | BM25 postings
+  for (let i = 0; i < pending.length; i++) {
+    await adapter.setEmbedding(pending[i].id, artifacts[i]); // commit + mark fresh
+  }
+}`}
+      />
+
+      <p>
+        A just-recorded episode is visible to <code>find</code> /{" "}
+        <code>timeline</code> immediately but to <code>search</code> only after
+        the worker catches up (eventual consistency).{" "}
+        <code>setEmbedding</code>&apos;s <code>vector</code> param is only
+        meaningful for a vector index — for FTS / BM25 / an external service,
+        ignore it and treat <code>setEmbedding</code> as{" "}
+        &quot;write my doc + mark fresh&quot;.
       </p>
 
       <h3>Implementation choices in the in-memory adapters</h3>
