@@ -836,9 +836,10 @@ What it does, in order:
 `bridgeMcpTool(connection, tool, serverMode)` produces a `GloveFoldArgs` with these conventions:
 
 - **Name**: `${entry.id}__${tool.name}` (e.g. `notion__search`). The `__` separator (exported as `MCP_NAMESPACE_SEP`) is regex-safe across all model providers.
-- **Schema**: raw JSON Schema from the MCP server, passed via `jsonSchema` (no Zod). The MCP server is the source of truth.
+- **Input schema**: raw JSON Schema from the MCP server, passed via `jsonSchema` (no Zod). The MCP server is the source of truth.
+- **Result shape**: when the server declares an `outputSchema` (MCP 2025-06-18+), a compact `Returns: …` shape (via `jsonSchemaToShape`, exported) is appended to the tool description — model tool-call wire formats are input-only, so the description is the only channel to surface the return shape on the plain bridged path. Servers below that revision, or without a declared schema, omit it.
 - **`requiresPermission`**: in `serverMode` always `false`; otherwise `true` unless the MCP tool annotates `readOnlyHint: true`.
-- **Result**: server `content[]` text is joined into `data` (what the model sees); the full `content[]` is also passed through as `renderData` so React renderers can use it.
+- **Result**: the model sees the server's `structuredContent` when present (MCP 2025-06-18+, JSON-stringified into `data`), else the joined `content[]` text; the full `content[]` is always passed through as `renderData` so React renderers can use it.
 - **Auth-expired contract**: any 401-shaped error during `callTool` is mapped to `{ status: "error", message: "auth_expired", data: null }`. Detect this from the conversation log, refresh your token, and the next call picks up the new value via `getAccessToken`.
 
 ### Discovery (`discovermcp`) and ambiguity policies

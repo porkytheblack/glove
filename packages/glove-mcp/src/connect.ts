@@ -8,6 +8,13 @@ export interface McpToolDef {
   name: string;
   description?: string;
   inputSchema: Record<string, unknown>;
+  /**
+   * JSON Schema for the tool's structured result (MCP 2025-06-18+). Present only
+   * when the server declares one; older servers omit it. Consumers render it into
+   * a result shape (see `jsonSchemaToShape`) so the model knows the return shape
+   * without calling the tool first.
+   */
+  outputSchema?: Record<string, unknown>;
   annotations?: {
     readOnlyHint?: boolean;
     destructiveHint?: boolean;
@@ -17,6 +24,12 @@ export interface McpToolDef {
 
 export interface McpCallToolResult {
   content: Array<{ type: string; text?: string;[k: string]: unknown }>;
+  /**
+   * Structured result payload (MCP 2025-06-18+) matching the tool's
+   * `outputSchema`. Present only when the server returns one. Preferred over the
+   * joined text content when surfacing the result to the model.
+   */
+  structuredContent?: unknown;
   isError?: boolean;
 }
 
@@ -86,18 +99,25 @@ export async function connectMcp(
 
     async listTools(): Promise<McpToolDef[]> {
       const result = await client.listTools();
-      return result.tools.map((t) => ({
-        name: t.name,
-        description: t.description,
-        inputSchema: t.inputSchema as Record<string, unknown>,
-        annotations: t.annotations
-          ? {
-              readOnlyHint: t.annotations.readOnlyHint,
-              destructiveHint: t.annotations.destructiveHint,
-              idempotentHint: t.annotations.idempotentHint,
-            }
-          : undefined,
-      }));
+      return result.tools.map((t) => {
+        // Read defensively via cast: `outputSchema` only exists on SDK types at
+        // the 2025-06-18 revision, and servers below it simply omit the field.
+        const outputSchema = (t as { outputSchema?: Record<string, unknown> })
+          .outputSchema;
+        return {
+          name: t.name,
+          description: t.description,
+          inputSchema: t.inputSchema as Record<string, unknown>,
+          ...(outputSchema ? { outputSchema } : {}),
+          annotations: t.annotations
+            ? {
+                readOnlyHint: t.annotations.readOnlyHint,
+                destructiveHint: t.annotations.destructiveHint,
+                idempotentHint: t.annotations.idempotentHint,
+              }
+            : undefined,
+        };
+      });
     },
 
     async callTool(name: string, args: unknown): Promise<McpCallToolResult> {
@@ -105,8 +125,11 @@ export async function connectMcp(
         name,
         arguments: (args ?? {}) as Record<string, unknown>,
       });
+      const structuredContent = (result as { structuredContent?: unknown })
+        .structuredContent;
       return {
         content: (result.content ?? []) as McpCallToolResult["content"],
+        ...(structuredContent !== undefined ? { structuredContent } : {}),
         isError: Boolean(result.isError),
       };
     },

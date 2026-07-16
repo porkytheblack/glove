@@ -41,6 +41,12 @@ export function parseToolData(data: unknown): unknown {
 export interface FnFromToolOptions {
   /** Override the callable name (default: the tool's own name). */
   name?: string;
+  /**
+   * Override the description (default: the tool's own). Lets callers pass the
+   * original, un-decorated description when the bridged tool's own description
+   * carries a rendered result shape they instead surface via {@link resultShape}.
+   */
+  description?: string;
   /** Effect hint surfaced in `fns()` / the primed catalog. */
   readOnlyHint?: boolean;
   /** Override result parsing. Default {@link parseToolData}. */
@@ -49,6 +55,12 @@ export interface FnFromToolOptions {
   server?: string;
   /** One-line description of the origin server. */
   serverDescription?: string;
+  /**
+   * Seed the result shape (e.g. from an MCP tool's declared `outputSchema`) so
+   * the surfaces show it without a live sample. When set, {@link ../fns/shape!sampleOne}
+   * leaves it untouched.
+   */
+  resultShape?: string;
 }
 
 /** Read a tool's input schema as JSON Schema, whichever way it was declared. */
@@ -78,11 +90,12 @@ export function fnFromTool<I>(tool: GloveFoldArgs<I>, opts: FnFromToolOptions = 
   const parse = opts.parse ?? parseToolData;
   return {
     name,
-    description: tool.description,
+    description: opts.description ?? tool.description,
     inputSchema: toolInputJsonSchema(tool as GloveFoldArgs<unknown>),
     readOnlyHint: opts.readOnlyHint,
     ...(opts.server !== undefined ? { server: opts.server } : {}),
     ...(opts.serverDescription !== undefined ? { serverDescription: opts.serverDescription } : {}),
+    ...(opts.resultShape !== undefined ? { resultShape: opts.resultShape } : {}),
     async call(args, ctx = {}) {
       let input: unknown = args;
       if (zod && typeof zod.safeParse === "function") {

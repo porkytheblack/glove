@@ -8,7 +8,7 @@
  * `glove-mcp` is an OPTIONAL peer dependency — this subpath only resolves when
  * you've added it yourself (like `glove-scratchpad/mcp`).
  */
-import { bridgeMcpTool } from "glove-mcp";
+import { bridgeMcpTool, jsonSchemaToShape } from "glove-mcp";
 import type { McpServerConnection, McpToolDef } from "glove-mcp";
 import type { ToolFn } from "./catalog";
 import { fnFromTool } from "./from-tool";
@@ -58,13 +58,22 @@ export async function fnsFromMcp(
     const renamed = opts.filter ? opts.filter(def) : undefined;
     if (renamed === null) continue;
     const bridged = bridgeMcpTool(conn, def, serverMode);
+    // A server-declared outputSchema (MCP 2025-06-18+) is the authoritative
+    // result shape — seed it so the surfaces show it without a live sample, and
+    // pass the tool's ORIGINAL description so the shape isn't shown twice (the
+    // bridged description appends its own `Returns: …` for the plain-tool path).
+    const resultShape = def.outputSchema ? jsonSchemaToShape(def.outputSchema) : undefined;
     out.push(
       fnFromTool(bridged, {
         ...(renamed !== undefined ? { name: renamed } : {}),
+        ...(resultShape !== undefined && def.description !== undefined
+          ? { description: def.description }
+          : {}),
         readOnlyHint: def.annotations?.readOnlyHint === true ? true : undefined,
         parse: opts.parse,
         server: conn.namespace,
         ...(serverDescription !== undefined ? { serverDescription } : {}),
+        ...(resultShape !== undefined ? { resultShape } : {}),
       }),
     );
   }
