@@ -1335,11 +1335,13 @@ interface McpToolDef {
   name: string;
   description?: string;
   inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;   // structured-result schema (MCP 2025-06-18+); absent on older servers
   annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean };
 }
 
 interface McpCallToolResult {
   content: Array<{ type: string; text?: string; [k: string]: unknown }>;
+  structuredContent?: unknown;              // structured payload (MCP 2025-06-18+); preferred over text when present
   isError?: boolean;
 }
 ```
@@ -1354,12 +1356,17 @@ function bridgeMcpTool(
 ): GloveFoldArgs<unknown>;
 
 const MCP_NAMESPACE_SEP = "__";   // tool name separator
+
+function jsonSchemaToShape(schema: unknown, depth?: number): string | undefined;
 ```
 
 - Names: `${connection.namespace}__${tool.name}`.
 - `jsonSchema: tool.inputSchema` (raw forwarded; executor skips Zod validation).
+- Description: when `tool.outputSchema` is present (MCP 2025-06-18+), a compact `Returns: <shape>` line (via `jsonSchemaToShape`) is appended — the only model-facing channel for the return shape on the plain bridged path, since tool-call wire formats are input-only.
 - `requiresPermission`: `serverMode === true` → always false; else true unless `tool.annotations.readOnlyHint === true`.
-- `do`: maps `result.isError` → `{ status: "error", message: textOrFallback, data: result.content }`. 401 → `{ status: "error", message: "auth_expired", data: null }`. Otherwise success with `data` = joined text content, `renderData` = full `content[]`.
+- `do`: maps `result.isError` → `{ status: "error", message: textOrFallback, data: result.content }`. 401 → `{ status: "error", message: "auth_expired", data: null }`. Otherwise success with `data` = `result.structuredContent` (JSON-stringified) when present, else joined text content; `renderData` = full `content[]`.
+
+`jsonSchemaToShape(schema)` renders a JSON Schema into the compact TS-like result-shape string (`{ id: string, count: number, status: "open"|"closed" }[]`) — the declared counterpart to glove-scratchpad's value-sampling `deriveShape`, so both sources render one shape vocabulary. Returns `undefined` for a shapeless node.
 
 ### bearer / headers / adapterAuth
 

@@ -499,10 +499,20 @@ class MyAdapter implements McpAdapter {
           The <code>__</code> separator is safe across providers.
         </li>
         <li>
-          <strong>Schema</strong> — the MCP server&apos;s{" "}
+          <strong>Input schema</strong> — the MCP server&apos;s{" "}
           <code>inputSchema</code> (raw JSON Schema) is forwarded verbatim
-          via the new <code>Tool.jsonSchema</code> field. The executor
+          via the <code>Tool.jsonSchema</code> field. The executor
           skips local Zod validation; the server is the source of truth.
+        </li>
+        <li>
+          <strong>Result shape</strong> — when the server declares an{" "}
+          <code>outputSchema</code> (MCP spec revision 2025-06-18+), a compact{" "}
+          <code>Returns: …</code> shape (rendered by the exported{" "}
+          <code>jsonSchemaToShape</code>) is appended to the tool description
+          so the model knows the return shape up front. Model tool-call wire
+          formats are input-only, so the description is the only channel to
+          surface it on the plain bridged path. Servers below that revision, or
+          without a declared schema, omit it.
         </li>
         <li>
           <strong>Permission gating</strong> — derived from the MCP tool&apos;s
@@ -513,11 +523,13 @@ class MyAdapter implements McpAdapter {
           <code>readOnlyHint: true</code>.
         </li>
         <li>
-          <strong>renderData</strong> — the full MCP{" "}
-          <code>content[]</code> array (text, images, resources) is passed
-          through as <code>renderData</code> on the tool result. Server-side
-          agents ignore it; React renderers can use it for rich display.
-          The model only ever sees the joined text in <code>data</code>.
+          <strong>Result data</strong> — the model sees the server&apos;s{" "}
+          <code>structuredContent</code> when present (MCP 2025-06-18+,
+          JSON-stringified into <code>data</code>), else the joined text.
+          The full MCP <code>content[]</code> array (text, images, resources)
+          is always passed through as <code>renderData</code> on the tool
+          result — server-side agents ignore it; React renderers can use it
+          for rich display.
         </li>
         <li>
           <strong>auth_expired</strong> — 401 / unauthorized responses
