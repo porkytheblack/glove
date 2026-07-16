@@ -9,6 +9,7 @@ export type {
 export { connectMcp, UnauthorizedError } from "./connect";
 export { bridgeMcpTool, MCP_NAMESPACE_SEP } from "./bridge";
 export type { McpToolWrapper } from "./bridge";
+export { jsonSchemaToShape } from "./shape";
 export { bearer, headers, adapterAuth } from "./auth";
 export type { BearerToken, CustomHeaders } from "./auth";
 export { mountMcp } from "./mount";

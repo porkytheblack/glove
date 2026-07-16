@@ -3,6 +3,7 @@ import type { ToolResultData } from "glove-core/core";
 import type { McpCatalogueEntry } from "./adapter";
 import type { McpCallToolResult, McpServerConnection, McpToolDef } from "./connect";
 import { UnauthorizedError } from "./connect";
+import { jsonSchemaToShape } from "./shape";
 
 /** Tool namespace separator. Regex-safe across all model providers. */
 const NAMESPACE_SEP = "__";
@@ -47,13 +48,18 @@ function isAuthError(err: unknown): boolean {
  * - Tool names are namespaced as `${connection.namespace}__${tool.name}`.
  * - Raw JSON Schema is passed through via `jsonSchema` — the executor skips
  *   local Zod validation; the MCP server is the source of truth.
+ * - When the server declares an `outputSchema` (MCP 2025-06-18+), a compact
+ *   `Returns: …` shape is appended to the description so the model knows the
+ *   return shape up front. Model tool-call wire formats are input-only, so the
+ *   description is the only channel to surface it on the plain bridged path.
  * - `requiresPermission` defaults: in `serverMode` always false; otherwise
  *   true unless the tool is annotated `readOnlyHint: true`.
  * - 401-shaped errors during call are mapped to a documented
  *   `{ status: "error", message: "auth_expired" }` result so consumers can
  *   detect token expiry from the conversation log.
- * - Full MCP `content[]` is passed through as `renderData` for React renderers
- *   to use; the model only sees the joined text in `data`.
+ * - The model sees the server's `structuredContent` when present (MCP
+ *   2025-06-18+), else the joined text, in `data`. Full MCP `content[]` is
+ *   always passed through as `renderData` for React renderers to use.
  */
 export function bridgeMcpTool(
   connection: McpServerConnection,
@@ -61,7 +67,9 @@ export function bridgeMcpTool(
   serverMode: boolean,
 ): GloveFoldArgs<unknown> {
   const name = `${connection.namespace}${NAMESPACE_SEP}${tool.name}`;
-  const description = tool.description ?? `MCP tool ${tool.name}`;
+  const baseDescription = tool.description ?? `MCP tool ${tool.name}`;
+  const shape = tool.outputSchema ? jsonSchemaToShape(tool.outputSchema) : undefined;
+  const description = shape ? `${baseDescription}\n\nReturns: ${shape}` : baseDescription;
 
   const requiresPermission = serverMode
     ? false
@@ -87,9 +95,17 @@ export function bridgeMcpTool(
           };
         }
 
+        // Prefer the server's structured result when present: the model sees
+        // typed data matching the tool's outputSchema instead of re-parsing
+        // joined text. Fall back to text (then raw content) otherwise.
+        const data =
+          result.structuredContent !== undefined
+            ? JSON.stringify(result.structuredContent)
+            : text || JSON.stringify(result.content);
+
         return {
           status: "success",
-          data: text || JSON.stringify(result.content),
+          data,
           renderData: result.content,
         };
       } catch (err) {
