@@ -33,7 +33,7 @@ One call. The rows never enter the model's context — only the answer string do
 
 ## Why a REPL (and why Python)
 
-The [scratchpad work](../../examples/scratchpad-bench/PAPER.md) showed that
+The [scratchpad work](../../benches/scratchpad-bench/PAPER.md) showed that
 folding an agent's capabilities behind ONE code-eval tool beats loading dozens
 of tool definitions — on correctness, on context, and on cost — *because the
 model computes over results in the sandbox instead of round-tripping every
@@ -164,7 +164,7 @@ The `workflow` framing never says "REPL"; it frames the call as ONE complete
 program that carries the task start to finish and demotes cross-call persistence
 to a retry-only recovery aid — countering the tendency of models to degrade the
 surface into an incremental line-by-line session. See
-[`examples/scratchpad-bench/FRAME-PAPER.md`](../../examples/scratchpad-bench/FRAME-PAPER.md)
+[`benches/scratchpad-bench/FRAME-PAPER.md`](../../benches/scratchpad-bench/FRAME-PAPER.md)
 for the A/B; `pyToolName(frame)` / `buildPyPreambleBody(frame)` expose the mapping.
 Default is `repl`, so existing mounts are unchanged.
 
@@ -176,10 +176,10 @@ evaluator subset and sandbox are covered by 68 unit tests
 rejection cases; all 11 deterministic capability probes pass
 (`pnpm --filter glove-scratchpad-bench probe:py`).
 
-![Python is parity-class with the hardened JS and Lisp arms](../../examples/scratchpad-bench/figures/repl-pyab.svg)
+![Python is parity-class with the hardened JS and Lisp arms](../../benches/scratchpad-bench/figures/repl-pyab.svg)
 
 A live A/B (6 models × 10 tasks × 3 function-mode arms, same servers/seed/graders
-— see [`examples/scratchpad-bench/PY-EXPLORATION.md`](../../examples/scratchpad-bench/PY-EXPLORATION.md))
+— see [`benches/scratchpad-bench/PY-EXPLORATION.md`](../../benches/scratchpad-bench/PY-EXPLORATION.md))
 found `pyrepl` **parity-class with the hardened `jsrepl` and `lispfns`**: 88%
 (53/60) vs 93% (56/60) each, a 3-cell gap in a 60-cell run driven entirely by
 shared failure classes (two just-under-threshold id-list cells where frontier

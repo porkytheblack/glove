@@ -24,6 +24,43 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  benches/scratchpad-bench:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-js:
+        specifier: workspace:*
+        version: link:../../packages/glove-js
+      glove-lisp:
+        specifier: workspace:*
+        version: link:../../packages/glove-lisp
+      glove-mcp:
+        specifier: workspace:*
+        version: link:../../packages/glove-mcp
+      glove-python:
+        specifier: workspace:*
+        version: link:../../packages/glove-python
+      glove-scratchpad:
+        specifier: workspace:*
+        version: link:../../packages/glove-scratchpad
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   examples/coding-agent:
     dependencies:
       '@types/node':
@@ -337,43 +374,6 @@ importers:
       glove-core:
         specifier: workspace:*
         version: link:../../packages/glove
-      glove-scratchpad:
-        specifier: workspace:*
-        version: link:../../packages/glove-scratchpad
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@types/node':
-        specifier: ^25.2.3
-        version: 25.2.3
-      tsx:
-        specifier: ^4.19.0
-        version: 4.21.0
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-
-  examples/scratchpad-bench:
-    dependencies:
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.29.0
-        version: 1.29.0(zod@4.3.6)
-      glove-core:
-        specifier: workspace:*
-        version: link:../../packages/glove
-      glove-js:
-        specifier: workspace:*
-        version: link:../../packages/glove-js
-      glove-lisp:
-        specifier: workspace:*
-        version: link:../../packages/glove-lisp
-      glove-mcp:
-        specifier: workspace:*
-        version: link:../../packages/glove-mcp
-      glove-python:
-        specifier: workspace:*
-        version: link:../../packages/glove-python
       glove-scratchpad:
         specifier: workspace:*
         version: link:../../packages/glove-scratchpad

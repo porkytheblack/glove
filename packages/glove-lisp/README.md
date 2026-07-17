@@ -129,7 +129,7 @@ The model then works the same way, but calls are plain function applications:
 
 ## Why a Lisp (when the SQL emulator already works)
 
-The [scratchpad benchmark](../../examples/scratchpad-bench/PAPER.md) showed the
+The [scratchpad benchmark](../../benches/scratchpad-bench/PAPER.md) showed the
 SQL surface beats direct tool-folding on correctness, context, and cost — and
 named two honest limits. Both are structural to SQL, and both dissolve in a
 Lisp:
@@ -188,7 +188,7 @@ The `workflow` framing never says "REPL"; it frames the call as ONE complete
 program that carries the task start to finish and demotes cross-call `def`
 persistence to a retry-only recovery aid — countering the tendency of models to
 degrade the surface into an incremental form-by-form session. See
-[`examples/scratchpad-bench/FRAME-PAPER.md`](../../examples/scratchpad-bench/FRAME-PAPER.md)
+[`benches/scratchpad-bench/FRAME-PAPER.md`](../../benches/scratchpad-bench/FRAME-PAPER.md)
 for the A/B; `lispToolName(frame)` / `buildLispFnPreamble(frame)` expose the
 mapping. Default is `repl`, so existing mounts are unchanged.
 
@@ -275,7 +275,7 @@ computation budget exceeded — … filter/take before mapping, use (count …) 
 - **Not a replacement for the SQL surface (yet).** Set-at-a-time analytics over
   large tables reads more naturally in SQL, and SQL fluency in the weakest
   models is proven where Lisp fluency is hypothesized. See the
-  [exploration writeup](../../examples/scratchpad-bench/LISP-EXPLORATION.md).
+  [exploration writeup](../../benches/scratchpad-bench/LISP-EXPLORATION.md).
 
 ## Status
 

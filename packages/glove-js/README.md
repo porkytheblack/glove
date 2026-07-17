@@ -35,7 +35,7 @@ One call. The rows never enter the model's context — only the answer string do
 
 ## Why a REPL (and why JavaScript)
 
-The [scratchpad work](../../examples/scratchpad-bench/PAPER.md) showed that
+The [scratchpad work](../../benches/scratchpad-bench/PAPER.md) showed that
 folding an agent's capabilities behind ONE code-eval tool beats loading dozens
 of tool definitions — on correctness, on context, and on cost — *because the
 model computes over results in the sandbox instead of round-tripping every
@@ -156,7 +156,7 @@ mountJs(agent, { session, frame: "workflow" });  // frame: "workflow" → execut
 ```
 
 The bet (see
-[`examples/scratchpad-bench/FRAME-PAPER.md`](../../examples/scratchpad-bench/FRAME-PAPER.md)):
+[`benches/scratchpad-bench/FRAME-PAPER.md`](../../benches/scratchpad-bench/FRAME-PAPER.md)):
 the token "REPL" pattern-matches to an interactive, line-by-line *session*, so
 models degrade the surface back into an incremental tool-call loop — peek at a
 row, then run a second program. The `workflow` framing never says "REPL"; it
@@ -174,7 +174,7 @@ and sandbox are covered by unit tests (`pnpm --filter glove-js test`), and the
 sandbox boundary survived an adversarial escape review.
 
 A live A/B (6 models × 10 tasks × 5 arms — see
-[`examples/scratchpad-bench/JS-EXPLORATION.md`](../../examples/scratchpad-bench/JS-EXPLORATION.md))
+[`benches/scratchpad-bench/JS-EXPLORATION.md`](../../benches/scratchpad-bench/JS-EXPLORATION.md))
 found that `execute_js` reproduces the SQL/Lisp **off-context benefit** and is
 fully competitive on frontier/mid models, while **function mode reaches parity
 with the ResourceTable contract**. The first run's weak-tail misses were two
