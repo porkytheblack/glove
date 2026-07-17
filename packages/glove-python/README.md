@@ -148,6 +148,26 @@ the function).
 | The parser | `parseProgram(code)` — `@lezer/python` + a CST→AST normalizing walk |
 | The sandbox boundary | attribute access mediated by `members.ts` (the security-critical file) |
 
+## Framing: `execute_python` vs `execute_python_workflow`
+
+The eval tool ships three interchangeable framings, chosen at mount time with
+`frame` — the runtime is identical, only the tool NAME and the primed preamble
+change:
+
+```ts
+mountPy(agent, { session });                     // frame: "repl"     → execute_python (default)
+mountPy(agent, { session, frame: "program" });   // frame: "program"  → execute_python_program
+mountPy(agent, { session, frame: "workflow" });  // frame: "workflow" → execute_python_workflow
+```
+
+The `workflow` framing never says "REPL"; it frames the call as ONE complete
+program that carries the task start to finish and demotes cross-call persistence
+to a retry-only recovery aid — countering the tendency of models to degrade the
+surface into an incremental line-by-line session. See
+[`examples/scratchpad-bench/FRAME-PAPER.md`](../../examples/scratchpad-bench/FRAME-PAPER.md)
+for the A/B; `pyToolName(frame)` / `buildPyPreambleBody(frame)` expose the mapping.
+Default is `repl`, so existing mounts are unchanged.
+
 ## Status
 
 Draft v0.1 — a fluency exploration alongside `glove-js` and `glove-lisp`. The

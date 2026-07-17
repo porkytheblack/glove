@@ -34,6 +34,16 @@ inspectability) and its no-API-key validation
 through the Lisp surface). It is opt-in:
 `pnpm bench --arms=baseline,scratchpad,lisp`.
 
+A separate **frame A/B** ([**Is a workflow just a renamed REPL?**](FRAME-PAPER.md))
+reuses this whole layer to ask a narrower question: holding the runtime, catalog,
+scenarios, and models fixed, does *renaming* the one eval tool
+(`execute_js` → `execute_js_workflow`) and de-REPLing its priming make a model
+author the whole task as **one program** instead of degrading the surface into an
+incremental tool-call loop? It measures eval calls per task, single-call rate, and
+pass rate across the three framings (`repl` / `program` / `workflow`):
+`pnpm --filter glove-scratchpad-bench frame-bench` (no-API validation:
+`frame-selfcheck`).
+
 ## What's measured
 
 Per (model × scenario × arm) run, from the agent's own event stream:

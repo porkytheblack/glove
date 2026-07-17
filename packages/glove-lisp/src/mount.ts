@@ -1,6 +1,18 @@
 /**
- * Mount the Lisp REPL onto a Glove agent: fold `execute_lisp` (+
- * `explain_lisp`) and prime the model to discover → read → compute → act.
+ * Mount the Lisp surface onto a Glove agent: fold the eval tool (+ its explain
+ * companion) and prime the model to discover → read → compute → act.
+ *
+ * Ships THREE interchangeable framings of the same eval tool, chosen at mount
+ * time with `frame`:
+ *   - `"repl"` (default) — persistent REPL. Tools `execute_lisp` / `explain_lisp`.
+ *   - `"program"` — complete-program framing. Tools `execute_lisp_program` /
+ *     `explain_lisp_program`.
+ *   - `"workflow"` — one-shot-workflow framing that de-REPLs the priming (author
+ *     the WHOLE task as one program). Tools `execute_lisp_workflow` /
+ *     `explain_lisp_workflow`.
+ *
+ * The runtime is identical across framings — only the tool NAMES and the priming
+ * change. See the bench's FRAME-PAPER for the rationale.
  */
 import { z } from "zod";
 import { describeFn } from "glove-scratchpad";
@@ -9,71 +21,136 @@ import type { ToolResultData } from "glove-core/core";
 import { explainProgram } from "./explain";
 import type { LispSession } from "./session";
 
+/** Which framing of the eval tool to mount. See the module doc. */
+export type Frame = "repl" | "program" | "workflow";
+
+/** The eval tool's name for a framing (`execute_lisp` / `_program` / `_workflow`). */
+export function lispToolName(frame: Frame = "repl"): string {
+  return frame === "program" ? "execute_lisp_program" : frame === "workflow" ? "execute_lisp_workflow" : "execute_lisp";
+}
+
+/** The explain tool's name for a framing. */
+export function lispExplainName(frame: Frame = "repl"): string {
+  return frame === "program" ? "explain_lisp_program" : frame === "workflow" ? "explain_lisp_workflow" : "explain_lisp";
+}
+
 export interface LispToolOptions {
   /** Stamped into resolver context as the actor. */
   actor?: string;
-  /** Allow writes through `execute_lisp`. Default false. */
+  /** Allow writes through the eval tool. Default false. */
   allowWrites?: boolean;
+  /** Which framing to mount. Default `"repl"`. */
+  frame?: Frame;
 }
 
-/**
- * Primes the agent to treat its capabilities as functions in a persistent Lisp
- * REPL. The cheap, obvious move becomes: read once, compute in the REPL (where
- * the data lives), branch in the same program, and answer with the one value
- * that matters.
- */
-export const LISP_PREAMBLE = `Your capabilities are exposed as functions in a LISP REPL (Clojure-flavored). You have ONE tool, execute_lisp, and you work entirely in Lisp. The REPL is PERSISTENT: anything you (def name …) stays available in later calls.
+const unitWord = (frame: Frame): string => (frame === "workflow" ? "workflow" : "program");
 
-Language card (this is the WHOLE language — nothing else exists):
+/** The head paragraph — the mental model the framing hands the model. */
+function head(frame: Frame, tool: string): string {
+  if (frame === "workflow") {
+    return `You accomplish tasks by authoring WORKFLOWS in Lisp (Clojure-flavored). You have ONE tool, ${tool}. A workflow is ONE complete Lisp program that carries a task from start to finish — discover, read, compute, branch, and act — in a SINGLE call. This is NOT an interactive prompt: do not run one form and wait to see the result. Compose the WHOLE task as one program and let only the final form's value return. Think "write the script", not "type at a REPL".`;
+  }
+  if (frame === "program") {
+    return `You accomplish tasks by writing COMPLETE Lisp programs (Clojure-flavored). You have ONE tool, ${tool}. Each call runs one self-contained program and returns the value of its last form. Compose a whole step — discover, read, compute, and act — as ONE program rather than a form at a time.`;
+  }
+  return `Your capabilities are exposed as functions in a LISP REPL (Clojure-flavored). You have ONE tool, ${tool}, and you work entirely in Lisp. The REPL is PERSISTENT: anything you (def name …) stays available in later calls.`;
+}
+
+/** How cross-call persistence reads — "split freely" (repl) vs "retry only". */
+function persistence(frame: Frame): string {
+  if (frame === "workflow") {
+    return `\n\nAnything you (def name …) survives into later calls — but treat that only as a RECOVERY aid: if a workflow fails partway (e.g. after a write fired), continue from where it stopped without recomputing the expensive prefix. Never split a task across calls on purpose — collapsing it into one workflow is exactly what this surface is for.`;
+  }
+  if (frame === "program") {
+    return `\n\nAnything you (def name …) persists across calls if you need it, but prefer to finish a task in one program.`;
+  }
+  return "";
+}
+
+function decisiveBullet(frame: Frame): string {
+  if (frame === "workflow") {
+    return `- BE DECISIVE — the target is ONE workflow per task; one program that reads, computes, branches, and acts beats a handful of small ones. If a workflow errors, read the message, change the ONE thing it names, and re-author the remaining forms — do not re-run an unchanged program or thrash.`;
+  }
+  if (frame === "program") {
+    return `- BE DECISIVE — aim for ONE program per task; one program that reads, computes, and acts beats many small ones. If a call errors, read the message, change the ONE thing it names, and retry — do not re-run the same program or thrash.`;
+  }
+  return `- BE DECISIVE — answer in as FEW calls as possible; one program that reads, computes, and acts beats many small ones. If a call errors, read the message, change the ONE thing it names, and retry — do not re-run the same program or thrash.`;
+}
+
+const LISP_LANG_CARD = `Language card (this is the WHOLE language — nothing else exists):
 - Special forms: if when cond do let if-let when-let fn defn def and or -> ->> quote stage
 - Data: numbers, "strings", :keywords, [vectors], {:maps "values"}, nil, true/false. #(…) with % is fn shorthand.
 - Library: map filter remove reduce count first last take drop sort-by distinct group-by frequencies max-key min-key sum avg some every? empty? contains? concat flatten range apply get get-in assoc assoc-in dissoc merge select-keys update keys vals key val juxt into set vec doall run! map-indexed str upper-case lower-case includes? starts-with? split join replace
 - These work exactly as in Clojure: (sort-by :count > rows) sorts DESCENDING; (apply max-key :count rows) is argmax; (apply max-key val (frequencies xs)) is the most-common; rows OMIT nil columns, so (filter :closes_linear prs) means "has a value".
-- NO loop/recur/while/eval/JS. Iteration is map/filter/reduce. A fuel budget caps runaway work.
+- NO loop/recur/while/eval/JS. Iteration is map/filter/reduce. A fuel budget caps runaway work.`;
 
-Operating discipline:
-- DISCOVER before you act: (tables) lists your resources; (describe :name) shows a resource's columns, valid values, and required arguments. The catalog below is already current — spend discovery calls only when unsure.
-- READ a resource by calling it: (github_pull_requests) returns all rows as a list of maps; (github_pull_requests {:state "open"}) pushes arguments down (they are tool inputs AND filters). A vector value fans out like IN: {:channel ["a" "b"]}. Required columns are named in errors and (describe …).
-- COMPUTE in the REPL, not in your head. Counting, grouping, joining, argmax — write the expression and return ONLY the final value: (count (github_pull_requests {:state "open"})). Data flows between capabilities inside the program — it does NOT round-trip through you.
-- RETURN WHAT YOU MUST REPORT. If the answer needs ids or names, return them (a count plus a small (map :id …) list) — never state values you did not read.
-- KEEP BIG DATA OUT OF YOUR CONTEXT. (def prs (github_pull_requests)) stores the rows in the REPL and echoes only a summary; then (count prs), (take 5 prs), (map :title prs). Never end a program with a huge list you don't need.
-- BRANCH in one program. Unlike SQL, conditionals compose: (if (empty? failures) (insert! :slack_messages {…all clear…}) (insert! :emails {…alert…})) — decide-and-act is ONE call, not a read, a look, and a second call.
-- BE DECISIVE — answer in as FEW calls as possible; one program that reads, computes, and acts beats many small ones. If a call errors, read the message, change the ONE thing it names, and retry — do not re-run the same program or thrash.
-- ACT with (insert! :table {:col v}), (update! :table {:set} {:match}), (delete! :table {:match}). A single write FIRES IMMEDIATELY and returns its row count — that confirmation is authoritative, do NOT verify with a read. If you do re-read, your own writes are already reflected (read-your-writes).
-- BULK-WRITE with ONE call: (insert! :table (map (fn [r] {:col (:x r)}) rows)) writes one row per element and returns the count — ALWAYS prefer this over per-row inserts or hand-written lists. (doseq [x xs] …) and (run! f xs) also iterate for effects.
-- STAGE several writes with (stage (insert! …) (insert! …)) — nothing fires; you get a preview. Then (commit!) fires in order, or (rollback!) discards. Do not stage a single write.
-- PREVIEW with explain_lisp when unsure: it reports which resources a program would touch, read vs write, and missing required arguments — without running anything.
-
-The only data that enters your context is the value of the LAST form — so return counts, small selections, or summaries, and def the rest.`;
-
-/**
- * The function-mode preamble (no ResourceTable). Capabilities are plain
- * functions: calling one invokes the underlying tool with your argument map and
- * returns its data. There is no table model, no pushdown, no staging — a call
- * fires when its form evaluates.
- */
-export const LISP_FN_PREAMBLE = `Your capabilities are exposed as functions in a LISP REPL (Clojure-flavored). You have ONE tool, execute_lisp, and you work entirely in Lisp. The REPL is PERSISTENT: anything you (def name …) stays available in later calls.
-
-Language card (this is the WHOLE language — nothing else exists):
+const LISP_FN_LANG_CARD = `Language card (this is the WHOLE language — nothing else exists):
 - Special forms: if when cond do let if-let when-let fn defn def and or -> ->> quote
 - Data: numbers, "strings", :keywords, [vectors], {:maps "values"}, nil, true/false. #(…) with % is fn shorthand.
 - Library: map filter remove reduce count first last take drop sort-by distinct group-by frequencies max-key min-key sum avg some every? empty? contains? concat flatten range apply get get-in assoc assoc-in dissoc merge select-keys update keys vals key val juxt into set vec doall run! map-indexed str upper-case lower-case includes? starts-with? split join replace
 - These work exactly as in Clojure: (sort-by :count > rows) sorts DESCENDING; (apply max-key :count rows) is argmax; (apply max-key val (frequencies xs)) is the most-common.
-- NO loop/recur/while/eval/JS. Iteration is map/filter/reduce. A fuel budget caps runaway work.
+- NO loop/recur/while/eval/JS. Iteration is map/filter/reduce. A fuel budget caps runaway work.`;
+
+/**
+ * Resource-mode preamble (ResourceTable). Capabilities are functions over tables;
+ * arguments push down, writes stage. Frame-parameterized.
+ */
+export function buildLispResourcePreamble(frame: Frame = "repl"): string {
+  const tool = lispToolName(frame);
+  const explain = lispExplainName(frame);
+  const unit = unitWord(frame);
+  return `${head(frame, tool)}${persistence(frame)}
+
+${LISP_LANG_CARD}
+
+Operating discipline:
+- DISCOVER before you act: (tables) lists your resources; (describe :name) shows a resource's columns, valid values, and required arguments. The catalog below is already current — spend discovery calls only when unsure.
+- READ a resource by calling it: (github_pull_requests) returns all rows as a list of maps; (github_pull_requests {:state "open"}) pushes arguments down (they are tool inputs AND filters). A vector value fans out like IN: {:channel ["a" "b"]}. Required columns are named in errors and (describe …).
+- COMPUTE in the ${unit}, not in your head. Counting, grouping, joining, argmax — write the expression and return ONLY the final value: (count (github_pull_requests {:state "open"})). Data flows between capabilities inside the ${unit} — it does NOT round-trip through you.
+- RETURN WHAT YOU MUST REPORT. If the answer needs ids or names, return them (a count plus a small (map :id …) list) — never state values you did not read.
+- KEEP BIG DATA OUT OF YOUR CONTEXT. (def prs (github_pull_requests)) stores the rows in the ${unit} and echoes only a summary; then (count prs), (take 5 prs), (map :title prs). Never end a ${unit} with a huge list you don't need.
+- BRANCH in one ${unit}. Unlike SQL, conditionals compose: (if (empty? failures) (insert! :slack_messages {…all clear…}) (insert! :emails {…alert…})) — decide-and-act is ONE call, not a read, a look, and a second call.
+${decisiveBullet(frame)}
+- ACT with (insert! :table {:col v}), (update! :table {:set} {:match}), (delete! :table {:match}). A single write FIRES IMMEDIATELY and returns its row count — that confirmation is authoritative, do NOT verify with a read. If you do re-read, your own writes are already reflected (read-your-writes).
+- BULK-WRITE with ONE call: (insert! :table (map (fn [r] {:col (:x r)}) rows)) writes one row per element and returns the count — ALWAYS prefer this over per-row inserts or hand-written lists. (doseq [x xs] …) and (run! f xs) also iterate for effects.
+- STAGE several writes with (stage (insert! …) (insert! …)) — nothing fires; you get a preview. Then (commit!) fires in order, or (rollback!) discards. Do not stage a single write.
+- PREVIEW with ${explain} when unsure: it reports which resources a ${unit} would touch, read vs write, and missing required arguments — without running anything.
+
+The only data that enters your context is the value of the LAST form — so return counts, small selections, or summaries, and def the rest.`;
+}
+
+/**
+ * Function-mode preamble (no ResourceTable). Capabilities are plain functions;
+ * a call fires when its form evaluates. Frame-parameterized.
+ */
+export function buildLispFnPreamble(frame: Frame = "repl"): string {
+  const tool = lispToolName(frame);
+  const unit = unitWord(frame);
+  return `${head(frame, tool)}${persistence(frame)}
+
+${LISP_FN_LANG_CARD}
 
 Operating discipline:
 - DISCOVER before you act: (fns) lists your functions; (describe :name) shows one function's parameters (required ones are marked). The catalog below is already current — spend discovery calls only when unsure.
 - CALL a function by name, passing its arguments as ONE map: (github__list_pull_requests {:state "open"}). Argument names and required ones come from (describe :name). The result is whatever the tool returns — usually a list of maps or a value.
-- COMPUTE in the REPL, not in your head. Counting, grouping, joining, argmax — write the expression and return ONLY the final value: (count (github__list_pull_requests {:state "open"})). Data flows between functions inside the program — it does NOT round-trip through you.
+- COMPUTE in the ${unit}, not in your head. Counting, grouping, joining, argmax — write the expression and return ONLY the final value: (count (github__list_pull_requests {:state "open"})). Data flows between functions inside the ${unit} — it does NOT round-trip through you.
 - RETURN WHAT YOU MUST REPORT. If the answer needs ids or names, return them (a count plus a small (map :id …) list) — never state values you did not read.
-- KEEP BIG DATA OUT OF YOUR CONTEXT. (def prs (github__list_pull_requests)) stores the rows in the REPL and echoes only a summary; then (count prs), (take 5 prs), (map :title prs). Never end a program with a huge list you don't need.
-- BRANCH in one program. Conditionals compose: (if (empty? incidents) (slack__post {…all clear…}) (email__send {…alert…})) — decide-and-act is ONE call, not a read, a look, and a second call.
-- BE DECISIVE — answer in as FEW calls as possible; one program that reads, computes, and acts beats many small ones. If a call errors, read the message, change the ONE thing it names, and retry — do not re-run the same program or thrash.
-- CALLS FIRE IMMEDIATELY. Calling an effectful function performs the effect and returns its result — there is NO staging, undo, or dry run. Check parameters with (describe :name) BEFORE an effectful call. If a program errors AFTER an effectful call already fired, do NOT re-run the whole program (it would repeat the effect) — fix and continue from where it failed.
+- KEEP BIG DATA OUT OF YOUR CONTEXT. (def prs (github__list_pull_requests)) stores the rows in the ${unit} and echoes only a summary; then (count prs), (take 5 prs), (map :title prs). Never end a ${unit} with a huge list you don't need.
+- BRANCH in one ${unit}. Conditionals compose: (if (empty? incidents) (slack__post {…all clear…}) (email__send {…alert…})) — decide-and-act is ONE call, not a read, a look, and a second call.
+${decisiveBullet(frame)}
+- CALLS FIRE IMMEDIATELY. Calling an effectful function performs the effect and returns its result — there is NO staging, undo, or dry run. Check parameters with (describe :name) BEFORE an effectful call. If a ${unit} errors AFTER an effectful call already fired, do NOT re-run the whole ${unit} (it would repeat the effect) — fix and continue from where it failed.
 
 The only data that enters your context is the value of the LAST form — so return counts, small selections, or summaries, and def the rest.`;
+}
 
-/** Appended after {@link LISP_PREAMBLE} when a session has BOTH resources and
+/**
+ * The classic REPL preambles, kept as exported constants for backward
+ * compatibility. Equivalent to `buildLisp{Resource,Fn}Preamble("repl")`.
+ */
+export const LISP_PREAMBLE = buildLispResourcePreamble("repl");
+export const LISP_FN_PREAMBLE = buildLispFnPreamble("repl");
+
+/** Appended after the resource preamble when a session has BOTH resources and
  *  functions, so the resource-mode agent also knows the function surface. */
 export const LISP_FN_SECTION = `Some capabilities are exposed as FUNCTIONS (alongside the resources above). Discover them with (fns) and (describe :name); call one by passing its arguments as a map — (github__list_pull_requests {:state "open"}) — and it returns the tool's data directly. Functions have NO pushdown and NO staging: an effectful function fires the moment it is called.`;
 
@@ -135,12 +212,16 @@ function catalogHint(session: LispSession, mode: "progressive" | "full"): string
 
 /** Select the preamble that fits the session's surface: functions-only,
  *  resources-only, or both. */
-export function buildLispPreamble(session: LispSession, mode: "progressive" | "full" = "progressive"): string {
+export function buildLispPreamble(
+  session: LispSession,
+  mode: "progressive" | "full" = "progressive",
+  frame: Frame = "repl",
+): string {
   const hasResources = session.list().length > 0;
   const hasFns = session.listFns().length > 0;
-  let base = LISP_PREAMBLE;
-  if (hasFns && !hasResources) base = LISP_FN_PREAMBLE;
-  else if (hasFns) base = `${LISP_PREAMBLE}\n\n${LISP_FN_SECTION}`;
+  let base = buildLispResourcePreamble(frame);
+  if (hasFns && !hasResources) base = buildLispFnPreamble(frame);
+  else if (hasFns) base = `${buildLispResourcePreamble(frame)}\n\n${LISP_FN_SECTION}`;
   return base + catalogHint(session, mode);
 }
 
@@ -156,17 +237,32 @@ function errResult(err: unknown): ToolResultData {
   return { status: "error", message: err instanceof Error ? err.message : String(err), data: null };
 }
 
+function toolDescription(frame: Frame): string {
+  const unit = unitWord(frame);
+  const lead =
+    frame === "workflow"
+      ? `Author a WORKFLOW — one complete Lisp program (Clojure-flavored) that carries the whole task from discovery to answer in a single call, against your persistent capability session. `
+      : frame === "program"
+        ? `Run a complete Lisp program (Clojure-flavored, persistent) against your capability session. `
+        : `Run a Lisp program against your capability REPL (Clojure-flavored, persistent). `;
+  return (
+    lead +
+    "Your tools ARE functions. " +
+    "DISCOVER: (tables), then (describe :name). " +
+    "READ a capability by calling it — (github_pull_requests {:state \"open\"}) — arguments push down as a {:col value} map. " +
+    `COMPUTE in the ${unit} (count/filter/group-by/max-key) and return only the final value; ` +
+    "(def name …) keeps big intermediates across calls. " +
+    `BRANCH inside one ${unit} with if/cond — decide-and-act is one call. ` +
+    "ACT with (insert! :table {…}) / (update! …) / (delete! …); STAGE several writes with (stage …) then (commit!), or (rollback!) for a dry run."
+  );
+}
+
 export function buildExecuteLispTool(session: LispSession, opts: LispToolOptions = {}): GloveFoldArgs<{ code: string }> {
+  const frame = opts.frame ?? "repl";
+  const tool = lispToolName(frame);
   return {
-    name: "execute_lisp",
-    description:
-      "Run a Lisp program against your capability REPL (Clojure-flavored, persistent). Your tools ARE functions. " +
-      "DISCOVER: (tables), then (describe :name). " +
-      "READ a capability by calling it — (github_pull_requests {:state \"open\"}) — arguments push down as a {:col value} map. " +
-      "COMPUTE in the program (count/filter/group-by/max-key) and return only the final value; " +
-      "(def name …) keeps big intermediates in the REPL across calls. " +
-      "BRANCH inside one program with if/cond — decide-and-act is one call. " +
-      "ACT with (insert! :table {…}) / (update! …) / (delete! …); STAGE several writes with (stage …) then (commit!), or (rollback!) for a dry run.",
+    name: tool,
+    description: toolDescription(frame),
     inputSchema,
     async do(input, _display, _glove, signal): Promise<ToolResultData> {
       try {
@@ -195,11 +291,13 @@ export function buildExecuteLispTool(session: LispSession, opts: LispToolOptions
   };
 }
 
-export function buildExplainLispTool(session: LispSession): GloveFoldArgs<{ code: string }> {
+export function buildExplainLispTool(session: LispSession, opts: LispToolOptions = {}): GloveFoldArgs<{ code: string }> {
+  const frame = opts.frame ?? "repl";
+  const tool = lispToolName(frame);
   return {
-    name: "explain_lisp",
+    name: lispExplainName(frame),
     description:
-      "Preview which resources a Lisp program would touch (read vs write, volatility, missing required arguments, unknown names) WITHOUT running it. Use it to validate a program — especially before writes.",
+      `Preview which resources a Lisp ${unitWord(frame)} would touch (read vs write, volatility, missing required arguments, unknown names) WITHOUT running it. Use it to validate a ${unitWord(frame)} — especially before writes; a companion to ${tool}.`,
     inputSchema,
     async do(input): Promise<ToolResultData> {
       try {
@@ -217,7 +315,7 @@ export function buildExplainLispTool(session: LispSession): GloveFoldArgs<{ code
   };
 }
 
-// Kept in sync with stdlib.ts + session surface; used by explain_lisp to avoid
+// Kept in sync with stdlib.ts + session surface; used by explain to avoid
 // flagging library calls as unknown. (A stale entry only affects explain output.)
 const BUILTIN_NAMES = [
   "+", "-", "*", "/", "mod", "inc", "dec", "abs", "round", "floor", "ceil", "max", "min",
@@ -243,7 +341,7 @@ export function buildDiscoveryTools(
     {
       name: "search_functions",
       description:
-        "Discovery: jump straight to the functions matching a free-text query (e.g. \"open pull requests\"). Also available in the REPL as (search \"query\").",
+        "Discovery: jump straight to the functions matching a free-text query (e.g. \"open pull requests\"). Also available in the eval program as (search \"query\").",
       inputSchema: z.object({ query: z.string().describe('What you want to do, e.g. "send email".') }),
       async do(input: { query: string }): Promise<ToolResultData> {
         return { status: "success", data: session.searchFunctions(input.query) };
@@ -252,7 +350,7 @@ export function buildDiscoveryTools(
     {
       name: "list_servers",
       description:
-        "Discovery tier 1: list your capability servers (MCP namespaces) with how many functions each exposes. Also available in the REPL as (servers).",
+        "Discovery tier 1: list your capability servers (MCP namespaces) with how many functions each exposes. Also available in the eval program as (servers).",
       inputSchema: z.object({}),
       async do(): Promise<ToolResultData> {
         return { status: "success", data: session.discoverServers() };
@@ -261,7 +359,7 @@ export function buildDiscoveryTools(
     {
       name: "list_functions",
       description:
-        "Discovery tier 2: list one server's functions and their argument keywords. Also available in the REPL as (fns :server).",
+        "Discovery tier 2: list one server's functions and their argument keywords. Also available in the eval program as (fns :server).",
       inputSchema: z.object({ server: z.string().describe('A server name from list_servers, e.g. "github".') }),
       async do(input: { server: string }): Promise<ToolResultData> {
         try {
@@ -274,7 +372,7 @@ export function buildDiscoveryTools(
     {
       name: "describe_function",
       description:
-        "Discovery tier 3: the full parameters + result shape of one function. Also available in the REPL as (describe :name).",
+        "Discovery tier 3: the full parameters + result shape of one function. Also available in the eval program as (describe :name).",
       inputSchema: z.object({ name: z.string().describe('A function name, e.g. "github__list_pull_requests".') }),
       async do(input: { name: string }): Promise<ToolResultData> {
         try {
@@ -289,19 +387,20 @@ export function buildDiscoveryTools(
 
 export interface MountLispConfig extends LispToolOptions {
   session: LispSession;
-  /** Prepend {@link LISP_PREAMBLE} + the resource catalog. Default true. */
+  /** Prepend the preamble + the resource catalog. Default true. */
   prime?: boolean;
-  /** Also fold `explain_lisp`. Default true. */
+  /** Also fold the explain tool. Default true. */
   explain?: boolean;
   /** How the FUNCTION catalog reaches the model (fn mode). Default `progressive`. See {@link DiscoveryMode}. */
   discovery?: DiscoveryMode;
 }
 
-/** Fold the REPL tool(s) onto a built Glove and prime it. Returns the runnable. */
+/** Fold the eval tool(s) onto a built Glove and prime it. Returns the runnable. */
 export function mountLisp(glove: IGloveRunnable, config: MountLispConfig): IGloveRunnable {
   const { session, prime, explain, discovery, ...toolOpts } = config;
+  const frame = toolOpts.frame ?? "repl";
   glove.fold(buildExecuteLispTool(session, toolOpts));
-  if (explain !== false) glove.fold(buildExplainLispTool(session));
+  if (explain !== false) glove.fold(buildExplainLispTool(session, toolOpts));
   // Discovery tools only make sense when there are functions to discover.
   if (session.listFns().length > 0) {
     for (const tool of buildDiscoveryTools(session)) glove.fold(tool as GloveFoldArgs<unknown>);
@@ -309,7 +408,7 @@ export function mountLisp(glove: IGloveRunnable, config: MountLispConfig): IGlov
   if (prime !== false) {
     const mode = resolveMode(discovery, session);
     const existing = glove.getSystemPrompt();
-    const preamble = buildLispPreamble(session, mode);
+    const preamble = buildLispPreamble(session, mode, frame);
     glove.setSystemPrompt(existing ? `${preamble}\n\n${existing}` : preamble);
   }
   return glove;
