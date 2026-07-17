@@ -30,7 +30,7 @@ export type ArmName = "baseline" | "scratchpad" | "lisp" | "both" | "jsrepl" | "
 /** The framing of the eval tool for the fn-mode arms (jsrepl / pyrepl / lispfns):
  *  `repl` (default, tool `execute_*`), `program` (`execute_*_program`), or
  *  `workflow` (`execute_*_workflow`, one-shot framing). Only the tool NAME and
- *  the priming change; the runtime is identical. See FRAME-EXPLORATION.md. */
+ *  the priming change; the runtime is identical. See FRAME-PAPER.md. */
 export type FrameName = "repl" | "program" | "workflow";
 
 export interface ArmConfig {

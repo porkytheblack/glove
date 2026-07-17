@@ -7,7 +7,7 @@
  * round-tripping every intermediate. But a behavioral failure remained: models
  * degrade the surface back into an incremental tool-call loop — run one form,
  * look, run another — instead of authoring one program that does the whole task.
- * The diagnosis (see FRAME-EXPLORATION.md) is a naming prior: "REPL" and
+ * The diagnosis (see FRAME-PAPER.md) is a naming prior: "REPL" and
  * `execute_js` pattern-match to interactive, line-by-line sessions.
  *
  * This bench holds EVERYTHING constant — same mock org, same catalog, same
@@ -78,15 +78,18 @@ const args = parseArgs(process.argv.slice(2));
 const list = (v: unknown): string[] => (typeof v === "string" && v.length ? v.split(",").map((s) => s.trim()) : []);
 const num = (v: unknown, d: number): number => (typeof v === "string" && v.length && !Number.isNaN(Number(v)) ? Number(v) : d);
 
-/** Curated default: multi-step, cross-service tasks — the place a model is most
- *  tempted to peek-then-split. Override with --scenarios. */
+/** Default: complexity-skewed, multi-step, cross-service tasks — the place a
+ *  model is most tempted to peek-then-split and where composing the whole task in
+ *  one program is hardest (a cross-service join, a negation join, a multi-metric
+ *  grouped report, a decide-and-act branch, a conditional ack fan-out + rollup
+ *  write, and a 5-service write chain). Override with --scenarios. */
 const DEFAULT_SCENARIOS = [
   "merged-prs-open-linear",
-  "busiest-assignee",
-  "email-top-error",
+  "reconcile-ghost-issues",
+  "repo-health-report",
   "incident-branch",
-  "open-prs-breakdown",
-  "needle-sweep",
+  "escalate-hot-services",
+  "incident-commander",
 ];
 /** Default to cheap-but-capable models that actually spiral; override with --models. */
 const DEFAULT_MODELS = ["glm", "deepseek"];

@@ -188,7 +188,7 @@ The `workflow` framing never says "REPL"; it frames the call as ONE complete
 program that carries the task start to finish and demotes cross-call `def`
 persistence to a retry-only recovery aid — countering the tendency of models to
 degrade the surface into an incremental form-by-form session. See
-[`examples/scratchpad-bench/FRAME-EXPLORATION.md`](../../examples/scratchpad-bench/FRAME-EXPLORATION.md)
+[`examples/scratchpad-bench/FRAME-PAPER.md`](../../examples/scratchpad-bench/FRAME-PAPER.md)
 for the A/B; `lispToolName(frame)` / `buildLispFnPreamble(frame)` expose the
 mapping. Default is `repl`, so existing mounts are unchanged.
 

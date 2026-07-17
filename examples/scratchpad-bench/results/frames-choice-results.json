@@ -1,0 +1,965 @@
+[
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "merged-prs-open-linear",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "chose": {
+      "repl": 2,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 2,
+    "tokensIn": 11308,
+    "tokensOut": 1051,
+    "costUsd": 0.00109888,
+    "finalText": "**Found 8 merged pull requests that close a Linear issue with state NOT 'done':**\n\n- PR #1002 → closes Linear ID ENG-136 (\"Mobile crash on iOS 18 cold start: guard against ios18-crash\")\n- PR #1003 → closes Linear ID ENG-103 (\"Mobile crash on iOS 18 cold start: guard against ios18-crash\")\n- PR #1010 → closes Linear ID ENG-151 (\"Mobile crash on iOS 18 cold start: fix ios18-crash\")\n- PR #1017 → closes Linear ID ENG-117 (\"Search relevance regression: fix search-relevance\")\n- PR #1025 → closes Linear ID ENG-135 (\"Primary DB failover is slow: guard against db-failover\")\n- PR #1030 → closes Linear ID ENG-124 (\"Migrate auth to OAuth2 + PKCE: fix oauth-migration\")\n- PR #1033 → closes Linear ID ENG-147 (\"Image uploads time out over 5MB: add test for image-uploads\")\n- PR #1037 → closes Linear ID ENG-102 (\"SSO SCIM provisioning errors: refactor sso-provisioning\")\n\n**Total count: 8**"
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "merged-prs-open-linear",
+    "order": "B",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "chose": {
+      "repl": 1,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 1,
+    "tokensIn": 7003,
+    "tokensOut": 642,
+    "costUsd": 0.00067698,
+    "finalText": "Based on the retrieved data:\n\n| PR Number | Linear Issue ID | PR Title |\n|-----------|-----------------|----------|\n| 1002 | ENG-136 | Mobile crash on iOS 18 cold start: guard against ios18-crash |\n| 1003 | ENG-103 | Mobile crash on iOS 18 cold start: guard against ios18-crash |\n| 1010 | ENG-151 | Mobile crash on iOS 18 cold start: fix ios18-crash |\n| 1017 | ENG-117 | Search relevance regression: fix search-relevance |\n| 1025 | ENG-135 | Primary DB failover is slow: guard against db-failover |\n| 1030 | ENG-124 | Migrate auth to OAuth2 + PKCE: fix oauth-migration |\n| 1033 | ENG-147 | Image uploads time out over 5MB: add test for image-uploads |\n| 1037 | ENG-102 | SSO SCIM provisioning errors: refactor sso-provisioning |\n\nTotal count: 8"
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "reconcile-ghost-issues",
+    "order": "A",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "chose": {
+      "repl": 1,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 1,
+    "tokensIn": 6879,
+    "tokensOut": 601,
+    "costUsd": 0.00065314,
+    "finalText": "Quality audit findings (based on retrieved data):\n\n- Total Linear issues in state \"done\": 5\n- Total merged PRs: 15\n- Issues in \"done\" that are NOT closed by any merged PR: 4\n\nIssue IDs with state=\"done\" but no merged pull request claims to close them:\n- ENG-122\n- ENG-125\n- ENG-131\n- ENG-142\n\nTotal count: 4 issues."
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "reconcile-ghost-issues",
+    "order": "B",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "chose": {
+      "repl": 1,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 1,
+    "tokensIn": 6843,
+    "tokensOut": 667,
+    "costUsd": 0.00067738,
+    "finalText": "Audit result\n\nCount: 0\n\nIssues: none\n\nExplanation\n- The audit considered only Linear issues in state \"done\" that have a claim by a pull request (via closes_linear) and checked that at least one merged PR actually closes that claim.\n- After checking the merged PRs, none contained a closes_linear field that points to a Linear issue id. Therefore, there are no issues that are in state \"done\" yet not closed by a merged PR. The count is 0 and the issue list is empty."
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "repo-health-report",
+    "order": "A",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "chose": {
+      "repl": 1,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 1,
+    "tokensIn": 6999,
+    "tokensOut": 767,
+    "costUsd": 0.00072674,
+    "finalText": "Per-repository health report (two numbers per repo; repo with most open PRs listed):\n- acme/infra: 9 open PRs, 2 merged PRs closing a Linear issue.\n- acme/web: 5 open PRs, 2 merged PRs closing a Linear issue.\n- acme/api: 1 open PR, 4 merged PRs closing a Linear issue.\n- acme/mobile: 2 open PRs, 7 merged PRs closing a Linear issue.\nThe repository with the most open PRs is acme/infra (9 open PRs)."
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "repo-health-report",
+    "order": "B",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "chose": {
+      "repl": 1,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 1,
+    "tokensIn": 7314,
+    "tokensOut": 864,
+    "costUsd": 0.00078444,
+    "finalText": "The data shows no pull requests across any repository (0 total). As a result, per-repository counts (open PRs, merged PRs closing Linear issues) and the repo with the most open PRs cannot be determined."
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "incident-branch",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "chose": {
+      "repl": 1,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 1,
+    "tokensIn": 6756,
+    "tokensOut": 467,
+    "costUsd": 0.00059216,
+    "finalText": "- Action taken: Sent one email to oncall@acme.io with the subject \"Triage\".\n- Number of such incidents: 5."
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "incident-branch",
+    "order": "B",
+    "ok": false,
+    "errored": false,
+    "turns": 2,
+    "chose": {
+      "repl": 1,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 1,
+    "tokensIn": 7053,
+    "tokensOut": 264,
+    "costUsd": 0.00052878,
+    "finalText": "Sent email to 'oncall@acme.io' with subject 'Triage' containing IDs: PD-400, PD-401, PD-403, PD-411, PD-418. The action taken was to email (no Slack message). There are 5 triggered, high-urgency incidents."
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "escalate-hot-services",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "chose": {
+      "repl": 4,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 4,
+    "tokensIn": 19196,
+    "tokensOut": 943,
+    "costUsd": 0.00152896,
+    "finalText": "## Escalation Sweep Complete\n\n**Hot services identified:** 1  \n**Incidents acknowledged:** 2\n\n### Details:\n\n**Hot services:**\n- **web-frontend: 9 unresolved Sentry issues**\n\n**Actions taken:**\n1. Acknowledged 2 PagerDuty triggered incidents tied to the hot service:\n   - PD-407: Push notifications not delivered — page\n   - PD-411: Onboarding funnel drop-off — page\n\n2. Sent escalation email to oncall@acme.io with subject \"Escalation\" containing the hot service details."
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "escalate-hot-services",
+    "order": "B",
+    "ok": false,
+    "errored": false,
+    "turns": 4,
+    "chose": {
+      "repl": 3,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 3,
+    "tokensIn": 15073,
+    "tokensOut": 1203,
+    "costUsd": 0.00138558,
+    "finalText": "Final summary\n- Hot services: 1\n  - web-frontend: 9 unresolved Sentry issues\n- Incidents acknowledged: 2 (PD-407, PD-411)"
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "incident-commander",
+    "order": "A",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "This operation was aborted",
+    "turns": 6,
+    "chose": {
+      "repl": 6,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 6,
+    "tokensIn": 26454,
+    "tokensOut": 3535,
+    "costUsd": 0.0030012399999999996,
+    "finalText": ""
+  },
+  {
+    "modelKey": "glm",
+    "model": "z-ai/glm-4.7-flash",
+    "scenario": "incident-commander",
+    "order": "B",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "chose": {
+      "repl": 1,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 1,
+    "tokensIn": 7402,
+    "tokensOut": 805,
+    "costUsd": 0.0007661199999999999,
+    "finalText": "Service: mobile-bff\nSentry Issue ID: SENTRY-3018\nIncidents Acknowledged: 2"
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "merged-prs-open-linear",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "chose": {
+      "repl": 0,
+      "program": 5,
+      "workflow": 0
+    },
+    "pick": "program",
+    "evalCalls": 5,
+    "tokensIn": 48380,
+    "tokensOut": 2112,
+    "costUsd": 0.011803436,
+    "finalText": "Perfect! Here are the results:\n\n## Summary\n\n**Found 8 merged pull requests that close Linear issues whose state is NOT 'done':**\n\n1. **PR #1002** closes **ENG-136** (state: canceled)\n2. **PR #1003** closes **ENG-103** (state: backlog)  \n3. **PR #1010** closes **ENG-151** (state: in_progress)\n4. **PR #1017** closes **ENG-117** (state: canceled)\n5. **PR #1025** closes **ENG-135** (state: in_review)\n6. **PR #1030** closes **ENG-124** (state: in_progress)\n7. **PR #1033** closes **ENG-147** (state: canceled)\n8. **PR #1037** closes **ENG-102** (state: in_progress)\n\n**Total count: 8**\n\n**Note:** Only 1 merged PR (PR #1024 closing ENG-134) had its Linear issue in 'done' state, so it was excluded from this report."
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "merged-prs-open-linear",
+    "order": "B",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "This operation was aborted",
+    "turns": 5,
+    "chose": {
+      "repl": 4,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 4,
+    "tokensIn": 25947,
+    "tokensOut": 2480,
+    "costUsd": 0.006792503,
+    "finalText": ""
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "reconcile-ghost-issues",
+    "order": "A",
+    "ok": false,
+    "errored": true,
+    "errorMessage": "This operation was aborted",
+    "turns": 4,
+    "chose": {
+      "repl": 3,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 3,
+    "tokensIn": 18158,
+    "tokensOut": 1890,
+    "costUsd": 0.004806452000000001,
+    "finalText": ""
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "reconcile-ghost-issues",
+    "order": "B",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "chose": {
+      "repl": 0,
+      "program": 2,
+      "workflow": 0
+    },
+    "pick": "program",
+    "evalCalls": 2,
+    "tokensIn": 13088,
+    "tokensOut": 1652,
+    "costUsd": 0.0035637880000000005,
+    "finalText": "Perfect! Here are the audit results:\n\n**Quality Audit Results:**\n\n- **Total Linear issues in 'done' state**: 5\n- **Total GitHub pull requests**: 40  \n- **Total merged pull requests**: 15\n- **Unique Linear issues closed by merged PRs**: 9\n- **Unique Linear issues referenced by ANY PR**: 16\n- **Issues marked 'done' but NOT closed by merged PRs**: **1**\n\n**The problematic issue is:**\n- **ENG-142**: \"Primary DB failover is slow\" (assigned to niaj)\n\nThis issue is marked as 'done' in Linear, and at least one pull request references it (in the `closes_linear` field), but there is no **merged** pull request that actually closes it. This suggests the work might have been marked complete in Linear without the corresponding code changes being merged, or the pull request that references it may still be open or was closed without merging."
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "repo-health-report",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "chose": {
+      "repl": 1,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 1,
+    "tokensIn": 7593,
+    "tokensOut": 553,
+    "costUsd": 0.0019284760000000001,
+    "finalText": "Here's the per-repository health report:\n\n## Repository Health Report\n\n**acme/infra:**\n- Open pull requests: 9\n- Merged PRs closing Linear issues: 2\n\n**acme/web:**\n- Open pull requests: 4  \n- Merged PRs closing Linear issues: 3\n\n**acme/api:**\n- Open pull requests: 3\n- Merged PRs closing Linear issues: 2\n\n**acme/mobile:**\n- Open pull requests: 1\n- Merged PRs closing Linear issues: 2\n\n**Repository with the most open pull requests:** **acme/infra** (9 open PRs)"
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "repo-health-report",
+    "order": "B",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "chose": {
+      "repl": 2,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 2,
+    "tokensIn": 12296,
+    "tokensOut": 1129,
+    "costUsd": 0.003203031,
+    "finalText": "Perfect! I now have the per-repository health report. Let me present the results clearly:\n\n## Per-Repository Health Report\n\nFor each repository:\n\n1. **acme/infra**: \n   - Open pull requests: **9**\n   - Merged PRs closing Linear issues: **2**\n\n2. **acme/web**: \n   - Open pull requests: **4** \n   - Merged PRs closing Linear issues: **3**\n\n3. **acme/api**: \n   - Open pull requests: **3**\n   - Merged PRs closing Linear issues: **2**\n\n4. **acme/mobile**: \n   - Open pull requests: **1**\n   - Merged PRs closing Linear issues: **2**\n\n## Repository with the Most Open Pull Requests\n\n**acme/infra** has the most open pull requests with **9** open PRs.\n\n## Summary\n- **Total repositories analyzed**: 4\n- **Total PRs examined**: 40 across all repositories\n- **Repository with highest open PR backlog**: acme/infra (9 open PRs)\n- **Best ratio of merged-to-closed Linear issues**: acme/web (3 out of its merged PRs close Linear issues)"
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "incident-branch",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "chose": {
+      "repl": 2,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 2,
+    "tokensIn": 11901,
+    "tokensOut": 851,
+    "costUsd": 0.0030172220000000004,
+    "finalText": "I found **5 high urgency incidents** in the triggered state. According to your instructions, since there WERE incidents, I did **NOT** post to Slack. Instead, I sent **ONE email** to 'oncall@acme.io' with subject 'Triage' listing all incident IDs.\n\n**Action taken:** Sent email with the 5 incident IDs (PD-400, PD-401, PD-403, PD-411, PD-418).\n\n**Result:** There are 5 high urgency incidents in triggered state, so I followed the \"if there ARE any\" branch and sent the email notification."
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "incident-branch",
+    "order": "B",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "chose": {
+      "repl": 3,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 3,
+    "tokensIn": 16432,
+    "tokensOut": 1088,
+    "costUsd": 0.004136112,
+    "finalText": "Found 5 high-urgency incidents in triggered state. I **sent an email to 'oncall@acme.io'** with subject 'Triage' containing the IDs of all 5 incidents. I did **not** post to Slack.\n\n**Action taken:** Sent email with incident IDs  \n**Number of incidents:** 5 (PD-400, PD-401, PD-403, PD-411, PD-418)"
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "escalate-hot-services",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "chose": {
+      "repl": 6,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 6,
+    "tokensIn": 35469,
+    "tokensOut": 2687,
+    "costUsd": 0.009044042,
+    "finalText": "Perfect! The escalation sweep is complete. Here's my final report:\n\n## Escalation Sweep Results\n\n**1 hot service identified:**\n- `web-frontend`: 9 unresolved Sentry issues\n\n**Actions taken:**\n1. ✅ Acknowledged **2 PagerDuty incidents** in 'triggered' status for the hot service (`web-frontend`):\n   - `PD-407`: Push notifications not delivered — page\n   - `PD-411`: Onboarding funnel drop-off — page\n\n2. ✅ Sent escalation email to `oncall@acme.io` with subject \"Escalation\" containing:\n   ```\n   web-frontend: 9 unresolved issues\n   ```\n\n**Summary:** \n- **1 hot service** (web-frontend with >5 unresolved Sentry issues)\n- **2 incidents acknowledged** (both PagerDuty incidents for web-frontend)\n\nThe escalation procedure has been fully executed according to the requirements."
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "escalate-hot-services",
+    "order": "B",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "chose": {
+      "repl": 5,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 5,
+    "tokensIn": 28222,
+    "tokensOut": 1360,
+    "costUsd": 0.006929318,
+    "finalText": "## Summary\n\nEscalation sweep completed successfully:\n\n1. **Hot services identified**: Found 1 hot service with more than 5 unresolved Sentry issues:\n   - `web-frontend`: 9 unresolved issues\n\n2. **Incidents acknowledged**: Acknowledged 2 triggered PagerDuty incidents for the hot service:\n   - PD-407: \"Push notifications not delivered — page\"\n   - PD-411: \"Onboarding funnel drop-off — page\"\n\n3. **Escalation email sent**: Sent an email to `oncall@acme.io` with subject \"Escalation\" listing the hot service and its issue count.\n\n4. **Slack notification posted**: Posted summary to the `incidents` channel.\n\n**Final report**: 1 hot service found, 2 incidents acknowledged."
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "incident-commander",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 10,
+    "chose": {
+      "repl": 9,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 9,
+    "tokensIn": 49734,
+    "tokensOut": 2108,
+    "costUsd": 0.012112130000000002,
+    "finalText": "## Incident Commander Sweep Completed\n\n**Results:**\n1. **Service:** mobile-bff (identified from Sentry issue SENTRY-3018 with 876 users affected)\n2. **Sentry Issue:** SENTRY-3018 (\"NullPointer: Push notifications not delivered\")\n3. **Acknowledged Incidents:** 2 (PD-400, PD-418)\n4. **Linear Postmortem:** ENG-160 created\n5. **Slack Notification:** Posted to #incidents channel\n6. **Email:** Sent to oncall@acme.io with Sentry issue ID and acknowledged incident IDs\n\nAll requested actions have been executed successfully. The affected service is mobile-bff, the Sentry issue ID is SENTRY-3018, and 2 PagerDuty incidents were acknowledged."
+  },
+  {
+    "modelKey": "deepseek",
+    "model": "deepseek/deepseek-v3.2",
+    "scenario": "incident-commander",
+    "order": "B",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "chose": {
+      "repl": 0,
+      "program": 0,
+      "workflow": 6
+    },
+    "pick": "workflow",
+    "evalCalls": 6,
+    "tokensIn": 33974,
+    "tokensOut": 1509,
+    "costUsd": 0.008297633,
+    "finalText": "## Incident Commander Sweep Complete\n\n**Service:** `mobile-bff`  \n**Sentry Issue ID:** `SENTRY-3018`  \n**Incidents Acknowledged:** `2` (PD-400, PD-418)\n\n### Actions Taken:\n1. **Identified highest-impact Sentry issue:** `SENTRY-3018` (\"NullPointer: Push notifications not delivered\") affecting 876 users in the `mobile-bff` service.\n2. **Acknowledged PagerDuty incidents:** Found and acknowledged 2 triggered incidents for the `mobile-bff` service (PD-400, PD  \n3. **Created Linear postmortem:** `ENG-160` with title \"Postmortem: NullPointer: Push notifications not delivered\".\n4. **Posted to Slack incidents channel:** Message sent confirming incident affecting `mobile-bff` service.\n5. **Sent email to oncall:** Email delivered to `oncall@acme.io` with subject \"Incident\" containing Sentry issue ID and acknowledged incident IDs."
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "merged-prs-open-linear",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "chose": {
+      "repl": 6,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 6,
+    "tokensIn": 32341,
+    "tokensOut": 1707,
+    "costUsd": 0.003873765,
+    "finalText": "Here are all **8 merged pull requests** that close a Linear issue whose state is **not** `done`:\n\n| # | PR Number | Linear Issue | Linear State |\n|---|-----------|-------------|--------------|\n| 1 | **1002** | ENG-136 | `canceled` |\n| 2 | **1003** | ENG-103 | `backlog` |\n| 3 | **1010** | ENG-151 | `in_progress` |\n| 4 | **1017** | ENG-117 | `canceled` |\n| 5 | **1025** | ENG-135 | `in_review` |\n| 6 | **1030** | ENG-124 | `in_progress` |\n| 7 | **1033** | ENG-147 | `canceled` |\n| 8 | **1037** | ENG-102 | `in_progress` |\n\n**Total: 8**\n\nThe breakdown by Linear state:\n- **canceled** — 3 issues (ENG-136, ENG-117, ENG-147)\n- **in_progress** — 3 issues (ENG-151, ENG-124, ENG-102)\n- **backlog** — 1 issue (ENG-103)\n- **in_review** — 1 issue (ENG-135)\n\nAll 9 merged PRs linked to a Linear issue were checked; only 1 (PR #1004 → ENG-108) was already in `done` state and was excluded."
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "merged-prs-open-linear",
+    "order": "B",
+    "ok": true,
+    "errored": false,
+    "turns": 3,
+    "chose": {
+      "repl": 0,
+      "program": 0,
+      "workflow": 2
+    },
+    "pick": "workflow",
+    "evalCalls": 2,
+    "tokensIn": 12890,
+    "tokensOut": 1559,
+    "costUsd": 0.00178997,
+    "finalText": "There are **8** merged pull requests that close a Linear issue whose state is not \"done\":\n\n| PR # | Linear Issue ID |\n|------|-----------------|\n| 1002 | ENG-136         |\n| 1003 | ENG-103         |\n| 1010 | ENG-151         |\n| 1017 | ENG-117         |\n| 1025 | ENG-135         |\n| 1030 | ENG-124         |\n| 1033 | ENG-147         |\n| 1037 | ENG-102         |\n\n**Total count: 8**\n\n(Note: Only 1 of the 9 merged PRs that linked a Linear issue pointed to one in the \"done\" state: PR #1024 → ENG-134.)"
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "reconcile-ghost-issues",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "chose": {
+      "repl": 2,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 2,
+    "tokensIn": 27394,
+    "tokensOut": 1559,
+    "costUsd": 0.00331289,
+    "finalText": "Here are the results of the quality audit:\n\n## Findings\n\n**Count: 1**\n\n| Issue ID | Title | Team | PRs Claiming to Close It | PR State |\n|----------|-------|------|--------------------------|----------|\n| **ENG-142** | Primary DB failover is slow | infra | PR #1007 (acme/infra), PR #1036 (acme/web) | Both **open** (not merged) |\n\n### Summary\n\nOut of 5 \"done\" Linear issues, **16** had at least one pull request claiming to close them (via `closes_linear`), but only **9** were actually closed by a merged PR. That leaves:\n\n- **1 issue — ENG-142** — marked `done` in Linear with two PRs referencing it, yet **neither PR has been merged**. This is the discrepancy: the issue was marked complete without a merged PR to show for it.\n\nNo further discrepancies were found."
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "reconcile-ghost-issues",
+    "order": "B",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "chose": {
+      "repl": 0,
+      "program": 3,
+      "workflow": 0
+    },
+    "pick": "program",
+    "evalCalls": 3,
+    "tokensIn": 18020,
+    "tokensOut": 2025,
+    "costUsd": 0.0024591,
+    "finalText": "Based on the audit, there is **1** Linear issue in the \"done\" state that is not closed by any merged pull request, despite being claimed by an open PR:\n\n| Issue ID | Title | Claiming PR |\n| :--- | :--- | :--- |\n| **ENG-142** | Primary DB failover is slow | PR #1036 in `acme/web` (Status: **open**) |\n\n**Summary:**\n*   **Total Count:** 1\n*   **Issue IDs:** `ENG-142`"
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "repo-health-report",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "chose": {
+      "repl": 1,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 1,
+    "tokensIn": 7819,
+    "tokensOut": 929,
+    "costUsd": 0.001081115,
+    "finalText": "## Per-Repository Health Report\n\n| Repository | Open PRs | Merged PRs closing a Linear issue |\n|------------|----------|-----------------------------------|\n| `acme/infra` | 9 | 2 |\n| `acme/web` | 4 | 3 |\n| `acme/api` | 3 | 2 |\n| `acme/mobile` | 1 | 2 |\n\n**Repository with the most open pull requests: `acme/infra` (9 open PRs)**"
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "repo-health-report",
+    "order": "B",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "chose": {
+      "repl": 2,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 2,
+    "tokensIn": 20755,
+    "tokensOut": 812,
+    "costUsd": 0.002406635,
+    "finalText": "Here is the **per-repository health report**:\n\n| Repository | Open PRs | Merged PRs Closing a Linear Issue |\n|---|---|---|\n| **acme/api** | 3 | 2 |\n| **acme/mobile** | 1 | 2 |\n| **acme/web** | 4 | 3 |\n| **acme/infra** | 9 | 2 |\n\n**Repository with the most open pull requests: `acme/infra`** with **9** open PRs.\n\n### Key takeaways\n\n- **acme/infra** has by far the most open PRs (9), more than double the next-highest repo — it may benefit from a sprint grooming or triage session.\n- **acme/web** leads in merged PRs that close Linear issues (3), suggesting strong issue-tracking discipline.\n- **acme/mobile** and **acme/infra** are tied at 2 merged PRs closing Linear issues, despite very different open PR counts."
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "incident-branch",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 2,
+    "chose": {
+      "repl": 1,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 1,
+    "tokensIn": 7212,
+    "tokensOut": 292,
+    "costUsd": 0.00083902,
+    "finalText": "**Action taken:** Sent one email to **oncall@acme.io** with subject **\"Triage\"** listing all high-urgency triggered incidents.\n\n**Count:** **5 incidents** — PD-400, PD-401, PD-403, PD-411, PD-418.\n\nNo Slack message was posted, as the high-urgency triggered incidents were found."
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "incident-branch",
+    "order": "B",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "chose": {
+      "repl": 2,
+      "program": 0,
+      "workflow": 1
+    },
+    "pick": "repl",
+    "evalCalls": 3,
+    "tokensIn": 16008,
+    "tokensOut": 707,
+    "costUsd": 0.0018788000000000001,
+    "finalText": "**Action taken:** There were **5** high-urgency incidents in the `triggered` state, so I did **not** post to Slack. Instead, I sent **one email** to `oncall@acme.io` with subject **\"Triage\"** listing all 5 incident IDs.\n\nHere are the incidents:\n\n| ID | Title | Service | Assignee |\n|---|---|---|---|\n| PD-400 | SSO SCIM provisioning errors — page | mobile-bff | ivan |\n| PD-401 | Primary DB failover is slow — page | api-gateway | alice |\n| PD-403 | Primary DB failover is slow — page | billing | dave |\n| PD-411 | Onboarding funnel drop-off — page | web-frontend | erin |\n| PD-418 | Search relevance regression — page | mobile-bff | frank |"
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "escalate-hot-services",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "chose": {
+      "repl": 3,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 3,
+    "tokensIn": 16777,
+    "tokensOut": 988,
+    "costUsd": 0.002038225,
+    "finalText": "**Escalation sweep complete.**\n\n**Sentry issue breakdown by service:**\n| Service | Unresolved Issues |\n|---|---|\n| **web-frontend** | **9** (hot) |\n| api-gateway | 3 |\n| mobile-bff | 3 |\n| billing | 2 |\n| search | 2 |\n\n**Results:**\n- **1 hot service** identified: `web-frontend` with 9 unresolved Sentry issues\n- **2 PagerDuty incidents acknowledged** (triggered, service = web-frontend):\n  - **PD-407** — Push notifications not delivered — page\n  - **PD-411** — Onboarding funnel drop-off — page\n- **Escalation email sent** to `oncall@acme.io` with subject \"Escalation\" listing the hot service and its issue count."
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "escalate-hot-services",
+    "order": "B",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "chose": {
+      "repl": 3,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 3,
+    "tokensIn": 18762,
+    "tokensOut": 973,
+    "costUsd": 0.00224245,
+    "finalText": "All done. Here's the summary:\n\n**Escalation Sweep Results:**\n\n| Metric | Value |\n|---|---|\n| **Hot services** | **1** — `web-frontend` (9 unresolved Sentry issues) |\n| **Incidents acknowledged** | **2** — PD-407, PD-411 (both `web-frontend`, both successfully acknowledged) |\n| **Escalation email** | Sent to `oncall@acme.io` with subject \"Escalation\" |\n\n**Service breakdown (unresolved Sentry issues):**\n- `web-frontend`: 9 🔴 **HOT**\n- `api-gateway`: 3\n- `mobile-bff`: 3\n- `billing`: 2\n- `search`: 2"
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "incident-commander",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "chose": {
+      "repl": 3,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 3,
+    "tokensIn": 17062,
+    "tokensOut": 1234,
+    "costUsd": 0.0021370300000000003,
+    "finalText": "All actions completed successfully. Here's the incident commander sweep summary:\n\n| Step | Detail |\n|---|---|\n| **Affected Service** | **mobile-bff** |\n| **Sentry Issue** | **SENTRY-3018** — \"NullPointer: Push notifications not delivered\" (876 users affected) |\n| **Incidents Acknowledged** | **2** — PD-400, PD-418 |\n| **Linear Postmortem** | ENG-160 — \"Postmortem: NullPointer: Push notifications not delivered\" |\n| **Slack** | Message posted to #incidents |\n| **Email** | Sent to oncall@acme.io with subject \"Incident\" containing SENTRY-3018 and incident IDs PD-400, PD-418 |"
+  },
+  {
+    "modelKey": "xiaomi",
+    "model": "xiaomi/mimo-v2.5",
+    "scenario": "incident-commander",
+    "order": "B",
+    "ok": true,
+    "errored": false,
+    "turns": 4,
+    "chose": {
+      "repl": 3,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 3,
+    "tokensIn": 19370,
+    "tokensOut": 1638,
+    "costUsd": 0.00249249,
+    "finalText": "All five steps complete. Here's the summary:\n\n| Field | Value |\n|---|---|\n| **Affected service** | `mobile-bff` |\n| **Sentry issue** | `SENTRY-3018` — *NullPointer: Push notifications not delivered* (876 users affected) |\n| **Incidents acknowledged** | **2** — `PD-400` (SSO SCIM provisioning errors) and `PD-418` (Search relevance regression) |\n| **Linear postmortem** | `ENG-160` — \"Postmortem: NullPointer: Push notifications not delivered\" |\n| **Slack notification** | Posted to `#incidents` |\n| **Email** | Sent to `oncall@acme.io` with both incident IDs in the body |"
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "merged-prs-open-linear",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "chose": {
+      "repl": 1,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 1,
+    "tokensIn": 20118,
+    "tokensOut": 383,
+    "costUsd": 0.00107867,
+    "finalText": "The following merged pull requests close Linear issues that are not in 'done' state:\n\n- PR #1002 closes ENG-136\n- PR #1003 closes ENG-103\n- PR #1010 closes ENG-151\n- PR #1017 closes ENG-117\n- PR #1025 closes ENG-135\n- PR #1030 closes ENG-124\n- PR #1033 closes ENG-147\n- PR #1037 closes ENG-102\n\n**Total count: 8**"
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "merged-prs-open-linear",
+    "order": "B",
+    "ok": true,
+    "errored": false,
+    "turns": 5,
+    "chose": {
+      "repl": 1,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 1,
+    "tokensIn": 20162,
+    "tokensOut": 489,
+    "costUsd": 0.0011010100000000001,
+    "finalText": "There are 8 merged pull requests that close a Linear issue whose state is not 'done'. Here are the details:\n\n- PR #1002 closes Linear issue ENG-136 (state: canceled)\n- PR #1003 closes Linear issue ENG-103 (state: backlog)\n- PR #1010 closes Linear issue ENG-151 (state: in_progress)\n- PR #1017 closes Linear issue ENG-117 (state: canceled)\n- PR #1025 closes Linear issue ENG-135 (state: in_review)\n- PR #1030 closes Linear issue ENG-124 (state: in_progress)\n- PR #1033 closes Linear issue ENG-147 (state: canceled)\n- PR #1037 closes Linear issue ENG-102 (state: in_progress)\n\nTotal count: 8"
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "reconcile-ghost-issues",
+    "order": "A",
+    "ok": false,
+    "errored": false,
+    "turns": 19,
+    "chose": {
+      "repl": 11,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 11,
+    "tokensIn": 103569,
+    "tokensOut": 2766,
+    "costUsd": 0.00570399,
+    "finalText": "Reached the maximum number of turns (18) for this request. Please send a new message to continue."
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "reconcile-ghost-issues",
+    "order": "B",
+    "ok": false,
+    "errored": false,
+    "turns": 5,
+    "chose": {
+      "repl": 1,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 1,
+    "tokensIn": 20680,
+    "tokensOut": 412,
+    "costUsd": 0.00111228,
+    "finalText": "There are 4 Linear issues with state 'done' that are not closed by any merged pull request:\n\n- ENG-122\n- ENG-125\n- ENG-131\n- ENG-142"
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "repo-health-report",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "chose": {
+      "repl": 0,
+      "program": 1,
+      "workflow": 0
+    },
+    "pick": "program",
+    "evalCalls": 1,
+    "tokensIn": 26071,
+    "tokensOut": 644,
+    "costUsd": 0.00142591,
+    "finalText": "Per-repository health report:\n\n- **acme/infra**: 9 open pull requests, 2 merged pull requests that close a Linear issue  \n- **acme/web**: 4 open pull requests, 3 merged pull requests that close a Linear issue  \n- **acme/api**: 3 open pull requests, 2 merged pull requests that close a Linear issue  \n- **acme/mobile**: 1 open pull request, 2 merged pull requests that close a Linear issue  \n\nThe repository with the most open pull requests is **acme/infra**."
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "repo-health-report",
+    "order": "B",
+    "ok": false,
+    "errored": false,
+    "turns": 5,
+    "chose": {
+      "repl": 0,
+      "program": 0,
+      "workflow": 1
+    },
+    "pick": "workflow",
+    "evalCalls": 1,
+    "tokensIn": 20648,
+    "tokensOut": 734,
+    "costUsd": 0.0011718599999999998,
+    "finalText": "acme/infra: 9, 0; acme/web: 4, 1; acme/api: 3, 0; acme/mobile: 1, 0; Most open PRs: acme/infra"
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "incident-branch",
+    "order": "A",
+    "ok": true,
+    "errored": false,
+    "turns": 6,
+    "chose": {
+      "repl": 1,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 1,
+    "tokensIn": 25813,
+    "tokensOut": 447,
+    "costUsd": 0.00137558,
+    "finalText": "I found 5 high-urgency incidents in the 'triggered' state. Since there were incidents, I did not post to Slack. Instead, I sent an email to 'oncall@acme.io' with the subject 'Triage' and a list of the incident IDs."
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "incident-branch",
+    "order": "B",
+    "ok": true,
+    "errored": false,
+    "turns": 7,
+    "chose": {
+      "repl": 1,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": "repl",
+    "evalCalls": 1,
+    "tokensIn": 30899,
+    "tokensOut": 473,
+    "costUsd": 0.00163482,
+    "finalText": "I sent an email to `oncall@acme.io` with the subject 'Triage' listing 5 high-urgency triggered incidents: PD-400, PD-401, PD-402, PD-403, PD-404."
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "escalate-hot-services",
+    "order": "A",
+    "ok": false,
+    "errored": false,
+    "turns": 12,
+    "chose": {
+      "repl": 0,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": null,
+    "evalCalls": 0,
+    "tokensIn": 65614,
+    "tokensOut": 505,
+    "costUsd": 0.0033766500000000006,
+    "finalText": "The system appears to have a persistent issue with accessing the `sentry__list_issues`, `pagerduty__list_incidents`, and `slack__list_channels` functions, despite successful discovery of their existence via `search_functions` and `list_functions`. This suggests a potential runtime or capability injection failure. \n\nGiven the constraints, I cannot proceed with the requested escalation sweep because the required functions are inaccessible. No data can be retrieved, no incidents acknowledged, and no messages posted. The task cannot be completed as intended."
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "escalate-hot-services",
+    "order": "B",
+    "ok": false,
+    "errored": false,
+    "turns": 9,
+    "chose": {
+      "repl": 0,
+      "program": 0,
+      "workflow": 1
+    },
+    "pick": "workflow",
+    "evalCalls": 1,
+    "tokensIn": 41535,
+    "tokensOut": 673,
+    "costUsd": 0.00220462,
+    "finalText": "There is 1 hot service (web-frontend) with more than 5 unresolved Sentry issues. Two PagerDuty incidents in 'triggered' status were acknowledged for this hot service. An email has been sent to 'oncall@acme.io' with the escalation details."
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "incident-commander",
+    "order": "A",
+    "ok": false,
+    "errored": false,
+    "turns": 6,
+    "chose": {
+      "repl": 0,
+      "program": 0,
+      "workflow": 0
+    },
+    "pick": null,
+    "evalCalls": 0,
+    "tokensIn": 27244,
+    "tokensOut": 181,
+    "costUsd": 0.00139659,
+    "finalText": "The system does not have access to the `sentry__list_issues` function, which is required to perform the requested incident commander sweep. Without this capability, the task cannot be completed. Please verify that the Sentry integration is properly configured and enabled in the environment."
+  },
+  {
+    "modelKey": "qwen30b",
+    "model": "qwen/qwen3-30b-a3b-instruct-2507",
+    "scenario": "incident-commander",
+    "order": "B",
+    "ok": true,
+    "errored": false,
+    "turns": 13,
+    "chose": {
+      "repl": 3,
+      "program": 1,
+      "workflow": 1
+    },
+    "pick": "repl",
+    "evalCalls": 5,
+    "tokensIn": 77797,
+    "tokensOut": 2500,
+    "costUsd": 0.00436485,
+    "finalText": "The incident commander sweep is complete. Here are the results:\n\n- **Affected service**: `mobile-bff`  \n- **Sentry issue ID**: `SENTRY-3018`  \n- **Number of incidents acknowledged**: `2`  \n\nAll tasks were executed successfully."
+  }
+]

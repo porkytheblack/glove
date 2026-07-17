@@ -13,7 +13,7 @@
  *
  * The runtime is identical across framings — same session, same persistence, same
  * effects. Only the tool NAME and the priming change. The bet (see the bench's
- * FRAME-EXPLORATION) is that the name and framing steer whether a model composes
+ * FRAME-PAPER) is that the name and framing steer whether a model composes
  * one program or degrades the surface into an incremental tool-call loop.
  */
 import { z } from "zod";

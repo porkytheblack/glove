@@ -156,7 +156,7 @@ mountJs(agent, { session, frame: "workflow" });  // frame: "workflow" → execut
 ```
 
 The bet (see
-[`examples/scratchpad-bench/FRAME-EXPLORATION.md`](../../examples/scratchpad-bench/FRAME-EXPLORATION.md)):
+[`examples/scratchpad-bench/FRAME-PAPER.md`](../../examples/scratchpad-bench/FRAME-PAPER.md)):
 the token "REPL" pattern-matches to an interactive, line-by-line *session*, so
 models degrade the surface back into an incremental tool-call loop — peek at a
 row, then run a second program. The `workflow` framing never says "REPL"; it

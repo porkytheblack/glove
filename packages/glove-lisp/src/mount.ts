@@ -12,7 +12,7 @@
  *     `explain_lisp_workflow`.
  *
  * The runtime is identical across framings — only the tool NAMES and the priming
- * change. See the bench's FRAME-EXPLORATION for the rationale.
+ * change. See the bench's FRAME-PAPER for the rationale.
  */
 import { z } from "zod";
 import { describeFn } from "glove-scratchpad";

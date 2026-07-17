@@ -164,7 +164,7 @@ The `workflow` framing never says "REPL"; it frames the call as ONE complete
 program that carries the task start to finish and demotes cross-call persistence
 to a retry-only recovery aid — countering the tendency of models to degrade the
 surface into an incremental line-by-line session. See
-[`examples/scratchpad-bench/FRAME-EXPLORATION.md`](../../examples/scratchpad-bench/FRAME-EXPLORATION.md)
+[`examples/scratchpad-bench/FRAME-PAPER.md`](../../examples/scratchpad-bench/FRAME-PAPER.md)
 for the A/B; `pyToolName(frame)` / `buildPyPreambleBody(frame)` expose the mapping.
 Default is `repl`, so existing mounts are unchanged.
 

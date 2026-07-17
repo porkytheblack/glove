@@ -31,6 +31,7 @@ export type { JsSessionOptions, JsExecuteOptions, JsExecuteResult } from "./sess
 export {
   mountJs,
   buildExecuteJsTool,
+  buildDiscoveryTools,
   buildJsPreamble,
   buildJsPreambleBody,
   jsToolName,

@@ -34,7 +34,7 @@ inspectability) and its no-API-key validation
 through the Lisp surface). It is opt-in:
 `pnpm bench --arms=baseline,scratchpad,lisp`.
 
-A separate **frame A/B** ([**Is a workflow just a renamed REPL?**](FRAME-EXPLORATION.md))
+A separate **frame A/B** ([**Is a workflow just a renamed REPL?**](FRAME-PAPER.md))
 reuses this whole layer to ask a narrower question: holding the runtime, catalog,
 scenarios, and models fixed, does *renaming* the one eval tool
 (`execute_js` → `execute_js_workflow`) and de-REPLing its priming make a model
