@@ -33,7 +33,7 @@ import type { ToolResultData } from "glove-core/core";
 import { JsSession, mountJs, buildDiscoveryTools, buildJsPreambleBody } from "glove-js";
 import { z } from "zod";
 import type { MockOrg } from "../mcp/index";
-import { BoundaryMeter, serialize, type Channel } from "./meter";
+import { BoundaryMeter, serialize, type Channel } from "glove-egress";
 import {
   egressFns,
   guardEffectFns,
@@ -42,7 +42,7 @@ import {
   DEFAULT_EGRESS_POLICY,
   type EgressPolicy,
   type GateLedger,
-} from "./gate";
+} from "glove-egress";
 import { defineJudgeFn, newJudgeStats, type JudgeStats } from "./judge";
 import type { BenchModel } from "../models";
 

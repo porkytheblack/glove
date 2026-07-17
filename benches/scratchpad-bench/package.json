@@ -21,6 +21,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "glove-core": "workspace:*",
+    "glove-egress": "workspace:*",
     "glove-js": "workspace:*",
     "glove-lisp": "workspace:*",
     "glove-python": "workspace:*",

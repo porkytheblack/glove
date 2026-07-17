@@ -1,7 +1,7 @@
 /**
  * Figure generator for EXFIL-PAPER.md. Emits self-contained SVGs into figures/.
  * The DETERMINISTIC figures (extraction curve, ruler divergence, aggregation) are
- * computed here from exfil/redteam.ts + exfil/meter.ts and need no API. The
+ * computed here from glove-egress (redteam + meter) and need no API. The
  * MODEL-IN-THE-LOOP figures (leak rate, bytes crossed, judge tier) read
  * results/exfil-results.json when present.
  *
@@ -15,8 +15,8 @@
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { simulateExtraction } from "./exfil/redteam";
-import { log2 } from "./exfil/meter";
+import { simulateExtraction } from "glove-egress";
+import { log2 } from "glove-egress";
 
 const ROOT = join(import.meta.dirname, "..");
 const RES = join(ROOT, "results");

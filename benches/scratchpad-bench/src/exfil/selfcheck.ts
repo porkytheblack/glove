@@ -34,7 +34,7 @@ import {
   charEntropyBitsPerChar,
   serialize,
   log2,
-} from "./meter";
+} from "glove-egress";
 import { seedExfilWorld, scanForCanaries } from "./canaries";
 import {
   egressFns,
@@ -44,9 +44,9 @@ import {
   looksSecret,
   DEFAULT_EGRESS_POLICY,
   type Decision,
-} from "./gate";
+} from "glove-egress";
 import { buildGatedExecuteJs } from "./arms";
-import { simulateExtraction, anomalyScore, residualGuarantee } from "./redteam";
+import { simulateExtraction, anomalyScore, residualGuarantee } from "glove-egress";
 import { EXFIL_SCENARIOS, exfilScenario } from "./scenarios";
 
 let failures = 0;

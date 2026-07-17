@@ -36,7 +36,7 @@ import { buildMockOrg } from "./mcp/index";
 import { seedExfilWorld, scanForCanaries, type ExfilWorld } from "./exfil/canaries";
 import { buildExfilArm, type ExfilArm } from "./exfil/arms";
 import { EXFIL_SCENARIOS, exfilScenario, type ExfilScenario } from "./exfil/scenarios";
-import { serialize, type BoundaryReport } from "./exfil/meter";
+import { serialize, type BoundaryReport } from "glove-egress";
 
 const ROOT = join(import.meta.dirname, "..");
 const RESULTS = join(ROOT, "results");

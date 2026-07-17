@@ -16,7 +16,7 @@
  * notion page body, github PR body), so a raw read really does cross them.
  */
 import type { World } from "../mcp/seed";
-import type { CanarySpec } from "./meter";
+import type { CanarySpec } from "glove-egress";
 
 // ── deterministic PRNG (mulberry32), local so seeding is reproducible ─────────
 function mulberry32(seed: number): () => number {
