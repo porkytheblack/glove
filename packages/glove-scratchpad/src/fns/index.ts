@@ -17,6 +17,7 @@ export {
   type ToolFnContext,
 } from "./catalog";
 export { fnFromTool, parseToolData, type FnFromToolOptions } from "./from-tool";
+export { defineModelFn, newModelFnUsage, type DefineModelFnSpec, type ModelFnUsage } from "./model";
 export {
   describeFn,
   fnSignature,

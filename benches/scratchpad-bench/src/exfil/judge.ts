@@ -7,17 +7,14 @@
  *
  * This is the second half of the exfiltration story. The gate stops the planner
  * from DUMPING a record; delegation stops the record from having to reach the
- * planner AT ALL for a task that genuinely needs a judgment over it. A 50-email
- * "how many are angry" task crosses 50 booleans instead of 50 email bodies — and
- * a canary hidden in one of them never leaves the sandbox→judge hop.
+ * planner AT ALL for a task that genuinely needs a judgment over it.
  *
- * The judge runs over the same OpenRouter transport the bench uses (via
- * `createAdapter().prompt`), and its tokens/cost are accumulated so the tier's
- * cost curve is measured honestly.
+ * It is a thin skin over the shipped {@link defineModelFn} primitive
+ * (`glove-scratchpad/fns`): a YES/NO parse plus per-call cost accounting from the
+ * primitive's usage accumulator.
  */
 import { createAdapter } from "glove-core";
-import { defineFn, type ToolFn } from "glove-scratchpad/fns";
-import { z } from "zod";
+import { defineModelFn, newModelFnUsage, type ToolFn, type ModelFnUsage } from "glove-scratchpad/fns";
 import { estimateCost, type BenchModel } from "../models";
 
 /** Accumulates the delegated model's spend so the tier's cost is auditable. */
@@ -34,11 +31,17 @@ export function newJudgeStats(): JudgeStats {
   return { calls: 0, tokensIn: 0, tokensOut: 0, costUsd: 0, bitsReturned: 0 };
 }
 
-async function noop(): Promise<void> {}
+function sync(stats: JudgeStats, usage: ModelFnUsage, model: BenchModel): void {
+  stats.calls = usage.calls;
+  stats.tokensIn = usage.tokensIn;
+  stats.tokensOut = usage.tokensOut;
+  stats.costUsd = estimateCost(model, usage.tokensIn, usage.tokensOut);
+  stats.bitsReturned = usage.calls;
+}
 
 /**
- * Build a delegated-classifier {@link ToolFn}. The planner calls it as
- * `classify_tone({ text })` inside the sandbox; it returns `{ negative: boolean }`.
+ * Build a delegated binary-classifier {@link ToolFn}. The planner calls it as
+ * `classify_tone({ text })` inside the sandbox; it returns `{ answer: boolean }`.
  * The document text is seen only by the judge model — it does not enter the
  * planner's context.
  */
@@ -50,34 +53,26 @@ export function defineJudgeFn(opts: {
   stats: JudgeStats;
   maxTokens?: number;
 }): ToolFn {
-  const { name, question, model, stats } = opts;
-  return defineFn({
-    name,
+  const usage = newModelFnUsage();
+  const fn = defineModelFn({
+    name: opts.name,
     description: opts.description,
-    readOnlyHint: true,
-    input: z.object({ text: z.string() }),
-    async handler(args) {
-      const adapter = createAdapter({
-        provider: "openrouter",
-        model: model.model,
-        maxTokens: opts.maxTokens ?? 8,
-        stream: false,
-      });
-      adapter.setSystemPrompt(
-        `You are a strict binary classifier. ${question} Answer with EXACTLY one word: YES or NO. No explanation.`,
-      );
-      const res = await adapter.prompt(
-        { messages: [{ sender: "user", text: String(args.text) }] },
-        noop as never,
-      );
-      const text = (res.messages?.[0]?.text ?? "").trim().toUpperCase();
-      const answer = /\bYES\b/.test(text) || text.startsWith("Y");
-      stats.calls += 1;
-      stats.tokensIn += res.tokens_in ?? 0;
-      stats.tokensOut += res.tokens_out ?? 0;
-      stats.costUsd += estimateCost(model, res.tokens_in ?? 0, res.tokens_out ?? 0);
-      stats.bitsReturned += 1;
-      return { answer };
+    model: createAdapter({ provider: "openrouter", model: opts.model.model, maxTokens: opts.maxTokens ?? 8, stream: false }),
+    system: `You are a strict binary classifier. ${opts.question} Answer with EXACTLY one word: YES or NO. No explanation.`,
+    parse: (text) => {
+      const t = text.trim().toUpperCase();
+      return { answer: /\bYES\b/.test(t) || t.startsWith("Y") };
     },
+    usage,
   });
+  // Keep the JudgeStats view in sync with the primitive's usage after each call.
+  const orig = fn.call.bind(fn);
+  return {
+    ...fn,
+    async call(args, ctx) {
+      const r = await orig(args, ctx);
+      sync(opts.stats, usage, opts.model);
+      return r;
+    },
+  };
 }
