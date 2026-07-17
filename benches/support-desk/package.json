@@ -1,0 +1,25 @@
+{
+  "name": "support-desk-bench",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Application bench: a support-triage WORKFLOW authored by a SOTA open-source planner that delegates per-ticket judgements to a cheap model. Measures cost-parity, quality-at-par, and PII exfiltration-resistance (solo vs delegated).",
+  "scripts": {
+    "bench": "tsx --env-file-if-exists=../../.env src/run.ts",
+    "selfcheck": "tsx src/selfcheck.ts",
+    "figures": "tsx src/figures.ts"
+  },
+  "dependencies": {
+    "glove-core": "workspace:*",
+    "glove-egress": "workspace:*",
+    "glove-js": "workspace:*",
+    "glove-mcp": "workspace:*",
+    "glove-scratchpad": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}
