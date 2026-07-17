@@ -212,6 +212,53 @@ function figChoice(rows: ChoiceRow[], file: string) {
   save(file, svg(W, H, b));
 }
 
+// ══ Fig E — dual surface: identical descriptions vs distinct roles ════════════
+interface UsageRow { chose: { repl: number; program: number; workflow: number }; }
+function figDual(identical: UsageRow[], roles: UsageRow[], file: string) {
+  const W = 720, H = 348;
+  const M = { l: 46, r: 16, t: 96, b: 56 };
+  const pw = W - M.l - M.r, ph = H - M.t - M.b;
+  const y = (pct: number) => M.t + ph - (pct / 100) * ph;
+  const usage = (rs: UsageRow[]) => {
+    const n = rs.length || 1;
+    return {
+      workflow: (100 * rs.filter((r) => r.chose.workflow > 0).length) / n,
+      repl: (100 * rs.filter((r) => r.chose.repl > 0).length) / n,
+      both: (100 * rs.filter((r) => r.chose.repl > 0 && r.chose.workflow > 0).length) / n,
+      n: rs.length,
+    };
+  };
+  // series colors: workflow=teal, execute_js=gray, both=blue
+  const SERIES = [
+    { key: "workflow" as const, label: "used execute_js_workflow", color: FRAME_COLOR.workflow },
+    { key: "repl" as const, label: "used execute_js", color: FRAME_COLOR.repl },
+    { key: "both" as const, label: "used both", color: FRAME_COLOR.program },
+  ];
+  let b = text(16, 28, "Told they are the same, the model avoids workflow; told they differ, it routes to it", { size: 14.5, fill: INK, weight: 600 });
+  b += text(16, 46, "execute_js + execute_js_workflow mounted together · which surface each run used · 6 complex tasks × 4 models", { size: 12, fill: INK2 });
+  b += SERIES.map((s, i) => `<rect x="${16 + i * 210}" y="62" width="12" height="12" rx="3" fill="${s.color}"/>` + text(16 + i * 210 + 18, 73, s.label, { size: 12, fill: INK2 })).join("");
+  for (const t of [0, 25, 50, 75, 100]) { b += grid(M.l, W - M.r, y(t)); b += text(M.l - 8, y(t) + 4, `${t}%`, { size: 11, fill: MUTED, anchor: "end", nums: true }); }
+  const groups = [
+    { label: "identical descriptions", u: usage(identical) },
+    { label: "distinct roles (explore vs do)", u: usage(roles) },
+  ];
+  const slot = pw / groups.length, bw = Math.min(40, slot / 4.5);
+  groups.forEach((gp, i) => {
+    const cx = M.l + i * slot + slot / 2;
+    const cluster = bw * 3 + 9 * 2;
+    SERIES.forEach((s, si) => {
+      const v = gp.u[s.key];
+      const x = cx - cluster / 2 + si * (bw + 9);
+      b += column(x, y(v), bw, ph - (y(v) - M.t), s.color);
+      b += text(x + bw / 2, y(v) - 6, `${Math.round(v)}`, { size: 10.5, fill: INK, anchor: "middle", weight: 600, nums: true });
+    });
+    b += text(cx, M.t + ph + 22, gp.label, { size: 12, fill: INK, anchor: "middle", weight: 600 });
+    b += text(cx, M.t + ph + 38, `n=${gp.u.n}`, { size: 10.5, fill: MUTED, anchor: "middle", nums: true });
+  });
+  b += `<line x1="${M.l}" y1="${M.t + ph}" x2="${W - M.r}" y2="${M.t + ph}" stroke="${BASE}" stroke-width="1"/>`;
+  save(file, svg(W, H, b));
+}
+
 // ── drive ─────────────────────────────────────────────────────────────────────
 const complex = load("frames-js2-results.json") as Row[] | null;
 const easyFull = load("frames-js-results.json") as Row[] | null;
@@ -233,5 +280,7 @@ if (easyFull && prog) {
   figDiscovery(easyFull.filter((r) => progScen.has(r.scenario)), prog, "fig-frame-discovery.svg");
 }
 if (choice) figChoice(choice, "fig-frame-choice.svg");
+const dual = load("frames-dual-results.json") as UsageRow[] | null;
+if (choice && dual) figDual(choice as unknown as UsageRow[], dual, "fig-frame-dual.svg");
 
 console.log("frame figures written to figures/ " + (complex ? "(complex A/B)" : easyFull ? "(easy A/B fallback)" : "(no A/B data yet)"));

@@ -68,6 +68,40 @@ Functions you can call (signatures show INPUTS only; inspect a row for its field
 ${sigs}`;
 }
 
+/** ROLES mode — the two tools are NOT interchangeable; each is given a distinct
+ *  job (explore-and-inspect vs commit-the-whole-task), so the model can route
+ *  between them the way it already understands a REPL vs a script. */
+const ROLE_DESC: Record<Frame, string> = {
+  repl:
+    "An interactive REPL for EXPLORING before you commit: inspect one row's shape (Object.keys(rows[0])), check a value, or try a snippet. Each expression's value is echoed back. Persistent across calls. Use it to LOOK — not to carry out a whole multi-step task.",
+  workflow:
+    "Author the COMPLETE task as ONE program that runs start to finish — discover, read, compute, branch, and act — and returns only the final expression's value. Use it to DO the task in a single call once you know what to do.",
+  program: "",
+};
+
+function buildRolesPreamble(order: Frame[], fns: ToolFn[]): string {
+  const sigs = fns.map((fn) => `- ${fnSignature(fn)}`).join("\n");
+  const cards = order
+    .map((f) =>
+      f === "repl"
+        ? `  - ${FRAME_TOOL.repl} — EXPLORE: inspect a row's shape, check a value, try a snippet. Each expression's value is echoed back. For looking before you leap.`
+        : `  - ${FRAME_TOOL.workflow} — DO: author the whole task as ONE complete program; only the final expression's value returns.`,
+    )
+    .join("\n");
+  return `You have TWO tools over the SAME persistent set of capability functions, for TWO different jobs:
+
+${cards}
+
+They share one runtime and one session (a top-level const declared through one is visible to the other). Prefer to carry out the actual multi-step task as a SINGLE ${FRAME_TOOL.workflow} program; reach for ${FRAME_TOOL.repl} only when you genuinely need to explore — to learn a row's shape or a value you don't know yet — before composing that workflow.
+
+Everything you do is a JavaScript program you pass as a "code" string. Your capabilities are FUNCTIONS you call INSIDE that program — github.list_pull_requests({ state: "open" }) — not tools you call directly. Arguments go in ONE object; promises resolve automatically. Compute in the program and let the LAST expression be the answer; discover with search_functions / list_servers / list_functions / describe_function.
+
+Language: const/let, arrow functions, template literals, destructuring, spread, optional chaining, for…of / for / while, if/else, try/catch. Array methods (map/filter/reduce/find/some/every/sort/slice/flat/includes/join), Object.keys/values/entries, Math, JSON, new Set/Map/Date, console.log. NO class, import, eval, fetch, for…in, var.
+
+Functions you can call (signatures show INPUTS only; inspect a row for its fields):
+${sigs}`;
+}
+
 async function catalogFromOrg(org: MockOrg): Promise<ToolFn[]> {
   const fns = (await Promise.all(org.connections.map((c) => fnsFromMcp(c)))).flat();
   await sampleResultShapes(fns); // discovery=full parity — shapes primed, no per-frame peek excuse
@@ -93,12 +127,15 @@ interface ChoiceCfg {
   echo?: boolean;
 }
 
-function buildChoiceArm(model: ModelAdapter, fns: ToolFn[], order: Frame[], cfg: ChoiceCfg) {
+type Mode = "identical" | "roles";
+
+function buildChoiceArm(model: ModelAdapter, fns: ToolFn[], order: Frame[], cfg: ChoiceCfg, mode: Mode) {
+  const preamble = mode === "roles" ? buildRolesPreamble(order, fns) : buildChoicePreamble(order, fns);
   const glove = new Glove({
     store: new MemoryStore(`choice_${Math.floor(Math.random() * 1e9)}`),
     model,
     displayManager: new Displaymanager(),
-    systemPrompt: `${buildChoicePreamble(order, fns)}\n\n${SHARED_ROLE}`,
+    systemPrompt: `${preamble}\n\n${SHARED_ROLE}`,
     serverMode: true,
     maxRetries: 2,
     compaction_config: { max_turns: cfg.maxTurns, compaction_instructions: COMPACTION, compaction_context_limit: cfg.compactionContextLimit },
@@ -108,11 +145,12 @@ function buildChoiceArm(model: ModelAdapter, fns: ToolFn[], order: Frame[], cfg:
   const session = JsSession.create();
   session.registerAll(fns);
 
-  // Fold the three eval tools in the counterbalanced order, each with the SAME
-  // neutral description — only the NAME differs.
+  // Fold the eval tools in the counterbalanced order. In `identical` mode every
+  // tool gets the SAME neutral description (only the NAME differs); in `roles`
+  // mode each gets its distinct job description.
   for (const frame of order) {
     const tool = buildExecuteJsTool(session, { frame }) as GloveFoldArgs<{ code: string }>;
-    tool.description = NEUTRAL_DESC;
+    tool.description = mode === "roles" ? ROLE_DESC[frame] : NEUTRAL_DESC;
     glove.fold(tool as GloveFoldArgs<unknown>);
   }
   // One shared discovery set.
@@ -123,11 +161,13 @@ function buildChoiceArm(model: ModelAdapter, fns: ToolFn[], order: Frame[], cfg:
   return { runnable, sub };
 }
 
-// ── the two counterbalanced orders (repl-first vs workflow-first) ──
-const ORDERS: Record<string, Frame[]> = {
-  A: ["repl", "program", "workflow"],
-  B: ["workflow", "program", "repl"],
-};
+// Counterbalanced presentation/fold orders. `identical` mode has all three tools;
+// `roles` mode is the two distinct-affordance tools (repl + workflow).
+function ordersFor(mode: Mode): Record<string, Frame[]> {
+  return mode === "roles"
+    ? { A: ["repl", "workflow"], B: ["workflow", "repl"] }
+    : { A: ["repl", "program", "workflow"], B: ["workflow", "program", "repl"] };
+}
 
 interface ChoiceRow {
   modelKey: string;
@@ -157,11 +197,11 @@ function finalText(res: unknown): string {
   return "";
 }
 
-async function runChoiceCell(bm: BenchModel, scenario: Scenario, orderKey: string, cfg: ChoiceCfg) {
+async function runChoiceCell(bm: BenchModel, scenario: Scenario, orderKey: string, cfg: ChoiceCfg, mode: Mode) {
   const org = await buildMockOrg({ seed: cfg.seed ?? 1337, scale: cfg.scale });
   const fns = await catalogFromOrg(org);
   const model = createAdapter({ provider: "openrouter", model: bm.model, maxTokens: cfg.maxTokens, stream: false });
-  const { runnable, sub } = buildChoiceArm(model, fns, ORDERS[orderKey], cfg);
+  const { runnable, sub } = buildChoiceArm(model, fns, ordersFor(mode)[orderKey], cfg, mode);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
@@ -212,11 +252,12 @@ const num = (v: unknown, d: number): number => (typeof v === "string" && v.lengt
 const DEFAULT_SCENARIOS = ["merged-prs-open-linear", "reconcile-ghost-issues", "repo-health-report", "incident-branch", "escalate-hot-services", "incident-commander"];
 const DEFAULT_MODELS = ["glm", "deepseek", "xiaomi", "qwen30b"];
 
+const MODE: Mode = args.mode === "roles" ? "roles" : "identical";
 const selModels = (list(args.models).length ? list(args.models) : DEFAULT_MODELS).map((k) => modelByKey(k)).filter(Boolean) as BenchModel[];
 const selScenarios = (list(args.scenarios).length ? list(args.scenarios) : DEFAULT_SCENARIOS).map((id) => scenarioById(id)).filter(Boolean) as Scenario[];
-const selOrders = list(args.orders).length ? list(args.orders).filter((o) => o in ORDERS) : ["A", "B"];
+const selOrders = list(args.orders).length ? list(args.orders).filter((o) => o in ordersFor(MODE)) : ["A", "B"];
 const budget = num(args.budget, Infinity);
-const outPrefix = typeof args.out === "string" && args.out.length ? args.out : "frames-choice";
+const outPrefix = typeof args.out === "string" && args.out.length ? args.out : MODE === "roles" ? "frames-dual" : "frames-choice";
 const cfg: ChoiceCfg = {
   maxTurns: num(args.maxTurns, 14), maxTokens: num(args.maxTokens, 4096),
   timeoutMs: num(args.timeout, 150_000), compactionContextLimit: num(args.contextLimit, 100_000),
@@ -226,10 +267,11 @@ const cfg: ChoiceCfg = {
 // ── writers ─────────────────────────────────────────────────────────────────────
 const safe = (s: string) => s.replace(/[^a-z0-9]+/gi, "-");
 function writeTranscript(r: ChoiceRow, transcript: unknown[]) {
-  mkdirSync(LOGS, { recursive: true });
+  const dir = join(ROOT, "logs", "frames", outPrefix);
+  mkdirSync(dir, { recursive: true });
   const { finalText: ft, ...meta } = r;
   const lines = [JSON.stringify({ kind: "meta", ...meta }), JSON.stringify({ kind: "final_answer", text: ft }), ...transcript.map((e) => JSON.stringify(e))];
-  writeFileSync(join(LOGS, `${safe(r.modelKey)}__${safe(r.scenario)}__${r.order}.jsonl`), lines.join("\n") + "\n");
+  writeFileSync(join(dir, `${safe(r.modelKey)}__${safe(r.scenario)}__${r.order}.jsonl`), lines.join("\n") + "\n");
 }
 function csvOf(rows: ChoiceRow[]): string {
   const cols = ["modelKey", "model", "scenario", "order", "pick", "ok", "errored", "turns", "evalCalls", "repl", "program", "workflow", "tokensIn", "tokensOut", "costUsd"];
@@ -244,10 +286,26 @@ function csvOf(rows: ChoiceRow[]): string {
 function pct(n: number, d: number): string { return d ? `${Math.round((100 * n) / d)}%` : "—"; }
 function summaryMd(rows: ChoiceRow[]): string {
   const L: string[] = [];
-  L.push("# Frame CHOICE — revealed preference over the eval tool's name\n");
-  L.push(`All three eval tools mounted over one session with BYTE-IDENTICAL descriptions (only the NAME differs), neutral preamble, presentation order counterbalanced (A = repl-first, B = workflow-first). Config: maxTurns=${cfg.maxTurns}, discovery=full-shapes.\n`);
+  if (MODE === "roles") {
+    L.push("# Frame DUAL — repl + workflow mounted together, with DISTINCT roles\n");
+    L.push(`Both \`execute_js\` (repl · EXPLORE) and \`execute_js_workflow\` (workflow · DO) mounted over one session, each with its own role description, presentation order counterbalanced (A = repl-first, B = workflow-first). Config: maxTurns=${cfg.maxTurns}, discovery=full-shapes. Question: does the model route — workflow to compose the task, repl to explore — and does giving both beat either alone?\n`);
+  } else {
+    L.push("# Frame CHOICE — revealed preference over the eval tool's name\n");
+    L.push(`All three eval tools mounted over one session with BYTE-IDENTICAL descriptions (only the NAME differs), neutral preamble, presentation order counterbalanced (A = repl-first, B = workflow-first). Config: maxTurns=${cfg.maxTurns}, discovery=full-shapes.\n`);
+  }
   const picked = rows.filter((r) => r.pick);
-  L.push(`Runs with a pick: ${picked.length}/${rows.length}.\n`);
+  const pass = rows.filter((r) => r.ok).length;
+  L.push(`Runs with a pick: ${picked.length}/${rows.length} · pass ${pass}/${rows.length} (${pct(pass, rows.length)}).\n`);
+  // Tool-usage — did the model use each surface at all? (roles mode's key question)
+  const used = (rs: ChoiceRow[], f: Frame) => rs.filter((r) => r.chose[f] > 0).length;
+  const both = rows.filter((r) => r.chose.repl > 0 && r.chose.workflow > 0).length;
+  const wfOnly = rows.filter((r) => r.chose.workflow > 0 && r.chose.repl === 0).length;
+  const replOnly = rows.filter((r) => r.chose.repl > 0 && r.chose.workflow === 0).length;
+  const oneWf = rows.filter((r) => r.chose.workflow === 1).length;
+  L.push("## Tool usage (did the model reach for each surface?)\n");
+  L.push(`- used \`execute_js_workflow\` ≥1: **${used(rows, "workflow")}/${rows.length}** (${pct(used(rows, "workflow"), rows.length)}); the whole task in exactly one workflow call: ${oneWf}/${rows.length} (${pct(oneWf, rows.length)})`);
+  L.push(`- used \`execute_js\` (repl) ≥1: ${used(rows, "repl")}/${rows.length} (${pct(used(rows, "repl"), rows.length)})`);
+  L.push(`- used BOTH: ${both}/${rows.length} · workflow-only: ${wfOnly}/${rows.length} · repl-only: ${replOnly}/${rows.length}\n`);
   // overall preference share (by run pick)
   L.push("## Preference share (by which tool the model used most)\n");
   L.push("| cohort | n | picks execute_js | picks _program | picks _workflow |");
@@ -284,7 +342,7 @@ async function main() {
   const matrix: Array<{ m: BenchModel; s: Scenario; o: string }> = [];
   for (const m of selModels) for (const s of selScenarios) for (const o of selOrders) matrix.push({ m, s, o });
 
-  console.log(`\nFrame CHOICE: ${selModels.length} models × ${selScenarios.length} scenarios × ${selOrders.length} orders = ${matrix.length} runs`);
+  console.log(`\nFrame ${MODE === "roles" ? "DUAL (repl+workflow, distinct roles)" : "CHOICE (3 tools, identical descriptions)"}: ${selModels.length} models × ${selScenarios.length} scenarios × ${selOrders.length} orders = ${matrix.length} runs`);
   console.log(`Models: ${selModels.map((m) => m.key).join(", ")}   Orders: ${selOrders.join(", ")}   Budget: ${budget === Infinity ? "unbounded" : "$" + budget.toFixed(2)}\n`);
 
   const rows: ChoiceRow[] = [];
@@ -306,7 +364,7 @@ async function main() {
     if (done.has(key(cell.m.key, cell.s.id, cell.o))) continue;
     if (spent >= budget) { console.log(`\n⚠ budget $${budget.toFixed(2)} reached ($${spent.toFixed(4)}) — stopping after ${rows.length}.`); break; }
     let out;
-    try { out = await runChoiceCell(cell.m, cell.s, cell.o, cfg); }
+    try { out = await runChoiceCell(cell.m, cell.s, cell.o, cfg, MODE); }
     catch (err) { console.log(`${cell.m.key}/${cell.s.id}/${cell.o} → HARNESS ERROR: ${err instanceof Error ? err.message : String(err)}`); continue; }
     rows.push(out.row); spent += out.row.costUsd; writeTranscript(out.row, out.transcript);
     const r = out.row;
