@@ -9,6 +9,35 @@ Built on the [`glove-scratchpad`](../glove-scratchpad) fns catalog: the egress
 combinators are ordinary `ToolFn`s, so they mount on any REPL surface
 (`glove-js` / `glove-python` / `glove-lisp`).
 
+## Why a separate package
+
+The exfiltration study ([`benches/scratchpad-bench/EXFIL-PAPER.md`](../../benches/scratchpad-bench/EXFIL-PAPER.md))
+reaches one structural conclusion: **a privacy boundary that depends on the
+model's goodwill is not a boundary** — voluntary "return only decisions" priming
+plateaued at a 33% leak rate; only *enforcement* reached 0%. The consequence is
+that the enforcement belongs in the platform, not in a prompt and not
+copy-pasted into each app. This package is that primitive. It is separated out —
+rather than left in the benchmark, or folded into `glove-scratchpad` / the eval
+surfaces — for three concrete reasons:
+
+1. **It is the deliverable the research argues for.** The finding is "enforcement
+   must be a platform primitive"; `egressFns` + `guardEffectFns` + `BoundaryMeter`
+   *are* that primitive. Shipping only the benchmark would be shipping the
+   evidence but not the thing the evidence recommends.
+2. **It already has more than one consumer.** Both the exfiltration bench and the
+   [support-desk](../../benches/support-desk) application bench import the
+   `BoundaryMeter` to measure what crosses the boundary — shared-across-benches is
+   the usual bar for lifting code out of one of them.
+3. **It keeps security out of the ergonomics-focused core.** The eval surfaces and
+   the `glove-scratchpad` fns catalog stay about *drivability*; the egress gate is
+   a distinct, opt-in concern with its own narrow dependency surface (only
+   `glove-scratchpad/fns`). Folding it in would tax every adopter who doesn't want it.
+
+Honest status: `glove-egress` is consumed by the two benchmarks today, not yet by
+a production deployment — it is the tested primitive the study concludes is
+needed, ready for the first app that wants a **measured, enforced** egress
+boundary.
+
 ## Three layers
 
 ### 1. QIF metering — pick the right ruler

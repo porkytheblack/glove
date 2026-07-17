@@ -56,9 +56,12 @@ its answer — across `raw-mcp` / `repl` / `workflow` / `gate`, where `gate` is 
 **enforced egress gate** (the eval tool refuses to return a raw value; only
 `assert`/`count`/`choose`/`bucket`/`report` decisions cross, metered against a
 bit budget, with outbound effects allowlisted). A delegated-judge tier removes
-the document from the planner entirely. No-API validation of the whole metric /
-canary / gate / red-team layer: `pnpm --filter glove-scratchpad-bench
-exfil-selfcheck`; the paid arms: `exfil-bench --budget=<usd>`.
+the document from the planner entirely. The QIF metering, the enforced gate, and
+the red-team simulation ship as their own package,
+[**`glove-egress`**](../../packages/glove-egress) (the platform primitive the
+study concludes enforcement requires); this bench consumes it. No-API validation
+of the whole layer: `pnpm --filter glove-scratchpad-bench exfil-selfcheck`; the
+paid arms: `exfil-bench --budget=<usd>`.
 
 ## What's measured
 
@@ -91,15 +94,12 @@ src/
   run.ts                # CLI + summary/CSV/Markdown writers
   selfcheck.ts          # no-API validation of the whole MCP+scratchpad layer
   probe.ts              # no-API mechanics probes (INSERT…SELECT, required-key IN, JOIN)
-  exfil/
-    meter.ts            # boundary meter: Shannon / min-entropy / g-leakage + canary extraction
+  exfil/                # QIF metering + enforced gate + red-team live in packages/glove-egress
     canaries.ts         # canary seeding into the world + scanner + judge corpus
-    gate.ts             # the enforced egress gate (return whitelist + effect allowlist)
-    redteam.ts          # adaptive-extraction + bit-budget + anomaly simulation (no API)
     scenarios.ts        # temptation / injection / judge tasks + deterministic verifiers
     judge.ts            # delegated cheap-model classifier fn (judge tier)
-    arms.ts             # raw-mcp / repl / workflow / gate / self-judge / delegate-judge
-    selfcheck.ts        # no-API validation of the whole exfil layer
+    arms.ts             # raw-mcp / repl / workflow / gate / self-judge / delegate-judge (glue over glove-egress)
+    selfcheck.ts        # no-API validation of the whole exfil layer (incl. glove-egress)
   exfil-bench.ts        # exfil CLI + runner + writers
   exfil-figures.ts      # SVG figures for EXFIL-PAPER.md
 logs/                   # per-cell JSONL transcripts (git-tracked)

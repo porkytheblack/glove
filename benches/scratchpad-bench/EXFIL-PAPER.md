@@ -72,7 +72,7 @@ The recommended stack, then:
 | **min-entropy bit budget** | composition | caps recoverable hypotheses to 2ᴮ · *not* differential privacy |
 | **k-anonymity threshold** | aggregate side channels | a count-of-one bucket re-identifies; suppress below τ |
 
-Everything above is deterministic and lives in [`src/exfil/meter.ts`](src/exfil/meter.ts) + [`src/exfil/redteam.ts`](src/exfil/redteam.ts), validated with no API by [`exfil-selfcheck`](src/exfil/selfcheck.ts).
+Everything above is deterministic and ships in the [`glove-egress`](../../packages/glove-egress) package (`meter.ts` + `redteam.ts`), validated with no API by [`exfil-selfcheck`](src/exfil/selfcheck.ts).
 
 ## 4. The benchmark
 
@@ -98,7 +98,7 @@ Grading is deterministic against the seeded world for **task correctness** and a
 
 ## 5. The enforced egress gate
 
-The frame study's revealed-preference result is the reason this section exists: given a free choice between a raw eval surface and a disciplined one, models chose the raw one **83%** of the time. A guarantee that depends on the model choosing well is therefore no guarantee. The gate ([`src/exfil/gate.ts`](src/exfil/gate.ts)) makes the boundary structural at two points:
+The frame study's revealed-preference result is the reason this section exists: given a free choice between a raw eval surface and a disciplined one, models chose the raw one **83%** of the time. A guarantee that depends on the model choosing well is therefore no guarantee. The gate ([`glove-egress`](../../packages/glove-egress)'s `gate.ts`) makes the boundary structural at two points:
 
 1. **Return whitelist (sandbox → planner).** `execute_js` will not return a raw value. A program's last expression **must** be a decision built by an egress combinator, each with a codomain bounded by construction:
    - `assert({label, cond})` → one bit;
@@ -158,9 +158,15 @@ Delegation is the rare change that improves both axes at once. Accuracy triples 
 - It **does not** claim the gate stops a fully adversarial planner from ever leaking a controlled bit — that is information-theoretically impossible for an authoritative decision channel, and we say so rather than overclaim. The gate's guarantee is *no accidental raw dump; bounded-and-detected deliberate leakage.* In this bench the injection was in fact defeated one step earlier — by the return-whitelist keeping the malicious instruction out of the planner — so the effect-allowlist backstop was never exercised.
 - The scale is deliberately modest (a canary-salted seed world, four tasks, four cheap models, total spend **$0.12**). The mechanism, not the leaderboard, is the contribution.
 
-## 9. What ships
+## 9. What ships — and why it is a package
 
-The metric layer (`meter.ts`), the canary/red-team simulations (`canaries.ts`, `redteam.ts`), and the enforced gate (`gate.ts`) are in the benchmark, validated with no API by `exfil-selfcheck`. The transferable design claim for `glove-*` adopters is one sentence: **if the boundary matters, enforce it** — mount the eval surface so that only decisions cross, budget the disclosure, and allowlist the effects; do not rely on the model to be careful, because the frame study already showed it will not be.
+This study's central finding is not a number, it is a **shape**: a privacy boundary that depends on the model's goodwill is not a boundary (voluntary discipline plateaued at 33% leak; the gate reached 0%). The natural consequence of that finding is that the enforcement belongs in the **platform**, not in a prompt and not copy-pasted into each app — so the metric layer, the enforced gate, and the red-team simulation are extracted into their own package, [**`glove-egress`**](../../packages/glove-egress). Three reasons it is a package rather than benchmark code:
+
+1. **It is the deliverable the paper argues for.** The result is "enforcement must be a platform primitive"; `glove-egress` *is* that primitive — `egressFns` (the return-whitelist combinators), `guardEffectFns` (the effect allowlist), and the `BoundaryMeter` (min-entropy / g-leakage / canary extraction). Leaving it inside a benchmark would be shipping the evidence but not the thing the evidence recommends.
+2. **It already has more than one consumer.** Both this exfiltration bench and the [support-desk](../support-desk) application bench import `glove-egress`'s `BoundaryMeter` to measure what crosses the boundary — shared-across-benches alone is the usual bar for lifting code out of one of them.
+3. **It keeps security out of the ergonomics-focused core.** The eval surfaces (`glove-js` / `glove-python` / `glove-lisp`) and the `glove-scratchpad` fns catalog stay about *drivability*; the egress gate is a distinct, opt-in concern with its own dependency surface (it needs only `glove-scratchpad/fns`). Folding the gate into those packages would tax every adopter who does not want it.
+
+The transferable design claim for `glove-*` adopters is one sentence: **if the boundary matters, enforce it** — mount the eval surface so that only decisions cross (`egressFns`), budget the disclosure, and allowlist the effects (`guardEffectFns`); do not rely on the model to be careful, because the frame study already showed it will not be. What `glove-egress` does *not* yet have is a production consumer outside these benchmarks — it is the primitive the research concludes is needed, packaged and tested, ready for the first real deployment that wants a measured, enforced egress boundary.
 
 ---
 
