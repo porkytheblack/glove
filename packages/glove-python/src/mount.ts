@@ -1,6 +1,16 @@
 /**
- * Mount the Python REPL onto a Glove agent: fold `execute_python` and prime the
+ * Mount the Python surface onto a Glove agent: fold the eval tool and prime the
  * model to discover → read → compute → act.
+ *
+ * Ships THREE interchangeable framings of the same eval tool, chosen at mount
+ * time with `frame`:
+ *   - `"repl"` (default) — persistent REPL. Tool name `execute_python`.
+ *   - `"program"` — complete-program framing. Tool name `execute_python_program`.
+ *   - `"workflow"` — one-shot-workflow framing that de-REPLs the priming (author
+ *     the WHOLE task as one program). Tool name `execute_python_workflow`.
+ *
+ * The runtime is identical across framings — only the tool NAME and the priming
+ * change. See the bench's FRAME-EXPLORATION for the rationale.
  */
 import { z } from "zod";
 import { fnSignature } from "glove-scratchpad/fns";
@@ -8,43 +18,103 @@ import type { GloveFoldArgs, IGloveRunnable } from "glove-core/glove";
 import type { ToolResultData } from "glove-core/core";
 import type { PySession } from "./session";
 
+/** Which framing of the eval tool to mount. See the module doc. */
+export type Frame = "repl" | "program" | "workflow";
+
+const PY_TOOL_NAMES: Record<Frame, string> = {
+  repl: "execute_python",
+  program: "execute_python_program",
+  workflow: "execute_python_workflow",
+};
+
+/** The eval tool's name for a framing. */
+export function pyToolName(frame: Frame = "repl"): string {
+  return PY_TOOL_NAMES[frame];
+}
+
 export interface PyToolOptions {
   /** Stamped into the tool-call context as the actor. */
   actor?: string;
+  /** Which framing to mount. Default `"repl"`. */
+  frame?: Frame;
 }
 
-/**
- * Primes the agent to treat its capabilities as functions in a persistent
- * Python REPL. The cheap, obvious move becomes: call once, compute in the REPL
- * (where the data lives), branch in the same program, and answer with the one
- * value that matters.
- */
-export const PY_PREAMBLE = `Your capabilities are functions inside a persistent Python REPL. You have EXACTLY ONE tool: execute_python. Everything you do is a Python program you pass to execute_python as a "code" string. The REPL is PERSISTENT: any top-level name you bind stays available in later calls.
+function head(frame: Frame, tool: string): string {
+  if (frame === "workflow") {
+    return `You accomplish tasks by authoring WORKFLOWS. You have EXACTLY ONE tool: ${tool}. A workflow is ONE complete Python program (the "code" string) that carries a task from start to finish — discover, read, filter, compute, branch, and act — in a SINGLE call. This is NOT an interactive prompt: do not run one line and wait to see the result, then run another. Write the WHOLE task as one program and let only the final value return. Think "write the script", not "type at a REPL".`;
+  }
+  if (frame === "program") {
+    return `You accomplish tasks by writing COMPLETE Python programs. You have EXACTLY ONE tool: ${tool}. Each call runs one self-contained program (the "code" string) and returns the value of its last expression. Compose a whole step — discover, read, compute, and act — as ONE program rather than a line at a time.`;
+  }
+  return `Your capabilities are functions inside a persistent Python REPL. You have EXACTLY ONE tool: ${tool}. Everything you do is a Python program you pass to ${tool} as a "code" string. The REPL is PERSISTENT: any top-level name you bind stays available in later calls.`;
+}
 
-READ THIS FIRST — the functions listed below are NOT tools. They cannot be called directly; they exist ONLY inside an execute_python program. There is no \`github__list_pull_requests\` tool, no \`sentry__list_issues\` tool — the ONLY tool is execute_python. To use a capability you MUST wrap it:
-  ✗ WRONG: call the tool github__list_pull_requests  → it does not exist, nothing happens
-  ✓ RIGHT: execute_python({ code: 'len(github.list_pull_requests(state="open"))' })
-If you ever find yourself with no data, it is almost always because you tried to call a capability as a tool instead of inside execute_python. Always call execute_python.
+function persistence(frame: Frame): string {
+  if (frame === "workflow") {
+    return `\n\nNames you bind in an earlier call DO survive into later ones — but treat that only as a RECOVERY aid: if a workflow fails partway (e.g. an effect already fired), you can continue from where it stopped without recomputing the expensive prefix. Never split a task across calls on purpose — collapsing it into one workflow is exactly what this surface is for.`;
+  }
+  if (frame === "program") {
+    return `\n\nTop-level names persist across calls if you need them, but prefer to finish a task in one program.`;
+  }
+  return "";
+}
 
-Language card (this is the WHOLE language — a Python subset; nothing else exists):
+function shapeBullet(frame: Frame): string {
+  if (frame === "repl") {
+    return `- KNOW THE SHAPE BEFORE YOU USE IT. You do NOT know a result's field names or a field's allowed values in advance — the catalog shows a function's INPUTS, not the shape of its rows. Before you filter, sort, argmax, or read a property, inspect one row FIRST: return \`rows[0]\` or \`list(rows[0].keys())\` from an initial call (or bind \`rows = fn(...)\` and read \`rows[0]\`), then use the EXACT field names and values you saw. Guessing a field (e.g. \`.eventCount\` when the real field is \`.count\`) is a silently WRONG answer. Likewise for filters: push the constraint into the arguments (\`status="unresolved"\` — see describe) rather than fetching everything and filtering by a guessed enum value; if unsure what values a field takes, inspect the rows.`;
+  }
+  return `- KNOW THE SHAPE — WITHOUT A SEPARATE CALL. You do NOT know a result's field names in advance, but you do NOT need to round-trip to learn them: describe("name") shows the row shape, and INSIDE one program you can \`rows = fn(...)\` and immediately read \`rows[0]\` / compute over it in the same program. Use the EXACT field names you see there — guessing a field (e.g. \`.eventCount\` when the real field is \`.count\`) is a silently WRONG answer. Push filters into the arguments (\`status="unresolved"\` — see describe) rather than fetching everything and filtering by a guessed enum value.`;
+}
+
+function decisiveBullet(frame: Frame): string {
+  if (frame === "workflow") {
+    return `- BE DECISIVE — the target is ONE workflow per task. A single program that reads, computes, branches, and acts beats a handful of small calls. If a workflow errors, read the message, change the ONE thing it names, and re-author the remaining steps — do not re-run an unchanged program or thrash.`;
+  }
+  if (frame === "program") {
+    return `- BE DECISIVE — aim for ONE program per task. A program that reads, computes, and acts beats many small ones. If a call errors, read the message, change the ONE thing it names, and retry — do not re-run the same program or thrash.`;
+  }
+  return `- BE DECISIVE — answer in as FEW calls as possible. If a call errors, read the message, change the ONE thing it names, and retry — do not re-run the same program or thrash.`;
+}
+
+const PY_LANG_CARD = `Language card (this is the WHOLE language — a Python subset; nothing else exists):
 - Assignment and tuple-unpacking, def and lambda, if/elif/else, for/while (a fuel budget caps runaway loops), break/continue, try/except/finally, raise, return, f-strings, the ternary \`a if c else b\`.
 - Data: ints/floats, "strings"/f"{x}", [lists], (tuples), {dicts}, {sets}, None, True/False. Comprehensions ([x for p in prs if p.is_cool]), slicing (x[1:5], x[::-1]), chained comparisons (0 < n < 10), in / not in, and/or/not, // ** % arithmetic.
 - Builtins: len range enumerate zip sum min max sorted(key=,reverse=) reversed map filter any all abs round list dict set tuple str int float bool isinstance print (captured). Methods on str/list/dict/set (e.g. .upper(), .append(), .get(), .items(), .sort(key=…)).
 - NO import, class, with, decorators, global/nonlocal, del, yield, async. Dunder attributes (__class__, __globals__, …) are blocked.
-- Tool calls take KEYWORD arguments: github.list_pull_requests(state="open") — results are plain data (lists of dicts). Dict rows also support attribute access: p["title"] and p.title both work.
+- Tool calls take KEYWORD arguments: github.list_pull_requests(state="open") — results are plain data (lists of dicts). Dict rows also support attribute access: p["title"] and p.title both work.`;
+
+/** Build the language-card + operating-discipline preamble body for a framing. */
+export function buildPyPreambleBody(frame: Frame = "repl"): string {
+  const tool = pyToolName(frame);
+  const unit = frame === "workflow" ? "workflow" : "program";
+  return `${head(frame, tool)}${persistence(frame)}
+
+READ THIS FIRST — the functions listed below are NOT tools. They cannot be called directly; they exist ONLY inside a ${tool} ${unit}. There is no \`github__list_pull_requests\` tool, no \`sentry__list_issues\` tool — the ONLY tool is ${tool}. To use a capability you MUST wrap it:
+  ✗ WRONG: call the tool github__list_pull_requests  → it does not exist, nothing happens
+  ✓ RIGHT: ${tool}({ code: 'len(github.list_pull_requests(state="open"))' })
+If you ever find yourself with no data, it is almost always because you tried to call a capability as a tool instead of inside ${tool}. Always call ${tool}.
+
+${PY_LANG_CARD}
 
 Operating discipline:
 - DISCOVER before you act: search("what you want") jumps to matching functions; servers() lists your capability servers, fns("server") lists that server's functions, describe("name") shows one function's parameters + result shape (required ones are marked) — the same tiers exist as the tools search_functions / list_servers / list_functions / describe_function. See the discovery note below.
 - CALL a function by name, passing its arguments as KEYWORDS: github.list_pull_requests(state="open") (or the flat form github__list_pull_requests(state="open")). The result is whatever the tool returns — usually a list of dicts, or a value.
-- KNOW THE SHAPE BEFORE YOU USE IT. You do NOT know a result's field names or a field's allowed values in advance — the catalog shows a function's INPUTS, not the shape of its rows. Before you filter, sort, argmax, or read a property, inspect one row FIRST: return \`rows[0]\` or \`list(rows[0].keys())\` from an initial call (or bind \`rows = fn(...)\` and read \`rows[0]\`), then use the EXACT field names and values you saw. Guessing a field (e.g. \`.eventCount\` when the real field is \`.count\`) is a silently WRONG answer. Likewise for filters: push the constraint into the arguments (\`status="unresolved"\` — see describe) rather than fetching everything and filtering by a guessed enum value; if unsure what values a field takes, inspect the rows.
-- COMPUTE in the REPL, not in your head. Counting, grouping, joining, argmax — write the expression and let the LAST expression be your answer: len(github.list_pull_requests(state="open")). Data flows between functions inside the program — it does NOT round-trip through you.
+${shapeBullet(frame)}
+- COMPUTE in the ${unit}, not in your head. Counting, grouping, joining, argmax — write the expression and let the LAST expression be your answer: len(github.list_pull_requests(state="open")). Data flows between functions inside the ${unit} — it does NOT round-trip through you.
 - RETURN WHAT YOU MUST REPORT. If the answer needs ids or names, return them (a count plus a small [p["id"] for p in sel] list) — never state values you did not read.
-- KEEP BIG DATA OUT OF YOUR CONTEXT. \`prs = github.list_pull_requests()\` stores the rows in the REPL and echoes only a summary; then len(prs), prs[:5], [p["title"] for p in prs]. Never end a program with a huge list you don't need.
-- BRANCH in one program with if/else — decide-and-act is ONE call, not a read, a look, and a second call.
-- BE DECISIVE — answer in as FEW calls as possible. If a call errors, read the message, change the ONE thing it names, and retry — do not re-run the same program or thrash.
-- CALLS FIRE IMMEDIATELY. Calling an effectful function performs the effect and returns its result — there is NO staging, undo, or dry run. Check parameters with describe("name") BEFORE an effectful call. If a program errors AFTER an effectful call already fired, do NOT re-run the whole program (it would repeat the effect) — fix and continue from where it failed.
+- KEEP BIG DATA OUT OF YOUR CONTEXT. \`prs = github.list_pull_requests()\` stores the rows in the ${unit} and echoes only a summary; then len(prs), prs[:5], [p["title"] for p in prs]. Never end a ${unit} with a huge list you don't need.
+- BRANCH in one ${unit} with if/else — decide-and-act is ONE call, not a read, a look, and a second call.
+${decisiveBullet(frame)}
+- CALLS FIRE IMMEDIATELY. Calling an effectful function performs the effect and returns its result — there is NO staging, undo, or dry run. Check parameters with describe("name") BEFORE an effectful call. If a ${unit} errors AFTER an effectful call already fired, do NOT re-run the whole ${unit} (it would repeat the effect) — fix and continue from where it failed.
 
 The only data that enters your context is the value of the LAST expression — so return counts, small selections, or summaries, and bind the rest to a name.`;
+}
+
+/**
+ * The classic REPL preamble, kept as an exported constant for backward
+ * compatibility. Equivalent to `buildPyPreambleBody("repl")`.
+ */
+export const PY_PREAMBLE = buildPyPreambleBody("repl");
 
 /** How the capability catalog reaches the model.
  *  - `progressive` (default): nothing is listed — the model discovers servers →
@@ -65,23 +135,27 @@ function resolveMode(mode: DiscoveryMode | undefined, session: PySession): "prog
 
 /** The catalog hint — a full signature dump, or (progressive) just the discovery
  *  path and the server/function counts, so nothing scales into the prompt. */
-function catalogHint(session: PySession, mode: "progressive" | "full"): string {
+function catalogHint(session: PySession, mode: "progressive" | "full", tool: string): string {
   const fns = session.list();
   if (fns.length === 0) return "";
   if (mode === "full") {
     const lines = fns.map((fn) => `- ${fnSignature(fn)}`);
-    return `\n\nFunctions you can call INSIDE execute_python (these are not tools — signatures show INPUTS only; inspect a row for its fields):\n${lines.join("\n")}`;
+    return `\n\nFunctions you can call INSIDE ${tool} (these are not tools — signatures show INPUTS only; inspect a row for its fields):\n${lines.join("\n")}`;
   }
   const servers = session.discoverServers();
   return `\n\nDISCOVER YOUR CAPABILITIES — they are NOT listed here. You have ${fns.length} functions across ${servers.length} servers; find the few you need:
 - FASTEST: search_functions(query="open pull requests") — jump straight to the matching functions when you know what you want.
 - Or browse: list_servers() → list_functions(server="github") → describe_function(name="github__list_pull_requests") for parameters + result shape.
-Each is available BOTH as a tool AND inside execute_python (as search("…") / servers() / fns("github") / describe("name")). A capable model can script the sweep in one program — e.g. [f for f in search("send email")] — or fire the discovery tools in a batch first, then write one program. describe() a function before filtering on a field (it shows the row shape). Call a function by its name once you know it.`;
+Each is available BOTH as a tool AND inside ${tool} (as search("…") / servers() / fns("github") / describe("name")). A capable model can script the sweep in one program — e.g. [f for f in search("send email")] — or fire the discovery tools in a batch first, then write one program. describe() a function before filtering on a field (it shows the row shape). Call a function by its name once you know it.`;
 }
 
 /** Build the preamble (language card + operating discipline + catalog hint). */
-export function buildPyPreamble(session: PySession, mode: "progressive" | "full" = "progressive"): string {
-  return PY_PREAMBLE + catalogHint(session, mode);
+export function buildPyPreamble(
+  session: PySession,
+  mode: "progressive" | "full" = "progressive",
+  frame: Frame = "repl",
+): string {
+  return buildPyPreambleBody(frame) + catalogHint(session, mode, pyToolName(frame));
 }
 
 const inputSchema = z.object({
@@ -96,18 +170,32 @@ function errResult(err: unknown): ToolResultData {
   return { status: "error", message: err instanceof Error ? err.message : String(err), data: null };
 }
 
+function toolDescription(frame: Frame): string {
+  const unit = frame === "workflow" ? "workflow" : "program";
+  const lead =
+    frame === "workflow"
+      ? `The ONLY tool: author a WORKFLOW — one complete Python program (the \`code\` string) that carries the whole task from discovery to answer in a single call, run against your persistent capability session. `
+      : frame === "program"
+        ? `The ONLY tool: run a complete Python program (the \`code\` string) against your capability session (persistent). `
+        : `The ONLY tool: run a Python program (the \`code\` string) against your capability REPL (persistent). `;
+  return (
+    lead +
+    `Your capabilities are FUNCTIONS you call INSIDE this ${unit} — they are NOT tools you can call directly. ` +
+    'DISCOVER: search_functions("what you want") jumps to matching functions, or browse list_servers → list_functions(server) → describe_function(name) (as tools), or search()/servers()/fns("server")/describe("name") inside the code. ' +
+    'CALL a capability by name inside the code — github.list_pull_requests(state="open") — arguments are KEYWORDS. ' +
+    "INSPECT a row (list(rows[0].keys())) before filtering/sorting on a field — the signatures show inputs, not result fields; never guess a field name. " +
+    `COMPUTE in the ${unit} (len / comprehensions / sorted / a dict grouping) and let the LAST expression be the answer; ` +
+    `top-level names keep big intermediates across calls. ` +
+    `BRANCH inside one ${unit} with if/else — decide-and-act is one call. Calling an effectful function FIRES it immediately (no staging).`
+  );
+}
+
 export function buildExecutePythonTool(session: PySession, opts: PyToolOptions = {}): GloveFoldArgs<{ code: string }> {
+  const frame = opts.frame ?? "repl";
+  const tool = pyToolName(frame);
   return {
-    name: "execute_python",
-    description:
-      "The ONLY tool: run a Python program (the `code` string) against your capability REPL (persistent). " +
-      "Your capabilities are FUNCTIONS you call INSIDE this program — they are NOT tools you can call directly. " +
-      'DISCOVER: search_functions("what you want") jumps to matching functions, or browse list_servers → list_functions(server) → describe_function(name) (as tools), or search()/servers()/fns("server")/describe("name") inside the code. ' +
-      'CALL a capability by name inside the code — github.list_pull_requests(state="open") — arguments are KEYWORDS. ' +
-      "INSPECT a row (list(rows[0].keys())) before filtering/sorting on a field — the signatures show inputs, not result fields; never guess a field name. " +
-      "COMPUTE in the program (len / comprehensions / sorted / a dict grouping) and let the LAST expression be the answer; " +
-      "top-level names keep big intermediates in the REPL across calls. " +
-      "BRANCH inside one program with if/else — decide-and-act is one call. Calling an effectful function FIRES it immediately (no staging).",
+    name: tool,
+    description: toolDescription(frame),
     inputSchema,
     async do(input, _display, _glove, signal): Promise<ToolResultData> {
       try {
@@ -141,7 +229,7 @@ export function buildDiscoveryTools(
     {
       name: "search_functions",
       description:
-        "Discovery: jump straight to the functions matching a free-text query (e.g. \"open pull requests\") — the fast path when you know what you want but not which server. Also available in the REPL as search(\"query\").",
+        "Discovery: jump straight to the functions matching a free-text query (e.g. \"open pull requests\") — the fast path when you know what you want but not which server. Also available in the eval program as search(\"query\").",
       inputSchema: z.object({ query: z.string().describe('What you want to do, e.g. "send email" or "list open PRs".') }),
       async do(input: { query: string }): Promise<ToolResultData> {
         return { status: "success", data: session.searchFunctions(input.query) };
@@ -150,7 +238,7 @@ export function buildDiscoveryTools(
     {
       name: "list_servers",
       description:
-        "Discovery tier 1: list your capability servers (MCP namespaces) with how many functions each exposes. Then list_functions for one. Also available inside execute_python as servers().",
+        "Discovery tier 1: list your capability servers (MCP namespaces) with how many functions each exposes. Then list_functions for one. Also available inside the eval program as servers().",
       inputSchema: z.object({}),
       async do(): Promise<ToolResultData> {
         return { status: "success", data: session.discoverServers() };
@@ -159,7 +247,7 @@ export function buildDiscoveryTools(
     {
       name: "list_functions",
       description:
-        "Discovery tier 2: list one server's functions and their input signatures. Then describe_function for a full schema, or just call the function inside execute_python. Also available in the REPL as fns(\"server\").",
+        "Discovery tier 2: list one server's functions and their input signatures. Then describe_function for a full schema, or just call the function inside the eval program. Also available in the eval program as fns(\"server\").",
       inputSchema: z.object({ server: z.string().describe('A server name from list_servers, e.g. "github".') }),
       async do(input: { server: string }): Promise<ToolResultData> {
         try {
@@ -172,7 +260,7 @@ export function buildDiscoveryTools(
     {
       name: "describe_function",
       description:
-        "Discovery tier 3: the full parameters + result shape of one function. Also available in the REPL as describe(\"name\").",
+        "Discovery tier 3: the full parameters + result shape of one function. Also available in the eval program as describe(\"name\").",
       inputSchema: z.object({ name: z.string().describe('A function name, e.g. "github__list_pull_requests".') }),
       async do(input: { name: string }): Promise<ToolResultData> {
         try {
@@ -187,7 +275,7 @@ export function buildDiscoveryTools(
 
 export interface MountPyConfig extends PyToolOptions {
   session: PySession;
-  /** Prepend {@link PY_PREAMBLE} + the catalog hint. Default true. */
+  /** Prepend the preamble + the catalog hint. Default true. */
   prime?: boolean;
   /**
    * How the catalog reaches the model. Default `progressive` — nothing is
@@ -197,9 +285,10 @@ export interface MountPyConfig extends PyToolOptions {
   discovery?: DiscoveryMode;
 }
 
-/** Fold `execute_python` + the discovery tools onto a built Glove and prime it. */
+/** Fold the eval tool + the discovery tools onto a built Glove and prime it. */
 export function mountPy(glove: IGloveRunnable, config: MountPyConfig): IGloveRunnable {
   const { session, prime, discovery, ...toolOpts } = config;
+  const frame = toolOpts.frame ?? "repl";
   glove.fold(buildExecutePythonTool(session, toolOpts));
   // Discovery tools are always available (weak models batch them; strong models
   // may prefer the REPL builtins) — they carry no per-function context cost.
@@ -207,7 +296,7 @@ export function mountPy(glove: IGloveRunnable, config: MountPyConfig): IGloveRun
   if (prime !== false) {
     const mode = resolveMode(discovery, session);
     const existing = glove.getSystemPrompt();
-    const preamble = buildPyPreamble(session, mode);
+    const preamble = buildPyPreamble(session, mode, frame);
     glove.setSystemPrompt(existing ? `${preamble}\n\n${existing}` : preamble);
   }
   return glove;

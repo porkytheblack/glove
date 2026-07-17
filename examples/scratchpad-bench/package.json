@@ -6,6 +6,8 @@
   "description": "Agentic A/B benchmark: 10 mocked MCP servers, real models via OpenRouter, with vs without glove-scratchpad.",
   "scripts": {
     "bench": "tsx --env-file=../../.env src/run.ts",
+    "frame-bench": "tsx --env-file-if-exists=../../.env src/frame-bench.ts",
+    "frame-selfcheck": "tsx src/frame-selfcheck.ts",
     "selfcheck": "tsx src/selfcheck.ts",
     "probe:lisp": "tsx src/probe-lisp.ts",
     "probe:js": "tsx src/probe-js.ts",

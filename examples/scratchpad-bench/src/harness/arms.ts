@@ -27,6 +27,12 @@ import { BenchSubscriber } from "./instrument";
 
 export type ArmName = "baseline" | "scratchpad" | "lisp" | "both" | "jsrepl" | "lispfns" | "pyrepl" | "polyglot";
 
+/** The framing of the eval tool for the fn-mode arms (jsrepl / pyrepl / lispfns):
+ *  `repl` (default, tool `execute_*`), `program` (`execute_*_program`), or
+ *  `workflow` (`execute_*_workflow`, one-shot framing). Only the tool NAME and
+ *  the priming change; the runtime is identical. See FRAME-EXPLORATION.md. */
+export type FrameName = "repl" | "program" | "workflow";
+
 export interface ArmConfig {
   maxTurns: number;
   compactionContextLimit: number;
@@ -39,6 +45,8 @@ export interface ArmConfig {
    *  signatures and the model discovers servers→functions→schemas; `full` primes
    *  every signature; `auto` picks by catalog size. */
   discovery?: "progressive" | "full" | "auto";
+  /** Eval-tool framing for the fn-mode arms. Default `repl`. See {@link FrameName}. */
+  frame?: FrameName;
 }
 
 export interface BuiltArm {
@@ -156,8 +164,8 @@ export async function buildJsArm(model: ModelAdapter, org: MockOrg, cfg: ArmConf
   // glove-js is fn-catalog only — a call fires immediately (no staging).
   const js = JsSession.create();
   js.registerAll(await catalogFromOrg(org, cfg.discovery));
-  // Folds a single execute_js (no explain_js); primes unless bare mode.
-  mountJs(runnable, { session: js, prime: cfg.prime !== false, discovery: cfg.discovery });
+  // Folds a single execute_js/_program/_workflow (no explain_js); primes unless bare mode.
+  mountJs(runnable, { session: js, prime: cfg.prime !== false, discovery: cfg.discovery, frame: cfg.frame });
 
   const sub = new BenchSubscriber({ echo: cfg.echo });
   glove.addSubscriber(sub);
@@ -173,8 +181,8 @@ export async function buildPyArm(model: ModelAdapter, org: MockOrg, cfg: ArmConf
   // Same catalog as jsrepl/lispfns, driven with Python instead of JS/Clojure.
   const py = PySession.create();
   py.registerAll(await catalogFromOrg(org, cfg.discovery));
-  // Folds a single execute_python; primes unless bare mode.
-  mountPy(runnable, { session: py, prime: cfg.prime !== false, discovery: cfg.discovery });
+  // Folds a single execute_python/_program/_workflow; primes unless bare mode.
+  mountPy(runnable, { session: py, prime: cfg.prime !== false, discovery: cfg.discovery, frame: cfg.frame });
 
   const sub = new BenchSubscriber({ echo: cfg.echo });
   glove.addSubscriber(sub);
@@ -190,7 +198,7 @@ export async function buildLispFnArm(model: ModelAdapter, org: MockOrg, cfg: Arm
   // Clojure instead of JS. `registerFns` (not `registerAll`) → LISP_FN_PREAMBLE.
   const lisp = LispSession.create({ policy: { writes: true } });
   lisp.registerFns(await catalogFromOrg(org, cfg.discovery));
-  mountLisp(runnable, { session: lisp, allowWrites: true, prime: cfg.prime !== false, discovery: cfg.discovery });
+  mountLisp(runnable, { session: lisp, allowWrites: true, prime: cfg.prime !== false, discovery: cfg.discovery, frame: cfg.frame });
 
   const sub = new BenchSubscriber({ echo: cfg.echo });
   glove.addSubscriber(sub);

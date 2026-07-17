@@ -34,7 +34,10 @@ export {
   mountPy,
   buildExecutePythonTool,
   buildPyPreamble,
+  buildPyPreambleBody,
+  pyToolName,
   PY_PREAMBLE,
+  type Frame,
   type PyToolOptions,
   type MountPyConfig,
 } from "./mount";

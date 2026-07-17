@@ -17,6 +17,8 @@ export interface RunResult {
   model: string;
   scenario: string;
   arm: ArmName;
+  /** The eval-tool framing this cell ran under (fn-mode arms only). */
+  frame?: string;
   ok: boolean;
   errored: boolean;
   errorMessage?: string;
@@ -123,6 +125,7 @@ export async function runOne(
     model: bm.model,
     scenario: scenario.id,
     arm,
+    frame: opts.frame ?? "repl",
     ok,
     errored,
     errorMessage,

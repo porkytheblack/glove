@@ -143,6 +143,30 @@ the function).
 | The parser | `parseProgram(code)` — acorn + a whitelist validation walk |
 | The sandbox boundary | member access mediated by `members.ts` (the security-critical file) |
 
+## Framing: `execute_js` vs `execute_js_workflow`
+
+The eval tool ships three interchangeable framings, chosen at mount time with
+`frame`. The runtime is identical — only the tool NAME and the primed preamble
+change:
+
+```ts
+mountJs(agent, { session });                     // frame: "repl"     → execute_js (default)
+mountJs(agent, { session, frame: "program" });   // frame: "program"  → execute_js_program
+mountJs(agent, { session, frame: "workflow" });  // frame: "workflow" → execute_js_workflow
+```
+
+The bet (see
+[`examples/scratchpad-bench/FRAME-EXPLORATION.md`](../../examples/scratchpad-bench/FRAME-EXPLORATION.md)):
+the token "REPL" pattern-matches to an interactive, line-by-line *session*, so
+models degrade the surface back into an incremental tool-call loop — peek at a
+row, then run a second program. The `workflow` framing never says "REPL"; it
+frames the call as ONE complete program that carries the task start to finish,
+and demotes cross-call persistence to a retry-only recovery aid. `program` is the
+half-step (a rename that drops "REPL" but keeps the priming otherwise neutral),
+so a bench can separate *the name alone* from *the full reframing*. The default is
+`repl`, so existing mounts are unchanged; `jsToolName(frame)` and
+`buildJsPreambleBody(frame)` expose the mapping and the framing text.
+
 ## Status
 
 Draft v0.1 — a fluency exploration alongside `glove-lisp`. The evaluator subset

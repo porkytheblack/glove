@@ -172,6 +172,26 @@ unproven. The benchmark's lisp arm exists to measure exactly that.
 | Writes | `(insert! :t {…})`, `(update! :t {set} {match})`, `(delete! :t {match})` |
 | Staging | `(stage …)` → `(commit!)` / `(rollback!)`; `session.preview()` is the approval surface |
 
+## Framing: `execute_lisp` vs `execute_lisp_workflow`
+
+The eval tool ships three interchangeable framings, chosen at mount time with
+`frame` — the runtime is identical, only the tool NAMES and the primed preamble
+change (the `explain_lisp` companion follows the frame too):
+
+```ts
+mountLisp(agent, { session });                     // frame: "repl"     → execute_lisp / explain_lisp (default)
+mountLisp(agent, { session, frame: "program" });   // frame: "program"  → execute_lisp_program / explain_lisp_program
+mountLisp(agent, { session, frame: "workflow" });  // frame: "workflow" → execute_lisp_workflow / explain_lisp_workflow
+```
+
+The `workflow` framing never says "REPL"; it frames the call as ONE complete
+program that carries the task start to finish and demotes cross-call `def`
+persistence to a retry-only recovery aid — countering the tendency of models to
+degrade the surface into an incremental form-by-form session. See
+[`examples/scratchpad-bench/FRAME-EXPLORATION.md`](../../examples/scratchpad-bench/FRAME-EXPLORATION.md)
+for the A/B; `lispToolName(frame)` / `buildLispFnPreamble(frame)` expose the
+mapping. Default is `repl`, so existing mounts are unchanged.
+
 ## The language
 
 Deliberately tiny — the Clojure subset a model reaches for when it thinks

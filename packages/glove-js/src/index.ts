@@ -32,7 +32,10 @@ export {
   mountJs,
   buildExecuteJsTool,
   buildJsPreamble,
+  buildJsPreambleBody,
+  jsToolName,
   JS_PREAMBLE,
+  type Frame,
   type JsToolOptions,
   type MountJsConfig,
 } from "./mount";
