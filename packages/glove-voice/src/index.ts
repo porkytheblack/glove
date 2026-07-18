@@ -9,6 +9,10 @@ export type {
   TTSAdapterEvents,
   VADAdapter,
   VADAdapterEvents,
+  AudioIO,
+  AudioCaptureAdapter,
+  AudioCaptureAdapterEvents,
+  AudioPlayerAdapter,
   GetTokenFn,
 } from "./adapters/types";
 
@@ -38,3 +42,4 @@ export { AudioCapture } from "./audio-capture";
 export { AudioPlayer } from "./audio-player";
 export { splitSentences, SentenceBuffer } from "./sentence-chunker";
 export { extractText } from "./extract-text";
+export { bytesToBase64, base64ToBytes } from "./base64";

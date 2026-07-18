@@ -1,5 +1,12 @@
 import EventEmitter from "eventemitter3";
-import type { STTAdapter, TTSAdapter, VADAdapter } from "./adapters/types";
+import type {
+  STTAdapter,
+  TTSAdapter,
+  VADAdapter,
+  AudioIO,
+  AudioCaptureAdapter,
+  AudioPlayerAdapter,
+} from "./adapters/types";
 import { AudioCapture } from "./audio-capture";
 import { AudioPlayer } from "./audio-player";
 import { SentenceBuffer } from "./sentence-chunker";
@@ -73,8 +80,19 @@ export interface GloveVoiceConfig {
    * Extra `getUserMedia` audio constraints merged over the defaults
    * (echoCancellation / noiseSuppression / autoGainControl / voiceIsolation
    * all default to true). Use to pick a device or opt out of a default.
+   * Browser-only — custom `audio` implementations may ignore it.
    */
   micConstraints?: MediaTrackConstraints;
+
+  /**
+   * Platform audio IO. Defaults to the browser implementations
+   * (getUserMedia + AudioWorklet capture, Web Audio playback).
+   *
+   * On React Native / Expo, pass `createNativeAudioIO()` from
+   * `glove-voice-native` — the rest of the pipeline (VAD, speech gating,
+   * STT/TTS adapters, barge-in) is platform-neutral and runs unchanged.
+   */
+  audio?: AudioIO;
 
   /**
    * Start the pipeline with mic muted (default: false).
@@ -130,8 +148,8 @@ type GloveVoiceEvents = {
  */
 export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
   private mode: VoiceMode = "idle";
-  private capture: AudioCapture | null = null;
-  private player: AudioPlayer | null = null;
+  private capture: AudioCaptureAdapter | null = null;
+  private player: AudioPlayerAdapter | null = null;
   private vad: VADAdapter | null = null;
   private abortController: AbortController | null = null;
   private activeTTS: TTSAdapter | null = null;
@@ -166,7 +184,9 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
   async start(): Promise<void> {
     if (this.mode !== "idle") throw new Error("GloveVoice already started");
 
-    this.player = new AudioPlayer(this.sampleRate);
+    this.player = this.cfg.audio
+      ? this.cfg.audio.createPlayer(this.sampleRate)
+      : new AudioPlayer(this.sampleRate);
     await this.player.init();
 
     // Create bound handlers so we can remove them on stop()
@@ -274,7 +294,9 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     }
 
     // Mic → VAD → (gate) → STT
-    this.capture = new AudioCapture(this.sampleRate, this.cfg.micConstraints);
+    this.capture = this.cfg.audio
+      ? this.cfg.audio.createCapture(this.sampleRate, this.cfg.micConstraints)
+      : new AudioCapture(this.sampleRate, this.cfg.micConstraints);
 
     this.captureHandlers = {
       chunk: (pcm) => {

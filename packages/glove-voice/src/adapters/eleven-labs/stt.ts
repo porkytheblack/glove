@@ -1,5 +1,6 @@
 import EventEmitter from "eventemitter3";
 import type { STTAdapter, STTAdapterEvents, GetTokenFn } from "../types";
+import { bytesToBase64 } from "../../base64";
 
 export interface ElevenLabsSTTConfig {
   /**
@@ -211,10 +212,6 @@ export class ElevenLabsSTTAdapter
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 function int16ToBase64(pcm: Int16Array): string {
-  const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
+  // Pure-JS base64 — works in browsers AND React Native (no btoa in Hermes).
+  return bytesToBase64(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength));
 }

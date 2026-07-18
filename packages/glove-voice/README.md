@@ -99,6 +99,7 @@ import { VoicePTTButton } from "glove-react/voice";
 | `speechGating` | `boolean` | Only forward mic audio to STT during speech segments (default: `true` in vad mode). Background noise never reaches the STT provider. |
 | `speechGatePrerollMs` | `number` | Pre-roll flushed to STT when a speech segment opens, so the first syllable isn't clipped (default: 800) |
 | `micConstraints` | `MediaTrackConstraints` | Extra `getUserMedia` constraints merged over the defaults (pick a device, disable a default, etc.) |
+| `audio` | `AudioIO` | Platform audio backends (mic capture + PCM playback). Defaults to the browser implementations; pass `createNativeAudioIO()` from `glove-voice-native` on React Native / Expo. |
 
 ## Turn Modes
 

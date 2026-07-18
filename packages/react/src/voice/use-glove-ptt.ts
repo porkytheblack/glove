@@ -225,6 +225,8 @@ export function useGlovePTT(config: UseGlovePTTConfig): UseGlovePTTReturn {
 
   useEffect(() => {
     if (hotkey === false || !voice.enabled) return;
+    // React Native has no window — hotkeys are a browser affordance.
+    if (typeof window === "undefined" || !window.addEventListener) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code !== hotkey || e.repeat) return;

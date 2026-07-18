@@ -2245,8 +2245,9 @@ Available at https://glove.dterminal.net/tools — copy-paste into your project:
 
 | Package | Purpose | Install |
 |---------|---------|---------|
-| `glove-voice` | Voice pipeline: `GloveVoice`, adapters (STT/TTS/VAD), `AudioCapture`, `AudioPlayer` | `pnpm add glove-voice` |
-| `glove-react/voice` | React hooks: `useGloveVoice`, `useGlovePTT`, `VoicePTTButton` | Included in `glove-react` |
+| `glove-voice` | Voice pipeline: `GloveVoice`, adapters (STT/TTS/VAD), `AudioCapture`, `AudioPlayer`, `SpeechGate`, `AudioIO` platform seam | `pnpm add glove-voice` |
+| `glove-voice-native` | React Native / Expo audio backends: `NativeAudioCapture`, `NativeAudioPlayer`, `createNativeAudioIO`, `SileroVADNativeAdapter` (subpath `/silero-vad`). Native modules: `react-native-audio-api` (required peer), `onnxruntime-react-native` + `expo-file-system` (optional, for neural VAD). Dev client / prebuild only — not Expo Go. | `pnpm add glove-voice-native` |
+| `glove-react/voice` | React hooks: `useGloveVoice`, `useGlovePTT`, `VoicePTTButton` (DOM-free — usable in React Native too) | Included in `glove-react` |
 | `glove-next` | Token handlers: `createVoiceTokenHandler` (already in `glove-next`, no separate import) | Included in `glove-next` |
 
 ### Architecture
@@ -2428,6 +2429,29 @@ In `"vad"` mode, mic audio is **speech-gated by default** (`speechGating: true`)
 - All VAD adapters emit `speech_prob` per frame (model probability, or an energy proxy for the built-in `VAD`) — use for level meters / threshold tuning.
 
 The built-in energy `VAD` is time-based (`silenceMs`, `minSpeechMs` — chunk-size independent) with an **adaptive noise floor** (`adaptive: true` by default) that raises the effective threshold above steady background noise. `AudioCapture` requests `voiceIsolation` alongside the standard constraints; override any of them via `GloveVoiceConfig.micConstraints`. Set `speechGating: false` to restore continuous STT streaming.
+
+### React Native / Expo (`glove-voice-native`)
+
+The pipeline is platform-neutral; only mic capture and speaker playback are platform edges, injected via `GloveVoiceConfig.audio` (an `AudioIO` — defaults to the browser implementations). On React Native / Expo:
+
+```ts
+import { createNativeAudioIO, withNativeAudio } from "glove-voice-native";
+import { SileroVADNativeAdapter } from "glove-voice-native/silero-vad";
+
+const vad = new SileroVADNativeAdapter();   // Silero v5 on onnxruntime-react-native
+await vad.init();                            // downloads + caches model (expo-file-system)
+
+const voice = useGloveVoice({
+  runnable,
+  voice: withNativeAudio({ stt, createTTS, vad }),  // or { ..., audio: createNativeAudioIO() }
+});
+```
+
+- Backed by `react-native-audio-api` (Software Mansion): `AudioRecorder` for capture, Web Audio implementation for playback. Its Expo config plugin handles mic permissions (`iosMicrophonePermission`, `androidPermissions: ["android.permission.RECORD_AUDIO", ...]`).
+- `NativeAudioCapture` configures the iOS session as `playAndRecord` + `voiceChat` mode → OS echo cancellation (the native equivalent of the browser's `echoCancellation` constraint).
+- The ElevenLabs STT/TTS adapters run unchanged on RN (WebSocket + pure-JS base64 — no `btoa`/`atob`).
+- Native modules → requires an Expo dev client / `expo prebuild`, NOT Expo Go.
+- The energy VAD from `glove-voice` is the zero-native-dep fallback when `onnxruntime-react-native` isn't wanted.
 
 ### Narration + Mic Control
 

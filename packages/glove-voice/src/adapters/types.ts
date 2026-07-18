@@ -143,6 +143,59 @@ export interface TTSAdapter extends EventEmitter<TTSAdapterEvents> {
   readonly isReady: boolean;
 }
 
+// ─── Audio IO ──────────────────────────────────────────────────────────────
+
+export type AudioCaptureAdapterEvents = {
+  /** Raw PCM chunk from the microphone (Int16, mono, pipeline sample rate). */
+  chunk: [pcm: Int16Array];
+  error: [Error];
+};
+
+/**
+ * Microphone capture contract. The browser implementation (`AudioCapture`)
+ * uses getUserMedia + AudioWorklet; React Native implementations
+ * (`glove-voice-native`) use on-device recorders. Emits Int16 mono PCM
+ * chunks at the pipeline sample rate.
+ */
+export interface AudioCaptureAdapter
+  extends EventEmitter<AudioCaptureAdapterEvents> {
+  /** Acquire the mic (permissions, audio session) and start emitting chunks. */
+  init(): Promise<void>;
+  /** Release the mic and all resources. */
+  destroy(): Promise<void>;
+}
+
+/**
+ * Speaker playback contract for streaming PCM (16-bit mono). The browser
+ * implementation (`AudioPlayer`) schedules Web Audio buffers back-to-back;
+ * native implementations do the equivalent on-device.
+ */
+export interface AudioPlayerAdapter {
+  init(): Promise<void>;
+  /** Enqueue a raw PCM chunk (16-bit signed int, mono) for gapless playback. */
+  enqueue(pcm: Uint8Array): void;
+  /** Fire `cb` once all queued audio has finished playing (or immediately if idle). */
+  onDrained(cb: () => void): void;
+  /** Immediately stop all audio and clear the queue. */
+  stop(): void;
+  destroy(): Promise<void>;
+}
+
+/**
+ * Platform audio IO factory. `GloveVoice` uses the browser implementations
+ * by default; pass a custom `AudioIO` (e.g. `createNativeAudioIO()` from
+ * `glove-voice-native`) to run the same pipeline on other platforms.
+ */
+export interface AudioIO {
+  /**
+   * @param sampleRate Pipeline sample rate in Hz.
+   * @param constraints Platform-specific capture hints. In the browser this
+   *   is a `MediaTrackConstraints`; native implementations may ignore it.
+   */
+  createCapture(sampleRate: number, constraints?: unknown): AudioCaptureAdapter;
+  createPlayer(sampleRate: number): AudioPlayerAdapter;
+}
+
 // ─── Auth helpers ──────────────────────────────────────────────────────────
 
 /**

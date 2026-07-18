@@ -1,5 +1,6 @@
 import EventEmitter from "eventemitter3";
 import type { TTSAdapter, TTSAdapterEvents, GetTokenFn } from "../types";
+import { base64ToBytes } from "../../base64";
 
 export interface ElevenLabsTTSConfig {
   /**
@@ -160,10 +161,6 @@ export class ElevenLabsTTSAdapter
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 function base64ToUint8Array(b64: string): Uint8Array {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
+  // Pure-JS base64 — works in browsers AND React Native (no atob in Hermes).
+  return base64ToBytes(b64);
 }
