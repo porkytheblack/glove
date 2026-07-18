@@ -113,37 +113,45 @@ export default function VoicePage() {
       <h3>Pipeline Architecture</h3>
 
       <div style={asciiDiagram}>
-{`Mic  -->  VAD  -->  STT  -->  Glove  -->  TTS  -->  Speaker
-         |                     |
-    speech boundary      processRequest()
-    detection            (tools, display stack,
-                          context, compaction)`}
+{`Mic  -->  VAD  -->  Gate  -->  STT  -->  Glove  -->  TTS  -->  Speaker
+         |         |                     |
+    speech      only confirmed      processRequest()
+    detection   speech passes       (tools, display stack,
+                (noise dropped)      context, compaction)`}
       </div>
 
       <p>
-        The voice system is split across three packages, each with a specific
-        responsibility:
+        The <strong>gate</strong> is what keeps background noise out of STT: mic
+        audio only reaches the provider once the VAD confirms speech (see{" "}
+        <a href="#noise-robustness">Noise Robustness</a>). The voice system is
+        split across packages, each with a specific responsibility:
       </p>
 
       <ul>
         <li>
           <strong>glove-voice</strong> &mdash; The pipeline engine.
-          Contains <code>GloveVoice</code>, adapter contracts (STT, TTS, VAD),
-          built-in implementations (ElevenLabs adapters, energy-based VAD),
-          audio capture, and audio playback.
+          Contains <code>GloveVoice</code>, adapter contracts (STT, TTS, VAD,
+          audio IO), built-in implementations (ElevenLabs adapters, adaptive
+          energy VAD), the speech gate, audio capture, and audio playback.
         </li>
         <li>
           <strong>glove-react/voice</strong> &mdash; React hooks and
           components. Provides <code>useGloveVoice</code> (low-level),{" "}
           <code>useGlovePTT</code> (push-to-talk), and{" "}
           <code>VoicePTTButton</code> (headless mic button) with proper
-          lifecycle management.
+          lifecycle management. DOM-free — usable in React Native too.
         </li>
         <li>
           <strong>glove-next</strong> &mdash; Token route handlers.
           Provides <code>createVoiceTokenHandler</code> for creating Next.js
           API routes that generate short-lived provider tokens, keeping your
           API keys on the server.
+        </li>
+        <li>
+          <strong>glove-voice-native</strong> &mdash; React Native / Expo audio
+          backends (on-device mic capture, PCM playback, Silero VAD on
+          onnxruntime-react-native). See{" "}
+          <a href="#react-native">React Native &amp; Expo</a>.
         </li>
       </ul>
 
@@ -467,18 +475,33 @@ function App() {
           [
             "speech_start",
             "(none)",
-            "User started speaking.",
+            "Speech (possibly tentative) started. Adapters with a minimum-duration filter (Silero) fire this on the first positive frame — it may still be retracted by vad_misfire.",
+          ],
+          [
+            "speech_real_start",
+            "(none)",
+            "Speech confirmed past the minimum-duration filter — definitely a person talking, not a noise burst. Only from adapters with supportsRealStart. This is the noise-robust barge-in trigger.",
+          ],
+          [
+            "vad_misfire",
+            "(none)",
+            "A tentative speech_start turned out shorter than the minimum speech duration — treat as noise. Only from adapters with supportsRealStart. When speech gating is on, the buffered audio is discarded.",
           ],
           [
             "speech_end",
             "(none)",
             "User stopped speaking. Triggers STT flush in VAD mode.",
           ],
+          [
+            "speech_prob",
+            "(prob: number)",
+            "Per-frame speech probability in [0, 1]. Neural adapters emit the model output; the energy VAD emits a normalized-energy proxy. Useful for level meters and threshold tuning.",
+          ],
         ]}
       />
 
       <PropTable
-        headers={["Method", "Signature", "Description"]}
+        headers={["Method / Property", "Signature", "Description"]}
         rows={[
           [
             "process(pcm)",
@@ -489,6 +512,11 @@ function App() {
             "reset()",
             "() => void",
             "Force reset internal state. Called when interrupting a turn.",
+          ],
+          [
+            "supportsRealStart?",
+            "boolean",
+            "True when the adapter distinguishes tentative (speech_start) from confirmed (speech_real_start) speech and emits vad_misfire. GloveVoice uses it to gate STT audio and barge-in on confirmed speech only.",
           ],
         ]}
       />
@@ -624,13 +652,17 @@ export const GET = createVoiceTokenHandler({
         barge-in during playback.
       </p>
 
-      <h3>Built-in VAD (Energy-based)</h3>
+      <h3>Built-in VAD (Energy-based + adaptive)</h3>
 
       <p>
-        The default VAD uses RMS energy thresholds. It has zero dependencies,
-        works everywhere, and is effective in quiet environments. When no
-        custom <code>vad</code> is passed to <code>GloveVoice</code>, the
-        built-in VAD is used automatically.
+        The default VAD uses RMS energy thresholds with an{" "}
+        <strong>adaptive noise floor</strong> — it tracks the ambient noise
+        level and raises its effective threshold above steady background noise,
+        so a humming AC or distant chatter stops registering as speech. It has
+        zero dependencies, works everywhere, and timing is measured in
+        milliseconds (independent of the audio chunk size). When no custom{" "}
+        <code>vad</code> is passed to <code>GloveVoice</code>, the built-in VAD
+        is used automatically.
       </p>
 
       <PropTable
@@ -639,20 +671,37 @@ export const GET = createVoiceTokenHandler({
           [
             "threshold",
             "0.01",
-            "RMS energy level to consider as speech. Higher values require louder speech.",
+            "Base RMS energy level to consider as speech. With adaptive on, this is the floor — the effective threshold rises above it in noisy rooms.",
           ],
           [
-            "silentFrames",
-            "15 (~600ms)",
-            "Consecutive silent frames before speech_end fires. Increase for longer natural pauses. GloveVoice defaults to 40 (~1600ms).",
+            "silenceMs",
+            "1200 (GloveVoice: 1600)",
+            "Trailing silence before speech_end fires. Increase for longer natural pauses.",
           ],
           [
-            "speechFrames",
+            "minSpeechMs",
+            "96",
+            "Continuous speech required before speech_start fires. Rejects short noise bursts like keyboard clicks.",
+          ],
+          [
+            "adaptive",
+            "true",
+            "Track the ambient noise floor and raise the effective threshold above it. In a quiet room, behaves like a fixed threshold.",
+          ],
+          [
+            "noiseFloorMultiplier",
             "3",
-            "Consecutive speech frames before speech_start fires. Avoids false triggers from brief noises.",
+            "Effective threshold = max(threshold, noiseFloor × multiplier).",
           ],
         ]}
       />
+
+      <p>
+        The legacy chunk-count options <code>silentFrames</code> /{" "}
+        <code>speechFrames</code> are still honored (they take precedence when
+        set), but prefer the millisecond options — chunk duration depends on the
+        audio source, so frame counts were easy to miscalibrate.
+      </p>
 
       <CodeBlock
         code={`import { useGloveVoice } from "glove-react/voice";
@@ -663,7 +712,7 @@ const voice = useGloveVoice({
   voice: {
     stt,
     createTTS,
-    vadConfig: { silentFrames: 60, threshold: 0.02 },
+    vadConfig: { silenceMs: 1800, minSpeechMs: 120, threshold: 0.02 },
   },
 });`}
         language="typescript"
@@ -785,12 +834,12 @@ export default config;`}
         rows={[
           [
             "positiveSpeechThreshold",
-            "0.3",
-            "Speech probability score (0-1) above which a frame is considered speech. Higher values mean less sensitivity and fewer false triggers.",
+            "0.5",
+            "Speech probability score (0-1) above which a frame is considered speech. This is Silero's recommended operating point — the old 0.3 default was trigger-happy in noise.",
           ],
           [
             "negativeSpeechThreshold",
-            "0.25",
+            "0.35",
             "Speech probability score (0-1) below which a frame is considered silence. Lower values require more definitive silence to end speech detection.",
           ],
           [
@@ -805,10 +854,80 @@ export default config;`}
           ],
           [
             "minSpeechMs",
-            "100",
-            "Minimum duration of speech in milliseconds. Utterances shorter than this are treated as misfires.",
+            "250",
+            "Minimum duration of speech in milliseconds. Utterances shorter than this emit vad_misfire (noise burst) — and with speech gating on, their audio is discarded before reaching STT.",
           ],
         ]}
+      />
+
+      {/* ------------------------------------------------------------------ */}
+      <h2 id="noise-robustness">Noise Robustness &amp; Speech Gating</h2>
+
+      <p>
+        The pipeline is built so <strong>only actual speech reaches the STT
+        provider</strong> — never ambient noise. Streaming the raw mic feed to
+        STT 24/7 means keyboards, traffic, and music get transcribed (or
+        hallucinated into words) and billed. Three layers prevent that:
+      </p>
+
+      <ol>
+        <li>
+          <strong>Capture</strong> &mdash; <code>getUserMedia</code> requests{" "}
+          <code>echoCancellation</code>, <code>noiseSuppression</code>,{" "}
+          <code>autoGainControl</code>, and <code>voiceIsolation</code>{" "}
+          (platform voice isolation where the browser supports it; ignored
+          elsewhere).
+        </li>
+        <li>
+          <strong>VAD</strong> &mdash; decides what counts as speech. Silero
+          (neural) distinguishes speech from arbitrary noise; the built-in
+          energy VAD adapts its threshold to the ambient noise floor.
+        </li>
+        <li>
+          <strong>Speech gating</strong> (<code>SpeechGate</code>, on by default
+          in VAD mode) &mdash; mic audio is held in a rolling pre-roll buffer
+          and only released to STT once the VAD <em>confirms</em> a speech
+          segment. With Silero, tentative speech shorter than{" "}
+          <code>minSpeechMs</code> is a misfire and its audio is discarded
+          entirely; barge-in also waits for confirmed speech, so a door slam
+          doesn&apos;t cut the agent off mid-sentence.
+        </li>
+      </ol>
+
+      <PropTable
+        headers={["Config", "Default", "Description"]}
+        rows={[
+          [
+            "speechGating",
+            "true (VAD mode)",
+            "Only forward mic audio to STT during confirmed speech segments. Set false to restore continuous streaming.",
+          ],
+          [
+            "speechGatePrerollMs",
+            "800",
+            "Pre-roll flushed to STT when a speech segment opens, so the first syllable isn't clipped.",
+          ],
+          [
+            "micConstraints",
+            "undefined",
+            "Extra getUserMedia constraints merged over the defaults — pick a device, or opt out of a default (e.g. { noiseSuppression: false }).",
+          ],
+        ]}
+      />
+
+      <CodeBlock
+        code={`// Gating is on by default — pair it with Silero for the strongest result.
+const voice = useGloveVoice({
+  runnable,
+  voice: {
+    stt,
+    createTTS,
+    vad: await createSileroVAD(),
+    // speechGating: true,          // default in VAD mode
+    // speechGatePrerollMs: 800,    // default
+  },
+});`}
+        language="typescript"
       />
 
       {/* ------------------------------------------------------------------ */}
@@ -834,7 +953,10 @@ export default config;`}
           <code>speaking</code> or <code>thinking</code> modes, the pipeline
           calls <code>interrupt()</code> automatically. This aborts the
           in-flight Glove request, stops TTS playback, clears display slots,
-          and returns to <code>listening</code>.
+          and returns to <code>listening</code>. With a confirming VAD
+          (Silero), barge-in fires on <code>speech_real_start</code> —{" "}
+          <em>confirmed</em> speech — rather than the first positive frame, so a
+          transient noise burst doesn&apos;t interrupt the agent.
         </li>
         <li>
           <strong>Barge-in protection</strong> &mdash; If a{" "}
@@ -1188,7 +1310,27 @@ function ChatPanel() {
           [
             "vadConfig?",
             "VADConfig",
-            'Configuration for the built-in energy-based VAD. Only used when turnMode is "vad" and no custom vad is provided. Default silentFrames: 40 (~1600ms).',
+            'Configuration for the built-in energy-based VAD. Only used when turnMode is "vad" and no custom vad is provided. Default silenceMs: 1600.',
+          ],
+          [
+            "speechGating?",
+            "boolean",
+            'Only forward mic audio to STT during confirmed speech segments (default: true in "vad" mode). Background noise never reaches the STT provider. Set false to restore continuous streaming.',
+          ],
+          [
+            "speechGatePrerollMs?",
+            "number",
+            "Pre-roll audio (ms) flushed to STT when a gated speech segment opens, so the first syllable isn't clipped. Default: 800.",
+          ],
+          [
+            "micConstraints?",
+            "MediaTrackConstraints",
+            "Extra getUserMedia constraints merged over the defaults (echoCancellation / noiseSuppression / autoGainControl / voiceIsolation). Browser-only. Pick a device or opt out of a default.",
+          ],
+          [
+            "audio?",
+            "AudioIO",
+            "Platform audio backends (mic capture + PCM playback). Defaults to the browser implementations; pass createNativeAudioIO() from glove-voice-native on React Native / Expo.",
           ],
           [
             "sampleRate?",
@@ -1501,6 +1643,125 @@ function ChatApp() {
         only for actions that genuinely require explicit user confirmation.
         For display-only tools, always prefer <code>pushAndForget</code> so
         barge-in works naturally.
+      </p>
+
+      {/* ------------------------------------------------------------------ */}
+      <h2 id="react-native">React Native &amp; Expo (glove-voice-native)</h2>
+
+      <p>
+        The voice pipeline is platform-neutral — VAD, speech gating, STT/TTS
+        adapters, barge-in, and narration are plain TypeScript. Only the edges
+        touch the platform: the microphone and the speaker. Those are injected
+        via <code>GloveVoiceConfig.audio</code> (an <code>AudioIO</code>), which
+        defaults to the browser implementations. On React Native / Expo, install{" "}
+        <code>glove-voice-native</code> and pass its audio backends — everything
+        else runs unchanged.
+      </p>
+
+      <CodeBlock
+        code={`npx expo install react-native-audio-api
+pnpm add glove-voice glove-voice-native
+
+# Optional — neural VAD (recommended) + model caching:
+pnpm add onnxruntime-react-native
+npx expo install expo-file-system`}
+        language="bash"
+      />
+
+      <p>
+        These are <strong>native modules</strong> — they run in an Expo dev
+        client / <code>expo prebuild</code> build, not Expo Go. Add the mic
+        permission via <code>react-native-audio-api</code>&apos;s config plugin
+        in <code>app.json</code>:
+      </p>
+
+      <CodeBlock
+        code={`{
+  "expo": {
+    "plugins": [
+      [
+        "react-native-audio-api",
+        {
+          "iosMicrophonePermission": "This app uses the microphone to talk to the assistant.",
+          "androidPermissions": [
+            "android.permission.RECORD_AUDIO",
+            "android.permission.MODIFY_AUDIO_SETTINGS"
+          ]
+        }
+      ]
+    ]
+  }
+}`}
+        filename="app.json"
+        language="json"
+      />
+
+      <p>
+        Usage is one line different from the web — the DOM-free{" "}
+        <code>useGloveVoice</code> / <code>useGlovePTT</code> hooks work on RN
+        directly:
+      </p>
+
+      <CodeBlock
+        code={`import { useGloveVoice } from "glove-react/voice";
+import { createElevenLabsAdapters } from "glove-voice";
+import { createNativeAudioIO, withNativeAudio } from "glove-voice-native";
+import { SileroVADNativeAdapter } from "glove-voice-native/silero-vad";
+
+// Silero v5 on onnxruntime-react-native — same confirmed-speech lifecycle
+// as the browser adapter, so speech gating + noise-robust barge-in work
+// identically on-device. Downloads + caches the model on first run.
+const vad = new SileroVADNativeAdapter();
+await vad.init();
+
+function VoiceScreen() {
+  const glove = useGlove({ endpoint, systemPrompt, tools });
+  const voice = useGloveVoice({
+    runnable: glove.runnable,
+    // withNativeAudio() attaches createNativeAudioIO() for you:
+    voice: withNativeAudio({ stt, createTTS, vad }),
+  });
+
+  return <Button title={voice.mode} onPress={voice.enabled ? voice.stop : voice.start} />;
+}`}
+        language="tsx"
+      />
+
+      <PropTable
+        headers={["Export", "From", "Description"]}
+        rows={[
+          [
+            "createNativeAudioIO()",
+            "glove-voice-native",
+            "Builds the AudioIO (mic capture + PCM playback) for GloveVoiceConfig.audio.",
+          ],
+          [
+            "withNativeAudio(config)",
+            "glove-voice-native",
+            "Convenience wrapper — returns the voice config with native audio IO attached.",
+          ],
+          [
+            "NativeAudioCapture",
+            "glove-voice-native",
+            "On-device mic capture via react-native-audio-api's AudioRecorder. Handles permissions and configures the iOS session for full-duplex voice chat (OS echo cancellation).",
+          ],
+          [
+            "NativeAudioPlayer",
+            "glove-voice-native",
+            "Gapless streaming PCM playback on react-native-audio-api's Web Audio implementation.",
+          ],
+          [
+            "SileroVADNativeAdapter",
+            "glove-voice-native/silero-vad",
+            "Silero VAD v5 on onnxruntime-react-native. Separate entry so the ORT dependency stays optional; the energy VAD from glove-voice is the zero-native-dep fallback.",
+          ],
+        ]}
+      />
+
+      <p>
+        The ElevenLabs STT/TTS adapters run unchanged on RN (WebSocket + pure-JS
+        base64 — no <code>btoa</code>/<code>atob</code>). Full setup details are
+        in the <code>glove-voice-native</code> README.
       </p>
 
       {/* ------------------------------------------------------------------ */}

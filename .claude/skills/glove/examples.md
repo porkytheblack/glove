@@ -330,6 +330,51 @@ const glove = useGlove({
 });
 ```
 
+### Conversation management: new chat, switch, persist
+
+For a tabbed chat app you don't need `getSessionId` threading, remount `key=`
+tricks, or "session resolved" callbacks — the hook manages sessions directly.
+With no `sessionId`/`getSessionId`/`store`, `useGlove()` auto-generates a
+`glove_<uuid>` (it no longer throws).
+
+```tsx
+// Client: createSessionId lets newConversation() create backend-backed sessions.
+export const gloveClient = new GloveClient({
+  endpoint: "/api/chat",
+  systemPrompt,
+  createStore: (sid) => createRemoteStore(sid, storeActions),
+  createSessionId: async () => {
+    const id = generateSessionId();                 // exported from glove-react
+    await fetch("/api/sessions", { method: "POST", body: JSON.stringify({ id }) });
+    return id;
+  },
+});
+
+function Chat({ activeSessionId }: { activeSessionId: string }) {
+  const glove = useGlove({
+    sessionId: activeSessionId,                       // reactive — changing it switches in place
+    onSessionChange: (id) => syncTabsAndUrl(id),      // fires on resolve + every switch
+    persistSession: true,                             // reloads resume the last conversation
+  });
+
+  return (
+    <>
+      <button onClick={() => glove.newConversation()}>New chat</button>
+      <Render glove={glove} />
+    </>
+  );
+}
+```
+
+- `newConversation(id?)` mints a fresh session (arg → `createSessionId` →
+  generated uuid), aborts in-flight work, resets the timeline, rebuilds the
+  store/agent in place, and returns the id.
+- `switchConversation(id)` swaps to an existing session with timeline
+  rehydration. Passing a changed `sessionId` prop does the same.
+- With an explicit `store` prop, the store owns the session and both methods
+  throw — swap the store prop instead. See `examples/coffee` for the full
+  tab-bar pattern (its session hook shrank to "which id is active").
+
 ### Alternative: Simple endpoint mode with Vite proxy (no auth)
 
 If you don't need auth headers and just want the simplest setup:
@@ -1357,6 +1402,9 @@ function App() {
 
   const voice = useGloveVoice({
     runnable,
+    // speechGating defaults to true in vad mode — background noise never reaches
+    // STT; with Silero, noise bursts shorter than minSpeechMs are discarded and
+    // barge-in only fires on CONFIRMED speech.
     voice: { stt, createTTS, vad: vadReady ? vadRef.current : undefined },
   });
 
@@ -1364,6 +1412,35 @@ function App() {
   // voice.start(), voice.stop(), voice.interrupt(), voice.commitTurn()
 }
 ```
+
+### 4. Same pipeline on React Native / Expo (glove-voice-native)
+
+Only the audio edges change — pass native mic capture + playback via
+`GloveVoiceConfig.audio`; VAD, speech gating, STT/TTS, and barge-in are
+unchanged. Requires an Expo dev client / prebuild (native modules, not Expo Go).
+
+```tsx
+import { useGloveVoice } from "glove-react/voice";
+import { createNativeAudioIO, withNativeAudio } from "glove-voice-native";
+import { SileroVADNativeAdapter } from "glove-voice-native/silero-vad";
+
+const vad = new SileroVADNativeAdapter();   // Silero v5 on onnxruntime-react-native
+await vad.init();                            // downloads + caches model (expo-file-system)
+
+function VoiceScreen() {
+  const { runnable } = useGlove({ endpoint, systemPrompt, tools });
+  const voice = useGloveVoice({
+    runnable,
+    voice: withNativeAudio({ stt, createTTS, vad }), // == { ..., audio: createNativeAudioIO() }
+  });
+  return <Button title={voice.mode} onPress={voice.enabled ? voice.stop : voice.start} />;
+}
+```
+
+Mic permission comes from `react-native-audio-api`'s Expo config plugin
+(`iosMicrophonePermission`, `androidPermissions`). The ElevenLabs adapters run
+unchanged (WebSocket + pure-JS base64). If you skip `onnxruntime-react-native`,
+the adaptive energy VAD from `glove-voice` is the zero-native-dep fallback.
 
 ---
 

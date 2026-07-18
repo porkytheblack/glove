@@ -144,6 +144,21 @@ const client = new GloveClient({
             "Factory function that returns a StoreAdapter for a given session. Defaults to in-memory MemoryStore.",
           ],
           [
+            "getSessionId?",
+            "() => Promise<string>",
+            "Async resolver for the session ID (e.g. fetch it from your backend). When set, useGlove waits on it before building the store. Overridable per-hook.",
+          ],
+          [
+            "createSessionId?",
+            "() => string | Promise<string>",
+            "Factory used by newConversation() to mint a fresh session ID (e.g. create the row on your backend and return its id). Defaults to a generated glove_<uuid>.",
+          ],
+          [
+            "persistSession?",
+            "boolean | { storageKey?: string }",
+            "Persist the active session ID in localStorage so reloads resume the same conversation (pair with a persistent store). true uses the default key \"glove:session\"; { storageKey } customizes it. Off by default.",
+          ],
+          [
             "systemPrompt?",
             "string",
             "Default system prompt sent with every model request.",
@@ -320,12 +335,27 @@ function Chat() {
           [
             "sessionId?",
             "string",
-            "Session identifier. Different IDs produce independent conversation histories.",
+            "Session identifier. Different IDs produce independent conversation histories. Auto-generated (glove_<uuid>) if omitted. Reactive: passing a different value later switches the conversation in place — equivalent to switchConversation(id).",
+          ],
+          [
+            "getSessionId?",
+            "() => Promise<string>",
+            "Async session-ID resolver. Overrides sessionId; falls back to GloveClient.getSessionId. sessionReady is false until it resolves.",
+          ],
+          [
+            "persistSession?",
+            "boolean | { storageKey?: string }",
+            "Persist the active session ID in localStorage so reloads resume the conversation. Falls back to GloveClient.persistSession. Off by default.",
+          ],
+          [
+            "onSessionChange?",
+            "(sessionId: string) => void",
+            "Called whenever the active session resolves or changes — initial async resolution, newConversation(), switchConversation(), or a sessionId prop change. Useful for syncing tabs/URL state.",
           ],
           [
             "store?",
             "StoreAdapter",
-            "Override the store adapter for this hook instance.",
+            "Override the store adapter for this hook instance. Owns the session — newConversation/switchConversation are unavailable in this mode.",
           ],
           [
             "model?",
@@ -395,6 +425,26 @@ function Chat() {
             "Cumulative usage statistics for the current session.",
           ],
           [
+            "sessionId",
+            "string",
+            "The resolved session ID. Empty string while an async getSessionId is still resolving.",
+          ],
+          [
+            "sessionReady",
+            "boolean",
+            "False while an async getSessionId is resolving; always true otherwise.",
+          ],
+          [
+            "newConversation(id?)",
+            "Promise<string>",
+            "Start a fresh conversation in place — mints a session ID (explicit arg → GloveClient.createSessionId → generated uuid), aborts in-flight work, resets the timeline, and rebuilds the store/agent. Returns the new ID. Throws when an explicit store was passed.",
+          ],
+          [
+            "switchConversation(id)",
+            "void",
+            "Switch to an existing session in place — store swap + timeline rehydration, no remount. Throws when an explicit store was passed.",
+          ],
+          [
             "sendMessage(text, images?)",
             "void",
             "Send a user message to the agent. Optionally include images as Array<{ data: string; media_type: string }>. No-op if busy is true.",
@@ -426,6 +476,77 @@ function Chat() {
           ],
         ]}
       />
+
+      {/* ------------------------------------------------------------------ */}
+      <h2 id="managing-conversations">Managing Conversations</h2>
+
+      <p>
+        Session management is built into the hook — no <code>getSessionId</code>{" "}
+        threading, remount <code>key=</code> tricks, or "session resolved"
+        callbacks. With no <code>sessionId</code> / <code>getSessionId</code> /{" "}
+        <code>store</code> configured, <code>useGlove()</code> generates a fresh{" "}
+        <code>glove_&lt;uuid&gt;</code> automatically, so it's usable
+        immediately.
+      </p>
+
+      <CodeBlock
+        code={`function Chat() {
+  const glove = useGlove({
+    // optional: fires on initial resolution and every switch — sync tabs/URL here
+    onSessionChange: (id) => history.replaceState(null, "", \`?chat=\${id}\`),
+    // optional: reloads resume the last conversation (pair with a persistent store)
+    persistSession: true, // or { storageKey: \`glove:session:\${userId}\` }
+  });
+
+  return (
+    <>
+      <button onClick={() => glove.newConversation()}>New chat</button>
+      <button onClick={() => glove.switchConversation(existingId)}>Open</button>
+      <Render glove={glove} />
+    </>
+  );
+}`}
+        language="tsx"
+      />
+
+      <ul>
+        <li>
+          <strong>
+            <code>newConversation(id?)</code>
+          </strong>{" "}
+          mints a fresh session ID and rebuilds the store/agent in place
+          (aborting any in-flight request and resetting the timeline). The ID
+          comes from the explicit argument, then{" "}
+          <code>GloveClient.createSessionId</code> (e.g. "create the session row
+          on my backend and return its id"), then a generated{" "}
+          <code>glove_&lt;uuid&gt;</code>. Returns the new ID.
+        </li>
+        <li>
+          <strong>
+            <code>switchConversation(id)</code>
+          </strong>{" "}
+          swaps to an existing session and rehydrates its timeline from the
+          store.
+        </li>
+        <li>
+          <strong>The <code>sessionId</code> prop is reactive</strong> — passing
+          a different value to <code>useGlove(&#123; sessionId &#125;)</code> is
+          equivalent to calling <code>switchConversation</code>.
+        </li>
+        <li>
+          <strong>
+            <code>generateSessionId()</code>
+          </strong>{" "}
+          is exported for minting IDs with the same{" "}
+          <code>glove_&lt;uuid&gt;</code> shape elsewhere (e.g. server-side).
+        </li>
+      </ul>
+
+      <p>
+        With an explicit <code>store</code> passed to the hook, the store owns
+        the session and <code>newConversation</code>/
+        <code>switchConversation</code> throw — swap the store prop instead.
+      </p>
 
       {/* ------------------------------------------------------------------ */}
       <h2 id="use-glove-client">useGloveClient</h2>
