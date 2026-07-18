@@ -27,6 +27,13 @@ import type { Slot } from "glove-core/display-manager";
 import { MemoryStore } from "../adapters/memory-store";
 import { createEndpointModel } from "../adapters/endpoint-model";
 import { useGloveClient } from "./context";
+import {
+  generateSessionId,
+  readPersistedSession,
+  resolveSessionStorageKey,
+  writePersistedSession,
+  type PersistSessionSetting,
+} from "../session";
 
 // ─── Config & return types ───────────────────────────────────────────────────
 
@@ -34,13 +41,31 @@ export interface UseGloveConfig {
   // ── Simple endpoint mode ─────────────────────────────────────────────────
   /** URL of the chat handler endpoint (e.g. "/api/chat"). Auto-creates store + model. */
   endpoint?: string;
-  /** Session ID. Auto-generated if omitted. */
+  /**
+   * Session ID. Auto-generated if omitted (a fresh `glove_<uuid>`).
+   * Reactive: passing a *different* value later switches the hook to that
+   * conversation in place — no remount/`key` tricks needed. Equivalent to
+   * calling `switchConversation(id)`.
+   */
   sessionId?: string;
   /**
    * Async function to fetch a session ID (e.g. from the backend).
    * Overrides `sessionId` when provided. Falls back to `GloveClient.getSessionId`.
    */
   getSessionId?: () => Promise<string>;
+  /**
+   * Persist the active session ID in `localStorage` so a reload resumes the
+   * same conversation (pair with a persistent store). `true` for the default
+   * key (`"glove:session"`) or `{ storageKey }` to customize. Falls back to
+   * `GloveClient.persistSession`. Off by default.
+   */
+  persistSession?: PersistSessionSetting;
+  /**
+   * Called whenever the active session ID resolves or changes — initial
+   * async resolution, `newConversation()`, `switchConversation()`, or a
+   * `sessionId` prop change. Useful for syncing tabs/URL state.
+   */
+  onSessionChange?: (sessionId: string) => void;
 
   // ── Advanced mode (explicit adapters) ────────────────────────────────────
   store?: StoreAdapter;
@@ -62,8 +87,27 @@ export interface UseGloveReturn extends GloveState {
   /** `false` while an async `getSessionId` is still resolving. Always `true` when
    *  no async session ID fetcher is configured. */
   sessionReady: boolean;
-  /** The resolved session ID. */
+  /** The resolved session ID (empty string while an async `getSessionId` resolves). */
   sessionId: string;
+  /**
+   * Start a fresh conversation in place — no remount needed. Mints a new
+   * session ID (explicit `sessionId` argument → `GloveClient.createSessionId`
+   * → generated `glove_<uuid>`), aborts any in-flight request, resets the
+   * timeline, and rebuilds the store/agent for the new session. Returns the
+   * new session ID.
+   *
+   * Unavailable when an explicit `store` was passed to the hook (the store
+   * owns the session in that mode).
+   */
+  newConversation: (sessionId?: string) => Promise<string>;
+  /**
+   * Switch to an existing conversation by session ID — aborts any in-flight
+   * request, rebuilds the store for that session, and rehydrates its
+   * timeline. No remount/`key` tricks needed.
+   *
+   * Unavailable when an explicit `store` was passed to the hook.
+   */
+  switchConversation: (sessionId: string) => void;
   sendMessage: (
     text: string,
     images?: Array<{ data: string; media_type: string }>,
@@ -358,38 +402,87 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
   const subscribers = config?.subscribers ?? client?.subscribers;
 
   const getSessionId = config?.getSessionId ?? client?.getSessionId;
+  const hasExternalStore = !!config?.store;
 
-  if (!config?.store && !config?.sessionId && !getSessionId) {
-    throw new Error(
-      "useGlove requires a 'sessionId', 'getSessionId', or 'store' (via config or GloveClient)",
-    );
-  }
+  // ── Session resolution ───────────────────────────────────────────────────
+  //
+  // Zero-config: with no `sessionId` / `getSessionId` / `store`, a fresh
+  // `glove_<uuid>` is generated (or, with `persistSession`, the previous one
+  // is restored from localStorage) — the hook is usable immediately.
+  //
+  // Priority: explicit `store` > `getSessionId` (async) > `sessionId` prop >
+  // persisted session > auto-generated.
 
-  // ── Async session ID + store resolution ─────────────────────────────────
-  const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(
-    // If getSessionId is provided, start null (loading). Otherwise use sync value.
-    getSessionId ? null : (config?.sessionId ?? null),
-  );
+  const persistSetting: PersistSessionSetting | undefined =
+    config?.persistSession ?? client?.persistSession;
+  const persistEnabled = !!persistSetting && !hasExternalStore;
+  const persistKey = resolveSessionStorageKey(persistSetting);
 
+  const [session, setSession] = useState<string | null>(() => {
+    if (config?.store) return config.store.identifier;
+    if (getSessionId) return null; // async — resolves in the effect below
+    if (config?.sessionId) return config.sessionId;
+    if (persistEnabled) {
+      const persisted = readPersistedSession(persistKey);
+      if (persisted) return persisted;
+    }
+    return generateSessionId();
+  });
+
+  // True once the session has been changed imperatively (newConversation /
+  // switchConversation) — a late-resolving getSessionId must not clobber it.
+  const imperativeOverrideRef = useRef(false);
+
+  // Async session ID resolution (re-runs when the fetcher identity changes,
+  // e.g. a consumer hands a new fetcher for a "new chat" action).
   useEffect(() => {
-    if (!getSessionId) return;
+    if (!getSessionId || hasExternalStore) return;
+    imperativeOverrideRef.current = false;
     let cancelled = false;
     getSessionId().then((id) => {
-      if (!cancelled) setResolvedSessionId(id);
+      if (!cancelled && !imperativeOverrideRef.current) setSession(id);
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [getSessionId]);
+  }, [getSessionId, hasExternalStore]);
 
-  const sessionId = resolvedSessionId!;
+  // Reactive `sessionId` prop: adopting a *changed* prop value switches the
+  // conversation in place. (Ignored while `getSessionId` is configured —
+  // the async fetcher is the source of truth, matching previous behavior.)
+  const propSessionRef = useRef(config?.sessionId);
+  useEffect(() => {
+    if (getSessionId || hasExternalStore) return;
+    const prop = config?.sessionId;
+    if (prop && prop !== propSessionRef.current) {
+      propSessionRef.current = prop;
+      setSession(prop);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config?.sessionId, getSessionId, hasExternalStore]);
+
+  const sessionId = session ?? "";
 
   const store = useMemo(() => {
     if (config?.store) return config.store;
     // Don't create the real store until the async session ID resolves
-    if (!resolvedSessionId) return null;
-    if (client) return client.resolveStore(sessionId);
-    return new MemoryStore(sessionId);
-  }, [config?.store, client, sessionId, resolvedSessionId]);
+    if (!session) return null;
+    if (client) return client.resolveStore(session);
+    return new MemoryStore(session);
+  }, [config?.store, client, session]);
+
+  // Persist the active session + notify the consumer when it changes.
+  const onSessionChangeRef = useRef(config?.onSessionChange);
+  onSessionChangeRef.current = config?.onSessionChange;
+  const lastNotifiedSessionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!session) return;
+    if (persistEnabled) writePersistedSession(persistKey, session);
+    if (lastNotifiedSessionRef.current !== session) {
+      lastNotifiedSessionRef.current = session;
+      onSessionChangeRef.current?.(session);
+    }
+  }, [session, persistEnabled, persistKey]);
 
   const model = useMemo(() => {
     if (config?.model) return config.model;
@@ -673,6 +766,36 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
     abortRef.current?.abort();
   }, []);
 
+  // ── Conversation management ──────────────────────────────────────────────
+
+  const applySession = useCallback((id: string) => {
+    if (hasExternalStore) {
+      throw new Error(
+        "newConversation/switchConversation are unavailable when an explicit 'store' is passed — " +
+          "the store owns the session. Swap the store prop instead, or use createStore on GloveClient.",
+      );
+    }
+    imperativeOverrideRef.current = true;
+    abortRef.current?.abort();
+    setSession(id);
+  }, [hasExternalStore]);
+
+  const newConversation = useCallback(
+    async (id?: string): Promise<string> => {
+      const next = id ?? (client ? await client.mintSessionId() : generateSessionId());
+      applySession(next);
+      return next;
+    },
+    [applySession, client],
+  );
+
+  const switchConversation = useCallback(
+    (id: string): void => {
+      applySession(id);
+    },
+    [applySession],
+  );
+
   const resolveSlot = useCallback((slotId: string, value: unknown) => {
     dmRef.current?.resolve(slotId, value);
   }, []);
@@ -734,9 +857,32 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
 
   // ── Timeline hydration from store ────────────────────────────────────────
 
+  const hydratedStoreRef = useRef<StoreAdapter | null>(null);
   useEffect(() => {
     if (!store) return;
     let cancelled = false;
+
+    // Session switch (not initial mount): wipe the previous conversation's
+    // UI state before hydrating the new one.
+    if (hydratedStoreRef.current && hydratedStoreRef.current !== store) {
+      setState({
+        busy: false,
+        isCompacting: false,
+        timeline: [],
+        streamingText: "",
+        tasks: [],
+        inbox: [],
+        slots: [],
+        stats: {
+          turns: 0,
+          tokens_in: 0,
+          tokens_out: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      });
+    }
+    hydratedStoreRef.current = store;
 
     store.getMessages().then((messages: Message[]) => {
       if (cancelled || messages.length === 0) return;
@@ -757,6 +903,8 @@ export function useGlove(config?: UseGloveConfig): UseGloveReturn {
     runnable,
     sessionReady: store !== null,
     sessionId,
+    newConversation,
+    switchConversation,
     sendMessage,
     abort,
     resolveSlot,

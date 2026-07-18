@@ -3,6 +3,7 @@ import type { ToolConfig, CompactionConfig } from "./types";
 import type { SubscriberAdapter } from "glove-core/core";
 import { MemoryStore } from "./adapters/memory-store";
 import { createEndpointModel } from "./adapters/endpoint-model";
+import { generateSessionId, type PersistSessionSetting } from "./session";
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,22 @@ export interface GloveClientConfig {
    * or auto-generated sessionId. The resolved ID is then forwarded to `createStore`.
    */
   getSessionId?: () => Promise<string>;
+
+  /**
+   * Factory used by `newConversation()` to mint a fresh session ID —
+   * e.g. create the session on your backend and return its id.
+   * Defaults to a locally generated `glove_<uuid>`.
+   */
+  createSessionId?: () => string | Promise<string>;
+
+  /**
+   * Persist the active session ID in `localStorage` so a page reload
+   * resumes the same conversation (pair with a persistent store such as
+   * `createRemoteStore`). Pass `true` for the default storage key
+   * (`"glove:session"`), or `{ storageKey }` to customize — e.g. a
+   * per-user key. Off by default.
+   */
+  persistSession?: PersistSessionSetting;
 
   /** System prompt for the agent. Can be overridden per-hook. */
   systemPrompt?: string;
@@ -57,12 +74,14 @@ export class GloveClient {
   private _createModel?: () => ModelAdapter;
   private _createStore: (sessionId: string) => StoreAdapter;
   private _getSessionId?: () => Promise<string>;
+  private _createSessionId?: () => string | Promise<string>;
 
   /** @internal Defaults consumed by useGlove */
   readonly systemPrompt?: string;
   readonly tools?: ToolConfig[];
   readonly compaction?: CompactionConfig;
   readonly subscribers?: SubscriberAdapter[];
+  readonly persistSession?: PersistSessionSetting;
 
   constructor(config: GloveClientConfig) {
     if (!config.endpoint && !config.createModel) {
@@ -75,11 +94,13 @@ export class GloveClient {
     this._createStore =
       config.createStore ?? ((sid) => new MemoryStore(sid));
     this._getSessionId = config.getSessionId;
+    this._createSessionId = config.createSessionId;
 
     this.systemPrompt = config.systemPrompt;
     this.tools = config.tools;
     this.compaction = config.compaction;
     this.subscribers = config.subscribers;
+    this.persistSession = config.persistSession;
   }
 
   /** @internal Called by useGlove to create a model adapter per session. */
@@ -96,5 +117,11 @@ export class GloveClient {
   /** @internal Returns the async getSessionId function, if configured. */
   get getSessionId(): (() => Promise<string>) | undefined {
     return this._getSessionId;
+  }
+
+  /** @internal Mints a fresh session ID for `newConversation()`. */
+  async mintSessionId(): Promise<string> {
+    if (this._createSessionId) return this._createSessionId();
+    return generateSessionId();
   }
 }

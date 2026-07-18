@@ -84,26 +84,21 @@ function renderToolStatus({ entry }: ToolStatusRenderProps): ReactNode {
 // ─── Chat orchestrator ──────────────────────────────────────────────────────
 
 interface ChatProps {
-  /** Session ID for an existing session. */
-  sessionId?: string;
-  /** Async session ID fetcher for new sessions — useGlove resolves it. */
-  getSessionId?: () => Promise<string>;
+  /** Active session ID. Changing it switches the conversation in place —
+   *  useGlove handles the store swap + timeline rehydration. */
+  sessionId: string;
   onFirstMessage?: (sessionId: string, text: string) => void;
-  /** Called once useGlove resolves an async getSessionId. */
-  onSessionResolved?: (sessionId: string) => void;
 }
 
-export default function Chat({ sessionId: sessionIdProp, getSessionId, onFirstMessage, onSessionResolved }: ChatProps) {
+export default function Chat({ sessionId: sessionIdProp, onFirstMessage }: ChatProps) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const namedRef = useRef(false);
-  const resolvedNotifiedRef = useRef(false);
 
   // Reset named tracking when session changes
   useEffect(() => {
     namedRef.current = false;
-    resolvedNotifiedRef.current = false;
-  }, [sessionIdProp, getSessionId]);
+  }, [sessionIdProp]);
 
   // ── Cart state ────────────────────────────────────────────────────────
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -134,23 +129,16 @@ export default function Chat({ sessionId: sessionIdProp, getSessionId, onFirstMe
   // ── Tools (stable, created once) ──────────────────────────────────────
   const tools = useMemo(() => createCoffeeTools(cartOps), [cartOps]);
 
-  // ── Glove hook — supports both sync sessionId and async getSessionId ──
-  // When getSessionId is provided (new session), useGlove resolves the ID
-  // asynchronously and exposes sessionReady + sessionId on the return value.
-  const glove = useGlove({
-    tools,
-    ...(getSessionId ? { getSessionId } : { sessionId: sessionIdProp }),
-  });
+  // ── Glove hook — the sessionId prop is reactive: passing a different id
+  // switches the conversation in place (store swap + timeline rehydration).
+  const glove = useGlove({ tools, sessionId: sessionIdProp });
   const { runnable, sessionReady, sessionId, timeline, streamingText, busy, stats, slots, inbox, sendMessage, abort } =
     glove;
 
-  // Notify parent when an async getSessionId resolves so it can update tabs
+  // Cart is per-conversation UI state — clear it on session switch.
   useEffect(() => {
-    if (sessionReady && getSessionId && sessionId && !resolvedNotifiedRef.current) {
-      resolvedNotifiedRef.current = true;
-      onSessionResolved?.(sessionId);
-    }
-  }, [sessionReady, getSessionId, sessionId, onSessionResolved]);
+    setCart([]);
+  }, [sessionIdProp]);
 
   // ── Turn mode state ──────────────────────────────────────────────────
   const [turnMode, setTurnMode] = useState<TurnMode>("vad");

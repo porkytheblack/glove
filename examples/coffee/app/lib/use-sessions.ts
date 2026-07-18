@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { createSessionOnServer } from "./client";
 
 export interface SessionInfo {
   sessionId: string;
@@ -9,30 +10,17 @@ export interface SessionInfo {
 }
 
 /**
- * Creates a session on the server and returns its ID.
- * This is a standalone function suitable for use as a `getSessionId` callback
- * with `useGlove`, allowing the hook to resolve the session ID asynchronously.
+ * Session list + active-session state for the tab bar.
+ *
+ * Since glove-react handles session switching reactively (the `sessionId`
+ * passed to `useGlove` can change in place), this hook only tracks WHICH
+ * session is active — no `getSessionId` threading, no pending state, no
+ * "session resolved" callbacks.
  */
-async function createSessionOnServer(): Promise<string> {
-  const sessionId = crypto.randomUUID();
-  await fetch("/api/sessions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionId }),
-  });
-  return sessionId;
-}
-
 export function useSessions() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
-
-  // Tracks the getSessionId callback for new chats so it can be passed to
-  // useGlove. Set when newChat() is called, cleared once a session is selected.
-  const [activeGetSessionId, setActiveGetSessionId] = useState<
-    (() => Promise<string>) | undefined
-  >(undefined);
 
   // Fetch sessions from server
   const refresh = useCallback(async () => {
@@ -60,26 +48,22 @@ export function useSessions() {
     [refresh],
   );
 
-  // Start new chat — provides a getSessionId callback for useGlove.
-  // The session is created on the server asynchronously when useGlove calls it.
-  // Once resolved, the parent should call selectSession() via onSessionResolved
-  // to update tabs and clear the pending getSessionId state.
-  const newChat = useCallback(() => {
-    const fetcher = () => createSessionOnServer();
-    setActiveGetSessionId(() => fetcher);
-    setActiveSessionId(null);
-  }, []);
+  // Start a new chat — create the session on the server, then activate it.
+  const newChat = useCallback(async () => {
+    const sessionId = await createSessionOnServer();
+    setActiveSessionId(sessionId);
+    await refresh();
+    return sessionId;
+  }, [refresh]);
 
-  // Select an existing session (sync — no getSessionId needed)
+  // Select an existing session
   const selectSession = useCallback((sessionId: string) => {
     setActiveSessionId(sessionId);
-    setActiveGetSessionId(undefined);
   }, []);
 
   return {
     sessions,
     activeSessionId,
-    activeGetSessionId,
     loaded,
     newChat,
     selectSession,
