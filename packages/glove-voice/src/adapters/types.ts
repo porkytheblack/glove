@@ -3,10 +3,33 @@ import type EventEmitter from "eventemitter3";
 // ─── VAD ───────────────────────────────────────────────────────────────────
 
 export type VADAdapterEvents = {
-  /** User started speaking */
+  /**
+   * Speech (possibly tentative) started. Adapters with a minimum-duration
+   * filter (Silero) fire this on the first positive frame — it may still be
+   * retracted by `vad_misfire`. Adapters without a tentative phase fire it
+   * once speech is established.
+   */
   speech_start: [];
   /** User stopped speaking — fire STT flush after this */
   speech_end: [];
+  /**
+   * Speech confirmed past the minimum-duration filter — it is definitely a
+   * person talking, not a noise burst. Only emitted by adapters that declare
+   * `supportsRealStart: true`. Use this (not `speech_start`) for barge-in.
+   */
+  speech_real_start: [];
+  /**
+   * A tentative `speech_start` turned out to be shorter than the minimum
+   * speech duration — treat it as noise. Only emitted by adapters that
+   * declare `supportsRealStart: true`.
+   */
+  vad_misfire: [];
+  /**
+   * Per-frame speech probability in [0, 1]. Neural adapters emit the model
+   * output; the energy VAD emits a normalized-energy proxy. Useful for
+   * level meters and threshold tuning.
+   */
+  speech_prob: [prob: number];
 };
 
 /**
@@ -24,6 +47,15 @@ export interface VADAdapter extends EventEmitter<VADAdapterEvents> {
 
   /** True if speech is currently detected. */
   readonly isSpeaking: boolean;
+
+  /**
+   * True when the adapter distinguishes tentative speech (`speech_start`)
+   * from confirmed speech (`speech_real_start`) and reports `vad_misfire`
+   * for retracted starts. When true, GloveVoice opens the STT audio gate
+   * and triggers barge-in on `speech_real_start` so noise bursts never
+   * reach the STT provider or interrupt agent speech.
+   */
+  readonly supportsRealStart?: boolean;
 }
 
 // ─── STT ───────────────────────────────────────────────────────────────────
@@ -109,6 +141,59 @@ export interface TTSAdapter extends EventEmitter<TTSAdapterEvents> {
   destroy(): void;
 
   readonly isReady: boolean;
+}
+
+// ─── Audio IO ──────────────────────────────────────────────────────────────
+
+export type AudioCaptureAdapterEvents = {
+  /** Raw PCM chunk from the microphone (Int16, mono, pipeline sample rate). */
+  chunk: [pcm: Int16Array];
+  error: [Error];
+};
+
+/**
+ * Microphone capture contract. The browser implementation (`AudioCapture`)
+ * uses getUserMedia + AudioWorklet; React Native implementations
+ * (`glove-voice-native`) use on-device recorders. Emits Int16 mono PCM
+ * chunks at the pipeline sample rate.
+ */
+export interface AudioCaptureAdapter
+  extends EventEmitter<AudioCaptureAdapterEvents> {
+  /** Acquire the mic (permissions, audio session) and start emitting chunks. */
+  init(): Promise<void>;
+  /** Release the mic and all resources. */
+  destroy(): Promise<void>;
+}
+
+/**
+ * Speaker playback contract for streaming PCM (16-bit mono). The browser
+ * implementation (`AudioPlayer`) schedules Web Audio buffers back-to-back;
+ * native implementations do the equivalent on-device.
+ */
+export interface AudioPlayerAdapter {
+  init(): Promise<void>;
+  /** Enqueue a raw PCM chunk (16-bit signed int, mono) for gapless playback. */
+  enqueue(pcm: Uint8Array): void;
+  /** Fire `cb` once all queued audio has finished playing (or immediately if idle). */
+  onDrained(cb: () => void): void;
+  /** Immediately stop all audio and clear the queue. */
+  stop(): void;
+  destroy(): Promise<void>;
+}
+
+/**
+ * Platform audio IO factory. `GloveVoice` uses the browser implementations
+ * by default; pass a custom `AudioIO` (e.g. `createNativeAudioIO()` from
+ * `glove-voice-native`) to run the same pipeline on other platforms.
+ */
+export interface AudioIO {
+  /**
+   * @param sampleRate Pipeline sample rate in Hz.
+   * @param constraints Platform-specific capture hints. In the browser this
+   *   is a `MediaTrackConstraints`; native implementations may ignore it.
+   */
+  createCapture(sampleRate: number, constraints?: unknown): AudioCaptureAdapter;
+  createPlayer(sampleRate: number): AudioPlayerAdapter;
 }
 
 // ─── Auth helpers ──────────────────────────────────────────────────────────

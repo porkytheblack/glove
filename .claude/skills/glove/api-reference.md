@@ -623,6 +623,8 @@ const client = new GloveClient({
   createModel?: () => ModelAdapter,        // Custom model factory (overrides endpoint)
   createStore?: (sessionId: string) => StoreAdapter,  // Custom store factory
   getSessionId?: () => Promise<string>,    // Async function to fetch session ID from backend
+  createSessionId?: () => string | Promise<string>,  // Mint a new session ID for newConversation() (e.g. create the row on your backend). Defaults to a generated glove_<uuid>.
+  persistSession?: boolean | { storageKey?: string },  // Persist active session ID to localStorage so reloads resume the conversation. Off by default.
   systemPrompt?: string,
   tools?: ToolConfig[],
   compaction?: CompactionConfig,
@@ -643,13 +645,28 @@ import { GloveProvider } from "glove-react";
 const {
   busy, isCompacting, sessionReady, sessionId,
   timeline, streamingText, tasks, inbox, slots, stats,
+  newConversation, switchConversation,
   sendMessage, abort, renderSlot, renderToolResult, resolveSlot, rejectSlot,
 } = useGlove(config?: UseGloveConfig);
 ```
 
-`UseGloveConfig` fields (all optional overrides): `endpoint`, `sessionId`, `getSessionId`, `store`, `model`, `systemPrompt`, `tools`, `compaction`, `subscribers`
+`UseGloveConfig` fields (all optional overrides): `endpoint`, `sessionId`, `getSessionId`, `persistSession`, `onSessionChange`, `store`, `model`, `systemPrompt`, `tools`, `compaction`, `subscribers`
 
-**`getSessionId`**: Async function `() => Promise<string>` that fetches the session ID from your backend. When configured, store creation is deferred until the ID resolves. Hook-level `getSessionId` overrides client-level. No change in behavior when not used.
+**Zero-config sessions**: with no `sessionId` / `getSessionId` / `store`, `useGlove()` generates a fresh `glove_<uuid>` automatically (it no longer throws).
+
+**`getSessionId`**: Async function `() => Promise<string>` that fetches the session ID from your backend. When configured, store creation is deferred until the ID resolves. Hook-level `getSessionId` overrides client-level.
+
+**`sessionId` is reactive**: passing a different value later switches the conversation in place (store swap + timeline rehydration) — equivalent to `switchConversation(id)`. No `key=` remount needed.
+
+**`persistSession`** (`boolean | { storageKey?: string }`): opt-in localStorage persistence of the active session ID so reloads resume the conversation (pair with a persistent store). Falls back to `GloveClient.persistSession`.
+
+**`onSessionChange(sessionId)`**: fires whenever the active session resolves or changes (initial async resolution, `newConversation()`, `switchConversation()`, or a `sessionId` prop change).
+
+**`newConversation(id?)`** → `Promise<string>`: start a fresh conversation in place — mints an id (explicit arg → `GloveClient.createSessionId` → generated uuid), aborts in-flight work, resets the timeline, rebuilds the store/agent. Returns the new id. Throws when an explicit `store` was passed (the store owns the session).
+
+**`switchConversation(id)`** → `void`: switch to an existing session in place. Throws when an explicit `store` was passed.
+
+**`generateSessionId()`** (exported from `glove-react`): mint an id with the `glove_<uuid>` shape (e.g. server-side).
 
 ### GloveHandle
 
@@ -662,6 +679,8 @@ interface GloveHandle {
   busy: boolean;
   sessionReady: boolean;
   sessionId: string;
+  newConversation: (sessionId?: string) => Promise<string>;
+  switchConversation: (sessionId: string) => void;
   slots: EnhancedSlot[];
   sendMessage: (text: string, images?: { data: string; media_type: string }[]) => void;
   abort: () => void;
@@ -986,6 +1005,10 @@ const voice = new GloveVoice(gloveRunnable, {
   turnMode?: "vad" | "manual",       // Default: "vad"
   vad?: VADAdapter,                   // Override default VAD (only used in "vad" mode)
   vadConfig?: VADConfig,              // Built-in VAD config (only used if no custom vad)
+  speechGating?: boolean,             // Default: true in "vad" mode — only stream confirmed speech to STT
+  speechGatePrerollMs?: number,       // Default: 800 — pre-roll flushed when a speech segment opens
+  micConstraints?: MediaTrackConstraints,  // Extra getUserMedia constraints (browser only)
+  audio?: AudioIO,                    // Platform audio backends — pass createNativeAudioIO() on React Native
   sampleRate?: number,                // Default: 16000
   startMuted?: boolean,               // Default: false (true when turnMode="manual")
 });
@@ -1054,8 +1077,16 @@ interface VADAdapter extends EventEmitter<VADAdapterEvents> {
   process(pcm: Int16Array): void;
   reset(): void;
   readonly isSpeaking: boolean;
+  readonly supportsRealStart?: boolean;  // true → distinguishes tentative vs confirmed speech
 }
-// Events: speech_start(), speech_end()
+// Events: speech_start(), speech_end(), speech_prob(prob: number),
+//         speech_real_start(), vad_misfire()   // last two only when supportsRealStart
+
+// AudioIO — platform mic capture + PCM playback (browser default; glove-voice-native for RN)
+interface AudioIO {
+  createCapture(sampleRate: number, constraints?: unknown): AudioCaptureAdapter;
+  createPlayer(sampleRate: number): AudioPlayerAdapter;
+}
 ```
 
 ### ElevenLabs Adapters
@@ -1088,19 +1119,47 @@ const { stt, createTTS } = createElevenLabsAdapters({
 const { SileroVADAdapter } = await import("glove-voice/silero-vad");
 
 const vad = new SileroVADAdapter({
-  positiveSpeechThreshold?: number,  // Default: 0.3 (higher = less sensitive)
-  negativeSpeechThreshold?: number,  // Default: 0.25 (lower = needs more silence)
+  positiveSpeechThreshold?: number,  // Default: 0.5 (Silero's recommended operating point)
+  negativeSpeechThreshold?: number,  // Default: 0.35 (lower = needs more silence)
+  minSpeechMs?: number,              // Default: 250 — shorter → vad_misfire (audio discarded when gated)
   wasm?: { type: "cdn" } | { type: "local"; path: string },
 });
 await vad.init();
+// Emits speech_real_start / vad_misfire / speech_prob (supportsRealStart = true), so
+// GloveVoice gates STT audio and barge-in on CONFIRMED speech only.
 ```
 
-### Built-in VAD (energy-based)
+### Built-in VAD (energy-based + adaptive noise floor)
 
 ```typescript
 import { VAD } from "glove-voice";
-const vad = new VAD({ silentFrames?: number }); // Default: 15 (~600ms). GloveVoice overrides to 40 (~1600ms).
+const vad = new VAD({
+  threshold?: number,       // Default: 0.01 — base RMS (floor when adaptive)
+  silenceMs?: number,       // Default: 1200 (GloveVoice overrides to 1600)
+  minSpeechMs?: number,     // Default: 96 — rejects short noise bursts
+  adaptive?: boolean,       // Default: true — raise threshold above the ambient noise floor
+});
+// Legacy chunk-count options silentFrames / speechFrames still honored (take precedence when set).
 ```
+
+### glove-voice-native (React Native / Expo)
+
+```typescript
+import { createNativeAudioIO, withNativeAudio } from "glove-voice-native";
+import { SileroVADNativeAdapter } from "glove-voice-native/silero-vad";
+
+const vad = new SileroVADNativeAdapter({ /* same options as browser Silero */ });
+await vad.init();  // Silero v5 on onnxruntime-react-native; downloads + caches model (expo-file-system)
+
+const voice = useGloveVoice({
+  runnable,
+  voice: withNativeAudio({ stt, createTTS, vad }),  // == { ..., audio: createNativeAudioIO() }
+});
+```
+
+- `createNativeAudioIO(opts?)` → `AudioIO`; `withNativeAudio(config, opts?)` returns the config with it attached.
+- `NativeAudioCapture` (react-native-audio-api `AudioRecorder`; iOS `playAndRecord` + `voiceChat` → OS echo cancellation), `NativeAudioPlayer` (streaming PCM).
+- Native modules → Expo dev client / prebuild, NOT Expo Go. Mic permission via `react-native-audio-api`'s config plugin. `onnxruntime-react-native` + `expo-file-system` are optional (energy VAD is the zero-native-dep fallback).
 
 ### createVoiceTokenHandler (glove-next)
 

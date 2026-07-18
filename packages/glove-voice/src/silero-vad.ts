@@ -63,11 +63,16 @@ const V5_FRAME_SAMPLES = 512;
 const V5_MS_PER_FRAME = V5_FRAME_SAMPLES / 16; // 32ms
 
 const DEFAULT_FRAME_PROCESSOR_OPTIONS: FrameProcessorOptions = {
-  positiveSpeechThreshold: 0.3,
-  negativeSpeechThreshold: 0.25,
+  // Silero's recommended operating point (0.5 / positive − 0.15). The old
+  // defaults (0.3 / 0.25) were trigger-happy in noisy environments —
+  // background chatter and typing regularly crossed them.
+  positiveSpeechThreshold: 0.5,
+  negativeSpeechThreshold: 0.35,
   redemptionMs: 1400,
   preSpeechPadMs: 800,
-  minSpeechMs: 100,
+  // Anything shorter than this is reported as a misfire (noise burst) and,
+  // with speech gating on, never reaches the STT provider.
+  minSpeechMs: 250,
   submitUserSpeechOnPause: false,
 };
 
@@ -102,6 +107,14 @@ export class SileroVADAdapter
   extends EventEmitter<VADAdapterEvents>
   implements VADAdapter
 {
+  /**
+   * Silero distinguishes tentative speech (`speech_start`) from confirmed
+   * speech (`speech_real_start`, fired after `minSpeechMs`) and retracts
+   * short bursts via `vad_misfire`. GloveVoice uses this to gate STT audio
+   * and barge-in on *confirmed* speech only.
+   */
+  readonly supportsRealStart = true;
+
   private processor: FrameProcessor | null = null;
   private model: Model | null = null;
   private speaking = false;
@@ -179,6 +192,7 @@ export class SileroVADAdapter
   /** Handle FrameProcessor events — maps to our adapter events. */
   private handleEvent = (event: FrameProcessorEvent): void => {
     if (event.msg === Message.FrameProcessed) {
+      this.emit("speech_prob", event.probs.isSpeech);
       // Log every ~1s (every 31 frames at 32ms/frame) to diagnose model output
       if (++this.frameCount % 31 === 0) {
         console.debug(`[SileroVAD] prob=${event.probs.isSpeech.toFixed(3)} speaking=${this.speaking}`);
@@ -186,21 +200,26 @@ export class SileroVADAdapter
       return;
     }
     if (event.msg === Message.SpeechStart && !this.speaking) {
-      console.debug(`[SileroVAD] speech_start`);
+      console.debug(`[SileroVAD] speech_start (tentative)`);
       this.speaking = true;
       this.emit("speech_start");
+    } else if (event.msg === Message.SpeechRealStart) {
+      // Speech survived the minSpeechMs filter — confirmed human speech.
+      console.debug(`[SileroVAD] speech_real_start`);
+      this.emit("speech_real_start");
     } else if (event.msg === Message.SpeechEnd && this.speaking) {
       console.debug(`[SileroVAD] speech_end`);
       this.speaking = false;
       this.emit("speech_end");
     } else if (event.msg === Message.VADMisfire) {
-      // Misfire = FrameProcessor detected speech then decided it was too short.
-      // It already reset its own `speaking` flag, so we must sync ours.
-      // Still emit speech_end — the STT has the audio and can transcribe it.
-      console.debug(`[SileroVAD] misfire → treating as speech_end`);
+      // Misfire = FrameProcessor detected speech then decided it was too
+      // short. It already reset its own `speaking` flag, so sync ours and
+      // report it as a misfire — the consumer decides whether to discard
+      // (gated pipelines) or still flush STT (ungated pipelines).
+      console.debug(`[SileroVAD] vad_misfire`);
       if (this.speaking) {
         this.speaking = false;
-        this.emit("speech_end");
+        this.emit("vad_misfire");
       }
     }
   };

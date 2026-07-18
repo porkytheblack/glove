@@ -96,6 +96,10 @@ import { VoicePTTButton } from "glove-react/voice";
 |--------|------|-------------|
 | `startMuted` | `boolean` | Start the pipeline with mic muted (useful for manual mode) |
 | `turnMode` | `"vad" \| "manual"` | VAD for hands-free, manual for push-to-talk |
+| `speechGating` | `boolean` | Only forward mic audio to STT during speech segments (default: `true` in vad mode). Background noise never reaches the STT provider. |
+| `speechGatePrerollMs` | `number` | Pre-roll flushed to STT when a speech segment opens, so the first syllable isn't clipped (default: 800) |
+| `micConstraints` | `MediaTrackConstraints` | Extra `getUserMedia` constraints merged over the defaults (pick a device, disable a default, etc.) |
+| `audio` | `AudioIO` | Platform audio backends (mic capture + PCM playback). Defaults to the browser implementations; pass `createNativeAudioIO()` from `glove-voice-native` on React Native / Expo. |
 
 ## Turn Modes
 
@@ -104,29 +108,56 @@ import { VoicePTTButton } from "glove-react/voice";
 | `"vad"` (default) | Hands-free. VAD auto-detects speech boundaries + barge-in |
 | `"manual"` | Push-to-talk. Call `commitTurn()` to end user's turn |
 
-## Voice Activity Detection
+## Voice Activity Detection & Noise Robustness
 
-**Built-in VAD** — Energy-based, zero dependencies:
+The pipeline is built so **only actual speech gets transcribed** — never
+ambient noise. Three layers work together:
+
+1. **Capture** — `getUserMedia` requests `echoCancellation`, `noiseSuppression`,
+   `autoGainControl`, and `voiceIsolation` (platform voice isolation where the
+   browser supports it; ignored elsewhere).
+2. **VAD** — decides what counts as speech. Silero (neural) distinguishes
+   speech from arbitrary noise; the built-in energy VAD adapts its threshold
+   to the ambient noise floor.
+3. **Speech gating** (`SpeechGate`, on by default in vad mode) — mic audio is
+   held in a rolling pre-roll buffer and only released to the STT provider
+   once the VAD confirms a speech segment. Keyboard clatter, traffic, and
+   music never reach STT, so they can't be transcribed, hallucinated into
+   words, or billed. With Silero, tentative speech shorter than `minSpeechMs`
+   is a *misfire* and its audio is discarded entirely; barge-in also waits for
+   confirmed speech, so a door slam doesn't cut the agent off.
+
+**Built-in VAD** — Energy-based with adaptive noise floor, zero dependencies:
 
 ```ts
 // Used automatically when no custom VAD is provided
 const voice = new GloveVoice(glove, { stt, createTTS });
+
+// Tunable — all durations in ms, independent of chunk size:
+// new VAD({ threshold: 0.01, silenceMs: 1600, minSpeechMs: 96, adaptive: true })
 ```
 
-**SileroVAD** — ML-based (ONNX Runtime WASM), more accurate:
+**SileroVAD** — ML-based (ONNX Runtime WASM), strongly recommended for noisy
+environments:
 
 ```ts
 // IMPORTANT: Use dynamic import to avoid pulling WASM into SSR bundle
 const { SileroVADAdapter } = await import("glove-voice/silero-vad");
 const vad = new SileroVADAdapter({
-  positiveSpeechThreshold: 0.5,
-  negativeSpeechThreshold: 0.35,
+  // Defaults: positiveSpeechThreshold 0.5, negativeSpeechThreshold 0.35,
+  // minSpeechMs 250, redemptionMs 1400, preSpeechPadMs 800
   wasm: { type: "cdn" },
 });
 await vad.init();
 
 const voice = new GloveVoice(glove, { stt, createTTS, vad });
 ```
+
+**VAD events** — all adapters emit `speech_start` / `speech_end`; adapters
+with `supportsRealStart: true` (Silero) additionally emit `speech_real_start`
+(confirmed speech — the noise-robust barge-in trigger) and `vad_misfire`
+(tentative speech retracted). Every adapter emits `speech_prob` per frame for
+level meters and threshold tuning.
 
 ## Security
 

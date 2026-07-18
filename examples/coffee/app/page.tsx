@@ -9,43 +9,31 @@ export default function Home() {
   const {
     sessions,
     activeSessionId,
-    activeGetSessionId,
     loaded,
     newChat,
     selectSession,
     nameSession,
-    refresh,
   } = useSessions();
 
   // Auto-create first session when there are none
   useEffect(() => {
-    if (loaded && sessions.length === 0 && !activeSessionId && !activeGetSessionId) {
-      newChat();
+    if (loaded && sessions.length === 0 && !activeSessionId) {
+      void newChat();
     }
-  }, [loaded, sessions.length, activeSessionId, activeGetSessionId, newChat]);
+  }, [loaded, sessions.length, activeSessionId, newChat]);
 
   // Auto-select most recent session on load if none active
   useEffect(() => {
-    if (loaded && sessions.length > 0 && !activeSessionId && !activeGetSessionId) {
+    if (loaded && sessions.length > 0 && !activeSessionId) {
       selectSession(sessions[0].sessionId);
     }
-  }, [loaded, sessions, activeSessionId, activeGetSessionId, selectSession]);
+  }, [loaded, sessions, activeSessionId, selectSession]);
 
   const handleFirstMessage = useCallback(
     (sessionId: string, text: string) => {
       nameSession(sessionId, text);
     },
     [nameSession],
-  );
-
-  // When Chat resolves its session ID via getSessionId, update the active
-  // session so tabs and other UI reflect the new session.
-  const handleSessionResolved = useCallback(
-    (sessionId: string) => {
-      selectSession(sessionId);
-      refresh();
-    },
-    [selectSession, refresh],
   );
 
   if (!loaded) {
@@ -56,10 +44,6 @@ export default function Home() {
     );
   }
 
-  // A chat is renderable when we have either a resolved session ID or a
-  // getSessionId callback for useGlove to resolve asynchronously.
-  const canRenderChat = activeSessionId || activeGetSessionId;
-
   return (
     <main className="app-layout">
       <TabBar
@@ -69,14 +53,10 @@ export default function Home() {
         onSelectSession={selectSession}
       />
       <div className="content-area">
-        {canRenderChat ? (
-          <Chat
-            key={activeSessionId ?? "pending"}
-            sessionId={activeSessionId ?? undefined}
-            getSessionId={activeGetSessionId}
-            onFirstMessage={handleFirstMessage}
-            onSessionResolved={handleSessionResolved}
-          />
+        {activeSessionId ? (
+          // No key= remount needed — useGlove switches sessions in place
+          // when the sessionId prop changes.
+          <Chat sessionId={activeSessionId} onFirstMessage={handleFirstMessage} />
         ) : (
           <div className="loading-state">Creating conversation...</div>
         )}

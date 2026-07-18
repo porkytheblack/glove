@@ -75,3 +75,8 @@ export {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export { defineTool } from "./define-tool";
+export {
+  generateSessionId,
+  DEFAULT_SESSION_STORAGE_KEY,
+  type PersistSessionSetting,
+} from "./session";

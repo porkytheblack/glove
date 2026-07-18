@@ -37,7 +37,8 @@ Works with OpenAI, Anthropic, Google Gemini, OpenRouter, and more. Bridge extern
 | [`glove-core`](packages/glove) | Core agent framework — builder, tools, model adapters, stores | [![npm](https://img.shields.io/npm/v/glove-core)](https://www.npmjs.com/package/glove-core) |
 | [`glove-react`](packages/react) | React hooks, `<Render>` component, `defineTool`, client bindings | [![npm](https://img.shields.io/npm/v/glove-react)](https://www.npmjs.com/package/glove-react) |
 | [`glove-next`](packages/next) | Next.js API route handlers (SSE streaming) | [![npm](https://img.shields.io/npm/v/glove-next)](https://www.npmjs.com/package/glove-next) |
-| [`glove-voice`](packages/glove-voice) | Voice pipeline — STT/TTS/VAD adapters, ElevenLabs integration | [![npm](https://img.shields.io/npm/v/glove-voice)](https://www.npmjs.com/package/glove-voice) |
+| [`glove-voice`](packages/glove-voice) | Voice pipeline — STT/TTS/VAD adapters, ElevenLabs integration, speech-gated noise robustness | [![npm](https://img.shields.io/npm/v/glove-voice)](https://www.npmjs.com/package/glove-voice) |
+| [`glove-voice-native`](packages/glove-voice-native) | React Native / Expo audio backends — on-device mic capture, PCM playback, Silero VAD (onnxruntime-react-native) | [![npm](https://img.shields.io/npm/v/glove-voice-native)](https://www.npmjs.com/package/glove-voice-native) |
 | [`glove-mcp`](packages/glove-mcp) | Model Context Protocol integration — bridge MCP servers' tools, on-demand discovery, opt-in OAuth runner | [![npm](https://img.shields.io/npm/v/glove-mcp)](https://www.npmjs.com/package/glove-mcp) |
 | [`glove-memory`](packages/glove-memory) | Memory layer — entity / episodic / resources / context primitives, schema-first, BYO storage | [![npm](https://img.shields.io/npm/v/glove-memory)](https://www.npmjs.com/package/glove-memory) |
 | [`glove-mesh`](packages/glove-mesh) | Inter-agent mesh networking — direct/broadcast/ack messaging on top of the inbox primitive, BYO transport | [![npm](https://img.shields.io/npm/v/glove-mesh)](https://www.npmjs.com/package/glove-mesh) |
@@ -393,6 +394,19 @@ const voice = useGloveVoice({ runnable, voice: { stt, createTTS } });
 ```
 
 Two turn modes: **VAD** (hands-free with barge-in) and **Manual** (push-to-talk). Token-based auth keeps API keys server-side.
+
+**Noise robustness** — in VAD mode, mic audio is speech-gated: it only reaches the STT provider once the VAD confirms speech (with a pre-roll buffer), so background noise is never transcribed. With Silero, short noise bursts are discarded and barge-in only fires on confirmed speech. On by default.
+
+**React Native / Expo** — the pipeline is platform-neutral; only mic capture and playback are platform edges. `glove-voice-native` supplies them for iOS/Android (backed by `react-native-audio-api` and `onnxruntime-react-native`):
+
+```typescript
+import { withNativeAudio } from "glove-voice-native";
+import { SileroVADNativeAdapter } from "glove-voice-native/silero-vad";
+
+const vad = new SileroVADNativeAdapter();
+await vad.init();
+const voice = useGloveVoice({ runnable, voice: withNativeAudio({ stt, createTTS, vad }) });
+```
 
 ### MCP Integration
 

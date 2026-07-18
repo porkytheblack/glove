@@ -129,7 +129,7 @@ export default function Chat() {
 ### Components & hooks
 
 - **`GloveProvider`** — Context provider wrapping your app
-- **`useGlove(config?)`** — Main hook returning `timeline`, `streamingText`, `busy`, `slots`, `tasks`, `stats`, `sessionReady`, `sessionId`, `sendMessage`, `abort`, `renderSlot`, `renderToolResult`, `resolveSlot`, `rejectSlot`. Accepts an optional `getSessionId` async function to resolve the session ID at runtime (overrides the client-level one if set).
+- **`useGlove(config?)`** — Main hook returning `timeline`, `streamingText`, `busy`, `slots`, `tasks`, `stats`, `sessionReady`, `sessionId`, `newConversation`, `switchConversation`, `sendMessage`, `abort`, `renderSlot`, `renderToolResult`, `resolveSlot`, `rejectSlot`. Accepts an optional `getSessionId` async function to resolve the session ID at runtime (overrides the client-level one if set).
 - **`Render`** — Headless render component with automatic slot visibility, interleaving, and `renderResult` rendering
 
 ### Tool helpers
@@ -198,6 +198,45 @@ function Chat() {
 ```
 
 When `getSessionId` is configured, the store is `null` until the ID resolves. The hook guards the build, hydration, and `sendMessage` flows against the null store, so consumers only need to check `sessionReady` before rendering. When no `getSessionId` is provided, behavior is unchanged -- `sessionReady` is always `true` and the session ID is either the provided `sessionId` or an auto-generated UUID.
+
+### Conversations — new, switch, persist
+
+Session management is built into the hook, so a chat app with tabs needs no
+`getSessionId` threading, remount `key=` tricks, or "session resolved" callbacks:
+
+```tsx
+function Chat() {
+  const glove = useGlove({
+    // optional: fires on initial resolution and every switch — sync tabs/URL here
+    onSessionChange: (id) => history.replaceState(null, "", `?chat=${id}`),
+    // optional: reloads resume the last conversation (pair with a persistent store)
+    persistSession: true, // or { storageKey: `glove:session:${userId}` }
+  });
+
+  return (
+    <>
+      <button onClick={() => glove.newConversation()}>New chat</button>
+      <button onClick={() => glove.switchConversation(someExistingId)}>Open</button>
+      <Render glove={glove} />
+    </>
+  );
+}
+```
+
+- **`newConversation(id?)`** mints a fresh session ID and rebuilds the store/agent
+  in place (aborting any in-flight request and resetting the timeline). The ID
+  comes from the explicit argument, then `GloveClient.createSessionId` (e.g.
+  "create the session row on my backend and return its id"), then a generated
+  `glove_<uuid>`. Returns the new ID.
+- **`switchConversation(id)`** swaps to an existing session and rehydrates its
+  timeline from the store.
+- **The `sessionId` prop is reactive** — passing a different value to
+  `useGlove({ sessionId })` is equivalent to calling `switchConversation`.
+- **`generateSessionId()`** is exported for minting ids with the same
+  `glove_<uuid>` shape elsewhere (e.g. server-side).
+
+With an explicit `store` passed to the hook, the store owns the session and
+`newConversation`/`switchConversation` throw — swap the store prop instead.
 
 ### Display strategies
 

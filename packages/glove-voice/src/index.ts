@@ -9,6 +9,10 @@ export type {
   TTSAdapterEvents,
   VADAdapter,
   VADAdapterEvents,
+  AudioIO,
+  AudioCaptureAdapter,
+  AudioCaptureAdapterEvents,
+  AudioPlayerAdapter,
   GetTokenFn,
 } from "./adapters/types";
 
@@ -24,6 +28,9 @@ export {
 
 // Built-in VAD (energy-based, zero dependencies)
 export { VAD, type VADConfig } from "./vad";
+
+// Speech gate — buffers mic audio and only releases confirmed speech to STT
+export { SpeechGate, type SpeechGateOptions } from "./speech-gate";
 // SileroVADAdapter is in "glove-voice/silero-vad" — separate entry to avoid
 // pulling onnxruntime-web (browser-only WASM) into the main barrel.
 
@@ -35,3 +42,4 @@ export { AudioCapture } from "./audio-capture";
 export { AudioPlayer } from "./audio-player";
 export { splitSentences, SentenceBuffer } from "./sentence-chunker";
 export { extractText } from "./extract-text";
+export { bytesToBase64, base64ToBytes } from "./base64";
