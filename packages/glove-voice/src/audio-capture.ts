@@ -36,23 +36,37 @@ export class AudioCapture extends EventEmitter<AudioCaptureEvents> {
   private source: MediaStreamAudioSourceNode | null = null;
   private blobUrl: string | null = null;
   private readonly sampleRate: number;
+  private readonly constraints: MediaTrackConstraints | undefined;
 
-  constructor(sampleRate = 16_000) {
+  /**
+   * @param sampleRate PCM sample rate in Hz (default: 16000).
+   * @param constraints Extra `getUserMedia` audio constraints merged over
+   *   the defaults (echoCancellation / noiseSuppression / autoGainControl /
+   *   voiceIsolation all default to `true`). Pass e.g.
+   *   `{ deviceId: { exact: id } }` to pick a mic, or
+   *   `{ noiseSuppression: false }` to opt out of a default.
+   */
+  constructor(sampleRate = 16_000, constraints?: MediaTrackConstraints) {
     super();
     this.sampleRate = sampleRate;
+    this.constraints = constraints;
   }
 
   async init(): Promise<void> {
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          sampleRate: this.sampleRate,
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
+      // voiceIsolation is a newer constraint (Chrome/Safari) that enables
+      // platform-level voice isolation where available. Browsers ignore
+      // unknown constraint names, so it's safe to always request.
+      const audio: MediaTrackConstraints & { voiceIsolation?: boolean } = {
+        sampleRate: this.sampleRate,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        voiceIsolation: true,
+        ...(this.constraints ?? {}),
+      };
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio });
     } catch (err) {
       const e = err as DOMException;
       if (e.name === "NotAllowedError") {

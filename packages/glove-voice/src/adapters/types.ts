@@ -3,10 +3,33 @@ import type EventEmitter from "eventemitter3";
 // ─── VAD ───────────────────────────────────────────────────────────────────
 
 export type VADAdapterEvents = {
-  /** User started speaking */
+  /**
+   * Speech (possibly tentative) started. Adapters with a minimum-duration
+   * filter (Silero) fire this on the first positive frame — it may still be
+   * retracted by `vad_misfire`. Adapters without a tentative phase fire it
+   * once speech is established.
+   */
   speech_start: [];
   /** User stopped speaking — fire STT flush after this */
   speech_end: [];
+  /**
+   * Speech confirmed past the minimum-duration filter — it is definitely a
+   * person talking, not a noise burst. Only emitted by adapters that declare
+   * `supportsRealStart: true`. Use this (not `speech_start`) for barge-in.
+   */
+  speech_real_start: [];
+  /**
+   * A tentative `speech_start` turned out to be shorter than the minimum
+   * speech duration — treat it as noise. Only emitted by adapters that
+   * declare `supportsRealStart: true`.
+   */
+  vad_misfire: [];
+  /**
+   * Per-frame speech probability in [0, 1]. Neural adapters emit the model
+   * output; the energy VAD emits a normalized-energy proxy. Useful for
+   * level meters and threshold tuning.
+   */
+  speech_prob: [prob: number];
 };
 
 /**
@@ -24,6 +47,15 @@ export interface VADAdapter extends EventEmitter<VADAdapterEvents> {
 
   /** True if speech is currently detected. */
   readonly isSpeaking: boolean;
+
+  /**
+   * True when the adapter distinguishes tentative speech (`speech_start`)
+   * from confirmed speech (`speech_real_start`) and reports `vad_misfire`
+   * for retracted starts. When true, GloveVoice opens the STT audio gate
+   * and triggers barge-in on `speech_real_start` so noise bursts never
+   * reach the STT provider or interrupt agent speech.
+   */
+  readonly supportsRealStart?: boolean;
 }
 
 // ─── STT ───────────────────────────────────────────────────────────────────

@@ -24,6 +24,9 @@ export {
 
 // Built-in VAD (energy-based, zero dependencies)
 export { VAD, type VADConfig } from "./vad";
+
+// Speech gate — buffers mic audio and only releases confirmed speech to STT
+export { SpeechGate, type SpeechGateOptions } from "./speech-gate";
 // SileroVADAdapter is in "glove-voice/silero-vad" — separate entry to avoid
 // pulling onnxruntime-web (browser-only WASM) into the main barrel.
 

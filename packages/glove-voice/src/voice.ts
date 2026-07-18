@@ -3,6 +3,7 @@ import type { STTAdapter, TTSAdapter, VADAdapter } from "./adapters/types";
 import { AudioCapture } from "./audio-capture";
 import { AudioPlayer } from "./audio-player";
 import { SentenceBuffer } from "./sentence-chunker";
+import { SpeechGate } from "./speech-gate";
 import { GloveVoiceError } from "./errors";
 import { IGloveRunnable, type SubscriberAdapter, type SubscriberEventDataMap } from "glove-core";
 import type { VADConfig } from "./vad";
@@ -44,6 +45,36 @@ export interface GloveVoiceConfig {
 
   /** Audio sample rate in Hz (default: 16000). Must match STT/TTS adapter expectations. */
   sampleRate?: number;
+
+  /**
+   * Only forward mic audio to STT while the VAD reports speech
+   * (default: true in "vad" turn mode; not applicable in "manual" mode).
+   *
+   * With gating on, background noise never reaches the STT provider —
+   * which prevents hallucinated transcripts from keyboards / traffic /
+   * music, and stops billing for silence. When a speech segment opens,
+   * a pre-roll buffer (`speechGatePrerollMs`) is flushed first so the
+   * first syllable isn't clipped.
+   *
+   * With a VAD that supports confirmed speech (`SileroVADAdapter`), audio
+   * is held until speech survives the minimum-duration filter, so short
+   * noise bursts are discarded entirely. Set to `false` to restore the
+   * old always-streaming behavior.
+   */
+  speechGating?: boolean;
+
+  /**
+   * Pre-roll audio (ms) flushed to STT when a gated speech segment opens
+   * (default: 800 — matches Silero's preSpeechPadMs).
+   */
+  speechGatePrerollMs?: number;
+
+  /**
+   * Extra `getUserMedia` audio constraints merged over the defaults
+   * (echoCancellation / noiseSuppression / autoGainControl / voiceIsolation
+   * all default to true). Use to pick a device or opt out of a default.
+   */
+  micConstraints?: MediaTrackConstraints;
 
   /**
    * Start the pipeline with mic muted (default: false).
@@ -109,10 +140,16 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
   private sampleRate: number;
   private muted = false;
   private narrateAbort: (() => void) | null = null;
+  private gate: SpeechGate | null = null;
 
   // Bound handlers for listener cleanup
   private sttHandlers: { partial: (t: string) => void; final: (t: string) => void; error: (e: Error) => void } | null = null;
-  private vadHandlers: { speech_start: () => void; speech_end: () => void } | null = null;
+  private vadHandlers: {
+    speech_start: () => void;
+    speech_end: () => void;
+    speech_real_start?: () => void;
+    vad_misfire?: () => void;
+  } | null = null;
   private captureHandlers: { chunk: (pcm: Int16Array) => void; error: (e: Error) => void } | null = null;
 
   constructor(
@@ -160,37 +197,96 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
         this.vad = this.cfg.vad;
       } else {
         const { VAD } = await import("./vad");
-        // Default: longer silence threshold (40 frames ~= 1600ms) for natural pauses
-        this.vad = new VAD(this.cfg.vadConfig ?? { silentFrames: 40 });
+        // Default: ~1600ms of trailing silence for natural pauses
+        this.vad = new VAD(this.cfg.vadConfig ?? { silenceMs: 1600 });
       }
       const vad = this.vad;
 
+      // ── Speech gating ──────────────────────────────────────────────────
+      // On by default: STT only receives audio for speech segments (plus a
+      // pre-roll), so background noise is never transcribed. With a VAD
+      // that confirms speech (Silero), audio is held until speech survives
+      // the minimum-duration filter — noise bursts are discarded entirely.
+      const gating = this.cfg.speechGating ?? true;
+      const confirms = vad.supportsRealStart === true;
+      this.gate = gating
+        ? new SpeechGate({
+            sampleRate: this.sampleRate,
+            prerollMs: this.cfg.speechGatePrerollMs,
+          })
+        : null;
+
+      const flushToSTT = (chunks: Int16Array[]) => {
+        for (const chunk of chunks) this.cfg.stt.sendAudio(chunk);
+      };
+
+      // Barge-in on *confirmed* speech when the VAD can tell the
+      // difference, so a door slam doesn't cut the agent off mid-sentence.
+      const bargeIn = () => {
+        if (this.mode === "thinking" || this.mode === "speaking") {
+          // Don't barge-in when a blocking UI (e.g. checkout form) is active —
+          // its pushAndWait resolver is still pending in the display manager.
+          if (this.glove.displayManager.resolverStore.size > 0) return;
+          this.interrupt();
+        }
+      };
+
       this.vadHandlers = {
-        speech_end: () => this.cfg.stt.flushUtterance(),
         speech_start: () => {
-          if (this.mode === "thinking" || this.mode === "speaking") {
-            // Don't barge-in when a blocking UI (e.g. checkout form) is active —
-            // its pushAndWait resolver is still pending in the display manager.
-            if (this.glove.displayManager.resolverStore.size > 0) return;
-            this.interrupt();
+          if (this.gate) {
+            // Tentative-capable VADs hold audio until confirmation;
+            // others open the gate immediately.
+            if (confirms) this.gate.hold();
+            else flushToSTT(this.gate.open());
           }
+          if (!confirms) bargeIn();
+        },
+        speech_end: () => {
+          // Only finalize when STT actually received this segment.
+          if (!this.gate || this.gate.isOpen) this.cfg.stt.flushUtterance();
+          this.gate?.close();
         },
       };
+
+      if (confirms) {
+        this.vadHandlers.speech_real_start = () => {
+          // Open the gate BEFORE barge-in: interrupt() resets the VAD, and
+          // the buffered pre-roll + confirmed speech must reach STT first.
+          if (this.gate) flushToSTT(this.gate.open());
+          bargeIn();
+        };
+        this.vadHandlers.vad_misfire = () => {
+          if (this.gate) {
+            // STT never saw the audio — drop it silently.
+            this.gate.cancel();
+          } else {
+            // Ungated: STT has the audio; keep the old behavior of
+            // finalizing so short utterances still get transcribed.
+            this.cfg.stt.flushUtterance();
+          }
+        };
+        vad.on("speech_real_start", this.vadHandlers.speech_real_start);
+        vad.on("vad_misfire", this.vadHandlers.vad_misfire);
+      }
 
       vad.on("speech_end", this.vadHandlers.speech_end);
       vad.on("speech_start", this.vadHandlers.speech_start);
     }
 
-    // Mic → STT (+ VAD if enabled)
-    this.capture = new AudioCapture(this.sampleRate);
+    // Mic → VAD → (gate) → STT
+    this.capture = new AudioCapture(this.sampleRate, this.cfg.micConstraints);
 
     this.captureHandlers = {
       chunk: (pcm) => {
         if (this.mode === "idle") return;
         this.emit("audio_chunk", pcm);
         if (this.muted) return;
-        this.cfg.stt.sendAudio(pcm);
         this.vad?.process(pcm);
+        if (this.gate) {
+          for (const chunk of this.gate.feed(pcm)) this.cfg.stt.sendAudio(chunk);
+        } else {
+          this.cfg.stt.sendAudio(pcm);
+        }
       },
       error: (err) => this.emit("error", err),
     };
@@ -223,6 +319,12 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     if (this.vadHandlers && this.vad) {
       this.vad.off("speech_end", this.vadHandlers.speech_end);
       this.vad.off("speech_start", this.vadHandlers.speech_start);
+      if (this.vadHandlers.speech_real_start) {
+        this.vad.off("speech_real_start", this.vadHandlers.speech_real_start);
+      }
+      if (this.vadHandlers.vad_misfire) {
+        this.vad.off("vad_misfire", this.vadHandlers.vad_misfire);
+      }
       this.vadHandlers = null;
     }
     if (this.captureHandlers && this.capture) {
@@ -237,6 +339,7 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     this.capture = null;
     this.player = null;
     this.vad = null;
+    this.gate = null;
     this.muted = false;
     this.setMode("idle");
   }
@@ -272,6 +375,11 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
     // Reset VAD state
     this.vad?.reset();
+
+    // A gate stuck holding tentative audio would otherwise fail-open later —
+    // drop the tentative buffer. An OPEN gate is left alone: barge-in happens
+    // mid-utterance and the segment's speech_end will close it.
+    if (this.gate?.isPending) this.gate.cancel();
 
     if (this.mode !== "idle") this.setMode("listening");
   }
