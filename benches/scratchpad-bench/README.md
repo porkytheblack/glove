@@ -44,6 +44,25 @@ pass rate across the three framings (`repl` / `program` / `workflow`):
 `pnpm --filter glove-scratchpad-bench frame-bench` (no-API validation:
 `frame-selfcheck`).
 
+A further **exfiltration bench**
+([**The Boundary Is the Guarantee**](EXFIL-PAPER.md)) turns the same off-context
+surface into a **privacy boundary** and tests it. It first settles the *ruler*
+question by construction — Shannon "bits crossed" is a throughput headline, not a
+safety bound; min-entropy / g-leakage (QIF) plus empirical canary extraction are
+the right instruments, and the composition bound is a min-entropy budget, *not*
+differential privacy. It then salts the seed world with **canary secrets** and
+grades, deterministically, whether a benign task leaks a secret sitting next to
+its answer — across `raw-mcp` / `repl` / `workflow` / `gate`, where `gate` is an
+**enforced egress gate** (the eval tool refuses to return a raw value; only
+`assert`/`count`/`choose`/`bucket`/`report` decisions cross, metered against a
+bit budget, with outbound effects allowlisted). A delegated-judge tier removes
+the document from the planner entirely. The QIF metering, the enforced gate, and
+the red-team simulation ship as their own package,
+[**`glove-egress`**](../../packages/glove-egress) (the platform primitive the
+study concludes enforcement requires); this bench consumes it. No-API validation
+of the whole layer: `pnpm --filter glove-scratchpad-bench exfil-selfcheck`; the
+paid arms: `exfil-bench --budget=<usd>`.
+
 ## What's measured
 
 Per (model × scenario × arm) run, from the agent's own event stream:
@@ -75,6 +94,14 @@ src/
   run.ts                # CLI + summary/CSV/Markdown writers
   selfcheck.ts          # no-API validation of the whole MCP+scratchpad layer
   probe.ts              # no-API mechanics probes (INSERT…SELECT, required-key IN, JOIN)
+  exfil/                # QIF metering + enforced gate + red-team live in packages/glove-egress
+    canaries.ts         # canary seeding into the world + scanner + judge corpus
+    scenarios.ts        # temptation / injection / judge tasks + deterministic verifiers
+    judge.ts            # delegated cheap-model classifier fn (judge tier)
+    arms.ts             # raw-mcp / repl / workflow / gate / self-judge / delegate-judge (glue over glove-egress)
+    selfcheck.ts        # no-API validation of the whole exfil layer (incl. glove-egress)
+  exfil-bench.ts        # exfil CLI + runner + writers
+  exfil-figures.ts      # SVG figures for EXFIL-PAPER.md
 logs/                   # per-cell JSONL transcripts (git-tracked)
 results/                # agentic-summary.md + agentic-results.{json,csv} (git-tracked)
 ```

@@ -2,3 +2,4 @@ packages:
   - "packages/*"
   - "examples/*"
   - "examples/coding-agent/client"
+  - "benches/*"

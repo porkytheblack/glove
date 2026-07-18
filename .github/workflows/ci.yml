@@ -45,6 +45,7 @@ jobs:
           pnpm
           --filter glove-core
           --filter glove-scratchpad
+          --filter glove-egress
           --filter glove-python
           --filter glove-js
           --filter glove-lisp
@@ -54,6 +55,7 @@ jobs:
         run: >-
           pnpm
           --filter glove-scratchpad
+          --filter glove-egress
           --filter glove-python
           --filter glove-js
           --filter glove-lisp

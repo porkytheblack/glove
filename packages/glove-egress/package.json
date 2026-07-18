@@ -1,0 +1,41 @@
+{
+  "name": "glove-egress",
+  "version": "0.1.0",
+  "description": "The sandbox→context boundary as an exfiltration boundary — Quantitative-Information-Flow metering (Shannon / min-entropy / g-leakage + empirical canary extraction), an enforced egress gate (a return-whitelist of assert/count/choose/bucket/report decisions, a min-entropy bit budget, an outbound effect allowlist, and free-text redaction), and an adaptive-extraction red-team simulation. Built on the glove-scratchpad fns catalog; the egress combinators are ordinary ToolFns that mount on any REPL surface.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-egress"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "dependencies": {
+    "glove-scratchpad": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}
