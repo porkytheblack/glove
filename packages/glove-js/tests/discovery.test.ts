@@ -49,6 +49,47 @@ test("progressive preamble primes no signatures; full does", () => {
   assert.match(buildJsPreamble(s, "full"), /- github__list_pull_requests\(/);
 });
 
+test("native-tool-name aliases are callable in the REPL (search_functions / list_servers / list_functions / describe_function)", async () => {
+  const s = fixture();
+  // list_servers() mirrors servers()
+  assert.deepEqual(
+    ((await s.execute("list_servers().map(x => x.name)")).value as string[]).sort(),
+    ["github", "sentry"],
+  );
+  // list_functions accepts the tool's object form AND a positional string AND no-arg
+  assert.equal(((await s.execute('list_functions({ server: "github" }).length')).value as number), 2);
+  assert.equal(((await s.execute('list_functions("github").length')).value as number), 2);
+  assert.equal(((await s.execute("list_functions().length")).value as number), 3);
+  // search_functions({ query }) and positional
+  assert.ok(
+    ((await s.execute('search_functions({ query: "pull requests" }).map(f => f.name)')).value as string[]).includes(
+      "github__list_pull_requests",
+    ),
+  );
+  assert.ok(
+    ((await s.execute('search_functions("pull requests").map(f => f.name)')).value as string[]).includes(
+      "github__list_pull_requests",
+    ),
+  );
+  // describe_function({ name }) and positional
+  assert.equal(
+    ((await s.execute('describe_function({ name: "github__create_issue" }).name')).value as string),
+    "github__create_issue",
+  );
+  assert.equal(
+    ((await s.execute('describe_function("github__create_issue").name')).value as string),
+    "github__create_issue",
+  );
+});
+
+test("an alias name cannot be registered as a capability (reserved)", () => {
+  const s = fixture();
+  assert.throws(
+    () => s.register(defineFn({ name: "list_functions", handler: () => 1 })),
+    /builtin/,
+  );
+});
+
 test("native discovery tools mirror the builtins; a call still fires after discovery", async () => {
   const s = fixture();
   const [searchFunctions, listServers, listFunctions] = buildDiscoveryTools(s);

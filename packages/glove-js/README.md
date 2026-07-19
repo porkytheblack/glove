@@ -53,7 +53,12 @@ What the surface keeps from that work:
   result shape). The same tiers exist as native tools (`search_functions` /
   `list_servers` / `list_functions` / `describe_function`), so a weak model can
   fire them as tool calls and a capable one can script the whole sweep in one
-  program. Result shapes warm lazily — a function's row type is sampled the first
+  program. Those native-tool names are **also callable inside the code** as
+  aliases of the short builtins — `search_functions({ query })`,
+  `list_functions({ server })`, `list_servers()`, `describe_function({ name })`
+  all work in-REPL (accepting either the `{ … }` object form or a bare string),
+  so a model primed on the tool names lands its call whichever way it reaches for
+  discovery. Result shapes warm lazily — a function's row type is sampled the first
   time it's described, not for the whole catalog at mount. (`discovery: "full"`
   primes every signature up front for small catalogs; `"auto"` picks per size.)
 - **Off-context data flow.** `const prs = github.list_pull_requests()` stores the

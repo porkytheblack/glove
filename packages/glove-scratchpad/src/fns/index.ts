@@ -34,6 +34,12 @@ export {
   fnsForServer,
   serverFunctionSignatures,
   searchFns,
+  DISCOVERY_BUILTINS,
+  DISCOVERY_BUILTIN_NAMES,
+  discoveryArg,
+  hasDiscoveryArg,
   type ServerSummary,
+  type DiscoveryBuiltin,
+  type DiscoveryKind,
 } from "./discovery";
 export { closest, DEFAULT_ELIDE, elide, type ElideLimits, type ElideOptions } from "./shared";

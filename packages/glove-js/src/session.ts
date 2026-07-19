@@ -17,6 +17,11 @@ import {
   searchFns,
   sampleOne,
   DEFAULT_ELIDE,
+  DISCOVERY_BUILTINS,
+  DISCOVERY_BUILTIN_NAMES,
+  discoveryArg,
+  hasDiscoveryArg,
+  type DiscoveryKind,
   type ElideLimits,
   type FnDescription,
   type ServerSummary,
@@ -65,7 +70,10 @@ interface Runtime {
   called: Map<string, number>;
 }
 
-const RESERVED = new Set(["fns", "describe", "servers", "search"]);
+/** Discovery builtins — the short names AND the native-tool-name aliases
+ *  (search_functions / list_functions / …), so a call lands whichever front
+ *  door the model learned. Shared across the fn-mode REPLs. */
+const RESERVED = new Set(DISCOVERY_BUILTIN_NAMES);
 
 export class JsSession {
   private root: Scope;
@@ -197,21 +205,34 @@ export class JsSession {
   // ── the model-facing surface ───────────────────────────────────────────────
 
   private installSurface(): void {
-    // servers() — tier 1: the MCP servers you can drill into.
-    this.root.declare("servers", () => this.discoverServers(), true);
-    // search(query) — jump straight to the functions matching a query.
-    this.root.declare("search", (query?: unknown) => this.searchFunctions(String(query ?? "")), true);
-    // fns(server?) — tier 2: a server's functions (or ALL functions if no arg).
-    this.root.declare(
-      "fns",
-      (server?: unknown) =>
-        server !== undefined && server !== null
-          ? this.discoverFunctions(String(server))
-          : this.list().map((fn) => this.fnRow(fn)),
-      true,
-    );
-    // describe(name) — tier 3: one function's full schema.
-    this.root.declare("describe", (name: unknown) => this.describeFunction(String(name)), true);
+    // Each discovery tier is bound under BOTH its short name (search / servers
+    // / fns / describe) AND its native-tool-name alias (search_functions /
+    // list_servers / list_functions / describe_function). Every builtin accepts
+    // the positional form (search("q")) AND the tool's object form
+    // (search_functions({ query: "q" })), since models mirror the tool schema
+    // even inside the code.
+    for (const b of DISCOVERY_BUILTINS) {
+      const handler = (arg?: unknown) => this.discovery(b.kind, arg, b.argKey);
+      this.root.declare(b.short, handler, true);
+      this.root.declare(b.alias, handler, true);
+    }
+  }
+
+  /** Route a discovery builtin call (short name or alias) to its tier. */
+  private discovery(kind: DiscoveryKind, arg: unknown, argKey?: "query" | "server" | "name"): unknown {
+    switch (kind) {
+      case "search":
+        return this.searchFunctions(discoveryArg(arg, "query"));
+      case "servers":
+        return this.discoverServers();
+      case "functions":
+        // A server arg lists that server; no arg lists ALL functions.
+        return argKey && hasDiscoveryArg(arg, argKey)
+          ? this.discoverFunctions(discoveryArg(arg, argKey))
+          : this.list().map((fn) => this.fnRow(fn));
+      case "describe":
+        return this.describeFunction(discoveryArg(arg, "name"));
+    }
   }
 
   /** A ToolFn as a native function: validates the argument object, fires the

@@ -12,6 +12,69 @@ import { fnSignature } from "./signature";
 /** The reserved MCP namespace separator (mirrors glove-mcp's `NAMESPACE_SEP`). */
 const NS_SEP = "__";
 
+// ─── Discovery builtin names (shared by every fn-mode REPL) ──────────────────
+//
+// Each discovery tier has TWO in-REPL names: a short one (`search`) and an
+// alias matching the native discovery TOOL (`search_functions`). Models primed
+// on the tool names routinely try to call `search_functions(...)` /
+// `list_functions(...)` INSIDE the eval program; binding both names means the
+// call lands whichever front door the model learned. One list here so glove-js,
+// glove-python, and glove-lisp never drift on what's callable.
+
+export type DiscoveryKind = "search" | "servers" | "functions" | "describe";
+
+export interface DiscoveryBuiltin {
+  /** The short REPL name (`search` / `servers` / `fns` / `describe`). */
+  short: string;
+  /** The native-tool-name alias (`search_functions` / `list_servers` / `list_functions` / `describe_function`). */
+  alias: string;
+  kind: DiscoveryKind;
+  /**
+   * The argument key the native tool uses, so an object-form call
+   * (`search_functions({ query })`) can be read the same as a positional one
+   * (`search("query")`). `servers` / `list_servers` take no argument.
+   */
+  argKey?: "query" | "server" | "name";
+}
+
+/** The canonical discovery builtins — short name + native-tool alias per tier. */
+export const DISCOVERY_BUILTINS: readonly DiscoveryBuiltin[] = [
+  { short: "search", alias: "search_functions", kind: "search", argKey: "query" },
+  { short: "servers", alias: "list_servers", kind: "servers" },
+  { short: "fns", alias: "list_functions", kind: "functions", argKey: "server" },
+  { short: "describe", alias: "describe_function", kind: "describe", argKey: "name" },
+];
+
+/** Every reserved discovery name (short + alias) — surfaces block registering a
+ *  capability under any of them, and exclude them from user-defined listings. */
+export const DISCOVERY_BUILTIN_NAMES: readonly string[] = DISCOVERY_BUILTINS.flatMap(
+  (b) => [b.short, b.alias],
+);
+
+/**
+ * Read a discovery builtin's string argument from a REPL call that may pass
+ * EITHER a positional value (`search("q")`) OR the native tool's object form
+ * (`search_functions({ query: "q" })`) — some models mirror the tool schema
+ * even inside the code. Returns `""` when the argument is absent.
+ */
+export function discoveryArg(raw: unknown, argKey: "query" | "server" | "name"): string {
+  if (raw === undefined || raw === null) return "";
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const v = (raw as Record<string, unknown>)[argKey];
+    return v === undefined || v === null ? "" : String(v);
+  }
+  return String(raw);
+}
+
+/** True when a discovery-`functions` call supplied a server (vs. "list all"). */
+export function hasDiscoveryArg(raw: unknown, argKey: "query" | "server" | "name"): boolean {
+  if (raw === undefined || raw === null) return false;
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    return (raw as Record<string, unknown>)[argKey] != null;
+  }
+  return String(raw).length > 0;
+}
+
 /**
  * The server a function belongs to: its explicit `server` field, else the
  * `namespace__tool` name prefix, else `undefined` (an ungrouped stdlib-style fn).

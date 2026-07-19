@@ -29,6 +29,7 @@ import {
   sampleOne,
   toRows,
   unknownKeys,
+  DISCOVERY_BUILTINS,
   type ResourceContext,
   type ResourceTable,
   type ServerSummary,
@@ -544,6 +545,15 @@ export class LispSession {
       "search",
       new NativeFn("search", (args) => this.searchFunctions(args[0] === undefined ? "" : this.nameArg(args[0], "search")), '(search "query")'),
     );
+
+    // Bind the native-tool-name aliases (search_functions / list_servers /
+    // list_functions / describe_function) to the SAME handlers, so a model
+    // primed on the tool names can call them inside the code too — one call
+    // form, zero drift with the short (servers)/(fns)/(describe)/(search) names.
+    for (const b of DISCOVERY_BUILTINS) {
+      const impl = this.builtins.lookup(b.short);
+      if (impl.found) this.builtins.set(b.alias, impl.value);
+    }
 
     this.builtins.set(
       "insert!",
