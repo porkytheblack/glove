@@ -23,6 +23,11 @@ import {
   searchFns,
   sampleOne,
   DEFAULT_ELIDE,
+  DISCOVERY_BUILTINS,
+  DISCOVERY_BUILTIN_NAMES,
+  discoveryArg,
+  hasDiscoveryArg,
+  type DiscoveryKind,
   type ElideLimits,
   type FnDescription,
   type ServerSummary,
@@ -67,7 +72,10 @@ export interface PyExecuteResult {
   note?: string;
 }
 
-const RESERVED = new Set(["fns", "describe", "servers", "search"]);
+/** Discovery builtins — short names AND native-tool-name aliases
+ *  (search_functions / list_functions / …), so a call lands whichever front
+ *  door the model learned. Shared across the fn-mode REPLs. */
+const RESERVED = new Set(DISCOVERY_BUILTIN_NAMES);
 
 /** Opaque printing for the model-facing value: Python's non-JSON values. */
 function opaque(v: unknown): string | undefined {
@@ -210,21 +218,41 @@ export class PySession {
   // ── the model-facing surface ───────────────────────────────────────────────
 
   private installSurface(): void {
-    // servers() — tier 1: the MCP servers you can drill into.
-    this.root.set("servers", new NativeFn("servers", () => this.discoverServers()));
-    // search(query) — jump straight to the functions matching a query.
-    this.root.set("search", new NativeFn("search", (args) => this.searchFunctions(String(args[0] ?? ""))));
-    // fns(server?) — tier 2: a server's functions (or ALL functions if no arg).
-    this.root.set(
-      "fns",
-      new NativeFn("fns", (args) =>
-        args[0] !== undefined && args[0] !== null
-          ? this.discoverFunctions(String(args[0]))
-          : this.list().map((fn) => this.fnRow(fn)),
-      ),
-    );
-    // describe(name) — tier 3: one function's full schema.
-    this.root.set("describe", new NativeFn("describe", (args) => this.describeFunction(String(args[0]))));
+    // Each discovery tier is bound under BOTH its short name (search / servers
+    // / fns / describe) AND its native-tool-name alias (search_functions /
+    // list_servers / list_functions / describe_function). Each accepts the
+    // native tool's keyword form (search_functions(query="…")), a single
+    // positional dict, or a bare positional string — models mirror the tool
+    // schema even inside the code.
+    for (const b of DISCOVERY_BUILTINS) {
+      const handler = (args: unknown[], kwargs: Record<string, unknown>) =>
+        this.discovery(b.kind, args, kwargs, b.argKey);
+      this.root.set(b.short, new NativeFn(b.short, handler));
+      this.root.set(b.alias, new NativeFn(b.alias, handler));
+    }
+  }
+
+  /** Route a discovery builtin call (short name or alias) to its tier, reading
+   *  its argument from kwargs, a positional dict, or a positional string. */
+  private discovery(
+    kind: DiscoveryKind,
+    args: unknown[],
+    kwargs: Record<string, unknown>,
+    argKey?: "query" | "server" | "name",
+  ): unknown {
+    const raw = argKey && kwargs[argKey] != null ? kwargs[argKey] : args[0];
+    switch (kind) {
+      case "search":
+        return this.searchFunctions(discoveryArg(raw, "query"));
+      case "servers":
+        return this.discoverServers();
+      case "functions":
+        return argKey && hasDiscoveryArg(raw, argKey)
+          ? this.discoverFunctions(discoveryArg(raw, argKey))
+          : this.list().map((fn) => this.fnRow(fn));
+      case "describe":
+        return this.describeFunction(discoveryArg(raw, "name"));
+    }
   }
 
   /** A ToolFn as a NativeFn: validates the argument object (from kwargs or a

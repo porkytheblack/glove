@@ -204,7 +204,7 @@ function catalogHint(session: LispSession, mode: "progressive" | "full"): string
       `DISCOVER YOUR FUNCTIONS — they are NOT listed here. ${fns.length} functions across ${servers.length} servers; find the few you need:\n` +
         `- FASTEST: (search "open pull requests") — jump straight to the matching functions.\n` +
         `- Or browse: (servers) → (fns :github) → (describe :github__list_pull_requests) for parameters + result shape.\n` +
-        `Each is also a tool (search_functions / list_servers / list_functions / describe_function) you can fire in a batch. (describe :name) before filtering on a field (it shows the row shape). Then call a function by name: (github__list_pull_requests {…}).`,
+        `Each is also a tool (search_functions / list_servers / list_functions / describe_function) you can fire in a batch — and those same names work INSIDE the code too, as aliases of (search …)/(servers)/(fns …)/(describe …): e.g. (list_functions :github) or (search_functions "send email"). (describe :name) before filtering on a field (it shows the row shape). Then call a function by name: (github__list_pull_requests {…}).`,
     );
   }
   return sections.length ? `\n\n${sections.join("\n\n")}` : "";

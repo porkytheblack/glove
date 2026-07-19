@@ -154,7 +154,7 @@ function catalogHint(session: JsSession, mode: "progressive" | "full", tool: str
   return `\n\nDISCOVER YOUR CAPABILITIES — they are NOT listed here. You have ${fns.length} functions across ${servers.length} servers; find the few you need:
 - FASTEST: search_functions({ query: "open pull requests" }) — jump straight to the matching functions when you know what you want.
 - Or browse: list_servers() → list_functions({ server: "github" }) → describe_function({ name: "github__list_pull_requests" }) for parameters + result shape.
-Each is available BOTH as a tool AND inside ${tool} (as search("…") / servers() / fns("github") / describe("name")). A capable model can script the sweep in one program — e.g. search("send email") — or fire the discovery tools in a batch first, then write one program. describe() a function before filtering on a field (it shows the row shape). Call a function by its name once you know it.`;
+Each discovery step works BOTH as a tool AND inside ${tool} — and inside the code you can call it by EITHER its tool name (search_functions({ query: "…" }), list_servers(), list_functions({ server: "github" }), describe_function({ name: "…" })) OR the short alias (search("…") / servers() / fns("github") / describe("name")); both forms accept a bare string or the { … } object. A capable model can script the sweep in one program — e.g. search_functions({ query: "send email" }) — or fire the discovery tools in a batch first, then write one program. describe a function before filtering on a field (it shows the row shape). Call a function by its name once you know it.`;
 }
 
 /** Build the preamble (language card + operating discipline + catalog hint). */
@@ -190,7 +190,7 @@ function toolDescription(frame: Frame): string {
   return (
     lead +
     `Your capabilities are FUNCTIONS you call INSIDE this ${unit} — they are NOT tools you can call directly. ` +
-    'DISCOVER: search_functions({ query }) jumps to matching functions, or browse list_servers → list_functions({ server }) → describe_function({ name }) (as tools), or search()/servers()/fns("server")/describe("name") inside the code. ' +
+    'DISCOVER: search_functions({ query }) jumps to matching functions, or browse list_servers → list_functions({ server }) → describe_function({ name }); these work as tools AND inside the code (by the same names, or the short aliases search()/servers()/fns("server")/describe("name")). ' +
     "CALL a capability by name inside the code — github.list_pull_requests({ state: \"open\" }) — arguments go in ONE object; promises resolve automatically. " +
     "INSPECT a row (Object.keys(rows[0])) before filtering/sorting on a field — the signatures show inputs, not result fields; never guess a field name. " +
     `COMPUTE in the ${unit} (.length / .filter / .reduce / group with a Map) and let the LAST expression be the answer; ` +

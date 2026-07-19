@@ -125,3 +125,30 @@ test("all functions stay callable with nothing primed — a scripted sweep then 
   const rows = (await s.execute("github.list_pull_requests(state='open')")).value as unknown[];
   assert.equal(rows.length, 1);
 });
+
+test("native-tool-name aliases are callable in the REPL (list_servers / list_functions / search_functions / describe_function)", async () => {
+  const s = fixture();
+  assert.deepEqual(
+    ((await s.execute("sorted([x['name'] for x in list_servers()])")).value as string[]),
+    ["github", "sentry"],
+  );
+  // keyword form, positional dict, positional string, and no-arg
+  assert.equal(((await s.execute('len(list_functions(server="github"))')).value as number), 2);
+  assert.equal(((await s.execute('len(list_functions({"server": "github"}))')).value as number), 2);
+  assert.equal(((await s.execute('len(list_functions("github"))')).value as number), 2);
+  assert.equal(((await s.execute("len(list_functions())")).value as number), 3);
+  assert.ok(
+    ((await s.execute('[f["name"] for f in search_functions(query="pull requests")]')).value as string[]).includes(
+      "github__list_pull_requests",
+    ),
+  );
+  assert.equal(
+    ((await s.execute('describe_function(name="github__create_issue")["name"]')).value as string),
+    "github__create_issue",
+  );
+});
+
+test("an alias name cannot be registered as a capability (reserved)", () => {
+  const s = fixture();
+  assert.throws(() => s.register(defineFn({ name: "search_functions", handler: () => 1 })), /builtin/);
+});

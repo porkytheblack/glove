@@ -60,3 +60,21 @@ test("native discovery tools mirror the builtins; a call still fires after disco
   assert.ok(hits.some((h) => h.name === "github__list_pull_requests"));
   assert.equal(((await s.execute('(github__list_pull_requests {:state "open"})')).value as unknown[]).length, 1);
 });
+
+test("native-tool-name aliases are callable in the REPL ((list_servers)/(list_functions)/(search_functions)/(describe_function))", async () => {
+  const s = fixture();
+  assert.deepEqual(((await s.execute("(map :name (list_servers))")).value as string[]).sort(), ["github", "sentry"]);
+  assert.equal(((await s.execute("(count (list_functions :github))")).value as number), 2);
+  assert.equal(((await s.execute("(count (list_functions))")).value as number), 3);
+  assert.ok(
+    ((await s.execute('(map :name (search_functions "pull requests"))')).value as string[]).includes(
+      "github__list_pull_requests",
+    ),
+  );
+  assert.equal(((await s.execute("(:name (describe_function :github__create_issue))")).value as string), "github__create_issue");
+});
+
+test("an alias name cannot be registered as a function (reserved)", () => {
+  const s = fixture();
+  assert.throws(() => s.registerFn(defineFn({ name: "list_functions", handler: () => 1 })), /already/);
+});
