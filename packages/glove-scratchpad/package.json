@@ -1,6 +1,6 @@
 {
   "name": "glove-scratchpad",
-  "version": "1.0.2",
+  "version": "2.0.0",
   "description": "A database emulator for LLM tool use — expose an agent's capabilities as a relational database it queries with one execute_sql tool. Resources become tables, WHERE pushes arguments down, information_schema is discovery, transactions stage outbound effects, and every statement is parsed before any tool runs. Uses glove-sql (a zero-dependency pure-JS Postgres-subset engine) as the default backend; PGlite optional.",
   "type": "module",
   "license": "MIT",

@@ -1,6 +1,6 @@
 {
   "name": "support-desk-bench",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Application bench: a support-triage WORKFLOW authored by a SOTA open-source planner that delegates per-ticket judgements to a cheap model. Measures cost-parity, quality-at-par, and PII exfiltration-resistance (solo vs delegated).",
