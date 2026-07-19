@@ -2,7 +2,7 @@ import type { IGloveRunnable } from "glove-core/glove";
 import type { ModelAdapter } from "glove-core/core";
 
 import type { McpAdapter, McpCatalogueEntry } from "./adapter";
-import { connectMcp } from "./connect";
+import { connectMcp, type McpToolDef } from "./connect";
 import { bridgeMcpTool, type McpToolWrapper } from "./bridge";
 import { adapterAuth } from "./auth";
 import { discoverySubAgent } from "./discovery";
@@ -21,6 +21,14 @@ export interface MountMcpConfig {
   subagentSystemPrompt?: string;
   /** Identify this client when connecting to MCP servers. */
   clientInfo?: { name: string; version: string };
+  /**
+   * Cross-server tool filter — return `false` to hide a tool from EVERY server
+   * in the catalogue (applied on top of each entry's own `excludeTools`).
+   * Applied both to the boot-time reload and to tools the discovery subagent
+   * activates later. Use for catalogue-wide rules, e.g. drop every destructive
+   * tool: `filterTools: (t) => !t.annotations?.destructiveHint`.
+   */
+  filterTools?: (tool: McpToolDef, entry: McpCatalogueEntry) => boolean;
   /**
    * Transform each bridged tool before it's folded — applied both to the
    * reload-on-boot tools and to tools the discovery subagent activates later.
@@ -45,7 +53,7 @@ export async function mountMcp(
   glove: IGloveRunnable,
   config: MountMcpConfig,
 ): Promise<void> {
-  const { adapter, entries, subagentModel, subagentSystemPrompt, clientInfo, wrapTool } =
+  const { adapter, entries, subagentModel, subagentSystemPrompt, clientInfo, wrapTool, filterTools } =
     config;
 
   const policy: DiscoveryAmbiguityPolicy =
@@ -64,6 +72,8 @@ export async function mountMcp(
         url: entry.url,
         auth: adapterAuth(adapter, id),
         clientInfo,
+        ...(entry.excludeTools ? { excludeTools: entry.excludeTools } : {}),
+        ...(filterTools ? { filterTools: (tool) => filterTools(tool, entry) } : {}),
       });
       const tools = await conn.listTools();
       // Build the full wrapped set first; fold only after every wrapTool call
@@ -89,6 +99,7 @@ export async function mountMcp(
       subagentSystemPrompt,
       clientInfo,
       wrapTool,
+      filterTools,
     }),
   );
 }

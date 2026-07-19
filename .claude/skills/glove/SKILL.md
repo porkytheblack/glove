@@ -786,7 +786,7 @@ If you control both ends and just need a few first-party tools, hand-rolled `glo
 
 Two pieces, deliberately split:
 
-- **`McpCatalogueEntry[]`** — a static list authored at the application level. One entry per MCP server the app supports: `id`, `name`, `description`, `url`, `tags?`, `metadata?`. Identical across users. The `id` doubles as the tool namespace prefix and the activation key.
+- **`McpCatalogueEntry[]`** — a static list authored at the application level. One entry per MCP server the app supports: `id`, `name`, `description`, `url`, `tags?`, `excludeTools?`, `metadata?`. Identical across users. The `id` doubles as the tool namespace prefix and the activation key. `excludeTools?: string[]` drops tools by exact un-namespaced name — filtered at the connection, so an excluded tool is never mounted by ANY path (boot reload, `discovermcp` activate, or a `glove-scratchpad` bridge over the same connection).
 
 - **`McpAdapter`** — a per-conversation interface the consumer implements (analogous to `StoreAdapter`). Holds the conversation's active server ids and resolves access tokens.
 
@@ -819,6 +819,7 @@ await mountMcp(glove, {
   subagentModel: undefined,                 // optional — defaults to glove.model
   subagentSystemPrompt: undefined,          // optional — defaults to per-policy prompt
   clientInfo: { name: "My App", version: "1.0.0" },  // optional
+  filterTools: (tool, entry) => !tool.annotations?.destructiveHint,  // optional — catalogue-wide drop
 });
 
 glove.build();
@@ -828,6 +829,8 @@ What it does, in order:
 
 1. Reads `adapter.getActive()`, opens an MCP connection per active id (using `getAccessToken`), lists tools, and folds each one onto the main agent via `bridgeMcpTool`. Per-server reload failures are logged and skipped — a transient outage doesn't kill the agent.
 2. Registers the `discovermcp` discovery **subagent** via `glove.defineSubAgent(discoverySubAgent({...}))` so the model can ask it to activate more servers mid-conversation. The model invokes it via `glove_invoke_subagent({ name: "discovermcp", prompt: "..." })`.
+
+**Excluding tools.** To keep specific tools off the model, set `excludeTools: string[]` (exact un-namespaced names) on the `McpCatalogueEntry`, or pass `filterTools: (tool, entry) => boolean` to `mountMcp` for a catalogue-wide rule (runs on top of each entry's `excludeTools`). Both are applied at the **connection** (`connectMcp` also accepts `excludeTools` / `filterTools` directly), so the exclusion bubbles through every mount path from one place — boot reload, `discovermcp` activate, and any `glove-scratchpad` bridge (`mcpResources` / `fnsFromMcp`) built over the same connection. Only the listing is filtered; `conn.raw` / `conn.callTool` stay untouched. `includeTool(tool, { excludeTools, filterTools })` is the exported pure predicate.
 
 `mountMcp` returns when reload + subagent registration are complete. Call it before `build()` for the cleanest init order, but `fold()` / `defineSubAgent()` after `build()` work too.
 
@@ -1876,13 +1879,13 @@ Read-your-writes: `policy.readYourWrites` (default true) folds this session's ow
 
 ### MCP servers → tables (`glove-scratchpad/mcp`)
 
-Most MCP tools are CRUD over some resource type, so decompose a server into resources and give each a table. `glove-mcp` is an optional peer dependency.
+Most MCP tools are CRUD over some resource type, so decompose a server into resources and give each a table. `glove-mcp` is an optional peer dependency. To keep tools off the surface, set `excludeTools` / `filterTools` on `connectMcp` — `mcpResources` / `mountMcpDatabase` bridge exactly `conn.listTools()`, so an excluded tool never becomes a table (same knob as `mountMcp`). The `table(tool) → null` hook is the finer per-bridge skip.
 
 ```ts
 import { connectMcp } from "glove-mcp";
 import { mountMcpDatabase } from "glove-scratchpad/mcp";
 
-const conn = await connectMcp({ namespace: "github", url });
+const conn = await connectMcp({ namespace: "github", url, excludeTools: ["delete_repository"] });
 await mountMcpDatabase(db, conn, {
   table: (t) => t.name === "list_pull_requests"
     ? { name: "github_pr", op: "select", volatility: "stable",

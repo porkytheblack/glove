@@ -85,3 +85,25 @@ test("a write tool (no readOnlyHint) defaults to an insertable resource", async 
   await db.execute(`INSERT INTO create_issue (title) VALUES ('bug: x')`);
   assert.deepEqual(sent, [{ title: "bug: x" }]);
 });
+
+test("mcpResources mounts no table for a tool the connection excludes (bubble-through)", async () => {
+  const { includeTool } = await import("glove-mcp");
+  const excludeTools = new Set(["delete_repository"]);
+  const all = [
+    { name: "list_pull_requests", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } },
+    { name: "delete_repository", inputSchema: { type: "object" }, annotations: { destructiveHint: true } },
+  ];
+  const conn = {
+    namespace: "github",
+    async listTools() {
+      return all.filter((t) => includeTool(t, { excludeTools }));
+    },
+    async callTool() {
+      return { content: [], isError: false };
+    },
+    async close() {},
+    raw: {},
+  };
+  const resources = await mcpResources(conn as never);
+  assert.deepEqual(resources.map((r) => r.name), ["list_pull_requests"]);
+});

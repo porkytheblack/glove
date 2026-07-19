@@ -15,6 +15,16 @@ export interface McpCatalogueEntry {
   url: string;
   /** Optional — discovery uses these for matching. */
   tags?: string[];
+  /**
+   * Tool names NOT to mount from this server — exact, un-namespaced names as the
+   * server knows them (e.g. `"delete_repository"`, not `"github__delete_repository"`).
+   * Applied at the connection, so an excluded tool never reaches the model:
+   * neither the boot-time reload (`mountMcp`) nor the discovery subagent's
+   * `activate` bridges it, and a `glove-scratchpad` bridge built from the same
+   * connection won't see it either. Use to drop dangerous, noisy, or duplicate
+   * tools a server exposes.
+   */
+  excludeTools?: string[];
   /** Optional — extra arbitrary metadata. */
   metadata?: Record<string, unknown>;
 }

@@ -1303,9 +1303,12 @@ interface McpCatalogueEntry {
   description: string;                     // discovery match
   url: string;                             // HTTP transport only in v1
   tags?: string[];                         // discovery match
+  excludeTools?: string[];                 // tool names (un-namespaced) NOT to mount from this server
   metadata?: Record<string, unknown>;
 }
 ```
+
+`excludeTools` is applied at the connection (`connectMcp`), so a listed tool is dropped from EVERY mount path — boot reload, `discovermcp` activate, and any `glove-scratchpad` bridge (`mcpResources`/`fnsFromMcp`) over the same connection. `connectMcp` also takes `excludeTools?: string[]` and `filterTools?: (tool) => boolean` directly (for the scratchpad connect-it-yourself path). `includeTool(tool, { excludeTools, filterTools })` is the exported pure drop predicate. Only the listing is filtered — `conn.raw` / `conn.callTool` are untouched.
 
 ### McpAdapter
 
@@ -1334,6 +1337,8 @@ interface MountMcpConfig {
   subagentModel?: ModelAdapter;                // default: glove.model
   subagentSystemPrompt?: string;               // default: built-in per-policy prompt
   clientInfo?: { name: string; version: string };
+  filterTools?: (tool: McpToolDef, entry: McpCatalogueEntry) => boolean;  // catalogue-wide drop; runs on top of entry.excludeTools
+  wrapTool?: McpToolWrapper;                    // transform each bridged tool before folding
 }
 ```
 

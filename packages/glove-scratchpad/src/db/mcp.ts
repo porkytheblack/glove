@@ -8,6 +8,14 @@
  *
  * `glove-mcp` is an OPTIONAL peer dependency — this subpath only resolves when
  * you've added it yourself (like `glove-scratchpad/pglite`).
+ *
+ * Excluding tools: these bridges read `conn.listTools()`, so any tool you drop
+ * at the connection — `connectMcp({ …, excludeTools: ["delete_repo"] })` (or its
+ * `filterTools` predicate) — never reaches `mcpResources` / `mountMcpDatabase`,
+ * exactly as it never reaches `mountMcp`. Set it once on the connection and it
+ * bubbles through every bridge. The `table(tool) → null` hook below is the
+ * finer-grained, per-bridge skip for cases where the same connection feeds
+ * multiple surfaces that each want a different subset.
  */
 import { bridgeMcpTool } from "glove-mcp";
 import type { McpServerConnection, McpToolDef } from "glove-mcp";
