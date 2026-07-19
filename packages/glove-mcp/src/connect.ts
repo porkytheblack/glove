@@ -64,6 +64,46 @@ export interface ConnectMcpConfig {
   auth?: ConnectMcpAuth;
   /** Identify this client to the server. */
   clientInfo?: { name: string; version: string };
+  /**
+   * Tool names to hide from this connection — exact, un-namespaced names as the
+   * server knows them (e.g. `"delete_repository"`, NOT `"github__delete_repository"`).
+   * Filtered out of `listTools()`, so an excluded tool is never bridged or
+   * mounted by ANY consumer — `mountMcp`, the discovery subagent's `activate`,
+   * `glove-scratchpad`'s `mcpResources` / `fnsFromMcp` all read this same
+   * listing. The single "don't mount these functions from the server" knob.
+   *
+   * Only the listing is filtered; `raw` and a direct `callTool(name, …)` are
+   * left untouched as an advanced escape hatch.
+   */
+  excludeTools?: string[];
+  /**
+   * Finer-grained listing filter — return `false` to hide a tool. Runs AFTER
+   * `excludeTools` (a name in `excludeTools` is dropped regardless). Use for
+   * pattern- or annotation-based rules, e.g. drop every destructive tool:
+   * `filterTools: (t) => !t.annotations?.destructiveHint`.
+   */
+  filterTools?: (tool: McpToolDef) => boolean;
+}
+
+// ─── Tool filtering ──────────────────────────────────────────────────────────
+
+/**
+ * Whether a tool survives a connection's exclusion rules. `excludeTools` drops
+ * by exact name; `filterTools` (checked only for names that survived) drops by
+ * predicate. Exported so the drop semantics are unit-testable and reusable — it
+ * is the single gate every consumer's listing passes through.
+ */
+export function includeTool(
+  tool: McpToolDef,
+  opts: {
+    excludeTools?: Iterable<string> | Set<string>;
+    filterTools?: (tool: McpToolDef) => boolean;
+  },
+): boolean {
+  const excluded =
+    opts.excludeTools instanceof Set ? opts.excludeTools : new Set(opts.excludeTools ?? []);
+  if (excluded.has(tool.name)) return false;
+  return opts.filterTools ? opts.filterTools(tool) !== false : true;
 }
 
 // ─── Implementation ──────────────────────────────────────────────────────────
@@ -80,6 +120,9 @@ export async function connectMcp(
   });
 
   const client = new Client(config.clientInfo ?? DEFAULT_CLIENT_INFO);
+
+  const excluded = new Set(config.excludeTools ?? []);
+  const filterTools = config.filterTools;
 
   try {
     await client.connect(transport);
@@ -99,7 +142,7 @@ export async function connectMcp(
 
     async listTools(): Promise<McpToolDef[]> {
       const result = await client.listTools();
-      return result.tools.map((t) => {
+      const defs = result.tools.map((t) => {
         // Read defensively via cast: `outputSchema` only exists on SDK types at
         // the 2025-06-18 revision, and servers below it simply omit the field.
         const outputSchema = (t as { outputSchema?: Record<string, unknown> })
@@ -118,6 +161,11 @@ export async function connectMcp(
             : undefined,
         };
       });
+      // Exclusion happens HERE, at the one listing every consumer reads —
+      // mountMcp, discovery `activate`, and the scratchpad bridges all bridge
+      // exactly what this returns, so a dropped tool is dropped everywhere.
+      if (excluded.size === 0 && !filterTools) return defs;
+      return defs.filter((d) => includeTool(d, { excludeTools: excluded, filterTools }));
     },
 
     async callTool(name: string, args: unknown): Promise<McpCallToolResult> {

@@ -6,7 +6,7 @@ export type {
   McpServerConnection,
   McpToolDef,
 } from "./connect";
-export { connectMcp, UnauthorizedError } from "./connect";
+export { connectMcp, includeTool, UnauthorizedError } from "./connect";
 export { bridgeMcpTool, MCP_NAMESPACE_SEP } from "./bridge";
 export type { McpToolWrapper } from "./bridge";
 export { jsonSchemaToShape } from "./shape";

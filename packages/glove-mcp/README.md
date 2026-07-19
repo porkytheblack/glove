@@ -56,6 +56,49 @@ await mountMcp(runnable, {
 
 `mountMcp` reloads any servers the adapter reports as already active (so an existing conversation rehydrates its tools on session boot) and folds in `discovermcp` — a discovery subagent the model uses to activate new MCPs from the catalogue mid-conversation.
 
+## Excluding tools
+
+A server often exposes tools you don't want the model to have — dangerous writes, noisy duplicates, things your app handles itself. Drop them per-server with `excludeTools` on the catalogue entry (exact, **un-namespaced** names — as the server knows them):
+
+```ts
+const ENTRIES: McpCatalogueEntry[] = [
+  {
+    id: "github",
+    name: "GitHub",
+    description: "Issues, PRs, repos.",
+    url: "https://mcp.github.com/mcp",
+    excludeTools: ["delete_repository", "transfer_repository"], // never mounted
+  },
+];
+```
+
+Exclusion is applied at the **connection**, so it bubbles through every mount path from one place — the boot-time reload, the `discovermcp` subagent's `activate`, and any `glove-scratchpad` bridge (`mcpResources` / `fnsFromMcp`) built from the same connection all bridge exactly the filtered listing. An excluded tool never reaches the model, whichever surface it would have arrived on.
+
+For catalogue-wide rules, pass `filterTools` to `mountMcp` — it runs on top of each entry's `excludeTools`:
+
+```ts
+await mountMcp(runnable, {
+  adapter,
+  entries: ENTRIES,
+  // Drop every tool the server annotates as destructive, across all servers.
+  filterTools: (tool, entry) => !tool.annotations?.destructiveHint,
+});
+```
+
+Connecting directly (e.g. to feed a `glove-scratchpad` surface)? Set the same options on `connectMcp` and they apply to that connection's whole listing:
+
+```ts
+const conn = await connectMcp({
+  namespace: "github",
+  url: "https://mcp.github.com/mcp",
+  excludeTools: ["delete_repository"],
+  filterTools: (t) => !t.annotations?.destructiveHint,
+});
+// mcpResources(conn) / fnsFromMcp(conn) never see the excluded tools.
+```
+
+Only the listing is filtered — `conn.raw` and a direct `conn.callTool(name, …)` are left untouched as an advanced escape hatch.
+
 ## Auth model
 
 Two optional seams on the adapter. The common case is `getAccessToken` — the framework wraps the returned string in `Authorization: Bearer ...` and never touches refresh logic. When a server wants something other than a bearer token (e.g. Composio's `x-api-key`), implement `getAuthHeaders` and return the full header map yourself; it takes precedence over `getAccessToken` when both are defined. With neither, connections are made without auth headers.
@@ -173,8 +216,9 @@ The reference CLIs in `examples/mcp-cli/` are a single-user shape: `FsOAuthStore
 
 - **`mountMcp(runnable, config)`** — the canonical wiring point. Reloads active servers and folds `discovermcp`.
 - **`McpAdapter`** — the per-conversation interface consumers implement.
-- **`McpCatalogueEntry`** — static description of an MCP server the app supports.
-- **`connectMcp`** / **`bridgeMcpTool`** — lower-level building blocks if you need to bypass `mountMcp`.
+- **`McpCatalogueEntry`** — static description of an MCP server the app supports (incl. per-server `excludeTools`).
+- **`connectMcp`** / **`bridgeMcpTool`** — lower-level building blocks if you need to bypass `mountMcp`. `connectMcp` takes `excludeTools` / `filterTools`.
+- **`includeTool(tool, { excludeTools, filterTools })`** — the pure drop predicate `connectMcp` applies; exported for reuse/testing.
 - **`bearer(getter)`** — helper that wraps a token (or `() => Promise<string>` getter) into a `ConnectMcpAuth` emitting `Authorization: Bearer ...`.
 - **`headers(mapOrGetter)`** — helper that wraps a header map (or getter) into a `ConnectMcpAuth`, for non-bearer servers (e.g. `x-api-key`).
 - **`adapterAuth(adapter, id)`** — resolves an entry's `ConnectMcpAuth` from the adapter's seams (`getAuthHeaders` first, then `getAccessToken`).

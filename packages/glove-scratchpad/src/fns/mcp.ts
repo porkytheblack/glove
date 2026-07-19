@@ -7,6 +7,14 @@
  *
  * `glove-mcp` is an OPTIONAL peer dependency — this subpath only resolves when
  * you've added it yourself (like `glove-scratchpad/mcp`).
+ *
+ * Excluding tools: `fnsFromMcp` reads `conn.listTools()`, so any tool you drop
+ * at the connection — `connectMcp({ …, excludeTools: ["delete_repo"] })` (or its
+ * `filterTools` predicate) — never becomes a `ToolFn`, exactly as it never
+ * reaches `mountMcp`. Set it once on the connection and it bubbles through every
+ * bridge. The `filter(tool) → null` hook below stays the per-bridge skip/rename
+ * (and the collision escape hatch) for when one connection feeds several
+ * surfaces that each want a different subset.
  */
 import { bridgeMcpTool, jsonSchemaToShape } from "glove-mcp";
 import type { McpServerConnection, McpToolDef } from "glove-mcp";

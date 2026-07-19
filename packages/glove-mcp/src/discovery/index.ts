@@ -5,7 +5,7 @@ import type { DefineSubAgentArgs } from "glove-core/extensions";
 import type { ModelAdapter, StoreAdapter, ToolResultData } from "glove-core/core";
 
 import type { McpAdapter, McpCatalogueEntry } from "../adapter";
-import { connectMcp } from "../connect";
+import { connectMcp, type McpToolDef } from "../connect";
 import { bridgeMcpTool, type McpToolWrapper } from "../bridge";
 import { adapterAuth } from "../auth";
 
@@ -28,6 +28,9 @@ export interface DiscoverySubAgentConfig {
   subagentSystemPrompt?: string;
   /** Forwarded to connectMcp during activation. */
   clientInfo?: { name: string; version: string };
+  /** Cross-server tool filter — return `false` to hide a tool from activation
+   *  (applied on top of each entry's own `excludeTools`). */
+  filterTools?: (tool: McpToolDef, entry: McpCatalogueEntry) => boolean;
   /** Transform each bridged tool before it's folded onto the main agent (e.g. containment). */
   wrapTool?: McpToolWrapper;
 }
@@ -73,6 +76,7 @@ function activateTool(
   mainGlove: IGloveRunnable,
   clientInfo?: { name: string; version: string },
   wrapTool?: McpToolWrapper,
+  filterTools?: (tool: McpToolDef, entry: McpCatalogueEntry) => boolean,
 ): GloveFoldArgs<{ id: string }> {
   return {
     name: "activate",
@@ -98,6 +102,8 @@ function activateTool(
           url: entry.url,
           auth: adapterAuth(adapter, entry.id),
           clientInfo,
+          ...(entry.excludeTools ? { excludeTools: entry.excludeTools } : {}),
+          ...(filterTools ? { filterTools: (tool) => filterTools(tool, entry) } : {}),
         });
 
         const tools = await conn.listTools();
@@ -249,7 +255,7 @@ export function discoverySubAgent(
 
       subagent.fold(listCapabilitiesTool(config.adapter, config.entries));
       subagent.fold(
-        activateTool(config.adapter, config.entries, parentGlove, config.clientInfo, config.wrapTool),
+        activateTool(config.adapter, config.entries, parentGlove, config.clientInfo, config.wrapTool, config.filterTools),
       );
       subagent.fold(deactivateTool(config.adapter));
       if (config.ambiguityPolicy.type === "interactive") {

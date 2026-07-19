@@ -99,3 +99,26 @@ test("fnsFromMcp leaves resultShape unset when the server declares no outputSche
   const [fn] = await fnsFromMcp(conn);
   assert.equal(fn.resultShape, undefined);
 });
+
+test("fnsFromMcp mounts nothing for a tool the connection excludes (bubble-through)", async () => {
+  // Model a real connectMcp connection: listTools honors excludeTools/filterTools.
+  const { includeTool } = await import("glove-mcp");
+  const excludeTools = new Set(["delete_repository"]);
+  const all: McpToolDef[] = [
+    { name: "list_pull_requests", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } },
+    { name: "delete_repository", inputSchema: { type: "object" }, annotations: { destructiveHint: true } },
+  ];
+  const conn: McpServerConnection = {
+    namespace: "github",
+    async listTools() {
+      return all.filter((t) => includeTool(t, { excludeTools }));
+    },
+    async callTool() {
+      return { content: [], isError: false } as never;
+    },
+    async close() {},
+    raw: {} as never,
+  };
+  const fns = await fnsFromMcp(conn);
+  assert.deepEqual(fns.map((f) => f.name), ["github__list_pull_requests"]);
+});
