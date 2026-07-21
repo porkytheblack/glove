@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
-  AddressingVerdict,
   AgentRole,
   AgentStats,
   Phase,
@@ -16,7 +15,6 @@ export interface RoomUtterance {
   id: string;
   speaker: SpeakerRole;
   text: string;
-  verdict?: AddressingVerdict;
   silent?: boolean;
   silentReason?: string;
 }
@@ -39,7 +37,6 @@ export interface BackstageItem {
 const EMPTY_STATS: Record<AgentRole, AgentStats> = {
   front: { tokensIn: 0, tokensOut: 0, turns: 0 },
   worker: { tokensIn: 0, tokensOut: 0, turns: 0 },
-  monitor: { tokensIn: 0, tokensOut: 0, turns: 0 },
 };
 
 export function useSession(opts?: { onEvent?: (e: SessionEvent) => void }) {
@@ -70,13 +67,6 @@ export function useSession(opts?: { onEvent?: (e: SessionEvent) => void }) {
           ...r,
           { kind: "utterance", id: e.utterance.id, speaker: e.utterance.speaker, text: e.utterance.text },
         ]);
-        break;
-      case "verdict":
-        setRoom((r) =>
-          r.map((it) =>
-            it.kind === "utterance" && it.id === e.utteranceId ? { ...it, verdict: e.verdict } : it,
-          ),
-        );
         break;
       case "silent":
         setRoom((r) =>

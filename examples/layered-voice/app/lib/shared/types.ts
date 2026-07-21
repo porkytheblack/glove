@@ -4,11 +4,8 @@
 /** Who is speaking into the room. This is the "custom sender" identity. */
 export type SpeakerRole = "operator" | "customer" | "bystander";
 
-/** Which of the three agents an event belongs to. */
-export type AgentRole = "front" | "worker" | "monitor";
-
-/** The addressing-monitor's verdict: who is the latest utterance aimed at? */
-export type Addressee = "assistant" | "human" | "ambiguous";
+/** Which of the two agents an event belongs to. */
+export type AgentRole = "front" | "worker";
 
 export interface Speaker {
   id: SpeakerRole;
@@ -16,7 +13,7 @@ export interface Speaker {
   displayName: string;
   /** e.g. "Sam" */
   shortName: string;
-  /** Shown in the UI and fed to the monitor so it knows the roster. */
+  /** Shown in the UI and included in the front agent's prompt roster. */
   description: string;
 }
 
@@ -28,14 +25,6 @@ export interface Utterance {
   ts: string;
 }
 
-export interface AddressingVerdict {
-  addressee: Addressee;
-  /** 0..1 — the monitor's confidence in the addressee call. */
-  confidence: number;
-  /** One short sentence explaining the call. Shown in the UI. */
-  reason: string;
-}
-
 export interface AgentStats {
   tokensIn: number;
   tokensOut: number;
@@ -43,31 +32,25 @@ export interface AgentStats {
 }
 
 /**
- * A single voice/latency measurement. Server-measured records (monitor/front/
- * worker/relay latency, front time-to-first-token) and client-measured records
- * (STT latency, time-to-first-audio, barge-ins, TTS timings) are both appended
- * to a local JSONL file for offline analysis, and streamed to the live HUD.
+ * A single voice/latency measurement. Server-measured records (front latency,
+ * worker/relay latency, first-spoken-token) and client-measured records (STT
+ * latency, time-to-first-audio, barge-ins, TTS timings) are both appended to a
+ * local JSONL file for offline analysis, and streamed to the live HUD.
  */
 export interface MetricRecord {
   ts: string; // ISO timestamp
   sessionId: string;
   source: "server" | "client";
-  /** e.g. "monitor_ms", "front_ttft_ms", "time_to_first_audio_ms", "barge_in". */
+  /** e.g. "front_ttft_ms", "time_to_first_audio_ms", "barge_in". */
   name: string;
   /** Duration in ms, when the metric is a timing. */
   ms?: number;
   utteranceId?: string;
-  /** Any extra context (char counts, addressee, etc.). */
+  /** Any extra context (char counts, etc.). */
   data?: Record<string, unknown>;
 }
 
-export type Phase =
-  | "idle"
-  | "listening"
-  | "classifying"
-  | "front"
-  | "worker"
-  | "relay";
+export type Phase = "idle" | "listening" | "front" | "worker" | "relay";
 
 /**
  * Server → client events, streamed over SSE. The console renders the room
@@ -76,13 +59,11 @@ export type Phase =
 export type SessionEvent =
   // A new utterance was transcribed (echoed back so late subscribers see it).
   | { type: "utterance"; utterance: Utterance }
-  // The monitor decided who the utterance was addressed to.
-  | { type: "verdict"; utteranceId: string; verdict: AddressingVerdict }
-  // Nova stayed quiet because the utterance wasn't addressed to her.
+  // Nova produced no <speech> for this utterance — she judged it wasn't for her.
   | { type: "silent"; utteranceId: string; reason: string }
-  // Streamed token from an agent (front = Nova's spoken words).
+  // Streamed SPOKEN token from Nova (already parsed out of the <speech> tags).
   | { type: "delta"; role: AgentRole; text: string }
-  // A finalized line from an agent. For the front, this is what Nova "says".
+  // A finalized spoken line from Nova (the joined <speech> content of a turn).
   | { type: "say"; role: AgentRole; kind: "response" | "relay"; text: string }
   // Worker tool activity, surfaced in the backstage panel.
   | { type: "tool"; role: AgentRole; name: string; summary: string }

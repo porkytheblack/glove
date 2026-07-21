@@ -7,10 +7,9 @@
 //
 // The framework's own pattern (see glove-mesh, which folds peer identity into
 // inbox text like `Message from "Voice Front" (front)`) is to encode the
-// speaker identity INTO the message text. This module is that convention, made
-// explicit and reusable: every utterance is wrapped in a labelled envelope so
-// both the addressing-monitor and Nova can tell the speakers apart — and, just
-// as importantly, tell whether a line was said *to* Nova or merely overheard.
+// speaker identity INTO the message text. Every utterance Nova hears is
+// prefixed with a speaker label; SHE decides whether the line was addressed to
+// her, and signals speech via <speech> tags (see front-agent.ts).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Speaker, SpeakerRole } from "../shared/types";
@@ -54,24 +53,14 @@ export function speakerLabel(role: SpeakerRole): string {
 }
 
 /**
- * Frame an utterance that the monitor decided IS addressed to Nova. This is
- * what gets fed into the front agent's `processRequest`. The `→ you` marker
- * tells Nova this line is for her.
+ * Frame one transcribed utterance for the front agent. Every line in the room
+ * reaches Nova with its speaker label; whether it was aimed at her is HER call.
  */
-export function frameAddressed(role: SpeakerRole, text: string): string {
-  return `[${speakerLabel(role)} → ${ASSISTANT_NAME}] ${text}`;
+export function frameUtterance(role: SpeakerRole, text: string): string {
+  return `[${speakerLabel(role)}] ${text}`;
 }
 
-/**
- * Frame an utterance that was NOT addressed to Nova. This is appended to the
- * front agent's context (via store.appendMessages) WITHOUT triggering a
- * response, so Nova keeps situational awareness of the room without barging in.
- */
-export function frameOverheard(role: SpeakerRole, text: string): string {
-  return `[overheard · ${speakerLabel(role)}, not addressed to ${ASSISTANT_NAME}] ${text}`;
-}
-
-/** The speaker roster, rendered for the monitor's system prompt. */
-export function rosterForMonitor(): string {
+/** The speaker roster, rendered for the front agent's system prompt. */
+export function rosterForPrompt(): string {
   return SPEAKERS.map((s) => `- ${s.shortName} (${s.id}): ${s.description}`).join("\n");
 }

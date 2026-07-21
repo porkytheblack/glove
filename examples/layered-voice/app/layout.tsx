@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Layered Voice Agents — Orbital Dynamics",
   description:
-    "A layered voice-agent demo on Glove: a thin front agent, a heavy worker over the mesh, and an addressing monitor that tells who is talking to whom.",
+    "A layered voice-agent demo on Glove: a thin front agent that speaks via <speech> tags and a heavy worker over the mesh.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,29 +1,31 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Session orchestrator
 //
-// Owns one voice session's three agents and the in-process mesh between them,
+// Owns one voice session's two agents and the in-process mesh between them,
 // and runs the pipeline for every utterance:
 //
-//   utterance ──► monitor (addressing verdict)
-//                   │
-//                   ├── addressed to Nova ──► front.processRequest
-//                   │                           │ (may delegate, blocking)
-//                   │                           ▼
-//                   │                       drain delegations:
-//                   │                         worker.processRequest ──► reply over mesh
-//                   │                         front.processRequest  ──► proactive relay (§5 wakeup)
-//                   │
-//                   └── addressed to a human ─► append as overheard context, Nova stays quiet
+//   utterance (speaker-labelled) ──► front (Nova)
+//                                      │  streams raw text; only <speech>…</speech>
+//                                      │  spans are parsed out and emitted as
+//                                      │  spoken deltas (speech-parser.ts)
+//                                      │
+//                                      ├── no speech emitted → Nova stayed quiet
+//                                      │   (she judged the line wasn't for her)
+//                                      │
+//                                      └── delegation? drain it:
+//                                            worker.processRequest ──► reply over mesh
+//                                            front relay turn ──► spoken via <speech>
 //
-// All progress is streamed to subscribers as SessionEvents (→ SSE → the console).
+// There is no separate addressing monitor — Nova hears every line and decides
+// herself. All progress streams to subscribers as SessionEvents (→ SSE).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { mountMesh, MeshNetwork, InMemoryMeshAdapter } from "glove-mesh";
 import type { IGloveRunnable, SubscriberAdapter } from "glove-core";
 import { buildFrontAgent } from "./front-agent";
 import { buildWorkerAgent } from "./worker-agent";
-import { classifyAddressing, type MonitorLine } from "./monitor-agent";
-import { frameAddressed, frameOverheard, ASSISTANT_NAME } from "./speakers";
+import { frameUtterance, ASSISTANT_NAME } from "./speakers";
+import { SpeechTagParser } from "./speech-parser";
 import { logMetric } from "./metrics";
 import type {
   AgentRole,
@@ -38,7 +40,6 @@ import type {
 type Listener = (e: SessionEvent) => void;
 
 const MAX_DELEGATION_ROUNDS = 4;
-const MONITOR_WINDOW = 8;
 
 function emptyStats(): AgentStats {
   return { tokensIn: 0, tokensOut: 0, turns: 0 };
@@ -60,14 +61,14 @@ export class Session {
   private worker!: IGloveRunnable;
   private network = new MeshNetwork();
   private listeners = new Set<Listener>();
-  private transcript: MonitorLine[] = [];
   private stats: Record<AgentRole, AgentStats> = {
     front: emptyStats(),
     worker: emptyStats(),
-    monitor: emptyStats(),
   };
   private queue: Promise<unknown> = Promise.resolve();
   private currentFrontKind: "response" | "relay" = "response";
+  // The live <speech> parser for the front turn in flight (null between turns).
+  private speechParser: SpeechTagParser | null = null;
   private uttSeq = 0;
   private buildError: string | null = null;
   // Metric bookkeeping for the current addressed turn.
@@ -120,7 +121,6 @@ export class Session {
     return {
       front: { ...this.stats.front },
       worker: { ...this.stats.worker },
-      monitor: { ...this.stats.monitor },
     };
   }
 
@@ -138,20 +138,10 @@ export class Session {
             break;
           }
           case "text_delta": {
-            // Only Nova "speaks". Worker/monitor internal text is not surfaced.
+            // Nova's raw stream goes through the <speech> parser — only in-tag
+            // spans surface as spoken deltas. Worker text is never surfaced.
             if (role === "front") {
-              if (this.ttftPending) {
-                this.ttftPending = false;
-                this.metric("front_ttft_ms", Date.now() - this.turnStartAt);
-              }
-              this.emit({ type: "delta", role, text: (data as { text: string }).text });
-            }
-            break;
-          }
-          case "model_response_complete": {
-            if (role === "front") {
-              const text = (data as { text: string }).text?.trim();
-              if (text) this.emit({ type: "say", role, kind: this.currentFrontKind, text });
+              this.speechParser?.push((data as { text: string }).text);
             }
             break;
           }
@@ -213,6 +203,33 @@ export class Session {
     });
   }
 
+  // ── one front turn, with live <speech> parsing ─────────────────────────────
+  /**
+   * Run the front agent once. Its raw stream is piped through a fresh
+   * SpeechTagParser; in-tag text is emitted live as spoken `delta` events.
+   * Returns everything Nova actually said (empty string = she stayed quiet).
+   */
+  private async runFrontTurn(prompt: string): Promise<string> {
+    const parser = new SpeechTagParser((text) => {
+      if (this.ttftPending) {
+        this.ttftPending = false;
+        this.metric("front_ttft_ms", Date.now() - this.turnStartAt);
+      }
+      this.emit({ type: "delta", role: "front", text });
+    });
+    this.speechParser = parser;
+    try {
+      await this.front.processRequest(prompt);
+    } finally {
+      this.speechParser = null;
+    }
+    const speech = parser.finish();
+    if (speech) {
+      this.emit({ type: "say", role: "front", kind: this.currentFrontKind, text: speech });
+    }
+    return speech;
+  }
+
   // ── public entry: handle one tagged utterance (serialized) ─────────────────
   handleUtterance(role: SpeakerRole, text: string): Promise<void> {
     const run = this.queue.then(() => this._handle(role, text));
@@ -237,36 +254,26 @@ export class Session {
     this.currentUtteranceId = utt.id;
     this.emit({ type: "utterance", utterance: utt });
 
-    // 1) Addressing monitor
-    this.emit({ type: "phase", phase: "classifying" });
-    const recent = this.transcript.slice(-MONITOR_WINDOW);
-    const mt0 = Date.now();
-    const verdict = await classifyAddressing({ recent, latest: { role, text } }, this.makeSubscriber("monitor"));
-    this.metric("monitor_ms", Date.now() - mt0, {
-      addressee: verdict.addressee,
-      confidence: verdict.confidence,
-    });
-    this.emit({ type: "verdict", utteranceId: utt.id, verdict });
-    this.transcript.push({ role, text, addressee: verdict.addressee });
+    // Every line goes to Nova; whether to speak is her call.
+    this.emit({ type: "phase", phase: "front" });
+    this.currentFrontKind = "response";
+    this.turnStartAt = Date.now();
+    this.ttftPending = true;
+    const speech = await this.runFrontTurn(frameUtterance(role, text));
+    this.ttftPending = false;
+    this.metric("front_turn_ms", Date.now() - this.turnStartAt, { spoke: speech.length > 0 });
 
-    // 2) Route
-    if (verdict.addressee === "assistant") {
-      this.emit({ type: "phase", phase: "front" });
-      this.currentFrontKind = "response";
-      this.turnStartAt = Date.now();
-      this.ttftPending = true;
-      await this.front.processRequest(frameAddressed(role, text));
-      this.ttftPending = false;
-      this.metric("front_turn_ms", Date.now() - this.turnStartAt);
-      await this.drainDelegations();
-      this.metric("roundtrip_ms", Date.now() - this.turnStartAt);
-      this.emit({ type: "phase", phase: "idle" });
-    } else {
-      // Overheard: give Nova situational awareness silently, no response.
-      await this.front.store.appendMessages?.([{ sender: "user", text: frameOverheard(role, text) }]);
-      this.emit({ type: "silent", utteranceId: utt.id, reason: verdict.reason });
-      this.emit({ type: "phase", phase: "idle" });
+    if (!speech) {
+      this.emit({
+        type: "silent",
+        utteranceId: utt.id,
+        reason: `${ASSISTANT_NAME} produced no <speech> — she judged this wasn't addressed to her.`,
+      });
     }
+
+    await this.drainDelegations();
+    this.metric("roundtrip_ms", Date.now() - this.turnStartAt);
+    this.emit({ type: "phase", phase: "idle" });
   }
 
   // ── drain any pending mesh delegations: worker → reply → proactive relay ────
@@ -289,9 +296,12 @@ export class Session {
       this.emit({ type: "phase", phase: "relay" });
       this.currentFrontKind = "relay";
       const rt0 = Date.now();
-      await this.front.processRequest(
-        "A delegated request has resolved and its result is in your inbox. Relay it to whoever asked in one or two natural spoken sentences — just the key facts. If nothing meaningful resolved, keep it brief. Do not re-delegate unless there is a genuinely new question to answer.",
+      this.turnStartAt = rt0;
+      this.ttftPending = true;
+      await this.runFrontTurn(
+        "A delegated request has resolved and its result is in your inbox. Relay it to whoever asked — inside <speech> tags, one or two natural spoken sentences with just the key facts. Do not re-delegate unless there is a genuinely new question to answer.",
       );
+      this.ttftPending = false;
       this.metric("relay_ms", Date.now() - rt0);
       this.currentFrontKind = "response";
     }

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../lib/client/useSession";
 import { useVoice } from "../lib/client/useVoice";
 import { SCENARIOS } from "../lib/client/scenarios";
-import type { Addressee, MetricRecord, Phase, SessionEvent, SpeakerRole } from "../lib/shared/types";
+import type { MetricRecord, Phase, SessionEvent, SpeakerRole } from "../lib/shared/types";
 
 const SPK_COLOR: Record<SpeakerRole, string> = {
   operator: "var(--operator)",
@@ -15,16 +15,9 @@ const SPK_COLOR: Record<SpeakerRole, string> = {
 const PHASE_LABEL: Record<Phase, string> = {
   idle: "Idle",
   listening: "Listening",
-  classifying: "Monitor: reading the room…",
-  front: "Nova is responding…",
+  front: "Nova is listening / responding…",
   worker: "Worker is researching…",
   relay: "Nova is relaying the result…",
-};
-
-const ADDR_LABEL: Record<Addressee, string> = {
-  assistant: "→ Nova",
-  human: "→ a person",
-  ambiguous: "ambiguous",
 };
 
 function shortNameFor(role: SpeakerRole, speakers: { id: string; shortName: string }[]): string {
@@ -52,9 +45,8 @@ function MetricsHud({ metrics }: { metrics: MetricRecord[] }) {
 
   const rows: { label: string; value?: number; avg?: number; hero?: boolean }[] = [
     { label: "Time to first audio", value: derived.latest("time_to_first_audio_ms"), avg: derived.avg("time_to_first_audio_ms"), hero: true },
-    { label: "Nova first token", value: derived.latest("front_ttft_ms"), avg: derived.avg("front_ttft_ms") },
+    { label: "First spoken token", value: derived.latest("front_ttft_ms"), avg: derived.avg("front_ttft_ms") },
     { label: "STT finalize", value: derived.latest("stt_final_ms"), avg: derived.avg("stt_final_ms") },
-    { label: "Monitor (addressing)", value: derived.latest("monitor_ms"), avg: derived.avg("monitor_ms") },
     { label: "Worker (research)", value: derived.latest("worker_ms"), avg: derived.avg("worker_ms") },
     { label: "Relay", value: derived.latest("relay_ms"), avg: derived.avg("relay_ms") },
     { label: "Server round-trip", value: derived.latest("roundtrip_ms"), avg: derived.avg("roundtrip_ms") },
@@ -157,7 +149,8 @@ export default function Console() {
         <div className="brand">
           <h1>Orbital Dynamics · Layered Voice Agents</h1>
           <div className="sub">
-            front (Nova) → worker over the mesh · a passive monitor decides who each line is for
+            front (Nova) → worker over the mesh · Nova hears everyone, speaks only via
+            &lt;speech&gt; tags
           </div>
         </div>
         <div className="spacer" />
@@ -202,9 +195,9 @@ export default function Console() {
                 Turn on the mic and speak, or type as <strong>Sam</strong>, the walk-in{" "}
                 <strong>customer</strong>, or the technician <strong>Kit</strong>.
                 <br />
-                The monitor decides whether each line is aimed at Nova or at another person. Nova
-                only answers when she&apos;s addressed — and delegates the heavy lookups to the
-                worker.
+                Nova hears every line and decides for herself whether it was aimed at her — she
+                only produces audio by wrapping words in &lt;speech&gt; tags, and delegates the
+                heavy lookups to the worker.
                 <br />
                 <br />
                 Try a scripted scene below to see it end-to-end.
@@ -221,18 +214,13 @@ export default function Console() {
                     <div className="spk-row">
                       <span className="spk-name">{shortNameFor(it.speaker, speakers)}</span>
                       <span className="spk-tag">{it.speaker}</span>
-                      {it.verdict && (
-                        <span className="verdict" data-addr={it.verdict.addressee}>
-                          <span className="vlabel">{ADDR_LABEL[it.verdict.addressee]}</span>
-                          <span className="conf">{Math.round(it.verdict.confidence * 100)}%</span>
-                        </span>
-                      )}
                     </div>
                     <div className="body">{it.text}</div>
                   </div>
-                  {it.verdict && <div className="verdict-reason">monitor: {it.verdict.reason}</div>}
                   {it.silent && (
-                    <div className="silent-note">Nova stayed quiet — not addressed to her.</div>
+                    <div className="silent-note">
+                      Nova stayed quiet — she judged this wasn&apos;t for her.
+                    </div>
                   )}
                 </div>
               ) : (
@@ -296,7 +284,6 @@ export default function Console() {
               [
                 { role: "front", label: "Front (Nova)", color: "var(--nova)" },
                 { role: "worker", label: "Worker", color: "var(--worker)" },
-                { role: "monitor", label: "Monitor", color: "var(--muted)" },
               ] as const
             ).map(({ role, label, color }) => (
               <div className="stat" key={role}>

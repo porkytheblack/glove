@@ -13,7 +13,8 @@ export interface Scenario {
 }
 
 // Scripted multi-party scenes. Each one exercises a specific behavior; play them
-// end-to-end to watch the monitor, the delegation, and the proactive relay work.
+// end-to-end to watch Nova's own addressing judgment, the delegation, and the
+// proactive relay work.
 export const SCENARIOS: Scenario[] = [
   {
     id: "addressed-vs-overheard",
@@ -30,7 +31,7 @@ export const SCENARIOS: Scenario[] = [
     id: "customer-to-nova",
     title: "Customer speaks to Nova directly",
     blurb:
-      "A different person in the room addresses Nova. The monitor should route it to the assistant and Nova checks the warranty.",
+      "A different person in the room addresses Nova. She should recognize it's for her and check the warranty.",
     lines: [
       { speaker: "customer", text: "Hey Nova — is the warranty still good on the Rustbucket?" },
     ],
@@ -59,7 +60,7 @@ export const SCENARIOS: Scenario[] = [
     id: "ambiguous",
     title: "Ambiguous address",
     blurb:
-      "A vague line with no clear addressee. The monitor should flag it ambiguous — and Nova stays out of it.",
+      "A vague line with no clear addressee. Nova should stay quiet rather than guess.",
     lines: [
       { speaker: "customer", text: "So... what do you reckon, then?" },
     ],

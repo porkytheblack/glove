@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Submit one speaker-tagged utterance. The whole pipeline (monitor → front →
+ * Submit one speaker-tagged utterance. The whole pipeline (front →
  * worker → relay) runs here; progress streams to the client over the session's
  * SSE channel. We await completion so the turn finishes even on platforms that
  * reclaim the process after the response.
