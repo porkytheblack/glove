@@ -85,6 +85,37 @@ now lives in the same model call that answers, which removes a whole model
 round-trip from every utterance — the speak/stay-quiet decision costs nothing
 extra.
 
+### Inbound event tags — the model knows what's going on
+
+`<speech>` is the *outbound* channel; a matching *inbound* vocabulary
+([`events.ts`](app/lib/server/events.ts)) tells Nova what actually happened on
+the audio channel. Her history always contains her full intended line (the
+framework persists the whole model turn), but the room may have heard less:
+
+- **`<user-interruption>…</user-interruption>`** — a barge-in cut her audio.
+  The notice quotes the estimated prefix that actually played, embedded in a
+  **synthetically closed** `<speech>` tag (the real speech was cut mid-tag, so
+  the client estimates the heard prefix from playback time and the transcript
+  fragment is re-closed to stay well-formed). Her prompt tells her: the history
+  shows what you *meant* to say, the notice is the truth about what was
+  *heard* — respond to the person first, don't re-deliver the remainder
+  wholesale.
+- **`<speech-failure>…</speech-failure>`** — the TTS stream failed; the room
+  heard none of the line. Re-say what matters at a natural opening.
+- **`<worker-result>…</worker-result>`** — the §5 wakeup itself: the worker
+  finished a delegated request (findings arrive alongside via the framework's
+  `[Inbox: N item(s) resolved]` injection). Relay out loud.
+- **`<worker-trouble>…</worker-trouble>`** — the §8 failure path: a delegation
+  errored or the worker finished **without replying**. The orchestrator clears
+  the stale `mesh:waiting` reminders (the notice supersedes them) and Nova
+  levels with the asker instead of "still checking" forever.
+
+Audio-channel events are reported by the client via
+`POST /api/session/[id]/event`; all notices are appended to Nova's history on
+the front turn queue (so one can never splice into the middle of an in-flight
+turn, and an interruption notice lands *before* the interrupting utterance's own
+turn reads history). The room view shows audio notes as small dashed pills.
+
 ### Custom senders (application-layer today)
 
 `glove-core`'s `Message.sender` is only `"user" | "agent"`, and the model
@@ -216,7 +247,9 @@ Measured (server-side unless noted):
 | `speech_queue_wait_ms` | **client** — how long a spoken turn's audio was held by the §5 gate (previous audio draining / user speaking) before it started |
 | `tts_stream_open_ms` | **client** — TTS WebSocket + auth handshake cost per spoken turn |
 | `tts_synth_ms` / `tts_playback_ms` | **client** — TTS first-audio / playback duration |
-| `barge_in` | **client** — an interruption; `ms` Nova had been speaking, `data.droppedQueuedTurns` = queued speech voided with it |
+| `barge_in` | **client** — an interruption; `ms` Nova had been speaking, `data.droppedQueuedTurns` = queued speech voided with it, `data.heardChars` = estimated heard prefix length |
+| `user_interruption` | count event — a `<user-interruption>` notice was logged into Nova's history (`data.heardChars`) |
+| `speech_failure` | count event — a `<speech-failure>` notice was logged (TTS never played the line) |
 
 The `data` payloads are where the analysis lives, e.g.:
 

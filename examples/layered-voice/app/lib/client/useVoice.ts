@@ -46,6 +46,28 @@ export interface UseVoiceArgs {
   getSpeaker: () => SpeakerRole;
   /** Receives every client-measured metric (for the HUD). */
   onMetric?: (m: MetricRecord) => void;
+  /**
+   * A barge-in cut Nova's audio. `heardText` is the estimated prefix that
+   * actually played before the cut (empty = nothing played yet). Report it to
+   * the server so a <user-interruption> notice lands in her history.
+   */
+  onInterruption?: (heardText: string, playedMs: number) => void;
+  /** A spoken turn's TTS failed — the room never heard the line. */
+  onSpeechFailure?: (detail: string) => void;
+}
+
+// Rough ElevenLabs speaking rate, used to estimate how much of the sent text
+// had actually played when a barge-in cut the audio. Approximate by design —
+// the notice is phrased as "heard only about this much".
+const TTS_CHARS_PER_SEC = 15;
+
+function estimateHeard(sentText: string, playedMs: number): string {
+  if (!sentText || playedMs <= 0) return "";
+  const n = Math.min(sentText.length, Math.round((playedMs / 1000) * TTS_CHARS_PER_SEC));
+  if (n >= sentText.length) return sentText.trim();
+  const cut = sentText.slice(0, n);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > 20 ? cut.slice(0, lastSpace) : cut).trim();
 }
 
 export interface VoiceState {
@@ -73,6 +95,8 @@ interface SpeechTurn {
   id: number;
   /** Text received before the turn's TTS session started. */
   pending: string[];
+  /** Everything handed to this turn's TTS so far (for heard-prefix estimation). */
+  sentText: string;
   tts: ElevenLabsTTSAdapter | null;
   /** endTurn was called — no more text is coming for this turn. */
   flushed: boolean;
@@ -219,11 +243,15 @@ export function useVoice(args: UseVoiceArgs) {
     });
     tts.on("error", (e) => {
       patch({ error: e.message });
+      if (!next.firstChunkAt) argsRef.current.onSpeechFailure?.(e.message);
       completeActive(next);
     });
 
     // Adapter queues text sent before open() resolves.
-    for (const t of next.pending) tts.sendText(t);
+    for (const t of next.pending) {
+      tts.sendText(t);
+      next.sentText += t;
+    }
     next.pending = [];
 
     tts
@@ -234,7 +262,9 @@ export function useVoice(args: UseVoiceArgs) {
         if (activeRef.current === next && next.flushed) tts.flush();
       })
       .catch((e) => {
-        patch({ error: (e as Error)?.message ?? "tts failed" });
+        const msg = (e as Error)?.message ?? "tts failed";
+        patch({ error: msg });
+        argsRef.current.onSpeechFailure?.(msg);
         completeActive(next);
       });
   }, [beginSpeaking, completeActive, emitMetric, patch]);
@@ -247,13 +277,18 @@ export function useVoice(args: UseVoiceArgs) {
       if (!enabledRef.current || !text) return;
       const writing = writingTurn();
       if (writing) {
-        if (writing === activeRef.current && writing.tts) writing.tts.sendText(text);
-        else writing.pending.push(text);
+        if (writing === activeRef.current && writing.tts) {
+          writing.tts.sendText(text);
+          writing.sentText += text;
+        } else {
+          writing.pending.push(text);
+        }
         return;
       }
       const turn: SpeechTurn = {
         id: ++turnSeq.current,
         pending: [text],
+        sentText: "",
         tts: null,
         flushed: false,
         enqueuedAt: Date.now(),
@@ -282,6 +317,7 @@ export function useVoice(args: UseVoiceArgs) {
         queueRef.current.push({
           id: ++turnSeq.current,
           pending: [fallbackText],
+          sentText: "",
           tts: null,
           flushed: true,
           enqueuedAt: Date.now(),
@@ -371,13 +407,19 @@ export function useVoice(args: UseVoiceArgs) {
       vad.on("speech_start", () => {
         userSpeakingRef.current = true;
         if (speakingRef.current) {
-          // barge-in: the user talks over Nova — void current + queued speech
+          // barge-in: the user talks over Nova — void current + queued speech.
+          // Estimate how much of the active turn actually played BEFORE
+          // tearing it down, so the model can be told where it was cut.
+          const active = activeRef.current;
+          const playedMs = active?.firstChunkAt ? Date.now() - active.firstChunkAt : 0;
+          const heard = active ? estimateHeard(active.sentText, playedMs) : "";
           const spokenMs = Date.now() - novaSpeakStartRef.current;
           const dropped = queueRef.current.length;
           stopSpeaking();
           speakingRef.current = false;
           gateOpenRef.current = true; // route this utterance to STT
-          emitMetric("barge_in", spokenMs, { droppedQueuedTurns: dropped });
+          emitMetric("barge_in", spokenMs, { droppedQueuedTurns: dropped, heardChars: heard.length });
+          argsRef.current.onInterruption?.(heard, playedMs);
           setState((s) => ({ ...s, interruptions: s.interruptions + 1, speaking: false, listening: true }));
         }
       });

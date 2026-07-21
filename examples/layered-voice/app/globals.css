@@ -203,6 +203,21 @@ body {
   font-style: italic;
   padding-left: 2px;
 }
+.room-note {
+  align-self: center;
+  font-size: 11.5px;
+  font-style: italic;
+  color: var(--customer);
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1px dashed rgba(240, 171, 92, 0.35);
+  background: rgba(240, 171, 92, 0.06);
+}
+.room-note[data-kind="speech-failure"] {
+  color: var(--warn);
+  border-color: rgba(239, 107, 107, 0.35);
+  background: rgba(239, 107, 107, 0.06);
+}
 
 .nova {
   align-self: flex-start;

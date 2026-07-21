@@ -19,10 +19,16 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { mountMesh, MeshNetwork, InMemoryMeshAdapter } from "glove-mesh";
-import type { IGloveRunnable, SubscriberAdapter } from "glove-core";
+import type { IGloveRunnable, InboxItem, SubscriberAdapter } from "glove-core";
 import { buildFrontAgent } from "./front-agent";
 import { buildWorkerAgent } from "./worker-agent";
 import { frameUtterance, ASSISTANT_NAME } from "./speakers";
+import {
+  frameInterruption,
+  frameSpeechFailure,
+  frameWorkerResult,
+  frameWorkerTrouble,
+} from "./events";
 import { SpeechTagParser, type SpeechParseStats } from "./speech-parser";
 import { logMetric } from "./metrics";
 import type {
@@ -39,9 +45,6 @@ type Listener = (e: SessionEvent) => void;
 
 const WORKER_DRAIN_PROMPT =
   'You have new delegated request(s) in your inbox. Handle each one with your tools, then reply to the front agent (id "front") via glove_mesh_send_message with in_reply_to set to the message id shown in the inbox line. Do NOT acknowledge — reply only.';
-
-const RELAY_PROMPT =
-  "A delegated request has resolved and its result is in your inbox. Relay it to whoever asked — inside <speech> tags, one or two natural spoken sentences with just the key facts. Do not re-delegate unless there is a genuinely new question to answer.";
 
 function emptyStats(): AgentStats {
   return { tokensIn: 0, tokensOut: 0, turns: 0 };
@@ -323,6 +326,48 @@ export class Session {
     this.emit({ type: "phase", phase: "idle" });
   }
 
+  // ── audio-channel events: logged into Nova's history as tagged notices ─────
+  /**
+   * The user barged in: log a <user-interruption> notice carrying the heard
+   * prefix (tags synthetically closed) so the model knows how much of its last
+   * line actually reached the room. Chained on the front queue so it can never
+   * splice into the middle of an in-flight turn's message sequence — and so it
+   * lands BEFORE the interrupting utterance's own turn reads history.
+   */
+  noteInterruption(heardText: string): void {
+    const heard = heardText.trim();
+    this.queue = this.queue
+      .then(async () => {
+        if (this.buildError) return;
+        await this.front.store.appendMessages?.([{ sender: "user", text: frameInterruption(heard) }]);
+        this.metric("user_interruption", undefined, { heardChars: heard.length });
+        this.emit({
+          type: "note",
+          noteKind: "interruption",
+          text: heard
+            ? `interrupted — the room heard only: “${heard}”`
+            : "interrupted before any audio played",
+        });
+      })
+      .catch(() => {});
+  }
+
+  /** TTS failed: the line was generated but the room never heard it. */
+  noteSpeechFailure(detail?: string): void {
+    this.queue = this.queue
+      .then(async () => {
+        if (this.buildError) return;
+        await this.front.store.appendMessages?.([{ sender: "user", text: frameSpeechFailure(detail) }]);
+        this.metric("speech_failure", undefined, { ...(detail ? { detail } : {}) });
+        this.emit({
+          type: "note",
+          noteKind: "speech-failure",
+          text: "speech failed to play — the room didn't hear Nova's last line",
+        });
+      })
+      .catch(() => {});
+  }
+
   // ── async delegation: background worker + queued relay wakeup ──────────────
   /**
    * Scan Nova's inbox for pending `mesh:waiting` items not yet handed to the
@@ -363,14 +408,22 @@ export class Session {
           replies: this.workerRunReplies,
           failed,
         });
-        if (this.workerRunReplies === 0) {
-          // §8: silence is indistinguishable from a hang — the front is left
-          // waiting on its mesh:waiting reminder with no resolution.
-          this.metric("worker_no_reply", undefined, { delegations: fresh.length, failed });
-        }
         this.setWorkerBusy(-1);
-        // The reply already landed in Nova's inbox (mesh handler). Wake her.
-        this.queueRelay(dispatchedAt);
+        if (this.workerRunReplies === 0) {
+          // §8: silence is indistinguishable from a hang — the front would be
+          // left waiting on its mesh:waiting reminder forever. Surface it as a
+          // <worker-trouble> notice instead so Nova can level with the asker.
+          this.metric("worker_no_reply", undefined, { delegations: fresh.length, failed });
+          this.queueTrouble(
+            failed
+              ? "the worker run errored out before answering"
+              : "the worker finished without sending back any result",
+            fresh,
+          );
+        } else {
+          // The reply already landed in Nova's inbox (mesh handler). Wake her.
+          this.queueRelay(dispatchedAt);
+        }
       })
       .catch(() => {});
   }
@@ -404,7 +457,7 @@ export class Session {
         const rt0 = Date.now();
         this.turnStartAt = rt0;
         this.ttftPending = true;
-        const speech = await this.runFrontTurn(RELAY_PROMPT);
+        const speech = await this.runFrontTurn(frameWorkerResult());
         this.ttftPending = false;
         this.metric("relay_ms", Date.now() - rt0, {
           spoke: speech.length > 0,
@@ -419,6 +472,41 @@ export class Session {
 
         // The relay itself may have delegated a follow-up.
         await this.kickWorker();
+      })
+      .catch(() => {});
+  }
+
+  /**
+   * §8 failure wakeup: the delegation produced no reply. Clear the stale
+   * mesh:waiting reminders (the notice supersedes them — otherwise Nova
+   * carries "still waiting" forever) and run a spoken turn framed as
+   * <worker-trouble> so she levels with the asker.
+   */
+  private queueTrouble(reason: string, failedItems: InboxItem[]): void {
+    this.queue = this.queue
+      .then(async () => {
+        for (const it of failedItems) {
+          await this.front.store.updateInboxItem?.(it.id, {
+            status: "consumed",
+            response: `No result: ${reason}.`,
+            resolved_at: new Date().toISOString(),
+          });
+        }
+
+        this.emit({ type: "phase", phase: "relay" });
+        this.currentFrontKind = "relay";
+        const rt0 = Date.now();
+        this.turnStartAt = rt0;
+        this.ttftPending = true;
+        const speech = await this.runFrontTurn(frameWorkerTrouble(reason));
+        this.ttftPending = false;
+        this.metric("relay_ms", Date.now() - rt0, {
+          spoke: speech.length > 0,
+          trouble: true,
+          items: failedItems.length,
+        });
+        this.currentFrontKind = "response";
+        this.emit({ type: "phase", phase: "idle" });
       })
       .catch(() => {});
   }

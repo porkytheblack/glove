@@ -24,7 +24,13 @@ export interface RoomSay {
   sayKind: "response" | "relay";
   text: string;
 }
-export type RoomItem = RoomUtterance | RoomSay;
+export interface RoomNote {
+  kind: "note";
+  id: string;
+  noteKind: "interruption" | "speech-failure";
+  text: string;
+}
+export type RoomItem = RoomUtterance | RoomSay | RoomNote;
 
 export interface BackstageItem {
   id: string;
@@ -68,6 +74,9 @@ export function useSession(opts?: { onEvent?: (e: SessionEvent) => void }) {
           ...r,
           { kind: "utterance", id: e.utterance.id, speaker: e.utterance.speaker, text: e.utterance.text },
         ]);
+        break;
+      case "note":
+        setRoom((r) => [...r, { kind: "note", id: nextId(), noteKind: e.noteKind, text: e.text }]);
         break;
       case "silent":
         setRoom((r) =>

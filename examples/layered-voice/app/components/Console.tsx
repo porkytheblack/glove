@@ -112,11 +112,27 @@ export default function Console() {
 
   const s = useSession({ onEvent: onServerEvent });
 
+  const postAudioEvent = useCallback(
+    (body: { type: string; heard?: string; detail?: string }) => {
+      const id = s.config?.sessionId;
+      if (!id) return;
+      fetch(`/api/session/${id}/event`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).catch(() => {});
+    },
+    [s.config?.sessionId],
+  );
+
   const voice = useVoice({
     sessionId: s.config?.sessionId ?? null,
     onUtterance: (sp, t) => void s.send(sp, t),
     getSpeaker: () => speakerRef.current,
     onMetric: appendMetric,
+    // Audio-channel realities → tagged notices in Nova's history.
+    onInterruption: (heard) => postAudioEvent({ type: "user-interruption", heard }),
+    onSpeechFailure: (detail) => postAudioEvent({ type: "speech-failure", detail }),
   });
   voiceRef.current = voice;
 
@@ -217,7 +233,11 @@ export default function Console() {
             )}
 
             {s.room.map((it) =>
-              it.kind === "utterance" ? (
+              it.kind === "note" ? (
+                <div className="room-note" key={it.id} data-kind={it.noteKind}>
+                  ⚡ {it.text}
+                </div>
+              ) : it.kind === "utterance" ? (
                 <div className="turn" key={it.id}>
                   <div
                     className={`utterance${it.silent ? " silent" : ""}`}

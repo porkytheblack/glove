@@ -65,6 +65,9 @@ export type SessionEvent =
   | { type: "utterance"; utterance: Utterance }
   // Nova produced no <speech> for this utterance — she judged it wasn't for her.
   | { type: "silent"; utteranceId: string; reason: string }
+  // An audio-channel event was logged into Nova's history (barge-in cut,
+  // TTS failure). `text` is the human-readable version for the room view.
+  | { type: "note"; noteKind: "interruption" | "speech-failure"; text: string }
   // Streamed SPOKEN token from Nova (already parsed out of the <speech> tags).
   | { type: "delta"; role: AgentRole; text: string }
   // A finalized spoken line from Nova (the joined <speech> content of a turn).
