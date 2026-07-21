@@ -126,6 +126,9 @@ export default function Console() {
       if (e.type === "metric") appendMetric(e.metric);
       else if (e.type === "delta" && e.role === "front") voiceRef.current?.feedDelta(e.text);
       else if (e.type === "say" && e.role === "front") voiceRef.current?.endTurn(e.text);
+      // Worker just finished → the relay turn is imminent; open the TTS socket
+      // now so the relay doesn't pay the ~1.2s cold handshake.
+      else if (e.type === "worker_busy" && !e.busy) voiceRef.current?.prewarm();
     },
     [appendMetric],
   );

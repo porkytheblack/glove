@@ -2,7 +2,7 @@
 // small/fast tier; the worker runs the heavy tier.
 // Provider + per-role model are overridable via env (see .env.example).
 
-import { createAdapter, type ModelAdapter } from "glove-core";
+import { createAdapter, type ModelAdapter, type OpenAICompatReasoningOptions } from "glove-core";
 
 type Provider =
   | "anthropic"
@@ -36,10 +36,17 @@ const DEFAULTS: Partial<Record<Provider, Record<Role, string>>> = {
   },
 };
 
-// Only the worker runs reasoning: it's a reasoning-capable model that does a lot
-// of tool calling (and wants its trace echoed on tool turns). The front stays
-// reasoning-off so its speech streams to TTS with minimal latency.
-const REASONING: Record<Role, boolean> = { front: false, worker: true };
+// Reasoning per role. The worker is a reasoning model doing heavy tool work
+// (capture + echo its trace). The front must NOT reason: gpt-oss-120b runs
+// medium reasoning BY DEFAULT on OpenRouter — several seconds of silent
+// thinking before the first visible token, which is pure dead air for a voice
+// agent. Sending an explicit `reasoning: { enabled: false }` turns it off
+// (OpenRouter maps it to the lowest effort where full disable isn't
+// supported). Anthropic ignores the field entirely.
+const REASONING: Record<Role, boolean | OpenAICompatReasoningOptions> = {
+  front: { reasoningObject: { enabled: false }, echo: false },
+  worker: true,
+};
 
 function modelFor(role: Role): string | undefined {
   const override = process.env[`${role.toUpperCase()}_MODEL`];
@@ -53,6 +60,6 @@ export function buildModel(role: Role, stream: boolean): ModelAdapter {
     provider: PROVIDER,
     model: modelFor(role),
     stream,
-    ...(REASONING[role] ? { reasoning: true } : {}),
+    ...(REASONING[role] ? { reasoning: REASONING[role] } : {}),
   });
 }

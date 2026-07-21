@@ -534,6 +534,9 @@ export function useVoice(args: UseVoiceArgs) {
 
       vad.on("speech_start", () => {
         userSpeakingRef.current = true;
+        // The user started talking → an utterance (and likely a Nova reply)
+        // is coming. Open the TTS socket now, overlapping STT + model time.
+        prewarm();
         if (speakingRef.current) {
           // barge-in: the user talks over Nova — void current + queued speech.
           // Estimate how much of the active turn actually played BEFORE
@@ -567,6 +570,7 @@ export function useVoice(args: UseVoiceArgs) {
 
       await stt.connect();
       await capture.init();
+      prewarm(); // first turn shouldn't pay a cold open either
 
       gateOpenRef.current = true;
       enabledRef.current = true;
@@ -576,7 +580,7 @@ export function useVoice(args: UseVoiceArgs) {
       patch({ enabled: false, ready: false, error: (err as Error)?.message ?? "voice failed to start" });
       await cleanup();
     }
-  }, [cleanup, emitMetric, markUtteranceSent, patch, stopSpeaking]);
+  }, [cleanup, emitMetric, markUtteranceSent, patch, prewarm, stopSpeaking]);
 
   const disable = useCallback(async () => {
     if (!enabledRef.current) return;
@@ -594,5 +598,5 @@ export function useVoice(args: UseVoiceArgs) {
     };
   }, [cleanup]);
 
-  return { ...state, enable, disable, feedDelta, endTurn, markUtteranceSent };
+  return { ...state, enable, disable, feedDelta, endTurn, markUtteranceSent, prewarm };
 }
