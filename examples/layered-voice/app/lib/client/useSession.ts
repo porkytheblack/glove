@@ -47,6 +47,7 @@ export function useSession(opts?: { onEvent?: (e: SessionEvent) => void }) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
+  const [workerBusy, setWorkerBusy] = useState(false);
   const [stats, setStats] = useState<Record<AgentRole, AgentStats>>(EMPTY_STATS);
   const [room, setRoom] = useState<RoomItem[]>([]);
   const [streaming, setStreaming] = useState("");
@@ -101,6 +102,9 @@ export function useSession(opts?: { onEvent?: (e: SessionEvent) => void }) {
       case "phase":
         setPhase(e.phase);
         break;
+      case "worker_busy":
+        setWorkerBusy(e.busy);
+        break;
       case "stats":
         setStats(e.stats);
         break;
@@ -120,6 +124,7 @@ export function useSession(opts?: { onEvent?: (e: SessionEvent) => void }) {
     setStreaming("");
     setStats(EMPTY_STATS);
     setPhase("idle");
+    setWorkerBusy(false);
 
     try {
       const res = await fetch("/api/session", { method: "POST" });
@@ -188,6 +193,7 @@ export function useSession(opts?: { onEvent?: (e: SessionEvent) => void }) {
     ready,
     error,
     phase,
+    workerBusy,
     stats,
     room,
     streaming,

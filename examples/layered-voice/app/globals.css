@@ -100,6 +100,10 @@ body {
   box-shadow: 0 0 0 3px rgba(88, 176, 255, 0.18);
   animation: pulse 1.3s ease-in-out infinite;
 }
+.phase-pill.worker-pill[data-active="true"] .dot {
+  background: var(--worker);
+  box-shadow: 0 0 0 3px rgba(240, 122, 162, 0.18);
+}
 @keyframes pulse {
   50% {
     opacity: 0.45;

@@ -16,7 +16,6 @@ const PHASE_LABEL: Record<Phase, string> = {
   idle: "Idle",
   listening: "Listening",
   front: "Nova is listening / responding…",
-  worker: "Worker is researching…",
   relay: "Nova is relaying the result…",
 };
 
@@ -49,7 +48,7 @@ function MetricsHud({ metrics }: { metrics: MetricRecord[] }) {
     { label: "STT finalize", value: derived.latest("stt_final_ms"), avg: derived.avg("stt_final_ms") },
     { label: "Worker (research)", value: derived.latest("worker_ms"), avg: derived.avg("worker_ms") },
     { label: "Relay", value: derived.latest("relay_ms"), avg: derived.avg("relay_ms") },
-    { label: "Server round-trip", value: derived.latest("roundtrip_ms"), avg: derived.avg("roundtrip_ms") },
+    { label: "Delegation round-trip", value: derived.latest("delegation_roundtrip_ms"), avg: derived.avg("delegation_roundtrip_ms") },
   ];
 
   return (
@@ -158,6 +157,12 @@ export default function Console() {
           <span className="dot" />
           {PHASE_LABEL[s.phase]}
         </div>
+        {s.workerBusy && (
+          <div className="phase-pill worker-pill" data-active="true">
+            <span className="dot" />
+            Worker researching in background…
+          </div>
+        )}
         <button className="reset-btn" onClick={() => s.reset()} title="Start a fresh session">
           New session
         </button>

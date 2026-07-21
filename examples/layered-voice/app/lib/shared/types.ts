@@ -50,7 +50,11 @@ export interface MetricRecord {
   data?: Record<string, unknown>;
 }
 
-export type Phase = "idle" | "listening" | "front" | "worker" | "relay";
+/**
+ * The FRONT pipeline's phase. The worker runs concurrently in the background,
+ * so its activity is a separate signal (`worker_busy`), not a phase.
+ */
+export type Phase = "idle" | "listening" | "front" | "relay";
 
 /**
  * Server → client events, streamed over SSE. The console renders the room
@@ -77,8 +81,10 @@ export type SessionEvent =
     }
   // Per-agent token / turn stats (front stays thin; worker carries the weight).
   | { type: "stats"; stats: Record<AgentRole, AgentStats> }
-  // Current pipeline phase, for the status indicator.
+  // Current FRONT pipeline phase, for the status indicator.
   | { type: "phase"; phase: Phase }
+  // The background worker started/finished researching (concurrent with front).
+  | { type: "worker_busy"; busy: boolean }
   // A server-measured latency metric (also appended to the metrics file).
   | { type: "metric"; metric: MetricRecord }
   // Something went wrong (e.g. missing API key).

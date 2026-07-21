@@ -196,9 +196,9 @@ Measured (server-side unless noted):
 | `time_to_first_audio_ms` | **client** — utterance sent → first Nova audio (the headline voice latency) |
 | `front_ttft_ms` | utterance received → Nova's first *spoken* token (first in-tag token) |
 | `front_turn_ms` | the whole front turn, with a `spoke` flag (false = she stayed quiet) |
-| `worker_ms` | delegated research time |
+| `worker_ms` | background worker research time |
 | `relay_ms` | proactive relay turn time |
-| `roundtrip_ms` | full server turn (front + worker + relay) |
+| `delegation_roundtrip_ms` | delegation dispatched → relay spoken (the async round-trip) |
 | `stt_final_ms` | **client** — end-of-speech → final transcript |
 | `tts_synth_ms` / `tts_playback_ms` | **client** — TTS first-audio / playback duration |
 | `barge_in` | **client** — an interruption, with ms Nova had been speaking |
@@ -215,7 +215,7 @@ cat voice-metrics.jsonl | jq 'select(.name=="barge_in")'
 
 ---
 
-## How a delegated turn actually flows
+## How a delegated turn actually flows — fully async
 
 1. An utterance arrives tagged with a speaker and goes straight to Nova,
    speaker-labelled. If it isn't for her, she emits no `<speech>` and the
@@ -224,17 +224,23 @@ cat voice-metrics.jsonl | jq 'select(.name=="barge_in")'
    already streaming to TTS) **and** calls
    `glove_mesh_send_message({ to: "worker", blocking: true, content })` in the
    same turn. The blocking send drops a `mesh:waiting:<id>` pending item in her
-   inbox — her "still waiting" reminder.
-3. The orchestrator drains the delegation: the **worker** sees the request as a
-   resolved inbox item, researches with its tools, and replies with
-   `glove_mesh_send_message({ to: "front", in_reply_to, content })`.
-4. The reply resolves Nova's pending item **and** lands in her inbox. The
-   orchestrator fires a synthetic **relay** turn (the paper's §5 wakeup, driven
-   at the app layer): Nova sees `[Inbox: N item(s) resolved]` and speaks the
-   answer. It's rendered as a dashed "proactive relay" bubble.
-
-The `mesh:waiting` reminder is why Nova never fabricates an answer while the
-worker is still working — it's her source of truth (paper §3).
+   inbox — and **her turn ends right there**. Nothing waits on the worker.
+3. The orchestrator hands the delegation to the **worker in the background**
+   (its own run queue, concurrent with front turns — the "Worker researching"
+   pill in the header). Meanwhile the room keeps talking and Nova keeps
+   answering; the pending `mesh:waiting` reminder is what keeps her honest
+   about what's still in flight (paper §3) — ask her "well?" and she'll say
+   she's still checking rather than invent an answer.
+4. The worker replies with `glove_mesh_send_message({ to: "front", in_reply_to,
+   content })`, which resolves Nova's pending item **and** lands in her inbox.
+   The orchestrator then queues a **relay** turn — the paper's §5 wakeup —
+   behind whatever front turn is in flight, with both of the paper's rules:
+   - **Coalescing** — replies that arrive while a relay is queued share one
+     relay turn (`[Inbox: N item(s) resolved]` batches naturally).
+   - **User turn wins** — if a user utterance got there first and consumed the
+     result (Nova weaves it into that answer), the queued relay finds nothing
+     resolved and is skipped entirely.
+   A spoken relay renders as a dashed "proactive relay" bubble.
 
 ---
 

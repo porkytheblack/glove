@@ -5,10 +5,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Submit one speaker-tagged utterance. The whole pipeline (front →
- * worker → relay) runs here; progress streams to the client over the session's
- * SSE channel. We await completion so the turn finishes even on platforms that
- * reclaim the process after the response.
+ * Submit one speaker-tagged utterance. This resolves when NOVA'S turn is done —
+ * any delegated work continues in the background (worker research → queued
+ * relay), streaming over the session's SSE channel as it lands. Note: the
+ * background continuation assumes a long-lived server process (next dev / a
+ * node server); a serverless platform that freezes the process right after the
+ * response would stall in-flight delegations until the next request.
  */
 export async function POST(
   req: Request,

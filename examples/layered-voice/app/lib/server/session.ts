@@ -1,23 +1,21 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Session orchestrator
 //
-// Owns one voice session's two agents and the in-process mesh between them,
-// and runs the pipeline for every utterance:
+// Owns one voice session's two agents and the in-process mesh between them.
+// Delegation is genuinely ASYNC (paper §3): Nova's blocking mesh send only
+// creates a pending `mesh:waiting:<id>` inbox item — her turn ends right after
+// the spoken ack. The worker runs in the background on its own queue while the
+// room keeps talking; Nova can handle other utterances meanwhile (the pending
+// reminder keeps her honest about what's still in flight).
 //
-//   utterance (speaker-labelled) ──► front (Nova)
-//                                      │  streams raw text; only <speech>…</speech>
-//                                      │  spans are parsed out and emitted as
-//                                      │  spoken deltas (speech-parser.ts)
-//                                      │
-//                                      ├── no speech emitted → Nova stayed quiet
-//                                      │   (she judged the line wasn't for her)
-//                                      │
-//                                      └── delegation? drain it:
-//                                            worker.processRequest ──► reply over mesh
-//                                            front relay turn ──► spoken via <speech>
+//   utterance ──► front turn (speech parsed from <speech> tags) ──► ends
+//                    │ delegated?             ▲
+//                    ▼ (fire-and-forget)      │ queued relay turn (§5 wakeup):
+//               worker queue ── research ── reply lands in Nova's inbox
 //
-// There is no separate addressing monitor — Nova hears every line and decides
-// herself. All progress streams to subscribers as SessionEvents (→ SSE).
+// The wakeup respects the paper's rules: relays are COALESCED (one relay turn
+// however many replies arrived) and the USER TURN WINS (if a user utterance
+// consumed the result first, the queued relay finds nothing and stays silent).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { mountMesh, MeshNetwork, InMemoryMeshAdapter } from "glove-mesh";
@@ -39,7 +37,11 @@ import type {
 
 type Listener = (e: SessionEvent) => void;
 
-const MAX_DELEGATION_ROUNDS = 4;
+const WORKER_DRAIN_PROMPT =
+  'You have new delegated request(s) in your inbox. Handle each one with your tools, then reply to the front agent (id "front") via glove_mesh_send_message with in_reply_to set to the message id shown in the inbox line. Do NOT acknowledge — reply only.';
+
+const RELAY_PROMPT =
+  "A delegated request has resolved and its result is in your inbox. Relay it to whoever asked — inside <speech> tags, one or two natural spoken sentences with just the key facts. Do not re-delegate unless there is a genuinely new question to answer.";
 
 function emptyStats(): AgentStats {
   return { tokensIn: 0, tokensOut: 0, turns: 0 };
@@ -65,13 +67,20 @@ export class Session {
     front: emptyStats(),
     worker: emptyStats(),
   };
+  // Front turns (user utterances + queued relays) serialize on this chain.
   private queue: Promise<unknown> = Promise.resolve();
+  // Worker runs serialize on their own chain — CONCURRENT with front turns.
+  private workerQueue: Promise<unknown> = Promise.resolve();
+  // mesh:waiting tags already handed to the worker (so we don't double-run).
+  private dispatched = new Set<string>();
+  private relayQueued = false;
+  private workerBusy = 0;
   private currentFrontKind: "response" | "relay" = "response";
   // The live <speech> parser for the front turn in flight (null between turns).
   private speechParser: SpeechTagParser | null = null;
   private uttSeq = 0;
   private buildError: string | null = null;
-  // Metric bookkeeping for the current addressed turn.
+  // Metric bookkeeping for the front turn in flight.
   private currentUtteranceId: string | null = null;
   private turnStartAt = 0;
   private ttftPending = false;
@@ -122,6 +131,15 @@ export class Session {
       front: { ...this.stats.front },
       worker: { ...this.stats.worker },
     };
+  }
+
+  isWorkerBusy(): boolean {
+    return this.workerBusy > 0;
+  }
+
+  private setWorkerBusy(delta: 1 | -1) {
+    this.workerBusy = Math.max(0, this.workerBusy + delta);
+    this.emit({ type: "worker_busy", busy: this.workerBusy > 0 });
   }
 
   // ── per-agent event translation ────────────────────────────────────────────
@@ -231,6 +249,10 @@ export class Session {
   }
 
   // ── public entry: handle one tagged utterance (serialized) ─────────────────
+  /**
+   * Resolves when NOVA'S turn is done — not when any delegation resolves.
+   * Delegated work continues in the background and is relayed when it lands.
+   */
   handleUtterance(role: SpeakerRole, text: string): Promise<void> {
     const run = this.queue.then(() => this._handle(role, text));
     // keep the chain alive even if this turn throws
@@ -271,40 +293,82 @@ export class Session {
       });
     }
 
-    await this.drainDelegations();
-    this.metric("roundtrip_ms", Date.now() - this.turnStartAt);
+    // Fire-and-forget: hand any new delegations to the worker and RETURN.
+    // Nova is free for the next utterance while the worker researches.
+    await this.kickWorker();
     this.emit({ type: "phase", phase: "idle" });
   }
 
-  // ── drain any pending mesh delegations: worker → reply → proactive relay ────
-  private async drainDelegations(): Promise<void> {
-    for (let round = 0; round < MAX_DELEGATION_ROUNDS; round++) {
-      const items = (await this.front.store.getInboxItems?.()) ?? [];
-      const pending = items.filter((i) => i.status === "pending" && i.tag.startsWith("mesh:waiting:"));
-      if (pending.length === 0) return;
+  // ── async delegation: background worker + queued relay wakeup ──────────────
+  /**
+   * Scan Nova's inbox for pending `mesh:waiting` items not yet handed to the
+   * worker, and schedule ONE background worker run for the batch. Cheap —
+   * only dispatches, never waits for the research.
+   */
+  private async kickWorker(): Promise<void> {
+    const items = (await this.front.store.getInboxItems?.()) ?? [];
+    const fresh = items.filter(
+      (i) =>
+        i.status === "pending" &&
+        i.tag.startsWith("mesh:waiting:") &&
+        !this.dispatched.has(i.tag),
+    );
+    if (fresh.length === 0) return;
+    for (const i of fresh) this.dispatched.add(i.tag);
 
-      // Worker handles every delegation in its inbox and replies over the mesh.
-      this.emit({ type: "phase", phase: "worker" });
-      const wt0 = Date.now();
-      await this.worker.processRequest(
-        'You have new delegated request(s) in your inbox. Handle each one with your tools, then reply to the front agent (id "front") via glove_mesh_send_message with in_reply_to set to the message id shown in the inbox line. Do NOT acknowledge — reply only.',
-      );
-      this.metric("worker_ms", Date.now() - wt0);
+    const dispatchedAt = Date.now();
+    this.workerQueue = this.workerQueue
+      .then(async () => {
+        this.setWorkerBusy(1);
+        const wt0 = Date.now();
+        try {
+          await this.worker.processRequest(WORKER_DRAIN_PROMPT);
+        } catch (err) {
+          this.emit({ type: "error", message: `Worker run failed: ${(err as Error)?.message ?? String(err)}` });
+        }
+        this.metric("worker_ms", Date.now() - wt0);
+        this.setWorkerBusy(-1);
+        // The reply already landed in Nova's inbox (mesh handler). Wake her.
+        this.queueRelay(dispatchedAt);
+      })
+      .catch(() => {});
+  }
 
-      // The reply resolves the front's pending item and lands in its inbox;
-      // the front relays it proactively (the §5 wakeup, driven here).
-      this.emit({ type: "phase", phase: "relay" });
-      this.currentFrontKind = "relay";
-      const rt0 = Date.now();
-      this.turnStartAt = rt0;
-      this.ttftPending = true;
-      await this.runFrontTurn(
-        "A delegated request has resolved and its result is in your inbox. Relay it to whoever asked — inside <speech> tags, one or two natural spoken sentences with just the key facts. Do not re-delegate unless there is a genuinely new question to answer.",
-      );
-      this.ttftPending = false;
-      this.metric("relay_ms", Date.now() - rt0);
-      this.currentFrontKind = "response";
-    }
+  /**
+   * The §5 wakeup: queue a relay turn on the FRONT chain so it serializes
+   * behind any in-flight user utterance. Coalesced — replies that arrive while
+   * a relay is queued share the one turn (inbox injection batches naturally).
+   * User turn wins — if a user utterance already consumed the results, the
+   * relay finds nothing resolved and is skipped entirely.
+   */
+  private queueRelay(dispatchedAt: number): void {
+    if (this.relayQueued) return;
+    this.relayQueued = true;
+    this.queue = this.queue
+      .then(async () => {
+        this.relayQueued = false;
+        const resolved = (await this.front.store.getResolvedInboxItems?.()) ?? [];
+        const meshResolved = resolved.filter(
+          (i) => i.tag.startsWith("mesh:from:") || i.tag.startsWith("mesh:waiting:"),
+        );
+        if (meshResolved.length === 0) return; // consumed by a user turn — its answer covered it
+
+        this.emit({ type: "phase", phase: "relay" });
+        this.currentFrontKind = "relay";
+        const rt0 = Date.now();
+        this.turnStartAt = rt0;
+        this.ttftPending = true;
+        await this.runFrontTurn(RELAY_PROMPT);
+        this.ttftPending = false;
+        this.metric("relay_ms", Date.now() - rt0);
+        this.metric("delegation_roundtrip_ms", Date.now() - dispatchedAt);
+        this.currentFrontKind = "response";
+        this.emit({ type: "phase", phase: "idle" });
+
+        // The relay itself may have delegated a follow-up.
+        await this.kickWorker();
+      })
+      .catch(() => {});
   }
 }
 
