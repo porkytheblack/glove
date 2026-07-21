@@ -194,18 +194,23 @@ Click **Mic** in the dock to go hands-free. Then:
   stream RAW into an ElevenLabs `stream-input` WebSocket as they arrive over
   SSE (text up, PCM down, one socket per spoken turn). Two mechanics make
   audio start *mid-generation* instead of after it:
-  1. **Low `chunk_length_schedule` (`[60, 120, 160, 250]`)** on the BOS
-     message — ElevenLabs starts synthesizing after ~60 buffered chars,
-     mid-sentence. (The default is ~120+, and sentence-boundary triggering
-     via `auto_mode` is self-defeating for Nova's one-sentence replies: the
-     first sentence only completes when the whole reply is done.)
+  1. **Explicit `flush: true` triggers** — the client forces generation of
+     everything buffered: once at ~60 chars in, then at each sentence-ending
+     punctuation. This is deterministic and client-controlled — server-side
+     buffering policies (the default ~120-char chunk schedule, or a
+     `generation_config` the endpoint may ignore) can otherwise sit on short
+     replies until EOS or even ElevenLabs' ~20s inactivity timeout.
   2. **Prewarmed socket** — the TTS WebSocket (token mint + handshake,
      ~300-600 ms) is opened *while the model is thinking* and adopted by the
      next spoken turn **even if the handshake is still in flight** (text
      queues into it), so that cost overlaps model latency
      (`tts_stream_open_ms` logs ~0 with `adopted: true` when it worked).
-  Covers every spoken turn including the proactive relay. The worker never
-  reaches the speaker, and neither does Nova's out-of-tag text.
+  A **stall watchdog** fails any turn with no audio frames for 12s (metric
+  `tts_stall` + a `<speech-failure>` notice) instead of holding the audio gate,
+  and the adapter now surfaces server error frames and completes the lifecycle
+  on unexpected socket close. Covers every spoken turn including the proactive
+  relay. The worker never reaches the speaker, and neither does Nova's
+  out-of-tag text.
 - **Barge-in** — start talking while Nova is speaking and she stops; the
   interruption is counted and timed, and any speech queued behind the current
   turn is voided too.
@@ -297,6 +302,7 @@ Measured (server-side unless noted):
 | `speech_queue_wait_ms` | **client** — how long a spoken turn's audio was held by the §5 gate (previous audio draining / user speaking) before it started |
 | `tts_stream_open_ms` | **client** — TTS WebSocket + auth handshake cost per spoken turn (`0` + `data.adopted: true` when the prewarmed socket was used) |
 | `tts_synth_ms` / `tts_playback_ms` | **client** — TTS first-audio / playback duration |
+| `tts_stall` | **client** — the watchdog abandoned a turn after 12s without audio frames |
 | `barge_in` | **client** — an interruption; `ms` Nova had been speaking, `data.droppedQueuedTurns` = queued speech voided with it, `data.heardChars` = estimated heard prefix length |
 | `user_interruption` | count event — a `<user-interruption>` notice was logged into Nova's history (`data.heardChars`) |
 | `speech_failure` | count event — a `<speech-failure>` notice was logged (TTS never played the line) |

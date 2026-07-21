@@ -93,17 +93,26 @@ const INITIAL: VoiceState = {
 /** One spoken turn's lifecycle: buffered → active (synthesizing/playing) → done. */
 interface SpeechTurn {
   id: number;
-  /** Text waiting to be sent (turn not started yet). */
-  pending: string[];
+  /** Text waiting to be sent (turn not started yet), with per-chunk flush flags. */
+  pending: Array<{ text: string; flush?: boolean }>;
   /** Everything handed to this turn's TTS so far (for heard-prefix estimation). */
   sentText: string;
+  /** The one-time ~60-char forced-generation trigger has fired. */
+  earlyFlushSent: boolean;
   tts: ElevenLabsTTSAdapter | null;
   /** endTurn was called — no more text is coming for this turn. */
   flushed: boolean;
+  /** Watchdog: fails the turn if ElevenLabs goes silent (no audio frames). */
+  stallTimer: ReturnType<typeof setTimeout> | null;
   enqueuedAt: number;
   startedAt: number;
   firstChunkAt: number;
 }
+
+/** Chars buffered before the first forced-generation flush. */
+const EARLY_FLUSH_CHARS = 60;
+/** Max ms with no audio frame on an active turn before we fail it. */
+const STALL_MS = 12_000;
 
 export function useVoice(args: UseVoiceArgs) {
   const [state, setState] = useState<VoiceState>(INITIAL);
@@ -205,8 +214,10 @@ export function useVoice(args: UseVoiceArgs) {
       id: ++turnSeq.current,
       pending: [],
       sentText: "",
+      earlyFlushSent: false,
       tts: null,
       flushed,
+      stallTimer: null,
       enqueuedAt: Date.now(),
       startedAt: 0,
       firstChunkAt: 0,
@@ -214,14 +225,28 @@ export function useVoice(args: UseVoiceArgs) {
     [],
   );
 
-  /** Route one complete sentence to the turn: live if active, else buffered. */
+  /**
+   * Route one streamed chunk to the turn: live if active, else buffered.
+   * Forced-generation (`flush: true`) triggers make synthesis start
+   * mid-generation DETERMINISTICALLY — once at ~60 buffered chars, then at
+   * each sentence-ending punctuation — regardless of ElevenLabs' server-side
+   * buffering policy.
+   */
   const deliver = useCallback((turn: SpeechTurn, text: string) => {
     if (!text) return;
+    const already = turn.sentText.length + turn.pending.reduce((n, p) => n + p.text.length, 0);
+    let flush = false;
+    if (!turn.earlyFlushSent && already + text.length >= EARLY_FLUSH_CHARS) {
+      turn.earlyFlushSent = true;
+      flush = true;
+    } else if (turn.earlyFlushSent && /[.?!]/.test(text)) {
+      flush = true;
+    }
     if (turn === activeRef.current && turn.tts) {
-      turn.tts.sendText(text);
+      turn.tts.sendText(text, flush ? { flush: true } : undefined);
       turn.sentText += text;
     } else {
-      turn.pending.push(text);
+      turn.pending.push({ text, flush });
     }
   }, []);
 
@@ -250,6 +275,10 @@ export function useVoice(args: UseVoiceArgs) {
   const completeActive = useCallback(
     (turn: SpeechTurn) => {
       if (activeRef.current !== turn) return;
+      if (turn.stallTimer) {
+        clearTimeout(turn.stallTimer);
+        turn.stallTimer = null;
+      }
       activeRef.current = null;
       try {
         turn.tts?.destroy();
@@ -261,6 +290,25 @@ export function useVoice(args: UseVoiceArgs) {
       maybeStartNextRef.current();
     },
     [endSpeaking],
+  );
+
+  /**
+   * Watchdog: (re)armed at turn start and on every audio frame. If ElevenLabs
+   * goes silent past STALL_MS, fail the turn instead of holding the §5 audio
+   * gate until ElevenLabs' own ~20s inactivity timeout (or forever).
+   */
+  const armStall = useCallback(
+    (turn: SpeechTurn) => {
+      if (turn.stallTimer) clearTimeout(turn.stallTimer);
+      turn.stallTimer = setTimeout(() => {
+        if (activeRef.current !== turn) return;
+        emitMetric("tts_stall", STALL_MS, { turn: turn.id, sentChars: turn.sentText.length, hadAudio: turn.firstChunkAt > 0 });
+        patch({ error: "TTS stalled — no audio from ElevenLabs; turn abandoned" });
+        argsRef.current.onSpeechFailure?.("TTS stalled — no audio frames");
+        completeActive(turn);
+      }, STALL_MS);
+    },
+    [completeActive, emitMetric, patch],
   );
 
   /**
@@ -307,6 +355,7 @@ export function useVoice(args: UseVoiceArgs) {
 
     tts.on("audio_chunk", (pcm) => {
       if (activeRef.current !== next) return; // superseded by barge-in
+      armStall(next); // frames flowing — push the watchdog out
       if (!next.firstChunkAt) {
         next.firstChunkAt = Date.now();
         emitMetric("tts_synth_ms", next.firstChunkAt - next.startedAt, { turn: next.id });
@@ -331,11 +380,12 @@ export function useVoice(args: UseVoiceArgs) {
     });
 
     // Adapter queues text sent before open() resolves.
-    for (const t of next.pending) {
-      tts.sendText(t);
-      next.sentText += t;
+    for (const msg of next.pending) {
+      tts.sendText(msg.text, msg.flush ? { flush: true } : undefined);
+      next.sentText += msg.text;
     }
     next.pending = [];
+    armStall(next);
 
     // One path for both cases: adopted sockets carry their in-flight open
     // promise; cold sockets open now. Adopted + already-ready resolves at ~0ms.
@@ -351,7 +401,7 @@ export function useVoice(args: UseVoiceArgs) {
         argsRef.current.onSpeechFailure?.(msg);
         completeActive(next);
       });
-  }, [beginSpeaking, completeActive, emitMetric, makeTts, patch]);
+  }, [armStall, beginSpeaking, completeActive, emitMetric, makeTts, patch]);
   const maybeStartNextRef = useRef(maybeStartNext);
   maybeStartNextRef.current = maybeStartNext;
 
@@ -388,7 +438,7 @@ export function useVoice(args: UseVoiceArgs) {
       }
       if (fallbackText && fallbackText.trim()) {
         const turn = newTurn(true);
-        turn.pending.push(fallbackText);
+        turn.pending.push({ text: fallbackText });
         queueRef.current.push(turn);
         maybeStartNext();
       }
@@ -402,6 +452,10 @@ export function useVoice(args: UseVoiceArgs) {
     activeRef.current = null;
     queueRef.current = [];
     playerRef.current?.stop();
+    if (active?.stallTimer) {
+      clearTimeout(active.stallTimer);
+      active.stallTimer = null;
+    }
     if (active?.tts) {
       try {
         active.tts.destroy();
