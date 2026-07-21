@@ -524,8 +524,14 @@ export function useVoice(args: UseVoiceArgs) {
         const text = t.trim();
         patch({ partial: "" });
         if (!text) return;
-        if (speechEndAtRef.current) {
-          emitMetric("stt_final_ms", Date.now() - speechEndAtRef.current, { chars: text.length });
+        // Only measure against a FRESH speech_end. Scribe can auto-commit
+        // accumulated audio long after the last VAD boundary (e.g. echo /
+        // noise-floor drift keeps VAD "speaking") — measuring those against a
+        // stale timestamp produced garbage like stt_final_ms=142s.
+        const endAt = speechEndAtRef.current;
+        speechEndAtRef.current = 0;
+        if (endAt && Date.now() - endAt < 10_000) {
+          emitMetric("stt_final_ms", Date.now() - endAt, { chars: text.length });
         }
         markUtteranceSent();
         argsRef.current.onUtterance(argsRef.current.getSpeaker(), text);
