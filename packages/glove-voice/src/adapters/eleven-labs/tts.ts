@@ -21,6 +21,16 @@ export interface ElevenLabsTTSConfig {
   /** Output audio format (default: "pcm_16000") */
   outputFormat?: string;
 
+  /**
+   * Enable ElevenLabs `auto_mode`: generation triggers as soon as a sentence
+   * completes instead of waiting for the default chunk schedule (~120+ chars
+   * buffered before ANY audio). Without this, responses shorter than the
+   * buffer threshold only synthesize at flush() — i.e. after the whole turn.
+   * When enabled, send full sentences/phrases (e.g. via `SentenceBuffer`),
+   * not raw token fragments. Default: false (previous behavior).
+   */
+  autoMode?: boolean;
+
   /** Voice settings */
   voiceSettings?: {
     stability?: number;
@@ -70,6 +80,7 @@ export class ElevenLabsTTSAdapter
         model_id: this.model,
         output_format: this.outputFormat,
       });
+      if (this.cfg.autoMode) params.set("auto_mode", "true");
       const url = `wss://api.elevenlabs.io/v1/text-to-speech/${this.cfg.voiceId}/stream-input?${params}`;
 
       console.debug(`[ElevenLabsTTS] connecting to ${url.replace(/single_use_token=[^&]+/, "single_use_token=***")}`);

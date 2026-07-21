@@ -26,6 +26,7 @@ import {
   VAD,
   ElevenLabsSTTAdapter,
   ElevenLabsTTSAdapter,
+  SentenceBuffer,
 } from "glove-voice";
 import type { MetricRecord, SpeakerRole } from "../shared/types";
 
@@ -93,10 +94,16 @@ const INITIAL: VoiceState = {
 /** One spoken turn's lifecycle: buffered → active (synthesizing/playing) → done. */
 interface SpeechTurn {
   id: number;
-  /** Text received before the turn's TTS session started. */
+  /** Complete sentences waiting to be sent (turn not started yet). */
   pending: string[];
   /** Everything handed to this turn's TTS so far (for heard-prefix estimation). */
   sentText: string;
+  /**
+   * Accumulates raw streamed tokens and emits FULL SENTENCES. ElevenLabs
+   * auto_mode synthesizes at each sentence end, so feeding sentences (not raw
+   * token fragments) is what makes audio start mid-generation.
+   */
+  sb: SentenceBuffer;
   tts: ElevenLabsTTSAdapter | null;
   /** endTurn was called — no more text is coming for this turn. */
   flushed: boolean;
@@ -120,6 +127,10 @@ export function useVoice(args: UseVoiceArgs) {
   const queueRef = useRef<SpeechTurn[]>([]);
   const activeRef = useRef<SpeechTurn | null>(null);
   const turnSeq = useRef(0);
+  // A TTS WebSocket opened WHILE the model is thinking (utterance sent → first
+  // token), so the token-mint + handshake cost overlaps model latency instead
+  // of adding to time-to-first-audio. Adopted by the next spoken turn.
+  const prewarmRef = useRef<{ tts: ElevenLabsTTSAdapter; at: number } | null>(null);
 
   // Mutable flags read from audio-event handlers.
   const enabledRef = useRef(false);
@@ -154,9 +165,68 @@ export function useVoice(args: UseVoiceArgs) {
     [],
   );
 
+  const makeTts = useCallback(
+    () =>
+      new ElevenLabsTTSAdapter({
+        getToken: () => fetchToken("/api/voice/tts-token"),
+        voiceId: VOICE_ID,
+        // Realtime: synthesize at each sentence end instead of buffering
+        // ~120 chars (which made short replies only synthesize at flush).
+        autoMode: true,
+      }),
+    [],
+  );
+
+  /** Open a TTS socket ahead of time so the handshake overlaps model latency. */
+  const prewarm = useCallback(() => {
+    if (!enabledRef.current) return;
+    const existing = prewarmRef.current;
+    if (existing && Date.now() - existing.at < 15_000) return; // still fresh
+    if (existing) {
+      try {
+        existing.tts.destroy();
+      } catch {
+        /* already gone */
+      }
+    }
+    const tts = makeTts();
+    const entry = { tts, at: Date.now() };
+    prewarmRef.current = entry;
+    tts.open().catch(() => {
+      if (prewarmRef.current === entry) prewarmRef.current = null;
+    });
+  }, [makeTts]);
+
   /** Start the time-to-first-audio clock; next Nova audio chunk is timed from here. */
   const markUtteranceSent = useCallback(() => {
     ttfaPendingRef.current = { at: Date.now() };
+    prewarm();
+  }, [prewarm]);
+
+  const newTurn = useCallback(
+    (flushed = false): SpeechTurn => ({
+      id: ++turnSeq.current,
+      pending: [],
+      sentText: "",
+      sb: new SentenceBuffer(),
+      tts: null,
+      flushed,
+      enqueuedAt: Date.now(),
+      startedAt: 0,
+      firstChunkAt: 0,
+    }),
+    [],
+  );
+
+  /** Route one complete sentence to the turn: live if active, else buffered. */
+  const deliver = useCallback((turn: SpeechTurn, text: string) => {
+    if (!text) return;
+    if (turn === activeRef.current && turn.tts) {
+      turn.tts.sendText(text);
+      turn.sentText += text;
+    } else {
+      turn.pending.push(text);
+    }
   }, []);
 
   const beginSpeaking = useCallback(() => {
@@ -216,10 +286,25 @@ export function useVoice(args: UseVoiceArgs) {
     emitMetric("speech_queue_wait_ms", next.startedAt - next.enqueuedAt, { turn: next.id });
     beginSpeaking();
 
-    const tts = new ElevenLabsTTSAdapter({
-      getToken: () => fetchToken("/api/voice/tts-token"),
-      voiceId: VOICE_ID,
-    });
+    // Adopt the prewarmed socket if it's ready and fresh — its handshake cost
+    // was paid while the model was thinking.
+    let tts: ElevenLabsTTSAdapter | null = null;
+    let adopted = false;
+    const pw = prewarmRef.current;
+    prewarmRef.current = null;
+    if (pw) {
+      if (pw.tts.isReady && Date.now() - pw.at < 15_000) {
+        tts = pw.tts;
+        adopted = true;
+      } else {
+        try {
+          pw.tts.destroy();
+        } catch {
+          /* already gone */
+        }
+      }
+    }
+    if (!tts) tts = makeTts();
     next.tts = tts;
 
     tts.on("audio_chunk", (pcm) => {
@@ -254,51 +339,46 @@ export function useVoice(args: UseVoiceArgs) {
     }
     next.pending = [];
 
-    tts
-      .open()
-      .then(() => {
-        // WebSocket + auth handshake cost — part of the "no wait" budget.
-        emitMetric("tts_stream_open_ms", Date.now() - next.startedAt, { turn: next.id });
-        if (activeRef.current === next && next.flushed) tts.flush();
-      })
-      .catch((e) => {
-        const msg = (e as Error)?.message ?? "tts failed";
-        patch({ error: msg });
-        argsRef.current.onSpeechFailure?.(msg);
-        completeActive(next);
-      });
-  }, [beginSpeaking, completeActive, emitMetric, patch]);
+    if (adopted) {
+      emitMetric("tts_stream_open_ms", 0, { turn: next.id, adopted: true });
+      if (next.flushed) tts.flush();
+    } else {
+      const t = tts;
+      t.open()
+        .then(() => {
+          // Cold WebSocket + auth handshake cost — part of the "no wait" budget.
+          emitMetric("tts_stream_open_ms", Date.now() - next.startedAt, { turn: next.id, adopted: false });
+          if (activeRef.current === next && next.flushed) t.flush();
+        })
+        .catch((e) => {
+          const msg = (e as Error)?.message ?? "tts failed";
+          patch({ error: msg });
+          argsRef.current.onSpeechFailure?.(msg);
+          completeActive(next);
+        });
+    }
+  }, [beginSpeaking, completeActive, emitMetric, makeTts, patch]);
   const maybeStartNextRef = useRef(maybeStartNext);
   maybeStartNextRef.current = maybeStartNext;
 
-  /** Feed one of Nova's streamed spoken tokens into the right turn. */
+  /**
+   * Feed one of Nova's streamed spoken tokens into the right turn. Tokens
+   * accumulate in the turn's SentenceBuffer; each COMPLETED sentence goes to
+   * TTS — with auto_mode that means audio starts on the first finished
+   * sentence, mid-generation.
+   */
   const feedDelta = useCallback(
     (text: string) => {
       if (!enabledRef.current || !text) return;
-      const writing = writingTurn();
-      if (writing) {
-        if (writing === activeRef.current && writing.tts) {
-          writing.tts.sendText(text);
-          writing.sentText += text;
-        } else {
-          writing.pending.push(text);
-        }
-        return;
+      let writing = writingTurn();
+      if (!writing) {
+        writing = newTurn();
+        queueRef.current.push(writing);
+        maybeStartNext();
       }
-      const turn: SpeechTurn = {
-        id: ++turnSeq.current,
-        pending: [text],
-        sentText: "",
-        tts: null,
-        flushed: false,
-        enqueuedAt: Date.now(),
-        startedAt: 0,
-        firstChunkAt: 0,
-      };
-      queueRef.current.push(turn);
-      maybeStartNext();
+      for (const sentence of writing.sb.push(text)) deliver(writing, sentence);
     },
-    [maybeStartNext, writingTurn],
+    [deliver, maybeStartNext, newTurn, writingTurn],
   );
 
   /** End of a Nova turn: no more text. Falls back to speaking the whole line if
@@ -308,26 +388,21 @@ export function useVoice(args: UseVoiceArgs) {
       if (!enabledRef.current) return;
       const writing = writingTurn();
       if (writing) {
+        const remainder = writing.sb.flush(); // trailing partial sentence
+        if (remainder) deliver(writing, remainder + " ");
         writing.flushed = true;
         if (writing === activeRef.current && writing.tts?.isReady) writing.tts.flush();
         // If not open yet, the open() handler flushes (flushed is set).
         return;
       }
       if (fallbackText && fallbackText.trim()) {
-        queueRef.current.push({
-          id: ++turnSeq.current,
-          pending: [fallbackText],
-          sentText: "",
-          tts: null,
-          flushed: true,
-          enqueuedAt: Date.now(),
-          startedAt: 0,
-          firstChunkAt: 0,
-        });
+        const turn = newTurn(true);
+        turn.pending.push(fallbackText);
+        queueRef.current.push(turn);
         maybeStartNext();
       }
     },
-    [maybeStartNext, writingTurn],
+    [deliver, maybeStartNext, newTurn, writingTurn],
   );
 
   /** Kill current audio AND everything queued (barge-in / disable). */
@@ -347,6 +422,14 @@ export function useVoice(args: UseVoiceArgs) {
 
   const cleanup = useCallback(async () => {
     stopSpeaking();
+    if (prewarmRef.current) {
+      try {
+        prewarmRef.current.tts.destroy();
+      } catch {
+        /* already gone */
+      }
+      prewarmRef.current = null;
+    }
     try {
       await captureRef.current?.destroy();
     } catch {
