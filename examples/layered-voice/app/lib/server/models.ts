@@ -19,26 +19,44 @@ type Provider =
 
 export type Role = "front" | "monitor" | "worker";
 
-export const PROVIDER: Provider = (process.env.VOICE_PROVIDER as Provider) || "anthropic";
+// Default: affordable open models on OpenRouter (single OPENROUTER_API_KEY).
+export const PROVIDER: Provider = (process.env.VOICE_PROVIDER as Provider) || "openrouter";
 
-// Sensible defaults only for Anthropic (small/fast front + monitor, heavy
-// worker). For other providers we fall back to the provider's own default
-// model unless a per-role env override is set.
-const ANTHROPIC_DEFAULTS: Record<Role, string> = {
-  front: "claude-haiku-4-5-20251001",
-  monitor: "claude-haiku-4-5-20251001",
-  worker: "claude-sonnet-4-20250514",
+// Role → model, per provider. Front is the conversational/spoken persona;
+// the monitor makes a single addressing judgment; the worker does the heavy,
+// tool-driven database work.
+const DEFAULTS: Partial<Record<Provider, Record<Role, string>>> = {
+  openrouter: {
+    front: "z-ai/glm-5.2", // conversational, natural spoken replies
+    monitor: "xiaomi/mimo-v2.5-pro", // reasons about who each line is addressed to
+    worker: "minimax/minimax-m2.5", // strong agentic tool-caller for the DB tools
+  },
+  anthropic: {
+    front: "claude-haiku-4-5-20251001",
+    monitor: "claude-haiku-4-5-20251001",
+    worker: "claude-sonnet-4-20250514",
+  },
 };
 
+// Reasoning-capable open models (MiMo, MiniMax) emit a reasoning trace and want
+// it echoed back on tool turns (or they reject the follow-up). Enabling
+// `reasoning: true` makes the OpenAI-compat adapter capture + echo it without
+// sending any extra request params. The front stays reasoning-off so spoken
+// latency stays low — the whole point of keeping the front thin.
+const REASONING: Record<Role, boolean> = { front: false, monitor: true, worker: true };
+
 function modelFor(role: Role): string | undefined {
-  const envKey = `${role.toUpperCase()}_MODEL`;
-  const override = process.env[envKey];
+  const override = process.env[`${role.toUpperCase()}_MODEL`];
   if (override) return override;
-  if (PROVIDER === "anthropic") return ANTHROPIC_DEFAULTS[role];
-  return undefined; // let createAdapter use the provider default
+  return DEFAULTS[PROVIDER]?.[role]; // undefined → createAdapter uses provider default
 }
 
-/** Front + worker are long-lived agents; each gets its own adapter instance. */
+/** Each agent gets its own adapter instance (adapters carry a system prompt). */
 export function buildModel(role: Role, stream: boolean): ModelAdapter {
-  return createAdapter({ provider: PROVIDER, model: modelFor(role), stream });
+  return createAdapter({
+    provider: PROVIDER,
+    model: modelFor(role),
+    stream,
+    ...(REASONING[role] ? { reasoning: true } : {}),
+  });
 }

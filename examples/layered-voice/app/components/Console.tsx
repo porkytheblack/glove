@@ -85,7 +85,7 @@ export default function Console() {
             <>
               Couldn&apos;t start the agents: <strong>{s.error}</strong>
               <br />
-              Set <code>ANTHROPIC_API_KEY</code> (or your provider&apos;s key) in{" "}
+              Set <code>OPENROUTER_API_KEY</code> (or your provider&apos;s key) in{" "}
               <code>.env.local</code> and click <em>New session</em>. See{" "}
               <code>.env.example</code>.
             </>

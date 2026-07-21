@@ -121,11 +121,11 @@ From the monorepo root:
 pnpm install
 ```
 
-Set a key (Anthropic by default):
+Set a key (OpenRouter by default):
 
 ```bash
 cp examples/layered-voice/.env.example examples/layered-voice/.env.local
-# edit .env.local and set ANTHROPIC_API_KEY=...
+# edit .env.local and set OPENROUTER_API_KEY=...
 ```
 
 Then:
@@ -144,10 +144,26 @@ carries the weight).
 
 ### Provider / model overrides
 
-Defaults: front + monitor on `claude-haiku-4-5` (small/fast), worker on
-`claude-sonnet-4` (heavy). Override via env — see
-[`.env.example`](.env.example). To use another provider set `VOICE_PROVIDER` and
-that provider's API key.
+Defaults are affordable open models on **OpenRouter** (one `OPENROUTER_API_KEY`):
+
+| Role | Model | Why |
+| --- | --- | --- |
+| front (Nova) | `z-ai/glm-5.2` | conversational, natural spoken replies; reasoning off to keep latency low |
+| monitor | `xiaomi/mimo-v2.5-pro` | reasons about who each line is addressed to |
+| worker | `minimax/minimax-m2.5` | strong agentic tool-caller for the DB tools |
+
+Override any role with `FRONT_MODEL` / `MONITOR_MODEL` / `WORKER_MODEL`, or switch
+providers with `VOICE_PROVIDER` (+ that provider's key). See
+[`.env.example`](.env.example). Anthropic defaults are still wired in
+(`claude-haiku-4-5` front/monitor, `claude-sonnet-4` worker) via
+`VOICE_PROVIDER=anthropic`.
+
+### Voice output
+
+Nova's system prompt tells her she's **spoken aloud** (ElevenLabs TTS) and that
+her text is read out, not displayed — so she avoids markdown/symbols and says
+numbers and hull ids the natural spoken way. In this console her `say` events
+are the lines you'd feed to TTS; the monitor and worker never reach the speaker.
 
 ---
 
