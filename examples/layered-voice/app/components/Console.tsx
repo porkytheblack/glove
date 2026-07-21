@@ -91,7 +91,6 @@ export default function Console() {
   const backRef = useRef<HTMLDivElement>(null);
   const speakerRef = useRef<SpeakerRole>("operator");
   const voiceRef = useRef<ReturnType<typeof useVoice> | null>(null);
-  const saySeq = useRef(0);
 
   useEffect(() => {
     speakerRef.current = speaker;
@@ -102,13 +101,13 @@ export default function Console() {
     [],
   );
 
-  // Tap the raw event stream: speak Nova's lines + collect server metrics.
+  // Tap the raw event stream: stream Nova's tokens into TTS (audio starts on the
+  // first token) + collect server metrics.
   const onServerEvent = useCallback(
     (e: SessionEvent) => {
       if (e.type === "metric") appendMetric(e.metric);
-      else if (e.type === "say" && e.role === "front") {
-        voiceRef.current?.speak(`say${++saySeq.current}`, e.text);
-      }
+      else if (e.type === "delta" && e.role === "front") voiceRef.current?.feedDelta(e.text);
+      else if (e.type === "say" && e.role === "front") voiceRef.current?.endTurn(e.text);
     },
     [appendMetric],
   );

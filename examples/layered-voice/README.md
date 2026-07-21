@@ -148,9 +148,9 @@ Defaults are affordable open models on **OpenRouter** (one `OPENROUTER_API_KEY`)
 
 | Role | Model | Why |
 | --- | --- | --- |
-| front (Nova) | `z-ai/glm-5.2` | conversational, natural spoken replies; reasoning off to keep latency low |
-| monitor | `xiaomi/mimo-v2.5-pro` | reasons about who each line is addressed to |
-| worker | `minimax/minimax-m2.5` | strong agentic tool-caller for the DB tools |
+| front (Nova) | `openai/gpt-oss-120b` | the spoken final answer; reasoning off, streams token-by-token straight into TTS |
+| monitor | `openai/gpt-oss-120b` | fast addressing judgment |
+| worker | `minimax/minimax-m2.5` | heavy lifting + a ton of tool calls over the DB (the only reasoning model) |
 
 Override any role with `FRONT_MODEL` / `MONITOR_MODEL` / `WORKER_MODEL`, or switch
 providers with `VOICE_PROVIDER` (+ that provider's key). See
@@ -166,9 +166,11 @@ Click **Mic** in the dock to go hands-free. Then:
   ElevenLabs Scribe. Each finalized utterance is sent as the **currently selected
   speaker** (the chip you have highlighted is "who's at the mic"), so switch
   speakers to play the operator vs. the customer.
-- **TTS out** — Nova's `say` events are spoken by ElevenLabs TTS as they stream
-  over SSE (including the proactive relay). The monitor and worker never reach
-  the speaker.
+- **TTS out (streaming)** — Nova's tokens are fed into an open ElevenLabs
+  input-streaming session as they arrive over SSE, so audio starts on the *first
+  token* — no wait for the finished sentence. `say` just flushes the turn (with a
+  whole-line fallback if a model didn't stream). Covers every Nova turn including
+  the proactive relay. The monitor and worker never reach the speaker.
 - **Barge-in** — start talking while Nova is speaking and she stops; the
   interruption is counted and timed.
 

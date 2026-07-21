@@ -27,9 +27,9 @@ export const PROVIDER: Provider = (process.env.VOICE_PROVIDER as Provider) || "o
 // tool-driven database work.
 const DEFAULTS: Partial<Record<Provider, Record<Role, string>>> = {
   openrouter: {
-    front: "z-ai/glm-5.2", // conversational, natural spoken replies
-    monitor: "xiaomi/mimo-v2.5-pro", // reasons about who each line is addressed to
-    worker: "minimax/minimax-m2.5", // strong agentic tool-caller for the DB tools
+    front: "openai/gpt-oss-120b", // fast, streams token-by-token into TTS
+    monitor: "openai/gpt-oss-120b", // quick addressing judgment
+    worker: "minimax/minimax-m2.5", // heavy lifting + a ton of tool calls
   },
   anthropic: {
     front: "claude-haiku-4-5-20251001",
@@ -38,12 +38,11 @@ const DEFAULTS: Partial<Record<Provider, Record<Role, string>>> = {
   },
 };
 
-// Reasoning-capable open models (MiMo, MiniMax) emit a reasoning trace and want
-// it echoed back on tool turns (or they reject the follow-up). Enabling
-// `reasoning: true` makes the OpenAI-compat adapter capture + echo it without
-// sending any extra request params. The front stays reasoning-off so spoken
-// latency stays low — the whole point of keeping the front thin.
-const REASONING: Record<Role, boolean> = { front: false, monitor: true, worker: true };
+// Only the worker runs reasoning: it's a reasoning-capable model that does a lot
+// of tool calling (and wants its trace echoed on tool turns). The front and
+// monitor stay reasoning-off so the front streams to TTS with minimal latency
+// and the monitor returns a verdict fast.
+const REASONING: Record<Role, boolean> = { front: false, monitor: false, worker: true };
 
 function modelFor(role: Role): string | undefined {
   const override = process.env[`${role.toUpperCase()}_MODEL`];
