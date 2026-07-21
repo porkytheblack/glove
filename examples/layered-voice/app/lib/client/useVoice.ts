@@ -6,11 +6,18 @@
 // outside the initiating turn).
 //
 // Mic → VAD → ElevenLabs Scribe (STT) → send as the selected speaker.
-// Nova's text is spoken with STREAMING TTS: each `delta` token is fed straight
-// into an open ElevenLabs input-streaming session, so audio starts on the first
-// token — no waiting for the finished line. `say` just flushes the turn.
-// Speaking while Nova talks = barge-in (stop TTS, count it). Every timing is
-// measured and shipped to /api/metrics for the local file + the live HUD.
+// Nova's parsed <speech> tokens stream into ElevenLabs input-streaming TTS —
+// audio starts on the first spoken token.
+//
+// SPEECH TURNS ARE QUEUED (the paper's §5 audio-state rule): the server may
+// finish generating a relay while the previous turn's audio is still playing,
+// so each spoken turn is an entry in a queue and the next turn's audio does NOT
+// start until (a) the current turn has fully drained from the speaker and
+// (b) the user isn't mid-utterance (their turn takes priority). The relay's
+// MODEL work still pipelines server-side — only the audio waits. Barge-in
+// voids the current turn AND everything queued behind it.
+//
+// Every timing is measured and shipped to /api/metrics (local JSONL + HUD).
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -61,9 +68,16 @@ const INITIAL: VoiceState = {
   interruptions: 0,
 };
 
-interface TtsTurn {
-  tts: ElevenLabsTTSAdapter;
-  openedAt: number;
+/** One spoken turn's lifecycle: buffered → active (synthesizing/playing) → done. */
+interface SpeechTurn {
+  id: number;
+  /** Text received before the turn's TTS session started. */
+  pending: string[];
+  tts: ElevenLabsTTSAdapter | null;
+  /** endTurn was called — no more text is coming for this turn. */
+  flushed: boolean;
+  enqueuedAt: number;
+  startedAt: number;
   firstChunkAt: number;
 }
 
@@ -77,12 +91,17 @@ export function useVoice(args: UseVoiceArgs) {
   const sttRef = useRef<ElevenLabsSTTAdapter | null>(null);
   const vadRef = useRef<VAD | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
-  const turnRef = useRef<TtsTurn | null>(null); // the open streaming TTS turn
+
+  // Speech-turn queue (§5 audio gate).
+  const queueRef = useRef<SpeechTurn[]>([]);
+  const activeRef = useRef<SpeechTurn | null>(null);
+  const turnSeq = useRef(0);
 
   // Mutable flags read from audio-event handlers.
   const enabledRef = useRef(false);
   const gateOpenRef = useRef(false); // feed mic audio to STT?
-  const speakingRef = useRef(false);
+  const speakingRef = useRef(false); // Nova audio playing?
+  const userSpeakingRef = useRef(false); // VAD says a human is talking
 
   // Timing bookkeeping.
   const speechEndAtRef = useRef(0);
@@ -129,40 +148,63 @@ export function useVoice(args: UseVoiceArgs) {
     patch({ speaking: false, listening: enabledRef.current });
   }, [patch]);
 
-  const finishTurn = useCallback(
-    (turn: TtsTurn) => {
+  /** The writing turn: where new deltas belong (active if still open, else queue tail). */
+  const writingTurn = useCallback((): SpeechTurn | null => {
+    const active = activeRef.current;
+    if (active && !active.flushed) return active;
+    const tail = queueRef.current[queueRef.current.length - 1];
+    if (tail && !tail.flushed) return tail;
+    return null;
+  }, []);
+
+  const completeActive = useCallback(
+    (turn: SpeechTurn) => {
+      if (activeRef.current !== turn) return;
+      activeRef.current = null;
       try {
-        turn.tts.destroy();
+        turn.tts?.destroy();
       } catch {
         /* already gone */
       }
-      if (turnRef.current === turn) {
-        turnRef.current = null;
-        endSpeaking();
-      }
+      // Hold the "speaking" state if another turn is about to play.
+      if (queueRef.current.length === 0 || userSpeakingRef.current) endSpeaking();
+      maybeStartNextRef.current();
     },
     [endSpeaking],
   );
 
-  /** Open a streaming TTS turn. Text can be sent immediately (adapter queues). */
-  const openTurn = useCallback((): TtsTurn | null => {
+  /**
+   * The §5 gate: start the next queued turn's audio only when nothing is
+   * playing AND the user isn't mid-utterance.
+   */
+  const maybeStartNext = useCallback(() => {
+    if (!enabledRef.current) return;
+    if (activeRef.current) return; // current audio not drained yet
+    if (userSpeakingRef.current) return; // user's turn takes priority
+    const next = queueRef.current.shift();
+    if (!next) return;
+
     const player = playerRef.current;
-    if (!player || !enabledRef.current) return null;
+    if (!player) return;
+
+    activeRef.current = next;
+    next.startedAt = Date.now();
+    emitMetric("speech_queue_wait_ms", next.startedAt - next.enqueuedAt, { turn: next.id });
+    beginSpeaking();
+
     const tts = new ElevenLabsTTSAdapter({
       getToken: () => fetchToken("/api/voice/tts-token"),
       voiceId: VOICE_ID,
     });
-    const turn: TtsTurn = { tts, openedAt: Date.now(), firstChunkAt: 0 };
-    turnRef.current = turn;
-    beginSpeaking();
+    next.tts = tts;
 
     tts.on("audio_chunk", (pcm) => {
-      if (turnRef.current !== turn) return; // superseded by barge-in
-      if (!turn.firstChunkAt) {
-        turn.firstChunkAt = Date.now();
-        emitMetric("tts_synth_ms", turn.firstChunkAt - turn.openedAt);
+      if (activeRef.current !== next) return; // superseded by barge-in
+      if (!next.firstChunkAt) {
+        next.firstChunkAt = Date.now();
+        emitMetric("tts_synth_ms", next.firstChunkAt - next.startedAt, { turn: next.id });
         if (ttfaPendingRef.current) {
-          emitMetric("time_to_first_audio_ms", turn.firstChunkAt - ttfaPendingRef.current.at);
+          emitMetric("time_to_first_audio_ms", next.firstChunkAt - ttfaPendingRef.current.at, { turn: next.id });
           ttfaPendingRef.current = null;
         }
       }
@@ -170,58 +212,97 @@ export function useVoice(args: UseVoiceArgs) {
     });
     tts.on("done", () => {
       player.onDrained(() => {
-        if (turnRef.current === turn) {
-          if (turn.firstChunkAt) emitMetric("tts_playback_ms", Date.now() - turn.firstChunkAt);
-          finishTurn(turn);
-        }
+        if (activeRef.current !== next) return;
+        if (next.firstChunkAt) emitMetric("tts_playback_ms", Date.now() - next.firstChunkAt, { turn: next.id });
+        completeActive(next);
       });
     });
     tts.on("error", (e) => {
       patch({ error: e.message });
-      finishTurn(turn);
+      completeActive(next);
     });
-    tts.open().catch((e) => {
-      patch({ error: (e as Error)?.message ?? "tts failed" });
-      finishTurn(turn);
-    });
-    return turn;
-  }, [beginSpeaking, emitMetric, finishTurn, patch]);
 
-  /** Feed one of Nova's streamed tokens straight into the open TTS turn. */
+    // Adapter queues text sent before open() resolves.
+    for (const t of next.pending) tts.sendText(t);
+    next.pending = [];
+
+    tts
+      .open()
+      .then(() => {
+        // WebSocket + auth handshake cost — part of the "no wait" budget.
+        emitMetric("tts_stream_open_ms", Date.now() - next.startedAt, { turn: next.id });
+        if (activeRef.current === next && next.flushed) tts.flush();
+      })
+      .catch((e) => {
+        patch({ error: (e as Error)?.message ?? "tts failed" });
+        completeActive(next);
+      });
+  }, [beginSpeaking, completeActive, emitMetric, patch]);
+  const maybeStartNextRef = useRef(maybeStartNext);
+  maybeStartNextRef.current = maybeStartNext;
+
+  /** Feed one of Nova's streamed spoken tokens into the right turn. */
   const feedDelta = useCallback(
     (text: string) => {
       if (!enabledRef.current || !text) return;
-      const turn = turnRef.current ?? openTurn();
-      turn?.tts.sendText(text);
+      const writing = writingTurn();
+      if (writing) {
+        if (writing === activeRef.current && writing.tts) writing.tts.sendText(text);
+        else writing.pending.push(text);
+        return;
+      }
+      const turn: SpeechTurn = {
+        id: ++turnSeq.current,
+        pending: [text],
+        tts: null,
+        flushed: false,
+        enqueuedAt: Date.now(),
+        startedAt: 0,
+        firstChunkAt: 0,
+      };
+      queueRef.current.push(turn);
+      maybeStartNext();
     },
-    [openTurn],
+    [maybeStartNext, writingTurn],
   );
 
-  /** End of a Nova turn: flush the streamed audio. Falls back to speaking the
-   *  whole line if no tokens were streamed (non-streaming model). */
+  /** End of a Nova turn: no more text. Falls back to speaking the whole line if
+   *  nothing was streamed (non-streaming model). */
   const endTurn = useCallback(
     (fallbackText?: string) => {
       if (!enabledRef.current) return;
-      if (turnRef.current) {
-        turnRef.current.tts.flush();
-      } else if (fallbackText && fallbackText.trim()) {
-        const turn = openTurn();
-        if (turn) {
-          turn.tts.sendText(fallbackText);
-          turn.tts.flush();
-        }
+      const writing = writingTurn();
+      if (writing) {
+        writing.flushed = true;
+        if (writing === activeRef.current && writing.tts?.isReady) writing.tts.flush();
+        // If not open yet, the open() handler flushes (flushed is set).
+        return;
+      }
+      if (fallbackText && fallbackText.trim()) {
+        queueRef.current.push({
+          id: ++turnSeq.current,
+          pending: [fallbackText],
+          tts: null,
+          flushed: true,
+          enqueuedAt: Date.now(),
+          startedAt: 0,
+          firstChunkAt: 0,
+        });
+        maybeStartNext();
       }
     },
-    [openTurn],
+    [maybeStartNext, writingTurn],
   );
 
+  /** Kill current audio AND everything queued (barge-in / disable). */
   const stopSpeaking = useCallback(() => {
-    const turn = turnRef.current;
-    turnRef.current = null;
+    const active = activeRef.current;
+    activeRef.current = null;
+    queueRef.current = [];
     playerRef.current?.stop();
-    if (turn) {
+    if (active?.tts) {
       try {
-        turn.tts.destroy();
+        active.tts.destroy();
       } catch {
         /* already gone */
       }
@@ -256,6 +337,7 @@ export function useVoice(args: UseVoiceArgs) {
     playerRef.current = null;
     speakingRef.current = false;
     gateOpenRef.current = false;
+    userSpeakingRef.current = false;
   }, [stopSpeaking]);
 
   const enable = useCallback(async () => {
@@ -287,19 +369,24 @@ export function useVoice(args: UseVoiceArgs) {
       stt.on("error", (e) => patch({ error: e.message }));
 
       vad.on("speech_start", () => {
+        userSpeakingRef.current = true;
         if (speakingRef.current) {
-          // barge-in: the user talks over Nova
+          // barge-in: the user talks over Nova — void current + queued speech
           const spokenMs = Date.now() - novaSpeakStartRef.current;
+          const dropped = queueRef.current.length;
           stopSpeaking();
           speakingRef.current = false;
           gateOpenRef.current = true; // route this utterance to STT
-          emitMetric("barge_in", spokenMs);
+          emitMetric("barge_in", spokenMs, { droppedQueuedTurns: dropped });
           setState((s) => ({ ...s, interruptions: s.interruptions + 1, speaking: false, listening: true }));
         }
       });
       vad.on("speech_end", () => {
+        userSpeakingRef.current = false;
         speechEndAtRef.current = Date.now();
         if (gateOpenRef.current) sttRef.current?.flushUtterance();
+        // A relay held back by the user's speech can play now (§5).
+        maybeStartNextRef.current();
       });
 
       capture.on("chunk", (pcm) => {

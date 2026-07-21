@@ -18,12 +18,30 @@ function partialTagSuffix(buf: string, tag: string): number {
   return 0;
 }
 
+/** Per-turn protocol stats — how well the model followed the <speech> contract. */
+export interface SpeechParseStats {
+  /** Characters emitted as speech (incl. inter-block separators). */
+  spokenChars: number;
+  /** Characters outside the tags — silent notes / chatter, never surfaced. */
+  discardedChars: number;
+  /** Number of <speech> blocks opened this turn. */
+  blocks: number;
+  /** True if the turn ended inside an unclosed <speech> tag (tolerated, but a protocol violation). */
+  unclosed: boolean;
+}
+
 export class SpeechTagParser {
   private buf = "";
   private inside = false;
   private spoken = "";
+  private _stats: SpeechParseStats = { spokenChars: 0, discardedChars: 0, blocks: 0, unclosed: false };
 
   constructor(private readonly onSpeech: (text: string) => void) {}
+
+  /** Valid after finish(). */
+  get stats(): SpeechParseStats {
+    return { ...this._stats };
+  }
 
   /** Feed one streamed chunk. Emits any newly-unambiguous in-tag text. */
   push(chunk: string): void {
@@ -39,7 +57,12 @@ export class SpeechTagParser {
    */
   finish(): string {
     this.drain();
-    if (this.inside && this.buf) this.emit(this.buf);
+    if (this.inside) {
+      this._stats.unclosed = true;
+      if (this.buf) this.emit(this.buf);
+    } else {
+      this._stats.discardedChars += this.buf.length;
+    }
     this.buf = "";
     this.inside = false;
     return this.spoken.replace(/\s+/g, " ").trim();
@@ -48,6 +71,7 @@ export class SpeechTagParser {
   private emit(text: string): void {
     if (!text) return;
     this.spoken += text;
+    this._stats.spokenChars += text.length;
     this.onSpeech(text);
   }
 
@@ -74,12 +98,16 @@ export class SpeechTagParser {
       const i = this.buf.indexOf(OPEN);
       if (i >= 0) {
         // Text before the tag is silent — discard it.
+        this._stats.discardedChars += i;
         this.buf = this.buf.slice(i + OPEN.length);
         this.inside = true;
+        this._stats.blocks += 1;
         continue;
       }
       // Keep only a suffix that might be the start of <speech>.
       const hold = partialTagSuffix(this.buf, OPEN);
+      const dropped = this.buf.length - hold;
+      this._stats.discardedChars += dropped;
       this.buf = hold ? this.buf.slice(this.buf.length - hold) : "";
       return;
     }

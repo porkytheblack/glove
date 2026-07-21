@@ -47,17 +47,24 @@ function MetricsHud({ metrics }: { metrics: MetricRecord[] }) {
     { label: "First spoken token", value: derived.latest("front_ttft_ms"), avg: derived.avg("front_ttft_ms") },
     { label: "STT finalize", value: derived.latest("stt_final_ms"), avg: derived.avg("stt_final_ms") },
     { label: "Worker (research)", value: derived.latest("worker_ms"), avg: derived.avg("worker_ms") },
+    { label: "Worker queue wait", value: derived.latest("worker_queue_wait_ms"), avg: derived.avg("worker_queue_wait_ms") },
     { label: "Relay", value: derived.latest("relay_ms"), avg: derived.avg("relay_ms") },
     { label: "Delegation round-trip", value: derived.latest("delegation_roundtrip_ms"), avg: derived.avg("delegation_roundtrip_ms") },
+    { label: "Speech queue wait (§5 gate)", value: derived.latest("speech_queue_wait_ms"), avg: derived.avg("speech_queue_wait_ms") },
   ];
+
+  const counters = [
+    `${derived.count("barge_in")} barge-ins`,
+    `${derived.count("relay_skipped")} relays user-turn-won`,
+    `${derived.count("speech_tag_unclosed")} tag issues`,
+    `${derived.count("worker_no_reply")} silent worker runs`,
+  ].join(" · ");
 
   return (
     <div className="hud">
       <div className="hud-head">
         <span>Latency</span>
-        <span className="hud-sub">
-          {derived.count("barge_in")} barge-ins · saved to voice-metrics.jsonl
-        </span>
+        <span className="hud-sub">{counters} · voice-metrics.jsonl</span>
       </div>
       <div className="hud-grid">
         {rows.map((r) => (

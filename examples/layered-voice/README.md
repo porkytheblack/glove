@@ -165,7 +165,15 @@ Click **Mic** in the dock to go hands-free. Then:
   spoken turn including the proactive relay. The worker never reaches the
   speaker, and neither does Nova's out-of-tag text.
 - **Barge-in** — start talking while Nova is speaking and she stops; the
-  interruption is counted and timed.
+  interruption is counted and timed, and any speech queued behind the current
+  turn is voided too.
+- **The §5 audio gate** — the server may finish generating a relay while the
+  previous turn's audio is still playing (async delegation means model work and
+  playback overlap). Spoken turns are therefore **queued client-side**: a new
+  turn's audio does not start until the current turn has fully drained from the
+  speaker AND the user isn't mid-utterance (their turn takes priority — exactly
+  the paper's wakeup flowchart). Only the audio waits; the relay's model work
+  still pipelines in the background. `speech_queue_wait_ms` measures the gate.
 
 Set your key server-side (never `NEXT_PUBLIC_`):
 
@@ -195,13 +203,31 @@ Measured (server-side unless noted):
 | --- | --- |
 | `time_to_first_audio_ms` | **client** — utterance sent → first Nova audio (the headline voice latency) |
 | `front_ttft_ms` | utterance received → Nova's first *spoken* token (first in-tag token) |
-| `front_turn_ms` | the whole front turn, with a `spoke` flag (false = she stayed quiet) |
-| `worker_ms` | background worker research time |
-| `relay_ms` | proactive relay turn time |
+| `front_turn_ms` | the whole front turn; `data` carries `spoke`, `speaker`, `workerBusy` (was she answering *while* research ran — the interleaving evidence), and per-turn `<speech>` protocol health (`spokenChars` / `discardedChars` / `speechBlocks` / `unclosedTag`) |
+| `speech_tag_unclosed` | count event — a turn ended inside an unclosed `<speech>` (tolerated, but a prompt-tuning signal) |
+| `delegation_dispatched` | count event — a batch of delegations handed to the background worker |
+| `worker_queue_wait_ms` | dispatch → worker run start (runs serialize, so batches can queue) |
+| `worker_ms` | background worker research time; `data`: `delegations`, `toolCalls`, `replies`, `failed` |
+| `worker_no_reply` | count event — a worker run ended **without replying** (the paper's §8 silence failure: the front is left waiting) |
+| `relay_ms` | proactive relay turn time; `data`: `spoke`, `items` (>2 = coalescing in action), `unclosedTag` |
+| `relay_skipped` | count event — the queued relay found nothing resolved because a **user turn won** (§5) |
 | `delegation_roundtrip_ms` | delegation dispatched → relay spoken (the async round-trip) |
 | `stt_final_ms` | **client** — end-of-speech → final transcript |
+| `speech_queue_wait_ms` | **client** — how long a spoken turn's audio was held by the §5 gate (previous audio draining / user speaking) before it started |
+| `tts_stream_open_ms` | **client** — TTS WebSocket + auth handshake cost per spoken turn |
 | `tts_synth_ms` / `tts_playback_ms` | **client** — TTS first-audio / playback duration |
-| `barge_in` | **client** — an interruption, with ms Nova had been speaking |
+| `barge_in` | **client** — an interruption; `ms` Nova had been speaking, `data.droppedQueuedTurns` = queued speech voided with it |
+
+The `data` payloads are where the analysis lives, e.g.:
+
+```bash
+# how often Nova answered something else while the worker researched
+cat voice-metrics.jsonl | jq 'select(.name=="front_turn_ms" and .data.workerBusy==true)'
+# speech-protocol health: silent-note volume vs spoken volume per turn
+cat voice-metrics.jsonl | jq 'select(.name=="front_turn_ms") | {spoke:.data.spoke, spoken:.data.spokenChars, discarded:.data.discardedChars}'
+# worker effort per delegation batch
+cat voice-metrics.jsonl | jq 'select(.name=="worker_ms") | {ms, calls:.data.toolCalls, replies:.data.replies}'
+```
 
 Each line is one `MetricRecord` (`{ ts, sessionId, source, name, ms?, utteranceId?, data? }`).
 Analyze with e.g.:

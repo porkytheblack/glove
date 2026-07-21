@@ -23,7 +23,7 @@ import type { IGloveRunnable, SubscriberAdapter } from "glove-core";
 import { buildFrontAgent } from "./front-agent";
 import { buildWorkerAgent } from "./worker-agent";
 import { frameUtterance, ASSISTANT_NAME } from "./speakers";
-import { SpeechTagParser } from "./speech-parser";
+import { SpeechTagParser, type SpeechParseStats } from "./speech-parser";
 import { logMetric } from "./metrics";
 import type {
   AgentRole,
@@ -75,9 +75,14 @@ export class Session {
   private dispatched = new Set<string>();
   private relayQueued = false;
   private workerBusy = 0;
+  // Per-worker-run effort counters (worker runs are serialized, so one set is safe).
+  private workerRunToolCalls = 0;
+  private workerRunReplies = 0;
   private currentFrontKind: "response" | "relay" = "response";
   // The live <speech> parser for the front turn in flight (null between turns).
   private speechParser: SpeechTagParser | null = null;
+  // Protocol stats of the most recent front turn (set by runFrontTurn).
+  private lastSpeechStats: SpeechParseStats | null = null;
   private uttSeq = 0;
   private buildError: string | null = null;
   // Metric bookkeeping for the front turn in flight.
@@ -170,11 +175,13 @@ export class Session {
               if (role === "front") {
                 this.emit({ type: "mesh", direction: "delegate", from: "front", to: "worker", content: input.content ?? "" });
               } else if (role === "worker") {
+                this.workerRunReplies += 1;
                 this.emit({ type: "mesh", direction: "reply", from: "worker", to: "front", content: input.content ?? "" });
               }
             } else if (d.name.startsWith("glove_mesh_")) {
               // other mesh tools — not surfaced
             } else if (role === "worker") {
+              this.workerRunToolCalls += 1;
               this.emit({ type: "tool", role, name: d.name, summary: compact(d.input) });
             }
             break;
@@ -242,6 +249,12 @@ export class Session {
       this.speechParser = null;
     }
     const speech = parser.finish();
+    this.lastSpeechStats = parser.stats;
+    if (parser.stats.unclosed) {
+      // Protocol violation worth trending: the model opened <speech> and never
+      // closed it. Tolerated at runtime, but a prompt-tuning signal.
+      this.metric("speech_tag_unclosed", undefined, { kind: this.currentFrontKind });
+    }
     if (speech) {
       this.emit({ type: "say", role: "front", kind: this.currentFrontKind, text: speech });
     }
@@ -283,7 +296,18 @@ export class Session {
     this.ttftPending = true;
     const speech = await this.runFrontTurn(frameUtterance(role, text));
     this.ttftPending = false;
-    this.metric("front_turn_ms", Date.now() - this.turnStartAt, { spoke: speech.length > 0 });
+    const st = this.lastSpeechStats;
+    this.metric("front_turn_ms", Date.now() - this.turnStartAt, {
+      spoke: speech.length > 0,
+      speaker: role,
+      // Was the worker researching while Nova handled this? (async interleaving)
+      workerBusy: this.workerBusy > 0,
+      // <speech> protocol health for this turn
+      spokenChars: st?.spokenChars ?? 0,
+      discardedChars: st?.discardedChars ?? 0,
+      speechBlocks: st?.blocks ?? 0,
+      unclosedTag: st?.unclosed ?? false,
+    });
 
     if (!speech) {
       this.emit({
@@ -317,16 +341,33 @@ export class Session {
     for (const i of fresh) this.dispatched.add(i.tag);
 
     const dispatchedAt = Date.now();
+    this.metric("delegation_dispatched", undefined, { count: fresh.length });
     this.workerQueue = this.workerQueue
       .then(async () => {
+        // Worker runs serialize — a batch can sit behind an earlier run.
+        this.metric("worker_queue_wait_ms", Date.now() - dispatchedAt);
         this.setWorkerBusy(1);
+        this.workerRunToolCalls = 0;
+        this.workerRunReplies = 0;
         const wt0 = Date.now();
+        let failed = false;
         try {
           await this.worker.processRequest(WORKER_DRAIN_PROMPT);
         } catch (err) {
+          failed = true;
           this.emit({ type: "error", message: `Worker run failed: ${(err as Error)?.message ?? String(err)}` });
         }
-        this.metric("worker_ms", Date.now() - wt0);
+        this.metric("worker_ms", Date.now() - wt0, {
+          delegations: fresh.length,
+          toolCalls: this.workerRunToolCalls,
+          replies: this.workerRunReplies,
+          failed,
+        });
+        if (this.workerRunReplies === 0) {
+          // §8: silence is indistinguishable from a hang — the front is left
+          // waiting on its mesh:waiting reminder with no resolution.
+          this.metric("worker_no_reply", undefined, { delegations: fresh.length, failed });
+        }
         this.setWorkerBusy(-1);
         // The reply already landed in Nova's inbox (mesh handler). Wake her.
         this.queueRelay(dispatchedAt);
@@ -351,16 +392,27 @@ export class Session {
         const meshResolved = resolved.filter(
           (i) => i.tag.startsWith("mesh:from:") || i.tag.startsWith("mesh:waiting:"),
         );
-        if (meshResolved.length === 0) return; // consumed by a user turn — its answer covered it
+        if (meshResolved.length === 0) {
+          // §5 "user turn wins": a user utterance consumed the results first,
+          // so Nova already wove them into that answer — no relay needed.
+          this.metric("relay_skipped", undefined, { reason: "user_turn_won" });
+          return;
+        }
 
         this.emit({ type: "phase", phase: "relay" });
         this.currentFrontKind = "relay";
         const rt0 = Date.now();
         this.turnStartAt = rt0;
         this.ttftPending = true;
-        await this.runFrontTurn(RELAY_PROMPT);
+        const speech = await this.runFrontTurn(RELAY_PROMPT);
         this.ttftPending = false;
-        this.metric("relay_ms", Date.now() - rt0);
+        this.metric("relay_ms", Date.now() - rt0, {
+          spoke: speech.length > 0,
+          // >2 resolved items in one relay = coalescing in action (each
+          // delegation resolves as a waiting item + a reply item).
+          items: meshResolved.length,
+          unclosedTag: this.lastSpeechStats?.unclosed ?? false,
+        });
         this.metric("delegation_roundtrip_ms", Date.now() - dispatchedAt);
         this.currentFrontKind = "response";
         this.emit({ type: "phase", phase: "idle" });
