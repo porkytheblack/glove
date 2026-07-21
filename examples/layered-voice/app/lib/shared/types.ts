@@ -72,8 +72,9 @@ export type SessionEvent =
   | { type: "delta"; role: AgentRole; text: string }
   // A finalized spoken line from Nova (the joined <speech> content of a turn).
   | { type: "say"; role: AgentRole; kind: "response" | "relay"; text: string }
-  // Worker tool activity, surfaced in the backstage panel.
-  | { type: "tool"; role: AgentRole; name: string; summary: string }
+  // Worker tool activity, surfaced in the backstage panel. `summary` is the
+  // one-line view; `detail` is the full input payload for the expanded view.
+  | { type: "tool"; role: AgentRole; name: string; summary: string; detail?: string }
   // A mesh message crossed between agents (the delegation and its reply).
   | {
       type: "mesh";

@@ -23,8 +23,11 @@ function shortNameFor(role: SpeakerRole, speakers: { id: string; shortName: stri
   return speakers.find((s) => s.id === role)?.shortName ?? role;
 }
 
+const clip = (t: string, n = 200) => (t.length > n ? t.slice(0, n) + "…" : t);
+
 // ── Latency HUD ──────────────────────────────────────────────────────────────
 function MetricsHud({ metrics }: { metrics: MetricRecord[] }) {
+  const [showRaw, setShowRaw] = useState(false);
   const derived = useMemo(() => {
     const latest = (name: string) => {
       for (let i = metrics.length - 1; i >= 0; i--) {
@@ -64,8 +67,24 @@ function MetricsHud({ metrics }: { metrics: MetricRecord[] }) {
     <div className="hud">
       <div className="hud-head">
         <span>Latency</span>
-        <span className="hud-sub">{counters} · voice-metrics.jsonl</span>
+        <span className="hud-sub">{counters}</span>
+        <button className="hud-toggle" onClick={() => setShowRaw((v) => !v)}>
+          {showRaw ? "hide raw" : "raw feed"}
+        </button>
       </div>
+      {showRaw && (
+        <div className="hud-raw">
+          {metrics.length === 0 && <div className="hud-raw-line">no metrics yet</div>}
+          {metrics.slice(-80).map((m, i) => (
+            <div key={i} className="hud-raw-line">
+              <span className="t">{m.ts.slice(11, 23)}</span>{" "}
+              <span className="s">{m.source}</span> <span className="n">{m.name}</span>
+              {m.ms != null && <span className="ms"> {m.ms}ms</span>}
+              {m.data && <span className="d"> {JSON.stringify(m.data)}</span>}
+            </div>
+          ))}
+        </div>
+      )}
       <div className="hud-grid">
         {rows.map((r) => (
           <div className={`hud-item${r.hero ? " hero" : ""}`} key={r.label}>
@@ -85,6 +104,7 @@ export default function Console() {
   const [speaker, setSpeaker] = useState<SpeakerRole>("operator");
   const [text, setText] = useState("");
   const [metrics, setMetrics] = useState<MetricRecord[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const roomRef = useRef<HTMLDivElement>(null);
   const backRef = useRef<HTMLDivElement>(null);
   const speakerRef = useRef<SpeakerRole>("operator");
@@ -301,23 +321,48 @@ export default function Console() {
                 thin; the worker carries the tool surface.
               </div>
             )}
-            {s.backstage.map((b) => (
-              <div className={`backstage-item ${b.kind}`} key={b.id}>
-                <div className="bi-icon">
-                  {b.kind === "delegate" ? "↗" : b.kind === "reply" ? "↩" : "⚙"}
-                </div>
-                <div className="bi-body">
-                  <div className="bi-title">
-                    {b.kind === "delegate"
-                      ? "Nova → Worker · blocking delegate"
-                      : b.kind === "reply"
-                        ? "Worker → Nova · reply (in_reply_to)"
-                        : `Worker · ${b.name}`}
+            {s.backstage.map((b) => {
+              const full = b.detail ?? b.content;
+              const expandable = full.includes("\n") || full.length > 160 || full !== b.content;
+              const isOpen = expanded.has(b.id);
+              return (
+                <div
+                  className={`backstage-item ${b.kind}${expandable ? " expandable" : ""}`}
+                  key={b.id}
+                  onClick={() => {
+                    if (!expandable) return;
+                    setExpanded((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(b.id)) next.delete(b.id);
+                      else next.add(b.id);
+                      return next;
+                    });
+                  }}
+                  title={expandable ? "Click to expand / collapse" : undefined}
+                >
+                  <div className="bi-icon">
+                    {b.kind === "delegate" ? "↗" : b.kind === "reply" ? "↩" : "⚙"}
                   </div>
-                  <div className={b.kind === "tool" ? "summary" : "content"}>{b.content}</div>
+                  <div className="bi-body">
+                    <div className="bi-title">
+                      {b.kind === "delegate"
+                        ? "Nova → Worker · blocking delegate"
+                        : b.kind === "reply"
+                          ? "Worker → Nova · reply (in_reply_to)"
+                          : `Worker · ${b.name}`}
+                      {expandable && <span className="bi-caret">{isOpen ? "▾" : "▸"}</span>}
+                    </div>
+                    {isOpen ? (
+                      <pre className="bi-detail">{full}</pre>
+                    ) : (
+                      <div className={b.kind === "tool" ? "summary" : "content"}>
+                        {clip(b.content)}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <MetricsHud metrics={metrics} />

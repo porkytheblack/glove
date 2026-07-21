@@ -38,6 +38,8 @@ export interface BackstageItem {
   role?: AgentRole;
   name?: string;
   content: string;
+  /** Full payload for the expanded view (tool inputs; mesh content is already full). */
+  detail?: string;
 }
 
 const EMPTY_STATS: Record<AgentRole, AgentStats> = {
@@ -105,7 +107,7 @@ export function useSession(opts?: { onEvent?: (e: SessionEvent) => void }) {
       case "tool":
         setBackstage((b) => [
           ...b,
-          { id: nextId(), kind: "tool", role: e.role, name: e.name, content: e.summary },
+          { id: nextId(), kind: "tool", role: e.role, name: e.name, content: e.summary, detail: e.detail },
         ]);
         break;
       case "phase":

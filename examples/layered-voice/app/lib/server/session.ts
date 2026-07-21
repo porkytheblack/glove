@@ -51,14 +51,23 @@ function emptyStats(): AgentStats {
   return { tokensIn: 0, tokensOut: 0, turns: 0 };
 }
 
-function compact(input: unknown, max = 140): string {
-  let s: string;
+function stringify(input: unknown): string {
   try {
-    s = typeof input === "string" ? input : JSON.stringify(input);
+    return typeof input === "string" ? input : JSON.stringify(input, null, 2);
   } catch {
-    s = String(input);
+    return String(input);
   }
+}
+
+function compact(input: unknown, max = 140): string {
+  const s = stringify(input).replace(/\s+/g, " ");
   return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
+/** Full payload for the expanded backstage view, bounded so SSE frames stay sane. */
+function detailOf(input: unknown, max = 4000): string {
+  const s = stringify(input);
+  return s.length > max ? `${s.slice(0, max)}\n… (${s.length - max} more chars)` : s;
 }
 
 export class Session {
@@ -83,6 +92,10 @@ export class Session {
   private workerRunToolCalls = 0;
   private workerRunReplies = 0;
   private currentFrontKind: "response" | "relay" = "response";
+  // True between the front agent's compaction_start/compaction_end — its
+  // summary generation streams text_delta like any turn and must NEVER reach
+  // the speech parser (glove-voice gotcha: the summary is not narrated).
+  private frontCompacting = false;
   // The live <speech> parser for the front turn in flight (null between turns).
   private speechParser: SpeechTagParser | null = null;
   // Protocol stats of the most recent front turn (set by runFrontTurn).
@@ -164,10 +177,19 @@ export class Session {
             this.emit({ type: "stats", stats: this.snapshotStats() });
             break;
           }
+          case "compaction_start": {
+            if (role === "front") this.frontCompacting = true;
+            break;
+          }
+          case "compaction_end": {
+            if (role === "front") this.frontCompacting = false;
+            break;
+          }
           case "text_delta": {
             // Nova's raw stream goes through the <speech> parser — only in-tag
-            // spans surface as spoken deltas. Worker text is never surfaced.
-            if (role === "front") {
+            // spans surface as spoken deltas. Compaction-summary deltas are
+            // ignored entirely (never spoken); worker text is never surfaced.
+            if (role === "front" && !this.frontCompacting) {
               this.speechParser?.push((data as { text: string }).text);
             }
             break;
@@ -186,7 +208,7 @@ export class Session {
               // other mesh tools — not surfaced
             } else if (role === "worker") {
               this.workerRunToolCalls += 1;
-              this.emit({ type: "tool", role, name: d.name, summary: compact(d.input) });
+              this.emit({ type: "tool", role, name: d.name, summary: compact(d.input), detail: detailOf(d.input) });
             }
             break;
           }
