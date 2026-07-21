@@ -158,12 +158,65 @@ providers with `VOICE_PROVIDER` (+ that provider's key). See
 (`claude-haiku-4-5` front/monitor, `claude-sonnet-4` worker) via
 `VOICE_PROVIDER=anthropic`.
 
-### Voice output
+### Full-duplex voice (ElevenLabs)
 
-Nova's system prompt tells her she's **spoken aloud** (ElevenLabs TTS) and that
-her text is read out, not displayed — so she avoids markdown/symbols and says
-numbers and hull ids the natural spoken way. In this console her `say` events
-are the lines you'd feed to TTS; the monitor and worker never reach the speaker.
+Click **Mic** in the dock to go hands-free. Then:
+
+- **Mic in** — your speech is captured, VAD-segmented, and transcribed by
+  ElevenLabs Scribe. Each finalized utterance is sent as the **currently selected
+  speaker** (the chip you have highlighted is "who's at the mic"), so switch
+  speakers to play the operator vs. the customer.
+- **TTS out** — Nova's `say` events are spoken by ElevenLabs TTS as they stream
+  over SSE (including the proactive relay). The monitor and worker never reach
+  the speaker.
+- **Barge-in** — start talking while Nova is speaking and she stops; the
+  interruption is counted and timed.
+
+Set your key server-side (never `NEXT_PUBLIC_`):
+
+```
+ELEVENLABS_API_KEY=...
+# optional: NEXT_PUBLIC_ELEVENLABS_VOICE_ID=<voice id for Nova>
+```
+
+The browser only ever gets short-lived tokens from `/api/voice/stt-token` and
+`/api/voice/tts-token` (glove-next's `createVoiceTokenHandler`).
+
+Because the agents run server-side, this is wired à la carte with `glove-voice`'s
+ElevenLabs adapters rather than `useGloveVoice({ runnable })` — that hook assumes
+an in-browser agent and can't speak the proactive relay, which arrives outside
+the initiating turn.
+
+### Latency metrics → local file
+
+Every turn is instrumented and both **streamed to a live HUD** (right column) and
+**appended to a local JSONL file** for offline analysis. Default file:
+`voice-metrics.jsonl` in the app's working dir (override with
+`VOICE_METRICS_FILE`).
+
+Measured (server-side unless noted):
+
+| metric | meaning |
+| --- | --- |
+| `time_to_first_audio_ms` | **client** — utterance sent → first Nova audio (the headline voice latency) |
+| `front_ttft_ms` | utterance received → Nova's first token |
+| `monitor_ms` | addressing classification time |
+| `worker_ms` | delegated research time |
+| `relay_ms` | proactive relay turn time |
+| `roundtrip_ms` | full server turn (front + worker + relay) |
+| `stt_final_ms` | **client** — end-of-speech → final transcript |
+| `tts_synth_ms` / `tts_playback_ms` | **client** — TTS first-audio / playback duration |
+| `barge_in` | **client** — an interruption, with ms Nova had been speaking |
+
+Each line is one `MetricRecord` (`{ ts, sessionId, source, name, ms?, utteranceId?, data? }`).
+Analyze with e.g.:
+
+```bash
+# average time-to-first-audio
+cat voice-metrics.jsonl | jq -s '[.[]|select(.name=="time_to_first_audio_ms").ms]|add/length'
+# every barge-in
+cat voice-metrics.jsonl | jq 'select(.name=="barge_in")'
+```
 
 ---
 
@@ -213,7 +266,10 @@ app/
   api/session/route.ts                 POST → create a session (3 agents + mesh)
   api/session/[id]/utterance/route.ts  POST → run one tagged utterance
   api/session/[id]/stream/route.ts     GET  → SSE of all pipeline events
-  components/Console.tsx               the two-column console UI
+  api/voice/stt-token/route.ts         GET  → short-lived ElevenLabs STT token
+  api/voice/tts-token/route.ts         GET  → short-lived ElevenLabs TTS token
+  api/metrics/route.ts                 POST → append client metrics to the file
+  components/Console.tsx               the console UI (room + backstage + HUD)
   lib/
     shared/types.ts                    types shared client ↔ server
     data/seed.ts                       the seeded Orbital Dynamics database
@@ -224,9 +280,11 @@ app/
       front-agent.ts                   Nova — thin, fast, voice-facing
       worker-agent.ts                  the heavy capability layer + DB tools
       monitor-agent.ts                 the passive addressing classifier
-      session.ts                       orchestrator: mesh wiring + the pipeline
+      session.ts                       orchestrator: mesh wiring + pipeline + metrics
+      metrics.ts                       local JSONL metrics sink
     client/
       useSession.ts                    SSE client hook
+      useVoice.ts                      full-duplex ElevenLabs mic + TTS + metrics
       scenarios.ts                     scripted multi-party scenes
 ```
 

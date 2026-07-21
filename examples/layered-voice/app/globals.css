@@ -493,6 +493,141 @@ code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+/* ── Voice controls ─────────────────────────────────────────────────────── */
+.mic-btn {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mic-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: #2a3a5e;
+}
+.mic-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.mic-btn.listening,
+.mic-btn.idle,
+.mic-btn.starting {
+  border-color: var(--operator);
+  color: var(--operator);
+}
+.mic-btn.speaking {
+  border-color: var(--nova);
+  color: var(--nova);
+}
+
+.voice-live {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  margin-bottom: 9px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  font-size: 12px;
+}
+.voice-live .vl-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--operator);
+  flex: 0 0 auto;
+}
+.voice-live.listening .vl-dot {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.voice-live.speaking .vl-dot {
+  background: var(--nova);
+  animation: pulse 0.8s ease-in-out infinite;
+}
+.voice-live .vl-label {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.voice-live .vl-partial {
+  color: var(--text);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.voice-live .vl-barge {
+  margin-left: auto;
+  color: var(--customer);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* ── Latency HUD ────────────────────────────────────────────────────────── */
+.hud {
+  border-top: 1px solid var(--border-soft);
+  padding: 11px 18px 4px;
+}
+.hud-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--faint);
+  margin-bottom: 9px;
+}
+.hud-head .hud-sub {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 10.5px;
+}
+.hud-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 7px;
+}
+.hud-item {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  background: var(--panel-2);
+}
+.hud-item.hero {
+  grid-column: 1 / -1;
+  border-color: rgba(88, 176, 255, 0.35);
+  background: linear-gradient(180deg, rgba(88, 176, 255, 0.07), transparent);
+}
+.hud-label {
+  font-size: 10.5px;
+  color: var(--faint);
+}
+.hud-value {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--text);
+  margin-top: 2px;
+}
+.hud-item.hero .hud-value {
+  color: var(--nova);
+  font-size: 20px;
+}
+.hud-avg {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
 /* Scrollbars */
 .col-body::-webkit-scrollbar {
   width: 9px;

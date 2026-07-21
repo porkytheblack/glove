@@ -42,6 +42,25 @@ export interface AgentStats {
   turns: number;
 }
 
+/**
+ * A single voice/latency measurement. Server-measured records (monitor/front/
+ * worker/relay latency, front time-to-first-token) and client-measured records
+ * (STT latency, time-to-first-audio, barge-ins, TTS timings) are both appended
+ * to a local JSONL file for offline analysis, and streamed to the live HUD.
+ */
+export interface MetricRecord {
+  ts: string; // ISO timestamp
+  sessionId: string;
+  source: "server" | "client";
+  /** e.g. "monitor_ms", "front_ttft_ms", "time_to_first_audio_ms", "barge_in". */
+  name: string;
+  /** Duration in ms, when the metric is a timing. */
+  ms?: number;
+  utteranceId?: string;
+  /** Any extra context (char counts, addressee, etc.). */
+  data?: Record<string, unknown>;
+}
+
 export type Phase =
   | "idle"
   | "listening"
@@ -79,6 +98,8 @@ export type SessionEvent =
   | { type: "stats"; stats: Record<AgentRole, AgentStats> }
   // Current pipeline phase, for the status indicator.
   | { type: "phase"; phase: Phase }
+  // A server-measured latency metric (also appended to the metrics file).
+  | { type: "metric"; metric: MetricRecord }
   // Something went wrong (e.g. missing API key).
   | { type: "error"; message: string };
 

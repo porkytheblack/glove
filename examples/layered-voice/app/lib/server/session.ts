@@ -24,9 +24,11 @@ import { buildFrontAgent } from "./front-agent";
 import { buildWorkerAgent } from "./worker-agent";
 import { classifyAddressing, type MonitorLine } from "./monitor-agent";
 import { frameAddressed, frameOverheard, ASSISTANT_NAME } from "./speakers";
+import { logMetric } from "./metrics";
 import type {
   AgentRole,
   AgentStats,
+  MetricRecord,
   Phase,
   SessionEvent,
   SpeakerRole,
@@ -68,6 +70,10 @@ export class Session {
   private currentFrontKind: "response" | "relay" = "response";
   private uttSeq = 0;
   private buildError: string | null = null;
+  // Metric bookkeeping for the current addressed turn.
+  private currentUtteranceId: string | null = null;
+  private turnStartAt = 0;
+  private ttftPending = false;
   readonly ready: Promise<void>;
 
   constructor(id: string) {
@@ -95,6 +101,21 @@ export class Session {
     return this.buildError;
   }
 
+  /** Emit a server-measured metric to the live HUD and append it to the file. */
+  private metric(name: string, ms?: number, data?: Record<string, unknown>) {
+    const rec: MetricRecord = {
+      ts: new Date().toISOString(),
+      sessionId: this.id,
+      source: "server",
+      name,
+      ...(ms != null ? { ms: Math.round(ms) } : {}),
+      ...(this.currentUtteranceId ? { utteranceId: this.currentUtteranceId } : {}),
+      ...(data ? { data } : {}),
+    };
+    this.emit({ type: "metric", metric: rec });
+    void logMetric(rec);
+  }
+
   snapshotStats(): Record<AgentRole, AgentStats> {
     return {
       front: { ...this.stats.front },
@@ -119,6 +140,10 @@ export class Session {
           case "text_delta": {
             // Only Nova "speaks". Worker/monitor internal text is not surfaced.
             if (role === "front") {
+              if (this.ttftPending) {
+                this.ttftPending = false;
+                this.metric("front_ttft_ms", Date.now() - this.turnStartAt);
+              }
               this.emit({ type: "delta", role, text: (data as { text: string }).text });
             }
             break;
@@ -209,12 +234,18 @@ export class Session {
       text,
       ts: new Date().toISOString(),
     };
+    this.currentUtteranceId = utt.id;
     this.emit({ type: "utterance", utterance: utt });
 
     // 1) Addressing monitor
     this.emit({ type: "phase", phase: "classifying" });
     const recent = this.transcript.slice(-MONITOR_WINDOW);
+    const mt0 = Date.now();
     const verdict = await classifyAddressing({ recent, latest: { role, text } }, this.makeSubscriber("monitor"));
+    this.metric("monitor_ms", Date.now() - mt0, {
+      addressee: verdict.addressee,
+      confidence: verdict.confidence,
+    });
     this.emit({ type: "verdict", utteranceId: utt.id, verdict });
     this.transcript.push({ role, text, addressee: verdict.addressee });
 
@@ -222,8 +253,13 @@ export class Session {
     if (verdict.addressee === "assistant") {
       this.emit({ type: "phase", phase: "front" });
       this.currentFrontKind = "response";
+      this.turnStartAt = Date.now();
+      this.ttftPending = true;
       await this.front.processRequest(frameAddressed(role, text));
+      this.ttftPending = false;
+      this.metric("front_turn_ms", Date.now() - this.turnStartAt);
       await this.drainDelegations();
+      this.metric("roundtrip_ms", Date.now() - this.turnStartAt);
       this.emit({ type: "phase", phase: "idle" });
     } else {
       // Overheard: give Nova situational awareness silently, no response.
@@ -242,17 +278,21 @@ export class Session {
 
       // Worker handles every delegation in its inbox and replies over the mesh.
       this.emit({ type: "phase", phase: "worker" });
+      const wt0 = Date.now();
       await this.worker.processRequest(
         'You have new delegated request(s) in your inbox. Handle each one with your tools, then reply to the front agent (id "front") via glove_mesh_send_message with in_reply_to set to the message id shown in the inbox line. Do NOT acknowledge — reply only.',
       );
+      this.metric("worker_ms", Date.now() - wt0);
 
       // The reply resolves the front's pending item and lands in its inbox;
       // the front relays it proactively (the §5 wakeup, driven here).
       this.emit({ type: "phase", phase: "relay" });
       this.currentFrontKind = "relay";
+      const rt0 = Date.now();
       await this.front.processRequest(
         "A delegated request has resolved and its result is in your inbox. Relay it to whoever asked in one or two natural spoken sentences — just the key facts. If nothing meaningful resolved, keep it brief. Do not re-delegate unless there is a genuinely new question to answer.",
       );
+      this.metric("relay_ms", Date.now() - rt0);
       this.currentFrontKind = "response";
     }
   }

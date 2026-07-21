@@ -42,7 +42,10 @@ const EMPTY_STATS: Record<AgentRole, AgentStats> = {
   monitor: { tokensIn: 0, tokensOut: 0, turns: 0 },
 };
 
-export function useSession() {
+export function useSession(opts?: { onEvent?: (e: SessionEvent) => void }) {
+  const onEventRef = useRef(opts?.onEvent);
+  onEventRef.current = opts?.onEvent;
+
   const [config, setConfig] = useState<SessionConfig | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +62,8 @@ export function useSession() {
   const nextId = () => `evt${++seqRef.current}`;
 
   const handleEvent = useCallback((e: SessionEvent) => {
+    // Let consumers (e.g. the voice layer + metrics HUD) tap the raw stream.
+    onEventRef.current?.(e);
     switch (e.type) {
       case "utterance":
         setRoom((r) => [

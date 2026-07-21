@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../lib/client/useSession";
+import { useVoice } from "../lib/client/useVoice";
 import { SCENARIOS } from "../lib/client/scenarios";
-import type { Addressee, Phase, SpeakerRole } from "../lib/shared/types";
+import type { Addressee, MetricRecord, Phase, SessionEvent, SpeakerRole } from "../lib/shared/types";
 
 const SPK_COLOR: Record<SpeakerRole, string> = {
   operator: "var(--operator)",
@@ -30,12 +31,97 @@ function shortNameFor(role: SpeakerRole, speakers: { id: string; shortName: stri
   return speakers.find((s) => s.id === role)?.shortName ?? role;
 }
 
+// ── Latency HUD ──────────────────────────────────────────────────────────────
+function MetricsHud({ metrics }: { metrics: MetricRecord[] }) {
+  const derived = useMemo(() => {
+    const latest = (name: string) => {
+      for (let i = metrics.length - 1; i >= 0; i--) {
+        if (metrics[i].name === name && typeof metrics[i].ms === "number") return metrics[i].ms!;
+      }
+      return undefined;
+    };
+    const avg = (name: string) => {
+      const xs = metrics.filter((m) => m.name === name && typeof m.ms === "number").map((m) => m.ms!);
+      return xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : undefined;
+    };
+    const count = (name: string) => metrics.filter((m) => m.name === name).length;
+    return { latest, avg, count };
+  }, [metrics]);
+
+  const fmt = (v?: number) => (v == null ? "—" : `${v}ms`);
+
+  const rows: { label: string; value?: number; avg?: number; hero?: boolean }[] = [
+    { label: "Time to first audio", value: derived.latest("time_to_first_audio_ms"), avg: derived.avg("time_to_first_audio_ms"), hero: true },
+    { label: "Nova first token", value: derived.latest("front_ttft_ms"), avg: derived.avg("front_ttft_ms") },
+    { label: "STT finalize", value: derived.latest("stt_final_ms"), avg: derived.avg("stt_final_ms") },
+    { label: "Monitor (addressing)", value: derived.latest("monitor_ms"), avg: derived.avg("monitor_ms") },
+    { label: "Worker (research)", value: derived.latest("worker_ms"), avg: derived.avg("worker_ms") },
+    { label: "Relay", value: derived.latest("relay_ms"), avg: derived.avg("relay_ms") },
+    { label: "Server round-trip", value: derived.latest("roundtrip_ms"), avg: derived.avg("roundtrip_ms") },
+  ];
+
+  return (
+    <div className="hud">
+      <div className="hud-head">
+        <span>Latency</span>
+        <span className="hud-sub">
+          {derived.count("barge_in")} barge-ins · saved to voice-metrics.jsonl
+        </span>
+      </div>
+      <div className="hud-grid">
+        {rows.map((r) => (
+          <div className={`hud-item${r.hero ? " hero" : ""}`} key={r.label}>
+            <div className="hud-label">{r.label}</div>
+            <div className="hud-value">
+              {fmt(r.value)}
+              {r.avg != null && <span className="hud-avg">avg {r.avg}ms</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Console() {
-  const s = useSession();
   const [speaker, setSpeaker] = useState<SpeakerRole>("operator");
   const [text, setText] = useState("");
+  const [metrics, setMetrics] = useState<MetricRecord[]>([]);
   const roomRef = useRef<HTMLDivElement>(null);
   const backRef = useRef<HTMLDivElement>(null);
+  const speakerRef = useRef<SpeakerRole>("operator");
+  const voiceRef = useRef<ReturnType<typeof useVoice> | null>(null);
+  const saySeq = useRef(0);
+
+  useEffect(() => {
+    speakerRef.current = speaker;
+  }, [speaker]);
+
+  const appendMetric = useCallback(
+    (m: MetricRecord) => setMetrics((x) => [...x, m].slice(-300)),
+    [],
+  );
+
+  // Tap the raw event stream: speak Nova's lines + collect server metrics.
+  const onServerEvent = useCallback(
+    (e: SessionEvent) => {
+      if (e.type === "metric") appendMetric(e.metric);
+      else if (e.type === "say" && e.role === "front") {
+        voiceRef.current?.speak(`say${++saySeq.current}`, e.text);
+      }
+    },
+    [appendMetric],
+  );
+
+  const s = useSession({ onEvent: onServerEvent });
+
+  const voice = useVoice({
+    sessionId: s.config?.sessionId ?? null,
+    onUtterance: (sp, t) => void s.send(sp, t),
+    getSpeaker: () => speakerRef.current,
+    onMetric: appendMetric,
+  });
+  voiceRef.current = voice;
 
   useEffect(() => {
     roomRef.current?.scrollTo({ top: roomRef.current.scrollHeight, behavior: "smooth" });
@@ -48,17 +134,23 @@ export default function Console() {
   const blocked = !s.ready || s.busy;
   const hasKeyError = !!s.error && /api key|provider|model/i.test(s.error);
 
-  const totalTokens = useMemo(
-    () => (r: { tokensIn: number; tokensOut: number }) => r.tokensIn + r.tokensOut,
-    [],
-  );
-
   function submit() {
     const t = text.trim();
     if (!t || blocked) return;
     setText("");
+    if (voice.enabled) voice.markUtteranceSent();
     void s.send(speaker, t);
   }
+
+  const voiceStatus = !voice.enabled
+    ? "off"
+    : voice.speaking
+      ? "speaking"
+      : voice.listening
+        ? "listening"
+        : voice.ready
+          ? "idle"
+          : "starting";
 
   return (
     <div className="app">
@@ -94,6 +186,12 @@ export default function Console() {
           )}
         </div>
       )}
+      {voice.error && (
+        <div className="banner">
+          Voice: <strong>{voice.error}</strong> — check <code>ELEVENLABS_API_KEY</code> and mic
+          permission.
+        </div>
+      )}
 
       <div className="main">
         {/* ── Room ── */}
@@ -102,12 +200,12 @@ export default function Console() {
           <div className="col-body" ref={roomRef}>
             {s.room.length === 0 && !s.streaming && (
               <div className="empty">
-                Speak into the room as <strong>Sam</strong>, the walk-in{" "}
+                Turn on the mic and speak, or type as <strong>Sam</strong>, the walk-in{" "}
                 <strong>customer</strong>, or the technician <strong>Kit</strong>.
                 <br />
-                The monitor decides whether each line is aimed at Nova or at another
-                person. Nova only answers when she&apos;s addressed — and delegates the
-                heavy lookups to the worker.
+                The monitor decides whether each line is aimed at Nova or at another person. Nova
+                only answers when she&apos;s addressed — and delegates the heavy lookups to the
+                worker.
                 <br />
                 <br />
                 Try a scripted scene below to see it end-to-end.
@@ -135,9 +233,7 @@ export default function Console() {
                   </div>
                   {it.verdict && <div className="verdict-reason">monitor: {it.verdict.reason}</div>}
                   {it.silent && (
-                    <div className="silent-note">
-                      Nova stayed quiet — not addressed to her.
-                    </div>
+                    <div className="silent-note">Nova stayed quiet — not addressed to her.</div>
                   )}
                 </div>
               ) : (
@@ -171,8 +267,8 @@ export default function Console() {
           <div className="col-body" ref={backRef}>
             {s.backstage.length === 0 && (
               <div className="empty">
-                Delegations, worker tool calls, and replies show up here. The front agent
-                stays thin; the worker carries the tool surface.
+                Delegations, worker tool calls, and replies show up here. The front agent stays
+                thin; the worker carries the tool surface.
               </div>
             )}
             {s.backstage.map((b) => (
@@ -194,6 +290,8 @@ export default function Console() {
             ))}
           </div>
 
+          <MetricsHud metrics={metrics} />
+
           <div className="stats">
             {(
               [
@@ -208,7 +306,8 @@ export default function Console() {
                   {label}
                 </div>
                 <div className="num">
-                  {totalTokens(s.stats[role]).toLocaleString()} <small>tok</small>
+                  {(s.stats[role].tokensIn + s.stats[role].tokensOut).toLocaleString()}{" "}
+                  <small>tok</small>
                 </div>
                 <div className="turns">{s.stats[role].turns} turns</div>
               </div>
@@ -219,6 +318,24 @@ export default function Console() {
 
       {/* ── Input dock ── */}
       <div className="dock">
+        {voice.enabled && (
+          <div className={`voice-live ${voiceStatus}`}>
+            <span className="vl-dot" />
+            <span className="vl-label">
+              {voiceStatus === "speaking"
+                ? "Nova speaking"
+                : voiceStatus === "listening"
+                  ? `Listening as ${shortNameFor(speaker, speakers)}`
+                  : voiceStatus === "starting"
+                    ? "Starting mic…"
+                    : "Mic idle"}
+            </span>
+            {voice.partial && <span className="vl-partial">“{voice.partial}”</span>}
+            {voice.interruptions > 0 && (
+              <span className="vl-barge">{voice.interruptions} barge-in{voice.interruptions > 1 ? "s" : ""}</span>
+            )}
+          </div>
+        )}
         <div className="row">
           <div className="speaker-select">
             {speakers.map((sp) => (
@@ -243,6 +360,14 @@ export default function Console() {
             }}
             disabled={!s.ready}
           />
+          <button
+            className={`mic-btn ${voiceStatus}`}
+            onClick={() => (voice.enabled ? void voice.disable() : void voice.enable())}
+            disabled={!s.ready}
+            title={voice.enabled ? "Turn the mic off" : "Turn on the mic (full-duplex voice)"}
+          >
+            {voice.enabled ? "● Mic on" : "🎙 Mic"}
+          </button>
           <button className="send" onClick={submit} disabled={blocked || !text.trim()}>
             {s.busy ? "…" : "Send"}
           </button>
