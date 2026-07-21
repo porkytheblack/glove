@@ -31,6 +31,16 @@ export interface ElevenLabsTTSConfig {
    */
   autoMode?: boolean;
 
+  /**
+   * Override the buffering schedule instead. `chunkLengthSchedule` (sent as
+   * `generation_config.chunk_length_schedule` on the BOS message) sets how
+   * many buffered characters trigger each successive generation — e.g.
+   * `[60, 120, 160, 250]` starts synthesis mid-sentence after ~60 chars,
+   * which beats sentence-boundary triggering for short single-sentence
+   * replies. Values must be 50–500 per ElevenLabs. Ignored under `autoMode`.
+   */
+  generationConfig?: { chunkLengthSchedule?: number[] };
+
   /** Voice settings */
   voiceSettings?: {
     stability?: number;
@@ -89,6 +99,7 @@ export class ElevenLabsTTSAdapter
       this.ws.onopen = () => {
         console.debug(`[ElevenLabsTTS] WebSocket opened, sending BOS`);
         // BOS marker — required before sending text
+        const schedule = this.cfg.generationConfig?.chunkLengthSchedule;
         this.ws!.send(
           JSON.stringify({
             text: " ",
@@ -97,6 +108,9 @@ export class ElevenLabsTTSAdapter
               similarity_boost: this.cfg.voiceSettings?.similarityBoost ?? 0.8,
               speed: this.cfg.voiceSettings?.speed ?? 1.0,
             },
+            ...(schedule?.length
+              ? { generation_config: { chunk_length_schedule: schedule } }
+              : {}),
           })
         );
         this.ready = true;

@@ -64,6 +64,9 @@ export async function GET(
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      // Some proxies buffer streaming responses unless told not to — deltas
+      // must reach the browser per-token or TTS can't start mid-generation.
+      "X-Accel-Buffering": "no",
     },
   });
 }

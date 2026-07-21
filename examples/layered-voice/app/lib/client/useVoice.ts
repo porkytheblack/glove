@@ -26,7 +26,6 @@ import {
   VAD,
   ElevenLabsSTTAdapter,
   ElevenLabsTTSAdapter,
-  SentenceBuffer,
 } from "glove-voice";
 import type { MetricRecord, SpeakerRole } from "../shared/types";
 
@@ -94,16 +93,10 @@ const INITIAL: VoiceState = {
 /** One spoken turn's lifecycle: buffered → active (synthesizing/playing) → done. */
 interface SpeechTurn {
   id: number;
-  /** Complete sentences waiting to be sent (turn not started yet). */
+  /** Text waiting to be sent (turn not started yet). */
   pending: string[];
   /** Everything handed to this turn's TTS so far (for heard-prefix estimation). */
   sentText: string;
-  /**
-   * Accumulates raw streamed tokens and emits FULL SENTENCES. ElevenLabs
-   * auto_mode synthesizes at each sentence end, so feeding sentences (not raw
-   * token fragments) is what makes audio start mid-generation.
-   */
-  sb: SentenceBuffer;
   tts: ElevenLabsTTSAdapter | null;
   /** endTurn was called — no more text is coming for this turn. */
   flushed: boolean;
@@ -129,8 +122,9 @@ export function useVoice(args: UseVoiceArgs) {
   const turnSeq = useRef(0);
   // A TTS WebSocket opened WHILE the model is thinking (utterance sent → first
   // token), so the token-mint + handshake cost overlaps model latency instead
-  // of adding to time-to-first-audio. Adopted by the next spoken turn.
-  const prewarmRef = useRef<{ tts: ElevenLabsTTSAdapter; at: number } | null>(null);
+  // of adding to time-to-first-audio. Adopted by the next spoken turn — even
+  // while STILL OPENING (text queues into it; never pay the handshake twice).
+  const prewarmRef = useRef<{ tts: ElevenLabsTTSAdapter; at: number; opening: Promise<void> } | null>(null);
 
   // Mutable flags read from audio-event handlers.
   const enabledRef = useRef(false);
@@ -170,9 +164,12 @@ export function useVoice(args: UseVoiceArgs) {
       new ElevenLabsTTSAdapter({
         getToken: () => fetchToken("/api/voice/tts-token"),
         voiceId: VOICE_ID,
-        // Realtime: synthesize at each sentence end instead of buffering
-        // ~120 chars (which made short replies only synthesize at flush).
-        autoMode: true,
+        // Realtime: synthesize after ~60 buffered chars (mid-sentence) instead
+        // of the default ~120+. Sentence-boundary triggering (auto_mode) was
+        // self-defeating for one-sentence replies — the first sentence only
+        // completes when the whole reply is done. Raw token streaming + a low
+        // schedule starts audio well before the text finishes.
+        generationConfig: { chunkLengthSchedule: [60, 120, 160, 250] },
       }),
     [],
   );
@@ -190,9 +187,9 @@ export function useVoice(args: UseVoiceArgs) {
       }
     }
     const tts = makeTts();
-    const entry = { tts, at: Date.now() };
+    const entry = { tts, at: Date.now(), opening: tts.open() };
     prewarmRef.current = entry;
-    tts.open().catch(() => {
+    entry.opening.catch(() => {
       if (prewarmRef.current === entry) prewarmRef.current = null;
     });
   }, [makeTts]);
@@ -208,7 +205,6 @@ export function useVoice(args: UseVoiceArgs) {
       id: ++turnSeq.current,
       pending: [],
       sentText: "",
-      sb: new SentenceBuffer(),
       tts: null,
       flushed,
       enqueuedAt: Date.now(),
@@ -286,15 +282,17 @@ export function useVoice(args: UseVoiceArgs) {
     emitMetric("speech_queue_wait_ms", next.startedAt - next.enqueuedAt, { turn: next.id });
     beginSpeaking();
 
-    // Adopt the prewarmed socket if it's ready and fresh — its handshake cost
-    // was paid while the model was thinking.
+    // Adopt the prewarmed socket if it's fresh — even if the handshake is
+    // still in flight (text queues into it; never pay the handshake twice).
     let tts: ElevenLabsTTSAdapter | null = null;
+    let opening: Promise<void> | null = null;
     let adopted = false;
     const pw = prewarmRef.current;
     prewarmRef.current = null;
     if (pw) {
-      if (pw.tts.isReady && Date.now() - pw.at < 15_000) {
+      if (Date.now() - pw.at < 15_000) {
         tts = pw.tts;
+        opening = pw.opening;
         adopted = true;
       } else {
         try {
@@ -339,33 +337,28 @@ export function useVoice(args: UseVoiceArgs) {
     }
     next.pending = [];
 
-    if (adopted) {
-      emitMetric("tts_stream_open_ms", 0, { turn: next.id, adopted: true });
-      if (next.flushed) tts.flush();
-    } else {
-      const t = tts;
-      t.open()
-        .then(() => {
-          // Cold WebSocket + auth handshake cost — part of the "no wait" budget.
-          emitMetric("tts_stream_open_ms", Date.now() - next.startedAt, { turn: next.id, adopted: false });
-          if (activeRef.current === next && next.flushed) t.flush();
-        })
-        .catch((e) => {
-          const msg = (e as Error)?.message ?? "tts failed";
-          patch({ error: msg });
-          argsRef.current.onSpeechFailure?.(msg);
-          completeActive(next);
-        });
-    }
+    // One path for both cases: adopted sockets carry their in-flight open
+    // promise; cold sockets open now. Adopted + already-ready resolves at ~0ms.
+    const t = tts;
+    (opening ?? t.open())
+      .then(() => {
+        emitMetric("tts_stream_open_ms", Date.now() - next.startedAt, { turn: next.id, adopted });
+        if (activeRef.current === next && next.flushed) t.flush();
+      })
+      .catch((e) => {
+        const msg = (e as Error)?.message ?? "tts failed";
+        patch({ error: msg });
+        argsRef.current.onSpeechFailure?.(msg);
+        completeActive(next);
+      });
   }, [beginSpeaking, completeActive, emitMetric, makeTts, patch]);
   const maybeStartNextRef = useRef(maybeStartNext);
   maybeStartNextRef.current = maybeStartNext;
 
   /**
-   * Feed one of Nova's streamed spoken tokens into the right turn. Tokens
-   * accumulate in the turn's SentenceBuffer; each COMPLETED sentence goes to
-   * TTS — with auto_mode that means audio starts on the first finished
-   * sentence, mid-generation.
+   * Feed one of Nova's streamed spoken tokens straight into the right turn —
+   * raw, as it arrives. ElevenLabs buffers by the low chunk_length_schedule
+   * and starts synthesizing after ~60 chars, mid-sentence, mid-generation.
    */
   const feedDelta = useCallback(
     (text: string) => {
@@ -376,7 +369,7 @@ export function useVoice(args: UseVoiceArgs) {
         queueRef.current.push(writing);
         maybeStartNext();
       }
-      for (const sentence of writing.sb.push(text)) deliver(writing, sentence);
+      deliver(writing, text);
     },
     [deliver, maybeStartNext, newTurn, writingTurn],
   );
@@ -388,8 +381,6 @@ export function useVoice(args: UseVoiceArgs) {
       if (!enabledRef.current) return;
       const writing = writingTurn();
       if (writing) {
-        const remainder = writing.sb.flush(); // trailing partial sentence
-        if (remainder) deliver(writing, remainder + " ");
         writing.flushed = true;
         if (writing === activeRef.current && writing.tts?.isReady) writing.tts.flush();
         // If not open yet, the open() handler flushes (flushed is set).
@@ -402,7 +393,7 @@ export function useVoice(args: UseVoiceArgs) {
         maybeStartNext();
       }
     },
-    [deliver, maybeStartNext, newTurn, writingTurn],
+    [maybeStartNext, newTurn, writingTurn],
   );
 
   /** Kill current audio AND everything queued (barge-in / disable). */

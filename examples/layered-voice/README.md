@@ -191,17 +191,19 @@ Click **Mic** in the dock to go hands-free. Then:
   speaker** (the chip you have highlighted is "who's at the mic"), so switch
   speakers to play the operator vs. the customer.
 - **TTS out (streaming, genuinely realtime)** — Nova's parsed `<speech>` tokens
-  stream into ElevenLabs as they arrive over SSE. Three mechanics make audio
-  start *mid-generation* instead of after it:
-  1. **`auto_mode`** on the TTS WebSocket — without it, ElevenLabs buffers
-     ~120+ chars before synthesizing anything, so short replies (Nova's whole
-     style) only produced audio at the end-of-turn flush.
-  2. **Sentence chunking** — tokens accumulate in a `SentenceBuffer` and each
-     *completed sentence* is sent; auto_mode synthesizes at each sentence end.
-  3. **Prewarmed socket** — the TTS WebSocket (token mint + handshake,
+  stream RAW into an ElevenLabs `stream-input` WebSocket as they arrive over
+  SSE (text up, PCM down, one socket per spoken turn). Two mechanics make
+  audio start *mid-generation* instead of after it:
+  1. **Low `chunk_length_schedule` (`[60, 120, 160, 250]`)** on the BOS
+     message — ElevenLabs starts synthesizing after ~60 buffered chars,
+     mid-sentence. (The default is ~120+, and sentence-boundary triggering
+     via `auto_mode` is self-defeating for Nova's one-sentence replies: the
+     first sentence only completes when the whole reply is done.)
+  2. **Prewarmed socket** — the TTS WebSocket (token mint + handshake,
      ~300-600 ms) is opened *while the model is thinking* and adopted by the
-     next spoken turn, so that cost overlaps model latency
-     (`tts_stream_open_ms` logs `0` with `adopted: true` when it worked).
+     next spoken turn **even if the handshake is still in flight** (text
+     queues into it), so that cost overlaps model latency
+     (`tts_stream_open_ms` logs ~0 with `adopted: true` when it worked).
   Covers every spoken turn including the proactive relay. The worker never
   reaches the speaker, and neither does Nova's out-of-tag text.
 - **Barge-in** — start talking while Nova is speaking and she stops; the
