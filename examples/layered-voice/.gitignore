@@ -1,3 +1,5 @@
 # Generated at runtime by the voice-metrics sink
 voice-metrics.jsonl
 *.jsonl
+# PGlite data directory (VOICE_PERSIST=pglite)
+voice-agents-db/

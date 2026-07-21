@@ -7,7 +7,7 @@
 // NEVER acknowledges — an ack would resolve the front agent's pending reminder
 // before any results exist.
 
-import { Glove, Displaymanager, MemoryStore, type IGloveRunnable, type ToolResultData } from "glove-core";
+import { Glove, Displaymanager, type IGloveRunnable, type StoreAdapter, type ToolResultData } from "glove-core";
 import { z } from "zod";
 import { buildModel } from "./models";
 import * as db from "../data/queries";
@@ -46,8 +46,7 @@ Read the ACTUAL QUESTION from the Response text, and note the [message id: msg_.
 # Grounding
 Today is ${STATS.todayIso}. Prices are in credits (cr). Be exact with hull ids, part SKUs, and numbers — do not invent them; if a lookup returns "found: false", say so plainly in your reply. The center currently lists ${STATS.models} models, ${STATS.ships} registered hulls, and ${STATS.customers} customer accounts.`;
 
-export function buildWorkerAgent(): IGloveRunnable {
-  const store = new MemoryStore(`worker_${Date.now()}`);
+export function buildWorkerAgent(store: StoreAdapter): IGloveRunnable {
   const agent = new Glove({
     store,
     model: buildModel("worker", true),

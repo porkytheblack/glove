@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "clear": "node scripts/clear.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
+    "@electric-sql/pglite": "^0.5.3",
     "glove-core": "workspace:*",
     "glove-mesh": "workspace:*",
     "glove-next": "workspace:*",

@@ -221,6 +221,45 @@ ElevenLabs adapters rather than `useGloveVoice({ runnable })` — that hook assu
 an in-browser agent and can't speak the proactive relay, which arrives outside
 the initiating turn.
 
+### Persistence — does the mesh need a database?
+
+**No.** The mesh transport (`MeshNetwork` + `InMemoryMeshAdapter`) is an
+in-process bus; both agents live in one Node process, so nothing external is
+needed. A broker/DB only enters the picture if you split agents across
+processes (BYO `MeshAdapter`).
+
+What *can* persist is each agent's **store** — transcripts and the inbox, which
+is where all mesh state actually lives (pending `mesh:waiting` items, worker
+replies). Opt in with:
+
+```
+VOICE_PERSIST=pglite
+```
+
+This backs both agents with a small custom `StoreAdapter`
+([`stores.ts`](app/lib/server/stores.ts)) over
+[PGlite](https://pglite.dev) — Postgres compiled to WASM, **zero native
+bindings**. Both agents share one data directory (`./voice-agents-db`,
+override with `VOICE_DB_DIR`), scoped by session/role ids, so transcripts and
+mesh inbox traffic survive restarts. Inspect it from node:
+
+```bash
+node -e "import('@electric-sql/pglite').then(async ({PGlite}) => {
+  const db = new PGlite('voice-agents-db');
+  console.log((await db.query('SELECT session_id, tag, status FROM inbox ORDER BY created_at')).rows);
+})"
+```
+
+**Clearing is easy**, three ways:
+
+- the **Clear data** button in the console header — wipes all DB rows + the
+  metrics file and starts a fresh session (works while the server runs);
+- `pnpm clear` — deletes the data directory + metrics file (run with the
+  server stopped);
+- or just delete `voice-agents-db/` yourself.
+
+Default remains `memory` (nothing persists, nothing to clean).
+
 ### Latency metrics → local file
 
 Every turn is instrumented and both **streamed to a live HUD** (right column) and
@@ -313,6 +352,7 @@ app/
   api/voice/stt-token/route.ts         GET  → short-lived ElevenLabs STT token
   api/voice/tts-token/route.ts         GET  → short-lived ElevenLabs TTS token
   api/metrics/route.ts                 POST → append client metrics to the file
+  api/admin/clear/route.ts             POST → wipe persisted data (DB rows + metrics)
   components/Console.tsx               the console UI (room + backstage + HUD)
   lib/
     shared/types.ts                    types shared client ↔ server
@@ -325,6 +365,7 @@ app/
       front-agent.ts                   Nova — thin, fast, speaks via <speech> tags
       worker-agent.ts                  the heavy capability layer + DB tools
       session.ts                       orchestrator: mesh wiring + pipeline + metrics
+      stores.ts                        store factory: MemoryStore or PGlite persistence
       metrics.ts                       local JSONL metrics sink
     client/
       useSession.ts                    SSE client hook

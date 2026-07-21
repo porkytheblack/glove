@@ -189,6 +189,17 @@ export default function Console() {
         <button className="reset-btn" onClick={() => s.reset()} title="Start a fresh session">
           New session
         </button>
+        <button
+          className="reset-btn"
+          title="Wipe persisted data (SQLite rows + metrics file) and start fresh"
+          onClick={async () => {
+            await fetch("/api/admin/clear", { method: "POST" }).catch(() => {});
+            setMetrics([]);
+            s.reset();
+          }}
+        >
+          Clear data
+        </button>
       </header>
 
       {s.error && (

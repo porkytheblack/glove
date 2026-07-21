@@ -7,7 +7,7 @@
 // signals speech with <speech>…</speech> tags — only in-tag text is streamed to
 // TTS (parsed live by speech-parser.ts); everything else stays silent.
 
-import { Glove, Displaymanager, MemoryStore, type IGloveRunnable } from "glove-core";
+import { Glove, Displaymanager, type IGloveRunnable, type StoreAdapter } from "glove-core";
 import { z } from "zod";
 import { buildModel } from "./models";
 import { ASSISTANT_NAME, rosterForPrompt } from "./speakers";
@@ -60,8 +60,7 @@ On a later turn you'll see "[Inbox: N item(s) resolved]" with the worker's reply
 - There is exactly one worker, id "worker" — no need to discover agents.
 - Today is ${STATS.todayIso}.`;
 
-export function buildFrontAgent(): IGloveRunnable {
-  const store = new MemoryStore(`front_${Date.now()}`);
+export function buildFrontAgent(store: StoreAdapter): IGloveRunnable {
   const agent = new Glove({
     store,
     model: buildModel("front", true),

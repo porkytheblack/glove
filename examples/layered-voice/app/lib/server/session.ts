@@ -22,6 +22,7 @@ import { mountMesh, MeshNetwork, InMemoryMeshAdapter } from "glove-mesh";
 import type { IGloveRunnable, InboxItem, SubscriberAdapter } from "glove-core";
 import { buildFrontAgent } from "./front-agent";
 import { buildWorkerAgent } from "./worker-agent";
+import { createAgentStore } from "./stores";
 import { frameUtterance, ASSISTANT_NAME } from "./speakers";
 import {
   frameInterruption,
@@ -199,8 +200,10 @@ export class Session {
   // ── build agents + mesh ────────────────────────────────────────────────────
   private async init(): Promise<void> {
     try {
-      this.front = buildFrontAgent();
-      this.worker = buildWorkerAgent();
+      // In sqlite mode both stores share one DB file, scoped by these ids —
+      // mesh inbox traffic and transcripts persist and are inspectable.
+      this.front = buildFrontAgent(createAgentStore(`${this.id}_front`));
+      this.worker = buildWorkerAgent(createAgentStore(`${this.id}_worker`));
     } catch (err) {
       this.buildError =
         (err as Error)?.message ??
