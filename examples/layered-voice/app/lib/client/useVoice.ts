@@ -104,6 +104,8 @@ interface SpeechTurn {
   tts: ElevenLabsTTSAdapter | null;
   /** endTurn was called — no more text is coming for this turn. */
   flushed: boolean;
+  /** The server-side front-turn id this speech belongs to (from delta events). */
+  serverTurnId: number | null;
   /** Watchdog: fails the turn if ElevenLabs goes silent (no audio frames). */
   stallTimer: ReturnType<typeof setTimeout> | null;
   enqueuedAt: number;
@@ -143,12 +145,13 @@ export function useVoice(args: UseVoiceArgs) {
   // while STILL OPENING (text queues into it; never pay the handshake twice).
   const prewarmRef = useRef<{ tts: ElevenLabsTTSAdapter; at: number; opening: Promise<void> } | null>(null);
 
-  // Set on barge-in while the server is STILL STREAMING the cut turn: its
-  // remaining deltas keep arriving after the audio was voided, and without
-  // this they'd re-queue as a brand-new turn and play the moment the user
-  // stops talking (Nova "resuming" her interrupted line). Cleared by the
-  // turn-end `say` (endTurn) of the suppressed turn.
-  const suppressTurnRef = useRef(false);
+  // Server front-turn ids voided by a barge-in. The server keeps streaming the
+  // cut turn's deltas after the audio is killed; without this they'd re-queue
+  // as a brand-new speech turn and play the moment the user goes quiet (Nova
+  // "resuming" her interrupted line), and the turn-end `say` fallback could
+  // re-speak the whole thing. Keyed by the server's own turn id, so it can
+  // never leak onto a later turn.
+  const voidedTurnsRef = useRef<Set<number>>(new Set());
 
   // Mutable flags read from audio-event handlers.
   const enabledRef = useRef(false);
@@ -233,6 +236,7 @@ export function useVoice(args: UseVoiceArgs) {
       charsSinceFlush: 0,
       tts: null,
       flushed,
+      serverTurnId: null,
       stallTimer: null,
       enqueuedAt: Date.now(),
       startedAt: 0,
@@ -441,15 +445,31 @@ export function useVoice(args: UseVoiceArgs) {
    * and starts synthesizing after ~60 chars, mid-sentence, mid-generation.
    */
   const feedDelta = useCallback(
-    (text: string) => {
+    (text: string, serverTurnId?: number) => {
       if (!enabledRef.current || !text) return;
-      if (suppressTurnRef.current) return; // tail of an interrupted turn — drop
+      // Tail of a barge-in-voided turn — drop it (matched by the server's id).
+      if (serverTurnId != null && voidedTurnsRef.current.has(serverTurnId)) return;
       let writing = writingTurn();
+      // A delta from a NEW server turn while an old one is still open means the
+      // old turn ended without a `say` (errored / all-silent) — close it out so
+      // the new turn gets its own speech entry.
+      if (
+        writing &&
+        serverTurnId != null &&
+        writing.serverTurnId != null &&
+        writing.serverTurnId !== serverTurnId
+      ) {
+        writing.flushed = true;
+        if (writing === activeRef.current && writing.tts?.isReady) writing.tts.flush();
+        writing = null;
+      }
       if (!writing) {
         writing = newTurn();
+        writing.serverTurnId = serverTurnId ?? null;
         queueRef.current.push(writing);
         maybeStartNext();
       }
+      if (writing.serverTurnId == null && serverTurnId != null) writing.serverTurnId = serverTurnId;
       deliver(writing, text);
     },
     [deliver, maybeStartNext, newTurn, writingTurn],
@@ -458,15 +478,12 @@ export function useVoice(args: UseVoiceArgs) {
   /** End of a Nova turn: no more text. Falls back to speaking the whole line if
    *  nothing was streamed (non-streaming model). */
   const endTurn = useCallback(
-    (fallbackText?: string) => {
+    (fallbackText?: string, serverTurnId?: number) => {
       if (!enabledRef.current) return;
-      if (suppressTurnRef.current) {
-        // The interrupted turn just ended server-side. Clear suppression and
-        // do NOT fall back to speaking its full text — the room already cut
-        // it off, and the <user-interruption> notice covers what was heard.
-        suppressTurnRef.current = false;
-        return;
-      }
+      // The closing `say` of a barge-in-voided turn: never fall back to
+      // re-speaking its full text — the room already cut it off, and the
+      // <user-interruption> notice covers what was heard.
+      if (serverTurnId != null && voidedTurnsRef.current.has(serverTurnId)) return;
       const writing = writingTurn();
       if (writing) {
         writing.flushed = true;
@@ -476,6 +493,7 @@ export function useVoice(args: UseVoiceArgs) {
       }
       if (fallbackText && fallbackText.trim()) {
         const turn = newTurn(true);
+        turn.serverTurnId = serverTurnId ?? null;
         turn.pending.push({ text: fallbackText });
         queueRef.current.push(turn);
         maybeStartNext();
@@ -540,7 +558,7 @@ export function useVoice(args: UseVoiceArgs) {
     speakingRef.current = false;
     gateOpenRef.current = false;
     userSpeakingRef.current = false;
-    suppressTurnRef.current = false;
+    voidedTurnsRef.current.clear();
   }, [stopSpeaking]);
 
   const enable = useCallback(async () => {
@@ -591,10 +609,13 @@ export function useVoice(args: UseVoiceArgs) {
           const heard = active ? estimateHeard(active.sentText, playedMs) : "";
           const spokenMs = Date.now() - novaSpeakStartRef.current;
           const dropped = queueRef.current.length;
-          // If the cut turn's text is still streaming from the server, its
-          // remaining deltas must be dropped too — otherwise they re-queue as
-          // a new turn and Nova "resumes reading" once the user goes quiet.
-          if (writingTurn()) suppressTurnRef.current = true;
+          // Void the server turn ids of everything being killed — their
+          // remaining deltas are still streaming from the server, and without
+          // this they'd re-queue as a new speech turn and Nova would "resume
+          // reading" the moment the user goes quiet.
+          for (const t of [activeRef.current, ...queueRef.current]) {
+            if (t?.serverTurnId != null) voidedTurnsRef.current.add(t.serverTurnId);
+          }
           stopSpeaking();
           speakingRef.current = false;
           gateOpenRef.current = true; // route this utterance to STT

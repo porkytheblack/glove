@@ -69,9 +69,11 @@ export type SessionEvent =
   // TTS failure). `text` is the human-readable version for the room view.
   | { type: "note"; noteKind: "interruption" | "speech-failure" | "missed-delegation"; text: string }
   // Streamed SPOKEN token from Nova (already parsed out of the <speech> tags).
-  | { type: "delta"; role: AgentRole; text: string }
+  // `turnId` identifies the server-side front turn, so a barge-in can void
+  // exactly that turn's remaining tokens client-side.
+  | { type: "delta"; role: AgentRole; text: string; turnId?: number }
   // A finalized spoken line from Nova (the joined <speech> content of a turn).
-  | { type: "say"; role: AgentRole; kind: "response" | "relay"; text: string }
+  | { type: "say"; role: AgentRole; kind: "response" | "relay"; text: string; turnId?: number }
   // Worker tool activity, surfaced in the backstage panel. `summary` is the
   // one-line view; `detail` is the full input payload for the expanded view.
   | { type: "tool"; role: AgentRole; name: string; summary: string; detail?: string }

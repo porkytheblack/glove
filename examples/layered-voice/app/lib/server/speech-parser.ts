@@ -66,7 +66,12 @@ export class SpeechTagParser {
     this.drain();
     if (this.inside) {
       this._stats.unclosed = true;
-      if (this.buf) this.emit(this.buf);
+      // The buffer may end in a held-back partial tag ("</spee") — drop it
+      // rather than speak it.
+      const hold = Math.max(partialTagSuffix(this.buf, CLOSE), partialTagSuffix(this.buf, OPEN));
+      const text = hold ? this.buf.slice(0, this.buf.length - hold) : this.buf;
+      this._stats.discardedChars += hold;
+      if (text) this.emit(text);
     } else {
       this._stats.discardedChars += this.buf.length;
     }
@@ -77,9 +82,17 @@ export class SpeechTagParser {
 
   private emit(text: string): void {
     if (!text) return;
-    this.spoken += text;
-    this._stats.spokenChars += text.length;
-    this.onSpeech(text);
+    // Safety net for a misbehaving model: nested "<speech>" openings and
+    // malformed closers ("</speech<???>") land INSIDE a block and would be
+    // read aloud by TTS as literal markup. Strip speech-tag fragments — and
+    // any leftover angle brackets, which have no business being spoken — from
+    // what actually reaches TTS; count it all as discarded.
+    const clean = text.replace(/<\/?speech>?/g, "").replace(/[<>]/g, "");
+    this._stats.discardedChars += text.length - clean.length;
+    if (!clean) return;
+    this.spoken += clean;
+    this._stats.spokenChars += clean.length;
+    this.onSpeech(clean);
   }
 
   private drain(): void {

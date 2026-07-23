@@ -111,6 +111,9 @@ export class Session {
   // Protocol stats of the most recent front turn (set by runFrontTurn).
   private lastSpeechStats: SpeechParseStats | null = null;
   private uttSeq = 0;
+  // Monotonic id for front turns, stamped on delta/say events so the client
+  // can void EXACTLY the interrupted turn's remaining tokens on barge-in.
+  private frontTurnSeq = 0;
   private buildError: string | null = null;
   // Front model actually in use (per-session override or the env/default one).
   private frontModel: string | undefined;
@@ -291,12 +294,13 @@ export class Session {
    * Returns everything Nova actually said (empty string = she stayed quiet).
    */
   private async runFrontTurn(prompt: string): Promise<string> {
+    const turnId = ++this.frontTurnSeq;
     const parser = new SpeechTagParser((text) => {
       if (this.ttftPending) {
         this.ttftPending = false;
         this.metric("front_ttft_ms", Date.now() - this.turnStartAt);
       }
-      this.emit({ type: "delta", role: "front", text });
+      this.emit({ type: "delta", role: "front", text, turnId });
     });
     this.speechParser = parser;
     this.frontDelegatedThisTurn = false;
@@ -327,7 +331,7 @@ export class Session {
       this.metric("speech_tag_unclosed", undefined, { kind: this.currentFrontKind });
     }
     if (speech) {
-      this.emit({ type: "say", role: "front", kind: this.currentFrontKind, text: speech });
+      this.emit({ type: "say", role: "front", kind: this.currentFrontKind, text: speech, turnId });
     }
     return speech;
   }

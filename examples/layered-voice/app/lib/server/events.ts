@@ -31,8 +31,11 @@ export const EVENT_TAGS = {
  * well-formed even though the real speech was cut mid-tag.
  */
 export function frameInterruption(heard: string): string {
+  // The heard prefix is quoted PLAINLY — earlier versions wrapped it in literal
+  // <speech> tags and models started echoing tag fragments into their next
+  // spoken turn ("Checking </speech<???>…"), which the TTS then read aloud.
   const detail = heard
-    ? `Of your last line, the room heard ONLY: <speech>${heard}</speech> — it was cut off right there (the tag is closed synthetically; the rest was never spoken).`
+    ? `Of your last line, the room heard ONLY: "${heard}" — it was cut off right there; the rest was never spoken.`
     : `You were cut off before any audio played — the room heard NONE of your last line.`;
   return (
     `<${EVENT_TAGS.interruption}>${detail} ` +
