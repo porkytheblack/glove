@@ -331,7 +331,8 @@ Measured (server-side unless noted):
 | `tts_stream_open_ms` | **client** — TTS WebSocket + auth handshake cost per spoken turn (`0` + `data.adopted: true` when the prewarmed socket was used) |
 | `tts_synth_ms` / `tts_playback_ms` | **client** — TTS first-audio / playback duration |
 | `tts_stall` | **client** — the watchdog closed a turn after 12s without audio frames; `data.assumedComplete: true` = audio had flowed after the flush, so the line was almost certainly heard and no failure notice was sent (only finalization went missing) |
-| `barge_in` | **client** — an interruption; `ms` Nova had been speaking, `data.droppedQueuedTurns` = queued speech voided with it, `data.heardChars` = estimated heard prefix length. Fires only on **confirmed** speech (Silero `speech_real_start`, or 250ms sustained on the energy fallback) so noise blips can't cut Nova. |
+| `barge_in` | **client** — an interruption; `ms` Nova had been speaking, `data.droppedQueuedTurns` = queued speech voided with it, `data.heardChars` = estimated heard prefix length. Fires only on **confirmed** speech (250ms sustained on the default energy VAD; `speech_real_start` when `NEXT_PUBLIC_VOICE_VAD=silero`) so noise blips can't cut Nova. |
+| `stt_stable_flush` | **client** — the transcript stopped changing for 1s while the VAD still claimed speech (background noise holding it open) — the utterance was committed without waiting for `speech_end` |
 | `gate_force_release` | **client** — the §5 gate was held >4s by VAD "speech" that produced **no STT transcript movement** (background TV/music pinning the mic) and was force-opened so queued audio could play |
 | `user_interruption` | count event — a `<user-interruption>` notice was logged into Nova's history (`data.heardChars`) |
 | `speech_failure` | count event — a `<speech-failure>` notice was logged (TTS never played the line) |

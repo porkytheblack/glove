@@ -170,6 +170,8 @@ export function useVoice(args: UseVoiceArgs) {
   // noise and force the gate open.
   const gateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPartialAtRef = useRef(0);
+  // Stable-transcript flush timer (see the stt partial handler).
+  const stableFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Timing bookkeeping.
   const speechEndAtRef = useRef(0);
@@ -584,6 +586,10 @@ export function useVoice(args: UseVoiceArgs) {
       clearTimeout(gateTimerRef.current);
       gateTimerRef.current = null;
     }
+    if (stableFlushRef.current) {
+      clearTimeout(stableFlushRef.current);
+      stableFlushRef.current = null;
+    }
     try {
       vadRef.current?.reset();
       // Silero holds a WASM session — release it (energy VAD has no destroy).
@@ -619,20 +625,25 @@ export function useVoice(args: UseVoiceArgs) {
       captureRef.current = capture;
       sttRef.current = stt;
 
-      // Neural VAD (Silero, WASM) — it distinguishes speech from noise (TV,
-      // music, typing, hum) instead of just loudness, and it confirms real
-      // speech (speech_real_start) before we allow a barge-in, so noise
-      // bursts can't cut Nova mid-line. Falls back to the energy VAD if the
-      // model/WASM fetch fails (e.g. offline).
-      let vad: VADAdapter;
-      try {
-        const { SileroVADAdapter } = await import("glove-voice/silero-vad");
-        const silero = new SileroVADAdapter({ redemptionMs: 1000 });
-        await silero.init();
-        vad = silero;
-      } catch {
-        vad = new VAD({ minSpeechMs: 250, silenceMs: 700 });
+      // VAD choice. Default: the zero-cost energy VAD — its end-of-speech
+      // timing is snappy and per-chunk cost is nil. The neural Silero adapter
+      // discriminates speech from noise better, but runs ONNX inference on
+      // the main thread per frame and noticeably delays end-of-speech on some
+      // machines — OPT-IN via NEXT_PUBLIC_VOICE_VAD=silero. The
+      // confirmed-barge-in, misfire release, and stuck-gate watchdog all work
+      // with either adapter.
+      let vad: VADAdapter | null = null;
+      if (process.env.NEXT_PUBLIC_VOICE_VAD === "silero") {
+        try {
+          const { SileroVADAdapter } = await import("glove-voice/silero-vad");
+          const silero = new SileroVADAdapter({ redemptionMs: 700 });
+          await silero.init();
+          vad = silero;
+        } catch {
+          vad = null; // fall through to the energy VAD
+        }
       }
+      if (!vad) vad = new VAD({ minSpeechMs: 250, silenceMs: 700 });
       vadRef.current = vad;
 
       stt.on("partial", (t) => {
@@ -640,8 +651,29 @@ export function useVoice(args: UseVoiceArgs) {
         // real person is talking, not just VAD-tripping noise.
         lastPartialAtRef.current = Date.now();
         patch({ partial: t });
+        // Stable-transcript flush: in a noisy room the VAD can stay "speaking"
+        // (a TV IS speech to a neural VAD) long after the USER finished, so
+        // speech_end — the normal flush trigger — may fire seconds late or
+        // not at all, and the finished utterance just sits there. If the
+        // partial stops changing for a second while the VAD still claims
+        // speech, commit it.
+        if (stableFlushRef.current) clearTimeout(stableFlushRef.current);
+        if (t.trim()) {
+          stableFlushRef.current = setTimeout(() => {
+            stableFlushRef.current = null;
+            if (!enabledRef.current || !gateOpenRef.current) return;
+            if (!vadRef.current?.isSpeaking) return; // speech_end will handle it
+            if (!speechEndAtRef.current) speechEndAtRef.current = Date.now();
+            emitMetric("stt_stable_flush", undefined, { chars: t.length });
+            sttRef.current?.flushUtterance();
+          }, 1000);
+        }
       });
       stt.on("final", (t) => {
+        if (stableFlushRef.current) {
+          clearTimeout(stableFlushRef.current);
+          stableFlushRef.current = null;
+        }
         const text = t.trim();
         patch({ partial: "" });
         if (!text) return;
