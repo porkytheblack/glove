@@ -24,9 +24,13 @@ import {
   AudioCapture,
   AudioPlayer,
   VAD,
+  type VADAdapter,
   ElevenLabsSTTAdapter,
   ElevenLabsTTSAdapter,
 } from "glove-voice";
+// NOTE: SileroVADAdapter is loaded with a dynamic import inside enable() —
+// onnxruntime-web resolves asset URLs at module-import time, which explodes
+// during Next's server prerender of this (client) module graph.
 import type { MetricRecord, SpeakerRole } from "../shared/types";
 
 const VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID || "uYXf8XasLslADfZ2MB4u";
@@ -132,7 +136,7 @@ export function useVoice(args: UseVoiceArgs) {
   // Audio objects live outside React render.
   const captureRef = useRef<AudioCapture | null>(null);
   const sttRef = useRef<ElevenLabsSTTAdapter | null>(null);
-  const vadRef = useRef<VAD | null>(null);
+  const vadRef = useRef<VADAdapter | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
 
   // Speech-turn queue (§5 audio gate).
@@ -158,6 +162,14 @@ export function useVoice(args: UseVoiceArgs) {
   const gateOpenRef = useRef(false); // feed mic audio to STT?
   const speakingRef = useRef(false); // Nova audio playing?
   const userSpeakingRef = useRef(false); // VAD says a human is talking
+
+  // §5-gate stuck-open watchdog. Background noise (a TV, music, someone on a
+  // phone nearby) can pin the VAD "speaking" for tens of seconds; queued Nova
+  // audio then never starts and voice looks dead. If a turn has been held
+  // this long while the "speech" produced no fresh STT partials, we call it
+  // noise and force the gate open.
+  const gateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPartialAtRef = useRef(0);
 
   // Timing bookkeeping.
   const speechEndAtRef = useRef(0);
@@ -349,10 +361,37 @@ export function useVoice(args: UseVoiceArgs) {
    * The §5 gate: start the next queued turn's audio only when nothing is
    * playing AND the user isn't mid-utterance.
    */
+  /** Held-gate watchdog: release after GATE_HOLD_MAX_MS of transcript-less "speech". */
+  const armGateWatchdog = useCallback(() => {
+    const GATE_HOLD_MAX_MS = 4000;
+    const PARTIAL_FRESH_MS = 2500;
+    if (gateTimerRef.current || queueRef.current.length === 0) return;
+    gateTimerRef.current = setTimeout(() => {
+      gateTimerRef.current = null;
+      if (!enabledRef.current || activeRef.current) return;
+      if (!userSpeakingRef.current || queueRef.current.length === 0) return;
+      if (Date.now() - lastPartialAtRef.current < PARTIAL_FRESH_MS) {
+        // The transcript is moving — a real person is talking. Keep waiting.
+        armGateWatchdogRef.current();
+        return;
+      }
+      emitMetric("gate_force_release", undefined, { queued: queueRef.current.length });
+      vadRef.current?.reset();
+      userSpeakingRef.current = false;
+      maybeStartNextRef.current();
+    }, GATE_HOLD_MAX_MS);
+  }, [emitMetric]);
+  const armGateWatchdogRef = useRef(armGateWatchdog);
+  armGateWatchdogRef.current = armGateWatchdog;
+
   const maybeStartNext = useCallback(() => {
     if (!enabledRef.current) return;
     if (activeRef.current) return; // current audio not drained yet
-    if (userSpeakingRef.current) return; // user's turn takes priority
+    if (userSpeakingRef.current) {
+      // User's turn takes priority — but don't let noise hold it forever.
+      armGateWatchdogRef.current();
+      return;
+    }
     const next = queueRef.current.shift();
     if (!next) return;
 
@@ -541,8 +580,14 @@ export function useVoice(args: UseVoiceArgs) {
     } catch {
       /* ignore */
     }
+    if (gateTimerRef.current) {
+      clearTimeout(gateTimerRef.current);
+      gateTimerRef.current = null;
+    }
     try {
       vadRef.current?.reset();
+      // Silero holds a WASM session — release it (energy VAD has no destroy).
+      await (vadRef.current as { destroy?: () => Promise<void> } | null)?.destroy?.();
     } catch {
       /* ignore */
     }
@@ -570,13 +615,32 @@ export function useVoice(args: UseVoiceArgs) {
       playerRef.current = player;
 
       const capture = new AudioCapture(16_000);
-      const vad = new VAD({ minSpeechMs: 150, silenceMs: 700 });
       const stt = new ElevenLabsSTTAdapter({ getToken: () => fetchToken("/api/voice/stt-token") });
       captureRef.current = capture;
-      vadRef.current = vad;
       sttRef.current = stt;
 
-      stt.on("partial", (t) => patch({ partial: t }));
+      // Neural VAD (Silero, WASM) — it distinguishes speech from noise (TV,
+      // music, typing, hum) instead of just loudness, and it confirms real
+      // speech (speech_real_start) before we allow a barge-in, so noise
+      // bursts can't cut Nova mid-line. Falls back to the energy VAD if the
+      // model/WASM fetch fails (e.g. offline).
+      let vad: VADAdapter;
+      try {
+        const { SileroVADAdapter } = await import("glove-voice/silero-vad");
+        const silero = new SileroVADAdapter({ redemptionMs: 1000 });
+        await silero.init();
+        vad = silero;
+      } catch {
+        vad = new VAD({ minSpeechMs: 250, silenceMs: 700 });
+      }
+      vadRef.current = vad;
+
+      stt.on("partial", (t) => {
+        // Freshness signal for the gate watchdog: a moving transcript means a
+        // real person is talking, not just VAD-tripping noise.
+        lastPartialAtRef.current = Date.now();
+        patch({ partial: t });
+      });
       stt.on("final", (t) => {
         const text = t.trim();
         patch({ partial: "" });
@@ -595,34 +659,53 @@ export function useVoice(args: UseVoiceArgs) {
       });
       stt.on("error", (e) => patch({ error: e.message }));
 
+      // Barge-in — only on CONFIRMED speech: the user talks over Nova, so
+      // void current + queued speech. Estimate how much of the active turn
+      // actually played BEFORE tearing it down, so the model can be told
+      // where it was cut.
+      const bargeIn = () => {
+        if (!speakingRef.current) return;
+        const active = activeRef.current;
+        const playedMs = active?.firstChunkAt ? Date.now() - active.firstChunkAt : 0;
+        const heard = active ? estimateHeard(active.sentText, playedMs) : "";
+        const spokenMs = Date.now() - novaSpeakStartRef.current;
+        const dropped = queueRef.current.length;
+        // Void the server turn ids of everything being killed — their
+        // remaining deltas are still streaming from the server, and without
+        // this they'd re-queue as a new speech turn and Nova would "resume
+        // reading" the moment the user goes quiet.
+        for (const t of [activeRef.current, ...queueRef.current]) {
+          if (t?.serverTurnId != null) voidedTurnsRef.current.add(t.serverTurnId);
+        }
+        stopSpeaking();
+        speakingRef.current = false;
+        gateOpenRef.current = true; // route this utterance to STT
+        emitMetric("barge_in", spokenMs, { droppedQueuedTurns: dropped, heardChars: heard.length });
+        argsRef.current.onInterruption?.(heard, playedMs);
+        setState((s) => ({ ...s, interruptions: s.interruptions + 1, speaking: false, listening: true }));
+      };
+
       vad.on("speech_start", () => {
         userSpeakingRef.current = true;
-        // The user started talking → an utterance (and likely a Nova reply)
-        // is coming. Open the TTS socket now, overlapping STT + model time.
+        // The user (probably) started talking → an utterance (and likely a
+        // Nova reply) is coming. Open the TTS socket now, overlapping STT +
+        // model time. Cheap even on a false positive.
         prewarm();
-        if (speakingRef.current) {
-          // barge-in: the user talks over Nova — void current + queued speech.
-          // Estimate how much of the active turn actually played BEFORE
-          // tearing it down, so the model can be told where it was cut.
-          const active = activeRef.current;
-          const playedMs = active?.firstChunkAt ? Date.now() - active.firstChunkAt : 0;
-          const heard = active ? estimateHeard(active.sentText, playedMs) : "";
-          const spokenMs = Date.now() - novaSpeakStartRef.current;
-          const dropped = queueRef.current.length;
-          // Void the server turn ids of everything being killed — their
-          // remaining deltas are still streaming from the server, and without
-          // this they'd re-queue as a new speech turn and Nova would "resume
-          // reading" the moment the user goes quiet.
-          for (const t of [activeRef.current, ...queueRef.current]) {
-            if (t?.serverTurnId != null) voidedTurnsRef.current.add(t.serverTurnId);
-          }
-          stopSpeaking();
-          speakingRef.current = false;
-          gateOpenRef.current = true; // route this utterance to STT
-          emitMetric("barge_in", spokenMs, { droppedQueuedTurns: dropped, heardChars: heard.length });
-          argsRef.current.onInterruption?.(heard, playedMs);
-          setState((s) => ({ ...s, interruptions: s.interruptions + 1, speaking: false, listening: true }));
+        // Energy-VAD fallback has no confirmed-speech signal — emulate one:
+        // cut Nova only if the "speech" is still going 250ms later.
+        if (!vad.supportsRealStart && speakingRef.current) {
+          setTimeout(() => {
+            if (vadRef.current?.isSpeaking) bargeIn();
+          }, 250);
         }
+      });
+      // Silero: fired once speech survives the minimum-duration filter — a
+      // person is definitely talking, not a noise burst.
+      vad.on("speech_real_start", bargeIn);
+      vad.on("vad_misfire", () => {
+        // Tentative speech was retracted (noise burst) — release the gate.
+        userSpeakingRef.current = false;
+        maybeStartNextRef.current();
       });
       vad.on("speech_end", () => {
         userSpeakingRef.current = false;
