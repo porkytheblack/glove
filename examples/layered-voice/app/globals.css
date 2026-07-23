@@ -213,6 +213,85 @@ body {
   border: 1px dashed rgba(240, 171, 92, 0.35);
   background: rgba(240, 171, 92, 0.06);
 }
+/* ── Cheat sheet drawer ── */
+.cheats {
+  margin: 0 16px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  max-height: 44vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cheats-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--faint);
+}
+.cheats-cols {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 14px;
+  padding: 12px;
+  overflow-y: auto;
+}
+.cheats-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+  margin: 8px 0 6px;
+}
+.cheats-title:first-child {
+  margin-top: 0;
+}
+.cheat-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+}
+.cheat-card-head {
+  margin-bottom: 2px;
+}
+.cheat-owner {
+  color: var(--faint);
+  font-size: 11.5px;
+}
+.cheat-hook {
+  color: var(--faint);
+  font-size: 11.5px;
+  font-style: italic;
+  margin: 4px 0 6px;
+}
+.cheat-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cheat-line {
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  color: inherit;
+  background: rgba(127, 127, 127, 0.08);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.cheat-line:hover {
+  border-color: var(--border);
+  background: rgba(127, 127, 127, 0.16);
+}
+
 .room-note[data-kind="speech-failure"],
 .room-note[data-kind="missed-delegation"] {
   color: var(--warn);

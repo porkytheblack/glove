@@ -169,6 +169,33 @@ right column is the backstage view of the mesh delegation, worker tool calls,
 latency HUD, and per-agent token budget (notice the front stays cheap while the
 worker carries the weight).
 
+### What to ask — the seeded world
+
+Click **📋 Cheat sheet** in the header for the same reference in the UI (each
+line is click-to-load, or read it into the mic). The database is generated from
+a fixed seed — these records exist on every restart. Shop "today" is
+**2287-05-14**.
+
+| Hull | Ship / owner | The story you can pull on |
+| --- | --- | --- |
+| `KES-0007` "Rustbucket" | Kestrel L2 Hauler · Dr. Vasquez Okonkwo | High-hours, warranty **expired**. Owner declined a 62,000 cr drive overhaul twice; phase coils at wear limit. Ask for the service history, the recommended repairs, or a fresh overhaul quote. |
+| `NIM-1121` "Lane Five" | Nimbus Courier · Mira Tenzin (Fleet) | Intermittent nav fault the shop couldn't reproduce; appointment already booked in 4 days with Cyneburg Rao. |
+| `VAN-0455` "Grudge" | Vanguard Interceptor · Capt. Idris Vale | Heat-ladder wear is track-grade and **excluded from warranty** — the perfect "but it should be covered!" dispute. 18,500 cr refresh quoted and deferred. |
+| `BOR-0301` "Molar" | Borehound Miner · Bex Ndlovu | Drill head at 91% wear, replacement due within two hauls, never warranty-eligible. Owner owes the shop 12,300 cr. |
+| `PAT-0088` "Long Marble" | Pathfinder Explorer · Orin Castellanos | Out on an 18-month tour; narrow pre-staged inspection window in ~35 days, sensor mast element on watch. |
+| `AUR-0013` "Solstice" | Aurelian Grand Yacht · The Solenne Trust | White-glove flagship under extended warranty; concierge-booked detail in 12 days with Gus. |
+
+Sales-side (no hull needed): stock under a budget, Nimbus Courier vs Courier X,
+financing by customer tier (Standard/Preferred/Fleet plans differ), cargo-tonnage
+shopping, or "book KES-0007 in for a spar inspection next week."
+
+A three-beat **addressing test**: (1) as the *customer* — "Hi, I'm Vasquez
+Okonkwo, here about my hauler" → Nova engages; (2) as *Sam* — "Kit, can you
+clear bay three after lunch?" → Nova stays silent (people talking to each
+other); (3) as the *bystander* — "the Okonkwo hauler threw another jump-abort
+fault on approach" → Nova stays silent but remembers, and uses it when you ask
+her about `KES-0007` a line later.
+
 ### Provider / model overrides
 
 Defaults are affordable open models on **OpenRouter** (one `OPENROUTER_API_KEY`):

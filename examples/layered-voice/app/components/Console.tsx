@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../lib/client/useSession";
 import { useVoice } from "../lib/client/useVoice";
 import { SCENARIOS } from "../lib/client/scenarios";
+import { CHEAT_ADDRESSING, CHEAT_SALES, CHEAT_SHIPS, CHEAT_TODAY } from "../lib/client/cheatsheet";
 import type { MetricRecord, Phase, SessionEvent, SpeakerRole } from "../lib/shared/types";
 
 const SPK_COLOR: Record<SpeakerRole, string> = {
@@ -105,6 +106,7 @@ export default function Console() {
   const [text, setText] = useState("");
   const [metrics, setMetrics] = useState<MetricRecord[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [showCheats, setShowCheats] = useState(false);
   const roomRef = useRef<HTMLDivElement>(null);
   const backRef = useRef<HTMLDivElement>(null);
   const speakerRef = useRef<SpeakerRole>("operator");
@@ -212,6 +214,14 @@ export default function Console() {
             Worker researching in background…
           </div>
         )}
+        <button
+          className="reset-btn"
+          data-active={showCheats}
+          onClick={() => setShowCheats((v) => !v)}
+          title="What's in the seeded database — hulls, owners, and lines to try"
+        >
+          📋 Cheat sheet
+        </button>
         <button className="reset-btn" onClick={() => s.reset()} title="Start a fresh session">
           New session
         </button>
@@ -247,6 +257,68 @@ export default function Console() {
         <div className="banner">
           Voice: <strong>{voice.error}</strong> — check <code>ELEVENLABS_API_KEY</code> and mic
           permission.
+        </div>
+      )}
+
+      {showCheats && (
+        <div className="cheats">
+          <div className="cheats-head">
+            <span>
+              Cheat sheet · shop date is <strong>{CHEAT_TODAY}</strong> · click any line to load
+              it (or just read it into the mic)
+            </span>
+            <button className="hud-toggle" onClick={() => setShowCheats(false)}>
+              close
+            </button>
+          </div>
+          <div className="cheats-cols">
+            <div className="cheats-col">
+              <div className="cheats-title">Hero hulls — service &amp; warranty scenes</div>
+              {CHEAT_SHIPS.map((ship) => (
+                <div className="cheat-card" key={ship.hullId}>
+                  <div className="cheat-card-head">
+                    <strong>{ship.hullId}</strong> “{ship.nickname}” · {ship.model}
+                  </div>
+                  <div className="cheat-owner">{ship.owner}</div>
+                  <div className="cheat-hook">{ship.hook}</div>
+                  <div className="cheat-lines">
+                    {ship.ask.map((line) => (
+                      <button className="cheat-line" key={line} onClick={() => setText(line)}>
+                        {line}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="cheats-col">
+              <div className="cheats-title">Sales &amp; bookings — no hull needed</div>
+              <div className="cheat-lines">
+                {CHEAT_SALES.map((line) => (
+                  <button className="cheat-line" key={line} onClick={() => setText(line)}>
+                    {line}
+                  </button>
+                ))}
+              </div>
+              <div className="cheats-title">Addressing test — switch who&apos;s speaking</div>
+              {CHEAT_ADDRESSING.map((entry) => (
+                <div className="cheat-card" key={entry.line}>
+                  <div className="cheat-lines">
+                    <button
+                      className="cheat-line"
+                      onClick={() => {
+                        setSpeaker(entry.as as SpeakerRole);
+                        setText(entry.line);
+                      }}
+                    >
+                      [{entry.as}] {entry.line}
+                    </button>
+                  </div>
+                  <div className="cheat-hook">→ {entry.expect}</div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
