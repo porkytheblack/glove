@@ -129,6 +129,9 @@ export default function Console() {
       // Worker just finished → the relay turn is imminent; open the TTS socket
       // now so the relay doesn't pay the ~1.2s cold handshake.
       else if (e.type === "worker_busy" && !e.busy) voiceRef.current?.prewarm();
+      // A failed front turn ends without a `say` — still close out the voice
+      // turn so a post-barge-in suppression can't leak onto the next turn.
+      else if (e.type === "error") voiceRef.current?.endTurn();
     },
     [appendMetric],
   );

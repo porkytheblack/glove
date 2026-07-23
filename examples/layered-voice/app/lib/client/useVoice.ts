@@ -143,6 +143,13 @@ export function useVoice(args: UseVoiceArgs) {
   // while STILL OPENING (text queues into it; never pay the handshake twice).
   const prewarmRef = useRef<{ tts: ElevenLabsTTSAdapter; at: number; opening: Promise<void> } | null>(null);
 
+  // Set on barge-in while the server is STILL STREAMING the cut turn: its
+  // remaining deltas keep arriving after the audio was voided, and without
+  // this they'd re-queue as a brand-new turn and play the moment the user
+  // stops talking (Nova "resuming" her interrupted line). Cleared by the
+  // turn-end `say` (endTurn) of the suppressed turn.
+  const suppressTurnRef = useRef(false);
+
   // Mutable flags read from audio-event handlers.
   const enabledRef = useRef(false);
   const gateOpenRef = useRef(false); // feed mic audio to STT?
@@ -436,6 +443,7 @@ export function useVoice(args: UseVoiceArgs) {
   const feedDelta = useCallback(
     (text: string) => {
       if (!enabledRef.current || !text) return;
+      if (suppressTurnRef.current) return; // tail of an interrupted turn — drop
       let writing = writingTurn();
       if (!writing) {
         writing = newTurn();
@@ -452,6 +460,13 @@ export function useVoice(args: UseVoiceArgs) {
   const endTurn = useCallback(
     (fallbackText?: string) => {
       if (!enabledRef.current) return;
+      if (suppressTurnRef.current) {
+        // The interrupted turn just ended server-side. Clear suppression and
+        // do NOT fall back to speaking its full text — the room already cut
+        // it off, and the <user-interruption> notice covers what was heard.
+        suppressTurnRef.current = false;
+        return;
+      }
       const writing = writingTurn();
       if (writing) {
         writing.flushed = true;
@@ -525,6 +540,7 @@ export function useVoice(args: UseVoiceArgs) {
     speakingRef.current = false;
     gateOpenRef.current = false;
     userSpeakingRef.current = false;
+    suppressTurnRef.current = false;
   }, [stopSpeaking]);
 
   const enable = useCallback(async () => {
@@ -575,6 +591,10 @@ export function useVoice(args: UseVoiceArgs) {
           const heard = active ? estimateHeard(active.sentText, playedMs) : "";
           const spokenMs = Date.now() - novaSpeakStartRef.current;
           const dropped = queueRef.current.length;
+          // If the cut turn's text is still streaming from the server, its
+          // remaining deltas must be dropped too — otherwise they re-queue as
+          // a new turn and Nova "resumes reading" once the user goes quiet.
+          if (writingTurn()) suppressTurnRef.current = true;
           stopSpeaking();
           speakingRef.current = false;
           gateOpenRef.current = true; // route this utterance to STT
@@ -609,7 +629,7 @@ export function useVoice(args: UseVoiceArgs) {
       patch({ enabled: false, ready: false, error: (err as Error)?.message ?? "voice failed to start" });
       await cleanup();
     }
-  }, [cleanup, emitMetric, markUtteranceSent, patch, prewarm, stopSpeaking]);
+  }, [cleanup, emitMetric, markUtteranceSent, patch, prewarm, stopSpeaking, writingTurn]);
 
   const disable = useCallback(async () => {
     if (!enabledRef.current) return;
