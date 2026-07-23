@@ -99,6 +99,8 @@ interface SpeechTurn {
   sentText: string;
   /** The one-time ~60-char forced-generation trigger has fired. */
   earlyFlushSent: boolean;
+  /** Chars sent since the last forced-generation flush (throttles triggers). */
+  charsSinceFlush: number;
   tts: ElevenLabsTTSAdapter | null;
   /** endTurn was called — no more text is coming for this turn. */
   flushed: boolean;
@@ -111,7 +113,13 @@ interface SpeechTurn {
 
 /** Chars buffered before the first forced-generation flush. */
 const EARLY_FLUSH_CHARS = 60;
-/** Max ms with no audio frame on an active turn before we fail it. */
+/**
+ * Min chars between subsequent forced flushes. Without this, a long turn fired
+ * a flush on nearly every sentence (~6 generations per turn), fragmenting
+ * prosody and apparently upsetting ElevenLabs' finalization on long streams.
+ */
+const MIN_FLUSH_GAP_CHARS = 120;
+/** Max ms with no audio frame on an active turn before we close it out. */
 const STALL_MS = 12_000;
 
 export function useVoice(args: UseVoiceArgs) {
@@ -215,6 +223,7 @@ export function useVoice(args: UseVoiceArgs) {
       pending: [],
       sentText: "",
       earlyFlushSent: false,
+      charsSinceFlush: 0,
       tts: null,
       flushed,
       stallTimer: null,
@@ -235,13 +244,15 @@ export function useVoice(args: UseVoiceArgs) {
   const deliver = useCallback((turn: SpeechTurn, text: string) => {
     if (!text) return;
     const already = turn.sentText.length + turn.pending.reduce((n, p) => n + p.text.length, 0);
+    turn.charsSinceFlush += text.length;
     let flush = false;
     if (!turn.earlyFlushSent && already + text.length >= EARLY_FLUSH_CHARS) {
       turn.earlyFlushSent = true;
       flush = true;
-    } else if (turn.earlyFlushSent && /[.?!]/.test(text)) {
+    } else if (turn.earlyFlushSent && /[.?!]/.test(text) && turn.charsSinceFlush >= MIN_FLUSH_GAP_CHARS) {
       flush = true;
     }
+    if (flush) turn.charsSinceFlush = 0;
     if (turn === activeRef.current && turn.tts) {
       turn.tts.sendText(text, flush ? { flush: true } : undefined);
       turn.sentText += text;
@@ -302,9 +313,21 @@ export function useVoice(args: UseVoiceArgs) {
       if (turn.stallTimer) clearTimeout(turn.stallTimer);
       turn.stallTimer = setTimeout(() => {
         if (activeRef.current !== turn) return;
-        emitMetric("tts_stall", STALL_MS, { turn: turn.id, sentChars: turn.sentText.length, hadAudio: turn.firstChunkAt > 0 });
-        patch({ error: "TTS stalled — no audio from ElevenLabs; turn abandoned" });
-        argsRef.current.onSpeechFailure?.("TTS stalled — no audio frames");
+        // If the turn was flushed and audio flowed, the room almost certainly
+        // heard the line and only the FINALIZATION went missing (isFinal /
+        // drain never fired). Close it out quietly — a false <speech-failure>
+        // notice here made Nova needlessly repeat herself.
+        const assumedComplete = turn.flushed && turn.firstChunkAt > 0;
+        emitMetric("tts_stall", STALL_MS, {
+          turn: turn.id,
+          sentChars: turn.sentText.length,
+          hadAudio: turn.firstChunkAt > 0,
+          assumedComplete,
+        });
+        if (!assumedComplete) {
+          patch({ error: "TTS stalled — no audio from ElevenLabs; turn abandoned" });
+          argsRef.current.onSpeechFailure?.("TTS stalled — no audio frames");
+        }
         completeActive(turn);
       }, STALL_MS);
     },
