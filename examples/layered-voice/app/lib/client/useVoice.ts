@@ -29,7 +29,7 @@ import {
 } from "glove-voice";
 import type { MetricRecord, SpeakerRole } from "../shared/types";
 
-const VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID || "JBFqnCBsd6RMkjVDRZzb";
+const VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID || "uYXf8XasLslADfZ2MB4u";
 
 async function fetchToken(path: string): Promise<string> {
   const res = await fetch(path);
