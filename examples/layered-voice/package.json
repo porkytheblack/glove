@@ -7,7 +7,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "clear": "node scripts/clear.mjs"
+    "clear": "node scripts/clear.mjs",
+    "eval": "node scripts/eval.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",

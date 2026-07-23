@@ -334,6 +334,8 @@ Measured (server-side unless noted):
 | `barge_in` | **client** — an interruption; `ms` Nova had been speaking, `data.droppedQueuedTurns` = queued speech voided with it, `data.heardChars` = estimated heard prefix length |
 | `user_interruption` | count event — a `<user-interruption>` notice was logged into Nova's history (`data.heardChars`) |
 | `speech_failure` | count event — a `<speech-failure>` notice was logged (TTS never played the line) |
+| `session_config` | one per session — `data`: `provider`, `frontModel`, `workerModel`, `frontReasoning`. The demarcation record: everything after it in that `sessionId` was produced by these models. |
+| `front_transcript` | **one per front turn — the eval surface.** `data`: `kind` (`response`/`relay`), `input` (the framed line Nova was given), `raw` (her FULL output — silent notes, tags and all), `spoken` (what actually reached the room), `spoke`, `delegated`, `model` |
 
 The `data` payloads are where the analysis lives, e.g.:
 
@@ -354,7 +356,39 @@ Analyze with e.g.:
 cat voice-metrics.jsonl | jq -s '[.[]|select(.name=="time_to_first_audio_ms").ms]|add/length'
 # every barge-in
 cat voice-metrics.jsonl | jq 'select(.name=="barge_in")'
+# full transcript of a session, in order (input → what she spoke)
+cat voice-metrics.jsonl | jq 'select(.name=="front_transcript" and .sessionId=="sess_...") | {in:.data.input, out:.data.spoken, delegated:.data.delegated}'
 ```
+
+### The eval rubric — addressing, delegation, content, speed
+
+`scripts/eval.mjs` drives a real session over the same HTTP/SSE surface the
+browser uses and scores the front agent on the four things that matter:
+
+1. **Addressing** — spoke when addressed, silent when people talked to each
+   other (includes an overheard-context line she must absorb silently);
+2. **Delegation** — dispatched to the worker when the request needed shop data,
+   answered herself when it didn't;
+3. **Content** — the async relayed answers contain facts actually seeded in the
+   database (KES-0007's declined 62,000 cr overhaul, VAN-0455's excluded
+   heat-ladder wear);
+4. **Speed** — first-spoken-token, front turn, and delegation round-trip, from
+   the same metrics the HUD shows.
+
+With the dev server running:
+
+```bash
+pnpm eval                                              # score the current default model
+pnpm eval -- --model openai/gpt-oss-120b --label oss   # pin a model for this run
+pnpm eval -- --model minimax/minimax-m2.5 --label m25  # ...then compare another
+```
+
+The front model is a **per-session override** (POST `/api/session` body
+`{ frontModel }`), so you can rubric several models against one running server
+and diff the reports. Each run prints a pass/fail table and writes
+`eval-results/<label>-<timestamp>.json`; the full turn-by-turn text lands in
+the metrics JSONL as `front_transcript` records under the run's `sessionId`,
+with the `session_config` record saying exactly which models produced it.
 
 ---
 

@@ -60,17 +60,21 @@ const REASONING: Record<Role, boolean | OpenAICompatReasoningOptions> = {
   worker: true,
 };
 
-function modelFor(role: Role): string | undefined {
+export function modelFor(role: Role): string | undefined {
   const override = process.env[`${role.toUpperCase()}_MODEL`];
   if (override) return override;
   return DEFAULTS[PROVIDER]?.[role]; // undefined → createAdapter uses provider default
 }
 
-/** Each agent gets its own adapter instance (adapters carry a system prompt). */
-export function buildModel(role: Role, stream: boolean): ModelAdapter {
+/**
+ * Each agent gets its own adapter instance (adapters carry a system prompt).
+ * `modelOverride` beats env + defaults — used by per-session model selection
+ * (the eval runner A/B-tests front models without a server restart).
+ */
+export function buildModel(role: Role, stream: boolean, modelOverride?: string): ModelAdapter {
   return createAdapter({
     provider: PROVIDER,
-    model: modelFor(role),
+    model: modelOverride || modelFor(role),
     stream,
     ...(REASONING[role] ? { reasoning: REASONING[role] } : {}),
   });

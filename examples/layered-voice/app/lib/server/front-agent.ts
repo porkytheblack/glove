@@ -61,10 +61,10 @@ On a later turn you'll see "[Inbox: N item(s) resolved]" with the worker's reply
 - There is exactly one worker, id "worker" — no need to discover agents.
 - Today is ${STATS.todayIso}.`;
 
-export function buildFrontAgent(store: StoreAdapter): IGloveRunnable {
+export function buildFrontAgent(store: StoreAdapter, modelOverride?: string): IGloveRunnable {
   const agent = new Glove({
     store,
-    model: buildModel("front", true),
+    model: buildModel("front", true, modelOverride),
     displayManager: new Displaymanager(),
     systemPrompt: FRONT_SYSTEM_PROMPT,
     serverMode: true,

@@ -34,6 +34,7 @@ export class SpeechTagParser {
   private buf = "";
   private inside = false;
   private spoken = "";
+  private rawText = "";
   private _stats: SpeechParseStats = { spokenChars: 0, discardedChars: 0, blocks: 0, unclosed: false };
 
   constructor(private readonly onSpeech: (text: string) => void) {}
@@ -43,9 +44,15 @@ export class SpeechTagParser {
     return { ...this._stats };
   }
 
+  /** The turn's FULL raw output (tags, silent notes and all) — for transcripts/evals. */
+  get raw(): string {
+    return this.rawText;
+  }
+
   /** Feed one streamed chunk. Emits any newly-unambiguous in-tag text. */
   push(chunk: string): void {
     if (!chunk) return;
+    this.rawText += chunk;
     this.buf += chunk;
     this.drain();
   }

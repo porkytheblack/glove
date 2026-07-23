@@ -22,6 +22,7 @@ import { mountMesh, MeshNetwork, InMemoryMeshAdapter } from "glove-mesh";
 import type { IGloveRunnable, SubscriberAdapter } from "glove-core";
 import { buildFrontAgent } from "./front-agent";
 import { buildWorkerAgent } from "./worker-agent";
+import { modelFor, PROVIDER } from "./models";
 import { createAgentStore } from "./stores";
 import { frameUtterance, ASSISTANT_NAME } from "./speakers";
 import {
@@ -111,15 +112,18 @@ export class Session {
   private lastSpeechStats: SpeechParseStats | null = null;
   private uttSeq = 0;
   private buildError: string | null = null;
+  // Front model actually in use (per-session override or the env/default one).
+  private frontModel: string | undefined;
   // Metric bookkeeping for the front turn in flight.
   private currentUtteranceId: string | null = null;
   private turnStartAt = 0;
   private ttftPending = false;
   readonly ready: Promise<void>;
 
-  constructor(id: string) {
+  constructor(id: string, opts?: { frontModel?: string }) {
     this.id = id;
-    this.ready = this.init();
+    this.frontModel = opts?.frontModel || modelFor("front");
+    this.ready = this.init(opts?.frontModel);
   }
 
   // ── event fan-out ──────────────────────────────────────────────────────────
@@ -235,11 +239,11 @@ export class Session {
   }
 
   // ── build agents + mesh ────────────────────────────────────────────────────
-  private async init(): Promise<void> {
+  private async init(frontModelOverride?: string): Promise<void> {
     try {
       // In sqlite mode both stores share one DB file, scoped by these ids —
       // mesh inbox traffic and transcripts persist and are inspectable.
-      this.front = buildFrontAgent(createAgentStore(`${this.id}_front`));
+      this.front = buildFrontAgent(createAgentStore(`${this.id}_front`), frontModelOverride);
       this.worker = buildWorkerAgent(createAgentStore(`${this.id}_worker`));
     } catch (err) {
       this.buildError =
@@ -269,6 +273,15 @@ export class Session {
         capabilities: ["research", "tools"],
       },
     });
+
+    // Demarcate this session's run in the metrics file: which models produced
+    // everything that follows (evals group and compare on this record).
+    this.metric("session_config", undefined, {
+      provider: PROVIDER,
+      frontModel: this.frontModel ?? "(provider default)",
+      workerModel: modelFor("worker") ?? "(provider default)",
+      frontReasoning: process.env.FRONT_REASONING ?? "low",
+    });
   }
 
   // ── one front turn, with live <speech> parsing ─────────────────────────────
@@ -294,6 +307,20 @@ export class Session {
     }
     const speech = parser.finish();
     this.lastSpeechStats = parser.stats;
+    // The turn's transcript, into the same JSONL as the timings: what Nova was
+    // given, everything she generated (silent notes and all), and what was
+    // actually spoken. This is the eval surface — addressing decisions and
+    // answer quality get judged off these records, joined to the latency
+    // metrics by sessionId/utteranceId.
+    this.metric("front_transcript", undefined, {
+      kind: this.currentFrontKind,
+      input: prompt.slice(0, 1500),
+      raw: parser.raw.slice(0, 6000),
+      spoken: speech.slice(0, 3000),
+      spoke: speech.length > 0,
+      delegated: this.frontDelegatedThisTurn,
+      model: this.frontModel ?? "(provider default)",
+    });
     if (parser.stats.unclosed) {
       // Protocol violation worth trending: the model opened <speech> and never
       // closed it. Tolerated at runtime, but a prompt-tuning signal.
@@ -619,9 +646,9 @@ export class Session {
 const g = globalThis as unknown as { __layeredVoiceSessions?: Map<string, Session> };
 const REGISTRY: Map<string, Session> = g.__layeredVoiceSessions ?? (g.__layeredVoiceSessions = new Map());
 
-export function createSession(): Session {
+export function createSession(opts?: { frontModel?: string }): Session {
   const id = `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-  const session = new Session(id);
+  const session = new Session(id, opts);
   REGISTRY.set(id, session);
   // Soft cap to avoid unbounded growth in a long-lived dev server.
   if (REGISTRY.size > 50) {
