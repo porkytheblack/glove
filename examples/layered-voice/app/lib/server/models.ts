@@ -38,21 +38,37 @@ const DEFAULTS: Partial<Record<Provider, Record<Role, string>>> = {
 
 // Reasoning per role. The worker is a reasoning model doing heavy tool work
 // (capture + echo its trace). The front should reason as little as possible:
-// gpt-oss-120b runs MEDIUM reasoning by default on OpenRouter — seconds of
-// silent thinking before the first visible token, pure dead air for a voice
+// thinking models (gpt-oss default-medium, qwen3-*-thinking) burn seconds of
+// silent reasoning before the first visible token — pure dead air for a voice
 // agent. FRONT_REASONING picks the strategy:
 //   "low"  (default) — reasoning: { effort: "low" }; widely supported, keeps
 //                      the thinking phase to a few hundred ms.
+//   "budget:<n>"     — reasoning: { max_tokens: n }; a HARD thinking cap.
+//                      More reliable than effort for models whose upstream
+//                      ignores it (e.g. qwen3 thinking variants — OpenRouter
+//                      maps max_tokens to the provider's thinking budget).
+//                      Try FRONT_REASONING=budget:256 for a snappy front.
 //   "off"            — reasoning: { enabled: false }; full disable where the
 //                      provider allows it, but some REJECT it for reasoning
 //                      models (the request fails outright).
 //   "none"           — send no reasoning param at all (provider default).
 // Anthropic ignores the field entirely.
+//
+// FRONT_PROVIDER_SORT ("throughput" | "latency" | "price") adds OpenRouter
+// provider routing — WHO serves the model often matters more for latency than
+// the model itself. Applied whenever a reasoning param is sent (any mode but
+// "none").
 function frontReasoning(): boolean | OpenAICompatReasoningOptions {
   const mode = process.env.FRONT_REASONING ?? "low";
+  const sort = process.env.FRONT_PROVIDER_SORT;
+  const extra = sort ? { extraBody: { provider: { sort } } } : {};
   if (mode === "none") return false;
-  if (mode === "off") return { reasoningObject: { enabled: false }, echo: false };
-  return { reasoningObject: { effort: "low" }, echo: false };
+  if (mode === "off") return { reasoningObject: { enabled: false }, echo: false, ...extra };
+  const budget = /^budget:(\d+)$/.exec(mode);
+  if (budget) {
+    return { reasoningObject: { max_tokens: Number(budget[1]) }, echo: false, ...extra };
+  }
+  return { reasoningObject: { effort: "low" }, echo: false, ...extra };
 }
 
 const REASONING: Record<Role, boolean | OpenAICompatReasoningOptions> = {

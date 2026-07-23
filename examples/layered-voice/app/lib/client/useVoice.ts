@@ -147,7 +147,17 @@ export function useVoice(args: UseVoiceArgs) {
   // token), so the token-mint + handshake cost overlaps model latency instead
   // of adding to time-to-first-audio. Adopted by the next spoken turn — even
   // while STILL OPENING (text queues into it; never pay the handshake twice).
-  const prewarmRef = useRef<{ tts: ElevenLabsTTSAdapter; at: number; opening: Promise<void> } | null>(null);
+  const prewarmRef = useRef<{
+    tts: ElevenLabsTTSAdapter;
+    at: number;
+    opening: Promise<void>;
+    // Idle keepalive: ElevenLabs closes a stream-input socket after ~20s
+    // without messages. A slow-thinking front model can easily exceed that
+    // between prewarm and first token — the adopted socket then dies mid-turn
+    // and the line never plays ("speech failed to play"). A whitespace chunk
+    // every 8s keeps it open without triggering generation.
+    keepalive: ReturnType<typeof setInterval> | null;
+  } | null>(null);
 
   // Server front-turn ids voided by a barge-in. The server keeps streaming the
   // cut turn's deltas after the audio is killed; without this they'd re-queue
@@ -219,8 +229,11 @@ export function useVoice(args: UseVoiceArgs) {
   const prewarm = useCallback(() => {
     if (!enabledRef.current) return;
     const existing = prewarmRef.current;
-    if (existing && Date.now() - existing.at < 15_000) return; // still fresh
+    // The keepalive holds the socket open indefinitely, but recycle anyway
+    // after a while — ElevenLabs may cap total connection lifetime.
+    if (existing && Date.now() - existing.at < 60_000) return; // still fresh
     if (existing) {
+      if (existing.keepalive) clearInterval(existing.keepalive);
       try {
         existing.tts.destroy();
       } catch {
@@ -228,11 +241,27 @@ export function useVoice(args: UseVoiceArgs) {
       }
     }
     const tts = makeTts();
-    const entry = { tts, at: Date.now(), opening: tts.open() };
+    const entry = {
+      tts,
+      at: Date.now(),
+      opening: tts.open(),
+      keepalive: null as ReturnType<typeof setInterval> | null,
+    };
     prewarmRef.current = entry;
-    entry.opening.catch(() => {
-      if (prewarmRef.current === entry) prewarmRef.current = null;
-    });
+    entry.opening
+      .then(() => {
+        if (prewarmRef.current !== entry) return; // already adopted/discarded
+        entry.keepalive = setInterval(() => {
+          try {
+            entry.tts.sendText(" ");
+          } catch {
+            /* socket gone — the adoption check will discard it */
+          }
+        }, 8_000);
+      })
+      .catch(() => {
+        if (prewarmRef.current === entry) prewarmRef.current = null;
+      });
   }, [makeTts]);
 
   /** Start the time-to-first-audio clock; next Nova audio chunk is timed from here. */
@@ -413,7 +442,9 @@ export function useVoice(args: UseVoiceArgs) {
     const pw = prewarmRef.current;
     prewarmRef.current = null;
     if (pw) {
-      if (Date.now() - pw.at < 15_000) {
+      // Stop the idle keepalive BEFORE any real text goes down the socket.
+      if (pw.keepalive) clearInterval(pw.keepalive);
+      if (Date.now() - pw.at < 60_000) {
         tts = pw.tts;
         opening = pw.opening;
         adopted = true;
@@ -565,6 +596,7 @@ export function useVoice(args: UseVoiceArgs) {
   const cleanup = useCallback(async () => {
     stopSpeaking();
     if (prewarmRef.current) {
+      if (prewarmRef.current.keepalive) clearInterval(prewarmRef.current.keepalive);
       try {
         prewarmRef.current.tts.destroy();
       } catch {
