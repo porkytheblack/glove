@@ -19,7 +19,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { mountMesh, MeshNetwork, InMemoryMeshAdapter } from "glove-mesh";
-import type { IGloveRunnable, InboxItem, SubscriberAdapter } from "glove-core";
+import type { IGloveRunnable, SubscriberAdapter } from "glove-core";
 import { buildFrontAgent } from "./front-agent";
 import { buildWorkerAgent } from "./worker-agent";
 import { createAgentStore } from "./stores";
@@ -43,6 +43,12 @@ import type {
 } from "../shared/types";
 
 type Listener = (e: SessionEvent) => void;
+
+// Spoken phrases that signal Nova is promising a lookup. If a turn speaks one
+// of these but never calls glove_mesh_send_message, nothing was dispatched —
+// flag it (metric + room note) instead of letting the room wait in silence.
+const PROMISE_RE =
+  /\b(one (moment|sec(ond)?)|moment please|let me (check|see|look|pull|find|get)|i(?:'|’)?ll (check|look|pull|get|find)|checking (on )?that|looking (that|it|into) up|pulling (that|it) up|right away|hold on|give me a (sec|second|moment)|bear with me)\b/i;
 
 const WORKER_DRAIN_PROMPT =
   'You have new delegated request(s) in your inbox. Handle each one with your tools, then reply to the front agent (id "front") via glove_mesh_send_message with in_reply_to set to the message id shown in the inbox line. Do NOT acknowledge — reply only.';
@@ -84,8 +90,11 @@ export class Session {
   private queue: Promise<unknown> = Promise.resolve();
   // Worker runs serialize on their own chain — CONCURRENT with front turns.
   private workerQueue: Promise<unknown> = Promise.resolve();
-  // mesh:waiting tags already handed to the worker (so we don't double-run).
+  // Worker-inbox item ids already handed to the worker (so we don't double-run).
   private dispatched = new Set<string>();
+  // Did the front turn in flight call glove_mesh_send_message? Read after the
+  // turn to catch "promised out loud but never delegated" protocol slips.
+  private frontDelegatedThisTurn = false;
   private relayQueued = false;
   private workerBusy = 0;
   // Per-worker-run effort counters (worker runs are serialized, so one set is safe).
@@ -199,7 +208,13 @@ export class Session {
             if (d.name === "glove_mesh_send_message") {
               const input = (d.input ?? {}) as { content?: string };
               if (role === "front") {
+                this.frontDelegatedThisTurn = true;
                 this.emit({ type: "mesh", direction: "delegate", from: "front", to: "worker", content: input.content ?? "" });
+                // Kick the worker as soon as the send lands instead of waiting
+                // for Nova's whole turn (she still streams her ack and a
+                // post-tool round after this). Idempotent — the end-of-turn
+                // kick is the backstop if the inbox item hasn't landed yet.
+                setTimeout(() => void this.kickWorker(), 200);
               } else if (role === "worker") {
                 this.workerRunReplies += 1;
                 this.emit({ type: "mesh", direction: "reply", from: "worker", to: "front", content: input.content ?? "" });
@@ -271,6 +286,7 @@ export class Session {
       this.emit({ type: "delta", role: "front", text });
     });
     this.speechParser = parser;
+    this.frontDelegatedThisTurn = false;
     try {
       await this.front.processRequest(prompt);
     } finally {
@@ -344,6 +360,8 @@ export class Session {
       speaker: role,
       // Was the worker researching while Nova handled this? (async interleaving)
       workerBusy: this.workerBusy > 0,
+      // Did this turn actually dispatch a delegation?
+      delegated: this.frontDelegatedThisTurn,
       // <speech> protocol health for this turn
       spokenChars: st?.spokenChars ?? 0,
       discardedChars: st?.discardedChars ?? 0,
@@ -356,6 +374,16 @@ export class Session {
         type: "silent",
         utteranceId: utt.id,
         reason: `${ASSISTANT_NAME} produced no <speech> — she judged this wasn't addressed to her.`,
+      });
+    } else if (!this.frontDelegatedThisTurn && PROMISE_RE.test(speech)) {
+      // Nova spoke like she was kicking off a lookup but never called the mesh
+      // send tool — the single most confusing failure (the room hears "one
+      // moment please" and then nothing ever happens). Surface it loudly.
+      this.metric("promised_without_delegation", undefined, { speech: compact(speech, 200) });
+      this.emit({
+        type: "note",
+        noteKind: "missed-delegation",
+        text: `${ASSISTANT_NAME} said she'd check but never called glove_mesh_send_message — nothing was dispatched to the worker`,
       });
     }
 
@@ -409,20 +437,27 @@ export class Session {
 
   // ── async delegation: background worker + queued relay wakeup ──────────────
   /**
-   * Scan Nova's inbox for pending `mesh:waiting` items not yet handed to the
-   * worker, and schedule ONE background worker run for the batch. Cheap —
-   * only dispatches, never waits for the research.
+   * Scan the WORKER's inbox for delegations not yet handed to it, and schedule
+   * ONE background worker run for the batch. Cheap — only dispatches, never
+   * waits for the research.
+   *
+   * Dispatch keys off the worker's own `mesh:from:*` items (every inbound mesh
+   * message lands there as a resolved item, whatever the sender's `blocking`
+   * flag was). It used to key off the front's `mesh:waiting:*` reminders,
+   * which exist ONLY for blocking sends — so any delegation where the model
+   * omitted `blocking: true` (the schema default is false) sat in the worker's
+   * inbox forever and the worker never ran.
    */
   private async kickWorker(): Promise<void> {
-    const items = (await this.front.store.getInboxItems?.()) ?? [];
+    const items = (await this.worker.store.getInboxItems?.()) ?? [];
     const fresh = items.filter(
       (i) =>
-        i.status === "pending" &&
-        i.tag.startsWith("mesh:waiting:") &&
-        !this.dispatched.has(i.tag),
+        i.status === "resolved" &&
+        i.tag.startsWith("mesh:from:") &&
+        !this.dispatched.has(i.id),
     );
     if (fresh.length === 0) return;
-    for (const i of fresh) this.dispatched.add(i.tag);
+    for (const i of fresh) this.dispatched.add(i.id);
 
     const dispatchedAt = Date.now();
     this.metric("delegation_dispatched", undefined, { count: fresh.length });
@@ -457,7 +492,6 @@ export class Session {
             failed
               ? "the worker run errored out before answering"
               : "the worker finished without sending back any result",
-            fresh,
           );
         } else {
           // The reply already landed in Nova's inbox (mesh handler). Wake her.
@@ -534,10 +568,15 @@ export class Session {
    * carries "still waiting" forever) and run a spoken turn framed as
    * <worker-trouble> so she levels with the asker.
    */
-  private queueTrouble(reason: string, failedItems: InboxItem[]): void {
+  private queueTrouble(reason: string): void {
     this.queue = this.queue
       .then(async () => {
-        for (const it of failedItems) {
+        // Clear whatever mesh:waiting reminders the front is still carrying —
+        // only blocking sends create them, so there may be none at all.
+        const stale = ((await this.front.store.getInboxItems?.()) ?? []).filter(
+          (i) => i.status === "pending" && i.tag.startsWith("mesh:waiting:"),
+        );
+        for (const it of stale) {
           await this.front.store.updateInboxItem?.(it.id, {
             status: "consumed",
             response: `No result: ${reason}.`,
@@ -567,7 +606,7 @@ export class Session {
         this.metric("relay_ms", Date.now() - rt0, {
           spoke: speech.length > 0,
           trouble: true,
-          items: failedItems.length,
+          items: stale.length,
         });
         this.currentFrontKind = "response";
         this.emit({ type: "phase", phase: "idle" });

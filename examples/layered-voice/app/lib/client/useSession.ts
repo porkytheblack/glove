@@ -27,7 +27,7 @@ export interface RoomSay {
 export interface RoomNote {
   kind: "note";
   id: string;
-  noteKind: "interruption" | "speech-failure";
+  noteKind: "interruption" | "speech-failure" | "missed-delegation";
   text: string;
 }
 export type RoomItem = RoomUtterance | RoomSay | RoomNote;

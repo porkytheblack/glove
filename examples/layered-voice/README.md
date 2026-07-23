@@ -289,9 +289,10 @@ Measured (server-side unless noted):
 | --- | --- |
 | `time_to_first_audio_ms` | **client** — utterance sent → first Nova audio (the headline voice latency) |
 | `front_ttft_ms` | utterance received → Nova's first *spoken* token (first in-tag token) |
-| `front_turn_ms` | the whole front turn; `data` carries `spoke`, `speaker`, `workerBusy` (was she answering *while* research ran — the interleaving evidence), and per-turn `<speech>` protocol health (`spokenChars` / `discardedChars` / `speechBlocks` / `unclosedTag`) |
+| `front_turn_ms` | the whole front turn; `data` carries `spoke`, `speaker`, `workerBusy` (was she answering *while* research ran — the interleaving evidence), `delegated` (did the turn actually call the mesh send), and per-turn `<speech>` protocol health (`spokenChars` / `discardedChars` / `speechBlocks` / `unclosedTag`) |
 | `speech_tag_unclosed` | count event — a turn ended inside an unclosed `<speech>` (tolerated, but a prompt-tuning signal) |
-| `delegation_dispatched` | count event — a batch of delegations handed to the background worker |
+| `promised_without_delegation` | count event — Nova **spoke like she was kicking off a lookup** ("one moment please") but never called `glove_mesh_send_message`; nothing was dispatched. Also surfaced as a red room note. |
+| `delegation_dispatched` | count event — a batch of delegations handed to the background worker (keyed off the **worker's** inbox, so it fires whether or not the model set `blocking: true`) |
 | `worker_queue_wait_ms` | dispatch → worker run start (runs serialize, so batches can queue) |
 | `worker_ms` | background worker research time; `data`: `delegations`, `toolCalls`, `replies`, `failed` |
 | `worker_no_reply` | count event — a worker run ended **without replying** (the paper's §8 silence failure: the front is left waiting) |
