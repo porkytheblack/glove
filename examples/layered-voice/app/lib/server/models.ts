@@ -37,14 +37,26 @@ const DEFAULTS: Partial<Record<Provider, Record<Role, string>>> = {
 };
 
 // Reasoning per role. The worker is a reasoning model doing heavy tool work
-// (capture + echo its trace). The front must NOT reason: gpt-oss-120b runs
-// medium reasoning BY DEFAULT on OpenRouter — several seconds of silent
-// thinking before the first visible token, which is pure dead air for a voice
-// agent. Sending an explicit `reasoning: { enabled: false }` turns it off
-// (OpenRouter maps it to the lowest effort where full disable isn't
-// supported). Anthropic ignores the field entirely.
+// (capture + echo its trace). The front should reason as little as possible:
+// gpt-oss-120b runs MEDIUM reasoning by default on OpenRouter — seconds of
+// silent thinking before the first visible token, pure dead air for a voice
+// agent. FRONT_REASONING picks the strategy:
+//   "low"  (default) — reasoning: { effort: "low" }; widely supported, keeps
+//                      the thinking phase to a few hundred ms.
+//   "off"            — reasoning: { enabled: false }; full disable where the
+//                      provider allows it, but some REJECT it for reasoning
+//                      models (the request fails outright).
+//   "none"           — send no reasoning param at all (provider default).
+// Anthropic ignores the field entirely.
+function frontReasoning(): boolean | OpenAICompatReasoningOptions {
+  const mode = process.env.FRONT_REASONING ?? "low";
+  if (mode === "none") return false;
+  if (mode === "off") return { reasoningObject: { enabled: false }, echo: false };
+  return { reasoningObject: { effort: "low" }, echo: false };
+}
+
 const REASONING: Record<Role, boolean | OpenAICompatReasoningOptions> = {
-  front: { reasoningObject: { enabled: false }, echo: false },
+  front: frontReasoning(),
   worker: true,
 };
 

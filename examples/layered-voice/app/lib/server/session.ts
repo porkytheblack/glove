@@ -322,7 +322,21 @@ export class Session {
     this.currentFrontKind = "response";
     this.turnStartAt = Date.now();
     this.ttftPending = true;
-    const speech = await this.runFrontTurn(frameUtterance(role, text));
+    let speech: string;
+    try {
+      speech = await this.runFrontTurn(frameUtterance(role, text));
+    } catch (err) {
+      // A failed model call must be VISIBLE — previously it was swallowed by
+      // the queue chain and the UI just looked hung mid-"front" phase.
+      const msg = (err as Error)?.message ?? String(err);
+      // eslint-disable-next-line no-console
+      console.error("[layered-voice] front turn failed:", err);
+      this.metric("front_error", undefined, { message: compact(msg, 300) });
+      this.emit({ type: "error", message: `Front turn failed: ${compact(msg, 300)}` });
+      this.ttftPending = false;
+      this.emit({ type: "phase", phase: "idle" });
+      return;
+    }
     this.ttftPending = false;
     const st = this.lastSpeechStats;
     this.metric("front_turn_ms", Date.now() - this.turnStartAt, {
@@ -482,7 +496,20 @@ export class Session {
         const rt0 = Date.now();
         this.turnStartAt = rt0;
         this.ttftPending = true;
-        const speech = await this.runFrontTurn(frameWorkerResult());
+        let speech: string;
+        try {
+          speech = await this.runFrontTurn(frameWorkerResult());
+        } catch (err) {
+          const msg = (err as Error)?.message ?? String(err);
+          // eslint-disable-next-line no-console
+          console.error("[layered-voice] relay turn failed:", err);
+          this.metric("front_error", undefined, { message: compact(msg, 300), relay: true });
+          this.emit({ type: "error", message: `Relay turn failed: ${compact(msg, 300)}` });
+          this.ttftPending = false;
+          this.currentFrontKind = "response";
+          this.emit({ type: "phase", phase: "idle" });
+          return;
+        }
         this.ttftPending = false;
         this.metric("relay_ms", Date.now() - rt0, {
           spoke: speech.length > 0,
@@ -523,7 +550,19 @@ export class Session {
         const rt0 = Date.now();
         this.turnStartAt = rt0;
         this.ttftPending = true;
-        const speech = await this.runFrontTurn(frameWorkerTrouble(reason));
+        let speech: string;
+        try {
+          speech = await this.runFrontTurn(frameWorkerTrouble(reason));
+        } catch (err) {
+          const msg = (err as Error)?.message ?? String(err);
+          // eslint-disable-next-line no-console
+          console.error("[layered-voice] trouble turn failed:", err);
+          this.emit({ type: "error", message: `Trouble-notice turn failed: ${compact(msg, 300)}` });
+          this.ttftPending = false;
+          this.currentFrontKind = "response";
+          this.emit({ type: "phase", phase: "idle" });
+          return;
+        }
         this.ttftPending = false;
         this.metric("relay_ms", Date.now() - rt0, {
           spoke: speech.length > 0,
