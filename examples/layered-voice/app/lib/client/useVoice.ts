@@ -711,9 +711,29 @@ export function useVoice(args: UseVoiceArgs) {
       // Scribe's utterance state, and swallow the confirm when it lands —
       // logging a mismatch metric on the rare occasions it differs.
       const normalize = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+      // Scribe's rolling buffer can KEEP already-dispatched text — after we
+      // send "Hey, my name is Sam." the next partial may read "Hey, my name
+      // is Sam. I need some help." Re-dispatching that raw would duplicate
+      // the intro. Track what was last sent and strip it as a prefix; when a
+      // partial arrives that doesn't extend it, Scribe reset and we clear.
+      let lastDispatched = "";
+      const livePartial = (): string => {
+        let p = sttRef.current?.currentPartial?.trim() ?? "";
+        if (lastDispatched) {
+          if (p.startsWith(lastDispatched)) {
+            p = p.slice(lastDispatched.length).trim();
+          } else if (lastDispatched.startsWith(p)) {
+            p = ""; // stale echo of what we already sent
+          } else {
+            lastDispatched = ""; // buffer reset — a genuinely fresh utterance
+          }
+        }
+        return p;
+      };
       const dispatchFromPartial = (source: "endpoint" | "stable" | "hold"): boolean => {
-        const text = sttRef.current?.currentPartial?.trim();
+        const text = livePartial();
         if (!text) return false;
+        lastDispatched = sttRef.current?.currentPartial?.trim() ?? text;
         const endAt = speechEndAtRef.current;
         speechEndAtRef.current = 0;
         emitMetric("stt_dispatch_ms", endAt ? Date.now() - endAt : 0, {
@@ -728,23 +748,24 @@ export function useVoice(args: UseVoiceArgs) {
         return true;
       };
 
-      stt.on("partial", (t) => {
+      stt.on("partial", () => {
         // Freshness signal for the gate watchdog: a moving transcript means a
         // real person is talking, not just VAD-tripping noise.
         lastPartialAtRef.current = Date.now();
-        patch({ partial: t });
+        const live = livePartial();
+        patch({ partial: live });
         // Stable-transcript dispatch: in a noisy room the VAD can stay
         // "speaking" (a TV IS speech to a neural VAD) long after the USER
         // finished, so speech_end may fire seconds late or not at all. If the
         // partial stops changing for a second while the VAD still claims
         // speech, dispatch what we have.
         if (stableFlushRef.current) clearTimeout(stableFlushRef.current);
-        if (t.trim()) {
+        if (live) {
           stableFlushRef.current = setTimeout(() => {
             stableFlushRef.current = null;
             if (!enabledRef.current || !gateOpenRef.current) return;
             if (!vadRef.current?.isSpeaking) return; // speech_end will handle it
-            emitMetric("stt_stable_flush", undefined, { chars: t.length });
+            emitMetric("stt_stable_flush", undefined, { chars: live.length });
             dispatchFromPartial("stable");
           }, 1000);
         }
@@ -771,6 +792,14 @@ export function useVoice(args: UseVoiceArgs) {
         }
         patch({ partial: "" });
         if (!text) return;
+        // Dedupe against the last dispatched text here too — a commit of a
+        // buffer that still carried already-sent words must not repeat them.
+        let fresh = text;
+        if (lastDispatched) {
+          if (fresh.startsWith(lastDispatched)) fresh = fresh.slice(lastDispatched.length).trim();
+          else if (lastDispatched.startsWith(fresh)) fresh = "";
+        }
+        if (!fresh) return;
         // Only measure against a FRESH speech_end. Scribe can auto-commit
         // accumulated audio long after the last VAD boundary (e.g. echo /
         // noise-floor drift keeps VAD "speaking") — measuring those against a
@@ -778,10 +807,10 @@ export function useVoice(args: UseVoiceArgs) {
         const endAt = speechEndAtRef.current;
         speechEndAtRef.current = 0;
         if (endAt && Date.now() - endAt < 10_000) {
-          emitMetric("stt_final_ms", Date.now() - endAt, { chars: text.length });
+          emitMetric("stt_final_ms", Date.now() - endAt, { chars: fresh.length });
         }
         markUtteranceSent();
-        argsRef.current.onUtterance(argsRef.current.getSpeaker(), text);
+        argsRef.current.onUtterance(argsRef.current.getSpeaker(), fresh);
       });
       stt.on("error", (e) => patch({ error: e.message }));
 
@@ -848,11 +877,15 @@ export function useVoice(args: UseVoiceArgs) {
         userSpeakingRef.current = false;
         speechEndAtRef.current = Date.now();
         if (gateOpenRef.current) {
-          const partial = sttRef.current?.currentPartial?.trim() ?? "";
+          const partial = livePartial();
           if (!partial) {
-            // No partial yet (STT lagging the VAD boundary) — fall back to
-            // the commit round-trip; the final handler will dispatch.
-            sttRef.current?.flushUtterance();
+            // Nothing NEW to send. Only fall back to the commit round-trip
+            // when the buffer is truly empty (STT lagging the VAD boundary) —
+            // committing a buffer of already-dispatched text would duplicate
+            // it via the final handler.
+            if (!(sttRef.current?.currentPartial ?? "").trim()) {
+              sttRef.current?.flushUtterance();
+            }
           } else if (looksComplete(partial)) {
             dispatchFromPartial("endpoint");
           } else {
