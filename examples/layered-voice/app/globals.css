@@ -678,6 +678,15 @@ code {
   letter-spacing: 0;
   font-size: 10.5px;
 }
+.hud-cfg {
+  padding: 4px 14px 0;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+.hud-cfg strong {
+  color: var(--muted);
+  font-weight: 600;
+}
 .hud-toggle {
   border: 1px solid var(--border);
   background: var(--panel);

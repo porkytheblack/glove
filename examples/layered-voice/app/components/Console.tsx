@@ -29,6 +29,16 @@ const clip = (t: string, n = 200) => (t.length > n ? t.slice(0, n) + "…" : t);
 // ── Latency HUD ──────────────────────────────────────────────────────────────
 function MetricsHud({ metrics }: { metrics: MetricRecord[] }) {
   const [showRaw, setShowRaw] = useState(false);
+  // The session's ACTIVE model config (from the session_config metric) — shown
+  // in the HUD so a stale .env.local override (e.g. a thinking model left set
+  // as FRONT_MODEL) is visible at a glance instead of masquerading as a
+  // mysterious 15s TTFT.
+  const cfg = useMemo(() => {
+    for (let i = metrics.length - 1; i >= 0; i--) {
+      if (metrics[i].name === "session_config") return metrics[i].data as Record<string, string>;
+    }
+    return null;
+  }, [metrics]);
   const derived = useMemo(() => {
     const latest = (name: string) => {
       for (let i = metrics.length - 1; i >= 0; i--) {
@@ -73,6 +83,12 @@ function MetricsHud({ metrics }: { metrics: MetricRecord[] }) {
           {showRaw ? "hide raw" : "raw feed"}
         </button>
       </div>
+      {cfg && (
+        <div className="hud-cfg" title="Active model config for this session (session_config)">
+          front <strong>{cfg.frontModel}</strong> · reasoning {cfg.frontReasoning} · routing{" "}
+          {cfg.frontProviderSort ?? "default"} · worker <strong>{cfg.workerModel}</strong>
+        </div>
+      )}
       {showRaw && (
         <div className="hud-raw">
           {metrics.length === 0 && <div className="hud-raw-line">no metrics yet</div>}
