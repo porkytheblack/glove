@@ -325,6 +325,25 @@ Two knobs trade feel against safety: `NEXT_PUBLIC_VAD_SILENCE_MS` (lower =
 snappier, more mid-pause cuts) and `FRONT_PROVIDER_SORT` (throughput routing is
 the default on OpenRouter; `off` restores default routing).
 
+### Speech-to-speech mode (`/s2s`) — past the cascade
+
+The cascaded pipeline above bottoms out around 1.3–1.6s voice-to-voice.
+The `/s2s` page runs the architecture step past it: **gpt-realtime over
+WebRTC IS the front agent** — persona, addressing judgment, turn-taking
+(provider semantic VAD), barge-in, and the voice collapse into one model —
+while the SAME heavy text worker researches behind a `delegate_to_worker`
+function tool (`/api/s2s/delegate`). Client endpointing, holds, EOU scoring:
+all deleted in this mode; the model decides turns by listening. Expect
+500–800ms voice-to-voice (the page measures the real number per turn:
+you-go-quiet → Nova-audible, logged as `s2s_voice_to_voice_ms`).
+
+Setup: add `OPENAI_API_KEY=` to `.env.local` (Realtime is OpenAI-only;
+tokens are minted server-side as ephemeral client secrets — the key never
+reaches the browser). `S2S_MODEL` / `S2S_VOICE` override the defaults
+(`gpt-realtime` / `marin`). Powered by the new `glove-voice-s2s` package
+(`OpenAIRealtimeAdapter` + `createOpenAIRealtimeToken`); the `S2SAdapter`
+contract is provider-agnostic for Gemini Live / Nova Sonic later.
+
 ### Latency metrics → local file
 
 Every turn is instrumented and both **streamed to a live HUD** (right column) and

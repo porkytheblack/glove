@@ -318,6 +318,9 @@ importers:
       glove-voice:
         specifier: workspace:*
         version: link:../../packages/glove-voice
+      glove-voice-s2s:
+        specifier: workspace:*
+        version: link:../../packages/glove-voice-s2s
       next:
         specifier: ^15.3.3
         version: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -820,6 +823,19 @@ importers:
       react-native-audio-api:
         specifier: ^0.13.2
         version: 0.13.2(react-native@0.86.0(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/glove-voice-s2s:
+    dependencies:
+      eventemitter3:
+        specifier: ^5.0.4
+        version: 5.0.4
+    devDependencies:
+      tsup:
+        specifier: ^8.0.0
+        version: 8.5.1(postcss@8.5.19)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.9.0)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -9291,6 +9307,10 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.3
 
+  fdir@6.5.0(picomatch@4.0.5):
+    optionalDependencies:
+      picomatch: 4.0.5
+
   fetch-nodeshim@0.4.10: {}
 
   file-uri-to-path@1.0.0: {}
@@ -11479,8 +11499,8 @@ snapshots:
 
   tinyglobby@0.2.15:
     dependencies:
-      fdir: 6.5.0(picomatch@4.0.3)
-      picomatch: 4.0.3
+      fdir: 6.5.0(picomatch@4.0.5)
+      picomatch: 4.0.5
 
   tmpl@1.0.5: {}
 

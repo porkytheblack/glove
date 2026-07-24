@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "pnpm --filter glove-voice build",
+    "predev": "pnpm --filter glove-voice build && pnpm --filter glove-voice-s2s build",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -19,6 +19,7 @@
     "glove-mesh": "workspace:*",
     "glove-next": "workspace:*",
     "glove-voice": "workspace:*",
+    "glove-voice-s2s": "workspace:*",
     "next": "^15.3.3",
     "openai": "^6.22.0",
     "react": "^19.0.0",
