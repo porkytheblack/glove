@@ -77,7 +77,10 @@ const TURN_DETECTOR: TurnDetectorAdapter =
     ? HEURISTIC_DETECTOR
     : new RemoteTurnDetector({
         url: "/api/turn",
-        threshold: Number(process.env.NEXT_PUBLIC_TURN_EOU_THRESHOLD) || 0.5,
+        // Continuous probability→hold mapping (LiveKit's min/max endpointing
+        // delay model). Tunable, but the defaults are the point.
+        minHoldMs: Number(process.env.NEXT_PUBLIC_TURN_MIN_HOLD_MS) || 200,
+        maxHoldMs: Number(process.env.NEXT_PUBLIC_TURN_MAX_HOLD_MS) || 2800,
         fallback: HEURISTIC_DETECTOR,
       });
 
@@ -824,12 +827,71 @@ export function useVoice(args: UseVoiceArgs) {
         return true;
       };
 
+      // ── Turn commitment ────────────────────────────────────────────────────
+      // One entry point for "should this utterance be sent yet?", called at
+      // each VAD boundary AND whenever the transcript grows while a hold is
+      // pending. The detector's probability shapes a continuous hold
+      // (LiveKit's min/max endpointing-delay model); a growing transcript is
+      // evidence of continued speech the VAD/timing missed, so it always
+      // supersedes the previous decision.
+      let decideSeq = 0;
+      const cancelPendingCommit = () => {
+        decideSeq += 1; // invalidates in-flight decide() results too
+        if (holdTimerRef.current) {
+          clearTimeout(holdTimerRef.current);
+          holdTimerRef.current = null;
+        }
+      };
+      const scheduleTurnDecision = () => {
+        const partial = livePartial();
+        if (!partial) {
+          // Nothing NEW to send. Only fall back to the commit round-trip when
+          // the buffer is truly empty (STT lagging the VAD boundary) —
+          // committing a buffer of already-dispatched text would duplicate it
+          // via the final handler.
+          if (!(sttRef.current?.currentPartial ?? "").trim()) {
+            sttRef.current?.flushUtterance();
+          }
+          return;
+        }
+        const id = ++decideSeq;
+        if (holdTimerRef.current) {
+          clearTimeout(holdTimerRef.current);
+          holdTimerRef.current = null;
+        }
+        void Promise.resolve(
+          TURN_DETECTOR.decide(partial, argsRef.current.getTurnContext?.()),
+        ).then(({ holdMs, reason }) => {
+          if (id !== decideSeq) return; // superseded by growth / a new boundary
+          if (!enabledRef.current || !gateOpenRef.current) return;
+          if (userSpeakingRef.current) return; // they resumed — wait for the next boundary
+          if (holdMs <= 0) {
+            dispatchFromPartial("endpoint");
+            return;
+          }
+          emitMetric("endpoint_hold", holdMs, { chars: partial.length, reason });
+          holdTimerRef.current = setTimeout(() => {
+            holdTimerRef.current = null;
+            if (id !== decideSeq) return;
+            if (!enabledRef.current || !gateOpenRef.current) return;
+            if (userSpeakingRef.current) return; // they picked the thought back up
+            dispatchFromPartial("hold");
+          }, holdMs);
+        });
+      };
+
       stt.on("partial", () => {
         // Freshness signal for the gate watchdog: a moving transcript means a
         // real person is talking, not just VAD-tripping noise.
         lastPartialAtRef.current = Date.now();
         const live = livePartial();
         patch({ partial: live });
+        // Transcript grew while a commit was pending → the speaker wasn't
+        // done (or STT was lagging). Re-score with the fuller text instead of
+        // dispatching the stale fragment.
+        if (live && holdTimerRef.current && !vadRef.current?.isSpeaking && gateOpenRef.current) {
+          scheduleTurnDecision();
+        }
         // Stable-transcript dispatch: in a noisy room the VAD can stay
         // "speaking" (a TV IS speech to a neural VAD) long after the USER
         // finished, so speech_end may fire seconds late or not at all. If the
@@ -925,12 +987,9 @@ export function useVoice(args: UseVoiceArgs) {
       vad.on("speech_start", () => {
         userSpeakingRef.current = true;
         lastVoiceAtRef.current = Date.now();
-        // Resumed mid-thought — cancel any pending endpoint hold; this is
-        // still the same utterance.
-        if (holdTimerRef.current) {
-          clearTimeout(holdTimerRef.current);
-          holdTimerRef.current = null;
-        }
+        // Resumed mid-thought — cancel any pending commit; this is still the
+        // same utterance.
+        cancelPendingCommit();
         // The user (probably) started talking → an utterance (and likely a
         // Nova reply) is coming. Open the TTS socket now, overlapping STT +
         // model time. Cheap even on a false positive.
@@ -955,40 +1014,7 @@ export function useVoice(args: UseVoiceArgs) {
         userSpeakingRef.current = false;
         speechEndAtRef.current = Date.now();
         lastVoiceAtRef.current = Date.now();
-        if (gateOpenRef.current) {
-          const partial = livePartial();
-          if (!partial) {
-            // Nothing NEW to send. Only fall back to the commit round-trip
-            // when the buffer is truly empty (STT lagging the VAD boundary) —
-            // committing a buffer of already-dispatched text would duplicate
-            // it via the final handler.
-            if (!(sttRef.current?.currentPartial ?? "").trim()) {
-              sttRef.current?.flushUtterance();
-            }
-          } else {
-            // Semantic endpointing: the turn detector decides how much longer
-            // to wait past the VAD boundary. Resumed speech cancels the hold;
-            // the utterance keeps accumulating.
-            void Promise.resolve(
-              TURN_DETECTOR.decide(partial, argsRef.current.getTurnContext?.()),
-            ).then(({ holdMs, reason }) => {
-              if (!enabledRef.current || !gateOpenRef.current) return;
-              if (userSpeakingRef.current) return; // already resumed
-              if (holdMs <= 0) {
-                dispatchFromPartial("endpoint");
-                return;
-              }
-              emitMetric("endpoint_hold", holdMs, { chars: partial.length, reason });
-              if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-              holdTimerRef.current = setTimeout(() => {
-                holdTimerRef.current = null;
-                if (!enabledRef.current || !gateOpenRef.current) return;
-                if (userSpeakingRef.current) return; // they picked the thought back up
-                dispatchFromPartial("hold");
-              }, holdMs);
-            });
-          }
-        }
+        if (gateOpenRef.current) scheduleTurnDecision();
         // A relay held back by the user's speech can play now (§5).
         maybeStartNextRef.current();
       });

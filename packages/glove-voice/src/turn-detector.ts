@@ -131,14 +131,25 @@ export class HeuristicTurnDetector implements TurnDetectorAdapter {
 }
 
 export interface RemoteTurnDetectorConfig {
-  /** Endpoint POSTed `{ transcript }`; must return `{ probability }` in [0,1]
-   *  (e.g. a route backed by `LiveKitEouScorer` from `glove-voice/server`). */
+  /** Endpoint POSTed `{ transcript, context }`; must return `{ probability }`
+   *  in [0,1] (e.g. a route backed by `LiveKitEouScorer` from
+   *  `glove-voice/server`). */
   url: string;
-  /** P(end-of-utterance) at or above which the turn commits immediately
-   *  (default 0.5). */
-  threshold?: number;
-  /** Detector used when the endpoint is slow/unreachable, and to pick the
-   *  hold when the model says "not done" (default: HeuristicTurnDetector). */
+  /**
+   * Hold when the model is CERTAIN the speaker finished (default 200ms).
+   * Mirrors LiveKit's min_endpointing_delay: even a confident end-of-turn
+   * keeps a small grace window — committing at the VAD boundary with zero
+   * hold chops speakers who continue after a complete-sounding word.
+   */
+  minHoldMs?: number;
+  /** Hold when the model is certain the speaker is NOT done (default 2800ms).
+   *  Mirrors LiveKit's max_endpointing_delay. */
+  maxHoldMs?: number;
+  /** Shape of the probability→hold curve: holdMs = min + (max-min)·(1-P)^curve
+   *  (default 1.5 — falls off quickly as confidence rises). */
+  curve?: number;
+  /** Detector used when the endpoint is slow/unreachable; its dictation tier
+   *  also acts as a floor on the mapped hold (default: HeuristicTurnDetector). */
   fallback?: TurnDetectorAdapter;
   /** Abort the scoring request after this long and use the fallback
    *  (default 350ms — the detector sits on the voice hot path). */
@@ -151,21 +162,29 @@ export interface RemoteTurnDetectorConfig {
  * `glove-voice/server`), the client calls a scoring endpoint at each VAD
  * boundary.
  *
- *   P >= threshold  → commit now (holdMs 0)
- *   P <  threshold  → the model says "not done"; hold for whatever the
- *                     fallback heuristic picks (its dictation/unfinished
- *                     tiers still apply), never less than 300ms.
- *   error / timeout → fallback decides alone.
+ * The probability modulates a CONTINUOUS wait (LiveKit's min/max endpointing
+ * delay model), never a binary commit:
+ *
+ *   holdMs = minHold + (maxHold − minHold) · (1 − P)^curve
+ *
+ * P≈0.95 → ~min (snappy); P≈0.5 → mid; P≈0.05 → ~max (patient). The
+ * fallback heuristic's dictation tier floors the result (spelling out an id
+ * always gets its long window), and on endpoint error/timeout the fallback
+ * decides alone.
  */
 export class RemoteTurnDetector implements TurnDetectorAdapter {
   private readonly url: string;
-  private readonly threshold: number;
+  private readonly minHoldMs: number;
+  private readonly maxHoldMs: number;
+  private readonly curve: number;
   private readonly fallback: TurnDetectorAdapter;
   private readonly timeoutMs: number;
 
   constructor(config: RemoteTurnDetectorConfig) {
     this.url = config.url;
-    this.threshold = config.threshold ?? 0.5;
+    this.minHoldMs = config.minHoldMs ?? 200;
+    this.maxHoldMs = config.maxHoldMs ?? 2800;
+    this.curve = config.curve ?? 1.5;
     this.fallback = config.fallback ?? new HeuristicTurnDetector();
     this.timeoutMs = config.timeoutMs ?? 350;
   }
@@ -185,14 +204,16 @@ export class RemoteTurnDetector implements TurnDetectorAdapter {
       const { probability } = (await res.json()) as { probability: number };
       const p = Number(probability);
       if (!Number.isFinite(p)) throw new Error("scorer returned no probability");
-      if (p >= this.threshold) return { holdMs: 0, reason: `eou:${p.toFixed(2)}` };
-      const fb = await this.fallback.decide(transcript);
-      return {
-        holdMs: Math.max(fb.holdMs, 300),
-        reason: `eou-low:${p.toFixed(2)}:${fb.reason}`,
-      };
+      const shaped = Math.round(
+        this.minHoldMs + (this.maxHoldMs - this.minHoldMs) * Math.pow(1 - Math.min(Math.max(p, 0), 1), this.curve),
+      );
+      // Dictation floor: mid-identifier gaps outlast anything the curve
+      // yields for moderate probabilities.
+      const fb = await this.fallback.decide(transcript, context);
+      const holdMs = fb.reason === "dictation" ? Math.max(shaped, fb.holdMs) : shaped;
+      return { holdMs, reason: `eou:${p.toFixed(2)}` };
     } catch {
-      const fb = await this.fallback.decide(transcript);
+      const fb = await this.fallback.decide(transcript, context);
       return { holdMs: fb.holdMs, reason: `fallback:${fb.reason}` };
     }
   }
