@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "pnpm --filter glove-voice build",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

@@ -55,6 +55,12 @@ const PROMISE_RE =
 const WORKER_DRAIN_PROMPT =
   'You have new delegated request(s) in your inbox. Handle each one with your tools, then reply to the front agent (id "front") via glove_mesh_send_message with in_reply_to set to the message id shown in the inbox line. Do NOT acknowledge — reply only.';
 
+// §8 remediation: reasoning workers sometimes finish their research and just
+// STOP without sending the reply. One firm nudge recovers most of these runs
+// far cheaper than a trouble turn + human retry.
+const WORKER_RETRY_PROMPT =
+  'You did all that research but NEVER SENT YOUR REPLY — the front agent and the customer are still waiting. Call glove_mesh_send_message NOW with to: "front", in_reply_to set to the message id from the inbox line, and content carrying your findings. Do not do any more research; reply with what you already have.';
+
 function emptyStats(): AgentStats {
   return { tokensIn: 0, tokensOut: 0, turns: 0 };
 }
@@ -547,6 +553,17 @@ export class Session {
         } catch (err) {
           failed = true;
           this.emit({ type: "error", message: `Worker run failed: ${(err as Error)?.message ?? String(err)}` });
+        }
+        if (!failed && this.workerRunReplies === 0) {
+          // Research done, reply never sent (the common minimax failure) —
+          // nudge once before declaring §8 trouble.
+          this.metric("worker_retry", undefined, { toolCalls: this.workerRunToolCalls });
+          try {
+            await this.worker.processRequest(WORKER_RETRY_PROMPT);
+          } catch (err) {
+            failed = true;
+            this.emit({ type: "error", message: `Worker retry failed: ${(err as Error)?.message ?? String(err)}` });
+          }
         }
         this.metric("worker_ms", Date.now() - wt0, {
           delegations: fresh.length,
