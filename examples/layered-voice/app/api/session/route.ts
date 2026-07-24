@@ -1,4 +1,5 @@
 import { createSession } from "@/lib/server/session";
+import { warmEouScorer } from "@/lib/server/eou";
 import { SPEAKERS, ASSISTANT_NAME } from "@/lib/server/speakers";
 import type { SessionConfig } from "@/lib/shared/types";
 
@@ -20,6 +21,9 @@ export async function POST(req: Request) {
   } catch {
     /* empty body is the normal UI path */
   }
+  // Warm the end-of-utterance model in the background — by the time the
+  // first utterance needs a turn decision it should be loaded.
+  warmEouScorer();
   const session = createSession({ frontModel });
   await session.ready.catch(() => {});
 

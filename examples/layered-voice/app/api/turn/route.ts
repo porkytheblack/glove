@@ -1,19 +1,13 @@
-import * as transformers from "@huggingface/transformers";
-import { LiveKitEouScorer } from "glove-voice/server";
+import { getEouScorer } from "@/lib/server/eou";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // The end-of-utterance scorer runs SERVER-SIDE (the LiveKit deployment
 // shape): livekit/turn-detector weights via transformers.js, ~20-30ms per
-// score on CPU after warmup. Singleton survives Next.js HMR; the first
-// request downloads the quantized weights into the HF cache (~150MB,
-// one-time) — hit this route once after boot to warm it.
-const g = globalThis as unknown as { __eouScorer?: LiveKitEouScorer };
-function scorer(): LiveKitEouScorer {
-  if (!g.__eouScorer) g.__eouScorer = new LiveKitEouScorer({ transformers });
-  return g.__eouScorer;
-}
+// score on CPU after warmup. Session creation warms the singleton so the
+// first spoken turn doesn't pay the model-load cost.
+const scorer = getEouScorer;
 
 /**
  * POST { transcript, context? } → { probability, ms }. Consumed by

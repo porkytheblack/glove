@@ -69,14 +69,17 @@ const HEURISTIC_DETECTOR = new HeuristicTurnDetector({
   unfinishedHoldMs: Number(process.env.NEXT_PUBLIC_ENDPOINT_HOLD_MS) || 1200,
   dictationHoldMs: Number(process.env.NEXT_PUBLIC_SPELL_HOLD_MS) || 2000,
 });
+// Smart (model-backed) detection is the DEFAULT — the heuristic remains the
+// automatic fallback whenever the endpoint is slow, erroring, or still
+// warming. Set NEXT_PUBLIC_TURN_DETECTOR=heuristic to opt out entirely.
 const TURN_DETECTOR: TurnDetectorAdapter =
-  process.env.NEXT_PUBLIC_TURN_DETECTOR === "smart"
-    ? new RemoteTurnDetector({
+  process.env.NEXT_PUBLIC_TURN_DETECTOR === "heuristic"
+    ? HEURISTIC_DETECTOR
+    : new RemoteTurnDetector({
         url: "/api/turn",
         threshold: Number(process.env.NEXT_PUBLIC_TURN_EOU_THRESHOLD) || 0.5,
         fallback: HEURISTIC_DETECTOR,
-      })
-    : HEURISTIC_DETECTOR;
+      });
 
 async function fetchToken(path: string): Promise<string> {
   const res = await fetch(path);
