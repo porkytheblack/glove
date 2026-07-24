@@ -834,6 +834,15 @@ export function useVoice(args: UseVoiceArgs) {
       // (LiveKit's min/max endpointing-delay model); a growing transcript is
       // evidence of continued speech the VAD/timing missed, so it always
       // supersedes the previous decision.
+      // Adaptive pacing (LiveKit's "dynamic endpointing"): every time a
+      // pending commit is cancelled because the speaker RESUMED, the gap
+      // between the VAD boundary and the resume is a measured thinking-pause
+      // for THIS speaker. An EMA of those gaps scales all holds — slow,
+      // deliberate talkers earn patience automatically; fast talkers keep
+      // snappy commits.
+      let pauseEmaMs = 700;
+      const holdScale = () => Math.min(Math.max(pauseEmaMs / 700, 1), 3);
+
       let decideSeq = 0;
       const cancelPendingCommit = () => {
         decideSeq += 1; // invalidates in-flight decide() results too
@@ -869,14 +878,19 @@ export function useVoice(args: UseVoiceArgs) {
             dispatchFromPartial("endpoint");
             return;
           }
-          emitMetric("endpoint_hold", holdMs, { chars: partial.length, reason });
+          const scaled = Math.round(holdMs * holdScale());
+          emitMetric("endpoint_hold", scaled, {
+            chars: partial.length,
+            reason,
+            scale: Number(holdScale().toFixed(2)),
+          });
           holdTimerRef.current = setTimeout(() => {
             holdTimerRef.current = null;
             if (id !== decideSeq) return;
             if (!enabledRef.current || !gateOpenRef.current) return;
             if (userSpeakingRef.current) return; // they picked the thought back up
             dispatchFromPartial("hold");
-          }, holdMs);
+          }, scaled);
         });
       };
 
@@ -892,20 +906,35 @@ export function useVoice(args: UseVoiceArgs) {
         if (live && holdTimerRef.current && !vadRef.current?.isSpeaking && gateOpenRef.current) {
           scheduleTurnDecision();
         }
-        // Stable-transcript dispatch: in a noisy room the VAD can stay
-        // "speaking" (a TV IS speech to a neural VAD) long after the USER
-        // finished, so speech_end may fire seconds late or not at all. If the
-        // partial stops changing for a second while the VAD still claims
-        // speech, dispatch what we have.
+        // Stable-transcript path: in a noisy room the VAD can stay "speaking"
+        // (a TV IS speech; so is heavy breathing) long after the USER
+        // finished, so speech_end may fire late or never. When the partial
+        // has been still for 1.5s under a "speaking" VAD, CONSULT THE TURN
+        // DETECTOR — dispatch only if it's confident the turn is done,
+        // otherwise check again shortly. (This used to dispatch directly,
+        // which bypassed endpointing entirely and chopped thinking pauses.)
         if (stableFlushRef.current) clearTimeout(stableFlushRef.current);
         if (live) {
-          stableFlushRef.current = setTimeout(() => {
+          const stableCheck = () => {
             stableFlushRef.current = null;
             if (!enabledRef.current || !gateOpenRef.current) return;
             if (!vadRef.current?.isSpeaking) return; // speech_end will handle it
-            emitMetric("stt_stable_flush", undefined, { chars: live.length });
-            dispatchFromPartial("stable");
-          }, 1000);
+            if (livePartial() !== live) return; // grew — its own timer is running
+            void Promise.resolve(
+              TURN_DETECTOR.decide(live, argsRef.current.getTurnContext?.()),
+            ).then(({ holdMs, reason }) => {
+              if (!enabledRef.current || !gateOpenRef.current) return;
+              if (livePartial() !== live) return;
+              if (holdMs <= 500) {
+                emitMetric("stt_stable_flush", undefined, { chars: live.length, reason });
+                dispatchFromPartial("stable");
+              } else if (!stableFlushRef.current) {
+                // Not confident the speaker is done — look again soon.
+                stableFlushRef.current = setTimeout(stableCheck, 800);
+              }
+            });
+          };
+          stableFlushRef.current = setTimeout(stableCheck, 1500);
         }
       });
       stt.on("final", (t) => {
@@ -987,6 +1016,12 @@ export function useVoice(args: UseVoiceArgs) {
       vad.on("speech_start", () => {
         userSpeakingRef.current = true;
         lastVoiceAtRef.current = Date.now();
+        // Resuming after a VAD boundary = a measured thinking-pause for this
+        // speaker. Feed the pacing EMA so future holds match their cadence.
+        if (speechEndAtRef.current) {
+          const gap = Date.now() - speechEndAtRef.current;
+          if (gap > 0 && gap < 5000) pauseEmaMs = 0.7 * pauseEmaMs + 0.3 * gap;
+        }
         // Resumed mid-thought — cancel any pending commit; this is still the
         // same utterance.
         cancelPendingCommit();
