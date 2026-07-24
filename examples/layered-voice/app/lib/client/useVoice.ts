@@ -53,6 +53,12 @@ const ENDPOINT_HOLD_MS = Number(process.env.NEXT_PUBLIC_ENDPOINT_HOLD_MS) || 900
 // trailing "." is only weak evidence of a finished turn. "?"/"!" endings stay
 // on the fast path (a question aimed at Nova is done when it's asked).
 const ENDPOINT_HOLD_SOFT_MS = Number(process.env.NEXT_PUBLIC_ENDPOINT_HOLD_SOFT_MS) || 600;
+// Hold when the speaker is SPELLING something out ("K... E... S... zero
+// zero..."). Letter-by-letter dictation has long gaps between characters —
+// far longer than normal endpointing tolerates — and chopping an id into
+// fragments ("K-", "0-0-7.") is worse than any latency. Detected via the
+// transcript ending in a 1-2 character token.
+const SPELL_HOLD_MS = Number(process.env.NEXT_PUBLIC_SPELL_HOLD_MS) || 2000;
 
 async function fetchToken(path: string): Promise<string> {
   const res = await fetch(path);
@@ -206,6 +212,9 @@ export function useVoice(args: UseVoiceArgs) {
   const pendingConfirmRef = useRef<string | null>(null);
   // Two-tier endpoint: the extra-hold timer for unfinished-sounding partials.
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Idle-buffer sweeper (see enable()) — catches transcript stranded by a
+  // speech_end that fired while the gate was closed or a skipped hold.
+  const sweepTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Timing bookkeeping.
   const speechEndAtRef = useRef(0);
@@ -651,6 +660,10 @@ export function useVoice(args: UseVoiceArgs) {
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
     }
+    if (sweepTimerRef.current) {
+      clearInterval(sweepTimerRef.current);
+      sweepTimerRef.current = null;
+    }
     try {
       vadRef.current?.reset();
       // Silero holds a WASM session — release it (energy VAD has no destroy).
@@ -735,7 +748,7 @@ export function useVoice(args: UseVoiceArgs) {
         }
         return p;
       };
-      const dispatchFromPartial = (source: "endpoint" | "stable" | "hold"): boolean => {
+      const dispatchFromPartial = (source: "endpoint" | "stable" | "hold" | "sweep"): boolean => {
         const text = livePartial();
         if (!text) return false;
         lastDispatched = sttRef.current?.currentPartial?.trim() ?? text;
@@ -882,6 +895,12 @@ export function useVoice(args: UseVoiceArgs) {
       //   anything else  — mid-thought → hard hold.
       // Resumed speech cancels any hold; the utterance keeps accumulating.
       const holdFor = (s: string): number => {
+        // Dictation check FIRST — it overrides punctuation ("0-0-7." carries
+        // a Scribe period but the speaker is mid-id). A trailing 1-2 char
+        // token means letters/digits are still coming.
+        const tokens = s.replace(/[.…?!,]+["')\]]*\s*$/, "").trim().split(/[\s\-–—]+/);
+        const last = tokens[tokens.length - 1] ?? "";
+        if (/^[a-z0-9]{1,2}$/i.test(last)) return SPELL_HOLD_MS;
         if (/[?!][\s"')\]]*$/.test(s)) return 0;
         if (/[.…][\s"')\]]*$/.test(s)) return ENDPOINT_HOLD_SOFT_MS;
         return ENDPOINT_HOLD_MS;
@@ -919,6 +938,24 @@ export function useVoice(args: UseVoiceArgs) {
         // A relay held back by the user's speech can play now (§5).
         maybeStartNextRef.current();
       });
+
+      // Idle-buffer sweeper. speech_end is the primary dispatch trigger, but
+      // it can fire while the gate is CLOSED (Nova mid-audio) or a hold can
+      // bail on a VAD blip — and then nothing ever re-examines the leftover
+      // transcript: it just sits in the bar until Scribe eventually
+      // auto-commits. Sweep: whenever we're idle (gate open, nobody speaking,
+      // no hold pending) and the transcript has been still for >1.2s,
+      // dispatch it.
+      sweepTimerRef.current = setInterval(() => {
+        if (!enabledRef.current || !gateOpenRef.current) return;
+        if (userSpeakingRef.current || vadRef.current?.isSpeaking) return;
+        if (speakingRef.current) return; // Nova talking — her endSpeaking reopens the path
+        if (holdTimerRef.current) return; // an endpoint hold owns this buffer
+        if (Date.now() - lastPartialAtRef.current < 1200) return;
+        if (!livePartial()) return;
+        emitMetric("stt_sweep", undefined, { chars: livePartial().length });
+        dispatchFromPartial("sweep");
+      }, 400);
 
       capture.on("chunk", (pcm) => {
         vad.process(pcm);
