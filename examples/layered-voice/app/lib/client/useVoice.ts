@@ -48,6 +48,11 @@ const TTS_MODEL = process.env.NEXT_PUBLIC_TTS_MODEL || "eleven_flash_v2_5";
 const VAD_SILENCE_MS = Number(process.env.NEXT_PUBLIC_VAD_SILENCE_MS) || 450;
 // Extra wait beyond the VAD boundary when the transcript looks unfinished.
 const ENDPOINT_HOLD_MS = Number(process.env.NEXT_PUBLIC_ENDPOINT_HOLD_MS) || 900;
+// Medium hold for period-terminated partials. Scribe AUTO-PUNCTUATES its
+// partials — a lazy-paced "Has some issues." gets a period mid-thought — so a
+// trailing "." is only weak evidence of a finished turn. "?"/"!" endings stay
+// on the fast path (a question aimed at Nova is done when it's asked).
+const ENDPOINT_HOLD_SOFT_MS = Number(process.env.NEXT_PUBLIC_ENDPOINT_HOLD_SOFT_MS) || 600;
 
 async function fetchToken(path: string): Promise<string> {
   const res = await fetch(path);
@@ -868,10 +873,19 @@ export function useVoice(args: UseVoiceArgs) {
         userSpeakingRef.current = false;
         maybeStartNextRef.current();
       });
-      // A partial that reads as a finished thought: terminal punctuation,
-      // optionally trailed by a quote/bracket. Anything else — trailing
-      // comma, conjunction, mid-word — sounds like the speaker isn't done.
-      const looksComplete = (s: string) => /[.?!…][\s"')\]]*$/.test(s);
+      // How finished does the partial SOUND? Three tiers:
+      //   "?"/"!" ending — a question or exclamation aimed at Nova is done
+      //                    the moment it's asked → dispatch at the boundary.
+      //   "." ending     — only WEAK evidence: Scribe auto-punctuates its
+      //                    partials, so lazy-paced fragments arrive with
+      //                    periods → medium hold.
+      //   anything else  — mid-thought → hard hold.
+      // Resumed speech cancels any hold; the utterance keeps accumulating.
+      const holdFor = (s: string): number => {
+        if (/[?!][\s"')\]]*$/.test(s)) return 0;
+        if (/[.…][\s"')\]]*$/.test(s)) return ENDPOINT_HOLD_SOFT_MS;
+        return ENDPOINT_HOLD_MS;
+      };
 
       vad.on("speech_end", () => {
         userSpeakingRef.current = false;
@@ -886,20 +900,20 @@ export function useVoice(args: UseVoiceArgs) {
             if (!(sttRef.current?.currentPartial ?? "").trim()) {
               sttRef.current?.flushUtterance();
             }
-          } else if (looksComplete(partial)) {
-            dispatchFromPartial("endpoint");
           } else {
-            // Sounds mid-thought — hold before sending so a breath or a
-            // pause to think doesn't cut the sentence. Resumed speech
-            // cancels this and the utterance keeps accumulating.
-            emitMetric("endpoint_hold", ENDPOINT_HOLD_MS, { chars: partial.length });
-            if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-            holdTimerRef.current = setTimeout(() => {
-              holdTimerRef.current = null;
-              if (!enabledRef.current || !gateOpenRef.current) return;
-              if (userSpeakingRef.current) return; // they picked the thought back up
-              dispatchFromPartial("hold");
-            }, ENDPOINT_HOLD_MS);
+            const hold = holdFor(partial);
+            if (hold === 0) {
+              dispatchFromPartial("endpoint");
+            } else {
+              emitMetric("endpoint_hold", hold, { chars: partial.length });
+              if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+              holdTimerRef.current = setTimeout(() => {
+                holdTimerRef.current = null;
+                if (!enabledRef.current || !gateOpenRef.current) return;
+                if (userSpeakingRef.current) return; // they picked the thought back up
+                dispatchFromPartial("hold");
+              }, hold);
+            }
           }
         }
         // A relay held back by the user's speech can play now (§5).

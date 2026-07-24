@@ -310,7 +310,7 @@ five legs; each was attacked separately. Where it stands, per leg:
 
 | leg | was | now | how |
 | --- | --- | --- | --- |
-| end-of-speech detection | 700ms fixed | **450ms** for finished thoughts; +900ms hold when mid-thought | two-tier semantic endpointing: a partial ending in `.?!` dispatches at the VAD boundary (`NEXT_PUBLIC_VAD_SILENCE_MS`); an unfinished-sounding one holds `NEXT_PUBLIC_ENDPOINT_HOLD_MS` longer, and resumed speech cancels the hold (`endpoint_hold` metric) |
+| end-of-speech detection | 700ms fixed | **450ms** for questions; +600ms for `.` endings; +900ms mid-thought | three-tier semantic endpointing: `?`/`!` dispatches at the VAD boundary; a trailing `.` is only weak evidence (Scribe auto-punctuates partials) so it gets a medium hold (`NEXT_PUBLIC_ENDPOINT_HOLD_SOFT_MS`); no punctuation gets the hard hold (`NEXT_PUBLIC_ENDPOINT_HOLD_MS`). Resumed speech cancels any hold and merges (`endpoint_hold` metric) |
 | STT finalize | ~350ms commit round-trip | **~0ms** | dispatch straight from the live partial at endpoint time; Scribe's commit is fired only to reset state and its confirm is swallowed (`stt_final_mismatch` logs the rare disagreements) |
 | LLM first spoken token | 1000–2000ms | **160–600ms** | same model (gpt-oss-120b), different serving: OpenRouter `provider.sort=throughput` routes to Cerebras — measured 979ms → 160ms TTFT on identical prompts. Tool calls verified through the fast route. |
 | TTS first audio | ~250–300ms (turbo) | **~75–150ms** | `eleven_flash_v2_5` by default + the existing `flush: true` triggers, prewarmed socket (with idle keepalive), 60-char first-generation schedule |
