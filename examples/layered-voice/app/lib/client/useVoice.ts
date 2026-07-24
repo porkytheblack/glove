@@ -23,7 +23,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AudioCapture,
   AudioPlayer,
+  HeuristicTurnDetector,
   VAD,
+  type TurnDetectorAdapter,
   type VADAdapter,
   ElevenLabsSTTAdapter,
   ElevenLabsTTSAdapter,
@@ -46,19 +48,16 @@ const TTS_MODEL = process.env.NEXT_PUBLIC_TTS_MODEL || "eleven_flash_v2_5";
 // a breath or a pause to think doesn't cut the sentence. Resuming speech
 // cancels the hold and the utterance keeps growing as one.
 const VAD_SILENCE_MS = Number(process.env.NEXT_PUBLIC_VAD_SILENCE_MS) || 450;
-// Extra wait beyond the VAD boundary when the transcript looks unfinished.
-const ENDPOINT_HOLD_MS = Number(process.env.NEXT_PUBLIC_ENDPOINT_HOLD_MS) || 900;
-// Medium hold for period-terminated partials. Scribe AUTO-PUNCTUATES its
-// partials — a lazy-paced "Has some issues." gets a period mid-thought — so a
-// trailing "." is only weak evidence of a finished turn. "?"/"!" endings stay
-// on the fast path (a question aimed at Nova is done when it's asked).
-const ENDPOINT_HOLD_SOFT_MS = Number(process.env.NEXT_PUBLIC_ENDPOINT_HOLD_SOFT_MS) || 600;
-// Hold when the speaker is SPELLING something out ("K... E... S... zero
-// zero..."). Letter-by-letter dictation has long gaps between characters —
-// far longer than normal endpointing tolerates — and chopping an id into
-// fragments ("K-", "0-0-7.") is worse than any latency. Detected via the
-// transcript ending in a 1-2 character token.
-const SPELL_HOLD_MS = Number(process.env.NEXT_PUBLIC_SPELL_HOLD_MS) || 2000;
+// Semantic endpointing (turn detection) — glove-voice's TurnDetectorAdapter
+// decides, at each VAD boundary, how much longer to wait before committing
+// the utterance. The heuristic detector's tiers are tunable here; a
+// model-backed detector (ONNX end-of-utterance scorer) is a drop-in swap.
+const TURN_DETECTOR: TurnDetectorAdapter = new HeuristicTurnDetector({
+  questionHoldMs: 0,
+  statementHoldMs: Number(process.env.NEXT_PUBLIC_ENDPOINT_HOLD_SOFT_MS) || 600,
+  unfinishedHoldMs: Number(process.env.NEXT_PUBLIC_ENDPOINT_HOLD_MS) || 900,
+  dictationHoldMs: Number(process.env.NEXT_PUBLIC_SPELL_HOLD_MS) || 2000,
+});
 
 async function fetchToken(path: string): Promise<string> {
   const res = await fetch(path);
@@ -886,26 +885,6 @@ export function useVoice(args: UseVoiceArgs) {
         userSpeakingRef.current = false;
         maybeStartNextRef.current();
       });
-      // How finished does the partial SOUND? Three tiers:
-      //   "?"/"!" ending — a question or exclamation aimed at Nova is done
-      //                    the moment it's asked → dispatch at the boundary.
-      //   "." ending     — only WEAK evidence: Scribe auto-punctuates its
-      //                    partials, so lazy-paced fragments arrive with
-      //                    periods → medium hold.
-      //   anything else  — mid-thought → hard hold.
-      // Resumed speech cancels any hold; the utterance keeps accumulating.
-      const holdFor = (s: string): number => {
-        // Dictation check FIRST — it overrides punctuation ("0-0-7." carries
-        // a Scribe period but the speaker is mid-id). A trailing 1-2 char
-        // token means letters/digits are still coming.
-        const tokens = s.replace(/[.…?!,]+["')\]]*\s*$/, "").trim().split(/[\s\-–—]+/);
-        const last = tokens[tokens.length - 1] ?? "";
-        if (/^[a-z0-9]{1,2}$/i.test(last)) return SPELL_HOLD_MS;
-        if (/[?!][\s"')\]]*$/.test(s)) return 0;
-        if (/[.…][\s"')\]]*$/.test(s)) return ENDPOINT_HOLD_SOFT_MS;
-        return ENDPOINT_HOLD_MS;
-      };
-
       vad.on("speech_end", () => {
         userSpeakingRef.current = false;
         speechEndAtRef.current = Date.now();
@@ -920,19 +899,25 @@ export function useVoice(args: UseVoiceArgs) {
               sttRef.current?.flushUtterance();
             }
           } else {
-            const hold = holdFor(partial);
-            if (hold === 0) {
-              dispatchFromPartial("endpoint");
-            } else {
-              emitMetric("endpoint_hold", hold, { chars: partial.length });
+            // Semantic endpointing: the turn detector decides how much longer
+            // to wait past the VAD boundary. Resumed speech cancels the hold;
+            // the utterance keeps accumulating.
+            void Promise.resolve(TURN_DETECTOR.decide(partial)).then(({ holdMs, reason }) => {
+              if (!enabledRef.current || !gateOpenRef.current) return;
+              if (userSpeakingRef.current) return; // already resumed
+              if (holdMs <= 0) {
+                dispatchFromPartial("endpoint");
+                return;
+              }
+              emitMetric("endpoint_hold", holdMs, { chars: partial.length, reason });
               if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
               holdTimerRef.current = setTimeout(() => {
                 holdTimerRef.current = null;
                 if (!enabledRef.current || !gateOpenRef.current) return;
                 if (userSpeakingRef.current) return; // they picked the thought back up
                 dispatchFromPartial("hold");
-              }, hold);
-            }
+              }, holdMs);
+            });
           }
         }
         // A relay held back by the user's speech can play now (§5).

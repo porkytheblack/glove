@@ -31,6 +31,12 @@ export { VAD, type VADConfig } from "./vad";
 
 // Speech gate — buffers mic audio and only releases confirmed speech to STT
 export { SpeechGate, type SpeechGateOptions } from "./speech-gate";
+export {
+  HeuristicTurnDetector,
+  type HeuristicTurnDetectorConfig,
+  type TurnDecision,
+  type TurnDetectorAdapter,
+} from "./turn-detector";
 // SileroVADAdapter is in "glove-voice/silero-vad" — separate entry to avoid
 // pulling onnxruntime-web (browser-only WASM) into the main barrel.
 
