@@ -22,7 +22,23 @@ export const EVENT_TAGS = {
   speechFailure: "speech-failure",
   workerResult: "worker-result",
   workerTrouble: "worker-trouble",
+  transcriptCorrection: "transcript-correction",
 } as const;
+
+/**
+ * The STT layer revised what it heard AFTER the line was already sent (the
+ * pipeline dispatches from live partials for latency; the recognizer's
+ * final pass sometimes corrects words). Give the model the corrected text
+ * and let it judge whether anything it said or did needs revisiting.
+ */
+export function frameTranscriptCorrection(sent: string, actual: string): string {
+  return (
+    `<${EVENT_TAGS.transcriptCorrection}>The transcription layer corrected itself: the last line you received as "${sent}" was actually "${actual}". ` +
+    `If this changes your understanding, your answer, or anything you delegated, say the corrected version briefly (and re-delegate if needed). ` +
+    `If nothing meaningful changes, stay completely silent — no speech tags.` +
+    `</${EVENT_TAGS.transcriptCorrection}>`
+  );
+}
 
 /**
  * Frame a barge-in for the front agent's history. `heard` is the estimated

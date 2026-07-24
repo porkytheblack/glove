@@ -112,6 +112,12 @@ export interface UseVoiceArgs {
    * makes the semantic end-of-utterance model far sharper on fragments.
    */
   getTurnContext?: () => TurnContextMessage[];
+  /**
+   * The STT's final pass materially revised a line AFTER it was dispatched
+   * (`sent` went to the agent; `actual` is what was really said). Report it
+   * so the agent can absorb the correction.
+   */
+  onTranscriptCorrection?: (sent: string, actual: string) => void;
 }
 
 // Rough ElevenLabs speaking rate, used to estimate how much of the sent text
@@ -949,11 +955,20 @@ export function useVoice(args: UseVoiceArgs) {
         const confirm = pendingConfirmRef.current;
         if (confirm !== null) {
           pendingConfirmRef.current = null;
+          // Whatever happens below, the committed text is fully accounted
+          // for — nothing from this utterance may linger in the buffer or
+          // the display (the old behavior left revised text stuck there).
+          lastDispatched = text || confirm;
+          patch({ partial: "" });
           if (text && normalize(text) !== normalize(confirm)) {
+            // Scribe's final pass CORRECTED the line after we dispatched it:
+            // the agent answered words the user didn't say. Report the
+            // correction so it can absorb or repair.
             emitMetric("stt_final_mismatch", undefined, {
               sentChars: confirm.length,
               finalChars: text.length,
             });
+            argsRef.current.onTranscriptCorrection?.(confirm, text);
           }
           return;
         }

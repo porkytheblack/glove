@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
  * agent's history as a tagged notice (<user-interruption> / <speech-failure>).
  * Body: { type: "user-interruption", heard?: string }
  *     | { type: "speech-failure", detail?: string }
+ *     | { type: "transcript-correction", sent: string, actual: string }
  */
 export async function POST(
   req: Request,
@@ -17,7 +18,7 @@ export async function POST(
   const session = getSession(id);
   if (!session) return Response.json({ error: "unknown session" }, { status: 404 });
 
-  let body: { type?: string; heard?: string; detail?: string };
+  let body: { type?: string; heard?: string; detail?: string; sent?: string; actual?: string };
   try {
     body = await req.json();
   } catch {
@@ -31,6 +32,15 @@ export async function POST(
     case "speech-failure":
       session.noteSpeechFailure(body.detail ? body.detail.toString() : undefined);
       break;
+    case "transcript-correction": {
+      const sent = (body.sent ?? "").toString();
+      const actual = (body.actual ?? "").toString();
+      if (!sent || !actual) {
+        return Response.json({ error: "sent and actual are required" }, { status: 400 });
+      }
+      session.noteTranscriptCorrection(sent, actual);
+      break;
+    }
     default:
       return Response.json({ error: `unknown event type "${body.type}"` }, { status: 400 });
   }

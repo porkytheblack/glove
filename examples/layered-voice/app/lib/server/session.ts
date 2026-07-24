@@ -28,6 +28,7 @@ import { frameUtterance, ASSISTANT_NAME } from "./speakers";
 import {
   frameInterruption,
   frameSpeechFailure,
+  frameTranscriptCorrection,
   frameWorkerResult,
   frameWorkerTrouble,
 } from "./events";
@@ -447,6 +448,45 @@ export class Session {
             ? `interrupted — the room heard only: “${heard}”`
             : "interrupted before any audio played",
         });
+      })
+      .catch(() => {});
+  }
+
+  /**
+   * The STT layer revised an already-dispatched line. Runs a FULL front turn
+   * (not just a history note): the correction may change Nova's answer or a
+   * delegation, and the notice instructs her to stay silent when nothing
+   * meaningful changed — a silent turn is cheap.
+   */
+  noteTranscriptCorrection(sent: string, actual: string): void {
+    this.queue = this.queue
+      .then(async () => {
+        if (this.buildError) return;
+        this.metric("stt_correction", undefined, {
+          sentChars: sent.length,
+          actualChars: actual.length,
+        });
+        this.emit({
+          type: "note",
+          noteKind: "transcript-correction",
+          text: `transcript corrected — you actually said: “${compact(actual, 120)}”`,
+        });
+        this.emit({ type: "phase", phase: "front" });
+        this.currentFrontKind = "response";
+        this.turnStartAt = Date.now();
+        this.ttftPending = true;
+        try {
+          await this.runFrontTurn(frameTranscriptCorrection(sent, actual));
+        } catch (err) {
+          const msg = (err as Error)?.message ?? String(err);
+          // eslint-disable-next-line no-console
+          console.error("[layered-voice] correction turn failed:", err);
+          this.emit({ type: "error", message: `Correction turn failed: ${compact(msg, 300)}` });
+        }
+        this.ttftPending = false;
+        // The corrected line may have changed what needs looking up.
+        await this.kickWorker();
+        this.emit({ type: "phase", phase: "idle" });
       })
       .catch(() => {});
   }

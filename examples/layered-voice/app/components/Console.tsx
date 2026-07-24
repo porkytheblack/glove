@@ -157,7 +157,7 @@ export default function Console() {
   const s = useSession({ onEvent: onServerEvent });
 
   const postAudioEvent = useCallback(
-    (body: { type: string; heard?: string; detail?: string }) => {
+    (body: { type: string; heard?: string; detail?: string; sent?: string; actual?: string }) => {
       const id = s.config?.sessionId;
       if (!id) return;
       fetch(`/api/session/${id}/event`, {
@@ -194,6 +194,8 @@ export default function Console() {
     // Audio-channel realities → tagged notices in Nova's history.
     onInterruption: (heard) => postAudioEvent({ type: "user-interruption", heard }),
     onSpeechFailure: (detail) => postAudioEvent({ type: "speech-failure", detail }),
+    onTranscriptCorrection: (sent, actual) =>
+      postAudioEvent({ type: "transcript-correction", sent, actual }),
     getTurnContext,
   });
   voiceRef.current = voice;
