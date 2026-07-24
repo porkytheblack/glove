@@ -54,15 +54,30 @@ const DEFAULTS: Partial<Record<Provider, Record<Role, string>>> = {
 //   "none"           — send no reasoning param at all (provider default).
 // Anthropic ignores the field entirely.
 //
-// FRONT_PROVIDER_SORT ("throughput" | "latency" | "price") adds OpenRouter
-// provider routing — WHO serves the model often matters more for latency than
-// the model itself. Applied whenever a reasoning param is sent (any mode but
-// "none").
+// FRONT_PROVIDER_SORT ("throughput" | "latency" | "price" | "off") sets
+// OpenRouter provider routing — WHO serves the model matters more for latency
+// than the model itself. Measured on gpt-oss-120b with an identical prompt:
+// default routing 979ms TTFT (Google/Mancer); sort:"throughput" 160ms
+// (Cerebras) — a 6x difference on the exact same weights. Tool calls verified
+// streaming correctly through the throughput route. Default: "throughput" on
+// OpenRouter; "off" disables.
+export function frontProviderSort(): string | undefined {
+  const v = process.env.FRONT_PROVIDER_SORT;
+  if (v === "off") return undefined;
+  if (v) return v;
+  return PROVIDER === "openrouter" ? "throughput" : undefined;
+}
+
 function frontReasoning(): boolean | OpenAICompatReasoningOptions {
   const mode = process.env.FRONT_REASONING ?? "low";
-  const sort = process.env.FRONT_PROVIDER_SORT;
+  const sort = frontProviderSort();
   const extra = sort ? { extraBody: { provider: { sort } } } : {};
-  if (mode === "none") return false;
+  if (mode === "none") {
+    // No reasoning fields at all — but still carry provider routing if set
+    // (an options object with neither effort nor reasoningObject sends no
+    // reasoning params on the wire).
+    return sort ? { echo: false, ...extra } : false;
+  }
   if (mode === "off") return { reasoningObject: { enabled: false }, echo: false, ...extra };
   const budget = /^budget:(\d+)$/.exec(mode);
   if (budget) {

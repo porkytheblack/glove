@@ -34,6 +34,15 @@ import {
 import type { MetricRecord, SpeakerRole } from "../shared/types";
 
 const VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID || "uYXf8XasLslADfZ2MB4u";
+// flash_v2_5 is ElevenLabs' lowest-latency model (~75ms model time vs ~250ms+
+// for turbo) — the right trade for a support-desk voice. Override if you want
+// turbo's slightly richer delivery.
+const TTS_MODEL = process.env.NEXT_PUBLIC_TTS_MODEL || "eleven_flash_v2_5";
+// End-of-speech silence window — THE latency floor of the whole send path
+// (every ms here is dead air before anything else can even start). 450ms is
+// aggressive-but-usable for short support-desk exchanges; raise it if you get
+// cut off mid-pause. (Nova's backchannel fillers make early cuts cheap.)
+const VAD_SILENCE_MS = Number(process.env.NEXT_PUBLIC_VAD_SILENCE_MS) || 450;
 
 async function fetchToken(path: string): Promise<string> {
   const res = await fetch(path);
@@ -182,6 +191,9 @@ export function useVoice(args: UseVoiceArgs) {
   const lastPartialAtRef = useRef(0);
   // Stable-transcript flush timer (see the stt partial handler).
   const stableFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Text already dispatched from a live partial — Scribe's committed confirm
+  // for it must be swallowed, not re-sent as a second utterance.
+  const pendingConfirmRef = useRef<string | null>(null);
 
   // Timing bookkeeping.
   const speechEndAtRef = useRef(0);
@@ -215,6 +227,7 @@ export function useVoice(args: UseVoiceArgs) {
       new ElevenLabsTTSAdapter({
         getToken: () => fetchToken("/api/voice/tts-token"),
         voiceId: VOICE_ID,
+        model: TTS_MODEL,
         // Realtime: synthesize after ~60 buffered chars (mid-sentence) instead
         // of the default ~120+. Sentence-boundary triggering (auto_mode) was
         // self-defeating for one-sentence replies — the first sentence only
@@ -642,6 +655,7 @@ export function useVoice(args: UseVoiceArgs) {
     gateOpenRef.current = false;
     userSpeakingRef.current = false;
     voidedTurnsRef.current.clear();
+    pendingConfirmRef.current = null;
   }, [stopSpeaking]);
 
   const enable = useCallback(async () => {
@@ -668,36 +682,59 @@ export function useVoice(args: UseVoiceArgs) {
       if (process.env.NEXT_PUBLIC_VOICE_VAD === "silero") {
         try {
           const { SileroVADAdapter } = await import("glove-voice/silero-vad");
-          const silero = new SileroVADAdapter({ redemptionMs: 700 });
+          const silero = new SileroVADAdapter({ redemptionMs: VAD_SILENCE_MS });
           await silero.init();
           vad = silero;
         } catch {
           vad = null; // fall through to the energy VAD
         }
       }
-      if (!vad) vad = new VAD({ minSpeechMs: 250, silenceMs: 700 });
+      if (!vad) vad = new VAD({ minSpeechMs: 250, silenceMs: VAD_SILENCE_MS });
       vadRef.current = vad;
+
+      // Dispatch straight from the live partial — the single biggest STT-side
+      // win. Scribe's committed transcript is a ~350ms server round-trip that
+      // almost always returns EXACTLY the last partial (the adapter even falls
+      // back to the partial when the commit comes back empty). So at endpoint
+      // time we send what we already have, fire the commit only to reset
+      // Scribe's utterance state, and swallow the confirm when it lands —
+      // logging a mismatch metric on the rare occasions it differs.
+      const normalize = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+      const dispatchFromPartial = (source: "endpoint" | "stable"): boolean => {
+        const text = sttRef.current?.currentPartial?.trim();
+        if (!text) return false;
+        const endAt = speechEndAtRef.current;
+        speechEndAtRef.current = 0;
+        emitMetric("stt_dispatch_ms", endAt ? Date.now() - endAt : 0, {
+          chars: text.length,
+          source,
+        });
+        pendingConfirmRef.current = text;
+        sttRef.current?.flushUtterance();
+        patch({ partial: "" });
+        markUtteranceSent();
+        argsRef.current.onUtterance(argsRef.current.getSpeaker(), text);
+        return true;
+      };
 
       stt.on("partial", (t) => {
         // Freshness signal for the gate watchdog: a moving transcript means a
         // real person is talking, not just VAD-tripping noise.
         lastPartialAtRef.current = Date.now();
         patch({ partial: t });
-        // Stable-transcript flush: in a noisy room the VAD can stay "speaking"
-        // (a TV IS speech to a neural VAD) long after the USER finished, so
-        // speech_end — the normal flush trigger — may fire seconds late or
-        // not at all, and the finished utterance just sits there. If the
+        // Stable-transcript dispatch: in a noisy room the VAD can stay
+        // "speaking" (a TV IS speech to a neural VAD) long after the USER
+        // finished, so speech_end may fire seconds late or not at all. If the
         // partial stops changing for a second while the VAD still claims
-        // speech, commit it.
+        // speech, dispatch what we have.
         if (stableFlushRef.current) clearTimeout(stableFlushRef.current);
         if (t.trim()) {
           stableFlushRef.current = setTimeout(() => {
             stableFlushRef.current = null;
             if (!enabledRef.current || !gateOpenRef.current) return;
             if (!vadRef.current?.isSpeaking) return; // speech_end will handle it
-            if (!speechEndAtRef.current) speechEndAtRef.current = Date.now();
             emitMetric("stt_stable_flush", undefined, { chars: t.length });
-            sttRef.current?.flushUtterance();
+            dispatchFromPartial("stable");
           }, 1000);
         }
       });
@@ -707,6 +744,20 @@ export function useVoice(args: UseVoiceArgs) {
           stableFlushRef.current = null;
         }
         const text = t.trim();
+        // The confirm for an utterance we already dispatched from its partial:
+        // swallow it (re-sending would duplicate the turn), but log when
+        // Scribe's committed text materially differs from what we sent.
+        const confirm = pendingConfirmRef.current;
+        if (confirm !== null) {
+          pendingConfirmRef.current = null;
+          if (text && normalize(text) !== normalize(confirm)) {
+            emitMetric("stt_final_mismatch", undefined, {
+              sentChars: confirm.length,
+              finalChars: text.length,
+            });
+          }
+          return;
+        }
         patch({ partial: "" });
         if (!text) return;
         // Only measure against a FRESH speech_end. Scribe can auto-commit
@@ -774,7 +825,11 @@ export function useVoice(args: UseVoiceArgs) {
       vad.on("speech_end", () => {
         userSpeakingRef.current = false;
         speechEndAtRef.current = Date.now();
-        if (gateOpenRef.current) sttRef.current?.flushUtterance();
+        if (gateOpenRef.current && !dispatchFromPartial("endpoint")) {
+          // No partial yet (STT lagging the VAD boundary) — fall back to the
+          // commit round-trip; the final handler will dispatch.
+          sttRef.current?.flushUtterance();
+        }
         // A relay held back by the user's speech can play now (§5).
         maybeStartNextRef.current();
       });

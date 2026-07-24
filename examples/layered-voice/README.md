@@ -303,6 +303,28 @@ node -e "import('@electric-sql/pglite').then(async ({PGlite}) => {
 
 Default remains `memory` (nothing persists, nothing to clean).
 
+### The sub-1.5s latency budget
+
+Voice-to-voice latency (user stops talking → Nova's first audio) is a chain of
+five legs; each was attacked separately. Where it stands, per leg:
+
+| leg | was | now | how |
+| --- | --- | --- | --- |
+| end-of-speech detection | 700ms fixed | **450ms** (`NEXT_PUBLIC_VAD_SILENCE_MS`) | tighter endpoint; Nova's backchannel fillers make early cuts cheap to recover |
+| STT finalize | ~350ms commit round-trip | **~0ms** | dispatch straight from the live partial at endpoint time; Scribe's commit is fired only to reset state and its confirm is swallowed (`stt_final_mismatch` logs the rare disagreements) |
+| LLM first spoken token | 1000–2000ms | **160–600ms** | same model (gpt-oss-120b), different serving: OpenRouter `provider.sort=throughput` routes to Cerebras — measured 979ms → 160ms TTFT on identical prompts. Tool calls verified through the fast route. |
+| TTS first audio | ~250–300ms (turbo) | **~75–150ms** | `eleven_flash_v2_5` by default + the existing `flush: true` triggers, prewarmed socket (with idle keepalive), 60-char first-generation schedule |
+| audio gate (§5) | 0 when idle | 0 | unchanged — plus the noise watchdog so it can't be pinned shut |
+
+Typical voice-to-voice lands around **0.9–1.3s** — customer-support-agent
+territory. Verified live via `pnpm eval` (text legs): front first-spoken-token
+249–585ms on typical turns, addressing 7/7, delegation 7/7 through the
+throughput route.
+
+Two knobs trade feel against safety: `NEXT_PUBLIC_VAD_SILENCE_MS` (lower =
+snappier, more mid-pause cuts) and `FRONT_PROVIDER_SORT` (throughput routing is
+the default on OpenRouter; `off` restores default routing).
+
 ### Latency metrics → local file
 
 Every turn is instrumented and both **streamed to a live HUD** (right column) and
@@ -326,7 +348,9 @@ Measured (server-side unless noted):
 | `relay_ms` | proactive relay turn time; `data`: `spoke`, `items` (>2 = coalescing in action), `unclosedTag` |
 | `relay_skipped` | count event — the queued relay found nothing resolved because a **user turn won** (§5) |
 | `delegation_roundtrip_ms` | delegation dispatched → relay spoken (the async round-trip) |
-| `stt_final_ms` | **client** — end-of-speech → final transcript |
+| `stt_dispatch_ms` | **client** — end-of-speech → utterance dispatched from the live partial (the fast path; `data.source`: `endpoint` or `stable`) |
+| `stt_final_ms` | **client** — end-of-speech → final transcript (only the fallback path where no partial existed at the endpoint) |
+| `stt_final_mismatch` | **client** — Scribe's committed transcript materially differed from the partial we already dispatched (rare; worth trending) |
 | `speech_queue_wait_ms` | **client** — how long a spoken turn's audio was held by the §5 gate (previous audio draining / user speaking) before it started |
 | `tts_stream_open_ms` | **client** — TTS WebSocket + auth handshake cost per spoken turn (`0` + `data.adopted: true` when the prewarmed socket was used) |
 | `tts_synth_ms` / `tts_playback_ms` | **client** — TTS first-audio / playback duration |

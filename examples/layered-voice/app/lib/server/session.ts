@@ -22,7 +22,7 @@ import { mountMesh, MeshNetwork, InMemoryMeshAdapter } from "glove-mesh";
 import type { IGloveRunnable, SubscriberAdapter } from "glove-core";
 import { buildFrontAgent } from "./front-agent";
 import { buildWorkerAgent } from "./worker-agent";
-import { modelFor, PROVIDER } from "./models";
+import { frontProviderSort, modelFor, PROVIDER } from "./models";
 import { createAgentStore } from "./stores";
 import { frameUtterance, ASSISTANT_NAME } from "./speakers";
 import {
@@ -284,6 +284,7 @@ export class Session {
       frontModel: this.frontModel ?? "(provider default)",
       workerModel: modelFor("worker") ?? "(provider default)",
       frontReasoning: process.env.FRONT_REASONING ?? "low",
+      frontProviderSort: frontProviderSort() ?? "off",
     });
   }
 
