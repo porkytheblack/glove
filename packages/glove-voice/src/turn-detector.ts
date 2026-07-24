@@ -207,9 +207,16 @@ export class RemoteTurnDetector implements TurnDetectorAdapter {
       const shaped = Math.round(
         this.minHoldMs + (this.maxHoldMs - this.minHoldMs) * Math.pow(1 - Math.min(Math.max(p, 0), 1), this.curve),
       );
+      const fb = await this.fallback.decide(transcript, context);
+      // Question fast-path: a transcript ending in "?"/"!" is the STT's most
+      // reliable punctuation signal, and a question aimed at the agent is
+      // done when asked — the model's mid-range confidence on questions
+      // shouldn't slow them. Any non-trivial P + the "?" commits at minHold.
+      if (fb.reason === "question" && p >= 0.2) {
+        return { holdMs: this.minHoldMs, reason: `eou-q:${p.toFixed(2)}` };
+      }
       // Dictation floor: mid-identifier gaps outlast anything the curve
       // yields for moderate probabilities.
-      const fb = await this.fallback.decide(transcript, context);
       const holdMs = fb.reason === "dictation" ? Math.max(shaped, fb.holdMs) : shaped;
       return { holdMs, reason: `eou:${p.toFixed(2)}` };
     } catch {

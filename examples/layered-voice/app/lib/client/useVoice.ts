@@ -884,7 +884,13 @@ export function useVoice(args: UseVoiceArgs) {
             dispatchFromPartial("endpoint");
             return;
           }
-          const scaled = Math.round(holdMs * holdScale());
+          // The pacing scale models THINKING pauses — it only applies to
+          // uncertain holds. Confident short holds (questions, clear
+          // completions) stay snappy regardless of the speaker's cadence.
+          const scaled =
+            holdMs > 500
+              ? Math.min(Math.round(holdMs * holdScale()), 2800)
+              : holdMs;
           emitMetric("endpoint_hold", scaled, {
             chars: partial.length,
             reason,
