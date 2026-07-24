@@ -37,6 +37,10 @@ import {
 import type { MetricRecord, SpeakerRole } from "../shared/types";
 
 const VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID || "uYXf8XasLslADfZ2MB4u";
+// How recently the VAD must have heard voice for transcript text to be
+// dispatchable. Generous on purpose: Scribe's tail can trail the speaker by
+// ~1s, while silence hallucinations appear tens of seconds into quiet.
+const VOICE_FRESH_MS = 3000;
 // flash_v2_5 is ElevenLabs' lowest-latency model (~75ms model time vs ~250ms+
 // for turbo) — the right trade for a support-desk voice. Override if you want
 // turbo's slightly richer delivery.
@@ -202,12 +206,14 @@ export function useVoice(args: UseVoiceArgs) {
   // never leak onto a later turn.
   const voidedTurnsRef = useRef<Set<number>>(new Set());
 
-  // Has the VAD witnessed a real speech episode since the last dispatch?
-  // Scribe (like all Whisper-family STT) HALLUCINATES on near-silence — "Yes.",
-  // "Okay.", "Thank you.", even whole helpful-assistant lines — and without
-  // this gate those phantoms get committed as utterances. Text may only
-  // dispatch when a human was actually heard speaking.
-  const heardSpeechRef = useRef(false);
+  // When did the VAD last hear a real voice? Scribe (like all Whisper-family
+  // STT) HALLUCINATES on near-silence — "Yes.", "Okay.", "Thank you.", whole
+  // helpful-assistant lines — so text may only dispatch while voice is FRESH
+  // (heard within VOICE_FRESH_MS). A timestamp, not a consumed flag: Scribe
+  // often delivers the tail of a real utterance several hundred ms after the
+  // speaker stops, and a consume-on-dispatch flag was discarding those
+  // legitimate late tails as phantoms.
+  const lastVoiceAtRef = useRef(0);
 
   // Mutable flags read from audio-event handlers.
   const enabledRef = useRef(false);
@@ -708,7 +714,7 @@ export function useVoice(args: UseVoiceArgs) {
     userSpeakingRef.current = false;
     voidedTurnsRef.current.clear();
     pendingConfirmRef.current = null;
-    heardSpeechRef.current = false;
+    lastVoiceAtRef.current = 0;
   }, [stopSpeaking]);
 
   const enable = useCallback(async () => {
@@ -785,13 +791,12 @@ export function useVoice(args: UseVoiceArgs) {
       const dispatchFromPartial = (source: "endpoint" | "stable" | "hold" | "sweep"): boolean => {
         const text = livePartial();
         if (!text) return false;
-        // No human was heard speaking since the last dispatch — this text is
-        // an STT hallucination born from silence/noise. Drop it.
-        if (!heardSpeechRef.current) {
+        // No voice heard recently — this text is an STT hallucination born
+        // from silence/noise, not something the user said. Drop it.
+        if (Date.now() - lastVoiceAtRef.current > VOICE_FRESH_MS) {
           discardPartial(source, text);
           return false;
         }
-        heardSpeechRef.current = false;
         lastDispatched = sttRef.current?.currentPartial?.trim() ?? text;
         const endAt = speechEndAtRef.current;
         speechEndAtRef.current = 0;
@@ -861,11 +866,10 @@ export function useVoice(args: UseVoiceArgs) {
         if (!fresh) return;
         // Same phantom gate as the partial path: Scribe auto-commits can
         // deliver silence hallucinations straight to this handler.
-        if (!heardSpeechRef.current) {
+        if (Date.now() - lastVoiceAtRef.current > VOICE_FRESH_MS) {
           emitMetric("stt_phantom_dropped", undefined, { chars: fresh.length, source: "final" });
           return;
         }
-        heardSpeechRef.current = false;
         // Only measure against a FRESH speech_end. Scribe can auto-commit
         // accumulated audio long after the last VAD boundary (e.g. echo /
         // noise-floor drift keeps VAD "speaking") — measuring those against a
@@ -908,7 +912,7 @@ export function useVoice(args: UseVoiceArgs) {
 
       vad.on("speech_start", () => {
         userSpeakingRef.current = true;
-        heardSpeechRef.current = true;
+        lastVoiceAtRef.current = Date.now();
         // Resumed mid-thought — cancel any pending endpoint hold; this is
         // still the same utterance.
         if (holdTimerRef.current) {
@@ -938,6 +942,7 @@ export function useVoice(args: UseVoiceArgs) {
       vad.on("speech_end", () => {
         userSpeakingRef.current = false;
         speechEndAtRef.current = Date.now();
+        lastVoiceAtRef.current = Date.now();
         if (gateOpenRef.current) {
           const partial = livePartial();
           if (!partial) {
