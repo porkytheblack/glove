@@ -40,9 +40,14 @@ const VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID || "uYXf8XasLslADfZ
 const TTS_MODEL = process.env.NEXT_PUBLIC_TTS_MODEL || "eleven_flash_v2_5";
 // End-of-speech silence window — THE latency floor of the whole send path
 // (every ms here is dead air before anything else can even start). 450ms is
-// aggressive-but-usable for short support-desk exchanges; raise it if you get
-// cut off mid-pause. (Nova's backchannel fillers make early cuts cheap.)
+// aggressive on its own, so endpointing is TWO-TIER: at the VAD boundary the
+// partial transcript is checked — text that reads finished (ends in .?!)
+// dispatches immediately; text that sounds mid-thought gets an extra hold so
+// a breath or a pause to think doesn't cut the sentence. Resuming speech
+// cancels the hold and the utterance keeps growing as one.
 const VAD_SILENCE_MS = Number(process.env.NEXT_PUBLIC_VAD_SILENCE_MS) || 450;
+// Extra wait beyond the VAD boundary when the transcript looks unfinished.
+const ENDPOINT_HOLD_MS = Number(process.env.NEXT_PUBLIC_ENDPOINT_HOLD_MS) || 900;
 
 async function fetchToken(path: string): Promise<string> {
   const res = await fetch(path);
@@ -194,6 +199,8 @@ export function useVoice(args: UseVoiceArgs) {
   // Text already dispatched from a live partial — Scribe's committed confirm
   // for it must be swallowed, not re-sent as a second utterance.
   const pendingConfirmRef = useRef<string | null>(null);
+  // Two-tier endpoint: the extra-hold timer for unfinished-sounding partials.
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Timing bookkeeping.
   const speechEndAtRef = useRef(0);
@@ -635,6 +642,10 @@ export function useVoice(args: UseVoiceArgs) {
       clearTimeout(stableFlushRef.current);
       stableFlushRef.current = null;
     }
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
     try {
       vadRef.current?.reset();
       // Silero holds a WASM session — release it (energy VAD has no destroy).
@@ -700,7 +711,7 @@ export function useVoice(args: UseVoiceArgs) {
       // Scribe's utterance state, and swallow the confirm when it lands —
       // logging a mismatch metric on the rare occasions it differs.
       const normalize = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
-      const dispatchFromPartial = (source: "endpoint" | "stable"): boolean => {
+      const dispatchFromPartial = (source: "endpoint" | "stable" | "hold"): boolean => {
         const text = sttRef.current?.currentPartial?.trim();
         if (!text) return false;
         const endAt = speechEndAtRef.current;
@@ -802,6 +813,12 @@ export function useVoice(args: UseVoiceArgs) {
 
       vad.on("speech_start", () => {
         userSpeakingRef.current = true;
+        // Resumed mid-thought — cancel any pending endpoint hold; this is
+        // still the same utterance.
+        if (holdTimerRef.current) {
+          clearTimeout(holdTimerRef.current);
+          holdTimerRef.current = null;
+        }
         // The user (probably) started talking → an utterance (and likely a
         // Nova reply) is coming. Open the TTS socket now, overlapping STT +
         // model time. Cheap even on a false positive.
@@ -822,13 +839,35 @@ export function useVoice(args: UseVoiceArgs) {
         userSpeakingRef.current = false;
         maybeStartNextRef.current();
       });
+      // A partial that reads as a finished thought: terminal punctuation,
+      // optionally trailed by a quote/bracket. Anything else — trailing
+      // comma, conjunction, mid-word — sounds like the speaker isn't done.
+      const looksComplete = (s: string) => /[.?!…][\s"')\]]*$/.test(s);
+
       vad.on("speech_end", () => {
         userSpeakingRef.current = false;
         speechEndAtRef.current = Date.now();
-        if (gateOpenRef.current && !dispatchFromPartial("endpoint")) {
-          // No partial yet (STT lagging the VAD boundary) — fall back to the
-          // commit round-trip; the final handler will dispatch.
-          sttRef.current?.flushUtterance();
+        if (gateOpenRef.current) {
+          const partial = sttRef.current?.currentPartial?.trim() ?? "";
+          if (!partial) {
+            // No partial yet (STT lagging the VAD boundary) — fall back to
+            // the commit round-trip; the final handler will dispatch.
+            sttRef.current?.flushUtterance();
+          } else if (looksComplete(partial)) {
+            dispatchFromPartial("endpoint");
+          } else {
+            // Sounds mid-thought — hold before sending so a breath or a
+            // pause to think doesn't cut the sentence. Resumed speech
+            // cancels this and the utterance keeps accumulating.
+            emitMetric("endpoint_hold", ENDPOINT_HOLD_MS, { chars: partial.length });
+            if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+            holdTimerRef.current = setTimeout(() => {
+              holdTimerRef.current = null;
+              if (!enabledRef.current || !gateOpenRef.current) return;
+              if (userSpeakingRef.current) return; // they picked the thought back up
+              dispatchFromPartial("hold");
+            }, ENDPOINT_HOLD_MS);
+          }
         }
         // A relay held back by the user's speech can play now (§5).
         maybeStartNextRef.current();
