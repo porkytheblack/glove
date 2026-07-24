@@ -36,6 +36,7 @@ export {
   RemoteTurnDetector,
   type HeuristicTurnDetectorConfig,
   type RemoteTurnDetectorConfig,
+  type TurnContextMessage,
   type TurnDecision,
   type TurnDetectorAdapter,
 } from "./turn-detector";

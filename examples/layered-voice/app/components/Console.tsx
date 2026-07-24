@@ -169,6 +169,23 @@ export default function Console() {
     [s.config?.sessionId],
   );
 
+  // Recent room turns for the semantic turn detector — context makes the
+  // end-of-utterance model far sharper ("My engine." reads complete alone,
+  // but not right after Nova asked "what do you need?").
+  const roomRefForTurns = useRef(s.room);
+  roomRefForTurns.current = s.room;
+  const getTurnContext = useCallback(
+    () =>
+      roomRefForTurns.current
+        .filter((it) => it.kind === "utterance" || it.kind === "say")
+        .slice(-4)
+        .map((it) => ({
+          role: (it.kind === "say" ? "assistant" : "user") as "user" | "assistant",
+          content: it.text,
+        })),
+    [],
+  );
+
   const voice = useVoice({
     sessionId: s.config?.sessionId ?? null,
     onUtterance: (sp, t) => void s.send(sp, t),
@@ -177,6 +194,7 @@ export default function Console() {
     // Audio-channel realities → tagged notices in Nova's history.
     onInterruption: (heard) => postAudioEvent({ type: "user-interruption", heard }),
     onSpeechFailure: (detail) => postAudioEvent({ type: "speech-failure", detail }),
+    getTurnContext,
   });
   voiceRef.current = voice;
 

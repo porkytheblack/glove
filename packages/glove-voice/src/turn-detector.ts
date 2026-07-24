@@ -45,8 +45,19 @@ export interface TurnDecision {
  * allow inference, but should resolve in a few ms — it sits directly on the
  * voice hot path.
  */
+/** Recent conversation turns, oldest first — context sharpens model-backed
+ *  detectors considerably ("My engine." is complete alone, but clearly
+ *  unfinished right after the agent asked "what do you need?"). */
+export interface TurnContextMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export interface TurnDetectorAdapter {
-  decide(transcript: string): TurnDecision | Promise<TurnDecision>;
+  decide(
+    transcript: string,
+    context?: TurnContextMessage[],
+  ): TurnDecision | Promise<TurnDecision>;
 }
 
 export interface HeuristicTurnDetectorConfig {
@@ -159,14 +170,14 @@ export class RemoteTurnDetector implements TurnDetectorAdapter {
     this.timeoutMs = config.timeoutMs ?? 350;
   }
 
-  async decide(transcript: string): Promise<TurnDecision> {
+  async decide(transcript: string, context?: TurnContextMessage[]): Promise<TurnDecision> {
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
       const res = await fetch(this.url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript }),
+        body: JSON.stringify({ transcript, context }),
         signal: ctrl.signal,
       });
       clearTimeout(timer);

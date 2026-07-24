@@ -26,6 +26,7 @@ import {
   HeuristicTurnDetector,
   RemoteTurnDetector,
   VAD,
+  type TurnContextMessage,
   type TurnDetectorAdapter,
   type VADAdapter,
   ElevenLabsSTTAdapter,
@@ -61,8 +62,11 @@ const VAD_SILENCE_MS = Number(process.env.NEXT_PUBLIC_VAD_SILENCE_MS) || 450;
 // as fallback and as the hold-picker when the model says "not done".
 const HEURISTIC_DETECTOR = new HeuristicTurnDetector({
   questionHoldMs: 0,
-  statementHoldMs: Number(process.env.NEXT_PUBLIC_ENDPOINT_HOLD_SOFT_MS) || 600,
-  unfinishedHoldMs: Number(process.env.NEXT_PUBLIC_ENDPOINT_HOLD_MS) || 900,
+  // Defaults tuned UP after live testing: relaxed thinking-pace speech pauses
+  // for 1-2s mid-thought, and Scribe decorates fragments with "." and "…" —
+  // 600/900 chopped real sentences. Questions stay on the fast path.
+  statementHoldMs: Number(process.env.NEXT_PUBLIC_ENDPOINT_HOLD_SOFT_MS) || 800,
+  unfinishedHoldMs: Number(process.env.NEXT_PUBLIC_ENDPOINT_HOLD_MS) || 1200,
   dictationHoldMs: Number(process.env.NEXT_PUBLIC_SPELL_HOLD_MS) || 2000,
 });
 const TURN_DETECTOR: TurnDetectorAdapter =
@@ -97,6 +101,11 @@ export interface UseVoiceArgs {
   onInterruption?: (heardText: string, playedMs: number) => void;
   /** A spoken turn's TTS failed — the room never heard the line. */
   onSpeechFailure?: (detail: string) => void;
+  /**
+   * Recent conversation turns (oldest first) for the turn detector — context
+   * makes the semantic end-of-utterance model far sharper on fragments.
+   */
+  getTurnContext?: () => TurnContextMessage[];
 }
 
 // Rough ElevenLabs speaking rate, used to estimate how much of the sent text
@@ -957,7 +966,9 @@ export function useVoice(args: UseVoiceArgs) {
             // Semantic endpointing: the turn detector decides how much longer
             // to wait past the VAD boundary. Resumed speech cancels the hold;
             // the utterance keeps accumulating.
-            void Promise.resolve(TURN_DETECTOR.decide(partial)).then(({ holdMs, reason }) => {
+            void Promise.resolve(
+              TURN_DETECTOR.decide(partial, argsRef.current.getTurnContext?.()),
+            ).then(({ holdMs, reason }) => {
               if (!enabledRef.current || !gateOpenRef.current) return;
               if (userSpeakingRef.current) return; // already resumed
               if (holdMs <= 0) {
