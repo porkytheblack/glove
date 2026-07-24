@@ -136,10 +136,12 @@ export interface RemoteTurnDetectorConfig {
    *  `glove-voice/server`). */
   url: string;
   /**
-   * Hold when the model is CERTAIN the speaker finished (default 200ms).
-   * Mirrors LiveKit's min_endpointing_delay: even a confident end-of-turn
-   * keeps a small grace window — committing at the VAD boundary with zero
-   * hold chops speakers who continue after a complete-sounding word.
+   * Hold when the model is CERTAIN the speaker finished (default 400ms).
+   * Mirrors LiveKit's min_endpointing_delay — and it must EXCEED the VAD's
+   * own resume-detection latency (typically ~250ms of sustained speech):
+   * with a shorter hold, a speaker who continues talking can have the
+   * commit fire before their resume is even detectable. That race chops
+   * turns deterministically.
    */
   minHoldMs?: number;
   /** Hold when the model is certain the speaker is NOT done (default 2800ms).
@@ -182,7 +184,7 @@ export class RemoteTurnDetector implements TurnDetectorAdapter {
 
   constructor(config: RemoteTurnDetectorConfig) {
     this.url = config.url;
-    this.minHoldMs = config.minHoldMs ?? 200;
+    this.minHoldMs = config.minHoldMs ?? 400;
     this.maxHoldMs = config.maxHoldMs ?? 2800;
     this.curve = config.curve ?? 1.5;
     this.fallback = config.fallback ?? new HeuristicTurnDetector();

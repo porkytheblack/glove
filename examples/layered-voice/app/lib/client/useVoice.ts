@@ -61,7 +61,8 @@ const VAD_SILENCE_MS = Number(process.env.NEXT_PUBLIC_VAD_SILENCE_MS) || 450;
 // end-of-utterance model scoring server-side (~25ms) — with the heuristic
 // as fallback and as the hold-picker when the model says "not done".
 const HEURISTIC_DETECTOR = new HeuristicTurnDetector({
-  questionHoldMs: 0,
+  // Even the fastest tier must outlast VAD resume detection (~250ms).
+  questionHoldMs: 400,
   // Defaults tuned UP after live testing: relaxed thinking-pace speech pauses
   // for 1-2s mid-thought, and Scribe decorates fragments with "." and "…" —
   // 600/900 chopped real sentences. Questions stay on the fast path.
@@ -79,7 +80,9 @@ const TURN_DETECTOR: TurnDetectorAdapter =
         url: "/api/turn",
         // Continuous probability→hold mapping (LiveKit's min/max endpointing
         // delay model). Tunable, but the defaults are the point.
-        minHoldMs: Number(process.env.NEXT_PUBLIC_TURN_MIN_HOLD_MS) || 200,
+        // Must exceed the VAD's resume-detection latency (~250ms) or a
+        // continuing speaker gets chopped before their resume registers.
+        minHoldMs: Number(process.env.NEXT_PUBLIC_TURN_MIN_HOLD_MS) || 400,
         maxHoldMs: Number(process.env.NEXT_PUBLIC_TURN_MAX_HOLD_MS) || 2800,
         fallback: HEURISTIC_DETECTOR,
       });
@@ -751,22 +754,25 @@ export function useVoice(args: UseVoiceArgs) {
       captureRef.current = capture;
       sttRef.current = stt;
 
-      // VAD choice. Default: the zero-cost energy VAD — its end-of-speech
-      // timing is snappy and per-chunk cost is nil. The neural Silero adapter
-      // discriminates speech from noise better, but runs ONNX inference on
-      // the main thread per frame and noticeably delays end-of-speech on some
-      // machines — OPT-IN via NEXT_PUBLIC_VOICE_VAD=silero. The
-      // confirmed-barge-in, misfire release, and stuck-gate watchdog all work
-      // with either adapter.
+      // VAD choice. DEFAULT: the neural Silero adapter. An RMS-energy VAD
+      // systematically misreads natural speech — soft trailing words, "uh…",
+      // breathy endings all drop below the loudness threshold — so it fires
+      // false boundaries mid-phrase and is slow to notice a soft RESUME
+      // during a hold; every downstream endpointing decision inherits those
+      // mistakes. Silero classifies actual speech, tracks quiet disfluencies,
+      // and confirms real starts. (An earlier "silero feels slow" impression
+      // was its old 1s redemption window stacked on flat holds — both gone;
+      // redemption now equals the VAD silence window.) Energy VAD remains the
+      // fallback and is selectable via NEXT_PUBLIC_VOICE_VAD=energy.
       let vad: VADAdapter | null = null;
-      if (process.env.NEXT_PUBLIC_VOICE_VAD === "silero") {
+      if (process.env.NEXT_PUBLIC_VOICE_VAD !== "energy") {
         try {
           const { SileroVADAdapter } = await import("glove-voice/silero-vad");
           const silero = new SileroVADAdapter({ redemptionMs: VAD_SILENCE_MS });
           await silero.init();
           vad = silero;
         } catch {
-          vad = null; // fall through to the energy VAD
+          vad = null; // fall through to the energy VAD (e.g. offline)
         }
       }
       if (!vad) vad = new VAD({ minSpeechMs: 250, silenceMs: VAD_SILENCE_MS });
