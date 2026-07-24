@@ -33,7 +33,9 @@ export { VAD, type VADConfig } from "./vad";
 export { SpeechGate, type SpeechGateOptions } from "./speech-gate";
 export {
   HeuristicTurnDetector,
+  RemoteTurnDetector,
   type HeuristicTurnDetectorConfig,
+  type RemoteTurnDetectorConfig,
   type TurnDecision,
   type TurnDetectorAdapter,
 } from "./turn-detector";

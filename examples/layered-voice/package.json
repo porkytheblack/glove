@@ -13,6 +13,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
     "@electric-sql/pglite": "^0.5.3",
+    "@huggingface/transformers": "^4.2.0",
     "glove-core": "workspace:*",
     "glove-mesh": "workspace:*",
     "glove-next": "workspace:*",

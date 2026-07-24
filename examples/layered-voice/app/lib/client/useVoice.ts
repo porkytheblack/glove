@@ -24,6 +24,7 @@ import {
   AudioCapture,
   AudioPlayer,
   HeuristicTurnDetector,
+  RemoteTurnDetector,
   VAD,
   type TurnDetectorAdapter,
   type VADAdapter,
@@ -50,14 +51,24 @@ const TTS_MODEL = process.env.NEXT_PUBLIC_TTS_MODEL || "eleven_flash_v2_5";
 const VAD_SILENCE_MS = Number(process.env.NEXT_PUBLIC_VAD_SILENCE_MS) || 450;
 // Semantic endpointing (turn detection) — glove-voice's TurnDetectorAdapter
 // decides, at each VAD boundary, how much longer to wait before committing
-// the utterance. The heuristic detector's tiers are tunable here; a
-// model-backed detector (ONNX end-of-utterance scorer) is a drop-in swap.
-const TURN_DETECTOR: TurnDetectorAdapter = new HeuristicTurnDetector({
+// the utterance. Default: the heuristic tiers. NEXT_PUBLIC_TURN_DETECTOR=
+// "smart" routes each decision through /api/turn — the LiveKit
+// end-of-utterance model scoring server-side (~25ms) — with the heuristic
+// as fallback and as the hold-picker when the model says "not done".
+const HEURISTIC_DETECTOR = new HeuristicTurnDetector({
   questionHoldMs: 0,
   statementHoldMs: Number(process.env.NEXT_PUBLIC_ENDPOINT_HOLD_SOFT_MS) || 600,
   unfinishedHoldMs: Number(process.env.NEXT_PUBLIC_ENDPOINT_HOLD_MS) || 900,
   dictationHoldMs: Number(process.env.NEXT_PUBLIC_SPELL_HOLD_MS) || 2000,
 });
+const TURN_DETECTOR: TurnDetectorAdapter =
+  process.env.NEXT_PUBLIC_TURN_DETECTOR === "smart"
+    ? new RemoteTurnDetector({
+        url: "/api/turn",
+        threshold: Number(process.env.NEXT_PUBLIC_TURN_EOU_THRESHOLD) || 0.5,
+        fallback: HEURISTIC_DETECTOR,
+      })
+    : HEURISTIC_DETECTOR;
 
 async function fetchToken(path: string): Promise<string> {
   const res = await fetch(path);

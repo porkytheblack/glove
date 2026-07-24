@@ -196,9 +196,33 @@ vad.on("speech_end", async () => {
 });
 ```
 
-A model-backed detector (an ONNX end-of-utterance scorer, loaded like
-`SileroVADAdapter`) implements the same one-method contract by mapping
-P(end-of-turn) to a hold.
+**Model-backed detection** ships too, in the LiveKit deployment shape (model
+server-side, thin client):
+
+- `LiveKitEouScorer` (`glove-voice/server`) runs the open
+  [livekit/turn-detector](https://huggingface.co/livekit/turn-detector)
+  weights in Node via `@huggingface/transformers` (optional dependency,
+  inject the module). ~25ms per score on CPU after warmup; transcripts are
+  normalized internally (the model was trained on lowercased, unpunctuated
+  text — raw punctuated input inverts the signal).
+- `RemoteTurnDetector` (browser) POSTs the transcript to your scoring
+  endpoint at each VAD boundary: P ≥ threshold → commit now; below → the
+  fallback heuristic picks the hold (dictation/unfinished tiers still
+  apply); endpoint error or >350ms → fallback decides alone.
+
+```ts
+// app/api/turn/route.ts
+import * as transformers from "@huggingface/transformers";
+import { LiveKitEouScorer } from "glove-voice/server";
+const scorer = new LiveKitEouScorer({ transformers });
+export async function POST(req: Request) {
+  const { transcript } = await req.json();
+  return Response.json({ probability: await scorer.probability([{ role: "user", content: transcript }]) });
+}
+
+// client
+const turns = new RemoteTurnDetector({ url: "/api/turn", threshold: 0.5 });
+```
 
 ## Adapter Contracts
 

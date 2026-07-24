@@ -118,3 +118,71 @@ export class HeuristicTurnDetector implements TurnDetectorAdapter {
     return { holdMs: this.unfinishedHoldMs, reason: "unfinished" };
   }
 }
+
+export interface RemoteTurnDetectorConfig {
+  /** Endpoint POSTed `{ transcript }`; must return `{ probability }` in [0,1]
+   *  (e.g. a route backed by `LiveKitEouScorer` from `glove-voice/server`). */
+  url: string;
+  /** P(end-of-utterance) at or above which the turn commits immediately
+   *  (default 0.5). */
+  threshold?: number;
+  /** Detector used when the endpoint is slow/unreachable, and to pick the
+   *  hold when the model says "not done" (default: HeuristicTurnDetector). */
+  fallback?: TurnDetectorAdapter;
+  /** Abort the scoring request after this long and use the fallback
+   *  (default 350ms — the detector sits on the voice hot path). */
+  timeoutMs?: number;
+}
+
+/**
+ * Model-backed turn detection over HTTP — the LiveKit deployment shape: the
+ * end-of-utterance model runs server-side (see `LiveKitEouScorer` in
+ * `glove-voice/server`), the client calls a scoring endpoint at each VAD
+ * boundary.
+ *
+ *   P >= threshold  → commit now (holdMs 0)
+ *   P <  threshold  → the model says "not done"; hold for whatever the
+ *                     fallback heuristic picks (its dictation/unfinished
+ *                     tiers still apply), never less than 300ms.
+ *   error / timeout → fallback decides alone.
+ */
+export class RemoteTurnDetector implements TurnDetectorAdapter {
+  private readonly url: string;
+  private readonly threshold: number;
+  private readonly fallback: TurnDetectorAdapter;
+  private readonly timeoutMs: number;
+
+  constructor(config: RemoteTurnDetectorConfig) {
+    this.url = config.url;
+    this.threshold = config.threshold ?? 0.5;
+    this.fallback = config.fallback ?? new HeuristicTurnDetector();
+    this.timeoutMs = config.timeoutMs ?? 350;
+  }
+
+  async decide(transcript: string): Promise<TurnDecision> {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
+      const res = await fetch(this.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error(`scorer ${res.status}`);
+      const { probability } = (await res.json()) as { probability: number };
+      const p = Number(probability);
+      if (!Number.isFinite(p)) throw new Error("scorer returned no probability");
+      if (p >= this.threshold) return { holdMs: 0, reason: `eou:${p.toFixed(2)}` };
+      const fb = await this.fallback.decide(transcript);
+      return {
+        holdMs: Math.max(fb.holdMs, 300),
+        reason: `eou-low:${p.toFixed(2)}:${fb.reason}`,
+      };
+    } catch {
+      const fb = await this.fallback.decide(transcript);
+      return { holdMs: fb.holdMs, reason: `fallback:${fb.reason}` };
+    }
+  }
+}
