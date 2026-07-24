@@ -202,6 +202,13 @@ export function useVoice(args: UseVoiceArgs) {
   // never leak onto a later turn.
   const voidedTurnsRef = useRef<Set<number>>(new Set());
 
+  // Has the VAD witnessed a real speech episode since the last dispatch?
+  // Scribe (like all Whisper-family STT) HALLUCINATES on near-silence — "Yes.",
+  // "Okay.", "Thank you.", even whole helpful-assistant lines — and without
+  // this gate those phantoms get committed as utterances. Text may only
+  // dispatch when a human was actually heard speaking.
+  const heardSpeechRef = useRef(false);
+
   // Mutable flags read from audio-event handlers.
   const enabledRef = useRef(false);
   const gateOpenRef = useRef(false); // feed mic audio to STT?
@@ -368,7 +375,13 @@ export function useVoice(args: UseVoiceArgs) {
 
   const endSpeaking = useCallback(() => {
     speakingRef.current = false;
-    if (enabledRef.current) gateOpenRef.current = true;
+    // Post-speech deadband: hold the STT gate closed a beat longer than the
+    // player thinks the audio ended — speaker reverb and output-device
+    // latency mean Nova's tail is still audible, and transcribing it births
+    // phantom "Sam" utterances. Barge-in opens the gate directly (unaffected).
+    setTimeout(() => {
+      if (enabledRef.current && !speakingRef.current) gateOpenRef.current = true;
+    }, 300);
     patch({ speaking: false, listening: enabledRef.current });
   }, [patch]);
 
@@ -695,6 +708,7 @@ export function useVoice(args: UseVoiceArgs) {
     userSpeakingRef.current = false;
     voidedTurnsRef.current.clear();
     pendingConfirmRef.current = null;
+    heardSpeechRef.current = false;
   }, [stopSpeaking]);
 
   const enable = useCallback(async () => {
@@ -758,9 +772,26 @@ export function useVoice(args: UseVoiceArgs) {
         }
         return p;
       };
+      /** Discard buffer content WITHOUT dispatching (silence hallucination):
+       *  commit it to Scribe so the buffer resets, swallow the confirm. */
+      const discardPartial = (source: string, text: string) => {
+        emitMetric("stt_phantom_dropped", undefined, { chars: text.length, source });
+        lastDispatched = sttRef.current?.currentPartial?.trim() ?? text;
+        pendingConfirmRef.current = text;
+        sttRef.current?.flushUtterance();
+        patch({ partial: "" });
+      };
+
       const dispatchFromPartial = (source: "endpoint" | "stable" | "hold" | "sweep"): boolean => {
         const text = livePartial();
         if (!text) return false;
+        // No human was heard speaking since the last dispatch — this text is
+        // an STT hallucination born from silence/noise. Drop it.
+        if (!heardSpeechRef.current) {
+          discardPartial(source, text);
+          return false;
+        }
+        heardSpeechRef.current = false;
         lastDispatched = sttRef.current?.currentPartial?.trim() ?? text;
         const endAt = speechEndAtRef.current;
         speechEndAtRef.current = 0;
@@ -828,6 +859,13 @@ export function useVoice(args: UseVoiceArgs) {
           else if (lastDispatched.startsWith(fresh)) fresh = "";
         }
         if (!fresh) return;
+        // Same phantom gate as the partial path: Scribe auto-commits can
+        // deliver silence hallucinations straight to this handler.
+        if (!heardSpeechRef.current) {
+          emitMetric("stt_phantom_dropped", undefined, { chars: fresh.length, source: "final" });
+          return;
+        }
+        heardSpeechRef.current = false;
         // Only measure against a FRESH speech_end. Scribe can auto-commit
         // accumulated audio long after the last VAD boundary (e.g. echo /
         // noise-floor drift keeps VAD "speaking") — measuring those against a
@@ -870,6 +908,7 @@ export function useVoice(args: UseVoiceArgs) {
 
       vad.on("speech_start", () => {
         userSpeakingRef.current = true;
+        heardSpeechRef.current = true;
         // Resumed mid-thought — cancel any pending endpoint hold; this is
         // still the same utterance.
         if (holdTimerRef.current) {
