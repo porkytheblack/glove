@@ -27,7 +27,12 @@ export const PROVIDER: Provider = (process.env.VOICE_PROVIDER as Provider) || "o
 // tool-driven database work.
 const DEFAULTS: Partial<Record<Provider, Record<Role, string>>> = {
   openrouter: {
-    front: "openai/gpt-oss-120b", // fast; its <speech> spans stream into TTS
+    // Kimi K2 via Groq: measured 263ms TTFT (faster than gpt-oss-120b's
+    // 310ms via Cerebras) with visibly better social/addressing judgment —
+    // rubric: 100% addressing incl. catching a hull-ownership mismatch that
+    // gpt-oss missed. Its occasional ack-without-tool-call slip is fully
+    // backstopped by the orchestrator's delegation nudge.
+    front: "moonshotai/kimi-k2-0905",
     worker: "minimax/minimax-m2.5", // heavy lifting + a ton of tool calls
   },
   anthropic: {

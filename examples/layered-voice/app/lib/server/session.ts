@@ -58,6 +58,9 @@ const WORKER_DRAIN_PROMPT =
 // §8 remediation: reasoning workers sometimes finish their research and just
 // STOP without sending the reply. One firm nudge recovers most of these runs
 // far cheaper than a trouble turn + human retry.
+const DELEGATION_NUDGE_PROMPT =
+  'You just spoke a promise to look something up, but you did NOT call glove_mesh_send_message — nothing was dispatched and the customer will wait forever. Call glove_mesh_send_message NOW with to: "worker", blocking: true, and content restating the request (include any hull id / name you heard). Output NOTHING else — no <speech> tags, the room already heard your acknowledgement.';
+
 const WORKER_RETRY_PROMPT =
   'You did all that research but NEVER SENT YOUR REPLY — the front agent and the customer are still waiting. Call glove_mesh_send_message NOW with to: "front", in_reply_to set to the message id from the inbox line, and content carrying your findings. Do not do any more research; reply with what you already have.';
 
@@ -416,14 +419,25 @@ export class Session {
       });
     } else if (!this.frontDelegatedThisTurn && PROMISE_RE.test(speech)) {
       // Nova spoke like she was kicking off a lookup but never called the mesh
-      // send tool — the single most confusing failure (the room hears "one
-      // moment please" and then nothing ever happens). Surface it loudly.
+      // send tool (some models ack without calling — Kimi K2 does this
+      // intermittently). Don't just log it: run one SILENT corrective turn
+      // that forces the call, so the promise the room just heard actually
+      // happens. Costs ~1 fast model round only on the failure path.
       this.metric("promised_without_delegation", undefined, { speech: compact(speech, 200) });
-      this.emit({
-        type: "note",
-        noteKind: "missed-delegation",
-        text: `${ASSISTANT_NAME} said she'd check but never called glove_mesh_send_message — nothing was dispatched to the worker`,
-      });
+      try {
+        await this.runFrontTurn(DELEGATION_NUDGE_PROMPT);
+      } catch {
+        /* nudge is best-effort; the note below covers the failure */
+      }
+      if (this.frontDelegatedThisTurn) {
+        this.metric("delegation_recovered", undefined, {});
+      } else {
+        this.emit({
+          type: "note",
+          noteKind: "missed-delegation",
+          text: `${ASSISTANT_NAME} said she'd check but never called glove_mesh_send_message — nothing was dispatched to the worker`,
+        });
+      }
     }
 
     // Fire-and-forget: hand any new delegations to the worker and RETURN.
@@ -572,6 +586,20 @@ export class Session {
           failed,
         });
         this.setWorkerBusy(-1);
+        if (this.workerRunReplies === 0 && !failed) {
+          // The worker did the research but never called the reply tool (a
+          // recurring reasoning-model failure even after the retry nudge).
+          // The findings EXIST — as the worker's final message text — so
+          // deliver them deterministically: synthesize the mesh reply into
+          // Nova's inbox ourselves. Reply-by-tool is preferred; this makes
+          // delivery not depend on model obedience.
+          const salvaged = await this.salvageWorkerReply();
+          if (salvaged) {
+            this.metric("worker_reply_salvaged", undefined, { delegations: fresh.length });
+            this.queueRelay(dispatchedAt);
+            return;
+          }
+        }
         if (this.workerRunReplies === 0) {
           // §8: silence is indistinguishable from a hang — the front would be
           // left waiting on its mesh:waiting reminder forever. Surface it as a
@@ -588,6 +616,53 @@ export class Session {
         }
       })
       .catch(() => {});
+  }
+
+  /**
+   * Deliver a reply-less worker run's findings anyway: take the worker's
+   * final message text (where reasoning models leave their summary when they
+   * forget the reply tool), resolve the front's pending mesh:waiting items
+   * with it, and surface it as a resolved mesh reply in Nova's inbox — the
+   * same shape a real glove_mesh_send_message reply produces.
+   */
+  private async salvageWorkerReply(): Promise<boolean> {
+    const messages = (await this.worker.store.getMessages?.()) ?? [];
+    let text = "";
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i] as { sender?: string; text?: string };
+      if (m.sender === "agent" && m.text && m.text.trim().length > 40) {
+        text = m.text.trim();
+        break;
+      }
+    }
+    if (!text) return false;
+    const now = new Date().toISOString();
+    // Resolve any pending waiting reminders (blocking sends) with the result.
+    const waiting = ((await this.front.store.getInboxItems?.()) ?? []).filter(
+      (i) => i.status === "pending" && i.tag.startsWith("mesh:waiting:"),
+    );
+    for (const it of waiting) {
+      await this.front.store.updateInboxItem?.(it.id, {
+        status: "resolved",
+        response: text,
+        resolved_at: now,
+      });
+    }
+    if (waiting.length === 0) {
+      // Non-blocking delegation — surface as an inbound mesh reply instead.
+      await this.front.store.addInboxItem?.({
+        id: `salvaged_${Date.now().toString(36)}`,
+        tag: "mesh:from:worker",
+        request: 'Message from "Service Worker" (worker) [salvaged reply]',
+        response: text,
+        status: "resolved",
+        blocking: false,
+        created_at: now,
+        resolved_at: now,
+      });
+    }
+    this.emit({ type: "mesh", direction: "reply", from: "worker", to: "front", content: text.slice(0, 2000) });
+    return true;
   }
 
   /**

@@ -96,7 +96,7 @@ const RUBRIC = [
     expect: {
       speak: true,
       delegate: true,
-      relay: /not covered|excluded|exclusion|track/i,
+      relay: /(?:not|n't|isn.t|no longer)\s*covered|excluded|exclusion|track|out.of.pocket/i,
     },
     why: "warranty question → delegate; seed says track wear is EXCLUDED",
   },
