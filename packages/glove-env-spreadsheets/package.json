@@ -1,13 +1,13 @@
 {
-  "name": "glove-working-environment",
+  "name": "glove-env-spreadsheets",
   "version": "0.1.0",
-  "description": "A small, fast, in-memory, sandboxed persistent working environment for LLM agents — a virtual filesystem the model acts on across many tool calls: write and persist scripts, run them, capture outputs, inspect intermediates, and iterate. No networking, no host filesystem, no process spawning: scripts execute in a scope containing only injected capabilities (env:fs, env:std, registered stdlib adapters). Zero-dependency core; heavy format libraries live in adapter packages.",
+  "description": "Spreadsheet stdlib adapter for glove-working-environment. Bridges exceljs into the agent's virtual filesystem as env:spreadsheets — describe a workbook, read sheets as records, write and append rows, bridge to and from CSV. Paths in, paths out; cell values normalised to plain JSON.",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/porkytheblack/glove.git",
-    "directory": "packages/glove-working-environment"
+    "directory": "packages/glove-env-spreadsheets"
   },
   "homepage": "https://github.com/porkytheblack/glove",
   "bugs": "https://github.com/porkytheblack/glove/issues",
@@ -18,10 +18,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./testing": {
-      "types": "./dist/testing.d.ts",
-      "import": "./dist/testing.js"
     }
   },
   "files": [
@@ -33,9 +29,15 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test --import tsx tests/*.test.ts"
   },
+  "dependencies": {
+    "exceljs": "^4.4.0"
+  },
+  "peerDependencies": {
+    "glove-working-environment": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^25.2.3",
-    "glove-core": "workspace:*",
+    "glove-working-environment": "workspace:*",
     "tsx": "^4.19.0",
     "typescript": "^5.9.3"
   }

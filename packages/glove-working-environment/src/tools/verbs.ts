@@ -17,6 +17,30 @@ interface ToolDeps {
   prefix: string;
 }
 
+/**
+ * The `env:*` modules a script may import, rendered for the run_script tool
+ * description. Bounded: a host registering a dozen adapters should not push
+ * the rest of the description out of the model's attention.
+ */
+function moduleCatalogue(descriptions: ReadonlyMap<string, string>): string {
+  const entries = [...descriptions.entries()];
+  if (entries.length === 0) return "";
+  const parts: string[] = [];
+  let budget = 600;
+  let dropped = 0;
+  for (const [mod, description] of entries) {
+    const line = `env:${mod} — ${description}`;
+    if (line.length > budget) {
+      dropped += 1;
+      continue;
+    }
+    budget -= line.length;
+    parts.push(line);
+  }
+  const tail = dropped > 0 ? ` (+${dropped} more; see /std/README.md)` : "";
+  return `Scripts may import: ${parts.join("; ")}${tail}. Full types live in /std/<name>/index.d.ts.`;
+}
+
 const ok = (data: unknown): EnvToolResult => ({ status: "success", data });
 const err = (message: string, data?: unknown): EnvToolResult => ({ status: "error", message, data: data ?? null });
 
@@ -248,7 +272,12 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     name: name("run_script"),
     description:
       "Run a script's default export with JSON args: `await defaultExport(args)`. Returns the result plus captured stdout/stderr and duration. " +
-      "Oversized output is truncated here and written in full to a /tmp/run-<id>.* file — read slices of that file instead of re-running. Every run is appended to /.env/history.jsonl.",
+      "Oversized output is truncated here and written in full to a /tmp/run-<id>.* file — read slices of that file instead of re-running. Every run is appended to /.env/history.jsonl. " +
+      // The importable modules belong here, not only in the system prompt: a
+      // host that folds the verbs directly (rather than via
+      // mountWorkingEnvironment) would otherwise leave the model to discover
+      // its own capabilities by guesswork.
+      moduleCatalogue(core.moduleDescriptions),
     jsonSchema: schema(
       {
         path: str("Script path, e.g. /scripts/csv_to_report.js"),

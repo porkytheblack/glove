@@ -50,6 +50,9 @@ jobs:
           --filter glove-js
           --filter glove-lisp
           --filter glove-working-environment
+          --filter glove-env-documents
+          --filter glove-env-spreadsheets
+          --filter glove-env-images
           typecheck
 
       - name: Test
@@ -61,4 +64,7 @@ jobs:
           --filter glove-js
           --filter glove-lisp
           --filter glove-working-environment
+          --filter glove-env-documents
+          --filter glove-env-spreadsheets
+          --filter glove-env-images
           test

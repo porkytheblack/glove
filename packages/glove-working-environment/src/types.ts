@@ -64,6 +64,9 @@ export interface EnvSnapshot {
  * exposes must do its I/O exclusively through the given VFS handle. An
  * adapter that reaches for the network or the host filesystem is breaking
  * the contract — the environment cannot detect it, so don't do it.
+ *
+ * Prefer `defineAdapter` over writing this shape by hand: it checks the spec
+ * eagerly and keeps the binding types.
  */
 export interface StdlibAdapter {
   /** Module name: `"documents"` → scripts do `import { pdf } from 'env:documents'`. */
@@ -74,8 +77,16 @@ export interface StdlibAdapter {
   types: string;
   /** Optional README with worked examples (materialized at /std/<name>/README.md). */
   docs?: string;
-  /** Factory producing the actual bindings. ALL I/O goes through the given VFS handle. */
-  create(vfs: EnvFsHandle): Record<string, unknown>;
+  /**
+   * Factory producing the actual bindings. ALL I/O goes through the given VFS
+   * handle.
+   *
+   * Called twice per environment — once for normal execution and once for the
+   * read-only instance backing write-time script validation — so it must be
+   * free of side effects outside the handle. `ctx.readOnly` distinguishes
+   * them; most adapters can ignore it.
+   */
+  create(vfs: EnvFsHandle, ctx?: { name: string; readOnly: boolean }): Record<string, unknown>;
 }
 
 /**
@@ -88,6 +99,8 @@ export interface EnvFsHandle {
   readFile(path: string): Promise<string>;
   readBytes(path: string): Promise<Uint8Array>;
   writeFile(path: string, content: string | Uint8Array): Promise<void>;
+  /** Append to a file, creating it if absent. */
+  appendFile(path: string, content: string | Uint8Array): Promise<void>;
   readdir(path: string): Promise<VfsEntry[]>;
   glob(pattern: string): Promise<string[]>;
   stat(path: string): Promise<VfsStat | null>;
@@ -117,7 +130,14 @@ export interface EnvLimits {
 }
 
 /** Thrown when a configured resource limit is hit. The message names the limit. */
-export class EnvLimitError extends Error {}
+export class EnvLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    // Only `name` and `message` survive the realm bridge, so the name is the
+    // only way a script can tell a limit apart from an ordinary failure.
+    this.name = "EnvLimitError";
+  }
+}
 
 export const DEFAULT_LIMITS: EnvLimits = {
   runTimeoutMs: 30_000,

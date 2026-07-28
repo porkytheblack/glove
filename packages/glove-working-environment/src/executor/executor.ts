@@ -154,7 +154,7 @@ export class ScriptExecutor {
 
   /**
    * Wrap a host namespace so every capability call re-checks the wall-clock
-   * budget first. The vm timeout only covers a synchronous run; once a script
+   * budget first, and so its arguments arrive as host-realm values. The vm timeout only covers a synchronous run; once a script
    * has awaited, nothing else can interrupt it. Checking here stops a
    * runaway loop from continuing to *do* anything through its capabilities,
    * and makes the limit fire promptly for the loops that actually touch the
@@ -169,10 +169,16 @@ export class ScriptExecutor {
       const value = host[key];
       if (typeof value === "function") {
         const fn = value as (...a: unknown[]) => unknown;
-        out[key] = (...args: unknown[]) => {
+        const guarded = (...args: unknown[]) => {
           if (Date.now() > st.deadline) throw this.limitError();
-          return fn.apply(host, args);
+          return fn.apply(host, args.map((a) => hostify(a)));
         };
+        // The bridge copies name/arity from whatever it is handed, so this
+        // wrapper is where a capability would otherwise lose its shape and
+        // reach the script as an anonymous zero-arity function.
+        Object.defineProperty(guarded, "name", { value: fn.name, configurable: true });
+        Object.defineProperty(guarded, "length", { value: fn.length, configurable: true });
+        out[key] = guarded;
       } else if (value !== null && typeof value === "object") {
         out[key] = this.guardDeadline(value as Record<string, unknown>, st, seen);
       } else {
@@ -372,6 +378,98 @@ export class ScriptExecutor {
       return finish({ ok: false, error: describeError(e) });
     }
   }
+}
+
+/**
+ * Copy a value coming *out* of the sandbox into host-realm objects.
+ *
+ * Results already cross host→script as deep copies; without the mirror image
+ * the boundary is asymmetric, and the asymmetry is not academic. An array
+ * literal written inside a script is a context-realm Array: `Array.isArray`
+ * still recognises it, but `instanceof Array` does not, and real libraries
+ * use both. exceljs takes `instanceof Array` to mean "a row of cells" and
+ * anything else to mean "a map of column names", so passing a script's array
+ * straight through produced a silently empty spreadsheet. Every adapter
+ * author would have hit some version of that, one library at a time.
+ *
+ * Copying also severs the live reference: a host library that retains an
+ * argument holds plain host data, not an object whose prototype chain and
+ * getters still live inside the sandbox.
+ *
+ * Functions are the exception — they cannot be copied, so callbacks pass
+ * through as-is. They are context-realm closures, which can do no more than
+ * the script itself.
+ */
+export function hostify(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
+  if (value === null) return null;
+  const t = typeof value;
+  if (t !== "object" && t !== "function") return value;
+  if (t === "function") return value;
+
+  const obj = value as object;
+  const hit = seen.get(obj);
+  if (hit !== undefined) return hit;
+
+  const tag = Object.prototype.toString.call(obj);
+
+  if (tag === "[object Uint8Array]" || tag === "[object Uint8ClampedArray]" || tag === "[object Int8Array]") {
+    const src = obj as unknown as ArrayLike<number>;
+    const out = new Uint8Array(src.length);
+    for (let i = 0; i < src.length; i++) out[i] = src[i];
+    seen.set(obj, out);
+    return out;
+  }
+  if (tag === "[object Date]") {
+    const out = new Date(Number(obj));
+    seen.set(obj, out);
+    return out;
+  }
+  if (tag === "[object RegExp]") {
+    const re = obj as RegExp;
+    const out = new RegExp(String(re.source), String(re.flags));
+    seen.set(obj, out);
+    return out;
+  }
+  if (Array.isArray(obj)) {
+    const out: unknown[] = [];
+    seen.set(obj, out);
+    for (let i = 0; i < obj.length; i++) out[i] = hostify(obj[i], seen);
+    return out;
+  }
+  if (tag === "[object Map]") {
+    const out = new Map<unknown, unknown>();
+    seen.set(obj, out);
+    for (const [k, v] of obj as Map<unknown, unknown>) out.set(hostify(k, seen), hostify(v, seen));
+    return out;
+  }
+  if (tag === "[object Set]") {
+    const out = new Set<unknown>();
+    seen.set(obj, out);
+    for (const v of obj as Set<unknown>) out.add(hostify(v, seen));
+    return out;
+  }
+  if (tag === "[object Error]") {
+    const err = obj as Error;
+    const out = new Error(String(err.message));
+    out.name = String(err.name);
+    seen.set(obj, out);
+    return out;
+  }
+
+  const out: Record<string, unknown> = {};
+  seen.set(obj, out);
+  for (const key of Object.keys(obj as Record<string, unknown>)) {
+    let child: unknown;
+    // A getter that throws is the script's problem, not a reason to fail the
+    // whole call before the capability has seen anything.
+    try {
+      child = (obj as Record<string, unknown>)[key];
+    } catch {
+      continue;
+    }
+    out[key] = hostify(child, seen);
+  }
+  return out;
 }
 
 export function describeError(e: unknown): string {

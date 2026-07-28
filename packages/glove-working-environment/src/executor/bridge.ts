@@ -107,7 +107,7 @@ export const BRIDGE_SOURCE = `globalThis.__glove_bridge = (function () {
   // The host callee is reachable ONLY through this closure — never as a
   // property of the returned function, so scripts cannot get at it.
   function bind(hostFn, hostThis) {
-    return function () {
+    var wrapped = function () {
       var args = Array.prototype.slice.call(arguments);
       var r;
       try { r = hostFn.apply(hostThis, args); }
@@ -122,6 +122,15 @@ export const BRIDGE_SOURCE = `globalThis.__glove_bridge = (function () {
       }
       return marshal(r);
     };
+    // Carry the callee's observable shape across. Both are primitives, so no
+    // host object crosses; without them every capability reads as an
+    // anonymous zero-arity function, which is wrong in stack traces and wrong
+    // for anything reflecting on arity.
+    try {
+      Object.defineProperty(wrapped, "name", { value: String(hostFn.name || ""), configurable: true });
+      Object.defineProperty(wrapped, "length", { value: Number(hostFn.length) || 0, configurable: true });
+    } catch (_) { /* a non-configurable own property is not worth failing over */ }
+    return wrapped;
   }
 
   function bindPassthrough(hostFn) {

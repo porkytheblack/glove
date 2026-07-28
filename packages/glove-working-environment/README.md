@@ -103,24 +103,71 @@ The complete, closed set — everything the model does goes through these:
 
 An adapter bridges a real host-side library into the tree. The model experiences it as a typed importable module plus docs living at `/std/<name>/`.
 
-```ts
-import type { StdlibAdapter } from "glove-working-environment";
+Three ship separately, each with its own dependencies:
 
-const documents = (): StdlibAdapter => ({
-  name: "documents",
-  description: "Read, compose, and render PDF/DOCX documents.",
-  types: "export const pdf: { save(path: string, doc: Doc): Promise<void>; describe(path: string): Promise<PdfSummary>; ... }",
-  docs: "# documents\n…worked examples…",
-  create(vfs) {
-    // wrap pdf-lib etc. here — ALL I/O goes through the given vfs handle
-    return { pdf: { save: async (path, doc) => vfs.writeFile(path, await renderPdf(doc)), ... } };
-  },
-});
+| Package | Module | Gives the model |
+|---|---|---|
+| [`glove-env-documents`](../glove-env-documents) | `env:documents` | One document spec → PDF *and* DOCX; describe/merge/split/stamp; text extraction |
+| [`glove-env-spreadsheets`](../glove-env-spreadsheets) | `env:spreadsheets` | `.xlsx` as plain-JSON records; describe, page, write, append, CSV bridging |
+| [`glove-env-images`](../glove-env-images) | `env:images` | Describe without decoding; resize/convert/crop/rotate/composite/contact-sheet |
+
+```ts
+const env = await createWorkingEnvironment({ stdlib: [documents(), spreadsheets(), images()] });
+```
+
+### Writing one
+
+```ts
+import { defineAdapter } from "glove-working-environment";
+
+export const images = () =>
+  defineAdapter({
+    name: "images",                                   // → import … from 'env:images'
+    description: "Inspect and transform raster images.",
+    types: IMAGES_TYPES,                              // → /std/images/index.d.ts
+    docs: IMAGES_DOCS,                                // → /std/images/README.md
+    create: (vfs, ctx) => ({
+      describe: async (path) => summarize(await vfs.readBytes(path)),
+      resize: async (input, output, opts) => {
+        await vfs.writeFile(output, await sharpResize(await vfs.readBytes(input), opts));
+        return output;                                // paths in, paths out
+      },
+    }),
+  });
 ```
 
 `create(vfs)` is the capability boundary: the handle it receives routes through the same guarded gateway as the model verbs (zones, limits, script pipeline, versions). Convention: **paths in, paths out, structured data in between**, and every format adapter exposes `describe(path)` returning a tokens-cheap summary of a binary artifact plus format-appropriate extractors.
 
-Builtins always present: **`env:fs`** (readFile, writeFile, readdir, glob, stat, mkdir, rm, mv, cp — lets a script loop over fifty inputs without fifty tool calls) and **`env:std`** (json, csv, text, bytes).
+Four things the environment does for you, which is most of why adapters are short:
+
+- **Arguments arrive as host-realm values.** An array literal written inside a script is a context-realm `Array`: `Array.isArray` recognises it, `instanceof Array` does not, and libraries use both — exceljs reads `instanceof Array` as "a row of cells" and anything else as "a map of column names", so a script's rows silently produced an empty spreadsheet. Everything crossing inward is deep-copied (cycles, `Date`, `Map`/`Set`, typed arrays included), so a library sees plain host data and never a live reference into the sandbox.
+- **Failures name the capability.** Every function reachable through `env:*` is wrapped, at any nesting depth, so a bare `Invalid PDF structure` reaches the model as `env:documents.pdf.merge: Invalid PDF structure`. In a script touching four capabilities that is the difference between one debugging round trip and three.
+- **`create` is called twice** — once normally, once bound to a filesystem that refuses mutations, because write-time validation runs module top-level code and a rejected write must leave no trace. `ctx.readOnly` distinguishes them; most adapters ignore it. Keep `create` free of side effects outside its handle.
+- **Specs are checked eagerly.** `defineAdapter` rejects a bad name, a missing `description`, or absent `types` at definition time, where the author sees it — not at environment creation, in someone else's stack trace.
+
+### Testing one
+
+```ts
+import { createAdapterTestEnv, assertAdapterOk } from "glove-working-environment/testing";
+
+const t = await createAdapterTestEnv(images());
+await t.fs.writeFile("/inbox/logo.png", bytes);
+
+const meta = await t.script(`
+  import { describe } from 'env:images';
+  export default async function main() { return describe('/inbox/logo.png'); }
+`);
+assert.equal(meta.format, "png");
+
+const failed = await t.runScript(`…`);              // never throws; assert on failed.error
+assertAdapterOk(await t.audit());
+```
+
+Adapters are tested **from inside a script**, because that is the only place they are ever used — through the realm bridge, with marshalled arguments, against the guarded VFS. Calling `create()` and poking the raw functions tests an object the model never touches.
+
+`audit()` catches the failure mode ordinary unit tests structurally cannot: a binding that exists but is missing from `types` (the model never discovers it), or a `types` declaration with no binding behind it (the model reads the docs, writes a script, and gets `undefined is not a function`). It checks both directions, plus a `default` binding the namespace would overwrite, and warns about missing `docs` or a missing `describe`.
+
+Builtins always present: **`env:fs`** (readFile, readBytes, writeFile, appendFile, readdir, glob, stat, exists, mkdir, rm, mv, cp — lets a script loop over fifty inputs without fifty tool calls) and **`env:std`** (json, csv, text, bytes). `/std/README.md` indexes every registered module, and the `run_script` tool description carries the list too, so a host that folds the verbs directly still tells the model what it can import.
 
 ## Execution & security model
 

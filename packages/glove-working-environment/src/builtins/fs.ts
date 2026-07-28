@@ -32,6 +32,9 @@ export function createFsHandle(core: EnvCore): EnvFsHandle {
     writeFile: async (path, content) => {
       await core.write(path, toBytes(asHostBytes(content)));
     },
+    appendFile: async (path, content) => {
+      await core.write(path, toBytes(asHostBytes(content)), { append: true });
+    },
     readdir: (path) => core.list(path),
     glob: (pattern) => core.glob(pattern),
     stat: (path) => core.stat(path),
@@ -69,6 +72,7 @@ export function createReadOnlyFsHandle(core: EnvCore): EnvFsHandle {
     stat: (path) => core.stat(path),
     exists: (path) => core.exists(path),
     writeFile: refuse("writeFile"),
+    appendFile: refuse("appendFile"),
     mkdir: refuse("mkdir"),
     rm: refuse("rm"),
     mv: refuse("mv"),
@@ -76,7 +80,8 @@ export function createReadOnlyFsHandle(core: EnvCore): EnvFsHandle {
   };
 }
 
-export const FS_DESCRIPTION = "VFS-scoped file I/O: readFile, writeFile, readdir, glob, stat, mkdir, rm, mv, cp, exists.";
+export const FS_DESCRIPTION =
+  "VFS-scoped file I/O: readFile, writeFile, appendFile, readdir, glob, stat, mkdir, rm, mv, cp, exists.";
 
 export const FS_TYPES = `/** env:fs — file I/O scoped to the environment's virtual tree. */
 export interface VfsEntry {
@@ -95,6 +100,8 @@ export function readFile(path: string): Promise<string>;
 export function readBytes(path: string): Promise<Uint8Array>;
 /** Write a file (string or bytes), creating parent directories as needed. */
 export function writeFile(path: string, content: string | Uint8Array): Promise<void>;
+/** Append to a file, creating it if absent. Cheaper than read-concat-write. */
+export function appendFile(path: string, content: string | Uint8Array): Promise<void>;
 export function readdir(path: string): Promise<VfsEntry[]>;
 /** Match file paths: ** any depth, * within a segment, ? one char. */
 export function glob(pattern: string): Promise<string[]>;

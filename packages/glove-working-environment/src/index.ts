@@ -27,6 +27,7 @@ import { EnvCore } from "./core/env";
 import { ScriptExecutor, deepFreeze } from "./executor/executor";
 import { VersionStore } from "./history/versions";
 import { RunLog } from "./history/runlog";
+import { tagBindings } from "./adapters/tag";
 import { createFsHandle, createReadOnlyFsHandle, FS_DESCRIPTION, FS_TYPES } from "./builtins/fs";
 import { createStdBindings, STD_DESCRIPTION, STD_TYPES } from "./builtins/std";
 import { buildTools } from "./tools/verbs";
@@ -87,7 +88,9 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
     }
     if (core.envModules.has(name)) throw new Error(`stdlib adapter name "${name}" is already registered`);
     const seal = (b: Record<string, unknown>) => {
-      const ns: Record<string, unknown> = { ...b };
+      // Tag first: a failure inside a capability should name the capability,
+      // not arrive as a bare message from four possible sources.
+      const ns: Record<string, unknown> = tagBindings(name, b);
       ns.default = ns; // `import fs from 'env:fs'` gives the whole module
       return deepFreeze(ns);
     };
@@ -105,7 +108,23 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
   register("std", STD_DESCRIPTION, createStdBindings(), createStdBindings());
   const adapters: StdlibAdapter[] = options.stdlib ?? [];
   for (const adapter of adapters) {
-    register(adapter.name, adapter.description, adapter.create(fsHandle), adapter.create(readOnlyFsHandle));
+    const instantiate = (vfs: EnvFsHandle, readOnly: boolean) => {
+      const produced = adapter.create(vfs, { name: adapter.name, readOnly });
+      if (!produced || typeof produced !== "object") {
+        throw new TypeError(
+          `stdlib adapter "${adapter.name}": create() must return an object of bindings, got ${
+            produced === null ? "null" : typeof produced
+          }`,
+        );
+      }
+      return produced;
+    };
+    register(
+      adapter.name,
+      adapter.description,
+      instantiate(fsHandle, false),
+      instantiate(readOnlyFsHandle, true),
+    );
   }
 
   // --- materialize the tree ----------------------------------------------
@@ -119,6 +138,7 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
     await writeDoc(`/std/${adapter.name}/index.d.ts`, adapter.types);
     if (adapter.docs) await writeDoc(`/std/${adapter.name}/README.md`, adapter.docs);
   }
+  await writeDoc("/std/README.md", stdIndex(core.moduleDescriptions, adapters));
 
   const tools = buildTools({ core, runlog, limits, prefix: "" });
 
@@ -172,6 +192,40 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
   };
 }
 
+/**
+ * `/std/README.md` — the one file that answers "what can I import?". Without
+ * it a model has to `ls /std`, then open each `index.d.ts` to find out what
+ * the module is even for.
+ */
+function stdIndex(descriptions: ReadonlyMap<string, string>, adapters: StdlibAdapter[]): string {
+  const lines = [
+    "# /std — importable modules",
+    "",
+    "Everything here is available to scripts under `/scripts` via `import ... from 'env:<name>'`.",
+    "This directory is read-only and regenerated on startup.",
+    "",
+    "| Module | What it does | Types |",
+    "|---|---|---|",
+  ];
+  for (const [name, description] of descriptions) {
+    lines.push(`| \`env:${name}\` | ${description.replace(/\|/g, "\\|")} | \`/std/${name}/index.d.ts\` |`);
+  }
+  const withDocs = adapters.filter((a) => a.docs);
+  if (withDocs.length > 0) {
+    lines.push("", "Worked examples:", "");
+    for (const a of withDocs) lines.push(`- \`/std/${a.name}/README.md\``);
+  }
+  lines.push(
+    "",
+    "Read the `.d.ts` before calling into a module — it is the contract, and it is",
+    "cheaper than a failed run. Adapter functions take and return VFS paths:",
+    "pass a path in, get a path out, and inspect the result with `read_file` or",
+    "the module's own `describe(path)`.",
+    "",
+  );
+  return lines.join("\n");
+}
+
 async function snapshotVfs(vfs: Vfs): Promise<EnvSnapshot> {
   if (vfs instanceof InMemoryFs) return vfs.toSnapshot();
   const dirs: string[] = [];
@@ -196,6 +250,14 @@ async function snapshotVfs(vfs: Vfs): Promise<EnvSnapshot> {
 // ---------------------------------------------------------------- exports
 
 export { inMemoryFs, fromSnapshot, InMemoryFs } from "./vfs/memory";
+export {
+  defineAdapter,
+  type AdapterBindings,
+  type AdapterContext,
+  type AdapterSpec,
+  type DefinedAdapter,
+  type FileSummary,
+} from "./adapters/define";
 export { mountWorkingEnvironment, buildPreamble, type MountWorkingEnvironmentConfig } from "./tools/mount";
 export { defaultExportError, ScriptContractError } from "./pipeline/contract";
 export { deepFreeze } from "./executor/executor";

@@ -4,7 +4,8 @@
  * heavier is opt-in via stdlib adapters.
  */
 
-export const STD_DESCRIPTION = "Zero-dep battery: json.parse/stringify, csv.parse/stringify, text utilities, base64/bytes bridging.";
+export const STD_DESCRIPTION =
+  "Zero-dep battery: json.parse/stringify, csv.parse/rows/stringify, text utilities, base64/bytes bridging.";
 
 // ------------------------------------------------------------------- json
 
@@ -27,8 +28,6 @@ const json = {
 
 export interface CsvParseOptions {
   delimiter?: string;
-  /** Treat the first row as headers and return records. Default true. */
-  headers?: boolean;
 }
 
 export interface CsvStringifyOptions {
@@ -104,11 +103,16 @@ function csvField(v: unknown, delimiter: string): string {
 }
 
 const csv = {
-  /** Parse CSV text. With headers (default) returns records; else raw rows. */
-  parse(text: string, opts?: CsvParseOptions): Array<Record<string, string>> | string[][] {
+  /**
+   * Parse CSV text into records keyed by the header row.
+   *
+   * This always returns records — use {@link csv.rows} for headerless data.
+   * A function whose return type depends on an option is a function a model
+   * has to guess about, and it guesses wrong about half the time.
+   */
+  parse(text: string, opts?: CsvParseOptions): Array<Record<string, string>> {
     const delimiter = opts?.delimiter ?? ",";
     const rows = parseCsvRows(text, delimiter);
-    if (opts?.headers === false) return rows;
     const [header, ...rest] = rows;
     if (!header) return [];
     return rest.map((r) => {
@@ -118,6 +122,10 @@ const csv = {
       });
       return rec;
     });
+  },
+  /** Parse CSV text into raw rows, header row included. */
+  rows(text: string, opts?: CsvParseOptions): string[][] {
+    return parseCsvRows(text, opts?.delimiter ?? ",");
   },
   stringify(rows: Array<Record<string, unknown>> | unknown[][], opts?: CsvStringifyOptions): string {
     const delimiter = opts?.delimiter ?? ",";
@@ -146,6 +154,21 @@ const text = {
   },
   truncate(s: string, max: number, suffix = "…"): string {
     return s.length <= max ? s : s.slice(0, Math.max(0, max - suffix.length)) + suffix;
+  },
+  /**
+   * Strip the common leading indentation from a block. Scripts build reports
+   * with indented template literals constantly; without this every one of
+   * them ships its own regex.
+   */
+  dedent(s: string): string {
+    const lines = s.split("\n");
+    let indent = Infinity;
+    for (const line of lines) {
+      if (line.trim() === "") continue;
+      indent = Math.min(indent, line.length - line.trimStart().length);
+    }
+    if (!Number.isFinite(indent) || indent === 0) return s;
+    return lines.map((l) => (l.trim() === "" ? l : l.slice(indent))).join("\n");
   },
 };
 
@@ -179,8 +202,10 @@ export const json: {
   stringify(value: unknown, pretty?: number | boolean): string;
 };
 export const csv: {
-  /** Parse CSV. Default: first row is headers → array of records. { headers: false } → string[][]. */
-  parse(text: string, opts?: { delimiter?: string; headers?: boolean }): Array<Record<string, string>> | string[][];
+  /** Parse CSV using the first row as headers → array of records. */
+  parse(text: string, opts?: { delimiter?: string }): Array<Record<string, string>>;
+  /** Parse CSV into raw rows, header row included. */
+  rows(text: string, opts?: { delimiter?: string }): string[][];
   /** Records (header row emitted) or raw rows. */
   stringify(rows: Array<Record<string, unknown>> | unknown[][], opts?: { delimiter?: string; headers?: string[] }): string;
 };
@@ -188,6 +213,8 @@ export const text: {
   lines(s: string): string[];
   joinLines(lines: string[]): string;
   truncate(s: string, max: number, suffix?: string): string;
+  /** Strip the common leading indentation from a block. */
+  dedent(s: string): string;
 };
 export const bytes: {
   fromText(s: string): Uint8Array;

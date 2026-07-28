@@ -32,6 +32,34 @@ export async function callErr(env: WorkingEnvironment, name: string, input: unkn
   return r.message ?? "";
 }
 
+let scriptCounter = 0;
+
+/**
+ * Write a script and run it, returning what its default export resolved to.
+ * Throws with stderr attached on failure — a capability that misbehaves shows
+ * up as a failed assertion rather than a silent `undefined`.
+ */
+export async function script<T = unknown>(env: WorkingEnvironment, source: string, args?: unknown): Promise<T> {
+  const path = `/scripts/__t${++scriptCounter}.js`;
+  await env.fs.writeFile(path, source);
+  const run = await env.runScript(path, args ?? {});
+  if (!run.ok) throw new Error(`script failed: ${run.error}${run.stderr ? `\nstderr:\n${run.stderr}` : ""}`);
+  return run.result as T;
+}
+
+/** The same, but returns the error message instead of throwing. */
+export async function scriptErr(env: WorkingEnvironment, source: string, args?: unknown): Promise<string> {
+  const path = `/scripts/__t${++scriptCounter}.js`;
+  try {
+    await env.fs.writeFile(path, source);
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+  const run = await env.runScript(path, args ?? {});
+  if (run.ok) throw new Error(`script unexpectedly succeeded: ${JSON.stringify(run.result)}`);
+  return run.error ?? "";
+}
+
 export const VALID_SCRIPT = `/**
  * Adds two numbers from args.
  * @param {{ a: number, b: number }} args
