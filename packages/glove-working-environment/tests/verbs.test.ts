@@ -1,0 +1,170 @@
+/**
+ * The reading/discovery verbs and the context-window discipline:
+ * read_file slicing, ls as capability catalog, grep, run_script spillover,
+ * history (runs + file versions), edit_file exact-once semantics.
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { call, callErr, callOk, makeEnv, VALID_SCRIPT } from "./helpers";
+
+test("read_file numbers lines and slices with start_line/end_line", async () => {
+  const env = await makeEnv();
+  const content = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join("\n");
+  await callOk(env, "write_file", { path: "/tmp/notes.txt", content });
+  const out = await callOk(env, "read_file", { path: "/tmp/notes.txt", start_line: 10, end_line: 12 });
+  assert.match(out, /showing lines 10–12 of 50/);
+  assert.match(out, /10\tline 10/);
+  assert.match(out, /12\tline 12/);
+  assert.doesNotMatch(out, /line 13/);
+});
+
+test("read_file caps output at the response line limit with an explicit tail", async () => {
+  const env = await makeEnv({ limits: { maxToolResponseLines: 20 } });
+  const content = Array.from({ length: 100 }, (_, i) => `row ${i + 1}`).join("\n");
+  await callOk(env, "write_file", { path: "/tmp/big.txt", content });
+  const out = await callOk(env, "read_file", { path: "/tmp/big.txt" });
+  assert.match(out, /showing lines 1–20 of 100/);
+  assert.match(out, /… \[80 more lines — slice with start_line=21\]/);
+});
+
+test("read_file refuses binary and points at adapter describe()", async () => {
+  const env = await makeEnv();
+  await env.mount(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x00, 0x01, 0x02]), "/inbox/blob.pdf");
+  const msg = await callErr(env, "read_file", { path: "/inbox/blob.pdf" });
+  assert.match(msg, /binary file/);
+  assert.match(msg, /describe\(\)/);
+});
+
+test("ls /scripts inlines one-line JSDoc descriptions — the capability catalog", async () => {
+  const env = await makeEnv();
+  await callOk(env, "write_file", { path: "/scripts/add.js", content: VALID_SCRIPT });
+  await callOk(env, "write_file", {
+    path: "/scripts/greet.js",
+    content: `/**\n * Greets a person by name.\n * More detail that should not appear in ls.\n */\nexport default async function greet(args) { return "hi " + args.name; }\n`,
+  });
+  const out = await callOk(env, "ls", { path: "/scripts" });
+  assert.match(out, /add\.js \(\d+B\) — Adds two numbers from args\./);
+  assert.match(out, /greet\.js \(\d+B\) — Greets a person by name\./);
+  assert.doesNotMatch(out, /More detail/);
+  assert.match(out, /lib\//);
+});
+
+test("ls /std lists adapter descriptions and depth recurses", async () => {
+  const env = await makeEnv();
+  const out = await callOk(env, "ls", { path: "/std" });
+  assert.match(out, /fs\/ — VFS-scoped file I\/O/);
+  assert.match(out, /std\/ — Zero-dep battery/);
+  const deep = await callOk(env, "ls", { path: "/std", depth: 2 });
+  assert.match(deep, /index\.d\.ts/);
+});
+
+test("grep finds content across the tree, honors glob and context, and caps matches", async () => {
+  const env = await makeEnv();
+  await callOk(env, "write_file", { path: "/scripts/invoices.js", content: `/** Handles invoice parsing. */\nexport default async function invoices() { return "invoice"; }\n` });
+  await callOk(env, "write_file", { path: "/tmp/log.txt", content: "an invoice arrived\nnothing here\nanother invoice line\n" });
+
+  const out = await callOk(env, "grep", { pattern: "invoice", path: "/" });
+  assert.match(out, /\/scripts\/invoices\.js:\d+:/);
+  assert.match(out, /\/tmp\/log\.txt:1: an invoice arrived/);
+
+  const scoped = await callOk(env, "grep", { pattern: "invoice", path: "/", glob: "/tmp/**" });
+  assert.doesNotMatch(scoped, /invoices\.js/);
+
+  const ctx = await callOk(env, "grep", { pattern: "another", path: "/tmp/log.txt", context: 1 });
+  assert.match(ctx, /\/tmp\/log\.txt:2- nothing here/);
+  assert.match(ctx, /\/tmp\/log\.txt:3: another invoice line/);
+
+  const capped = await callOk(env, "grep", { pattern: "invoice", path: "/", max_matches: 1 });
+  assert.match(capped, /capped at max_matches=1/);
+
+  assert.match(await callErr(env, "grep", { pattern: "([" }), /invalid regex/);
+});
+
+test("oversized run_script output is truncated and spilled to /tmp, and the tail names the file", async () => {
+  const env = await makeEnv({ limits: { maxToolResponseLines: 30, maxToolResponseBytes: 2000 } });
+  await callOk(env, "write_file", {
+    path: "/scripts/bulk.js",
+    content: `export default async function bulk() { return Array.from({ length: 500 }, (_, i) => ({ row: i, label: "item " + i })); }\n`,
+  });
+  const out = await callOk(env, "run_script", { path: "/scripts/bulk.js" });
+  assert.match(out, /more lines — written to \/tmp\/run-[a-z0-9_]+\.out\]/);
+  const spillPath = /written to (\/tmp\/run-[a-z0-9_]+\.out)\]/.exec(out)![1];
+  const spilled = await callOk(env, "read_file", { path: spillPath, start_line: 1, end_line: 5 });
+  assert.match(spilled, /"row": 0/);
+  // and the run history records the spill
+  const hist = await callOk(env, "history", {});
+  assert.match(hist, new RegExp(`spill=${spillPath.replace(/[/.]/g, "\\$&")}`));
+});
+
+test("history without a path lists recent runs; with a path lists file versions", async () => {
+  const env = await makeEnv();
+  await callOk(env, "write_file", { path: "/scripts/add.js", content: VALID_SCRIPT });
+  await callOk(env, "run_script", { path: "/scripts/add.js", args: { a: 1, b: 2 } });
+  await callOk(env, "write_file", { path: "/scripts/boom.js", content: `export default async function boom() { throw new Error("nope"); }\n` });
+  const failing = await call(env, "run_script", { path: "/scripts/boom.js" });
+  assert.equal(failing.status, "error");
+
+  const runs = await callOk(env, "history", {});
+  assert.match(runs, /ok\s+\d+ms\s+\/scripts\/add\.js args=\{"a":1,"b":2\}/);
+  assert.match(runs, /FAIL \d+ms\s+\/scripts\/boom\.js/);
+
+  await callOk(env, "edit_file", { path: "/scripts/add.js", old_str: "args.a + args.b", new_str: "args.b + args.a" });
+  const versions = await callOk(env, "history", { path: "/scripts/add.js" });
+  assert.match(versions, /\/scripts\/add\.js: 2 version\(s\) behind, 0 ahead/);
+  assert.match(versions, /write/);
+  assert.match(versions, /edit/);
+});
+
+test("history.jsonl itself is grepable (self-debugging)", async () => {
+  const env = await makeEnv();
+  await callOk(env, "write_file", { path: "/scripts/add.js", content: VALID_SCRIPT });
+  await callOk(env, "run_script", { path: "/scripts/add.js", args: { a: 1, b: 1 } });
+  const out = await callOk(env, "grep", { pattern: "add\\.js", path: "/.env/history.jsonl" });
+  assert.match(out, /history\.jsonl:1:/);
+});
+
+test("edit_file demands exactly one match and reports the count", async () => {
+  const env = await makeEnv();
+  await callOk(env, "write_file", { path: "/tmp/t.txt", content: "aaa bbb aaa" });
+  assert.match(await callErr(env, "edit_file", { path: "/tmp/t.txt", old_str: "zzz", new_str: "x" }), /0 matches/);
+  assert.match(await callErr(env, "edit_file", { path: "/tmp/t.txt", old_str: "aaa", new_str: "x" }), /matches 2 times/);
+  await callOk(env, "edit_file", { path: "/tmp/t.txt", old_str: "bbb", new_str: "ccc" });
+  assert.match(await callOk(env, "read_file", { path: "/tmp/t.txt" }), /aaa ccc aaa/);
+});
+
+test("write_file auto-creates parent directories (no mkdir verb needed)", async () => {
+  const env = await makeEnv();
+  await callOk(env, "write_file", { path: "/tmp/deep/nested/dir/file.txt", content: "hi" });
+  assert.match(await callOk(env, "ls", { path: "/tmp/deep/nested/dir" }), /file\.txt/);
+});
+
+test("write_file append mode appends", async () => {
+  const env = await makeEnv();
+  await callOk(env, "write_file", { path: "/tmp/log.txt", content: "one\n" });
+  await callOk(env, "write_file", { path: "/tmp/log.txt", content: "two\n", append: true });
+  assert.match(await callOk(env, "read_file", { path: "/tmp/log.txt" }), /1\tone\n\s*2\ttwo/);
+});
+
+test("rm on a directory removes recursively and reports the count", async () => {
+  const env = await makeEnv();
+  await callOk(env, "write_file", { path: "/tmp/a/x.txt", content: "x" });
+  await callOk(env, "write_file", { path: "/tmp/a/b/y.txt", content: "y" });
+  const out = await callOk(env, "rm", { path: "/tmp/a" });
+  assert.match(out, /removed 2 files under \/tmp\/a/);
+  assert.match(await callErr(env, "read_file", { path: "/tmp/a/x.txt" }), /no such file/);
+});
+
+test("mv of a directory moves scripts with cross-imports intact", async () => {
+  const env = await makeEnv();
+  await callOk(env, "write_file", { path: "/scripts/pipeline/lower.js", content: `export default async function lower(args) { return args.s.toLowerCase(); }\n` });
+  await callOk(env, "write_file", {
+    path: "/scripts/pipeline/main.js",
+    content: `import lower from './lower.js';\nexport default async function main(args) { return lower({ s: args.s }); }\n`,
+  });
+  await callOk(env, "mv", { from: "/scripts/pipeline", to: "/scripts/text" });
+  const run = await env.runScript("/scripts/text/main.js", { s: "ABC" });
+  assert.equal(run.result, "abc");
+  // old .d.ts gone, new ones exist
+  assert.match(await callErr(env, "read_file", { path: "/scripts/pipeline/main.d.ts" }), /no such/);
+  assert.match(await callOk(env, "read_file", { path: "/scripts/text/main.d.ts" }), /declare function main/);
+});

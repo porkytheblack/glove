@@ -1,0 +1,331 @@
+/**
+ * Script execution. Modules run inside a fresh `node:vm` context per
+ * operation, in a scope constructed from scratch: `env:*` modules, relative
+ * VFS imports, console shims, and the standard JS intrinsics the context
+ * provides. There is no `require`, no `process`, no `fetch`, no host fs, no
+ * timers — not blocked, absent.
+ *
+ * Honesty note (from the design spec): `node:vm` with frozen injected
+ * bindings is a discipline boundary for model-written code, not a
+ * hostile-code boundary. The wall-clock limit covers the synchronous
+ * prefix of every evaluation via the vm timeout and pending async work via a
+ * deadline race; a script that goes CPU-bound *between* awaits can still
+ * stall the host until its next yield.
+ */
+import vm from "node:vm";
+import { format } from "node:util";
+import { normalizePath, resolveRelative } from "../paths";
+import { EnvLimitError, type EnvLimits, type RunResult } from "../types";
+import { ScriptContractError, defaultExportError } from "../pipeline/contract";
+import { transformModule } from "./transform";
+
+export class ModuleNotFoundError extends Error {
+  constructor(public readonly path: string) {
+    super(`no such module: ${path}`);
+  }
+}
+
+export interface ConsoleCapture {
+  out: string[];
+  err: string[];
+  bytes: number;
+  truncated: boolean;
+}
+
+export interface ExecutorDeps {
+  /** Read a module's source text; null when the file doesn't exist. */
+  readSource(path: string): Promise<string | null>;
+  /** Frozen `env:*` namespaces, keyed by bare name ("fs", "std", "documents", …). */
+  envModules(): Map<string, Record<string, unknown>>;
+  /** Whether the default-export contract is enforced for this path at load time. */
+  isEnforcedScript(path: string): boolean;
+  limits: EnvLimits;
+}
+
+export interface LoadOptions {
+  /** Uncommitted content consulted before the VFS (write-time validation). */
+  overlay?: Map<string, string>;
+  capture?: ConsoleCapture;
+}
+
+interface RegistryEntry {
+  state: "loading" | "done";
+  ns?: Record<string, unknown>;
+}
+
+interface OpState {
+  ctx: vm.Context;
+  registry: Map<string, RegistryEntry>;
+  overlay?: Map<string, string>;
+  capture: ConsoleCapture;
+  deadline: number;
+}
+
+const CAPTURE_CHAR_CAP = 1_000_000;
+
+export function newCapture(): ConsoleCapture {
+  return { out: [], err: [], bytes: 0, truncated: false };
+}
+
+function makeConsole(capture: ConsoleCapture): Record<string, unknown> {
+  const write = (target: string[]) => (...args: unknown[]) => {
+    if (capture.bytes >= CAPTURE_CHAR_CAP) {
+      if (!capture.truncated) {
+        capture.truncated = true;
+        target.push("[console output truncated]");
+      }
+      return;
+    }
+    const line = format(...args);
+    capture.bytes += line.length;
+    target.push(line);
+  };
+  return Object.freeze({
+    log: write(capture.out),
+    info: write(capture.out),
+    debug: write(capture.out),
+    warn: write(capture.err),
+    error: write(capture.err),
+  });
+}
+
+export class ScriptExecutor {
+  constructor(private deps: ExecutorDeps) {}
+
+  private newOp(opts?: LoadOptions): OpState {
+    const ctx = vm.createContext({}, { name: "glove-working-environment" });
+    const capture = opts?.capture ?? newCapture();
+    vm.runInContext(`"use strict"; delete globalThis.WebAssembly;`, ctx);
+    (ctx as Record<string, unknown>).console = makeConsole(capture);
+    return {
+      ctx,
+      registry: new Map(),
+      overlay: opts?.overlay,
+      capture,
+      deadline: Date.now() + this.deps.limits.runTimeoutMs,
+    };
+  }
+
+  private remaining(st: OpState): number {
+    const ms = st.deadline - Date.now();
+    if (ms <= 0) throw this.limitError();
+    return ms;
+  }
+
+  private limitError(): EnvLimitError {
+    return new EnvLimitError(
+      `script exceeded the wall-clock limit: ${this.deps.limits.runTimeoutMs}ms (limits.runTimeoutMs)`,
+    );
+  }
+
+  /** Run vm code, translating vm's own timeout error into our named limit error. */
+  private runSync(code: string | vm.Script, st: OpState, filename?: string): unknown {
+    try {
+      const script = typeof code === "string" ? new vm.Script(code, { filename: filename ?? "<env>" }) : code;
+      return script.runInContext(st.ctx, { timeout: this.remaining(st) });
+    } catch (e) {
+      // The vm timeout error loses its host prototype crossing the context
+      // boundary — duck-type on code/message, not instanceof.
+      const err = e as { code?: string; message?: string } | null;
+      if (
+        err?.code === "ERR_SCRIPT_EXECUTION_TIMEOUT" ||
+        (typeof err?.message === "string" && /Script execution timed out/.test(err.message))
+      ) {
+        throw this.limitError();
+      }
+      throw e;
+    }
+  }
+
+  private async withDeadline<T>(p: Promise<T>, st: OpState): Promise<T> {
+    const ms = this.remaining(st);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        p,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(this.limitError()), ms);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private envModuleNames(): string {
+    return [...this.deps.envModules().keys()].map((n) => `env:${n}`).join(", ");
+  }
+
+  private async resolveImport(spec: string, importer: string, st: OpState, chain: string[]): Promise<Record<string, unknown>> {
+    if (spec.startsWith("env:")) {
+      const name = spec.slice(4);
+      const mod = this.deps.envModules().get(name);
+      if (!mod) {
+        throw new Error(`unknown module "env:${name}". Available env modules: ${this.envModuleNames()}`);
+      }
+      return mod;
+    }
+    if (spec.startsWith("./") || spec.startsWith("../") || spec.startsWith("/")) {
+      const target = spec.startsWith("/") ? normalizePath(spec) : resolveRelative(importer, spec);
+      try {
+        return await this.loadInner(target, st, chain);
+      } catch (e) {
+        if (e instanceof ModuleNotFoundError && e.path === target) {
+          if (!target.endsWith(".js")) {
+            const alt = target + ".js";
+            const altSrc = st.overlay?.get(alt) ?? (await this.deps.readSource(alt));
+            if (altSrc !== null && altSrc !== undefined) return await this.loadInner(alt, st, chain);
+          }
+          throw new Error(`cannot import "${spec}" from ${importer}: no such file ${target}`);
+        }
+        throw e;
+      }
+    }
+    throw new Error(
+      `only relative VFS paths and env:* modules can be imported (got "${spec}"). Available env modules: ${this.envModuleNames()}`,
+    );
+  }
+
+  private async loadInner(path: string, st: OpState, chain: string[]): Promise<Record<string, unknown>> {
+    const norm = normalizePath(path);
+    const existing = st.registry.get(norm);
+    if (existing?.state === "done") return existing.ns!;
+    if (existing?.state === "loading") {
+      throw new Error(`circular import detected: ${[...chain, norm].join(" -> ")}`);
+    }
+
+    const src = st.overlay?.get(norm) ?? (await this.deps.readSource(norm));
+    if (src === null || src === undefined) throw new ModuleNotFoundError(norm);
+
+    st.registry.set(norm, { state: "loading" });
+    const nextChain = [...chain, norm];
+    try {
+      const t = transformModule(src, norm);
+      const headerParts = [
+        "(async (__env) => {",
+        "const { __exports, __glove_import, __glove_pick } = __env;",
+        "const console = __env.console;",
+        'return (async () => { "use strict";',
+        ...t.prelude,
+      ];
+      const header = headerParts.join("\n") + "\n";
+      const headerLines = headerParts.length;
+      const wrapper = header + t.body + "\n;\n" + t.footer.join("\n") + "\n})();\n})(globalThis.__glove_current)";
+
+      let script: vm.Script;
+      try {
+        script = new vm.Script(wrapper, { filename: norm, lineOffset: -headerLines });
+      } catch (e) {
+        throw new Error(`${norm}: syntax error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+
+      const __exports: Record<string, unknown> = {};
+      (st.ctx as Record<string, unknown>).__glove_current = {
+        __exports,
+        __glove_import: (spec: unknown) => this.resolveImport(String(spec), norm, st, nextChain),
+        __glove_pick: (ns: Record<string, unknown>, key: string, spec: string) => {
+          if (ns !== null && typeof ns === "object" && key in ns) return ns[key];
+          throw new Error(`module "${spec}" has no export "${key}"`);
+        },
+        console: makeConsole(st.capture),
+      };
+
+      const evalPromise = this.runSync(script, st) as Promise<unknown>;
+      await this.withDeadline(Promise.resolve(evalPromise), st);
+
+      const ns = Object.freeze({ ...__exports });
+      st.registry.set(norm, { state: "done", ns });
+
+      if (this.deps.isEnforcedScript(norm)) {
+        const err = defaultExportError(ns);
+        if (err) throw new ScriptContractError(norm, err);
+      }
+      return ns;
+    } catch (e) {
+      st.registry.delete(norm);
+      throw e;
+    }
+  }
+
+  /**
+   * Load a module (and everything it imports) in a fresh sandbox. Used by
+   * write-time validation (with an overlay) and by `run`.
+   */
+  async loadModule(path: string, opts?: LoadOptions): Promise<Record<string, unknown>> {
+    const st = this.newOp(opts);
+    return this.loadInner(path, st, []);
+  }
+
+  /** Execute a script's default export with plain-JSON args. */
+  async run(path: string, args: unknown, opts?: LoadOptions): Promise<RunResult> {
+    const started = Date.now();
+    const capture = opts?.capture ?? newCapture();
+    const st = this.newOp({ ...opts, capture });
+    const finish = (partial: Partial<RunResult> & { ok: boolean }): RunResult => ({
+      result: undefined,
+      stdout: capture.out.join("\n"),
+      stderr: capture.err.join("\n"),
+      durationMs: Date.now() - started,
+      ...partial,
+    });
+
+    try {
+      const ns = await this.loadInner(normalizePath(path), st, []);
+      const contractErr = defaultExportError(ns);
+      if (contractErr) return finish({ ok: false, error: contractErr });
+
+      const args2 = args === undefined ? undefined : JSON.parse(JSON.stringify(args));
+      (st.ctx as Record<string, unknown>).__glove_invoke = { fn: ns.default, args: args2 };
+      const p = this.runSync("(({ fn, args }) => fn(args))(globalThis.__glove_invoke)", st, path);
+      let result = await this.withDeadline(Promise.resolve(p), st);
+      // Results are built inside the vm realm; round-trip JSON-able values so
+      // hosts get ordinary host-realm objects. Non-JSON values stay as-is.
+      try {
+        if (result !== undefined) result = JSON.parse(JSON.stringify(result));
+      } catch {
+        // keep the raw value — the tool layer inspect-formats it
+      }
+      return finish({ ok: true, result });
+    } catch (e) {
+      return finish({ ok: false, error: describeError(e) });
+    }
+  }
+}
+
+export function describeError(e: unknown): string {
+  if (e instanceof ScriptContractError) return e.message;
+  const message = e instanceof Error ? e.message : (e as { message?: string })?.message ?? String(e);
+  const stack = (e as { stack?: string })?.stack;
+  if (typeof stack === "string") {
+    const frames = stack
+      .split("\n")
+      .filter((l) => /^\s+at .*\/(scripts|tmp|inbox|out)\/.*:\d+/.test(l))
+      .slice(0, 4)
+      .map((l) => l.trim());
+    if (frames.length > 0) return `${message}\n  ${frames.join("\n  ")}`;
+  }
+  return message;
+}
+
+/** Recursively freeze an injected object graph so scripts can't mutate shared adapter state. */
+export function deepFreeze<T>(value: T, seen = new Set<unknown>()): T {
+  if (
+    value === null ||
+    (typeof value !== "object" && typeof value !== "function") ||
+    seen.has(value) ||
+    Object.isFrozen(value)
+  ) {
+    return value;
+  }
+  seen.add(value);
+  for (const key of Reflect.ownKeys(value as object)) {
+    let child: unknown;
+    try {
+      child = (value as Record<PropertyKey, unknown>)[key];
+    } catch {
+      continue;
+    }
+    deepFreeze(child, seen);
+  }
+  return Object.freeze(value);
+}
