@@ -9,12 +9,28 @@ import type { EnvFsHandle } from "../types";
 import { toBytes } from "../types";
 import type { EnvCore } from "../core/env";
 
+/**
+ * Bytes arriving from a script are context-realm typed arrays, so
+ * `instanceof Uint8Array` is false here and the host's Buffer views would
+ * read the wrong backing store. Copy anything array-like into a host
+ * Uint8Array before it reaches the filesystem.
+ */
+function asHostBytes(content: string | Uint8Array | ArrayLike<number>): string | Uint8Array {
+  if (typeof content === "string" || content instanceof Uint8Array) return content;
+  const tag = Object.prototype.toString.call(content);
+  if (tag === "[object Uint8Array]" || tag === "[object Uint8ClampedArray]" || tag === "[object Int8Array]") {
+    return Uint8Array.from(content as ArrayLike<number>);
+  }
+  if (Array.isArray(content)) return Uint8Array.from(content as ArrayLike<number>);
+  return content as Uint8Array;
+}
+
 export function createFsHandle(core: EnvCore): EnvFsHandle {
   return {
     readFile: (path) => core.readText(path),
     readBytes: (path) => core.readBytes(path),
     writeFile: async (path, content) => {
-      await core.write(path, toBytes(content));
+      await core.write(path, toBytes(asHostBytes(content)));
     },
     readdir: (path) => core.list(path),
     glob: (pattern) => core.glob(pattern),

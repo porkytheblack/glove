@@ -18,6 +18,7 @@ import { normalizePath, resolveRelative } from "../paths";
 import { EnvLimitError, type EnvLimits, type RunResult } from "../types";
 import { ScriptContractError, defaultExportError } from "../pipeline/contract";
 import { transformModule } from "./transform";
+import { BRIDGE_SOURCE, INVOKE_SOURCE, type Bridge } from "./bridge";
 
 export class ModuleNotFoundError extends Error {
   constructor(public readonly path: string) {
@@ -59,6 +60,12 @@ interface OpState {
   overlay?: Map<string, string>;
   capture: ConsoleCapture;
   deadline: number;
+  /** Context-realm bridge; the only way host values reach the sandbox. */
+  bridge: Bridge;
+  /** Per-context bound `env:*` namespaces (binding is context-specific). */
+  envCache: Map<string, Record<string, unknown>>;
+  /** Context-realm console, handed to every module. */
+  boundConsole: unknown;
 }
 
 const CAPTURE_CHAR_CAP = 1_000_000;
@@ -93,17 +100,47 @@ export class ScriptExecutor {
   constructor(private deps: ExecutorDeps) {}
 
   private newOp(opts?: LoadOptions): OpState {
-    const ctx = vm.createContext({}, { name: "glove-working-environment" });
+    // The sandbox object must have a NULL prototype. `createContext({})`
+    // backs the contextified global with a host object, which leaves
+    // `globalThis.constructor` pointing at the HOST `Object` — and
+    // `globalThis.constructor.constructor("return process")()` then walks
+    // straight out of the sandbox.
+    const ctx = vm.createContext(Object.create(null), { name: "glove-working-environment" });
     const capture = opts?.capture ?? newCapture();
     vm.runInContext(`"use strict"; delete globalThis.WebAssembly;`, ctx);
-    (ctx as Record<string, unknown>).console = makeConsole(capture);
+
+    // Install the bridge, then take it off the globals: the host keeps the
+    // reference, scripts get no handle to the binding machinery.
+    vm.runInContext(BRIDGE_SOURCE, ctx, { filename: "<glove:bridge>" });
+    const bridge = (ctx as Record<string, unknown>).__glove_bridge as Bridge;
+    vm.runInContext(`delete globalThis.__glove_bridge;`, ctx);
+
+    // Even the console shim must be context-realm — its methods would
+    // otherwise be host functions sitting on a global.
+    const boundConsole = bridge.freezeDeep(bridge.bindNamespace(makeConsole(capture)));
+    (ctx as Record<string, unknown>).console = boundConsole;
+
     return {
       ctx,
       registry: new Map(),
       overlay: opts?.overlay,
       capture,
       deadline: Date.now() + this.deps.limits.runTimeoutMs,
+      bridge,
+      envCache: new Map(),
+      boundConsole,
     };
+  }
+
+  /** The context-realm view of an `env:*` module (bound once per context). */
+  private envNamespace(st: OpState, name: string): Record<string, unknown> | null {
+    const cached = st.envCache.get(name);
+    if (cached) return cached;
+    const host = this.deps.envModules().get(name);
+    if (!host) return null;
+    const bound = st.bridge.freezeDeep(st.bridge.bindNamespace(host));
+    st.envCache.set(name, bound);
+    return bound;
   }
 
   private remaining(st: OpState): number {
@@ -159,7 +196,7 @@ export class ScriptExecutor {
   private async resolveImport(spec: string, importer: string, st: OpState, chain: string[]): Promise<Record<string, unknown>> {
     if (spec.startsWith("env:")) {
       const name = spec.slice(4);
-      const mod = this.deps.envModules().get(name);
+      const mod = this.envNamespace(st, name);
       if (!mod) {
         throw new Error(`unknown module "env:${name}". Available env modules: ${this.envModuleNames()}`);
       }
@@ -219,21 +256,23 @@ export class ScriptExecutor {
         throw new Error(`${norm}: syntax error: ${e instanceof Error ? e.message : String(e)}`);
       }
 
-      const __exports: Record<string, unknown> = {};
-      (st.ctx as Record<string, unknown>).__glove_current = {
-        __exports,
-        __glove_import: (spec: unknown) => this.resolveImport(String(spec), norm, st, nextChain),
-        __glove_pick: (ns: Record<string, unknown>, key: string, spec: string) => {
+      // `__exports` and the `__glove_current` record are built INSIDE the
+      // context — a host-realm object here would be reachable from user code
+      // as `import * as ns` (or via `globalThis.__glove_current`) and would
+      // leak the host realm through its constructor chain.
+      const __exports = st.bridge.mkModule(
+        (spec: unknown) => this.resolveImport(String(spec), norm, st, nextChain),
+        (ns: Record<string, unknown>, key: string, spec: string) => {
           if (ns !== null && typeof ns === "object" && key in ns) return ns[key];
           throw new Error(`module "${spec}" has no export "${key}"`);
         },
-        console: makeConsole(st.capture),
-      };
+        st.boundConsole,
+      );
 
       const evalPromise = this.runSync(script, st) as Promise<unknown>;
       await this.withDeadline(Promise.resolve(evalPromise), st);
 
-      const ns = Object.freeze({ ...__exports });
+      const ns = st.bridge.freezeDeep(__exports);
       st.registry.set(norm, { state: "done", ns });
 
       if (this.deps.isEnforcedScript(norm)) {
@@ -274,9 +313,13 @@ export class ScriptExecutor {
       const contractErr = defaultExportError(ns);
       if (contractErr) return finish({ ok: false, error: contractErr });
 
-      const args2 = args === undefined ? undefined : JSON.parse(JSON.stringify(args));
-      (st.ctx as Record<string, unknown>).__glove_invoke = { fn: ns.default, args: args2 };
-      const p = this.runSync("(({ fn, args }) => fn(args))(globalThis.__glove_invoke)", st, path);
+      // Arguments cross as a JSON string — a primitive — and are parsed
+      // inside the context, so the script never receives a host-realm object.
+      const argsJson = args === undefined ? undefined : JSON.stringify(args);
+      const globals = st.ctx as Record<string, unknown>;
+      globals.__glove_fn = ns.default;
+      globals.__glove_argsJson = argsJson;
+      const p = this.runSync(INVOKE_SOURCE, st, path);
       let result = await this.withDeadline(Promise.resolve(p), st);
       // Results are built inside the vm realm; round-trip JSON-able values so
       // hosts get ordinary host-realm objects. Non-JSON values stay as-is.

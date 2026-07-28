@@ -124,9 +124,18 @@ Builtins always present: **`env:fs`** (readFile, writeFile, readdir, glob, stat,
 
 ## Execution & security model
 
-**Capability injection, not containment.** Scripts execute in a fresh `node:vm` context per operation: available are `env:*` modules, relative VFS imports, `console` shims, and standard JS intrinsics (`JSON`, `Math`, `Promise`, `Date`, …). Absent — not blocked, *absent*: `require`, `process`, `fetch`, host fs, timers, `Buffer`, `WebAssembly`. Injected bindings are deep-frozen so scripts can't mutate shared adapter state.
+**Capability injection, not containment.** Scripts execute in a fresh `node:vm` context per operation: available are `env:*` modules, relative VFS imports, `console` shims, and standard JS intrinsics (`JSON`, `Math`, `Promise`, `Date`, …). Absent — not blocked, *absent*: `require`, `process`, `fetch`, host fs, timers, `Buffer`, `WebAssembly`.
 
-Honest scope note: this is a **discipline boundary for model-written code, not a hostile-code boundary**. The wall-clock limit covers the synchronous prefix of every evaluation (vm timeout) and pending async work (deadline race); a script that goes CPU-bound *between* awaits can still stall the host until its next yield. Anyone needing an adversarial boundary should be in glorp.
+**Realm isolation is what makes that stick.** Absence of a global is not isolation: in JavaScript, *any* host-realm object reaching sandboxed code hands it `value.constructor.constructor` — the host `Function` constructor — and `Function("return process")()` escapes completely. So the boundary is enforced by construction on both sides:
+
+- Host functions are never handed over. They are wrapped by closures built *inside* the context (a closure isn't reachable through property access, so the host callee stays hidden), and every returned value is deep-copied into context-realm objects. Host errors are re-thrown as context-realm `Error`s carrying only name and message. Run arguments cross as a JSON string — a primitive — and are parsed inside the context.
+- The context's sandbox object has a **null prototype**. `vm.createContext({})` backs the global with a host object, which leaves `globalThis.constructor` pointing at the host `Object` — an escape hatch entirely independent of the one above.
+
+Both routes were live in development and are pinned by `tests/sandbox.test.ts`, which walks the reachable object graph hunting for any constructor chain that can see `process`, rather than asserting a global is undefined. Adapter authors get this for free: values returned from `create(vfs)` bindings are marshalled like anything else.
+
+Injected namespaces are frozen, and each operation gets a fresh context, so prototype pollution or global scribbling inside one run cannot reach the next.
+
+Honest scope note: this is a **discipline boundary for model-written code, not a hostile-code boundary**. `node:vm` is not a security sandbox — Node does not support it as one, and the isolation above raises the cost of an escape without proving none exists. Two known gaps: a script that goes CPU-bound *between* awaits can stall the host until its next yield (the wall-clock limit covers the synchronous prefix of each evaluation and pending async work, not that case), and a script can pollute its own realm's prototypes for the remainder of its run. Anyone who needs an adversarial boundary should be in glorp, behind a real process/container isolate.
 
 Limits (all configurable; failures name the limit): `runTimeoutMs` 30s · `maxVfsBytes` 256MB · `maxFileBytes` 32MB · `maxToolResponseBytes` ~8KB / `maxToolResponseLines` 200 · `maxVersionsPerFile` 10 · `maxHistoryLines` 5000.
 
