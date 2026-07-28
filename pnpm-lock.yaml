@@ -480,6 +480,49 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  examples/server-voice:
+    dependencies:
+      '@huggingface/transformers':
+        specifier: ^4.2.0
+        version: 4.2.0
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-voice:
+        specifier: workspace:*
+        version: link:../../packages/glove-voice
+      station-adapter-sqlite:
+        specifier: ^2.0.0
+        version: 2.0.0(station-beacon@2.0.0(station-signal@2.0.0))(station-broadcast@2.0.0(station-signal@2.0.0))(station-env@2.0.0)(station-schedules@2.0.0)(station-signal@2.0.0)
+      station-beacon:
+        specifier: ^2.0.0
+        version: 2.0.0(station-signal@2.0.0)
+      station-signal:
+        specifier: ^2.0.0
+        version: 2.0.0
+      ws:
+        specifier: ^8.18.0
+        version: 8.19.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      '@types/ws':
+        specifier: ^8.5.13
+        version: 8.18.1
+      station-kit:
+        specifier: ^2.0.0
+        version: 2.0.0(babel-plugin-react-compiler@1.0.0)(station-beacon@2.0.0(station-signal@2.0.0))(station-broadcast@2.0.0(station-signal@2.0.0))(station-signal@2.0.0)
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   examples/weather-agent:
     dependencies:
       chalk:
@@ -5373,6 +5416,60 @@ packages:
   stacktrace-parser@0.1.11:
     resolution: {integrity: sha512-WjlahMgHmCJpqzU8bIBy4qtsZdU9lRlcZE3Lvyej6t4tuOuv1vk57OW3MBrj6hXBFx/nNoC9MPMTcr5YA7NQbg==}
     engines: {node: '>=6'}
+
+  station-adapter-sqlite@2.0.0:
+    resolution: {integrity: sha512-o0zbb34NJWo1oeJ8Re6xSJUCdqDdOm4G3INSg1rD0dzlvMgCNVExbtAQ6SFvdXfWFGK/8c4NX728AYKjlDRnrw==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      station-beacon: 2.0.0
+      station-broadcast: 2.0.0
+      station-env: 2.0.0
+      station-schedules: 2.0.0
+      station-signal: 2.0.0
+    peerDependenciesMeta:
+      station-beacon:
+        optional: true
+      station-env:
+        optional: true
+      station-schedules:
+        optional: true
+
+  station-beacon@2.0.0:
+    resolution: {integrity: sha512-Y2ZjcKZGcuOm3vZ2REtWH8Xs1TfTeK2/hA/Pl+BL3vxIY54mCbBRKa6SNsvTxbVU4UrwYhy7zmPCuH9MYyLETg==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      station-signal: 2.0.0
+
+  station-broadcast@2.0.0:
+    resolution: {integrity: sha512-kdXi31IE89vAAD/QO9R0ekij5Cj+MrA1zQGkUUc6U0l0uSkjkVxKFE8RGdJqgk3QHyjf/sA3JmF9+dMp42v/tQ==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      station-signal: 2.0.0
+
+  station-env@2.0.0:
+    resolution: {integrity: sha512-PfIwyJ+V3fMg5HQOB70mSfyWREV9/UdCytD0fV5hAr4LDuuUrXn2Mn28NuGSonLD+w0VCYAYAMvK1aCA7jlGVg==}
+    engines: {node: '>=18'}
+
+  station-expressions@2.0.0:
+    resolution: {integrity: sha512-1/nkFbJfJ31j6kEVqW15xBeN1CO3YOXvA5g0n/7PREw+Sb2OkeIho946Wnz1i3Ho/a/NFdS5JlndkGdZDDu/1g==}
+    engines: {node: '>=18'}
+
+  station-kit@2.0.0:
+    resolution: {integrity: sha512-sGvrLWsLryAtH8ztFQ0sqJZh43zV+IXxHogP30N5JzuQg9MWb9kRD3Ybw/d1HHJYgJ0it8f5MWleJrqWzVgbTw==}
+    engines: {node: '>=18'}
+    hasBin: true
+    peerDependencies:
+      station-beacon: 2.0.0
+      station-broadcast: 2.0.0
+      station-signal: 2.0.0
+
+  station-schedules@2.0.0:
+    resolution: {integrity: sha512-CGGDFb9TpeGU9BvGdjTUjPgUP8gyRIUsZKD5OXEMFUk837fizd1ds2ZPd7gMbLaELQOj0qzBcduXztQXkowqUA==}
+    engines: {node: '>=18'}
+
+  station-signal@2.0.0:
+    resolution: {integrity: sha512-D1c0wxITx4cyXuW4Ryxj5iUu4H6MS3EF3x9QQcDL2xMFZzD48MZkkTdPnWz+5dARmY5u4/4UQCSQXD90wZy6GQ==}
+    engines: {node: '>=18'}
 
   statuses@1.5.0:
     resolution: {integrity: sha512-OpZ3zP+jT1PI7I8nemJX4AKmAX070ZkYPVWV/AaKTJl+tXCTGyVdC1a4SL8RUQYEwk/f34ZX8UTykN68FwrqAA==}
@@ -11355,6 +11452,61 @@ snapshots:
   stacktrace-parser@0.1.11:
     dependencies:
       type-fest: 0.7.1
+
+  station-adapter-sqlite@2.0.0(station-beacon@2.0.0(station-signal@2.0.0))(station-broadcast@2.0.0(station-signal@2.0.0))(station-env@2.0.0)(station-schedules@2.0.0)(station-signal@2.0.0):
+    dependencies:
+      better-sqlite3: 11.10.0
+      station-broadcast: 2.0.0(station-signal@2.0.0)
+      station-signal: 2.0.0
+    optionalDependencies:
+      station-beacon: 2.0.0(station-signal@2.0.0)
+      station-env: 2.0.0
+      station-schedules: 2.0.0
+
+  station-beacon@2.0.0(station-signal@2.0.0):
+    dependencies:
+      station-signal: 2.0.0
+
+  station-broadcast@2.0.0(station-signal@2.0.0):
+    dependencies:
+      station-expressions: 2.0.0
+      station-signal: 2.0.0
+
+  station-env@2.0.0: {}
+
+  station-expressions@2.0.0: {}
+
+  station-kit@2.0.0(babel-plugin-react-compiler@1.0.0)(station-beacon@2.0.0(station-signal@2.0.0))(station-broadcast@2.0.0(station-signal@2.0.0))(station-signal@2.0.0):
+    dependencies:
+      '@hono/node-server': 1.19.14(hono@4.12.15)
+      esbuild: 0.25.12
+      hono: 4.12.15
+      next: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+      station-beacon: 2.0.0(station-signal@2.0.0)
+      station-broadcast: 2.0.0(station-signal@2.0.0)
+      station-env: 2.0.0
+      station-expressions: 2.0.0
+      station-schedules: 2.0.0
+      station-signal: 2.0.0
+      tsx: 4.21.0
+      ws: 8.19.0
+    transitivePeerDependencies:
+      - '@babel/core'
+      - '@opentelemetry/api'
+      - '@playwright/test'
+      - babel-plugin-macros
+      - babel-plugin-react-compiler
+      - bufferutil
+      - sass
+      - utf-8-validate
+
+  station-schedules@2.0.0: {}
+
+  station-signal@2.0.0:
+    dependencies:
+      zod: 4.3.6
 
   statuses@1.5.0: {}
 
