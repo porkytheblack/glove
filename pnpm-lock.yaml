@@ -777,6 +777,9 @@ importers:
       '@types/node':
         specifier: ^25.2.3
         version: 25.2.3
+      glove-core:
+        specifier: workspace:*
+        version: link:../glove
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
