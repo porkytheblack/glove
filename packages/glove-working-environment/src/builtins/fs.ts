@@ -49,6 +49,33 @@ export function createFsHandle(core: EnvCore): EnvFsHandle {
   };
 }
 
+/**
+ * The handle used while VALIDATING a script at write time. Validation works
+ * by executing the module's top level, so it must not be able to change the
+ * tree: a rejected `write_file` that had already deleted files would be a
+ * mutation the model was told never happened.
+ */
+export function createReadOnlyFsHandle(core: EnvCore): EnvFsHandle {
+  const refuse = (op: string) => (): never => {
+    throw new Error(
+      `${op} is not available while a script is being validated — module top-level code runs during write_file/edit_file and must not change the tree. Do the work inside the default export instead.`,
+    );
+  };
+  return {
+    readFile: (path) => core.readText(path),
+    readBytes: (path) => core.readBytes(path),
+    readdir: (path) => core.list(path),
+    glob: (pattern) => core.glob(pattern),
+    stat: (path) => core.stat(path),
+    exists: (path) => core.exists(path),
+    writeFile: refuse("writeFile"),
+    mkdir: refuse("mkdir"),
+    rm: refuse("rm"),
+    mv: refuse("mv"),
+    cp: refuse("cp"),
+  };
+}
+
 export const FS_DESCRIPTION = "VFS-scoped file I/O: readFile, writeFile, readdir, glob, stat, mkdir, rm, mv, cp, exists.";
 
 export const FS_TYPES = `/** env:fs — file I/O scoped to the environment's virtual tree. */

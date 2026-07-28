@@ -8,7 +8,7 @@ import type { EnvLimits, EnvTool, EnvToolResult } from "../types";
 import type { EnvCore } from "../core/env";
 import type { RunLog } from "../history/runlog";
 import { executeRun } from "./run";
-import { fmtBytes, fmtCount, numberLines, truncateText } from "./format";
+import { capResponse, fmtBytes, fmtCount, numberLines, truncateText } from "./format";
 
 interface ToolDeps {
   core: EnvCore;
@@ -20,12 +20,28 @@ interface ToolDeps {
 const ok = (data: unknown): EnvToolResult => ({ status: "success", data });
 const err = (message: string, data?: unknown): EnvToolResult => ({ status: "error", message, data: data ?? null });
 
-function guarded(fn: (input: any) => Promise<EnvToolResult>): (input: any) => Promise<EnvToolResult> {
+/**
+ * Backstop applied to EVERY verb result. Individual verbs shape their own
+ * output (with spillover where the full text is worth keeping), but nothing
+ * may hand the model an unbounded string — including error paths, which are
+ * the easiest to forget.
+ */
+function bounded(result: EnvToolResult, limits: EnvLimits): EnvToolResult {
+  const out: EnvToolResult = { ...result };
+  if (typeof out.data === "string") out.data = capResponse(out.data, limits, 1.5);
+  if (typeof out.message === "string") out.message = capResponse(out.message, limits, 0.5);
+  return out;
+}
+
+function guarded(
+  limits: EnvLimits,
+  fn: (input: any) => Promise<EnvToolResult>,
+): (input: any) => Promise<EnvToolResult> {
   return async (input) => {
     try {
-      return await fn(input ?? {});
+      return bounded(await fn(input ?? {}), limits);
     } catch (e) {
-      return err(e instanceof Error ? e.message : String(e));
+      return bounded(err(e instanceof Error ? e.message : String(e)), limits);
     }
   };
 }
@@ -55,7 +71,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       },
       ["path", "content"],
     ),
-    do: guarded(async (input: { path: string; content: string; append?: boolean }) => {
+    do: guarded(limits, async (input: { path: string; content: string; append?: boolean }) => {
       if (typeof input.path !== "string" || typeof input.content !== "string") {
         return err("write_file needs { path, content } as strings");
       }
@@ -81,7 +97,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       },
       ["path", "old_str", "new_str"],
     ),
-    do: guarded(async (input: { path: string; old_str: string; new_str: string }) => {
+    do: guarded(limits, async (input: { path: string; old_str: string; new_str: string }) => {
       if (typeof input.path !== "string" || typeof input.old_str !== "string" || typeof input.new_str !== "string") {
         return err("edit_file needs { path, old_str, new_str } as strings");
       }
@@ -96,7 +112,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     name: name("rm"),
     description: "Remove a file (or a directory recursively). Removes a script's sibling .d.ts with it. Undoable per file via undo.",
     jsonSchema: schema({ path: str("Absolute VFS path to remove") }, ["path"]),
-    do: guarded(async (input: { path: string }) => {
+    do: guarded(limits, async (input: { path: string }) => {
       const r = await core.rm(input.path);
       return ok(r.removed.length === 1 ? `removed ${r.removed[0]}` : `removed ${r.removed.length} files under ${input.path}`);
     }),
@@ -107,7 +123,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     description:
       "Move/rename a file or directory. Moves a script's sibling .d.ts along with it; scripts arriving under /scripts are validated at the destination (relative imports must still resolve).",
     jsonSchema: schema({ from: str("Source VFS path"), to: str("Destination VFS path") }, ["from", "to"]),
-    do: guarded(async (input: { from: string; to: string }) => {
+    do: guarded(limits, async (input: { from: string; to: string }) => {
       const r = await core.mv(input.from, input.to);
       let msg =
         r.moved.length === 1
@@ -122,7 +138,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     name: name("cp"),
     description: "Copy a file or directory. Copied scripts are re-validated at the destination and get a freshly generated .d.ts.",
     jsonSchema: schema({ from: str("Source VFS path"), to: str("Destination VFS path") }, ["from", "to"]),
-    do: guarded(async (input: { from: string; to: string }) => {
+    do: guarded(limits, async (input: { from: string; to: string }) => {
       const r = await core.cp(input.from, input.to);
       let msg =
         r.moved.length === 1
@@ -145,7 +161,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       },
       ["path"],
     ),
-    do: guarded(async (input: { path: string; start_line?: number; end_line?: number }) => {
+    do: guarded(limits, async (input: { path: string; start_line?: number; end_line?: number }) => {
       const text = await core.readText(input.path);
       const lines = text.split("\n");
       const total = lines.length;
@@ -154,7 +170,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       const cappedEnd = Math.min(requestedEnd, total, start + limits.maxToolResponseLines - 1);
       if (start > total) return err(`start_line ${start} is past the end of ${input.path} (${fmtCount(total)} lines)`);
       const slice = lines.slice(start - 1, cappedEnd);
-      const body = numberLines(slice, start);
+      const body = capResponse(numberLines(slice, start), limits);
       const header =
         cappedEnd < total || start > 1
           ? `showing lines ${fmtCount(start)}–${fmtCount(cappedEnd)} of ${fmtCount(total)} (${input.path})\n`
@@ -175,7 +191,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       },
       [],
     ),
-    do: guarded(async (input: { path?: string; depth?: number }) => {
+    do: guarded(limits, async (input: { path?: string; depth?: number }) => {
       const root = input.path ?? "/";
       const depth = Math.min(Math.max(Math.floor(input.depth ?? 1), 1), 10);
       const entries = await core.lsTree(root, depth);
@@ -205,7 +221,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       },
       ["pattern"],
     ),
-    do: guarded(async (input: { pattern: string; path?: string; glob?: string; context?: number; max_matches?: number }) => {
+    do: guarded(limits, async (input: { pattern: string; path?: string; glob?: string; context?: number; max_matches?: number }) => {
       if (typeof input.pattern !== "string") return err("grep needs { pattern }");
       const r = await core.grep(input.pattern, input.path ?? "/", {
         glob: input.glob,
@@ -240,7 +256,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       },
       ["path"],
     ),
-    do: guarded(async (input: { path: string; args?: unknown }) => {
+    do: guarded(limits, async (input: { path: string; args?: unknown }) => {
       if (typeof input.path !== "string") return err("run_script needs { path }");
       const outcome = await executeRun(deps, input.path, input.args ?? {});
       return outcome.run.ok ? ok(outcome.text) : err(outcome.shortError ?? "script failed", outcome.text);
@@ -251,7 +267,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     name: name("undo"),
     description: "Revert a file to its previous version (per-file linear undo; rm and overwrites are both undoable). Scripts re-run the pipeline so the .d.ts stays in sync.",
     jsonSchema: schema({ path: str("File whose last mutation should be reverted") }, ["path"]),
-    do: guarded(async (input: { path: string }) => {
+    do: guarded(limits, async (input: { path: string }) => {
       const r = await core.undo(input.path);
       const h = await core.historyFor(input.path);
       const state = r.present ? "file restored" : "file removed (this undid its creation)";
@@ -266,7 +282,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     name: name("redo"),
     description: "Walk forward again after an undo (a fresh mutation clears the redo branch).",
     jsonSchema: schema({ path: str("File to redo") }, ["path"]),
-    do: guarded(async (input: { path: string }) => {
+    do: guarded(limits, async (input: { path: string }) => {
       const r = await core.redo(input.path);
       const h = await core.historyFor(input.path);
       const state = r.present ? "file restored" : "file removed";
@@ -288,7 +304,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       },
       [],
     ),
-    do: guarded(async (input: { path?: string; limit?: number }) => {
+    do: guarded(limits, async (input: { path?: string; limit?: number }) => {
       const limit = Math.min(Math.max(Math.floor(input.limit ?? 20), 1), 100);
       if (input.path) {
         const h = await core.historyFor(input.path);

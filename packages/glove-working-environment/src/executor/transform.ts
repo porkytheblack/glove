@@ -29,10 +29,55 @@ interface Edit {
 const IDENT_RE = /[A-Za-z_$][A-Za-z0-9_$]*/y;
 const CONTINUATION_CHARS = new Set([",", "=", "+", "-", "*", "/", "%", "<", ">", "&", "|", "^", "?", ":", "(", "[", "{", ".", "!", "~"]);
 
+/** `function g`, `function *g`, `function*g`, `async function* g`, `class X`. */
+const NAMED_DECL_RE = /(?:async[ \t]+)?function[\s]*\*?[\s]*([A-Za-z_$][\w$]*)|class[\s]+([A-Za-z_$][\w$]*)/y;
+
+/**
+ * Match a named function/class declaration at `at`. Sticky rather than
+ * slice-based: a fixed lookahead window truncates long names and silently
+ * exports the wrong binding.
+ */
+function matchNamedDecl(src: string, at: number): RegExpExecArray | null {
+  NAMED_DECL_RE.lastIndex = at;
+  return NAMED_DECL_RE.exec(src);
+}
+
+/** Blank out comments so specifier lists can be split on commas safely. */
+function stripComments(s: string): string {
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    if (s[i] === "/" && s[i + 1] === "/") {
+      while (i < s.length && s[i] !== "\n") i += 1;
+      continue;
+    }
+    if (s[i] === "/" && s[i + 1] === "*") {
+      i += 2;
+      while (i < s.length && !(s[i] === "*" && s[i + 1] === "/")) i += 1;
+      i += 2;
+      continue;
+    }
+    out += s[i];
+    i += 1;
+  }
+  return out;
+}
+
 /** Replace a span with newlines only, keeping line numbers stable. */
 const blank = (span: string) => span.replace(/[^\n]/g, "");
 
-export function transformModule(src: string, modulePath: string): TransformedModule {
+/**
+ * Export a binding LIVE. Node's module namespaces track the exporting
+ * module's bindings, so a value mutated after evaluation is visible to
+ * importers; a plain `__exports.x = x` snapshot is not.
+ */
+const liveExport = (exported: string, local: string) =>
+  `Object.defineProperty(__exports, ${JSON.stringify(exported)}, { get: () => ${local}, enumerable: true, configurable: true });`;
+
+export function transformModule(rawSrc: string, modulePath: string): TransformedModule {
+  // A hashbang is legal at the top of a module but is a syntax error once the
+  // body is wrapped in a function. Blank it, preserving the line.
+  const src = rawSrc.startsWith("#!") ? rawSrc.replace(/^#![^\n]*/, (m) => blank(m)) : rawSrc;
   const { mask, hits } = scanModule(src);
   const edits: Edit[] = [];
   const prelude: string[] = [];
@@ -82,6 +127,17 @@ export function transformModule(src: string, modulePath: string): TransformedMod
     return { value: src.slice(i + 1, j), end: j + 1 };
   };
 
+  /** Skip an `with { … }` / `assert { … }` import-attributes clause. */
+  const skipAttributes = (i: number): number => {
+    const j = skipTrivia(i);
+    const kw = readIdent(j);
+    if (!kw || (kw.name !== "with" && kw.name !== "assert")) return i;
+    const braceAt = skipTrivia(kw.end);
+    if (src[braceAt] !== "{") return i;
+    const close = matchDelim(src, mask, braceAt);
+    return close === -1 ? i : close + 1;
+  };
+
   /** Consume trailing spaces + one optional `;` on the same line. */
   const eatSemi = (i: number): number => {
     let j = i;
@@ -93,7 +149,7 @@ export function transformModule(src: string, modulePath: string): TransformedMod
   const parseNamedList = (openIdx: number, kind: "import" | "export"): { items: Array<{ outer: string; local: string }>; end: number } => {
     const close = matchDelim(src, mask, openIdx);
     if (close === -1) throw fail(openIdx, `unterminated { … } in ${kind} statement`);
-    const inner = src.slice(openIdx + 1, close);
+    const inner = stripComments(src.slice(openIdx + 1, close));
     const items: Array<{ outer: string; local: string }> = [];
     for (const raw of inner.split(",")) {
       const item = raw.trim();
@@ -113,6 +169,14 @@ export function transformModule(src: string, modulePath: string): TransformedMod
   for (const hit of hits) {
     if (hit.meta) throw fail(hit.index, `import.meta is not available in the working environment`);
     if (hit.dynamic) {
+      // `import(` is also how a method named `import` is DEFINED
+      // (`class A { import() {} }`). A definition is followed by its body,
+      // a dynamic import by an expression continuation.
+      const open = src.indexOf("(", hit.index);
+      const close = open === -1 ? -1 : matchDelim(src, mask, open);
+      let after = close + 1;
+      while (after < src.length && /\s/.test(src[after])) after += 1;
+      if (close !== -1 && src[after] === "{") continue; // method definition
       edits.push({ start: hit.index, end: hit.index + "import".length, text: "__glove_import" });
       continue;
     }
@@ -124,7 +188,8 @@ export function transformModule(src: string, modulePath: string): TransformedMod
       if (src[i] === '"' || src[i] === "'") {
         const { value: spec, end } = readString(i);
         prelude.push(`await __glove_import(${JSON.stringify(spec)});`);
-        edits.push({ start: hit.index, end: eatSemi(end), text: blank(src.slice(hit.index, eatSemi(end))) });
+        const stmtEnd = eatSemi(skipAttributes(end));
+        edits.push({ start: hit.index, end: stmtEnd, text: blank(src.slice(hit.index, stmtEnd)) });
         continue;
       }
       const bindings: string[] = [];
@@ -159,7 +224,7 @@ export function transformModule(src: string, modulePath: string): TransformedMod
       if (fromEnd === null) throw fail(i, `expected "from" in import statement`);
       i = skipTrivia(fromEnd);
       const { value: spec, end } = readString(i);
-      const stmtEnd = eatSemi(end);
+      const stmtEnd = eatSemi(skipAttributes(end));
 
       prelude.push(`const ${mv} = await __glove_import(${JSON.stringify(spec)});`);
       if (defaultName) bindings.push(`const ${defaultName} = __glove_pick(${mv}, "default", ${JSON.stringify(spec)});`);
@@ -178,11 +243,11 @@ export function transformModule(src: string, modulePath: string): TransformedMod
     const defaultEnd = readWord(i, "default");
     if (defaultEnd !== null) {
       const after = skipTrivia(defaultEnd);
-      const decl = /^(?:async\s+)?function(?:\s*\*)?\s+([A-Za-z_$][\w$]*)|^class\s+([A-Za-z_$][\w$]*)/.exec(src.slice(after, after + 200));
+      const decl = matchNamedDecl(src, after);
       if (decl) {
         const name = decl[1] ?? decl[2];
         edits.push({ start: hit.index, end: after, text: blank(src.slice(hit.index, after)) });
-        footer.push(`__exports.default = ${name};`);
+        footer.push(liveExport("default", name));
       } else {
         edits.push({ start: hit.index, end: after, text: `__exports.default = ${blank(src.slice(hit.index, after))}` });
       }
@@ -208,7 +273,7 @@ export function transformModule(src: string, modulePath: string): TransformedMod
       } else {
         const stmtEnd = eatSemi(list.end);
         for (const it of list.items) {
-          footer.push(`__exports[${JSON.stringify(it.local)}] = ${it.outer};`);
+          footer.push(liveExport(it.local, it.outer));
         }
         edits.push({ start: hit.index, end: stmtEnd, text: blank(src.slice(hit.index, stmtEnd)) });
       }
@@ -266,9 +331,17 @@ export function transformModule(src: string, modulePath: string): TransformedMod
         else if (c === ")" || c === "]" || c === "}") depth -= 1;
         else if (depth === 0 && c === ";") break;
         else if (depth === 0 && c === "\n") {
-          if (lastCode !== "" && !CONTINUATION_CHARS.has(lastCode)) break;
+          // A declaration continues if the line ENDS with an operator or the
+          // next line STARTS with one (comma-first style).
+          const nextMeaningful = src[skipTrivia(k + 1)] ?? "";
+          const continues =
+            (lastCode !== "" && CONTINUATION_CHARS.has(lastCode)) || CONTINUATION_CHARS.has(nextMeaningful);
+          if (!continues) break;
         } else if (depth === 0 && c === ",") {
           const next = skipTrivia(k + 1);
+          if (src[next] === "{" || src[next] === "[") {
+            throw fail(next, `destructuring exports are not supported in scripts — declare the binding first, then export { name }`);
+          }
           const id2 = readIdent(next);
           if (id2) {
             names.push(id2.name);
@@ -281,16 +354,16 @@ export function transformModule(src: string, modulePath: string): TransformedMod
         k += 1;
       }
       edits.push({ start: hit.index, end: i, text: blank(src.slice(hit.index, i)) });
-      for (const n of names) footer.push(`__exports.${n} = ${n};`);
+      for (const n of names) footer.push(liveExport(n, n));
       continue;
     }
 
     if (kindId && (kindId.name === "function" || kindId.name === "async" || kindId.name === "class")) {
-      const m = /^(?:async\s+)?function(?:\s*\*)?\s+([A-Za-z_$][\w$]*)|^class\s+([A-Za-z_$][\w$]*)/.exec(src.slice(i, i + 200));
+      const m = matchNamedDecl(src, i);
       if (!m) throw fail(i, `exported functions and classes must be named`);
       const name = m[1] ?? m[2];
       edits.push({ start: hit.index, end: i, text: blank(src.slice(hit.index, i)) });
-      footer.push(`__exports.${name} = ${name};`);
+      footer.push(liveExport(name, name));
       continue;
     }
 

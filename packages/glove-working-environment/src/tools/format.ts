@@ -43,22 +43,41 @@ export interface TruncatedText {
   shownLines: number;
 }
 
-/** Cap a block of text by the response line/byte budget. */
+/**
+ * Cap a block of text by the response line AND byte budget.
+ *
+ * Clipping a single over-long line still counts as truncation: a 5 MB
+ * one-liner has no newlines, so a purely line-counting budget would report
+ * "not truncated" and the caller would silently drop the remainder instead of
+ * spilling it to a file.
+ */
 export function truncateText(full: string, limits: EnvLimits, budgetShare = 1): TruncatedText {
   const maxLines = Math.max(10, Math.floor(limits.maxToolResponseLines * budgetShare));
   const maxBytes = Math.max(1_000, Math.floor(limits.maxToolResponseBytes * budgetShare));
   const lines = full.split("\n");
   const kept: string[] = [];
   let bytes = 0;
+  let clipped = false;
   for (const raw of lines) {
     const line = clipLine(raw);
+    if (line.length !== raw.length) clipped = true;
     if (kept.length >= maxLines || bytes + line.length > maxBytes) {
       return { text: kept.join("\n"), truncated: true, totalLines: lines.length, shownLines: kept.length };
     }
     kept.push(line);
     bytes += line.length + 1;
   }
-  return { text: kept.join("\n"), truncated: false, totalLines: lines.length, shownLines: kept.length };
+  return { text: kept.join("\n"), truncated: clipped, totalLines: lines.length, shownLines: kept.length };
+}
+
+/**
+ * Hard byte ceiling for any string handed to the model, applied after
+ * per-verb shaping so no response path can exceed the budget.
+ */
+export function capResponse(text: string, limits: EnvLimits, budgetShare = 1): string {
+  const maxBytes = Math.max(1_000, Math.floor(limits.maxToolResponseBytes * budgetShare));
+  if (text.length <= maxBytes) return text;
+  return `${text.slice(0, maxBytes)}\n… [response truncated at ${fmtCount(maxBytes)} chars (limits.maxToolResponseBytes)]`;
 }
 
 const SPILL_CAP_BYTES = 8 * 1024 * 1024;

@@ -36,8 +36,12 @@ export interface ConsoleCapture {
 export interface ExecutorDeps {
   /** Read a module's source text; null when the file doesn't exist. */
   readSource(path: string): Promise<string | null>;
-  /** Frozen `env:*` namespaces, keyed by bare name ("fs", "std", "documents", …). */
-  envModules(): Map<string, Record<string, unknown>>;
+  /**
+   * Frozen `env:*` namespaces, keyed by bare name ("fs", "std", "documents", …).
+   * `readOnly` selects the validation-time set, whose filesystem refuses
+   * mutations.
+   */
+  envModules(readOnly: boolean): Map<string, Record<string, unknown>>;
   /** Whether the default-export contract is enforced for this path at load time. */
   isEnforcedScript(path: string): boolean;
   limits: EnvLimits;
@@ -47,6 +51,8 @@ export interface LoadOptions {
   /** Uncommitted content consulted before the VFS (write-time validation). */
   overlay?: Map<string, string>;
   capture?: ConsoleCapture;
+  /** Bind the validation-time `env:*` set, whose filesystem refuses mutations. */
+  readOnly?: boolean;
 }
 
 interface RegistryEntry {
@@ -66,6 +72,8 @@ interface OpState {
   envCache: Map<string, Record<string, unknown>>;
   /** Context-realm console, handed to every module. */
   boundConsole: unknown;
+  /** Whether this operation binds the validation (mutation-refusing) modules. */
+  readOnly: boolean;
 }
 
 const CAPTURE_CHAR_CAP = 1_000_000;
@@ -129,6 +137,7 @@ export class ScriptExecutor {
       bridge,
       envCache: new Map(),
       boundConsole,
+      readOnly: opts?.readOnly === true,
     };
   }
 
@@ -136,11 +145,41 @@ export class ScriptExecutor {
   private envNamespace(st: OpState, name: string): Record<string, unknown> | null {
     const cached = st.envCache.get(name);
     if (cached) return cached;
-    const host = this.deps.envModules().get(name);
+    const host = this.deps.envModules(st.readOnly).get(name);
     if (!host) return null;
-    const bound = st.bridge.freezeDeep(st.bridge.bindNamespace(host));
+    const bound = st.bridge.freezeDeep(st.bridge.bindNamespace(this.guardDeadline(host, st)));
     st.envCache.set(name, bound);
     return bound;
+  }
+
+  /**
+   * Wrap a host namespace so every capability call re-checks the wall-clock
+   * budget first. The vm timeout only covers a synchronous run; once a script
+   * has awaited, nothing else can interrupt it. Checking here stops a
+   * runaway loop from continuing to *do* anything through its capabilities,
+   * and makes the limit fire promptly for the loops that actually touch the
+   * filesystem.
+   */
+  private guardDeadline(host: Record<string, unknown>, st: OpState, seen = new Map<object, Record<string, unknown>>()): Record<string, unknown> {
+    const hit = seen.get(host);
+    if (hit) return hit;
+    const out: Record<string, unknown> = {};
+    seen.set(host, out);
+    for (const key of Object.keys(host)) {
+      const value = host[key];
+      if (typeof value === "function") {
+        const fn = value as (...a: unknown[]) => unknown;
+        out[key] = (...args: unknown[]) => {
+          if (Date.now() > st.deadline) throw this.limitError();
+          return fn.apply(host, args);
+        };
+      } else if (value !== null && typeof value === "object") {
+        out[key] = this.guardDeadline(value as Record<string, unknown>, st, seen);
+      } else {
+        out[key] = value;
+      }
+    }
+    return out;
   }
 
   private remaining(st: OpState): number {
@@ -190,7 +229,7 @@ export class ScriptExecutor {
   }
 
   private envModuleNames(): string {
-    return [...this.deps.envModules().keys()].map((n) => `env:${n}`).join(", ");
+    return [...this.deps.envModules(false).keys()].map((n) => `env:${n}`).join(", ");
   }
 
   private async resolveImport(spec: string, importer: string, st: OpState, chain: string[]): Promise<Record<string, unknown>> {

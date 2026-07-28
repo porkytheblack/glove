@@ -47,7 +47,17 @@ export class RunLog {
   async append(entry: RunLogEntry): Promise<void> {
     const lines = await this.load();
     lines.push(JSON.stringify(entry));
+    // Ring by BOTH count and bytes: a count-only ring with large lines is
+    // still unbounded, and this file is written outside the guarded gateway
+    // (it is environment-owned, so the model's size caps don't apply to the
+    // mutation itself) — it must therefore bound itself.
     while (lines.length > this.limits.maxHistoryLines) lines.shift();
+    const maxBytes = Math.min(this.limits.maxFileBytes, Math.max(64 * 1024, this.limits.maxHistoryLines * 256));
+    let bytes = lines.reduce((n, l) => n + l.length + 1, 0);
+    while (lines.length > 1 && bytes > maxBytes) {
+      bytes -= lines.shift()!.length + 1;
+    }
+    this.lines = lines;
     await this.vfs.write(HISTORY_PATH, new TextEncoder().encode(lines.join("\n") + "\n"));
   }
 

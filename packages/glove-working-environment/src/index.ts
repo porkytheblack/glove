@@ -27,7 +27,7 @@ import { EnvCore } from "./core/env";
 import { ScriptExecutor, deepFreeze } from "./executor/executor";
 import { VersionStore } from "./history/versions";
 import { RunLog } from "./history/runlog";
-import { createFsHandle, FS_DESCRIPTION, FS_TYPES } from "./builtins/fs";
+import { createFsHandle, createReadOnlyFsHandle, FS_DESCRIPTION, FS_TYPES } from "./builtins/fs";
 import { createStdBindings, STD_DESCRIPTION, STD_TYPES } from "./builtins/std";
 import { buildTools } from "./tools/verbs";
 import { executeRun } from "./tools/run";
@@ -63,7 +63,7 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
   const core = new EnvCore(vfs, limits, versions);
   const executor = new ScriptExecutor({
     readSource: core.readSource,
-    envModules: () => core.envModules,
+    envModules: (readOnly: boolean) => (readOnly ? core.envModulesReadOnly : core.envModules),
     isEnforcedScript: (p) => core.isEnforcedScript(p),
     limits,
   });
@@ -71,22 +71,41 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
   const fsHandle = createFsHandle(core);
 
   // --- register env:* modules (builtins first, then adapters) -------------
-  const register = (name: string, description: string, bindings: Record<string, unknown>) => {
+  // Two parallel sets: the normal one, and a validation-time one bound to a
+  // filesystem that refuses mutations. Write-time validation executes module
+  // top-level code, and a rejected write must leave no trace — including
+  // through an adapter that writes.
+  const readOnlyFsHandle = createReadOnlyFsHandle(core);
+  const register = (
+    name: string,
+    description: string,
+    bindings: Record<string, unknown>,
+    readOnlyBindings: Record<string, unknown>,
+  ) => {
     if (!ADAPTER_NAME_RE.test(name)) {
       throw new Error(`invalid stdlib adapter name "${name}" — use lowercase letters, digits, _ or -`);
     }
     if (core.envModules.has(name)) throw new Error(`stdlib adapter name "${name}" is already registered`);
-    const ns: Record<string, unknown> = { ...bindings };
-    ns.default = ns; // `import fs from 'env:fs'` gives the whole module
-    core.envModules.set(name, deepFreeze(ns));
+    const seal = (b: Record<string, unknown>) => {
+      const ns: Record<string, unknown> = { ...b };
+      ns.default = ns; // `import fs from 'env:fs'` gives the whole module
+      return deepFreeze(ns);
+    };
+    core.envModules.set(name, seal(bindings));
+    core.envModulesReadOnly.set(name, seal(readOnlyBindings));
     core.moduleDescriptions.set(name, description);
   };
 
-  register("fs", FS_DESCRIPTION, createFsHandle(core) as unknown as Record<string, unknown>);
-  register("std", STD_DESCRIPTION, createStdBindings());
+  register(
+    "fs",
+    FS_DESCRIPTION,
+    fsHandle as unknown as Record<string, unknown>,
+    readOnlyFsHandle as unknown as Record<string, unknown>,
+  );
+  register("std", STD_DESCRIPTION, createStdBindings(), createStdBindings());
   const adapters: StdlibAdapter[] = options.stdlib ?? [];
   for (const adapter of adapters) {
-    register(adapter.name, adapter.description, adapter.create(fsHandle));
+    register(adapter.name, adapter.description, adapter.create(fsHandle), adapter.create(readOnlyFsHandle));
   }
 
   // --- materialize the tree ----------------------------------------------

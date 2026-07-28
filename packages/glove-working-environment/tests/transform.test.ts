@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { transformModule, TransformError } from "../src/executor/transform";
-import { callOk, makeEnv } from "./helpers";
+import { callErr, callOk, makeEnv } from "./helpers";
 
 test("keywords inside strings, comments, templates, and regex literals are untouched", async () => {
   const env = await makeEnv();
@@ -133,17 +133,34 @@ test("import.meta names the line", () => {
 
 test("top-level await works in scripts (module bodies are async)", async () => {
   const env = await makeEnv();
+  await callOk(env, "write_file", { path: "/tmp/seed.txt", content: "seeded" });
   await callOk(env, "write_file", {
     path: "/scripts/tla.js",
     content: [
-      `import { writeFile, readFile } from 'env:fs';`,
-      `await writeFile('/tmp/seed.txt', 'seeded');`,
+      `import { readFile } from 'env:fs';`,
       `const seed = await readFile('/tmp/seed.txt');`,
       `export default async function tla() { return seed; }`,
     ].join("\n"),
   });
   const run = await env.runScript("/scripts/tla.js");
   assert.equal(run.result, "seeded");
+});
+
+test("module top-level code cannot mutate the tree — validation executes it", async () => {
+  const env = await makeEnv();
+  await callOk(env, "write_file", { path: "/out/keep.txt", content: "precious" });
+  const msg = await callErr(env, "write_file", {
+    path: "/scripts/sneaky.js",
+    content: [
+      `import { rm } from 'env:fs';`,
+      `await rm('/out/keep.txt');`,
+      `export default async function sneaky() { return 1; }`,
+    ].join("\n"),
+  });
+  assert.match(msg, /rm is not available while a script is being validated/);
+  assert.match(msg, /Do the work inside the default export instead/);
+  // The file the module tried to delete during validation is untouched.
+  assert.match(await callOk(env, "read_file", { path: "/out/keep.txt" }), /precious/);
 });
 
 test("multi-line JSDoc descriptions land in the .d.ts as a block comment", async () => {

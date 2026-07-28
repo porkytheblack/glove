@@ -25,6 +25,22 @@ export interface RunOutcome {
 }
 
 const PREVIEW_CHARS = 200;
+const ARGS_CHARS = 500;
+
+/**
+ * History lines are ring-buffered by COUNT, so an unbounded per-line payload
+ * makes the file unbounded. Keep args renderable but capped.
+ */
+function boundArgs(args: unknown): unknown {
+  let json: string;
+  try {
+    json = JSON.stringify(args) ?? "undefined";
+  } catch {
+    return "[unserializable args]";
+  }
+  if (json.length <= ARGS_CHARS) return args;
+  return `${json.slice(0, ARGS_CHARS)}… [${json.length} chars total]`;
+}
 
 export async function executeRun(
   deps: RunDeps & { executor?: ScriptExecutor },
@@ -53,7 +69,12 @@ export async function executeRun(
     sections.push(`result:\n${body.text}`);
   } else {
     sections.push(`error (${run.durationMs}ms)`);
-    sections.push(run.error ?? "unknown error");
+    const errText = run.error ?? "unknown error";
+    const body = spillWanted
+      ? await withSpillover(core, errText, `/tmp/run-${runId}.err`, limits, 0.7)
+      : { text: errText, spilled: null };
+    spill = body.spilled;
+    sections.push(body.text);
   }
 
   if (run.stdout) {
@@ -75,18 +96,18 @@ export async function executeRun(
     id: runId,
     ts: new Date().toISOString(),
     script: path,
-    args,
+    args: boundArgs(args),
     ok: run.ok,
     durationMs: run.durationMs,
     resultPreview: run.ok ? resultText.slice(0, PREVIEW_CHARS) : null,
     spill,
-    ...(run.ok ? {} : { error: run.error }),
+    ...(run.ok ? {} : { error: (run.error ?? "").slice(0, PREVIEW_CHARS) }),
   });
 
   return {
     run,
     text: sections.join("\n"),
-    shortError: run.ok ? undefined : (run.error ?? "script failed").split("\n")[0],
+    shortError: run.ok ? undefined : (run.error ?? "script failed").split("\n")[0].slice(0, 400),
     spill,
   };
 }

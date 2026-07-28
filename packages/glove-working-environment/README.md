@@ -135,7 +135,17 @@ Both routes were live in development and are pinned by `tests/sandbox.test.ts`, 
 
 Injected namespaces are frozen, and each operation gets a fresh context, so prototype pollution or global scribbling inside one run cannot reach the next.
 
-Honest scope note: this is a **discipline boundary for model-written code, not a hostile-code boundary**. `node:vm` is not a security sandbox — Node does not support it as one, and the isolation above raises the cost of an escape without proving none exists. Two known gaps: a script that goes CPU-bound *between* awaits can stall the host until its next yield (the wall-clock limit covers the synchronous prefix of each evaluation and pending async work, not that case), and a script can pollute its own realm's prototypes for the remainder of its run. Anyone who needs an adversarial boundary should be in glorp, behind a real process/container isolate.
+Honest scope note: this is a **discipline boundary for model-written code, not a hostile-code boundary**. `node:vm` is not a security sandbox — Node does not support it as one, and the isolation above raises the cost of an escape without proving none exists. Anyone who needs an adversarial boundary should be in glorp, behind a real process/container isolate.
+
+### Known limitations
+
+Found by adversarial audit and left open deliberately — each is a real constraint, not a rough edge:
+
+- **Wall-clock enforcement is not absolute.** The vm timeout covers the synchronous prefix of each evaluation, a deadline race covers pending async work, and every capability call re-checks the budget — so a runaway loop that touches `env:fs`/adapters is stopped promptly. But a pure compute loop that yields only to microtasks (`for (;;) { await null; }`) and calls nothing can still starve the event loop: a macrotask timer cannot preempt it, and a microtask watchdog would itself starve legitimate host I/O. Such a script wedges the host until the process restarts. Closing this properly requires running scripts in a worker thread that can be `terminate()`d — a v2 change, since it turns adapter calls into cross-thread RPC.
+- **Imported bindings are snapshots, not live bindings.** `export let n` is exposed as a live getter, so `import * as ns` sees later mutations; but `import { n }` binds the value at import time, where real ESM would track it. Emulating that needs reference rewriting, which the lexical transform deliberately doesn't do.
+- **Destructuring exports are unsupported** (`export const { a } = obj`) — rejected loudly at write time, in any declarator position.
+- **Stack-trace line numbers are exact; columns can shift** by a few characters on lines the transform rewrote.
+- The transform is a lexical scanner, not a parser. It is checked against real Node ESM by a differential suite covering templates, regex-vs-division, ASI, every import/export form, generators, hashbangs, and import attributes — but exotic syntax may still diverge, and a divergence is a bug worth reporting.
 
 Limits (all configurable; failures name the limit): `runTimeoutMs` 30s · `maxVfsBytes` 256MB · `maxFileBytes` 32MB · `maxToolResponseBytes` ~8KB / `maxToolResponseLines` 200 · `maxVersionsPerFile` 10 · `maxHistoryLines` 5000.
 

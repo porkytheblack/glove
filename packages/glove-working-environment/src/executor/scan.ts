@@ -6,6 +6,17 @@
  *
  * Good enough by construction: static import/export declarations are only
  * legal at module top level (depth 0), which is exactly where we look.
+ *
+ * Two invariants are easy to get wrong and both corrupt downstream depth
+ * arithmetic or literal boundaries:
+ *
+ * - `${` and its matching `}` must be masked the SAME way. Masking only the
+ *   closing brace as code leaves every interpolation contributing −1 to the
+ *   bracket depth.
+ * - `lastMeaningful` / `lastWord` must be updated after a string or template
+ *   literal. A literal is an operand, so a `/` after it is DIVISION; leaving
+ *   the pre-literal token in place makes it scan as a regex, which then eats
+ *   real code (and can invert quote parity, rewriting string contents).
  */
 
 export interface KeywordHit {
@@ -46,6 +57,7 @@ export function scanModule(src: string): ScanResult {
   let depth = 0;
   let lastMeaningful = ""; // last non-whitespace code char
   let lastWord = ""; // last identifier-ish word seen in code
+  let lastWordWasProperty = false; // that word was preceded by `.`
 
   let i = 0;
   while (i < n) {
@@ -59,12 +71,23 @@ export function scanModule(src: string): ScanResult {
       }
       if (c === "`") {
         stack.pop();
+        // A template literal is an operand: a following `/` is division.
+        lastMeaningful = "`";
+        lastWord = "";
+        lastWordWasProperty = false;
         i += 1;
         continue;
       }
       if (c === "$" && src[i + 1] === "{") {
+        // Mask the opener exactly like the matching `}` below, or depth
+        // arithmetic goes negative across every interpolation.
+        mask[i] = 1;
+        mask[i + 1] = 1;
         depth += 1;
         stack.push({ kind: "code", openDepth: depth });
+        lastMeaningful = "{";
+        lastWord = "";
+        lastWordWasProperty = false;
         i += 2;
         continue;
       }
@@ -90,6 +113,10 @@ export function scanModule(src: string): ScanResult {
         i += 1;
       }
       i += 1;
+      // A string is an operand: a following `/` is division.
+      lastMeaningful = c;
+      lastWord = "";
+      lastWordWasProperty = false;
       continue;
     }
     if (c === "`") {
@@ -102,31 +129,43 @@ export function scanModule(src: string): ScanResult {
       const regexPos =
         lastMeaningful === "" ||
         REGEX_ALLOWED_AFTER.has(lastMeaningful) ||
-        (isIdChar(lastMeaningful) && REGEX_ALLOWED_AFTER_WORD.has(lastWord));
+        (isIdChar(lastMeaningful) && !lastWordWasProperty && REGEX_ALLOWED_AFTER_WORD.has(lastWord));
       if (regexPos) {
-        i += 1;
+        const start = i;
+        let j = i + 1;
         let inClass = false;
-        while (i < n) {
-          const r = src[i];
+        let closed = false;
+        while (j < n) {
+          const r = src[j];
           if (r === "\\") {
-            i += 2;
+            j += 2;
             continue;
           }
           if (r === "[") inClass = true;
           else if (r === "]") inClass = false;
-          else if (r === "/" && !inClass) break;
-          else if (r === "\n") break; // malformed; bail out of the literal
-          i += 1;
+          else if (r === "/" && !inClass) {
+            closed = true;
+            break;
+          } else if (r === "\n") break; // unterminated on this line
+          j += 1;
         }
-        i += 1; // closing slash
-        while (i < n && /[a-z]/i.test(src[i])) i += 1; // flags
-        lastMeaningful = ")"; // a regex is an operand
-        lastWord = "";
-        continue;
+        if (closed) {
+          i = j + 1; // past the closing slash
+          while (i < n && /[a-z]/i.test(src[i])) i += 1; // flags
+          lastMeaningful = ")"; // a regex is an operand
+          lastWord = "";
+          lastWordWasProperty = false;
+          continue;
+        }
+        // Not a regex after all — fall through and treat it as division,
+        // rather than swallowing the rest of the line (and the newline, and
+        // the first word of the next line as "flags").
+        i = start;
       }
       mask[i] = 1;
       lastMeaningful = c;
       lastWord = "";
+      lastWordWasProperty = false;
       i += 1;
       continue;
     }
@@ -141,6 +180,8 @@ export function scanModule(src: string): ScanResult {
         stack.pop();
         i += 1;
         lastMeaningful = "`"; // resume template — treat as operand-ish
+        lastWord = "";
+        lastWordWasProperty = false;
         continue;
       }
       depth -= 1;
@@ -154,8 +195,8 @@ export function scanModule(src: string): ScanResult {
         while (j < n && isIdChar(src[j])) j += 1;
         const word = src.slice(i, j);
         for (let k = i; k < j; k++) mask[k] = 1;
+        const prevMeaningful = lastMeaningful;
         if (word === "import" || word === "export") {
-          const prevMeaningful = lastMeaningful;
           // find next non-ws char after the word
           let m = j;
           while (m < n && /\s/.test(src[m])) m += 1;
@@ -167,6 +208,7 @@ export function scanModule(src: string): ScanResult {
           }
         }
         lastWord = word;
+        lastWordWasProperty = prevMeaningful === ".";
         lastMeaningful = word[word.length - 1];
         i = j;
         continue;
@@ -175,7 +217,10 @@ export function scanModule(src: string): ScanResult {
 
     if (!/\s/.test(c)) {
       lastMeaningful = c;
-      if (!isIdChar(c)) lastWord = "";
+      if (!isIdChar(c)) {
+        lastWord = "";
+        lastWordWasProperty = false;
+      }
     }
     i += 1;
   }

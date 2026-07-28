@@ -1,10 +1,24 @@
 /**
  * The environment core: every mutation — from a model verb or from a
- * script's `env:fs` call — flows through this single gateway, which
- * enforces the read-only zones, the resource limits, version recording for
+ * script's `env:fs` call — flows through this single gateway, which enforces
+ * the read-only zones, the resource limits, version recording for
  * undo/redo, and the script pipeline (write-time validation + derived
- * sibling `.d.ts` files). Derived state can never drift because there is no
- * second mutation path.
+ * sibling `.d.ts` files).
+ *
+ * Three properties are load-bearing and easy to lose:
+ *
+ * 1. **Commit atomically.** Everything that can fail — validation, derived
+ *    `.d.ts` generation, destination writability, size accounting — is
+ *    checked BEFORE the first byte is written. A verb that reports failure
+ *    must not have changed the tree, or the model's mental model of its own
+ *    filesystem silently diverges from reality.
+ * 2. **Validation must not mutate.** Write-time validation works by
+ *    executing the module's top level, so it runs with a READ-ONLY
+ *    filesystem handle. Otherwise a rejected `write_file` could still delete
+ *    files, and a script could plant state that breaks the environment.
+ * 3. **Serialize mutations.** Version recording is read-modify-write; two
+ *    concurrent writers that both capture the same "prior" silently destroy
+ *    undo history. All mutations run through one queue.
  */
 import type { EnvLimits, FileVersionInfo, VfsEntry, VfsStat, Vfs } from "../types";
 import { EnvLimitError, looksBinary, toBytes, toText } from "../types";
@@ -44,9 +58,13 @@ export interface LsEntry {
 export class EnvCore {
   /** `env:*` namespaces (builtins + adapters), populated during construction. */
   readonly envModules = new Map<string, Record<string, unknown>>();
+  /** The same namespaces bound to a read-only filesystem, used for validation. */
+  readonly envModulesReadOnly = new Map<string, Record<string, unknown>>();
   /** name → one-liner, for `ls /std` and the tool description. */
   readonly moduleDescriptions = new Map<string, string>();
   private executor!: ScriptExecutor;
+  /** Serializes mutations so version recording can't lose updates. */
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(
     readonly vfs: Vfs,
@@ -60,6 +78,20 @@ export class EnvCore {
 
   executorRef(): ScriptExecutor {
     return this.executor;
+  }
+
+  /**
+   * Run a mutation with exclusive access. Validation uses a read-only
+   * filesystem, so a script executing inside a held lock can never take the
+   * lock again — this cannot deadlock.
+   */
+  private serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const result = this.queue.then(fn, fn);
+    this.queue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   // ---------------------------------------------------------------- zones
@@ -79,6 +111,15 @@ export class EnvCore {
     return scriptPath.replace(/\.js$/, ".d.ts");
   }
 
+  /** True when the path IS, or lives beneath, a generated `.d.ts` location. */
+  private isDerivedPath(path: string): boolean {
+    const p = normalizePath(path);
+    if (!isUnder(p, "/scripts")) return false;
+    // A directory standing where a `.d.ts` belongs would otherwise let a
+    // recursive remove run over user data that was never versioned.
+    return p.split("/").some((seg) => seg.endsWith(".d.ts"));
+  }
+
   private assertMutable(path: string, op: string): void {
     const p = normalizePath(path);
     if (p === "/") throw new Error(`cannot ${op} the root directory`);
@@ -88,9 +129,9 @@ export class EnvCore {
     if (isUnder(p, "/std")) {
       throw new Error(`cannot ${op} ${p}: /std holds materialized adapter docs and is read-only`);
     }
-    if (isUnder(p, "/scripts") && p.endsWith(".d.ts")) {
+    if (this.isDerivedPath(p)) {
       throw new Error(
-        `cannot ${op} ${p}: .d.ts files under /scripts are derived from their sibling scripts and are regenerated automatically — edit the .js file instead`,
+        `cannot ${op} ${p}: .d.ts paths under /scripts are derived from their sibling scripts and are regenerated automatically — edit the .js file instead`,
       );
     }
     if (isUnder(p, "/scripts") && p.endsWith(".ts")) {
@@ -127,6 +168,9 @@ export class EnvCore {
    * content (against an overlay, before anything is committed) and returns
    * the derived writes to apply. Throws — failing the mutation — when the
    * content does not satisfy the script contract.
+   *
+   * Runs with a read-only filesystem: validation executes the module's top
+   * level, and a rejected write must leave no trace.
    */
   private async scriptEffects(path: string, contentText: string, overlayExtra?: Map<string, string>): Promise<ScriptEffects> {
     if (!this.inPipelineScope(path)) return { derived: [] };
@@ -134,7 +178,7 @@ export class EnvCore {
     overlay.set(path, contentText);
     let ns: Record<string, unknown>;
     try {
-      ns = await this.executor.loadModule(path, { overlay, capture: newCapture() });
+      ns = await this.executor.loadModule(path, { overlay, capture: newCapture(), readOnly: true });
     } catch (e) {
       if (e instanceof ScriptContractError && e.path === path) throw new Error(e.contractMessage);
       throw new Error(e instanceof Error ? e.message : String(e));
@@ -147,10 +191,40 @@ export class EnvCore {
     };
   }
 
+  /**
+   * Verify every derived action can be applied, and report the bytes it will
+   * add. Called before the primary write so a derived failure can't leave a
+   * committed `.js` with a stale or missing `.d.ts`.
+   */
+  private async prepareDerived(derived: DerivedAction[]): Promise<number> {
+    let delta = 0;
+    for (const d of derived) {
+      if ("write" in d) {
+        const stat = await this.vfs.stat(d.write);
+        if (stat?.kind === "dir") {
+          throw new Error(`cannot generate ${d.write}: a directory exists at that path`);
+        }
+        const bytes = toBytes(d.content).byteLength;
+        this.checkFileSize(d.write, bytes);
+        delta += bytes - (stat?.size ?? 0);
+      } else {
+        const stat = await this.vfs.stat(d.remove);
+        if (stat?.kind === "file") delta -= stat.size;
+      }
+    }
+    return delta;
+  }
+
   private async applyDerived(derived: DerivedAction[]): Promise<void> {
     for (const d of derived) {
-      if ("write" in d) await this.vfs.write(d.write, toBytes(d.content));
-      else if (await this.vfs.exists(d.remove)) await this.vfs.rm(d.remove);
+      if ("write" in d) {
+        await this.vfs.write(d.write, toBytes(d.content));
+      } else {
+        // Only ever remove a FILE. `vfs.rm` is recursive, and a directory
+        // sitting at a derived path would take unversioned user data with it.
+        const stat = await this.vfs.stat(d.remove);
+        if (stat?.kind === "file") await this.vfs.rm(d.remove);
+      }
     }
   }
 
@@ -201,7 +275,15 @@ export class EnvCore {
 
   // ---------------------------------------------------------------- writes
 
-  async write(
+  write(
+    path: string,
+    content: string | Uint8Array,
+    opts?: { append?: boolean },
+  ): Promise<{ bytes: number; nudge?: string; created: boolean }> {
+    return this.serialize(() => this.writeInner(path, content, opts));
+  }
+
+  private async writeInner(
     path: string,
     content: string | Uint8Array,
     opts?: { append?: boolean },
@@ -219,16 +301,25 @@ export class EnvCore {
       bytes = joined;
     }
     this.checkFileSize(p, bytes.byteLength);
-    await this.checkTotalSize(bytes.byteLength - (prior?.byteLength ?? 0) + this.versions.versionOverhead(prior));
 
+    // Everything that can fail happens before the first write.
     const effects = await this.scriptEffects(p, toText(bytes));
+    const derivedDelta = await this.prepareDerived(effects.derived);
+    await this.checkTotalSize(
+      bytes.byteLength - (prior?.byteLength ?? 0) + derivedDelta + this.versions.versionOverhead(prior),
+    );
+
     await this.versions.recordMutation(p, prior, opts?.append ? "append" : "write");
     await this.vfs.write(p, bytes);
     await this.applyDerived(effects.derived);
     return { bytes: bytes.byteLength, nudge: effects.nudge, created: prior === null };
   }
 
-  async edit(path: string, oldStr: string, newStr: string): Promise<{ nudge?: string; bytes: number }> {
+  edit(path: string, oldStr: string, newStr: string): Promise<{ nudge?: string; bytes: number }> {
+    return this.serialize(() => this.editInner(path, oldStr, newStr));
+  }
+
+  private async editInner(path: string, oldStr: string, newStr: string): Promise<{ nudge?: string; bytes: number }> {
     const p = normalizePath(path);
     this.assertMutable(p, "edit");
     const stat = await this.vfs.stat(p);
@@ -248,16 +339,22 @@ export class EnvCore {
     const bytes = toBytes(next);
     this.checkFileSize(p, bytes.byteLength);
     const prior = toBytes(text);
-    await this.checkTotalSize(bytes.byteLength - prior.byteLength + this.versions.versionOverhead(prior));
 
     const effects = await this.scriptEffects(p, next);
+    const derivedDelta = await this.prepareDerived(effects.derived);
+    await this.checkTotalSize(bytes.byteLength - prior.byteLength + derivedDelta + this.versions.versionOverhead(prior));
+
     await this.versions.recordMutation(p, prior, "edit");
     await this.vfs.write(p, bytes);
     await this.applyDerived(effects.derived);
     return { nudge: effects.nudge, bytes: bytes.byteLength };
   }
 
-  async rm(path: string): Promise<{ removed: string[] }> {
+  rm(path: string): Promise<{ removed: string[] }> {
+    return this.serialize(() => this.rmInner(path));
+  }
+
+  private async rmInner(path: string): Promise<{ removed: string[] }> {
     const p = normalizePath(path);
     this.assertMutable(p, "remove");
     const stat = await this.vfs.stat(p);
@@ -285,18 +382,20 @@ export class EnvCore {
     return { removed };
   }
 
-  async mkdir(path: string): Promise<void> {
-    const p = normalizePath(path);
-    this.assertMutable(p, "mkdir");
-    await this.vfs.mkdir(p);
+  mkdir(path: string): Promise<void> {
+    return this.serialize(async () => {
+      const p = normalizePath(path);
+      this.assertMutable(p, "mkdir");
+      await this.vfs.mkdir(p);
+    });
   }
 
-  async mv(from: string, to: string): Promise<{ moved: Array<[string, string]>; nudge?: string }> {
-    return this.transfer(from, to, "mv");
+  mv(from: string, to: string): Promise<{ moved: Array<[string, string]>; nudge?: string }> {
+    return this.serialize(() => this.transfer(from, to, "mv"));
   }
 
-  async cp(from: string, to: string): Promise<{ moved: Array<[string, string]>; nudge?: string }> {
-    return this.transfer(from, to, "cp");
+  cp(from: string, to: string): Promise<{ moved: Array<[string, string]>; nudge?: string }> {
+    return this.serialize(() => this.transfer(from, to, "cp"));
   }
 
   private async transfer(fromRaw: string, toRaw: string, op: "mv" | "cp"): Promise<{ moved: Array<[string, string]>; nudge?: string }> {
@@ -326,6 +425,19 @@ export class EnvCore {
       for (const [, dest] of pairs) this.assertMutable(dest, op === "mv" ? "move to" : "copy to");
     }
 
+    // Every destination must be writable BEFORE anything moves, or a failure
+    // partway through would leave the tree half-transferred.
+    for (const [, dest] of pairs) {
+      if ((await this.vfs.stat(dest))?.kind === "dir") {
+        throw new Error(`cannot ${op} onto ${dest}: it is a directory`);
+      }
+      for (let dir = dirname(dest); dir !== "/"; dir = dirname(dir)) {
+        if ((await this.vfs.stat(dir))?.kind === "file") {
+          throw new Error(`cannot ${op} to ${dest}: ${dir} is a file`);
+        }
+      }
+    }
+
     // Validate every destination script against an overlay containing ALL
     // transferred contents, so cross-imports inside a moved subtree resolve.
     const contents = new Map<string, Uint8Array>();
@@ -335,55 +447,59 @@ export class EnvCore {
       const data = contents.get(src)!;
       if (dest.endsWith(".js") && !looksBinary(data)) overlay.set(dest, toText(data));
     }
-    const allEffects: Array<{ dest: string; effects: ScriptEffects }> = [];
+    const allEffects: DerivedAction[] = [];
     let nudge: string | undefined;
     for (const [src, dest] of pairs) {
       const data = contents.get(src)!;
       this.checkFileSize(dest, data.byteLength);
       if (this.inPipelineScope(dest)) {
         const effects = await this.scriptEffects(dest, toText(data), overlay);
-        allEffects.push({ dest, effects });
+        allEffects.push(...effects.derived);
         nudge = nudge ?? effects.nudge;
       }
+      if (op === "mv" && this.isEnforcedScript(src)) allEffects.push({ remove: this.dtsPathFor(src) });
     }
+    const derivedDelta = await this.prepareDerived(allEffects);
 
-    let delta = 0;
+    let delta = derivedDelta;
     for (const [src, dest] of pairs) {
       const data = contents.get(src)!;
-      delta += data.byteLength; // dest copy (+ version overhead below)
-      if (op === "mv") delta -= data.byteLength;
       const priorDest = await this.currentContent(dest);
+      delta += data.byteLength - (priorDest?.byteLength ?? 0);
+      if (op === "mv") delta -= data.byteLength;
       delta += this.versions.versionOverhead(priorDest) + (op === "mv" ? this.versions.versionOverhead(data) : 0);
     }
     await this.checkTotalSize(delta);
 
-    // Commit.
+    // Commit: write every destination FIRST, then remove sources. A failure
+    // mid-way can leave an extra copy, never a hole.
     for (const [src, dest] of pairs) {
       const data = contents.get(src)!;
       const priorDest = await this.currentContent(dest);
-      if (op === "mv") {
-        await this.versions.recordMutation(src, data, "mv");
-        await this.vfs.rm(src);
-        if (this.isEnforcedScript(src)) await this.applyDerived([{ remove: this.dtsPathFor(src) }]);
-      }
       await this.versions.recordMutation(dest, priorDest, op);
       await this.vfs.write(dest, data);
     }
-    if (op === "mv" && stat.kind === "dir" && (await this.vfs.exists(from))) {
-      await this.vfs.rm(from); // drop the now-empty source dir (and skipped .d.ts)
+    if (op === "mv") {
+      for (const [src] of pairs) {
+        await this.versions.recordMutation(src, contents.get(src)!, "mv");
+        await this.vfs.rm(src);
+      }
+      if (stat.kind === "dir" && (await this.vfs.exists(from))) {
+        await this.vfs.rm(from); // drop the now-empty source dir (and skipped .d.ts)
+      }
     }
-    for (const { effects } of allEffects) await this.applyDerived(effects.derived);
+    await this.applyDerived(allEffects);
     return { moved: pairs, nudge };
   }
 
   // ---------------------------------------------------------------- undo/redo
 
-  async undo(path: string): Promise<{ restoredOp: string; ts: number; present: boolean }> {
-    return this.timeTravel(path, "undo");
+  undo(path: string): Promise<{ restoredOp: string; ts: number; present: boolean }> {
+    return this.serialize(() => this.timeTravel(path, "undo"));
   }
 
-  async redo(path: string): Promise<{ restoredOp: string; ts: number; present: boolean }> {
-    return this.timeTravel(path, "redo");
+  redo(path: string): Promise<{ restoredOp: string; ts: number; present: boolean }> {
+    return this.serialize(() => this.timeTravel(path, "redo"));
   }
 
   private async timeTravel(pathRaw: string, dir: "undo" | "redo"): Promise<{ restoredOp: string; ts: number; present: boolean }> {
@@ -393,8 +509,8 @@ export class EnvCore {
     if (!peek) throw new Error(`nothing to ${dir} for ${p}`);
 
     // Validate BEFORE committing the stack move, so a restore that no longer
-    // satisfies the script contract (e.g. an import was removed since)
-    // fails cleanly and leaves history intact.
+    // satisfies the script contract (or whose derived write can't be applied)
+    // fails cleanly and leaves both the tree and the history intact.
     let effects: ScriptEffects = { derived: [] };
     if (peek.content !== null) {
       const data = peek.content;
@@ -402,7 +518,11 @@ export class EnvCore {
       if (this.inPipelineScope(p) && !looksBinary(data)) {
         effects = await this.scriptEffects(p, toText(data));
       }
+    } else if (this.isEnforcedScript(p)) {
+      effects = { derived: [{ remove: this.dtsPathFor(p) }] };
     }
+    await this.prepareDerived(effects.derived);
+    if ((await this.vfs.stat(p))?.kind === "dir") throw new Error(`cannot ${dir} ${p}: it is a directory`);
 
     const current = await this.currentContent(p);
     const v = dir === "undo" ? await this.versions.undo(p, current) : await this.versions.redo(p, current);
@@ -410,7 +530,7 @@ export class EnvCore {
 
     if (v.content === null) {
       if (await this.vfs.exists(p)) await this.vfs.rm(p);
-      if (this.isEnforcedScript(p)) await this.applyDerived([{ remove: this.dtsPathFor(p) }]);
+      await this.applyDerived(effects.derived);
       return { restoredOp: v.op, ts: v.ts, present: false };
     }
     await this.vfs.write(p, v.content);
