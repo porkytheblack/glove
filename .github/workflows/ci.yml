@@ -49,6 +49,7 @@ jobs:
           --filter glove-python
           --filter glove-js
           --filter glove-lisp
+          --filter glove-working-environment
           typecheck
 
       - name: Test
@@ -59,4 +60,5 @@ jobs:
           --filter glove-python
           --filter glove-js
           --filter glove-lisp
+          --filter glove-working-environment
           test
