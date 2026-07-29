@@ -8,6 +8,7 @@
 //
 //   PORT=4501 node scripts/voice-sim.mjs                 # measure turn latency
 //   PORT=4501 node scripts/voice-sim.mjs --barge-in      # test interruption
+//   PORT=4501 node scripts/voice-sim.mjs --conversation  # several turns, one connection
 //
 // Turn latency here is the honest number: from the last sample of speech to
 // the moment the room commits the utterance to the agent.
@@ -20,6 +21,7 @@ loadEnv({ path: [path.join(import.meta.dirname, "..", ".env.local")], quiet: tru
 
 const PORT = process.env.PORT ?? 4501;
 const BARGE_IN = process.argv.includes("--barge-in");
+const CONVERSATION = process.argv.includes("--conversation");
 const KEY = process.env.ELEVENLABS_API_KEY;
 const VOICE = "JBFqnCBsd6RMkjVDRZzb"; // a different voice than Nova's
 const LINE = process.argv.find((a) => !a.startsWith("--") && a.includes(" "))
@@ -63,6 +65,7 @@ let audioAfterClear = 0;
 let speechAfterClear = 0;
 let committedAfterClear = false;
 const state = { partials: 0 };
+let onUtterance = () => {};
 
 ws.on("message", (data, isBinary) => {
   if (isBinary) {
@@ -85,6 +88,7 @@ ws.on("message", (data, isBinary) => {
       break;
     case "utterance":
       if (clearedAt) committedAfterClear = true;
+      onUtterance(m.text);
       console.log(
         `${at()} COMMITTED "${m.text}"` +
           (audioEndedAt ? `  ← ${Date.now() - audioEndedAt}ms after speech ended` : ""),
@@ -97,9 +101,18 @@ ws.on("message", (data, isBinary) => {
         console.log(`${at()} NOVA REPLIES  ← ${novaRepliedAt - audioEndedAt}ms after speech ended`);
       }
       break;
+    case "speech_end":
+      // Behave like the browser: report the turn drained. The room must not
+      // NEED this (a voided turn never gets a speech_end at all), but a
+      // faithful client sends it, so the test should too.
+      ws.send(JSON.stringify({ t: "playback_done", turnId: m.turnId }));
+      break;
     case "clear":
       clearedAt = Date.now();
-      console.log(`${at()} CLEAR — interrupted after ${clearedAt - audioEndedAt}ms of talking over her`);
+      console.log(
+        `${at()} CLEAR` +
+          (audioEndedAt ? ` — interrupted after ${clearedAt - audioEndedAt}ms of talking over her` : ""),
+      );
       break;
     case "metric":
       if (["endpoint_hold", "stt_dispatch_ms", "stt_phantom_dropped", "barge_in"].includes(m.name)) {
@@ -162,6 +175,36 @@ ws.on("open", async () => {
     );
     ws.close();
     process.exit(ok ? 0 : 1);
+  }
+
+  if (CONVERSATION) {
+    // One connection, several turns. Single-utterance runs never exercised the
+    // state a turn leaves behind, which is where turn-taking was seen to stop
+    // dead after the first couple of exchanges.
+    const lines = [
+      "Hello. How are you?",
+      "I need some help with something.",
+      "Hello?",
+      "Hello?",
+      "Hello?",
+    ];
+    let committed = 0;
+    onUtterance = () => committed++;
+    await streamQuiet(0.6);
+    for (const [i, line] of lines.entries()) {
+      const clip = await speech(line);
+      console.log(`${at()} — saying "${line}"`);
+      const before = committed;
+      await streamSpeech(clip);
+      audioEndedAt = Date.now();
+      await streamQuiet(6);
+      console.log(
+        `${at()}   → ${committed > before ? "committed" : "*** NOTHING COMMITTED ***"} (${committed}/${i + 1} so far)`,
+      );
+    }
+    console.log(`\n${committed}/${lines.length} utterances committed`);
+    ws.close();
+    process.exit(committed === lines.length ? 0 : 1);
   }
 
   await streamQuiet(0.6);

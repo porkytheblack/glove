@@ -103,6 +103,7 @@ export class TurnEngine {
   private pendingConfirm: string | null = null;
   private lastVoiceAt = 0;
   private lastPartialAt = 0;
+  private lastPartialText = "";
   private speechEndAt = 0;
   private userSpeaking = false;
 
@@ -250,16 +251,23 @@ export class TurnEngine {
    * re-dispatching that raw would duplicate the intro.
    */
   private livePartial(): string {
-    let p = this.stt.currentPartial?.trim() ?? "";
-    if (this.lastDispatched) {
-      if (p.startsWith(this.lastDispatched)) {
-        p = p.slice(this.lastDispatched.length).trim();
-      } else if (this.lastDispatched.startsWith(p)) {
-        p = ""; // stale echo of what was already sent
-      } else {
-        this.lastDispatched = ""; // buffer reset — a genuinely fresh utterance
-      }
+    const p = this.stt.currentPartial?.trim() ?? "";
+    if (!this.lastDispatched) return p;
+
+    // Text IDENTICAL to what we last sent is ambiguous, and the two readings
+    // are opposites. While that dispatch's commit is still in flight, Scribe is
+    // just re-sending the buffer and this is an echo to swallow. Once the
+    // commit has landed the buffer is empty, so the same words arriving again
+    // are the caller genuinely repeating themselves — and treating THAT as an
+    // echo is why asking "Hello?" a second time was silently eaten, which from
+    // the room is indistinguishable from the agent having stopped listening.
+    if (p === this.lastDispatched) return this.pendingConfirm !== null ? "" : p;
+
+    if (p.startsWith(this.lastDispatched)) {
+      return p.slice(this.lastDispatched.length).trim();
     }
+    if (this.lastDispatched.startsWith(p)) return ""; // a stale, shorter echo
+    this.lastDispatched = ""; // buffer reset — a genuinely fresh utterance
     return p;
   }
 
@@ -383,7 +391,18 @@ export class TurnEngine {
   // ── STT events ─────────────────────────────────────────────────────────────
 
   private onPartial(): void {
-    this.lastPartialAt = Date.now();
+    // Stillness means the TRANSCRIPT stopped changing, not that messages
+    // stopped arriving. Scribe re-sends the same partial roughly once a second
+    // for as long as audio flows, so stamping this unconditionally kept the
+    // buffer permanently "fresh" and the idle sweeper — the thing that exists
+    // precisely to rescue a transcript no boundary picked up — could never
+    // fire. A caller saying "Hello?" into a room that had stopped taking turns
+    // watched it accumulate for fifteen seconds and never send.
+    const raw = this.stt.currentPartial?.trim() ?? "";
+    if (raw !== this.lastPartialText) {
+      this.lastPartialText = raw;
+      this.lastPartialAt = Date.now();
+    }
     const live = this.livePartial();
     this.hooks.onPartial(live);
 
@@ -527,9 +546,17 @@ export class TurnEngine {
 
   /** Silero only: speech that outlasted the minimum, so definitely a person. */
   private onSpeechConfirmed(): void {
-    if (!this.hooks.isAgentSpeaking()) return;
-    this.gateOpen = true; // route this utterance to STT
-    this.hooks.onBargeIn();
+    // Confirmed human speech means we should be listening, full stop. The gate
+    // exists to keep the AGENT's own voice out of the transcript, and this is
+    // the model saying the sound is a person who has been talking for at least
+    // `minSpeechMs` — so opening it is not conditional on whether her audio
+    // happens to be playing at this instant. It used to be, and an utterance
+    // that started in the seam (after her last chunk, before the caller's
+    // playback_done, or inside the post-speech deadband) was never transcribed
+    // at all: no partial, no commit, no trace beyond the caller repeating
+    // themselves.
+    this.gateOpen = true;
+    if (this.hooks.isAgentSpeaking()) this.hooks.onBargeIn();
   }
 
   private onSpeechEnd(): void {
@@ -550,7 +577,13 @@ export class TurnEngine {
   private sweep(): void {
     if (this.disposed || !this.gateOpen) return;
     if (this.userSpeaking || this.vad.isSpeaking) return;
-    if (this.hooks.isAgentSpeaking()) return;
+    // Deliberately NOT gated on `isAgentSpeaking()`. The gate above is already
+    // the authority on whether this audio should be transcribed at all, and an
+    // open gate while the agent speaks is the barge-in case: something already
+    // decided this utterance belongs to the caller. Checking both meant an
+    // interruption made during a long reply was transcribed, held, and then
+    // quietly dropped — the transcript sat in the buffer until the provider
+    // auto-committed it minutes later, against whatever was being said by then.
     if (this.holdTimer) return; // an endpoint hold owns this buffer
     if (Date.now() - this.lastPartialAt < SWEEP_STILL_MS) return;
     const live = this.livePartial();

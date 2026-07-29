@@ -46,6 +46,11 @@ import type { ServerMessage, SpeakerRole } from "./protocol";
 const TTS_CHARS_PER_SEC = 15;
 /** Wait this long after playback drains before trusting the room to be quiet. */
 const POST_SPEECH_DEADBAND_MS = 300;
+/** Grace on top of the audio's own duration before assuming playback finished.
+ *  Covers the client's jitter buffer and the trip back; `playback_done` almost
+ *  always wins the race, and this only decides how long a room stays deaf when
+ *  it does not. */
+const PLAYBACK_WATCHDOG_SLACK_MS = 1500;
 /** At most one "your line never played" turn per window — see reportSpeechFailure. */
 const SPEECH_FAILURE_COOLDOWN_MS = 30_000;
 /** Nudge an idle prewarmed TTS socket this often — ElevenLabs drops an input
@@ -196,9 +201,12 @@ export class VoiceSession {
     sentText: string;
     firstAudioAt: number;
     sawAudio: boolean;
+    /** Bytes of PCM sent, so playback length can be derived without the client. */
+    audioBytes: number;
   } | null = null;
   private speaking = false;
   private gateReopenTimer: NodeJS.Timeout | null = null;
+  private playbackWatchdog: NodeJS.Timeout | null = null;
 
   // ── agent turn state ───────────────────────────────────────────────────────
   private parser: SpeechTagParser | null = null;
@@ -624,7 +632,7 @@ export class VoiceSession {
     const tts = usable?.tts ?? this.makeTts();
     const wasPrewarmed = Boolean(usable);
     this.tts = tts;
-    this.activeTurn = { id: turnId, sentText: "", firstAudioAt: 0, sawAudio: false };
+    this.activeTurn = { id: turnId, sentText: "", firstAudioAt: 0, sawAudio: false, audioBytes: 0 };
 
     tts.on("audio_chunk", (chunk: Uint8Array) => {
       if (this.closed || this.activeTurn?.id !== turnId) return; // voided by barge-in
@@ -636,7 +644,9 @@ export class VoiceSession {
         });
         this.beginSpeaking();
       }
+      this.activeTurn.audioBytes += chunk.byteLength;
       this.deps.sendAudio(chunk);
+      this.armPlaybackWatchdog();
     });
     tts.on("error", (e: Error) => {
       if (this.activeTurn?.id !== turnId) return;
@@ -700,7 +710,47 @@ export class VoiceSession {
     this.pushState();
   }
 
+  /**
+   * Reopen the microphone on our own schedule if the caller never says it
+   * finished playing.
+   *
+   * The gate is closed while the agent speaks and reopened by `playback_done`,
+   * which is a message from the BROWSER — so the room's ability to hear
+   * depended entirely on a client round trip that is not guaranteed to arrive.
+   * A turn voided by barge-in never gets `speech_end`, so a well-behaved client
+   * correctly never reports it done; a backgrounded tab or a dropped frame does
+   * the same thing by accident. Either way the gate stays shut, no audio is fed
+   * to STT, and the room is deaf for the rest of its hour-long life — observed
+   * as two working exchanges followed by nothing, with the STT socket
+   * reconnecting every ~18s because it was receiving no audio at all.
+   *
+   * We know how much audio we sent and its sample rate, so we know when it must
+   * have finished. Re-armed on every chunk, so it always trails the LAST chunk
+   * rather than the first.
+   */
+  private armPlaybackWatchdog(): void {
+    if (this.playbackWatchdog) clearTimeout(this.playbackWatchdog);
+    const turn = this.activeTurn;
+    if (!turn) return;
+    const turnId = turn.id;
+    // pcm_16000 is 16-bit mono at 16kHz — 32000 bytes per second of audio.
+    const remainingMs = (turn.audioBytes / 32) - (Date.now() - turn.firstAudioAt);
+    this.playbackWatchdog = setTimeout(
+      () => {
+        this.playbackWatchdog = null;
+        if (this.closed || !this.speaking || this.activeTurn?.id !== turnId) return;
+        this.deps.metric("playback_watchdog", undefined, { turnId, bytes: turn.audioBytes });
+        this.endSpeaking();
+      },
+      Math.max(0, remainingMs) + PLAYBACK_WATCHDOG_SLACK_MS,
+    );
+  }
+
   private teardownTurnAudio(): void {
+    if (this.playbackWatchdog) {
+      clearTimeout(this.playbackWatchdog);
+      this.playbackWatchdog = null;
+    }
     this.tts?.destroy();
     this.tts = null;
     this.activeTurn = null;
