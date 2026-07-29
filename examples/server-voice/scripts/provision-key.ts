@@ -9,16 +9,17 @@
 // than writing the key file directly) means station applies its own hashing and
 // server-side pepper, so the key verifies.
 //
-// WHAT THE KEY CAN AND CANNOT DO — worth being precise about, because it is not
-// obvious from the outside:
+// The web app drives the whole room lifecycle with this key and nothing else:
 //
-//   ✓ /api/v1/*  — signals, runs, events, health, expressions, env, schedules,
-//                  gated by scope (read / trigger / cancel / admin).
-//   ✗ /api/*     — the dashboard API, which is where BEACON start/stop lives.
-//                  That surface accepts only a session cookie, so an API key
-//                  cannot start or stop a room. The web app therefore logs in
-//                  with the username/password for room control (see
-//                  web/app/lib/station.ts) and uses this key for v1 reads.
+//   start    POST /api/v1/trigger            scope: trigger
+//   ready    GET  /api/v1/runs/:id           scope: read
+//   hang up  POST /api/v1/runs/:id/cancel    scope: cancel
+//
+// So mint it with all three:  pnpm key "web app" trigger read cancel
+//
+// (Keys authenticate /api/v1 only. The dashboard API /api/* takes a session
+// cookie — which is exactly why rooms are signals rather than beacons: beacon
+// control lives only on that surface. See signals/room.ts.)
 //
 // The key is shown ONCE. Station stores only a hash.
 
@@ -27,7 +28,8 @@ const USERNAME = process.env.STATION_USERNAME;
 const PASSWORD = process.env.STATION_PASSWORD;
 
 const name = process.argv[2] ?? "server-voice web app";
-const scopes = process.argv.slice(3);
+// Everything the web app needs, unless the caller asks for something narrower.
+const scopes = process.argv.length > 3 ? process.argv.slice(3) : ["trigger", "read", "cancel"];
 
 if (!USERNAME || !PASSWORD) {
   console.error(
@@ -86,8 +88,8 @@ console.log(`
 
     STATION_API_KEY=${data.key}
 
-  It covers /api/v1 (runs, signals, health). Room start/stop is NOT on that
-  surface — the app uses STATION_USERNAME / STATION_PASSWORD for those.
+  That is the only credential the web app needs — it starts rooms, polls them,
+  and hangs up entirely through station's v1 API.
 `);
 
 export {};

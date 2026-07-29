@@ -2,107 +2,55 @@ import "server-only";
 
 // Authenticated access to station, from the Next.js server only.
 //
-// Station's API can start and stop processes on the host, so it is gated. Two
-// credential types exist and they do NOT cover the same routes — worth knowing
-// before wiring anything:
+// ONE credential: a station API key, `Authorization: Bearer sk_live_…`. No
+// login, no session cookie, no password in this app at all.
 //
-//   • `/api/*`     — the dashboard API, which is where beacon start/stop lives.
-//                    Accepts ONLY a `station_session` cookie, obtained by
-//                    POSTing username/password to /api/auth/login.
-//   • `/api/v1/*`  — the programmatic API. Accepts a session cookie OR an
-//                    `Authorization: Bearer sk_live_…` API key, with scopes
-//                    (read / trigger / cancel / admin). It has no beacon
-//                    routes.
+// That is possible because a room is a signal run rather than a beacon, so its
+// whole lifecycle sits on station's v1 API — the surface API keys authenticate:
 //
-// So room control necessarily goes through the session, and the API key covers
-// the v1 surface (runs, signals, health) for anything else this app wants to
-// read. Both live in this module, server-side, and neither ever reaches the
-// browser — the client only ever sees a WebSocket URL.
+//   start    POST /api/v1/trigger            scope: trigger
+//   ready    GET  /api/v1/runs/:id           scope: read
+//   hang up  POST /api/v1/runs/:id/cancel    scope: cancel
+//
+// (Beacon control lives only on the dashboard API, which takes a session
+// cookie — there are no beacon routes under v1. That constraint is why rooms
+// are signals; see signals/room.ts.)
+//
+// Mint a key with `pnpm key`. It never reaches the browser: the client is
+// handed a WebSocket URL and nothing else.
 
 const STATION_URL = process.env.STATION_URL ?? "http://localhost:4400";
-const USERNAME = process.env.STATION_USERNAME;
-const PASSWORD = process.env.STATION_PASSWORD;
 const API_KEY = process.env.STATION_API_KEY;
 
-/** Cached session cookie. Re-minted on demand and whenever station 401s. */
-let sessionCookie: string | null = null;
-let loginInFlight: Promise<string> | null = null;
+export class StationAuthError extends Error {}
 
-class StationAuthError extends Error {}
-
-async function login(): Promise<string> {
-  if (!USERNAME || !PASSWORD) {
+/** Call station's v1 API with the key. */
+export async function stationV1(path: string, init?: RequestInit): Promise<Response> {
+  if (!API_KEY) {
     throw new StationAuthError(
-      "STATION_USERNAME / STATION_PASSWORD are not set in the web app's environment — it cannot authenticate to station.",
+      "STATION_API_KEY is not set. Start station, then run `pnpm key` in examples/server-voice and put the key in the web app's environment.",
     );
   }
-  const res = await fetch(`${STATION_URL}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: USERNAME, password: PASSWORD }),
+  const res = await fetch(`${STATION_URL}/api/v1${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      authorization: `Bearer ${API_KEY}`,
+      ...(init?.headers ?? {}),
+    },
     cache: "no-store",
   });
-  if (!res.ok) {
+  if (res.status === 401) {
     throw new StationAuthError(
-      res.status === 401
-        ? "station rejected the credentials — check STATION_USERNAME / STATION_PASSWORD match the ones station was started with."
-        : `station login failed (${res.status})`,
+      "station rejected the API key (401). It may have been revoked, or minted against a different station data directory — re-run `pnpm key`.",
     );
   }
-  const setCookie = res.headers.get("set-cookie") ?? "";
-  const match = setCookie.match(/station_session=([^;]+)/);
-  if (!match) throw new StationAuthError("station login returned no session cookie");
-  sessionCookie = `station_session=${match[1]}`;
-  return sessionCookie;
-}
-
-/** Serialize concurrent logins so a burst of requests mints one session. */
-function ensureSession(): Promise<string> {
-  if (sessionCookie) return Promise.resolve(sessionCookie);
-  loginInFlight ??= login().finally(() => {
-    loginInFlight = null;
-  });
-  return loginInFlight;
-}
-
-/**
- * Call the dashboard API (`/api/…`) with a session, re-authenticating once if
- * the cached cookie has expired.
- */
-export async function stationFetch(path: string, init?: RequestInit): Promise<Response> {
-  const call = async (cookie: string) =>
-    fetch(`${STATION_URL}/api${path}`, {
-      ...init,
-      headers: { "Content-Type": "application/json", cookie, ...(init?.headers ?? {}) },
-      cache: "no-store",
-    });
-
-  let res = await call(await ensureSession());
-  if (res.status === 401) {
-    sessionCookie = null;
-    res = await call(await ensureSession());
+  if (res.status === 403) {
+    throw new StationAuthError(
+      "the API key is missing a scope (403). Rooms need `trigger`, `read` and `cancel` — re-mint with: pnpm key \"web app\" trigger read cancel",
+    );
   }
   return res;
 }
 
-/**
- * Call the programmatic API (`/api/v1/…`) with the API key when one is
- * provisioned, falling back to the session. Use this for reads — runs,
- * signals, health — not for room control, which v1 does not expose.
- */
-export async function stationV1Fetch(path: string, init?: RequestInit): Promise<Response> {
-  if (API_KEY) {
-    return fetch(`${STATION_URL}/api/v1${path}`, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        authorization: `Bearer ${API_KEY}`,
-        ...(init?.headers ?? {}),
-      },
-      cache: "no-store",
-    });
-  }
-  return stationFetch(`/v1${path}`, init);
-}
-
-export { StationAuthError, STATION_URL };
+export { STATION_URL };

@@ -10,9 +10,9 @@ and **every decision happens server-side**.
 This example is the other half of the comparison.
 
 ```
-  Next.js app (:3000)          room BEACON — one per room, started on demand
+  Next.js app (:3000)          room SIGNAL RUN — one per call, up to an hour
   ───────────────────          ────────────────────────────────────────────
-  POST /api/rooms ─────────▶   station starts room-N on :450N
+  POST /api/rooms ─────────▶   POST /api/v1/trigger → room runs on :450n
                                VAD → STT → turn detector → front agent
   mic ──PCM16──────────────▶                                  │
   speakers ◀────PCM16───────   TTS ◀──── <speech> parser ◀─────┤
@@ -26,9 +26,9 @@ This example is the other half of the comparison.
 ```
 
 Three processes, each doing the thing it is actually good at: **Next.js** serves
-the UI and allocates rooms, a **room beacon** holds one durable conversation and
-all the audio work, and a **signal run** does the heavy research and reports
-back over the mesh.
+the UI and allocates rooms, a **room run** holds one conversation and all the
+audio work, and a **research run** does the heavy lookups and reports back over
+the mesh.
 
 ## What the client still does, and what it stopped doing
 
@@ -73,24 +73,36 @@ a serverless function, and a bare `node server.js` gives you nothing when it
 falls over. Station supplies the two primitives this architecture actually
 needs:
 
-**A room is a `beacon`** — a supervised, long-running process that owns ONE
-conversation. Rooms are `.manualStart()`, so a slot sits stopped until the app
-claims it:
+**A room is a long-lived `signal` run** — one call, one child process, up to an
+hour. The whole lifecycle is three v1 calls:
 
 ```
-POST /api/beacons/room-2/start   { "config": { "roomId": "…", "port": 4502 } }
-POST /api/beacons/room-2/stop    ← hang up, slot released
+start    POST /api/v1/trigger          { signalName: "room", input }   scope: trigger
+ready    GET  /api/v1/runs/:id                                         scope: read
+hang up  POST /api/v1/runs/:id/cancel                                  scope: cancel
 ```
 
 Because the room is the process and not the socket, it **outlives the page**:
 reload the tab and you reattach to the same conversation, with the front agent's
-history and any in-flight delegation intact. `restart("always")` brings a
-crashed room back mid-call; `.heartbeat("10s")` recycles a wedged event loop;
-`ctx.onStop` drains the caller's socket politely; and the dashboard shows a row
-per room with incarnation, uptime and live logs.
+history and any in-flight delegation intact. A cancel and the run timeout both
+arrive as `SIGTERM`, which the room turns into a graceful close — sockets shut,
+agent torn down, port released. Abandoned rooms end themselves after ten idle
+minutes; the hour is the backstop for a caller who never hangs up.
 
-**Each delegation is a `signal`** — a discrete job, run to completion in its own
-child process, with a timeout, retries, and a durable Run record. It is
+Beacons are the more obvious fit for "supervised long-running process", and
+this started there. The reason it moved: **beacon control exists only on
+station's dashboard API, which authenticates with a session cookie** — there
+are no beacon routes under `/api/v1`, so an API key cannot start or stop one.
+Rooms as signals put the entire lifecycle on the surface a key can drive, so
+the web app holds one credential and no password. The cost is a beacon's
+`restart("always")` and heartbeat stall detection: a crashed room is a failed
+run and the caller lands in a NEW room rather than a restarted one — which for
+a voice call is arguably clearer, since a silently restarted room would come
+back with an empty conversation anyway.
+
+**Each delegation is a `signal` too** — a short job rather than an hour-long
+one, run to completion in its own child process, with a timeout, retries, and a
+durable Run record. It is
 dispatched fire-and-forget and **consolidates back over the mesh**: the worker
 replies with `glove_mesh_send_message` threaded via `in_reply_to`, which
 resolves the front agent's pending `mesh:waiting` item and wakes her with the
@@ -106,8 +118,8 @@ worker as a signal rather than an in-process peer buys three things the
 in-process bus cannot:
 
 - The heavy agent cannot take the voice loop down with it. Different process.
-- The job is in the database before the worker starts, so a gateway restart
-  loses the caller's socket but never the delegation.
+- The job is in the database before the worker starts, so losing the caller's
+  socket never loses the delegation.
 - Every delegation is inspectable afterwards — what was asked, what came back,
   how long it took, what retried. Voice systems are miserable to debug precisely
   because that record normally does not exist.
@@ -158,28 +170,31 @@ avoids the whole class.
 Two processes, in two terminals.
 
 ```bash
-cp .env.example .env.local     # keys + STATION_USERNAME / STATION_PASSWORD
+cp .env.example .env.local     # provider keys + STATION_USERNAME / STATION_PASSWORD
 pnpm install
 
 pnpm start                     # 1. the backend → `station`
-pnpm --filter glove-server-voice-web dev    # 2. the app you test in
+pnpm key "web app" trigger read cancel      # 2. mint the app's only credential
+pnpm --filter glove-server-voice-web dev    # 3. the app you test in
 ```
+
+Put the minted key in the web app's environment as `STATION_API_KEY`.
 
 `STATION_USERNAME` and `STATION_PASSWORD` are **required** — station refuses to
 boot without them, with no default. Its API can start and stop processes on the
 host, so an unauthenticated one is a remote-execution endpoint and a built-in
 default password is the same thing with extra steps.
 
-`station` reads `station.config.ts`, builds the signal and beacon runners from
-`signals/` and `beacons/`, supervises rooms, drains the research queue, and
-serves the dashboard. Rooms stay **stopped** until the app claims one.
+`station` reads `station.config.ts`, builds the signal runner from `signals/`,
+runs rooms and research jobs, and serves the dashboard. Nothing starts until the
+app triggers a room.
 
 - **http://localhost:3000** — the app. Hit Connect: it claims a room, waits for
   it to come up, then streams your microphone to it.
-- **http://localhost:4400** — the dashboard. `/beacons` is one row per room
-  (status, incarnation, restart count, live logs, start/stop/restart);
-  `/signals` is every delegation with its input, answer and timing; `/env`
-  manages the API keys injected into runs.
+- **http://localhost:4400** — the dashboard. `/signals` and `/runs` carry both
+  kinds of work: every call is a room run with a duration, an outcome and its
+  logs, and every delegation shows its input, answer and attempts. `/env`
+  manages the provider keys injected into runs.
 
 The first room to start downloads the open [`livekit/turn-detector`](https://huggingface.co/livekit/turn-detector)
 weights (~150MB, one-time, into the HF cache) — so the first Connect is slow and
@@ -194,25 +209,27 @@ pnpm runs                      # the durable delegation records
 pnpm key                       # mint an API key for station's v1 API
 ```
 
-### Credentials — two kinds, covering different routes
+### Credentials
 
-This trips people up, so it is worth stating plainly. Station has two
-credential types and they do **not** cover the same surface:
+The web app holds **one** credential: a station API key with `trigger`, `read`
+and `cancel`. That is the whole room lifecycle. No login, no session, no
+password in the app at all.
+
+`STATION_USERNAME` / `STATION_PASSWORD` are for station itself — the dashboard
+login, and minting keys with `pnpm key`. The app never sees them.
+
+This split is forced by station's two credential types, which do **not** cover
+the same surface, and it is the reason rooms are signals:
 
 | | `/api/*` (dashboard API) | `/api/v1/*` (programmatic API) |
 | --- | --- | --- |
 | session cookie (login) | ✅ | ✅ |
 | API key (`Authorization: Bearer sk_live_…`) | ❌ 401 "Session required" | ✅ scoped |
-| **beacon start / stop lives here** | ✅ | ✗ no beacon routes |
+| beacon start / stop | ✅ only here | ✗ no beacon routes |
+| signal trigger / run cancel | ✅ | ✅ |
 
-So **room control necessarily goes through the session**: the web app logs in
-server-side with `STATION_USERNAME` / `STATION_PASSWORD`, caches the cookie, and
-re-authenticates on a 401 (`web/app/lib/station.ts`). An API key from `pnpm key`
-covers the v1 surface — signals, runs, events, health — for anything else the
-app wants to read, and is scoped (`read`, `trigger`, `cancel`, `admin`).
-
-Neither credential ever reaches the browser. The client is handed a WebSocket
-URL and nothing else.
+The key never reaches the browser either. The client is handed a WebSocket URL
+and nothing else.
 
 ### Things to try
 
@@ -226,17 +243,19 @@ URL and nothing else.
   She hears every line and decides for herself whether she was addressed.
 - **Reload the page mid-conversation.** The room is the process, not the
   socket: you reattach to the same conversation with its history intact.
-- **Kill a room.** `kill` the `room-N` child, or restart it from the dashboard —
-  the supervisor brings it straight back.
-- **Watch the pool.** Connect from several tabs; each claims its own room on its
-  own port, and the fifth is refused rather than silently sharing one.
+- **Watch the pool.** Connect from several tabs; each triggers its own room run
+  on its own port, and the fifth is refused rather than silently sharing one.
+  Ports are allocated from station's run records, not by probing, so
+  simultaneous claims cannot collide.
+- **Hang up and check the dashboard.** The run shows as `cancelled` with its
+  logs and duration — every call leaves an audit trail.
 
 ## Files
 
 | | |
 | --- | --- |
 | `station.config.ts` | the whole deployment: dirs, adapters, dashboard port |
-| `beacons/rooms.ts` | the room pool — WebSocket audio in/out, `/mesh` inbound |
+| `signals/room.ts` | a room — WebSocket audio in/out, `/mesh` inbound |
 | `signals/research.ts` | the delegation job, replying over the mesh |
 | `lib/mesh-transport.ts` | the two mesh adapters that span the process boundary |
 | `web/` | the Next.js app you actually test in |

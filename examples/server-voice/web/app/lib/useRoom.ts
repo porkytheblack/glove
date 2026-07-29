@@ -4,7 +4,7 @@
 //
 // Count what is NOT here: no API keys, no token fetches, no VAD, no silence
 // timers, no endpointing heuristics, no turn detection, no transcript dedupe,
-// no barge-in logic, no agent or model code. All of it runs in the room beacon.
+// no barge-in logic, no agent or model code. All of it runs in the room.
 // What remains is a duct — microphone up, speakers down — plus whatever state
 // the room tells us to render.
 //
@@ -58,7 +58,7 @@ export function useRoom() {
   const ctxRef = useRef<AudioContext | null>(null);
   const playbackRef = useRef<AudioWorkletNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const roomRef = useRef<string | null>(null);
+  const runRef = useRef<string | null>(null);
   const seq = useRef(0);
   const ttfts = useRef<number[]>([]);
   const turnRef = useRef(0);
@@ -139,11 +139,12 @@ export function useRoom() {
     wsRef.current?.close();
     wsRef.current = null;
     stopAudio();
-    const room = roomRef.current;
-    roomRef.current = null;
-    if (room) {
-      // Release the beacon slot for the next caller.
-      await fetch(`/api/rooms?room=${room}`, { method: "DELETE" }).catch(() => {});
+    const runId = runRef.current;
+    runRef.current = null;
+    if (runId) {
+      // Cancelling the run SIGTERMs the room, which closes it gracefully and
+      // frees the port for the next caller.
+      await fetch(`/api/rooms?runId=${runId}`, { method: "DELETE" }).catch(() => {});
     }
     setState((s) => ({ ...INITIAL, log: s.log }));
   }, [stopAudio]);
@@ -153,13 +154,13 @@ export function useRoom() {
     try {
       const res = await fetch("/api/rooms", { method: "POST" });
       const data = (await res.json()) as {
-        room?: string;
+        runId?: string;
         wsUrl?: string;
         healthUrl?: string;
         error?: string;
       };
       if (!res.ok || !data.wsUrl) throw new Error(data.error ?? "could not allocate a room");
-      roomRef.current = data.room ?? null;
+      runRef.current = data.runId ?? null;
 
       // The room binds its port and loads the endpointing model before it is
       // ready. The very first room start also downloads the model, so wait
