@@ -488,6 +488,9 @@ importers:
       glove-core:
         specifier: workspace:*
         version: link:../../packages/glove
+      glove-mesh:
+        specifier: workspace:*
+        version: link:../../packages/glove-mesh
       glove-voice:
         specifier: workspace:*
         version: link:../../packages/glove-voice
@@ -519,6 +522,31 @@ importers:
       tsx:
         specifier: ^4.21.0
         version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  examples/server-voice/web:
+    dependencies:
+      next:
+        specifier: ^15.3.3
+        version: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.4(react@19.2.4)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.14)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

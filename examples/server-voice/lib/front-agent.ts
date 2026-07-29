@@ -1,14 +1,13 @@
 // The FRONT agent — "Nova". Thin, fast, voice-facing, and running inside the
 // gateway beacon rather than a browser tab.
 //
-// The one architectural difference from `examples/layered-voice`: delegation no
-// longer rides the in-process mesh bus. The heavy worker lives in a different
-// OS process (a station signal run), so Nova's delegation tool TRIGGERS A JOB
-// on station's queue and returns immediately. The async semantics the paper
-// cares about are unchanged — Nova acknowledges out loud, keeps the floor, and
-// is woken with the findings on a later turn (§5) — but the transport is now
-// durable and observable: every delegation is a Run with input, output, timing
-// and retry history in the station dashboard.
+// Delegation is unchanged from `examples/layered-voice`: Nova calls
+// `glove_mesh_send_message` with `blocking: true`, gets a `mesh:waiting` inbox
+// item, and is woken when the worker's threaded reply resolves it (§5). What
+// differs is only what happens underneath — the worker is not a peer in this
+// process but a station signal run, and the mesh reaches it over an adapter
+// rather than an in-process bus (see lib/mesh-transport.ts). The agent cannot
+// tell the difference, which is the point.
 
 import { Glove, Displaymanager, type IGloveRunnable, type StoreAdapter } from "glove-core";
 import { z } from "zod";
@@ -54,31 +53,27 @@ You hear whatever the microphone picks up, transcribed — and the room may be n
 - Never delegate off something you may have misheard. If a hull id, name, or number came through shaky, confirm it out loud first; a wrong lookup wastes everyone's time.
 
 # What you can and can't do yourself
-You have almost no tools — just the clock. You CANNOT look things up. Anything needing shop data — catalog, customer accounts, hulls, service history, warranty, parts, repair quotes, financing, appointments, bookings — must be DELEGATED to your capability partner, the worker.
+You have almost no tools — just the clock. You CANNOT look things up. Anything needing shop data — catalog, customer accounts, hulls, service history, warranty, parts, repair quotes, financing, appointments, bookings — must be DELEGATED to your capability partner, the worker (agent id "worker").
 
 # How to delegate
 When an addressed request needs shop data or an action:
-1. CALL THE TOOL. delegate_to_worker is the ONLY thing that starts the work:
-     request: "<restate the request clearly, including any hull id / customer name / model you heard — even from lines that weren't addressed to you>"
-   The worker starts from scratch each time and cannot see this conversation, so the request must stand completely on its own. Saying "let me check" out loud does NOTHING by itself — if you do not call the tool in this turn, nobody looks anything up and the customer waits forever. Never end a turn having promised a lookup without having called it.
+1. CALL THE TOOL. glove_mesh_send_message is the ONLY thing that starts the work:
+     to: "worker", blocking: true,
+     content: "<restate the request clearly, including any hull id / customer name / model you heard — even from lines that weren't addressed to you>"
+   Always set blocking to true. The worker starts from scratch and cannot see this conversation, so the content must stand completely on its own. Saying "let me check" out loud does NOTHING by itself — if you do not call the tool in this turn, nobody looks anything up and the customer waits forever. Never end a turn having promised a lookup without having called it.
 2. In the SAME turn, also speak a short acknowledgement out loud: <speech>Checking on that now.</speech> Never go silent while delegating.
-3. Then stop and wait. The tool returns immediately — that is expected, it does NOT mean the answer is ready. The findings arrive on a later turn.
+3. Then stop and wait. The tool returns as soon as the request is dispatched — that is expected, it does NOT mean the answer is ready.
 
 # When the answer comes back
-On a later turn you'll get a <worker-result> notice carrying the findings. Relay them out loud — <speech> tags, one or two sentences, the key facts conversationally. Offer more detail if they want it.
+On a later turn you'll see "[Inbox: N item(s) resolved]" with the worker's reply, alongside a <worker-result> notice. Relay the findings out loud — <speech> tags, one or two sentences, the key facts conversationally. Offer more detail if they want it.
 
 # Rules
 - NEVER invent an answer for something you delegated but haven't heard back on. If asked while waiting, say you're still checking.
 - Answer trivial things yourself without delegating: greetings, who you are, what the shop is, the date.
+- There is exactly one worker, id "worker" — no need to discover agents.
 - Today is ${STATS.todayIso}.`;
 
-export interface FrontAgentDeps {
-  /** Trigger a research job. Resolves with the station run id as soon as the
-   *  job is QUEUED — never waits for the findings. */
-  delegate(request: string): Promise<string>;
-}
-
-export function buildFrontAgent(store: StoreAdapter, deps: FrontAgentDeps): IGloveRunnable {
+export function buildFrontAgent(store: StoreAdapter): IGloveRunnable {
   return new Glove({
     store,
     model: buildModel("front", true),
@@ -96,29 +91,6 @@ export function buildFrontAgent(store: StoreAdapter, deps: FrontAgentDeps): IGlo
       inputSchema: z.object({}),
       async do() {
         return { status: "success", data: { today: STATS.todayIso } };
-      },
-    })
-    .fold({
-      name: "delegate_to_worker",
-      description:
-        "Hand a request to your capability partner, who has the full shop database (catalog, customers, hulls, service history, warranty, parts, quotes, financing, appointments, bookings). Returns immediately — the findings arrive on a later turn as a <worker-result> notice. The worker cannot see this conversation, so write a self-contained request.",
-      inputSchema: z.object({
-        request: z
-          .string()
-          .describe(
-            "The full, self-contained request: what to look up, plus every hull id, customer name, model or number you heard that it needs.",
-          ),
-      }),
-      async do(input) {
-        const jobId = await deps.delegate(input.request);
-        return {
-          status: "success",
-          data: {
-            delegated: true,
-            jobId,
-            note: "Queued. The worker is researching now — say a brief acknowledgement out loud and wait. Do NOT answer from guesswork; the findings will arrive on a later turn.",
-          },
-        };
       },
     })
     .build();

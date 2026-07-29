@@ -6,3 +6,5 @@ station.db-*
 voice-metrics.jsonl
 # station-kit runtime dir
 .station
+# next.js build output (web app)
+web/.next

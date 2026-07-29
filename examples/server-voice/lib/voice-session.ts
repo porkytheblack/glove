@@ -24,6 +24,8 @@ import {
 } from "glove-voice";
 import { createElevenLabsSTTToken, createElevenLabsTTSToken } from "glove-voice/server";
 import { MemoryStore, type SubscriberAdapter } from "glove-core";
+import { mountMesh, type IncomingMeshMessage } from "glove-mesh";
+import { FRONT_IDENTITY, RoomMeshAdapter, WORKER_ID } from "./mesh-transport";
 import { buildFrontAgent } from "./front-agent";
 import { SpeechTagParser } from "./speech-parser";
 import {
@@ -43,11 +45,10 @@ import type { ServerMessage, SpeakerRole } from "./protocol";
 const TTS_CHARS_PER_SEC = 15;
 /** Wait this long after playback drains before trusting the room to be quiet. */
 const POST_SPEECH_DEADBAND_MS = 300;
+/** At most one "your line never played" turn per window — see reportSpeechFailure. */
+const SPEECH_FAILURE_COOLDOWN_MS = 30_000;
 /** Start synthesizing this early instead of buffering a full sentence. */
 const CHUNK_LENGTH_SCHEDULE = [60, 120, 160, 250];
-/** How often to check a delegated job for completion. */
-const DELEGATION_POLL_MS = 250;
-
 /** Spoken phrasing that promises a lookup is already underway. */
 const PROMISE_RE =
   /\b(one (moment|sec(ond)?)|moment please|let me (check|see|look|pull|find|get)|i(?:'|’)?ll (check|look|pull|get|find)|checking (on )?that|looking (that|it|into) up|pulling (that|it) up|right away|hold on|give me a (sec|second|moment)|bear with me)\b/i;
@@ -62,15 +63,15 @@ const PROMISE_RE =
  * model round, and only on the failure path.
  */
 const DELEGATION_NUDGE_PROMPT =
-  "You just spoke a promise to look something up, but you did NOT call the delegate_to_worker tool — nothing was dispatched and the customer will wait forever. Call delegate_to_worker NOW as a real tool call (not text, and never as <function_calls> markup), with `request` restating what to look up including any hull id, customer name or model you heard. Output NOTHING else — no <speech> tags, the room already heard your acknowledgement. You do NOT have the answer yet and must not invent one.";
+  'You just spoke a promise to look something up, but you did NOT call glove_mesh_send_message — nothing was dispatched and the customer will wait forever. Call glove_mesh_send_message NOW as a real tool call (not text, and never as <function_calls> markup), with to: "worker", blocking: true, and content restating the request including any hull id, customer name or model you heard. Output NOTHING else — no <speech> tags, the room already heard your acknowledgement. You do NOT have the answer yet and must not invent one.';
 
 /**
  * Some models emit a tool call as literal markup in their text stream instead
  * of through the provider's tool-call channel — Kimi K2 does this
  * intermittently:
  *
- *     <function_calls><invoke name="delegate_to_worker">
- *       <parameter name="request">Check warranty for KES-0007</parameter>
+ *     <function_calls><invoke name="glove_mesh_send_message">
+ *       <parameter name="content">Check warranty for KES-0007</parameter>
  *
  * The framework never sees a tool call, so nothing dispatches. The `<speech>`
  * protocol keeps the markup out of the audio, but the request is still sitting
@@ -78,13 +79,12 @@ const DELEGATION_NUDGE_PROMPT =
  * spending a model round hoping the retry comes back well-formed.
  */
 const TEXTUAL_TOOL_CALL_RE =
-  /<invoke\s+name=["']delegate_to_worker["']>[\s\S]*?<parameter\s+name=["']request["']>([\s\S]*?)(?:<\/parameter>|<\/invoke>|$)/i;
+  /<invoke\s+name=["']glove_mesh_send_message["']>[\s\S]*?<parameter\s+name=["']content["']>([\s\S]*?)(?:<\/parameter>|<\/invoke>|$)/i;
 
 export interface VoiceSessionDeps {
-  /** Queue a research job; resolves with the run id once queued. */
-  delegate(request: string, sessionId: string): Promise<string>;
-  /** Resolve a queued job — completes when the worker finishes or fails. */
-  awaitDelegation(jobId: string): Promise<{ answer: string } | { error: string }>;
+  /** Queue a research job and return once QUEUED. The answer comes back over
+   *  the mesh, not from this promise — that is what keeps Nova responsive. */
+  dispatchResearch(input: { request: string; messageId: string }): Promise<string>;
   /** Send a JSON control frame to the client. */
   send(msg: ServerMessage): void;
   /** Send raw PCM16 to the client. */
@@ -103,6 +103,11 @@ export class VoiceSession {
   private stt!: ElevenLabsSTTAdapter;
   private engine!: TurnEngine;
   private front!: ReturnType<typeof buildFrontAgent>;
+  private mesh!: RoomMeshAdapter;
+  /** mesh message id → when it was dispatched, for round-trip timing. */
+  private readonly pendingDelegations = new Map<string, number>();
+  /** Is a caller currently attached? The room outlives any single client. */
+  private attached = false;
 
   private speaker: SpeakerRole = "operator";
   private closed = false;
@@ -127,13 +132,17 @@ export class VoiceSession {
   private ttftPending = false;
   private history: TurnContextMessage[] = [];
   private pendingInterruption: string | null = null;
-  /** Did the model actually call delegate_to_worker during the current turn? */
+  /** Did the model actually dispatch over the mesh during the current turn? */
   private delegatedThisTurn = false;
   /** A corrective turn: its job is to dispatch, never to talk. Anything it
    *  generates is parsed (so a textual tool call can still be salvaged) but
    *  never reaches TTS — a nudged model that ignores "say nothing" and invents
    *  an answer must not be able to read it to the room. */
   private silentTurn = false;
+  /** When the last speech-failure turn was raised. Reporting a failed line is
+   *  itself a spoken turn, so an unhealthy TTS path can trigger a failure turn
+   *  whose own audio fails, forever. This throttles that into one report. */
+  private lastSpeechFailureAt = 0;
 
   constructor(id: string, deps: VoiceSessionDeps) {
     this.id = id;
@@ -143,10 +152,27 @@ export class VoiceSession {
   // ── lifecycle ──────────────────────────────────────────────────────────────
 
   async start(): Promise<void> {
-    this.front = buildFrontAgent(new MemoryStore(`front_${this.id}`), {
-      delegate: (request) => this.startDelegation(request),
-    });
+    this.front = buildFrontAgent(new MemoryStore(`front_${this.id}`));
     this.front.addSubscriber(this.makeSubscriber());
+
+    // Nova talks to the worker over the mesh exactly as she does in the
+    // browser-hosted example. The adapter is what changes: a send becomes a
+    // queued signal run, and the threaded reply arrives over HTTP.
+    this.mesh = new RoomMeshAdapter({
+      dispatch: async ({ request, messageId }) => {
+        const jobId = await this.deps.dispatchResearch({ request, messageId });
+        this.deps.send({
+          t: "delegation",
+          jobId,
+          phase: "queued",
+          detail: request.slice(0, 160),
+        });
+        this.deps.metric("delegation_queued", undefined, { jobId, messageId });
+        this.pendingDelegations.set(messageId, Date.now());
+        return jobId;
+      },
+    });
+    await mountMesh(this.front, { adapter: this.mesh, identity: FRONT_IDENTITY });
 
     this.stt = new ElevenLabsSTTAdapter({
       // Server-side, the "token" step is a local function call against the API
@@ -181,6 +207,11 @@ export class VoiceSession {
       transport: "websocket-pcm16",
     });
 
+    this.sendReady();
+    this.pushState();
+  }
+
+  private sendReady(): void {
     this.deps.send({
       t: "ready",
       sessionId: this.id,
@@ -198,7 +229,6 @@ export class VoiceSession {
       })),
       assistantName: ASSISTANT_NAME,
     });
-    this.pushState();
   }
 
   close(): void {
@@ -210,10 +240,34 @@ export class VoiceSession {
     this.prewarmed?.tts.destroy();
   }
 
+  // ── caller attach / detach ─────────────────────────────────────────────────
+  //
+  // The room is durable: it is the beacon, not the socket. A caller dropping
+  // (page reload, flaky network, tab close) must not tear down the front
+  // agent's history or a delegation already in flight — they reconnect and the
+  // conversation continues where it was.
+
+  /** A caller connected. Re-announce the room so a reconnecting client can
+   *  render its state immediately. */
+  attach(): void {
+    this.attached = true;
+    this.sendReady();
+    this.pushState();
+  }
+
+  /** The caller went away. Stop speaking into a socket nobody is holding, but
+   *  keep the agent, its history, and any in-flight delegation alive. */
+  detach(): void {
+    this.attached = false;
+    this.teardownTurnAudio();
+    this.speaking = false;
+    this.engine.setGateOpen(true);
+  }
+
   // ── client input ───────────────────────────────────────────────────────────
 
   handleAudio(pcm: Int16Array): void {
-    if (this.closed) return;
+    if (this.closed || !this.attached) return;
     this.engine.processAudio(pcm);
   }
 
@@ -329,9 +383,9 @@ export class VoiceSession {
       // Close the stream so ElevenLabs synthesizes the tail immediately.
       this.tts?.flush();
       this.deps.send({ t: "speech_end", turnId });
-    } else if (spoken && !this.activeTurn) {
+    } else if (spoken && !this.activeTurn && !isNudge) {
       // Text was produced but no socket carried it.
-      this.enqueueTurn(frameSpeechFailure("no audio channel was open"));
+      this.reportSpeechFailure("no audio channel was open");
     }
   }
 
@@ -398,7 +452,7 @@ export class VoiceSession {
       if (this.activeTurn?.id !== turnId) return;
       this.deps.send({ t: "error", message: `TTS: ${e.message}` });
       this.teardownTurnAudio();
-      this.enqueueTurn(frameSpeechFailure(e.message));
+      this.reportSpeechFailure(e.message);
     });
 
     if (!wasPrewarmed) {
@@ -406,6 +460,25 @@ export class VoiceSession {
         this.deps.send({ t: "error", message: `TTS: ${e.message}` });
       });
     }
+  }
+
+  /**
+   * Tell the model its line never played — at most once per window.
+   *
+   * Without the throttle this recurses: the failure notice is itself a spoken
+   * turn, so if the TTS path is unhealthy its audio fails too, raising another
+   * notice, forever. Observed in testing as a burst of hundreds of identical
+   * TTS errors in a single millisecond.
+   */
+  private reportSpeechFailure(detail: string): void {
+    const now = Date.now();
+    if (now - this.lastSpeechFailureAt < SPEECH_FAILURE_COOLDOWN_MS) {
+      this.deps.metric("speech_failure_suppressed", undefined, { detail });
+      return;
+    }
+    this.lastSpeechFailureAt = now;
+    this.deps.metric("speech_failure", undefined, { detail });
+    this.enqueueTurn(frameSpeechFailure(detail));
   }
 
   private beginSpeaking(): void {
@@ -473,33 +546,45 @@ export class VoiceSession {
    * out loud — the answer arrives later, as its own turn (§5).
    */
   private async startDelegation(request: string): Promise<string> {
-    this.delegatedThisTurn = true;
-    const queuedAt = Date.now();
-    const jobId = await this.deps.delegate(request, this.id);
-    this.deps.send({ t: "delegation", jobId, phase: "queued", detail: request.slice(0, 160) });
-    this.deps.metric("delegation_queued", undefined, { jobId, chars: request.length });
+    return this.mesh.send({
+      id: `msg_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`,
+      from: FRONT_IDENTITY.id,
+      to: WORKER_ID,
+      content: request,
+      created_at: new Date().toISOString(),
+      blocking: true,
+    }).then(() => "dispatched");
+  }
 
-    void this.deps
-      .awaitDelegation(jobId)
-      .then((result) => {
-        if (this.closed) return;
-        const ms = Date.now() - queuedAt;
-        if ("answer" in result) {
-          this.deps.send({ t: "delegation", jobId, phase: "done" });
-          this.deps.metric("delegation_roundtrip_ms", ms, { jobId });
-          this.enqueueTurn(frameWorkerResult(result.answer));
-        } else {
-          this.deps.send({ t: "delegation", jobId, phase: "failed", detail: result.error });
-          this.deps.metric("delegation_failed", ms, { jobId, error: result.error });
-          this.enqueueTurn(frameWorkerTrouble(result.error));
-        }
-      })
-      .catch((err) => {
-        if (this.closed) return;
-        this.enqueueTurn(frameWorkerTrouble((err as Error)?.message ?? "unknown failure"));
-      });
+  /**
+   * The worker's threaded reply, arriving from its signal process via the
+   * room's /mesh endpoint. Handing it to the mesh adapter resolves Nova's
+   * pending `mesh:waiting` item, so the findings land in her inbox exactly as
+   * they would on an in-process bus; the wakeup turn then relays them (§5).
+   */
+  async deliverMeshMessage(message: IncomingMeshMessage): Promise<void> {
+    if (this.closed) return;
+    const key = message.in_reply_to ?? message.id;
+    const queuedAt = this.pendingDelegations.get(key);
+    this.pendingDelegations.delete(key);
+    if (queuedAt) {
+      this.deps.metric("delegation_roundtrip_ms", Date.now() - queuedAt, { messageId: key });
+    }
+    this.deps.send({ t: "delegation", jobId: key, phase: "done" });
 
-    return jobId;
+    await this.mesh.deliver(message);
+    // The inbox now carries the findings; the notice tells her what kind of
+    // moment this is. Both reach the model on the same turn.
+    this.enqueueTurn(frameWorkerResult(message.content));
+  }
+
+  /** A dispatched job died in its signal run — level with the caller. */
+  async reportDelegationFailure(messageId: string, reason: string): Promise<void> {
+    if (this.closed) return;
+    this.pendingDelegations.delete(messageId);
+    this.deps.send({ t: "delegation", jobId: messageId, phase: "failed", detail: reason });
+    this.deps.metric("delegation_failed", undefined, { messageId, reason });
+    this.enqueueTurn(frameWorkerTrouble(reason));
   }
 
   // ── plumbing ───────────────────────────────────────────────────────────────
@@ -509,6 +594,11 @@ export class VoiceSession {
       record: async (type, data) => {
         if (type === "text_delta") {
           this.parser?.push((data as { text: string }).text);
+        } else if (type === "tool_use") {
+          const d = data as { name: string };
+          // Her mesh send IS the dispatch — that is what the promise backstop
+          // below checks for.
+          if (d.name === "glove_mesh_send_message") this.delegatedThisTurn = true;
         } else if (type === "token_consumption") {
           const c = (data as { consumption: { tokens_in: number; tokens_out: number } })
             .consumption;
@@ -547,5 +637,3 @@ function estimateHeard(sentText: string, playedMs: number): string {
   const lastSpace = cut.lastIndexOf(" ");
   return (lastSpace > 20 ? cut.slice(0, lastSpace) : cut).trim();
 }
-
-export { DELEGATION_POLL_MS };

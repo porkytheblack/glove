@@ -1,4 +1,4 @@
-// PCM16 from the server → speakers, through a ring buffer.
+// PCM16 from the room → speakers, through a ring buffer.
 //
 // Two things make this more than a naive queue:
 //
@@ -7,7 +7,7 @@
 //     browser may hold seconds of already-generated audio. Dropping the socket
 //     would not help — this is what actually cuts the voice off.
 //   • `drained` reports the moment the last sample is played, which the client
-//     forwards to the server. The gateway sends audio faster than realtime, so
+//     forwards to the room. The gateway sends audio faster than realtime, so
 //     it cannot know when the room actually went quiet; this is how it learns
 //     when to reopen the microphone path.
 

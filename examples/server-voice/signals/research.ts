@@ -1,95 +1,123 @@
 // The delegation job.
 //
-// In the browser-hosted example the worker is a second in-process agent that
-// the front agent reaches over glove-mesh. Here it is a station SIGNAL: a
-// discrete unit of work, run to completion in its own supervised child
-// process, with a timeout, retries, and a durable Run record carrying its
-// input, output and timing.
+// Fire-and-forget from the room's point of view: the front agent's mesh send
+// queues this run and returns immediately, so Nova acknowledges out loud and
+// keeps the floor. This run then does the research in its own process and
+// CONSOLIDATES BACK THROUGH THE MESH — a threaded `glove_mesh_send_message`
+// with `in_reply_to` set, which resolves the front agent's pending
+// `mesh:waiting` item and wakes her with the findings (§5).
 //
-// That swap buys three things the in-process mesh cannot give you:
-//   • The heavy agent cannot take the voice loop down with it. It runs in a
-//     different process; a crash, a hang, or an OOM is the supervisor's
-//     problem, and Nova keeps talking.
-//   • Delegations survive the gateway. The Run is in the database before the
-//     worker starts, so a gateway restart mid-research loses the conversation
-//     but never the job.
-//   • Every delegation is inspectable after the fact — `station` dashboard,
-//     runs view: what was asked, what came back, how long it took, what
-//     retried. Voice systems are miserable to debug precisely because this
-//     record normally does not exist.
+// Running the worker as a signal rather than an in-process peer buys:
+//   • Isolation — a crash, hang or OOM in the heavy agent is the supervisor's
+//     problem, not the voice loop's. The room keeps talking.
+//   • A timeout and retries around the whole unit of work.
+//   • A durable Run record: what was asked, what came back, how long it took,
+//     what retried. Voice systems are miserable to debug precisely because
+//     that record usually does not exist.
 //
-// The cost is that each run is a cold process: no warm agent, no conversation
-// memory. That is why the front agent's tool description insists on a
-// SELF-CONTAINED request — the worker starts from nothing every time. For a
-// research job that is the right shape anyway, and it makes each run a pure
-// function of its input, which is what makes retries safe.
+// The cost is a cold process per run — no warm agent, no conversation memory —
+// which is why the front agent's prompt insists on a SELF-CONTAINED request.
 
 import { signal, z } from "station-signal";
 import { MemoryStore, type SubscriberAdapter } from "glove-core";
+import { mountMesh } from "glove-mesh";
 import { buildWorkerAgent } from "../lib/worker-agent";
+import {
+  FRONT_ID,
+  WORKER_IDENTITY,
+  WorkerMeshAdapter,
+} from "../lib/mesh-transport";
+
+const DRAIN_PROMPT =
+  'You have a new delegated request in your inbox. Research it with your tools, then reply to the front agent (id "front") via glove_mesh_send_message with in_reply_to set to the message id shown in the inbox line. Do NOT acknowledge — reply only.';
+
+const RETRY_PROMPT =
+  "You did all that research but NEVER SENT YOUR REPLY — the front desk and the customer are still waiting. Call glove_mesh_send_message NOW with to: \"front\", in_reply_to set to the message id from the inbox line, and content carrying your findings. Do not do any more research; reply with what you already have.";
 
 export const research = signal("research")
   .input(
     z.object({
       /** A self-contained question for the shop database. */
       request: z.string().min(1),
-      /** Which voice session asked, so the gateway can route the answer back. */
-      sessionId: z.string().optional(),
+      /** The front agent's mesh message id — the reply must be threaded to it,
+       *  or her blocking send never resolves. */
+      messageId: z.string(),
+      /** Which room asked, for logs and metrics. */
+      roomId: z.string(),
+      /** Where the threaded reply goes: the room's inbound mesh endpoint. */
+      replyUrl: z.string(),
+      meshToken: z.string(),
     }),
   )
   .output(
     z.object({
-      /** What gets read to the customer. */
+      replied: z.boolean(),
       answer: z.string(),
-      /** How many database lookups it took — visible in the dashboard. */
       toolCalls: z.number(),
-      ms: z.number(),
+      recovered: z.boolean(),
     }),
   )
-  // The worker makes many tool calls over the database; give it room, but not
-  // so much that a wedged run keeps a customer waiting indefinitely.
   .timeout(90_000)
-  // Retries are safe: the run is a pure function of its input, and every tool
-  // it uses is a read except book_appointment (which the prompt gates behind a
-  // confirmation).
+  // Safe to retry: every tool is a read except book_appointment, which the
+  // prompt gates behind a confirmation.
   .retries(1)
   .run(async (input) => {
-    const worker = buildWorkerAgent(new MemoryStore(`research_${Date.now()}`));
+    const mesh = new WorkerMeshAdapter({
+      replyUrl: input.replyUrl,
+      token: input.meshToken,
+    });
 
-    // The worker's answer is whatever it says AFTER its last tool call. Every
-    // tool call resets the accumulator, so intermediate narration ("let me
-    // check the warranty table…") never survives into the reply.
+    const worker = buildWorkerAgent(new MemoryStore(`worker_${input.roomId}`));
+
+    let replied = false;
     let answer = "";
     let toolCalls = 0;
     const subscriber: SubscriberAdapter = {
       record: async (type, data) => {
-        if (type === "text_delta") {
-          answer += (data as { text: string }).text;
-        } else if (type === "tool_use") {
+        if (type !== "tool_use") return;
+        const d = data as { name: string; input: unknown };
+        if (d.name === "glove_mesh_send_message") {
+          replied = true;
+          answer = String((d.input as { content?: string })?.content ?? "");
+        } else if (!d.name.startsWith("glove_mesh_")) {
           toolCalls += 1;
-          answer = "";
         }
       },
     };
     worker.addSubscriber(subscriber);
 
-    const startedAt = Date.now();
-    await worker.processRequest(
-      `[Delegated request from the front desk]\n\n${input.request}\n\n` +
-        `Research this with your tools and answer it directly. Your final message IS the reply that gets read to the customer — no preamble, no "here is what I found", just the answer.`,
-    );
+    await mountMesh(worker, { adapter: mesh, identity: WORKER_IDENTITY });
 
-    const reply = answer.trim();
-    if (!reply) {
-      // Fail loudly rather than resolving with silence: a failed Run surfaces
-      // in the dashboard and gets retried, where an empty success would just
-      // leave the customer waiting on nothing.
-      throw new Error("worker produced no reply text");
+    // Put the delegated request in the worker's inbox exactly the way the
+    // in-process bus would, so the prompt's "read the message id from the
+    // inbox line" instructions hold unchanged.
+    await mesh.deliver({
+      kind: "direct",
+      id: input.messageId,
+      from: FRONT_ID,
+      to: WORKER_IDENTITY.id,
+      content: input.request,
+      created_at: new Date().toISOString(),
+      blocking: true,
+    });
+
+    await worker.processRequest(DRAIN_PROMPT);
+
+    // Reasoning workers sometimes finish the research and just stop without
+    // sending. One firm nudge recovers most of those runs far cheaper than
+    // leaving the caller waiting on a trouble turn.
+    let recovered = false;
+    if (!replied) {
+      await worker.processRequest(RETRY_PROMPT);
+      recovered = replied;
     }
 
-    return {
-      answer: reply,
-      toolCalls,
-      ms: Date.now() - startedAt,
-    };
+    if (!replied) {
+      // Fail the Run rather than resolving with silence: a failed run is
+      // visible in the dashboard and retried, where an empty success would
+      // just strand the caller. The room's own timeout covers the customer.
+      throw new Error("worker never sent its mesh reply");
+    }
+
+    return { replied, answer, toolCalls, recovered };
   });
