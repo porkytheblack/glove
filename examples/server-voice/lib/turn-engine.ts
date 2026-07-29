@@ -310,18 +310,34 @@ export class TurnEngine {
           holdMs > SCALE_THRESHOLD_MS
             ? Math.min(Math.round(holdMs * this.holdScale()), MAX_SCALED_HOLD_MS)
             : holdMs;
+
+        // The hold is measured from the moment the SPEAKER stopped, not from
+        // now. Re-scoring happens every time a late transcript update lands,
+        // and STT keeps emitting partials for a second or more after the audio
+        // ends — so restarting the timer on each one silently stacked holds and
+        // made every turn arrive ~2.5x later than the detector asked for.
+        // Growth still supersedes the decision (the fuller text is scored);
+        // it just cannot push the deadline further out.
+        const anchor = this.speechEndAt || Date.now();
+        const remaining = Math.max(0, scaled - (Date.now() - anchor));
         this.hooks.onMetric("endpoint_hold", scaled, {
           chars: partial.length,
           reason,
           scale: Number(this.holdScale().toFixed(2)),
+          waited: Date.now() - anchor,
+          remaining,
         });
+        if (remaining === 0) {
+          this.dispatchFromPartial("hold");
+          return;
+        }
         this.holdTimer = setTimeout(() => {
           this.holdTimer = null;
           if (id !== this.decideSeq) return;
           if (this.disposed || !this.gateOpen) return;
           if (this.userSpeaking) return; // they picked the thought back up
           this.dispatchFromPartial("hold");
-        }, scaled);
+        }, remaining);
       },
     );
   }
