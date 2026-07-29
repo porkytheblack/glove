@@ -47,6 +47,11 @@ const TTS_CHARS_PER_SEC = 15;
 const POST_SPEECH_DEADBAND_MS = 300;
 /** At most one "your line never played" turn per window — see reportSpeechFailure. */
 const SPEECH_FAILURE_COOLDOWN_MS = 30_000;
+/** Nudge an idle prewarmed TTS socket this often — ElevenLabs drops an input
+ *  stream that goes quiet for ~20s. */
+const PREWARM_KEEPALIVE_MS = 8_000;
+/** …but stop holding one open speculatively after this long. */
+const PREWARM_MAX_AGE_MS = 60_000;
 /** Start synthesizing this early instead of buffering a full sentence. */
 const CHUNK_LENGTH_SCHEDULE = [60, 120, 160, 250];
 /** Spoken phrasing that promises a lookup is already underway. */
@@ -165,7 +170,15 @@ export class VoiceSession {
 
   // ── speaking state ─────────────────────────────────────────────────────────
   private tts: ElevenLabsTTSAdapter | null = null;
-  private prewarmed: { tts: ElevenLabsTTSAdapter; at: number } | null = null;
+  /** Resolves when the current turn's TTS socket has finished its handshake.
+   *  The end-of-turn flush must wait on this — see runFrontTurn. */
+  private ttsOpen: Promise<void> = Promise.resolve();
+  private prewarmed: {
+    tts: ElevenLabsTTSAdapter;
+    at: number;
+    keepalive: NodeJS.Timeout | null;
+    open: boolean;
+  } | null = null;
   private turnSeq = 0;
   private activeTurn: {
     id: number;
@@ -288,6 +301,7 @@ export class VoiceSession {
     this.engine?.dispose();
     this.stt?.disconnect();
     this.tts?.destroy();
+    if (this.prewarmed?.keepalive) clearInterval(this.prewarmed.keepalive);
     this.prewarmed?.tts.destroy();
   }
 
@@ -430,6 +444,16 @@ export class VoiceSession {
     });
 
     if (this.activeTurn?.id === turnId) {
+      // Wait for the socket's handshake before closing the stream.
+      //
+      // `flush()` only sends the EOS marker if the socket is already OPEN, and
+      // a short reply can finish generating before the ~400ms handshake does.
+      // Drop the EOS and the queued text just sits there: it is under the
+      // first chunk_length_schedule threshold (60 chars), so ElevenLabs keeps
+      // buffering and never synthesizes — the turn is silent, with no error.
+      // Long replies hid this by outlasting the handshake.
+      await this.ttsOpen.catch(() => {});
+      if (this.closed || this.activeTurn?.id !== turnId) return;
       // Close the stream so ElevenLabs synthesizes the tail immediately.
       this.tts?.flush();
       this.deps.send({ t: "speech_end", turnId });
@@ -441,14 +465,50 @@ export class VoiceSession {
 
   // ── speaking ───────────────────────────────────────────────────────────────
 
-  /** Open a TTS socket ahead of need, so its handshake overlaps model time. */
+  /**
+   * Open a TTS socket ahead of need, so its handshake overlaps model time.
+   *
+   * A prewarmed socket has to be kept ALIVE and dropped when it dies, or the
+   * optimisation turns into total silence: ElevenLabs closes an input stream
+   * that receives nothing for ~20s (`input_timeout_exceeded`), and a dead
+   * socket left sitting in `prewarmed` gets adopted by the next turn, which
+   * then streams its text into a closed connection. No audio, every turn,
+   * with only the first failure visible because speech-failure reporting is
+   * throttled.
+   */
   private prewarm(): void {
     if (this.closed || this.tts || this.prewarmed) return;
     const tts = this.makeTts();
-    this.prewarmed = { tts, at: Date.now() };
-    void tts.open().catch(() => {
-      if (this.prewarmed?.tts === tts) this.prewarmed = null;
-    });
+    const entry = { tts, at: Date.now(), keepalive: null as NodeJS.Timeout | null, open: false };
+    this.prewarmed = entry;
+
+    const drop = () => {
+      if (entry.keepalive) clearInterval(entry.keepalive);
+      entry.keepalive = null;
+      if (this.prewarmed === entry) this.prewarmed = null;
+    };
+    // Whatever kills it — handshake failure, idle close, provider hiccup — it
+    // must not still be sitting here when the next turn looks for a socket.
+    tts.on("error", drop);
+
+    void tts
+      .open()
+      .then(() => {
+        entry.open = true;
+        entry.keepalive = setInterval(() => {
+          if (this.prewarmed !== entry) return;
+          // Don't hold a socket open indefinitely on the chance it gets used.
+          if (Date.now() - entry.at > PREWARM_MAX_AGE_MS) {
+            tts.destroy();
+            drop();
+            return;
+          }
+          // A space is the cheapest thing that resets the input timeout without
+          // synthesizing anything audible.
+          tts.sendText(" ");
+        }, PREWARM_KEEPALIVE_MS);
+      })
+      .catch(drop);
   }
 
   private makeTts(): ElevenLabsTTSAdapter {
@@ -479,10 +539,20 @@ export class VoiceSession {
   }
 
   private beginTurnAudio(turnId: number): void {
-    // Adopt the prewarmed socket if one is waiting, else open cold.
-    const tts = this.prewarmed?.tts ?? this.makeTts();
-    const wasPrewarmed = Boolean(this.prewarmed);
+    // Adopt the prewarmed socket only if it actually opened and is still live —
+    // adopting a closed one is indistinguishable from working, except nothing
+    // is ever heard.
+    const warm = this.prewarmed;
+    const usable = warm?.open && warm.tts.isReady ? warm : null;
+    if (warm && !usable) {
+      warm.tts.destroy();
+      this.deps.metric("tts_prewarm_discarded");
+    }
+    if (warm?.keepalive) clearInterval(warm.keepalive);
     this.prewarmed = null;
+
+    const tts = usable?.tts ?? this.makeTts();
+    const wasPrewarmed = Boolean(usable);
     this.tts = tts;
     this.activeTurn = { id: turnId, sentText: "", firstAudioAt: 0, sawAudio: false };
 
@@ -505,8 +575,10 @@ export class VoiceSession {
       this.reportSpeechFailure(e.message);
     });
 
-    if (!wasPrewarmed) {
-      void tts.open().catch((e: Error) => {
+    if (wasPrewarmed) {
+      this.ttsOpen = Promise.resolve();
+    } else {
+      this.ttsOpen = tts.open().catch((e: Error) => {
         this.deps.send({ t: "error", message: `TTS: ${e.message}` });
       });
     }
