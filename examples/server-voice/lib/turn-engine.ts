@@ -36,6 +36,8 @@ import { VAD, ElevenLabsSTTAdapter } from "glove-voice";
 
 /** Only commit transcript text if real voice was heard this recently. */
 const VOICE_FRESH_MS = 3000;
+/** RMS floor for "there was sound" — well under speech, well over silence. */
+const VOICE_ENERGY_FLOOR = 0.004;
 /** Trailing silence before the VAD calls end-of-speech. The floor of send latency. */
 export const VAD_SILENCE_MS = 450;
 /** Re-check a still transcript through the detector after this long. */
@@ -78,6 +80,8 @@ export interface TurnEngineConfig {
   detector: TurnDetectorAdapter;
   hooks: TurnEngineHooks;
   vadSilenceMs?: number;
+  /** RMS above which the energy VAD calls a frame speech. */
+  vadThreshold?: number;
 }
 
 export class TurnEngine {
@@ -108,7 +112,16 @@ export class TurnEngine {
     this.stt = cfg.stt;
     this.detector = cfg.detector;
     this.hooks = cfg.hooks;
-    this.vad = new VAD({ silenceMs: cfg.vadSilenceMs ?? VAD_SILENCE_MS, sampleRate: 16_000 });
+    this.vad = new VAD({
+      silenceMs: cfg.vadSilenceMs ?? VAD_SILENCE_MS,
+      sampleRate: 16_000,
+      // The browser-hosted example defaults to the neural Silero VAD; this is
+      // the zero-dependency energy one, which is easier to fool. Bias it toward
+      // hearing speech: a false boundary costs a slightly early commit, while a
+      // MISSED one used to cost the whole utterance.
+      threshold: cfg.vadThreshold ?? 0.006,
+      noiseFloorMultiplier: 2,
+    });
 
     this.stt.on("partial", () => this.onPartial());
     this.stt.on("final", (t) => this.onFinal(t));
@@ -124,6 +137,21 @@ export class TurnEngine {
   /** Feed one PCM16 chunk from the client. */
   processAudio(pcm: Int16Array): void {
     if (this.disposed) return;
+
+    // Freshness is measured from RAW ENERGY, not from the VAD's verdict.
+    //
+    // This gate exists to drop transcripts hallucinated out of silence, so the
+    // question it needs answered is "was there any sound just now?" — not "did
+    // the VAD's adaptive threshold call it speech?". Tying it to the VAD state
+    // machine meant that whenever the VAD missed soft or distant speech, the
+    // boundary never fired, the idle sweeper picked the transcript up, and the
+    // gate then threw away the caller's REAL words as a phantom. Nothing
+    // reached the agent, so nothing was answered and nothing delegated.
+    //
+    // True silence still sits far below this floor, so the phantom guard keeps
+    // working.
+    if (rms(pcm) > VOICE_ENERGY_FLOOR) this.lastVoiceAt = Date.now();
+
     // The VAD always sees the audio — that is how barge-in is detected while
     // the gate is closed. Only STT is gated.
     this.vad.process(pcm);
@@ -172,7 +200,12 @@ export class TurnEngine {
   /** Drop buffer content WITHOUT dispatching (a silence hallucination):
    *  commit it so the buffer resets, then swallow the confirming final. */
   private discardPartial(source: string, text: string): void {
-    this.hooks.onMetric("stt_phantom_dropped", undefined, { chars: text.length, source });
+    this.hooks.onMetric("stt_phantom_dropped", undefined, {
+      chars: text.length,
+      source,
+      quietForMs: this.lastVoiceAt ? Date.now() - this.lastVoiceAt : -1,
+      text: text.slice(0, 80),
+    });
     this.lastDispatched = this.stt.currentPartial?.trim() ?? text;
     this.pendingConfirm = text;
     this.stt.flushUtterance();
@@ -350,6 +383,8 @@ export class TurnEngine {
       this.hooks.onMetric("stt_phantom_dropped", undefined, {
         chars: fresh.length,
         source: "final",
+        quietForMs: this.lastVoiceAt ? Date.now() - this.lastVoiceAt : -1,
+        text: fresh.slice(0, 80),
       });
       return;
     }
@@ -415,6 +450,16 @@ export class TurnEngine {
     this.hooks.onMetric("stt_sweep", undefined, { chars: live.length });
     this.dispatchFromPartial("sweep");
   }
+}
+
+/** Root-mean-square amplitude of a PCM16 frame, normalized to 0..1. */
+function rms(pcm: Int16Array): number {
+  let sum = 0;
+  for (let i = 0; i < pcm.length; i++) {
+    const v = pcm[i] / 32768;
+    sum += v * v;
+  }
+  return Math.sqrt(sum / pcm.length);
 }
 
 function normalize(s: string): string {

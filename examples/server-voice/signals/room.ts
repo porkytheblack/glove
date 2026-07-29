@@ -67,6 +67,22 @@ export const room = signal("room")
        *  reconnect, but an abandoned one should not hold a slot for the full
        *  hour. 0 disables. */
       idleMs: z.number().default(10 * 60_000),
+
+      // ── endpointing ──────────────────────────────────────────────────────
+      // How long after you stop talking before the room commits your turn.
+      // Defaults come from env so they can be tuned in .env.local without
+      // touching code — the right values depend on the room and how the
+      // speaker paces.
+      /** Trailing silence before the VAD calls end-of-speech. The floor of
+       *  send latency: nothing starts until this has passed. */
+      vadSilenceMs: z.number().default(Number(process.env.VAD_SILENCE_MS ?? 450)),
+      /** RMS above which a frame counts as speech. Lower hears softer talkers
+       *  (and more noise). */
+      vadThreshold: z.number().default(Number(process.env.VAD_THRESHOLD ?? 0.006)),
+      /** Hold when the end-of-utterance model is confident you are done. */
+      minHoldMs: z.number().default(Number(process.env.TURN_MIN_HOLD_MS ?? 400)),
+      /** …and when it is confident you are not. */
+      maxHoldMs: z.number().default(Number(process.env.TURN_MAX_HOLD_MS ?? 2800)),
     }),
   )
   .output(
@@ -133,6 +149,12 @@ export const room = signal("room")
       elevenLabsApiKey: apiKey,
       voiceId: input.voiceId,
       ttsModel: input.ttsModel,
+      endpointing: {
+        vadSilenceMs: input.vadSilenceMs,
+        vadThreshold: input.vadThreshold,
+        minHoldMs: input.minHoldMs,
+        maxHoldMs: input.maxHoldMs,
+      },
       // Fire and forget: queue the research job and return. The answer comes
       // back over the mesh, not from this promise.
       dispatchResearch: async ({ request, messageId }) => {

@@ -150,6 +150,13 @@ export interface VoiceSessionDeps {
   elevenLabsApiKey: string;
   voiceId: string;
   ttsModel: string;
+  /** How patient the room is about deciding you have finished speaking. */
+  endpointing?: {
+    vadSilenceMs?: number;
+    vadThreshold?: number;
+    minHoldMs?: number;
+    maxHoldMs?: number;
+  };
 }
 
 export class VoiceSession {
@@ -247,7 +254,12 @@ export class VoiceSession {
 
     this.engine = new TurnEngine({
       stt: this.stt,
-      detector: new LocalTurnDetector(),
+      vadSilenceMs: this.deps.endpointing?.vadSilenceMs,
+      vadThreshold: this.deps.endpointing?.vadThreshold,
+      detector: new LocalTurnDetector({
+        minHoldMs: this.deps.endpointing?.minHoldMs,
+        maxHoldMs: this.deps.endpointing?.maxHoldMs,
+      }),
       hooks: {
         onUtterance: (text) => this.onUtterance(text),
         onPartial: (text) => this.deps.send({ t: "partial", text }),
@@ -285,6 +297,9 @@ export class VoiceSession {
         worker: modelFor("worker") ?? "(default)",
         tts: this.deps.ttsModel,
         turnDetector: "livekit-eou (in-process)",
+        endpointing: `vad ${this.deps.endpointing?.vadSilenceMs ?? 450}ms / hold ${
+          this.deps.endpointing?.minHoldMs ?? 400
+        }-${this.deps.endpointing?.maxHoldMs ?? 2800}ms`,
       },
       speakers: SPEAKERS.map((s) => ({
         id: s.id,
