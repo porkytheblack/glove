@@ -30,6 +30,35 @@ export interface SpeechParseStats {
   unclosed: boolean;
 }
 
+/**
+ * Rescue a reply the model addressed in the wrong envelope.
+ *
+ * Observed live: after a barge-in, Kimi answered `<sam (operator)="">Here's
+ * everything: ...</sam>` — dialogue aimed at the person, wrapped in a tag
+ * named after them instead of <speech>. The parser rightly emits nothing, so
+ * the room hears silence; worse, the agent is stateful, so its own malformed
+ * turn sits in history teaching it to do the same thing next turn. From the
+ * caller's side the room simply stops answering — permanently.
+ *
+ * The tag NAME is what separates this from legitimate silence. A silent note
+ * ("Not addressed to me — noting the hull id.") is bare prose with no tag, and
+ * stays silent. Only a block whose tag names a room participant — the model
+ * talking TO someone — is reclaimed as speech, and only when its body is plain
+ * prose rather than leaked tool syntax.
+ */
+export function salvageWrappedSpeech(raw: string, participants: string[]): string | null {
+  const names = new Set(participants.map((p) => p.toLowerCase()));
+  const block = /<([a-z][\w.-]*)\b[^>]*>([\s\S]*?)<\/\1[^>]*>/gi;
+  let out = "";
+  for (let m = block.exec(raw); m; m = block.exec(raw)) {
+    if (!names.has(m[1].toLowerCase())) continue;
+    const inner = m[2].replace(/[<>]/g, "").trim();
+    if (!inner || /[{}]|tool_call|glove_mesh/i.test(inner)) continue;
+    out += (out ? " " : "") + inner;
+  }
+  return out || null;
+}
+
 export class SpeechTagParser {
   private buf = "";
   private inside = false;

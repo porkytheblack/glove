@@ -27,7 +27,7 @@ import { MemoryStore, type SubscriberAdapter } from "glove-core";
 import { mountMesh, type IncomingMeshMessage } from "glove-mesh";
 import { FRONT_IDENTITY, RoomMeshAdapter, WORKER_ID } from "./mesh-transport";
 import { buildFrontAgent } from "./front-agent";
-import { SpeechTagParser } from "./speech-parser";
+import { SpeechTagParser, salvageWrappedSpeech } from "./speech-parser";
 import {
   frameInterruption,
   frameSpeechFailure,
@@ -60,6 +60,13 @@ const PREWARM_KEEPALIVE_MS = 8_000;
 const PREWARM_MAX_AGE_MS = 60_000;
 /** Start synthesizing this early instead of buffering a full sentence. */
 const CHUNK_LENGTH_SCHEDULE = [60, 120, 160, 250];
+/** Opens the turn after one that wrote text but spoke none of it. Bare prose
+ *  meant for the room is formally identical to a legitimate silent note, so
+ *  instead of guessing, the model is told the room heard nothing and repairs
+ *  itself if repair was needed. */
+const PROTOCOL_NOTE =
+  '<speech-protocol-note>Your previous turn produced text but NO <speech> tags, so the room heard none of it. If you meant to stay silent, that was correct — ignore this. If you meant to be heard, that line is gone: say what matters now, inside <speech>...</speech>.</speech-protocol-note>';
+
 /** Spoken phrasing that promises a lookup is already underway. */
 const PROMISE_RE =
   /\b(one (moment|sec(ond)?)|moment please|let me (check|see|look|pull|find|get)|i(?:'|’)?ll (check|look|pull|get|find)|checking (on )?that|looking (that|it|into) up|pulling (that|it) up|right away|hold on|give me a (sec|second|moment)|bear with me)\b/i;
@@ -215,6 +222,9 @@ export class VoiceSession {
   private ttftPending = false;
   private history: TurnContextMessage[] = [];
   private pendingInterruption: string | null = null;
+  /** Set when a turn wrote text but spoke nothing — the next turn opens with
+   *  a protocol reminder so the model can repair itself. */
+  private pendingProtocolNote = false;
   /** Did the model actually dispatch over the mesh during the current turn? */
   private delegatedThisTurn = false;
   /**
@@ -362,9 +372,11 @@ export class VoiceSession {
     if (this.gateReopenTimer) clearTimeout(this.gateReopenTimer);
     this.engine?.dispose();
     this.stt?.disconnect();
-    this.tts?.destroy();
+    this.teardownTurnAudio(); // detach-then-destroy — see the comment there
     if (this.prewarmed?.keepalive) clearInterval(this.prewarmed.keepalive);
-    this.prewarmed?.tts.destroy();
+    const warm = this.prewarmed;
+    this.prewarmed = null;
+    warm?.tts.destroy();
   }
 
   // ── caller attach / detach ─────────────────────────────────────────────────
@@ -461,6 +473,10 @@ export class VoiceSession {
       framed = `${this.pendingInterruption}\n\n${prompt}`;
       this.pendingInterruption = null;
     }
+    if (this.pendingProtocolNote) {
+      this.pendingProtocolNote = false;
+      framed = `${PROTOCOL_NOTE}\n\n${framed}`;
+    }
 
     this.turnStartAt = Date.now();
     this.ttftPending = true;
@@ -477,8 +493,37 @@ export class VoiceSession {
       this.setThinking(false);
     }
 
-    const spoken = parser.finish();
+    let spoken = parser.finish();
+
+    // The model spoke, but in the wrong envelope — dialogue wrapped in a tag
+    // named after the person it was answering instead of <speech>. Without
+    // this, the turn is silent, and because the agent's history now contains
+    // its own malformed turn, every turn after it tends to repeat the format:
+    // the room permanently stops answering. Streaming is lost (the text is
+    // only known complete), but a late line beats no line.
+    if (!spoken && !isNudge && !this.voidedTurns.has(turnId)) {
+      const salvaged = salvageWrappedSpeech(parser.raw, VoiceSession.SALVAGE_TAGS);
+      if (salvaged) {
+        this.deps.metric("speech_salvaged", undefined, { chars: salvaged.length });
+        this.onSpeechText(turnId, salvaged);
+        spoken = salvaged;
+      }
+    }
+
     if (spoken) this.history.push({ role: "assistant", content: spoken });
+
+    // A turn that WROTE text but SPOKE none of it is usually the model
+    // drifting off the protocol — bare prose with no tags, observed live as
+    // "I already gave you the rundown on the Kestrel L2 just now—..." which
+    // the caller never heard. That specific shape cannot be salvaged safely
+    // (in form it is identical to a legitimate silent note), so make the
+    // failure visible to the model instead: next turn opens with a reminder,
+    // and it re-says what mattered properly. Worded so that intended silence
+    // costs nothing.
+    if (!spoken && !isNudge && !this.delegatedThisTurn && parser.raw.trim()) {
+      this.deps.metric("speech_protocol_drift", undefined, { raw: parser.raw.slice(0, 300) });
+      this.pendingProtocolNote = true;
+    }
 
     // Recovery, cheapest first. A promise the room heard must end in a real
     // dispatch, or the customer waits forever.
@@ -595,6 +640,18 @@ export class VoiceSession {
       generationConfig: { chunkLengthSchedule: CHUNK_LENGTH_SCHEDULE },
     });
   }
+
+  /** Tag names that mean "the model was talking to the room": every roster
+   *  participant (id and first name), the assistant itself, and the obvious
+   *  generic envelopes. */
+  private static readonly SALVAGE_TAGS: string[] = [
+    ...SPEAKERS.flatMap((s) => [s.id, s.shortName.split(/[\s.]+/)[0]]),
+    ASSISTANT_NAME,
+    "reply",
+    "response",
+    "answer",
+    "say",
+  ];
 
   /** A span of in-tag text from the agent: speak it and mirror it to the UI. */
   private onSpeechText(turnId: number, text: string): void {
@@ -751,9 +808,16 @@ export class VoiceSession {
       clearTimeout(this.playbackWatchdog);
       this.playbackWatchdog = null;
     }
-    this.tts?.destroy();
+    // Detach BEFORE destroying. `destroy()` closes the socket, and closing a
+    // socket that is already failing fires its `error` event SYNCHRONOUSLY —
+    // whose handler calls this method. With the references still set, that
+    // re-entry destroyed the same socket again, forever: a stack overflow
+    // that took the whole room process down (seen live as the room dying the
+    // moment a caller hung up during a TTS error).
+    const tts = this.tts;
     this.tts = null;
     this.activeTurn = null;
+    tts?.destroy();
   }
 
   /**

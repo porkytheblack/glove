@@ -58,6 +58,19 @@ const PAUSE_EMA_SEED_MS = 700;
 const MAX_SCALED_HOLD_MS = 2800;
 /** Only uncertain holds get scaled — confident short ones stay snappy. */
 const SCALE_THRESHOLD_MS = 500;
+/** How much withheld audio to keep for the head of an interruption: Silero
+ *  needs ~250ms to confirm speech, chunks add jitter, and the caller may lead
+ *  with a breath — a bit over a second covers the lot. */
+const PRE_ROLL_MAX_SAMPLES = 16_000 * 1.2;
+/** Reusable 20ms silence frame for keeping the STT session warm. */
+const SILENCE_FRAME = new Int16Array(320);
+/** Feed STT silence if no client audio has arrived for this long — a detached
+ *  room must not let Scribe's idle timer kill the session, or the next
+ *  caller's first words race the reconnect handshake and lose. */
+const STT_IDLE_KEEPALIVE_MS = 4000;
+/** A break in the incoming audio longer than this resets the VAD before
+ *  processing resumes — its recurrent state does not survive gaps. */
+const AUDIO_GAP_RESET_MS = 1500;
 
 export type DispatchSource = "endpoint" | "stable" | "hold" | "sweep";
 
@@ -104,8 +117,17 @@ export class TurnEngine {
   private lastVoiceAt = 0;
   private lastPartialAt = 0;
   private lastPartialText = "";
+  private lastAudioFedAt = 0;
+  private lastKeepaliveAt = 0;
+  private probPeak = 0;
+  private probFrames = 0;
   private speechEndAt = 0;
   private userSpeaking = false;
+
+  /** Audio the closed gate withheld, kept so an interruption's first words
+   *  can still reach STT once the gate opens. */
+  private preRoll: Int16Array[] = [];
+  private preRollSamples = 0;
 
   private holdTimer: NodeJS.Timeout | null = null;
   private stableTimer: NodeJS.Timeout | null = null;
@@ -143,6 +165,22 @@ export class TurnEngine {
   }
 
   private wireVad(): void {
+    // Rolling peak probability, surfaced every couple of seconds while audio
+    // flows. When "the room stopped hearing me" happens in the field, this is
+    // the difference between guessing and knowing whether the VAD went dead.
+    this.vad.on?.("speech_prob", (p: number) => {
+      this.probPeak = Math.max(this.probPeak, p);
+      this.probFrames++;
+      if (this.probFrames >= 64) {
+        this.hooks.onMetric("vad_prob_peak", undefined, {
+          peak: Number(this.probPeak.toFixed(3)),
+          active: this.vad.isSpeaking,
+          gate: this.gateOpen,
+        });
+        this.probPeak = 0;
+        this.probFrames = 0;
+      }
+    });
     this.vad.on("speech_start", () => this.onSpeechStart());
     this.vad.on("speech_end", () => this.onSpeechEnd());
     // Only Silero reports these. `speech_real_start` is speech that survived
@@ -182,12 +220,56 @@ export class TurnEngine {
     //
     // True silence still sits far below this floor, so the phantom guard keeps
     // working.
-    if (rms(pcm) > VOICE_ENERGY_FLOOR) this.lastVoiceAt = Date.now();
+    //
+    // The VAD's opinion also counts, not just raw energy. While the agent's
+    // audio plays, the browser's echo canceller ducks the CALLER'S microphone
+    // too — measured at 10-30x attenuation — which pushes a real interruption
+    // below any fixed energy floor. Silero still recognizes it as speech down
+    // to ~0.0024 RMS, so on this path the neural model is strictly better
+    // informed than the floor: without this clause, barge-in fired, the gate
+    // opened, and the freshness gate then discarded the caller's words as a
+    // hallucination.
+    if (rms(pcm) > VOICE_ENERGY_FLOOR || this.vad.isSpeaking) this.lastVoiceAt = Date.now();
+
+    // A recurrent model must not resume against a stale state. Silero v5
+    // carries an LSTM state across frames, and when audio stops mid-utterance
+    // (a caller drops without a proper goodbye) that state freezes wherever it
+    // was. Resumed twenty seconds later it is garbage to the model: measured
+    // live, the SAME voice that scored 0.999 before the gap scored 0.137
+    // after it — the room's ears were still on, but the model behind them was
+    // gone, permanently. A zero state is the model's designed starting point;
+    // a stale one is not.
+    if (this.lastAudioFedAt && Date.now() - this.lastAudioFedAt > AUDIO_GAP_RESET_MS) {
+      this.vad.reset?.();
+      this.userSpeaking = false;
+      this.hooks.onMetric("vad_gap_reset", Date.now() - this.lastAudioFedAt);
+    }
 
     // The VAD always sees the audio — that is how barge-in is detected while
     // the gate is closed. Only STT is gated.
     this.vad.process(pcm);
-    if (this.gateOpen) this.stt.sendAudio(pcm);
+    this.lastAudioFedAt = Date.now();
+    if (this.gateOpen) {
+      this.stt.sendAudio(pcm);
+    } else {
+      // Scribe closes a session that receives no audio for tens of seconds,
+      // and a closed gate used to starve it for exactly that long whenever the
+      // agent held the floor. The reconnect that follows is not free: a caller
+      // whose words land while the socket is still re-handshaking is simply
+      // never transcribed — observed live as a question that produced no
+      // partial, no commit, and no reply. Silence keeps the session warm
+      // without putting the agent's own voice in the transcript.
+      this.stt.sendAudio(SILENCE_FRAME.length === pcm.length ? SILENCE_FRAME : new Int16Array(pcm.length));
+      // Keep what the closed gate is discarding. If this turns out to be an
+      // interruption, the words spoken BEFORE the VAD confirmed it (the first
+      // ~250ms, plus whatever the confirmation lag adds) are already gone from
+      // the live path — the pre-roll is the only place they still exist.
+      this.preRoll.push(pcm);
+      this.preRollSamples += pcm.length;
+      while (this.preRoll.length > 1 && this.preRollSamples > PRE_ROLL_MAX_SAMPLES) {
+        this.preRollSamples -= this.preRoll.shift()!.length;
+      }
+    }
   }
 
   /**
@@ -227,7 +309,31 @@ export class TurnEngine {
 
   /** Close the gate while the agent speaks; open it when it stops. */
   setGateOpen(open: boolean): void {
+    if (open !== this.gateOpen) this.hooks.onMetric(open ? "gate_open" : "gate_close");
+    if (open && !this.gateOpen) this.flushPreRoll();
     this.gateOpen = open;
+    if (!open) this.dropPreRoll();
+  }
+
+  /**
+   * Send the audio the closed gate withheld, then the live stream continues
+   * seamlessly after it. Scribe ingests faster than realtime, so a second of
+   * catch-up costs tens of milliseconds, and it is what turns "—op right there"
+   * back into "stop right there". Called on ANY closed→open transition: for a
+   * barge-in that is the interruption's own head; for a normal reopen it is at
+   * most a second of echo-cancelled near-silence, which transcribes as nothing.
+   */
+  private flushPreRoll(): void {
+    if (!this.preRoll.length) return;
+    const frames = this.preRoll;
+    this.dropPreRoll();
+    for (const f of frames) this.stt.sendAudio(f);
+    this.hooks.onMetric("stt_preroll_ms", Math.round((frames.reduce((n, f) => n + f.length, 0) / 16_000) * 1000));
+  }
+
+  private dropPreRoll(): void {
+    this.preRoll = [];
+    this.preRollSamples = 0;
   }
 
   get isUserSpeaking(): boolean {
@@ -518,6 +624,7 @@ export class TurnEngine {
   // ── VAD events ─────────────────────────────────────────────────────────────
 
   private onSpeechStart(): void {
+    this.hooks.onMetric("vad_start", undefined, { gate: this.gateOpen });
     this.userSpeaking = true;
     this.lastVoiceAt = Date.now();
     // Resuming after a boundary = a measured thinking-pause for this speaker.
@@ -537,7 +644,7 @@ export class TurnEngine {
     if (!this.vad.supportsRealStart && this.hooks.isAgentSpeaking()) {
       setTimeout(() => {
         if (this.vad.isSpeaking && this.hooks.isAgentSpeaking()) {
-          this.gateOpen = true; // route this utterance to STT
+          this.setGateOpen(true); // route this utterance — pre-roll included — to STT
           this.hooks.onBargeIn();
         }
       }, 250);
@@ -555,11 +662,13 @@ export class TurnEngine {
     // playback_done, or inside the post-speech deadband) was never transcribed
     // at all: no partial, no commit, no trace beyond the caller repeating
     // themselves.
-    this.gateOpen = true;
+    this.hooks.onMetric("vad_confirmed", undefined, { gate: this.gateOpen });
+    this.setGateOpen(true); // flushes the pre-roll: the utterance's head lives there
     if (this.hooks.isAgentSpeaking()) this.hooks.onBargeIn();
   }
 
   private onSpeechEnd(): void {
+    this.hooks.onMetric("vad_end", undefined, { gate: this.gateOpen });
     this.userSpeaking = false;
     this.speechEndAt = Date.now();
     this.lastVoiceAt = Date.now();
@@ -575,7 +684,19 @@ export class TurnEngine {
    * we are idle and the transcript has been still, dispatch it.
    */
   private sweep(): void {
-    if (this.disposed || !this.gateOpen) return;
+    if (this.disposed) return;
+    // STT keepalive is not gated on anything except audio actually flowing —
+    // it matters MOST while nobody is attached. It keeps its OWN clock:
+    // refreshing `lastAudioFedAt` here would blind the VAD gap detector,
+    // which must measure silence in CLIENT audio, not in what we synthesize.
+    if (
+      Date.now() - this.lastAudioFedAt > STT_IDLE_KEEPALIVE_MS &&
+      Date.now() - this.lastKeepaliveAt > STT_IDLE_KEEPALIVE_MS
+    ) {
+      this.lastKeepaliveAt = Date.now();
+      this.stt.sendAudio(SILENCE_FRAME);
+    }
+    if (!this.gateOpen) return;
     if (this.userSpeaking || this.vad.isSpeaking) return;
     // Deliberately NOT gated on `isAgentSpeaking()`. The gate above is already
     // the authority on whether this audio should be transcribed at all, and an

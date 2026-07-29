@@ -22,6 +22,10 @@ loadEnv({ path: [path.join(import.meta.dirname, "..", ".env.local")], quiet: tru
 const PORT = process.env.PORT ?? 4501;
 const BARGE_IN = process.argv.includes("--barge-in");
 const CONVERSATION = process.argv.includes("--conversation");
+// Attenuate the mic, as the browser's echo canceller does while the agent's
+// audio plays (measured ducking is 10-30x). --gain 0.05 is a realistic
+// barge-in as the room actually receives it.
+const GAIN = Number(process.argv.find((a) => a.startsWith("--gain="))?.slice(7) ?? 1);
 const KEY = process.env.ELEVENLABS_API_KEY;
 const VOICE = "JBFqnCBsd6RMkjVDRZzb"; // a different voice than Nova's
 const LINE = process.argv.find((a) => !a.startsWith("--") && a.includes(" "))
@@ -48,8 +52,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const t0 = Date.now();
 const at = () => `${String(Date.now() - t0).padStart(6)}ms`;
 
-console.log(`synthesizing: "${LINE}"`);
+console.log(`synthesizing: "${LINE}"${GAIN !== 1 ? ` at gain ${GAIN}` : ""}`);
 const pcm = await speech(LINE);
+if (GAIN !== 1) for (let i = 0; i < pcm.length; i++) pcm[i] = Math.round(pcm[i] * GAIN);
 console.log(`${(pcm.length / 16000).toFixed(2)}s of speech\n`);
 
 const ws = new WebSocket(`ws://localhost:${PORT}`);
@@ -64,6 +69,8 @@ let lastNovaAudioAt = 0;
 let audioAfterClear = 0;
 let speechAfterClear = 0;
 let committedAfterClear = false;
+let turnAudioBytes = 0;
+let turnFirstAudioAt = 0;
 const state = { partials: 0 };
 let onUtterance = () => {};
 
@@ -76,6 +83,8 @@ ws.on("message", (data, isBinary) => {
     // utterance can be the interrupted line resuming. Anything after that
     // commit is her answering what was just said, which is the point.
     if (clearedAt && !committedAfterClear) audioAfterClear += data.byteLength ?? data.length;
+    if (!turnFirstAudioAt) turnFirstAudioAt = Date.now();
+    turnAudioBytes += data.byteLength ?? data.length;
     return;
   }
   const m = JSON.parse(data.toString());
@@ -101,14 +110,27 @@ ws.on("message", (data, isBinary) => {
         console.log(`${at()} NOVA REPLIES  ← ${novaRepliedAt - audioEndedAt}ms after speech ended`);
       }
       break;
-    case "speech_end":
-      // Behave like the browser: report the turn drained. The room must not
-      // NEED this (a voided turn never gets a speech_end at all), but a
-      // faithful client sends it, so the test should too.
-      ws.send(JSON.stringify({ t: "playback_done", turnId: m.turnId }));
+    case "speech_end": {
+      // Behave like the browser: report the turn drained — but only when the
+      // audio would actually have FINISHED PLAYING. The room streams faster
+      // than realtime, so acking instantly tells it the caller went quiet
+      // while the speakers are still going, which quietly disables barge-in
+      // for the rest of the turn. pcm_16000 is 32000 bytes per second.
+      const playbackEndsAt = turnFirstAudioAt + turnAudioBytes / 32;
+      const turnId = m.turnId;
+      // A turn voided by barge-in never sends speech_end, so every turn that
+      // reaches here deserves its ack once its audio would have drained.
+      setTimeout(() => {
+        ws.send(JSON.stringify({ t: "playback_done", turnId }));
+        turnAudioBytes = 0;
+        turnFirstAudioAt = 0;
+      }, Math.max(0, playbackEndsAt - Date.now()));
       break;
+    }
     case "clear":
       clearedAt = Date.now();
+      turnAudioBytes = 0;
+      turnFirstAudioAt = 0;
       console.log(
         `${at()} CLEAR` +
           (audioEndedAt ? ` — interrupted after ${clearedAt - audioEndedAt}ms of talking over her` : ""),
