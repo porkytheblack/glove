@@ -488,6 +488,9 @@ importers:
       dotenv:
         specifier: ^17.2.3
         version: 17.3.1
+      eventemitter3:
+        specifier: ^5.0.4
+        version: 5.0.4
       glove-core:
         specifier: workspace:*
         version: link:../../packages/glove
@@ -497,6 +500,9 @@ importers:
       glove-voice:
         specifier: workspace:*
         version: link:../../packages/glove-voice
+      onnxruntime-node:
+        specifier: ^1.22.0
+        version: 1.24.3
       station-adapter-sqlite:
         specifier: ^2.0.0
         version: 2.0.0(station-beacon@2.0.0(station-signal@2.0.0))(station-broadcast@2.0.0(station-signal@2.0.0))(station-env@2.0.0)(station-schedules@2.0.0)(station-signal@2.0.0)

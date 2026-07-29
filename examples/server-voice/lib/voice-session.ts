@@ -38,6 +38,7 @@ import {
 import { SPEAKERS, ASSISTANT_NAME } from "./speakers";
 import { LocalTurnDetector } from "./turn-detector-local";
 import { TurnEngine } from "./turn-engine";
+import { SileroVADNode } from "./silero-vad-node";
 import { PROVIDER, frontProviderSort, modelFor } from "./models";
 import type { ServerMessage, SpeakerRole } from "./protocol";
 
@@ -156,6 +157,8 @@ export interface VoiceSessionDeps {
     vadThreshold?: number;
     minHoldMs?: number;
     maxHoldMs?: number;
+    /** "energy" forces the zero-dependency VAD; anything else uses Silero. */
+    vad?: string;
   };
 }
 
@@ -169,6 +172,7 @@ export class VoiceSession {
   private mesh!: RoomMeshAdapter;
   /** mesh message id → when it was dispatched, for round-trip timing. */
   private readonly pendingDelegations = new Map<string, number>();
+  private vadKind: "silero" | "energy" = "energy";
   /** Is a caller currently attached? The room outlives any single client. */
   private attached = false;
 
@@ -272,6 +276,33 @@ export class VoiceSession {
       },
     });
 
+    // Swap the energy VAD for the neural one. This is what decides when you
+    // have started and stopped talking, and the energy VAD — thresholding
+    // loudness against a drifting noise floor — misses soft or distant speech
+    // outright. Silero knows what speech sounds like: it catches a quiet
+    // "mm-hmm" and ignores a slammed door, and it can distinguish tentative
+    // from confirmed speech, which is what makes barge-in trustworthy.
+    //
+    // Failure is non-fatal by design: a room with the energy VAD is worse, but
+    // a room that refuses to start is useless.
+    if (this.deps.endpointing?.vad !== "energy") {
+      try {
+        const t0 = Date.now();
+        const silero = new SileroVADNode({
+          redemptionMs: this.deps.endpointing?.vadSilenceMs,
+        });
+        await silero.init();
+        this.engine.useSilero(silero);
+        this.vadKind = "silero";
+        this.deps.metric("vad_ready", Date.now() - t0, { kind: "silero" });
+      } catch (err) {
+        this.deps.metric("vad_fallback", undefined, { reason: (err as Error)?.message });
+        console.log(
+          `Silero VAD unavailable (${(err as Error)?.message}) — using the energy VAD`,
+        );
+      }
+    }
+
     await this.stt.connect();
 
     this.deps.metric("session_config", undefined, {
@@ -297,6 +328,7 @@ export class VoiceSession {
         worker: modelFor("worker") ?? "(default)",
         tts: this.deps.ttsModel,
         turnDetector: "livekit-eou (in-process)",
+        vad: this.vadKind,
         endpointing: `vad ${this.deps.endpointing?.vadSilenceMs ?? 450}ms / hold ${
           this.deps.endpointing?.minHoldMs ?? 400
         }-${this.deps.endpointing?.maxHoldMs ?? 2800}ms`,

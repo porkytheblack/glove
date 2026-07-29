@@ -36,7 +36,7 @@ the mesh.
 | --- | --- | --- |
 | mic capture, playback | client | client |
 | echo cancellation | client (`getUserMedia`) | client (`getUserMedia`) |
-| VAD | client | **server** |
+| VAD | client (Silero) | **server** (Silero) |
 | STT socket + API tokens | client (token routes) | **server** (holds the key) |
 | endpointing / turn detection | client → HTTP → model | **server, in-process** |
 | dispatch, dedupe, phantom filtering | client | **server** |
@@ -127,6 +127,38 @@ in-process bus cannot:
 The trade: each run is a cold process with no conversation memory, which is why
 the front agent's prompt insists on a **self-contained** request. For
 research work that is the right shape anyway, and it makes retries safe.
+
+### Knowing when you stopped talking
+
+Two models decide this, and they answer different questions.
+
+**Silero** (`lib/silero-vad-node.ts`) answers "is this speech?" per 32ms frame.
+The browser example uses it through `@ricky0123/vad-web`, which is
+onnxruntime-WEB; this runs the same v5 weights through onnxruntime-node, with
+the frame state machine implemented directly. The weights ship inside the
+vad-web package glove-voice already depends on, so there is nothing to
+download.
+
+The energy VAD it replaces thresholds loudness against a drifting noise floor,
+and that is not the same question. Measured on the same clips: a quiet talker
+scores **P=0.85** with Silero and falls under the energy threshold entirely;
+loud broadband noise scores **P=0.12** with Silero and reads as speech to an
+energy threshold. A missed boundary is expensive — the utterance falls to the
+idle sweeper, arriving late or (before the freshness fix) not at all.
+
+Silero also separates tentative from confirmed speech, which the energy VAD
+cannot express: `speech_start` on the first speech-ish frame,
+`speech_real_start` once it has outlasted `minSpeechMs`, `vad_misfire` when it
+has not. Barge-in fires on CONFIRMED speech, so a cough no longer cuts the
+agent off — the energy path has to guess with a 250ms timer instead.
+
+**The LiveKit end-of-utterance model** then answers the different question:
+"was that a complete thought?" — reading the transcript, not the audio. Silero
+says the sound stopped; the EOU model says whether you were finished. Its
+probability shapes the hold between `TURN_MIN_HOLD_MS` and `TURN_MAX_HOLD_MS`.
+
+If Silero fails to load the room says so in its logs and falls back to the
+energy VAD — worse, but serving.
 
 ### A promise the room heard must end in a real dispatch
 
@@ -265,6 +297,7 @@ and nothing else.
 | `lib/mesh-transport.ts` | the two mesh adapters that span the process boundary |
 | `web/` | the Next.js app you actually test in |
 | `lib/turn-engine.ts` | the commitment engine, ported from the browser hook |
+| `lib/silero-vad-node.ts` | the neural VAD, onnxruntime-node instead of -web |
 | `lib/turn-detector-local.ts` | in-process end-of-utterance scoring |
 | `lib/voice-session.ts` | per-caller orchestration: STT, agent, TTS, barge-in |
 | `lib/front-agent.ts` / `lib/worker-agent.ts` | Nova and the researcher |

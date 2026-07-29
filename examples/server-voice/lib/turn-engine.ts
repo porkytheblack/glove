@@ -31,8 +31,9 @@
 //     opens the STT socket directly.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { TurnContextMessage, TurnDetectorAdapter } from "glove-voice";
+import type { TurnContextMessage, TurnDetectorAdapter, VADAdapter } from "glove-voice";
 import { VAD, ElevenLabsSTTAdapter } from "glove-voice";
+import { SileroVADNode } from "./silero-vad-node";
 
 /** Only commit transcript text if real voice was heard this recently. */
 const VOICE_FRESH_MS = 3000;
@@ -86,7 +87,7 @@ export interface TurnEngineConfig {
 
 export class TurnEngine {
   private readonly stt: ElevenLabsSTTAdapter;
-  private readonly vad: VAD;
+  private vad: VADAdapter;
   private readonly detector: TurnDetectorAdapter;
   private readonly hooks: TurnEngineHooks;
 
@@ -108,28 +109,55 @@ export class TurnEngine {
   private decideSeq = 0;
   private pauseEmaMs = PAUSE_EMA_SEED_MS;
 
+  private readonly cfg: TurnEngineConfig;
+
   constructor(cfg: TurnEngineConfig) {
+    this.cfg = cfg;
     this.stt = cfg.stt;
     this.detector = cfg.detector;
     this.hooks = cfg.hooks;
-    this.vad = new VAD({
-      silenceMs: cfg.vadSilenceMs ?? VAD_SILENCE_MS,
-      sampleRate: 16_000,
-      // The browser-hosted example defaults to the neural Silero VAD; this is
-      // the zero-dependency energy one, which is easier to fool. Bias it toward
-      // hearing speech: a false boundary costs a slightly early commit, while a
-      // MISSED one used to cost the whole utterance.
-      threshold: cfg.vadThreshold ?? 0.006,
-      noiseFloorMultiplier: 2,
-    });
+    // Start on the energy VAD so audio arriving before init() is never
+    // dropped; `useSilero()` swaps in the neural one once its model is loaded.
+    this.vad = this.buildEnergyVad();
+    this.wireVad();
 
     this.stt.on("partial", () => this.onPartial());
     this.stt.on("final", (t) => this.onFinal(t));
 
+    this.sweepTimer = setInterval(() => this.sweep(), SWEEP_TICK_MS);
+  }
+
+  private buildEnergyVad(): VAD {
+    return new VAD({
+      silenceMs: this.cfg.vadSilenceMs ?? VAD_SILENCE_MS,
+      sampleRate: 16_000,
+      // Biased toward hearing speech: a false boundary costs a slightly early
+      // commit, a missed one costs the whole utterance.
+      threshold: this.cfg.vadThreshold ?? 0.006,
+      noiseFloorMultiplier: 2,
+    });
+  }
+
+  private wireVad(): void {
     this.vad.on("speech_start", () => this.onSpeechStart());
     this.vad.on("speech_end", () => this.onSpeechEnd());
+    // Only Silero reports these. `speech_real_start` is speech that survived
+    // the minimum duration — the right moment to cut the agent off — and
+    // `vad_misfire` retracts a burst that did not.
+    this.vad.on?.("speech_real_start", () => this.onSpeechConfirmed());
+    this.vad.on?.("vad_misfire", () => {
+      this.userSpeaking = false;
+    });
+  }
 
-    this.sweepTimer = setInterval(() => this.sweep(), SWEEP_TICK_MS);
+  /**
+   * Replace the energy VAD with the neural one. Called by the session once the
+   * Silero model has loaded; on failure the energy VAD simply stays in place.
+   */
+  useSilero(silero: SileroVADNode): void {
+    this.vad.removeAllListeners();
+    this.vad = silero;
+    this.wireVad();
   }
 
   // ── Audio in ───────────────────────────────────────────────────────────────
@@ -411,10 +439,11 @@ export class TurnEngine {
     // Speech (and probably a reply) is coming: open the TTS socket now, so the
     // handshake overlaps STT and model time.
     this.hooks.onSpeechLikely();
-    // The energy VAD has no confirmed-speech signal, so emulate one: cut the
-    // agent off only if the "speech" is still going 250ms later. (The hold
-    // floor of 400ms sits above this deliberately.)
-    if (this.hooks.isAgentSpeaking()) {
+    // Silero reports confirmed speech separately, so barge-in waits for that
+    // (see onSpeechConfirmed). The energy VAD cannot, so it emulates one: cut
+    // the agent off only if the "speech" is still going 250ms later. The hold
+    // floor of 400ms sits above this deliberately.
+    if (!this.vad.supportsRealStart && this.hooks.isAgentSpeaking()) {
       setTimeout(() => {
         if (this.vad.isSpeaking && this.hooks.isAgentSpeaking()) {
           this.gateOpen = true; // route this utterance to STT
@@ -422,6 +451,13 @@ export class TurnEngine {
         }
       }, 250);
     }
+  }
+
+  /** Silero only: speech that outlasted the minimum, so definitely a person. */
+  private onSpeechConfirmed(): void {
+    if (!this.hooks.isAgentSpeaking()) return;
+    this.gateOpen = true; // route this utterance to STT
+    this.hooks.onBargeIn();
   }
 
   private onSpeechEnd(): void {

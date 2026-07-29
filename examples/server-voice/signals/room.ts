@@ -76,8 +76,10 @@ export const room = signal("room")
       /** Trailing silence before the VAD calls end-of-speech. The floor of
        *  send latency: nothing starts until this has passed. */
       vadSilenceMs: z.number().default(Number(process.env.VAD_SILENCE_MS ?? 450)),
-      /** RMS above which a frame counts as speech. Lower hears softer talkers
-       *  (and more noise). */
+      /** Which VAD decides speech boundaries. Default is the neural Silero
+       *  model; "energy" forces the zero-dependency RMS fallback. */
+      vad: z.string().default(process.env.VOICE_VAD ?? "silero"),
+      /** Energy-VAD only: RMS above which a frame counts as speech. */
       vadThreshold: z.number().default(Number(process.env.VAD_THRESHOLD ?? 0.006)),
       /** Hold when the end-of-utterance model is confident you are done. */
       minHoldMs: z.number().default(Number(process.env.TURN_MIN_HOLD_MS ?? 400)),
@@ -150,6 +152,7 @@ export const room = signal("room")
       voiceId: input.voiceId,
       ttsModel: input.ttsModel,
       endpointing: {
+        vad: input.vad,
         vadSilenceMs: input.vadSilenceMs,
         vadThreshold: input.vadThreshold,
         minHoldMs: input.minHoldMs,

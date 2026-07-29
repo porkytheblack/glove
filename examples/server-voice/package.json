@@ -14,9 +14,11 @@
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "dotenv": "^17.2.3",
+    "eventemitter3": "^5.0.4",
     "glove-core": "workspace:*",
     "glove-mesh": "workspace:*",
     "glove-voice": "workspace:*",
+    "onnxruntime-node": "^1.22.0",
     "station-adapter-sqlite": "^2.0.0",
     "station-beacon": "^2.0.0",
     "station-kit": "^2.0.0",
