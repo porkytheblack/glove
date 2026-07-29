@@ -214,6 +214,9 @@ export class VoiceSession {
   private speaking = false;
   private gateReopenTimer: NodeJS.Timeout | null = null;
   private playbackWatchdog: NodeJS.Timeout | null = null;
+  /** Playback paused on a tentative barge-in, awaiting confirm-or-retract. */
+  private playbackPaused = false;
+  private pausedAt = 0;
 
   // ── agent turn state ───────────────────────────────────────────────────────
   private parser: SpeechTagParser | null = null;
@@ -294,6 +297,8 @@ export class VoiceSession {
         onPartial: (text) => this.deps.send({ t: "partial", text }),
         onTranscriptCorrection: (sent, actual) => this.onTranscriptCorrection(sent, actual),
         onBargeIn: () => this.bargeIn(),
+        onBargeInWarning: () => this.pausePlayback(),
+        onBargeInRetracted: () => this.resumePlayback(),
         onSpeechLikely: () => this.prewarm(),
         isAgentSpeaking: () => this.speaking,
         getTurnContext: () => this.history.slice(-4),
@@ -404,6 +409,7 @@ export class VoiceSession {
     if (this.activeTurn) this.voidedTurns.add(this.activeTurn.id);
     this.teardownTurnAudio();
     this.speaking = false;
+    this.playbackPaused = false;
     this.engine.setGateOpen(true);
     // Half-heard words do not survive the caller who spoke them.
     this.engine.resetTranscript();
@@ -758,6 +764,7 @@ export class VoiceSession {
   private endSpeaking(): void {
     if (!this.speaking) return;
     this.speaking = false;
+    this.playbackPaused = false;
     this.teardownTurnAudio();
     if (this.gateReopenTimer) clearTimeout(this.gateReopenTimer);
     this.gateReopenTimer = setTimeout(() => {
@@ -836,6 +843,7 @@ export class VoiceSession {
     if (active) this.voidedTurns.add(active.id);
     this.teardownTurnAudio();
     this.speaking = false;
+    this.playbackPaused = false; // the clear below supersedes any pause
     // Drop whatever is still buffered in the browser. Without this the room
     // keeps hearing the sentence the speaker just interrupted.
     this.deps.send({ t: "clear" });
@@ -845,6 +853,29 @@ export class VoiceSession {
     // whatever they are about to say, not a prompt to answer on its own.
     this.pendingInterruption = frameInterruption(heard);
     this.pushState();
+  }
+
+  /**
+   * The instant-silence half of interruption. The VAD's very first speech-ish
+   * frame lands here — around 50ms after the caller makes a sound, a good
+   * 200ms before it can be CONFIRMED as a person. Being talked over for those
+   * 200ms is what made barge-in feel broken even when the cut itself worked,
+   * so playback pauses now, holding the buffer: `bargeIn()` clears it if the
+   * speech is real, `resumePlayback()` picks it back up mid-word if not.
+   */
+  private pausePlayback(): void {
+    if (!this.speaking || this.playbackPaused) return;
+    this.playbackPaused = true;
+    this.pausedAt = Date.now();
+    this.deps.send({ t: "pause" });
+  }
+
+  /** The pause was a false alarm — a cough, a door, a truck outside. */
+  private resumePlayback(): void {
+    if (!this.playbackPaused) return;
+    this.playbackPaused = false;
+    this.deps.send({ t: "resume" });
+    this.deps.metric("barge_in_retracted", Date.now() - this.pausedAt);
   }
 
   // ── delegation ─────────────────────────────────────────────────────────────

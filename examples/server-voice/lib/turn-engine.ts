@@ -83,6 +83,12 @@ export interface TurnEngineHooks {
   onTranscriptCorrection(sent: string, actual: string): void;
   /** A human started talking — cut the agent off if it is speaking. */
   onBargeIn(): void;
+  /** The FIRST speech-ish frame — maybe a person, maybe a door. If the agent
+   *  is speaking, pause its playback instantly; onBargeIn or onBargeInRetracted
+   *  resolves the maybe within a few hundred ms. */
+  onBargeInWarning(): void;
+  /** The warning above was noise, not a person — resume playback. */
+  onBargeInRetracted(): void;
   /** Speech very likely incoming: a good moment to open the TTS socket. */
   onSpeechLikely(): void;
   /** Is the agent's audio playing right now? */
@@ -189,6 +195,7 @@ export class TurnEngine {
     this.vad.on?.("speech_real_start", () => this.onSpeechConfirmed());
     this.vad.on?.("vad_misfire", () => {
       this.userSpeaking = false;
+      this.hooks.onBargeInRetracted();
     });
   }
 
@@ -625,6 +632,11 @@ export class TurnEngine {
 
   private onSpeechStart(): void {
     this.hooks.onMetric("vad_start", undefined, { gate: this.gateOpen });
+    // Tens of milliseconds after the caller's first sound: too early to KNOW
+    // it is a person, exactly the right time to stop talking over them. The
+    // session pauses playback without dropping anything; confirmation (cut for
+    // real) or a misfire (resume) follows within a few hundred ms either way.
+    if (this.hooks.isAgentSpeaking()) this.hooks.onBargeInWarning();
     this.userSpeaking = true;
     this.lastVoiceAt = Date.now();
     // Resuming after a boundary = a measured thinking-pause for this speaker.
@@ -646,6 +658,9 @@ export class TurnEngine {
         if (this.vad.isSpeaking && this.hooks.isAgentSpeaking()) {
           this.setGateOpen(true); // route this utterance — pre-roll included — to STT
           this.hooks.onBargeIn();
+        } else {
+          // The 250ms probe found silence — whatever tripped the VAD is gone.
+          this.hooks.onBargeInRetracted();
         }
       }, 250);
     }

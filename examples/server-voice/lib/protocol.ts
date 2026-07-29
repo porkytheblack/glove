@@ -73,6 +73,14 @@ export type ServerMessage =
   /** Barge-in: drop every buffered sample immediately. The gateway has already
    *  stopped generating; this stops what is queued in the browser. */
   | { t: "clear" }
+  /** Someone MAY be interrupting — the very first speech-ish frame, tens of
+   *  milliseconds in, before it could possibly be confirmed as a person. Stop
+   *  playback NOW but keep the buffer: a `clear` follows if it is real, a
+   *  `resume` if it was a cough. This is what makes the agent feel like it
+   *  stops the instant you open your mouth. */
+  | { t: "pause" }
+  /** The pause above was a false alarm — pick playback back up where it was. */
+  | { t: "resume" }
   /** Coarse session state, for the status pill. */
   | { t: "state"; listening: boolean; speaking: boolean; thinking: boolean }
   /** A delegation's lifecycle, so the UI can show the worker at work. */

@@ -232,6 +232,14 @@ export function useRoom() {
             endedTurns.current.add(msg.turnId);
             novaTurn.current = null;
             break;
+          case "pause":
+            // Possible interruption: go silent NOW, keep the buffer.
+            playbackRef.current?.port.postMessage("pause");
+            break;
+          case "resume":
+            // False alarm — carry on mid-word.
+            playbackRef.current?.port.postMessage("resume");
+            break;
           case "clear":
             // Barge-in: drop every buffered sample immediately.
             playbackRef.current?.port.postMessage("clear");

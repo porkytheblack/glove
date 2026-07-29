@@ -9,6 +9,7 @@
 //   PORT=4501 node scripts/voice-sim.mjs                 # measure turn latency
 //   PORT=4501 node scripts/voice-sim.mjs --barge-in      # test interruption
 //   PORT=4501 node scripts/voice-sim.mjs --conversation  # several turns, one connection
+//   PORT=4501 node scripts/voice-sim.mjs --blip           # false-alarm: pause must RESUME
 //
 // Turn latency here is the honest number: from the last sample of speech to
 // the moment the room commits the utterance to the agent.
@@ -22,6 +23,7 @@ loadEnv({ path: [path.join(import.meta.dirname, "..", ".env.local")], quiet: tru
 const PORT = process.env.PORT ?? 4501;
 const BARGE_IN = process.argv.includes("--barge-in");
 const CONVERSATION = process.argv.includes("--conversation");
+const BLIP = process.argv.includes("--blip");
 // Attenuate the mic, as the browser's echo canceller does while the agent's
 // audio plays (measured ducking is 10-30x). --gain 0.05 is a realistic
 // barge-in as the room actually receives it.
@@ -69,6 +71,7 @@ let lastNovaAudioAt = 0;
 let audioAfterClear = 0;
 let speechAfterClear = 0;
 let committedAfterClear = false;
+let pausedAt = 0;
 let turnAudioBytes = 0;
 let turnFirstAudioAt = 0;
 const state = { partials: 0 };
@@ -127,6 +130,17 @@ ws.on("message", (data, isBinary) => {
       }, Math.max(0, playbackEndsAt - Date.now()));
       break;
     }
+    case "pause":
+      if (!pausedAt) pausedAt = Date.now();
+      console.log(
+        `${at()} PAUSE` +
+          (audioEndedAt ? ` — her audio stopped ${Date.now() - audioEndedAt}ms after I started talking` : ""),
+      );
+      break;
+    case "resume":
+      pausedAt = 0;
+      console.log(`${at()} RESUME — false alarm, she picks the sentence back up`);
+      break;
     case "clear":
       clearedAt = Date.now();
       turnAudioBytes = 0;
@@ -188,13 +202,51 @@ ws.on("open", async () => {
     // Being cut off is only half of it. The model keeps streaming text for a
     // turn whose audio was killed, and the real failure is her RESUMING a
     // moment later — which is what "cannot interrupt" feels like.
-    console.log(`\ncleared            : ${clearedAt ? "yes" : "NO"}`);
+    console.log(`\npaused             : ${pausedAt ? `yes, ${pausedAt - audioEndedAt}ms after speech began` : "NO"}`);
+    console.log(`cleared            : ${clearedAt ? "yes" : "NO"}`);
     console.log(`audio before next turn : ${audioAfterClear} bytes (want 0 — the cut line resuming)`);
     console.log(`speech before next turn: ${speechAfterClear} chars`);
     const ok = clearedAt && audioAfterClear === 0;
     console.log(
       `\n${ok ? "PASS — cut off and stayed stopped" : "FAIL — she resumed the interrupted line"}`,
     );
+    ws.close();
+    process.exit(ok ? 0 : 1);
+  }
+
+  if (BLIP) {
+    // A fragment of speech too short to be a person (minSpeechMs is 250):
+    // she must go quiet instantly, then pick the sentence back up — the
+    // pause-resume path, not the cut.
+    console.log(`${at()} asking a question to get her talking…`);
+    ws.send(JSON.stringify({ t: "say", speaker: "operator", text: "Tell me about the Kestrel L2 hauler in detail." }));
+    const deadline = Date.now() + 20_000;
+    while (!novaSpeaking && Date.now() < deadline) await sleep(100);
+    if (!novaSpeaking) {
+      console.log("she never started speaking — cannot test");
+      process.exit(1);
+    }
+    await sleep(500);
+    console.log(`${at()} she is speaking — 100ms blip of speech`);
+    audioEndedAt = Date.now();
+    let resumed = false;
+    let pauseSeen = false;
+    ws.on("message", (d, bin) => {
+      if (bin) return;
+      const m = JSON.parse(d.toString());
+      if (m.t === "pause") pauseSeen = true;
+      if (m.t === "resume") resumed = true;
+    });
+    await streamSpeech(pcm.subarray(0, 320 * 5)); // 5 frames = 100ms
+    await streamQuiet(2.5); // silence: the VAD should retract, not confirm
+    const stillTalking = Date.now() - lastNovaAudioAt < 4000 || clearedAt === 0;
+    console.log(`
+pause seen  : ${pauseSeen ? "yes" : "NO"}`);
+    console.log(`resumed     : ${resumed ? "yes" : "NO"}`);
+    console.log(`cleared     : ${clearedAt ? "YES (wrong — a blip must not cut her)" : "no"}`);
+    const ok = pauseSeen && resumed && !clearedAt && stillTalking;
+    console.log(`
+${ok ? "PASS — paused, then picked the sentence back up" : "FAIL"}`);
     ws.close();
     process.exit(ok ? 0 : 1);
   }
