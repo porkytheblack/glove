@@ -10,8 +10,8 @@
 // the config that room should run under.
 
 import { NextResponse } from "next/server";
+import { stationFetch, StationAuthError, STATION_URL } from "../../lib/station";
 
-const STATION_URL = process.env.STATION_URL ?? "http://localhost:4400";
 const ROOM_SLOTS = Number(process.env.ROOM_SLOTS ?? 4);
 const BASE_PORT = Number(process.env.ROOM_BASE_PORT ?? 4500);
 const MESH_TOKEN = process.env.MESH_TOKEN ?? "dev-token";
@@ -26,17 +26,9 @@ interface BeaconRegistration {
   instance?: { status?: string; desiredState?: string } | null;
 }
 
-async function station(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(`${STATION_URL}/api${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-    cache: "no-store",
-  });
-}
-
 /** Which slots are currently occupied, per station. */
 async function occupiedSlots(): Promise<Set<string>> {
-  const res = await station("/beacons");
+  const res = await stationFetch("/beacons");
   if (!res.ok) throw new Error(`station returned ${res.status}`);
   const body = (await res.json()) as { data?: BeaconRegistration[] };
   const busy = new Set<string>();
@@ -61,6 +53,9 @@ export async function POST(): Promise<NextResponse> {
   try {
     busy = await occupiedSlots();
   } catch (err) {
+    if (err instanceof StationAuthError) {
+      return NextResponse.json({ error: err.message }, { status: 401 });
+    }
     return NextResponse.json(
       {
         error: `Could not reach station at ${STATION_URL}. Is it running? (pnpm start in examples/server-voice) — ${(err as Error).message}`,
@@ -83,7 +78,7 @@ export async function POST(): Promise<NextResponse> {
   const port = BASE_PORT + slot;
   const roomId = `${name}-${Date.now().toString(36)}`;
 
-  const res = await station(`/beacons/${name}/start`, {
+  const res = await stationFetch(`/beacons/${name}/start`, {
     method: "POST",
     body: JSON.stringify({ config: { roomId, port, meshToken: MESH_TOKEN } }),
   });
@@ -109,6 +104,6 @@ export async function DELETE(request: Request): Promise<NextResponse> {
   if (!name || !/^room-\d+$/.test(name)) {
     return NextResponse.json({ error: "pass ?room=room-N" }, { status: 400 });
   }
-  const res = await station(`/beacons/${name}/stop`, { method: "POST" });
+  const res = await stationFetch(`/beacons/${name}/stop`, { method: "POST" });
   return NextResponse.json({ stopped: res.ok });
 }

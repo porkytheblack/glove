@@ -66,20 +66,71 @@ const DELEGATION_NUDGE_PROMPT =
   'You just spoke a promise to look something up, but you did NOT call glove_mesh_send_message — nothing was dispatched and the customer will wait forever. Call glove_mesh_send_message NOW as a real tool call (not text, and never as <function_calls> markup), with to: "worker", blocking: true, and content restating the request including any hull id, customer name or model you heard. Output NOTHING else — no <speech> tags, the room already heard your acknowledgement. You do NOT have the answer yet and must not invent one.';
 
 /**
- * Some models emit a tool call as literal markup in their text stream instead
- * of through the provider's tool-call channel — Kimi K2 does this
- * intermittently:
+ * Recover a delegation the model MEANT to make but emitted as text.
  *
- *     <function_calls><invoke name="glove_mesh_send_message">
+ * Providers do not always parse a model's tool-call syntax back out of the
+ * token stream, and when they don't, the call arrives as plain text and the
+ * framework never sees it. Observed twice with Kimi K2, in two different
+ * shapes:
+ *
+ *   Anthropic-style XML
+ *     <invoke name="glove_mesh_send_message">
  *       <parameter name="content">Check warranty for KES-0007</parameter>
  *
- * The framework never sees a tool call, so nothing dispatches. The `<speech>`
- * protocol keeps the markup out of the audio, but the request is still sitting
- * right there in the raw output — so recover it deterministically rather than
- * spending a model round hoping the retry comes back well-formed.
+ *   its own native control tokens, leaked verbatim
+ *     glove_mesh_send_message:0<|tool_call_argument_begin|>
+ *     {"to": "worker", "blocking": true, "content": "…"}<|tool_call_end|>
+ *
+ * Both carry the request in full, so recover it deterministically instead of
+ * spending a model round hoping the retry comes back well-formed. The
+ * `<speech>` protocol already keeps this markup out of the audio; this keeps
+ * the WORK from being lost with it.
  */
-const TEXTUAL_TOOL_CALL_RE =
+const XML_TOOL_CALL_RE =
   /<invoke\s+name=["']glove_mesh_send_message["']>[\s\S]*?<parameter\s+name=["']content["']>([\s\S]*?)(?:<\/parameter>|<\/invoke>|$)/i;
+
+export function extractTextualDelegation(raw: string): string | null {
+  const xml = XML_TOOL_CALL_RE.exec(raw);
+  if (xml?.[1]?.trim()) return xml[1].trim();
+
+  // Native-token form: find the tool name, then the first balanced JSON object
+  // after it, and read `content` out of it.
+  const at = raw.indexOf("glove_mesh_send_message");
+  if (at < 0) return null;
+  const open = raw.indexOf("{", at);
+  if (open < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = open; i < raw.length; i++) {
+    const ch = raw[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') inString = !inString;
+    if (inString) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        try {
+          const parsed = JSON.parse(raw.slice(open, i + 1)) as { content?: unknown };
+          const content = typeof parsed.content === "string" ? parsed.content.trim() : "";
+          return content || null;
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
 
 export interface VoiceSessionDeps {
   /** Queue a research job and return once QUEUED. The answer comes back over
@@ -351,9 +402,8 @@ export class VoiceSession {
     // dispatch, or the customer waits forever.
     if (!this.delegatedThisTurn) {
       // 1. The call is already in the raw output as markup — just run it.
-      const textual = TEXTUAL_TOOL_CALL_RE.exec(parser.raw);
-      if (textual?.[1]?.trim()) {
-        const request = textual[1].trim();
+      const request = extractTextualDelegation(parser.raw);
+      if (request) {
         this.deps.metric("delegation_salvaged", undefined, { chars: request.length });
         try {
           await this.startDelegation(request);

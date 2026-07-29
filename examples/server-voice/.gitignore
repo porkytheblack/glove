@@ -8,3 +8,7 @@ voice-metrics.jsonl
 .station
 # next.js build output (web app)
 web/.next
+# typescript incremental build info
+web/tsconfig.tsbuildinfo
+# typescript incremental build info
+web/tsconfig.tsbuildinfo

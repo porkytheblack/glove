@@ -119,14 +119,22 @@ research work that is the right shape anyway, and it makes retries safe.
 ### A promise the room heard must end in a real dispatch
 
 Front models acknowledge without actually calling the tool often enough to
-matter. Kimi K2 does it intermittently, and its most common variant is emitting
-the call as literal markup in the text stream —
-`<invoke name="glove_mesh_send_message">…` — which never reaches the framework. Nova
-has already said "checking on that", so a miss means the customer waits forever.
-Three guards, cheapest first:
+matter. With Kimi K2 the usual cause is the provider not parsing the model's
+tool-call syntax back out of the token stream, so the call arrives as plain
+text and the framework never sees it. Two shapes observed live:
 
-1. **Salvage.** The request is sitting in the raw output; parse it and dispatch
-   directly. No extra model round.
+```
+<invoke name="glove_mesh_send_message"><parameter name="content">…</parameter>
+glove_mesh_send_message:0<|tool_call_argument_begin|>{"to":"worker",…}<|tool_call_end|>
+```
+
+Nova has already said "checking on that", so a miss means the customer waits
+forever. Three guards, cheapest first:
+
+1. **Salvage.** The request is sitting in the raw output either way — the XML
+   form is matched by regex, the native-token form by finding the first
+   balanced JSON object after the tool name and reading `content` from it.
+   Dispatch it directly, no extra model round.
 2. **Nudge.** If she *spoke* a promise but nothing dispatched, run one silent
    corrective turn that forces the call.
 3. **Enforced silence.** The nudge turn's speech is parsed but never reaches
@@ -139,17 +147,28 @@ Every path is counted in the metrics log (`delegation_salvaged`,
 `delegation_nudge`, `delegation_recovered`) so the failure rate is visible
 rather than folded into "it usually works".
 
+One rough edge remains, and the guards cannot fix it: when the model emits
+*only* a malformed tool call and no `<speech>` at all, the work is still
+recovered and the answer still arrives, but Nova says nothing on that turn.
+Setting `FRONT_MODEL` to a model whose tool calls the provider parses reliably
+avoids the whole class.
+
 ## Run it
 
 Two processes, in two terminals.
 
 ```bash
-cp .env.example .env.local     # ELEVENLABS_API_KEY + OPENROUTER_API_KEY
+cp .env.example .env.local     # keys + STATION_USERNAME / STATION_PASSWORD
 pnpm install
 
 pnpm start                     # 1. the backend → `station`
 pnpm --filter glove-server-voice-web dev    # 2. the app you test in
 ```
+
+`STATION_USERNAME` and `STATION_PASSWORD` are **required** — station refuses to
+boot without them, with no default. Its API can start and stop processes on the
+host, so an unauthenticated one is a remote-execution endpoint and a built-in
+default password is the same thing with extra steps.
 
 `station` reads `station.config.ts`, builds the signal and beacon runners from
 `signals/` and `beacons/`, supervises rooms, drains the research queue, and
@@ -172,7 +191,28 @@ heuristic tiers.
 ```bash
 PORT=4501 pnpm smoke           # end-to-end check against a room, no mic needed
 pnpm runs                      # the durable delegation records
+pnpm key                       # mint an API key for station's v1 API
 ```
+
+### Credentials — two kinds, covering different routes
+
+This trips people up, so it is worth stating plainly. Station has two
+credential types and they do **not** cover the same surface:
+
+| | `/api/*` (dashboard API) | `/api/v1/*` (programmatic API) |
+| --- | --- | --- |
+| session cookie (login) | ✅ | ✅ |
+| API key (`Authorization: Bearer sk_live_…`) | ❌ 401 "Session required" | ✅ scoped |
+| **beacon start / stop lives here** | ✅ | ✗ no beacon routes |
+
+So **room control necessarily goes through the session**: the web app logs in
+server-side with `STATION_USERNAME` / `STATION_PASSWORD`, caches the cookie, and
+re-authenticates on a 401 (`web/app/lib/station.ts`). An API key from `pnpm key`
+covers the v1 surface — signals, runs, events, health — for anything else the
+app wants to read, and is scoped (`read`, `trigger`, `cancel`, `admin`).
+
+Neither credential ever reaches the browser. The client is handed a WebSocket
+URL and nothing else.
 
 ### Things to try
 

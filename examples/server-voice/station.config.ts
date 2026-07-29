@@ -24,8 +24,25 @@ import { EnvSqliteAdapter } from "station-adapter-sqlite/env";
 
 const dbPath = process.env.STATION_DB ?? "./station.db";
 
+const username = process.env.STATION_USERNAME;
+const password = process.env.STATION_PASSWORD;
+if (!username || !password) {
+  // Deliberately fatal, and deliberately without a default. Station's API can
+  // start and stop processes on this machine; an unauthenticated one is a
+  // remote-execution endpoint, and a built-in default password is the same
+  // thing with extra steps.
+  throw new Error(
+    "STATION_USERNAME and STATION_PASSWORD must be set — station's API can start and stop rooms. See .env.example.",
+  );
+}
+
 export default defineConfig({
   port: 4400,
+
+  // Gates the dashboard AND the API the web app drives. Once this is set,
+  // /api/* requires a session cookie and /api/v1/* accepts either a session or
+  // an `Authorization: Bearer sk_live_…` API key.
+  auth: { username, password },
 
   signalsDir: "./signals",
   beaconsDir: "./beacons",

@@ -8,7 +8,8 @@
     "start": "station",
     "smoke": "node scripts/smoke.mjs",
     "runs": "tsx scripts/inspect-runs.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "key": "tsx scripts/provision-key.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
