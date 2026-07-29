@@ -155,27 +155,38 @@ export function useRoom() {
       const res = await fetch("/api/rooms", { method: "POST" });
       const data = (await res.json()) as {
         runId?: string;
+        port?: number;
         wsUrl?: string;
-        healthUrl?: string;
         error?: string;
       };
       if (!res.ok || !data.wsUrl) throw new Error(data.error ?? "could not allocate a room");
       runRef.current = data.runId ?? null;
 
-      // The room binds its port and loads the endpointing model before it is
-      // ready. The very first room start also downloads the model, so wait
-      // generously rather than failing the connect.
-      patch({ status: "starting the room…" });
-      const deadline = Date.now() + 180_000;
+      // The room has to be picked up by the runner, spawn, load the endpointing
+      // model and bind its port. The very FIRST room also downloads the model
+      // (~150MB), so allow minutes — but ask our own server rather than the
+      // room, so a run that died is reported straight away instead of us
+      // waiting out the whole window for a room that no longer exists.
+      const started = Date.now();
+      const deadline = started + 240_000;
       for (;;) {
+        const waited = Math.round((Date.now() - started) / 1000);
+        patch({
+          status:
+            waited < 8
+              ? "starting the room…"
+              : `starting the room… ${waited}s (first run downloads the endpointing model)`,
+        });
         if (Date.now() > deadline) throw new Error("the room never came up");
-        try {
-          const h = await fetch(data.healthUrl!, { cache: "no-store" });
-          if (h.ok) break;
-        } catch {
-          /* not listening yet */
-        }
-        await new Promise((r) => setTimeout(r, 500));
+        const s = await fetch(
+          `/api/rooms?runId=${data.runId}&port=${data.port}`,
+          { cache: "no-store" },
+        )
+          .then((r) => r.json())
+          .catch(() => ({ ready: false, dead: false }));
+        if (s.dead) throw new Error(s.error ?? "the room stopped before it was ready");
+        if (s.ready) break;
+        await new Promise((r) => setTimeout(r, 700));
       }
 
       await startAudio();

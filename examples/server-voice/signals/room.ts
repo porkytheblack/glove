@@ -155,7 +155,18 @@ export const room = signal("room")
         const url = new URL(req.url ?? "/", "http://localhost");
 
         if (url.pathname === "/health") {
-          res.writeHead(200, { "Content-Type": "application/json" });
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            // The BROWSER polls this to know when the room is ready, and it is
+            // always cross-origin: the app is served from :3000 while each room
+            // binds its own port. Without this header the response arrives
+            // (200) but the browser refuses to let the page read it, so the
+            // poll never succeeds and Connect hangs on "starting the room…".
+            //
+            // Safe to open: it is read-only, unauthenticated, and says nothing
+            // a caller cannot already see. `/mesh` below stays closed.
+            "Access-Control-Allow-Origin": "*",
+          });
           res.end(
             JSON.stringify({
               ok: true,

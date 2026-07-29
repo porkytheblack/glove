@@ -98,8 +98,8 @@ export async function POST(): Promise<NextResponse> {
     return NextResponse.json({
       runId: data.id,
       roomId,
+      port,
       wsUrl: `ws://${ROOM_HOST}:${port}`,
-      healthUrl: `http://${ROOM_HOST}:${port}/health`,
     });
   } catch (err) {
     if (err instanceof StationAuthError) {
@@ -111,6 +111,58 @@ export async function POST(): Promise<NextResponse> {
       },
       { status: 503 },
     );
+  }
+}
+
+/**
+ * Is the room ready yet?
+ *
+ * The browser could probe the room's own `/health` directly — it is CORS-open
+ * for exactly that — but asking through here is better on the failure path: a
+ * run that died (bad key, port clash, crashed import) is visible in station
+ * immediately, instead of the client waiting out its whole timeout while the
+ * room it is waiting for no longer exists.
+ */
+export async function GET(request: Request): Promise<NextResponse> {
+  const url = new URL(request.url);
+  const runId = url.searchParams.get("runId");
+  const port = Number(url.searchParams.get("port"));
+  if (!runId || !port) {
+    return NextResponse.json({ error: "pass ?runId=…&port=…" }, { status: 400 });
+  }
+
+  try {
+    const res = await stationV1(`/runs/${runId}`);
+    if (res.ok) {
+      const { data } = (await res.json()) as { data?: { status?: string; error?: string } };
+      const status = data?.status ?? "unknown";
+      if (["failed", "cancelled", "completed"].includes(status)) {
+        return NextResponse.json(
+          {
+            ready: false,
+            dead: true,
+            error: `the room ${status}${data?.error ? `: ${data.error}` : ""}`,
+          },
+          { status: 200 },
+        );
+      }
+    }
+  } catch (err) {
+    if (err instanceof StationAuthError) {
+      return NextResponse.json({ ready: false, dead: true, error: err.message }, { status: 200 });
+    }
+    // A hiccup reaching station is not fatal — fall through to the health probe.
+  }
+
+  // Alive as far as station knows; has it bound its port?
+  try {
+    const health = await fetch(`http://127.0.0.1:${port}/health`, {
+      signal: AbortSignal.timeout(1000),
+      cache: "no-store",
+    });
+    return NextResponse.json({ ready: health.ok, dead: false });
+  } catch {
+    return NextResponse.json({ ready: false, dead: false });
   }
 }
 
