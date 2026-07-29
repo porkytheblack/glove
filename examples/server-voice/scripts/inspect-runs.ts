@@ -1,5 +1,7 @@
 // Peek at the durable delegation records station kept — the same data the
 // dashboard renders at /signals.
+import "../lib/load-env";
+
 import { SqliteAdapter } from "station-adapter-sqlite";
 
 const a = new SqliteAdapter({ dbPath: process.env.STATION_DB ?? "./station.db" });

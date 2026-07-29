@@ -175,10 +175,15 @@ pnpm install
 
 pnpm start                     # 1. the backend → `station`
 pnpm key "web app" trigger read cancel      # 2. mint the app's only credential
+#    → paste the key into .env.local as STATION_API_KEY
 pnpm --filter glove-server-voice-web dev    # 3. the app you test in
 ```
 
-Put the minted key in the web app's environment as `STATION_API_KEY`.
+That one `.env.local` serves everything — station, the scripts, the Next.js app,
+and every room and research run (child processes inherit station's environment).
+station's CLI does not read dotfiles by itself, so `lib/load-env.ts` loads it
+from `station.config.ts` and the scripts, and `web/next.config.ts` loads it for
+the app. Anything exported in your shell still wins.
 
 `STATION_USERNAME` and `STATION_PASSWORD` are **required** — station refuses to
 boot without them, with no default. Its API can start and stop processes on the
@@ -264,6 +269,7 @@ and nothing else.
 | `lib/voice-session.ts` | per-caller orchestration: STT, agent, TTS, barge-in |
 | `lib/front-agent.ts` / `lib/worker-agent.ts` | Nova and the researcher |
 | `lib/protocol.ts` | the whole client/server contract |
+| `lib/load-env.ts` | puts `.env.local` where station and its children can see it |
 
 Timings stream to the browser and append to `voice-metrics.jsonl`:
 `front_ttft_ms`, `tts_first_audio_ms`, `stt_dispatch_ms`, `endpoint_hold`,

@@ -15,6 +15,10 @@
 // Each room listens on its own port (:4501+), assigned by the app when it
 // triggers the run — that is what callers connect to.
 
+// FIRST: puts .env.local into process.env, for this config and for every room
+// and research run station spawns as a child process.
+import "./lib/load-env";
+
 import { defineConfig } from "station-kit";
 import { SqliteAdapter } from "station-adapter-sqlite";
 import { EnvSqliteAdapter } from "station-adapter-sqlite/env";
@@ -32,7 +36,8 @@ if (!username || !password) {
   // These credentials are for the DASHBOARD and for minting keys (`pnpm key`).
   // The web app never uses them — it holds an API key and nothing else.
   throw new Error(
-    "STATION_USERNAME and STATION_PASSWORD must be set — station's API can start rooms. See .env.example.",
+    "STATION_USERNAME and STATION_PASSWORD must be set — station's API can start rooms. " +
+      "Put them in examples/server-voice/.env.local (see .env.example).",
   );
 }
 

@@ -10,5 +10,3 @@ voice-metrics.jsonl
 web/.next
 # typescript incremental build info
 web/tsconfig.tsbuildinfo
-# typescript incremental build info
-web/tsconfig.tsbuildinfo

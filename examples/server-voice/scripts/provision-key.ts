@@ -23,6 +23,8 @@
 //
 // The key is shown ONCE. Station stores only a hash.
 
+import "../lib/load-env";
+
 const STATION_URL = process.env.STATION_URL ?? "http://localhost:4400";
 const USERNAME = process.env.STATION_USERNAME;
 const PASSWORD = process.env.STATION_PASSWORD;

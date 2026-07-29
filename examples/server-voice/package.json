@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
+    "dotenv": "^17.2.3",
     "glove-core": "workspace:*",
     "glove-mesh": "workspace:*",
     "glove-voice": "workspace:*",
