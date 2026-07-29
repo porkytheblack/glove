@@ -209,6 +209,13 @@ export class VoiceSession {
   private pendingInterruption: string | null = null;
   /** Did the model actually dispatch over the mesh during the current turn? */
   private delegatedThisTurn = false;
+  /**
+   * Turns killed by a barge-in. The model keeps streaming text for a turn long
+   * after its audio is cut, and without this the next chunk finds no active
+   * turn, opens a FRESH TTS socket and she carries on talking — which is
+   * exactly what "cannot interrupt" looks like from the room.
+   */
+  private readonly voidedTurns = new Set<number>();
   /** A corrective turn: its job is to dispatch, never to talk. Anything it
    *  generates is parsed (so a textual tool call can still be salvaged) but
    *  never reaches TTS — a nudged model that ignores "say nothing" and invents
@@ -371,9 +378,15 @@ export class VoiceSession {
    *  keep the agent, its history, and any in-flight delegation alive. */
   detach(): void {
     this.attached = false;
+    // Same reasoning as barge-in: the model may still be streaming deltas for
+    // this turn, and without voiding it the next chunk opens a fresh TTS socket
+    // and the reconnecting caller is greeted mid-sentence by the last one's answer.
+    if (this.activeTurn) this.voidedTurns.add(this.activeTurn.id);
     this.teardownTurnAudio();
     this.speaking = false;
     this.engine.setGateOpen(true);
+    // Half-heard words do not survive the caller who spoke them.
+    this.engine.resetTranscript();
   }
 
   // ── client input ───────────────────────────────────────────────────────────
@@ -490,6 +503,13 @@ export class VoiceSession {
       spoken: spoken.slice(0, 3000),
     });
 
+    if (this.voidedTurns.has(turnId)) {
+      // Interrupted: no flush, no speech_end. The interruption notice already
+      // tells the model how much of the line was actually heard.
+      this.voidedTurns.delete(turnId);
+      return;
+    }
+
     if (this.activeTurn?.id === turnId) {
       // Wait for the socket's handshake before closing the stream.
       //
@@ -572,6 +592,9 @@ export class VoiceSession {
   private onSpeechText(turnId: number, text: string): void {
     if (this.closed) return;
     if (this.silentTurn) return; // corrective turn — parsed, but never spoken
+    // Cut off mid-sentence: everything still arriving for this turn is text the
+    // room will never hear, so it must not reach TTS or the transcript.
+    if (this.voidedTurns.has(turnId)) return;
     if (this.ttftPending) {
       this.ttftPending = false;
       this.deps.metric("front_ttft_ms", Date.now() - this.turnStartAt);
@@ -694,6 +717,9 @@ export class VoiceSession {
     const playedMs = active?.firstAudioAt ? Date.now() - active.firstAudioAt : 0;
     const heard = active ? estimateHeard(active.sentText, playedMs) : "";
 
+    // Void the turn BEFORE tearing its audio down, so deltas still streaming
+    // from the model cannot re-open a socket and resume the sentence.
+    if (active) this.voidedTurns.add(active.id);
     this.teardownTurnAudio();
     this.speaking = false;
     // Drop whatever is still buffered in the browser. Without this the room

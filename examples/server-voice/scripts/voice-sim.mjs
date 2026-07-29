@@ -58,12 +58,21 @@ let clearedAt = 0;
 let novaAudioAt = 0;
 let novaSpeaking = false;
 let novaRepliedAt = 0;
+let lastNovaAudioAt = 0;
+let audioAfterClear = 0;
+let speechAfterClear = 0;
+let committedAfterClear = false;
 const state = { partials: 0 };
 
 ws.on("message", (data, isBinary) => {
   if (isBinary) {
     if (!novaAudioAt) novaAudioAt = Date.now();
     novaSpeaking = true;
+    lastNovaAudioAt = Date.now();
+    // Only audio in the window between the cut and the NEXT committed
+    // utterance can be the interrupted line resuming. Anything after that
+    // commit is her answering what was just said, which is the point.
+    if (clearedAt && !committedAfterClear) audioAfterClear += data.byteLength ?? data.length;
     return;
   }
   const m = JSON.parse(data.toString());
@@ -75,12 +84,14 @@ ws.on("message", (data, isBinary) => {
       state.partials++;
       break;
     case "utterance":
+      if (clearedAt) committedAfterClear = true;
       console.log(
         `${at()} COMMITTED "${m.text}"` +
           (audioEndedAt ? `  ← ${Date.now() - audioEndedAt}ms after speech ended` : ""),
       );
       break;
     case "speech":
+      if (clearedAt && !committedAfterClear) speechAfterClear += m.text.length;
       if (!novaRepliedAt && audioEndedAt) {
         novaRepliedAt = Date.now();
         console.log(`${at()} NOVA REPLIES  ← ${novaRepliedAt - audioEndedAt}ms after speech ended`);
@@ -137,13 +148,20 @@ ws.on("open", async () => {
     console.log(`${at()} she is speaking — talking over her now`);
     audioEndedAt = Date.now(); // reused as "started talking over her"
     await streamSpeech(pcm);
-    await sleep(3000);
+    await sleep(4000);
 
+    // Being cut off is only half of it. The model keeps streaming text for a
+    // turn whose audio was killed, and the real failure is her RESUMING a
+    // moment later — which is what "cannot interrupt" feels like.
+    console.log(`\ncleared            : ${clearedAt ? "yes" : "NO"}`);
+    console.log(`audio before next turn : ${audioAfterClear} bytes (want 0 — the cut line resuming)`);
+    console.log(`speech before next turn: ${speechAfterClear} chars`);
+    const ok = clearedAt && audioAfterClear === 0;
     console.log(
-      `\n${clearedAt ? "PASS — interruption cut her off" : "FAIL — she was never interrupted"}`,
+      `\n${ok ? "PASS — cut off and stayed stopped" : "FAIL — she resumed the interrupted line"}`,
     );
     ws.close();
-    process.exit(clearedAt ? 0 : 1);
+    process.exit(ok ? 0 : 1);
   }
 
   await streamQuiet(0.6);

@@ -37,6 +37,9 @@ import { SileroVADNode } from "./silero-vad-node";
 
 /** Only commit transcript text if real voice was heard this recently. */
 const VOICE_FRESH_MS = 3000;
+/** A trailing addition shorter than this is transcription lag, not a
+ *  correction worth interrupting the conversation over. */
+const TAIL_EXTENSION_CHARS = 24;
 /** RMS floor for "there was sound" — well under speech, well over silence. */
 const VOICE_ENERGY_FLOOR = 0.004;
 /** Trailing silence before the VAD calls end-of-speech. The floor of send latency. */
@@ -184,6 +187,41 @@ export class TurnEngine {
     // the gate is closed. Only STT is gated.
     this.vad.process(pcm);
     if (this.gateOpen) this.stt.sendAudio(pcm);
+  }
+
+  /**
+   * Forget everything half-heard.
+   *
+   * Scribe's partial is a running buffer, not a per-utterance one, and it does
+   * not belong to a socket — so a caller who leaves mid-sentence leaves their
+   * fragment behind. The next caller's first words get appended to it, and what
+   * gets committed is both utterances glued together: "…under warranty? Nova,
+   * is hull 0007 still under warranty?" from a single question. That doubled
+   * text then reads as a correction and the agent answers it twice, which is
+   * what the duplicate replies actually were.
+   *
+   * Committing the stale buffer (rather than only clearing ours) is what makes
+   * this stick: the fragment lives on Scribe's side, and a commit is the only
+   * way to make it let go. The confirming final is swallowed by `pendingConfirm`.
+   */
+  resetTranscript(): void {
+    this.cancelPendingCommit();
+    if (this.stableTimer) {
+      clearTimeout(this.stableTimer);
+      this.stableTimer = null;
+    }
+    const stale = this.stt.currentPartial?.trim() ?? "";
+    if (stale) {
+      this.pendingConfirm = stale;
+      this.stt.flushUtterance();
+    }
+    // Marked as already-sent rather than cleared: if any of it resurfaces in a
+    // later partial, `livePartial()` strips it as a prefix instead of handing
+    // the next caller words the previous one spoke.
+    this.lastDispatched = stale;
+    this.speechEndAt = 0;
+    this.userSpeaking = false;
+    this.hooks.onPartial("");
   }
 
   /** Close the gate while the agent speaks; open it when it stops. */
@@ -399,11 +437,29 @@ export class TurnEngine {
       this.lastDispatched = text || confirm;
       this.hooks.onPartial("");
       if (text && normalize(text) !== normalize(confirm)) {
-        this.hooks.onMetric("stt_final_mismatch", undefined, {
-          sentChars: confirm.length,
-          finalChars: text.length,
-        });
-        this.hooks.onTranscriptCorrection(confirm, text);
+        const sent = normalize(confirm);
+        const actual = normalize(text);
+        // A pure TAIL EXTENSION is transcription lag, not a mishearing: we
+        // committed from the partial and the recognizer then appended the last
+        // word or two. Nothing already said was wrong, so raising a correction
+        // just makes the agent answer the same thing twice — observed live as
+        // "been out." → "been out for," producing two full replies.
+        //
+        // A long addition is different: that is real content the agent has not
+        // heard, so it still goes through.
+        const addition = actual.startsWith(sent) ? actual.slice(sent.length).trim() : null;
+        if (addition !== null && addition.length < TAIL_EXTENSION_CHARS) {
+          this.hooks.onMetric("stt_tail_extension", undefined, {
+            added: addition,
+            chars: addition.length,
+          });
+        } else {
+          this.hooks.onMetric("stt_final_mismatch", undefined, {
+            sentChars: confirm.length,
+            finalChars: text.length,
+          });
+          this.hooks.onTranscriptCorrection(confirm, text);
+        }
       }
       return;
     }
