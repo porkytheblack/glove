@@ -4,3 +4,5 @@ station.db
 station.db-*
 # per-session timings
 voice-metrics.jsonl
+# station-kit runtime dir
+.station

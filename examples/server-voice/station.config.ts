@@ -1,17 +1,55 @@
-// Dashboard config:  npx station  →  http://localhost:4400
+// The whole deployment, declared once.
 //
-//   /beacons  the voice gateway: status, incarnation, restart count, live logs,
-//             and start/stop/restart controls for the voice tier.
-//   /signals  every delegated research job — input, answer, duration, retries.
+//   pnpm start   →   `station`
 //
-// Point it at the same database the runner uses so it sees real runs.
+// That single command IS the system: station-kit builds the SignalRunner and
+// the BeaconRunner from the directories below, supervises the voice gateway,
+// drains the research queue, and serves the dashboard — all in one process,
+// with the runners' events wired straight into the live UI.
+//
+//   http://localhost:4400/beacons   the voice tier: status, incarnation,
+//                                   restart count, uptime, live logs, and
+//                                   start / stop / restart controls
+//   http://localhost:4400/signals   every delegation: input, answer, duration,
+//                                   attempts
+//   http://localhost:4400/env       runtime env vars injected into runs
+//
+// The gateway itself listens separately on :4500 (see beacons/voice-gateway.ts)
+// — that is the port callers connect to.
 
 import { defineConfig } from "station-kit";
 import { SqliteAdapter } from "station-adapter-sqlite";
+import { BeaconSqliteAdapter } from "station-adapter-sqlite/beacon";
+import { EnvSqliteAdapter } from "station-adapter-sqlite/env";
+
+const dbPath = process.env.STATION_DB ?? "./station.db";
 
 export default defineConfig({
   port: 4400,
+
   signalsDir: "./signals",
   beaconsDir: "./beacons",
-  adapter: new SqliteAdapter({ dbPath: process.env.STATION_DB ?? "./station.db" }),
+
+  // SQLite rather than the in-memory default, because the two sides of a
+  // delegation live in different processes: the gateway (a supervised beacon
+  // child) enqueues the job, the runner in *this* process drains it, and the
+  // gateway reads the answer back out. An in-memory queue would leave the
+  // gateway triggering into a queue nobody can see.
+  adapter: new SqliteAdapter({ dbPath }),
+
+  // Supervision state on disk too, so restart counts and incarnation history
+  // survive a station restart instead of resetting to a clean slate.
+  beaconAdapter: new BeaconSqliteAdapter({ dbPath }),
+
+  // Lets ELEVENLABS_API_KEY / OPENROUTER_API_KEY be managed from the dashboard
+  // and injected into the gateway and each research run, instead of only
+  // through the shell that launched station.
+  envStorage: new EnvSqliteAdapter({ dbPath }),
+
+  runner: {
+    // A voice caller is waiting on these, so poll tightly rather than at the
+    // 1s default.
+    pollIntervalMs: 250,
+    maxConcurrent: 5,
+  },
 });

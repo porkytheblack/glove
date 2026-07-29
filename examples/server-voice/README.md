@@ -87,15 +87,47 @@ The trade: each run is a cold process with no conversation memory, which is why
 the front agent's tool description insists on a **self-contained** request. For
 research work that is the right shape anyway, and it makes retries safe.
 
+### A promise the room heard must end in a real dispatch
+
+Front models acknowledge without actually calling the tool often enough to
+matter. Kimi K2 does it intermittently, and its most common variant is emitting
+the call as literal markup in the text stream —
+`<invoke name="delegate_to_worker">…` — which never reaches the framework. Nova
+has already said "checking on that", so a miss means the customer waits forever.
+Three guards, cheapest first:
+
+1. **Salvage.** The request is sitting in the raw output; parse it and dispatch
+   directly. No extra model round.
+2. **Nudge.** If she *spoke* a promise but nothing dispatched, run one silent
+   corrective turn that forces the call.
+3. **Enforced silence.** The nudge turn's speech is parsed but never reaches
+   TTS. This one is not politeness — a nudged model that ignores "say nothing"
+   will happily invent an answer, and reading a wrong warranty date to a
+   customer is worse than saying nothing at all. Measured: it did exactly that
+   before the guard existed.
+
+Every path is counted in the metrics log (`delegation_salvaged`,
+`delegation_nudge`, `delegation_recovered`) so the failure rate is visible
+rather than folded into "it usually works".
+
 ## Run it
 
 ```bash
 cp .env.example .env.local     # ELEVENLABS_API_KEY + OPENROUTER_API_KEY
 pnpm install
-pnpm start                     # supervises the gateway + drains the queue
+pnpm start                     # → `station`
 ```
 
-Open **http://localhost:4500**, hit Connect, and talk.
+That one command is the whole system. `station` reads `station.config.ts`,
+builds the signal and beacon runners from `signals/` and `beacons/`, supervises
+the gateway, drains the research queue, and serves the dashboard — with the
+runners' events wired straight into the live UI.
+
+- **http://localhost:4500** — the voice console. Hit Connect and talk.
+- **http://localhost:4400** — the dashboard. `/beacons` is the voice tier
+  (status, incarnation, restart count, live logs, start/stop/restart);
+  `/signals` is every delegation with its input, answer and timing; `/env`
+  manages the API keys injected into runs.
 
 The first boot downloads the open [`livekit/turn-detector`](https://huggingface.co/livekit/turn-detector)
 weights (~150MB, one-time, into the HF cache). The beacon does this *before*
@@ -104,11 +136,9 @@ fails the gateway still serves — `LocalTurnDetector` falls back to the
 heuristic tiers.
 
 ```bash
-npx station                    # dashboard → http://localhost:4400
+pnpm smoke                     # end-to-end check, no microphone needed
+pnpm runs                      # the durable delegation records
 ```
-
-`/beacons` is the voice tier; `/signals` is every delegation with its input,
-answer and timing.
 
 ### Things to try
 
@@ -128,7 +158,7 @@ answer and timing.
 
 | | |
 | --- | --- |
-| `runner.ts` | the one process you start — supervises both runners |
+| `station.config.ts` | the whole deployment: dirs, adapters, dashboard port |
 | `beacons/voice-gateway.ts` | HTTP + WebSocket, one `VoiceSession` per connection |
 | `signals/research.ts` | the delegation job |
 | `lib/turn-engine.ts` | the commitment engine, ported from the browser hook |

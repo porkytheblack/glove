@@ -48,6 +48,38 @@ const CHUNK_LENGTH_SCHEDULE = [60, 120, 160, 250];
 /** How often to check a delegated job for completion. */
 const DELEGATION_POLL_MS = 250;
 
+/** Spoken phrasing that promises a lookup is already underway. */
+const PROMISE_RE =
+  /\b(one (moment|sec(ond)?)|moment please|let me (check|see|look|pull|find|get)|i(?:'|’)?ll (check|look|pull|get|find)|checking (on )?that|looking (that|it|into) up|pulling (that|it) up|right away|hold on|give me a (sec|second|moment)|bear with me)\b/i;
+
+/**
+ * The backstop for a promise that never dispatched. Front models ack without
+ * actually calling the tool often enough to matter — Kimi K2 does it
+ * intermittently, sometimes by emitting the call as literal `<function_calls>`
+ * markup instead of a real tool call, which never reaches the framework. The
+ * room has already heard "checking on that", so silence here means the customer
+ * waits forever. One corrective turn recovers it for the cost of a single fast
+ * model round, and only on the failure path.
+ */
+const DELEGATION_NUDGE_PROMPT =
+  "You just spoke a promise to look something up, but you did NOT call the delegate_to_worker tool — nothing was dispatched and the customer will wait forever. Call delegate_to_worker NOW as a real tool call (not text, and never as <function_calls> markup), with `request` restating what to look up including any hull id, customer name or model you heard. Output NOTHING else — no <speech> tags, the room already heard your acknowledgement. You do NOT have the answer yet and must not invent one.";
+
+/**
+ * Some models emit a tool call as literal markup in their text stream instead
+ * of through the provider's tool-call channel — Kimi K2 does this
+ * intermittently:
+ *
+ *     <function_calls><invoke name="delegate_to_worker">
+ *       <parameter name="request">Check warranty for KES-0007</parameter>
+ *
+ * The framework never sees a tool call, so nothing dispatches. The `<speech>`
+ * protocol keeps the markup out of the audio, but the request is still sitting
+ * right there in the raw output — so recover it deterministically rather than
+ * spending a model round hoping the retry comes back well-formed.
+ */
+const TEXTUAL_TOOL_CALL_RE =
+  /<invoke\s+name=["']delegate_to_worker["']>[\s\S]*?<parameter\s+name=["']request["']>([\s\S]*?)(?:<\/parameter>|<\/invoke>|$)/i;
+
 export interface VoiceSessionDeps {
   /** Queue a research job; resolves with the run id once queued. */
   delegate(request: string, sessionId: string): Promise<string>;
@@ -95,6 +127,13 @@ export class VoiceSession {
   private ttftPending = false;
   private history: TurnContextMessage[] = [];
   private pendingInterruption: string | null = null;
+  /** Did the model actually call delegate_to_worker during the current turn? */
+  private delegatedThisTurn = false;
+  /** A corrective turn: its job is to dispatch, never to talk. Anything it
+   *  generates is parsed (so a textual tool call can still be salvaged) but
+   *  never reaches TTS — a nudged model that ignores "say nothing" and invents
+   *  an answer must not be able to read it to the room. */
+  private silentTurn = false;
 
   constructor(id: string, deps: VoiceSessionDeps) {
     this.id = id;
@@ -221,8 +260,11 @@ export class VoiceSession {
       });
   }
 
-  private async runFrontTurn(prompt: string): Promise<void> {
+  private async runFrontTurn(prompt: string, opts?: { isNudge?: boolean }): Promise<void> {
     if (this.closed) return;
+    const isNudge = opts?.isNudge ?? false;
+    this.delegatedThisTurn = false;
+    this.silentTurn = isNudge;
 
     // A barge-in that landed while the previous turn was still generating is
     // reported at the head of the NEXT turn, so the model learns what the room
@@ -244,11 +286,39 @@ export class VoiceSession {
       await this.front.processRequest(framed);
     } finally {
       this.parser = null;
+      this.silentTurn = false;
       this.setThinking(false);
     }
 
     const spoken = parser.finish();
     if (spoken) this.history.push({ role: "assistant", content: spoken });
+
+    // Recovery, cheapest first. A promise the room heard must end in a real
+    // dispatch, or the customer waits forever.
+    if (!this.delegatedThisTurn) {
+      // 1. The call is already in the raw output as markup — just run it.
+      const textual = TEXTUAL_TOOL_CALL_RE.exec(parser.raw);
+      if (textual?.[1]?.trim()) {
+        const request = textual[1].trim();
+        this.deps.metric("delegation_salvaged", undefined, { chars: request.length });
+        try {
+          await this.startDelegation(request);
+        } catch {
+          /* fall through to the nudge */
+        }
+      }
+      // 2. Otherwise, if she SAID she was on it, force the call in a silent
+      //    corrective turn.
+      if (!this.delegatedThisTurn && !isNudge && PROMISE_RE.test(spoken)) {
+        this.deps.metric("delegation_nudge", undefined, { spoken: spoken.slice(0, 120) });
+        try {
+          await this.runFrontTurn(DELEGATION_NUDGE_PROMPT, { isNudge: true });
+          if (this.delegatedThisTurn) this.deps.metric("delegation_recovered");
+        } catch {
+          /* best-effort — a failed nudge just leaves the original silence */
+        }
+      }
+    }
     this.deps.metric("front_transcript", undefined, {
       input: framed.slice(0, 1500),
       raw: parser.raw.slice(0, 6000),
@@ -290,6 +360,7 @@ export class VoiceSession {
   /** A span of in-tag text from the agent: speak it and mirror it to the UI. */
   private onSpeechText(turnId: number, text: string): void {
     if (this.closed) return;
+    if (this.silentTurn) return; // corrective turn — parsed, but never spoken
     if (this.ttftPending) {
       this.ttftPending = false;
       this.deps.metric("front_ttft_ms", Date.now() - this.turnStartAt);
@@ -402,6 +473,7 @@ export class VoiceSession {
    * out loud — the answer arrives later, as its own turn (§5).
    */
   private async startDelegation(request: string): Promise<string> {
+    this.delegatedThisTurn = true;
     const queuedAt = Date.now();
     const jobId = await this.deps.delegate(request, this.id);
     this.deps.send({ t: "delegation", jobId, phase: "queued", detail: request.slice(0, 160) });

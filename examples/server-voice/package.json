@@ -5,8 +5,7 @@
   "type": "module",
   "scripts": {
     "prestart": "pnpm --filter glove-voice build",
-    "start": "tsx runner.ts",
-    "dashboard": "station",
+    "start": "station",
     "smoke": "node scripts/smoke.mjs",
     "runs": "tsx scripts/inspect-runs.ts",
     "typecheck": "tsc --noEmit"
@@ -17,6 +16,7 @@
     "glove-voice": "workspace:*",
     "station-adapter-sqlite": "^2.0.0",
     "station-beacon": "^2.0.0",
+    "station-kit": "^2.0.0",
     "station-signal": "^2.0.0",
     "ws": "^8.18.0",
     "zod": "^4.3.6"
@@ -24,7 +24,6 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
-    "station-kit": "^2.0.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
