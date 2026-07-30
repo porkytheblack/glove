@@ -477,7 +477,16 @@ export class VoiceSession {
    * interruption MEANT.
    */
   handleClientBargeIn(): void {
-    if (this.closed || !this.speaking) return;
+    if (this.closed) return;
+    if (!this.speaking) {
+      // The caller's client paused itself on speech it heard, but by the time
+      // that reached us her audio was already done — so there is no turn to
+      // cut. Say so explicitly instead of ignoring it: the client is sitting
+      // paused waiting for an answer, and silence here strands it there.
+      this.deps.send({ t: "resume" });
+      this.deps.metric("barge_in_client_late");
+      return;
+    }
     this.deps.metric("barge_in_client");
     this.engine.claimTranscriptOnOpen();
     this.bargeIn();

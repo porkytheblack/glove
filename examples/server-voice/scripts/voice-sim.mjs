@@ -30,6 +30,11 @@ const SILENCE = process.argv.includes("--silence");
 // tells the room the moment it hears a person, without waiting for the room's
 // own VAD. --client-vad exercises that path.
 const CLIENT_VAD = process.argv.includes("--client-vad");
+// Interrupt her, then KEEP TALKING on the same connection. Every previous
+// barge-in test hung up immediately after the cut, so the state a barge-in
+// leaves behind was never exercised — which is where "she stops responding
+// until I reconnect" lives.
+const AFTER_INTERRUPT = process.argv.includes("--after-interrupt");
 // Attenuate the mic, as the browser's echo canceller does while the agent's
 // audio plays (measured ducking is 10-30x). --gain 0.05 is a realistic
 // barge-in as the room actually receives it.
@@ -248,6 +253,50 @@ ws.on("open", async () => {
     console.log(`phantom partials   : ${ghostPartials} (want 0)`);
     const ok = ghosts === 0 && ghostPartials === 0;
     console.log(`\n${ok ? "PASS — the room heard nothing, because there was nothing" : "FAIL — hallucinations reached the transcript"}`);
+    ws.close();
+    process.exit(ok ? 0 : 1);
+  }
+
+  if (AFTER_INTERRUPT) {
+    console.log(`${at()} asking a question to get her talking…`);
+    ws.send(JSON.stringify({ t: "say", speaker: "operator", text: "Tell me about the Kestrel L2 hauler in detail." }));
+    const deadline = Date.now() + 25_000;
+    while (!novaSpeaking && Date.now() < deadline) await sleep(100);
+    if (!novaSpeaking) { console.log("she never started speaking"); process.exit(1); }
+
+    console.log(`${at()} interrupting her now`);
+    audioEndedAt = Date.now();
+    await streamSpeech(pcm);
+    await sleep(6000);
+    if (!clearedAt) console.log("!! never cut off");
+
+    // The whole point: does the room still work afterwards?
+    let replies = 0;
+    onUtterance = () => {};
+    const follow = [
+      "Sorry, what I meant was, how much does it cost?",
+      "And how many can you fit in it?",
+    ];
+    for (const [i, line] of follow.entries()) {
+      const clip = await speech(line);
+      console.log(`\n${at()} — saying "${line}"`);
+      const before = state.partials;
+      const spokeBefore = novaRepliedAt;
+      novaRepliedAt = 0;
+      audioEndedAt = 0;
+      await streamQuiet(0.4);
+      await streamSpeech(clip);
+      audioEndedAt = Date.now();
+      await streamQuiet(10);
+      const heard = state.partials > before;
+      const answered = novaRepliedAt > 0;
+      if (answered) replies++;
+      console.log(`${at()}   → transcribed: ${heard ? "yes" : "NO"} | answered: ${answered ? "yes" : "NO"}`);
+      void spokeBefore; void i;
+    }
+    console.log(`\nreplies after the interruption: ${replies}/${follow.length}`);
+    const ok = replies === follow.length;
+    console.log(`\n${ok ? "PASS — the call kept working after being interrupted" : "FAIL — she went unresponsive after the interruption"}`);
     ws.close();
     process.exit(ok ? 0 : 1);
   }

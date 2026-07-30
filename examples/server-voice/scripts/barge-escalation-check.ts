@@ -77,7 +77,27 @@ console.log(`case 2 — cough, nothing transcribed`);
 console.log(`  events: ${events.join(" → ")}`);
 console.log(`  ${resumed ? "PASS" : "FAIL"} — expected a resume and NO barge-in\n`);
 
+// ── case 3: a client barge-in that arrives just too late ───────────────────
+// The browser paused itself on speech it heard, but her audio finished before
+// the message landed. The room has no turn to cut — and if it stays silent the
+// client sits paused forever, which is the "she stops responding until I
+// redial" failure. It must answer.
+events.length = 0;
+const sent: string[] = [];
+const session = {
+  closed: false,
+  speaking: false,
+  deps: { send: (m: { t: string }) => sent.push(m.t), metric: () => {} },
+} as unknown as { handleClientBargeIn(): void };
+// Reuse the real implementation against that state.
+const { VoiceSession } = await import("../lib/voice-session");
+VoiceSession.prototype.handleClientBargeIn.call(session);
+const answeredLate = sent.includes("resume");
+console.log(`case 3 — client barge-in arrives after her audio ended`);
+console.log(`  sent: ${sent.join(", ") || "(nothing)"}`);
+console.log(`  ${answeredLate ? "PASS" : "FAIL"} — expected a resume so the client is not stranded\n`);
+
 engine.dispose();
-const ok = cutNotResumed && resumed;
+const ok = cutNotResumed && resumed && answeredLate;
 console.log(ok ? "PASS" : "FAIL");
 process.exit(ok ? 0 : 1);

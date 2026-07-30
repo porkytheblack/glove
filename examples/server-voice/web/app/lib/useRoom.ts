@@ -40,6 +40,10 @@ export interface RoomState {
   error: string | null;
 }
 
+/** A local pause the room never resolved is lifted after this long. Longer
+ *  than any confirm/retract round trip, short enough not to be a dropout. */
+const LOCAL_PAUSE_MAX_MS = 1500;
+
 const INITIAL: RoomState = {
   status: "idle",
   connected: false,
@@ -74,6 +78,21 @@ export function useRoom() {
    *  so a stray "pause" cannot arrive while nothing is playing. */
   const playbackActiveRef = useRef(false);
   const localVadFailures = useRef(0);
+  /** We paused playback ourselves and are waiting to hear back from the room. */
+  const pausedLocallyRef = useRef(false);
+  const localPauseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Undo a local pause the room never resolved. A no-op once the room has
+   *  spoken — `clear` and `resume` both clear the flag. */
+  const liftLocalPause = useCallback(() => {
+    if (localPauseTimer.current) {
+      clearTimeout(localPauseTimer.current);
+      localPauseTimer.current = null;
+    }
+    if (!pausedLocallyRef.current) return;
+    pausedLocallyRef.current = false;
+    playbackRef.current?.port.postMessage("resume");
+  }, []);
 
   const line = useCallback((who: string, text: string, kind: LogLine["kind"]) => {
     setState((s) => ({
@@ -163,19 +182,30 @@ export function useRoom() {
       // enough to warrant the floor. Confirmation only decides what happens
       // NEXT: a real utterance escalates to a full barge-in, a noise burst
       // resumes mid-word. Stopping is free; talking over you is not.
+      // The client OWNS un-pausing its own pause.
+      //
+      // The worklet holds `paused` until something tells it otherwise, and the
+      // room is not guaranteed to say anything: if her audio finished between
+      // our pause and the room reading the barge-in, the room declines it and
+      // sends neither `clear` nor `resume`. The pause then never lifts, every
+      // later turn's audio piles into a buffer nobody drains, and the call is
+      // dead until it is redialled — reported as "after the first interruption
+      // she stops responding at all". So whatever we pause, we un-pause, and
+      // the room's `clear` merely supersedes us.
       vad.on("speech_start", () => {
         if (!playbackActiveRef.current) return;
         playbackRef.current?.port.postMessage("pause");
+        pausedLocallyRef.current = true;
+        if (localPauseTimer.current) clearTimeout(localPauseTimer.current);
+        localPauseTimer.current = setTimeout(liftLocalPause, LOCAL_PAUSE_MAX_MS);
       });
+      vad.on("speech_end", liftLocalPause);
       vad.on("speech_real_start", () => {
         if (!playbackActiveRef.current) return;
         playbackRef.current?.port.postMessage("pause");
         send({ t: "barge_in" }); // the room decides what to do about it
       });
-      vad.on?.("vad_misfire", () => {
-        if (!playbackActiveRef.current) return;
-        playbackRef.current?.port.postMessage("resume");
-      });
+      vad.on?.("vad_misfire", liftLocalPause);
       localVadRef.current = vad;
     })();
 
@@ -227,6 +257,11 @@ export function useRoom() {
   }, [send]);
 
   const stopAudio = useCallback(() => {
+    if (localPauseTimer.current) {
+      clearTimeout(localPauseTimer.current);
+      localPauseTimer.current = null;
+    }
+    pausedLocallyRef.current = false;
     localVadRef.current?.removeAllListeners?.();
     localVadRef.current = null;
     playbackActiveRef.current = false;
@@ -342,11 +377,23 @@ export function useRoom() {
             playbackRef.current?.port.postMessage("pause");
             break;
           case "resume":
-            // False alarm — carry on mid-word.
+            // False alarm — carry on mid-word. The room has spoken, so our own
+            // pause is resolved and its timer must not fire later.
+            pausedLocallyRef.current = false;
+            if (localPauseTimer.current) {
+              clearTimeout(localPauseTimer.current);
+              localPauseTimer.current = null;
+            }
             playbackRef.current?.port.postMessage("resume");
             break;
           case "clear":
-            // Barge-in: drop every buffered sample immediately.
+            // Barge-in: drop every buffered sample immediately. `clear` also
+            // unpauses the worklet, so our local pause is resolved.
+            pausedLocallyRef.current = false;
+            if (localPauseTimer.current) {
+              clearTimeout(localPauseTimer.current);
+              localPauseTimer.current = null;
+            }
             playbackActiveRef.current = false;
             playbackRef.current?.port.postMessage("clear");
             endedTurns.current.clear();
