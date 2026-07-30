@@ -344,7 +344,22 @@ export class VoiceSession {
       }
     }
 
-    await this.stt.connect();
+    // Retry the FIRST connect too. The adapter's own reconnects only cover a
+    // socket that opened once; a transient 5xx from the token endpoint on the
+    // very first attempt threw straight out of the signal, so the room died at
+    // boot and the caller got "the room never came up" for what was a blip.
+    let sttErr: unknown;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        await this.stt.connect();
+        sttErr = undefined;
+        break;
+      } catch (err) {
+        sttErr = err;
+        await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+      }
+    }
+    if (sttErr) throw sttErr;
 
     this.deps.metric("session_config", undefined, {
       provider: PROVIDER,

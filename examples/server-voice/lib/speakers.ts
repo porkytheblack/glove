@@ -19,24 +19,24 @@ export const ASSISTANT_NAME = "Nova";
 export const SPEAKERS: Speaker[] = [
   {
     id: "operator",
-    displayName: "Sam (you)",
-    shortName: "Sam",
+    displayName: "Rae (you)",
+    shortName: "Rae",
     description:
-      "The Orbital Dynamics front-desk associate running this session. Talks to Nova to get work done, and also talks directly to the customer in the room.",
+      "The buyer, here to buy their FIRST ship. Has never owned one, has flown as a passenger and nothing more, and does not know the vocabulary — not tonnage, not fold range, not what a drive rating means. Knows what they want to DO, not what they want to buy. This is who Nova is selling to.",
   },
   {
     id: "customer",
-    displayName: "Dr. Okonkwo (walk-in)",
-    shortName: "Dr. Okonkwo",
+    displayName: "Jules (came along)",
+    shortName: "Jules",
     description:
-      "A customer physically at the desk. Owns an old Kestrel L2 hauler, hull KES-0007, nicknamed \"Rustbucket\". Sometimes speaks to Sam, sometimes to Nova.",
+      "Rae's friend, along for the visit. Knows nothing about ships either but asks the blunt practical questions Rae is too polite to — what it really costs to run, whether it is safe, whether Rae is being upsold. Sometimes talks to Rae, sometimes to Nova.",
   },
   {
     id: "bystander",
     displayName: "Kit (technician)",
     shortName: "Kit",
     description:
-      "A technician passing through the front desk. Mostly talks to Sam; rarely addresses Nova.",
+      "A technician crossing the showroom floor. Mostly talks to colleagues, not to Nova, but will give a blunt maintenance opinion if asked directly.",
   },
 ];
 

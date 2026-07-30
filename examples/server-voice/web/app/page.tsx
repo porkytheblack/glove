@@ -60,9 +60,10 @@ export default function Page() {
           <div className="scroll">
             {state.log.length === 0 && (
               <div className="empty">
-                Connect to claim a room. Nova hears every speaker and decides for herself
-                who is addressing her. Ask about hull KES-0007 to watch a delegation run
-                as a station job and come back over the mesh.
+                Connect to claim a room. You are buying your first ship and know nothing
+                about ships; Nova sells them. Tell her what you want to DO with it — move
+                cargo between two colonies, take four people somewhere warm — and watch
+                the lookup she needs run as a station job and come back over the mesh.
               </div>
             )}
             {state.log.map((l) =>
