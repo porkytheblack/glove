@@ -116,23 +116,14 @@ export function useRoom() {
     await ctx.audioWorklet.addModule("/capture-worklet.js");
     await ctx.audioWorklet.addModule("/playback-worklet.js");
 
-    // Echo cancellation is NOT optional — barge-in depends on her voice being
-    // stripped from the microphone. The other two are, and they are a genuine
-    // trade-off rather than free wins: noise suppression and automatic gain
-    // control are tuned to make speech pleasant for a HUMAN listener on a
-    // call, and both work by reshaping the signal. That reshaping removes
-    // exactly the spectral detail a recognizer leans on for unfamiliar
-    // accents, which is why they are worth turning off when transcription
-    // quality matters more than a tidy waveform — and worth leaving on in a
-    // genuinely noisy room. Set NEXT_PUBLIC_MIC_DENOISE / _AGC to "off" to
-    // A/B them against your own voice.
-    const off = (v: string | undefined) => v === "off" || v === "false" || v === "0";
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
+        // Browser-side echo cancellation still earns its keep: it keeps Nova's
+        // own voice out of the microphone. Every other decision is the room's.
         echoCancellation: true,
-        noiseSuppression: !off(process.env.NEXT_PUBLIC_MIC_DENOISE),
-        autoGainControl: !off(process.env.NEXT_PUBLIC_MIC_AGC),
+        noiseSuppression: true,
+        autoGainControl: true,
       },
     });
     streamRef.current = stream;

@@ -27,41 +27,7 @@ export interface ElevenLabsSTTConfig {
 
   /** Max auto-reconnect attempts on unexpected disconnect (default: 3) */
   maxReconnects?: number;
-
-  /**
-   * Vocabulary the model is biased towards.
-   *
-   * This is the single most effective accuracy lever the API exposes, and it
-   * matters most for exactly the cases a general model handles worst: proper
-   * nouns, product names, identifiers — and accented speech, where biasing
-   * toward the words that plausibly occur in THIS conversation narrows what
-   * the model has to guess at. Pass the domain's real vocabulary.
-   */
-  keyterms?: string[];
-
-  /**
-   * Strip filler words, false starts and disfluencies from the transcript.
-   *
-   * Off by default, deliberately. A cleaner transcript reads better, but "uh",
-   * "I mean" and a trailing false start are exactly the evidence an
-   * end-of-utterance model uses to decide someone has NOT finished talking —
-   * removing them upstream makes every turn look complete and invites the
-   * agent to interrupt a thought in progress.
-   */
-  noVerbatim?: boolean;
 }
-
-/** Scribe accepts up to 1000 keyterms. The head of the list is what survives
- *  truncation, so callers should pass their most distinctive terms first. */
-const MAX_KEYTERMS = 1000;
-/**
- * Scribe rejects any keyterm longer than this — and rejects the WHOLE list
- * when one offends, replying `invalid_request` on a socket that stays open and
- * keeps transcribing. So the failure mode is silent: biasing is simply off and
- * nothing downstream can tell. Drop over-long terms here rather than let one
- * "Vanguard Interceptor MkII" disable the vocabulary.
- */
-const MAX_KEYTERM_CHARS = 20;
 
 type ScribeMessage =
   | { message_type: "session_started"; session_id: string; config: unknown }
@@ -93,8 +59,6 @@ export class ElevenLabsSTTAdapter
   private readonly language: string;
   private readonly vadThreshold: number;
   private readonly maxReconnects: number;
-  private readonly keyterms: string[];
-  private readonly noVerbatim: boolean;
 
   constructor(private readonly cfg: ElevenLabsSTTConfig) {
     super();
@@ -102,11 +66,6 @@ export class ElevenLabsSTTAdapter
     this.language = cfg.language ?? "en";
     this.vadThreshold = cfg.vadSilenceThreshold ?? 0;
     this.maxReconnects = cfg.maxReconnects ?? 3;
-    this.keyterms = (cfg.keyterms ?? [])
-      .map((t) => t.trim())
-      .filter((t) => t.length > 0 && t.length <= MAX_KEYTERM_CHARS)
-      .slice(0, MAX_KEYTERMS);
-    this.noVerbatim = cfg.noVerbatim ?? false;
   }
 
   async connect(): Promise<void> {
@@ -125,11 +84,6 @@ export class ElevenLabsSTTAdapter
         params.set("commit_strategy", "vad");
         params.set("vad_silence_threshold_secs", String(this.vadThreshold));
       }
-      // One REPEATED param per term, not a JSON array: a JSON-encoded list is
-      // read as a single enormous keyterm and the whole thing is rejected
-      // ("...is 448 characters"), leaving the socket open and unbiased.
-      for (const term of this.keyterms) params.append("keyterms", term);
-      if (this.noVerbatim) params.set("no_verbatim", "true");
 
       const url = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?${params}`;
 
