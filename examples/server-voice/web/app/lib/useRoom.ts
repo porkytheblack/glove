@@ -150,27 +150,53 @@ export function useRoom() {
     localVadRef.current = null;
     void (async () => {
       let vad: import("glove-voice").VADAdapter | null = null;
-      try {
-        const { SileroVADAdapter } = await import("glove-voice/silero-vad");
-        // Local assets, not the CDN — see scripts/vendor-vad.mjs. The rooms
-        // this has to work in are assumed hostile: locked-down networks,
-        // background noise, echo. A neural VAD served from our own origin
-        // beats a hand-tuned energy threshold that only reaches the CDN on a
-        // good day.
-        const silero = new SileroVADAdapter({
-          redemptionMs: 450,
-          modelURL: "/vad/silero_vad_v5.onnx",
-          wasm: { type: "local", path: "/vad/" },
-        });
-        await silero.init();
-        vad = silero;
-      } catch {
+      // Try the neural VAD twice before settling for the energy one, because
+      // the difference is not cosmetic: only Silero reports `speech_real_start`,
+      // and that event is what sends `barge_in` to the room. An energy VAD
+      // silently costs you client-side interruption entirely.
+      //
+      // Self-hosted assets first (see scripts/vendor-vad.mjs) so a locked-down
+      // network still gets the model — but those files are GENERATED and
+      // gitignored, so any run that skipped the prebuild step has no /vad/ to
+      // serve. Falling back to the adapter's own CDN default costs nothing and
+      // turns a hard failure into a slower start.
+      const { SileroVADAdapter } = await import("glove-voice/silero-vad").catch(() => ({
+        SileroVADAdapter: null as unknown as never,
+      }));
+      // Same sensitivity as the room. Silero's recommended 0.5 assumes a quiet
+      // room and a close mic; outdoors or over background noise, ordinary
+      // speech scores under it and the caller has to raise their voice just to
+      // be heard. Here a false positive only pauses playback and resumes, so
+      // the bar belongs low.
+      const sensitivity = {
+        redemptionMs: 450,
+        positiveSpeechThreshold: Number(process.env.NEXT_PUBLIC_VAD_POSITIVE ?? 0.35),
+        negativeSpeechThreshold: Number(process.env.NEXT_PUBLIC_VAD_NEGATIVE ?? 0.25),
+      };
+      for (const opts of [
+        { ...sensitivity, modelURL: "/vad/silero_vad_v5.onnx", wasm: { type: "local" as const, path: "/vad/" } },
+        sensitivity,
+      ]) {
+        if (!SileroVADAdapter) break;
+        try {
+          const silero = new SileroVADAdapter(opts);
+          await silero.init();
+          vad = silero;
+          break;
+        } catch {
+          /* try the next source */
+        }
+      }
+      if (!vad) {
         try {
           const { VAD } = await import("glove-voice");
           vad = new VAD({ minSpeechMs: 250, silenceMs: 450 });
-          console.info("[room] neural VAD unavailable — local barge-in using the energy VAD");
+          console.warn(
+            "[room] neural VAD unavailable from BOTH /vad/ and the CDN — falling back to the energy VAD, " +
+              "which cannot confirm speech, so client-side barge-in is OFF. Run `pnpm vendor:vad` in examples/server-voice/web.",
+          );
         } catch {
-          console.info("[room] no local VAD — barge-in handled entirely by the room");
+          console.warn("[room] no local VAD — barge-in handled entirely by the room");
           return;
         }
       }

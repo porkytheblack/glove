@@ -8,7 +8,8 @@
     "build": "node scripts/vendor-vad.mjs && next build",
     "start": "next start -p 3000",
     "typecheck": "tsc --noEmit",
-    "vendor:vad": "node scripts/vendor-vad.mjs"
+    "vendor:vad": "node scripts/vendor-vad.mjs",
+    "postinstall": "node scripts/vendor-vad.mjs"
   },
   "dependencies": {
     "dotenv": "^17.2.3",

@@ -18,18 +18,42 @@ const require = createRequire(import.meta.url);
 const out = path.join(import.meta.dirname, "..", "public", "vad");
 mkdirSync(out, { recursive: true });
 
+/**
+ * Find a package's install directory without relying on `<pkg>/package.json`
+ * being exported — onnxruntime-web does not export it, and newer packages
+ * increasingly do not. Resolve something the package DOES export, then walk up
+ * to the directory that owns it.
+ */
+function packageRoot(pkg, exportedSubpath) {
+  let dir = path.dirname(require.resolve(exportedSubpath ?? pkg));
+  for (let i = 0; i < 6; i++) {
+    if (existsSync(path.join(dir, "package.json")) && dir.endsWith(pkg.replace("/", path.sep))) return dir;
+    const up = path.dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  // Fall back to the nearest directory containing a package.json.
+  dir = path.dirname(require.resolve(exportedSubpath ?? pkg));
+  for (let i = 0; i < 6; i++) {
+    if (existsSync(path.join(dir, "package.json"))) return dir;
+    const up = path.dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  throw new Error(`cannot locate ${pkg}`);
+}
+
 const assets = [
-  ["@ricky0123/vad-web/package.json", "dist/silero_vad_v5.onnx"],
-  ["onnxruntime-web/package.json", "dist/ort-wasm-simd-threaded.wasm"],
+  ["@ricky0123/vad-web", null, "dist/silero_vad_v5.onnx"],
+  ["onnxruntime-web", "onnxruntime-web", "dist/ort-wasm-simd-threaded.wasm"],
 ];
 
-for (const [spec, rel] of assets) {
+for (const [pkg, exported, rel] of assets) {
   const name = path.basename(rel);
   const dest = path.join(out, name);
   if (existsSync(dest)) continue;
   try {
-    const src = path.join(path.dirname(require.resolve(spec)), rel);
-    copyFileSync(src, dest);
+    copyFileSync(path.join(packageRoot(pkg, exported), rel), dest);
     console.log(`vendored ${name}`);
   } catch (err) {
     // Non-fatal: the adapter falls back to the CDN, and past that to the

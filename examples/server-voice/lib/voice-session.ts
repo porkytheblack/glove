@@ -171,6 +171,11 @@ export interface VoiceSessionDeps {
   endpointing?: {
     vadSilenceMs?: number;
     vadThreshold?: number;
+    /** Silero's speech / not-speech probabilities. Lower hears a quieter or
+     *  more distant talker at the cost of more false starts — which are cheap,
+     *  since a false start only pauses playback and then resumes. */
+    vadPositive?: number;
+    vadNegative?: number;
     minHoldMs?: number;
     maxHoldMs?: number;
     /** "energy" forces the zero-dependency VAD; anything else uses Silero. */
@@ -331,6 +336,8 @@ export class VoiceSession {
         const t0 = Date.now();
         const silero = new SileroVADNode({
           redemptionMs: this.deps.endpointing?.vadSilenceMs,
+          positiveSpeechThreshold: this.deps.endpointing?.vadPositive,
+          negativeSpeechThreshold: this.deps.endpointing?.vadNegative,
         });
         await silero.init();
         this.engine.useSilero(silero);

@@ -81,6 +81,18 @@ export const room = signal("room")
       vad: z.string().default(process.env.VOICE_VAD ?? "silero"),
       /** Energy-VAD only: RMS above which a frame counts as speech. */
       vadThreshold: z.number().default(Number(process.env.VAD_THRESHOLD ?? 0.006)),
+      /**
+       * How readily the neural VAD calls a frame speech.
+       *
+       * Silero's own recommended operating point is 0.5, which is tuned for a
+       * quiet room and a close microphone. Outdoors, across a desk, or over
+       * background noise, ordinary speech scores well below that and the
+       * caller ends up having to raise their voice to be heard at all. The
+       * default here is deliberately lower: a false positive costs a pause
+       * that resumes on its own, while a miss costs the whole utterance.
+       */
+      vadPositive: z.number().default(Number(process.env.VAD_POSITIVE ?? 0.35)),
+      vadNegative: z.number().default(Number(process.env.VAD_NEGATIVE ?? 0.25)),
       /** Hold when the end-of-utterance model is confident you are done. */
       minHoldMs: z.number().default(Number(process.env.TURN_MIN_HOLD_MS ?? 400)),
       /** …and when it is confident you are not. */
@@ -155,6 +167,8 @@ export const room = signal("room")
         vad: input.vad,
         vadSilenceMs: input.vadSilenceMs,
         vadThreshold: input.vadThreshold,
+        vadPositive: input.vadPositive,
+        vadNegative: input.vadNegative,
         minHoldMs: input.minHoldMs,
         maxHoldMs: input.maxHoldMs,
       },
