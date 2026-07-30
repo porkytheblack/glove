@@ -1,0 +1,39 @@
+// Copy the VAD model + ONNX runtime into public/ so the browser never has to
+// reach a CDN for them.
+//
+// The local VAD is what makes the agent stop talking the instant you do, and
+// the adapter's default asset source is jsdelivr. A locked-down network, an
+// offline demo, or a slow CDN therefore degraded barge-in to the hand-written
+// energy VAD — exactly the fallback that behaves worst in the noisy rooms this
+// is meant to survive. These files are already on disk as dependencies;
+// serving them ourselves makes the neural path the reliable one.
+//
+// Not committed: 14MB of binaries reconstructible from node_modules.
+
+import { createRequire } from "node:module";
+import { mkdirSync, copyFileSync, existsSync } from "node:fs";
+import path from "node:path";
+
+const require = createRequire(import.meta.url);
+const out = path.join(import.meta.dirname, "..", "public", "vad");
+mkdirSync(out, { recursive: true });
+
+const assets = [
+  ["@ricky0123/vad-web/package.json", "dist/silero_vad_v5.onnx"],
+  ["onnxruntime-web/package.json", "dist/ort-wasm-simd-threaded.wasm"],
+];
+
+for (const [spec, rel] of assets) {
+  const name = path.basename(rel);
+  const dest = path.join(out, name);
+  if (existsSync(dest)) continue;
+  try {
+    const src = path.join(path.dirname(require.resolve(spec)), rel);
+    copyFileSync(src, dest);
+    console.log(`vendored ${name}`);
+  } catch (err) {
+    // Non-fatal: the adapter falls back to the CDN, and past that to the
+    // energy VAD. Say so rather than fail a build over an optimisation.
+    console.warn(`could not vendor ${name} — the browser will try the CDN instead:`, err.message);
+  }
+}

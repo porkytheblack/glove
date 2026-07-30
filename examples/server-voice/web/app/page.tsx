@@ -3,9 +3,12 @@
 import { useState } from "react";
 import { useRoom, type SpeakerRole } from "./lib/useRoom";
 
+// Mirrors lib/speakers.ts, which is the source of truth the ROOM uses. Kept in
+// sync by hand because this app is a separate package from the room and shares
+// no code with it — the whole point of the split.
 const SPEAKERS: Array<{ id: SpeakerRole; label: string }> = [
-  { id: "operator", label: "Sam (you)" },
-  { id: "customer", label: "Dr. Okonkwo (walk-in)" },
+  { id: "operator", label: "Rae (you)" },
+  { id: "customer", label: "Jules (came along)" },
   { id: "bystander", label: "Kit (technician)" },
 ];
 

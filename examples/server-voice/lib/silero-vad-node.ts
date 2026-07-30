@@ -211,13 +211,15 @@ export class SileroVADNode extends EventEmitter<VADAdapterEvents> implements VAD
         this.confirmed = false;
         this.emit("speech_start"); // tentative — may still be retracted
       }
-      // Confirmation is deliberately STRICTER than entry. While ducked, entry
-      // drops to ~0.3 so a pause fires on the first hint of a person — but the
-      // model's probability has momentum, and a 100ms blip coasts above 0.3
-      // long enough to fake a quarter second. So strong frames (≥ the base
-      // threshold) confirm at the normal pace, and weak ones only confirm by
-      // sustained accumulation — an AEC-mangled interruption scoring 0.3-0.5
-      // for three quarters of a second is a person; a door slam is not.
+      // Confirmation is deliberately STRICTER than entry, and both are the
+      // MODEL's judgment rather than a threshold we invented: entry drops
+      // while the agent speaks so a pause fires on the first hint of a person,
+      // but Silero's probability has momentum, and a brief noise burst coasts
+      // above the lowered bar long enough to fake a quarter second. So frames
+      // the model scores confidently (≥ the base threshold) confirm at the
+      // normal pace, and merely-plausible ones confirm only by lasting —
+      // an echo-mangled interruption scoring 0.3-0.5 for three quarters of a
+      // second is a person; a door slam is not.
       this.weakFrames++;
       if (prob >= this.basePositive) this.speechFrames++;
       if (

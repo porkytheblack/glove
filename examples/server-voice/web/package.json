@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev -p 3000",
-    "build": "next build",
+    "dev": "node scripts/vendor-vad.mjs && next dev -p 3000",
+    "build": "node scripts/vendor-vad.mjs && next build",
     "start": "next start -p 3000",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "vendor:vad": "node scripts/vendor-vad.mjs"
   },
   "dependencies": {
     "dotenv": "^17.2.3",
@@ -15,7 +16,9 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "server-only": "^0.0.1",
-    "glove-voice": "workspace:*"
+    "glove-voice": "workspace:*",
+    "onnxruntime-web": "^1.24.2",
+    "@ricky0123/vad-web": "^0.0.30"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

@@ -73,6 +73,7 @@ export function useRoom() {
   /** Is there audio in the playback buffer right now? Gates the local reflex
    *  so a stray "pause" cannot arrive while nothing is playing. */
   const playbackActiveRef = useRef(false);
+  const localVadFailures = useRef(0);
 
   const line = useCallback((who: string, text: string, kind: LogLine["kind"]) => {
     setState((s) => ({
@@ -120,34 +121,89 @@ export function useRoom() {
     // over me". So the browser keeps a copy of the reflex: stop playback the
     // instant it hears a person, and let the room confirm or retract as it
     // always has. Wrong-either-way is free — a misfire resumes mid-word.
-    let localVad: import("glove-voice").VADAdapter | null = null;
-    try {
-      const { SileroVADAdapter } = await import("glove-voice/silero-vad");
-      const silero = new SileroVADAdapter({ redemptionMs: 450 });
-      await silero.init();
-      localVad = silero;
-    } catch {
-      const { VAD } = await import("glove-voice");
-      localVad = new VAD({ minSpeechMs: 250, silenceMs: 450 });
-    }
-    localVadRef.current = localVad;
-    localVad.on("speech_real_start", () => {
-      if (!playbackActiveRef.current) return;
-      playbackRef.current?.port.postMessage("pause");
-      send({ t: "barge_in" }); // the room decides what to do about it
-    });
-    localVad.on?.("vad_misfire", () => {
-      if (!playbackActiveRef.current) return;
-      playbackRef.current?.port.postMessage("resume");
-    });
+    //
+    // NOT AWAITED, deliberately. `connect()` only opens the WebSocket once
+    // `startAudio()` resolves, so awaiting the VAD's construction here put a
+    // model download in front of the socket: when it was slow or blocked, the
+    // room never got a connection and the call was silent end to end. The
+    // reflex attaches whenever it is ready; the call never waits for it.
+    localVadFailures.current = 0;
+    localVadRef.current = null;
+    void (async () => {
+      let vad: import("glove-voice").VADAdapter | null = null;
+      try {
+        const { SileroVADAdapter } = await import("glove-voice/silero-vad");
+        // Local assets, not the CDN — see scripts/vendor-vad.mjs. The rooms
+        // this has to work in are assumed hostile: locked-down networks,
+        // background noise, echo. A neural VAD served from our own origin
+        // beats a hand-tuned energy threshold that only reaches the CDN on a
+        // good day.
+        const silero = new SileroVADAdapter({
+          redemptionMs: 450,
+          modelURL: "/vad/silero_vad_v5.onnx",
+          wasm: { type: "local", path: "/vad/" },
+        });
+        await silero.init();
+        vad = silero;
+      } catch {
+        try {
+          const { VAD } = await import("glove-voice");
+          vad = new VAD({ minSpeechMs: 250, silenceMs: 450 });
+          console.info("[room] neural VAD unavailable — local barge-in using the energy VAD");
+        } catch {
+          console.info("[room] no local VAD — barge-in handled entirely by the room");
+          return;
+        }
+      }
+      // The call may already be over by the time this resolves.
+      if (!ctxRef.current) return;
+      // Pause on the FIRST hint of a voice, not on confirmation. If you say
+      // "ok" or "yeah" over her, that is an interruption and she should stop —
+      // the agent has no business judging whether what you said was important
+      // enough to warrant the floor. Confirmation only decides what happens
+      // NEXT: a real utterance escalates to a full barge-in, a noise burst
+      // resumes mid-word. Stopping is free; talking over you is not.
+      vad.on("speech_start", () => {
+        if (!playbackActiveRef.current) return;
+        playbackRef.current?.port.postMessage("pause");
+      });
+      vad.on("speech_real_start", () => {
+        if (!playbackActiveRef.current) return;
+        playbackRef.current?.port.postMessage("pause");
+        send({ t: "barge_in" }); // the room decides what to do about it
+      });
+      vad.on?.("vad_misfire", () => {
+        if (!playbackActiveRef.current) return;
+        playbackRef.current?.port.postMessage("resume");
+      });
+      localVadRef.current = vad;
+    })();
 
     const source = ctx.createMediaStreamSource(stream);
     const capture = new AudioWorkletNode(ctx, "capture");
     capture.port.onmessage = (e: MessageEvent) => {
+      // SEND FIRST. The microphone reaching the room is the one thing on this
+      // path that cannot be allowed to fail, and the local VAD is an optional
+      // luxury sitting right next to it: it loads a model and a WASM runtime
+      // from a CDN, so it can fail in ways nothing here controls. Feeding it
+      // before the send meant one throw per frame silently cut the audio off
+      // at the source — the room stayed connected and heard nothing at all.
       const ws = wsRef.current;
-      const pcm = new Int16Array(e.data as ArrayBuffer);
-      localVadRef.current?.process(pcm);
       if (ws?.readyState === WebSocket.OPEN) ws.send(e.data as ArrayBuffer);
+
+      const vad = localVadRef.current;
+      if (!vad) return;
+      try {
+        vad.process(e.data as Int16Array);
+      } catch {
+        // One bad frame is noise; a broken VAD is permanent. Drop the reflex
+        // rather than throw on every 20ms chunk for the rest of the call —
+        // the room's own VAD still detects barge-in, just a beat later.
+        if (++localVadFailures.current >= 5) {
+          localVadRef.current = null;
+          console.info("[room] local VAD disabled after repeated failures — barge-in falls back to the room");
+        }
+      }
     };
     source.connect(capture);
     // Keep the node in the graph without routing the mic to the speakers.
