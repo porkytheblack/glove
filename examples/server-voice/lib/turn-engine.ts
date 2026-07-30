@@ -297,6 +297,13 @@ export class TurnEngine {
     this.hooks.onPartial("");
   }
 
+  /** The caller's own VAD beat ours to an interruption: whatever the closed
+   *  gate has accumulated is theirs, not echo to be swallowed. */
+  claimTranscriptOnOpen(): void {
+    this.claimBufferOnOpen = true;
+    this.lastVoiceAt = Date.now();
+  }
+
   /**
    * The gate, in full duplex, is about OWNERSHIP of the transcript, not about
    * whether audio flows (it always flows).

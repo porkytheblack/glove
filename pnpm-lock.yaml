@@ -540,6 +540,9 @@ importers:
       dotenv:
         specifier: ^17.2.3
         version: 17.3.1
+      glove-voice:
+        specifier: workspace:*
+        version: link:../../../packages/glove-voice
       next:
         specifier: ^15.3.3
         version: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)

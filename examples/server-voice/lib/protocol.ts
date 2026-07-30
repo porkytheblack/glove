@@ -48,7 +48,11 @@ export type ClientMessage =
   | { t: "say"; speaker: SpeakerRole; text: string }
   /** Client-side playback finished draining. Lets the gateway reopen the STT
    *  gate at the moment the room actually goes quiet rather than guessing. */
-  | { t: "playback_done"; turnId: number };
+  | { t: "playback_done"; turnId: number }
+  /** The CLIENT's local VAD confirmed a person is talking over the agent. It
+   *  has already stopped playback on its own; this asks the room to make the
+   *  interruption official. The room still applies its own judgment. */
+  | { t: "barge_in" };
 
 // ── server → client ──────────────────────────────────────────────────────────
 

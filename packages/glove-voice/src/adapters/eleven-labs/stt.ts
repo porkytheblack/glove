@@ -113,10 +113,25 @@ export class ElevenLabsSTTAdapter
       this.ws.onclose = () => {
         if (!this.destroyed && this.reconnects < this.maxReconnects) {
           this.reconnects++;
-          this.reconnectTimer = setTimeout(
-            () => void this.connect(),
-            500 * this.reconnects
-          );
+          this.reconnectTimer = setTimeout(() => {
+            // A reconnect's failure must never become an UNHANDLED rejection.
+            // `connect()` both rejects on a socket error and throws when the
+            // token mint fails, and nobody awaits it on this path — so a
+            // transient 5xx from the token endpoint (seen live as a DNS blip
+            // returning 503) took down the entire host process. For a voice
+            // gateway that means the room dies mid-call and the caller's
+            // microphone goes permanently dead. Surface it and let the next
+            // close event schedule the following attempt instead.
+            this.connect().catch((err: unknown) => {
+              this.emit(
+                "error",
+                err instanceof Error ? err : new Error(String(err)),
+              );
+              if (this.reconnects >= this.maxReconnects && !this.destroyed) {
+                this.emit("close");
+              }
+            });
+          }, 500 * this.reconnects);
         } else if (!this.destroyed) {
           this.emit("close");
         }
@@ -177,9 +192,13 @@ export class ElevenLabsSTTAdapter
 
   flushUtterance(): void {
     if (this.ws?.readyState !== WebSocket.OPEN) return;
-    // Scribe requires at least some audio data alongside commit: true.
-    // Send a minimal silence frame (~20ms) so the API actually processes the commit.
-    const silence = new Int16Array(320); // 320 samples = 20ms at 16kHz
+    // Scribe rejects a commit with less than 0.3s of uncommitted audio
+    // ("commit_throttled"), and a rejected commit is invisible: the caller
+    // believes the buffer was cleared while Scribe keeps accumulating, so the
+    // next utterance arrives glued to the last one. Send enough silence to
+    // clear that bar. It costs 320ms of padding at an utterance boundary,
+    // where the speaker has already stopped.
+    const silence = new Int16Array(5120); // 0.32s at 16kHz — over Scribe's 0.3s floor
     this.ws.send(
       JSON.stringify({
         message_type: "input_audio_chunk",

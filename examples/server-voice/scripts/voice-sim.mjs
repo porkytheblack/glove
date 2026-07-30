@@ -26,6 +26,10 @@ const BARGE_IN = process.argv.includes("--barge-in");
 const CONVERSATION = process.argv.includes("--conversation");
 const BLIP = process.argv.includes("--blip");
 const SILENCE = process.argv.includes("--silence");
+// Emulate the browser's LOCAL VAD reflex: the real client stops playback and
+// tells the room the moment it hears a person, without waiting for the room's
+// own VAD. --client-vad exercises that path.
+const CLIENT_VAD = process.argv.includes("--client-vad");
 // Attenuate the mic, as the browser's echo canceller does while the agent's
 // audio plays (measured ducking is 10-30x). --gain 0.05 is a realistic
 // barge-in as the room actually receives it.
@@ -198,6 +202,10 @@ ws.on("open", async () => {
     }
     console.log(`${at()} she is speaking — talking over her now`);
     audioEndedAt = Date.now(); // reused as "started talking over her"
+    if (CLIENT_VAD) {
+      // What the browser does ~250ms in, from its own VAD.
+      setTimeout(() => ws.send(JSON.stringify({ t: "barge_in" })), 250);
+    }
     await streamSpeech(pcm);
     await sleep(4000);
 

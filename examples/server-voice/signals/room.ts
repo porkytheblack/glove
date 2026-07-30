@@ -266,6 +266,9 @@ export const room = signal("room")
           case "playback_done":
             session.handlePlaybackDone(msg.turnId);
             break;
+          case "barge_in":
+            session.handleClientBargeIn();
+            break;
         }
       });
 

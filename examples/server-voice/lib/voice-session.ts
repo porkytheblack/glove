@@ -53,6 +53,8 @@ const POST_SPEECH_DEADBAND_MS = 300;
  *  always wins the race, and this only decides how long a room stays deaf when
  *  it does not. */
 const PLAYBACK_WATCHDOG_SLACK_MS = 1500;
+/** Ceiling on the STT revive backoff. */
+const STT_REVIVE_MAX_MS = 15_000;
 /** At most one "your line never played" turn per window — see reportSpeechFailure. */
 const SPEECH_FAILURE_COOLDOWN_MS = 30_000;
 /** Nudge an idle prewarmed TTS socket this often — ElevenLabs drops an input
@@ -219,6 +221,8 @@ export class VoiceSession {
   /** Playback paused on a tentative barge-in, awaiting confirm-or-retract. */
   private playbackPaused = false;
   private pausedAt = 0;
+  /** A revive loop is already running — do not start a second one. */
+  private sttReviving = false;
 
   // ── agent turn state ───────────────────────────────────────────────────────
   private parser: SpeechTagParser | null = null;
@@ -285,6 +289,11 @@ export class VoiceSession {
       getToken: () => createElevenLabsSTTToken(this.deps.elevenLabsApiKey),
     });
     this.stt.on("error", (e) => this.deps.send({ t: "error", message: e.message }));
+    // The adapter gives up after its own retries. A room that outlives its
+    // recognizer is the worst failure mode there is: it looks healthy, accepts
+    // audio, and never hears another word — the caller just repeats themselves
+    // into a void. Keep trying on our own clock for as long as the room lives.
+    this.stt.on("close", () => this.reviveStt());
 
     this.engine = new TurnEngine({
       stt: this.stt,
@@ -416,7 +425,7 @@ export class VoiceSession {
     if (this.activeTurn) this.voidedTurns.add(this.activeTurn.id);
     this.teardownTurnAudio();
     this.speaking = false;
-    this.playbackPaused = false;
+    this.liftPause();
     this.engine.setGateOpen(true);
     // Half-heard words do not survive the caller who spoke them.
     this.engine.resetTranscript();
@@ -439,6 +448,54 @@ export class VoiceSession {
     if (!trimmed) return;
     this.speaker = speaker;
     this.onUtterance(trimmed);
+  }
+
+  /**
+   * The caller's own VAD confirmed they are talking over the agent, and the
+   * browser has already stopped playback locally. Make it official.
+   *
+   * The room's VAD reaches the same conclusion a beat later from the same
+   * audio; whichever arrives first wins and the other is a no-op, because
+   * `bargeIn()` is idempotent while a turn is live. Trusting the client here
+   * is not a loss of authority: it cannot invent an interruption the room
+   * would not also have heard, and the room still decides what the
+   * interruption MEANT.
+   */
+  handleClientBargeIn(): void {
+    if (this.closed || !this.speaking) return;
+    this.deps.metric("barge_in_client");
+    this.engine.claimTranscriptOnOpen();
+    this.bargeIn();
+  }
+
+  /**
+   * Rebuild the recognizer after it has exhausted its own reconnects.
+   *
+   * Backs off, never gives up while the room is alive, and never runs two
+   * attempts at once. `connect()` reuses the same adapter instance, so the
+   * engine's listeners stay attached and the transcript picks up where it can
+   * — but whatever Scribe held is gone with the session, so the local buffer
+   * is reset rather than left to glue itself onto the next utterance.
+   */
+  private reviveStt(): void {
+    if (this.closed || this.sttReviving) return;
+    this.sttReviving = true;
+    const attempt = (delayMs: number): void => {
+      if (this.closed) return;
+      setTimeout(() => {
+        if (this.closed) return;
+        this.stt
+          .connect()
+          .then(() => {
+            this.sttReviving = false;
+            this.engine.resetTranscript();
+            this.deps.metric("stt_revived");
+          })
+          .catch(() => attempt(Math.min(delayMs * 2, STT_REVIVE_MAX_MS)));
+      }, delayMs);
+    };
+    this.deps.metric("stt_reviving");
+    attempt(1000);
   }
 
   /** The browser finished draining its playback buffer. */
@@ -771,7 +828,11 @@ export class VoiceSession {
   private endSpeaking(): void {
     if (!this.speaking) return;
     this.speaking = false;
-    this.playbackPaused = false;
+    // A pause still outstanding when the turn ends must be lifted explicitly.
+    // The worklet holds its paused flag until told otherwise, so clearing only
+    // our own bookkeeping left the browser muted for every FUTURE turn too —
+    // audio kept arriving and silently piling into a buffer nobody drained.
+    this.liftPause();
     this.teardownTurnAudio();
     if (this.gateReopenTimer) clearTimeout(this.gateReopenTimer);
     this.gateReopenTimer = setTimeout(() => {
@@ -880,9 +941,17 @@ export class VoiceSession {
   /** The pause was a false alarm — a cough, a door, a truck outside. */
   private resumePlayback(): void {
     if (!this.playbackPaused) return;
+    this.deps.metric("barge_in_retracted", Date.now() - this.pausedAt);
+    this.liftPause();
+  }
+
+  /** Unpause the browser's playback if we paused it. Every path out of the
+   *  paused state goes through here, EXCEPT barge-in — `clear` empties the
+   *  buffer, which implies resumption. */
+  private liftPause(): void {
+    if (!this.playbackPaused) return;
     this.playbackPaused = false;
     this.deps.send({ t: "resume" });
-    this.deps.metric("barge_in_retracted", Date.now() - this.pausedAt);
   }
 
   // ── delegation ─────────────────────────────────────────────────────────────

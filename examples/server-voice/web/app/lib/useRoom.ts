@@ -2,11 +2,16 @@
 
 // The entire client-side voice implementation.
 //
-// Count what is NOT here: no API keys, no token fetches, no VAD, no silence
-// timers, no endpointing heuristics, no turn detection, no transcript dedupe,
-// no barge-in logic, no agent or model code. All of it runs in the room.
-// What remains is a duct — microphone up, speakers down — plus whatever state
-// the room tells us to render.
+// Count what is NOT here: no API keys, no token fetches, no silence timers, no
+// endpointing heuristics, no turn detection, no transcript dedupe, no agent or
+// model code. All of it runs in the room. What remains is a duct — microphone
+// up, speakers down — plus whatever state the room tells us to render.
+//
+// The one exception is a VAD, and it earns its place as a REFLEX, not a
+// decision: it only stops playback the instant it hears a person, because a
+// server round trip is the difference between the agent cutting off and the
+// agent talking over you. Whether that person actually interrupted, what they
+// said, and when their turn ended all remain the room's calls.
 //
 // The equivalent logic in `examples/layered-voice` is a ~1100-line commitment
 // engine inside a React hook. This is the same product with the decisions moved
@@ -64,6 +69,10 @@ export function useRoom() {
   const turnRef = useRef(0);
   const endedTurns = useRef<Set<number>>(new Set());
   const novaTurn = useRef<number | null>(null);
+  const localVadRef = useRef<import("glove-voice").VADAdapter | null>(null);
+  /** Is there audio in the playback buffer right now? Gates the local reflex
+   *  so a stray "pause" cannot arrive while nothing is playing. */
+  const playbackActiveRef = useRef(false);
 
   const line = useCallback((who: string, text: string, kind: LogLine["kind"]) => {
     setState((s) => ({
@@ -99,10 +108,45 @@ export function useRoom() {
     });
     streamRef.current = stream;
 
+    // A LOCAL VAD, purely as a reflex.
+    //
+    // Every decision that matters — endpointing, transcription, what the
+    // interruption meant — still belongs to the room. But `examples/
+    // layered-voice`, where barge-in has always felt right, detects speech in
+    // the same process that plays the audio: mic → VAD → stop, synchronously,
+    // no network in the loop. Moving the VAD server-side put a round trip
+    // between the caller opening their mouth and the agent going quiet, and
+    // that gap is the whole difference between "it cuts off" and "it talks
+    // over me". So the browser keeps a copy of the reflex: stop playback the
+    // instant it hears a person, and let the room confirm or retract as it
+    // always has. Wrong-either-way is free — a misfire resumes mid-word.
+    let localVad: import("glove-voice").VADAdapter | null = null;
+    try {
+      const { SileroVADAdapter } = await import("glove-voice/silero-vad");
+      const silero = new SileroVADAdapter({ redemptionMs: 450 });
+      await silero.init();
+      localVad = silero;
+    } catch {
+      const { VAD } = await import("glove-voice");
+      localVad = new VAD({ minSpeechMs: 250, silenceMs: 450 });
+    }
+    localVadRef.current = localVad;
+    localVad.on("speech_real_start", () => {
+      if (!playbackActiveRef.current) return;
+      playbackRef.current?.port.postMessage("pause");
+      send({ t: "barge_in" }); // the room decides what to do about it
+    });
+    localVad.on?.("vad_misfire", () => {
+      if (!playbackActiveRef.current) return;
+      playbackRef.current?.port.postMessage("resume");
+    });
+
     const source = ctx.createMediaStreamSource(stream);
     const capture = new AudioWorkletNode(ctx, "capture");
     capture.port.onmessage = (e: MessageEvent) => {
       const ws = wsRef.current;
+      const pcm = new Int16Array(e.data as ArrayBuffer);
+      localVadRef.current?.process(pcm);
       if (ws?.readyState === WebSocket.OPEN) ws.send(e.data as ArrayBuffer);
     };
     source.connect(capture);
@@ -118,6 +162,7 @@ export function useRoom() {
       // a mid-turn network underrun must not reopen the microphone early.
       if (endedTurns.current.has(turnRef.current)) {
         endedTurns.current.delete(turnRef.current);
+        playbackActiveRef.current = false;
         send({ t: "playback_done", turnId: turnRef.current });
       }
     };
@@ -126,6 +171,9 @@ export function useRoom() {
   }, [send]);
 
   const stopAudio = useCallback(() => {
+    localVadRef.current?.removeAllListeners?.();
+    localVadRef.current = null;
+    playbackActiveRef.current = false;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     void ctxRef.current?.close();
     ctxRef.current = null;
@@ -198,6 +246,7 @@ export function useRoom() {
 
       ws.onmessage = (e: MessageEvent) => {
         if (e.data instanceof ArrayBuffer) {
+          playbackActiveRef.current = true;
           playbackRef.current?.port.postMessage(e.data, [e.data]);
           return;
         }
@@ -242,6 +291,7 @@ export function useRoom() {
             break;
           case "clear":
             // Barge-in: drop every buffered sample immediately.
+            playbackActiveRef.current = false;
             playbackRef.current?.port.postMessage("clear");
             endedTurns.current.clear();
             novaTurn.current = null;
