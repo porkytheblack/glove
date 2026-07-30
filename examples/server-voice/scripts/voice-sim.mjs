@@ -78,6 +78,7 @@ let audioAfterClear = 0;
 let speechAfterClear = 0;
 let committedAfterClear = false;
 let pausedAt = 0;
+let resumedAfterPause = false;
 let turnAudioBytes = 0;
 let turnFirstAudioAt = 0;
 const state = { partials: 0 };
@@ -144,8 +145,11 @@ ws.on("message", (data, isBinary) => {
       );
       break;
     case "resume":
+      // A resume AFTER a real interruption is the exact failure being chased:
+      // she pauses, decides it was nothing, and finishes the line anyway.
+      if (pausedAt && !clearedAt) resumedAfterPause = true;
       pausedAt = 0;
-      console.log(`${at()} RESUME — false alarm, she picks the sentence back up`);
+      console.log(`${at()} RESUME — picked the sentence back up`);
       break;
     case "clear":
       clearedAt = Date.now();
@@ -213,10 +217,11 @@ ws.on("open", async () => {
     // turn whose audio was killed, and the real failure is her RESUMING a
     // moment later — which is what "cannot interrupt" feels like.
     console.log(`\npaused             : ${pausedAt ? `yes, ${pausedAt - audioEndedAt}ms after speech began` : "NO"}`);
+    console.log(`resumed same line  : ${resumedAfterPause ? "YES — she carried on regardless" : "no"}`);
     console.log(`cleared            : ${clearedAt ? "yes" : "NO"}`);
     console.log(`audio before next turn : ${audioAfterClear} bytes (want 0 — the cut line resuming)`);
     console.log(`speech before next turn: ${speechAfterClear} chars`);
-    const ok = clearedAt && audioAfterClear === 0;
+    const ok = clearedAt && audioAfterClear === 0 && !resumedAfterPause;
     console.log(
       `\n${ok ? "PASS — cut off and stayed stopped" : "FAIL — she resumed the interrupted line"}`,
     );

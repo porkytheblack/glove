@@ -130,6 +130,11 @@ export class TurnEngine {
   /** Set by a confirmed barge-in just before the gate opens: the transcript
    *  accumulated while it was closed belongs to the caller. */
   private claimBufferOnOpen = false;
+  /** A tentative pause is in flight, awaiting confirmation or retraction. */
+  private warningOutstanding = false;
+  /** Scribe's buffer as it stood when that pause fired — anything beyond it
+   *  is words spoken over the agent. */
+  private partialAtWarning = "";
 
   private holdTimer: NodeJS.Timeout | null = null;
   private stableTimer: NodeJS.Timeout | null = null;
@@ -195,6 +200,14 @@ export class TurnEngine {
     this.vad.on?.("speech_real_start", () => this.onSpeechConfirmed());
     this.vad.on?.("vad_misfire", () => {
       this.userSpeaking = false;
+      // Only retract a pause the transcript has NOT confirmed. Silero scoring
+      // echo-cancelled double-talk routinely calls a real interruption a
+      // misfire — it is judging mangled audio on duration — and resuming on
+      // that verdict is exactly the "she pauses, then carries on reading the
+      // same line" failure. If words came out of that audio, a person spoke,
+      // and the VAD does not get to overrule them.
+      if (this.transcriptGrewSinceWarning()) return;
+      this.warningOutstanding = false;
       this.hooks.onBargeInRetracted();
     });
   }
@@ -297,10 +310,20 @@ export class TurnEngine {
     this.hooks.onPartial("");
   }
 
+  /** Has the recognizer produced new words since the tentative pause? */
+  private transcriptGrewSinceWarning(): boolean {
+    const now = this.stt.currentPartial?.trim() ?? "";
+    if (!now || now === this.partialAtWarning) return false;
+    // Growth only counts as an interruption if it is ADDITIONAL speech, not
+    // Scribe revising what it already had.
+    return now.length > this.partialAtWarning.length;
+  }
+
   /** The caller's own VAD beat ours to an interruption: whatever the closed
    *  gate has accumulated is theirs, not echo to be swallowed. */
   claimTranscriptOnOpen(): void {
     this.claimBufferOnOpen = true;
+    this.warningOutstanding = false;
     this.lastVoiceAt = Date.now();
   }
 
@@ -329,6 +352,11 @@ export class TurnEngine {
    */
   setGateOpen(open: boolean): void {
     if (open !== this.gateOpen) this.hooks.onMetric(open ? "gate_open" : "gate_close");
+    // A pause only belongs to the turn it was raised against.
+    if (!open) {
+      this.warningOutstanding = false;
+      this.partialAtWarning = this.stt.currentPartial?.trim() ?? "";
+    }
     (this.vad as Partial<SileroVADNode>).setDucked?.(!open);
     if (open && !this.gateOpen && !this.claimBufferOnOpen && !this.isUserSpeaking) {
       const unclaimed = this.stt.currentPartial?.trim() ?? "";
@@ -517,6 +545,25 @@ export class TurnEngine {
       this.lastPartialText = raw;
       this.lastPartialAt = Date.now();
     }
+    // THE TRANSCRIPT IS THE AUTHORITY ON WHETHER SOMEONE INTERRUPTED.
+    //
+    // Audio reaches Scribe even while the agent holds the floor (full duplex),
+    // so words appearing during her turn are the strongest evidence available
+    // that a person is talking over her — stronger than any VAD verdict on
+    // audio the echo canceller has already mangled. When a tentative pause is
+    // outstanding and real text arrives, escalate it to a full barge-in rather
+    // than waiting for a VAD confirmation that may never come.
+    if (this.warningOutstanding && this.transcriptGrewSinceWarning() && this.hooks.isAgentSpeaking()) {
+      this.warningOutstanding = false;
+      this.lastVoiceAt = Date.now();
+      this.claimBufferOnOpen = true;
+      this.hooks.onMetric("barge_in_by_transcript", undefined, {
+        text: (this.stt.currentPartial ?? "").slice(0, 60),
+      });
+      this.setGateOpen(true);
+      this.hooks.onBargeIn();
+    }
+
     const live = this.livePartial();
     // A partial with no recent voice behind it is a hallucination forming. It
     // must not dispatch (the freshness gate below handles that), but it must
@@ -642,7 +689,11 @@ export class TurnEngine {
     // it is a person, exactly the right time to stop talking over them. The
     // session pauses playback without dropping anything; confirmation (cut for
     // real) or a misfire (resume) follows within a few hundred ms either way.
-    if (this.hooks.isAgentSpeaking()) this.hooks.onBargeInWarning();
+    if (this.hooks.isAgentSpeaking()) {
+      this.partialAtWarning = this.stt.currentPartial?.trim() ?? "";
+      this.warningOutstanding = true;
+      this.hooks.onBargeInWarning();
+    }
     this.userSpeaking = true;
     this.lastVoiceAt = Date.now();
     // Resuming after a boundary = a measured thinking-pause for this speaker.
@@ -675,6 +726,7 @@ export class TurnEngine {
 
   /** Silero only: speech that outlasted the minimum, so definitely a person. */
   private onSpeechConfirmed(): void {
+    this.warningOutstanding = false;
     // Confirmed human speech means we should be listening, full stop. The gate
     // exists to keep the AGENT's own voice out of the transcript, and this is
     // the model saying the sound is a person who has been talking for at least
