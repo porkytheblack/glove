@@ -38,6 +38,7 @@ import {
   frameWorkerTrouble,
 } from "./events";
 import { SPEAKERS, ASSISTANT_NAME } from "./speakers";
+import { roomKeyterms } from "./keyterms";
 import { LocalTurnDetector } from "./turn-detector-local";
 import { TurnEngine } from "./turn-engine";
 import { SileroVADNode } from "./silero-vad-node";
@@ -167,6 +168,8 @@ export interface VoiceSessionDeps {
   elevenLabsApiKey: string;
   voiceId: string;
   ttsModel: string;
+  /** ISO language code for the recognizer (default "en"). */
+  sttLanguage?: string;
   /** How patient the room is about deciding you have finished speaking. */
   endpointing?: {
     vadSilenceMs?: number;
@@ -287,6 +290,10 @@ export class VoiceSession {
       // Server-side, the "token" step is a local function call against the API
       // key this process already holds — no route, no round trip to a browser.
       getToken: () => createElevenLabsSTTToken(this.deps.elevenLabsApiKey),
+      language: this.deps.sttLanguage,
+      // Bias the recognizer toward this shop's actual vocabulary. Matters most
+      // for proper nouns and for accented speech — see lib/keyterms.ts.
+      keyterms: roomKeyterms(),
     });
     this.stt.on("error", (e) => this.deps.send({ t: "error", message: e.message }));
     // The adapter gives up after its own retries. A room that outlives its

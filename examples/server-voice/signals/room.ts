@@ -61,6 +61,9 @@ export const room = signal("room")
       meshToken: z.string(),
       dbPath: z.string().default("./station.db"),
       metricsFile: z.string().default("./voice-metrics.jsonl"),
+      /** Recognizer language. English regardless of accent — Scribe takes a
+       *  language, not a locale — but configurable for non-English rooms. */
+      sttLanguage: z.string().default(process.env.VOICE_STT_LANGUAGE ?? "en"),
       voiceId: z.string().default("uYXf8XasLslADfZ2MB4u"),
       ttsModel: z.string().default("eleven_flash_v2_5"),
       /** End the call after this long with nobody attached. Rooms survive a
@@ -148,6 +151,7 @@ export const room = signal("room")
         if (ws && ws.readyState === ws.OPEN) ws.send(pcm, { binary: true });
       },
       metric,
+      sttLanguage: input.sttLanguage,
       elevenLabsApiKey: apiKey,
       voiceId: input.voiceId,
       ttsModel: input.ttsModel,
