@@ -10,6 +10,7 @@
 //   PORT=4501 node scripts/voice-sim.mjs --barge-in      # test interruption
 //   PORT=4501 node scripts/voice-sim.mjs --conversation  # several turns, one connection
 //   PORT=4501 node scripts/voice-sim.mjs --blip           # false-alarm: pause must RESUME
+//   PORT=4501 node scripts/voice-sim.mjs --silence        # phantom check: room tone only
 //
 // Turn latency here is the honest number: from the last sample of speech to
 // the moment the room commits the utterance to the agent.
@@ -24,6 +25,7 @@ const PORT = process.env.PORT ?? 4501;
 const BARGE_IN = process.argv.includes("--barge-in");
 const CONVERSATION = process.argv.includes("--conversation");
 const BLIP = process.argv.includes("--blip");
+const SILENCE = process.argv.includes("--silence");
 // Attenuate the mic, as the browser's echo canceller does while the agent's
 // audio plays (measured ducking is 10-30x). --gain 0.05 is a realistic
 // barge-in as the room actually receives it.
@@ -210,6 +212,29 @@ ws.on("open", async () => {
     console.log(
       `\n${ok ? "PASS — cut off and stayed stopped" : "FAIL — she resumed the interrupted line"}`,
     );
+    ws.close();
+    process.exit(ok ? 0 : 1);
+  }
+
+  if (SILENCE) {
+    // Nobody says anything, for a long time. STT models hallucinate short
+    // phrases ("Yes.", "Thank you.") out of quiet, and every one that reaches
+    // the transcript is the room hearing voices. Twenty-five seconds of room
+    // tone must produce zero utterances and zero visible partial text.
+    let ghostPartials = 0;
+    let ghosts = 0;
+    ws.on("message", (d, bin) => {
+      if (bin) return;
+      const m = JSON.parse(d.toString());
+      if (m.t === "partial" && m.text.trim()) ghostPartials++;
+      if (m.t === "utterance") ghosts++;
+    });
+    console.log(`${at()} streaming 25s of room tone — saying nothing`);
+    await streamQuiet(25);
+    console.log(`\nphantom utterances : ${ghosts} (want 0)`);
+    console.log(`phantom partials   : ${ghostPartials} (want 0)`);
+    const ok = ghosts === 0 && ghostPartials === 0;
+    console.log(`\n${ok ? "PASS — the room heard nothing, because there was nothing" : "FAIL — hallucinations reached the transcript"}`);
     ws.close();
     process.exit(ok ? 0 : 1);
   }

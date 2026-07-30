@@ -76,23 +76,45 @@ export class SileroVADNode extends EventEmitter<VADAdapterEvents> implements VAD
 
   private active = false;
   private speechFrames = 0;
+  private weakFrames = 0;
+  private confirmed = false;
   private redemptionFrames = 0;
   /** Frames run strictly in order — the model's state is recurrent, so a
    *  skipped frame corrupts the context the next one is scored against. */
   private chain: Promise<void> = Promise.resolve();
   private queued = 0;
 
-  private readonly positive: number;
-  private readonly negative: number;
+  private positive: number;
+  private negative: number;
+  private readonly basePositive: number;
+  private readonly baseNegative: number;
   private readonly redemptionLimit: number;
   private readonly minSpeechCount: number;
 
   constructor(cfg: SileroVADNodeConfig = {}) {
     super();
-    this.positive = cfg.positiveSpeechThreshold ?? 0.5;
-    this.negative = cfg.negativeSpeechThreshold ?? 0.35;
+    this.basePositive = cfg.positiveSpeechThreshold ?? 0.5;
+    this.baseNegative = cfg.negativeSpeechThreshold ?? 0.35;
+    this.positive = this.basePositive;
+    this.negative = this.baseNegative;
     this.redemptionLimit = Math.max(1, Math.round((cfg.redemptionMs ?? 450) / MS_PER_FRAME));
     this.minSpeechCount = Math.max(1, Math.round((cfg.minSpeechMs ?? 250) / MS_PER_FRAME));
+  }
+
+  /**
+   * Listen harder while the agent holds the floor.
+   *
+   * The browser's echo canceller does two things during agent playback: it
+   * strips the agent's voice from the microphone, and it mangles the CALLER's
+   * voice — nonlinear suppression during double-talk, not clean attenuation.
+   * The first means anything speech-like in a ducked stretch is almost
+   * certainly a person (her own voice cannot trip us); the second means that
+   * person arrives distorted enough to score well below the normal threshold.
+   * Both point the same way: while she speaks, the bar drops.
+   */
+  setDucked(ducked: boolean): void {
+    this.positive = ducked ? Math.min(0.3, this.basePositive) : this.basePositive;
+    this.negative = ducked ? Math.min(0.2, this.baseNegative) : this.baseNegative;
   }
 
   /** Load the model. Throws if either the runtime or the weights are missing,
@@ -122,6 +144,8 @@ export class SileroVADNode extends EventEmitter<VADAdapterEvents> implements VAD
   reset(): void {
     this.active = false;
     this.speechFrames = 0;
+    this.weakFrames = 0;
+    this.confirmed = false;
     this.redemptionFrames = 0;
     this.state = new Float32Array(2 * 1 * 128);
     this.carry = new Float32Array(0);
@@ -183,10 +207,24 @@ export class SileroVADNode extends EventEmitter<VADAdapterEvents> implements VAD
       if (!this.active) {
         this.active = true;
         this.speechFrames = 0;
+        this.weakFrames = 0;
+        this.confirmed = false;
         this.emit("speech_start"); // tentative — may still be retracted
       }
-      this.speechFrames++;
-      if (this.speechFrames === this.minSpeechCount) {
+      // Confirmation is deliberately STRICTER than entry. While ducked, entry
+      // drops to ~0.3 so a pause fires on the first hint of a person — but the
+      // model's probability has momentum, and a 100ms blip coasts above 0.3
+      // long enough to fake a quarter second. So strong frames (≥ the base
+      // threshold) confirm at the normal pace, and weak ones only confirm by
+      // sustained accumulation — an AEC-mangled interruption scoring 0.3-0.5
+      // for three quarters of a second is a person; a door slam is not.
+      this.weakFrames++;
+      if (prob >= this.basePositive) this.speechFrames++;
+      if (
+        !this.confirmed &&
+        (this.speechFrames >= this.minSpeechCount || this.weakFrames >= this.minSpeechCount * 3)
+      ) {
+        this.confirmed = true;
         this.emit("speech_real_start"); // survived the minimum — definitely a person
       }
       return;
@@ -198,9 +236,11 @@ export class SileroVADNode extends EventEmitter<VADAdapterEvents> implements VAD
     this.redemptionFrames++;
     if (this.redemptionFrames < this.redemptionLimit) return;
 
-    const wasRealSpeech = this.speechFrames >= this.minSpeechCount;
+    const wasRealSpeech = this.confirmed;
     this.active = false;
     this.speechFrames = 0;
+    this.weakFrames = 0;
+    this.confirmed = false;
     this.redemptionFrames = 0;
     this.emit(wasRealSpeech ? "speech_end" : "vad_misfire");
   }

@@ -7,9 +7,11 @@
 // pair; it makes no decisions.
 //
 // The ordering that matters, and why:
-//   • The STT gate closes while the agent speaks, so the agent's own voice
-//     coming back through the room's microphone never lands in the transcript.
-//     The VAD keeps listening throughout — that is what detects barge-in.
+//   • Audio flows to STT at ALL times (full duplex). While the agent speaks,
+//     the DISPATCH gate closes instead: the transcript accumulated during her
+//     turn is either claimed by a confirmed barge-in (making the interruption
+//     complete from its first word) or swallowed when her turn ends unclaimed.
+//     The VAD listens throughout — that is what detects barge-in.
 //   • The gate reopens when the CLIENT reports playback drained, not when the
 //     gateway finishes sending. The gateway sends audio faster than realtime,
 //     so "I sent the last byte" happens well before "the room went quiet".
@@ -395,6 +397,11 @@ export class VoiceSession {
    *  render its state immediately. */
   attach(): void {
     this.attached = true;
+    // A room that sat empty has been feeding Scribe keepalive silence, and
+    // silence is what STT models hallucinate on. Whatever collected in the
+    // buffer while nobody was here, the new caller must not inherit it as the
+    // opening words of their first sentence.
+    this.engine.resetTranscript();
     this.sendReady();
     this.pushState();
   }
