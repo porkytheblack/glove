@@ -37,6 +37,17 @@ import { SileroVADNode } from "./silero-vad-node";
 
 /** Only commit transcript text if real voice was heard this recently. */
 const VOICE_FRESH_MS = 3000;
+/** Direct acoustic evidence that a person made a sound, for the phantom gate's
+ *  clock ONLY. Deliberately far below the turn-boundary threshold: this asks
+ *  "was that a human?", not "is this a turn". Held at the boundary threshold it
+ *  let the weaker of our two listeners veto the stronger one — Scribe would
+ *  transcribe a quiet talker in an outdoor room perfectly while Silero scored
+ *  the same audio 0.2, and every word of it was discarded as a hallucination. */
+const VOICE_EVIDENCE_PROB = 0.15;
+/** The room is not acoustically DEAD. True silence sits under this; speech at
+ *  any distance or volume clears it. Its only job is to separate "quiet person"
+ *  from "no person", which is the distinction the phantom gate actually needs. */
+const ROOM_ACTIVE_PROB = 0.05;
 /** A trailing addition shorter than this is transcription lag, not a
  *  correction worth interrupting the conversation over. */
 const TAIL_EXTENSION_CHARS = 24;
@@ -118,6 +129,8 @@ export class TurnEngine {
   private lastDispatched = "";
   private pendingConfirm: string | null = null;
   private lastVoiceAt = 0;
+  private lastActivityAt = 0;
+  private evidenceText = "";
   private lastPartialAt = 0;
   private lastPartialText = "";
   private lastAudioFedAt = 0;
@@ -179,7 +192,8 @@ export class TurnEngine {
       // The phantom gate's clock: a frame Silero scores as even plausibly
       // speech counts as "voice was heard". Robust where raw energy is not —
       // AGC'd room tone scores ~0.0 here, an echo-cancelled interruption ~0.9.
-      if (p >= 0.35) this.lastVoiceAt = Date.now();
+      if (p >= VOICE_EVIDENCE_PROB) this.lastVoiceAt = Date.now();
+      if (p >= ROOM_ACTIVE_PROB) this.lastActivityAt = Date.now();
       this.probPeak = Math.max(this.probPeak, p);
       this.probFrames++;
       if (this.probFrames >= 64) {
@@ -254,6 +268,7 @@ export class TurnEngine {
     // survives only as the fallback while the energy VAD is in place.
     if (!this.vad.supportsRealStart && rms(pcm) > VOICE_ENERGY_FLOOR) {
       this.lastVoiceAt = Date.now();
+      this.lastActivityAt = Date.now();
     }
 
     // A recurrent model must not resume against a stale state. Silero v5
@@ -305,6 +320,7 @@ export class TurnEngine {
     // later partial, `livePartial()` strips it as a prefix instead of handing
     // the next caller words the previous one spoke.
     this.lastDispatched = stale;
+    this.evidenceText = "";
     this.speechEndAt = 0;
     this.userSpeaking = false;
     this.hooks.onPartial("");
@@ -413,9 +429,47 @@ export class TurnEngine {
     return p;
   }
 
+  /**
+   * THE RECOGNIZER IS A WITNESS TO VOICE, NOT JUST TO WORDS.
+   *
+   * Scribe hears through conditions Silero gives up on: a quiet talker, a far
+   * microphone, wind, a phone held at waist height. So when the two disagree
+   * about whether anybody spoke at all, growing text is the better witness —
+   * words do not assemble themselves out of an empty room.
+   *
+   * Except when they do, which is the whole reason this gate exists. The
+   * discriminator is the room, not the text: a silence hallucination arrives as
+   * a whole canned phrase ("Yes.", "Thank you.") into audio that is genuinely
+   * dead, so growth is admitted as evidence only while something is still
+   * making noise. That bar sits at the noise floor, low enough that a whisper
+   * clears it and only true silence does not.
+   */
+  private noteTranscriptEvidence(raw: string): void {
+    const text = raw.trim();
+    if (!text || text === this.evidenceText) return;
+    // A strictly shorter prefix of what we already saw is Scribe re-sending a
+    // stale buffer, not new speech.
+    const grew = !this.evidenceText || !this.evidenceText.startsWith(text);
+    this.evidenceText = text;
+    if (!grew) return;
+    if (!this.lastActivityAt || Date.now() - this.lastActivityAt > VOICE_FRESH_MS) return;
+    this.lastVoiceAt = Date.now();
+  }
+
   /** Drop buffer content WITHOUT dispatching (a silence hallucination):
    *  commit it so the buffer resets, then swallow the confirming final. */
   private discardPartial(source: string, text: string): void {
+    // Loud on the console, not just in the metrics file. Dropping a transcript
+    // is the one decision in this engine that is completely invisible from
+    // outside — Scribe logs the words, the room silently declines them, and
+    // what the operator sees is a working recognizer attached to an agent that
+    // has stopped answering. If we are going to throw away something a person
+    // may have said, we say so where they are already looking.
+    console.warn(
+      `[turn] dropped as phantom (${source}, no voice for ${
+        this.lastVoiceAt ? Date.now() - this.lastVoiceAt : -1
+      }ms): "${text.slice(0, 80)}"`,
+    );
     this.hooks.onMetric("stt_phantom_dropped", undefined, {
       chars: text.length,
       source,
@@ -545,6 +599,7 @@ export class TurnEngine {
       this.lastPartialText = raw;
       this.lastPartialAt = Date.now();
     }
+    this.noteTranscriptEvidence(raw);
     // THE TRANSCRIPT IS THE AUTHORITY ON WHETHER SOMEONE INTERRUPTED.
     //
     // Audio reaches Scribe even while the agent holds the floor (full duplex),
@@ -665,6 +720,11 @@ export class TurnEngine {
     // Same phantom gate as the partial path: auto-commits can deliver silence
     // hallucinations straight here.
     if (Date.now() - this.lastVoiceAt > VOICE_FRESH_MS) {
+      console.warn(
+        `[turn] dropped as phantom (final, no voice for ${
+          this.lastVoiceAt ? Date.now() - this.lastVoiceAt : -1
+        }ms): "${fresh.slice(0, 80)}"`,
+      );
       this.hooks.onMetric("stt_phantom_dropped", undefined, {
         chars: fresh.length,
         source: "final",
