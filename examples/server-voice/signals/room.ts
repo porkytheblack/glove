@@ -73,6 +73,9 @@ export const room = signal("room")
       // Defaults come from env so they can be tuned in .env.local without
       // touching code — the right values depend on the room and how the
       // speaker paces.
+      /** Front-agent model for this room only — lets a rubric run compare
+       *  candidates without restarting the server. */
+      frontModel: z.string().optional(),
       /** Trailing silence before the VAD calls end-of-speech. The floor of
        *  send latency: nothing starts until this has passed. */
       vadSilenceMs: z.number().default(Number(process.env.VAD_SILENCE_MS ?? 450)),
@@ -175,6 +178,7 @@ export const room = signal("room")
       elevenLabsApiKey: apiKey,
       voiceId: input.voiceId,
       ttsModel: input.ttsModel,
+      frontModel: input.frontModel,
       endpointing: {
         vad: input.vad,
         vadSilenceMs: input.vadSilenceMs,

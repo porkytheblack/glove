@@ -167,6 +167,10 @@ export interface VoiceSessionDeps {
   elevenLabsApiKey: string;
   voiceId: string;
   ttsModel: string;
+  /** Front-agent model for THIS room, beating env and defaults. The whole
+   *  point is comparing models without restarting the server — a rubric run
+   *  that needs a redeploy between candidates does not get run. */
+  frontModel?: string;
   /** How patient the room is about deciding you have finished speaking. */
   endpointing?: {
     vadSilenceMs?: number;
@@ -269,7 +273,7 @@ export class VoiceSession {
   // ── lifecycle ──────────────────────────────────────────────────────────────
 
   async start(): Promise<void> {
-    this.front = buildFrontAgent(new MemoryStore(`front_${this.id}`));
+    this.front = buildFrontAgent(new MemoryStore(`front_${this.id}`), this.deps.frontModel);
     this.front.addSubscriber(this.makeSubscriber());
 
     // Nova talks to the worker over the mesh exactly as she does in the
@@ -374,7 +378,7 @@ export class VoiceSession {
 
     this.deps.metric("session_config", undefined, {
       provider: PROVIDER,
-      frontModel: modelFor("front") ?? "(provider default)",
+      frontModel: this.deps.frontModel ?? modelFor("front") ?? "(provider default)",
       workerModel: modelFor("worker") ?? "(provider default)",
       frontProviderSort: frontProviderSort() ?? "off",
       ttsModel: this.deps.ttsModel,

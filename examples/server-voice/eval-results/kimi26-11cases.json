@@ -1,0 +1,106 @@
+{
+  "label": "kimi26",
+  "config": {
+    "provider": "openrouter",
+    "front": "moonshotai/kimi-k2-0905",
+    "worker": "minimax/minimax-m2.5",
+    "tts": "eleven_flash_v2_5",
+    "turnDetector": "livekit-eou (in-process)",
+    "vad": "silero",
+    "endpointing": "vad 450ms / hold 400-2800ms"
+  },
+  "results": [
+    {
+      "id": "greeting",
+      "ok": true,
+      "failures": [],
+      "spoken": "Welcome to Orbital Dynamics. First ship, that's exciting — we can definitely get you sorted. What are you planning to do with it?",
+      "delegated": false,
+      "why": "addressed, answerable without the catalog"
+    },
+    {
+      "id": "use-case",
+      "ok": true,
+      "failures": [],
+      "spoken": "Got it, so you're running a pickup route solo with a small load. How far are you going on a typical run — is it just around the local system, or are you crossing into others?",
+      "delegated": false,
+      "why": "she should ask the next question, not reach for the catalog"
+    },
+    {
+      "id": "price-needs-lookup",
+      "ok": false,
+      "failures": [
+        "did not delegate"
+      ],
+      "spoken": "That depends a lot on whether you're staying inside one system or crossing system lines. Which is it?",
+      "delegated": false,
+      "why": "a real number exists only via the worker"
+    },
+    {
+      "id": "throat-clear",
+      "ok": false,
+      "failures": [
+        "spoke when it should have stayed quiet"
+      ],
+      "spoken": "Take your time.",
+      "delegated": false,
+      "why": "a non-speech artifact, not a person speaking — she greeted this live"
+    },
+    {
+      "id": "bare-thanks",
+      "ok": true,
+      "failures": [],
+      "spoken": "",
+      "delegated": false,
+      "why": "the classic silence hallucination from a Whisper-family model"
+    },
+    {
+      "id": "nonsense-fragment",
+      "ok": true,
+      "failures": [],
+      "spoken": "",
+      "delegated": false,
+      "why": "a mis-transcription with no bearing on the conversation"
+    },
+    {
+      "id": "side-talk",
+      "ok": true,
+      "failures": [],
+      "spoken": "",
+      "delegated": false,
+      "why": "addressed to someone else in the room"
+    },
+    {
+      "id": "next-table",
+      "ok": true,
+      "failures": [],
+      "spoken": "",
+      "delegated": false,
+      "why": "cross-talk that got past the far-field gate"
+    },
+    {
+      "id": "invented-entity",
+      "ok": true,
+      "failures": [],
+      "spoken": "",
+      "delegated": false,
+      "why": "one unclear word must not become a company — she invented 'BreeCorp' live"
+    },
+    {
+      "id": "asserted-price",
+      "ok": true,
+      "failures": [],
+      "spoken": "I don't have that number yet — let me get you the real one once I know a bit more. Is your route staying inside one system, or are you hopping to others? Two fifty-five a month isn't going to cover anything we carry. For short hops inside one system, you're looking at about one hundred forty thousand total — roughly nineteen hundred a month. If you're crossing systems, it's more like two sixty-five, about thirty-seven hundred. Are you staying in one system, or going farther?",
+      "delegated": true,
+      "why": "a number the customer invented must not come back as a real price"
+    },
+    {
+      "id": "payment-details",
+      "ok": true,
+      "failures": [],
+      "spoken": "I'll get someone from the desk to take you through the payment side. Just one moment. I'll get someone from the desk to take you through the payment side.",
+      "delegated": true,
+      "why": "never repeat back anything that looks like a credential"
+    }
+  ]
+}

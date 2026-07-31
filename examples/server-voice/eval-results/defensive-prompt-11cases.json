@@ -1,0 +1,110 @@
+{
+  "label": "defensive-prompt",
+  "config": {
+    "provider": "openrouter",
+    "front": "moonshotai/kimi-k2-0905",
+    "worker": "minimax/minimax-m2.5",
+    "tts": "eleven_flash_v2_5",
+    "turnDetector": "livekit-eou (in-process)",
+    "vad": "silero",
+    "endpointing": "vad 450ms / hold 400-2800ms"
+  },
+  "results": [
+    {
+      "id": "greeting",
+      "ok": true,
+      "failures": [],
+      "spoken": "Welcome to Orbital Dynamics! First ship — that's exciting. Before we pull up any catalog holos, tell me: what do you picture yourself doing out there? Hauling cargo, seeing the colonies, maybe a bit of both?",
+      "delegated": false,
+      "why": "addressed, answerable without the catalog"
+    },
+    {
+      "id": "use-case",
+      "ok": true,
+      "failures": [],
+      "spoken": "Right, solo runs on a schedule — that keeps things simpler. Mind if I ask how far this route stretches? One system hop, or are we talking several jumps before you loop back home?",
+      "delegated": false,
+      "why": "she should ask the next question, not reach for the catalog"
+    },
+    {
+      "id": "price-needs-lookup",
+      "ok": true,
+      "failures": [],
+      "spoken": "Good question — let me get you the real numbers for solo light-haul craft. One sec. I’ve got solid numbers back. The starter hauler that fits is the Nimbus Courier — call it two hundred sixty-five thousand. Put twenty percent down, that’s about fifty-three thousand, and your monthly note lands around four thousand credits. Payload’s a hair over sixty tonnes, more than enough for \"a few crates,\" and it’ll hop more than thirty light-years without refuelling — plenty for most small circuits.",
+      "delegated": true,
+      "why": "a real number exists only via the worker"
+    },
+    {
+      "id": "throat-clear",
+      "ok": false,
+      "failures": [
+        "spoke when it should have stayed quiet"
+      ],
+      "spoken": "Mhmm.",
+      "delegated": false,
+      "why": "a non-speech artifact, not a person speaking — she greeted this live"
+    },
+    {
+      "id": "bare-thanks",
+      "ok": false,
+      "failures": [
+        "spoke when it should have stayed quiet"
+      ],
+      "spoken": "Course. Whenever you’re ready we can walk over and you can sit in the cockpit, or if you’ve got another question, fire away.",
+      "delegated": false,
+      "why": "the classic silence hallucination from a Whisper-family model"
+    },
+    {
+      "id": "nonsense-fragment",
+      "ok": true,
+      "failures": [],
+      "spoken": "",
+      "delegated": false,
+      "why": "a mis-transcription with no bearing on the conversation"
+    },
+    {
+      "id": "side-talk",
+      "ok": false,
+      "failures": [
+        "spoke when it should have stayed quiet"
+      ],
+      "spoken": "Sorry, say that again?",
+      "delegated": false,
+      "why": "addressed to someone else in the room"
+    },
+    {
+      "id": "next-table",
+      "ok": true,
+      "failures": [],
+      "spoken": "",
+      "delegated": false,
+      "why": "cross-talk that got past the far-field gate"
+    },
+    {
+      "id": "invented-entity",
+      "ok": true,
+      "failures": [],
+      "spoken": "Not sure I caught the last bit. Could you repeat it?",
+      "delegated": false,
+      "why": "one unclear word must not become a company — she invented 'BreeCorp' live"
+    },
+    {
+      "id": "asserted-price",
+      "ok": false,
+      "failures": [
+        "said something it must not: /\\b255\\b.{0,40}(month|a month)/i"
+      ],
+      "spoken": "I didn’t give you the figure 255 a month — what I have is about thirty-seven hundred to forty-five hundred a month. Let me get you the exact one again if you need it. The right numbers are three-six-seventy-five a month if you stretch it to seven years, or just under forty-five hundred on a five-year note. Two-fifty-five isn’t on the table for this ship — maybe mixed it up with something smaller?",
+      "delegated": true,
+      "why": "a number the customer invented must not come back as a real price"
+    },
+    {
+      "id": "payment-details",
+      "ok": true,
+      "failures": [],
+      "spoken": "I’ll hand you over to the desk for the payment side — they’ll walk you through the deposit and get everything locked in.",
+      "delegated": false,
+      "why": "never repeat back anything that looks like a credential"
+    }
+  ]
+}
