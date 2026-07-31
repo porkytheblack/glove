@@ -336,10 +336,10 @@ export class TurnEngine {
   /** Has the recognizer produced new words since the tentative pause? */
   private transcriptGrewSinceWarning(): boolean {
     const now = this.stt.currentPartial?.trim() ?? "";
-    if (!now || now === this.partialAtWarning) return false;
+    if (!now) return false;
     // Growth only counts as an interruption if it is ADDITIONAL speech, not
-    // Scribe revising what it already had.
-    return now.length > this.partialAtWarning.length;
+    // Scribe revising or re-punctuating what it already had — so count words.
+    return words(now).length > words(this.partialAtWarning).length;
   }
 
   /** The caller's own VAD beat ours to an interruption: whatever the closed
@@ -419,19 +419,28 @@ export class TurnEngine {
     const p = this.stt.currentPartial?.trim() ?? "";
     if (!this.lastDispatched) return p;
 
-    // Text IDENTICAL to what we last sent is ambiguous, and the two readings
-    // are opposites. While that dispatch's commit is still in flight, Scribe is
-    // just re-sending the buffer and this is an echo to swallow. Once the
-    // commit has landed the buffer is empty, so the same words arriving again
-    // are the caller genuinely repeating themselves — and treating THAT as an
-    // echo is why asking "Hello?" a second time was silently eaten, which from
-    // the room is indistinguishable from the agent having stopped listening.
-    if (p === this.lastDispatched) return this.pendingConfirm !== null ? "" : p;
+    // Compared on WORDS, not characters. Scribe re-punctuates text it has
+    // already settled on, so "Yeah. Yeah, that's right." comes back as
+    // "Yeah, yeah, that's right." — same speech, and against a character-exact
+    // check it matches neither the equality test nor either prefix test. That
+    // falls through to "genuinely fresh utterance", which dispatched the line a
+    // second time and had the agent answer itself.
+    const live = words(p);
+    const sent = words(this.lastDispatched);
 
-    if (p.startsWith(this.lastDispatched)) {
-      return p.slice(this.lastDispatched.length).trim();
+    if (isWordPrefix(sent, live)) {
+      // Text IDENTICAL to what we last sent is ambiguous, and the two readings
+      // are opposites. While that dispatch's commit is still in flight, Scribe
+      // is just re-sending the buffer and this is an echo to swallow. Once the
+      // commit has landed the buffer is empty, so the same words arriving again
+      // are the caller genuinely repeating themselves — and treating THAT as an
+      // echo is why asking "Hello?" a second time was silently eaten, which
+      // from the room is indistinguishable from the agent having stopped
+      // listening.
+      if (sent.length === live.length) return this.pendingConfirm !== null ? "" : p;
+      return rawAfterWords(p, sent.length);
     }
-    if (this.lastDispatched.startsWith(p)) return ""; // a stale, shorter echo
+    if (isWordPrefix(live, sent)) return ""; // a stale, shorter echo
     this.lastDispatched = ""; // buffer reset — a genuinely fresh utterance
     return p;
   }
@@ -453,10 +462,13 @@ export class TurnEngine {
    */
   private noteTranscriptEvidence(raw: string): void {
     const text = raw.trim();
-    if (!text || text === this.evidenceText) return;
-    // A strictly shorter prefix of what we already saw is Scribe re-sending a
-    // stale buffer, not new speech.
-    const grew = !this.evidenceText || !this.evidenceText.startsWith(text);
+    if (!text) return;
+    // On words, so re-punctuation is not mistaken for someone still talking.
+    // A prefix of what we already saw is Scribe re-sending a stale buffer.
+    const seen = words(this.evidenceText);
+    const now = words(text);
+    if (seen.length === now.length && isWordPrefix(seen, now)) return;
+    const grew = !seen.length || !isWordPrefix(now, seen);
     this.evidenceText = text;
     if (!grew) return;
 
@@ -763,9 +775,11 @@ export class TurnEngine {
     // words must not repeat them.
     let fresh = text;
     if (this.lastDispatched) {
-      if (fresh.startsWith(this.lastDispatched)) {
-        fresh = fresh.slice(this.lastDispatched.length).trim();
-      } else if (this.lastDispatched.startsWith(fresh)) {
+      const sent = words(this.lastDispatched);
+      const got = words(text);
+      if (isWordPrefix(sent, got)) {
+        fresh = rawAfterWords(text, sent.length);
+      } else if (isWordPrefix(got, sent)) {
         fresh = "";
       }
     }
@@ -914,4 +928,35 @@ function rms(pcm: Int16Array): number {
 
 function normalize(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/** The words of a transcript — the unit every comparison in here actually
+ *  cares about. Scribe re-punctuates settled text freely, so any check done on
+ *  raw characters eventually fires on a moved comma instead of new speech. */
+function words(s: string): string[] {
+  const n = normalize(s);
+  return n ? n.split(" ") : [];
+}
+
+/** Is `a` the leading run of words of `b`? */
+function isWordPrefix(a: string[], b: string[]): boolean {
+  return a.length <= b.length && a.every((w, i) => b[i] === w);
+}
+
+/** Whatever follows the first `count` words of `raw`, still in raw form —
+ *  so the caller keeps the recognizer's punctuation and casing. */
+function rawAfterWords(raw: string, count: number): string {
+  if (count <= 0) return raw.trim();
+  const re = /[a-z0-9]+/gi;
+  let seen = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw)) !== null) {
+    // Cut after the last word of the prefix, then drop the punctuation that
+    // ended it — otherwise a continuation reaches the agent as ". It's for
+    // cargo." with the previous sentence's full stop still attached.
+    if (++seen === count) {
+      return raw.slice(m.index + m[0].length).replace(/^[^a-z0-9]+/i, "").trim();
+    }
+  }
+  return "";
 }
