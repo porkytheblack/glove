@@ -48,6 +48,12 @@ const VOICE_EVIDENCE_PROB = 0.15;
  *  any distance or volume clears it. Its only job is to separate "quiet person"
  *  from "no person", which is the distinction the phantom gate actually needs. */
 const ROOM_ACTIVE_PROB = 0.05;
+/** A VAD that has scored NOTHING for this long while the recognizer keeps
+ *  producing new words is not a quiet room — it is a broken listener. */
+const VAD_DEAF_MS = 10_000;
+/** Don't reset a deaf VAD more often than this; a genuine dead patch would
+ *  otherwise reset it on every partial. */
+const VAD_DEAF_RESET_COOLDOWN_MS = 5_000;
 /** A trailing addition shorter than this is transcription lag, not a
  *  correction worth interrupting the conversation over. */
 const TAIL_EXTENSION_CHARS = 24;
@@ -130,6 +136,7 @@ export class TurnEngine {
   private pendingConfirm: string | null = null;
   private lastVoiceAt = 0;
   private lastActivityAt = 0;
+  private lastVadResetAt = 0;
   private evidenceText = "";
   private lastPartialAt = 0;
   private lastPartialText = "";
@@ -452,6 +459,39 @@ export class TurnEngine {
     const grew = !this.evidenceText || !this.evidenceText.startsWith(text);
     this.evidenceText = text;
     if (!grew) return;
+
+    // A VAD THAT HEARS NOTHING WHILE SOMEONE IS TALKING HAS DIED.
+    //
+    // Silero v5 carries an LSTM state across frames, and a state that goes bad
+    // stays bad — measured earlier at the same voice scoring 0.999 before a
+    // gap and 0.137 after it. `processAudio` resets on a gap in incoming
+    // audio, but full duplex means audio never stops arriving, so that rescue
+    // can no longer fire and nothing else ever clears the state. Seen live:
+    // "no voice for 77221ms" while Scribe transcribed the whole time, after
+    // which the room never took another turn and the call had to be restarted.
+    //
+    // New words with no acoustic evidence behind them for ten full seconds is
+    // that failure, not a quiet talker. A zero state is the model's designed
+    // starting point, so hand it one and let the next frames speak for
+    // themselves — this deliberately does NOT admit the current text, because
+    // if a person really is mid-sentence the reset pays for itself within a
+    // frame or two and the sweeper still has the buffer.
+    if (this.lastVoiceAt && Date.now() - this.lastVoiceAt > VAD_DEAF_MS) {
+      if (Date.now() - this.lastVadResetAt > VAD_DEAF_RESET_COOLDOWN_MS) {
+        this.lastVadResetAt = Date.now();
+        this.vad.reset?.();
+        this.userSpeaking = false;
+        console.warn(
+          `[turn] VAD scored nothing for ${Date.now() - this.lastVoiceAt}ms ` +
+            `while the recognizer kept hearing words — resetting it`,
+        );
+        this.hooks.onMetric("vad_deaf_reset", Date.now() - this.lastVoiceAt, {
+          text: text.slice(0, 60),
+        });
+      }
+      return;
+    }
+
     if (!this.lastActivityAt || Date.now() - this.lastActivityAt > VOICE_FRESH_MS) return;
     this.lastVoiceAt = Date.now();
   }
@@ -595,8 +635,21 @@ export class TurnEngine {
     // fire. A caller saying "Hello?" into a room that had stopped taking turns
     // watched it accumulate for fifteen seconds and never send.
     const raw = this.stt.currentPartial?.trim() ?? "";
-    if (raw !== this.lastPartialText) {
-      this.lastPartialText = raw;
+    // STILLNESS IS ABOUT WORDS, NOT PUNCTUATION.
+    //
+    // Scribe keeps re-punctuating a transcript it has otherwise settled on,
+    // once a second, indefinitely: "Okay. Okay, thanks." → "Okay. Okay.
+    // Thanks." → back again. Compared raw, every one of those flips reads as
+    // the caller still talking, so the stillness clock never ages and the
+    // sweeper never fires. Measured live: a finished sentence sat unsent for
+    // 13 seconds while the comma moved back and forth.
+    //
+    // Normalizing to words alone is what makes the difference between a
+    // revision and a re-render — the same comparison `onFinal` already uses to
+    // decide whether a committed transcript really differs from what was sent.
+    const settled = normalize(raw);
+    if (settled !== this.lastPartialText) {
+      this.lastPartialText = settled;
       this.lastPartialAt = Date.now();
     }
     this.noteTranscriptEvidence(raw);
