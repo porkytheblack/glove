@@ -54,6 +54,22 @@ const VAD_DEAF_MS = 10_000;
 /** Don't reset a deaf VAD more often than this; a genuine dead patch would
  *  otherwise reset it on every partial. */
 const VAD_DEAF_RESET_COOLDOWN_MS = 5_000;
+/** Speech quieter than this FRACTION of the caller's own established level is
+ *  coming from somewhere other than the caller. Speech falls about 6dB per
+ *  doubling of distance, so a phone at arm's length versus the next table over
+ *  is roughly 16dB — this sits at 12dB, deliberately forgiving, because the
+ *  cost of a wrong rejection is the caller not being heard. */
+const FAR_FIELD_RATIO = 0.25;
+/** How fast the caller's reference level falls away. Half-life ~20s, so a
+ *  caller who genuinely drops their voice is tracked within a few sentences
+ *  while a single loud moment does not lock the gate shut for the rest of the
+ *  call. */
+const NEAR_FIELD_DECAY = 0.99889;
+/** Below this the reference is just noise and the gate must not act on it. */
+const NEAR_FIELD_MIN_REF = 0.01;
+/** Consecutive far-field rejections before the reference is assumed stale
+ *  rather than the speech being assumed foreign. */
+const FAR_FIELD_STREAK_LIMIT = 3;
 /** A trailing addition shorter than this is transcription lag, not a
  *  correction worth interrupting the conversation over. */
 const TAIL_EXTENSION_CHARS = 24;
@@ -118,6 +134,9 @@ export interface TurnEngineConfig {
   vadSilenceMs?: number;
   /** RMS above which the energy VAD calls a frame speech. */
   vadThreshold?: number;
+  /** Reject speech quieter than this fraction of the caller's own level as
+   *  coming from someone else in the room. 0 disables the gate entirely. */
+  farFieldRatio?: number;
 }
 
 export class TurnEngine {
@@ -137,6 +156,13 @@ export class TurnEngine {
   private lastVoiceAt = 0;
   private lastActivityAt = 0;
   private lastVadResetAt = 0;
+  /** Loudest frame in the last second or so — "how loud is what is being said
+   *  right now". */
+  private recentPeakRms = 0;
+  /** Loudest speech this call has heard, decaying slowly — the caller, since
+   *  they are the closest microphone in the room. */
+  private nearFieldRef = 0;
+  private farFieldStreak = 0;
   private evidenceText = "";
   private lastPartialAt = 0;
   private lastPartialText = "";
@@ -163,9 +189,11 @@ export class TurnEngine {
   private pauseEmaMs = PAUSE_EMA_SEED_MS;
 
   private readonly cfg: TurnEngineConfig;
+  private readonly farFieldRatio: number;
 
   constructor(cfg: TurnEngineConfig) {
     this.cfg = cfg;
+    this.farFieldRatio = cfg.farFieldRatio ?? FAR_FIELD_RATIO;
     this.stt = cfg.stt;
     this.detector = cfg.detector;
     this.hooks = cfg.hooks;
@@ -273,10 +301,24 @@ export class TurnEngine {
     // field; and echo-cancelled interruptions sit below any floor high enough
     // to block hallucinations. Silero scores both correctly. The energy floor
     // survives only as the fallback while the energy VAD is in place.
-    if (!this.vad.supportsRealStart && rms(pcm) > VOICE_ENERGY_FLOOR) {
+    const level = rms(pcm);
+    if (!this.vad.supportsRealStart && level > VOICE_ENERGY_FLOOR) {
       this.lastVoiceAt = Date.now();
       this.lastActivityAt = Date.now();
     }
+
+    // Two decaying peaks: what is being said right now, and how loud this
+    // caller is when they speak. Their ratio is the only physical cue that
+    // separates the person holding the microphone from the table behind them —
+    // Silero cannot help, because the next table over is also speech, and it is
+    // right to say so.
+    // The utterance peak deliberately does NOT decay. It is cleared when a
+    // transcript leaves the buffer, so it spans exactly the speech that
+    // produced the text being judged — and the judging happens well after the
+    // speaker stopped, by design. A decaying measure was faded most of the way
+    // to zero by the time the hold expired and rejected the caller's own voice.
+    this.recentPeakRms = Math.max(level, this.recentPeakRms);
+    this.nearFieldRef = Math.max(level, this.nearFieldRef * NEAR_FIELD_DECAY);
 
     // A recurrent model must not resume against a stale state. Silero v5
     // carries an LSTM state across frames, and when audio stops mid-utterance
@@ -328,6 +370,7 @@ export class TurnEngine {
     // the next caller words the previous one spoke.
     this.lastDispatched = stale;
     this.evidenceText = "";
+    this.recentPeakRms = 0;
     this.speechEndAt = 0;
     this.userSpeaking = false;
     this.hooks.onPartial("");
@@ -508,29 +551,94 @@ export class TurnEngine {
     this.lastVoiceAt = Date.now();
   }
 
+  /**
+   * IS THIS THE CALLER, OR SOMEBODY ELSE IN THE ROOM?
+   *
+   * In a café the recognizer transcribes the next table perfectly well, and it
+   * is not wrong to — that really is speech. Nothing upstream of here can tell
+   * the difference, because every model in the pipeline answers "is this
+   * speech", never "is this the person I am talking to".
+   *
+   * The one cue left is loudness, and only in relative terms: speech falls off
+   * about 6dB per doubling of distance, so the caller is reliably the loudest
+   * voice their own microphone hears. Comparing what is being said right now
+   * against what this caller sounds like when they speak needs no calibration
+   * and no absolute threshold — it re-learns continuously, which matters
+   * because it also has to survive the caller moving, changing rooms, or
+   * dropping to a mutter.
+   *
+   * The reference tracks a MAXIMUM, so a quiet neighbour can never raise it and
+   * talk their way in; only the caller can, by being the loudest thing present.
+   */
+  /**
+   * Being ignored is worse than overhearing a stranger.
+   *
+   * The reference only ever falls on its own clock, which means a caller who
+   * moves away from the microphone and STAYS there — sets the phone down,
+   * walks to the next room — is refused for as long as that decay takes.
+   * Silently, and for tens of seconds. That is the same class of failure as
+   * the deaf VAD: a measurement that has stopped describing reality while
+   * still being trusted.
+   *
+   * Repeated rejection is the evidence. Three utterances in a row turned away
+   * means the reference is stale far more often than it means three strangers
+   * took turns talking, so hand the reference to whoever is actually speaking.
+   * Nothing is lost by being wrong: the reference tracks a maximum, so the
+   * moment the real caller says anything they take it straight back.
+   */
+  private noteFarFieldRejection(): void {
+    if (++this.farFieldStreak < FAR_FIELD_STREAK_LIMIT) return;
+    this.farFieldStreak = 0;
+    console.warn(
+      `[turn] ${FAR_FIELD_STREAK_LIMIT} utterances rejected as far-field — ` +
+        `re-anchoring the caller's level from ${this.nearFieldRef.toFixed(4)} ` +
+        `to ${this.recentPeakRms.toFixed(4)}`,
+    );
+    this.hooks.onMetric("near_field_reanchored", undefined, {
+      from: Number(this.nearFieldRef.toFixed(4)),
+      to: Number(this.recentPeakRms.toFixed(4)),
+    });
+    this.nearFieldRef = this.recentPeakRms;
+  }
+
+  private isFarField(): boolean {
+    if (this.farFieldRatio <= 0) return false;
+    // Nothing loud enough to have established who the caller is yet. Let it
+    // through: refusing to listen until someone shouts is the worse failure.
+    if (this.nearFieldRef < NEAR_FIELD_MIN_REF) return false;
+    return this.recentPeakRms < this.nearFieldRef * this.farFieldRatio;
+  }
+
   /** Drop buffer content WITHOUT dispatching (a silence hallucination):
    *  commit it so the buffer resets, then swallow the confirming final. */
-  private discardPartial(source: string, text: string): void {
+  private discardPartial(source: string, text: string, why: DiscardReason = "phantom"): void {
     // Loud on the console, not just in the metrics file. Dropping a transcript
     // is the one decision in this engine that is completely invisible from
     // outside — Scribe logs the words, the room silently declines them, and
     // what the operator sees is a working recognizer attached to an agent that
     // has stopped answering. If we are going to throw away something a person
     // may have said, we say so where they are already looking.
-    console.warn(
-      `[turn] dropped as phantom (${source}, no voice for ${
-        this.lastVoiceAt ? Date.now() - this.lastVoiceAt : -1
-      }ms): "${text.slice(0, 80)}"`,
+    const detail =
+      why === "far_field"
+        ? `${this.recentPeakRms.toFixed(4)} rms vs ${this.nearFieldRef.toFixed(4)} for this caller`
+        : `no voice for ${this.lastVoiceAt ? Date.now() - this.lastVoiceAt : -1}ms`;
+    console.warn(`[turn] dropped as ${why} (${source}, ${detail}): "${text.slice(0, 80)}"`);
+    this.hooks.onMetric(
+      why === "far_field" ? "stt_far_field_dropped" : "stt_phantom_dropped",
+      undefined,
+      {
+        chars: text.length,
+        source,
+        quietForMs: this.lastVoiceAt ? Date.now() - this.lastVoiceAt : -1,
+        peak: Number(this.recentPeakRms.toFixed(4)),
+        ref: Number(this.nearFieldRef.toFixed(4)),
+        text: text.slice(0, 80),
+      },
     );
-    this.hooks.onMetric("stt_phantom_dropped", undefined, {
-      chars: text.length,
-      source,
-      quietForMs: this.lastVoiceAt ? Date.now() - this.lastVoiceAt : -1,
-      text: text.slice(0, 80),
-    });
     this.lastDispatched = this.stt.currentPartial?.trim() ?? text;
     this.pendingConfirm = text;
     this.stt.flushUtterance();
+    this.recentPeakRms = 0;
     this.hooks.onPartial("");
   }
 
@@ -543,6 +651,14 @@ export class TurnEngine {
       this.discardPartial(source, text);
       return false;
     }
+    // Real speech, just not from the person on this call.
+    if (this.isFarField()) {
+      // Before discardPartial, which clears the very peak the re-anchor reads.
+      this.noteFarFieldRejection();
+      this.discardPartial(source, text, "far_field");
+      return false;
+    }
+    this.farFieldStreak = 0;
     this.lastDispatched = this.stt.currentPartial?.trim() ?? text;
     const endAt = this.speechEndAt;
     this.speechEndAt = 0;
@@ -552,6 +668,7 @@ export class TurnEngine {
     });
     this.pendingConfirm = text;
     this.stt.flushUtterance();
+    this.recentPeakRms = 0; // this transcript is spoken for; measure the next one
     this.hooks.onPartial("");
     this.hooks.onUtterance(text);
     return true;
@@ -800,6 +917,22 @@ export class TurnEngine {
       });
       return;
     }
+    if (this.isFarField()) {
+      console.warn(
+        `[turn] dropped as far_field (final, ${this.recentPeakRms.toFixed(4)} rms vs ` +
+          `${this.nearFieldRef.toFixed(4)} for this caller): "${fresh.slice(0, 80)}"`,
+      );
+      this.hooks.onMetric("stt_far_field_dropped", undefined, {
+        chars: fresh.length,
+        source: "final",
+        peak: Number(this.recentPeakRms.toFixed(4)),
+        ref: Number(this.nearFieldRef.toFixed(4)),
+        text: fresh.slice(0, 80),
+      });
+      this.noteFarFieldRejection();
+      return;
+    }
+    this.farFieldStreak = 0;
     const endAt = this.speechEndAt;
     this.speechEndAt = 0;
     if (endAt && Date.now() - endAt < 10_000) {
@@ -933,6 +1066,8 @@ function normalize(s: string): string {
 /** The words of a transcript — the unit every comparison in here actually
  *  cares about. Scribe re-punctuates settled text freely, so any check done on
  *  raw characters eventually fires on a moved comma instead of new speech. */
+type DiscardReason = "phantom" | "far_field";
+
 function words(s: string): string[] {
   const n = normalize(s);
   return n ? n.split(" ") : [];

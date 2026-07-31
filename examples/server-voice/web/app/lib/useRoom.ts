@@ -123,7 +123,18 @@ export function useRoom() {
         // own voice out of the microphone. Every other decision is the room's.
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true,
+        // AGC OFF, deliberately.
+        //
+        // It exists to make every voice arrive at the same level, which is
+        // exactly the information the room needs to keep: how loud the caller
+        // is relative to everyone else near them is the only cue that tells
+        // their voice apart from the next table's. Automatic gain erases that
+        // difference by design — it rides the quiet neighbour up during the
+        // caller's pauses until the two are indistinguishable.
+        //
+        // It also actively hurt the phantom gate earlier, lifting room tone
+        // above any energy floor low enough to hear a real interruption.
+        autoGainControl: process.env.NEXT_PUBLIC_MIC_AGC === "1",
       },
     });
     streamRef.current = stream;

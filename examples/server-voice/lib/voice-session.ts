@@ -176,6 +176,9 @@ export interface VoiceSessionDeps {
      *  since a false start only pauses playback and then resumes. */
     vadPositive?: number;
     vadNegative?: number;
+    /** Reject speech quieter than this fraction of the caller's own level as
+     *  belonging to someone else in the room. 0 disables it. */
+    farFieldRatio?: number;
     minHoldMs?: number;
     maxHoldMs?: number;
     /** "energy" forces the zero-dependency VAD; anything else uses Silero. */
@@ -304,6 +307,7 @@ export class VoiceSession {
       stt: this.stt,
       vadSilenceMs: this.deps.endpointing?.vadSilenceMs,
       vadThreshold: this.deps.endpointing?.vadThreshold,
+      farFieldRatio: this.deps.endpointing?.farFieldRatio,
       detector: new LocalTurnDetector({
         minHoldMs: this.deps.endpointing?.minHoldMs,
         maxHoldMs: this.deps.endpointing?.maxHoldMs,

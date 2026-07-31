@@ -93,6 +93,18 @@ export const room = signal("room")
        */
       vadPositive: z.number().default(Number(process.env.VAD_POSITIVE ?? 0.35)),
       vadNegative: z.number().default(Number(process.env.VAD_NEGATIVE ?? 0.25)),
+      /**
+       * How much quieter than the caller a voice must be before the room stops
+       * treating it as part of this conversation.
+       *
+       * In a busy room the recognizer transcribes the next table perfectly
+       * well — it really is speech, and no speech model will say otherwise.
+       * Loudness relative to the caller's own established level is the only
+       * cue that separates them. Raise toward 0.4 to be stricter in a crowd,
+       * lower toward 0.1 if a soft-spoken caller is being cut off, or set 0 to
+       * take everything the recognizer hears.
+       */
+      farFieldRatio: z.number().default(Number(process.env.FAR_FIELD_RATIO ?? 0.25)),
       /** Hold when the end-of-utterance model is confident you are done. */
       minHoldMs: z.number().default(Number(process.env.TURN_MIN_HOLD_MS ?? 400)),
       /** …and when it is confident you are not. */
@@ -169,6 +181,7 @@ export const room = signal("room")
         vadThreshold: input.vadThreshold,
         vadPositive: input.vadPositive,
         vadNegative: input.vadNegative,
+        farFieldRatio: input.farFieldRatio,
         minHoldMs: input.minHoldMs,
         maxHoldMs: input.maxHoldMs,
       },
