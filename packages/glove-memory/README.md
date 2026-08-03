@@ -1,11 +1,12 @@
 # glove-memory
 
-Memory layer for the Glove agent framework. Storage-agnostic adapter contracts, schema-first ontology, and auto-registered tool surfaces. Four complementary, independently-usable subsystems with bring-your-own storage:
+Memory layer for the Glove agent framework. Storage-agnostic adapter contracts, schema-first ontology, and auto-registered tool surfaces. Five complementary, independently-usable subsystems with bring-your-own storage:
 
 - **Entity memory** — graph-shaped, schema-first, deterministic identity resolution.
 - **Episodic memory** — timeline-bound, append-only, semantically searchable.
 - **Resources** — POSIX-style virtual filesystem the agent navigates with `ls` / `read` / `grep` / `glob` / `edit`.
 - **Context** — user-configured ambient context, auto-injected into the system prompt every turn.
+- **Forms** — structured collection over a conversation: zod-authored definitions, lazily loaded, with colocated executors.
 
 Entity, episodic, and resources use a reader / curator split — readers attach to the conversational agent, curators run as orchestrator-driven extractors. Context is different: it's user-configured rather than curator-extracted, so it uses a single registration that gives the agent both read and write tools plus system-prompt injection.
 
@@ -23,7 +24,8 @@ Draft v0.1. Pre-implementation scope from the spec is complete; storage backends
 | `glove-memory/episodic` | `EpisodicMemoryAdapter` contract, `Episode` types, semantic-search opts |
 | `glove-memory/resources` | `ResourceFsAdapter` contract, file types, POSIX path helpers |
 | `glove-memory/context` | `ContextAdapter` contract, `ContextEntry` type, default markdown rendering |
-| `glove-memory/tools` | Auto-registered read/write tool factories and `useMemory*` / `useEpisodic*` / `useResources*` / `useContext` helpers |
+| `glove-memory/forms` | `defineForm` builder, `FormAdapter` contract, compiler, engine, projection |
+| `glove-memory/tools` | Auto-registered read/write tool factories and `useMemory*` / `useEpisodic*` / `useResources*` / `useContext` / `useFormRunner` helpers |
 | `glove-memory/in-memory` | Reference in-process adapters for dev/test |
 
 ## Architecture
@@ -317,6 +319,19 @@ Why this beats one Glove with everything attached:
 | `glove_context_update` | Patch an existing entry in place |
 | `glove_context_unset` | Remove an entry or wipe an entire section |
 
+### Forms
+
+| Tool | Purpose |
+|------|---------|
+| `glove_form_list` | Registered forms, name + description — no module load |
+| `glove_form_start` | Begin an instance, with optional seed values |
+| `glove_form_status` | The open step in full *(tier 1)* |
+| `glove_form_inspect` | Any step, field, or the whole outline *(tier 2)* |
+| `glove_form_fill` | Patch of many fields at once; returns re-evaluated state |
+| `glove_form_revise` | Amend an earlier answer |
+| `glove_form_abandon` | Close out with a reason |
+| `glove_form_history` | Read past fills *(reader registration)* |
+
 ## System-prompt injection (context)
 
 `useContext` wraps `Glove.processRequest`. On every turn it calls `adapter.render()` to materialise pinned entries as a markdown block, then composes `<base systemPrompt>` + `\n\n` + `<rendered context>` and calls `setSystemPrompt`. Pinned context goes **after** the developer's system prompt — developer prompt sets agent character and guardrails; user context modifies engagement for this specific user. Re-rendering happens every turn, so external updates the user made between turns are reflected immediately.
@@ -375,6 +390,154 @@ Rules to match the reference adapter's behavior:
 - **Stale marking is content-only on episodes.** `updateEpisode` flips `embeddingStatus: "stale"` and drops the cached vector only when the `content` field changes — kind / participant / property / occurredAt patches don't re-embed. The embedding represents `content`; the spec is silent on the others. Consumers wanting different behavior can delete + re-record.
 - **Recency blend uses a 30-day half-life.** `searchEpisodes` ranks by `(1 - recencyWeight) * semanticScore + recencyWeight * recencyScore` where `recencyScore = exp(-ln(2) * ageMs / halfLifeMs)`, `halfLifeMs = 30 days`. Default `recencyWeight = 0.2`. Companion adapters (sqlite/postgres) may pick different curves; only the shape of the blend is fixed by the spec.
 
+## Forms
+
+Structured collection over a conversation. Definitions are **code** — zod schemas, gate closures and executors, colocated in one builder chain — and the agent never reads them. It reads a projection of evaluated state.
+
+```ts
+import { z } from "zod";
+import { defineForm } from "glove-memory/forms";
+
+export const piIntake = defineForm({
+  id: "pi-intake",
+  version: 3,
+  name: "Personal injury intake",
+  description: "Collects claimant, incident, and injury details for a new PI matter.",
+  conduct: "Conversational, one or two questions at a time. Don't read the field list aloud.",
+})
+  .step("identity", { title: "Claimant", preview: "name, contact details" }, (s) =>
+    s
+      .field("fullName", {
+        schema: z.string().min(2),
+        label: "Full name",
+        ask: "Get their full legal name as it would appear on a filing.",
+      })
+      .field("email", { schema: z.string().email(), label: "Email" })
+      .field("phone", { schema: z.string().optional(), label: "Phone" }),
+  )
+  .step(
+    "incident",
+    { title: "Incident", preview: "date, type, what happened", when: (v, s) => s.stepComplete("identity") },
+    (s) =>
+      s
+        .field("incidentType", {
+          schema: z.enum(["vehicle", "premises", "medical"]),
+          label: "Type of incident",
+        })
+        .field("vehicleCount", {
+          schema: z.number().int().min(1).optional(),
+          label: "Vehicles involved",
+          when: (v) => v.incidentType === "vehicle",
+        }),
+  )
+  .checkpoint("conflict-check", {
+    when: (v) => Boolean(v.fullName && v.email),
+    blocking: true,
+    waitMessage: "Running a conflicts check — one moment.",
+    async run(ctx) {
+      const hit = await conflicts.check(ctx.values.fullName, ctx.values.email);
+      if (hit) return { fail: `Conflict with matter ${hit.matterId}.` };
+    },
+  })
+  .onComplete(async (ctx) => {
+    await ctx.memory.upsertNode("Person", { name: ctx.values.fullName, email: ctx.values.email });
+  })
+  .build();
+```
+
+`ctx.values` is fully typed at every callsite — each `.field()` widens the accumulated values type, so `ctx.values.incidentType` narrows to the enum union and `ctx.values.phone` is `string | undefined`.
+
+### Optionality comes from zod, not a flag
+
+`required` is not a field option. A field is optional iff its schema accepts `undefined`. One source of truth, so the inferred values type and the runtime gate can never disagree. `type` is derived too — `z.toJSONSchema` plus a small renderer turns the schema into the short human string the agent reads (`"email address"`, `"one of: vehicle | premises"`, `"integer >= 1"`). There is no field-type vocabulary to extend.
+
+### Writes are never gated
+
+**There is no lock.** Any value the agent can derive, at any point in the conversation, is accepted — the only thing that can reject a write is zod. A user who answers question six while being asked question two has answered question six. `glove_form_fill` takes a patch of *any* field ids, validates each independently, and returns what landed.
+
+Sequence is advisory, and splits into two unrelated things:
+
+- **`when` — applicability.** Whether a field *means anything* given current answers. `vehicleCount` is meaningless on a slip-and-fall. Inapplicable fields don't count toward completion and aren't asked about — but a value supplied for one is kept.
+- **Steps — ask order.** A conversational grouping and a checkpoint boundary. `ask: true` means "steer toward this now"; the agent stays free to follow the user elsewhere and come back.
+
+### Entries, liveness, and held values
+
+There is one storage map — `entries` — holding every answer the user has ever given. Nothing is moved between maps and nothing is deleted. What changes is which entries are **live**:
+
+| | |
+|---|---|
+| entry | an answer the user gave for a field |
+| applicable | `field.when(liveValues, state) === true` |
+| live entry | an entry whose field is applicable |
+| `values` | derived: live entries — what counts |
+| `held` | derived: non-live entries — kept, doesn't count |
+
+**Held** means *the user told us this, and it isn't relevant right now.* Either it was answered before it applied ("there were two cars" landing before `incidentType`), or a revision orphaned it (`vehicle` → `premises`). Change the answer back and the entry is live again, with the original value intact.
+
+Repartitioning — the recomputation of the live set — runs on every commit and is not a data move: assume every entry is live, evaluate each `when`, drop the entries whose gate returned false, repeat until the set stops shrinking. Shrink-only, so it always terminates and the common case is one pass.
+
+Completion counts applicable required fields only. A form with a held `vehicleCount` on a premises claim is complete without it, and `form.onComplete` receives `values`, never `held`.
+
+### Executors
+
+Four colocation points, one signature:
+
+| Hook | Fires |
+|---|---|
+| `field.onFill` | that field's entry crosses into the live set |
+| `step.onComplete` | every applicable required field in the step is valid |
+| `checkpoint.run` | the checkpoint's `when` first holds |
+| `form.onComplete` | every applicable required field is valid |
+
+Dispatch is commit-then-run: values and the rising-edge log commit in one atomic write, then executors run. At-least-once with a per-occurrence `idempotencyKey` (`${instanceId}:${hookId}:${occurrence}`) — a retry reuses the key, a genuine second crossing gets a fresh one, and whether a repeat is real work is the executor's call. An executor can hand back `{ patch }` (derived values, committed like any other write), `{ fail }` (a blocking checkpoint rejecting — recorded and surfaced to the agent), `{ jump }`, or `{ complete: true }`.
+
+`ctx.memory` bridges to the other four subsystems (`upsertNode`, `connect`, `recordEpisode`, `writeResource`, `setContext`) with provenance supplied by the engine.
+
+### Lazy loading
+
+Modelled on the inbox: a cheap standing notification, detail pulled on demand.
+
+**Tier 0** — one line appended to the system prompt each turn, the way `useContext` injects:
+
+```
+[form: pi-intake] step 2/4 "Incident" · pending: incidentDate, incidentType, description
+later: Injury (treatment sought, providers) · Representation (prior counsel, fee basis)
+```
+
+Pending *labels* rather than a count, because "5 fields pending" would force a tool call every turn just to learn what to ask. One-line `preview` per remaining step, because that is what makes opportunistic capture work without loading the whole form — an agent that hears "I already have a lawyer" during step 2 can see representation is coming. Asks, hints, enum options, validation rules and every field outside the open step stay out.
+
+**Tier 1** (`glove_form_status`) — the open step in full. **Tier 2** (`glove_form_inspect`) — any named step, a single field, or the whole outline, with gated-off fields marked `ask: false` so the agent can answer "what else will you need?" without promising something a branch may skip.
+
+**Registry-level laziness** — form modules aren't imported until started:
+
+```ts
+const registry = new FormRegistry().register("pi-intake", {
+  name: "Personal injury intake",
+  description: "New PI matter — claimant, incident, injury.",
+  load: () => import("./forms/pi-intake").then((m) => m.piIntake),
+});
+```
+
+`glove_form_list` renders name + description from the registration — no module load, no compile. `compileForm` runs on first `start`, then caches.
+
+### Wiring
+
+```ts
+const { runner } = useFormRunner(glove, formAdapter, {
+  registry,
+  subject: conversationId,
+  memory: { entity, episodic, resources, context },
+});
+
+useFormReader(otherGlove, formAdapter, { registry }); // read past fills, no writes
+```
+
+`useFormRunner` folds the tools and wraps `processRequest` for tier-0 injection, then hands back the runner so hosts can start instances and resolve checkpoints without going through the model.
+
+### Def drift
+
+Instances pin `defVersion` at start. When it stops matching the registered def the runner does not guess: default is `status: "stale"` with the reason surfaced, and a def may supply `migrate(old, fromVersion)` to carry values forward. Bumping `version` is the developer's signal that a change is breaking — additive changes don't need it.
+
 ## Reconciliation
 
 The package's contract is deliberately narrow: store, query, write, search. It does **not** cascade across adapters. When an entity is merged or deleted, episodes that reference its old ID don't update on their own. Orchestrators reach for the cross-adapter primitives:
@@ -395,5 +558,7 @@ The package's contract is deliberately narrow: store, query, write, search. It d
 - Schema persistence or migration — schema lives in code; consistency across deployments is the consumer's concern.
 - Cross-adapter cascade on entity merge, episode delete, or resource rename — that's reconciliation, an orchestrator responsibility.
 - The user-side write path for context — the adapter exposes `set` / `update` / `unset`; the UI / API / form / wherever users edit their preferences calls those directly.
+- Runtime-authored forms. Definitions are code — there is no JSON compile target, no authoring UI, and no second front end.
+- Compensating a re-fired form executor. Hooks fire on every rising edge with a per-occurrence idempotency key; whether a repeat is real work is the executor's decision.
 - Binary resources. Resources is text-only.
 - `.` and `..` path resolution. All paths are absolute.

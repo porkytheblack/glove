@@ -39,6 +39,10 @@
       "types": "./dist/context/index.d.ts",
       "import": "./dist/context/index.js"
     },
+    "./forms": {
+      "types": "./dist/forms/index.d.ts",
+      "import": "./dist/forms/index.js"
+    },
     "./tools": {
       "types": "./dist/tools/index.d.ts",
       "import": "./dist/tools/index.js"
