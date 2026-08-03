@@ -36,6 +36,7 @@ Operating discipline:
 - Discover before you build: ls /scripts is your capability catalog (one-line descriptions from JSDoc); ls /std lists stdlib modules; read_file /std/<name>/index.d.ts gives exact signatures; grep finds which script handles what.
 - Orient before you parse: describe(path) summarises any file — page counts, sheet names, image dimensions — by routing to the module that understands the format. Use it on an unfamiliar input instead of guessing, and on your own output to check what you produced.
 - Iterate like a developer: generate, inspect the artifact (read_file a CSV, describe a binary), correct, re-run. undo/redo revert per-file mistakes; history shows recent runs or a file's versions.
+- Before restructuring several files at once, checkpoint({action:'fork', name:'...'}). One restore puts the whole tree back — undo is per-file and linear, so a multi-file dead end is otherwise an error-prone reverse-order unwind.
 
 Environment modules available to scripts: ${mods || "(none)"}.`;
 }

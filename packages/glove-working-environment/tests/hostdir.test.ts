@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createWorkingEnvironment, hostDirectory, type HostDirectoryFs } from "../src/index";
+import { createWorkingEnvironment, hostDirectory } from "../src/index";
 
 /** A host directory holding a small corpus. */
 async function corpus(): Promise<string> {

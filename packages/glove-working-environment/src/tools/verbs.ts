@@ -17,6 +17,7 @@ import type { RunLog } from "../history/runlog";
 import { executeRun } from "./run";
 import { capResponse, fmtBytes, fmtCount, numberLines, truncateText } from "./format";
 import { RepeatTracker, escalate } from "./repeat";
+import { dropBranch, forkBranch, listBranches, restoreBranch } from "./branches";
 
 interface ToolDeps {
   core: EnvCore;
@@ -389,6 +390,55 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     }),
   };
 
+  const checkpoint: EnvTool = {
+    name: name("checkpoint"),
+    description:
+      "Save or restore the WHOLE tree by name — the thing undo cannot do. " +
+      "fork: save everything as it is now. restore: put it all back, removing files created since. list: what is saved. drop: delete a save. " +
+      "Use fork before restructuring several files at once, so a dead end costs one call instead of a careful reverse-order undo. " +
+      "Run history is never rolled back: restoring files does not un-run a script.",
+    jsonSchema: schema(
+      {
+        action: {
+          type: "string",
+          enum: ["fork", "restore", "list", "drop"],
+          description: "What to do. Default list.",
+        },
+        name: str("Checkpoint name (letters, digits, - or _). Required for fork, restore and drop."),
+      },
+      [],
+    ),
+    do: guard("checkpoint", async (input: { action?: string; name?: string }) => {
+      const action = input.action ?? "list";
+      if (action === "list") {
+        const branches = await listBranches(core.vfs);
+        if (branches.length === 0) return ok("no checkpoints yet — checkpoint({action:'fork', name:'before-refactor'}) saves the tree as it is now");
+        return ok(branches.map((b) => `${b.name}  ${b.files} file(s), ${fmtBytes(b.bytes)}, saved ${b.created}`).join("\n"));
+      }
+      if (typeof input.name !== "string") return err(`checkpoint ${action} needs { name }`);
+
+      if (action === "fork") {
+        const info = await forkBranch(core.vfs, input.name);
+        return ok(
+          `saved checkpoint "${info.name}": ${info.files} file(s), ${fmtBytes(info.bytes)}. ` +
+            `checkpoint({action:'restore', name:'${info.name}'}) puts the tree back exactly here.`,
+        );
+      }
+      if (action === "restore") {
+        const r = await restoreBranch(core.vfs, input.name);
+        return ok(
+          `restored "${input.name}": ${r.restored} file(s) put back, ${r.removed} created since then removed. ` +
+            `Run history is unchanged — it records what actually ran.`,
+        );
+      }
+      if (action === "drop") {
+        await dropBranch(core.vfs, input.name);
+        return ok(`dropped checkpoint "${input.name}"`);
+      }
+      return err(`unknown checkpoint action ${JSON.stringify(action)} — use fork, restore, list or drop`);
+    }),
+  };
+
   const undo: EnvTool = {
     name: name("undo"),
     description: "Revert a file to its previous version (per-file linear undo; rm and overwrites are both undoable). Scripts re-run the pipeline so the .d.ts stays in sync.",
@@ -458,5 +508,5 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     }),
   };
 
-  return [writeFile, editFile, rm, mv, cp, readFile, ls, grep, describe, runScript, runTests, undo, redo, history];
+  return [writeFile, editFile, rm, mv, cp, readFile, ls, grep, describe, runScript, runTests, undo, redo, checkpoint, history];
 }

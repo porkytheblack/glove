@@ -81,7 +81,7 @@ test("the verb set folds onto a real Glove and the model sees every tool", SKIP,
   const { glove, seen } = await buildAgent([]);
   await glove.processRequest("hello");
   assert.deepEqual(seen.tools, [
-    "cp", "describe", "edit_file", "grep", "history", "ls", "mv", "read_file", "redo", "rm", "run_script", "run_tests", "undo", "write_file",
+    "checkpoint", "cp", "describe", "edit_file", "grep", "history", "ls", "mv", "read_file", "redo", "rm", "run_script", "run_tests", "undo", "write_file",
   ]);
   assert.match(glove.getSystemPrompt(), /WORKING ENVIRONMENT/);
 });

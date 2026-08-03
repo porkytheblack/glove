@@ -114,6 +114,7 @@ The complete, closed set — everything the model does goes through these:
 | `describe(path)` | Routes to whichever adapter understands the format (magic bytes, not extension); generic summary otherwise |
 | `run_script(path, args)` | `await defaultExport(args)`; result + stdout/stderr; oversized output spills to `/tmp/run-<id>.*` |
 | `undo(path)` / `redo(path)` | Per-file linear undo (rm included); re-runs the pipeline for scripts |
+| `checkpoint(action, name?)` | fork/restore/list/drop the WHOLE tree — the multi-file recovery undo cannot do |
 | `history(path?, limit?)` | Runs from `history.jsonl`, or a file's saved versions |
 
 ## Stdlib adapters
