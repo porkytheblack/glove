@@ -115,7 +115,32 @@ Re-running the identical matrix:
 Per scenario: `bad-staff-id` 3/8 → 7/8, `over-cap` 5/8 → 7/8, `front-loaded`
 6/8 → 7/8, `held-value` 6/8 → 7/8.
 
-A second, smaller finding, recorded because it nearly became a false result:
+**Second run, second defect.** With ids resolving, the dominant remaining
+friction was a single field: `receiptsAttached`, a `z.boolean()`. Models sent
+the string `"yes"` for **49% of writes to it**, were rejected, and re-sent it —
+**21 of 48 runs** contained a retry loop on that one field. The cause was in
+`describeType`: it rendered `z.boolean()` as `"yes / no"`, so the hint the model
+read was *"Expected yes / no"* while the error said *"expected boolean, received
+string"*. The type string was telling the model to send the value the schema
+refuses. It now renders `true or false`, and a type mismatch on a quoted number
+or boolean gets a hint naming the JSON shape.
+
+| | alias fix | + boolean fix |
+|---|---|---|
+| collection rate | 85% | **90%** |
+| rejected values | 55 | **19** |
+| of which that one boolean | 40 | **3** |
+| runs with a retry loop on it | 21 | **2** |
+
+A third finding, still open: all five remaining failures are the same root
+cause. Models with no way to *retract* an answer invent one — writing `""` to
+`ticketReference` or `'0'` to `totalAmount` when a correction makes them
+irrelevant. The empty write overwrites the stored answer, which is exactly what
+§5.1 promises never happens. The surface needs a retract verb; the deeper
+question is whether `entries` should keep per-field history rather than one
+entry per field, which is an adapter-contract change.
+
+A smaller finding, recorded because it nearly became a false result:
 the first run capped `max_tokens` at 1024, and reasoning models spent the whole
 budget thinking and returned `finish_reason: length` with no content and no tool
 call — indistinguishable from a model that ignored its tools. The harness now

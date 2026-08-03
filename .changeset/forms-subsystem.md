@@ -10,6 +10,8 @@ Executors colocate at four points (`field.onFill`, `step.onComplete`, `checkpoin
 
 Field ids resolve through a compile-time alias index built over normalised ids *and* labels, so `full_name`, `Full name` and `fullName` all land on the same field; `compileForm` rejects any definition whose fields would collide once case and punctuation are stripped, so resolution is never a guess. Ids that still don't resolve come back with `did_you_mean` suggestions instead of a bare rejection. An agentic evaluation across four models found this was the largest source of friction on the surface — 17% of write calls had every field rejected — and fixing it took the collection rate from 69% to 85%.
 
+Type strings name what the schema accepts, not a friendly paraphrase of it: a boolean renders as `true or false`, because rendering it as `yes / no` had models sending the literal string `"yes"` for half of all writes to a boolean field and then looping on the rejection. A type mismatch on a quoted number or boolean gets a hint naming the JSON shape to send.
+
 Loading is tiered like the inbox: a one-line tier-0 notification injected into the system prompt each turn (open step, pending labels, one-line preview per remaining step), `glove_form_status` for the open step in full, `glove_form_inspect` for anything else. Form modules aren't imported until a form is started — `glove_form_list` renders registration data only.
 
 Adds `glove-memory/forms`, `InMemoryFormAdapter`, `useFormRunner` / `useFormReader`, the `FormAdapter` contract, and the `form_conflict` / `form_validation_failed` / `form_blocked` / `form_stale` / `form_definition_error` error codes.

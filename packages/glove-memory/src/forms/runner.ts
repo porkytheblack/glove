@@ -617,7 +617,7 @@ export class FormRunner {
           issues.push({
             field: id,
             message: issue.message,
-            hint: field.description ?? `Expected ${field.type}.`,
+            hint: shapeHint(issue, value) ?? field.description ?? `Expected ${field.type}.`,
           });
         }
       }
@@ -808,6 +808,26 @@ function assertNoDefects(compiled: CompiledForm<any>, ev: FormEvaluation<any>): 
     `Form "${compiled.id}" cannot be evaluated: ${ev.defects.join("; ")}.`,
     ev.defects,
   );
+}
+
+/**
+ * JSON tool calls have no types beyond JSON's own, and models routinely quote
+ * a number or a boolean. The generic "expected number, received string" says
+ * what is wrong but not what to do about it, and a model that re-sends the
+ * same quoted value is the commonest retry loop on this surface.
+ */
+function shapeHint(
+  issue: { code?: string; expected?: string; message: string },
+  sent: unknown,
+): string | undefined {
+  if (typeof sent !== "string") return undefined;
+  if (issue.expected === "number") {
+    return "Send it as a JSON number, unquoted — 410, not \"410\".";
+  }
+  if (issue.expected === "boolean") {
+    return "Send it as a JSON boolean, unquoted — true or false, not \"yes\".";
+  }
+  return undefined;
 }
 
 /**

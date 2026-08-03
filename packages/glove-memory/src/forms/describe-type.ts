@@ -78,7 +78,11 @@ function render(node: unknown, depth: number): string {
     case "number":
       return withRange("number", js);
     case "boolean":
-      return "yes / no";
+      // Not "yes / no". An agentic eval had models send the literal string
+      // "yes" for 49% of writes to a boolean field, then loop when it was
+      // rejected — the type string was telling them to. Name the JSON
+      // literals the schema actually accepts.
+      return "true or false";
     case "null":
       return "empty";
     case "array":

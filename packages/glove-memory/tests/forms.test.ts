@@ -156,7 +156,7 @@ test("types are rendered from zod, not from a type vocabulary", () => {
   );
   assert.equal(describeType(z.number().int().min(1).optional()), "integer >= 1");
   assert.equal(describeType(z.string().min(2)), "text (min 2 chars)");
-  assert.equal(describeType(z.boolean()), "yes / no");
+  assert.equal(describeType(z.boolean()), "true or false");
   assert.equal(describeType(z.array(z.string()).min(1)), "list of text (at least 1)");
 });
 
@@ -671,4 +671,16 @@ test("aliasing never silently overwrites a different field", () => {
     assert.ok(e instanceof FormDefinitionError);
     return true;
   });
+});
+
+test("a quoted number or boolean gets told how to send it, not just that it's wrong", async () => {
+  const { runner } = harness();
+  await runner.start("pi-intake");
+  await runner.fill({ fullName: "Dana Reeve", email: "dana@example.com" });
+  // `vehicleCount` is a number; JSON tool calls routinely quote one.
+  const result = await runner.fill({ incidentType: "vehicle", vehicleCount: "2" as unknown as number });
+
+  const issue = result.issues.find((i) => i.field === "vehicleCount")!;
+  assert.ok(issue, "the quoted number was rejected");
+  assert.match(issue.hint!, /JSON number, unquoted/);
 });
