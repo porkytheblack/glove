@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { existsSync } from "fs";
+import { existsSync } from "node:fs";
 import type {
   StoreAdapter,
   Message,

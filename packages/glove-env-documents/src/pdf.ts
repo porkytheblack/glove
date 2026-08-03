@@ -63,13 +63,42 @@ export interface ExtractTextOptions {
   pages?: string | number[];
 }
 
+/**
+ * What a page turned out to be made of.
+ *
+ * - `text` — a real text layer was extracted.
+ * - `scanned` — almost no text, but the page paints images: it is a picture
+ *   of words, and no extractor will do better.
+ * - `empty` — almost no text and nothing drawn.
+ */
+export type PageKind = "text" | "scanned" | "empty";
+
 export interface ExtractedText {
   path: string;
-  pages: Array<{ page: number; text: string }>;
+  pages: Array<{ page: number; text: string; kind: PageKind }>;
   /** All pages joined with form feeds — convenient for grep and for writing out. */
   text: string;
   characters: number;
+  /**
+   * The document as a whole: `mixed` when pages disagree.
+   *
+   * `characters: 3` on a visibly 40-page contract is indistinguishable from a
+   * bug in the caller's own code. This says which it is, structurally, so a
+   * model does not have to infer it from a number that looks like a mistake.
+   */
+  kind: PageKind | "mixed";
+  /** Present when `kind` is not "text": what to do about it. */
+  note?: string;
 }
+
+/**
+ * Characters below which a page is not carrying a text layer.
+ *
+ * A page of body text runs 1,500–3,000 characters. A scan yields zero, or a
+ * few dozen from a stamped header. Anything under this is not text a reader
+ * could use, whatever produced it.
+ */
+const TEXT_LAYER_FLOOR = 100;
 
 const HEADING_SIZES: Record<number, number> = { 1: 20, 2: 15, 3: 12.5 };
 const BODY_SIZE = 11;
@@ -459,7 +488,7 @@ export function createPdfBindings(vfs: EnvFsHandle) {
       const doc = await task.promise;
       try {
         const indices = parsePages(opts.pages, doc.numPages);
-        const pages: Array<{ page: number; text: string }> = [];
+        const pages: Array<{ page: number; text: string; kind: PageKind }> = [];
         for (const index of indices) {
           const page = await doc.getPage(index + 1);
           const content = await page.getTextContent();
@@ -470,10 +499,28 @@ export function createPdfBindings(vfs: EnvFsHandle) {
             text += piece.str;
             if (piece.hasEOL) text += "\n";
           }
-          pages.push({ page: index + 1, text: text.trim() });
+          text = text.trim();
+          // A page short on text is only a *scan* if something was drawn on
+          // it. Without that check a genuinely blank page reads as a scan,
+          // and the advice that follows would be wrong.
+          const kind: PageKind =
+            text.length >= TEXT_LAYER_FLOOR ? "text" : (await paintsImages(page)) ? "scanned" : "empty";
+          pages.push({ page: index + 1, text, kind });
         }
         const joined = pages.map((p) => p.text).join("\n\f\n");
-        return { path, pages, text: joined, characters: joined.length };
+        const kinds = new Set(pages.map((p) => p.kind));
+        const kind: PageKind | "mixed" =
+          pages.length === 0 ? "empty" : kinds.size === 1 ? [...kinds][0] : "mixed";
+        const scanned = pages.filter((p) => p.kind === "scanned").map((p) => p.page);
+        const note =
+          scanned.length > 0
+            ? `${scanned.length} page(s) are images of text, not text: ${summarizePages(scanned)}. ` +
+              `No extractor will get more out of them — the document has no text layer there. ` +
+              `Rasterise those pages outside the environment and read them with a vision model, or run OCR host-side.`
+            : kind === "empty"
+              ? `This PDF draws no text and no images on the pages requested — it is blank, not unreadable.`
+              : undefined;
+        return { path, pages, text: joined, characters: joined.length, kind, ...(note ? { note } : {}) };
       } finally {
         await doc.destroy();
       }
@@ -489,6 +536,8 @@ interface PdfjsTextItem {
 }
 interface PdfjsPage {
   getTextContent(): Promise<{ items: PdfjsTextItem[] }>;
+  /** Drawing operators. Present in every pdfjs release we support. */
+  getOperatorList?(): Promise<{ fnArray: number[] }>;
 }
 interface PdfjsDocument {
   numPages: number;
@@ -497,6 +546,41 @@ interface PdfjsDocument {
 }
 interface PdfjsModule {
   getDocument(options: Record<string, unknown>): { promise: Promise<PdfjsDocument> };
+  OPS?: Record<string, number>;
+}
+
+/**
+ * The operator ids for the three image-painting ops, resolved by NAME from
+ * the loaded pdfjs rather than hard-coded — the numbers are internal and have
+ * moved between major versions.
+ */
+let imageOps: Set<number> | null = null;
+
+async function paintsImages(page: PdfjsPage): Promise<boolean> {
+  if (typeof page.getOperatorList !== "function") return false;
+  if (imageOps === null) {
+    const ops = pdfjsCache?.OPS ?? {};
+    imageOps = new Set(
+      ["paintImageXObject", "paintJpegXObject", "paintInlineImage", "paintImageMaskXObject"]
+        .map((n) => ops[n])
+        .filter((v): v is number => typeof v === "number"),
+    );
+  }
+  if (imageOps.size === 0) return false;
+  try {
+    const list = await page.getOperatorList();
+    return list.fnArray.some((fn) => imageOps!.has(fn));
+  } catch {
+    // A page whose operator list will not build tells us nothing either way;
+    // reporting "empty" is the claim we can actually stand behind.
+    return false;
+  }
+}
+
+/** "1, 2, 3" for a few pages; "1–3, 7 (+12 more)" once there are many. */
+function summarizePages(pages: number[]): string {
+  const shown = pages.slice(0, 8).join(", ");
+  return pages.length > 8 ? `${shown} (+${pages.length - 8} more)` : shown;
 }
 
 let pdfjsCache: PdfjsModule | null = null;

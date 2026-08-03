@@ -540,3 +540,76 @@ test("a full inbox → analysis → deliverable pass works end to end", async ()
   assert.match(text.text, /Contract A/);
   assert.match(text.text, /91000/);
 });
+
+test("extractText says a page is a scan rather than leaving it to be inferred", async () => {
+  // `characters: 3` on a document that visibly has words is indistinguishable
+  // from a bug in the caller's own code. A page that draws an image and
+  // carries no text layer IS a scan, and saying so is the whole difference
+  // between a dead end and a next step.
+  const t = await env();
+  await t.fs.writeFile("/inbox/page.png", png(400, 300));
+
+  const out = await t.script<ExtractedText>(
+    `import { pdf } from 'env:documents';
+     export default async function main() {
+       await pdf.create('/out/scan.pdf', { content: [{ image: '/inbox/page.png', width: 400 }] });
+       return pdf.extractText('/out/scan.pdf');
+     }`,
+  );
+  assert.equal(out.kind, "scanned");
+  assert.equal(out.pages[0].kind, "scanned");
+  assert.ok(out.characters < 100);
+  assert.match(String(out.note), /images of text, not text/);
+  assert.match(String(out.note), /vision model|OCR/);
+});
+
+test("a real text document is reported as text, with no advice attached", async () => {
+  const t = await env();
+  const out = await t.script<ExtractedText>(
+    `import { pdf } from 'env:documents';
+     export default async function main() {
+       await pdf.create('/out/words.pdf', ${SPEC});
+       return pdf.extractText('/out/words.pdf');
+     }`,
+  );
+  assert.equal(out.kind, "text");
+  assert.equal(out.pages[0].kind, "text");
+  assert.equal(out.note, undefined, "a document that read fine needs no note");
+});
+
+test("a document that mixes scanned and text pages reports mixed", async () => {
+  const t = await env();
+  await t.fs.writeFile("/inbox/shot.png", png(400, 300));
+  const out = await t.script<ExtractedText>(
+    `import { pdf } from 'env:documents';
+     export default async function main() {
+       await pdf.create('/tmp/text.pdf', ${SPEC});
+       await pdf.create('/tmp/scan.pdf', { content: [{ image: '/inbox/shot.png', width: 400 }] });
+       await pdf.merge(['/tmp/text.pdf', '/tmp/scan.pdf'], '/out/both.pdf');
+       return pdf.extractText('/out/both.pdf');
+     }`,
+  );
+  assert.equal(out.kind, "mixed");
+  assert.deepEqual(
+    out.pages.map((p) => p.kind),
+    ["text", "scanned"],
+  );
+  assert.match(String(out.note), /1 page\(s\) are images of text/);
+  assert.match(String(out.note), /: 2\./, "and names which page");
+});
+
+test("a blank page is called blank, not a scan", async () => {
+  // Without the image check, "few characters" alone would label an empty page
+  // a scan, and the advice that follows would send the caller after an OCR
+  // pass on nothing.
+  const t = await env();
+  const out = await t.script<ExtractedText>(
+    `import { pdf } from 'env:documents';
+     export default async function main() {
+       await pdf.create('/out/blank.pdf', { content: [] });
+       return pdf.extractText('/out/blank.pdf');
+     }`,
+  );
+  assert.equal(out.kind, "empty");
+  assert.match(String(out.note), /blank, not unreadable/);
+});

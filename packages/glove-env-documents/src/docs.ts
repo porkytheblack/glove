@@ -60,12 +60,19 @@ export interface DocxSummary {
   preview: string[];
 }
 
+/** "text" = a real text layer; "scanned" = images of words; "empty" = nothing drawn. */
+export type PageKind = "text" | "scanned" | "empty";
+
 export interface ExtractedText {
   path: string;
-  pages: Array<{ page: number; text: string }>;
+  pages: Array<{ page: number; text: string; kind: PageKind }>;
   /** Pages joined with form feeds. */
   text: string;
   characters: number;
+  /** The document as a whole; "mixed" when pages disagree. Check this before blaming your code. */
+  kind: PageKind | "mixed";
+  /** Present when kind is not "text": what to do about it. */
+  note?: string;
 }
 
 export interface DocxText {
@@ -205,10 +212,19 @@ export default async function main() {
 not installed it, \`pdf.extractText\` says so and \`pdf.describe\` still works.
 DOCX extraction has no such requirement.
 
-Extraction returns what the file actually contains: a scanned PDF is images
-of text and yields little or nothing. If \`characters\` comes back near zero on
-a document that visibly has words, it is a scan — render the pages and treat
-it as an image problem.
+Extraction returns what the file actually contains, and tells you which it
+was. A scanned PDF is images of text and yields little or nothing, so
+\`kind\` says \`"scanned"\` (per page, and for the document) rather than leaving
+you to guess from a character count that looks like a bug in your own code:
+
+\`\`\`js
+const { kind, characters, note } = await pdf.extractText('/inbox/contract.pdf');
+if (kind !== 'text') return { blocked: note };   // note names the pages and the way forward
+\`\`\`
+
+A scan has no text layer, so no extractor will do better — the pages have to
+be rasterised and read as images (a vision model, or OCR host-side). \`empty\`
+means the pages really are blank, which is a different problem.
 
 ## Rearranging PDFs
 
