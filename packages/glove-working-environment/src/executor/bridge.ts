@@ -32,6 +32,11 @@ export interface Bridge {
    * converted.
    */
   bindPassthrough(hostFn: unknown): (...args: unknown[]) => unknown;
+  /**
+   * Wrap a bound namespace so an unknown property read names the real
+   * exports instead of surfacing a bare "not a function".
+   */
+  guardNamespace(namespace: Record<string, unknown>, label: string): Record<string, unknown>;
   /** Recursively freeze a context-realm object graph. */
   freezeDeep<T>(value: T): T;
   /**
@@ -167,6 +172,55 @@ export const BRIDGE_SOURCE = `globalThis.__glove_bridge = (function () {
     return out;
   }
 
+  /*
+   * Wrap a bound namespace so reading a name it does not have says which
+   * names it does. Models guess binding names constantly ("csv.parseRows"
+   * for "csv.rows"), and the bare TypeError tells them nothing to correct
+   * toward.
+   *
+   * Built here, inside the context, for the same reason as everything else in
+   * this file: a Proxy constructed host-side would hand the sandbox a
+   * host-realm object and reopen the escape that tests/sandbox.test.ts exists
+   * to catch.
+   */
+  var PROBE_KEYS = {
+    then: 1, toJSON: 1, inspect: 1, __esModule: 1, valueOf: 1, toString: 1,
+    constructor: 1, prototype: 1, nodeType: 1, length: 1, name: 1, call: 1, apply: 1,
+  };
+
+  function guardNamespace(obj, label, seen) {
+    if (obj === null || typeof obj !== "object") return obj;
+    // Namespaces are cyclic: seal() sets \`ns.default = ns\` so that
+    // \`import fs from 'env:fs'\` yields the whole module. Recursing without a
+    // cycle guard never returns.
+    seen = seen || new Map();
+    var hit = seen.get(obj);
+    if (hit !== undefined) return hit;
+
+    var keys = Object.keys(obj);
+    for (var i = 0; i < keys.length; i++) {
+      var child = obj[keys[i]];
+      if (child !== null && typeof child === "object" && !Array.isArray(child) && child !== obj) {
+        obj[keys[i]] = guardNamespace(child, label + "." + keys[i], seen);
+      }
+    }
+    var proxy = new Proxy(obj, {
+      get: function (target, key, receiver) {
+        // Symbols and the usual duck-typing probes must stay silent, or
+        // ordinary things (await, JSON.stringify, spread) start throwing.
+        if (typeof key !== "string") return Reflect.get(target, key, receiver);
+        if (key in target) return Reflect.get(target, key, receiver);
+        if (PROBE_KEYS[key] === 1) return undefined;
+        var available = Object.keys(target).filter(function (k) { return k !== "default"; });
+        throw new TypeError(
+          'no such export "' + key + '" on ' + label + ' — available: ' + available.join(", ") + '.'
+        );
+      },
+    });
+    seen.set(obj, proxy);
+    return proxy;
+  }
+
   function freezeDeep(v, seen) {
     if (v === null || (typeof v !== "object" && typeof v !== "function")) return v;
     seen = seen || new Set();
@@ -197,6 +251,7 @@ export const BRIDGE_SOURCE = `globalThis.__glove_bridge = (function () {
     bind: function (f) { return bind(f, undefined); },
     bindPassthrough: bindPassthrough,
     bindNamespace: function (o) { return bindNamespace(o, undefined); },
+    guardNamespace: function (o, label) { return guardNamespace(o, label, undefined); },
     freezeDeep: function (v) { return freezeDeep(v, undefined); },
     mkModule: mkModule,
   };

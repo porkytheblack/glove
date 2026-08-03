@@ -96,6 +96,90 @@ const SOLUTIONS: Record<string, (env: WorkingEnvironment) => Promise<void>> = {
     );
     await env.runScript("/scripts/deliverable.js");
   },
+
+  "xlsx-pipeline": async (env) => {
+    await env.fs.writeFile(
+      "/scripts/paid.js",
+      `import { read, write } from 'env:spreadsheets';
+       import { writeFile } from 'env:fs';
+       import { csv } from 'env:std';
+
+       /** Totals paid orders per customer. */
+       export default async function main() {
+         const { rows } = await read('/inbox/orders.xlsx');
+         const totals = new Map();
+         for (const r of rows) {
+           if (String(r.status) !== 'paid') continue;
+           totals.set(r.customer, (totals.get(r.customer) ?? 0) + Number(r.amount));
+         }
+         const out = [...totals].map(([customer, total]) => ({ customer, total }));
+         await write('/out/paid.xlsx', out);
+         await writeFile('/out/paid.csv', csv.stringify(out));
+         return out;
+       }`,
+    );
+    await env.runScript("/scripts/paid.js");
+  },
+
+  "messy-input": async (env) => {
+    await env.fs.writeFile(
+      "/scripts/messy.js",
+      `import { readFile } from 'env:fs';
+       import { csv } from 'env:std';
+       import { pdf } from 'env:documents';
+
+       /** Totals the semicolon-delimited revenue file. */
+       export default async function main() {
+         const raw = await readFile('/inbox/messy.csv');
+         const rows = csv.parse(raw, { delimiter: ';' });
+         const totals = new Map();
+         for (const r of rows) {
+           const key = Object.keys(r).find(k => k.trim().toLowerCase() === 'region');
+           const val = Object.keys(r).find(k => k.trim().toLowerCase() === 'revenue');
+           const region = String(r[key]).trim();
+           if (!region) continue;
+           totals.set(region, (totals.get(region) ?? 0) + Number(String(r[val]).trim()));
+         }
+         return pdf.create('/out/messy.pdf', {
+           title: 'Regional Totals',
+           content: [{ table: { headers: ['Region', 'Total'], rows: [...totals].map(([a, b]) => [a, b]) } }],
+         });
+       }`,
+    );
+    await env.runScript("/scripts/messy.js");
+  },
+
+  "reuse-library": async (env) => {
+    // The point of the scenario: run the inherited script, do not rewrite it.
+    const run = await env.runScript("/scripts/tally_visits.js", { path: "/inbox/visits.txt" });
+    if (!run.ok) throw new Error(`inherited script failed: ${run.error}`);
+    const counts = (run.result as { counts: Record<string, number> }).counts;
+    await env.fs.writeFile("/out/counts.json", JSON.stringify(counts, null, 2));
+  },
+
+  "docx-report": async (env) => {
+    await env.fs.writeFile(
+      "/scripts/summary.js",
+      `import { readFile } from 'env:fs';
+       import { csv } from 'env:std';
+       import { docx } from 'env:documents';
+
+       /** Writes the sales summary as a Word document. */
+       export default async function main() {
+         const rows = csv.parse(await readFile('/inbox/sales.csv'));
+         const totals = new Map();
+         for (const r of rows) totals.set(r.region, (totals.get(r.region) ?? 0) + Number(r.revenue));
+         return docx.create('/out/summary.docx', {
+           title: 'Sales Summary',
+           content: [
+             { heading: 'By region' },
+             { table: { headers: ['Region', 'Revenue'], rows: [...totals].map(([a, b]) => [a, b]) } },
+           ],
+         });
+       }`,
+    );
+    await env.runScript("/scripts/summary.js");
+  },
 };
 
 async function main(): Promise<void> {

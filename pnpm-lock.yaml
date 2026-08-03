@@ -97,6 +97,9 @@ importers:
 
   benches/working-environment-bench:
     dependencies:
+      exceljs:
+        specifier: ^4.4.0
+        version: 4.4.0
       glove-env-documents:
         specifier: workspace:*
         version: link:../../packages/glove-env-documents

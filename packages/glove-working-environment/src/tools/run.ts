@@ -57,10 +57,15 @@ function boundArgs(args: unknown): unknown {
  */
 async function explainUnrunnable(core: EnvCore, path: string): Promise<string | null> {
   if (path === "/std" || path.startsWith("/std/")) {
+    // Imperative first. The earlier wording opened with the path and buried
+    // the action three clauses in; one model read it and recovered, another
+    // repeated the same call three times. Leading with the fix costs nothing
+    // and is the only part worth reading twice.
+    const mod = path.split("/")[2] ?? "<name>";
     return (
-      `${path} is documentation, not a runnable script. /std holds the type declarations for modules ` +
-      `you import — write a script under /scripts that imports the module instead, e.g. ` +
-      `import { … } from 'env:${path.split("/")[2] ?? "<name>"}'.`
+      `Write a script under /scripts that imports it, and run that instead: ` +
+      `import { … } from 'env:${mod}'. ` +
+      `(${path} is a type declaration — /std is documentation, not runnable code.)`
     );
   }
 

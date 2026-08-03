@@ -569,3 +569,107 @@ test("ls /std reads as a capability catalogue", async () => {
     assert.ok(listing.includes(expected), `ls /std should mention ${expected}:\n${listing}`);
   }
 });
+
+// ============================================ self-correcting name errors
+
+test("an unknown export on an env:* namespace names the real ones", async () => {
+  // Models guess binding names constantly — `csv.parseRows` for `csv.rows`.
+  // A bare "csv.parseRows is not a function" gives nothing to correct toward.
+  const env = await makeEnv();
+  const err = await scriptErr(
+    env,
+    `import { csv } from 'env:std';
+     export default async function main() { return csv.parseRows('a,b'); }`,
+  );
+  assert.match(err, /no such export "parseRows" on env:std\.csv/);
+  assert.match(err, /available: parse, rows, stringify/);
+});
+
+test("the unknown-export guard reaches nested and adapter namespaces alike", async () => {
+  const env = await makeEnv({ stdlib: [textkit()] });
+  const top = await scriptErr(
+    env,
+    `import { yell } from 'env:textkit';
+     export default async function main() { return yell('/a', '/b'); }`,
+  );
+  // A named import that does not exist fails at pick time, before the guard
+  // ever runs — so that path has to name the exports too.
+  assert.match(top, /module "env:textkit" has no export "yell"/);
+  assert.match(top, /it exports: describe, shout, nested/);
+
+  const nested = await scriptErr(
+    env,
+    `import { nested } from 'env:textkit';
+     export default async function main() { return nested.flip('/a', '/b'); }`,
+  );
+  assert.match(nested, /no such export "flip" on env:textkit\.nested/);
+  assert.match(nested, /available: reverse/);
+});
+
+test("the guard stays silent for the probes ordinary code performs", async () => {
+  // `await ns`, JSON.stringify and spread all read properties that are not
+  // exports. If those throw, the guard breaks working scripts.
+  const env = await makeEnv();
+  const out = await script(
+    env,
+    `import { csv } from 'env:std';
+     import * as std from 'env:std';
+     export default async function main() {
+       const spread = { ...csv };
+       const awaited = await std;
+       return {
+         then: typeof csv.then,
+         json: typeof JSON.stringify({ n: 1 }),
+         spread: typeof spread.parse,
+         awaited: typeof awaited.csv,
+       };
+     }`,
+  );
+  assert.deepEqual(out, { then: "undefined", json: "string", spread: "function", awaited: "object" });
+});
+
+test("the guard's cost: any read of an absent name throws, defensive or not", async () => {
+  // Worth pinning because it is a real trade-off, not an oversight.
+  // `ns.maybe?.x` and `typeof ns.maybe` both perform the [[Get]], so the
+  // proxy cannot tell a feature check from a misremembered name. Feature
+  // detection on a frozen, fully-declared namespace has no purpose, and
+  // guessing export names is the dominant failure — so the throw wins. The
+  // consolation is that the throw is self-correcting where silence was not,
+  // and `'maybe' in ns` still answers the question without triggering it.
+  const env = await makeEnv();
+  const err = await scriptErr(
+    env,
+    `import { csv } from 'env:std';
+     export default async function main() { return csv.maybeThing?.deep ?? 'absent'; }`,
+  );
+  assert.match(err, /no such export "maybeThing" on env:std\.csv/);
+
+  const probed = await script(
+    env,
+    `import { csv } from 'env:std';
+     export default async function main() { return { has: 'maybeThing' in csv, real: 'parse' in csv }; }`,
+  );
+  assert.deepEqual(probed, { has: false, real: true });
+});
+
+test("a bare name that lives in a module suggests the import line", async () => {
+  // `readFile is not defined` is true but useless: the fix is one import
+  // statement away and the model has to guess which module owns the name.
+  const env = await makeEnv();
+  const err = await scriptErr(
+    env,
+    `export default async function main() { return readFile('/inbox/a.txt'); }`,
+  );
+  assert.match(err, /readFile is not defined/);
+  assert.match(err, /import \{ readFile \} from 'env:fs'/);
+});
+
+test("the import hint is offered only when a module really owns the name", async () => {
+  const env = await makeEnv();
+  const err = await scriptErr(
+    env,
+    `export default async function main() { return totallyMadeUp(1); }`,
+  );
+  assert.match(err, /totallyMadeUp is not defined/);
+  assert.doesNotMatch(err, /did you mean to import/);
+});

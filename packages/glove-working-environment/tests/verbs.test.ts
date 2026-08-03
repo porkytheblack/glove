@@ -204,7 +204,7 @@ test("running or importing something under /std points at the module name", asyn
   // path. Running it used to parse a .d.ts as a module and report
   // "could not parse export statement".
   const ran = await callErr(env, "run_script", { path: "/std/std/index.d.ts" });
-  assert.match(ran, /documentation, not a runnable script/);
+  assert.match(ran, /^Write a script under \/scripts/, "the fix belongs in the first clause, not the last");
   assert.match(ran, /from 'env:std'/);
   assert.doesNotMatch(ran, /could not parse/);
 
@@ -236,4 +236,44 @@ test("env:fs types warn that readdir yields entries, not strings", async () => {
   assert.match(types, /ENTRY OBJECTS, not strings/);
   assert.match(types, /endsWith/, "the doc should name the exact slip");
   assert.match(types, /glob\(\)/, "and point at the function that returns paths");
+});
+
+test("a repeated identical failure escalates instead of repeating itself", async () => {
+  // A model that stops reading and starts retrying cannot be reached by
+  // better prose — one did exactly this three times against a message
+  // naming the exact fix. So the environment stops answering identically.
+  const env = await makeEnv();
+  const call1 = await callErr(env, "run_script", { path: "/std/std/index.d.ts" });
+  const call2 = await callErr(env, "run_script", { path: "/std/std/index.d.ts" });
+  const call3 = await callErr(env, "run_script", { path: "/std/std/index.d.ts" });
+
+  assert.doesNotMatch(call1, /Second time|STOP/, "the first answer is just the answer");
+  assert.match(call2, /Second time this exact call/);
+  assert.match(call3, /^STOP: this call has failed 3 times/);
+  assert.match(call3, /ls or read_file/, "and says what to do instead");
+  // The original answer survives underneath — escalation adds urgency, it
+  // does not withhold the explanation.
+  assert.match(call3, /from 'env:std'/);
+});
+
+test("escalation keys on the call, not the verb — different args start over", async () => {
+  const env = await makeEnv();
+  await callErr(env, "run_script", { path: "/scripts/a.js" });
+  await callErr(env, "run_script", { path: "/scripts/a.js" });
+  const other = await callErr(env, "run_script", { path: "/scripts/b.js" });
+  assert.doesNotMatch(other, /Second time|STOP/, "a different path is a different call");
+
+  // Argument order must not defeat the match: {path, args} and {args, path}
+  // are the same call.
+  await callErr(env, "grep", { pattern: "[", path: "/" });
+  const flipped = await callErr(env, "grep", { path: "/", pattern: "[" });
+  assert.match(flipped, /Second time this exact call/);
+});
+
+test("escalation does not fire on success, however repetitive", async () => {
+  const env = await makeEnv();
+  for (let i = 0; i < 4; i++) {
+    const out = await callOk(env, "ls", { path: "/" });
+    assert.doesNotMatch(out, /STOP|Second time/);
+  }
 });

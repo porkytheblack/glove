@@ -147,7 +147,9 @@ export class ScriptExecutor {
     if (cached) return cached;
     const host = this.deps.envModules(st.readOnly).get(name);
     if (!host) return null;
-    const bound = st.bridge.freezeDeep(st.bridge.bindNamespace(this.guardDeadline(host, st)));
+    const bound = st.bridge.freezeDeep(
+      st.bridge.guardNamespace(st.bridge.bindNamespace(this.guardDeadline(host, st)), `env:${name}`),
+    );
     st.envCache.set(name, bound);
     return bound;
   }
@@ -322,7 +324,13 @@ export class ScriptExecutor {
         (spec: unknown) => this.resolveImport(String(spec), norm, st, nextChain),
         (ns: Record<string, unknown>, key: string, spec: string) => {
           if (ns !== null && typeof ns === "object" && key in ns) return ns[key];
-          throw new Error(`module "${spec}" has no export "${key}"`);
+          // Name what the module does export. A model that guessed the
+          // binding name gets the correction here, at import time, rather
+          // than discovering it as an undefined at the call site — and the
+          // same courtesy applies to relative script imports.
+          const available = ns !== null && typeof ns === "object" ? Object.keys(ns).filter((k) => k !== "default") : [];
+          const suffix = available.length ? ` — it exports: ${available.join(", ")}.` : ".";
+          throw new Error(`module "${spec}" has no export "${key}"${suffix}`);
         },
         st.boundConsole,
       );
@@ -388,7 +396,10 @@ export class ScriptExecutor {
       }
       return finish({ ok: true, result });
     } catch (e) {
-      return finish({ ok: false, error: describeError(e) });
+      let error = describeError(e);
+      const hint = importHint(error, this.deps.envModules(false));
+      if (hint) error = `${error} — ${hint}`;
+      return finish({ ok: false, error });
     }
   }
 }
@@ -483,6 +494,24 @@ export function hostify(value: unknown, seen = new WeakMap<object, unknown>()): 
     out[key] = hostify(child, seen);
   }
   return out;
+}
+
+/**
+ * `readFile is not defined` almost always means a missing import, and the
+ * environment knows exactly which module exports that name. Saying so turns a
+ * two-turn recovery (re-read the docs, rewrite) into a zero-turn one.
+ */
+export function importHint(message: string, modules: Map<string, Record<string, unknown>>): string | null {
+  const missing = /^(?:Uncaught )?ReferenceError: (\w+) is not defined|^(\w+) is not defined/.exec(message);
+  const name = missing?.[1] ?? missing?.[2];
+  if (!name) return null;
+  const owners: string[] = [];
+  for (const [mod, ns] of modules) {
+    if (Object.prototype.hasOwnProperty.call(ns, name)) owners.push(mod);
+  }
+  if (owners.length === 0) return null;
+  const suggestions = owners.map((m) => `import { ${name} } from 'env:${m}'`);
+  return `did you mean to import it? ${suggestions.join(" or ")}`;
 }
 
 export function describeError(e: unknown): string {

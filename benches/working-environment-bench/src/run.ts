@@ -6,7 +6,13 @@
  *   pnpm bench                       # all models, all scenarios
  *   pnpm bench -- --models a,b       # subset
  *   pnpm bench -- --scenarios pdf-report
+ *   pnpm bench -- --reps 3           # repetitions per cell, for a real rate
  *   pnpm bench -- --budget 2.50
+ *
+ * A delivery *rate* needs repetitions: one run per cell tells you whether a
+ * model happened to succeed once, not how often it succeeds. Temperature is
+ * 0, but tool-calling models are not deterministic in practice, and the
+ * spread between reps is the number that matters.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { runAgent, type RunTranscript, type ToolEvent } from "./agent";
@@ -17,6 +23,7 @@ const DEFAULT_MODELS = ["xiaomi/mimo-v2.5", "z-ai/glm-4.7-flash", "minimax/minim
 interface Result {
   model: string;
   scenario: string;
+  rep: number;
   checks: Check[];
   passed: boolean;
   transcript: RunTranscript;
@@ -38,6 +45,7 @@ async function main(): Promise<void> {
   const only = arg("scenarios");
   const scenarios = only ? SCENARIOS.filter((s) => only.split(",").includes(s.name)) : SCENARIOS;
   const budget = Number(arg("budget", "4.00"));
+  const reps = Math.max(1, Number(arg("reps", "1")));
 
   const outDir = new URL("../results/", import.meta.url).pathname;
   await mkdir(outDir, { recursive: true });
@@ -45,40 +53,42 @@ async function main(): Promise<void> {
   const results: Result[] = [];
   let spent = 0;
 
-  for (const model of models) {
+  outer: for (const model of models) {
     for (const scenario of scenarios) {
-      if (spent >= budget) {
-        console.log(`\n!! budget of $${budget.toFixed(2)} reached — stopping before ${model} / ${scenario.name}`);
-        break;
+      for (let rep = 1; rep <= reps; rep++) {
+        if (spent >= budget) {
+          console.log(`\n!! budget of $${budget.toFixed(2)} reached — stopping before ${model} / ${scenario.name} rep ${rep}`);
+          break outer;
+        }
+        process.stdout.write(`${model.padEnd(24)} ${scenario.name.padEnd(16)} ${reps > 1 ? `r${rep} ` : ""}`);
+
+        const env = await makeScenarioEnv(scenario);
+        const transcript = await runAgent({ env, model, task: scenario.task, maxTurns: scenario.maxTurns });
+        transcript.scenario = scenario.name;
+        spent += transcript.usage.cost ?? 0;
+
+        let checks: Check[] = [];
+        let gradeError: string | undefined;
+        try {
+          checks = await scenario.grade(env);
+        } catch (e) {
+          gradeError = e instanceof Error ? e.message : String(e);
+          checks = [{ name: "grading", ok: false, detail: gradeError }];
+        }
+        const passed = checks.length > 0 && checks.every((c) => c.ok);
+        results.push({ model, scenario: scenario.name, rep, checks, passed, transcript, gradeError });
+
+        const failed = transcript.events.filter((e) => e.status === "error").length;
+        console.log(
+          `${passed ? "PASS" : "FAIL"}  ${checks.filter((c) => c.ok).length}/${checks.length} checks · ` +
+            `${transcript.events.length} calls (${failed} errored) · ${transcript.turns} turns · ` +
+            `$${(transcript.usage.cost ?? 0).toFixed(4)}${transcript.stopReason === "error" ? ` · ${transcript.error}` : ""}`,
+        );
       }
-      process.stdout.write(`${model.padEnd(24)} ${scenario.name.padEnd(16)} `);
-
-      const env = await makeScenarioEnv(scenario);
-      const transcript = await runAgent({ env, model, task: scenario.task, maxTurns: scenario.maxTurns });
-      transcript.scenario = scenario.name;
-      spent += transcript.usage.cost ?? 0;
-
-      let checks: Check[] = [];
-      let gradeError: string | undefined;
-      try {
-        checks = await scenario.grade(env);
-      } catch (e) {
-        gradeError = e instanceof Error ? e.message : String(e);
-        checks = [{ name: "grading", ok: false, detail: gradeError }];
-      }
-      const passed = checks.length > 0 && checks.every((c) => c.ok);
-      results.push({ model, scenario: scenario.name, checks, passed, transcript, gradeError });
-
-      const failed = transcript.events.filter((e) => e.status === "error").length;
-      console.log(
-        `${passed ? "PASS" : "FAIL"}  ${checks.filter((c) => c.ok).length}/${checks.length} checks · ` +
-          `${transcript.events.length} calls (${failed} errored) · ${transcript.turns} turns · ` +
-          `$${(transcript.usage.cost ?? 0).toFixed(4)}${transcript.stopReason === "error" ? ` · ${transcript.error}` : ""}`,
-      );
     }
   }
 
-  const report = renderReport(results, spent);
+  const report = renderReport(results, spent, reps);
   // Keep every run. Comparing a fix against its baseline is the whole point
   // of running this twice, and an earlier version of this file overwrote the
   // baseline the moment you tried — which is exactly when you need it.
@@ -91,31 +101,53 @@ async function main(): Promise<void> {
   console.log(`\nWrote ${outDir}${stamp}-report.md (and report.md/raw.json as latest) · total spend $${spent.toFixed(3)}`);
 }
 
-function renderReport(results: Result[], spent: number): string {
+/** Wilson score interval lower bound — honest about small samples. */
+function wilsonLower(passes: number, n: number, z = 1.96): number {
+  if (n === 0) return 0;
+  const p = passes / n;
+  const d = 1 + (z * z) / n;
+  const centre = p + (z * z) / (2 * n);
+  const spread = z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n));
+  return Math.max(0, (centre - spread) / d);
+}
+
+function renderReport(results: Result[], spent: number, reps: number): string {
   const models = [...new Set(results.map((r) => r.model))];
   const scenarios = [...new Set(results.map((r) => r.scenario))];
   const lines: string[] = ["# Working environment — agent evaluation", ""];
 
-  lines.push("## Outcomes", "", `| Model | ${scenarios.join(" | ")} | calls | errored | $ |`, `|---|${scenarios.map(() => "---").join("|")}|---|---|---|`);
+  const passes = results.filter((r) => r.passed).length;
+  const rate = results.length === 0 ? 0 : (passes / results.length) * 100;
+  // Wilson lower bound at 95%: with a handful of runs a raw percentage
+  // flatters itself, and "over 90% of the time" is a claim about the floor.
+  const lower = wilsonLower(passes, results.length) * 100;
+  lines.push(
+    `**Delivery rate: ${rate.toFixed(1)}%** (${passes}/${results.length} runs) · 95% lower bound ${lower.toFixed(1)}%`,
+    "",
+  );
+
+  lines.push("## Outcomes", "", `| Model | ${scenarios.join(" | ")} | rate | calls | errored | $ |`, `|---|${scenarios.map(() => "---").join("|")}|---|---|---|---|`);
   for (const model of models) {
     const mine = results.filter((r) => r.model === model);
     const cells = scenarios.map((s) => {
-      const r = mine.find((x) => x.scenario === s);
-      if (!r) return "–";
-      const ok = r.checks.filter((c) => c.ok).length;
-      return `${r.passed ? "✅" : "❌"} ${ok}/${r.checks.length}`;
+      const runs = mine.filter((x) => x.scenario === s);
+      if (runs.length === 0) return "–";
+      const ok = runs.filter((x) => x.passed).length;
+      if (runs.length === 1) return runs[0].passed ? "✅" : `❌ ${runs[0].checks.filter((c) => c.ok).length}/${runs[0].checks.length}`;
+      return `${ok}/${runs.length}${ok === runs.length ? " ✅" : ""}`;
     });
+    const modelRate = mine.length ? ((mine.filter((r) => r.passed).length / mine.length) * 100).toFixed(0) + "%" : "–";
     const calls = mine.reduce((n, r) => n + r.transcript.events.length, 0);
     const errored = mine.reduce((n, r) => n + r.transcript.events.filter((e) => e.status === "error").length, 0);
     const cost = mine.reduce((n, r) => n + (r.transcript.usage.cost ?? 0), 0);
-    lines.push(`| \`${model}\` | ${cells.join(" | ")} | ${calls} | ${errored} | ${cost.toFixed(3)} |`);
+    lines.push(`| \`${model}\` | ${cells.join(" | ")} | ${modelRate} | ${calls} | ${errored} | ${cost.toFixed(3)} |`);
   }
 
   lines.push("", "## Failed checks", "");
   const anyFail = results.some((r) => !r.passed);
   if (!anyFail) lines.push("None — every scenario produced its deliverable.");
   for (const r of results.filter((x) => !x.passed)) {
-    lines.push(`**\`${r.model}\` · ${r.scenario}** (${r.transcript.stopReason})`);
+    lines.push(`**\`${r.model}\` · ${r.scenario}${r.rep > 1 || reps > 1 ? ` (rep ${r.rep})` : ""}** (${r.transcript.stopReason})`);
     for (const c of r.checks.filter((x) => !x.ok)) lines.push(`- ✗ ${c.name}${c.detail ? ` — ${c.detail}` : ""}`);
     lines.push("");
   }

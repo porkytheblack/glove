@@ -14,7 +14,8 @@
     "glove-env-images": "workspace:*",
     "glove-env-spreadsheets": "workspace:*",
     "glove-working-environment": "workspace:*",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "exceljs": "^4.4.0"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",

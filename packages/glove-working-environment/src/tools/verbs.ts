@@ -9,6 +9,7 @@ import type { EnvCore } from "../core/env";
 import type { RunLog } from "../history/runlog";
 import { executeRun } from "./run";
 import { capResponse, fmtBytes, fmtCount, numberLines, truncateText } from "./format";
+import { RepeatTracker, escalate } from "./repeat";
 
 interface ToolDeps {
   core: EnvCore;
@@ -57,16 +58,30 @@ function bounded(result: EnvToolResult, limits: EnvLimits): EnvToolResult {
   return out;
 }
 
+/**
+ * Wrap a verb body: normalize a missing input to `{}`, turn a thrown error
+ * into an error result, escalate a repeated identical failure, and cap the
+ * response. Thrown and returned failures are treated the same — a model
+ * cannot tell them apart and neither should the retry counter.
+ */
 function guarded(
+  verb: string,
   limits: EnvLimits,
+  repeats: RepeatTracker,
   fn: (input: any) => Promise<EnvToolResult>,
 ): (input: any) => Promise<EnvToolResult> {
   return async (input) => {
+    let result: EnvToolResult;
     try {
-      return bounded(await fn(input ?? {}), limits);
+      result = await fn(input ?? {});
     } catch (e) {
-      return bounded(err(e instanceof Error ? e.message : String(e)), limits);
+      result = err(e instanceof Error ? e.message : String(e));
     }
+    if (result.status === "error" && typeof result.message === "string") {
+      const n = repeats.note(verb, input ?? {}, result.message);
+      result = { ...result, message: escalate(result.message, n) };
+    }
+    return bounded(result, limits);
   };
 }
 
@@ -80,6 +95,11 @@ function schema(props: Record<string, unknown>, required: string[]): Record<stri
 export function buildTools(deps: ToolDeps): EnvTool[] {
   const { core, limits, prefix } = deps;
   const name = (n: string) => `${prefix}${n}`;
+  // One tracker per environment: the loop being detected is a model repeating
+  // itself within a session, so the counts must outlive individual calls and
+  // must not be shared between environments.
+  const repeats = new RepeatTracker();
+  const guard = (verb: string, fn: (input: any) => Promise<EnvToolResult>) => guarded(verb, limits, repeats, fn);
 
   const writeFile: EnvTool = {
     name: name("write_file"),
@@ -95,7 +115,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       },
       ["path", "content"],
     ),
-    do: guarded(limits, async (input: { path: string; content: string; append?: boolean }) => {
+    do: guard("write_file", async (input: { path: string; content: string; append?: boolean }) => {
       if (typeof input.path !== "string" || typeof input.content !== "string") {
         return err("write_file needs { path, content } as strings");
       }
@@ -121,7 +141,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       },
       ["path", "old_str", "new_str"],
     ),
-    do: guarded(limits, async (input: { path: string; old_str: string; new_str: string }) => {
+    do: guard("edit_file", async (input: { path: string; old_str: string; new_str: string }) => {
       if (typeof input.path !== "string" || typeof input.old_str !== "string" || typeof input.new_str !== "string") {
         return err("edit_file needs { path, old_str, new_str } as strings");
       }
@@ -136,7 +156,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     name: name("rm"),
     description: "Remove a file (or a directory recursively). Removes a script's sibling .d.ts with it. Undoable per file via undo.",
     jsonSchema: schema({ path: str("Absolute VFS path to remove") }, ["path"]),
-    do: guarded(limits, async (input: { path: string }) => {
+    do: guard("rm", async (input: { path: string }) => {
       const r = await core.rm(input.path);
       return ok(r.removed.length === 1 ? `removed ${r.removed[0]}` : `removed ${r.removed.length} files under ${input.path}`);
     }),
@@ -147,7 +167,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     description:
       "Move/rename a file or directory. Moves a script's sibling .d.ts along with it; scripts arriving under /scripts are validated at the destination (relative imports must still resolve).",
     jsonSchema: schema({ from: str("Source VFS path"), to: str("Destination VFS path") }, ["from", "to"]),
-    do: guarded(limits, async (input: { from: string; to: string }) => {
+    do: guard("mv", async (input: { from: string; to: string }) => {
       const r = await core.mv(input.from, input.to);
       let msg =
         r.moved.length === 1
@@ -162,7 +182,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     name: name("cp"),
     description: "Copy a file or directory. Copied scripts are re-validated at the destination and get a freshly generated .d.ts.",
     jsonSchema: schema({ from: str("Source VFS path"), to: str("Destination VFS path") }, ["from", "to"]),
-    do: guarded(limits, async (input: { from: string; to: string }) => {
+    do: guard("cp", async (input: { from: string; to: string }) => {
       const r = await core.cp(input.from, input.to);
       let msg =
         r.moved.length === 1
@@ -185,7 +205,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       },
       ["path"],
     ),
-    do: guarded(limits, async (input: { path: string; start_line?: number; end_line?: number }) => {
+    do: guard("read_file", async (input: { path: string; start_line?: number; end_line?: number }) => {
       const text = await core.readText(input.path);
       const lines = text.split("\n");
       const total = lines.length;
@@ -215,7 +235,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       },
       [],
     ),
-    do: guarded(limits, async (input: { path?: string; depth?: number }) => {
+    do: guard("ls", async (input: { path?: string; depth?: number }) => {
       const root = input.path ?? "/";
       const depth = Math.min(Math.max(Math.floor(input.depth ?? 1), 1), 10);
       const entries = await core.lsTree(root, depth);
@@ -245,7 +265,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       },
       ["pattern"],
     ),
-    do: guarded(limits, async (input: { pattern: string; path?: string; glob?: string; context?: number; max_matches?: number }) => {
+    do: guard("grep", async (input: { pattern: string; path?: string; glob?: string; context?: number; max_matches?: number }) => {
       if (typeof input.pattern !== "string") return err("grep needs { pattern }");
       const r = await core.grep(input.pattern, input.path ?? "/", {
         glob: input.glob,
@@ -285,7 +305,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       },
       ["path"],
     ),
-    do: guarded(limits, async (input: { path: string; args?: unknown }) => {
+    do: guard("run_script", async (input: { path: string; args?: unknown }) => {
       if (typeof input.path !== "string") return err("run_script needs { path }");
       const outcome = await executeRun(deps, input.path, input.args ?? {});
       return outcome.run.ok ? ok(outcome.text) : err(outcome.shortError ?? "script failed", outcome.text);
@@ -296,7 +316,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     name: name("undo"),
     description: "Revert a file to its previous version (per-file linear undo; rm and overwrites are both undoable). Scripts re-run the pipeline so the .d.ts stays in sync.",
     jsonSchema: schema({ path: str("File whose last mutation should be reverted") }, ["path"]),
-    do: guarded(limits, async (input: { path: string }) => {
+    do: guard("undo", async (input: { path: string }) => {
       const r = await core.undo(input.path);
       const h = await core.historyFor(input.path);
       const state = r.present ? "file restored" : "file removed (this undid its creation)";
@@ -311,7 +331,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     name: name("redo"),
     description: "Walk forward again after an undo (a fresh mutation clears the redo branch).",
     jsonSchema: schema({ path: str("File to redo") }, ["path"]),
-    do: guarded(limits, async (input: { path: string }) => {
+    do: guard("redo", async (input: { path: string }) => {
       const r = await core.redo(input.path);
       const h = await core.historyFor(input.path);
       const state = r.present ? "file restored" : "file removed";
@@ -333,7 +353,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       },
       [],
     ),
-    do: guarded(limits, async (input: { path?: string; limit?: number }) => {
+    do: guard("history", async (input: { path?: string; limit?: number }) => {
       const limit = Math.min(Math.max(Math.floor(input.limit ?? 20), 1), 100);
       if (input.path) {
         const h = await core.historyFor(input.path);
