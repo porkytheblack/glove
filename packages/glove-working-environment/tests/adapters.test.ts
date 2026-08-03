@@ -134,7 +134,7 @@ test("tagging leaves a message that already names a capability alone", async () 
   assert.equal(err.match(/env:/g)?.length, 1, `the prefix must not stack: ${err}`);
 });
 
-test("tagging is transparent for sync throws, arity, and successful calls", async () => {
+test("tagging is transparent for arity and successful calls, and adapter calls must be awaited", async () => {
   const shapes = defineAdapter({
     name: "shapes",
     description: "sync and async surfaces",
@@ -155,14 +155,49 @@ test("tagging is transparent for sync throws, arity, and successful calls", asyn
     `import { syncBoom, arity, ok } from 'env:shapes';
      export default async function main() {
        let caught = '';
-       try { syncBoom(); } catch (e) { caught = e.message; }
-       return { caught, sum: arity(2, 3), ok: ok(), length: arity.length };
+       try { await syncBoom(); } catch (e) { caught = e.message; }
+       return { caught, sum: await arity(2, 3), ok: await ok(), length: arity.length };
      }`,
   );
   assert.equal(out.caught, "env:shapes.syncBoom: immediate");
   assert.equal(out.sum, 5);
   assert.equal(out.ok, 7);
   assert.equal(out.length, 2, "a wrapper that loses fn.length changes an observable API detail");
+});
+
+test("an adapter call that is not awaited yields a promise, not a value", async () => {
+  // The one contract change the worker boundary forces, pinned so nobody
+  // rediscovers it by accident. Adapter capabilities cross a thread, so every
+  // one of them is asynchronous from the script's side — even a binding whose
+  // host implementation happens to be synchronous. `paths in, paths out` was
+  // always the documented convention and every shipped adapter follows it;
+  // what changed is that forgetting `await` now shows up immediately as a
+  // Promise rather than working by accident.
+  //
+  // env:std and env:assert are unaffected — they are pure computation and run
+  // inside the worker, so they stay synchronous exactly as their types say.
+  const shapes = defineAdapter({
+    name: "syncish",
+    description: "a synchronous binding",
+    types: "export function two(): number;",
+    create: () => ({ two: () => 2 }),
+  });
+  const env = await makeEnv({ stdlib: [shapes] });
+  const out = await script<Record<string, unknown>>(
+    env,
+    `import { two } from 'env:syncish';
+     import { json } from 'env:std';
+     export default async function main() {
+       return {
+         withoutAwait: typeof two(),
+         withAwait: await two(),
+         stdStaysSync: json.parse('{"n":3}').n,
+       };
+     }`,
+  );
+  assert.equal(out.withoutAwait, "object", "an un-awaited adapter call is a Promise");
+  assert.equal(out.withAwait, 2);
+  assert.equal(out.stdStaysSync, 3, "env:std runs in the worker and stays synchronous");
 });
 
 test("limit failures keep a name a script can branch on", async () => {

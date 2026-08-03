@@ -24,7 +24,8 @@ import {
 import { isUnder, normalizePath } from "./paths";
 import { InMemoryFs, bytesToBase64, inMemoryFs } from "./vfs/memory";
 import { EnvCore } from "./core/env";
-import { ScriptExecutor, deepFreeze } from "./executor/executor";
+import { deepFreeze } from "./executor/executor";
+import { WorkerPool } from "./executor/pool";
 import { VersionStore } from "./history/versions";
 import { RunLog } from "./history/runlog";
 import { tagBindings } from "./adapters/tag";
@@ -58,6 +59,16 @@ export interface WorkingEnvironment {
   export(pattern: string): Promise<Array<{ path: string; bytes: Uint8Array }>>;
   /** Serialize the whole environment (files, scripts, .d.ts siblings, history). */
   snapshot(): Promise<EnvSnapshot>;
+  /**
+   * Release the environment's worker threads.
+   *
+   * Call it when a session ends. Workers are `unref`'d so they never hold the
+   * process open, but a long-lived host that creates environments per
+   * conversation would otherwise accumulate idle threads. In-flight runs are
+   * terminated — a host that is shutting down cannot be held open by a script
+   * that will not stop.
+   */
+  close(): Promise<void>;
 }
 
 const ADAPTER_NAME_RE = /^[a-z][a-z0-9_-]*$/;
@@ -69,12 +80,17 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
   const versions = new VersionStore(vfs, limits);
   const runlog = new RunLog(vfs, limits);
   const core = new EnvCore(vfs, limits, versions);
-  const executor = new ScriptExecutor({
-    readSource: core.readSource,
-    envModules: (readOnly: boolean) => (readOnly ? core.envModulesReadOnly : core.envModules),
-    isEnforcedScript: (p) => core.isEnforcedScript(p),
-    limits,
-  });
+  // Scripts run in a supervised worker pool, not on the host event loop. A
+  // compute-bound script is terminable there and nowhere else — see
+  // executor/pool.ts for the measurement that forced this.
+  const executor = new WorkerPool(
+    {
+      readSource: core.readSource,
+      envModules: (readOnly: boolean) => (readOnly ? core.envModulesReadOnly : core.envModules),
+      limits,
+    },
+    options.execution,
+  );
   core.attachExecutor(executor);
   const fsHandle = createFsHandle(core);
 
@@ -232,6 +248,10 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
 
     async snapshot(): Promise<EnvSnapshot> {
       return snapshotVfs(vfs);
+    },
+
+    async close(): Promise<void> {
+      await executor.close();
     },
   };
 }

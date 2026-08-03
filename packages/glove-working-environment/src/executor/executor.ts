@@ -16,7 +16,7 @@ import vm from "node:vm";
 import { format } from "node:util";
 import { normalizePath, resolveRelative } from "../paths";
 import { EnvLimitError, type EnvLimits, type RunResult } from "../types";
-import { ScriptContractError, defaultExportError } from "../pipeline/contract";
+import { ScriptContractError, contractOf, defaultExportError } from "../pipeline/contract";
 import { transformModule } from "./transform";
 import { BRIDGE_SOURCE, INVOKE_SOURCE, type Bridge } from "./bridge";
 
@@ -367,7 +367,7 @@ export class ScriptExecutor {
       st.registry.set(norm, { state: "done", ns });
 
       if (this.deps.isEnforcedScript(norm)) {
-        const err = defaultExportError(ns);
+        const err = defaultExportError(contractOf(ns));
         if (err) throw new ScriptContractError(norm, err);
       }
       return ns;
@@ -401,7 +401,7 @@ export class ScriptExecutor {
 
     try {
       const ns = await this.loadInner(normalizePath(path), st, []);
-      const contractErr = defaultExportError(ns);
+      const contractErr = defaultExportError(contractOf(ns));
       if (contractErr) return finish({ ok: false, error: contractErr });
 
       // Arguments cross as a JSON string — a primitive — and are parsed

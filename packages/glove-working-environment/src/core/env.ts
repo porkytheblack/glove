@@ -23,10 +23,10 @@
 import type { EnvLimits, FileVersionInfo, VfsEntry, VfsStat, Vfs } from "../types";
 import { EnvLimitError, looksBinary, toBytes, toText } from "../types";
 import { basename, dirname, globToRegExp, isUnder, normalizePath } from "../paths";
-import { ScriptContractError } from "../pipeline/contract";
+import { defaultExportError } from "../pipeline/contract";
 import { generateDts } from "../pipeline/dts";
 import { scriptOneLiner } from "../pipeline/jsdoc";
-import { newCapture, type ScriptExecutor } from "../executor/executor";
+import type { WorkerPool } from "../executor/pool";
 import { HandlerRegistry, HEAD_BYTES, type Claim } from "../adapters/handles";
 import { envImportsOf } from "../pipeline/imports";
 import { buildOrientation, ORIENTATION_PATH } from "../tools/orientation";
@@ -83,7 +83,7 @@ export class EnvCore {
   readonly moduleDescriptions = new Map<string, string>();
   /** Which adapter understands which file — shared by `describe` and `ls`. */
   readonly handlers = new HandlerRegistry();
-  private executor!: ScriptExecutor;
+  private executor!: WorkerPool;
   private runlog: RunLogLike | null = null;
   /** Serializes mutations so version recording can't lose updates. */
   private queue: Promise<unknown> = Promise.resolve();
@@ -94,7 +94,7 @@ export class EnvCore {
     readonly versions: VersionStore,
   ) {}
 
-  attachExecutor(executor: ScriptExecutor): void {
+  attachExecutor(executor: WorkerPool): void {
     this.executor = executor;
   }
 
@@ -103,7 +103,7 @@ export class EnvCore {
     this.runlog = runlog;
   }
 
-  executorRef(): ScriptExecutor {
+  executorRef(): WorkerPool {
     return this.executor;
   }
 
@@ -220,15 +220,24 @@ export class EnvCore {
     if (!this.inPipelineScope(path)) return { derived: [] };
     const overlay = new Map(overlayExtra ?? []);
     overlay.set(path, contentText);
-    let ns: Record<string, unknown>;
-    try {
-      ns = await this.executor.loadModule(path, { overlay, capture: newCapture(), readOnly: true });
-    } catch (e) {
-      if (e instanceof ScriptContractError && e.path === path) throw new Error(e.contractMessage);
-      throw new Error(e instanceof Error ? e.message : String(e));
+    // Validation evaluates the module's top level, so it runs in the same
+    // terminable worker as any other execution — an infinite loop in a file
+    // being *written* is exactly as capable of wedging the host as one being
+    // run, and used to be.
+    const loaded = await this.executor.execute({ mode: "load", path, readOnly: true, overlay });
+    if (!loaded.ok) throw new Error(loaded.error ?? "script failed to load");
+    const contract = loaded.contract;
+    if (!contract) throw new Error("script failed to load");
+    if (this.isEnforcedScript(path)) {
+      const contractError = defaultExportError(contract);
+      if (contractError) throw new Error(contractError);
     }
     if (!this.producesDts(path)) return { derived: [] }; // lib module or test: load-checked only
-    const { dts, hasJsDoc } = generateDts(contentText, ns.default as (...a: unknown[]) => unknown, basename(path));
+    const { dts, hasJsDoc } = generateDts(
+      contentText,
+      { name: contract.defaultName ?? "", source: contract.defaultSource ?? "function () {}" },
+      basename(path),
+    );
     return {
       derived: [{ write: this.dtsPathFor(path), content: dts }],
       nudge: hasJsDoc ? undefined : JSDOC_NUDGE,

@@ -224,6 +224,25 @@ export interface CreateWorkingEnvironmentOptions {
    * Off by default: restoring a deliberate subset of adapters is legitimate.
    */
   strictAdapters?: boolean;
+  /** Script-execution tuning. Scripts always run in terminable workers. */
+  execution?: {
+    /**
+     * Warm worker threads kept alive per environment. Default 1.
+     *
+     * One is right for an agent loop, which runs a script at a time. Raise it
+     * only if the host genuinely runs scripts concurrently against the same
+     * environment — each worker is a thread and its own heap.
+     */
+    size?: number;
+    /**
+     * Grace after `runTimeoutMs` before the worker is destroyed. Default 250ms.
+     *
+     * The in-worker deadline usually resolves the run first with a better
+     * message; this is the backstop for when it cannot, which is exactly the
+     * compute-loop case it exists for.
+     */
+    graceMs?: number;
+  };
 }
 
 /** One recorded version of a file (for `history <path>` output). */

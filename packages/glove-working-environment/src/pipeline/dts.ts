@@ -17,7 +17,23 @@ export interface DtsResult {
   hasJsDoc: boolean;
 }
 
-export function generateDts(source: string, fn: (...a: unknown[]) => unknown, fileName: string): DtsResult {
+/**
+ * The default export, described rather than held.
+ *
+ * Only `name` and the function's own source text are ever needed, and both
+ * are strings — which is what lets a `.d.ts` be generated from a module that
+ * was evaluated in another thread. `Function.prototype.toString` cannot be
+ * faked on a stand-in object, so passing the text is the only honest way to
+ * do this across a boundary.
+ */
+export interface DefaultExportInfo {
+  /** `fn.name`, or "" when anonymous. */
+  name: string;
+  /** `Function.prototype.toString.call(fn)`. */
+  source: string;
+}
+
+export function generateDts(source: string, fn: DefaultExportInfo, fileName: string): DtsResult {
   const doc = jsDocForDefaultExport(source);
   const name = fnName(fn, fileName);
   const argsType = paramType(fn, doc);
@@ -38,7 +54,7 @@ export function generateDts(source: string, fn: (...a: unknown[]) => unknown, fi
   return { dts: lines.join("\n") + "\n", hasJsDoc: doc !== null };
 }
 
-function fnName(fn: (...a: unknown[]) => unknown, fileName: string): string {
+function fnName(fn: DefaultExportInfo, fileName: string): string {
   const n = fn.name;
   if (n && /^[A-Za-z_$][\w$]*$/.test(n) && n !== "default") return n;
   const base = fileName.replace(/\.[^.]*$/, "").replace(/[^\w$]/g, "_");
@@ -46,8 +62,8 @@ function fnName(fn: (...a: unknown[]) => unknown, fileName: string): string {
 }
 
 /** Null when the function takes no parameters. */
-function paramType(fn: (...a: unknown[]) => unknown, doc: JsDocInfo | null): string | null {
-  const src = Function.prototype.toString.call(fn);
+function paramType(fn: DefaultExportInfo, doc: JsDocInfo | null): string | null {
+  const src = fn.source;
   const paramSrc = firstParamSource(src);
 
   // Direct `@param {T} args` for the first parameter wins.

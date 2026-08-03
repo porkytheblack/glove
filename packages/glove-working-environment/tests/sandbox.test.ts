@@ -99,7 +99,8 @@ test("no host-realm object is reachable through env modules, adapters, or their 
     const shapes = await import('env:shapes');
     hunt(fs, 'env:fs', 0); hunt(std, 'env:std', 0); hunt(shapes, 'env:shapes', 0);
     hunt(await shapes.classInstance(), 'classInstance', 0);
-    hunt(await shapes.returnsFunction(), 'returnedFunction', 0);
+    // returnsFunction is deliberately absent: a capability cannot hand a
+    // script a function any more, and the refusal is asserted below.
     hunt(await shapes.returnsDate(), 'returnedDate', 0);
     hunt(await shapes.deep.inner.fn(), 'deepReturn', 0);
     hunt(shapes.vfsRef, 'vfsRef', 0);
@@ -108,6 +109,27 @@ test("no host-realm object is reachable through env modules, adapters, or their 
     return { found };`,
   );
   assert.deepEqual(out.found, [], `host realm reachable via modules: ${out.found.join(", ")}`);
+});
+
+test("a capability cannot hand a script a function, and says so", async () => {
+  // Scripts run in a worker, so a capability result is structured-cloned on
+  // its way in. A function cannot be cloned — which closes the last route by
+  // which a live host callable could reach sandboxed code, and is why the
+  // sweep above no longer probes returnsFunction.
+  //
+  // The failure mode that matters is the one this replaced: the serialization
+  // error was swallowed, no reply was ever sent, and the script sat until the
+  // wall-clock limit with nothing naming the cause.
+  const env = await makeEnv({ stdlib: [hostShapes()] });
+  const out = await runProbe(
+    env,
+    "fnReturn",
+    `const shapes = await import('env:shapes');
+     try { await shapes.returnsFunction(); return { caught: null }; }
+     catch (e) { return { caught: e.message }; }`,
+  );
+  assert.match(String(out.caught), /env:shapes\.returnsFunction returned a value that cannot cross/);
+  assert.match(String(out.caught), /must return data/);
 });
 
 test("host errors crossing the boundary are re-thrown as sandbox-realm errors", async () => {

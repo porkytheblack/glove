@@ -6,7 +6,10 @@ export default defineConfig({
   // with those names exist. The prefix is what makes that shadowing
   // impossible.
   removeNodeProtocol: false,
-  entry: ["src/index.ts", "src/testing.ts"],
+  // worker.ts must be its own entry, not bundled into a shared chunk: the
+  // pool spawns it by URL (`new URL("./worker.js", import.meta.url)`), so it
+  // has to exist as a real file next to the chunk that references it.
+  entry: ["src/index.ts", "src/testing.ts", "src/executor/worker.ts"],
   format: ["esm"],
   dts: true,
   target: "es2022",

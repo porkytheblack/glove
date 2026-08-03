@@ -5,7 +5,7 @@
 import type { EnvLimits, RunResult } from "../types";
 import type { EnvCore } from "../core/env";
 import type { RunLog } from "../history/runlog";
-import type { ScriptExecutor } from "../executor/executor";
+import type { WorkerPool } from "../executor/pool";
 import { serializeResult, withSpillover } from "./format";
 import { normalizePath } from "../paths";
 
@@ -89,7 +89,7 @@ async function explainUnrunnable(core: EnvCore, path: string): Promise<string | 
 }
 
 export async function executeRun(
-  deps: RunDeps & { executor?: ScriptExecutor },
+  deps: RunDeps & { executor?: WorkerPool },
   pathRaw: string,
   args: unknown,
   opts?: { spill?: boolean; kind?: "test" },
@@ -100,9 +100,19 @@ export async function executeRun(
   const runId = runlog.nextRunId();
 
   const unrunnable = await explainUnrunnable(core, path);
+  const startedAt = Date.now();
   const run = unrunnable
     ? { ok: false, result: undefined, stdout: "", stderr: "", durationMs: 0, error: unrunnable }
-    : await executor.run(path, args);
+    : await executor
+        .execute({ mode: "run", path, args, readOnly: false })
+        .then((r) => ({
+          ok: r.ok,
+          result: r.result,
+          stdout: r.stdout,
+          stderr: r.stderr,
+          durationMs: Date.now() - startedAt,
+          error: r.error,
+        }));
   const resultText = run.ok ? serializeResult(run.result) : "";
   const spillWanted = opts?.spill !== false;
 

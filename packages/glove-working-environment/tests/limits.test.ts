@@ -80,3 +80,73 @@ test("version blobs live under /.env and count toward the size cap", async () =>
   const msg = await callErr(env, "write_file", { path: "/tmp/t.txt", content: "b".repeat(8_000) });
   assert.match(msg, /limits\.maxVfsBytes/);
 });
+
+test("a pure compute loop is terminated and the host stays responsive", async () => {
+  // The production blocker this whole execution model exists for.
+  //
+  // `runTimeoutMs` used to be enforced three ways and all three missed this
+  // case: a vm timeout covers only a synchronous evaluation, a deadline race
+  // needs the event loop to turn, and a per-capability check needs the script
+  // to call something. Measured before the change: a 3s limit ran 60s, the
+  // host's 100ms timer fired ZERO times, and the run was recorded ok=true.
+  // One accidental `for(;;){ await null; }` from a model took the host down.
+  const env = await makeEnv({ limits: { runTimeoutMs: 1_500 } });
+  await env.fs.writeFile(
+    "/scripts/spin.js",
+    `export default async function main() {
+       const t = Date.now();
+       for (;;) { await null; if (Date.now() - t > 30000) return "never reached"; }
+     }`,
+  );
+
+  let ticks = 0;
+  const ticker = setInterval(() => { ticks += 1; }, 100);
+  const started = Date.now();
+  const run = await env.runScript("/scripts/spin.js");
+  const elapsed = Date.now() - started;
+  clearInterval(ticker);
+
+  assert.equal(run.ok, false, "a script that never returns must not be reported as succeeding");
+  assert.match(String(run.error), /wall-clock limit/);
+  assert.match(String(run.error), /runTimeoutMs/);
+  assert.ok(elapsed < 6_000, `should be killed near the limit, took ${elapsed}ms`);
+  // The part that actually matters to an operator: other work kept running.
+  assert.ok(ticks > 5, `host event loop was starved — timer fired only ${ticks} times in ${elapsed}ms`);
+  await env.close();
+});
+
+test("a tight loop with no await at all is terminated too", async () => {
+  // The harder case: nothing yields, so nothing in-process can observe the
+  // deadline. Only terminating the thread works.
+  const env = await makeEnv({ limits: { runTimeoutMs: 1_500 } });
+  await env.fs.writeFile("/scripts/tight.js", `export default async function main() { for (;;) {} }`);
+
+  let ticks = 0;
+  const ticker = setInterval(() => { ticks += 1; }, 100);
+  const run = await env.runScript("/scripts/tight.js");
+  clearInterval(ticker);
+
+  assert.equal(run.ok, false);
+  assert.match(String(run.error), /wall-clock limit/);
+  assert.ok(ticks > 5, `host event loop was starved — timer fired only ${ticks} times`);
+  await env.close();
+});
+
+test("the environment survives a script that had to be killed", async () => {
+  // A terminated worker is destroyed, not reused. The next run must simply
+  // work — a pool that hands back a dead thread turns one runaway script into
+  // a permanently broken environment.
+  const env = await makeEnv({ limits: { runTimeoutMs: 1_000 } });
+  await env.fs.writeFile("/scripts/tight.js", `export default async function main() { for (;;) {} }`);
+  await env.fs.writeFile(
+    "/scripts/fine.js",
+    `import { writeFile } from 'env:fs';
+     export default async function main() { await writeFile('/out/after.txt', 'still working'); return 'ok'; }`,
+  );
+
+  assert.equal((await env.runScript("/scripts/tight.js")).ok, false);
+  const after = await env.runScript("/scripts/fine.js");
+  assert.equal(after.ok, true, `environment did not recover: ${after.error}`);
+  assert.equal(await env.fs.readFile("/out/after.txt"), "still working");
+  await env.close();
+});
