@@ -76,6 +76,51 @@ skipping something the host would normally do. All seven verbs are still
 exposed, so their schema cost is real, and a model that calls `start` again is
 graded on the instance it actually ended up on.
 
+## What it found
+
+The first full run (4 models × 6 scenarios × 2 reps, $0.095) turned up a real
+defect in the surface, not in the models.
+
+**279 field ids were rejected as unknown, and 62% of them differed from a real
+field only in case or punctuation** — `full_name`, `Full name`, `Staff ID` for
+`fullName`, `staffId`. **45 of 262 write calls had *every* field rejected**: a
+wholly wasted round trip. It concentrated in `front-loaded` (110 of 279) and was
+nearly absent in `straight-through` (3), which is the tell — models guess ids
+confidently for fields they have *not* seen, which is exactly the case §7 says
+is free:
+
+> Fields outside the open step can be filled by id without inspecting them
+> first … A miss here costs nothing; the user gets asked again two steps later.
+
+It did not cost nothing. It was the single largest source of friction on the
+surface and the main cause of the `front-loaded` failures.
+
+The fix (in `glove-memory/forms`): field ids resolve through a compile-time
+alias index over normalised ids *and* labels, so case and punctuation stop
+mattering; ids that still don't resolve come back with `did_you_mean`
+suggestions ranked by bigram overlap. `compileForm` rejects any definition whose
+fields would collide once normalised, so resolution is never a guess.
+
+Re-running the identical matrix:
+
+| | before | after |
+|---|---|---|
+| collection rate | 69% | **85%** |
+| unknown field ids | 279 | **69** (141 now resolved) |
+| write calls fully rejected | 45/262 (17%) | **2/217 (1%)** |
+| completion calls | 487 | 435 |
+| prompt tokens | 1,357,388 | **1,146,738** |
+| spend | $0.095 | $0.085 |
+
+Per scenario: `bad-staff-id` 3/8 → 7/8, `over-cap` 5/8 → 7/8, `front-loaded`
+6/8 → 7/8, `held-value` 6/8 → 7/8.
+
+A second, smaller finding, recorded because it nearly became a false result:
+the first run capped `max_tokens` at 1024, and reasoning models spent the whole
+budget thinking and returned `finish_reason: length` with no content and no tool
+call — indistinguishable from a model that ignored its tools. The harness now
+counts truncated completions and puts a warning banner above the tables.
+
 ## Reading a failure
 
 A failed cell is a claim about the model, but only if the harness is sound —

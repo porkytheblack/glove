@@ -55,6 +55,13 @@ export interface CompiledForm<V = any> {
   /** Declaration order across the whole form. */
   fields: CompiledField<V>[];
   fieldById: Map<string, CompiledField<V>>;
+  /**
+   * Normalised id *and* label → field id. Models reach for `full_name`,
+   * `Full name` and `fullName` interchangeably; all three land on the same
+   * field rather than costing a round trip. Built at compile time so the
+   * lookup is free.
+   */
+  aliasIndex: Map<string, string>;
   steps: CompiledStep<V>[];
   stepById: Map<string, CompiledStep<V>>;
   checkpoints: CompiledCheckpoint<V>[];
@@ -147,6 +154,33 @@ export function compileForm<V extends Record<string, unknown>>(
     );
   }
 
+  // Two fields whose ids or labels normalise the same would make alias
+  // resolution ambiguous, and silently writing to the wrong one is worse than
+  // any round trip it would have saved.
+  const aliasIndex = new Map<string, string>();
+  const ambiguous: string[] = [];
+  for (const field of fields) {
+    for (const candidate of [field.id, field.label]) {
+      // Including the field's *own* normalised id matters: `Email` and
+      // `email` differ, and skipping the self-entry as redundant is exactly
+      // what makes the commonest case — a capitalised id — miss.
+      const key = normaliseAlias(candidate);
+      if (!key) continue;
+      const existing = aliasIndex.get(key);
+      if (existing && existing !== field.id) {
+        ambiguous.push(`${existing}/${field.id} both normalise to "${key}"`);
+        continue;
+      }
+      aliasIndex.set(key, field.id);
+    }
+  }
+  if (ambiguous.length > 0) {
+    throw new FormDefinitionError(
+      `Form "${def.id}" has fields that can't be told apart once case and punctuation are ignored: ${ambiguous.join("; ")}.`,
+      unique(ambiguous),
+    );
+  }
+
   const checkpoints: CompiledCheckpoint<V>[] = [];
   const checkpointById = new Map<string, CompiledCheckpoint<V>>();
   const duplicateCheckpoints: string[] = [];
@@ -179,6 +213,7 @@ export function compileForm<V extends Record<string, unknown>>(
     conduct: def.conduct,
     fields,
     fieldById,
+    aliasIndex,
     steps,
     stepById,
     checkpoints,
@@ -212,6 +247,11 @@ function safeDescribe(schema: z.ZodTypeAny): string {
 function joinDescription(ask?: string, hint?: string): string | undefined {
   if (ask && hint) return `${ask} ${hint}`;
   return ask ?? hint;
+}
+
+/** Case and punctuation carry no meaning in a field id; everything else does. */
+export function normaliseAlias(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function unique(ids: string[]): string[] {

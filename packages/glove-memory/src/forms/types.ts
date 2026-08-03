@@ -310,6 +310,16 @@ export interface FormView {
   failures?: FormFailure[];
 }
 
+/**
+ * A field id the form doesn't declare. `didYouMean` is what makes the miss
+ * self-correcting: without it the model has nothing to go on but another
+ * guess, and a wasted round trip is the most common friction on this surface.
+ */
+export interface FormUnknownField {
+  field: string;
+  didYouMean: string[];
+}
+
 /** One `ZodIssue`, flattened for a tool result. */
 export interface FormFieldIssue {
   field: string;

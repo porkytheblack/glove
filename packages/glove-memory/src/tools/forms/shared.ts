@@ -79,7 +79,19 @@ export function renderFillResult(result: FormFillResult): Record<string, unknown
     out.held_note =
       "Kept, but not applicable given the current answers — they don't count toward completion and will come back if the answers change.";
   }
-  if (result.unknown.length > 0) out.unknown_fields = result.unknown;
+  if (result.aliased.length > 0) {
+    out.renamed = result.aliased.map((a) => `${a.sent} → ${a.resolved}`);
+  }
+  if (result.unknown.length > 0) {
+    out.unknown_fields = result.unknown.map((u) =>
+      u.didYouMean.length > 0
+        ? { field: u.field, did_you_mean: u.didYouMean }
+        : { field: u.field },
+    );
+    out.unknown_note =
+      "These aren't fields on this form, so nothing was stored for them. Use `did_you_mean` " +
+      "where it's offered, or call glove_form_inspect to see the real ids — don't guess again.";
+  }
   if (result.issues.length > 0) {
     out.rejected = result.issues.map((i) => ({
       field: i.field,

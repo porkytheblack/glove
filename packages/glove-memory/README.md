@@ -455,6 +455,8 @@ export const piIntake = defineForm({
 
 **There is no lock.** Any value the agent can derive, at any point in the conversation, is accepted — the only thing that can reject a write is zod. A user who answers question six while being asked question two has answered question six. `glove_form_fill` takes a patch of *any* field ids, validates each independently, and returns what landed.
 
+Field ids are forgiving: `full_name`, `Full name` and `fullName` all resolve to the same field, via an alias index built at compile time over normalised ids and labels. A definition whose fields would collide once case and punctuation are stripped is rejected at compile, so resolution is never a guess. An id that still doesn't resolve comes back with `did_you_mean` rather than a bare rejection — models guess ids confidently for fields they haven't seen, and a bare miss costs a whole round trip.
+
 Sequence is advisory, and splits into two unrelated things:
 
 - **`when` — applicability.** Whether a field *means anything* given current answers. `vehicleCount` is meaningless on a slip-and-fall. Inapplicable fields don't count toward completion and aren't asked about — but a value supplied for one is kept.

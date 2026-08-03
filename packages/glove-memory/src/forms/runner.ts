@@ -11,6 +11,7 @@ import type { Provenance } from "../core/provenance";
 import type { FormAdapter } from "./adapter";
 import { createFormMemoryBridge, type FormMemoryAdapters } from "./bridge";
 import type { CompiledForm } from "./compile";
+import { normaliseAlias } from "./compile";
 import { evaluateForm, formatZodError, type FormEvaluation } from "./evaluate";
 import { openFailures, projectView, renderTier0 } from "./project";
 import type { FormListing, FormRegistry } from "./registry";
@@ -22,6 +23,7 @@ import type {
   FormFieldIssue,
   FormInstance,
   FormInstanceCommit,
+  FormUnknownField,
   FormView,
   FormViewScope,
 } from "./types";
@@ -62,8 +64,17 @@ export interface FormFillResult {
   captured: string[];
   /** Field ids written but not applicable right now — kept, don't count. */
   held: string[];
-  /** Ids the def doesn't declare. Ignored, reported. */
-  unknown: string[];
+  /**
+   * Ids the def doesn't declare, each with the closest real fields. Nothing
+   * was stored for these — the suggestions are what let the model land it on
+   * the retry instead of guessing again.
+   */
+  unknown: FormUnknownField[];
+  /**
+   * Ids that differed from a real field only in case or punctuation, and were
+   * written to that field anyway. Reported so a caller can see it happened.
+   */
+  aliased: Array<{ sent: string; resolved: string }>;
   /** One row per `ZodIssue`. The model can act on these without a round trip. */
   issues: FormFieldIssue[];
   /** Blocking-checkpoint rejections raised by this write. */
@@ -172,15 +183,15 @@ export class FormRunner {
     );
 
     const seed = opts.seed ?? {};
-    const { entries, issues, unknown } = this.stage(compiled, seed, provenance);
+    const staged = this.stage(compiled, seed, provenance);
     // `fromScratch` — a fresh instance has no prior evaluation, so everything
     // true right now is a rising edge. A checkpoint gated on `() => true`
     // fires at start rather than waiting for the first answer.
-    const settled = await this.applyEntries(compiled, created, entries, provenance, {
+    const settled = await this.applyEntries(compiled, created, staged.entries, provenance, {
       signal: opts.signal,
       fromScratch: true,
     });
-    return this.fillResult(compiled, settled.instance, entries, issues, unknown, settled.failures);
+    return this.fillResult(compiled, settled.instance, staged, settled.failures);
   }
 
   /**
@@ -198,11 +209,11 @@ export class FormRunner {
     const { compiled, instance } = await this.resolve(opts);
     this.assertWritable(instance);
     const provenance = this.provenance(opts.provenance);
-    const { entries, issues, unknown } = this.stage(compiled, values, provenance);
-    const settled = await this.applyEntries(compiled, instance, entries, provenance, {
+    const staged = this.stage(compiled, values, provenance);
+    const settled = await this.applyEntries(compiled, instance, staged.entries, provenance, {
       signal: opts.signal,
     });
-    return this.fillResult(compiled, settled.instance, entries, issues, unknown, settled.failures);
+    return this.fillResult(compiled, settled.instance, staged, settled.failures);
   }
 
   /**
@@ -258,15 +269,11 @@ export class FormRunner {
       outcome,
       provenance,
     );
-    const { entries, issues, unknown } = this.stage(
-      compiled,
-      outcome.values ?? {},
-      provenance,
-    );
-    const settled = await this.applyEntries(compiled, resolved, entries, provenance, {
+    const staged = this.stage(compiled, outcome.values ?? {}, provenance);
+    const settled = await this.applyEntries(compiled, resolved, staged.entries, provenance, {
       signal: opts.signal,
     });
-    return this.fillResult(compiled, settled.instance, entries, issues, unknown, settled.failures);
+    return this.fillResult(compiled, settled.instance, staged, settled.failures);
   }
 
   // ─── Resolution and drift ───────────────────────────────────────────────
@@ -571,16 +578,31 @@ export class FormRunner {
   ): {
     entries: Record<string, FormEntry>;
     issues: FormFieldIssue[];
-    unknown: string[];
+    unknown: FormUnknownField[];
+    aliased: Array<{ sent: string; resolved: string }>;
   } {
     const entries: Record<string, FormEntry> = {};
     const issues: FormFieldIssue[] = [];
-    const unknown: string[] = [];
+    const unknown: FormUnknownField[] = [];
+    const aliased: Array<{ sent: string; resolved: string }> = [];
 
-    for (const [id, value] of Object.entries(values)) {
-      const field = compiled.fieldById.get(id);
+    for (const [sentId, value] of Object.entries(values)) {
+      // Models reach for `full_name`, `Full name` and `fullName`
+      // interchangeably. Case and punctuation carry no meaning in a field id,
+      // so resolving them is not guesswork — and `compileForm` has already
+      // rejected any def where two fields could normalise to the same key.
+      let id = sentId;
+      let field = compiled.fieldById.get(id);
       if (!field) {
-        unknown.push(id);
+        const resolved = compiled.aliasIndex.get(normaliseAlias(sentId));
+        if (resolved) {
+          id = resolved;
+          field = compiled.fieldById.get(resolved);
+          aliased.push({ sent: sentId, resolved });
+        }
+      }
+      if (!field) {
+        unknown.push({ field: sentId, didYouMean: suggestFields(compiled, sentId) });
         continue;
       }
       const parsed = field.schema.safeParse(value);
@@ -600,7 +622,7 @@ export class FormRunner {
         }
       }
     }
-    return { entries, issues, unknown };
+    return { entries, issues, unknown, aliased };
   }
 
   private entry(
@@ -622,15 +644,18 @@ export class FormRunner {
   private fillResult(
     compiled: CompiledForm<any>,
     instance: FormInstance,
-    written: Record<string, FormEntry>,
-    issues: FormFieldIssue[],
-    unknown: string[],
+    staged: {
+      entries: Record<string, FormEntry>;
+      issues: FormFieldIssue[];
+      unknown: FormUnknownField[];
+      aliased: Array<{ sent: string; resolved: string }>;
+    },
     failures: FormFailure[],
   ): FormFillResult {
     const ev = evaluateForm(compiled, instance);
     const captured: string[] = [];
     const held: string[] = [];
-    for (const id of Object.keys(written)) {
+    for (const id of Object.keys(staged.entries)) {
       const fe = ev.fields.get(id);
       if (!fe) continue;
       if (fe.status === "held") held.push(id);
@@ -640,8 +665,9 @@ export class FormRunner {
       view: projectView(compiled, instance, { scope: "step" }, ev),
       captured,
       held,
-      unknown,
-      issues,
+      unknown: staged.unknown,
+      aliased: staged.aliased,
+      issues: staged.issues,
       failures: failures.length > 0 ? failures : openFailures(instance),
     };
   }
@@ -782,6 +808,48 @@ function assertNoDefects(compiled: CompiledForm<any>, ev: FormEvaluation<any>): 
     `Form "${compiled.id}" cannot be evaluated: ${ev.defects.join("; ")}.`,
     ev.defects,
   );
+}
+
+/**
+ * The closest real fields to an id the form doesn't have, by bigram overlap
+ * against both ids and labels. Two suggestions at most: a short list the model
+ * can act on beats a ranked list it has to reason about.
+ */
+function suggestFields(compiled: CompiledForm<any>, sent: string): string[] {
+  const target = normaliseAlias(sent);
+  if (!target) return [];
+  const scored = compiled.fields
+    .map((f) => ({
+      id: f.id,
+      score: Math.max(
+        dice(target, normaliseAlias(f.id)),
+        dice(target, normaliseAlias(f.label)),
+      ),
+    }))
+    .filter((c) => c.score >= 0.4)
+    .sort((a, b) => b.score - a.score);
+  return scored.slice(0, 2).map((c) => c.id);
+}
+
+/** Sørensen–Dice over character bigrams. Cheap, and forgiving of word order. */
+function dice(a: string, b: string): number {
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return 0;
+  const bigrams = new Map<string, number>();
+  for (let i = 0; i < a.length - 1; i++) {
+    const g = a.slice(i, i + 2);
+    bigrams.set(g, (bigrams.get(g) ?? 0) + 1);
+  }
+  let hits = 0;
+  for (let i = 0; i < b.length - 1; i++) {
+    const g = b.slice(i, i + 2);
+    const n = bigrams.get(g) ?? 0;
+    if (n > 0) {
+      bigrams.set(g, n - 1);
+      hits++;
+    }
+  }
+  return (2 * hits) / (a.length - 1 + b.length - 1);
 }
 
 function rawValues(instance: FormInstance): Record<string, unknown> {

@@ -197,7 +197,10 @@ test("unknown field ids are reported, not fatal", async () => {
   const { runner } = harness();
   await runner.start("pi-intake");
   const result = await runner.fill({ fullName: "Dana Reeve", favouriteColour: "blue" });
-  assert.deepEqual(result.unknown, ["favouriteColour"]);
+  assert.deepEqual(
+    result.unknown.map((u) => u.field),
+    ["favouriteColour"],
+  );
   assert.deepEqual(result.captured, ["fullName"]);
 });
 
@@ -605,4 +608,67 @@ test("projectView defaults to the open step and stays there", () => {
     ["fullName", "email", "phone"],
   );
   assert.match(renderTier0(compiled, instance), /step 1\/2/);
+});
+
+// ─── Field-id aliasing ────────────────────────────────────────────────────
+
+test("a field id that differs only in case or punctuation still lands", async () => {
+  const { runner } = harness();
+  await runner.start("pi-intake");
+  const result = await runner.fill({
+    full_name: "Dana Reeve",
+    "Email": "dana@example.com",
+  });
+
+  assert.deepEqual(result.captured.sort(), ["email", "fullName"]);
+  assert.equal(result.unknown.length, 0);
+  assert.deepEqual(result.aliased.sort((a, b) => a.sent.localeCompare(b.sent)), [
+    { sent: "Email", resolved: "email" },
+    { sent: "full_name", resolved: "fullName" },
+  ]);
+});
+
+test("labels resolve to their field, not just ids", async () => {
+  const { runner } = harness();
+  await runner.start("pi-intake");
+  // "Type of incident" is the label; "incidentType" is the id.
+  const result = await runner.fill({ "Type of incident": "premises" });
+  assert.deepEqual(result.captured, ["incidentType"]);
+});
+
+test("a genuinely unknown id comes back with the nearest real fields", async () => {
+  const { runner } = harness();
+  await runner.start("pi-intake");
+  const result = await runner.fill({ incident_kind: "premises" });
+
+  assert.equal(result.captured.length, 0);
+  assert.equal(result.unknown.length, 1);
+  assert.equal(result.unknown[0]!.field, "incident_kind");
+  assert.ok(
+    result.unknown[0]!.didYouMean.includes("incidentType"),
+    `suggestions were ${JSON.stringify(result.unknown[0]!.didYouMean)}`,
+  );
+});
+
+test("an id with nothing close by suggests nothing rather than guessing", async () => {
+  const { runner } = harness();
+  await runner.start("pi-intake");
+  const result = await runner.fill({ zzzzqqq: "x" });
+  assert.deepEqual(result.unknown[0]!.didYouMean, []);
+});
+
+test("aliasing never silently overwrites a different field", () => {
+  // Two fields that collide once case and punctuation are stripped have no
+  // safe resolution, so the def is rejected at compile rather than at runtime.
+  const colliding = defineForm({ id: "c", version: 1, name: "c", description: "c" })
+    .step("a", { title: "A" }, (s) =>
+      s
+        .field("fullName", { schema: z.string(), label: "Full name" })
+        .field("full_name", { schema: z.string(), label: "Legal name" }),
+    )
+    .build();
+  assert.throws(() => compileForm(colliding), (e: unknown) => {
+    assert.ok(e instanceof FormDefinitionError);
+    return true;
+  });
 });
