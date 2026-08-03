@@ -1,0 +1,44 @@
+{
+  "name": "glove-env-spreadsheets",
+  "version": "0.1.0",
+  "description": "Spreadsheet stdlib adapter for glove-working-environment. Bridges exceljs into the agent's virtual filesystem as env:spreadsheets — describe a workbook, read sheets as records, write and append rows, bridge to and from CSV. Paths in, paths out; cell values normalised to plain JSON.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-env-spreadsheets"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0"
+  },
+  "peerDependencies": {
+    "glove-working-environment": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "glove-working-environment": "workspace:*",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}
