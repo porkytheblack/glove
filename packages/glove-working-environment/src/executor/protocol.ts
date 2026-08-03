@@ -107,6 +107,15 @@ export type HostToWorker = StartMessage | RunMessage | ReplyMessage;
 
 export interface ReadyMessage {
   type: "ready";
+  /**
+   * What V8 actually gave this thread, in MB — not what the host asked for.
+   *
+   * The two diverge silently. `resourceLimits` is accepted and reported back
+   * verbatim by `worker.resourceLimits` even when a process-level
+   * `--max-old-space-size` overrides it, so the only way to know the ceiling
+   * is real is to ask the isolate that has to honour it.
+   */
+  heapLimitMb: number;
 }
 
 /** The worker needs something only the host can answer. */

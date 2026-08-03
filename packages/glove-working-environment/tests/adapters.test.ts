@@ -327,7 +327,7 @@ test("audit catches a binding the types never mention", async () => {
   const report = await auditAdapter({
     name: "gap",
     description: "d",
-    types: "export function known(): void;",
+    types: "export function known(): Promise<void>;",
     docs: "x",
     create: () => ({ known: () => {}, describe: () => {}, secret: () => {} }),
   });
@@ -339,7 +339,7 @@ test("audit catches types that promise a binding create never returns", async ()
   const report = await auditAdapter({
     name: "phantom",
     description: "d",
-    types: "export function real(): void;\nexport function imaginary(): void;",
+    types: "export function real(): Promise<void>;\nexport function imaginary(): Promise<void>;",
     docs: "x",
     create: () => ({ real: () => {}, describe: () => {} }),
   });
@@ -354,7 +354,7 @@ test("audit catches a binding named default, which the namespace overwrites", as
   const report = await auditAdapter({
     name: "clash",
     description: "d",
-    types: "export const def: number;\nexport function describe(): void;",
+    types: "export const def: number;\nexport function describe(): Promise<void>;",
     docs: "x",
     create: () => ({ default: 1, describe: () => {}, def: 1 }),
   });
@@ -362,11 +362,59 @@ test("audit catches a binding named default, which the namespace overwrites", as
   assert.ok(report.errors.some((e) => /`default`/.test(e)), report.errors.join("; "));
 });
 
+test("audit catches types that declare a capability synchronous", async () => {
+  // Scripts call capabilities across a thread boundary, so the call resolves
+  // to a promise however the host implemented it. A `.d.ts` that says
+  // otherwise fails in the worst way available: `const rows = parse(text)`
+  // succeeds, and the wrongness shows up much later as an empty result.
+  const report = await auditAdapter({
+    name: "sync",
+    description: "d",
+    types: [
+      "export function parse(text: string): Row[];",
+      "export function ok(text: string): Promise<Row[]>;",
+      "export const nested: { count(text: string): number };",
+      "export function describe(path: string): Promise<unknown>;",
+    ].join("\n"),
+    docs: "x",
+    create: () => ({
+      parse: (t: string) => [t],
+      ok: async (t: string) => [t],
+      nested: { count: (t: string) => t.length },
+      describe: async () => ({}),
+    }),
+  });
+  assert.equal(report.ok, false);
+  assert.ok(report.errors.some((e) => /`parse` is declared with a synchronous return type/.test(e)), report.errors.join("; "));
+  // Nested namespaces are marshalled binding-by-binding, so they cross the
+  // same boundary and get the same check.
+  assert.ok(report.errors.some((e) => /`count` is declared with a synchronous return type/.test(e)), report.errors.join("; "));
+  assert.ok(!report.errors.some((e) => /`ok`/.test(e)), "a correctly-declared binding must not be flagged");
+});
+
+test("audit does not mistake a synchronous callback parameter for a capability", async () => {
+  // `compare` appears twice: as a real async capability and as the type of a
+  // synchronous callback someone passes in. Flagging the second would make
+  // the check unusable for any adapter taking a comparator.
+  const report = await auditAdapter({
+    name: "cb",
+    description: "d",
+    types: [
+      "export function sort(paths: string[], opts?: { compare: (a: string, b: string) => number }): Promise<string[]>;",
+      "export function compare(a: string, b: string): Promise<number>;",
+      "export function describe(path: string): Promise<unknown>;",
+    ].join("\n"),
+    docs: "x",
+    create: () => ({ sort: async () => [], compare: async () => 0, describe: async () => ({}) }),
+  });
+  assertAdapterOk(report);
+});
+
 test("audit warns about missing docs and a missing describe", async () => {
   const report = await auditAdapter({
     name: "bare",
     description: "d",
-    types: "export function go(): void;",
+    types: "export function go(): Promise<void>;",
     create: () => ({ go: () => {} }),
   });
   assert.equal(report.ok, true, "warnings are advisory, not failures");
@@ -379,7 +427,7 @@ test("audit reports a create that throws rather than crashing the suite", async 
   const report = await auditAdapter({
     name: "throws",
     description: "d",
-    types: "export function go(): void;",
+    types: "export function go(): Promise<void>;",
     docs: "x",
     create: () => {
       throw new Error("bad init");
@@ -393,7 +441,7 @@ test("assertAdapterOk renders every problem it found", async () => {
   const report = await auditAdapter({
     name: "messy",
     description: "",
-    types: "export function ghost(): void;",
+    types: "export function ghost(): Promise<void>;",
     create: () => ({ actual: () => {} }),
   });
   assert.throws(

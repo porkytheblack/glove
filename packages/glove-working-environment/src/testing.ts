@@ -130,6 +130,83 @@ export interface AdapterAudit {
 /** `export function foo(` / `export const foo:` / `export declare class Foo` … */
 const EXPORTED_VALUE_RE = /^\s*export\s+(?:declare\s+)?(?:async\s+)?(?:function\*?|const|let|var|class)\s+([A-Za-z_$][\w$]*)/gm;
 
+const IDENT_CHAR = /[\w$]/;
+
+/**
+ * Every callable signature in a `.d.ts`, by name, mapped to whether that
+ * signature's declared return type is a Promise.
+ *
+ * Covers the three shapes an adapter's types actually use — `function f():
+ * T`, the method form `f(): T` inside an interface, and `f: () => T` — by
+ * finding each `(`, balance-scanning to its `)`, reading the name backwards
+ * and the return type forwards. A signature whose generic parameters nest
+ * (`f<T extends Map<K, V>>()`) is simply not found, which is the safe way to
+ * fail: an unfound name is never reported.
+ */
+function callableSignatures(types: string): Map<string, boolean[]> {
+  const found = new Map<string, boolean[]>();
+
+  for (let i = 0; i < types.length; i++) {
+    if (types[i] !== "(") continue;
+
+    // Backwards: optional `<...>` generics, then the name, then an optional
+    // `:` (which is what distinguishes `f: (x) => T` from `f(x): T`).
+    let b = i - 1;
+    while (b >= 0 && /\s/.test(types[b])) b--;
+    if (types[b] === ">") {
+      const open = types.lastIndexOf("<", b);
+      if (open < 0 || types.slice(open, b).includes("(")) continue;
+      b = open - 1;
+      while (b >= 0 && /\s/.test(types[b])) b--;
+    }
+    if (types[b] === ":") {
+      b--;
+      while (b >= 0 && /\s/.test(types[b])) b--;
+    }
+    const end = b;
+    while (b >= 0 && IDENT_CHAR.test(types[b])) b--;
+    if (b === end) continue;
+    const name = types.slice(b + 1, end + 1);
+    if (name === "" || /^\d/.test(name)) continue;
+
+    // Forwards: balance to the closing paren, then `:` or `=>`.
+    let depth = 0;
+    let j = i;
+    for (; j < types.length; j++) {
+      if (types[j] === "(") depth++;
+      else if (types[j] === ")" && --depth === 0) break;
+    }
+    if (depth !== 0) continue;
+    j++;
+    while (j < types.length && /\s/.test(types[j])) j++;
+    if (types[j] === ":") j++;
+    else if (types.startsWith("=>", j)) j += 2;
+    else continue;
+    while (j < types.length && /\s/.test(types[j])) j++;
+
+    const promise = types.startsWith("Promise", j) && !IDENT_CHAR.test(types[j + 7] ?? "");
+    const seen = found.get(name);
+    if (seen) seen.push(promise);
+    else found.set(name, [promise]);
+  }
+  return found;
+}
+
+/** Every function reachable in the bindings tree, by name. */
+function callableNames(bindings: Record<string, unknown>, depth = 0): Set<string> {
+  const names = new Set<string>();
+  if (depth > 3) return names;
+  for (const [key, value] of Object.entries(bindings)) {
+    if (typeof value === "function") names.add(key);
+    else if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+      // Nested namespaces are marshalled binding-by-binding, so their
+      // functions cross the thread boundary exactly like top-level ones.
+      for (const nested of callableNames(value as Record<string, unknown>, depth + 1)) names.add(nested);
+    }
+  }
+  return names;
+}
+
 /**
  * Check an adapter's self-description against what it actually exposes.
  *
@@ -193,6 +270,23 @@ export async function auditAdapter(adapter: StdlibAdapter, env?: WorkingEnvironm
   for (const key of declared) {
     if (!names.includes(key)) {
       errors.push(`types declares \`${key}\` but create() does not return it — a script following the docs will crash`);
+    }
+  }
+
+  // A capability call is cross-thread RPC, so it always resolves to a
+  // promise no matter how the host implemented it. Types that say otherwise
+  // are the expensive kind of wrong: the model reads `parse(s): Row[]`,
+  // writes `const rows = parse(s)`, and gets a Promise where it expected an
+  // array — usually surfacing much later as an empty result rather than an
+  // error. Only flagged when EVERY declaration of that name is synchronous,
+  // so overloads and same-named callback parameters cannot trip it.
+  const signatures = callableSignatures(types);
+  for (const key of callableNames(bindings)) {
+    const declared = signatures.get(key);
+    if (declared && declared.length > 0 && !declared.some(Boolean)) {
+      errors.push(
+        `binding \`${key}\` is declared with a synchronous return type — scripts call capabilities across a thread boundary, so it must be declared \`Promise<…>\` (a script that forgets to await gets a promise where the docs promised a value)`,
+      );
     }
   }
 

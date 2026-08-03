@@ -134,7 +134,20 @@ export interface EnvFsHandle {
 export interface EnvLimits {
   /** Wall-clock budget per run_script (and per write-time validation). Default 30_000. */
   runTimeoutMs: number;
-  /** Total bytes across all files (including versions and history). Default 256 MiB. */
+  /**
+   * Total bytes across all files (including versions and history). Default
+   * 128 MiB.
+   *
+   * With the default in-memory filesystem this is host **heap**, and it is
+   * per environment — a host running N agents in one process must be able to
+   * afford `N * maxVfsBytes` on top of everything else. Size it deliberately
+   * for a multi-tenant host; the default assumes an agent working on a
+   * handful of documents, not a bulk pipeline.
+   *
+   * Erring low is the safe direction: too low is a named, actionable error
+   * the operator raises in one line, while too high is a process the OOM
+   * killer takes down along with every other agent inside it.
+   */
   maxVfsBytes: number;
   /** Bytes for any single file. Default 32 MiB. */
   maxFileBytes: number;
@@ -160,7 +173,7 @@ export class EnvLimitError extends Error {
 
 export const DEFAULT_LIMITS: EnvLimits = {
   runTimeoutMs: 30_000,
-  maxVfsBytes: 256 * 1024 * 1024,
+  maxVfsBytes: 128 * 1024 * 1024,
   maxFileBytes: 32 * 1024 * 1024,
   maxToolResponseBytes: 8_192,
   maxToolResponseLines: 200,
@@ -242,6 +255,33 @@ export interface CreateWorkingEnvironmentOptions {
      * compute-loop case it exists for.
      */
     graceMs?: number;
+    /**
+     * Ceiling on a worker's JS heap, in MB. Default 256.
+     *
+     * The time limit alone does not make a script survivable: measured
+     * without this, a script pushing arrays in a loop grew the host to 7.2
+     * GiB of RSS well inside the default 30s budget, and a process that gets
+     * OOM-killed takes every other agent in it along. With the ceiling, V8
+     * terminates only that worker and the run fails naming this option.
+     *
+     * Raise it for scripts that legitimately hold large intermediates in
+     * memory. Adapter work does not count against it — adapters run on the
+     * host — so this bounds the model's own data structures.
+     */
+    memoryMb?: number;
+    /**
+     * How long `close()` lets an in-flight run finish before terminating it.
+     * Default 5000ms. Overridable per call: `close({ graceMs })`.
+     */
+    shutdownGraceMs?: number;
+    /**
+     * Where to report a misconfigured host. Defaults to `console.warn`; point
+     * it at your logger. Called at most once per environment.
+     *
+     * Today it reports exactly one thing: a `memoryMb` ceiling that V8 did
+     * not apply because a process-level `--max-old-space-size` overrode it.
+     */
+    onWarning?: (message: string) => void;
   };
 }
 

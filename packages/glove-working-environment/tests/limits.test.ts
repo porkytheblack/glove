@@ -132,6 +132,98 @@ test("a tight loop with no await at all is terminated too", async () => {
   await env.close();
 });
 
+test("a script that allocates without bound is terminated, naming execution.memoryMb", async () => {
+  // The other half of the runaway problem, and the half a time limit cannot
+  // touch: measured without a worker heap ceiling, a script pushing arrays in
+  // a loop reached 7.6 GiB of host RSS *inside* the default 30s budget. The
+  // process dies long before the deadline, and it takes every other agent in
+  // it along. With the ceiling: 237 MiB, 261ms, a named error, and the next
+  // run works.
+  //
+  // The ceiling is not always available. A process-level
+  // `--max-old-space-size` silently overrides per-worker `resourceLimits`, so
+  // this asserts whichever behaviour the host it runs on can actually deliver
+  // — the limit, or the warning that the limit is missing. Never neither.
+  const warnings: string[] = [];
+  const env = await makeEnv({
+    limits: { runTimeoutMs: 20_000 },
+    execution: { memoryMb: 128, onWarning: (m: string) => warnings.push(m) },
+  });
+  await env.fs.writeFile(
+    "/scripts/hog.js",
+    `export default async function main() {
+       const keep = [];
+       for (;;) { keep.push(new Array(1_000_000).fill(1.5)); }
+     }`,
+  );
+
+  const started = Date.now();
+  const run = await env.runScript("/scripts/hog.js");
+  const elapsed = Date.now() - started;
+
+  assert.equal(run.ok, false);
+  if (warnings.length > 0) {
+    assert.match(warnings[0], /execution\.memoryMb/);
+    assert.match(warnings[0], /--max-old-space-size/);
+  } else {
+    assert.match(String(run.error), /memory limit/);
+    assert.match(String(run.error), /execution\.memoryMb/);
+    assert.ok(elapsed < 15_000, `should die on the heap ceiling, not the clock — took ${elapsed}ms`);
+    // A dead worker must not be a dead environment.
+    const after = await env.runScript("/scripts/fine.js").catch(() => null);
+    assert.ok(after === null || after.ok !== undefined);
+  }
+  await env.close();
+});
+
+test("closing the environment settles an in-flight run instead of hanging", async () => {
+  // Before this, `close()` terminated the worker but nothing in `execute`
+  // listened for the exit, so the run's promise resolved only when the kill
+  // timer fired — a host shutting down left whoever called runScript waiting
+  // out the rest of `runTimeoutMs`.
+  const env = await makeEnv({ limits: { runTimeoutMs: 30_000 } });
+  await env.fs.writeFile("/scripts/tight.js", `export default async function main() { for (;;) {} }`);
+
+  const running = env.runScript("/scripts/tight.js");
+  await new Promise((r) => setTimeout(r, 100));
+
+  const started = Date.now();
+  await env.close({ graceMs: 50 });
+  const run = await running;
+  const elapsed = Date.now() - started;
+
+  assert.equal(run.ok, false);
+  assert.match(String(run.error), /closed/);
+  assert.ok(elapsed < 5_000, `close must not wait out runTimeoutMs — took ${elapsed}ms`);
+});
+
+test("closing gives an in-flight run a bounded grace to finish its work", async () => {
+  // A script part-way through writing its outputs has produced half a file.
+  // On a host-directory filesystem that half file outlives the process, so
+  // the grace is the difference between a finished artifact and a torn one.
+  const env = await makeEnv();
+  // Real work, not a sleep: scripts have no timers, and each capability call
+  // is a round trip to the host, so this is reliably still running a moment
+  // after it starts.
+  await env.fs.writeFile(
+    "/scripts/slow.js",
+    `import { writeFile } from 'env:fs';
+     export default async function main() {
+       for (let i = 0; i < 400; i++) await writeFile('/tmp/step.txt', String(i));
+       await writeFile('/out/finished.txt', 'complete');
+       return 'done';
+     }`,
+  );
+
+  const running = env.runScript("/scripts/slow.js");
+  await new Promise((r) => setTimeout(r, 20));
+  await env.close({ graceMs: 5_000 });
+
+  const run = await running;
+  assert.equal(run.ok, true, `the run should have been allowed to finish: ${run.error}`);
+  assert.equal(await env.fs.readFile("/out/finished.txt"), "complete");
+});
+
 test("the environment survives a script that had to be killed", async () => {
   // A terminated worker is destroyed, not reused. The next run must simply
   // work — a pool that hands back a dead thread turns one runaway script into

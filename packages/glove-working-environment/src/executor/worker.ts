@@ -15,6 +15,7 @@
  * different thread that a runaway script cannot reach or stall.
  */
 import { parentPort } from "node:worker_threads";
+import { getHeapStatistics } from "node:v8";
 import { ScriptExecutor, newCapture } from "./executor";
 import { ScriptContractError, contractOf } from "../pipeline/contract";
 import { createStdBindings } from "../builtins/std";
@@ -117,7 +118,7 @@ function start(message: StartMessage): void {
     isEnforcedScript: (path) => enforced(path),
     limits,
   });
-  port.postMessage({ type: "ready" });
+  port.postMessage({ type: "ready", heapLimitMb: getHeapStatistics().heap_size_limit / (1024 * 1024) });
 }
 
 /**

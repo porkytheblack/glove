@@ -58,10 +58,34 @@ export interface PoolOptions {
    * the compute-loop case.
    */
   graceMs?: number;
+  /**
+   * Ceiling on a worker's JS heap, in MB. Default 256.
+   *
+   * The other half of "one script cannot take the host down". Measured
+   * without it: a script pushing arrays in a loop grew the host to 7.2 GiB of
+   * RSS inside the default 30s budget — the timeout is no protection at all,
+   * because the process dies long before the deadline, and an OOM kill takes
+   * every other agent in it. With the ceiling, V8 kills only that worker and
+   * the pool replaces it.
+   */
+  memoryMb?: number;
+  /** Grace given to in-flight runs by {@link WorkerPool.close}. Default 5000. */
+  shutdownGraceMs?: number;
+  /**
+   * Where to report a misconfigured host. Defaults to `console.warn`, and is
+   * called at most once per pool.
+   *
+   * Warning by default is deliberate. The one thing reported here is a memory
+   * ceiling that was silently not applied, which is not a preference — it is
+   * a protection the operator believes they have and does not.
+   */
+  onWarning?: (message: string) => void;
 }
 
 const DEFAULT_SIZE = 1;
 const DEFAULT_GRACE_MS = 250;
+const DEFAULT_MEMORY_MB = 256;
+const DEFAULT_SHUTDOWN_GRACE_MS = 5_000;
 
 /** Backoff for repeated worker spawn failures — station-beacon's curve. */
 const BACKOFF = { baseMs: 50, factor: 3, maxMs: 5_000 };
@@ -111,6 +135,7 @@ export class WorkerPool {
   private queue: Array<() => void> = [];
   private shapes: { readWrite: Record<string, ShapeNode>; readOnly: Record<string, ShapeNode> } | null = null;
   private spawnFailures = 0;
+  private warnedAboutHeap = false;
   private closed = false;
   private seq = 0;
 
@@ -141,6 +166,42 @@ export class WorkerPool {
     return this.shapes;
   }
 
+  private get memoryMb(): number {
+    return Math.max(32, this.options.memoryMb ?? DEFAULT_MEMORY_MB);
+  }
+
+  /**
+   * Verify the memory ceiling was actually applied, and say so when it wasn't.
+   *
+   * `resourceLimits` is not authoritative. A process-level
+   * `--max-old-space-size` — from the command line or `NODE_OPTIONS` —
+   * overrides it, and nothing reports the conflict: `worker.resourceLimits`
+   * still reads back the requested value while the isolate runs with the
+   * process figure. Measured: `memoryMb: 128` under
+   * `NODE_OPTIONS=--max-old-space-size=8192` produced a worker with a
+   * 8,240 MB heap, which let a script reach 7.6 GiB of host RSS.
+   *
+   * Silence there is the worst outcome, because the operator has every reason
+   * to believe the ceiling is real. So this is checked empirically against
+   * what V8 reports from inside the thread, once, with the fix in the
+   * message. It is not fatal: a raised heap is a deliberate host choice, and
+   * refusing to start over it would be worse than saying so.
+   */
+  private checkHeapCeiling(actualMb: number): void {
+    if (this.warnedAboutHeap) return;
+    // Young generation and code range sit on top of the old-generation
+    // figure, so the effective limit is legitimately larger than requested.
+    const tolerated = this.memoryMb * 1.5 + 64;
+    if (!Number.isFinite(actualMb) || actualMb <= tolerated) return;
+    this.warnedAboutHeap = true;
+    (this.options.onWarning ?? ((m: string) => console.warn(m)))(
+      `glove-working-environment: the ${this.memoryMb}MB script memory ceiling (execution.memoryMb) was not applied — ` +
+        `V8 gave the worker ${Math.round(actualMb)}MB. A process-level --max-old-space-size (command line or NODE_OPTIONS) ` +
+        `overrides per-worker resourceLimits, so a runaway script can exhaust the host instead of just its own thread. ` +
+        `Either drop that flag, or raise it knowing it bounds every script in this process rather than each one.`,
+    );
+  }
+
   private spawn(): Slot {
     const { url, execArgv } = workerEntry();
     const worker = new Worker(url, {
@@ -150,8 +211,18 @@ export class WorkerPool {
       // reason to carry the host's secrets into the thread that runs
       // model-written code.
       env: {},
-      stdout: true,
-      stderr: true,
+      // Bounds the blast radius of an allocating script to this thread. V8
+      // terminates the worker on breach and the pool replaces it, instead of
+      // the host process being OOM-killed with every other agent inside it.
+      //
+      // stdout/stderr are deliberately left to Node's default, which forwards
+      // them to the host's own stdio. Setting them to `true` hands over a
+      // stream that nothing in this pool reads, and an unread worker stream
+      // just accumulates: measured at 40 MB buffered and 312 MiB of host RSS
+      // from a chatty worker. Script `console` output never comes through
+      // here anyway — the executor's shim captures it inside the context —
+      // so what remains is host diagnostics, which belong in host logs.
+      resourceLimits: { maxOldGenerationSizeMb: this.memoryMb },
     });
     worker.unref();
 
@@ -161,6 +232,7 @@ export class WorkerPool {
         if (m.type === "ready") {
           worker.off("message", onMessage);
           this.spawnFailures = 0;
+          this.checkHeapCeiling(m.heapLimitMb);
           resolve();
         }
       };
@@ -218,9 +290,32 @@ export class WorkerPool {
     }
   }
 
+  /**
+   * Turn a worker-level failure into something that names the knob.
+   *
+   * V8's own out-of-memory message says "reaching memory limit", which reads
+   * as a host defect. Every other limit in this environment names the option
+   * that controls it, and this one is no different — it is a configured
+   * ceiling doing its job.
+   */
+  private describeWorkerFailure(e: Error & { code?: string }): string {
+    if (e.code === "ERR_WORKER_OUT_OF_MEMORY") {
+      return (
+        `script exceeded the memory limit: ${this.memoryMb}MB (execution.memoryMb) and was terminated. ` +
+        `Process data in batches — read, write, release — instead of accumulating it all in memory.`
+      );
+    }
+    return `script worker failed: ${e.message}`;
+  }
+
   private release(slot: Slot): void {
     slot.busy = false;
-    if (slot.poisoned) {
+    // A poisoned worker is destroyed rather than reused. So is a surplus one:
+    // `acquire(overflow)` deliberately spawns past the pool size to break the
+    // re-entrant-validation deadlock, and without this the pool would keep
+    // every worker that peak nesting ever needed, permanently.
+    const surplus = !slot.poisoned && this.slots.filter((s) => !s.poisoned).length > this.size;
+    if (slot.poisoned || surplus) {
       this.slots = this.slots.filter((s) => s !== slot);
       void slot.worker.terminate();
     }
@@ -326,6 +421,7 @@ export class WorkerPool {
           clearTimeout(killer);
           slot.worker.off("message", onMessage);
           slot.worker.off("error", onError);
+          slot.worker.off("exit", onExit);
           resolve(value);
         };
 
@@ -349,7 +445,24 @@ export class WorkerPool {
 
         const onError = (e: Error): void => {
           slot.poisoned = true;
-          finish({ ok: false, error: `script worker failed: ${e.message}`, stdout: "", stderr: "" });
+          finish({ ok: false, error: this.describeWorkerFailure(e), stdout: "", stderr: "" });
+        };
+
+        // A worker can also go away without an `error` — `close()` terminating
+        // it, or the thread exiting on its own. Without this the run's promise
+        // settles only when the killer fires, so shutting a host down while a
+        // script is running leaves whoever called `runScript` hanging for the
+        // remainder of `runTimeoutMs`.
+        const onExit = (code: number): void => {
+          slot.poisoned = true;
+          finish({
+            ok: false,
+            error: this.closed
+              ? "the working environment was closed while this script was running"
+              : `script worker exited unexpectedly with code ${code}`,
+            stdout: "",
+            stderr: "",
+          });
         };
 
         // THE backstop. Everything else about the deadline is advisory; this
@@ -372,6 +485,7 @@ export class WorkerPool {
 
         slot.worker.on("message", onMessage);
         slot.worker.once("error", onError);
+        slot.worker.once("exit", onExit);
         slot.worker.postMessage({
           type: "run",
           id,
@@ -389,18 +503,34 @@ export class WorkerPool {
   }
 
   /**
-   * Shut the pool down.
+   * Shut the pool down: refuse new work, let in-flight runs finish within a
+   * bounded grace, then terminate whatever is left.
    *
-   * Graceful by intent — in-flight runs are given the remaining grace before
-   * their workers are terminated — but unconditional in the end, because a
-   * host that is shutting down cannot be held open by a script that will not
-   * stop.
+   * The grace is not politeness. A script mid-way through writing its outputs
+   * has produced half a file, and when the filesystem is a real host
+   * directory rather than memory, that half file outlives the process. Giving
+   * the run a moment to reach its own end is the difference between a
+   * finished artifact and a torn one.
+   *
+   * It is bounded because the alternative is worse: `runTimeoutMs` defaults
+   * to 30s, and a host that is shutting down cannot wait that long on work
+   * whose result nobody will read. Whatever has not finished by then is
+   * terminated, and its run resolves with an error saying so rather than
+   * hanging.
    */
-  async close(): Promise<void> {
+  async close(options: { graceMs?: number } = {}): Promise<void> {
+    if (this.closed) return;
     this.closed = true;
+    for (const waiter of this.queue.splice(0)) waiter();
+
+    const grace = options.graceMs ?? this.options.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS;
+    const deadline = Date.now() + Math.max(0, grace);
+    while (this.slots.some((s) => s.busy) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
     const slots = this.slots;
     this.slots = [];
-    for (const waiter of this.queue.splice(0)) waiter();
     await Promise.all(slots.map((s) => s.worker.terminate().catch(() => undefined)));
   }
 }

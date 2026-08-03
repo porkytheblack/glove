@@ -162,6 +162,8 @@ export const images = () =>
 
 `create(vfs)` is the capability boundary: the handle it receives routes through the same guarded gateway as the model verbs (zones, limits, script pipeline, versions). Convention: **paths in, paths out, structured data in between**, and every format adapter exposes `describe(path)` returning a tokens-cheap summary of a binary artifact plus format-appropriate extractors.
 
+Two hard rules, both from the thread boundary a script call crosses: **declare every binding `Promise<…>`** even where the implementation is synchronous, and **return data, not functions or live host objects**. `auditAdapter` fails the first; the second fails at the call naming your binding.
+
 Four things the environment does for you, which is most of why adapters are short:
 
 - **Arguments arrive as host-realm values.** An array literal written inside a script is a context-realm `Array`: `Array.isArray` recognises it, `instanceof Array` does not, and libraries use both — exceljs reads `instanceof Array` as "a row of cells" and anything else as "a map of column names", so a script's rows silently produced an empty spreadsheet. Everything crossing inward is deep-copied (cycles, `Date`, `Map`/`Set`, typed arrays included), so a library sees plain host data and never a live reference into the sandbox.
@@ -198,6 +200,17 @@ Builtins always present: **`env:fs`** (readFile, readBytes, writeFile, appendFil
 
 **Capability injection, not containment.** Scripts execute in a fresh `node:vm` context per operation: available are `env:*` modules, relative VFS imports, `console` shims, and standard JS intrinsics (`JSON`, `Math`, `Promise`, `Date`, …). Absent — not blocked, *absent*: `require`, `process`, `fetch`, host fs, timers, `Buffer`, `WebAssembly`.
 
+**That context lives in a worker thread, so the time limit is absolute.** `runTimeoutMs` used to be enforced three ways — a vm timeout, a deadline race, a re-check on every capability call — and all three missed the same case, because a vm timeout covers only a synchronous evaluation, a deadline race needs the event loop to turn, and a capability check needs the script to call something. A pure compute loop satisfies none of them. Measured with a 3s limit: the run took 60,005ms, a 100ms host timer fired *zero* times, and the run was recorded as a success. One accidental `for (;;) { await null; }` from a model took the host down.
+
+Scripts now run in a pooled worker thread, and `terminate()` is the backstop — the only mechanism that stops running code regardless of what it is doing. The in-worker deadline usually resolves the run first with a better message; when it cannot, the thread is destroyed and replaced. Under the same probe: 3,252ms, 32 host ticks, `ok: false`, `script exceeded the wall-clock limit: 3000ms (limits.runTimeoutMs) and was terminated`. A killed worker is never handed back to the next run, so one runaway script cannot leave the environment broken.
+
+Two consequences for adapter authors, both enforced with a named error rather than a mystery:
+
+- **Capability calls must be `await`ed**, including ones whose host implementation is synchronous — the call is now cross-thread RPC. `auditAdapter` fails an adapter whose `.d.ts` declares a binding synchronous, because that is what makes a model write `const rows = parse(text)` and get a promise where the docs promised an array. `env:std` and `env:assert` are pure computation and run *inside* the worker, so they stay synchronous: `json.parse(text)` still returns a value.
+- **Capabilities must return data**, not functions — paths, plain objects, arrays, bytes, and plain objects of those. A function or a live host reference cannot cross a thread boundary; the attempt fails naming the binding rather than hanging.
+
+The pool is one thread per environment by default, which is right for an agent loop that runs a script at a time; `execution.size` raises it for hosts that genuinely run scripts concurrently against one environment. `env.close()` shuts the pool down.
+
 **Realm isolation is what makes that stick.** Absence of a global is not isolation: in JavaScript, *any* host-realm object reaching sandboxed code hands it `value.constructor.constructor` — the host `Function` constructor — and `Function("return process")()` escapes completely. So the boundary is enforced by construction on both sides:
 
 - Host functions are never handed over. They are wrapped by closures built *inside* the context (a closure isn't reachable through property access, so the host callee stays hidden), and every returned value is deep-copied into context-realm objects. Host errors are re-thrown as context-realm `Error`s carrying only name and message. Run arguments cross as a JSON string — a primitive — and are parsed inside the context.
@@ -213,12 +226,13 @@ Honest scope note: this is a **discipline boundary for model-written code, not a
 
 Found by adversarial audit and left open deliberately — each is a real constraint, not a rough edge:
 
-- **Wall-clock enforcement is not absolute.** The vm timeout covers the synchronous prefix of each evaluation, a deadline race covers pending async work, and every capability call re-checks the budget — so a runaway loop that touches `env:fs`/adapters is stopped promptly. But a pure compute loop that yields only to microtasks (`for (;;) { await null; }`) and calls nothing can still starve the event loop: a macrotask timer cannot preempt it, and a microtask watchdog would itself starve legitimate host I/O. Such a script wedges the host until the process restarts. Closing this properly requires running scripts in a worker thread that can be `terminate()`d — a v2 change, since it turns adapter calls into cross-thread RPC.
 - **Imported bindings are snapshots, not live bindings — but never silently.** `export let n` is exposed as a live getter, so `import * as ns` sees later mutations; `import { n }` binds the value at import time, where real ESM would track it. Emulating that needs reference rewriting, which the lexical transform deliberately doesn't do, so the divergence is *reported* instead: a named import of an `export let`/`export var` the module actually reassigns is refused at write time, with the `import * as ns` rewrite. Bindings that are never reassigned cannot diverge and import by name as usual.
 - **Stack-trace line numbers are exact; columns can shift** by a few characters on lines the transform rewrote.
 - The transform is a lexical scanner, not a parser. It is checked against real Node ESM by a differential suite — the same source imported by Node and by the environment, namespaces compared — covering templates, regex-vs-division, ASI, every import/export form (destructuring exports included: renames, defaults, rest, computed keys, nesting, holes, later declarator positions), generators, hashbangs, and import attributes — but exotic syntax may still diverge, and a divergence is a bug worth reporting.
 
-Limits (all configurable; failures name the limit): `runTimeoutMs` 30s · `maxVfsBytes` 256MB · `maxFileBytes` 32MB · `maxToolResponseBytes` ~8KB / `maxToolResponseLines` 200 · `maxVersionsPerFile` 10 · `maxHistoryLines` 5000.
+Limits (all configurable; failures name the limit): `runTimeoutMs` 30s · `maxVfsBytes` 128MB · `maxFileBytes` 32MB · `maxToolResponseBytes` ~8KB / `maxToolResponseLines` 200 · `maxVersionsPerFile` 10 · `maxHistoryLines` 5000 · `execution.memoryMb` 256.
+
+**Sizing for a multi-tenant host.** Two of those are per-environment claims on the host, and a host running N agents in one process pays N times: `maxVfsBytes` is host heap under the default in-memory filesystem, and `execution.memoryMb` is a worker thread's heap. The defaults assume an agent working on a handful of documents. Both err low on purpose — too low is a named error an operator raises in one line, too high is an OOM kill that takes every other agent in the process with it.
 
 ## History & recovery
 

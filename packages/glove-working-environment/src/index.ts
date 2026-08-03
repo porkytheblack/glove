@@ -64,11 +64,15 @@ export interface WorkingEnvironment {
    *
    * Call it when a session ends. Workers are `unref`'d so they never hold the
    * process open, but a long-lived host that creates environments per
-   * conversation would otherwise accumulate idle threads. In-flight runs are
-   * terminated — a host that is shutting down cannot be held open by a script
-   * that will not stop.
+   * conversation would otherwise accumulate idle threads.
+   *
+   * A run still in flight is given `graceMs` (default 5s) to reach its own
+   * end before its worker is terminated, so a script part-way through writing
+   * its outputs can finish the file rather than leave half of one behind.
+   * Past that it is terminated and its `runScript` resolves with an error
+   * saying the environment was closed — never left hanging.
    */
-  close(): Promise<void>;
+  close(options?: { graceMs?: number }): Promise<void>;
 }
 
 const ADAPTER_NAME_RE = /^[a-z][a-z0-9_-]*$/;
@@ -250,8 +254,8 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
       return snapshotVfs(vfs);
     },
 
-    async close(): Promise<void> {
-      await executor.close();
+    async close(options?: { graceMs?: number }): Promise<void> {
+      await executor.close(options);
     },
   };
 }
