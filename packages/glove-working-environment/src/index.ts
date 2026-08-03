@@ -30,6 +30,7 @@ import { RunLog } from "./history/runlog";
 import { tagBindings } from "./adapters/tag";
 import { createFsHandle, createReadOnlyFsHandle, FS_DESCRIPTION, FS_TYPES } from "./builtins/fs";
 import { createStdBindings, STD_DESCRIPTION, STD_TYPES } from "./builtins/std";
+import { ASSERT_DESCRIPTION, ASSERT_TYPES, createAssertBindings } from "./builtins/assert";
 import { buildTools } from "./tools/verbs";
 import { executeRun } from "./tools/run";
 
@@ -112,6 +113,7 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
     readOnlyFsHandle as unknown as Record<string, unknown>,
   );
   register("std", STD_DESCRIPTION, createStdBindings(), createStdBindings());
+  register("assert", ASSERT_DESCRIPTION, createAssertBindings(), createAssertBindings());
   const adapters: StdlibAdapter[] = options.stdlib ?? [];
   for (const adapter of adapters) {
     const instantiate = (vfs: EnvFsHandle, readOnly: boolean) => {
@@ -146,6 +148,7 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
   const writeDoc = (p: string, content: string) => vfs.write(p, toBytes(content));
   await writeDoc("/std/fs/index.d.ts", FS_TYPES);
   await writeDoc("/std/std/index.d.ts", STD_TYPES);
+  await writeDoc("/std/assert/index.d.ts", ASSERT_TYPES);
   for (const adapter of adapters) {
     await writeDoc(`/std/${adapter.name}/index.d.ts`, adapter.types);
     if (adapter.docs) await writeDoc(`/std/${adapter.name}/README.md`, adapter.docs);

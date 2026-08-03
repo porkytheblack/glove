@@ -111,10 +111,27 @@ export class EnvCore {
 
   // ---------------------------------------------------------------- zones
 
+  /**
+   * `*.test.js` under /scripts. Held to the same default-export contract —
+   * `run_tests` has to call something — but not a capability: no `.d.ts` is
+   * generated for it and `ls` labels it so a model reading the catalogue
+   * doesn't mistake a test for a tool.
+   */
+  isTestScript(path: string): boolean {
+    const p = normalizePath(path);
+    return p.endsWith(".test.js") && isUnder(p, "/scripts");
+  }
+
   /** `.js` under /scripts (excluding /scripts/lib/**) must default-export a function. */
   isEnforcedScript(path: string): boolean {
     const p = normalizePath(path);
+    if (this.isTestScript(p)) return true;
     return p.endsWith(".js") && isUnder(p, "/scripts") && !isUnder(p, "/scripts/lib");
+  }
+
+  /** Enforced AND a capability — the subset that earns a generated `.d.ts`. */
+  producesDts(path: string): boolean {
+    return this.isEnforcedScript(path) && !this.isTestScript(path);
   }
 
   /** Any `.js` under /scripts (lib included) is loaded/validated at write time. */
@@ -198,7 +215,7 @@ export class EnvCore {
       if (e instanceof ScriptContractError && e.path === path) throw new Error(e.contractMessage);
       throw new Error(e instanceof Error ? e.message : String(e));
     }
-    if (!this.isEnforcedScript(path)) return { derived: [] }; // lib module: load-checked only
+    if (!this.producesDts(path)) return { derived: [] }; // lib module or test: load-checked only
     const { dts, hasJsDoc } = generateDts(contentText, ns.default as (...a: unknown[]) => unknown, basename(path));
     return {
       derived: [{ write: this.dtsPathFor(path), content: dts }],
@@ -382,7 +399,7 @@ export class EnvCore {
       const prior = await this.vfs.read(p);
       await this.versions.recordMutation(p, prior, "rm");
       await this.vfs.rm(p);
-      if (this.isEnforcedScript(p)) await this.applyDerived([{ remove: this.dtsPathFor(p) }]);
+      if (this.producesDts(p)) await this.applyDerived([{ remove: this.dtsPathFor(p) }]);
       return { removed: [p] };
     }
 
@@ -475,7 +492,7 @@ export class EnvCore {
         allEffects.push(...effects.derived);
         nudge = nudge ?? effects.nudge;
       }
-      if (op === "mv" && this.isEnforcedScript(src)) allEffects.push({ remove: this.dtsPathFor(src) });
+      if (op === "mv" && this.producesDts(src)) allEffects.push({ remove: this.dtsPathFor(src) });
     }
     const derivedDelta = await this.prepareDerived(allEffects);
 
@@ -536,7 +553,7 @@ export class EnvCore {
       if (this.inPipelineScope(p) && !looksBinary(data)) {
         effects = await this.scriptEffects(p, toText(data));
       }
-    } else if (this.isEnforcedScript(p)) {
+    } else if (this.producesDts(p)) {
       effects = { derived: [{ remove: this.dtsPathFor(p) }] };
     }
     await this.prepareDerived(effects.derived);
@@ -579,7 +596,10 @@ export class EnvCore {
         if (entry.kind === "file" && this.isEnforcedScript(p)) {
           const src = await this.readSource(p);
           const line = src ? scriptOneLiner(src) : null;
-          if (line) item.description = line;
+          // Labelled, not hidden: a test is worth seeing in the catalogue, but
+          // it is not a capability and must not read like one.
+          const label = this.isTestScript(p) ? `[test]${line ? ` ${line}` : ""}` : line;
+          if (label) item.description = label;
         } else if (entry.kind === "dir" && dirname(p) === "/std") {
           const desc = this.moduleDescriptions.get(entry.name);
           if (desc) item.description = desc;

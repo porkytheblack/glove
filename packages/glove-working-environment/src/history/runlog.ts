@@ -17,6 +17,8 @@ export interface RunLogEntry {
   resultPreview: string | null;
   spill: string | null;
   error?: string;
+  /** Present only for test runs, so `history` can tell them from real work. */
+  kind?: "test";
 }
 
 export class RunLog {

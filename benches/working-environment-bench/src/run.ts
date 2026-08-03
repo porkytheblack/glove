@@ -53,6 +53,20 @@ async function main(): Promise<void> {
   const results: Result[] = [];
   let spent = 0;
 
+  // Timestamp once, up front: every incremental flush below must land in the
+  // same pair of files, and a per-write stamp would scatter one run across
+  // dozens.
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  // Flush after every cell. A run of 64 cells takes the better part of an
+  // hour, and writing only at the end means a timeout, a killed shell, or a
+  // rate-limit abort throws away every dollar already spent. Partial results
+  // answer most questions; no results answer none.
+  const flush = async (): Promise<void> => {
+    const partial = renderReport(results, spent, reps);
+    await writeFile(`${outDir}${stamp}-raw.json`, JSON.stringify(results, null, 2));
+    await writeFile(`${outDir}${stamp}-report.md`, partial);
+  };
+
   outer: for (const model of models) {
     for (const scenario of scenarios) {
       for (let rep = 1; rep <= reps; rep++) {
@@ -77,6 +91,7 @@ async function main(): Promise<void> {
         }
         const passed = checks.length > 0 && checks.every((c) => c.ok);
         results.push({ model, scenario: scenario.name, rep, checks, passed, transcript, gradeError });
+        await flush();
 
         const failed = transcript.events.filter((e) => e.status === "error").length;
         console.log(
@@ -89,10 +104,10 @@ async function main(): Promise<void> {
   }
 
   const report = renderReport(results, spent, reps);
-  // Keep every run. Comparing a fix against its baseline is the whole point
-  // of running this twice, and an earlier version of this file overwrote the
-  // baseline the moment you tried — which is exactly when you need it.
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  // Keep every run under its own stamp. Comparing a fix against its baseline
+  // is the whole point of running this twice, and an earlier version of this
+  // file overwrote the baseline the moment you tried — which is exactly when
+  // you need it. report.md/raw.json are a convenience alias for the latest.
   await writeFile(`${outDir}${stamp}-raw.json`, JSON.stringify(results, null, 2));
   await writeFile(`${outDir}${stamp}-report.md`, report);
   await writeFile(`${outDir}raw.json`, JSON.stringify(results, null, 2));

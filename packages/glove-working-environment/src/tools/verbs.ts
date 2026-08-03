@@ -129,7 +129,8 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       const r = await core.write(input.path, input.content, { append: input.append });
       const verb = input.append ? "appended to" : r.created ? "created" : "wrote";
       let msg = `${verb} ${input.path} (${fmtBytes(r.bytes)})`;
-      if (core.isEnforcedScript(input.path)) msg += ` — .d.ts regenerated`;
+      if (core.producesDts(input.path)) msg += ` — .d.ts regenerated`;
+      else if (core.isTestScript(input.path)) msg += ` — validated; run it with run_tests`;
       if (r.nudge) msg += `\n${r.nudge}`;
       return ok(msg);
     }),
@@ -333,6 +334,53 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     }),
   };
 
+  const runTests: EnvTool = {
+    name: name("run_tests"),
+    description:
+      "Run every *.test.js under a path (default /scripts) and report pass/fail. A test is an ordinary script whose job is to throw: " +
+      "`import * as assert from 'env:assert'` and assert against your library modules. " +
+      "Run this after editing anything under /scripts/lib — every script that imports it inherits the change silently.",
+    jsonSchema: schema({ path: str("Directory to search, or a single .test.js file. Default /scripts.") }, []),
+    do: guard("run_tests", async (input: { path?: string }) => {
+      const root = input.path ?? "/scripts";
+      const stat = await core.stat(root);
+      if (!stat) return err(`no such file or directory: ${root}`);
+
+      const files = stat.kind === "file" ? [root] : (await core.glob(`${root === "/" ? "" : root}/**/*.test.js`)).sort();
+      if (stat.kind === "file" && !core.isTestScript(root)) {
+        return err(`${root} is not a test file — tests are named *.test.js and live under /scripts`);
+      }
+      if (files.length === 0) {
+        return err(
+          `no tests found under ${root}. Write one at /scripts/<name>.test.js: ` +
+            `import * as assert from 'env:assert', then export default async function that asserts and throws on failure.`,
+        );
+      }
+
+      const lines: string[] = [];
+      let passed = 0;
+      for (const file of files) {
+        // Through executeRun, so tests obey the same limits, spillover and
+        // history as any other run — a test that loops forever must hit the
+        // same deadline a script does.
+        const outcome = await executeRun(deps, file, {}, { spill: false, kind: "test" });
+        if (outcome.run.ok) {
+          passed += 1;
+          lines.push(`PASS  ${file}  (${outcome.run.durationMs}ms)`);
+        } else {
+          lines.push(`FAIL  ${file}  (${outcome.run.durationMs}ms)`);
+          for (const l of (outcome.run.error ?? "assertion failed").split("\n")) lines.push(`        ${l}`);
+        }
+        if (outcome.run.stderr) for (const l of outcome.run.stderr.trimEnd().split("\n")) lines.push(`        stderr: ${l}`);
+      }
+
+      const summary = `${passed}/${files.length} test file(s) passed`;
+      const t = truncateText(lines.join("\n"), limits);
+      const body = t.truncated ? `${t.text}\n… [output truncated — run_tests on a single file for the rest]` : t.text;
+      return passed === files.length ? ok(`${summary}\n${body}`) : err(summary, `${summary}\n${body}`);
+    }),
+  };
+
   const undo: EnvTool = {
     name: name("undo"),
     description: "Revert a file to its previous version (per-file linear undo; rm and overwrites are both undoable). Scripts re-run the pipeline so the .d.ts stays in sync.",
@@ -391,7 +439,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       const runs = await deps.runlog.tail(limit);
       if (runs.length === 0) return ok("no runs recorded yet");
       const lines = runs.map((r) => {
-        const status = r.ok ? "ok  " : "FAIL";
+        const status = r.ok ? (r.kind === "test" ? "test" : "ok  ") : "FAIL";
         const argsStr = JSON.stringify(r.args ?? {});
         const extra = r.ok ? (r.resultPreview ?? "") : (r.error ?? "");
         const spill = r.spill ? ` spill=${r.spill}` : "";
@@ -402,5 +450,5 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     }),
   };
 
-  return [writeFile, editFile, rm, mv, cp, readFile, ls, grep, describe, runScript, undo, redo, history];
+  return [writeFile, editFile, rm, mv, cp, readFile, ls, grep, describe, runScript, runTests, undo, redo, history];
 }

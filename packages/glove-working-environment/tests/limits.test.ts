@@ -14,9 +14,15 @@ test("single-file size limit names limits.maxFileBytes", async () => {
 });
 
 test("total environment size limit names limits.maxVfsBytes", async () => {
-  const env = await makeEnv({ limits: { maxVfsBytes: 6_000 } });
-  await callOk(env, "write_file", { path: "/tmp/a.txt", content: "x".repeat(2_000) });
-  const msg = await callErr(env, "write_file", { path: "/tmp/b.txt", content: "y".repeat(5_000) });
+  // Budget relative to the base tree. /std is materialized before the first
+  // write, so a hard-coded cap that happens to clear today's docs fails the
+  // day a builtin grows its .d.ts — which is what registering env:assert did
+  // to the 6,000 this used to use.
+  const base = (await (await makeEnv()).export("/**")).reduce((n, f) => n + f.bytes.byteLength, 0);
+
+  const env = await makeEnv({ limits: { maxVfsBytes: base + 3_000 } });
+  await callOk(env, "write_file", { path: "/tmp/a.txt", content: "x".repeat(1_000) });
+  const msg = await callErr(env, "write_file", { path: "/tmp/b.txt", content: "y".repeat(2_500) });
   assert.match(msg, /environment size limit exceeded/);
   assert.match(msg, /limits\.maxVfsBytes/);
 });

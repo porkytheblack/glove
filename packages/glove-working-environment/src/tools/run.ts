@@ -92,7 +92,7 @@ export async function executeRun(
   deps: RunDeps & { executor?: ScriptExecutor },
   pathRaw: string,
   args: unknown,
-  opts?: { spill?: boolean },
+  opts?: { spill?: boolean; kind?: "test" },
 ): Promise<RunOutcome> {
   const { core, runlog, limits } = deps;
   const path = normalizePath(pathRaw);
@@ -150,6 +150,7 @@ export async function executeRun(
     durationMs: run.durationMs,
     resultPreview: run.ok ? resultText.slice(0, PREVIEW_CHARS) : null,
     spill,
+    ...(opts?.kind ? { kind: opts.kind } : {}),
     ...(run.ok ? {} : { error: (run.error ?? "").slice(0, PREVIEW_CHARS) }),
   });
 

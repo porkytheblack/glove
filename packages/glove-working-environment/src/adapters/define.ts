@@ -93,7 +93,7 @@ export interface FileSummary {
 const NAME_RE = /^[a-z][a-z0-9_-]*$/;
 
 /** Names that would collide with a builtin module. */
-const RESERVED = new Set(["fs", "std"]);
+const RESERVED = new Set(["fs", "std", "assert"]);
 
 /**
  * Declare a stdlib adapter. Validates the spec immediately and returns a
