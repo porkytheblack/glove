@@ -9,7 +9,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeEnv, script, scriptErr, callOk } from "./helpers";
+import { makeEnv, script, scriptErr, callErr, callOk } from "./helpers";
 
 // ============================================================== env:fs
 
@@ -442,4 +442,22 @@ test("the shape hint stays out of the way when readdir is not involved", async (
   );
   assert.match(err, /is not a function/);
   assert.doesNotMatch(err, /readdir/);
+});
+
+test("a hint lands on the first line, where run_script's message comes from", async () => {
+  // The hint used to be appended to the whole error — after the stack trace.
+  // run_script surfaces only the first line as the result's `message`, so the
+  // correction sat in the field nobody reads. Found by a bench run where the
+  // readdir hint was live and the friction report still showed the bare
+  // TypeError six times.
+  const env = await makeEnv();
+  await env.fs.writeFile("/inbox/a.png", "x");
+  await callOk(env, "write_file", {
+    path: "/scripts/shape.js",
+    content: `import { readdir } from 'env:fs';\nexport default async function main() { return (await readdir('/inbox')).filter((f) => f.endsWith('.png')); }\n`,
+  });
+  const message = await callErr(env, "run_script", { path: "/scripts/shape.js" });
+  const firstLine = message.split("\n")[0];
+  assert.match(firstLine, /readdir\(\) returns entry objects/, `the hint must be on line one, got: ${firstLine}`);
+  assert.doesNotMatch(firstLine, /\s+at /, "and the stack must still come after it");
 });

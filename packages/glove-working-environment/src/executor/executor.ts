@@ -425,7 +425,15 @@ export class ScriptExecutor {
       const hint =
         importHint(error, this.deps.envModules(false)) ??
         shapeHint(error, await this.deps.readSource(path).catch(() => null));
-      if (hint) error = `${error} — ${hint}`;
+      if (hint) {
+        // On the FIRST line, not appended to the whole thing. `describeError`
+        // returns "message\n  at …", and the tool layer surfaces only line one
+        // as the result's `message` — a hint after the stack trace lands in
+        // the field nobody reads, which is the exact failure this whole set of
+        // hints exists to fix.
+        const [head, ...rest] = error.split("\n");
+        error = [`${head} — ${hint}`, ...rest].join("\n");
+      }
       return finish({ ok: false, error });
     }
   }
