@@ -61,7 +61,11 @@ test("missing JSDoc accepts the write but appends the soft nudge", async () => {
     path: "/scripts/plain.js",
     content: `export default async function plain(args) { return args; }\n`,
   });
-  assert.match(msg, /saved; add a JSDoc block above the default export to get typed, described \.d\.ts output\./);
+  // The nudge names the consequence, not the convention: models read a
+  // success response as "done" and moved on when it read as style advice.
+  assert.match(msg, /no description in `ls \/scripts`/);
+  assert.match(msg, /find and reuse it/);
+  assert.match(msg, /@param/, "and shows the shape rather than describing it");
   // .d.ts still generated, with any-typed args
   const dts = await callOk(env, "read_file", { path: "/scripts/plain.d.ts" });
   assert.match(dts, /declare function plain\(args: any\): Promise<unknown>;/);

@@ -303,3 +303,20 @@ test("write_file names the conversion when handed a non-string body", async () =
   assert.match(err, /JSON\.stringify/);
   assert.match(await callErr(env, "write_file", { path: "/out/x.json", content: [1, 2] }), /got an array/);
 });
+
+test("a /std path carrying the env: prefix is corrected, not lectured at", async () => {
+  // Observed five times in one bench run: a model reads
+  // /std/env:documents/index.d.ts, carrying the import specifier into the
+  // path. It already knows the module — the directory name is the only thing
+  // wrong. An earlier version answered by searching the types for the literal
+  // string "env:documents" and produced `import { env:documents } from
+  // 'env:documents'`, which is not valid JavaScript in any position.
+  const env = await makeEnv();
+  const err = await callErr(env, "read_file", { path: "/std/env:std/index.d.ts" });
+  assert.match(err, /named without the "env:" prefix/);
+  assert.match(err, /\/std\/std\/index\.d\.ts/);
+  assert.doesNotMatch(err, /import \{ env:/, "never suggest a specifier that cannot be typed");
+
+  // A prefixed name that is not a module still falls through to the catalogue.
+  assert.match(await callErr(env, "read_file", { path: "/std/env:nope/index.d.ts" }), /Registered modules/);
+});

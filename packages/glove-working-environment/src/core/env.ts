@@ -36,7 +36,19 @@ import type { RunLog } from "../history/runlog";
 /** Only `tail` is needed here; see tools/orientation. */
 type RunLogLike = Pick<RunLog, "tail">;
 
-export const JSDOC_NUDGE = "saved; add a JSDoc block above the default export to get typed, described .d.ts output.";
+/**
+ * Names the consequence rather than the convention.
+ *
+ * The old wording ("add a JSDoc block to get typed, described .d.ts output")
+ * reads as style advice on a success response, and agent evaluation showed
+ * models saving the script and moving on — three graded failures in one run.
+ * The cost is concrete and worth stating: an undocumented script is invisible
+ * in the catalogue it will be rediscovered through.
+ */
+export const JSDOC_NUDGE =
+  "saved, but with no JSDoc block it has no description in `ls /scripts` and its .d.ts is untyped — " +
+  "which is how you (or the next session) will find and reuse it. Add one above the default export: " +
+  "/** What it does. @param {{ x: string }} args @returns {Promise<...>} */";
 
 type DerivedAction = { write: string; content: string } | { remove: string };
 
@@ -282,8 +294,21 @@ export class EnvCore {
    */
   private async explainMissingStd(path: string): Promise<string | null> {
     if (!isUnder(path, "/std")) return null;
-    const wanted = path.split("/")[2];
-    if (!wanted || this.envModules.has(wanted)) return null;
+    const segment = path.split("/")[2];
+    if (!segment || this.envModules.has(segment)) return null;
+
+    // `/std/env:documents/index.d.ts` — the model carried the import
+    // specifier into the path. It knows the module; it has the directory
+    // name wrong, and telling it about exports would be answering a question
+    // it did not ask.
+    if (segment.startsWith("env:")) {
+      const bare = segment.slice(4);
+      if (this.envModules.has(bare)) {
+        return `/std holds one directory per module, named without the "env:" prefix — you want ${path.replace(`/${segment}/`, `/${bare}/`)}.`;
+      }
+    }
+    const wanted = segment.startsWith("env:") ? segment.slice(4) : segment;
+    if (this.envModules.has(wanted)) return null;
 
     const owners: string[] = [];
     const token = new RegExp(`\\b${wanted.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
