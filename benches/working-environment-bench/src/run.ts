@@ -78,11 +78,17 @@ async function main(): Promise<void> {
     }
   }
 
-  await writeFile(`${outDir}raw.json`, JSON.stringify(results, null, 2));
   const report = renderReport(results, spent);
+  // Keep every run. Comparing a fix against its baseline is the whole point
+  // of running this twice, and an earlier version of this file overwrote the
+  // baseline the moment you tried — which is exactly when you need it.
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  await writeFile(`${outDir}${stamp}-raw.json`, JSON.stringify(results, null, 2));
+  await writeFile(`${outDir}${stamp}-report.md`, report);
+  await writeFile(`${outDir}raw.json`, JSON.stringify(results, null, 2));
   await writeFile(`${outDir}report.md`, report);
   console.log(`\n${report}`);
-  console.log(`\nWrote ${outDir}report.md and raw.json · total spend $${spent.toFixed(3)}`);
+  console.log(`\nWrote ${outDir}${stamp}-report.md (and report.md/raw.json as latest) · total spend $${spent.toFixed(3)}`);
 }
 
 function renderReport(results: Result[], spent: number): string {
