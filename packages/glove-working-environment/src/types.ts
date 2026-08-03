@@ -105,6 +105,16 @@ export interface StdlibAdapter {
  * verbs.
  */
 export interface EnvFsHandle {
+  /**
+   * The environment's resource limits, so an adapter can size its work
+   * instead of only failing late.
+   *
+   * The gateway enforces these on every write regardless; what this buys is
+   * the chance to refuse BEFORE doing something expensive — inflating an
+   * archive that cannot fit, allocating a canvas for a page count that will
+   * never be written.
+   */
+  readonly limits: EnvLimits;
   readFile(path: string): Promise<string>;
   readBytes(path: string): Promise<Uint8Array>;
   writeFile(path: string, content: string | Uint8Array): Promise<void>;

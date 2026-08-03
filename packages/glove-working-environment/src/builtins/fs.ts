@@ -27,6 +27,7 @@ function asHostBytes(content: string | Uint8Array | ArrayLike<number>): string |
 
 export function createFsHandle(core: EnvCore): EnvFsHandle {
   return {
+    limits: core.limits,
     readFile: (path) => core.readText(path),
     readBytes: (path) => core.readBytes(path),
     writeFile: async (path, content) => {
@@ -65,6 +66,7 @@ export function createReadOnlyFsHandle(core: EnvCore): EnvFsHandle {
     );
   };
   return {
+    limits: core.limits,
     readFile: (path) => core.readText(path),
     readBytes: (path) => core.readBytes(path),
     readdir: (path) => core.list(path),
@@ -94,6 +96,21 @@ export interface VfsStat {
   size: number;
   mtime: number;
 }
+export interface EnvLimits {
+  runTimeoutMs: number;
+  maxVfsBytes: number;
+  maxFileBytes: number;
+  maxToolResponseBytes: number;
+  maxToolResponseLines: number;
+  maxVersionsPerFile: number;
+  maxHistoryLines: number;
+}
+/**
+ * This environment's caps. Check them before doing something expensive —
+ * every write is enforced against them anyway, so the only thing reading
+ * them buys you is failing early instead of late.
+ */
+export const limits: EnvLimits;
 /** Read a text file (throws on binary content — use readBytes for that). */
 export function readFile(path: string): Promise<string>;
 /** Read raw bytes. */
