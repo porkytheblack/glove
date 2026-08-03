@@ -1,0 +1,24 @@
+{
+  "name": "glove-working-environment-bench",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Agentic evaluation: real models via OpenRouter driving glove-working-environment through end-to-end deliverable tasks.",
+  "scripts": {
+    "bench": "tsx --env-file-if-exists=../../.env src/run.ts",
+    "selfcheck": "tsx src/selfcheck.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "glove-env-documents": "workspace:*",
+    "glove-env-images": "workspace:*",
+    "glove-env-spreadsheets": "workspace:*",
+    "glove-working-environment": "workspace:*",
+    "sharp": "^0.35.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}

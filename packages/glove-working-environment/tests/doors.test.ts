@@ -136,6 +136,54 @@ test("snapshot → fromSnapshot round-trips scripts, .d.ts siblings, history, an
   assert.match(await callOk(env2, "read_file", { path: "/scripts/add.d.ts" }), /addNumbers/);
 });
 
+test("a stored script that depends on an adapter still runs after a restore", async () => {
+  // The realistic persistence case: an agent's saved script imports a stdlib
+  // module, so restoring it means re-binding a live host capability — not
+  // just replaying bytes.
+  const env = await makeEnv({ stdlib: [textkit()] });
+  await callOk(env, "write_file", {
+    path: "/scripts/shout.js",
+    content: `import { render, describe } from 'env:textkit';
+
+/**
+ * Renders text loudly to a path and reports what landed.
+ * @param {{ out: string, text: string }} args
+ */
+export default async function shout(args) {
+  await render(args.out, args.text);
+  return describe(args.out);
+}
+`,
+  });
+
+  const snap = await env.snapshot();
+  const restored = await createWorkingEnvironment({
+    filesystem: fromSnapshot(JSON.parse(JSON.stringify(snap))),
+    stdlib: [textkit()],
+  });
+
+  const rerun = await restored.runScript("/scripts/shout.js", { out: "/out/loud.txt", text: "still here" });
+  assert.equal(rerun.ok, true, rerun.error);
+  assert.deepEqual(rerun.result, { chars: 10, preview: "STILL HERE" });
+  assert.equal(await restored.fs.readFile("/out/loud.txt"), "STILL HERE");
+});
+
+test("a restored script whose adapter is gone fails with a message naming the module", async () => {
+  const env = await makeEnv({ stdlib: [textkit()] });
+  await callOk(env, "write_file", {
+    path: "/scripts/shout.js",
+    content: `import { render } from 'env:textkit';\n\n/** Shouts. */\nexport default async function shout(a) { return render(a.out, a.text); }\n`,
+  });
+  const snap = await env.snapshot();
+
+  // Host forgot to register the adapter this time — the script is intact but
+  // its capability is not. The failure has to say which module is missing.
+  const restored = await createWorkingEnvironment({ filesystem: fromSnapshot(snap) });
+  const rerun = await restored.runScript("/scripts/shout.js", { out: "/out/x.txt", text: "hi" });
+  assert.equal(rerun.ok, false);
+  assert.match(rerun.error ?? "", /textkit/);
+});
+
 test("restoring a snapshot re-materializes /std from the CURRENT adapter set", async () => {
   const env = await makeEnv({ stdlib: [textkit()] });
   const snap = await env.snapshot();

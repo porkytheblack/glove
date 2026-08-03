@@ -448,6 +448,13 @@ export function createPdfBindings(vfs: EnvFsHandle) {
         data: new Uint8Array(bytes),
         isEvalSupported: false,
         useSystemFonts: false,
+        // 0 = errors only. pdfjs otherwise narrates font substitution to
+        // stderr for practically every document ("Ensure that the
+        // `standardFontDataUrl` API parameter is provided", then one line per
+        // substituted face). None of it is actionable — pdfjs 5 ships Foxit
+        // faces rather than the Liberation ones it asks for — and real
+        // failures still throw.
+        verbosity: 0,
       });
       const doc = await task.promise;
       try {
