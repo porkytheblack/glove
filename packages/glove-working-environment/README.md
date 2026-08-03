@@ -95,6 +95,7 @@ The complete, closed set — everything the model does goes through these:
 | `read_file(path, start_line?, end_line?)` | Line-numbered, capped with an explicit tail; binary files refused |
 | `ls(path?, depth?)` | `/scripts` inlines JSDoc one-liners — the listing is the capability catalog |
 | `grep(pattern, path?, glob?, context?, max_matches?)` | Capped; also covers `/.env/history.jsonl` |
+| `describe(path)` | Routes to whichever adapter understands the format (magic bytes, not extension); generic summary otherwise |
 | `run_script(path, args)` | `await defaultExport(args)`; result + stdout/stderr; oversized output spills to `/tmp/run-<id>.*` |
 | `undo(path)` / `redo(path)` | Per-file linear undo (rm included); re-runs the pipeline for scripts |
 | `history(path?, limit?)` | Runs from `history.jsonl`, or a file's saved versions |
@@ -126,6 +127,10 @@ export const images = () =>
     description: "Inspect and transform raster images.",
     types: IMAGES_TYPES,                              // → /std/images/index.d.ts
     docs: IMAGES_DOCS,                                // → /std/images/README.md
+    handles: {                                        // → describe(path) routes here, ls names the module
+      extensions: [".png", ".jpg"],
+      magic: [{ bytes: [0x89, 0x50, 0x4e, 0x47] }],   // beats any extension claim
+    },
     create: (vfs, ctx) => ({
       describe: async (path) => summarize(await vfs.readBytes(path)),
       resize: async (input, output, opts) => {
@@ -142,6 +147,7 @@ Four things the environment does for you, which is most of why adapters are shor
 
 - **Arguments arrive as host-realm values.** An array literal written inside a script is a context-realm `Array`: `Array.isArray` recognises it, `instanceof Array` does not, and libraries use both — exceljs reads `instanceof Array` as "a row of cells" and anything else as "a map of column names", so a script's rows silently produced an empty spreadsheet. Everything crossing inward is deep-copied (cycles, `Date`, `Map`/`Set`, typed arrays included), so a library sees plain host data and never a live reference into the sandbox.
 - **Failures name the capability.** Every function reachable through `env:*` is wrapped, at any nesting depth, so a bare `Invalid PDF structure` reaches the model as `env:documents.pdf.merge: Invalid PDF structure`. In a script touching four capabilities that is the difference between one debugging round trip and three.
+- **Declaring `handles` makes your `describe` reachable without a script.** The `describe` verb routes a path to whichever adapter claims it, and `ls` annotates claimed files with the module that opens them. Claims are matched from the file's head bytes without calling in, so annotating a directory of fifty documents costs fifty header reads, not fifty parses. Magic beats extension globally — declare a magic signature only where it is unambiguous (a `PK` header cannot distinguish `.xlsx` from `.docx`; both are claimed by extension instead).
 - **`create` is called twice** — once normally, once bound to a filesystem that refuses mutations, because write-time validation runs module top-level code and a rejected write must leave no trace. `ctx.readOnly` distinguishes them; most adapters ignore it. Keep `create` free of side effects outside its handle.
 - **Specs are checked eagerly.** `defineAdapter` rejects a bad name, a missing `description`, or absent `types` at definition time, where the author sees it — not at environment creation, in someone else's stack trace.
 

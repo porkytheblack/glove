@@ -12,6 +12,7 @@
  * handle.
  */
 import type { EnvFsHandle, StdlibAdapter } from "../types";
+import { validateHandles, type HandlesSpec } from "./handles";
 
 /** The shape an adapter's `create` returns: a module namespace. */
 export type AdapterBindings = Record<string, unknown>;
@@ -41,6 +42,20 @@ export interface AdapterSpec<T extends AdapterBindings> {
   types: string;
   /** README with worked examples; materialized at `/std/<name>/README.md`. */
   docs?: string;
+  /**
+   * The files this adapter understands, declared so the environment can route
+   * to it without calling in. Pairs with a `describe(path)` binding: the
+   * `describe` verb dispatches here, and `ls` uses it to say which module can
+   * open an otherwise opaque binary.
+   *
+   * ```ts
+   * handles: { extensions: [".png", ".jpg"], magic: [{ bytes: [0x89, 0x50, 0x4e, 0x47] }] }
+   * ```
+   *
+   * Magic bytes are matched first and beat any extension claim — a PDF named
+   * `.docx` is a PDF.
+   */
+  handles?: HandlesSpec;
   /**
    * Produce the bindings. ALL I/O must go through the given handle — it is
    * the capability boundary, routing through the same guarded gateway as the
@@ -123,6 +138,7 @@ export function defineAdapter<T extends AdapterBindings>(spec: AdapterSpec<T>): 
   if (typeof spec.create !== "function") {
     throw new TypeError(`${where}: create(vfs, ctx) is required and must return the module's bindings`);
   }
+  if (spec.handles !== undefined) validateHandles(spec.handles, where);
 
   const create = (vfs: EnvFsHandle, ctx?: Partial<AdapterContext>): T => {
     const bindings = spec.create(vfs, { name: spec.name, readOnly: false, ...ctx });
@@ -137,6 +153,7 @@ export function defineAdapter<T extends AdapterBindings>(spec: AdapterSpec<T>): 
     description: spec.description.trim(),
     types: spec.types,
     ...(spec.docs === undefined ? {} : { docs: spec.docs }),
+    ...(spec.handles === undefined ? {} : { handles: spec.handles }),
     create,
   };
 }

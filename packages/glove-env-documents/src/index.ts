@@ -36,6 +36,13 @@ export const documents = () =>
     description: "Compose, inspect and rearrange PDF and DOCX documents; extract their text.",
     types: DOCUMENTS_TYPES,
     docs: DOCUMENTS_DOCS,
+    // Only PDF gets a magic claim. DOCX is a ZIP, and so is XLSX — a `PK`
+    // signature cannot tell them apart, so the ZIP-based formats are claimed
+    // by extension and left to disagree politely with env:spreadsheets.
+    handles: {
+      extensions: [".pdf", ".docx"],
+      magic: [{ bytes: [0x25, 0x50, 0x44, 0x46] }], // %PDF
+    },
     create: (vfs: EnvFsHandle) => {
       const pdf = createPdfBindings(vfs);
       const docx = createDocxBindings(vfs);

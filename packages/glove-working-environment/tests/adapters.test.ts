@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { defineAdapter, type EnvFsHandle, type StdlibAdapter } from "../src/index";
 import { assertAdapterOk, auditAdapter, createAdapterTestEnv } from "../src/testing";
-import { makeEnv, script, scriptErr, callOk } from "./helpers";
+import { makeEnv, script, scriptErr, callErr, callOk } from "./helpers";
 
 /** A minimal well-formed adapter used as the baseline throughout. */
 const textkit = () =>
@@ -672,4 +672,124 @@ test("the import hint is offered only when a module really owns the name", async
   );
   assert.match(err, /totallyMadeUp is not defined/);
   assert.doesNotMatch(err, /did you mean to import/);
+});
+
+// ================================== the file-handler registry and describe
+
+/** An adapter that claims PNGs by magic bytes and answers describe(). */
+const pixels = () =>
+  defineAdapter({
+    name: "pixels",
+    description: "Toy image adapter: claims PNG by signature.",
+    types: "export function describe(path: string): Promise<{ path: string; format: string; bytes: number }>;",
+    handles: { extensions: [".png"], magic: [{ bytes: [0x89, 0x50, 0x4e, 0x47] }] },
+    create: (vfs) => ({
+      async describe(path: string) {
+        return { path, format: "png", bytes: (await vfs.stat(path))?.size ?? 0, pixels: "many" };
+      },
+    }),
+  });
+
+const PNG_HEAD = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+
+test("defineAdapter rejects a handles claim that cannot match anything", () => {
+  const base = { name: "x", description: "d", types: "export const a: number;", create: () => ({}) };
+  assert.throws(() => defineAdapter({ ...base, handles: {} as never }), /at least one of extensions or magic/);
+  assert.throws(() => defineAdapter({ ...base, handles: { extensions: ["png"] } }), /must start with a dot/);
+  assert.throws(() => defineAdapter({ ...base, handles: { magic: [{ bytes: [] }] } }), /non-empty bytes array/);
+  assert.throws(() => defineAdapter({ ...base, handles: { magic: [{ bytes: [999] }] } }), /0–255/);
+});
+
+test("describe routes a claimed file to its adapter, and an unclaimed one to the fallback", async () => {
+  const env = await makeEnv({ stdlib: [pixels()] });
+  await env.mount(PNG_HEAD, "/inbox/logo.png");
+  await env.fs.writeFile("/inbox/notes.txt", "alpha\nbeta\ngamma\n");
+
+  const image = JSON.parse(await callOk(env, "describe", { path: "/inbox/logo.png" }));
+  assert.equal(image.module, "env:pixels");
+  assert.equal(image.format, "png");
+  assert.equal(image.pixels, "many");
+
+  const text = JSON.parse(await callOk(env, "describe", { path: "/inbox/notes.txt" }));
+  assert.equal(text.binary, false);
+  assert.equal(text.lines, 4);
+  assert.match(text.preview, /alpha/);
+  assert.equal(text.module, undefined, "nothing claims a .txt");
+});
+
+test("dispatch reads bytes, not the extension", async () => {
+  // The whole point of a magic claim: a PNG named .xlsx is still a PNG.
+  const env = await makeEnv({ stdlib: [pixels()] });
+  await env.mount(PNG_HEAD, "/inbox/q3.xlsx");
+  const out = JSON.parse(await callOk(env, "describe", { path: "/inbox/q3.xlsx" }));
+  assert.equal(out.module, "env:pixels");
+  assert.equal(out.format, "png");
+});
+
+test("an unclaimed binary still describes usefully instead of erroring", async () => {
+  const env = await makeEnv();
+  await env.mount(new Uint8Array([0x00, 0x01, 0x02, 0x03, 0xff, 0xfe, 0x00, 0x7f]), "/inbox/mystery.bin");
+  const out = JSON.parse(await callOk(env, "describe", { path: "/inbox/mystery.bin" }));
+  assert.equal(out.binary, true);
+  assert.equal(out.bytes, 8);
+  assert.match(out.head, /^00 01 02 03/);
+  assert.match(out.note, /no registered module claims this file/);
+});
+
+test("an adapter that throws on a file it claimed degrades to the generic summary", async () => {
+  const brittle = defineAdapter({
+    name: "brittle",
+    description: "Claims PNG, cannot read one.",
+    types: "export function describe(path: string): Promise<never>;",
+    handles: { magic: [{ bytes: [0x89, 0x50, 0x4e, 0x47] }] },
+    create: () => ({
+      async describe(): Promise<never> {
+        throw new Error("truncated file");
+      },
+    }),
+  });
+  const env = await makeEnv({ stdlib: [brittle] });
+  await env.mount(PNG_HEAD, "/inbox/broken.png");
+  const out = JSON.parse(await callOk(env, "describe", { path: "/inbox/broken.png" }));
+  assert.equal(out.module, "env:brittle");
+  assert.match(out.moduleError, /env:brittle\.describe: truncated file/);
+  assert.equal(out.bytes, 12, "and the generic facts still arrive");
+});
+
+test("describe summarises a directory and refuses a path that is not there", async () => {
+  const env = await makeEnv();
+  await env.fs.writeFile("/inbox/a.txt", "a");
+  await env.fs.writeFile("/inbox/sub/b.txt", "b");
+  const dir = JSON.parse(await callOk(env, "describe", { path: "/inbox" }));
+  assert.equal(dir.kind, "directory");
+  assert.equal(dir.files, 1);
+  assert.equal(dir.directories, 1);
+
+  assert.match(await callErr(env, "describe", { path: "/inbox/nope.txt" }), /no such file or directory/);
+});
+
+test("ls names the module that can open each claimed file", async () => {
+  // Fifty mounted binaries are otherwise fifty opaque names.
+  const env = await makeEnv({ stdlib: [pixels()] });
+  await env.mount(PNG_HEAD, "/inbox/one.png");
+  await env.fs.writeFile("/inbox/plain.txt", "hello");
+  const listing = await callOk(env, "ls", { path: "/inbox" });
+  assert.match(listing, /one\.png \(\d+B\) — open with env:pixels/);
+  assert.doesNotMatch(listing, /plain\.txt.*—/);
+});
+
+test("magic beats extension across adapters, not just within one", async () => {
+  const byExt = defineAdapter({
+    name: "byext",
+    description: "Claims .png by name only.",
+    types: "export function describe(path: string): Promise<{ who: string }>;",
+    handles: { extensions: [".png"] },
+    create: () => ({ describe: async () => ({ who: "byext" }) }),
+  });
+  // Registered FIRST, so registration order would give it the file if
+  // extensions were considered before magic.
+  const env = await makeEnv({ stdlib: [byExt, pixels()] });
+  await env.mount(PNG_HEAD, "/inbox/real.png");
+  const out = JSON.parse(await callOk(env, "describe", { path: "/inbox/real.png" }));
+  assert.equal(out.module, "env:pixels");
 });

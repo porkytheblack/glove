@@ -119,12 +119,18 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
       }
       return produced;
     };
-    register(
-      adapter.name,
-      adapter.description,
-      instantiate(fsHandle, false),
-      instantiate(readOnlyFsHandle, true),
-    );
+    const bindings = instantiate(fsHandle, false);
+    register(adapter.name, adapter.description, bindings, instantiate(readOnlyFsHandle, true));
+    if (adapter.handles) {
+      // The registry holds the read-WRITE describe: `describe` is a read-only
+      // verb by nature, but an adapter that needs a scratch file to answer
+      // (rasterizing a page, say) must not be blocked by the validation-time
+      // handle. Registered from `core.envModules` so the binding is the same
+      // tagged, frozen one scripts call.
+      const ns = core.envModules.get(adapter.name) ?? {};
+      const describe = typeof ns.describe === "function" ? (ns.describe as (p: string) => Promise<unknown>) : undefined;
+      core.handlers.register({ module: adapter.name, handles: adapter.handles, describe });
+    }
   }
 
   // --- materialize the tree ----------------------------------------------
@@ -258,6 +264,7 @@ export {
   type DefinedAdapter,
   type FileSummary,
 } from "./adapters/define";
+export { HandlerRegistry, type Claim, type HandlesSpec, type RegisteredHandler } from "./adapters/handles";
 export { mountWorkingEnvironment, buildPreamble, type MountWorkingEnvironmentConfig } from "./tools/mount";
 export { defaultExportError, ScriptContractError } from "./pipeline/contract";
 export { deepFreeze } from "./executor/executor";

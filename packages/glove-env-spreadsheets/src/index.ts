@@ -156,6 +156,11 @@ export const spreadsheets = () =>
     description: "Read, write and summarise .xlsx workbooks; bridge sheets to and from CSV.",
     types: SPREADSHEETS_TYPES,
     docs: SPREADSHEETS_DOCS,
+    // No magic claim: XLSX is a ZIP and indistinguishable from DOCX by
+    // signature. And no `.csv` claim either — a CSV is text, and the generic
+    // "1,240 lines, here are the first five" summary tells a model more than
+    // loading it as a one-sheet workbook would.
+    handles: { extensions: [".xlsx", ".xlsm"] },
     create: (vfs: EnvFsHandle) => ({
       /** Structure of a workbook — sheet names, sizes, headers, one sample row. */
       async describe(path: string): Promise<WorkbookSummary> {

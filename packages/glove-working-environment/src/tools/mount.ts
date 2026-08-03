@@ -32,7 +32,8 @@ Operating discipline:
 - All execution goes through named scripts: write_file a script under /scripts, then run_script it. Every script must \`export default async function (args) { ... }\` — validation happens at write time and tells you exactly what to fix. Give each script a JSDoc block: it becomes the generated .d.ts and the description shown by ls.
 - Scripts import capabilities — and each other: \`import { readFile, writeFile } from 'env:fs'\`, \`import { csv } from 'env:std'\`, \`import parse from './parse.js'\`. Nothing else is importable: no npm packages, no network, no host filesystem, no process — these do not exist in the sandbox.
 - Discover before you build: ls /scripts is your capability catalog (one-line descriptions from JSDoc); ls /std lists stdlib modules; read_file /std/<name>/index.d.ts gives exact signatures; grep finds which script handles what.
-- Iterate like a developer: generate, inspect the artifact (read_file a CSV, or call an adapter's describe() from a script for binaries), correct, re-run. undo/redo revert per-file mistakes; history shows recent runs or a file's versions.
+- Orient before you parse: describe(path) summarises any file — page counts, sheet names, image dimensions — by routing to the module that understands the format. Use it on an unfamiliar input instead of guessing, and on your own output to check what you produced.
+- Iterate like a developer: generate, inspect the artifact (read_file a CSV, describe a binary), correct, re-run. undo/redo revert per-file mistakes; history shows recent runs or a file's versions.
 
 Environment modules available to scripts: ${mods || "(none)"}.`;
 }

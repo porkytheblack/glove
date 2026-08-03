@@ -5,6 +5,9 @@
  * structurally compatible with glove-core's `GloveFoldArgs` without importing
  * it.
  */
+import type { HandlesSpec } from "./adapters/handles";
+
+export type { HandlesSpec };
 
 /** A single entry returned by {@link Vfs.list}. */
 export interface VfsEntry {
@@ -77,6 +80,12 @@ export interface StdlibAdapter {
   types: string;
   /** Optional README with worked examples (materialized at /std/<name>/README.md). */
   docs?: string;
+  /**
+   * The files this adapter understands, by extension and/or magic bytes. When
+   * present alongside a `describe(path)` binding, the `describe` verb routes
+   * matching files here and `ls` names the module beside them.
+   */
+  handles?: HandlesSpec;
   /**
    * Factory producing the actual bindings. ALL I/O goes through the given VFS
    * handle.

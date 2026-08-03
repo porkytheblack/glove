@@ -206,7 +206,7 @@ test("mountWorkingEnvironment folds the closed verb set and primes the system pr
   mountWorkingEnvironment(fakeGlove, { env });
   assert.deepEqual(
     folded.map((t) => t.name).sort(),
-    ["cp", "edit_file", "grep", "history", "ls", "mv", "read_file", "redo", "rm", "run_script", "undo", "write_file"],
+    ["cp", "describe", "edit_file", "grep", "history", "ls", "mv", "read_file", "redo", "rm", "run_script", "undo", "write_file"],
   );
   assert.match(prompt, /WORKING ENVIRONMENT/);
   assert.match(prompt, /env:textkit \(Toy text-format adapter/);

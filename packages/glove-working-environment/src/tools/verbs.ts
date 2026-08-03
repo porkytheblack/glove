@@ -1,8 +1,15 @@
 /**
  * The complete, closed model-facing verb set (§5 of the design):
- * write_file, edit_file, rm, mv, cp · read_file, ls, grep · run_script ·
- * undo, redo, history. All paths are VFS paths. Doors, snapshots, and
- * adapter registration are host-side and invisible from here.
+ * write_file, edit_file, rm, mv, cp · read_file, ls, grep, describe ·
+ * run_script · undo, redo, history. All paths are VFS paths. Doors,
+ * snapshots, and adapter registration are host-side and invisible from here.
+ *
+ * `describe` is the one addition to the spec's closed twelve, and it earns
+ * the exception: every format adapter already exposes `describe(path)` by
+ * convention, but reaching it meant writing a script, running it, and reading
+ * the result — three calls and a context round-trip for pure orientation,
+ * which agent evaluation shows is the first thing a model does with an
+ * unfamiliar inbox.
  */
 import type { EnvLimits, EnvTool, EnvToolResult } from "../types";
 import type { EnvCore } from "../core/env";
@@ -312,6 +319,20 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     }),
   };
 
+  const describe: EnvTool = {
+    name: name("describe"),
+    description:
+      "Summarise any file without reading it: dispatches to whichever stdlib module understands the format (by magic bytes, not extension) " +
+      "and falls back to a generic summary — size, text-or-binary, line count, first lines. " +
+      "This is the orientation verb: use it on an unfamiliar input before writing a script against it. Directories report their contents.",
+    jsonSchema: schema({ path: str("Absolute VFS path of the file or directory to summarise") }, ["path"]),
+    do: guard("describe", async (input: { path: string }) => {
+      if (typeof input.path !== "string") return err("describe needs { path }");
+      const summary = await core.describeFile(input.path);
+      return ok(JSON.stringify(summary, null, 2));
+    }),
+  };
+
   const undo: EnvTool = {
     name: name("undo"),
     description: "Revert a file to its previous version (per-file linear undo; rm and overwrites are both undoable). Scripts re-run the pipeline so the .d.ts stays in sync.",
@@ -381,5 +402,5 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     }),
   };
 
-  return [writeFile, editFile, rm, mv, cp, readFile, ls, grep, runScript, undo, redo, history];
+  return [writeFile, editFile, rm, mv, cp, readFile, ls, grep, describe, runScript, undo, redo, history];
 }

@@ -161,6 +161,18 @@ export const images = () =>
     description: "Inspect and transform raster images: describe, resize, convert, crop, rotate, composite.",
     types: IMAGES_TYPES,
     docs: IMAGES_DOCS,
+    handles: {
+      extensions: [".png", ".jpg", ".jpeg", ".gif", ".webp", ".tif", ".tiff", ".avif", ".heic", ".heif"],
+      magic: [
+        { bytes: [0x89, 0x50, 0x4e, 0x47] }, // PNG
+        { bytes: [0xff, 0xd8, 0xff] }, // JPEG
+        { bytes: [0x47, 0x49, 0x46, 0x38] }, // GIF8
+        { bytes: [0x57, 0x45, 0x42, 0x50], offset: 8 }, // WEBP, inside the RIFF container
+        { bytes: [0x49, 0x49, 0x2a, 0x00] }, // TIFF, little-endian
+        { bytes: [0x4d, 0x4d, 0x00, 0x2a] }, // TIFF, big-endian
+        { bytes: [0x66, 0x74, 0x79, 0x70], offset: 4 }, // ISO-BMFF: avif/heic
+      ],
+    },
     create: (vfs: EnvFsHandle) => ({
       /** What is this image? Dimensions, format, colour space — no pixels. */
       async describe(path: string): Promise<ImageSummary> {

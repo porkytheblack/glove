@@ -27,6 +27,7 @@ import { ScriptContractError } from "../pipeline/contract";
 import { generateDts } from "../pipeline/dts";
 import { scriptOneLiner } from "../pipeline/jsdoc";
 import { newCapture, type ScriptExecutor } from "../executor/executor";
+import { HandlerRegistry, HEAD_BYTES, type Claim } from "../adapters/handles";
 import type { VersionStore } from "../history/versions";
 
 export const JSDOC_NUDGE = "saved; add a JSDoc block above the default export to get typed, described .d.ts output.";
@@ -62,6 +63,8 @@ export class EnvCore {
   readonly envModulesReadOnly = new Map<string, Record<string, unknown>>();
   /** name → one-liner, for `ls /std` and the tool description. */
   readonly moduleDescriptions = new Map<string, string>();
+  /** Which adapter understands which file — shared by `describe` and `ls`. */
+  readonly handlers = new HandlerRegistry();
   private executor!: ScriptExecutor;
   /** Serializes mutations so version recording can't lose updates. */
   private queue: Promise<unknown> = Promise.resolve();
@@ -565,6 +568,13 @@ export class EnvCore {
         } else if (entry.kind === "dir" && dirname(p) === "/std") {
           const desc = this.moduleDescriptions.get(entry.name);
           if (desc) item.description = desc;
+        } else if (entry.kind === "file") {
+          // A directory of mounted binaries is otherwise fifty opaque names.
+          // Naming the module that can open each one is the cheap half of
+          // orientation — head bytes only, no parsing — and `describe` is
+          // there for the expensive half, one file at a time.
+          const claim = await this.claimFor(p);
+          if (claim) item.description = `open with env:${claim.handler.module}`;
         }
         out.push(item);
         if (entry.kind === "dir") await walk(p, d + 1);
@@ -625,5 +635,88 @@ export class EnvCore {
   async describeScript(path: string): Promise<string | null> {
     const src = await this.readSource(normalizePath(path));
     return src ? scriptOneLiner(src) : null;
+  }
+
+  /** Which adapter claims this file, if any. Reads only the head bytes. */
+  async claimFor(path: string): Promise<Claim | null> {
+    if (this.handlers.list().length === 0) return null;
+    const p = normalizePath(path);
+    const stat = await this.vfs.stat(p);
+    if (stat?.kind !== "file") return null;
+    const head = (await this.vfs.read(p)).subarray(0, HEAD_BYTES);
+    return this.handlers.claim(p, head);
+  }
+
+  /**
+   * Summarise any file: the claiming adapter's own `describe()` when one
+   * exists, otherwise a generic structural summary.
+   *
+   * The fallback matters as much as the dispatch. "No adapter handles this"
+   * is a true answer that leaves the model exactly where it started, whereas
+   * size + text/binary + a first-lines peek is enough to decide what to do
+   * next with almost anything.
+   */
+  async describeFile(pathRaw: string): Promise<Record<string, unknown>> {
+    const path = normalizePath(pathRaw);
+    const stat = await this.vfs.stat(path);
+    if (!stat) throw new Error(`no such file or directory: ${path}`);
+    if (stat.kind === "dir") {
+      const entries = await this.vfs.list(path);
+      return {
+        path,
+        kind: "directory",
+        entries: entries.length,
+        files: entries.filter((e) => e.kind === "file").length,
+        directories: entries.filter((e) => e.kind === "dir").length,
+      };
+    }
+
+    const claim = await this.claimFor(path);
+    if (claim?.handler.describe) {
+      try {
+        const summary = await claim.handler.describe(path);
+        if (summary !== null && typeof summary === "object") {
+          return { path, module: `env:${claim.handler.module}`, ...(summary as Record<string, unknown>) };
+        }
+        return { path, module: `env:${claim.handler.module}`, summary };
+      } catch (e) {
+        // An adapter that cannot parse a file it claimed is a fact worth
+        // reporting, not a reason to fail: the generic summary below still
+        // answers "what am I holding", and the reason it failed to parse is
+        // often the actual answer (truncated download, wrong format, DRM).
+        const generic = await this.genericSummary(path, stat.size);
+        return {
+          ...generic,
+          module: `env:${claim.handler.module}`,
+          moduleError: e instanceof Error ? e.message : String(e),
+        };
+      }
+    }
+
+    const generic = await this.genericSummary(path, stat.size);
+    return claim ? { ...generic, module: `env:${claim.handler.module}` } : generic;
+  }
+
+  private async genericSummary(path: string, size: number): Promise<Record<string, unknown>> {
+    const data = await this.vfs.read(path);
+    const binary = looksBinary(data);
+    const base: Record<string, unknown> = { path, kind: "file", bytes: size, binary };
+    if (binary) {
+      const head = data.subarray(0, 8);
+      base.head = [...head].map((b) => b.toString(16).padStart(2, "0")).join(" ");
+      const modules = this.handlers
+        .list()
+        .map((h) => `env:${h.module}`)
+        .join(", ");
+      base.note = modules
+        ? `no registered module claims this file — registered handlers: ${modules}`
+        : `no registered module claims this file`;
+      return base;
+    }
+    const text = toText(data);
+    const lines = text.split("\n");
+    base.lines = lines.length;
+    base.preview = lines.slice(0, 5).join("\n").slice(0, 500);
+    return base;
   }
 }
