@@ -275,3 +275,56 @@ export default async function roundtrip() {
     assert.equal(v, true, `${k} broke when values were marshalled across realms`);
   }
 });
+
+test("a host stack frame never reaches the model, whatever the host is called", async () => {
+  // The sandbox's premise is that the host does not exist from inside. A
+  // stack trace that names host files breaks that quietly: it discloses the
+  // deployment's filesystem layout and module structure to the one party the
+  // design exists to keep it from.
+  //
+  // The earlier filter matched `/(scripts|tmp|inbox|out)/` as a substring
+  // anywhere in the frame, meaning "a VFS path". `out/` and `scripts/` are
+  // ordinary directory names in a real deployment, and host `/tmp` collides
+  // with VFS `/tmp` exactly — so host frames sailed through.
+  const env = await makeEnv();
+  await env.fs.writeFile(
+    "/scripts/boom.js",
+    `export default async function main() { throw new Error("business logic failed"); }`,
+  );
+  const run = await env.runScript("/scripts/boom.js");
+  assert.equal(run.ok, false);
+  const error = String(run.error);
+
+  assert.match(error, /business logic failed/);
+  assert.match(error, /at main \(\/scripts\/boom\.js:/, "the script's own frames are useful and stay");
+
+  // Every retained frame must name a file the executor actually loaded.
+  // Anchored, and parenthesised form tried first — an unanchored alternation
+  // captures `main (/scripts/boom.js` out of `at main (/scripts/boom.js:1:31)`.
+  for (const line of error.split("\n").slice(1)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("at ")) continue;
+    const path =
+      /^at .*\((.+):\d+:\d+\)$/.exec(trimmed)?.[1] ?? /^at (.+):\d+:\d+$/.exec(trimmed)?.[1] ?? null;
+    assert.ok(path !== null, `unparseable frame reached the model: ${trimmed}`);
+    assert.ok(path.startsWith("/scripts/"), `leaked a non-script frame: ${trimmed}`);
+  }
+  // This test file itself is a host frame in the throwing stack — the clearest
+  // proof the filter is exact rather than approximate.
+  assert.doesNotMatch(error, /\.test\.ts/);
+  assert.doesNotMatch(error, /node_modules/);
+  assert.doesNotMatch(error, /node:internal/);
+});
+
+test("describeError yields no frames at all when it cannot tell script from host", async () => {
+  const { describeError } = await import("../src/executor/executor");
+  const err = new Error("something failed");
+  err.stack = "Error: something failed\n    at handler (/srv/app/out/server.js:10:5)\n    at /tmp/x.js:1:1";
+  // No module set: the safe answer is the message alone, never a guess.
+  assert.equal(describeError(err), "something failed");
+  // With one, only the known file survives — note /tmp/x.js is NOT kept even
+  // though the VFS also has a /tmp.
+  assert.equal(describeError(err, new Set(["/scripts/a.js"])), "something failed");
+  err.stack = "Error: something failed\n    at main (/scripts/a.js:2:3)\n    at h (/srv/app/out/server.js:10:5)";
+  assert.equal(describeError(err, new Set(["/scripts/a.js"])), "something failed\n  at main (/scripts/a.js:2:3)");
+});

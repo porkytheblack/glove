@@ -421,7 +421,9 @@ export class ScriptExecutor {
       }
       return finish({ ok: true, result });
     } catch (e) {
-      let error = describeError(e);
+      // The registry keys ARE the filenames given to vm.Script, so this is an
+      // exact list of the script files in play — nothing host-side can match.
+      let error = describeError(e, new Set(st.registry.keys()));
       const hint =
         importHint(error, this.deps.envModules(false)) ??
         shapeHint(error, await this.deps.readSource(path).catch(() => null));
@@ -587,14 +589,43 @@ export function shapeHint(message: string, source: string | null): string | null
   );
 }
 
-export function describeError(e: unknown): string {
+/** The file a V8 stack frame refers to, or null if the line isn't a frame. */
+function frameFile(line: string): string | null {
+  const parenthesised = /^\s+at .*\((.+):\d+:\d+\)\s*$/.exec(line);
+  if (parenthesised) return parenthesised[1];
+  const bare = /^\s+at (.+):\d+:\d+\s*$/.exec(line);
+  return bare ? bare[1] : null;
+}
+
+/**
+ * Render an error for the model: the message, plus the stack frames that are
+ * genuinely inside its own scripts.
+ *
+ * `modules` is the set of filenames the executor handed to `vm.Script` — i.e.
+ * the VFS paths it actually loaded. A frame is kept only if its file is one of
+ * them, and that exactness is the point.
+ *
+ * The previous version matched `/(scripts|tmp|inbox|out)/` as a substring
+ * anywhere in the frame, intending "a VFS path". It let through any HOST path
+ * containing those segments — and `out/` and `scripts/` are ordinary directory
+ * names in a real deployment, while host `/tmp` collides with VFS `/tmp`
+ * exactly. A host stack frame reaching sandboxed code discloses the host's
+ * filesystem layout and module structure to the one party the whole design
+ * exists to keep it from.
+ */
+export function describeError(e: unknown, modules?: ReadonlySet<string>): string {
   if (e instanceof ScriptContractError) return e.message;
   const message = e instanceof Error ? e.message : (e as { message?: string })?.message ?? String(e);
   const stack = (e as { stack?: string })?.stack;
-  if (typeof stack === "string") {
+  // No module set means no way to tell a script frame from a host one, so no
+  // frames. Silence is the only safe default here.
+  if (typeof stack === "string" && modules && modules.size > 0) {
     const frames = stack
       .split("\n")
-      .filter((l) => /^\s+at .*\/(scripts|tmp|inbox|out)\/.*:\d+/.test(l))
+      .filter((l) => {
+        const file = frameFile(l);
+        return file !== null && modules.has(file);
+      })
       .slice(0, 4)
       .map((l) => l.trim());
     if (frames.length > 0) return `${message}\n  ${frames.join("\n  ")}`;
