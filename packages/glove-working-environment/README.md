@@ -105,7 +105,7 @@ The complete, closed set — everything the model does goes through these:
 
 An adapter bridges a real host-side library into the tree. The model experiences it as a typed importable module plus docs living at `/std/<name>/`.
 
-Four ship separately:
+Five ship separately:
 
 | Package | Module | Gives the model |
 |---|---|---|
@@ -113,6 +113,7 @@ Four ship separately:
 | [`glove-env-spreadsheets`](../glove-env-spreadsheets) | `env:spreadsheets` | `.xlsx` as plain-JSON records; describe, page, write, append, CSV bridging |
 | [`glove-env-images`](../glove-env-images) | `env:images` | Describe without decoding; resize/convert/crop/rotate/composite/contact-sheet |
 | [`glove-env-archives`](../glove-env-archives) | `env:archives` | zip/tar/tar.gz in and out; traversal- and bomb-safe extraction. No dependencies |
+| [`glove-env-media`](../glove-env-media) | `env:media` | Video and audio via ffmpeg: describe, thumbnail, frames, clip, concat, transcode, slideshow |
 
 ```ts
 const env = await createWorkingEnvironment({ stdlib: [documents(), spreadsheets(), images()] });

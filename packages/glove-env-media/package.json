@@ -1,0 +1,45 @@
+{
+  "name": "glove-env-media",
+  "version": "0.1.0",
+  "description": "Video and audio stdlib adapter for glove-working-environment. Bridges ffmpeg into the agent's virtual filesystem as env:media — describe a video without looking at it, thumbnail, extract frames, clip, concat, transcode, build a slideshow. Paths in, paths out.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-env-media"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@ffprobe-installer/ffprobe": "^2.1.2"
+  },
+  "peerDependencies": {
+    "glove-working-environment": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "glove-working-environment": "workspace:*",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}
