@@ -300,6 +300,7 @@ async function snapshotVfs(vfs: Vfs): Promise<EnvSnapshot> {
 // ---------------------------------------------------------------- exports
 
 export { inMemoryFs, fromSnapshot, InMemoryFs } from "./vfs/memory";
+export { hostDirectory, HostDirectoryFs, type HostDirectoryOptions } from "./vfs/hostdir";
 export {
   defineAdapter,
   type AdapterBindings,

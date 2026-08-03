@@ -41,6 +41,21 @@ mountWorkingEnvironment(glove, { env });                   // primes the system 
 // or fold manually: for (const t of env.tools) glove.fold(t);
 ```
 
+### Backing it with a real directory
+
+```ts
+import { hostDirectory } from "glove-working-environment";
+
+const disk = hostDirectory("./workspace");            // copy-on-write
+const env = await createWorkingEnvironment({ filesystem: disk });
+// … agent reads the corpus directly, writes freely; the directory is untouched …
+await disk.commit();                                  // or disk.discard()
+```
+
+Reads fall through to disk; writes and deletes land in an in-memory overlay; nothing on the host changes until `commit()`. That means a directory of a thousand documents needs no `mount()` calls and no second copy in memory — and, more importantly, **the agent cannot damage the source**. `hostDirectory(dir, { mode: "readonly" })` refuses every write outright.
+
+Containment is checked *after* symlink resolution, on the real path, for every access: a link out of the root — or a symlinked parent directory — is refused rather than followed, with a test for each. Links that stay inside the root work normally, because the rule is containment, not link-avoidance.
+
 Restore later:
 
 ```ts
