@@ -43,6 +43,12 @@ export interface WorkingEnvironment {
   limits: EnvLimits;
   /** `env:*` module name → one-line description (builtins + registered adapters). */
   moduleDescriptions: ReadonlyMap<string, string>;
+  /**
+   * Problems found at startup that are not fatal — today, stored scripts
+   * importing modules this host did not register. Empty for a fresh
+   * environment. Pass `strictAdapters: true` to make them throw instead.
+   */
+  warnings: string[];
   /** Host-side script execution (full result, no truncation; still logged to history). */
   runScript(path: string, args?: unknown): Promise<RunResult>;
   /** Door in: place a host file (path), bytes, or literal text into the tree. */
@@ -144,7 +150,35 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
     await writeDoc(`/std/${adapter.name}/index.d.ts`, adapter.types);
     if (adapter.docs) await writeDoc(`/std/${adapter.name}/README.md`, adapter.docs);
   }
-  await writeDoc("/std/README.md", stdIndex(core.moduleDescriptions, adapters));
+  // --- restore-time compatibility -----------------------------------------
+  // A restored tree looks healthy whether or not the host registered the same
+  // adapters: /scripts is intact, ls shows the catalogue, and the .d.ts files
+  // describe capabilities that no longer exist. Without this the break
+  // surfaces mid-task, to the model, instead of at startup, to the host.
+  //
+  // Read from the tree rather than from snapshot metadata: no format version
+  // to bump, no v1 compatibility question, and it works for a host-supplied
+  // persistent filesystem that never passed through snapshot() at all.
+  const warnings: string[] = [];
+  const usage = await core.moduleUsage();
+  const missing = [...usage.entries()].filter(([name]) => !core.envModules.has(name));
+  if (missing.length > 0) {
+    for (const [name, scripts] of missing) {
+      const shown = scripts.slice(0, 5).join(", ");
+      const more = scripts.length > 5 ? `, +${scripts.length - 5} more` : "";
+      warnings.push(
+        `stored scripts import "env:${name}", which is not registered in this environment — they will fail when run: ${shown}${more}`,
+      );
+    }
+    if (options.strictAdapters) throw new Error(warnings.join("\n"));
+  }
+
+  // Written after the scan so the index can say which modules the stored
+  // scripts actually use — on a restored tree that is the difference between
+  // a menu and a map.
+  await writeDoc("/std/README.md", stdIndex(core.moduleDescriptions, adapters, usage));
+
+  core.attachRunLog(runlog);
 
   const tools = buildTools({ core, runlog, limits, prefix: "" });
 
@@ -154,6 +188,7 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
     fs: fsHandle,
     limits,
     moduleDescriptions: core.moduleDescriptions,
+    warnings,
 
     async runScript(path: string, args: unknown = {}): Promise<RunResult> {
       const outcome = await executeRun({ core, runlog, limits, executor }, path, args, { spill: false });
@@ -203,18 +238,24 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
  * it a model has to `ls /std`, then open each `index.d.ts` to find out what
  * the module is even for.
  */
-function stdIndex(descriptions: ReadonlyMap<string, string>, adapters: StdlibAdapter[]): string {
+function stdIndex(
+  descriptions: ReadonlyMap<string, string>,
+  adapters: StdlibAdapter[],
+  usage: ReadonlyMap<string, string[]>,
+): string {
   const lines = [
     "# /std — importable modules",
     "",
     "Everything here is available to scripts under `/scripts` via `import ... from 'env:<name>'`.",
     "This directory is read-only and regenerated on startup.",
     "",
-    "| Module | What it does | Types |",
-    "|---|---|---|",
+    "| Module | What it does | Types | Used by |",
+    "|---|---|---|---|",
   ];
   for (const [name, description] of descriptions) {
-    lines.push(`| \`env:${name}\` | ${description.replace(/\|/g, "\\|")} | \`/std/${name}/index.d.ts\` |`);
+    const n = usage.get(name)?.length ?? 0;
+    const used = n === 0 ? "–" : `${n} script(s)`;
+    lines.push(`| \`env:${name}\` | ${description.replace(/\|/g, "\\|")} | \`/std/${name}/index.d.ts\` | ${used} |`);
   }
   const withDocs = adapters.filter((a) => a.docs);
   if (withDocs.length > 0) {

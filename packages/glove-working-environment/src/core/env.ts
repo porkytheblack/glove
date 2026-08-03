@@ -28,7 +28,13 @@ import { generateDts } from "../pipeline/dts";
 import { scriptOneLiner } from "../pipeline/jsdoc";
 import { newCapture, type ScriptExecutor } from "../executor/executor";
 import { HandlerRegistry, HEAD_BYTES, type Claim } from "../adapters/handles";
+import { envImportsOf } from "../pipeline/imports";
+import { buildOrientation, ORIENTATION_PATH } from "../tools/orientation";
 import type { VersionStore } from "../history/versions";
+import type { RunLog } from "../history/runlog";
+
+/** Only `tail` is needed here; see tools/orientation. */
+type RunLogLike = Pick<RunLog, "tail">;
 
 export const JSDOC_NUDGE = "saved; add a JSDoc block above the default export to get typed, described .d.ts output.";
 
@@ -66,6 +72,7 @@ export class EnvCore {
   /** Which adapter understands which file — shared by `describe` and `ls`. */
   readonly handlers = new HandlerRegistry();
   private executor!: ScriptExecutor;
+  private runlog: RunLogLike | null = null;
   /** Serializes mutations so version recording can't lose updates. */
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -77,6 +84,11 @@ export class EnvCore {
 
   attachExecutor(executor: ScriptExecutor): void {
     this.executor = executor;
+  }
+
+  /** Optional: lets the orientation file report recent runs. */
+  attachRunLog(runlog: RunLogLike): void {
+    this.runlog = runlog;
   }
 
   executorRef(): ScriptExecutor {
@@ -243,6 +255,9 @@ export class EnvCore {
   }
 
   async readText(path: string): Promise<string> {
+    // Rebuilt on the read that asks for it, then persisted so `grep` and a
+    // subsequent snapshot see the same thing `read_file` just returned.
+    if (normalizePath(path) === ORIENTATION_PATH) return this.refreshOrientation();
     const data = await this.readBytes(path);
     if (looksBinary(data)) {
       throw new Error(
@@ -635,6 +650,56 @@ export class EnvCore {
   async describeScript(path: string): Promise<string | null> {
     const src = await this.readSource(normalizePath(path));
     return src ? scriptOneLiner(src) : null;
+  }
+
+  /**
+   * `env:` module name → the stored scripts that import it.
+   *
+   * Read straight off the tree rather than from snapshot metadata, so it is
+   * equally true for a restored snapshot, a host-supplied persistent
+   * filesystem, and a tree the agent has been editing all session.
+   */
+  async moduleUsage(): Promise<Map<string, string[]>> {
+    const usage = new Map<string, string[]>();
+    for (const path of (await this.glob("/scripts/**/*.js")).sort()) {
+      const src = await this.readSource(path);
+      if (src === null) continue;
+      for (const mod of envImportsOf(src)) {
+        const list = usage.get(mod) ?? [];
+        list.push(path);
+        usage.set(mod, list);
+      }
+    }
+    return usage;
+  }
+
+  /**
+   * Regenerate `/.env/orientation.md` and return it, persisting a copy so
+   * `grep` and a later snapshot see what `read_file` just returned.
+   *
+   * Two things this deliberately does NOT do. It is not written at startup:
+   * an environment that never reads it should not pay ~1KB of `maxVfsBytes`
+   * for a file nobody asked for. And it never fails a read — a tree at its
+   * size cap still gets the text, just without the persisted copy, because
+   * "you are out of space" is exactly when orientation is most worth having.
+   */
+  async refreshOrientation(): Promise<string> {
+    const text = await buildOrientation(this, this.runlog);
+    const bytes = toBytes(text);
+    // Written directly: /.env is environment-maintained and `assertMutable`
+    // exists precisely to stop anyone else writing here — which also means
+    // the usual size accounting has to be done by hand.
+    try {
+      const prior = (await this.vfs.stat(ORIENTATION_PATH))?.size ?? 0;
+      const delta = bytes.byteLength - prior;
+      if (delta <= 0 || (await this.vfs.totalSize()) + delta <= this.limits.maxVfsBytes) {
+        await this.vfs.write(ORIENTATION_PATH, bytes);
+      }
+    } catch {
+      // Orientation is a convenience; a filesystem that refuses the write
+      // must not turn a read into a failure.
+    }
+    return text;
   }
 
   /** Which adapter claims this file, if any. Reads only the head bytes. */

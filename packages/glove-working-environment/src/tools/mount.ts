@@ -27,6 +27,8 @@ Layout conventions:
 - /out — deliverables; this is what the host exports
 - /.env — run history (history.jsonl) and file versions, read-only
 
+Start here: read_file /.env/orientation.md. It is regenerated on every read and tells you what is in the tree, what your scripts do, which modules they use, and what has run recently — in one call instead of four.
+
 Operating discipline:
 - Keep big data in files, not in your context. Redirect outputs to files, then read slices: read_file with start_line/end_line, grep with a narrow pattern.
 - All execution goes through named scripts: write_file a script under /scripts, then run_script it. Every script must \`export default async function (args) { ... }\` — validation happens at write time and tells you exactly what to fix. Give each script a JSDoc block: it becomes the generated .d.ts and the description shown by ls.

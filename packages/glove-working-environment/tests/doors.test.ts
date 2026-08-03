@@ -228,3 +228,102 @@ test("toolPrefix namespaces the verbs for collision-averse hosts", async () => {
   const r = await write.do({ path: "/tmp/x.txt", content: "hi" });
   assert.equal(r.status, "success");
 });
+
+// ─────────────────────────────── orientation and restore compatibility
+
+test("/.env/orientation.md answers 'where am I' in one read", async () => {
+  const env = await makeEnv({ stdlib: [textkit()] });
+  await env.mount({ text: "a,b\n1,2\n" }, "/inbox/data.csv");
+  await callOk(env, "write_file", {
+    path: "/scripts/tally.js",
+    content: `import { readFile } from 'env:fs';\n\n/** Counts the rows in a CSV. */\nexport default async function tally(args) { return (await readFile(args.path)).split("\\n").length; }\n`,
+  });
+  await callOk(env, "run_script", { path: "/scripts/tally.js", args: { path: "/inbox/data.csv" } });
+  await env.fs.writeFile("/out/report.txt", "done");
+
+  const text = await callOk(env, "read_file", { path: "/.env/orientation.md" });
+  assert.match(text, /\/inbox` — 1 file/);
+  assert.match(text, /\/scripts\/tally\.js` — Counts the rows in a CSV\./);
+  assert.match(text, /env:fs.*used by 1 script/);
+  assert.match(text, /env:textkit/, "a registered but unused module is still listed");
+  assert.match(text, /\/out\/report\.txt/);
+  assert.match(text, /ok `\/scripts\/tally\.js`/);
+});
+
+test("orientation is rebuilt on every read, so deletes cannot leave it stale", async () => {
+  // The case a maintained-on-mutation file gets wrong.
+  const env = await makeEnv();
+  await callOk(env, "write_file", { path: "/scripts/doomed.js", content: VALID_SCRIPT });
+  assert.match(await callOk(env, "read_file", { path: "/.env/orientation.md" }), /doomed\.js/);
+
+  await callOk(env, "rm", { path: "/scripts/doomed.js" });
+  const after = await callOk(env, "read_file", { path: "/.env/orientation.md" });
+  assert.doesNotMatch(after, /doomed\.js/);
+  assert.match(after, /None yet/);
+});
+
+test("orientation stays bounded as the script library grows", async () => {
+  const env = await makeEnv();
+  for (let i = 0; i < 25; i++) {
+    await callOk(env, "write_file", { path: `/scripts/s${i}.js`, content: VALID_SCRIPT });
+  }
+  const text = await callOk(env, "read_file", { path: "/.env/orientation.md" });
+  assert.match(text, /… 10 more — `ls \/scripts` for the full catalogue/);
+  assert.ok(text.length < 4000, `orientation should stay small, got ${text.length} chars`);
+});
+
+test("the environment is not charged for an orientation file nobody reads", async () => {
+  const env = await makeEnv();
+  assert.equal(await env.fs.exists("/.env/orientation.md"), false);
+  await callOk(env, "read_file", { path: "/.env/orientation.md" });
+  assert.equal(await env.fs.exists("/.env/orientation.md"), true, "and it persists once asked for");
+});
+
+test("restoring without a required adapter warns the host, naming the scripts", async () => {
+  const env = await makeEnv({ stdlib: [textkit()] });
+  await callOk(env, "write_file", {
+    path: "/scripts/uses_it.js",
+    content: `import { render } from 'env:textkit';\n\n/** Shouts. */\nexport default async function main() { return render('/out/a.txt', 'hi'); }\n`,
+  });
+  const snap = await env.snapshot();
+
+  // Same tree, host forgot the adapter.
+  const restored = await createWorkingEnvironment({ filesystem: fromSnapshot(snap) });
+  assert.equal(restored.warnings.length, 1);
+  assert.match(restored.warnings[0], /"env:textkit", which is not registered/);
+  assert.match(restored.warnings[0], /\/scripts\/uses_it\.js/);
+
+  // With the adapter back, no warning — and the script still runs.
+  const healthy = await createWorkingEnvironment({ filesystem: fromSnapshot(snap), stdlib: [textkit()] });
+  assert.deepEqual(healthy.warnings, []);
+  await healthy.fs.writeFile("/inbox/a.txt", "hi");
+  assert.equal((await healthy.runScript("/scripts/uses_it.js")).ok, true);
+});
+
+test("strictAdapters turns the warning into a startup failure", async () => {
+  const env = await makeEnv({ stdlib: [textkit()] });
+  await callOk(env, "write_file", {
+    path: "/scripts/uses_it.js",
+    content: `import { render } from 'env:textkit';\n\n/** Shouts. */\nexport default async function main() { return render('/out/a.txt', 'hi'); }\n`,
+  });
+  const snap = await env.snapshot();
+  await assert.rejects(
+    () => createWorkingEnvironment({ filesystem: fromSnapshot(snap), strictAdapters: true }),
+    /env:textkit/,
+  );
+});
+
+test("the adapter scan reads imports, not text that looks like one", async () => {
+  const env = await makeEnv();
+  await callOk(env, "write_file", {
+    path: "/scripts/decoys.js",
+    content:
+      `// import { x } from 'env:ghost';\n` +
+      `const doc = \`see env:phantom for details\`;\n` +
+      `import { readFile } from 'env:fs';\n\n` +
+      `/** Reads. */\nexport default async function main(args) { return readFile(args.path) + doc; }\n`,
+  });
+  const snap = await env.snapshot();
+  const restored = await createWorkingEnvironment({ filesystem: fromSnapshot(snap) });
+  assert.deepEqual(restored.warnings, [], "a commented-out or quoted specifier is not an import");
+});

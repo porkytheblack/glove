@@ -208,6 +208,12 @@ export interface CreateWorkingEnvironmentOptions {
   stdlib?: StdlibAdapter[];
   /** Resource limit overrides. */
   limits?: Partial<EnvLimits>;
+  /**
+   * Throw at startup when stored scripts import an `env:*` module this host
+   * did not register, instead of reporting it on `WorkingEnvironment.warnings`.
+   * Off by default: restoring a deliberate subset of adapters is legitimate.
+   */
+  strictAdapters?: boolean;
 }
 
 /** One recorded version of a file (for `history <path>` output). */

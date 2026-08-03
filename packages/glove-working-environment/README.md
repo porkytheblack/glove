@@ -204,6 +204,10 @@ Limits (all configurable; failures name the limit): `runTimeoutMs` 30s · `maxVf
 
 ## History & recovery
 
+`/.env/orientation.md` answers "where am I and what has happened here?" in one read — tree shape with counts, the script catalogue with one-liners, which modules those scripts use, what sits in `/out`, and the last runs. It is rebuilt on every read rather than maintained on write: a file kept current by hooks goes stale on the mutation someone forgot to hook, and a stale orientation file is worse than none because it is believed. It is not written until first read, so an environment that never asks doesn't pay for it.
+
+Restoring a tree whose scripts import an adapter the host did not register is reported at startup on `env.warnings`, naming the modules and the scripts that need them — the alternative is a tree that looks healthy (`ls` shows the catalogue, the `.d.ts` files describe capabilities that no longer exist) and breaks mid-task. `strictAdapters: true` makes it throw instead. The check reads the tree, not snapshot metadata, so it works for a host-supplied persistent filesystem too.
+
 Every `run_script` appends a line to `/.env/history.jsonl` (ring-buffered) — readable and grepable by the model for self-debugging, and an audit trail for the host. Every mutation records the prior file state in a per-file version ring under `/.env/versions/`, giving linear per-file `undo`/`redo` (a fresh mutation truncates the redo branch). Version storage counts against the size cap and survives snapshots.
 
 ## Deferred past v1
