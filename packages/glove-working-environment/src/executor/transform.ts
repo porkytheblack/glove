@@ -18,6 +18,15 @@ export interface TransformedModule {
   body: string;
   /** `__exports.x = x` assignments appended after the body. */
   footer: string[];
+  /**
+   * Exports declared with `let`/`var` that the module also reassigns.
+   *
+   * A NAMED import of one of these is a snapshot here and a live binding in
+   * real ESM — the one divergence the transform cannot fix without rewriting
+   * every identifier reference, which needs a parser. Recording the names
+   * lets the importer be told, instead of quietly reading a stale value.
+   */
+  mutableExports: string[];
 }
 
 interface Edit {
@@ -82,6 +91,7 @@ export function transformModule(rawSrc: string, modulePath: string): Transformed
   const edits: Edit[] = [];
   const prelude: string[] = [];
   const footer: string[] = [];
+  const mutableCandidates: string[] = [];
   let importCounter = 0;
 
   const fail = (index: number, msg: string): TransformError =>
@@ -113,6 +123,113 @@ export function transformModule(rawSrc: string, modulePath: string): Transformed
   const readWord = (i: number, word: string): number | null => {
     const id = readIdent(i);
     return id && id.name === word ? id.end : null;
+  };
+
+  /**
+   * The names a destructuring pattern binds.
+   *
+   * `start` points at the opening `{` or `[`; returns the bound names and the
+   * index just past the matching close. Lexical, like everything else here —
+   * no parser — but the grammar of a *pattern* is small and closed, which is
+   * what makes that tractable where rewriting arbitrary identifier references
+   * (see the live-binding limitation) is not.
+   *
+   * Handles renames (`{ a: b }` binds `b`), defaults (`{ a = 1 }` binds `a`),
+   * rest (`...xs`), computed keys (`{ [k]: v }` binds `v`), array holes, and
+   * nesting to any depth.
+   */
+  const patternNames = (start: number): { names: string[]; end: number } => {
+    const open = src[start];
+    if (open !== "{" && open !== "[") throw fail(start, `expected a destructuring pattern`);
+    const close = matchDelim(src, mask, start);
+    if (close < 0) throw fail(start, `unterminated destructuring pattern`);
+    const names: string[] = [];
+
+    /** Skip an initializer or computed key: forward to the next `,` at pattern depth. */
+    const skipToSeparator = (from: number): number => {
+      let depth = 0;
+      let i = from;
+      while (i < close) {
+        if (!mask[i]) {
+          i += 1;
+          continue;
+        }
+        const c = src[i];
+        if (c === "(" || c === "[" || c === "{") depth += 1;
+        else if (c === ")" || c === "]" || c === "}") depth -= 1;
+        else if (c === "," && depth === 0) return i;
+        i += 1;
+      }
+      return close;
+    };
+
+    let i = skipTrivia(start + 1);
+    while (i < close) {
+      if (src[i] === ",") {
+        i = skipTrivia(i + 1); // array hole, or the separator we just consumed
+        continue;
+      }
+      const wasRest = src.startsWith("...", i);
+      if (wasRest) i = skipTrivia(i + 3);
+
+      // In an ARRAY pattern (or after a rest), a leading brace/bracket is a
+      // nested pattern. In an OBJECT pattern it is a computed key — `{ [k]: v }`
+      // binds `v`, not `k` — so it must not be recursed into.
+      if ((open === "[" || wasRest) && (src[i] === "{" || src[i] === "[")) {
+        const nested = patternNames(i);
+        names.push(...nested.names);
+        i = skipTrivia(skipToSeparator(nested.end));
+        continue;
+      }
+      if (open === "{" && src[i] === "[") {
+        const keyEnd = matchDelim(src, mask, i);
+        if (keyEnd < 0) throw fail(i, `unterminated computed key in this destructuring pattern`);
+        const afterKey = skipTrivia(keyEnd + 1);
+        if (src[afterKey] !== ":") throw fail(afterKey, `expected ":" after a computed key in this destructuring pattern`);
+        const target = skipTrivia(afterKey + 1);
+        if (src[target] === "{" || src[target] === "[") {
+          const nested = patternNames(target);
+          names.push(...nested.names);
+          i = skipTrivia(skipToSeparator(nested.end));
+          continue;
+        }
+        const bound = readIdent(target);
+        if (!bound) throw fail(target, `expected a binding name after a computed key`);
+        names.push(bound.name);
+        i = skipTrivia(skipToSeparator(bound.end));
+        continue;
+      }
+      if (src[i] === "{" || src[i] === "[") {
+        const nested = patternNames(i);
+        names.push(...nested.names);
+        i = skipTrivia(skipToSeparator(nested.end));
+        continue;
+      }
+
+      const id = readIdent(i);
+      if (!id) throw fail(i, `could not read the binding name in this destructuring pattern`);
+
+      let after = skipTrivia(id.end);
+      if (open === "{" && src[after] === ":") {
+        // Renamed or nested: the binding is what follows the colon.
+        after = skipTrivia(after + 1);
+        if (src[after] === "{" || src[after] === "[") {
+          const nested = patternNames(after);
+          names.push(...nested.names);
+          i = skipTrivia(skipToSeparator(nested.end));
+          continue;
+        }
+        const target = readIdent(after);
+        if (!target) throw fail(after, `expected a binding name after ":" in this destructuring pattern`);
+        names.push(target.name);
+        i = skipTrivia(skipToSeparator(target.end));
+        continue;
+      }
+
+      names.push(id.name);
+      i = skipTrivia(skipToSeparator(after));
+    }
+    return { names, end: close + 1 };
   };
 
   const readString = (i: number): { value: string; end: number } => {
@@ -311,15 +428,21 @@ export function transformModule(rawSrc: string, modulePath: string): Transformed
     const kindId = readIdent(i);
     if (kindId && (kindId.name === "const" || kindId.name === "let" || kindId.name === "var")) {
       const afterKind = skipTrivia(kindId.end);
+      const names: string[] = [];
+      let scanFrom: number;
       if (src[afterKind] === "{" || src[afterKind] === "[") {
-        throw fail(afterKind, `destructuring exports are not supported in scripts — declare the binding first, then export { name }`);
+        const pattern = patternNames(afterKind);
+        names.push(...pattern.names);
+        scanFrom = pattern.end;
+      } else {
+        const first = readIdent(afterKind);
+        if (!first) throw fail(afterKind, `expected a binding name after "export ${kindId.name}"`);
+        names.push(first.name);
+        scanFrom = first.end;
       }
-      const first = readIdent(afterKind);
-      if (!first) throw fail(afterKind, `expected a binding name after "export ${kindId.name}"`);
-      const names = [first!.name];
       // Scan the rest of the declaration for `, name` at declaration depth.
       let depth = 0;
-      let k = first!.end;
+      let k = scanFrom;
       let lastCode = "";
       scan: while (k < src.length) {
         if (!mask[k]) {
@@ -340,7 +463,11 @@ export function transformModule(rawSrc: string, modulePath: string): Transformed
         } else if (depth === 0 && c === ",") {
           const next = skipTrivia(k + 1);
           if (src[next] === "{" || src[next] === "[") {
-            throw fail(next, `destructuring exports are not supported in scripts — declare the binding first, then export { name }`);
+            const pattern = patternNames(next);
+            names.push(...pattern.names);
+            k = pattern.end;
+            lastCode = src[pattern.end - 1];
+            continue scan;
           }
           const id2 = readIdent(next);
           if (id2) {
@@ -355,6 +482,7 @@ export function transformModule(rawSrc: string, modulePath: string): Transformed
       }
       edits.push({ start: hit.index, end: i, text: blank(src.slice(hit.index, i)) });
       for (const n of names) footer.push(liveExport(n, n));
+      if (kindId.name !== "const") mutableCandidates.push(...names);
       continue;
     }
 
@@ -377,5 +505,55 @@ export function transformModule(rawSrc: string, modulePath: string): Transformed
     body = body.slice(0, e.start) + e.text + body.slice(e.end);
   }
 
-  return { prelude, body, footer };
+  return { prelude, body, footer, mutableExports: reassigned(mutableCandidates) };
+
+  /**
+   * Which of the `export let`/`export var` names the module actually mutates.
+   *
+   * `export let n = 0` that is never reassigned behaves identically whether
+   * imported by name or through the namespace, so refusing it would cost a
+   * retry for nothing. Only a binding that is genuinely written to later can
+   * diverge. Lexical and deliberately narrow: an assignment operator or
+   * ++/-- applied to the bare name at a code position, not after a dot.
+   */
+  function reassigned(candidates: string[]): string[] {
+    if (candidates.length === 0) return [];
+    const unique = [...new Set(candidates)];
+    const hitNames = new Set<string>();
+    for (const name of unique) {
+      let from = 0;
+      for (;;) {
+        const at = src.indexOf(name, from);
+        if (at < 0) break;
+        from = at + name.length;
+        if (!mask[at]) continue; // inside a string, comment, or template text
+        const before = src[at - 1] ?? "";
+        const after = src[from] ?? "";
+        if (/[A-Za-z0-9_$]/.test(before) || /[A-Za-z0-9_$]/.test(after)) continue; // part of a longer name
+        // Walk back over whitespace: a property access (`o.n = 1`) is not it.
+        let b = at - 1;
+        while (b >= 0 && /\s/.test(src[b])) b -= 1;
+        if (src[b] === "." || src[b] === "?") continue;
+        let f = from;
+        while (f < src.length && /\s/.test(src[f])) f += 1;
+        const tail = src.slice(f, f + 3);
+        if (/^(\+\+|--)/.test(tail)) {
+          hitNames.add(name);
+          break;
+        }
+        // `=` but not `==`, `===`, `=>`; or a compound assignment.
+        if (/^=[^=>]/.test(tail) || /^=$/.test(tail) || /^([+\-*/%&|^]|\*\*|<<|>>>?|&&|\|\||\?\?)=[^=]/.test(tail)) {
+          // The declaration itself is an assignment; skip the one that IS it.
+          let d = b;
+          while (d >= 0 && /\s/.test(src[d])) d -= 1;
+          const wordEnd = d + 1;
+          while (d >= 0 && /[A-Za-z0-9_$]/.test(src[d])) d -= 1;
+          if (["let", "var", "const"].includes(src.slice(d + 1, wordEnd))) continue;
+          hitNames.add(name);
+          break;
+        }
+      }
+    }
+    return [...hitNames];
+  }
 }

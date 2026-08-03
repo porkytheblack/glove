@@ -74,6 +74,13 @@ interface OpState {
   boundConsole: unknown;
   /** Whether this operation binds the validation (mutation-refusing) modules. */
   readOnly: boolean;
+  /**
+   * Namespace object → the exports that module reassigns after declaring them.
+   * Keyed on the namespace so `pick` can answer without re-resolving the
+   * specifier. Host-side: the host may hold a context object, only the
+   * reverse leaks.
+   */
+  mutableExports: WeakMap<object, Set<string>>;
 }
 
 const CAPTURE_CHAR_CAP = 1_000_000;
@@ -138,6 +145,7 @@ export class ScriptExecutor {
       envCache: new Map(),
       boundConsole,
       readOnly: opts?.readOnly === true,
+      mutableExports: new WeakMap(),
     };
   }
 
@@ -323,7 +331,23 @@ export class ScriptExecutor {
       const __exports = st.bridge.mkModule(
         (spec: unknown) => this.resolveImport(String(spec), norm, st, nextChain),
         (ns: Record<string, unknown>, key: string, spec: string) => {
-          if (ns !== null && typeof ns === "object" && key in ns) return ns[key];
+          if (ns !== null && typeof ns === "object" && key in ns) {
+            // A named import of a reassigned `export let`/`export var` is a
+            // snapshot here and a live binding in real ESM. Real live
+            // bindings need every identifier reference rewritten to a
+            // namespace access, which needs a parser; the transform is a
+            // lexical scanner by design. So the divergence is reported
+            // instead of silently producing a stale value — at write time,
+            // since validation loads the graph.
+            if (st.mutableExports.get(ns as object)?.has(key)) {
+              throw new Error(
+                `"${key}" is reassigned by ${spec} after it is declared, and a named import of it would be a ` +
+                  `snapshot taken at import time — real ESM would show you the updated value. ` +
+                  `Import the namespace instead: import * as ns from '${spec}'; then read ns.${key}.`,
+              );
+            }
+            return ns[key];
+          }
           // Name what the module does export. A model that guessed the
           // binding name gets the correction here, at import time, rather
           // than discovering it as an undefined at the call site — and the
@@ -339,6 +363,7 @@ export class ScriptExecutor {
       await this.withDeadline(Promise.resolve(evalPromise), st);
 
       const ns = st.bridge.freezeDeep(__exports);
+      if (t.mutableExports.length > 0) st.mutableExports.set(ns as object, new Set(t.mutableExports));
       st.registry.set(norm, { state: "done", ns });
 
       if (this.deps.isEnforcedScript(norm)) {

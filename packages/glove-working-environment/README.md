@@ -95,6 +95,7 @@ The complete, closed set — everything the model does goes through these:
 | `read_file(path, start_line?, end_line?)` | Line-numbered, capped with an explicit tail; binary files refused |
 | `ls(path?, depth?)` | `/scripts` inlines JSDoc one-liners — the listing is the capability catalog |
 | `grep(pattern, path?, glob?, context?, max_matches?)` | Capped; also covers `/.env/history.jsonl` |
+| `run_tests(path?)` | Runs every `*.test.js` under a path; `import * as assert from 'env:assert'` |
 | `describe(path)` | Routes to whichever adapter understands the format (magic bytes, not extension); generic summary otherwise |
 | `run_script(path, args)` | `await defaultExport(args)`; result + stdout/stderr; oversized output spills to `/tmp/run-<id>.*` |
 | `undo(path)` / `redo(path)` | Per-file linear undo (rm included); re-runs the pipeline for scripts |
@@ -195,10 +196,9 @@ Honest scope note: this is a **discipline boundary for model-written code, not a
 Found by adversarial audit and left open deliberately — each is a real constraint, not a rough edge:
 
 - **Wall-clock enforcement is not absolute.** The vm timeout covers the synchronous prefix of each evaluation, a deadline race covers pending async work, and every capability call re-checks the budget — so a runaway loop that touches `env:fs`/adapters is stopped promptly. But a pure compute loop that yields only to microtasks (`for (;;) { await null; }`) and calls nothing can still starve the event loop: a macrotask timer cannot preempt it, and a microtask watchdog would itself starve legitimate host I/O. Such a script wedges the host until the process restarts. Closing this properly requires running scripts in a worker thread that can be `terminate()`d — a v2 change, since it turns adapter calls into cross-thread RPC.
-- **Imported bindings are snapshots, not live bindings.** `export let n` is exposed as a live getter, so `import * as ns` sees later mutations; but `import { n }` binds the value at import time, where real ESM would track it. Emulating that needs reference rewriting, which the lexical transform deliberately doesn't do.
-- **Destructuring exports are unsupported** (`export const { a } = obj`) — rejected loudly at write time, in any declarator position.
+- **Imported bindings are snapshots, not live bindings — but never silently.** `export let n` is exposed as a live getter, so `import * as ns` sees later mutations; `import { n }` binds the value at import time, where real ESM would track it. Emulating that needs reference rewriting, which the lexical transform deliberately doesn't do, so the divergence is *reported* instead: a named import of an `export let`/`export var` the module actually reassigns is refused at write time, with the `import * as ns` rewrite. Bindings that are never reassigned cannot diverge and import by name as usual.
 - **Stack-trace line numbers are exact; columns can shift** by a few characters on lines the transform rewrote.
-- The transform is a lexical scanner, not a parser. It is checked against real Node ESM by a differential suite covering templates, regex-vs-division, ASI, every import/export form, generators, hashbangs, and import attributes — but exotic syntax may still diverge, and a divergence is a bug worth reporting.
+- The transform is a lexical scanner, not a parser. It is checked against real Node ESM by a differential suite — the same source imported by Node and by the environment, namespaces compared — covering templates, regex-vs-division, ASI, every import/export form (destructuring exports included: renames, defaults, rest, computed keys, nesting, holes, later declarator positions), generators, hashbangs, and import attributes — but exotic syntax may still diverge, and a divergence is a bug worth reporting.
 
 Limits (all configurable; failures name the limit): `runTimeoutMs` 30s · `maxVfsBytes` 256MB · `maxFileBytes` 32MB · `maxToolResponseBytes` ~8KB / `maxToolResponseLines` 200 · `maxVersionsPerFile` 10 · `maxHistoryLines` 5000.
 
