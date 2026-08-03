@@ -1,0 +1,52 @@
+{
+  "name": "glove-env-documents",
+  "version": "0.1.0",
+  "description": "Document stdlib adapter for glove-working-environment. Bridges pdf-lib and docx into the agent's virtual filesystem as env:documents — describe, compose, merge, split and stamp PDFs, build DOCX files, and extract text from both. Paths in, paths out.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-env-documents"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "dependencies": {
+    "docx": "^9.7.1",
+    "pdf-lib": "^1.17.1"
+  },
+  "peerDependencies": {
+    "glove-working-environment": "workspace:*",
+    "pdfjs-dist": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "glove-working-environment": "workspace:*",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3",
+    "pdfjs-dist": "^5.4.149"
+  },
+  "peerDependenciesMeta": {
+    "pdfjs-dist": {
+      "optional": true
+    }
+  }
+}

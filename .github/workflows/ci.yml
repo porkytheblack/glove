@@ -29,13 +29,23 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # The REPL packages import glove-core and glove-scratchpad through their
-      # built dist/ (package `exports`), so those must be built before the REPLs
-      # can typecheck or run their tsx-loaded tests. The `...` filter pulls in
-      # scratchpad's own workspace deps (glove-core, glove-sql, glove-mcp) in
-      # topological order.
+      # Packages resolve their workspace deps through built dist/ (package
+      # `exports`), so those must be built before anything downstream can
+      # typecheck or run its tsx-loaded tests. The `...` suffix pulls each
+      # target's own workspace deps in topological order: scratchpad brings
+      # glove-core/glove-sql/glove-mcp for the REPLs, and the env-* stdlib
+      # adapters bring glove-working-environment (they import both its root
+      # entry and its ./testing subpath).
       - name: Build shared deps
-        run: pnpm --filter "glove-scratchpad..." build
+        run: >-
+          pnpm
+          --filter "glove-scratchpad..."
+          --filter "glove-env-documents..."
+          --filter "glove-env-spreadsheets..."
+          --filter "glove-env-images..."
+          --filter "glove-env-archives..."
+          --filter "glove-env-media..."
+          build
 
       # Scoped to the packages this workstream develops. A repo-wide gate would
       # first need the full build graph to be green (e.g. glove-react consumes
@@ -49,6 +59,12 @@ jobs:
           --filter glove-python
           --filter glove-js
           --filter glove-lisp
+          --filter glove-working-environment
+          --filter glove-env-documents
+          --filter glove-env-spreadsheets
+          --filter glove-env-images
+          --filter glove-env-archives
+          --filter glove-env-media
           typecheck
 
       - name: Test
@@ -59,4 +75,10 @@ jobs:
           --filter glove-python
           --filter glove-js
           --filter glove-lisp
+          --filter glove-working-environment
+          --filter glove-env-documents
+          --filter glove-env-spreadsheets
+          --filter glove-env-images
+          --filter glove-env-archives
+          --filter glove-env-media
           test

@@ -1,0 +1,17 @@
+---
+"glove-working-environment": minor
+---
+
+Make the stdlib adapter contract something you can write, test and trust.
+
+**Arguments now cross into the host as host-realm values.** Results already crossed host→script as deep copies; the reverse direction passed references, and the asymmetry was not academic. An array literal written inside a script is a context-realm `Array`: `Array.isArray` still recognises it, `instanceof Array` does not, and real libraries use both. exceljs reads `instanceof Array` as "a row of cells" and anything else as "a map of column names", so passing a script's rows straight through produced a silently empty spreadsheet — found while building the spreadsheets adapter, and every adapter author would have hit some version of it, one library at a time. Everything crossing inward is now deep-copied (cycles, `Date`, `RegExp`, `Map`/`Set`, `Error`, typed arrays included; functions pass through, since a callback cannot be copied and can do no more than the script itself). Copying also severs the live reference, so a library that retains an argument holds plain host data rather than an object whose prototype chain and getters still live inside the sandbox.
+
+**`defineAdapter({ name, description, types, docs, create })`** types the bindings and validates the spec at definition time — where the author sees it, rather than in someone else's stack trace at environment creation. `create` now receives `(vfs, ctx)`, where `ctx.readOnly` marks the second instantiation that backs write-time script validation.
+
+**Failures name the capability that raised them.** Every function reachable through an `env:*` module is wrapped, at any nesting depth, so a bare `Invalid PDF structure` arrives as `env:documents.pdf.merge: Invalid PDF structure`. In a script touching four capabilities that is one debugging round trip instead of three. Wrappers preserve `fn.name` and `fn.length`, which the realm bridge and the deadline guard were both dropping — every capability previously reached scripts as an anonymous zero-arity function. `EnvLimitError` now sets its `name`, so a script can branch on a limit rather than parse a message.
+
+**`glove-working-environment/testing`** ships the harness: `createAdapterTestEnv(adapter)` returns `{ env, fs, script(), runScript(), audit() }`, running adapters from inside real scripts — the only place they are ever used, and the only way to exercise the realm bridge and the guarded VFS. `audit()` catches what ordinary unit tests structurally cannot: a binding missing from `types` (the model never discovers it) or a `types` declaration with no binding behind it (the model reads the docs, writes a script, and gets `undefined is not a function`). `assertAdapterOk` turns that into a failing test.
+
+**Discovery.** `/std/README.md` now indexes every registered module with its one-liner and a pointer to its types, and the `run_script` tool description carries the module list too — a host that folds the verbs directly, rather than via `mountWorkingEnvironment`, no longer leaves the model to guess at its own capabilities.
+
+Base adapters: `env:fs` gains `appendFile`. `env:std`'s `csv.parse` now always returns records, with raw rows moved to `csv.rows` — a return type that depended on an option was a return type the model had to guess at — and `text.dedent` joins the set. Both are covered by a new suite that exercises them through the bridge, including zone refusals, limit enforcement, the read-only validation view, and byte round-trips.
