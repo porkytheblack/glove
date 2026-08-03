@@ -102,8 +102,18 @@ export function readBytes(path: string): Promise<Uint8Array>;
 export function writeFile(path: string, content: string | Uint8Array): Promise<void>;
 /** Append to a file, creating it if absent. Cheaper than read-concat-write. */
 export function appendFile(path: string, content: string | Uint8Array): Promise<void>;
+/**
+ * Immediate children of a directory as ENTRY OBJECTS, not strings —
+ * \`[{ name: "a.png", kind: "file", size: 91 }, …]\`. Node's fs.readdir returns
+ * strings, so \`entries.filter(f => f.endsWith('.png'))\` is the usual slip;
+ * use \`entries.map(e => e.name)\`, or reach for glob() below, which returns
+ * full paths and filters in one step.
+ */
 export function readdir(path: string): Promise<VfsEntry[]>;
-/** Match file paths: ** any depth, * within a segment, ? one char. */
+/**
+ * Full paths matching a pattern: ** any depth, * within a segment, ? one char.
+ * Usually what you want for "every X in Y": glob('/inbox/**\/*.png').
+ */
 export function glob(pattern: string): Promise<string[]>;
 export function stat(path: string): Promise<VfsStat | null>;
 export function exists(path: string): Promise<boolean>;

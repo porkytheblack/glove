@@ -42,6 +42,47 @@ function boundArgs(args: unknown): unknown {
   return `${json.slice(0, ARGS_CHARS)}… [${json.length} chars total]`;
 }
 
+/**
+ * Say why a path is not runnable, before the module loader gets a chance to
+ * say it badly.
+ *
+ * Agent evaluation (benches/working-environment-bench) showed this is the
+ * single biggest source of wasted turns. Running a script that does not exist
+ * yet reported "no such module: /scripts/x.js" — the *import resolver's*
+ * error, surfacing on a verb the model called with a path, so it reads as a
+ * dependency problem rather than "you have not written this". And running
+ * anything under /std tried to parse a `.d.ts` as a module, producing
+ * "could not parse export statement" from a file the model had just been
+ * told to read for documentation.
+ */
+async function explainUnrunnable(core: EnvCore, path: string): Promise<string | null> {
+  if (path === "/std" || path.startsWith("/std/")) {
+    return (
+      `${path} is documentation, not a runnable script. /std holds the type declarations for modules ` +
+      `you import — write a script under /scripts that imports the module instead, e.g. ` +
+      `import { … } from 'env:${path.split("/")[2] ?? "<name>"}'.`
+    );
+  }
+
+  const stat = await core.stat(path);
+  if (stat === null) {
+    const siblings = (await core.list("/scripts").catch(() => []))
+      .filter((e) => e.kind === "file" && e.name.endsWith(".js"))
+      .map((e) => `/scripts/${e.name}`);
+    const hint = siblings.length
+      ? ` Existing scripts: ${siblings.slice(0, 8).join(", ")}${siblings.length > 8 ? `, +${siblings.length - 8} more` : ""}.`
+      : ` /scripts is empty — write_file the script first.`;
+    return `no such script: ${path}.${hint}`;
+  }
+  if (stat.kind === "dir") {
+    return `${path} is a directory, not a script. Name the .js file to run.`;
+  }
+  if (!path.endsWith(".js")) {
+    return `${path} is not a .js file. run_script executes JavaScript modules under /scripts.`;
+  }
+  return null;
+}
+
 export async function executeRun(
   deps: RunDeps & { executor?: ScriptExecutor },
   pathRaw: string,
@@ -53,7 +94,10 @@ export async function executeRun(
   const executor = deps.executor ?? core.executorRef();
   const runId = runlog.nextRunId();
 
-  const run = await executor.run(path, args);
+  const unrunnable = await explainUnrunnable(core, path);
+  const run = unrunnable
+    ? { ok: false, result: undefined, stdout: "", stderr: "", durationMs: 0, error: unrunnable }
+    : await executor.run(path, args);
   const resultText = run.ok ? serializeResult(run.result) : "";
   const spillWanted = opts?.spill !== false;
 

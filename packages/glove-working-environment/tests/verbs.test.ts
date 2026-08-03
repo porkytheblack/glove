@@ -3,6 +3,12 @@
  * read_file slicing, ls as capability catalog, grep, run_script spillover,
  * history (runs + file versions), edit_file exact-once semantics.
  */
+/*
+ * The three tests at the bottom of this file pin failures that agent
+ * evaluation (benches/working-environment-bench) showed were the dominant
+ * source of wasted turns — not crashes, but messages that sent models the
+ * wrong way. They are regression tests for wording as much as behaviour.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { call, callErr, callOk, makeEnv, VALID_SCRIPT } from "./helpers";
@@ -167,4 +173,67 @@ test("mv of a directory moves scripts with cross-imports intact", async () => {
   // old .d.ts gone, new ones exist
   assert.match(await callErr(env, "read_file", { path: "/scripts/pipeline/main.d.ts" }), /no such/);
   assert.match(await callOk(env, "read_file", { path: "/scripts/text/main.d.ts" }), /declare function main/);
+});
+
+// ─────────────────────────── friction found by agent evaluation
+
+test("running a script that does not exist says so, and lists what does", async () => {
+  const env = await makeEnv();
+  await callOk(env, "write_file", { path: "/scripts/real.js", content: VALID_SCRIPT });
+
+  // Previously: "no such module: /scripts/missing.js" — the import
+  // resolver's error, which reads as a dependency problem rather than
+  // "you have not written this yet".
+  const err = await callErr(env, "run_script", { path: "/scripts/missing.js" });
+  assert.match(err, /no such script: \/scripts\/missing\.js/);
+  assert.match(err, /\/scripts\/real\.js/, "should name the scripts that do exist");
+  assert.doesNotMatch(err, /no such module/);
+});
+
+test("running an empty script library says the library is empty", async () => {
+  const env = await makeEnv();
+  const err = await callErr(env, "run_script", { path: "/scripts/nothing.js" });
+  assert.match(err, /\/scripts is empty/);
+  assert.match(err, /write_file/);
+});
+
+test("running or importing something under /std points at the module name", async () => {
+  const env = await makeEnv();
+
+  // Models read /std/<name>/index.d.ts and then try to run or import that
+  // path. Running it used to parse a .d.ts as a module and report
+  // "could not parse export statement".
+  const ran = await callErr(env, "run_script", { path: "/std/std/index.d.ts" });
+  assert.match(ran, /documentation, not a runnable script/);
+  assert.match(ran, /from 'env:std'/);
+  assert.doesNotMatch(ran, /could not parse/);
+
+  // Importing a /std path is caught at WRITE time — validation loads the
+  // module, so the model is corrected before the script is ever stored.
+  const imported = await callErr(env, "write_file", {
+    path: "/scripts/importsdocs.js",
+    content: `import { json } from '/std/std';\n\n/** Nope. */\nexport default async function main() { return json; }\n`,
+  });
+  assert.match(imported, /\/std holds documentation, not modules/);
+  assert.match(imported, /from 'env:std'/);
+  assert.equal(await env.fs.exists("/scripts/importsdocs.js"), false, "a rejected write leaves nothing behind");
+});
+
+test("a directory or a non-.js target is refused in its own terms", async () => {
+  const env = await makeEnv();
+  await callOk(env, "write_file", { path: "/scripts/dir/inner.js", content: VALID_SCRIPT });
+  assert.match(await callErr(env, "run_script", { path: "/scripts/dir" }), /is a directory, not a script/);
+
+  await callOk(env, "write_file", { path: "/tmp/data.json", content: "{}" });
+  assert.match(await callErr(env, "run_script", { path: "/tmp/data.json" }), /not a \.js file/);
+});
+
+test("env:fs types warn that readdir yields entries, not strings", async () => {
+  // `entries.filter(f => f.endsWith('.png'))` was the most common in-script
+  // mistake: Node's fs.readdir returns strings, ours returns objects.
+  const env = await makeEnv();
+  const types = await env.fs.readFile("/std/fs/index.d.ts");
+  assert.match(types, /ENTRY OBJECTS, not strings/);
+  assert.match(types, /endsWith/, "the doc should name the exact slip");
+  assert.match(types, /glob\(\)/, "and point at the function that returns paths");
 });

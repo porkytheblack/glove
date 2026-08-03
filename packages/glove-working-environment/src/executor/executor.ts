@@ -249,6 +249,19 @@ export class ScriptExecutor {
     }
     if (spec.startsWith("./") || spec.startsWith("../") || spec.startsWith("/")) {
       const target = spec.startsWith("/") ? normalizePath(spec) : resolveRelative(importer, spec);
+      // Reading /std/<name>/index.d.ts and then importing that *path* is the
+      // natural next step and the wrong one — the docs live at a path, the
+      // module does not. Say so instead of reporting a missing file, or
+      // (worse) trying to evaluate a .d.ts as a module.
+      if (target === "/std" || target.startsWith("/std/")) {
+        const name = target.split("/")[2];
+        throw new Error(
+          `cannot import "${spec}": /std holds documentation, not modules. ` +
+            (name
+              ? `Import the module by name instead: import { … } from 'env:${name}'.`
+              : `Import modules by name: ${this.envModuleNames()}.`),
+        );
+      }
       try {
         return await this.loadInner(target, st, chain);
       } catch (e) {
