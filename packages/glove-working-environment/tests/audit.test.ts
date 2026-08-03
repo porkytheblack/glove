@@ -281,3 +281,19 @@ test("a long function name after wide whitespace is captured correctly", async (
   const run = await env.runScript("/scripts/probe.js");
   assert.equal(run.result, "right");
 });
+
+test("hint matching cannot be made quadratic by a huge thrown message", async () => {
+  // The hints appended to a failed run pattern-match the error text, which is
+  // script-controlled and unbounded. An unanchored `\w+` over half a megabyte
+  // of one repeated word character backtracks quadratically — the suite hung
+  // rather than failed, which is the worse outcome.
+  const env = await makeEnv();
+  await callOk(env, "write_file", {
+    path: "/scripts/huge.js",
+    content: `export default async function huge() { throw new Error("E".repeat(500000)); }`,
+  });
+  const started = Date.now();
+  const r = await call(env, "run_script", { path: "/scripts/huge.js" });
+  assert.equal(r.status, "error");
+  assert.ok(Date.now() - started < 5_000, `hint matching took ${Date.now() - started}ms on a 500KB message`);
+});

@@ -397,7 +397,9 @@ export class ScriptExecutor {
       return finish({ ok: true, result });
     } catch (e) {
       let error = describeError(e);
-      const hint = importHint(error, this.deps.envModules(false));
+      const hint =
+        importHint(error, this.deps.envModules(false)) ??
+        shapeHint(error, await this.deps.readSource(path).catch(() => null));
       if (hint) error = `${error} — ${hint}`;
       return finish({ ok: false, error });
     }
@@ -501,8 +503,18 @@ export function hostify(value: unknown, seen = new WeakMap<object, unknown>()): 
  * environment knows exactly which module exports that name. Saying so turns a
  * two-turn recovery (re-read the docs, rewrite) into a zero-turn one.
  */
+/**
+ * The slice of an error message a hint may pattern-match against.
+ *
+ * Error text is script-controlled and unbounded; every regex below is applied
+ * to this, not to the raw message.
+ */
+function hintable(message: string): string {
+  return message.slice(0, 400).split("\n")[0];
+}
+
 export function importHint(message: string, modules: Map<string, Record<string, unknown>>): string | null {
-  const missing = /^(?:Uncaught )?ReferenceError: (\w+) is not defined|^(\w+) is not defined/.exec(message);
+  const missing = /^(?:Uncaught )?ReferenceError: (\w+) is not defined|^(\w+) is not defined/.exec(hintable(message));
   const name = missing?.[1] ?? missing?.[2];
   if (!name) return null;
   const owners: string[] = [];
@@ -512,6 +524,34 @@ export function importHint(message: string, modules: Map<string, Record<string, 
   if (owners.length === 0) return null;
   const suggestions = owners.map((m) => `import { ${name} } from 'env:${m}'`);
   return `did you mean to import it? ${suggestions.join(" or ")}`;
+}
+
+/** String methods, called on something that is not a string. */
+const STRING_METHOD_RE =
+  /(\w+)\.(endsWith|startsWith|includes|toLowerCase|toUpperCase|split|trim|replace|slice|match) is not a function/;
+
+/**
+ * The readdir shape mistake, named.
+ *
+ * Node's `fs.readdir` returns strings; ours returns entry objects, so
+ * `entries.filter(f => f.endsWith('.png'))` is the single most common
+ * in-script slip — the `.d.ts` warns about it in capitals and models still
+ * write it. The TypeError alone ("f.endsWith is not a function") does not say
+ * what `f` is, which is the only fact that would fix it.
+ */
+export function shapeHint(message: string, source: string | null): string | null {
+  // Match against a bounded prefix, never the whole message. `\w+` scanning
+  // an unanchored pattern over a script-controlled string backtracks
+  // quadratically — a script that throws half a megabyte of "E" hangs the
+  // process, which is how tests/audit.test.ts found this. A real TypeError of
+  // this shape is one short line.
+  const hit = STRING_METHOD_RE.exec(hintable(message));
+  if (!hit) return null;
+  if (!source || !/\breaddir\b/.test(source)) return null;
+  return (
+    `readdir() returns entry objects, not strings — use \`${hit[1]}.name.${hit[2]}(…)\`, ` +
+    `or glob('/dir/*.ext') which returns full paths.`
+  );
 }
 
 export function describeError(e: unknown): string {

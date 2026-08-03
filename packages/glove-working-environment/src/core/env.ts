@@ -271,10 +271,45 @@ export class EnvCore {
     return this.vfs.read(normalizePath(path));
   }
 
+  /**
+   * A read under `/std/<name>/` that is not there.
+   *
+   * Agent evaluation showed models looking up a module by the *symbol* they
+   * want: eight reads of `/std/csv/index.d.ts` because a model needed CSV and
+   * assumed a module named for it. `csv` is a binding on `env:std`, so the
+   * true answer — "no such file" — leaves the model to guess again. Point at
+   * the module that actually exports the name.
+   */
+  private async explainMissingStd(path: string): Promise<string | null> {
+    if (!isUnder(path, "/std")) return null;
+    const wanted = path.split("/")[2];
+    if (!wanted || this.envModules.has(wanted)) return null;
+
+    const owners: string[] = [];
+    const token = new RegExp(`\\b${wanted.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+    for (const name of this.moduleDescriptions.keys()) {
+      const types = await this.readSource(`/std/${name}/index.d.ts`);
+      if (types && token.test(types)) owners.push(name);
+    }
+    if (owners.length > 0) {
+      return (
+        `no module named "${wanted}" — but "${wanted}" is exported by ${owners.map((o) => `env:${o}`).join(" and ")}. ` +
+        `Read /std/${owners[0]}/index.d.ts, and import it as: import { ${wanted} } from 'env:${owners[0]}'.`
+      );
+    }
+    const all = [...this.moduleDescriptions.keys()].map((n) => `env:${n}`).join(", ");
+    return `no module named "${wanted}". Registered modules: ${all}. /std/README.md indexes them.`;
+  }
+
   async readText(path: string): Promise<string> {
     // Rebuilt on the read that asks for it, then persisted so `grep` and a
     // subsequent snapshot see the same thing `read_file` just returned.
     if (normalizePath(path) === ORIENTATION_PATH) return this.refreshOrientation();
+    const p = normalizePath(path);
+    if (!(await this.vfs.exists(p))) {
+      const hint = await this.explainMissingStd(p);
+      if (hint) throw new Error(hint);
+    }
     const data = await this.readBytes(path);
     if (looksBinary(data)) {
       throw new Error(

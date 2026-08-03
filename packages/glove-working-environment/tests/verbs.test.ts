@@ -277,3 +277,29 @@ test("escalation does not fire on success, however repetitive", async () => {
     assert.doesNotMatch(out, /STOP|Second time/);
   }
 });
+
+test("a /std path named for a symbol points at the module that exports it", async () => {
+  // Models look a module up by the binding they want: eight reads of
+  // /std/csv/index.d.ts in one eval, because csv lives on env:std.
+  const env = await makeEnv();
+  const err = await callErr(env, "read_file", { path: "/std/csv/index.d.ts" });
+  assert.match(err, /no module named "csv"/);
+  assert.match(err, /exported by env:std/);
+  assert.match(err, /import \{ csv \} from 'env:std'/);
+
+  // A name nothing exports gets the catalogue instead of a dead end.
+  const unknown = await callErr(env, "read_file", { path: "/std/quantum/index.d.ts" });
+  assert.match(unknown, /Registered modules: env:fs, env:std, env:assert/);
+  assert.match(unknown, /\/std\/README\.md/);
+
+  // A real module with a missing file inside it is a different error.
+  assert.match(await callErr(env, "read_file", { path: "/std/std/nope.md" }), /no such file/);
+});
+
+test("write_file names the conversion when handed a non-string body", async () => {
+  const env = await makeEnv();
+  const err = await callErr(env, "write_file", { path: "/out/counts.json", content: { ada: 3 } });
+  assert.match(err, /content must be a string, got a object/);
+  assert.match(err, /JSON\.stringify/);
+  assert.match(await callErr(env, "write_file", { path: "/out/x.json", content: [1, 2] }), /got an array/);
+});

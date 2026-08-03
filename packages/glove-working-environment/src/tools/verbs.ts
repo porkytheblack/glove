@@ -123,8 +123,16 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       ["path", "content"],
     ),
     do: guard("write_file", async (input: { path: string; content: string; append?: boolean }) => {
-      if (typeof input.path !== "string" || typeof input.content !== "string") {
-        return err("write_file needs { path, content } as strings");
+      if (typeof input.path !== "string") return err("write_file needs { path } as a string");
+      if (typeof input.content !== "string") {
+        // Observed: a model passing the object it wanted to save. The intent
+        // is obvious and the fix is one call away, so say which one rather
+        // than restating the schema.
+        const got = input.content === null ? "null" : Array.isArray(input.content) ? "an array" : `a ${typeof input.content}`;
+        return err(
+          `write_file content must be a string, got ${got}. Serialize it first — ` +
+            `content: JSON.stringify(value, null, 2).`,
+        );
       }
       const r = await core.write(input.path, input.content, { append: input.append });
       const verb = input.append ? "appended to" : r.created ? "created" : "wrote";

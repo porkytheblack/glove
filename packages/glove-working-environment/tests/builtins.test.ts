@@ -413,3 +413,33 @@ test("both builtins are present during write-time validation, but env:fs cannot 
   );
   assert.equal(await env.fs.exists("/tmp/side-effect.txt"), false, "a rejected write must leave no trace");
 });
+
+test("a string method on a readdir entry names the shape mistake", async () => {
+  // `entries.filter(f => f.endsWith('.png'))` is the most common in-script
+  // slip: Node's readdir returns strings, ours returns objects. The bare
+  // TypeError never says what `f` is, which is the only fact that fixes it.
+  const env = await makeEnv();
+  await env.fs.writeFile("/inbox/a.png", "x");
+  const err = await scriptErr(
+    env,
+    `import { readdir } from 'env:fs';
+     export default async function main() {
+       const entries = await readdir('/inbox');
+       return entries.filter((f) => f.endsWith('.png'));
+     }`,
+  );
+  assert.match(err, /is not a function/);
+  assert.match(err, /readdir\(\) returns entry objects, not strings/);
+  assert.match(err, /f\.name\.endsWith/);
+  assert.match(err, /glob\(/);
+});
+
+test("the shape hint stays out of the way when readdir is not involved", async () => {
+  const env = await makeEnv();
+  const err = await scriptErr(
+    env,
+    `export default async function main() { const n = 42; return n.endsWith('x'); }`,
+  );
+  assert.match(err, /is not a function/);
+  assert.doesNotMatch(err, /readdir/);
+});

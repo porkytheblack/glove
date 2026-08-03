@@ -188,7 +188,11 @@ test("restoring a snapshot re-materializes /std from the CURRENT adapter set", a
   const env = await makeEnv({ stdlib: [textkit()] });
   const snap = await env.snapshot();
   const env2 = await createWorkingEnvironment({ filesystem: fromSnapshot(snap) }); // no textkit this time
-  assert.match(await callErr(env2, "read_file", { path: "/std/textkit/index.d.ts" }), /no such file/);
+  // The stale docs are gone, and the message says why rather than leaving the
+  // model to conclude the file was merely misplaced.
+  const err = await callErr(env2, "read_file", { path: "/std/textkit/index.d.ts" });
+  assert.match(err, /no module named "textkit"/);
+  assert.match(err, /Registered modules: env:fs, env:std, env:assert/);
   assert.match(await callOk(env2, "ls", { path: "/std" }), /fs\//);
 });
 
