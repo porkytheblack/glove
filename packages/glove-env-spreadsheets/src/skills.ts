@@ -90,6 +90,10 @@ Things worth knowing:
 - **Only the write is async.** \`wb.xlsx.writeFile(path)\`, \`wb.csv.writeFile(path)\`
   and \`wb.xlsx.writeBuffer()\` — one of them must be awaited, or the workbook
   is built and nothing is produced.
+- **You cannot read values back off the object.** The whole document is
+  recorded and replayed at the write, so a property read gives you nothing
+  useful — `ws.rowCount` and friends are not available mid-build. Compute
+  what you need from your own data before you start.
 - **Rows and columns are 1-indexed.** \`getRow(1)\` is the header you just added.
 - **A formula is \`{ formula: 'SUM(B2:B3)' }\`** as a cell value.
 - **Merged title:** \`ws.mergeCells('A1:C1')\` then set \`ws.getCell('A1').value\`.

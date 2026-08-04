@@ -128,6 +128,9 @@ Things worth knowing:
   \`new ImageRun({ type: 'png', data: await readBytes('/tmp/chart.png'), transformation: { width: 400, height: 240 } })\`
 - **\`Packer.toBuffer\` is the only thing that produces anything.** A document
   you build and never pack writes no file and reports no error.
+- **You cannot read values back off what you built.** The whole document is
+  recorded and replayed at the pack, so a property read gives you nothing
+  useful. Compute what you need from your own data before you start.
 - Read it back with \`docx.extractText('/out/review.docx')\` and check a figure
   you know is supposed to be in it.
 `,
