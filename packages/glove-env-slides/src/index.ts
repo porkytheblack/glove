@@ -229,7 +229,23 @@ export const slides = () =>
                   header.map((c) => ({ text: String(c), options: { bold: true, color: "FFFFFF", fill: { color: ACCENT } } })),
                   ...rows.map((r) => r.map((c) => ({ text: String(c), options: { color: INK } }))),
                 ],
-                { x: 0.6, y: 1.5, w, fontSize: 13, border: { pt: 0.5, color: RULE }, autoPage: false },
+                {
+                  x: 0.6,
+                  y: 1.5,
+                  w,
+                  fontSize: 13,
+                  border: { pt: 0.5, color: RULE },
+                  // Continue onto further slides rather than running off the
+                  // bottom of this one. Measured without it: a 40-row table
+                  // drew all 40 rows on a single slide, most of them past the
+                  // edge — and because the text is still in the file,
+                  // `extract()` finds every row and nothing looks wrong until
+                  // someone opens the deck. A silently unreadable deliverable
+                  // is the worst outcome available here.
+                  autoPage: true,
+                  autoPageRepeatHeader: true,
+                  autoPageSlideStartY: 0.6,
+                },
               );
             } else if (slide.metric) {
               s.addText(slide.metric.value, { x: 0.6, y: 1.9, w, h: 1.2, fontSize: 60, bold: true, color: ACCENT });

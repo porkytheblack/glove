@@ -38,6 +38,8 @@ export default async function main() {
 
 A slide takes one kind of content — `bullets`, `table`, `metric` or `body`, applied in that order — plus an optional `image` (a VFS path, so generate it with `env:images` first) and `notes`. Indent a bullet by prefixing two spaces.
 
+A table longer than a slide continues onto further slides with its header repeated, rather than running off the bottom. That matters more than it sounds: an overflowing table still puts every row in the file, so `extract()` finds them all and nothing looks wrong until someone opens the deck.
+
 The palette and layout are fixed rather than configurable. An agent choosing colours per deck produces something worse than a consistent default, and every knob is a decision it has to spend a turn on.
 
 ## Reading

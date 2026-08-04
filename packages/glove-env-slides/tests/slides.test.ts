@@ -157,6 +157,35 @@ test("an image generated in the VFS can be placed on a slide", async () => {
   assert.equal(summary.media, 1, "the embedded image should appear as a media part");
 });
 
+test("a table longer than a slide continues onto more slides", async () => {
+  // The silent-breakage case. Without auto-paging, all 40 rows are drawn on
+  // one slide with most of them past the bottom edge — and because the text
+  // is still in the file, `extract()` finds every row and nothing looks wrong
+  // until someone opens the deck. An unreadable deliverable that passes every
+  // text assertion is the worst outcome available.
+  const t = await createAdapterTestEnv(slides());
+  const rows = Array.from({ length: 40 }, (_, i) => `['Row ${i + 1}', '$${i}00']`).join(",");
+  await t.script(`
+    import { create } from 'env:slides';
+    export default async function main() {
+      return create({ title: 'T', slides: [{ title: 'Big', table: [['A', 'B'], ${rows}] }] }, '/out/big.pptx');
+    }
+  `);
+
+  const deck = readDeck(await t.fs.readBytes("/out/big.pptx"));
+  assert.ok(deck.slides.length > 2, `a 40-row table must not fit on one slide, got ${deck.slides.length} slides`);
+
+  // Nothing may be dropped on the way.
+  const seen = new Set(deck.slides.flatMap((s) => s.body).filter((b) => /^Row \d+$/.test(b)));
+  assert.equal(seen.size, 40, `expected all 40 rows across the slides, found ${seen.size}`);
+
+  // And no single slide may be overfull, which is the thing being fixed.
+  for (const s of deck.slides) {
+    const n = s.body.filter((b) => /^Row \d+$/.test(b)).length;
+    assert.ok(n <= 20, `slide ${s.slide} carries ${n} rows — that will run off the page`);
+  }
+});
+
 test("the output is a structurally valid OOXML package", async () => {
   // Everything else here reads the deck with this package's own parser, which
   // proves the two agree — not that PowerPoint would open the file. This
