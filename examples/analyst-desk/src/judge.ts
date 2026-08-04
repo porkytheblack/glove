@@ -94,7 +94,13 @@ export async function judge(opts: {
         { role: "user", content: user },
       ],
       tools: [],
-      maxTokens: 1500,
+      // Generous on purpose. At 1500 a reasoning judge spent most of the
+      // budget before emitting anything and its reply was cut off mid-string
+      // — valid JSON, truncated — which the parser then reported as
+      // "unparseable" and defaulted every verdict to FAIL. A correct judgment
+      // silently became a failing one, which is the worst possible direction
+      // for a verification harness to be wrong in.
+      maxTokens: 6000,
       signal: opts.signal,
     });
   } catch (e) {
@@ -111,7 +117,9 @@ export async function judge(opts: {
     const why =
       raw.trim() === ""
         ? `judge returned no content (finish_reason: ${res.finishReason})`
-        : `unparseable judge reply: ${raw.slice(0, 300)}`;
+        : res.finishReason === "length"
+          ? `judge reply was cut off at the token limit after ${raw.length} chars — raise maxTokens`
+          : `unparseable judge reply: ${raw.slice(0, 300)}`;
     return { verdicts: failAll(opts.questions, "judge returned unparseable output"), usage: res.usage, error: why };
   }
 
@@ -139,18 +147,47 @@ function failAll(questions: JudgeQuestion[], reason: string): Verdict[] {
 function parseVerdicts(content: string): Verdict[] | null {
   const start = content.indexOf("{");
   const end = content.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  try {
-    const obj = JSON.parse(content.slice(start, end + 1));
-    if (!Array.isArray(obj?.verdicts)) return null;
-    return obj.verdicts
-      .filter((v: unknown): v is Record<string, unknown> => !!v && typeof v === "object")
-      .map((v: Record<string, unknown>) => ({
-        id: String(v.id ?? ""),
-        pass: v.pass === true,
-        reason: String(v.reason ?? "").slice(0, 400),
-      }));
-  } catch {
-    return null;
+  if (start >= 0 && end > start) {
+    try {
+      const obj = JSON.parse(content.slice(start, end + 1));
+      if (Array.isArray(obj?.verdicts)) return normalise(obj.verdicts);
+    } catch {
+      // fall through to the salvage path
+    }
   }
+  return salvage(content);
+}
+
+/**
+ * Recover the complete verdicts from a truncated reply.
+ *
+ * A reply cut off at the token limit is usually valid up to the cut — three
+ * finished verdicts and a fourth ending mid-sentence. Discarding all four
+ * turned a correct judgment into four failures, which is the wrong direction
+ * for a verification harness to be wrong in. Whatever was finished is kept;
+ * the unfinished one is simply absent, and the caller already fails any
+ * question the judge did not answer.
+ */
+function salvage(content: string): Verdict[] | null {
+  const objects = content.match(/\{[^{}]*"id"\s*:\s*"[^"]*"[^{}]*\}/g);
+  if (!objects) return null;
+  const recovered: Array<Record<string, unknown>> = [];
+  for (const text of objects) {
+    try {
+      recovered.push(JSON.parse(text));
+    } catch {
+      // An object that does not parse on its own is the truncated one.
+    }
+  }
+  return recovered.length > 0 ? normalise(recovered) : null;
+}
+
+function normalise(raw: unknown[]): Verdict[] {
+  return raw
+    .filter((v: unknown): v is Record<string, unknown> => !!v && typeof v === "object")
+    .map((v: Record<string, unknown>) => ({
+      id: String(v.id ?? ""),
+      pass: v.pass === true,
+      reason: String(v.reason ?? "").slice(0, 400),
+    }));
 }
