@@ -1,0 +1,27 @@
+{
+  "name": "glove-analyst-desk",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "An agent reviewing and producing real documents: an 80-page PDF searched rather than read, messy CSVs, a deck. Graded twice \u2014 deterministically on facts, and by a stronger model on fidelity.",
+  "scripts": {
+    "selfcheck": "tsx src/selfcheck.ts",
+    "eval": "tsx --env-file-if-exists=../../.env src/run.ts",
+    "typecheck": "tsc --noEmit",
+    "judgecheck": "tsx --env-file-if-exists=../../.env src/judgecheck.ts"
+  },
+  "dependencies": {
+    "glove-env-documents": "workspace:*",
+    "glove-env-images": "workspace:*",
+    "glove-env-slides": "workspace:*",
+    "glove-env-spreadsheets": "workspace:*",
+    "glove-working-environment": "workspace:*",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}
