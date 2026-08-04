@@ -405,10 +405,22 @@ export const BRIDGE_SOURCE = `globalThis.__glove_bridge = (function () {
         if (typeof key !== "string") return Reflect.get(target, key, receiver);
         if (key in target) return Reflect.get(target, key, receiver);
         if (PROBE_KEYS[key] === 1) return undefined;
+        // Same reasoning as exportList() host-side: a wrapped library brings
+        // its whole vocabulary, and listing forty names buries the one the
+        // model was reaching for. Verbs first, classes counted.
         var available = Object.keys(target).filter(function (k) { return k !== "default"; });
-        throw new TypeError(
-          'no such export "' + key + '" on ' + label + ' — available: ' + available.join(", ") + '.'
-        );
+        var verbs = [], classes = [];
+        for (var ai = 0; ai < available.length; ai++) {
+          (/^[A-Z]/.test(available[ai]) ? classes : verbs).push(available[ai]);
+        }
+        var shown = (verbs.length > 0 ? verbs : available).slice(0, 16);
+        var msg = 'no such export "' + key + '" on ' + label + ' — available: ' + shown.join(", ");
+        if (verbs.length > shown.length) msg += ", and " + (verbs.length - shown.length) + " more";
+        if (verbs.length > 0 && classes.length > 0) {
+          msg += ". It also exports " + classes.length + " classes and enums from the library it wraps (" +
+            classes.slice(0, 3).join(", ") + ", …) — see /skills/imports.md";
+        }
+        throw new TypeError(msg + ".");
       },
     });
     seen.set(obj, proxy);
