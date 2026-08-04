@@ -59,6 +59,34 @@ It earns its place. On its first run it found three bugs in this harness — a C
 
 `pnpm judgecheck` does the same for the judge: one briefing known to be right, one wrong in four specific ways, and the judge has to separate them. Without it, every verdict in a real run is unfalsifiable.
 
+## What it has answered so far
+
+Two questions, both with numbers rather than intuition.
+
+**Can a model drive the wrapped libraries?** Yes. `styled-workbook` asks for a
+bold header, thousands separators, a percentage format, a set column width and
+a frozen pane — every one of them unreachable through the environment's own
+`write(path, rows)`, so a passing run is a model writing real exceljs. It
+scored 7/9 and 8/9 across the two arms below, the strongest scenario in the
+suite.
+
+**Does putting the docs in front of a model help?** No — and this is the more
+useful answer. 45 runs per arm, same build, same day, with and without
+`nudgeToDocsOnFirstWrite`:
+
+| | nudge off | nudge on |
+|---|---|---|
+| complete | **25/45** | **24/45** |
+| genuine errored calls | 87 | 72 |
+
+It removes about 17% of genuine errored calls and none of that converts into
+delivered work; two of the three models score identically. What actually binds
+is turns — 8 of 45 control runs ended on `max-turns` rather than on a wrong
+answer. Recorded in full on [#64](https://github.com/porkytheblack/glove/issues/64).
+
+Reproduce: `pnpm eval -- --reps 3`, and again with `--nudge-docs`. About $0.50
+per arm.
+
 ## Cost
 
 The budget ceiling is checked before every call, not tallied afterwards, so an overrun stops the run rather than being discovered in the summary. `--budget 2` to lower it, `--models` and `--scenarios` to narrow, `--judge` to swap the verifier (`xiaomi/mimo-v2.5-pro` is the other sensible pick).
