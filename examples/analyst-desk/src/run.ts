@@ -40,6 +40,8 @@ interface Args {
   reps: number;
   /** Where to write what each run produced, so it can actually be opened. */
   save?: string;
+  /** Refuse a script write until the docs it imports have been read. */
+  gateDocs: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -58,6 +60,7 @@ function parseArgs(argv: string[]): Args {
     budget: Number(get("--budget") ?? DEFAULT_BUDGET_USD),
     reps: Number(get("--reps") ?? 1),
     save: get("--save"),
+    gateDocs: argv.includes("--gate-docs"),
   };
 }
 
@@ -125,7 +128,7 @@ async function main(): Promise<void> {
   }
 
   const planned = chosen.length * args.models.length * args.reps;
-  console.log(`analyst-desk — ${planned} run(s), judged by ${args.judgeModel}, ceiling ${money(args.budget)}\n`);
+  console.log(`analyst-desk — ${planned} run(s), judged by ${args.judgeModel}, ceiling ${money(args.budget)}${args.gateDocs ? ", docs gate ON" : ""}\n`);
 
   const rows: Row[] = [];
   let agentSpend = 0;
@@ -143,7 +146,7 @@ async function main(): Promise<void> {
         }
 
         process.stdout.write(`  ${scenario.id.padEnd(14)} ${model.padEnd(24)} `);
-        const { env, truth } = await openDesk();
+        const { env, truth } = await openDesk({ requireDocsBeforeWrite: args.gateDocs });
         let row: Row;
 
         try {

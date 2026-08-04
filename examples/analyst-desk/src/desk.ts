@@ -20,7 +20,7 @@ export interface Desk {
   truth: GroundTruth;
 }
 
-export async function openDesk(): Promise<Desk> {
+export async function openDesk(opts: { requireDocsBeforeWrite?: boolean } = {}): Promise<Desk> {
   const { files, truth } = await buildCorpus();
   const env = await createWorkingEnvironment({
     stdlib: [documents(), spreadsheets(), images(), slides()],
@@ -33,6 +33,10 @@ export async function openDesk(): Promise<Desk> {
       // cents instead of dollars.
       runTimeoutMs: 60_000,
     },
+    // Refuse a script write until the docs it imports have been read. Off in
+    // the environment by default; the eval is where the question gets an
+    // answer, since the whole point is whether it moves the delivery rate.
+    requireDocsBeforeWrite: opts.requireDocsBeforeWrite ?? false,
     // Route the heap-ceiling notice into the run rather than onto stdout,
     // where it would interleave with progress output.
     execution: { onWarning: () => {} },

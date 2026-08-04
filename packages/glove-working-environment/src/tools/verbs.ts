@@ -135,6 +135,10 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
             `content: JSON.stringify(value, null, 2).`,
         );
       }
+      // Model-facing only: the docs gate belongs here, not in the shared
+      // write path, because a host or an adapter writing a script is not the
+      // party that needs convincing to read them.
+      if (core.producesDts(input.path) || core.inScriptZone(input.path)) core.requireDocsFor(input.content);
       const r = await core.write(input.path, input.content, { append: input.append });
       const verb = input.append ? "appended to" : r.created ? "created" : "wrote";
       let msg = `${verb} ${input.path} (${fmtBytes(r.bytes)})`;

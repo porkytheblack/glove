@@ -246,3 +246,55 @@ test("the environment survives a script that had to be killed", async () => {
   assert.equal(await env.fs.readFile("/out/after.txt"), "still working");
   await env.close();
 });
+
+test("with the docs gate on, a script write is refused until the docs are read", async () => {
+  // The measured problem this exists for: with /skills present and the
+  // preamble naming it first, the top of the friction table across 36 agent
+  // runs was still `no module named "csv"`. Reading is optional and guessing
+  // is free, so guessing wins. This inverts that — once per session, per
+  // module — and makes the wrong import unwritable rather than corrected
+  // after the turn is spent.
+  const env = await makeEnv({ requireDocsBeforeWrite: true });
+  const script = `import { csv } from 'env:std';\nexport default async function main() { return csv.rows('a,b'); }`;
+
+  const first = await callErr(env, "write_file", { path: "/scripts/a.js", content: script });
+  assert.match(first, /read \/skills\/imports\.md first/);
+
+  await callOk(env, "read_file", { path: "/skills/imports.md" });
+
+  // Now the module's own types are what is missing, and the refusal says so.
+  const second = await callErr(env, "write_file", { path: "/scripts/a.js", content: script });
+  assert.match(second, /imports env:std/);
+  assert.match(second, /\/std\/std\/index\.d\.ts/);
+
+  await callOk(env, "read_file", { path: "/std/std/index.d.ts" });
+  await callOk(env, "write_file", { path: "/scripts/a.js", content: script });
+
+  // Asked once per module: a second script importing the same thing is free.
+  await callOk(env, "write_file", {
+    path: "/scripts/b.js",
+    content: `import { json } from 'env:std';\nexport default async function main() { return json.stringify({}); }`,
+  });
+  await env.close();
+});
+
+test("the docs gate is off by default, and never applies to host writes", async () => {
+  // Default off because turning it on lets a script write be refused for a
+  // reason unrelated to the script. And even on, it is a model-facing rule:
+  // a host, an adapter, or the test harness writing a script already knows
+  // what it imports, so gating them would charge friction to the wrong party.
+  const plain = await makeEnv();
+  await callOk(plain, "write_file", {
+    path: "/scripts/a.js",
+    content: `import { csv } from 'env:std';\nexport default async function main() { return csv.rows('a'); }`,
+  });
+  await plain.close();
+
+  const gated = await makeEnv({ requireDocsBeforeWrite: true });
+  await gated.fs.writeFile(
+    "/scripts/host.js",
+    `import { csv } from 'env:std';\nexport default async function main() { return csv.rows('a'); }`,
+  );
+  assert.equal(await gated.fs.exists("/scripts/host.js"), true);
+  await gated.close();
+});

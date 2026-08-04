@@ -247,6 +247,21 @@ export interface CreateWorkingEnvironmentOptions {
    * Off by default: restoring a deliberate subset of adapters is legitimate.
    */
   strictAdapters?: boolean;
+  /**
+   * Refuse a script write until the docs it imports have been read. Default
+   * false.
+   *
+   * Measured: with `/skills` present and the preamble naming it first, the
+   * most frequent errors across 36 agent runs were still guessed imports —
+   * reading is optional and guessing is free, so guessing wins. The gate
+   * inverts that for one call per module per session.
+   *
+   * Off pending evidence: turning it on lets a script write be refused for a
+   * reason unrelated to the script, which is not a default to flip on a
+   * hunch. Turn it on to trade one read call per module per session against
+   * the turns a guessed import costs.
+   */
+  requireDocsBeforeWrite?: boolean;
   /** Script-execution tuning. Scripts always run in terminable workers. */
   execution?: {
     /**

@@ -92,6 +92,16 @@ export class EnvCore {
     readonly vfs: Vfs,
     readonly limits: EnvLimits,
     readonly versions: VersionStore,
+    /**
+     * Refuse a script write until the docs it needs have been read.
+     *
+     * Off by default, pending evidence. Turning it on changes what a
+     * conforming host is allowed to do — a script write can now be refused
+     * for a reason unrelated to the script — and that is not a default to
+     * flip on a hunch. The eval turns it on; if the delivery rate moves, the
+     * measurement is the argument for changing this.
+     */
+    private readonly gateWrites = false,
   ) {}
 
   attachExecutor(executor: WorkerPool): void {
@@ -147,6 +157,10 @@ export class EnvCore {
   }
 
   /** Any `.js` under /scripts (lib included) is loaded/validated at write time. */
+  inScriptZone(path: string): boolean {
+    return this.inPipelineScope(path);
+  }
+
   private inPipelineScope(path: string): boolean {
     return path.endsWith(".js") && isUnder(path, "/scripts");
   }
@@ -335,7 +349,24 @@ export class EnvCore {
     return `no module named "${wanted}". Registered modules: ${all}. /std/README.md indexes them.`;
   }
 
+  /**
+   * Documentation this session has actually read.
+   *
+   * Used to gate the first script write. Tracked rather than assumed because
+   * the eval showed the two are different things: `/skills` existed, the
+   * preamble named it first, and the top of the friction table was still
+   * `no module named "csv"` — models wrote the import from memory and ate the
+   * error rather than opening the file that answers it.
+   */
+  private readonly hasRead = new Set<string>();
+
+  /** True once the given doc has been read in this session. */
+  seenDoc(path: string): boolean {
+    return this.hasRead.has(normalizePath(path));
+  }
+
   async readText(path: string): Promise<string> {
+    this.hasRead.add(normalizePath(path));
     // Rebuilt on the read that asks for it, then persisted so `grep` and a
     // subsequent snapshot see the same thing `read_file` just returned.
     if (normalizePath(path) === ORIENTATION_PATH) return this.refreshOrientation();
@@ -748,6 +779,50 @@ export class EnvCore {
    * equally true for a restored snapshot, a host-supplied persistent
    * filesystem, and a tree the agent has been editing all session.
    */
+  /**
+   * Refuse a script until the docs it needs have been read.
+   *
+   * The measured problem is not that the answer is missing — every wrong
+   * import is answered by name, and `/skills/imports.md` shows the right line
+   * for every module. It is that a model writes the import from memory and
+   * only meets the answer afterwards, by which point it has spent the turn.
+   * Reading is optional and guessing is free, so guessing wins.
+   *
+   * This inverts that. The read costs one call, happens once per session per
+   * module, and makes the wrong import unwritable rather than merely
+   * corrected. It is a gate on the FIRST write only — once a module's types
+   * have been read, every later script importing it goes straight through.
+   *
+   * Deliberately not a lecture: the refusal names the exact path to read and
+   * nothing else, because a message that has to be interpreted is another
+   * thing to guess at.
+   *
+   * Called from the model-facing verbs ONLY, never from the shared write
+   * path. A host writing a script through `env.fs`, an adapter deriving one,
+   * and the adapter test harness all know what they are importing — gating
+   * them would be friction charged to the wrong party, and the first version
+   * of this did exactly that and broke thirty tests.
+   */
+  requireDocsFor(source: string): void {
+    if (!this.gateWrites) return;
+
+    if (!this.hasRead.has("/skills/imports.md")) {
+      throw new Error(
+        `read /skills/imports.md first — it has the exact import line for every module, and a wrong import ` +
+          `is the most common way a run is wasted here. This is asked once per session.`,
+      );
+    }
+    for (const mod of envImportsOf(source)) {
+      const types = `/std/${mod}/index.d.ts`;
+      if (!this.hasRead.has(types)) {
+        throw new Error(
+          `this script imports env:${mod}, but ${types} has not been read in this session — read it first, ` +
+            `then write the script. Asked once per module.`,
+        );
+      }
+    }
+  }
+
   async moduleUsage(): Promise<Map<string, string[]>> {
     const usage = new Map<string, string[]>();
     for (const path of (await this.glob("/scripts/**/*.js")).sort()) {
