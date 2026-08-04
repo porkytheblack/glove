@@ -16,4 +16,6 @@ Type strings name what the schema accepts, not a friendly paraphrase of it: a bo
 
 Loading is tiered like the inbox: a one-line tier-0 notification injected into the system prompt each turn (open step, pending labels, one-line preview per remaining step), `glove_form_status` for the open step in full, `glove_form_inspect` for anything else. Form modules aren't imported until a form is started — `glove_form_list` renders registration data only.
 
+`FormAdapter` is documented as a storage-and-retrieval contract: four invariants the engine relies on (entries append rather than replace, `version` is compare-and-set, a commit is all-or-nothing, reads hand back snapshots), a per-method note on what to set and which error to throw, and an explicit list of what is left to the implementer — storage engine, indexing, retention, how atomicity is achieved, how much provenance to keep. `applyEntryCommit` is exported so an adapter can reuse the append-and-clamp semantics rather than re-derive them.
+
 Adds `glove-memory/forms`, `InMemoryFormAdapter`, `useFormRunner` / `useFormReader`, the `FormAdapter` contract, and the `form_conflict` / `form_validation_failed` / `form_blocked` / `form_stale` / `form_definition_error` error codes.

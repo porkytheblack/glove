@@ -561,6 +561,40 @@ Verified by probe, and worth knowing before you wire this to anything real:
 - **`recordDispatch` writes outside the CAS envelope.** A concurrent commit can lose dispatch bookkeeping, which costs a duplicate executor run — the exact thing the idempotency key exists to absorb.
 - **A complete instance stays reachable.** Finishing a form doesn't end the conversation about it, so `revise` / `retract` / `undo` still resolve against it; only `abandon` closes it. Tier 0 stays quiet once complete.
 
+### Writing a form adapter
+
+`FormAdapter` is a storage-and-retrieval contract and nothing more. The engine
+holds every semantic — liveness, applicability, rising edges, completion — and
+recomputes them from whatever you hand back, so an adapter that persists
+`FormInstance` faithfully is a correct adapter whatever it's built on.
+
+Four invariants, and they are the whole of it:
+
+1. **`entries` appends, never replaces.** `commitInstance` receives a
+   `FormEntryCommit` per field (`{ append?, cursor? }`), not a `FieldHistory`.
+   Append to the existing log, then move the cursor, then clamp it.
+   Overwriting a field's log destroys answers the design guarantees are kept —
+   `applyEntryCommit` is exported from `glove-memory/forms` so you can reuse
+   the exact semantics rather than re-derive them.
+2. **`version` is compare-and-set.** Reject a stale `ifVersion` with
+   `FormConflictError`; bump `version` on every write that lands. The runner
+   retries a conflict — it relies on losing, not on winning.
+3. **A commit is all-or-nothing.** Entries, occurrence counters, dispatch log
+   and status land together or not at all. That's what makes commit-then-run
+   dispatch safe.
+4. **Reads hand back snapshots.** Clone if your store could return a live
+   reference.
+
+Everything else is yours: storage engine and schema, indexing, retention,
+*how* you achieve atomicity, how much provenance you keep, multi-tenancy,
+encryption, soft deletes. The contract deliberately doesn't model any of it.
+
+The per-method contract lives in doc comments on
+[`FormAdapter`](./src/forms/adapter.ts) — what each method must set, which
+error to throw when, and which fields replace versus merge. `InMemoryFormAdapter`
+is the reference implementation and is short enough to read end to end before
+writing your own.
+
 ### Def drift
 
 Instances pin `defVersion` at start. When it stops matching the registered def the runner does not guess: default is `status: "stale"` with the reason surfaced, and a def may supply `migrate(old, fromVersion)` to carry values forward. Bumping `version` is the developer's signal that a change is breaking — additive changes don't need it.
