@@ -18,7 +18,7 @@
  *   only way to read a deck this environment did not write.
  */
 import PptxGenJSImport from "pptxgenjs";
-import { defineAdapter, type EnvFsHandle, type FileSummary } from "glove-working-environment";
+import { defineAdapter, defineBuilder, methodsOf, type EnvFsHandle, type FileSummary } from "glove-working-environment";
 import { readDeck, looksZip, type SlideText } from "./pptx";
 import { SLIDES_DOCS, SLIDES_TYPES } from "./docs";
 
@@ -128,6 +128,52 @@ export const slides = () =>
       magic: [],
     },
     create: (vfs: EnvFsHandle) => {
+      /**
+       * `PptxGenJS` itself, with its real API.
+       *
+       * A model that has read pptxgenjs writes `new PptxGenJS()`, then
+       * `addSlide()`, then `slide.addText(text, opts)`. Anything else makes it
+       * translate, and translation is where the eval showed models burning
+       * turns — one reached for a name our own API did not have precisely
+       * because the library has a class.
+       *
+       * The allowlist is read off the library rather than typed out, so it is
+       * the real surface and stays right when the dependency moves.
+       */
+      const probe = new PptxGenJS();
+      const probeSlide = probe.addSlide();
+      const enums = ["AlignH", "AlignV", "ChartType", "OutputType", "SchemeColor", "ShapeType"] as const;
+
+      // Not exposed yet — see NOTE below.
+      void defineBuilder<InstanceType<typeof PptxGenJS>>({
+        name: "PptxGenJS",
+        construct: () => new PptxGenJS(),
+        allow: [...new Set([...methodsOf(probe), ...methodsOf(probeSlide)])],
+        data: Object.fromEntries(enums.map((k) => [k, probe[k]])),
+        finish: {
+          /**
+           * The library's own `writeFile` would write to the host filesystem.
+           * It is replaced, not wrapped: the bytes are produced in memory and
+           * land in the VFS through the guarded handle, so zones, limits and
+           * versioning apply exactly as they do to any other write.
+           */
+          async writeFile(pptx, args) {
+            const opts = (args[0] ?? {}) as { fileName?: string };
+            const path = typeof opts === "string" ? opts : opts.fileName;
+            if (!path) {
+              throw new Error("writeFile needs a path: writeFile({ fileName: '/out/deck.pptx' })");
+            }
+            const buffer = (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
+            await vfs.writeFile(path, new Uint8Array(buffer));
+            return path;
+          },
+          /** `write()` hands the bytes back instead of storing them. */
+          async write(pptx) {
+            return new Uint8Array((await pptx.write({ outputType: "nodebuffer" })) as Buffer);
+          },
+        },
+      });
+
       /** Read, verify it really is a deck, and hand back parsed content. */
       const open = async (path: string) => {
         const bytes = await vfs.readBytes(path);

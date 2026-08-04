@@ -33,10 +33,90 @@ import type { ModuleContract } from "../pipeline/contract";
 export type ShapeNode =
   | { kind: "fn"; name: string; arity: number }
   | { kind: "ns"; entries: Record<string, ShapeNode> }
-  | { kind: "value"; value: unknown };
+  | { kind: "value"; value: unknown }
+  | BuilderShape;
+
+/**
+ * A constructor whose API is used *fluently*, recorded in the worker and
+ * replayed on the host.
+ *
+ * The libraries worth wrapping — pptxgenjs, docx, exceljs — are all builders:
+ * you construct a document, call methods on it and on the objects those
+ * return, then write it out. Models have read thousands of examples of
+ * exactly that, so any API which is not that shape makes the model translate,
+ * and translation is where it burns turns. Measured in the analyst-desk eval:
+ * a model reached for `import { slides } from 'env:slides'` because the real
+ * library has a class, not a bag of verbs.
+ *
+ * A live object cannot cross a thread boundary, so nothing does. The worker
+ * hands the script a proxy that records `new`/call/set into a flat op list —
+ * synchronously, so the API chains exactly like the real one — and the whole
+ * list crosses once, when a terminal method is reached. One round trip per
+ * document rather than one per call, and no `Atomics` shim.
+ */
+export interface BuilderShape {
+  kind: "builder";
+  /** Constructor name, as the script will see it: `PptxGenJS`. */
+  name: string;
+  /**
+   * Methods that finish the document and produce something. Reaching one
+   * flushes the recording and returns a promise, so it must be awaited —
+   * everything before it is synchronous.
+   */
+  terminal: string[];
+  /** Static properties carried as data, e.g. `ShapeType`, `AlignH`. */
+  statics: Record<string, unknown>;
+  /**
+   * Data properties on an *instance*, shipped so a read returns the value.
+   *
+   * Models write `pptx.ShapeType.rect` and `pptx.AlignH.center` constantly,
+   * because that is what the library's own examples do. Without this the
+   * recorder would treat `ShapeType` as a method and the read would yield a
+   * recorder rather than an enum.
+   */
+  data: Record<string, unknown>;
+}
+
+/** Marker an adapter puts on a binding to expose it as a recorded builder. */
+export const BUILDER = Symbol.for("glove.builder");
+
+export interface BuilderSpec {
+  name: string;
+  terminal: string[];
+  statics?: Record<string, unknown>;
+  data?: Record<string, unknown>;
+  /**
+   * Method names the host will replay. Everything else is refused.
+   *
+   * Replaying a name the script chose against a live host object is a sandbox
+   * escape — `constructor`, `__proto__`, `valueOf` and anything else reachable
+   * on the prototype chain would be callable. The allowlist is the boundary,
+   * so it is required rather than defaulted.
+   */
+  allow: string[];
+  /** Replay an op list against the real library. Runs on the host. */
+  replay(ops: BuilderOp[]): Promise<unknown>;
+}
+
+/** One recorded step. Refs are indices into the run's object table. */
+export type BuilderOp =
+  | { op: "new"; ref: number; args: unknown[] }
+  | { op: "call"; ref: number; target: number; method: string; args: unknown[] }
+  | { op: "set"; target: number; prop: string; value: unknown }
+  | { op: "end"; target: number; method: string; args: unknown[] };
 
 /** Describe a host namespace so the worker can mirror it. */
 export function describeShape(value: unknown, depth = 0): ShapeNode {
+  const spec = (value as { [BUILDER]?: BuilderSpec })?.[BUILDER];
+  if (spec) {
+    return {
+      kind: "builder",
+      name: spec.name,
+      terminal: spec.terminal,
+      statics: spec.statics ?? {},
+      data: spec.data ?? {},
+    };
+  }
   if (typeof value === "function") {
     return { kind: "fn", name: (value as { name?: string }).name ?? "", arity: (value as { length?: number }).length ?? 0 };
   }
@@ -122,9 +202,12 @@ export interface ReadyMessage {
 export interface NeedMessage {
   type: "need";
   id: string;
-  what: "readSource" | "isEnforcedScript" | "capability";
+  what: "readSource" | "isEnforcedScript" | "capability" | "builder";
   /** For readSource / isEnforcedScript. */
   path?: string;
+  /** For builder: which constructor, and the recorded ops to replay. */
+  builder?: string;
+  ops?: BuilderOp[];
   /** For capability: which namespace, and the property path within it. */
   module?: string;
   route?: string[];

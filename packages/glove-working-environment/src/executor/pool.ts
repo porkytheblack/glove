@@ -39,7 +39,7 @@ import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { EnvLimitError, type EnvLimits } from "../types";
 import type { ModuleContract } from "../pipeline/contract";
-import { describeShape, type HostToWorker, type NeedMessage, type ResultMessage, type ShapeNode, type WorkerToHost } from "./protocol";
+import { BUILDER, describeShape, type BuilderSpec, type HostToWorker, type NeedMessage, type ResultMessage, type ShapeNode, type WorkerToHost } from "./protocol";
 
 export interface PoolDeps {
   readSource(path: string): Promise<string | null>;
@@ -389,6 +389,14 @@ export class WorkerPool {
     try {
       if (message.what === "readSource") {
         respond(true, await this.deps.readSource(message.path!));
+        return;
+      }
+      if (message.what === "builder") {
+        const ns = this.deps.envModules(message.readOnly === true).get(message.module!);
+        const holder = (ns as Record<string, unknown> | undefined)?.[message.builder!];
+        const spec = (holder as { [k: symbol]: BuilderSpec } | undefined)?.[BUILDER];
+        if (!spec) throw new Error(`env:${message.module} has no builder named ${message.builder}`);
+        respond(true, await spec.replay(message.ops ?? []));
         return;
       }
       if (message.what === "capability") {
