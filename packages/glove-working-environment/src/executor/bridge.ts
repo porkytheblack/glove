@@ -227,12 +227,27 @@ export const BRIDGE_SOURCE = `globalThis.__glove_bridge = (function () {
       return node(rec, ref, meta);
     }
 
+    /*
+     * What a recorder renders as. Not the real object's toString — there is
+     * no real object yet — but a name is far better than a crash, and it
+     * says plainly that nothing has been built.
+     */
+    function label() {
+      return "[" + meta.ctor + " (recording; nothing is built until you await a terminal call)]";
+    }
+
     function node(rec, ref, m) {
       return new Proxy({}, {
         get: function (_t, prop) {
           // \`then\` above all: a recorder for it would make the object look
           // thenable and \`await\` would never settle.
           if (prop === NODE_REF) return ref;
+          // Logging or interpolating a builder must not be fatal. Without
+          // this, \`\\\${slide}\` finds no toString, no valueOf and no
+          // Symbol.toPrimitive and throws "Cannot convert object to
+          // primitive value" — measured six times in one eval run, from
+          // models doing nothing worse than building a debug string.
+          if (prop === Symbol.toPrimitive || prop === "toString") return label;
           if (typeof prop === "symbol" || PROBE_KEYS[prop]) return undefined;
           var name = String(prop);
 
@@ -289,6 +304,7 @@ export const BRIDGE_SOURCE = `globalThis.__glove_bridge = (function () {
       return new Proxy(self, {
         apply: function (t, _this, args) { return t.apply(undefined, args); },
         get: function (_t, prop) {
+          if (prop === Symbol.toPrimitive || prop === "toString") return label;
           if (typeof prop === "symbol" || PROBE_KEYS[prop]) return undefined;
           var child = rec.next++;
           rec.ops.push({ op: "get", ref: child, target: target, prop: name });

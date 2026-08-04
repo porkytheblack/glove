@@ -405,7 +405,7 @@ test("prototype methods are not reachable through a builder", async () => {
   // callable, and `constructor.constructor` is the classic route to the host
   // realm that tests/sandbox.test.ts exists to keep shut.
   const t = await createAdapterTestEnv(slides());
-  for (const attack of ["constructor", "valueOf", "toString", "__defineGetter__"]) {
+  for (const attack of ["constructor", "valueOf", "__defineGetter__"]) {
     const err = await t
       .script(`import { PptxGenJS } from 'env:slides';
                export default async function main() {
@@ -416,6 +416,20 @@ test("prototype methods are not reachable through a builder", async () => {
       .then(() => "NO ERROR", (e: Error) => e.message);
     assert.notEqual(err, "NO ERROR", `${attack} must not be replayable`);
   }
+
+  // `toString` is the deliberate exception, and it is not a hole: it answers
+  // in the sandbox with a label and records nothing, so it never reaches a
+  // host object. Refusing it instead made an ordinary debug string fatal —
+  // measured six times in one eval run.
+  const rendered = await t.script<string>(
+    `import { PptxGenJS } from 'env:slides';
+     export default async function main() {
+       const pptx = new PptxGenJS();
+       return pptx.addSlide().toString();
+     }`,
+  );
+  assert.match(rendered, /^\[PptxGenJS \(recording/);
+  assert.equal(await t.fs.exists("/out/x.pptx"), false);
 });
 
 test("a deck that is never written says so, rather than failing silently", async () => {

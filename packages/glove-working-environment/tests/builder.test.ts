@@ -372,3 +372,23 @@ test("a family member with neither construct nor singleton is refused", () => {
     /neither construct\(\) nor singleton/,
   );
 });
+
+test("logging or interpolating a builder says what it is instead of throwing", async () => {
+  // Measured six times in one eval run: a model building a debug string hit
+  // "Cannot convert object to primitive value", because a recorder had no
+  // toString, no valueOf and no Symbol.toPrimitive. Nothing about that is
+  // the model's mistake.
+  const t = await env();
+  const seen = await t.script<{ interpolated: string; stringified: string }>(
+    `import { Memo } from 'env:memo';
+     export default async function main() {
+       const m = new Memo('T');
+       const s = m.section('Risks');
+       return { interpolated: \`\${m}\`, stringified: String(s) };
+     }`,
+  );
+  assert.match(seen.interpolated, /^\[Memo \(recording/);
+  assert.match(seen.stringified, /^\[Memo \(recording/);
+  // And it says why it has nothing to show.
+  assert.match(seen.interpolated, /nothing is built until you await a terminal call/);
+});
