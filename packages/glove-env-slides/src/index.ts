@@ -149,6 +149,29 @@ export const slides = () =>
         construct: () => new PptxGenJS(),
         allow: [...new Set([...methodsOf(probe), ...methodsOf(probeSlide)])],
         data: Object.fromEntries(enums.map((k) => [k, probe[k]])),
+        rewrite: {
+          /**
+           * `addImage({ path })` makes pptxgenjs open the file itself — off
+           * the HOST filesystem, which would let a script pull any host file
+           * it can name into a deck. The path is resolved here instead,
+           * through the guarded VFS handle, and handed on as inline bytes.
+           *
+           * It also puts the failure where it belongs: the library defers
+           * reading until write time, so a missing image otherwise surfaced
+           * against `writeFile()` instead of the `addImage()` that named it.
+           */
+          async addImage(args) {
+            const opts = { ...((args[0] ?? {}) as Record<string, unknown>) };
+            const path = opts.path;
+            if (typeof path === "string") {
+              const bytes = await vfs.readBytes(path);
+              const ext = (path.split(".").pop() ?? "png").toLowerCase();
+              delete opts.path;
+              opts.data = `image/${ext === "jpg" ? "jpeg" : ext};base64,${Buffer.from(bytes).toString("base64")}`;
+            }
+            return [opts, ...args.slice(1)];
+          },
+        },
         finish: {
           /**
            * The library's own `writeFile` would write to the host filesystem.

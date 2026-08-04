@@ -267,3 +267,168 @@ test("a ZIP that is not a deck says which kind of Office file it might be", asyn
     .then(() => "no error", (e: Error) => e.message);
   assert.match(err, /not a PowerPoint deck|ppt\/slides/);
 });
+
+// ======================================= the real PptxGenJS API
+
+const REAL_API = `
+  import { PptxGenJS } from 'env:slides';
+  export default async function main() {
+    const pptx = new PptxGenJS();
+    pptx.layout = 'LAYOUT_16x9';
+    pptx.title = 'Q3 Board Review';
+
+    const cover = pptx.addSlide();
+    cover.addText('Q3 Board Review', { x: 0.6, y: 2.2, w: 8.8, fontSize: 44, bold: true, color: '0B1120' });
+    cover.addShape(pptx.ShapeType.rect, { x: 0.6, y: 2.0, w: 1.4, h: 0.07, fill: { color: '2563EB' } });
+
+    const s = pptx.addSlide();
+    s.addText('Revenue by region', { x: 0.5, y: 0.4, fontSize: 26, bold: true });
+    s.addTable(
+      [[{ text: 'Region', options: { bold: true } }, { text: 'Revenue', options: { bold: true } }],
+       ['EMEA', '$2,435,210'], ['AMER', '$1,241,590']],
+      { x: 0.5, y: 1.4, w: 5.5, fontSize: 14, align: pptx.AlignH.left },
+    );
+    s.addNotes('Lead with EMEA.');
+    return pptx.writeFile({ fileName: '/out/board.pptx' });
+  }
+`;
+
+test("a script can use PptxGenJS exactly as the library documents it", async () => {
+  // The point of the whole recording mechanism. This is verbatim pptxgenjs —
+  // `new`, a property assignment, chained builders, an enum read off the
+  // instance, and an awaited terminal write. A model that has read the
+  // library writes this from memory; anything it has to translate costs turns.
+  const t = await createAdapterTestEnv(slides());
+  const out = await t.script<string>(REAL_API);
+  assert.equal(out, "/out/board.pptx");
+
+  const deck = readDeck(await t.fs.readBytes("/out/board.pptx"));
+  assert.equal(deck.slides.length, 2);
+  assert.equal(deck.slides[0].title, "Q3 Board Review");
+  assert.equal(deck.slides[1].title, "Revenue by region");
+
+  const table = deck.slides[1].body.join(" ");
+  for (const cell of ["Region", "Revenue", "EMEA", "$2,435,210"]) {
+    assert.ok(table.includes(cell), `table cell ${cell} missing: ${table}`);
+  }
+  assert.match(deck.slides[1].notes, /Lead with EMEA/);
+});
+
+test("write() hands the bytes back instead of storing them", async () => {
+  // Returned into the script, not out of it: a script's return value goes
+  // through JSON, so bytes have to be used inside the run.
+  const t = await createAdapterTestEnv(slides());
+  const size = await t.script<number>(`
+    import { PptxGenJS } from 'env:slides';
+    import { writeFile } from 'env:fs';
+    export default async function main() {
+      const pptx = new PptxGenJS();
+      pptx.addSlide().addText('hi', { x: 1, y: 1 });
+      const bytes = await pptx.write();
+      await writeFile('/out/from-bytes.pptx', bytes);
+      return bytes.length;
+    }
+  `);
+  assert.ok(size > 1000, `expected deck bytes, got ${size}`);
+  const raw = await t.fs.readBytes("/out/from-bytes.pptx");
+  assert.deepEqual([...raw.slice(0, 2)], [0x50, 0x4b], "should be a ZIP");
+});
+
+test("an image is read from the VFS, never the host filesystem", async () => {
+  // Found by the error-attribution test below: pptxgenjs opens a `path`
+  // itself, off the real disk, so a script could have named any host file and
+  // had its bytes embedded in a deck it then exports.
+  const t = await createAdapterTestEnv(slides());
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  await t.fs.writeFile("/tmp/logo.png", new Uint8Array(png));
+  const summary = await t.script<DeckSummary>(`
+    import { PptxGenJS, describe } from 'env:slides';
+    export default async function main() {
+      const pptx = new PptxGenJS();
+      pptx.addSlide().addImage({ path: '/tmp/logo.png', x: 1, y: 1, w: 2, h: 2 });
+      await pptx.writeFile({ fileName: '/out/img.pptx' });
+      return describe('/out/img.pptx');
+    }
+  `);
+  assert.equal(summary.media, 1, "the VFS image should be embedded");
+
+  // A host path the VFS does not have must fail, not resolve off real disk.
+  const err = await t
+    .script(`import { PptxGenJS } from 'env:slides';
+             export default async function main() {
+               const pptx = new PptxGenJS();
+               pptx.addSlide().addImage({ path: '/etc/hostname', x: 1, y: 1 });
+               return pptx.writeFile({ fileName: '/out/leak.pptx' });
+             }`)
+    .then(() => "NO ERROR", (e: Error) => e.message);
+  assert.notEqual(err, "NO ERROR", "a host path must not be readable through addImage");
+  assert.match(err, /no such file|not found|outside/i);
+});
+
+test("a method the library does not have is refused, and lists what it does", async () => {
+  const t = await createAdapterTestEnv(slides());
+  const err = await t
+    .script(`import { PptxGenJS } from 'env:slides';
+             export default async function main() {
+               const pptx = new PptxGenJS();
+               pptx.addSlide().addParagraph('nope');
+               return pptx.writeFile({ fileName: '/out/x.pptx' });
+             }`)
+    .then(() => "no error", (e: Error) => e.message);
+  assert.match(err, /has no method "addParagraph"/);
+  assert.match(err, /addText/, "the refusal should name real methods to correct toward");
+});
+
+test("a failing call is named by position and method, not by the write", async () => {
+  // Recording means the deck is assembled at writeFile(), so without this the
+  // error would point at the flush and say nothing about which call was bad.
+  const t = await createAdapterTestEnv(slides());
+  const err = await t
+    .script(`import { PptxGenJS } from 'env:slides';
+             export default async function main() {
+               const pptx = new PptxGenJS();
+               const s = pptx.addSlide();
+               s.addText('fine', { x: 1, y: 1 });
+               s.addImage({ path: '/inbox/does-not-exist.png', x: 1, y: 1 });
+               return pptx.writeFile({ fileName: '/out/x.pptx' });
+             }`)
+    .then(() => "no error", (e: Error) => e.message);
+  assert.match(err, /call #\d+ addImage\(\)/);
+});
+
+test("prototype methods are not reachable through a builder", async () => {
+  // The allowlist is a sandbox boundary, not a convenience. Replaying a
+  // script-chosen name against a live host object would make `constructor`
+  // callable, and `constructor.constructor` is the classic route to the host
+  // realm that tests/sandbox.test.ts exists to keep shut.
+  const t = await createAdapterTestEnv(slides());
+  for (const attack of ["constructor", "valueOf", "toString", "__defineGetter__"]) {
+    const err = await t
+      .script(`import { PptxGenJS } from 'env:slides';
+               export default async function main() {
+                 const pptx = new PptxGenJS();
+                 pptx.addSlide()[${JSON.stringify(attack)}]();
+                 return pptx.writeFile({ fileName: '/out/x.pptx' });
+               }`)
+      .then(() => "NO ERROR", (e: Error) => e.message);
+    assert.notEqual(err, "NO ERROR", `${attack} must not be replayable`);
+  }
+});
+
+test("a deck that is never written says so, rather than failing silently", async () => {
+  const t = await createAdapterTestEnv(slides());
+  const err = await t
+    .script(`import { PptxGenJS } from 'env:slides';
+             export default async function main() {
+               const pptx = new PptxGenJS();
+               pptx.addSlide().addText('orphan', { x: 1, y: 1 });
+               return 'done';
+             }`)
+    .then((r) => `returned ${r}`, (e: Error) => e.message);
+  // Nothing is flushed without a terminal call, so the script simply returns.
+  assert.equal(err, "returned done");
+  assert.equal(await t.fs.exists("/out/x.pptx"), false);
+});

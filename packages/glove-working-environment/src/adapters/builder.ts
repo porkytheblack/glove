@@ -38,6 +38,18 @@ export interface DefineBuilderOptions<T> {
   statics?: Record<string, unknown>;
   /** Data properties readable off an instance, e.g. `pptx.ShapeType`. */
   data?: Record<string, unknown>;
+  /**
+   * Rewrite a method's arguments before the library sees them.
+   *
+   * This is how a path argument is kept inside the sandbox. Libraries that
+   * take a filename read it themselves, off the *host* filesystem — so
+   * `addImage({ path: '/inbox/logo.png' })` would resolve against the real
+   * disk and hand a script whatever it named. Rewriting the argument to
+   * inline bytes read through the guarded VFS handle closes that, and it also
+   * moves the failure to the call that named the missing file rather than to
+   * whichever later call happens to touch it.
+   */
+  rewrite?: Record<string, (args: unknown[]) => Promise<unknown[]>>;
 }
 
 /**
@@ -146,6 +158,8 @@ export function defineBuilder<T extends object>(options: DefineBuilderOptions<T>
                 (options.allow.length > 24 ? ", …" : ""),
             );
           }
+          const rewrite = options.rewrite?.[op.method];
+          if (rewrite) op.args = await rewrite(op.args);
           const fn = (target as Record<string, unknown>)[op.method];
           if (typeof fn !== "function") {
             throw new Error(`"${op.method}" is not callable on this object`);
