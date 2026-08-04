@@ -130,6 +130,7 @@ Five ship separately:
 | [`glove-env-images`](../glove-env-images) | `env:images` | Describe without decoding; resize/convert/crop/rotate/composite/contact-sheet |
 | [`glove-env-archives`](../glove-env-archives) | `env:archives` | zip/tar/tar.gz in and out; traversal- and bomb-safe extraction. No dependencies |
 | [`glove-env-media`](../glove-env-media) | `env:media` | Video and audio via ffmpeg: describe, thumbnail, frames, clip, concat, transcode, slideshow |
+| [`glove-env-slides`](../glove-env-slides) | `env:slides` | PowerPoint decks built from a spec, and read back — outline, slide text, speaker notes |
 
 ```ts
 const env = await createWorkingEnvironment({ stdlib: [documents(), spreadsheets(), images()] });

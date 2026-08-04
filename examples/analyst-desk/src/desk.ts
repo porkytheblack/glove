@@ -82,8 +82,11 @@ export async function extractArtifacts(env: WorkingEnvironment, patterns: string
   for (const pattern of patterns) {
     // An exact path may not exist; a glob finds whatever the agent actually
     // named, which is more informative than reporting nothing at all.
+    // Capped, because that fallback matches the whole directory and an agent
+    // that scattered twenty intermediates would otherwise push the questions
+    // out of the judge's prompt with its own scratch files.
     const direct = (await env.fs.exists(pattern)) ? [pattern] : [];
-    const globbed = direct.length > 0 ? direct : await env.fs.glob(pattern.replace(/[^/]+$/, "*"));
+    const globbed = direct.length > 0 ? direct : (await env.fs.glob(pattern.replace(/[^/]+$/, "*"))).slice(0, 4);
 
     for (const path of globbed) {
       if (seen.has(path)) continue;

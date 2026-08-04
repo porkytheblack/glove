@@ -45,6 +45,7 @@ jobs:
           --filter "glove-env-images..."
           --filter "glove-env-archives..."
           --filter "glove-env-media..."
+          --filter "glove-env-slides..."
           build
 
       # Scoped to the packages this workstream develops. A repo-wide gate would
@@ -65,6 +66,7 @@ jobs:
           --filter glove-env-images
           --filter glove-env-archives
           --filter glove-env-media
+          --filter glove-env-slides
           typecheck
 
       - name: Test
@@ -81,4 +83,5 @@ jobs:
           --filter glove-env-images
           --filter glove-env-archives
           --filter glove-env-media
+          --filter glove-env-slides
           test
