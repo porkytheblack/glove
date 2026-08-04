@@ -14,6 +14,7 @@
  * model with itself measures self-consistency, which is not what anyone wants
  * to know.
  */
+import type { WorkingEnvironment } from "glove-working-environment";
 import { runAgent } from "./agent";
 import { judge, type Verdict } from "./judge";
 import { extractArtifacts, groundTruthText, openDesk } from "./desk";
@@ -37,6 +38,8 @@ interface Args {
   judgeModel: string;
   budget: number;
   reps: number;
+  /** Where to write what each run produced, so it can actually be opened. */
+  save?: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -54,7 +57,38 @@ function parseArgs(argv: string[]): Args {
     judgeModel: get("--judge") ?? DEFAULT_JUDGE,
     budget: Number(get("--budget") ?? DEFAULT_BUDGET_USD),
     reps: Number(get("--reps") ?? 1),
+    save: get("--save"),
   };
+}
+
+/**
+ * Write out everything a run left in `/out`, plus its scripts.
+ *
+ * A pass rate says a deck was produced; it does not let anyone look at the
+ * deck. The scripts go too, because *how* the agent got there is usually more
+ * interesting than the artifact — that is where the approach shows.
+ */
+async function saveRun(
+  env: WorkingEnvironment,
+  root: string,
+  scenario: string,
+  model: string,
+  rep: number,
+): Promise<number> {
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const { dirname, join } = await import("node:path");
+  const dir = join(root, scenario, `${model.replace(/\//g, "-")}-rep${rep}`);
+
+  let written = 0;
+  for (const pattern of ["/out/**", "/scripts/**"]) {
+    for (const file of await env.export(pattern)) {
+      const target = join(dir, file.path);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, file.bytes);
+      written++;
+    }
+  }
+  return written;
 }
 
 interface Row {
@@ -159,6 +193,9 @@ async function main(): Promise<void> {
               .map((e) => `${e.name}: ${(e.message ?? "").slice(0, 160)}`),
             verbs: transcript.events.map((e) => e.name),
           };
+
+          // Save before close, while the tree is still there.
+          if (args.save) await saveRun(env, args.save, scenario.id, model, rep);
         } finally {
           await env.close();
         }
