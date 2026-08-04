@@ -24,7 +24,7 @@ Glove is an open-source TypeScript framework for building AI-powered application
 | `glove-react` | React hooks (`useGlove`), `GloveClient`, `GloveProvider`, `defineTool`, `<Render>`, `MemoryStore`, `ToolConfig` with colocated renderers | `pnpm add glove-react` |
 | `glove-next` | One-line Next.js API route handler (`createChatHandler`) for streaming SSE | `pnpm add glove-next` |
 | `glove-mcp` | Bridge MCP servers into a Glove agent: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter`, `discovermcp` discovery subagent. Opt-in OAuth helpers at `glove-mcp/oauth`. | `pnpm add glove-mcp` |
-| `glove-memory` | Schema-first memory layer with four sibling subsystems: entity graph, episodic timeline, resource filesystem, and ambient context. BYO storage via the adapter contracts; reference in-memory adapters ship for dev/test. Storage backends (`glove-memory-sqlite`, `glove-memory-postgres`) are companion packages — not yet released. Draft v0.1. | `pnpm add glove-memory` |
+| `glove-memory` | Schema-first memory layer with five sibling subsystems: entity graph, episodic timeline, resource filesystem, ambient context, and conversational forms. BYO storage via the adapter contracts; reference in-memory adapters ship for dev/test. Storage backends (`glove-memory-sqlite`, `glove-memory-postgres`) are companion packages — not yet released. Draft v0.1. | `pnpm add glove-memory` |
 | `glove-mesh` | Inter-agent communication on top of the inbox primitive: `mountMesh`, `MeshAdapter` (BYO transport), `MeshNetwork` + `InMemoryMeshAdapter` reference impl. Four tools — `glove_mesh_send_message`, `glove_mesh_broadcast`, `glove_mesh_list_agents`, `glove_mesh_acknowledge`. No auth (consumer's job). | `pnpm add glove-mesh` |
 | `glove-continuum-signal` | Subprocess-based runtime substrate for agent collaboration across time. Two modes: **triggered** (cold, spawn-per-wakeup) and **concurrent** (warm, long-lived subprocess notified inline). `agent()` builder, `ContinuumRunner` (discovery + supervision + IPC), `ContinuumAdapter` (BYO persistence; `MemoryAdapter` default), `ContinuumSubscriber` (lifecycle + forwarded Glove events). Pairs with `glove-mesh` for inter-agent talk — substrate provides the supervised subprocesses, mesh provides the messaging. | `pnpm add glove-continuum-signal` |
 | `glovebox-core` | Authoring + `glovebox` build CLI. `glovebox.wrap(runnable, config)` packages a built Glove agent into a deployable artifact (Dockerfile + nixpacks.toml + bundled server + manifest + auth key). Storage DSL (`rule.*`, `composite`) and wire protocol types live here too. The unscoped `glovebox` name is taken on npm — install as `glovebox-core`; the CLI binary is still `glovebox`. | `pnpm add glovebox-core` |
@@ -49,7 +49,7 @@ Glove is an open-source TypeScript framework for building AI-powered application
 - **`glove-sqlite`** — deprecated; `SqliteStore` for persistence (server-side only).
 - **`glove-voice`** — full-duplex voice pipeline: STT/TTS/VAD adapters, `GloveVoice`, `useGloveVoice`, `useGlovePTT`, `<VoicePTTButton>`.
 - **`glove-mcp`** — MCP servers as first-class tools: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter` (consumer-supplied per-conversation seam). `discovermcp` discovery subagent (registered via `glove.defineSubAgent(discoverySubAgent({...}))`). Opt-in OAuth helpers at `glove-mcp/oauth` (`runMcpOAuth`, `FsOAuthStore`, `MemoryOAuthStore`, `McpOAuthProvider`).
-- **`glove-memory`** — Memory layer with four sibling subsystems (entity graph / episodic timeline / resource filesystem / ambient context) and matching `useMemoryReader` / `useMemoryCurator`, `useEpisodicReader` / `useEpisodicCurator`, `useResourcesReader` / `useResourcesCurator`, and `useContext` helper families. Storage-agnostic adapter contracts plus reference `InMemory*` adapters for dev/test.
+- **`glove-memory`** — Memory layer with five sibling subsystems (entity graph / episodic timeline / resource filesystem / ambient context / forms) and matching `useMemoryReader` / `useMemoryCurator`, `useEpisodicReader` / `useEpisodicCurator`, `useResourcesReader` / `useResourcesCurator`, `useContext`, and `useFormRunner` / `useFormReader` helper families. Storage-agnostic adapter contracts plus reference `InMemory*` adapters for dev/test.
 - **`glove-mesh`** — Inter-agent messaging on top of the inbox primitive: `mountMesh(glove, { adapter, identity })` registers an agent and folds `glove_mesh_send_message` / `_broadcast` / `_list_agents` / `_acknowledge`. `MeshAdapter` is the consumer-supplied transport (BYO); ships `InMemoryMeshAdapter` + `MeshNetwork` for in-process dev/test. Each agent keeps its own inbox; incoming messages land as resolved `InboxItem`s so the existing inbox-injection path surfaces them on the next `ask()`. No authentication — sender ids are unverified.
 - **`glove-continuum-signal`** — Subprocess-based runtime substrate modeled on `station-signal` but agent-shaped. `agent("name").input(zod).triggered()|.concurrent()` builder produces branded agents; `ContinuumRunner` discovers them from a directory, pre-warms concurrent ones, dispatches triggered runs from an adapter queue (per-spawn isolation), and routes `notify` IPC envelopes to warm subprocesses inline. `ContinuumAdapter` is the persistence contract (`MemoryAdapter` ships; consumers BYO for SQLite/Postgres/etc.). Single fat `onAgentEvent(envelope)` subscriber forwards every Glove `SubscriberEvent` from any child upstream with the agent identity attached. Mesh integrates by being mounted per-agent inside the factory — no special IPC machinery.
 - **`glove-scratchpad`** — Database emulator for LLM tool use. Instead of loading many tool definitions, expose capabilities as a relational database queried with one `execute_sql` tool. Resources (`github_pr`, `emails`, `time`, `images`, …) become tables; CRUD verbs map to (possibly different) underlying tools. `Database.create()`, `defineResource({ name, schema, keys?, volatility, select?, insert?, update?, delete? })` (Zod-first — the schema is columns AND the end-to-end row type) or `resourceFromTool(tool, { name, volatility, schema })`, `mountDatabase(glove, { db })` folds `execute_sql` + `explain_sql` and primes the prompt. Discovery via `information_schema`; `WHERE` equalities push down as arguments (Steampipe's required-key model); writes stage inside `BEGIN … COMMIT` for preview; `EXPLAIN` reports which tools a query hits with no resolver calls. Every statement is parsed and security-gated before any tool runs. MCP servers become tables via `glove-scratchpad/mcp` (`mcpResources` / `mountMcpDatabase`). Backend is `glove-sql` (bundled, zero-dep) or `PgliteBackend` (`glove-scratchpad/pglite`).
@@ -944,9 +944,9 @@ The agent code itself doesn't change — `McpAdapter.getAccessToken` is the only
 
 ## Memory (`glove-memory`)
 
-Schema-first memory layer with four sibling subsystems. Storage-agnostic adapter contracts; reference in-memory adapters ship for dev/test. Status: draft v0.1; companion storage backends (`glove-memory-sqlite`, `glove-memory-postgres`) are not yet released.
+Schema-first memory layer with five sibling subsystems. Storage-agnostic adapter contracts; reference in-memory adapters ship for dev/test. Status: draft v0.1; companion storage backends (`glove-memory-sqlite`, `glove-memory-postgres`) are not yet released.
 
-### The four subsystems
+### The five subsystems
 
 | Subsystem | Adapter | What it's for |
 |-----------|---------|---------------|
@@ -954,6 +954,7 @@ Schema-first memory layer with four sibling subsystems. Storage-agnostic adapter
 | Episodic | `EpisodicMemoryAdapter` | Timeline-bound, append-only events. Meetings, decisions, observations. Time is a first-class field; semantic search is opt-in (advertised by `supportsSemanticSearch`). |
 | Resources | `ResourceFsAdapter` | POSIX-style virtual filesystem the agent navigates with `ls` / `read` / `grep` / `glob` / `edit`. Holds research notes, transcripts, link collections. Text-only; absolute paths only (no `.` / `..`). |
 | Context | `ContextAdapter` | User-configured ambient context, auto-injected into the system prompt every turn. Different shape: not curator-extracted, no reader/curator split — one registration gives the agent both read and write tools. |
+| Forms | `FormAdapter` | Structured collection over a conversation. Definitions are code (Zod + closures), loaded a tier at a time so a 60-field form costs the same standing prompt line as a 6-field one. |
 
 ### Architectural recommendation: don't dump memory tools on the main Glove
 
@@ -1038,6 +1039,19 @@ Each helper folds the relevant tool surface onto a Glove. All return the same `G
 | `glove_context_set` | Add a new entry |
 | `glove_context_update` | Patch an existing entry in place |
 | `glove_context_unset` | Remove an entry or wipe an entire section |
+
+#### Forms (`useFormRunner` / `useFormReader`)
+
+| Tool | Purpose |
+|------|---------|
+| `glove_form_list` | Registered forms, name + description — no module load |
+| `glove_form_start` | Begin an instance, with optional seed values |
+| `glove_form_status` | The open step in full *(tier 1)* |
+| `glove_form_inspect` | Any step, single field, or whole outline *(tier 2)* |
+| `glove_form_fill` | Patch of many field ids at once; returns re-evaluated state |
+| `glove_form_revise` | `action`: `set` / `retract` / `undo` / `redo` |
+| `glove_form_abandon` | Close out with a reason |
+| `glove_form_history` | Read past fills *(reader registration)* |
 
 ### `MemorySchema` — the shared ontology
 
@@ -1182,6 +1196,106 @@ const context = new InMemoryContextAdapter({ schema });
 
 Process-local — they lose data on restart. Production projects swap in a companion package or BYO adapter.
 
+### Forms — structured collection over a conversation
+
+Definitions are **code**. Zod schemas, gate closures and executors colocate in one type-threaded builder chain, and the agent never reads the definition — it reads a projection of evaluated state.
+
+```ts
+import { z } from "zod";
+import { defineForm } from "glove-memory/forms";
+
+export const travelClaim = defineForm({
+  id: "travel-claim",
+  version: 1,
+  name: "Travel reimbursement claim",
+  description: "Claimant, trip, travel and approval details.",
+  conduct: "Conversational — one or two questions at a time. Don't read the field list aloud.",
+})
+  .step("claimant", { title: "Claimant", preview: "name, staff id, email" }, (s) =>
+    s
+      .field("fullName", { schema: z.string().min(2), label: "Full name" })
+      .field("email", { schema: z.string().email(), label: "Work email" }),
+  )
+  .step(
+    "travel",
+    { title: "Travel", preview: "mode, mileage or ticket", when: (v, s) => s.stepComplete("claimant") },
+    (s) =>
+      s
+        .field("mode", { schema: z.enum(["car", "rail", "air"]), label: "Mode" })
+        .field("mileage", {
+          schema: z.number().int().min(1).optional(),
+          label: "Miles driven",
+          when: (v) => v.mode === "car",          // applicability, not ask-order
+        }),
+  )
+  .checkpoint("policy-cap", {
+    when: (v) => typeof v.total === "number" && v.total > 750,
+    blocking: true,
+    run: () => ({ fail: "Over the limit — needs Finance pre-approval." }),
+  })
+  .onComplete(async (ctx) => {
+    await ctx.memory.upsertNode("Person", { name: ctx.values.fullName });
+  })
+  .build();
+```
+
+Each `.field()` widens the accumulated values type, so `ctx.values.mode` narrows to its enum union and `ctx.values.mileage` is `number | undefined` at every downstream callsite.
+
+**Optionality and type are derived, never declared.** There is no `required` option — a field is optional iff its schema accepts `undefined`, the same predicate the inferred values type is built from. The `type` string the agent reads comes from `z.toJSONSchema` plus a renderer (`"email address"`, `"one of: car | rail | air"`, `"integer >= 1"`). Together those delete the field-type vocabulary: no type union, no registry, nothing to extend.
+
+**Writes are never gated.** No lock, no locked-field error. `glove_form_fill` takes a patch of *any* field ids, validates each independently so one bad value doesn't reject the rest, and keeps what isn't applicable yet as a **held** entry rather than dropping it. A user who answers question six while being asked question two has answered question six. Field ids are forgiving too — `full_name`, `Full name` and `fullName` all resolve to the same field via a compile-time alias index; an id that still misses comes back with `did_you_mean`.
+
+Sequence splits into two unrelated things: `when` decides whether a field *means anything* given current answers; steps decide what to *steer toward*.
+
+**Nothing is ever lost.** `entries` maps each field to an append-only log of revisions plus a cursor naming the one in force. A correction appends rather than overwrites. A retraction is itself a revision, which makes `retract` / `undo` / `redo` pure cursor moves over a log that cannot lose an answer — and every one of them reversible.
+
+```ts
+await runner.retract("ticketReference"); // withdraw, keeping the answer
+await runner.undo();                     // last answer anywhere on the form
+await runner.redo("mileage");            // or on one field
+await runner.history("mileage");         // every answer ever given
+```
+
+The agent reaches all four through `glove_form_revise`'s `action` (`set` / `retract` / `undo` / `redo`) rather than four verbs — tool schemas are re-sent on every model call, and an agentic eval put them at ~75% of this surface's whole context cost.
+
+**Executors** colocate at four points behind one signature — `field.onFill`, `step.onComplete`, `checkpoint.run`, `form.onComplete` — dispatched commit-then-run on **rising edges only**, with a per-occurrence idempotency key. Verified firing order within one commit: `field` → `step` → `checkpoint` → `form`. An executor returns `{ patch }`, `{ fail }`, `{ jump }` or `{ complete }`; `ctx.memory` bridges to the other four subsystems with engine-supplied provenance.
+
+**Lazy loading, three tiers.** Tier 0 is one line injected into the system prompt each turn — open step, its pending field *labels*, and a one-line `preview` per remaining step. Tier 1 (`glove_form_status`) is the open step in full. Tier 2 (`glove_form_inspect`) is any other step, a field, or the whole outline. Form modules aren't imported until started, so `glove_form_list` costs a name and a description.
+
+```
+[form: travel-claim] step 2/4 "Trip" · pending: Destination, Departure date
+later: Travel (mode, mileage or ticket) · Approval (cost centre, manager)
+```
+
+**Wiring:**
+
+```ts
+const registry = new FormRegistry().register("travel-claim", {
+  name: "Travel reimbursement claim",
+  description: "Claimant, trip, travel and approval details.",
+  load: () => import("./forms/travel-claim").then((m) => m.travelClaim),
+});
+
+const { runner } = useFormRunner(glove, new InMemoryFormAdapter({ schema }), {
+  registry,
+  subject: conversationId,
+  memory: { entity, episodic, resources, context },
+});
+```
+
+`useFormRunner` folds the seven tools and wraps `processRequest` for tier-0 injection, then returns the runner so a host can start instances and resolve checkpoints without going through the model. `useFormReader` gives another agent read-only access to past fills.
+
+**Writing a `FormAdapter`** — storage and retrieval only; the engine holds every semantic. Four invariants:
+
+1. **`entries` appends, never replaces.** `commitInstance` receives a per-field `{ append?, cursor? }`, not a replacement history. Overwriting the log destroys answers the design guarantees are kept. `applyEntryCommit` is exported so you can reuse the exact semantics.
+2. **`version` is compare-and-set.** Reject a stale `ifVersion` with `FormConflictError`; bump on every write that lands.
+3. **A commit is all-or-nothing** — entries, occurrence counters, dispatch log and status together.
+4. **Reads hand back snapshots.**
+
+Everything else is the implementer's: storage engine, schema, indexing, retention, *how* atomicity is achieved, provenance depth, multi-tenancy, encryption. Per-method detail is in doc comments on `FormAdapter`.
+
+**Operational notes worth knowing:** a recorded executor failure is not retried (at-least-once covers a crash *before* the outcome was recorded); a hung blocking checkpoint holds the instance `awaiting` until `resolveCheckpoint`, with no timeout; `recordDispatch` writes outside the CAS envelope; an all-optional step is complete at start, so its `onComplete` fires immediately; a *complete* instance stays reachable for corrections — only `abandon` closes a form.
+
 ### Out of scope
 
 - Triggering, scheduling, or pipeline orchestration ([Station](https://station.dterminal.net)'s territory).
@@ -1205,11 +1319,16 @@ Process-local — they lose data on restart. Production projects swap in a compa
 | Episodic contract | `EpisodicMemoryAdapter` from `glove-memory/episodic` |
 | Resources contract | `ResourceFsAdapter` from `glove-memory/resources` |
 | Context contract | `ContextAdapter` from `glove-memory/context` |
-| Reader / curator helpers | `useMemoryReader` / `useMemoryCurator`, `useEpisodicReader` / `useEpisodicCurator`, `useResourcesReader` / `useResourcesCurator`, `useContext` from `glove-memory/tools` |
-| Reference in-process adapters | `InMemoryEntityAdapter`, `InMemoryEpisodicAdapter`, `InMemoryResourcesAdapter`, `InMemoryContextAdapter` from `glove-memory/in-memory` |
-| Error classes | `MemoryError`, `MemoryNotFoundError`, `MemorySchemaError`, `MemoryQueryError`, `MemoryWriteError`, `EpisodicMemoryError`, `ResourceFsError`, `ContextError` from `glove-memory/core` |
+| Forms contract | `FormAdapter` from `glove-memory/forms` |
+| Define a form | `defineForm` from `glove-memory/forms` |
+| Form registry (lazy module load) | `FormRegistry` from `glove-memory/forms` |
+| Form engine (host-side) | `FormRunner` from `glove-memory/forms` |
+| Reuse append+clamp in an adapter | `applyEntryCommit` from `glove-memory/forms` |
+| Reader / curator helpers | `useMemoryReader` / `useMemoryCurator`, `useEpisodicReader` / `useEpisodicCurator`, `useResourcesReader` / `useResourcesCurator`, `useContext`, `useFormRunner` / `useFormReader` from `glove-memory/tools` |
+| Reference in-process adapters | `InMemoryEntityAdapter`, `InMemoryEpisodicAdapter`, `InMemoryResourcesAdapter`, `InMemoryContextAdapter`, `InMemoryFormAdapter` from `glove-memory/in-memory` |
+| Error classes | `MemoryError`, `MemoryNotFoundError`, `MemorySchemaError`, `MemoryQueryError`, `MemoryWriteError`, `EpisodicMemoryError`, `ResourceFsError`, `ContextError`, `FormError` / `FormConflictError` / `FormStaleError` / `FormBlockedError` / `FormDefinitionError` from `glove-memory/core` |
 
-See [api-reference.md — `glove-memory`](api-reference.md) for full type signatures, and [examples.md — Memory](examples.md) for worked examples (schema definition, subagent-delegated reader, curator composition, context flow).
+See [api-reference.md — `glove-memory`](api-reference.md) for full type signatures, and [examples.md — Memory](examples.md) for worked examples (schema definition, subagent-delegated reader, curator composition, context flow, form definition).
 
 ## Mesh Network (`glove-mesh`)
 

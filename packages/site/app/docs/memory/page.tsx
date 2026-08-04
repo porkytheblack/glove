@@ -8,7 +8,7 @@ export default async function MemoryPage() {
       <p>
         <code>glove-memory</code> is the memory layer for Glove. Storage-agnostic
         adapter contracts, schema-first ontology, and auto-registered tool
-        surfaces. Four complementary, independently usable subsystems with
+        surfaces. Five complementary, independently usable subsystems with
         bring-your-own storage.
       </p>
 
@@ -22,7 +22,7 @@ export default async function MemoryPage() {
       </p>
 
       {/* ------------------------------------------------------------------ */}
-      <h2>The four subsystems</h2>
+      <h2>The five subsystems</h2>
 
       <p>
         <strong>Entity memory.</strong> Graph-shaped, schema-first, deterministic
@@ -56,6 +56,15 @@ export default async function MemoryPage() {
         into the system prompt every turn. Small surface (4 tools), the
         agent both reads and writes, and a wrapper composes pinned entries
         after the developer&apos;s system prompt before each model call.
+      </p>
+
+      <p>
+        <strong>Forms.</strong> Structured collection over a conversation.
+        Definitions are <em>code</em> — Zod schemas, gate closures and
+        executors colocated in one type-threaded builder — and the agent never
+        reads them. It reads a projection of evaluated state, pulled a tier at
+        a time so a sixty-field form costs the same standing prompt line as a
+        six-field one.
       </p>
 
       {/* ------------------------------------------------------------------ */}
@@ -113,11 +122,19 @@ export default async function MemoryPage() {
             </td>
           </tr>
           <tr>
+            <td><code>glove-memory/forms</code></td>
+            <td>
+              <code>defineForm</code> builder, <code>FormAdapter</code>{" "}
+              contract, compiler, engine, projection
+            </td>
+          </tr>
+          <tr>
             <td><code>glove-memory/tools</code></td>
             <td>
               Auto-registered read/write tool factories and{" "}
               <code>useMemory*</code> / <code>useEpisodic*</code> /{" "}
-              <code>useResources*</code> / <code>useContext</code> helpers
+              <code>useResources*</code> / <code>useContext</code> /{" "}
+              <code>useFormRunner</code> helpers
             </td>
           </tr>
           <tr>
@@ -699,6 +716,235 @@ async function reindexPass() {
       </table>
 
       {/* ------------------------------------------------------------------ */}
+      <h2>Forms</h2>
+
+      <p>
+        A form definition is a builder chain. Each <code>.field()</code> widens
+        the accumulated values type, so every predicate and executor downstream
+        is typed against the real shape — <code>ctx.values.incidentType</code>{" "}
+        narrows to its enum union, <code>ctx.values.phone</code> is{" "}
+        <code>string | undefined</code>.
+      </p>
+
+      <CodeBlock
+        language="typescript"
+        code={`import { z } from "zod";
+import { defineForm } from "glove-memory/forms";
+
+export const travelClaim = defineForm({
+  id: "travel-claim",
+  version: 1,
+  name: "Travel reimbursement claim",
+  description: "Claimant, trip, travel and approval details.",
+  conduct:
+    "Conversational — one or two questions at a time. Don't read the field " +
+    "list aloud. If the user volunteers something out of order, capture it.",
+})
+  .step("claimant", { title: "Claimant", preview: "name, staff id, email" }, (s) =>
+    s
+      .field("fullName", { schema: z.string().min(2), label: "Full name" })
+      .field("email", { schema: z.string().email(), label: "Work email" }),
+  )
+  .step(
+    "travel",
+    {
+      title: "Travel",
+      preview: "how they travelled, mileage or ticket",
+      when: (v, s) => s.stepComplete("claimant"),
+    },
+    (s) =>
+      s
+        .field("mode", { schema: z.enum(["car", "rail", "air"]), label: "Mode" })
+        .field("mileage", {
+          schema: z.number().int().min(1).optional(),
+          label: "Miles driven",
+          when: (v) => v.mode === "car",
+        }),
+  )
+  .checkpoint("policy-cap", {
+    when: (v) => typeof v.total === "number" && v.total > 750,
+    blocking: true,
+    run: () => ({ fail: "Over the limit — needs Finance pre-approval." }),
+  })
+  .onComplete(async (ctx) => {
+    await ctx.memory.upsertNode("Person", { name: ctx.values.fullName });
+  })
+  .build();`}
+      />
+
+      <h3>Optionality and type come from Zod, not from flags</h3>
+
+      <p>
+        There is no <code>required</code> option. A field is optional iff its
+        schema accepts <code>undefined</code> — the same predicate the inferred
+        values type is built from, so the two can never disagree. The{" "}
+        <code>type</code> string the agent reads is derived too, via{" "}
+        <code>z.toJSONSchema</code> plus a small renderer:{" "}
+        <code>&quot;email address&quot;</code>,{" "}
+        <code>&quot;one of: car | rail | air&quot;</code>,{" "}
+        <code>&quot;integer &gt;= 1&quot;</code>. Together those delete the
+        field-type vocabulary entirely — no type union, no registry, nothing to
+        extend.
+      </p>
+
+      <h3>Writes are never gated</h3>
+
+      <p>
+        There is no lock. Any value the agent can derive, at any point in the
+        conversation, is accepted — the only thing that can reject a write is
+        Zod. A user who answers question six while being asked question two has
+        answered question six. <code>glove_form_fill</code> takes a patch of{" "}
+        <em>any</em> field ids, validates each independently so one bad value
+        doesn&apos;t reject the rest, and keeps what isn&apos;t applicable yet
+        as a <em>held</em> entry rather than dropping it.
+      </p>
+
+      <p>
+        Sequence splits into two unrelated things: <code>when</code> decides
+        whether a field <em>means anything</em> given current answers, and
+        steps decide what to <em>steer toward</em>. A field gated off by a
+        branch doesn&apos;t count toward completion and isn&apos;t asked about,
+        but a value supplied for one is kept — applicability can flip back.
+      </p>
+
+      <h3>Nothing is ever lost</h3>
+
+      <p>
+        <code>entries</code> maps each field to an <strong>append-only log of
+        revisions</strong> plus a cursor naming the one in force. A correction
+        appends; it does not overwrite. A retraction is itself a revision,
+        which makes <code>retract</code>, <code>undo</code> and{" "}
+        <code>redo</code> pure cursor moves over a log that cannot lose an
+        answer — and makes every one of them reversible.
+      </p>
+
+      <CodeBlock
+        language="typescript"
+        code={`await runner.retract("ticketReference"); // withdraw, keeping the answer
+await runner.undo();                     // last answer anywhere on the form
+await runner.undo("mileage");            // or on one field
+await runner.redo("mileage");
+await runner.history("mileage");         // every answer ever given`}
+      />
+
+      <p>
+        The agent reaches all four through <code>glove_form_revise</code>&apos;s{" "}
+        <code>action</code> parameter rather than four separate verbs. Tool
+        schemas are re-sent on every model call, and an agentic evaluation
+        measured them at roughly three quarters of this surface&apos;s whole
+        context cost — an enum on a verb the model already has is far cheaper
+        than three more definitions.
+      </p>
+
+      <h3>Executors</h3>
+
+      <p>
+        Four colocation points behind one signature, dispatched
+        commit-then-run: <code>field.onFill</code>,{" "}
+        <code>step.onComplete</code>, <code>checkpoint.run</code>, and{" "}
+        <code>form.onComplete</code>. They fire on <em>rising edges</em> only,
+        with a per-occurrence idempotency key, so a retry reuses the key and a
+        genuine second crossing gets a fresh one. An executor can hand back{" "}
+        <code>{"{ patch }"}</code>, <code>{"{ fail }"}</code>,{" "}
+        <code>{"{ jump }"}</code> or <code>{"{ complete }"}</code>, and{" "}
+        <code>ctx.memory</code> bridges to the other four subsystems with
+        provenance the engine supplies.
+      </p>
+
+      <h3>Lazy loading</h3>
+
+      <p>
+        Modelled on the inbox — a cheap standing notification, detail pulled on
+        demand. <strong>Tier 0</strong> is one line appended to the system
+        prompt each turn:
+      </p>
+
+      <CodeBlock
+        language="text"
+        code={`[form: travel-claim] step 2/4 "Trip" · pending: Destination, Departure date
+later: Travel (how they travelled, mileage or ticket) · Approval (cost centre, manager)`}
+      />
+
+      <p>
+        Pending <em>labels</em> rather than a count, because
+        &quot;5 fields pending&quot; would force a tool call every turn just to
+        learn what to ask. A one-line <code>preview</code> per remaining step,
+        because that is what makes opportunistic capture work without loading
+        the whole form. <strong>Tier 1</strong> (<code>glove_form_status</code>)
+        is the open step in full; <strong>tier 2</strong>{" "}
+        (<code>glove_form_inspect</code>) is any other step, a single field, or
+        the whole outline. Form modules aren&apos;t imported until a form is
+        started, so <code>glove_form_list</code> costs a name and a description.
+      </p>
+
+      <h3>Wiring</h3>
+
+      <CodeBlock
+        language="typescript"
+        code={`import { FormRegistry } from "glove-memory/forms";
+import { InMemoryFormAdapter } from "glove-memory/in-memory";
+import { useFormRunner } from "glove-memory";
+
+const registry = new FormRegistry().register("travel-claim", {
+  name: "Travel reimbursement claim",
+  description: "Claimant, trip, travel and approval details.",
+  load: () => import("./forms/travel-claim").then((m) => m.travelClaim),
+});
+
+const { runner } = useFormRunner(glove, new InMemoryFormAdapter({ schema }), {
+  registry,
+  subject: conversationId,
+  memory: { entity, episodic, resources, context },
+});`}
+      />
+
+      <p>
+        <code>useFormRunner</code> folds the seven tools and wraps{" "}
+        <code>processRequest</code> for tier-0 injection, then hands back the
+        runner so a host can start instances and resolve checkpoints without
+        going through the model. <code>useFormReader</code> gives a second agent
+        read-only access to past fills.
+      </p>
+
+      <h3>Writing a form adapter</h3>
+
+      <p>
+        <code>FormAdapter</code> is a storage-and-retrieval contract and nothing
+        more — the engine holds every semantic and recomputes it from whatever
+        you hand back. Four invariants, and they are the whole of it:
+      </p>
+
+      <ol>
+        <li>
+          <strong><code>entries</code> appends, never replaces.</strong>{" "}
+          <code>commitInstance</code> receives a per-field{" "}
+          <code>{"{ append?, cursor? }"}</code>, not a replacement history.{" "}
+          <code>applyEntryCommit</code> is exported so you can reuse the exact
+          semantics.
+        </li>
+        <li>
+          <strong><code>version</code> is compare-and-set.</strong> Reject a
+          stale <code>ifVersion</code> with <code>FormConflictError</code>; bump
+          on every write that lands.
+        </li>
+        <li>
+          <strong>A commit is all-or-nothing.</strong> Entries, occurrence
+          counters, dispatch log and status land together or not at all.
+        </li>
+        <li>
+          <strong>Reads hand back snapshots.</strong>
+        </li>
+      </ol>
+
+      <p>
+        Everything else is yours: storage engine and schema, indexing,
+        retention, <em>how</em> you achieve atomicity, how much provenance you
+        keep, multi-tenancy, encryption. Per-method detail lives in doc comments
+        on the interface, and <code>InMemoryFormAdapter</code> is short enough
+        to read end to end before writing your own.
+      </p>
+
+      {/* ------------------------------------------------------------------ */}
       <h2>Reference adapters</h2>
 
       <p>
@@ -706,8 +952,9 @@ async function reindexPass() {
         <code>glove-memory/in-memory</code>:{" "}
         <code>InMemoryEntityAdapter</code>,{" "}
         <code>InMemoryEpisodicAdapter</code>,{" "}
-        <code>InMemoryResourcesAdapter</code>, and{" "}
-        <code>InMemoryContextAdapter</code>. They&apos;re intended for
+        <code>InMemoryResourcesAdapter</code>,{" "}
+        <code>InMemoryContextAdapter</code>, and{" "}
+        <code>InMemoryFormAdapter</code>. They&apos;re intended for
         development and tests — every adapter contract is implemented end to
         end so you can wire up a full schema, exercise the tool surfaces, and
         write integration tests without standing up a database.
@@ -742,6 +989,15 @@ async function reindexPass() {
           <code>set</code> / <code>update</code> / <code>unset</code>; the UI /
           API / form / wherever users edit their preferences calls those
           directly.
+        </li>
+        <li>
+          Runtime-authored forms. Definitions are code — no JSON compile
+          target, no authoring UI, no second front end.
+        </li>
+        <li>
+          Compensating a re-fired form executor. Hooks fire on every rising
+          edge with a per-occurrence idempotency key; whether a repeat is real
+          work is the executor&apos;s decision.
         </li>
         <li>Binary resources. Resources is text-only.</li>
         <li>

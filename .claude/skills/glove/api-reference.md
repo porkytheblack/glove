@@ -1755,19 +1755,20 @@ Drives default permission-gating on bridged MCP tools (always-off in serverMode)
 
 ## glove-memory
 
-Storage-agnostic memory layer. Four sibling subsystems (entity / episodic / resources / context) with reader / curator tool surfaces and BYO storage adapters. Reference `InMemory*` adapters for dev/test. Draft v0.1 — companion storage backends (`glove-memory-sqlite`, `glove-memory-postgres`) not yet released.
+Storage-agnostic memory layer. Five sibling subsystems (entity / episodic / resources / context / forms) with reader / curator tool surfaces and BYO storage adapters. Reference `InMemory*` adapters for dev/test. Draft v0.1 — companion storage backends (`glove-memory-sqlite`, `glove-memory-postgres`) not yet released.
 
 ### Subpath exports
 
 | Import | Contents |
 |--------|----------|
-| `glove-memory` | Barrel — re-exports core / entity / episodic / resources / context plus tool helpers and in-memory adapters |
+| `glove-memory` | Barrel — re-exports core / entity / episodic / resources / context / forms plus tool helpers and in-memory adapters |
 | `glove-memory/core` | Shared types — `Provenance`, `Link`, `EmbeddingAdapter`, `MemorySchema`, errors |
 | `glove-memory/entity` | `EntityMemoryAdapter`, `MemoryNode`, `MemoryEdge`, query DSL |
 | `glove-memory/episodic` | `EpisodicMemoryAdapter`, `Episode`, semantic-search opts |
 | `glove-memory/resources` | `ResourceFsAdapter`, `ResourceFile`, POSIX path helpers |
 | `glove-memory/context` | `ContextAdapter`, `ContextEntry`, default markdown rendering |
-| `glove-memory/tools` | Auto-registered read/write tool factories and `useMemory*` / `useEpisodic*` / `useResources*` / `useContext` helpers |
+| `glove-memory/forms` | `defineForm`, `FormAdapter`, `FormRegistry`, `FormRunner`, compiler / evaluator / projection |
+| `glove-memory/tools` | Auto-registered read/write tool factories and `useMemory*` / `useEpisodic*` / `useResources*` / `useContext` / `useFormRunner` helpers |
 | `glove-memory/in-memory` | Reference in-process adapters |
 
 ### MemorySchema
@@ -2325,9 +2326,159 @@ const ContextEntryInputSchema: z.ZodType<ContextEntryInput>;
 const ContextEntryPatchSchema: z.ZodType<ContextEntryPatch>;
 ```
 
+### FormAdapter
+
+```ts
+interface FormAdapter {
+  identifier: string;
+  schema: MemorySchema;
+
+  createInstance(input: FormInstanceInput, provenance: Provenance): Promise<FormInstance>;
+  getInstance(id: string): Promise<FormInstance | null>;
+  findInstances(q: {
+    subject?: string; defId?: string; status?: FormInstanceStatus; limit?: number;
+  }): Promise<FormInstance[]>;
+
+  /** Atomic + compare-and-set. Throws FormConflictError on a stale ifVersion. */
+  commitInstance(
+    id: string,
+    commit: FormInstanceCommit,
+    opts: { ifVersion: number },
+    provenance: Provenance,
+  ): Promise<FormInstance>;
+
+  /** Deliberately outside the CAS envelope — at-least-once bookkeeping. */
+  recordDispatch(
+    id: string, idempotencyKey: string, state: DispatchState, provenance: Provenance,
+  ): Promise<void>;
+
+  resolveCheckpoint(
+    id: string,
+    checkpointId: string,
+    outcome: { ok: boolean; values?: Record<string, unknown>; error?: string },
+    provenance: Provenance,
+  ): Promise<FormInstance>;
+}
+```
+
+Four invariants an implementation must hold: `entries` appends rather than replaces; `version` is compare-and-set; a commit is all-or-nothing; reads hand back snapshots. Everything else — storage engine, indexing, retention, how atomicity is achieved — is the implementer's choice.
+
+### Form storage types
+
+```ts
+interface FormInstance {
+  id: string;
+  defId: string;
+  defVersion: number;              // pinned at start; drift → stale or migrate
+  subject: string;                 // conversation / user / matter id
+  status: "active" | "awaiting" | "complete" | "abandoned" | "stale";
+  entries: Record<string, FieldHistory>;
+  revisionSeq: number;             // monotonic source of FormEntry.seq
+  occurrences: Record<string, number>;   // rising-edge counters per hook id
+  dispatches: Record<string, DispatchState>;
+  blockedOn?: string;
+  openStepOverride?: string;       // where a { jump } effect lands
+  closedReason?: string;
+  version: number;                 // optimistic concurrency
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
+/** Append-only log per field; the cursor is the only thing that moves. */
+interface FieldHistory {
+  revisions: FormEntry[];          // oldest first
+  cursor: number;                  // index in force; -1 = none
+}
+
+interface FormEntry {
+  value: unknown;                  // as supplied; parsed on read
+  at: string;
+  provenance: Provenance;
+  error?: string;                  // set when it last failed its schema
+  retracted?: boolean;             // this revision withdraws rather than supplies
+  seq: number;                     // instance-wide order
+}
+
+interface FormEntryCommit {
+  append?: FormEntry[];            // goes on the end of the existing log
+  cursor?: number;                 // absolute; clamped to [-1, len-1]
+}
+```
+
+### Form effects and hooks
+
+```ts
+type FormEffect<V> =
+  | { patch: Partial<V> }          // derived values; commits like any other write
+  | { fail: string }               // blocking checkpoint rejects; surfaced to the agent
+  | { jump: string }               // force a step open
+  | { complete: true };
+
+type FormExecutor<V> = (ctx: FormExecutorContext<V>) => Promise<FormEffect<V> | void>;
+
+interface FormExecutorContext<V> {
+  values: V;                       // live + valid only; never held
+  instance: FormInstance;
+  hookId: string;                  // field:email | step:identity | checkpoint:cp | form
+  idempotencyKey: string;          // `${instanceId}:${hookId}:${occurrence}`
+  memory: FormMemoryBridge;        // upsertNode / connect / recordEpisode / writeResource / setContext
+  display?: DisplayManagerAdapter;
+  signal?: AbortSignal;
+}
+```
+
+Order within one commit: `field.onFill` → `step.onComplete` → `checkpoint.run` → `form.onComplete`. Rising edges only.
+
+### Form projection (what the agent reads)
+
+```ts
+interface FormFieldView {
+  id: string;
+  label: string;
+  description?: string;            // `ask` + `hint` from the def
+  type: string;                    // derived from the zod schema
+  required: boolean;               // derived: schema rejects undefined
+  status: "empty" | "filled" | "invalid" | "held";
+  value?: unknown;                 // present when filled or held
+  error?: string;                  // present when invalid
+  ask: boolean;                    // steer toward this now
+}
+```
+
+### FormRunner
+
+```ts
+class FormRunner {
+  constructor(adapter: FormAdapter, options: {
+    registry: FormRegistry;
+    subject: string | (() => string);
+    memory?: { entity?; episodic?; resources?; context? };
+    display?: DisplayManagerAdapter;
+    actor?: string; source?: string;
+  });
+
+  list(): FormListing[];                       // no module load
+  tier0(subject?): Promise<string>;            // the standing prompt line
+  activeInstance(subject?): Promise<FormInstance | null>;
+
+  start(defId, opts?: { seed?, subject?, ... }): Promise<FormFillResult>;
+  fill(values: Record<string, unknown>, opts?): Promise<FormFillResult>;
+  revise(field, value, opts?: { reason? }): Promise<FormFillResult>;
+  retract(field, opts?): Promise<FormFillResult>;
+  undo(field?, opts?): Promise<FormFillResult>;
+  redo(field?, opts?): Promise<FormFillResult>;
+  history(field, opts?): Promise<FormFieldHistoryView>;
+  status(opts?): Promise<FormView>;
+  inspect(scope: FormViewScope, opts?): Promise<FormView>;
+  abandon(reason, opts?): Promise<FormInstance>;
+  resolveCheckpoint(checkpointId, outcome, opts?): Promise<FormFillResult>;
+}
+```
+
 ### `use*` helpers
 
-All seven take `(glove, adapter)` and return the same `glove` for chaining. The first six use the bare `FoldTarget` signature; `useContext` requires the richer `ContextEnableTarget` because it also wraps `processRequest`.
+The first six take `(glove, adapter)` and return the same `glove` for chaining, using the bare `FoldTarget` signature. `useContext` and `useFormRunner` need the richer `ContextEnableTarget` / `FormEnableTarget` shape because they also wrap `processRequest` for system-prompt injection — and `useFormRunner` returns `{ glove, runner }` rather than the glove alone, so a host can drive the form without going through the model.
 
 ```ts
 import {
@@ -2359,9 +2510,32 @@ function useEpisodicCurator<G extends FoldTarget>(glove: G, adapter: EpisodicMem
 function useResourcesReader<G extends FoldTarget>(glove: G, adapter: ResourceFsAdapter): G;
 function useResourcesCurator<G extends FoldTarget>(glove: G, adapter: ResourceFsAdapter): G;
 function useContext<G extends ContextEnableTarget>(glove: G, adapter: ContextAdapter): G;
+
+// Forms — different shape: config bag in, runner out.
+function useFormRunner<G extends FormEnableTarget>(
+  glove: G,
+  adapter: FormAdapter,
+  config: {
+    registry: FormRegistry;
+    subject: string | (() => string);
+    memory?: { entity?; episodic?; resources?; context? };
+    display?: DisplayManagerAdapter;
+    actor?: string;
+    source?: string;
+    injectStatus?: boolean;   // false to drive tier 0 yourself
+  },
+): { glove: G; runner: FormRunner };
+
+function useFormReader<G extends FoldTarget>(
+  glove: G,
+  adapter: FormAdapter,
+  options?: { registry?: FormRegistry; subject?: string | (() => string) },
+): G;
 ```
 
 `useContext` snapshots the developer-supplied system prompt at registration time, then on every subsequent `processRequest` it calls `adapter.render()` and composes `<base>\n\n<rendered>` (rendered context goes **after** developer guardrails). Multiple `useContext` calls stack — each captures the then-current base prompt.
+
+`useFormRunner` does the same snapshot-and-compose with `runner.tier0()`, so the open step, its pending field labels and a one-line preview per remaining step ride in the system prompt every turn. A completed instance renders nothing — it stays reachable for corrections but doesn't occupy the prompt.
 
 ### Lower-level tool factories
 
