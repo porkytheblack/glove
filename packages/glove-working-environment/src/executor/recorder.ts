@@ -18,6 +18,14 @@ import type { BuilderOp, BuilderShape } from "./protocol";
 /** What `bridge.ts` looks for, and what it needs to build the recorder. */
 export interface BuilderCarrier {
   name: string;
+  /** This constructor's own name, stamped onto each `new` op. */
+  ctor: string;
+  /** Constructors sharing this id share one recording, and one ref table. */
+  family: string;
+  /** True for a member the script uses without `new`, like `Packer`. */
+  singleton: boolean;
+  /** For a singleton, the names it answers to. */
+  methods: string[];
   terminal: string[];
   statics: Record<string, unknown>;
   data: Record<string, unknown>;
@@ -39,17 +47,23 @@ export interface BuilderHost {
 export function makeBuilder(shape: BuilderShape, host: BuilderHost): unknown {
   const carrier = function (): void {
     throw new Error(
-      `${shape.name} must be constructed with new: const x = new ${shape.name}()`,
+      `${shape.ctor} must be constructed with new: const x = new ${shape.ctor}()`,
     );
   };
   const meta: BuilderCarrier = {
     name: shape.name,
+    ctor: shape.ctor,
+    family: shape.family,
+    singleton: shape.singleton === true,
+    methods: shape.methods ?? shape.terminal,
     terminal: shape.terminal,
     statics: shape.statics,
     data: shape.data,
-    flush: (ops) => host.flush(shape.name, ops),
+    // Addressed by family, not by constructor: a recording can mix
+    // constructors, so the host needs the group that knows how to replay it.
+    flush: (ops) => host.flush(shape.family, ops),
   };
   (carrier as unknown as Record<string, unknown>).__glove_builder = meta;
-  Object.defineProperty(carrier, "name", { value: shape.name, configurable: true });
+  Object.defineProperty(carrier, "name", { value: shape.ctor, configurable: true });
   return carrier;
 }

@@ -345,7 +345,15 @@ export {
   type FileSummary,
 } from "./adapters/define";
 export { HandlerRegistry, type Claim, type HandlesSpec, type RegisteredHandler } from "./adapters/handles";
-export { defineBuilder, methodsOf, type DefineBuilderOptions } from "./adapters/builder";
+export {
+  defineBuilder,
+  defineBuilders,
+  methodsOf,
+  type BuilderMember,
+  type DefineBuilderOptions,
+  type DefineBuildersOptions,
+  type Finish,
+} from "./adapters/builder";
 export { BUILTIN_SKILLS, skillsIndex, type Skill } from "./skills";
 export { mountWorkingEnvironment, buildPreamble, type MountWorkingEnvironmentConfig } from "./tools/mount";
 export { defaultExportError, ScriptContractError } from "./pipeline/contract";

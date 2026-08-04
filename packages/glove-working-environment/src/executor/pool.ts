@@ -392,10 +392,19 @@ export class WorkerPool {
         return;
       }
       if (message.what === "builder") {
+        // Addressed by FAMILY, not by binding name: one recording can mix
+        // constructors (`new Document({ children: [new Paragraph(...)] })`),
+        // and it is the family that knows how to replay all of them.
         const ns = this.deps.envModules(message.readOnly === true).get(message.module!);
-        const holder = (ns as Record<string, unknown> | undefined)?.[message.builder!];
-        const spec = (holder as { [k: symbol]: BuilderSpec } | undefined)?.[BUILDER];
-        if (!spec) throw new Error(`env:${message.module} has no builder named ${message.builder}`);
+        let spec: BuilderSpec | undefined;
+        for (const value of Object.values((ns ?? {}) as Record<string, unknown>)) {
+          const candidate = (value as { [k: symbol]: BuilderSpec } | null | undefined)?.[BUILDER];
+          if (candidate?.family === message.builder) {
+            spec = candidate;
+            break;
+          }
+        }
+        if (!spec) throw new Error(`env:${message.module} has no builder family "${message.builder}"`);
         respond(true, await spec.replay(message.ops ?? []));
         return;
       }

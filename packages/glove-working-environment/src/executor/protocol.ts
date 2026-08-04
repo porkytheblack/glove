@@ -59,11 +59,38 @@ export interface BuilderShape {
   /** Constructor name, as the script will see it: `PptxGenJS`. */
   name: string;
   /**
+   * Which constructor within the family this is — `Paragraph`, `Document`.
+   * Equals `name` for a family of one.
+   */
+  ctor: string;
+  /**
+   * Constructors sharing this id share one recording, and therefore one ref
+   * table.
+   *
+   * `docx` has no root builder: a document is assembled from constructed
+   * values — `new Document({ sections: [{ children: [new Paragraph(...)] }] })`
+   * — so a Paragraph must be referable from inside a Document's arguments.
+   * That is only possible if both were recorded together.
+   */
+  family: string;
+  /**
    * Methods that finish the document and produce something. Reaching one
    * flushes the recording and returns a promise, so it must be awaited —
    * everything before it is synchronous.
    */
   terminal: string[];
+  /**
+   * True for a member the script uses without `new` — a library namespace
+   * like `docx`'s `Packer`, whose `toBuffer(doc)` is how a document is
+   * written. It records like any other object; it is simply never
+   * constructed.
+   */
+  singleton?: boolean;
+  /**
+   * For a singleton, the names it answers to. Fixed and known, so the worker
+   * builds a plain object with exactly these on it rather than a proxy.
+   */
+  methods: string[];
   /** Static properties carried as data, e.g. `ShapeType`, `AlignH`. */
   statics: Record<string, unknown>;
   /**
@@ -82,6 +109,10 @@ export const BUILDER = Symbol.for("glove.builder");
 
 export interface BuilderSpec {
   name: string;
+  /** This constructor's own name; equals `name` for a family of one. */
+  ctor: string;
+  /** Constructors sharing this id share one recording. See {@link BuilderShape}. */
+  family: string;
   terminal: string[];
   statics?: Record<string, unknown>;
   data?: Record<string, unknown>;
@@ -94,16 +125,46 @@ export interface BuilderSpec {
    * so it is required rather than defaulted.
    */
   allow: string[];
+  /** True for a member used without `new`. See {@link BuilderShape.singleton}. */
+  singleton?: boolean;
+  /** For a singleton, the names it answers to. See {@link BuilderShape.methods}. */
+  methods?: string[];
   /** Replay an op list against the real library. Runs on the host. */
   replay(ops: BuilderOp[]): Promise<unknown>;
 }
 
-/** One recorded step. Refs are indices into the run's object table. */
+/**
+ * One recorded step. Refs are indices into the run's object table.
+ *
+ * An argument may itself be a recorded object, encoded as
+ * `{ __glove_ref: n }` — see {@link BuilderRef}.
+ */
 export type BuilderOp =
-  | { op: "new"; ref: number; args: unknown[] }
+  | { op: "new"; ref: number; ctor: string; args: unknown[] }
   | { op: "call"; ref: number; target: number; method: string; args: unknown[] }
+  | { op: "get"; ref: number; target: number; prop: string }
   | { op: "set"; target: number; prop: string; value: unknown }
   | { op: "end"; target: number; method: string; args: unknown[] };
+
+/**
+ * A recorded object appearing inside an argument.
+ *
+ * The recorder substitutes these on the way out because a Proxy deep-copies
+ * to `{}` — so without it, `new Document({ children: [para] })` would arrive
+ * on the host with the paragraph silently replaced by an empty object.
+ */
+export interface BuilderRef {
+  __glove_ref: number;
+}
+
+export function isBuilderRef(value: unknown): value is BuilderRef {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as BuilderRef).__glove_ref === "number" &&
+    Object.keys(value as object).length === 1
+  );
+}
 
 /** Describe a host namespace so the worker can mirror it. */
 export function describeShape(value: unknown, depth = 0): ShapeNode {
@@ -112,6 +173,10 @@ export function describeShape(value: unknown, depth = 0): ShapeNode {
     return {
       kind: "builder",
       name: spec.name,
+      ctor: spec.ctor,
+      family: spec.family,
+      singleton: spec.singleton === true,
+      methods: spec.methods ?? spec.terminal,
       terminal: spec.terminal,
       statics: spec.statics ?? {},
       data: spec.data ?? {},

@@ -136,6 +136,79 @@ export const docx: {
   /** Full text, paragraph by paragraph. */
   extractText(path: string): Promise<DocxText>;
 };
+
+// ---------------------------------------------------------------------------
+// The \`docx\` library itself, for documents \`docx.create\` cannot express:
+// coloured runs, table borders and widths, page-numbered footers, landscape
+// sections, spacing. These are the library's own exports, unchanged — code
+// written against docx's documentation works here as written.
+//
+// Everything is synchronous until \`Packer\`, which is the only await:
+//
+//   import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'env:documents';
+//   import { writeFile } from 'env:fs';
+//   const doc = new Document({
+//     sections: [{ children: [
+//       new Paragraph({ text: 'Q3 Review', heading: HeadingLevel.TITLE }),
+//       new Paragraph({ children: [
+//         new TextRun({ text: 'Revenue rose ' }),
+//         new TextRun({ text: '18%', bold: true, color: 'C00000' }),
+//       ] }),
+//     ] }],
+//   });
+//   await writeFile('/out/review.docx', await Packer.toBuffer(doc));
+//
+// Sizes are in twips (1 inch = 1440, 1 pt = 20); font sizes are half-points.
+// ---------------------------------------------------------------------------
+
+export {
+  Document,
+  Paragraph,
+  TextRun,
+  Table,
+  TableRow,
+  TableCell,
+  ImageRun,
+  Header,
+  Footer,
+  PageBreak,
+  ExternalHyperlink,
+  InternalHyperlink,
+  Bookmark,
+  TableOfContents,
+  SimpleField,
+  Numbering,
+  AlignmentType,
+  BorderStyle,
+  EmphasisMarkType,
+  HeadingLevel,
+  HeightRule,
+  HighlightColor,
+  LevelFormat,
+  LineRuleType,
+  NumberFormat,
+  PageNumber,
+  PageOrientation,
+  SectionType,
+  ShadingType,
+  TabStopPosition,
+  TabStopType,
+  TextDirection,
+  UnderlineType,
+  VerticalAlign,
+  VerticalAlignTable,
+  WidthType,
+} from 'docx';
+
+/**
+ * Turns a Document into bytes. The only async step, and the only one that
+ * produces anything — write the result yourself with env:fs, so the write
+ * goes through the same gateway as any other.
+ */
+export const Packer: {
+  toBuffer(doc: import('docx').Document): Promise<Uint8Array>;
+  toBase64String(doc: import('docx').Document): Promise<string>;
+};
 `;
 
 export const DOCUMENTS_DOCS = `# env:documents

@@ -21,6 +21,7 @@ import PptxGenJSImport from "pptxgenjs";
 import { defineAdapter, defineBuilder, methodsOf, type EnvFsHandle, type FileSummary } from "glove-working-environment";
 import { readDeck, looksZip, type SlideText } from "./pptx";
 import { SLIDES_DOCS, SLIDES_TYPES } from "./docs";
+import { SLIDES_SKILLS } from "./skills";
 
 export type { SlideText };
 /**
@@ -119,6 +120,7 @@ export const slides = () =>
     description: "Build PowerPoint decks and read them back: create, describe, extract text and speaker notes, outline.",
     types: SLIDES_TYPES,
     docs: SLIDES_DOCS,
+    skills: SLIDES_SKILLS,
     handles: {
       extensions: [".pptx"],
       // A pptx is a ZIP, and so are .docx and .xlsx — the signature alone

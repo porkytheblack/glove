@@ -7,10 +7,11 @@
  * the context window.
  */
 import ExcelJS from "exceljs";
-import { defineAdapter, type EnvFsHandle, type FileSummary } from "glove-working-environment";
+import { defineAdapter, defineBuilder, methodsOf, type EnvFsHandle, type FileSummary } from "glove-working-environment";
 import { cellFormula, columnLetter, headerKeys, normalizeCell, trimRow, type CellValue } from "./cells";
 import { parseCsv, toCsvText } from "./csv";
 import { SPREADSHEETS_DOCS, SPREADSHEETS_TYPES } from "./docs";
+import { SPREADSHEETS_SKILLS } from "./skills";
 
 export type { CellValue };
 
@@ -150,18 +151,104 @@ async function saveWorkbook(vfs: EnvFsHandle, wb: ExcelJS.Workbook, path: string
   return path;
 }
 
+/** Something with exceljs's `writeBuffer()` on it — `wb.xlsx` or `wb.csv`. */
+interface Writer {
+  writeBuffer(): Promise<ArrayBuffer | Buffer>;
+}
+
+/**
+ * exceljs's `Workbook`, with its real API.
+ *
+ * `write(path, rows)` covers the common case in one call, and it should stay
+ * — but it is our API, not exceljs's, and everything it does not cover (a
+ * bold header, a number format, a merged title cell, a column width) is
+ * unreachable through it. A model that knows exceljs already knows how to do
+ * all of those; what it needs is the object, not a bigger options bag.
+ *
+ * The allowlist is read off live objects rather than typed out, so it is the
+ * library's genuine surface and stays right when the dependency moves.
+ */
+function defineWorkbook(vfs: EnvFsHandle): unknown {
+  const probe = new ExcelJS.Workbook();
+  const sheet = probe.addWorksheet("probe");
+  const row = sheet.addRow([1]);
+
+  /** Write through the guarded handle, whatever format the writer is for. */
+  const save = async (target: unknown, args: unknown[]): Promise<string> => {
+    const first = args[0];
+    const path = typeof first === "string" ? first : (first as { filename?: string } | undefined)?.filename;
+    if (!path) {
+      throw new Error("writeFile needs a path: await workbook.xlsx.writeFile('/out/report.xlsx')");
+    }
+    await vfs.writeFile(path, new Uint8Array(await bytesOf(target)));
+    return path;
+  };
+
+  /**
+   * A workbook is written through `wb.xlsx` or `wb.csv`, so that is what a
+   * terminal is normally called on. `wb.writeFile(...)` is not the real API
+   * but is an easy slip, and answering it costs nothing.
+   */
+  const bytesOf = async (target: unknown): Promise<ArrayBuffer | Buffer> => {
+    const writer = target as Partial<Writer> & { xlsx?: Writer };
+    if (typeof writer.writeBuffer === "function") return writer.writeBuffer();
+    if (writer.xlsx && typeof writer.xlsx.writeBuffer === "function") return writer.xlsx.writeBuffer();
+    throw new Error(
+      "a workbook is written through its format: await workbook.xlsx.writeFile('/out/report.xlsx') " +
+        "(or workbook.csv for CSV)",
+    );
+  };
+
+  return defineBuilder<ExcelJS.Workbook>({
+    name: "Workbook",
+    construct: () => new ExcelJS.Workbook(),
+    allow: [
+      ...new Set([
+        ...methodsOf(probe),
+        ...methodsOf(sheet),
+        ...methodsOf(row),
+        ...methodsOf(row.getCell(1)),
+        ...methodsOf(sheet.getColumn(1)),
+        // Read through, not called: `workbook.xlsx.writeFile(...)`.
+        "xlsx",
+        "csv",
+      ]),
+    ],
+    finish: {
+      /**
+       * exceljs's own `writeFile` writes to the HOST filesystem. It is
+       * replaced rather than wrapped: the bytes are produced in memory and
+       * land in the VFS through the guarded handle, so zones, limits and
+       * versioning apply exactly as they do to any other write.
+       */
+      writeFile: save,
+      /** `writeBuffer()` hands the bytes back instead of storing them. */
+      async writeBuffer(target) {
+        return new Uint8Array(await bytesOf(target));
+      },
+    },
+  });
+}
+
 export const spreadsheets = () =>
   defineAdapter({
     name: "spreadsheets",
     description: "Read, write and summarise .xlsx workbooks; bridge sheets to and from CSV.",
     types: SPREADSHEETS_TYPES,
     docs: SPREADSHEETS_DOCS,
+    skills: SPREADSHEETS_SKILLS,
     // No magic claim: XLSX is a ZIP and indistinguishable from DOCX by
     // signature. And no `.csv` claim either — a CSV is text, and the generic
     // "1,240 lines, here are the first five" summary tells a model more than
     // loading it as a one-sheet workbook would.
     handles: { extensions: [".xlsx", ".xlsm"] },
     create: (vfs: EnvFsHandle) => ({
+      /**
+       * exceljs's `Workbook`. Use it when the verbs below are not enough —
+       * styling, number formats, merged cells, column widths, formulas.
+       */
+      Workbook: defineWorkbook(vfs),
+
       /** Structure of a workbook — sheet names, sizes, headers, one sample row. */
       async describe(path: string): Promise<WorkbookSummary> {
         const wb = await loadWorkbook(vfs, path);
