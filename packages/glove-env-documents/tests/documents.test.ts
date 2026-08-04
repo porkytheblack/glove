@@ -275,15 +275,42 @@ test("extractText can select pages", async () => {
   assert.match(out.pages[0].text, /TWO/);
 });
 
-test("a file that is not a PDF fails with the path and the reason", async () => {
+test("a file that is not a PDF says so, and says what it looks like instead", async () => {
+  // Found by agent evaluation: pointing extractText at a text file returned
+  // pdf-lib's own "Invalid PDF structure.", which reads as "this PDF is
+  // corrupt". A model that believes the document is damaged goes looking for
+  // another extractor instead of noticing it opened the wrong file.
   const t = await env();
   await t.fs.writeFile("/inbox/fake.pdf", "not a pdf at all");
+
+  // Both entry points, because extractText was not wrapped at all and that is
+  // the one the eval actually tripped over.
+  for (const verb of ["describe", "extractText"]) {
+    const run = await t.runScript(
+      `import { pdf } from 'env:documents';
+       export default async function main() { return pdf.${verb}('/inbox/fake.pdf'); }`,
+    );
+    assert.equal(run.ok, false, verb);
+    assert.match(run.error ?? "", /\/inbox\/fake\.pdf is not a PDF/, verb);
+    assert.match(run.error ?? "", /%PDF- header/, verb);
+    assert.match(run.error ?? "", /looks like text .* env:fs\.readFile/, verb);
+  }
+});
+
+test("a ZIP mistaken for a PDF names the module that would open it", async () => {
+  // .docx, .xlsx and .pptx are all ZIPs, and an agent that mounted one under
+  // a .pdf name needs to be told which module to reach for, not that the PDF
+  // is malformed.
+  const t = await env();
+  await t.fs.writeFile("/inbox/really-a-docx.pdf", new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0]));
   const run = await t.runScript(
     `import { pdf } from 'env:documents';
-     export default async function main() { return pdf.describe('/inbox/fake.pdf'); }`,
+     export default async function main() { return pdf.describe('/inbox/really-a-docx.pdf'); }`,
   );
   assert.equal(run.ok, false);
-  assert.match(run.error ?? "", /\/inbox\/fake\.pdf could not be read as a PDF/);
+  assert.match(run.error ?? "", /is not a PDF/);
+  assert.match(run.error ?? "", /ZIP container/);
+  assert.match(run.error ?? "", /env:documents\.docx/);
 });
 
 // ================================================================= DOCX
