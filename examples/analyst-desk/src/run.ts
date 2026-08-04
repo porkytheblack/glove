@@ -40,8 +40,8 @@ interface Args {
   reps: number;
   /** Where to write what each run produced, so it can actually be opened. */
   save?: string;
-  /** Refuse a script write until the docs it imports have been read. */
-  gateDocs: boolean;
+  /** Point the model at /skills once, on the first script it writes blind. */
+  nudgeDocs: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -60,7 +60,7 @@ function parseArgs(argv: string[]): Args {
     budget: Number(get("--budget") ?? DEFAULT_BUDGET_USD),
     reps: Number(get("--reps") ?? 1),
     save: get("--save"),
-    gateDocs: argv.includes("--gate-docs"),
+    nudgeDocs: argv.includes("--nudge-docs"),
   };
 }
 
@@ -128,7 +128,7 @@ async function main(): Promise<void> {
   }
 
   const planned = chosen.length * args.models.length * args.reps;
-  console.log(`analyst-desk — ${planned} run(s), judged by ${args.judgeModel}, ceiling ${money(args.budget)}${args.gateDocs ? ", docs gate ON" : ""}\n`);
+  console.log(`analyst-desk — ${planned} run(s), judged by ${args.judgeModel}, ceiling ${money(args.budget)}${args.nudgeDocs ? ", docs nudge ON" : ""}\n`);
 
   const rows: Row[] = [];
   let agentSpend = 0;
@@ -146,7 +146,7 @@ async function main(): Promise<void> {
         }
 
         process.stdout.write(`  ${scenario.id.padEnd(14)} ${model.padEnd(24)} `);
-        const { env, truth } = await openDesk({ requireDocsBeforeWrite: args.gateDocs });
+        const { env, truth } = await openDesk({ nudgeToDocsOnFirstWrite: args.nudgeDocs });
         let row: Row;
 
         try {

@@ -84,7 +84,7 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
   const limits: EnvLimits = { ...DEFAULT_LIMITS, ...options.limits };
   const versions = new VersionStore(vfs, limits);
   const runlog = new RunLog(vfs, limits);
-  const core = new EnvCore(vfs, limits, versions, options.requireDocsBeforeWrite ?? false);
+  const core = new EnvCore(vfs, limits, versions, options.nudgeToDocsOnFirstWrite ?? false);
   // Scripts run in a supervised worker pool, not on the host event loop. A
   // compute-bound script is terminable there and nowhere else — see
   // executor/pool.ts for the measurement that forced this.

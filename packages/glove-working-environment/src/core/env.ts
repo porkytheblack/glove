@@ -93,15 +93,10 @@ export class EnvCore {
     readonly limits: EnvLimits,
     readonly versions: VersionStore,
     /**
-     * Refuse a script write until the docs it needs have been read.
-     *
-     * Off by default, pending evidence. Turning it on changes what a
-     * conforming host is allowed to do — a script write can now be refused
-     * for a reason unrelated to the script — and that is not a default to
-     * flip on a hunch. The eval turns it on; if the delivery rate moves, the
-     * measurement is the argument for changing this.
+     * Point the model at the skills once, on the first script it writes
+     * without having opened any docs. See {@link nudgeToDocsOnce}.
      */
-    private readonly gateWrites = false,
+    private readonly nudgeEnabled = false,
   ) {}
 
   attachExecutor(executor: WorkerPool): void {
@@ -772,6 +767,42 @@ export class EnvCore {
     return src ? scriptOneLiner(src) : null;
   }
 
+  private nudged = false;
+
+  /**
+   * Point at the skills once, on the first script written blind.
+   *
+   * The skills run showed the answer being available and unread: /skills
+   * existed, the preamble named it first, and the top of the friction table
+   * was still `no module named "csv"`. A model writes the import from memory
+   * and meets the answer afterwards, by which point the turn is spent.
+   *
+   * So this fires exactly once — on the first script write in a session where
+   * nothing under /skills or /std has been opened — and then never again,
+   * whether or not the model took the hint. It is a signpost, not a gate. A
+   * rule that keeps refusing is a rule the model has to work around, and
+   * every turn spent working around it is a turn not spent on the task.
+   *
+   * Called from the model-facing verbs ONLY. A host writing a script through
+   * `env.fs`, an adapter deriving one, and the adapter test harness all know
+   * what they are importing; interrupting them would charge the friction to
+   * the wrong party.
+   */
+  nudgeToDocsOnce(): void {
+    if (!this.nudgeEnabled || this.nudged) return;
+    for (const path of this.hasRead) {
+      if (path.startsWith("/skills") || path.startsWith("/std")) return;
+    }
+    // Set before throwing, so this cannot fire twice even if the model
+    // ignores it and sends the identical write again.
+    this.nudged = true;
+    throw new Error(
+      `read /skills/README.md before writing your first script — it has the exact import line for every ` +
+        `module, and a wrong import is the most common way a run is wasted here. Asked once: send this write ` +
+        `again and it will go through.`,
+    );
+  }
+
   /**
    * `env:` module name → the stored scripts that import it.
    *
@@ -779,50 +810,6 @@ export class EnvCore {
    * equally true for a restored snapshot, a host-supplied persistent
    * filesystem, and a tree the agent has been editing all session.
    */
-  /**
-   * Refuse a script until the docs it needs have been read.
-   *
-   * The measured problem is not that the answer is missing — every wrong
-   * import is answered by name, and `/skills/imports.md` shows the right line
-   * for every module. It is that a model writes the import from memory and
-   * only meets the answer afterwards, by which point it has spent the turn.
-   * Reading is optional and guessing is free, so guessing wins.
-   *
-   * This inverts that. The read costs one call, happens once per session per
-   * module, and makes the wrong import unwritable rather than merely
-   * corrected. It is a gate on the FIRST write only — once a module's types
-   * have been read, every later script importing it goes straight through.
-   *
-   * Deliberately not a lecture: the refusal names the exact path to read and
-   * nothing else, because a message that has to be interpreted is another
-   * thing to guess at.
-   *
-   * Called from the model-facing verbs ONLY, never from the shared write
-   * path. A host writing a script through `env.fs`, an adapter deriving one,
-   * and the adapter test harness all know what they are importing — gating
-   * them would be friction charged to the wrong party, and the first version
-   * of this did exactly that and broke thirty tests.
-   */
-  requireDocsFor(source: string): void {
-    if (!this.gateWrites) return;
-
-    if (!this.hasRead.has("/skills/imports.md")) {
-      throw new Error(
-        `read /skills/imports.md first — it has the exact import line for every module, and a wrong import ` +
-          `is the most common way a run is wasted here. This is asked once per session.`,
-      );
-    }
-    for (const mod of envImportsOf(source)) {
-      const types = `/std/${mod}/index.d.ts`;
-      if (!this.hasRead.has(types)) {
-        throw new Error(
-          `this script imports env:${mod}, but ${types} has not been read in this session — read it first, ` +
-            `then write the script. Asked once per module.`,
-        );
-      }
-    }
-  }
-
   async moduleUsage(): Promise<Map<string, string[]>> {
     const usage = new Map<string, string[]>();
     for (const path of (await this.glob("/scripts/**/*.js")).sort()) {

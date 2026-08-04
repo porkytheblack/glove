@@ -248,20 +248,20 @@ export interface CreateWorkingEnvironmentOptions {
    */
   strictAdapters?: boolean;
   /**
-   * Refuse a script write until the docs it imports have been read. Default
-   * false.
+   * Refuse the FIRST script write of a session — once — if no docs have been
+   * opened yet, naming `/skills/README.md`. Default false.
    *
    * Measured: with `/skills` present and the preamble naming it first, the
-   * most frequent errors across 36 agent runs were still guessed imports —
-   * reading is optional and guessing is free, so guessing wins. The gate
-   * inverts that for one call per module per session.
+   * most frequent errors across 36 agent runs were still guessed imports.
+   * Reading is optional and guessing is free, so guessing wins; this puts the
+   * file in front of the model at the one moment it is about to matter.
    *
-   * Off pending evidence: turning it on lets a script write be refused for a
-   * reason unrelated to the script, which is not a default to flip on a
-   * hunch. Turn it on to trade one read call per module per session against
-   * the turns a guessed import costs.
+   * It is a signpost, not a gate. Resending the identical write succeeds, and
+   * nothing afterwards is ever refused — a standing rule is just another
+   * thing to work around, and every turn spent doing that is a turn not spent
+   * on the task. Off pending evidence that it moves the delivery rate.
    */
-  requireDocsBeforeWrite?: boolean;
+  nudgeToDocsOnFirstWrite?: boolean;
   /** Script-execution tuning. Scripts always run in terminable workers. */
   execution?: {
     /**
