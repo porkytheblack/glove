@@ -51,6 +51,19 @@ export interface Scenario {
 
 const money = (n: number) => `$${n.toLocaleString("en-US")}`;
 
+/**
+ * Look a planted fact up by id rather than by position.
+ *
+ * Indexing into `truth.buried` would let a reorder in the corpus silently
+ * change what a question asks about — the judge would answer a different
+ * question than the one intended and nothing would look wrong.
+ */
+function fact(truth: GroundTruth, id: string): string {
+  const found = truth.buried.find((b) => b.id === id);
+  if (!found) throw new Error(`no planted fact with id "${id}" — scenarios and corpus have drifted apart`);
+  return found.mustMention;
+}
+
 /** Read a text file, or "" when the agent never produced it. */
 async function text(env: WorkingEnvironment, path: string): Promise<string> {
   try {
@@ -270,8 +283,8 @@ export const SCENARIOS: Scenario[] = [
       {
         id: "risk-coverage",
         question:
-          `Does the deck's risk content cover BOTH the outstanding litigation (${truth.buried[0].mustMention}) ` +
-          `and the covenant position (${truth.buried[2].mustMention})?`,
+          `Does the deck's risk content cover BOTH the outstanding litigation (${fact(truth, "litigation")}) ` +
+          `and the covenant position (${fact(truth, "covenant")})?`,
       },
       {
         id: "fabrication",
