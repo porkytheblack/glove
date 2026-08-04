@@ -69,6 +69,10 @@ interface Row {
   judgeCost: number;
   stopReason: string;
   note?: string;
+  /** Every error the model saw, verbatim. The most useful output here. */
+  frictions: string[];
+  /** Which verbs it reached for, in order — how it approached the problem. */
+  verbs: string[];
 }
 
 const money = (n: number) => `$${n.toFixed(4)}`;
@@ -150,6 +154,10 @@ async function main(): Promise<void> {
             judgeCost,
             stopReason: transcript.stopReason,
             note,
+            frictions: transcript.events
+              .filter((e) => e.status === "error")
+              .map((e) => `${e.name}: ${(e.message ?? "").slice(0, 160)}`),
+            verbs: transcript.events.map((e) => e.name),
           };
         } finally {
           await env.close();
@@ -161,7 +169,7 @@ async function main(): Promise<void> {
         const clean = c === row.checks.length && v === row.verdicts.length;
         console.log(
           `${clean ? "PASS" : "FAIL"}  checks ${c}/${row.checks.length}  judge ${v}/${row.verdicts.length}  ` +
-            `${row.turns} turns  ${money(row.agentCost + row.judgeCost)}`,
+            `${row.turns} turns  ${row.stopReason === "max-turns" ? "OUT OF TURNS  " : ""}${money(row.agentCost + row.judgeCost)}`,
         );
       }
     }
@@ -211,6 +219,28 @@ function report(
       `  ${model.padEnd(24)} ${String(fullPass).padStart(2)}/${mine.length}  ` +
         `${mine.reduce((n, r) => n + r.turns, 0)} turns  ${errored} errored calls  ${money(cost)}`,
     );
+  }
+
+  // A run that ran out of turns has not failed the task — it never finished
+  // it, and the two say completely different things about the environment.
+  const truncated = rows.filter((r) => r.stopReason === "max-turns");
+  if (truncated.length > 0) {
+    console.log(`\nRan out of turns (not a wrong answer — an unfinished one)\n`);
+    for (const id of [...new Set(truncated.map((r) => r.scenario))]) {
+      const mine = truncated.filter((r) => r.scenario === id);
+      console.log(`  ${id.padEnd(14)} ${mine.length} run(s): ${[...new Set(mine.map((r) => r.model))].join(", ")}`);
+    }
+  }
+
+  // Where models actually trip. This is the output worth reading: a pass rate
+  // says something is wrong, the errors say what.
+  const friction = new Map<string, number>();
+  for (const r of rows) for (const f of r.frictions) friction.set(f, (friction.get(f) ?? 0) + 1);
+  if (friction.size > 0) {
+    console.log(`\nFriction — every errored call, most frequent first\n`);
+    for (const [msg, n] of [...friction].sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+      console.log(`  ×${String(n).padStart(2)}  ${msg}`);
+    }
   }
 
   const total = meta.agentSpend + meta.judgeSpend;
