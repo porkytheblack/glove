@@ -104,7 +104,7 @@ Things worth knowing:
   produces no file.
 - **You cannot read values back off the object.** The whole document is
   recorded and replayed at the write, so a property read gives you nothing
-  useful — `pptx.slides` and friends are not available mid-build. Compute
+  useful — \`pptx.slides\` and friends are not available mid-build. Compute
   what you need from your own data before you start.
 - Repeating chrome (a footer) belongs on a master via \`defineSlideMaster\`,
   not stamped onto each slide — otherwise it comes back as a body line on
