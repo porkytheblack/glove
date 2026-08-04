@@ -233,6 +233,46 @@ export default async function main() {
 `,
     },
   ],
+
+  // The reference that proves the wrapped library is drivable from a script.
+  // Every requirement below is styling `write(path, rows)` cannot express, so
+  // if this cannot pass, the builder is not usable and the scenario is
+  // measuring our bug rather than the model's.
+  "styled-workbook": [
+    { path: "/scripts/lib/txns.js", content: PARSE_CSV },
+    {
+      path: "/scripts/styled.js",
+      content: `
+import { loadRows, byRegion } from './lib/txns.js';
+import { Workbook } from 'env:spreadsheets';
+
+export default async function main() {
+  const r = byRegion(await loadRows());
+  const total = r.EMEA + r.AMER + r.APAC;
+
+  const wb = new Workbook();
+  const ws = wb.addWorksheet('Revenue');
+  ws.columns = [
+    { header: 'Region',  key: 'region',  width: 22 },
+    { header: 'Revenue', key: 'revenue', width: 18 },
+    { header: 'Share',   key: 'share',   width: 12 },
+  ];
+  for (const name of ['EMEA', 'AMER', 'APAC']) {
+    ws.addRow({ region: name, revenue: r[name], share: r[name] / total });
+  }
+  const last = ws.addRow({ region: 'TOTAL', revenue: total, share: 1 });
+  last.font = { bold: true };
+
+  ws.getRow(1).font = { bold: true };
+  ws.views = [{ state: 'frozen', ySplit: 1 }];
+  ws.getColumn('revenue').numFmt = '#,##0';
+  ws.getColumn('share').numFmt = '0.0%';
+
+  return wb.xlsx.writeFile('/out/revenue.xlsx');
+}
+`,
+    },
+  ],
 };
 
 async function main(): Promise<void> {

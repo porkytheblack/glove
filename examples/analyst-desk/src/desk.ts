@@ -128,10 +128,47 @@ async function extractOne(env: WorkingEnvironment, path: string): Promise<Extrac
       return { path, kind: `pptx, ${deck.slides.length} slide(s)`, text };
     }
 
+    if (lower.endsWith(".xlsx") || lower.endsWith(".xlsm")) {
+      // Read with exceljs directly rather than through env:spreadsheets. That
+      // is weaker than the PDF and PPTX paths above, which use a genuinely
+      // different library than the writer did — there is no second xlsx
+      // reader worth pulling in — but it does at least take the adapter and
+      // its normalisation out of the loop.
+      const ExcelJS = (await import("exceljs")).default;
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load((await env.fs.readBytes(path)).slice().buffer as ArrayBuffer);
+      const parts: string[] = [];
+      for (const ws of wb.worksheets) {
+        parts.push(`## Sheet ${ws.name}`);
+        ws.eachRow({ includeEmpty: false }, (row) => {
+          const values = Array.isArray(row.values) ? row.values.slice(1) : [];
+          parts.push(values.map((v: unknown) => cellText(v)).join(" | "));
+        });
+      }
+      return { path, kind: `xlsx, ${wb.worksheets.length} sheet(s)`, text: parts.join("\n") };
+    }
+
     return { path, kind: "text", text: await env.fs.readFile(path) };
   } catch (e) {
     // A corrupt artifact is a finding. Saying so beats handing the judge an
     // empty string it would read as an empty but valid document.
     return { path, kind: "unreadable", text: `[could not be read: ${(e as Error).message}]` };
   }
+}
+
+/**
+ * A cell as a person would read it. exceljs returns rich objects —
+ * `{ formula, result }`, `{ richText }` — and handing those to a judge as
+ * `[object Object]` would read as a broken workbook.
+ */
+function cellText(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "object") {
+    const o = v as { result?: unknown; text?: unknown; richText?: Array<{ text?: string }> };
+    if (o.richText) return o.richText.map((r) => r.text ?? "").join("");
+    if (o.result !== undefined) return String(o.result);
+    if (o.text !== undefined) return String(o.text);
+    return "";
+  }
+  return String(v);
 }

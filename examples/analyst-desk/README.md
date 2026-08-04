@@ -43,6 +43,7 @@ The CSV carries the mess separately: three date formats, amounts with and withou
 | `csv-analysis` | Regional totals to `/out/revenue.json` | Parsing a real export, and arithmetic over 420 rows |
 | `deck-build` | A board deck at `/out/board.pptx` | Producing a real artifact, verified by reading the file back |
 | `pdf-report` | A one-page revenue PDF | Whether figures survive being written and re-extracted |
+| `styled-workbook` | A formatted `.xlsx`: bold header, number formats, widths, frozen pane | Whether a model can drive the wrapped library itself — none of this is expressible through `write()` |
 
 Tasks state an outcome, never a method. Telling the agent to use `grep` would test instruction-following; the interesting question is whether it works the problem out.
 

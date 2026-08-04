@@ -11,6 +11,7 @@
     "judgecheck": "tsx --env-file-if-exists=../../.env src/judgecheck.ts"
   },
   "dependencies": {
+    "exceljs": "^4.4.0",
     "glove-env-documents": "workspace:*",
     "glove-env-images": "workspace:*",
     "glove-env-slides": "workspace:*",

@@ -16,6 +16,7 @@
  * question is whether an 80-page document is workable at all when the only
  * way through is to search it.
  */
+import type ExcelJS from "exceljs";
 import type { WorkingEnvironment } from "glove-working-environment";
 // The deck is read back with the slides package's own ZIP+OOXML reader, not
 // with pptxgenjs and not by asking the environment — a verifier that trusts
@@ -62,6 +63,25 @@ function fact(truth: GroundTruth, id: string): string {
   const found = truth.buried.find((b) => b.id === id);
   if (!found) throw new Error(`no planted fact with id "${id}" — scenarios and corpus have drifted apart`);
   return found.mustMention;
+}
+
+/**
+ * A cell value as a person would read it.
+ *
+ * exceljs hands back rich objects — `{ formula, result }`, `{ richText }` —
+ * and a check that stringified those would report a missing figure for a
+ * workbook that has it.
+ */
+function cellToText(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "object") {
+    const o = v as { result?: unknown; text?: unknown; richText?: Array<{ text?: string }> };
+    if (o.richText) return o.richText.map((r) => r.text ?? "").join("");
+    if (o.result !== undefined) return String(o.result);
+    if (o.text !== undefined) return String(o.text);
+    return "";
+  }
+  return String(v);
 }
 
 /** Read a text file, or "" when the agent never produced it. */
@@ -364,5 +384,121 @@ export const SCENARIOS: Scenario[] = [
           `labelled figures — rather than numbers run together or overlapping text?`,
       },
     ],
+  },
+
+  /**
+   * The one scenario a curated spec API cannot pass.
+   *
+   * Everything asked for here — a bold header row, thousands separators, a
+   * percentage format, set column widths, a frozen header — is styling, and
+   * `write(path, rows)` has no way to express any of it. The only route is
+   * exceljs's own `Workbook`, so this measures whether a model can drive the
+   * wrapped library end to end rather than whether it can call our verbs.
+   *
+   * Every check reads the file back with exceljs directly, and the numbers
+   * are checked alongside the formatting: a beautifully formatted workbook
+   * with the wrong totals in it is a worse outcome than an ugly correct one,
+   * and a check that only looked at fonts would call it a pass.
+   */
+  {
+    id: "styled-workbook",
+    summary: "Drive the wrapped library itself: formatting a spec API cannot express.",
+    maxTurns: 20,
+    task:
+      `Produce /out/revenue.xlsx from /inbox/transactions.csv for Meridian Freight Systems.\n\n` +
+      `The file is messy — three date formats, amounts with and without $ and separators, stray whitespace ` +
+      `in some region values, one duplicated row (count each transaction id once) and a trailing comment.\n\n` +
+      `One sheet named "Revenue", with a header row reading Region, Revenue, Share, then one row per region ` +
+      `(EMEA, AMER, APAC) and a TOTAL row.\n\n` +
+      `It is going to a client, so it has to be presentable:\n` +
+      `- the header row in bold\n` +
+      `- revenue formatted with thousands separators, share as a percentage\n` +
+      `- the Region column at least 18 wide\n` +
+      `- the header row frozen so it stays visible when scrolling`,
+    artifacts: ["/out/revenue.xlsx"],
+    async check(env, truth) {
+      const out: CheckResult[] = [];
+      const path = await firstMatch(env, "/out/*.xlsx");
+      out.push({ name: "an .xlsx exists in /out", passed: path !== null, detail: path ?? "none" });
+      if (!path) return out;
+
+      const ExcelJS = (await import("exceljs")).default;
+      const wb = new ExcelJS.Workbook();
+      try {
+        await wb.xlsx.load((await env.fs.readBytes(path)).slice().buffer as ArrayBuffer);
+      } catch (e) {
+        out.push({ name: "workbook opens", passed: false, detail: (e as Error).message });
+        return out;
+      }
+      out.push({ name: "workbook opens", passed: true, detail: `${wb.worksheets.length} sheet(s)` });
+
+      const ws = wb.getWorksheet("Revenue") ?? wb.worksheets[0];
+      if (!ws) {
+        out.push({ name: "has a sheet", passed: false, detail: "none" });
+        return out;
+      }
+
+      // Values first. Formatting on top of wrong numbers is the worse failure.
+      const cells: string[] = [];
+      ws.eachRow({ includeEmpty: false }, (row: ExcelJS.Row) => {
+        const values = Array.isArray(row.values) ? row.values.slice(1) : [];
+        cells.push(values.map((v: unknown) => cellToText(v)).join(" "));
+      });
+      const flat = cells.join("\n");
+
+      for (const region of ["EMEA", "AMER", "APAC"] as const) {
+        const line = cells.find((c) => new RegExp(`\\b${region}\\b`).test(c)) ?? "";
+        const ok = mentionsAmount(line, truth.revenueByRegion[region]);
+        out.push({
+          name: `${region} row carries ${money(truth.revenueByRegion[region])}`,
+          passed: ok,
+          detail: ok ? "present" : line === "" ? "no row for the region" : `row read: ${line.slice(0, 80)}`,
+        });
+      }
+      out.push({
+        name: `a TOTAL row carrying ${money(truth.totalRevenue)}`,
+        passed: /total/i.test(flat) && mentionsAmount(flat, truth.totalRevenue),
+        detail: "checked",
+      });
+
+      // Then the formatting — each one unreachable through write().
+      const header = ws.getRow(1);
+      out.push({
+        name: "header row is bold",
+        passed: header.font?.bold === true || header.getCell(1).font?.bold === true,
+        detail: JSON.stringify(header.font ?? header.getCell(1).font ?? null),
+      });
+
+      const numFmts: string[] = [];
+      ws.eachRow({ includeEmpty: false }, (row: ExcelJS.Row) =>
+        row.eachCell((cell: ExcelJS.Cell) => { if (cell.numFmt) numFmts.push(cell.numFmt); }));
+      out.push({
+        name: "revenue uses a thousands-separated number format",
+        passed: numFmts.some((f) => f.includes("#,##")),
+        detail: numFmts.length > 0 ? [...new Set(numFmts)].join(" | ") : "no cell carries a number format",
+      });
+      out.push({
+        name: "share uses a percentage format",
+        passed: numFmts.some((f) => f.includes("%")),
+        detail: numFmts.length > 0 ? [...new Set(numFmts)].join(" | ") : "no cell carries a number format",
+      });
+
+      const width = ws.getColumn(1).width ?? 0;
+      out.push({ name: "Region column is at least 18 wide", passed: width >= 18, detail: `width ${width || "unset"}` });
+
+      const frozen = (ws.views ?? []).some(
+        (v: { state?: string; ySplit?: number }) => v.state === "frozen" && (v.ySplit ?? 0) >= 1,
+      );
+      out.push({
+        name: "header row is frozen",
+        passed: frozen,
+        detail: JSON.stringify(ws.views ?? []),
+      });
+      return out;
+    },
+    // Nothing for a judge here: every requirement is a fact about the file,
+    // and asking a model to eyeball what a deterministic check already knows
+    // adds cost and a second opinion nobody needs.
+    questions: () => [],
   },
 ];
