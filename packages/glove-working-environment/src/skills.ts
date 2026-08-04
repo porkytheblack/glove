@@ -64,6 +64,20 @@ const rows    = csv.rows(raw);       // headerless
 const out     = json.stringify(x, 2);
 \`\`\`
 
+A wrapped library's own classes are exported by their real names, so code
+written against that library's documentation works as written:
+
+\`\`\`js
+import { Workbook } from 'env:spreadsheets';                    // exceljs
+import { PptxGenJS } from 'env:slides';                         // pptxgenjs
+import { Document, Packer, Paragraph, TextRun } from 'env:documents';   // docx
+\`\`\`
+
+Use those when the one-call verbs cannot express what you need — styling,
+formats, layout. \`/skills/spreadsheets-styling.md\`,
+\`/skills/slides-custom.md\` and \`/skills/documents-styling.md\` each have a
+worked example.
+
 To find what a module exports, read its types — one directory per module,
 named **without** the \`env:\` prefix:
 
