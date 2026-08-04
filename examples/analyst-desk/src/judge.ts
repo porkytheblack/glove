@@ -49,9 +49,10 @@ Rules:
 - Default to FAIL when you are not sure. A briefing that might be wrong is not usable, and a false pass is far more costly here than a false fail.
 - A figure that is present but wrong is a FAIL, not a partial pass.
 - Answer each question independently.
+- Think briefly. Your reply is the deliverable, not your reasoning, and a reply you never finish counts as a failure you did not intend.
 
-Reply with ONLY a JSON object, no prose and no code fences:
-{"verdicts":[{"id":"<question id>","pass":true|false,"reason":"<one sentence, concrete, quoting the artifact where it helps>"}]}`;
+Reply with ONLY a JSON object, no prose and no code fences. Keep each reason to ONE short sentence — under 200 characters:
+{"verdicts":[{"id":"<question id>","pass":true|false,"reason":"<one short sentence>"}]}`;
 
 /** Keep any single artifact from crowding out the others or the questions. */
 function clip(text: string, limit: number): string {
@@ -85,27 +86,47 @@ export async function judge(opts: {
     `## Questions\n${opts.questions.map((q) => `- [${q.id}] ${q.question}`).join("\n")}`,
   ].join("\n\n");
 
+  const messages = [
+    { role: "system" as const, content: SYSTEM },
+    { role: "user" as const, content: user },
+  ];
+
+  /**
+   * Budgets, escalating.
+   *
+   * A reasoning judge spends tokens thinking before it emits anything, and
+   * how much it spends scales with how much artifact there is to read. That
+   * makes running out of budget *correlated with the run having succeeded* —
+   * an empty artifact is judged in a sentence, a complete briefing is not.
+   * Measured: a run that passed 8/8 deterministic checks was recorded as 0/4
+   * because the judge produced no output at all within 6000 tokens, so the
+   * harness was failing precisely the runs that worked.
+   *
+   * Retrying at a higher ceiling is the fix rather than picking one large
+   * number, because most calls answer well inside the first budget and
+   * paying the largest one every time is waste.
+   */
+  const BUDGETS = [6000, 20000];
   let res;
-  try {
-    res = await complete({
-      model: opts.model,
-      messages: [
-        { role: "system", content: SYSTEM },
-        { role: "user", content: user },
-      ],
-      tools: [],
-      // Generous on purpose. At 1500 a reasoning judge spent most of the
-      // budget before emitting anything and its reply was cut off mid-string
-      // — valid JSON, truncated — which the parser then reported as
-      // "unparseable" and defaulted every verdict to FAIL. A correct judgment
-      // silently became a failing one, which is the worst possible direction
-      // for a verification harness to be wrong in.
-      maxTokens: 6000,
-      signal: opts.signal,
-    });
-  } catch (e) {
-    return { verdicts: failAll(opts.questions, "judge unreachable"), usage: empty, error: String(e) };
+  let usage: Usage = empty;
+
+  for (const [attempt, maxTokens] of BUDGETS.entries()) {
+    try {
+      res = await complete({ model: opts.model, messages, tools: [], maxTokens, signal: opts.signal });
+    } catch (e) {
+      return { verdicts: failAll(opts.questions, "judge unreachable"), usage, error: String(e) };
+    }
+    usage = {
+      prompt_tokens: usage.prompt_tokens + res.usage.prompt_tokens,
+      completion_tokens: usage.completion_tokens + res.usage.completion_tokens,
+      cost: (usage.cost ?? 0) + (res.usage.cost ?? 0),
+    };
+    // Only a reply cut short by the ceiling is worth retrying; anything else
+    // will come back the same way and cost twice.
+    const truncated = res.finishReason === "length";
+    if (!truncated || attempt === BUDGETS.length - 1) break;
   }
+  if (!res) return { verdicts: failAll(opts.questions, "judge unreachable"), usage, error: "no judge response" };
 
   const parsed = parseVerdicts(res.content ?? "");
   if (!parsed) {
@@ -120,7 +141,7 @@ export async function judge(opts: {
         : res.finishReason === "length"
           ? `judge reply was cut off at the token limit after ${raw.length} chars — raise maxTokens`
           : `unparseable judge reply: ${raw.slice(0, 300)}`;
-    return { verdicts: failAll(opts.questions, "judge returned unparseable output"), usage: res.usage, error: why };
+    return { verdicts: failAll(opts.questions, "judge returned unparseable output"), usage, error: why };
   }
 
   // A question the judge silently skipped is not a pass. Anything missing
@@ -131,7 +152,7 @@ export async function judge(opts: {
     verdicts: opts.questions.map(
       (q) => byId.get(q.id) ?? { id: q.id, pass: false, reason: "the judge did not answer this question" },
     ),
-    usage: res.usage,
+    usage,
   };
 }
 
