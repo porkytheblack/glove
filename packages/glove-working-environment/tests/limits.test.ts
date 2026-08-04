@@ -74,7 +74,11 @@ test("stdout is captured, truncated in the response, and spilled in full", async
 });
 
 test("version blobs live under /.env and count toward the size cap", async () => {
-  const env = await makeEnv({ limits: { maxVfsBytes: 12_000 } });
+  // Budget relative to the base tree, for the same reason the cap test above
+  // does it: a hard-coded figure that clears today's docs fails the day a
+  // builtin grows. /std did that once; /skills did it again.
+  const base = (await (await makeEnv()).export("/**")).reduce((n, f) => n + f.bytes.byteLength, 0);
+  const env = await makeEnv({ limits: { maxVfsBytes: base + 12_000 } });
   // each write stores the prior content as a version blob; the cap counts both
   await callOk(env, "write_file", { path: "/tmp/t.txt", content: "a".repeat(4_000) });
   const msg = await callErr(env, "write_file", { path: "/tmp/t.txt", content: "b".repeat(8_000) });

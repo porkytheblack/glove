@@ -96,6 +96,16 @@ export interface StdlibAdapter {
    * them; most adapters can ignore it.
    */
   create(vfs: EnvFsHandle, ctx?: { name: string; readOnly: boolean }): Record<string, unknown>;
+  /**
+   * Worked recipes, materialized under `/skills` and listed in its index.
+   *
+   * `types` says what the module exports; a skill says how to do a task with
+   * it. Both matter, and they are read at different moments — a model reaches
+   * for a remembered shape before it reads a signature, which is why the most
+   * common failures in this environment are guessed imports rather than
+   * misused ones.
+   */
+  skills?: Array<{ name: string; summary: string; body: string }>;
 }
 
 /**
