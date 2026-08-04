@@ -849,3 +849,204 @@ test("retracting a held answer leaves the rest of the history intact", async () 
   assert.equal(log.revisions[0]!.value, 3);
   assert.equal(log.revisions[1]!.retracted, true);
 });
+
+// ─── Step and executor semantics ──────────────────────────────────────────
+
+test("a completed form stays reachable for corrections", async () => {
+  const { runner } = harness();
+  await runner.start("pi-intake");
+  const done = await runner.fill({
+    fullName: "Dana Reeve",
+    email: "dana@example.com",
+    incidentType: "premises",
+    description: "Slipped on an unmarked wet floor.",
+  });
+  assert.equal(done.view.status, "complete");
+
+  // Finishing a form does not end the conversation about it. Every verb must
+  // still resolve without the caller having kept the instance id.
+  const revised = await runner.revise("email", "dana.reeve@example.com");
+  assert.equal(revised.view.fields.find((f) => f.id === "email")!.value, "dana.reeve@example.com");
+  await runner.undo();
+  await runner.status();
+
+  // ...but it doesn't get to sit in the system prompt forever.
+  assert.equal(await runner.tier0(), "");
+});
+
+test("an abandoned form is not reachable, a complete one is", async () => {
+  const { runner } = harness();
+  await runner.start("pi-intake");
+  await runner.abandon("user declined");
+  assert.equal(await runner.activeInstance(), null);
+});
+
+test("hooks fire in a fixed order within one commit", async () => {
+  const order: string[] = [];
+  const def = defineForm({ id: "ord", version: 1, name: "n", description: "d" })
+    .step("a", { title: "A" }, (s) =>
+      s
+        .field("x", {
+          schema: z.string(),
+          label: "X",
+          onFill: async () => void order.push("field"),
+        })
+        .onComplete(async () => void order.push("step")),
+    )
+    .checkpoint("cp", {
+      when: (v) => Boolean(v.x),
+      async run() {
+        order.push("checkpoint");
+      },
+    })
+    .onComplete(async () => void order.push("form"))
+    .build();
+
+  const schema = new MemorySchema();
+  const adapter = new InMemoryFormAdapter({ schema });
+  const registry = new FormRegistry().register("ord", {
+    name: "n",
+    description: "d",
+    load: () => def,
+  });
+  const runner = new FormRunner(adapter, { registry, subject: "s" });
+  await runner.start("ord");
+  await runner.fill({ x: "v" });
+
+  assert.deepEqual(order, ["field", "step", "checkpoint", "form"]);
+});
+
+test("a step re-completes after its answer is retracted and given again", async () => {
+  const fired: string[] = [];
+  const def = defineForm({ id: "re", version: 1, name: "n", description: "d" })
+    .step("a", { title: "A" }, (s) =>
+      s
+        .field("x", { schema: z.string().min(1), label: "X" })
+        .onComplete(async (ctx) => void fired.push(ctx.idempotencyKey)),
+    )
+    .build();
+  const adapter = new InMemoryFormAdapter({ schema: new MemorySchema() });
+  const registry = new FormRegistry().register("re", {
+    name: "n",
+    description: "d",
+    load: () => def,
+  });
+  const runner = new FormRunner(adapter, { registry, subject: "s" });
+
+  await runner.start("re");
+  await runner.fill({ x: "hello" });
+  assert.equal(fired.length, 1);
+
+  await runner.retract("x");
+  assert.equal(fired.length, 1, "falling edge fires nothing");
+
+  await runner.fill({ x: "again" });
+  assert.equal(fired.length, 2, "and the rising edge fires again");
+  assert.notEqual(fired[0], fired[1], "under a fresh occurrence");
+});
+
+test("an executor that throws is reported without stopping the write", async () => {
+  const def = defineForm({ id: "boom", version: 1, name: "n", description: "d" })
+    .step("a", { title: "A" }, (s) =>
+      s.field("x", {
+        schema: z.string(),
+        label: "X",
+        onFill: async () => {
+          throw new Error("downstream exploded");
+        },
+      }),
+    )
+    .build();
+  const adapter = new InMemoryFormAdapter({ schema: new MemorySchema() });
+  const registry = new FormRegistry().register("boom", {
+    name: "n",
+    description: "d",
+    load: () => def,
+  });
+  const runner = new FormRunner(adapter, { registry, subject: "s" });
+  await runner.start("boom");
+  const result = await runner.fill({ x: "v" });
+
+  // Commit-then-run: the answer is durable even though the executor failed.
+  assert.deepEqual(result.captured, ["x"]);
+  assert.equal(result.failures.length, 1);
+  assert.match(result.failures[0]!.message, /downstream exploded/);
+});
+
+test("a jump effect opens the step it names", async () => {
+  const def = defineForm({ id: "jmp", version: 1, name: "n", description: "d" })
+    .step("a", { title: "A" }, (s) =>
+      s.field("x", { schema: z.string(), label: "X", onFill: async () => ({ jump: "c" }) }),
+    )
+    .step("b", { title: "B" }, (s) => s.field("y", { schema: z.string(), label: "Y" }))
+    .step("c", { title: "C" }, (s) => s.field("z", { schema: z.string(), label: "Z" }))
+    .build();
+  const adapter = new InMemoryFormAdapter({ schema: new MemorySchema() });
+  const registry = new FormRegistry().register("jmp", {
+    name: "n",
+    description: "d",
+    load: () => def,
+  });
+  const runner = new FormRunner(adapter, { registry, subject: "s" });
+  await runner.start("jmp");
+  const result = await runner.fill({ x: "v" });
+  assert.equal(result.view.step?.id, "c");
+});
+
+test("a forced completion reads as complete everywhere", async () => {
+  const def = defineForm({ id: "fc", version: 1, name: "n", description: "d" })
+    .step("a", { title: "A" }, (s) =>
+      s
+        .field("x", {
+          schema: z.string(),
+          label: "X",
+          onFill: async () => ({ complete: true }),
+        })
+        .field("y", { schema: z.string(), label: "Y" }),
+    )
+    .build();
+  const adapter = new InMemoryFormAdapter({ schema: new MemorySchema() });
+  const registry = new FormRegistry().register("fc", {
+    name: "n",
+    description: "d",
+    load: () => def,
+  });
+  const runner = new FormRunner(adapter, { registry, subject: "s" });
+  await runner.start("fc");
+  const result = await runner.fill({ x: "v" });
+
+  // `y` is still empty, so the field-by-field evaluation says otherwise —
+  // the flag must follow the instance or the agent reads a contradiction.
+  assert.equal(result.view.status, "complete");
+  assert.equal(result.view.complete, true);
+});
+
+test("a step completes when its last required field goes inapplicable", async () => {
+  const fired: string[] = [];
+  const def = defineForm({ id: "gate", version: 1, name: "n", description: "d" })
+    .step("a", { title: "A" }, (s) =>
+      s
+        .field("mode", { schema: z.enum(["x", "y"]), label: "M" })
+        .field("extra", {
+          schema: z.string(),
+          label: "E",
+          when: (v) => v.mode === "x",
+        })
+        .onComplete(async () => void fired.push("step")),
+    )
+    .build();
+  const adapter = new InMemoryFormAdapter({ schema: new MemorySchema() });
+  const registry = new FormRegistry().register("gate", {
+    name: "n",
+    description: "d",
+    load: () => def,
+  });
+  const runner = new FormRunner(adapter, { registry, subject: "s" });
+  await runner.start("gate");
+
+  await runner.fill({ mode: "x" });
+  assert.equal(fired.length, 0, "`extra` is required while mode is x");
+
+  await runner.revise("mode", "y");
+  assert.equal(fired.length, 1, "and the step completes once it stops applying");
+});

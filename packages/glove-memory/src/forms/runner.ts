@@ -134,15 +134,23 @@ export class FormRunner {
     return this.registry.list();
   }
 
-  /** The instance the conversation is on: newest `active` or `awaiting`. */
+  /**
+   * The instance the conversation is on.
+   *
+   * A *complete* instance still counts. Finishing a form does not end the
+   * conversation about it — "actually, my email is wrong" one turn later is
+   * ordinary, and an instance the agent cannot reach is an answer it cannot
+   * correct. Only `abandoned` drops out, because that was an explicit close.
+   *
+   * Tier 0 stays quiet about a complete instance (see `tier0`), so reachability
+   * costs nothing in the prompt.
+   */
   async activeInstance(subject?: string): Promise<FormInstance | null> {
     const found = await this.adapter.findInstances({
       subject: this.subject(subject),
       limit: 25,
     });
-    const open = found.filter(
-      (i) => i.status === "active" || i.status === "awaiting" || i.status === "stale",
-    );
+    const open = found.filter((i) => i.status !== "abandoned");
     open.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     return open[0] ?? null;
   }
@@ -161,6 +169,10 @@ export class FormRunner {
   async tier0(subject?: string): Promise<string> {
     const instance = await this.activeInstance(subject);
     if (!instance) return "";
+    // A finished form is still reachable for corrections, but it has nothing
+    // pending — so it does not get to occupy the system prompt for the rest of
+    // the conversation.
+    if (instance.status === "complete") return "";
     let compiled: CompiledForm<any>;
     try {
       compiled = await this.registry.load(instance.defId);
@@ -837,8 +849,18 @@ export class FormRunner {
       if (fe.status === "held") held.push(id);
       else if (fe.status === "filled") captured.push(id);
     }
+    // Which step to show back. Normally the open one — but a write to a
+    // completed form has no open step, and falling through to "the last step"
+    // would answer a correction to `email` with a view of the final step and
+    // no sight of the field just changed.
+    const touched = Object.keys(staged.entries)[0];
+    const scope: FormViewScope =
+      !ev.openStepId && touched
+        ? { scope: "step", id: compiled.fieldById.get(touched)?.stepId }
+        : { scope: "step" };
+
     return {
-      view: projectView(compiled, instance, { scope: "step" }, ev),
+      view: projectView(compiled, instance, scope, ev),
       captured,
       held,
       unknown: staged.unknown,

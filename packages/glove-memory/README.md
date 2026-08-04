@@ -548,6 +548,19 @@ useFormReader(otherGlove, formAdapter, { registry }); // read past fills, no wri
 
 `useFormRunner` folds the tools and wraps `processRequest` for tier-0 injection, then hands back the runner so hosts can start instances and resolve checkpoints without going through the model.
 
+### Operational notes
+
+Verified by probe, and worth knowing before you wire this to anything real:
+
+- **Hook order within one commit is fixed**: `field.onFill` → `step.onComplete` → `checkpoint.run` → `form.onComplete`.
+- **Only rising edges fire.** A step that becomes incomplete fires nothing; completing again is a fresh occurrence with a new idempotency key.
+- **A step with no applicable required fields is complete** — including an all-optional step, whose `onComplete` therefore fires the moment the form starts.
+- **A throwing executor does not roll back the write.** Dispatch is commit-then-run, so the answer is durable; the failure is recorded and surfaced to the agent.
+- **A recorded failure is not retried.** At-least-once covers a crash *before* the outcome was recorded — a hook that ran and failed stays failed until its field crosses into live again. If you need retries, do them inside the executor.
+- **A blocking checkpoint whose executor never returns leaves the instance `awaiting` indefinitely.** Writes are refused with `form_blocked` until `resolveCheckpoint` is called. There is no timeout; a host that can crash mid-checkpoint should recover them on startup.
+- **`recordDispatch` writes outside the CAS envelope.** A concurrent commit can lose dispatch bookkeeping, which costs a duplicate executor run — the exact thing the idempotency key exists to absorb.
+- **A complete instance stays reachable.** Finishing a form doesn't end the conversation about it, so `revise` / `retract` / `undo` still resolve against it; only `abandon` closes it. Tier 0 stays quiet once complete.
+
 ### Def drift
 
 Instances pin `defVersion` at start. When it stops matching the registered def the runner does not guess: default is `status: "stale"` with the reason surfaced, and a def may supply `migrate(old, fromVersion)` to carry values forward. Bumping `version` is the developer's signal that a change is breaking — additive changes don't need it.

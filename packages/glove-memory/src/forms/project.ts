@@ -42,7 +42,11 @@ export function projectView<V extends Record<string, unknown>>(
     conduct: compiled.conduct,
     scope: scope.scope,
     fields: [],
-    complete: ev.complete,
+    // A `{ complete: true }` effect finishes the instance regardless of what
+    // is still empty, so the flag has to follow the instance and not only the
+    // field-by-field evaluation — otherwise the agent reads status "complete"
+    // and complete `false` in the same result.
+    complete: ev.complete || instance.status === "complete",
     blockedOn: instance.blockedOn,
     waitMessage: instance.blockedOn
       ? compiled.checkpointById.get(instance.blockedOn)?.waitMessage
