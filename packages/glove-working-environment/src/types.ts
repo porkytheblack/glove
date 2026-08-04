@@ -259,7 +259,18 @@ export interface CreateWorkingEnvironmentOptions {
    * It is a signpost, not a gate. Resending the identical write succeeds, and
    * nothing afterwards is ever refused — a standing rule is just another
    * thing to work around, and every turn spent doing that is a turn not spent
-   * on the task. Off pending evidence that it moves the delivery rate.
+   * on the task.
+   *
+   * **It did not work, and the measurement is why this is off.** A/B over 45
+   * runs per arm (5 scenarios × 3 models × 3 reps, same build, same day):
+   * 25/45 complete without it, 24/45 with it. Two of the three models scored
+   * identically. It does remove errors — genuine errored calls fell 87 → 72,
+   * about 17% — but the errors it removes are not what costs runs, which is
+   * the whole finding.
+   *
+   * Kept as an opt-in rather than deleted because it is cheap when off and a
+   * different model mix may answer differently. Turn it on to re-measure, not
+   * because it is expected to help.
    */
   nudgeToDocsOnFirstWrite?: boolean;
   /** Script-execution tuning. Scripts always run in terminable workers. */
