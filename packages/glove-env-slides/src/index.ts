@@ -144,8 +144,7 @@ export const slides = () =>
       const probeSlide = probe.addSlide();
       const enums = ["AlignH", "AlignV", "ChartType", "OutputType", "SchemeColor", "ShapeType"] as const;
 
-      // Not exposed yet — see NOTE below.
-      void defineBuilder<InstanceType<typeof PptxGenJS>>({
+      const Pptx = defineBuilder<InstanceType<typeof PptxGenJS>>({
         name: "PptxGenJS",
         construct: () => new PptxGenJS(),
         allow: [...new Set([...methodsOf(probe), ...methodsOf(probeSlide)])],
@@ -187,6 +186,8 @@ export const slides = () =>
       };
 
       return {
+        PptxGenJS: Pptx,
+
         async describe(path: string): Promise<DeckSummary> {
           const { bytes, deck } = await open(path);
           const total = deck.slides.reduce(

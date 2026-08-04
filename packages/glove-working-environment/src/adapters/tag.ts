@@ -15,6 +15,8 @@
  * object and is never tagged).
  */
 
+import { BUILDER } from "../executor/protocol";
+
 /** How deep to walk a namespace looking for functions to tag. */
 const MAX_DEPTH = 3;
 
@@ -62,6 +64,14 @@ function tagFn(label: string, fn: (...args: unknown[]) => unknown): (...args: un
 }
 
 function tagValue(label: string, value: unknown, depth: number, seen: WeakSet<object>): unknown {
+  // A builder is a description carried on a symbol, not a callable. Walking
+  // it would rebuild the object from its string keys — of which it has none —
+  // and the description would be silently gone, leaving the script an empty
+  // object where it expected a constructor. Its failures are tagged during
+  // replay instead, which is where the calls actually happen.
+  if (value !== null && typeof value === "object" && (value as Record<symbol, unknown>)[BUILDER] !== undefined) {
+    return value;
+  }
   if (typeof value === "function") return tagFn(label, value as (...args: unknown[]) => unknown);
   if (depth >= MAX_DEPTH || !isPlainObject(value)) return value;
   // A namespace that reappears (or is cyclic) keeps its first tagging.

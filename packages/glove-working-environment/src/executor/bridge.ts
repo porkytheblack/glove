@@ -153,6 +153,81 @@ export const BRIDGE_SOURCE = `globalThis.__glove_bridge = (function () {
     };
   }
 
+  /*
+   * A builder library's constructor, built HERE — inside the context.
+   *
+   * Models write what the real library looks like: \`new PptxGenJS()\`, then
+   * \`addSlide()\`, then \`slide.addText(text, opts)\`. Anything else makes them
+   * translate, and translation is where they burn turns.
+   *
+   * It has to be constructed in-context rather than handed over, because
+   * everything crossing this boundary is deep-copied, and a Proxy whose whole
+   * behaviour lives in traps has no own keys — a copy of it is \`{}\`. The same
+   * property that makes the sandbox a sandbox makes a host-built proxy
+   * useless here.
+   *
+   * Nothing reaches the host until a terminal method. Every call before it is
+   * recorded into a flat op list, so the API is synchronous and chains
+   * exactly like the real one, and the whole recording crosses once.
+   */
+  function mkBuilder(meta, boundFlush) {
+    var terminal = {};
+    for (var ti = 0; ti < meta.terminal.length; ti++) terminal[meta.terminal[ti]] = 1;
+
+    function Builder() {
+      var ops = [];
+      var nextRef = 0;
+
+      function node(ref) {
+        return new Proxy({}, {
+          get: function (_t, prop) {
+            // \`then\` above all: a recorder for it would make the object look
+            // thenable and \`await\` would never settle.
+            if (typeof prop === "symbol" || PROBE_KEYS[prop]) return undefined;
+            var name = String(prop);
+
+            // Enums read as data: \`pptx.ShapeType.rect\`, \`pptx.AlignH.center\`.
+            // Recording these as calls is the difference between a model's
+            // habitual code working and getting a proxy where it expected a
+            // string.
+            if (Object.prototype.hasOwnProperty.call(meta.data, name)) return meta.data[name];
+
+            if (terminal[name]) {
+              return function () {
+                ops.push({ op: "end", target: ref, method: name, args: Array.prototype.slice.call(arguments) });
+                return boundFlush(ops);
+              };
+            }
+            return function () {
+              var child = ++nextRef;
+              ops.push({ op: "call", ref: child, target: ref, method: name, args: Array.prototype.slice.call(arguments) });
+              // Every non-terminal call yields a recorder: the real libraries
+              // return either a new object (\`addSlide()\`) or \`this\`, and the
+              // script cannot tell which until replay.
+              return node(child);
+            };
+          },
+          set: function (_t, prop, value) {
+            if (typeof prop !== "symbol") ops.push({ op: "set", target: ref, prop: String(prop), value: value });
+            return true;
+          },
+          // Must not look like a plain object: a script spreading or logging
+          // one would otherwise trigger recordings for every key touched.
+          ownKeys: function () { return []; },
+          getOwnPropertyDescriptor: function () { return undefined; },
+        });
+      }
+
+      ops.push({ op: "new", ref: 0, args: Array.prototype.slice.call(arguments) });
+      return node(0);
+    }
+
+    try { Object.defineProperty(Builder, "name", { value: meta.name, configurable: true }); } catch (_) {}
+    var sk = Object.keys(meta.statics);
+    for (var si = 0; si < sk.length; si++) Builder[sk[si]] = meta.statics[sk[si]];
+    return Builder;
+  }
+
   function bindNamespace(hostObj, seen) {
     seen = seen || new Map();
     var hit = seen.get(hostObj);
@@ -165,7 +240,8 @@ export const BRIDGE_SOURCE = `globalThis.__glove_bridge = (function () {
       var v;
       try { v = hostObj[k]; } catch (_) { continue; }
       var t = typeof v;
-      if (t === "function") out[k] = bind(v, hostObj);
+      if (t === "function" && v.__glove_builder) out[k] = mkBuilder(v.__glove_builder, bind(v.__glove_builder.flush, null));
+      else if (t === "function") out[k] = bind(v, hostObj);
       else if (v !== null && t === "object") out[k] = bindNamespace(v, seen);
       else out[k] = v;
     }

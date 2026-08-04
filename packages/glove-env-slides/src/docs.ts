@@ -1,5 +1,29 @@
 export const SLIDES_TYPES = `/** env:slides — build and read PowerPoint decks inside the VFS. */
 
+/**
+ * PptxGenJS, with its real API. Write what the library's own docs show:
+ *
+ *     import { PptxGenJS } from 'env:slides';
+ *     const pptx = new PptxGenJS();
+ *     pptx.layout = 'LAYOUT_16x9';
+ *     const slide = pptx.addSlide();
+ *     slide.addText('Revenue', { x: 0.5, y: 0.4, fontSize: 32, bold: true });
+ *     slide.addImage({ path: '/tmp/chart.png', x: 5, y: 1.2, w: 4.5, h: 3 });
+ *     slide.addTable([['Region', 'Revenue'], ['EMEA', '$2.4M']], { x: 0.5, y: 1.4, w: 5.5 });
+ *     await pptx.writeFile({ fileName: '/out/deck.pptx' });
+ *
+ * Every call except the last is synchronous and chains as usual. Only
+ * \`writeFile\` and \`write\` are async — they are what produce the file, and
+ * they must be awaited. \`writeFile\` takes a VFS path; \`write\` returns bytes.
+ *
+ * Enums are on the instance, as in the library: \`pptx.ShapeType.rect\`,
+ * \`pptx.AlignH.center\`, \`pptx.ChartType.bar\`.
+ *
+ * Errors are reported against the call that caused them — "call #7
+ * addText(): ..." — because the deck is assembled when you write it.
+ */
+export const PptxGenJS: any;
+
 export interface SlideSpec {
   /** Slide title. Rendered large at the top. */
   title: string;

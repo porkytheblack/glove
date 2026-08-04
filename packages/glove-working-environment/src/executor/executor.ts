@@ -188,6 +188,21 @@ export class ScriptExecutor {
         // reach the script as an anonymous zero-arity function.
         Object.defineProperty(guarded, "name", { value: fn.name, configurable: true });
         Object.defineProperty(guarded, "length", { value: fn.length, configurable: true });
+        // A builder carrier is not a capability to be called — it is a
+        // description the bridge turns into an in-context constructor. The
+        // marker has to survive this wrapper, or the bridge never sees it and
+        // the script gets a plain function it cannot `new`. Its flush is a
+        // host call like any other, so it takes the same deadline check.
+        const builder = (value as { __glove_builder?: { flush: (ops: unknown[]) => Promise<unknown> } }).__glove_builder;
+        if (builder) {
+          (guarded as unknown as Record<string, unknown>).__glove_builder = {
+            ...builder,
+            flush: (ops: unknown[]) => {
+              if (Date.now() > st.deadline) throw this.limitError();
+              return builder.flush(ops);
+            },
+          };
+        }
         out[key] = guarded;
       } else if (value !== null && typeof value === "object") {
         out[key] = this.guardDeadline(value as Record<string, unknown>, st, seen);
