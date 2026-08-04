@@ -26,6 +26,14 @@ const provenance = {
   timestamp: "2026-01-01T00:00:00.000Z",
 };
 
+/** One-revision history, for the hand-built instance fixtures below. */
+function rev(value: unknown, seq: number) {
+  return {
+    revisions: [{ value, at: provenance.timestamp, provenance, seq }],
+    cursor: 0,
+  };
+}
+
 interface Recorded {
   hookId: string;
   idempotencyKey: string;
@@ -569,10 +577,11 @@ test("repartitioning settles in one pass in the common case", () => {
     subject: "s",
     status: "active",
     entries: {
-      fullName: { value: "Dana Reeve", at: provenance.timestamp, provenance },
-      incidentType: { value: "vehicle", at: provenance.timestamp, provenance },
-      vehicleCount: { value: 2, at: provenance.timestamp, provenance },
+      fullName: rev("Dana Reeve", 1),
+      incidentType: rev("vehicle", 2),
+      vehicleCount: rev(2, 3),
     },
+    revisionSeq: 3,
     occurrences: {},
     dispatches: {},
     version: 1,
@@ -595,6 +604,7 @@ test("projectView defaults to the open step and stays there", () => {
     subject: "s",
     status: "active" as const,
     entries: {},
+    revisionSeq: 0,
     occurrences: {},
     dispatches: {},
     version: 1,
@@ -683,4 +693,159 @@ test("a quoted number or boolean gets told how to send it, not just that it's wr
   const issue = result.issues.find((i) => i.field === "vehicleCount")!;
   assert.ok(issue, "the quoted number was rejected");
   assert.match(issue.hint!, /JSON number, unquoted/);
+});
+
+// ─── Per-field history, retract, undo and redo ────────────────────────────
+
+test("a revision keeps its predecessor instead of overwriting it", async () => {
+  const { runner, adapter } = harness();
+  const started = await runner.start("pi-intake");
+  await runner.fill({ fullName: "Dana Reeve" });
+  await runner.revise("fullName", "Dana Reeve-Ellis", { reason: "married name" });
+
+  const log = await runner.history("fullName");
+  assert.deepEqual(
+    log.revisions.map((r) => r.value),
+    ["Dana Reeve", "Dana Reeve-Ellis"],
+  );
+  assert.deepEqual(
+    log.revisions.map((r) => r.inForce),
+    [false, true],
+  );
+
+  const stored = await adapter.getInstance(started.view.instanceId);
+  assert.equal(stored!.entries.fullName!.revisions.length, 2, "nothing was overwritten");
+});
+
+test("retracting withdraws the answer without destroying it", async () => {
+  const { runner } = harness();
+  await runner.start("pi-intake");
+  await runner.fill({ fullName: "Dana Reeve", email: "dana@example.com" });
+
+  const result = await runner.retract("email");
+  const email = result.view.fields.find((f) => f.id === "email")!;
+  assert.equal(email.status, "empty", "no value is in force");
+  assert.equal(email.ask, true, "and it is asked for again");
+
+  // The answer is still on the record.
+  const log = await runner.history("email");
+  assert.equal(log.revisions.length, 2);
+  assert.equal(log.revisions[0]!.value, "dana@example.com");
+  assert.equal(log.revisions[1]!.retracted, true);
+});
+
+test("undo steps back and redo puts it forward again", async () => {
+  const { runner } = harness();
+  await runner.start("pi-intake");
+  await runner.fill({ fullName: "Dana Reeve" });
+  await runner.revise("fullName", "Dana Reeve-Ellis");
+
+  const undone = await runner.undo("fullName");
+  assert.equal(
+    undone.view.fields.find((f) => f.id === "fullName")!.value,
+    "Dana Reeve",
+  );
+
+  const redone = await runner.redo("fullName");
+  assert.equal(
+    redone.view.fields.find((f) => f.id === "fullName")!.value,
+    "Dana Reeve-Ellis",
+  );
+});
+
+test("undo with no field takes back the most recent answer anywhere", async () => {
+  const { runner } = harness();
+  await runner.start("pi-intake");
+  await runner.fill({ fullName: "Dana Reeve" });
+  await runner.fill({ email: "dana@example.com" });
+
+  const undone = await runner.undo();
+  assert.equal(undone.view.fields.find((f) => f.id === "email")!.status, "empty");
+  assert.equal(
+    undone.view.fields.find((f) => f.id === "fullName")!.value,
+    "Dana Reeve",
+    "the earlier answer is untouched",
+  );
+});
+
+test("undoing the only answer leaves the field empty, and redo restores it", async () => {
+  const { runner } = harness();
+  await runner.start("pi-intake");
+  await runner.fill({ fullName: "Dana Reeve" });
+
+  const undone = await runner.undo("fullName");
+  assert.equal(undone.view.fields.find((f) => f.id === "fullName")!.status, "empty");
+
+  const redone = await runner.redo("fullName");
+  assert.equal(redone.view.fields.find((f) => f.id === "fullName")!.value, "Dana Reeve");
+});
+
+test("a retraction can be redone", async () => {
+  const { runner } = harness();
+  await runner.start("pi-intake");
+  await runner.fill({ email: "dana@example.com" });
+  await runner.retract("email");
+
+  const back = await runner.undo("email");
+  assert.equal(
+    back.view.fields.find((f) => f.id === "email")!.value,
+    "dana@example.com",
+    "undoing the retraction restores the answer",
+  );
+});
+
+test("the view says what undo and redo would do", async () => {
+  const { runner } = harness();
+  await runner.start("pi-intake");
+  await runner.fill({ fullName: "Dana Reeve" });
+  await runner.revise("fullName", "Dana Reeve-Ellis");
+
+  const view = await runner.status();
+  assert.deepEqual(view.undo, {
+    field: "fullName",
+    label: "Full name",
+    becomes: "Dana Reeve",
+  });
+  assert.equal(view.redo, undefined, "nothing to redo at the head of the log");
+
+  await runner.undo("fullName");
+  const after = await runner.status();
+  assert.equal(after.redo?.field, "fullName");
+  assert.equal(after.redo?.becomes, "Dana Reeve-Ellis");
+});
+
+test("undo re-fires onFill when the value crosses back into live", async () => {
+  const log: Recorded[] = [];
+  const { runner } = harness(intake({ log }));
+  await runner.start("pi-intake");
+  await runner.fill({ fullName: "Dana Reeve" });
+  assert.equal(log.filter((l) => l.hookId === "field:fullName").length, 1);
+
+  // Out of live, then back — a genuine second crossing, so a fresh occurrence.
+  await runner.undo("fullName");
+  await runner.redo("fullName");
+
+  const fills = log.filter((l) => l.hookId === "field:fullName");
+  assert.equal(fills.length, 2);
+  assert.notEqual(fills[0]!.idempotencyKey, fills[1]!.idempotencyKey);
+});
+
+test("there is nothing to undo on an untouched form", async () => {
+  const { runner } = harness();
+  await runner.start("pi-intake");
+  await assert.rejects(() => runner.undo(), /nothing to undo/i);
+});
+
+test("retracting a held answer leaves the rest of the history intact", async () => {
+  const { runner } = harness();
+  await runner.start("pi-intake");
+  await runner.fill({ incidentType: "vehicle", vehicleCount: 3 });
+  await runner.revise("incidentType", "premises");
+
+  // `vehicleCount` is held. Retracting it is still recorded against its log.
+  await runner.retract("vehicleCount");
+  const log = await runner.history("vehicleCount");
+  assert.equal(log.revisions.length, 2);
+  assert.equal(log.revisions[0]!.value, 3);
+  assert.equal(log.revisions[1]!.retracted, true);
 });

@@ -183,6 +183,21 @@ function renderReport(results: Result[], spent: number, budget: number): string 
     "",
   );
 
+  // A run that died on an upstream error collected nothing, so it scores as a
+  // failure — but it says nothing about the model, and burying that turns a
+  // rate limit into a capability claim.
+  const errored = results.filter((r) => r.transcript.stopReason === "error");
+  if (errored.length > 0) {
+    lines.push(
+      `> **${errored.length} run(s) ended on an upstream error** and are counted as failures:`,
+      ...errored.map(
+        (r) => `> \`${r.model}\` / ${r.scenario} r${r.rep} — ${(r.transcript.error ?? "").slice(0, 120)}`,
+      ),
+      "> Re-run those cells before reading them as anything about the model.",
+      "",
+    );
+  }
+
   // A truncated completion returns no content and no tool call, which scores
   // identically to a model that ignored its tools. If any showed up, the
   // numbers below are about the token ceiling, not about the models.

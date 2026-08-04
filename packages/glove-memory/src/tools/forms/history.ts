@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { GloveFoldArgs } from "glove-core";
 import type { FormAdapter } from "../../forms/adapter";
 import { evaluateForm } from "../../forms/evaluate";
+import { inForce } from "../../forms/history";
 import { projectView } from "../../forms/project";
 import type { FormRegistry } from "../../forms/registry";
 import type { FormInstance } from "../../forms/types";
@@ -109,7 +110,10 @@ async function renderInstance(
   // No registry wired: hand back what was stored, unprojected. Better than
   // refusing — the answers are the point, and the labels are a nicety.
   const values: Record<string, unknown> = {};
-  for (const [id, entry] of Object.entries(instance.entries)) values[id] = entry.value;
+  for (const [id, log] of Object.entries(instance.entries)) {
+    const entry = inForce(log);
+    if (entry) values[id] = entry.value;
+  }
   return {
     instance_id: instance.id,
     form: instance.defId,

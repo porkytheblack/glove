@@ -12,6 +12,13 @@ import type { FormAdapter } from "./adapter";
 import { createFormMemoryBridge, type FormMemoryAdapters } from "./bridge";
 import type { CompiledForm } from "./compile";
 import { normaliseAlias } from "./compile";
+import {
+  canRedo,
+  canUndo,
+  inForce,
+  lastTouchedField,
+  nextRedoField,
+} from "./history";
 import { evaluateForm, formatZodError, type FormEvaluation } from "./evaluate";
 import { openFailures, projectView, renderTier0 } from "./project";
 import type { FormListing, FormRegistry } from "./registry";
@@ -20,8 +27,10 @@ import type {
   FormEntry,
   FormExecutor,
   FormFailure,
+  FormFieldHistoryView,
   FormFieldIssue,
   FormInstance,
+  FormEntryCommit,
   FormInstanceCommit,
   FormUnknownField,
   FormView,
@@ -183,13 +192,14 @@ export class FormRunner {
     );
 
     const seed = opts.seed ?? {};
-    const staged = this.stage(compiled, seed, provenance);
+    const staged = this.stage(compiled, seed, provenance, created.revisionSeq);
     // `fromScratch` — a fresh instance has no prior evaluation, so everything
     // true right now is a rising edge. A checkpoint gated on `() => true`
     // fires at start rather than waiting for the first answer.
     const settled = await this.applyEntries(compiled, created, staged.entries, provenance, {
       signal: opts.signal,
       fromScratch: true,
+      nextSeq: staged.nextSeq,
     });
     return this.fillResult(compiled, settled.instance, staged, settled.failures);
   }
@@ -209,9 +219,10 @@ export class FormRunner {
     const { compiled, instance } = await this.resolve(opts);
     this.assertWritable(instance);
     const provenance = this.provenance(opts.provenance);
-    const staged = this.stage(compiled, values, provenance);
+    const staged = this.stage(compiled, values, provenance, instance.revisionSeq);
     const settled = await this.applyEntries(compiled, instance, staged.entries, provenance, {
       signal: opts.signal,
+      nextSeq: staged.nextSeq,
     });
     return this.fillResult(compiled, settled.instance, staged, settled.failures);
   }
@@ -237,6 +248,152 @@ export class FormRunner {
           note: opts.reason ? `revision: ${opts.reason}` : "revision",
         },
       },
+    );
+  }
+
+  /**
+   * Withdraw an answer without destroying it.
+   *
+   * A retraction is appended as a revision like any other, so the answer stays
+   * in the log and `redo` puts it straight back. This verb exists because an
+   * agentic eval caught models with no way to say "forget that" writing `""`
+   * instead — which, before per-field history, overwrote the good answer.
+   */
+  async retract(field: string, opts: FormCallOpts = {}): Promise<FormFillResult> {
+    const { compiled, instance } = await this.resolve(opts);
+    this.assertWritable(instance);
+    const resolved = this.resolveFieldId(compiled, field);
+    if (!resolved) {
+      return this.rejectUnknownField(compiled, instance, field);
+    }
+    const provenance = this.provenance(opts.provenance, "retracted");
+    const seq = instance.revisionSeq + 1;
+    const entry: FormEntry = {
+      value: undefined,
+      at: provenance.timestamp,
+      provenance,
+      seq,
+      retracted: true,
+    };
+    const settled = await this.applyEntries(
+      compiled,
+      instance,
+      { [resolved]: entry },
+      provenance,
+      { signal: opts.signal, nextSeq: seq },
+    );
+    return this.fillResult(
+      compiled,
+      settled.instance,
+      { entries: {}, issues: [], unknown: [], aliased: [] },
+      settled.failures,
+    );
+  }
+
+  /**
+   * Step one revision back. With no field, takes back the most recent answer
+   * anywhere on the instance — which is what "undo that" means in a
+   * conversation.
+   *
+   * Undo moves a cursor; it never removes a revision, so it is always
+   * reversible by `redo`.
+   */
+  async undo(field?: string, opts: FormCallOpts = {}): Promise<FormFillResult> {
+    return this.moveCursor("undo", field, opts);
+  }
+
+  /** Step one revision forward, undoing an undo. */
+  async redo(field?: string, opts: FormCallOpts = {}): Promise<FormFillResult> {
+    return this.moveCursor("redo", field, opts);
+  }
+
+  private async moveCursor(
+    direction: "undo" | "redo",
+    field: string | undefined,
+    opts: FormCallOpts,
+  ): Promise<FormFillResult> {
+    const { compiled, instance } = await this.resolve(opts);
+    this.assertWritable(instance);
+
+    let target = field ? this.resolveFieldId(compiled, field) : undefined;
+    if (field && !target) return this.rejectUnknownField(compiled, instance, field);
+    if (!target) {
+      target =
+        direction === "undo" ? lastTouchedField(instance) : nextRedoField(instance);
+    }
+    if (!target) {
+      throw new FormError(
+        "form_validation_failed",
+        direction === "undo"
+          ? "There is nothing to undo — no answer has been given yet."
+          : "There is nothing to redo.",
+      );
+    }
+
+    const history = instance.entries[target];
+    const possible = direction === "undo" ? canUndo(history) : canRedo(history);
+    if (!possible) {
+      throw new FormError(
+        "form_validation_failed",
+        `Nothing to ${direction} on "${target}".`,
+      );
+    }
+
+    const cursor = history.cursor + (direction === "undo" ? -1 : 1);
+    const provenance = this.provenance(opts.provenance, direction);
+    const settled = await this.applyEntries(compiled, instance, {}, provenance, {
+      signal: opts.signal,
+      cursors: { [target]: cursor },
+    });
+    return this.fillResult(
+      compiled,
+      settled.instance,
+      { entries: {}, issues: [], unknown: [], aliased: [] },
+      settled.failures,
+    );
+  }
+
+  /** Every answer ever given for a field, oldest first. */
+  async history(field: string, opts: FormCallOpts = {}): Promise<FormFieldHistoryView> {
+    const { compiled, instance } = await this.resolve(opts);
+    const id = this.resolveFieldId(compiled, field);
+    if (!id) throw new MemoryNotFoundError(`No field "${field}" on this form.`);
+    const compiledField = compiled.fieldById.get(id)!;
+    const log = instance.entries[id];
+    return {
+      field: id,
+      label: compiledField.label,
+      revisions: (log?.revisions ?? []).map((r, i) => ({
+        value: r.retracted ? undefined : r.value,
+        at: r.at,
+        retracted: r.retracted,
+        invalid: r.error !== undefined,
+        inForce: i === log!.cursor,
+      })),
+    };
+  }
+
+  /** Field id, or the same id reached through the alias index. */
+  private resolveFieldId(compiled: CompiledForm<any>, field: string): string | undefined {
+    if (compiled.fieldById.has(field)) return field;
+    return compiled.aliasIndex.get(normaliseAlias(field));
+  }
+
+  private rejectUnknownField(
+    compiled: CompiledForm<any>,
+    instance: FormInstance,
+    field: string,
+  ): FormFillResult {
+    return this.fillResult(
+      compiled,
+      instance,
+      {
+        entries: {},
+        issues: [],
+        unknown: [{ field, didYouMean: suggestFields(compiled, field) }],
+        aliased: [],
+      },
+      [],
     );
   }
 
@@ -269,9 +426,10 @@ export class FormRunner {
       outcome,
       provenance,
     );
-    const staged = this.stage(compiled, outcome.values ?? {}, provenance);
+    const staged = this.stage(compiled, outcome.values ?? {}, provenance, resolved.revisionSeq);
     const settled = await this.applyEntries(compiled, resolved, staged.entries, provenance, {
       signal: opts.signal,
+      nextSeq: staged.nextSeq,
     });
     return this.fillResult(compiled, settled.instance, staged, settled.failures);
   }
@@ -324,15 +482,17 @@ export class FormRunner {
       `migrated ${instance.defVersion} → ${compiled.version}`,
     );
     const carried = compiled.migrate(rawValues(instance), instance.defVersion);
-    const entries: Record<string, FormEntry> = {};
+    const entries: Record<string, FormEntryCommit> = {};
+    let seq = instance.revisionSeq;
     for (const [id, value] of Object.entries(carried ?? {})) {
       if (!compiled.fieldById.has(id)) continue;
-      entries[id] = this.entry(compiled, id, value, provenance);
+      entries[id] = { append: [this.entry(compiled, id, value, provenance, ++seq)] };
     }
     const migrated = await this.adapter.commitInstance(
       instance.id,
       {
         entries,
+        revisionSeq: seq,
         defVersion: compiled.version,
         status: instance.status === "stale" ? "active" : instance.status,
       },
@@ -357,7 +517,14 @@ export class FormRunner {
     instance: FormInstance,
     newEntries: Record<string, FormEntry>,
     provenance: Provenance,
-    opts: { signal?: AbortSignal; fromScratch?: boolean; round?: number },
+    opts: {
+      signal?: AbortSignal;
+      fromScratch?: boolean;
+      round?: number;
+      /** Cursor moves that carry no new revision — undo, redo, retract. */
+      cursors?: Record<string, number>;
+      nextSeq?: number;
+    },
   ): Promise<{ instance: FormInstance; failures: FormFailure[] }> {
     const round = opts.round ?? 0;
     let current = instance;
@@ -371,7 +538,7 @@ export class FormRunner {
         : evaluateForm(compiled, current);
       const projected: FormInstance = {
         ...current,
-        entries: { ...current.entries, ...newEntries },
+        entries: projectEntries(current, newEntries, opts.cursors),
       };
       after = evaluateForm(compiled, projected);
       assertNoDefects(compiled, after);
@@ -381,8 +548,9 @@ export class FormRunner {
 
       const blocking = hooks.find((h) => h.kind === "checkpoint" && h.blocking);
       const commit: FormInstanceCommit = {
-        entries: newEntries,
+        entries: toEntryCommits(newEntries, opts.cursors),
         occurrences: edges.occurrences,
+        revisionSeq: opts.nextSeq ?? current.revisionSeq,
       };
       if (blocking) {
         commit.status = "awaiting";
@@ -447,14 +615,16 @@ export class FormRunner {
     // A patch is an ordinary write: it commits, re-runs the gates, and can
     // fire more hooks. Bounded, so a patch loop stops rather than spins.
     const patchEntries: Record<string, FormEntry> = {};
+    let patchSeq = settled.revisionSeq;
     for (const [id, value] of Object.entries(outcome.patch)) {
       if (!compiled.fieldById.has(id)) continue;
-      patchEntries[id] = this.entry(compiled, id, value, provenance);
+      patchEntries[id] = this.entry(compiled, id, value, provenance, ++patchSeq);
     }
     if (Object.keys(patchEntries).length > 0 && round < MAX_DISPATCH_ROUNDS) {
       const next = await this.applyEntries(compiled, settled, patchEntries, provenance, {
         signal: opts.signal,
         round: round + 1,
+        nextSeq: patchSeq,
       });
       return { instance: next.instance, failures: [...failures, ...next.failures] };
     }
@@ -575,8 +745,10 @@ export class FormRunner {
     compiled: CompiledForm<any>,
     values: Record<string, unknown>,
     provenance: Provenance,
+    seqFrom: number,
   ): {
     entries: Record<string, FormEntry>;
+    nextSeq: number;
     issues: FormFieldIssue[];
     unknown: FormUnknownField[];
     aliased: Array<{ sent: string; resolved: string }>;
@@ -585,6 +757,7 @@ export class FormRunner {
     const issues: FormFieldIssue[] = [];
     const unknown: FormUnknownField[] = [];
     const aliased: Array<{ sent: string; resolved: string }> = [];
+    let seq = seqFrom;
 
     for (const [sentId, value] of Object.entries(values)) {
       // Models reach for `full_name`, `Full name` and `fullName`
@@ -610,6 +783,7 @@ export class FormRunner {
         value,
         at: provenance.timestamp,
         provenance,
+        seq: ++seq,
         error: parsed.success ? undefined : formatZodError(parsed.error),
       };
       if (!parsed.success) {
@@ -622,7 +796,7 @@ export class FormRunner {
         }
       }
     }
-    return { entries, issues, unknown, aliased };
+    return { entries, issues, unknown, aliased, nextSeq: seq };
   }
 
   private entry(
@@ -630,6 +804,7 @@ export class FormRunner {
     id: string,
     value: unknown,
     provenance: Provenance,
+    seq: number,
   ): FormEntry {
     const field = compiled.fieldById.get(id)!;
     const parsed = field.schema.safeParse(value);
@@ -637,6 +812,7 @@ export class FormRunner {
       value,
       at: provenance.timestamp,
       provenance,
+      seq,
       error: parsed.success ? undefined : formatZodError(parsed.error),
     };
   }
@@ -874,6 +1050,44 @@ function dice(a: string, b: string): number {
 
 function rawValues(instance: FormInstance): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const [id, entry] of Object.entries(instance.entries)) out[id] = entry.value;
+  for (const [id, history] of Object.entries(instance.entries)) {
+    const entry = inForce(history);
+    if (entry) out[id] = entry.value;
+  }
+  return out;
+}
+
+/** The instance as it *would* read once this commit lands — for rising edges. */
+function projectEntries(
+  instance: FormInstance,
+  appended: Record<string, FormEntry>,
+  cursors?: Record<string, number>,
+): FormInstance["entries"] {
+  const out = { ...instance.entries };
+  for (const [field, entry] of Object.entries(appended)) {
+    const existing = out[field] ?? { revisions: [], cursor: -1 };
+    const revisions = [...existing.revisions, entry];
+    out[field] = { revisions, cursor: revisions.length - 1 };
+  }
+  for (const [field, cursor] of Object.entries(cursors ?? {})) {
+    const existing = out[field];
+    if (!existing) continue;
+    out[field] = {
+      revisions: existing.revisions,
+      cursor: Math.max(-1, Math.min(cursor, existing.revisions.length - 1)),
+    };
+  }
+  return out;
+}
+
+function toEntryCommits(
+  appended: Record<string, FormEntry>,
+  cursors?: Record<string, number>,
+): Record<string, FormEntryCommit> {
+  const out: Record<string, FormEntryCommit> = {};
+  for (const [field, entry] of Object.entries(appended)) out[field] = { append: [entry] };
+  for (const [field, cursor] of Object.entries(cursors ?? {})) {
+    out[field] = { ...(out[field] ?? {}), cursor };
+  }
   return out;
 }

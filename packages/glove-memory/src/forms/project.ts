@@ -1,5 +1,13 @@
 import type { CompiledField, CompiledForm } from "./compile";
 import { evaluateForm, type FormEvaluation } from "./evaluate";
+import {
+  canRedo,
+  canUndo,
+  lastTouchedField,
+  nextRedoField,
+  redoTarget,
+  undoTarget,
+} from "./history";
 import type {
   FormFailure,
   FormFieldView,
@@ -43,6 +51,26 @@ export function projectView<V extends Record<string, unknown>>(
 
   const failures = openFailures(instance);
   if (failures.length > 0) base.failures = failures;
+
+  // What the two reversal verbs would do, named once at the view level. The
+  // agent needs to know the move is available and what it would touch; a flag
+  // on every field row would cost tokens on every call for a rare verb.
+  const undoField = lastTouchedField(instance);
+  if (undoField && canUndo(instance.entries[undoField])) {
+    base.undo = {
+      field: undoField,
+      label: compiled.fieldById.get(undoField)?.label ?? undoField,
+      becomes: undoTarget(instance.entries[undoField])?.value,
+    };
+  }
+  const redoField = nextRedoField(instance);
+  if (redoField && canRedo(instance.entries[redoField])) {
+    base.redo = {
+      field: redoField,
+      label: compiled.fieldById.get(redoField)?.label ?? redoField,
+      becomes: redoTarget(instance.entries[redoField])?.value,
+    };
+  }
 
   if (scope.scope === "field") {
     const field = compiled.fieldById.get(scope.id);

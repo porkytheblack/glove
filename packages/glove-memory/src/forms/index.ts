@@ -24,6 +24,19 @@ export {
 } from "./evaluate";
 export { projectView, renderTier0, stepSummary, openFailures } from "./project";
 export {
+  inForce,
+  atCursor,
+  canUndo,
+  canRedo,
+  undoTarget,
+  redoTarget,
+  lastTouchedField,
+  nextRedoField,
+  applyEntryCommit,
+  cloneHistory,
+  EMPTY_HISTORY,
+} from "./history";
+export {
   FormRegistry,
   type FormRegistration,
   type FormListing,

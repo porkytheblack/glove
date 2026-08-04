@@ -132,13 +132,44 @@ or boolean gets a hint naming the JSON shape.
 | of which that one boolean | 40 | **3** |
 | runs with a retry loop on it | 21 | **2** |
 
-A third finding, still open: all five remaining failures are the same root
-cause. Models with no way to *retract* an answer invent one — writing `""` to
-`ticketReference` or `'0'` to `totalAmount` when a correction makes them
-irrelevant. The empty write overwrites the stored answer, which is exactly what
-§5.1 promises never happens. The surface needs a retract verb; the deeper
-question is whether `entries` should keep per-field history rather than one
-entry per field, which is an adapter-contract change.
+**Third run, third defect — and the deepest one.** With ids and types fixed,
+every remaining failure had a single cause: models had no way to *retract* an
+answer, so they invented one, writing `""` to `ticketReference` or `'0'` to
+`totalAmount` when a correction made them irrelevant. With one entry per field
+that write **overwrote** the stored answer — exactly what §5.1 promises never
+happens. The promise was true of applicability changes and false of revisions.
+
+`entries` now maps each field to an append-only log of revisions plus a cursor
+naming the one in force. A retraction is itself a revision, which makes
+`retract`, `undo` and `redo` pure cursor moves over a log that cannot lose an
+answer. All four ride on `glove_form_revise`'s `action` parameter rather than
+three new tools — this bench is why: schemas are re-sent every call and measure
+at roughly three quarters of the surface's context cost.
+
+Final matrix (7 scenarios × 4 models × 2 reps, $0.10):
+
+| | before history | after |
+|---|---|---|
+| destructive blank writes | the top failure cause | **0** |
+| `glm-4.7-flash` | 12/14 | **14/14** |
+| `deepseek-v4-flash` | 12/14 | **14/14** |
+| `qwen3.7-flash` | 11/14 | **9/9** (5 runs lost to upstream 429s) |
+| `gpt-5-nano` | 10/14 | 9/14 |
+| overall, excluding upstream errors | 85% | **90%** |
+
+Three of the four models now collect the form correctly in **every** run. The
+aggregate is held down by `gpt-5-nano` alone, plus provider rate limits that the
+report now flags rather than silently scoring as model failures.
+
+Two honest notes on how that number was reached. The `held-value` grader
+originally required the withdrawn ticket to appear in `held`; once models could
+retract, the answer survived in the revision log instead and the *better*
+behaviour scored as a failure — the check now accepts either. And that
+scenario's third turn (`"I've mixed up two trips"`) cast doubt on a figure from
+the previous turn, so models reasonably dropped it; the total is now pinned
+explicitly. Both were confounds in the bench, not results — but adjusting a
+scenario after seeing its output is how benchmarks get gamed, so they are
+recorded here rather than quietly fixed.
 
 A smaller finding, recorded because it nearly became a false result:
 the first run capped `max_tokens` at 1024, and reasoning models spent the whole

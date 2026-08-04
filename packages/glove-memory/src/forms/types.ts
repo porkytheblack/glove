@@ -165,6 +165,13 @@ export type FormValues<B> = B extends { __values?: infer V } ? V : never;
 
 // ─── Instances ────────────────────────────────────────────────────────────
 
+/**
+ * One answer, at one moment. Immutable once appended.
+ *
+ * A retraction is a revision too — `retracted: true` with no value — so
+ * "the user took that back" and "the user changed it" are the same mechanism
+ * and undo/redo need only move a cursor.
+ */
 export interface FormEntry {
   /** As supplied. Parsing happens on read so a def change re-judges old answers. */
   value: unknown;
@@ -172,6 +179,30 @@ export interface FormEntry {
   provenance: Provenance;
   /** Set when the entry last failed its field's schema. Kept, not discarded. */
   error?: string;
+  /** This revision withdraws the answer rather than supplying one. */
+  retracted?: boolean;
+  /** Instance-wide monotonic order, so "undo the last thing" is unambiguous. */
+  seq: number;
+}
+
+/**
+ * Every answer ever given for one field, and which of them is in force.
+ *
+ * §5.1 says nothing is ever deleted. With one entry per field that was only
+ * true of applicability changes — a revision overwrote its predecessor, and an
+ * agentic eval caught models destroying good answers by writing `""` to
+ * retract them. `revisions` is append-only; `cursor` is the only thing that
+ * moves, which is what makes undo and redo pure pointer arithmetic over a log
+ * that never loses anything.
+ */
+export interface FieldHistory {
+  /** Oldest first. Append-only — nothing is ever removed or rewritten. */
+  revisions: FormEntry[];
+  /**
+   * Index of the revision in force. `-1` means none — either the field was
+   * never answered, or every revision has been undone.
+   */
+  cursor: number;
 }
 
 export interface DispatchState {
@@ -197,8 +228,10 @@ export interface FormInstance {
   /** Conversation id / user id / matter id. */
   subject: string;
   status: FormInstanceStatus;
-  /** The only answer storage. One entry per field, every answer ever given. */
-  entries: Record<string, FormEntry>;
+  /** The only answer storage: every answer ever given, keyed by field. */
+  entries: Record<string, FieldHistory>;
+  /** Source of `FormEntry.seq`. Monotonic across the whole instance. */
+  revisionSeq: number;
   /** Rising-edge counters per hook id — the idempotency key's third segment. */
   occurrences: Record<string, number>;
   /** Keyed by idempotency key. */
@@ -223,8 +256,22 @@ export interface FormInstanceInput {
   defId: string;
   defVersion: number;
   subject: string;
-  entries?: Record<string, FormEntry>;
+  entries?: Record<string, FieldHistory>;
   status?: FormInstanceStatus;
+}
+
+/**
+ * How one field's history changes in a commit. Revisions only ever append;
+ * `cursor` is how undo, redo and retract express themselves.
+ */
+export interface FormEntryCommit {
+  /** Appended in order, after the existing revisions. */
+  append?: FormEntry[];
+  /**
+   * Absolute cursor to set once the appends have landed. Omit to point at the
+   * last revision (the normal case for a write).
+   */
+  cursor?: number;
 }
 
 /**
@@ -233,7 +280,9 @@ export interface FormInstanceInput {
  * `null` on `blockedOn` / `openStepOverride` clears them.
  */
 export interface FormInstanceCommit {
-  entries?: Record<string, FormEntry>;
+  entries?: Record<string, FormEntryCommit>;
+  /** Replaces the instance counter after `entries` appends have taken their seqs. */
+  revisionSeq?: number;
   occurrences?: Record<string, number>;
   dispatches?: Record<string, DispatchState>;
   status?: FormInstanceStatus;
@@ -308,6 +357,35 @@ export interface FormView {
   waitMessage?: string;
   /** Blocking-checkpoint rejections the agent hasn't acted on yet. */
   failures?: FormFailure[];
+  /**
+   * What undo and redo would do right now. One line at the view level rather
+   * than a flag on every field row — the agent needs to know the move exists,
+   * not to audit each field's depth, and per-row flags would be re-sent on
+   * every call for the sake of a rarely-used verb.
+   */
+  undo?: FormUndoTarget;
+  redo?: FormUndoTarget;
+}
+
+export interface FormUndoTarget {
+  field: string;
+  label: string;
+  /** What the field would read after the move. Absent when it would go empty. */
+  becomes?: unknown;
+}
+
+/** One field's answer history, oldest first, as the agent sees it. */
+export interface FormFieldHistoryView {
+  field: string;
+  label: string;
+  revisions: Array<{
+    value?: unknown;
+    at: string;
+    retracted?: boolean;
+    invalid?: boolean;
+    /** True for the revision currently in force. */
+    inForce: boolean;
+  }>;
 }
 
 /**

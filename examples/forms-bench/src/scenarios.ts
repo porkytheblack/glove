@@ -192,7 +192,13 @@ export const SCENARIOS: Scenario[] = [
     userTurns: [
       "Claim for a trip to Bristol. Ada Okafor, FN-4471, ada.okafor@example.com.",
       "Training course, out 2026-05-11, back 2026-05-13. I took the train — ticket reference RX40021, total was 96.",
-      "Sorry, I've mixed up two trips. That was the car, not the train — 360 miles round trip.",
+      // "I've mixed up two trips" casts doubt on every figure from the turn
+      // before, so models reasonably dropped the £96 as belonging to the other
+      // trip. That confound was measuring reading comprehension, not the
+      // held/retracted guarantee this scenario exists for — the total is now
+      // pinned explicitly.
+      "Sorry, I've mixed up two trips. That was the car, not the train — 360 miles round trip. " +
+        "The 96 total is still right.",
       "Cost centre OPS-220, manager priya.nayar@example.com, receipts yes.",
     ],
     async grade(ctx) {
@@ -208,15 +214,23 @@ export const SCENARIOS: Scenario[] = [
         ...APPROVAL,
       });
       checks.push({ name: "form complete", ok: s.ev.complete });
-      // The whole point: the rail ticket the user gave is still on the record,
-      // just not counting. Nothing was deleted by the correction.
+      // The whole point: the rail ticket the user gave is still on the record.
+      // Two legitimate shapes for that, and the guarantee is the same either
+      // way — the answer was not destroyed. Either the correction orphaned it
+      // into `held`, or the model retracted it, which appends a revision and
+      // leaves the original in the log. Grading only `held` would score the
+      // better behaviour as a failure.
+      const log = s.instance.entries.ticketReference;
+      const inHistory = Boolean(log?.revisions.some((r) => r.value === "RX40021"));
       checks.push({
-        name: "orphaned ticket kept as held",
-        ok: s.ev.held.ticketReference === "RX40021",
-        detail: `held = ${JSON.stringify(s.ev.held)}`,
+        name: "orphaned ticket survives on the record",
+        ok: s.ev.held.ticketReference === "RX40021" || inHistory,
+        detail: `held = ${JSON.stringify(s.ev.held)}, revisions = ${JSON.stringify(
+          log?.revisions.map((r) => (r.retracted ? "<retracted>" : r.value)) ?? [],
+        )}`,
       });
       checks.push({
-        name: "held value excluded from values",
+        name: "ticket not counted as a live value",
         ok: s.ev.values.ticketReference === undefined,
       });
       return checks;
@@ -302,6 +316,48 @@ export const SCENARIOS: Scenario[] = [
         },
         { name: "form complete", ok: s.ev.complete },
         eq("ticketReference", s.ev.values.ticketReference, "RX88213"),
+      ];
+    },
+  },
+
+  {
+    name: "retract",
+    probes:
+      "Per-field history — a user taking something back should retract it, not blank it, and the withdrawn answer must survive on the record.",
+    userTurns: [
+      "Travel claim. Ada Okafor, FN-4471, ada.okafor@example.com.",
+      "Conference in Leeds, 2026-06-02 to 2026-06-04. Rail, ticket RX88213, total 410.",
+      "Actually scrap that ticket reference — I can't find it and I'd rather leave it off.",
+      "Cost centre OPS-220, manager priya.nayar@example.com, receipts yes.",
+    ],
+    async grade(ctx) {
+      const s = await state(ctx);
+      if (!s) return [{ name: "instance exists", ok: false }];
+      const log = s.instance.entries.ticketReference;
+
+      return [
+        {
+          // The whole point: it is gone from `values` but not from the record.
+          name: "ticket no longer in force",
+          ok: s.ev.values.ticketReference === undefined,
+          detail: `values.ticketReference = ${JSON.stringify(s.ev.values.ticketReference)}`,
+        },
+        {
+          name: "the withdrawn answer survives in history",
+          ok: Boolean(log?.revisions.some((r) => r.value === "RX88213")),
+          detail: `revisions = ${JSON.stringify(log?.revisions.map((r) => r.value) ?? [])}`,
+        },
+        {
+          // A model that blanks a field instead of retracting leaves an empty
+          // string in force — the destructive pattern this scenario exists for.
+          name: "not blanked with an empty value",
+          ok: !s.ev.fields.get("ticketReference")?.hasEntry
+            ? true
+            : s.ev.values.ticketReference !== "",
+          detail: `in force = ${JSON.stringify(s.ev.fields.get("ticketReference")?.raw)}`,
+        },
+        { name: "form complete", ok: s.ev.complete },
+        eq("totalAmount", s.ev.values.totalAmount, 410),
       ];
     },
   },

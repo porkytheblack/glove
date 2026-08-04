@@ -464,7 +464,19 @@ Sequence is advisory, and splits into two unrelated things:
 
 ### Entries, liveness, and held values
 
-There is one storage map — `entries` — holding every answer the user has ever given. Nothing is moved between maps and nothing is deleted. What changes is which entries are **live**:
+`entries` maps each field to an append-only log of revisions plus a cursor naming the one in force. Nothing is ever removed or rewritten — a correction appends, it does not overwrite — so any earlier answer stays readable and any change stays reversible. A retraction is a revision too, which is what makes `retract`, `undo` and `redo` pure cursor moves:
+
+```ts
+await runner.retract("ticketReference");   // withdraw, keeping the answer
+await runner.undo();                       // take back the last answer anywhere
+await runner.undo("mileage");              // or on one field
+await runner.redo("mileage");
+await runner.history("mileage");           // every answer ever given
+```
+
+The agent reaches all four through `glove_form_revise`'s `action` parameter — `set`, `retract`, `undo`, `redo` — rather than four separate verbs, because tool schemas are re-sent on every model call and measured out at roughly three quarters of the surface's context cost.
+
+On top of that log, what changes is which entries are **live**:
 
 | | |
 |---|---|

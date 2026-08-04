@@ -1,4 +1,5 @@
 import type { CompiledForm } from "./compile";
+import { inForce } from "./history";
 import type { FormFieldView, FormInstance, FormState } from "./types";
 
 export interface FieldEvaluation {
@@ -66,7 +67,9 @@ export function evaluateForm<V extends Record<string, unknown>>(
   // Parse once. Schemas are pure, and every pass asks the same question.
   const parsed = new Map<string, { ok: boolean; value?: unknown; error?: string }>();
   for (const field of compiled.fields) {
-    const entry = instance.entries[field.id];
+    // Only the revision in force is parsed. Superseded and retracted answers
+    // stay in the log untouched — they are history, not input.
+    const entry = inForce(instance.entries[field.id]);
     if (entry === undefined) continue;
     const result = field.schema.safeParse(entry.value);
     parsed.set(
@@ -86,7 +89,7 @@ export function evaluateForm<V extends Record<string, unknown>>(
   for (;;) {
     const next = new Set(excluded);
     for (const field of compiled.fields) {
-      if (instance.entries[field.id] === undefined) continue;
+      if (inForce(instance.entries[field.id]) === undefined) continue;
       if (next.has(field.id)) continue;
       if (!pass.isApplicable(field.id)) next.add(field.id);
     }
@@ -110,7 +113,7 @@ export function evaluateForm<V extends Record<string, unknown>>(
   const live = new Set<string>();
 
   for (const field of compiled.fields) {
-    const entry = instance.entries[field.id];
+    const entry = inForce(instance.entries[field.id]);
     const hasEntry = entry !== undefined;
     const applicable = pass.isApplicable(field.id);
     const p = parsed.get(field.id);

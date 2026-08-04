@@ -4,10 +4,12 @@ import type { MemorySchema } from "../core/schema";
 import type { FormAdapter, FormInstanceQuery } from "../forms/adapter";
 import type {
   DispatchState,
+  FieldHistory,
   FormInstance,
   FormInstanceCommit,
   FormInstanceInput,
 } from "../forms/types";
+import { applyEntryCommit, cloneHistory } from "../forms/history";
 
 /**
  * Reference in-process form adapter. Instances in a Map keyed by id; the
@@ -40,6 +42,7 @@ export class InMemoryFormAdapter implements FormAdapter {
       subject: input.subject,
       status: input.status ?? "active",
       entries: { ...(input.entries ?? {}) },
+      revisionSeq: seedSeq(input.entries),
       occurrences: {},
       dispatches: {},
       version: 1,
@@ -86,9 +89,17 @@ export class InMemoryFormAdapter implements FormAdapter {
       throw new FormConflictError(opts.ifVersion, instance.version);
     }
 
+    // Entries merge by *appending* to each field's log — a commit can never
+    // replace a history, only extend it and move its cursor.
+    const entries: Record<string, FieldHistory> = { ...instance.entries };
+    for (const [field, patch] of Object.entries(commit.entries ?? {})) {
+      entries[field] = applyEntryCommit(entries[field], patch);
+    }
+
     const next: FormInstance = {
       ...instance,
-      entries: { ...instance.entries, ...(commit.entries ?? {}) },
+      entries,
+      revisionSeq: commit.revisionSeq ?? instance.revisionSeq,
       occurrences: { ...instance.occurrences, ...(commit.occurrences ?? {}) },
       dispatches: { ...instance.dispatches, ...(commit.dispatches ?? {}) },
       version: instance.version + 1,
@@ -168,10 +179,20 @@ export class InMemoryFormAdapter implements FormAdapter {
   }
 }
 
+function seedSeq(entries: Record<string, FieldHistory> | undefined): number {
+  let max = 0;
+  for (const history of Object.values(entries ?? {})) {
+    for (const r of history.revisions) max = Math.max(max, r.seq);
+  }
+  return max;
+}
+
 function clone(instance: FormInstance): FormInstance {
   return {
     ...instance,
-    entries: { ...instance.entries },
+    entries: Object.fromEntries(
+      Object.entries(instance.entries).map(([k, v]) => [k, cloneHistory(v)]),
+    ),
     occurrences: { ...instance.occurrences },
     dispatches: { ...instance.dispatches },
   };

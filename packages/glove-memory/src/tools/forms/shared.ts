@@ -67,6 +67,16 @@ export function renderView(view: FormView): Record<string, unknown> {
   if (view.failures?.length) {
     out.failures = view.failures.map((f) => ({ hook: f.hookId, message: f.message }));
   }
+  if (view.undo) {
+    out.undo_would = `${view.undo.field}${
+      view.undo.becomes === undefined ? " → empty" : ` → ${JSON.stringify(view.undo.becomes)}`
+    }`;
+  }
+  if (view.redo) {
+    out.redo_would = `${view.redo.field}${
+      view.redo.becomes === undefined ? " → empty" : ` → ${JSON.stringify(view.redo.becomes)}`
+    }`;
+  }
   if (view.conduct) out.conduct = view.conduct;
   return out;
 }
