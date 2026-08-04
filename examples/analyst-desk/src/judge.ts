@@ -103,11 +103,16 @@ export async function judge(opts: {
 
   const parsed = parseVerdicts(res.content ?? "");
   if (!parsed) {
-    return {
-      verdicts: failAll(opts.questions, "judge returned unparseable output"),
-      usage: res.usage,
-      error: `unparseable judge reply: ${(res.content ?? "").slice(0, 200)}`,
-    };
+    // An empty reply and a malformed one are different problems — the first
+    // is usually the model spending its whole budget on reasoning and
+    // emitting nothing, the second is a formatting slip. Reporting them the
+    // same way sends you looking in the wrong place.
+    const raw = res.content ?? "";
+    const why =
+      raw.trim() === ""
+        ? `judge returned no content (finish_reason: ${res.finishReason})`
+        : `unparseable judge reply: ${raw.slice(0, 300)}`;
+    return { verdicts: failAll(opts.questions, "judge returned unparseable output"), usage: res.usage, error: why };
   }
 
   // A question the judge silently skipped is not a pass. Anything missing
