@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import EventEmitter from "eventemitter3";
 import { runConformance, type ConformanceContext } from "../src/conformance";
 import { GeminiLiveAdapter, type WebSocketLike } from "../src/gemini-live";
+import { OpenAIRealtimeSocketAdapter } from "../src/openai-realtime-socket";
 
 /** A socket that records what was sent and lets a test push frames back. */
 class FakeSocket extends EventEmitter implements WebSocketLike {
@@ -85,6 +86,104 @@ function geminiContext(): ConformanceContext {
     settle: () => new Promise((r) => setTimeout(r, 5)),
   };
 }
+
+// ── OpenAI Realtime (WebSocket transport) harness ────────────────────────────
+
+/** Same idea as toGeminiFrame: synthetic descriptors become the provider's
+ *  real wire shapes, so the adapter's actual mapping code runs. */
+function toOpenAIFrame(message: any): unknown {
+  switch (message?.__conformance) {
+    case "tool_call":
+      return {
+        type: "response.function_call_arguments.done",
+        call_id: message.callId,
+        name: message.name,
+        arguments: message.arguments,
+      };
+    case "user_transcript":
+      return message.isFinal
+        ? { type: "conversation.item.input_audio_transcription.completed", transcript: message.text }
+        : { type: "conversation.item.input_audio_transcription.delta", delta: message.text };
+    case "audio":
+      return {
+        type: "response.output_audio.delta",
+        delta: Buffer.from(Int16Array.from(message.samples as number[]).buffer).toString("base64"),
+      };
+    default:
+      return message;
+  }
+}
+
+function openaiSocketContext(): ConformanceContext {
+  const socket = new FakeSocket();
+  const adapter = new OpenAIRealtimeSocketAdapter({
+    getToken: () => "test-token",
+    socketFactory: () => socket,
+  });
+  return {
+    adapter,
+    inbound: (message) => socket.fire("message", { data: JSON.stringify(toOpenAIFrame(message)) }),
+    outbound: () => socket.sent,
+    settle: () => new Promise((r) => setTimeout(r, 5)),
+  };
+}
+
+test("OpenAIRealtimeSocketAdapter passes the S2S conformance suite", async () => {
+  const results = await runConformance(openaiSocketContext);
+  const failed = results.filter((r) => !r.passed);
+  assert.equal(failed.length, 0, `\n${failed.map((f) => f.error).join("\n\n")}`);
+});
+
+test("OpenAI socket session.update carries formats, instructions and tools on connect", async () => {
+  const ctx = openaiSocketContext();
+  await ctx.adapter.connect({
+    instructions: "You are Nova.",
+    voice: "marin",
+    tools: [{ name: "lookup", description: "d", parameters: { type: "object", properties: {} } }],
+  });
+  await ctx.settle();
+
+  const update = (ctx.outbound()[0] as any);
+  assert.equal(update.type, "session.update");
+  assert.equal(update.session.instructions, "You are Nova.");
+  assert.equal(update.session.tools[0].name, "lookup");
+  assert.equal(update.session.audio.input.format.rate, 24_000);
+  assert.equal(update.session.audio.output.voice, "marin");
+  assert.ok(update.session.audio.input.turn_detection, "turn detection missing from setup");
+});
+
+test("OpenAI socket audio is 24 kHz both ways and mic PCM frames as append events", async () => {
+  const ctx = openaiSocketContext();
+  await ctx.adapter.connect({});
+  await ctx.settle();
+
+  assert.equal(ctx.adapter.inputFormat.sampleRate, 24_000);
+  ctx.adapter.sendAudio(Int16Array.from([1, 2, 3, 4]));
+  const frame = ctx.outbound().find((f: any) => f.type === "input_audio_buffer.append") as any;
+  assert.ok(frame, "sendAudio never framed an input_audio_buffer.append");
+
+  const formats: number[] = [];
+  ctx.adapter.on("audio", (_pcm, fmt) => formats.push(fmt.sampleRate));
+  ctx.inbound({ __conformance: "audio", samples: [1, 2] });
+  await ctx.settle();
+  assert.deepEqual(formats, [24_000]);
+});
+
+test("OpenAI socket: user speech over agent speech emits interrupted", async () => {
+  const ctx = openaiSocketContext();
+  await ctx.adapter.connect({});
+  await ctx.settle();
+
+  const events: string[] = [];
+  ctx.adapter.on("interrupted", () => events.push("interrupted"));
+  ctx.adapter.on("agent_speech_stopped", () => events.push("stopped"));
+
+  ctx.inbound({ __conformance: "audio", samples: [1, 2] }); // agent starts speaking
+  ctx.inbound({ type: "input_audio_buffer.speech_started" }); // user talks over
+  await ctx.settle();
+
+  assert.deepEqual(events, ["interrupted", "stopped"], "host was never told to flush its queue");
+});
 
 test("GeminiLiveAdapter passes the S2S conformance suite", async () => {
   const results = await runConformance(geminiContext);

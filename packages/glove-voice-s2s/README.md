@@ -28,6 +28,7 @@ Production S2S APIs run **500–800ms** voice-to-voice.
 | --- | --- |
 | `S2SAdapter` | the provider contract: one live session — audio in/out, tool calls as events, a text side-channel (`types.ts`) |
 | `OpenAIRealtimeAdapter` | **device**-mode adapter (WebRTC, browser-only): owns the mic and plays the reply itself |
+| `OpenAIRealtimeSocketAdapter` | **transport**-mode OpenAI adapter (plain WebSocket, Node + browser): 24 kHz PCM both ways — gpt-realtime in a server room |
 | `GeminiLiveAdapter` | **transport**-mode adapter (plain WebSocket, Node + browser): moves PCM only — the mode a server-hosted room needs |
 | `RealtimeAgent` | run a built Glove on an S2S model: its prompt + tools configure the session, tool calls execute through the same `Tool.run` |
 | `runConformance` | the behavioural suite every adapter must pass against a fake socket |

@@ -316,8 +316,12 @@ reply lands at `/mesh`, the room injects it into the live conversation with
 `rt.inject("<worker-result>…", { respond: true })` — the proactive-relay
 wakeup, spoken by the provider instead of synthesized by a TTS stage.
 
-Needs `GEMINI_API_KEY` in `.env.local` (and Node 22+, for the global
-WebSocket the adapter uses). `S2S_MODEL` / `S2S_VOICE` are optional.
+Two providers, one room: **OpenAI Realtime** (gpt-realtime over WebSocket,
+`OpenAIRealtimeSocketAdapter`) or **Gemini Live** (`GeminiLiveAdapter`).
+Set `OPENAI_API_KEY` or `GEMINI_API_KEY` in `.env.local` — the room defaults
+to whichever is present (OpenAI first; force with `S2S_PROVIDER`). Needs
+Node 22+ for the global WebSocket. `S2S_MODEL` / `S2S_VOICE` are optional
+overrides.
 
 ## Files
 

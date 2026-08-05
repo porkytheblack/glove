@@ -32,7 +32,12 @@ import { SqliteAdapter } from "station-adapter-sqlite";
 import { WebSocketServer, type WebSocket } from "ws";
 import { MemoryStore } from "glove-core";
 import { mountMesh } from "glove-mesh";
-import { GeminiLiveAdapter, RealtimeAgent } from "glove-voice-s2s";
+import {
+  GeminiLiveAdapter,
+  OpenAIRealtimeSocketAdapter,
+  RealtimeAgent,
+  type S2SAdapter,
+} from "glove-voice-s2s";
 import { research } from "./research";
 import { buildS2SFrontAgent } from "../lib/s2s-front-agent";
 import {
@@ -73,10 +78,19 @@ export const s2sRoom = signal("s2s-room")
       /** Proves an inbound /mesh POST belongs to a job this room dispatched. */
       meshToken: z.string(),
       dbPath: z.string().default("./station.db"),
-      /** Gemini Live model. */
-      model: z.string().default(process.env.S2S_MODEL ?? "models/gemini-live-2.5-flash-preview"),
-      /** Prebuilt Gemini voice name. */
-      voice: z.string().default(process.env.S2S_VOICE ?? "Puck"),
+      /** Which realtime provider drives the room. Default: S2S_PROVIDER, else
+       *  whichever of OPENAI_API_KEY / GEMINI_API_KEY is set (OpenAI wins). */
+      provider: z
+        .enum(["openai", "gemini"])
+        .default(
+          (process.env.S2S_PROVIDER as "openai" | "gemini" | undefined) ??
+            (process.env.OPENAI_API_KEY ? "openai" : "gemini"),
+        ),
+      /** Realtime model — provider-specific; empty picks the provider default
+       *  ("gpt-realtime" / "models/gemini-live-2.5-flash-preview"). */
+      model: z.string().default(process.env.S2S_MODEL ?? ""),
+      /** Voice name — provider-specific; empty picks "marin" / "Puck". */
+      voice: z.string().default(process.env.S2S_VOICE ?? ""),
       /** End the call after this long with nobody attached. 0 disables. */
       idleMs: z.number().default(10 * 60_000),
     }),
@@ -92,8 +106,9 @@ export const s2sRoom = signal("s2s-room")
   .concurrency(S2S_ROOM_CONCURRENCY)
   .run(async (input) => {
     const startedAt = Date.now();
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error("GEMINI_API_KEY is not set. See .env.example.");
+    const keyName = input.provider === "openai" ? "OPENAI_API_KEY" : "GEMINI_API_KEY";
+    const apiKey = process.env[keyName];
+    if (!apiKey) throw new Error(`${keyName} is not set. See .env.example.`);
 
     // Same queue the runner drains, so the research job this room dispatches
     // is picked up by the same station process.
@@ -139,10 +154,23 @@ export const s2sRoom = signal("s2s-room")
     // Everything voice-session.ts + turn-engine.ts did lives in the provider
     // now. The room's remaining job is plumbing: PCM through, transcripts to
     // the console, worker replies into the live conversation.
+    // Both providers implement the same transport-mode contract, so the room
+    // is identical from here down regardless of which one drives it.
+    const adapter: S2SAdapter =
+      input.provider === "openai"
+        ? new OpenAIRealtimeSocketAdapter({
+            getToken: () => apiKey,
+            ...(input.model ? { model: input.model } : {}),
+          })
+        : new GeminiLiveAdapter({
+            getToken: () => apiKey,
+            ...(input.model ? { model: input.model } : {}),
+          });
+
     const rt = new RealtimeAgent({
       agent: front,
-      adapter: new GeminiLiveAdapter({ getToken: () => apiKey, model: input.model }),
-      voice: input.voice,
+      adapter,
+      voice: input.voice || (input.provider === "openai" ? "marin" : "Puck"),
       // Slim the spoken tool surface: send + list are useful mid-call, the
       // broadcast/ack verbs are not (two-agent mesh, and the transport's
       // acknowledge is deliberately inert anyway).
@@ -265,18 +293,19 @@ export const s2sRoom = signal("s2s-room")
       send({
         t: "ready",
         sessionId: input.roomId,
-        config: { mode: "s2s", model: input.model, voice: input.voice },
+        config: { mode: "s2s", provider: input.provider, model: input.model || "(default)" },
         speakers: SPEAKERS.map(({ id, displayName, description }) => ({ id, displayName, description })),
         assistantName: ASSISTANT_NAME,
       });
 
       ws.on("message", (data: Buffer, isBinary: boolean) => {
         if (isBinary) {
-          // Client captures at 16 kHz — exactly Gemini's input rate, so the
-          // mic path never resamples.
-          rt.sendAudio(
-            new Int16Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)),
+          // The duct captures at 16 kHz; the adapter declares what it wants
+          // (Gemini 16 kHz — a straight pass — OpenAI 24 kHz).
+          const mic = new Int16Array(
+            data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
           );
+          rt.sendAudio(resample(mic, SAMPLE_RATE, rt.adapter.inputFormat.sampleRate));
           return;
         }
         let msg: ClientMessage;
