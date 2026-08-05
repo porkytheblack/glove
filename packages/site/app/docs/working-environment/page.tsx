@@ -299,7 +299,7 @@ const env = await createWorkingEnvironment({
       {/* ================================================================== */}
       {/* ROUTES                                                             */}
       {/* ================================================================== */}
-      <h2 id="routes">Three routes to expose a library</h2>
+      <h2 id="routes">Four routes to expose a capability</h2>
 
       <p>
         This is the decision to get right. The <em>shape</em> of the library picks
@@ -312,6 +312,7 @@ const env = await createWorkingEnvironment({
           ["Does I/O — reads or writes files, calls out", "defineAdapter", "async"],
           ["Stateful builder — new X(), chained mutation, terminal save", "defineBuilder / defineBuilders", "async"],
           ["Pure computation — no I/O, no state", "definePureModule", "synchronous"],
+          ["Not a library at all — an MCP server, a Glove tool, any async fn", "defineTools", "async"],
         ]}
       />
 
@@ -392,6 +393,94 @@ definePureModule({
         it already knows from training.
       </p>
 
+      <h3>Capabilities → <code>defineTools</code></h3>
+
+      <p>
+        The three routes above wrap <em>libraries</em>. This one wraps whatever
+        the host already has as a tool — an MCP server, a Glove tool, a plain
+        async function — and turns it into a module scripts import.
+      </p>
+
+      <CodeBlock
+        code={`import { defineTools } from "glove-working-environment";
+import { fnsFromMcp, fnFromTool, defineFn } from "glove-scratchpad/fns";
+
+const env = await createWorkingEnvironment({
+  stdlib: [
+    documents(),
+    slides(),
+    defineTools({ name: "github", fns: await fnsFromMcp(gh) }),   // a whole MCP server
+    defineTools({
+      name: "workspace",
+      fns: [fnFromTool(searchInbox), defineFn({ name: "today", handler: () => todayIso() })],
+      docs: "Tokens belong to the workspace bot. \`since\` is inclusive.",
+    }),
+  ],
+});`}
+        language="typescript"
+      />
+
+      <div style={calloutStyle}>
+        <strong>A tool call puts its whole result in the context window. A tool
+        call from a script puts the result in a variable.</strong> That is the
+        entire argument — and it is the same context discipline the rest of this
+        environment applies to files, applied to capabilities.
+      </div>
+
+      <CodeBlock
+        code={`import { list_pull_requests } from 'env:github';
+import { create } from 'env:slides';
+
+export default async function () {
+  const prs = await list_pull_requests({ repo: 'you/repo', since: '2026-08-01' });
+  const byAuthor = Object.groupBy(prs, (p) => p.author);
+  await create('/out/week.pptx', {
+    slides: Object.entries(byAuthor).map(([author, items]) => ({
+      title: author, bullets: items.map((p) => p.title),
+    })),
+  });
+  return \`\${prs.length} PRs from \${Object.keys(byAuthor).length} people\`;
+}`}
+        language="javascript"
+      />
+
+      <p>
+        Two hundred pull requests, a thousand emails, a year of calendar events —
+        the model writes the loop that reduces them and only the last line comes
+        back. And because the capability lands beside{" "}
+        <code>env:documents</code> and <code>env:slides</code>, &quot;a PDF of all
+        my emails&quot; stops being two systems and becomes one script.
+      </p>
+
+      <div style={calloutStyle}>
+        Measured on exactly that request. With this repository&apos;s real{" "}
+        <code>git log</code> mounted as <code>env:github</code>,{" "}
+        <code>z-ai/glm-4.6</code> produced the deck in 18 turns for{" "}
+        <strong>$0.026</strong> — wrote a script, got one export name wrong and
+        fixed it from the error, pulled <strong>100 commits into a variable</strong>,
+        grouped them into six themes inside the script, built the{" "}
+        <code>.pptx</code>, checked it, and handed it over. Only the summary
+        reached the context window.
+      </div>
+
+      <p>
+        The <code>ToolFn</code> shape is declared structurally, so{" "}
+        <code>glove-scratchpad/fns</code>&apos; builders drop straight in while
+        this package keeps its zero dependencies. Anything matching{" "}
+        <code>{"{ name, description?, inputSchema?, call(args) }"}</code>{" "}
+        qualifies. Types and a README are generated from the input schemas —
+        enums arrive as unions, not as <code>string</code>.
+      </p>
+
+      <div style={warnStyle}>
+        <strong>Write-time validation cannot fire a real effect.</strong> Every
+        script write executes the module&apos;s top level against a read-only
+        environment. For a filesystem adapter that is merely wasteful; for a
+        capability it would mean the email goes out when the script is{" "}
+        <em>saved</em>. A top-level call is refused with the fix attached — move
+        it inside the default export.
+      </div>
+
       {/* ================================================================== */}
       {/* ADAPTERS                                                           */}
       {/* ================================================================== */}
@@ -412,6 +501,7 @@ definePureModule({
           ["glove-env-slides", "env:slides", ".pptx generation and read-back; the pptxgenjs builder API unchanged."],
           ["glove-env-archives", "env:archives", "zip, tar, tar.gz both directions. No dependencies — node:zlib only."],
           ["glove-env-media", "env:media", "audio/video via bundled ffmpeg — describe, thumbnail, frames, clip, transcode."],
+          ["glove-env-render", "env:render", "rasterize a PDF, deck or Word file to page PNGs — so the agent can look at what it made. A .pptx works with nothing installed, via a layout schematic."],
         ]}
       />
 
@@ -421,6 +511,133 @@ definePureModule({
         context window. It is the orientation verb, and the environment routes the
         generic <code>describe</code> to whichever module recognises the format by
         its magic bytes.
+      </p>
+
+      {/* ================================================================== */}
+      {/* SEEING                                                             */}
+      {/* ================================================================== */}
+      <h2 id="seeing">Letting the agent see its own work</h2>
+
+      <p>
+        Everything above verifies by reading text back. That finds a wrong
+        number and misses a table running off the page, a chart with no bars, or
+        a title overlapping its subtitle — the defects a person notices in the
+        first second.
+      </p>
+
+      <p>
+        Wire a vision model and a <code>view_image</code> verb appears. Leave it
+        out and the verb is absent from the tool set entirely: an agent is never
+        shown a capability that would fail on use.
+      </p>
+
+      <CodeBlock
+        code={`import { render } from "glove-env-render";
+
+const env = await createWorkingEnvironment({
+  stdlib: [documents(), render()],
+  vision: {
+    // One function, not a model adapter — so this package keeps its zero
+    // dependencies and works with whatever you already have.
+    async describe({ bytes, mediaType, prompt }) {
+      return await myVisionModel(bytes, mediaType, prompt);
+    },
+  },
+});`}
+        language="typescript"
+      />
+
+      <p>
+        The verb takes a path and a <strong>question</strong>, and rasterizes
+        documents on the way — so checking a PDF is one call rather than
+        render-then-look:
+      </p>
+
+      <CodeBlock
+        code={`view_image({
+  path: '/out/report.pdf',
+  prompt: 'This should list four regions with a total. Name every region and
+           figure you can see, and say whether any text is cut off or overlapping.'
+})
+
+// A later page or slide, still without a render step:
+view_image({ path: '/out/deck.pptx', page: 3, prompt: 'Is this slide blank?' })`}
+        language="javascript"
+      />
+
+      <div style={calloutStyle}>
+        Measured against a report carrying two deliberate defects — a row pushed
+        off the right edge and a subtitle overlapping the title — a commodity
+        vision model reported both, without being told what to look for.
+      </div>
+
+      <p>
+        An empty prompt is refused with an example. &quot;Describe this
+        image&quot; costs the same as a real question and answers far less: say
+        what you <em>expected</em>, then ask what is actually there.
+      </p>
+
+      <p>
+        Any adapter can be the renderer — declare <code>renders</code> alongside
+        a <code>render(input, outDir, opts?)</code> binding.{" "}
+        <code>glove-env-render</code> does it for PDFs and images with no system
+        dependency, and for Office formats through headless LibreOffice.
+      </p>
+
+      <p>
+        A <code>.pptx</code> is the exception that needs nothing installed. With
+        no LibreOffice it is drawn from its own OOXML geometry as a{" "}
+        <strong>layout schematic</strong> — every shape&apos;s real frame and
+        real text, to scale, with no theme, fonts or charts. The result carries{" "}
+        <code>approximate: true</code> and the image is captioned as one, so it
+        cannot be mistaken for a render. It answers the positional questions,
+        which is most of what goes wrong: what is off the slide, what overlaps,
+        what came out empty.
+      </p>
+
+      {/* ================================================================== */}
+      {/* DELIVERING                                                         */}
+      {/* ================================================================== */}
+      <h2 id="delivering">Handing the work over</h2>
+
+      <p>
+        Writing a file to <code>/out</code> makes a file. <code>present</code>{" "}
+        <em>delivers</em> it — and the distinction earns its keep because{" "}
+        <code>/out</code> accumulates. By the end of a task it holds drafts, a
+        superseded version, and the spreadsheet that fed the report. Only the
+        agent knows which of those was the answer, so without an explicit
+        hand-off the host is left guessing from filenames and timestamps.
+      </p>
+
+      <CodeBlock
+        code={`const env = await createWorkingEnvironment({
+  onPresent: async ({ name, bytes, mediaType, caption }) => {
+    await sendToUser({ name, bytes, mediaType, caption });   // upload, attach, stream — your call
+  },
+});
+
+// The agent then calls:
+//   present({ path: '/out/q2-review.pptx',
+//             caption: 'Q2 review, 8 slides — revenue by region, East flagged as the outlier.' })`}
+        language="typescript"
+      />
+
+      <p>
+        Wired on the same terms as <code>view_image</code>: no receiver, no verb.
+        The path must be under <code>/out</code> — presenting from{" "}
+        <code>/tmp</code> would ship an intermediate and presenting from{" "}
+        <code>/inbox</code> would echo the person&apos;s own upload back at them
+        as work. The refusal names the fix, and making the agent copy the file
+        first <em>is</em> the check: it forces a decision about what is finished.
+      </p>
+
+      <p>
+        The caption is required, and an empty one is refused with an example. The
+        person reads it in place of the filename, and{" "}
+        <code>report.pdf</code> is not a description. A matching{" "}
+        <code>/skills/delivering.md</code> appears alongside the verb, and stays
+        absent without it — a recipe for a capability that is not offered is how
+        an agent learns to hallucinate the call.
       </p>
 
       {/* ================================================================== */}

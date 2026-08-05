@@ -8,7 +8,8 @@
     "selfcheck": "tsx src/selfcheck.ts",
     "eval": "tsx --env-file-if-exists=../../.env src/run.ts",
     "typecheck": "tsc --noEmit",
-    "judgecheck": "tsx --env-file-if-exists=../../.env src/judgecheck.ts"
+    "judgecheck": "tsx --env-file-if-exists=../../.env src/judgecheck.ts",
+    "livecheck": "tsx --env-file-if-exists=../../.env src/livecheck-capabilities.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

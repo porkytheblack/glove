@@ -257,6 +257,29 @@ const send = defineFn({
 session.registerFns([...fns, search, send]);
 ```
 
+### The same catalog on a working environment
+
+[`glove-working-environment`](../glove-working-environment)'s `defineTools`
+takes this list too, and mounts it as an importable module rather than a REPL
+binding:
+
+```ts
+createWorkingEnvironment({
+  stdlib: [documents(), slides(), defineTools({ name: "github", fns })],
+});
+```
+
+Same catalog, different surface — and the difference is what surrounds it. A
+REPL session is stateless per call; the working environment is a filesystem, so
+the records a capability returns land next to `env:documents` and `env:slides`
+and the script that fetches them is also the script that produces the file. "A
+PDF of all my emails" is one script there and two systems anywhere else.
+
+That package declares `ToolFn` **structurally** rather than importing it, so it
+keeps its zero dependencies — `tests/fns-working-environment.test.ts` here holds
+the two definitions together, since neither package's own build would notice
+them drifting.
+
 **Prefer tables** when the data is relational and you want to compose it with
 JOINs, aggregate it, or stage writes with `BEGIN … COMMIT`. **Prefer functions**
 when the catalogue is unknown, heterogeneous, or you just want to call a tool and

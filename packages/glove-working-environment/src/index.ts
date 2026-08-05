@@ -7,7 +7,7 @@
  * in a scope containing only injected capabilities — no networking, no
  * host filesystem access, no process spawning, by construction.
  */
-import { BUILTIN_SKILLS, skillsIndex } from "./skills";
+import { BUILTIN_SKILLS, DELIVERING, skillsIndex } from "./skills";
 import { readFile as hostReadFile } from "node:fs/promises";
 import {
   DEFAULT_LIMITS,
@@ -177,6 +177,23 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
       const describe = typeof ns.describe === "function" ? (ns.describe as (p: string) => Promise<unknown>) : undefined;
       core.handlers.register({ module: adapter.name, handles: adapter.handles, describe });
     }
+    if (adapter.renders) {
+      // Same read-WRITE binding as describe, and for a stronger reason:
+      // rasterizing has to put page images somewhere.
+      const ns = core.envModules.get(adapter.name) ?? {};
+      const render = ns.render;
+      if (typeof render !== "function") {
+        throw new TypeError(
+          `stdlib adapter "${adapter.name}" declares renders but exposes no render() binding — ` +
+            `create() must return { render(input, outDir, opts?) }`,
+        );
+      }
+      core.handlers.registerRenderer({
+        module: adapter.name,
+        renders: adapter.renders,
+        render: render as (input: string, outDir: string, opts?: unknown) => Promise<unknown>,
+      });
+    }
   }
 
   // --- materialize the tree ----------------------------------------------
@@ -198,7 +215,11 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
   // is a correct example in front of them, not a better error afterwards.
   if (await vfs.exists("/skills")) await vfs.rm("/skills");
   await vfs.mkdir("/skills");
-  const skills = [...BUILTIN_SKILLS, ...adapters.flatMap((a) => a.skills ?? [])];
+  const skills = [
+    ...BUILTIN_SKILLS,
+    ...(options.onPresent ? [DELIVERING] : []),
+    ...adapters.flatMap((a) => a.skills ?? []),
+  ];
   for (const skill of skills) await writeDoc(`/skills/${skill.name}.md`, skill.body);
   await writeDoc("/skills/README.md", skillsIndex(skills));
   // --- restore-time compatibility -----------------------------------------
@@ -231,11 +252,11 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
 
   core.attachRunLog(runlog);
 
-  const tools = buildTools({ core, runlog, limits, prefix: "" });
+  const tools = buildTools({ core, runlog, limits, prefix: "", vision: options.vision, onPresent: options.onPresent });
 
   return {
     tools,
-    toolsWithPrefix: (prefix: string) => buildTools({ core, runlog, limits, prefix }),
+    toolsWithPrefix: (prefix: string) => buildTools({ core, runlog, limits, prefix, vision: options.vision, onPresent: options.onPresent }),
     fs: fsHandle,
     limits,
     moduleDescriptions: core.moduleDescriptions,
@@ -353,6 +374,7 @@ async function snapshotVfs(vfs: Vfs): Promise<EnvSnapshot> {
 
 export { inMemoryFs, fromSnapshot, InMemoryFs } from "./vfs/memory";
 export { hostDirectory, HostDirectoryFs, type HostDirectoryOptions } from "./vfs/hostdir";
+export { defineTools, type DefineToolsSpec, type ToolFn, type ToolFnContext } from "./adapters/tools";
 export {
   cachedRemote,
   CachedRemoteFs,
@@ -368,7 +390,7 @@ export {
   type DefinedAdapter,
   type FileSummary,
 } from "./adapters/define";
-export { HandlerRegistry, type Claim, type HandlesSpec, type RegisteredHandler } from "./adapters/handles";
+export { HandlerRegistry, type Claim, type HandlesSpec, type RegisteredHandler, type RegisteredRenderer } from "./adapters/handles";
 export { definePureModule, type PureModuleSpec } from "./adapters/pure";
 export {
   defineBuilder,
@@ -379,7 +401,7 @@ export {
   type DefineBuildersOptions,
   type Finish,
 } from "./adapters/builder";
-export { BUILTIN_SKILLS, skillsIndex, type Skill } from "./skills";
+export { BUILTIN_SKILLS, DELIVERING, skillsIndex, type Skill } from "./skills";
 export { mountWorkingEnvironment, buildPreamble, type MountWorkingEnvironmentConfig } from "./tools/mount";
 export { defaultExportError, ScriptContractError } from "./pipeline/contract";
 export { deepFreeze } from "./executor/executor";
@@ -398,6 +420,8 @@ export {
   type RunResult,
   type StdlibAdapter,
   type Vfs,
+  type PresentedFile,
+  type VisionAdapter,
   type VfsEntry,
   type VfsStat,
 } from "./types";

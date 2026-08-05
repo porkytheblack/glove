@@ -11,7 +11,7 @@
  * which agent evaluation shows is the first thing a model does with an
  * unfamiliar inbox.
  */
-import type { EnvLimits, EnvTool, EnvToolResult } from "../types";
+import type { EnvLimits, EnvTool, EnvToolResult, PresentedFile, VisionAdapter } from "../types";
 import type { EnvCore } from "../core/env";
 import type { RunLog } from "../history/runlog";
 import { executeRun } from "./run";
@@ -24,6 +24,10 @@ interface ToolDeps {
   runlog: RunLog;
   limits: EnvLimits;
   prefix: string;
+  /** When the host wired one, `view_image` joins the verb set. */
+  vision?: VisionAdapter;
+  /** When the host wired one, `present` joins the verb set. */
+  onPresent?: (item: PresentedFile) => Promise<void> | void;
 }
 
 /**
@@ -101,7 +105,7 @@ function schema(props: Record<string, unknown>, required: string[]): Record<stri
 }
 
 export function buildTools(deps: ToolDeps): EnvTool[] {
-  const { core, limits, prefix } = deps;
+  const { core, limits, prefix, vision, onPresent } = deps;
   const name = (n: string) => `${prefix}${n}`;
   // One tracker per environment: the loop being detected is a model repeating
   // itself within a session, so the counts must outlive individual calls and
@@ -511,5 +515,103 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     }),
   };
 
-  return [writeFile, editFile, rm, mv, cp, readFile, ls, grep, describe, runScript, runTests, undo, redo, checkpoint, history];
+  /**
+   * Look at a file and answer a question about it.
+   *
+   * The one verb in this set that can catch a *visual* defect. Everything else
+   * verifies by reading text back, which finds a wrong number and misses a
+   * table running off the page, a chart with no bars, or a title overlapping
+   * its subtitle. Those are the failures a person spots instantly and an
+   * extraction never sees.
+   *
+   * Registered only when the host wired a vision model — an agent is never
+   * shown a capability that would fail on use.
+   */
+  const viewImage: EnvTool = {
+    name: name("view_image"),
+    description:
+      "Look at a file and answer a question about how it LOOKS. Pass a specific question, not 'describe this': " +
+      "the answer is only as useful as the question, and 'is the revenue table complete with four regions, and does any text run off the page?' " +
+      "is worth ten of 'what is in this image'. " +
+      "Accepts images directly; PDFs, decks and Word files are rasterized for you, so you do NOT have to render first. " +
+      "Pass page to look at a later page or slide (1-based, default 1). " +
+      "Use it on your OWN output before reporting done — text extraction cannot see layout.",
+    jsonSchema: schema(
+      {
+        path: str("Absolute VFS path of the image or document to look at"),
+        prompt: str("The specific question to answer about it"),
+        page: int("Which page or slide, 1-based. Default 1. Ignored for plain images."),
+      },
+      ["path", "prompt"],
+    ),
+    do: guard("view_image", async (input: { path: string; prompt: string; page?: number }) => {
+      if (typeof input.path !== "string" || typeof input.prompt !== "string") {
+        return err("view_image needs { path, prompt } as strings");
+      }
+      if (input.prompt.trim() === "") {
+        return err(
+          "view_image needs a prompt saying what to check — an open-ended look back costs the same and answers less. " +
+            "Example: 'does the table list four regions, and is any text cut off at the page edge?'",
+        );
+      }
+      const page = input.page ?? 1;
+      const image = await core.imageFor(input.path, page);
+      const answer = await vision!.describe({
+        bytes: image.bytes,
+        mediaType: image.mediaType,
+        prompt: input.prompt,
+      });
+      const provenance = image.renderedFrom
+        ? `rendered ${input.path} page ${page} -> ${image.renderedFrom}\n\n`
+        : "";
+      return ok(`${provenance}${answer}`);
+    }),
+  };
+
+  /**
+   * Hand a finished file to the person.
+   *
+   * Writing to `/out` makes a file; this is the act of *delivering* it. The
+   * distinction matters because `/out` accumulates — drafts, a superseded
+   * version, the spreadsheet that fed the report — and only the agent knows
+   * which of those was the answer. Without an explicit hand-off the host is
+   * left guessing from filenames and timestamps.
+   *
+   * `/out` only, on purpose: presenting from `/tmp` or `/inbox` would mean
+   * shipping an intermediate or echoing back the person's own upload.
+   */
+  const present: EnvTool = {
+    name: name("present"),
+    description:
+      "Hand a finished file to the person, with a one-line caption saying what it is. " +
+      "Use it when a deliverable in /out is ready — writing the file is not the same as delivering it, " +
+      "and /out also holds drafts and intermediates that only you can tell apart. " +
+      "Present the final artifact, not every file you made.",
+    jsonSchema: schema(
+      {
+        path: str("Absolute VFS path of the file to present. Must be under /out."),
+        caption: str("One line: what this is and what is in it. The person reads this, not the filename."),
+      },
+      ["path", "caption"],
+    ),
+    do: guard("present", async (input: { path: string; caption: string }) => {
+      if (typeof input.path !== "string" || typeof input.caption !== "string") {
+        return err("present needs { path, caption } as strings");
+      }
+      if (input.caption.trim() === "") {
+        return err(
+          "present needs a caption — the person sees it instead of the filename. " +
+            "Example: 'Q2 revenue by region, four regions with East highest at $163,200.'",
+        );
+      }
+      const item = await core.presentable(input.path);
+      await onPresent!({ ...item, caption: input.caption.trim() });
+      return ok(`presented ${item.name} (${fmtBytes(item.bytes.byteLength)}) — ${input.caption.trim()}`);
+    }),
+  };
+
+  const verbs = [writeFile, editFile, rm, mv, cp, readFile, ls, grep, describe, runScript, runTests, undo, redo, checkpoint, history];
+  if (vision) verbs.push(viewImage);
+  if (onPresent) verbs.push(present);
+  return verbs;
 }

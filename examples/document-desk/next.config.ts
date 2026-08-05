@@ -19,6 +19,7 @@ const EXTERNAL = [
   "glove-env-images",
   "glove-env-slides",
   "glove-env-archives",
+  "glove-env-render",
   "sharp",
   "pdfjs-dist",
 ];

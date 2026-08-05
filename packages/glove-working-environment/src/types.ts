@@ -87,6 +87,15 @@ export interface StdlibAdapter {
    */
   handles?: HandlesSpec;
   /**
+   * The files this adapter can rasterize to page images, declared alongside a
+   * `render(input, outDir, opts?)` binding.
+   *
+   * Kept separate from `handles` on purpose: the module that best *describes*
+   * a PDF is rarely the one that best *rasterizes* it, and folding both into
+   * one claim would make registering a renderer silently steal `describe`.
+   */
+  renders?: HandlesSpec;
+  /**
    * Factory producing the actual bindings. ALL I/O goes through the given VFS
    * handle.
    *
@@ -234,9 +243,60 @@ export interface MountableAgent {
   setSystemPrompt?(prompt: string): unknown;
 }
 
+/**
+ * A model that can look at an image, supplied by the host.
+ *
+ * This is the seam that lets an agent **check its own output**. Everything
+ * else in the environment verifies by reading text back, which catches a wrong
+ * number and misses a table running off the page, a chart with no bars, or a
+ * deck whose title overlaps its subtitle. Those are the failures a person
+ * notices in the first second and an extraction never sees.
+ *
+ * Kept as one function rather than a model adapter so the package stays free
+ * of a `glove-core` dependency and works with whatever the host already has.
+ */
+export interface VisionAdapter {
+  /**
+   * Answer `prompt` about the image. Return prose, not a verdict — the calling
+   * agent decides whether what it is told matches what it intended.
+   */
+  describe(input: { bytes: Uint8Array; mediaType: string; prompt: string }): Promise<string>;
+}
+
+/** A deliverable the agent is handing over, as passed to `onPresent`. */
+export interface PresentedFile {
+  /** VFS path, always under `/out`. */
+  path: string;
+  /** File name, for a download or an attachment. */
+  name: string;
+  bytes: Uint8Array;
+  /** Guessed from the extension; `application/octet-stream` when unknown. */
+  mediaType: string;
+  /** The agent's one-line description of what this is and why. */
+  caption: string;
+}
+
 export interface CreateWorkingEnvironmentOptions {
   /** Filesystem backend. Default: a fresh {@link inMemoryFs}. */
   filesystem?: Vfs;
+  /**
+   * Enables the `view_image` verb, which is otherwise absent from the tool
+   * set entirely — an agent is never shown a capability the host did not wire.
+   */
+  vision?: VisionAdapter;
+  /**
+   * Enables the `present` verb: the agent hands a finished file to the person.
+   *
+   * Without it the agent can only *say* it wrote something to `/out`, and the
+   * host has to guess when a turn produced a deliverable. With it, the moment
+   * of "here it is" is an explicit act with a caption attached — which is
+   * exactly what a UI needs to render a download, an inline preview, or a
+   * message with an attachment.
+   *
+   * Throwing surfaces to the agent as a failed verb, so a rejected file (too
+   * large, wrong type, the user is gone) is something it can respond to.
+   */
+  onPresent?: (item: PresentedFile) => Promise<void> | void;
   /** Stdlib adapters to register (materialized under /std, importable as env:<name>). */
   stdlib?: StdlibAdapter[];
   /** Resource limit overrides. */

@@ -143,6 +143,66 @@ The complete, closed set — everything the model does goes through these:
 | `undo(path)` / `redo(path)` | Per-file linear undo (rm included); re-runs the pipeline for scripts |
 | `checkpoint(action, name?)` | fork/restore/list/drop the WHOLE tree — the multi-file recovery undo cannot do |
 | `history(path?, limit?)` | Runs from `history.jsonl`, or a file's saved versions |
+| `view_image(path, prompt, page?)` | **Only when a `vision` model is wired.** Look at a file and answer a question about how it LOOKS |
+| `present(path, caption)` | **Only when `onPresent` is wired.** Hand a finished file from `/out` to the person, with a one-line caption |
+
+### Checking the work by looking at it
+
+Everything above verifies by reading text back. That finds a wrong number and misses a table running off the page, a chart with no bars, or a title overlapping its subtitle — the defects a person notices first.
+
+Wire a vision model and the `view_image` verb appears. Leave it out and the verb is absent from the tool set entirely; an agent is never shown a capability that would fail on use.
+
+```ts
+const env = await createWorkingEnvironment({
+  stdlib: [render()],                       // glove-env-render, for documents
+  vision: {
+    async describe({ bytes, mediaType, prompt }) {
+      return await myVisionModel(bytes, mediaType, prompt);
+    },
+  },
+});
+```
+
+One function rather than a model adapter, so this package keeps its zero dependencies and works with whatever the host already has.
+
+The verb takes a path and a **question**, and rasterizes documents on the way — so checking a PDF is one call, not render-then-look:
+
+```
+view_image({ path: '/out/report.pdf',
+             prompt: 'This should list four regions with a total. Name every
+                      region and figure you can see, and say whether any text
+                      is cut off or overlapping.' })
+```
+
+`page` is 1-based and defaults to 1, so checking slide 3 of a deck is still one call — no render step, no script.
+
+An empty prompt is refused with an example. "Describe this image" costs the same as a real question and answers far less.
+
+Any adapter can be the renderer: declare `renders` (a `HandlesSpec`, like `handles`) alongside a `render(input, outDir, opts?)` binding. It is kept in a separate registry from `handles` on purpose — otherwise registering a renderer would steal `describe` dispatch from the module that actually understands the format.
+
+### Handing the work over
+
+Writing to `/out` makes a file. `present` *delivers* it — and the distinction matters because `/out` accumulates: drafts, a superseded version, the spreadsheet that fed the report. Only the agent knows which of those was the answer, so without an explicit hand-off the host is left guessing from filenames and timestamps.
+
+Wire a receiver and the verb appears, on the same terms as `view_image`:
+
+```ts
+const env = await createWorkingEnvironment({
+  onPresent: async ({ name, bytes, mediaType, caption }) => {
+    await sendToUser({ name, bytes, mediaType, caption });   // upload, attach, stream — your call
+  },
+});
+```
+
+```
+present({ path: '/out/q2-review.pptx',
+          caption: 'Q2 review, 8 slides — revenue by region, with East flagged as the outlier.' })
+```
+
+- **`/out` only.** Presenting from `/tmp` would ship an intermediate; presenting from `/inbox` would echo the person's own upload back at them as work. The refusal names the fix (`cp … /out/…`), and making the agent copy the file first *is* the check — it forces a decision about what is finished.
+- **The caption is required**, and an empty one is refused with an example. The person reads it instead of the filename, and "report.pdf" is not a description.
+- **`mediaType` follows the extension the agent chose**, so the label agrees with the name; magic bytes only settle the extensionless case.
+- **The callback is awaited** before the verb reports success, and a throw surfaces as a tool error the agent can retry — never as a crash.
 
 ## Stdlib adapters
 
@@ -307,7 +367,64 @@ Rules of the road, each held by a test:
 - **`pick` is the sandbox boundary.** These functions run in the worker's realm, outside the vm. The one dangerous class is anything that compiles strings into code — `_.template` runs `Function(source)` host-side, which is arbitrary code execution outside the sandbox. Never pick it. Prototype members are refused at definition time.
 - **Callbacks work both ways.** Iteratees cross inward; a returned function (`memoize`, `curry`) crosses back as a guarded context-realm wrapper — callable, but its constructor chain dead-ends inside the sandbox.
 - **Data is copied per call**, like every capability. Pure modules suit shaping work, not shared mutable state.
-- **Route by shape:** I/O or genuinely async → adapter. Stateful builder written at the end → `defineBuilder`. Pure synchronous computation → `definePureModule`.
+- **Route by shape:** I/O or genuinely async → adapter. Stateful builder written at the end → `defineBuilder`. Pure synchronous computation → `definePureModule`. A capability the host already has as a tool → `defineTools`.
+
+### Capabilities: MCP servers and Glove tools as importable modules
+
+The three routes above wrap *libraries*. `defineTools` wraps *capabilities* — an MCP server, a Glove tool, or a plain async function — and gives scripts a module they can import:
+
+```ts
+import { defineTools } from "glove-working-environment";
+import { fnsFromMcp, fnFromTool, defineFn } from "glove-scratchpad/fns";
+
+const env = await createWorkingEnvironment({
+  stdlib: [
+    documents(),
+    slides(),
+    defineTools({
+      name: "github",
+      fns: await fnsFromMcp(gh),                    // a whole MCP server
+    }),
+    defineTools({
+      name: "workspace",
+      fns: [
+        fnFromTool(searchInbox),                    // a Glove tool you already fold
+        defineFn({ name: "today", handler: () => new Date().toISOString() }),
+      ],
+      docs: "Tokens belong to the workspace bot. `since` is inclusive.",
+    }),
+  ],
+});
+```
+
+The `ToolFn` shape is declared structurally, so `glove-scratchpad/fns`' builders drop straight in and this package keeps its zero dependencies. Anything matching `{ name, description?, inputSchema?, call(args) }` qualifies — no adapter to write.
+
+**Why this is different from calling the tool directly.** A tool call puts its whole result in the context window. A tool call *from a script* puts the result in a variable:
+
+```js
+import { list_pull_requests } from 'env:github';
+import { create } from 'env:slides';
+
+export default async function () {
+  const prs = await list_pull_requests({ repo: 'porkytheblack/glove', since: '2026-08-01' });
+  const byAuthor = Object.groupBy(prs, (p) => p.author);
+  await create('/out/week.pptx', {
+    slides: Object.entries(byAuthor).map(([author, items]) => ({
+      title: author, bullets: items.map((p) => p.title),
+    })),
+  });
+  return `${prs.length} PRs from ${Object.keys(byAuthor).length} people`;
+}
+```
+
+Two hundred pull requests, a thousand emails, a year of calendar events — the model writes the loop that reduces them and only the answer comes back. And because the capability lands beside `env:documents` and `env:slides`, "a PDF of all my emails" stops being two systems and becomes one script.
+
+Details that matter in practice:
+
+- **Everything is async.** These cross a thread and usually a network, which is the one shape where a missed `await` is loud rather than silent.
+- **Names must be valid identifiers**, checked at definition time — a script binds them as one. MCP's `server__tool` convention already qualifies; a dash or a dot fails with the rename attached rather than producing a module nobody can import.
+- **Write-time validation cannot fire a real effect.** Every script write executes the module's top level with a read-only environment. For a filesystem adapter that is merely wasteful; for a capability it would mean the email goes out when the script is *saved*. A top-level call is refused with the fix ("move it inside the default export").
+- **Types and docs are generated** from the input schemas — a `.d.ts` with enums as unions and a `/std/<name>/README.md` listing every capability. `docs` appends the things only the host knows: whose tokens these are, what "recent" means for this server, what not to call twice.
 
 ### Testing one
 
@@ -393,6 +510,8 @@ Design claims in this README are cheap; these are the ones with numbers behind t
 **The environment is not the bottleneck.** 92% of runs produce the deliverable — models work out the tools, write scripts, and get files into `/out`. What fails is content, and it is strongly model-dependent: mimo delivers 80% of the time at 93% fact accuracy, while glm-4.7-flash produces a file 83% of the time and gets it right 23%. That last profile is the one to watch in production — it hands you something that looks like finished work.
 
 **The scenario needing the wrapped library's real API delivers best** (15/18), which is the argument for `defineBuilder` over a bigger options bag.
+
+**Capabilities go the same way.** The motivating request for `defineTools` was "a deck of what was accomplished this week, going over the merges" — two systems unless they meet somewhere. Mounted as `env:github` over this repository's real `git log` (239 commits available), `z-ai/glm-4.6` did it in 18 turns for **$0.026**: read `/skills`, wrote a script, guessed one export name wrong (`getCommitsSince` — the error named `list_merges` and it edited the script), pulled **100 records into a variable**, grouped them into six themes inside the script, built the deck with `env:slides`, `describe`d its own output, and handed it over with a caption naming the counts. The only thing that reached the context window was the summary. `examples/analyst-desk/src/livecheck-capabilities.ts` asserts exactly that: a script imported the module, a `.pptx` exists, and the presented file is the deck.
 
 **A negative result worth keeping.** `/skills` exists because guessed imports were the most frequent error. The obvious follow-up — refuse the first blind script write and point at the docs (`nudgeToDocsOnFirstWrite`) — was A/B'd over 45 runs per arm: **25/45 complete without it, 24/45 with it**, two of three models identical. It does cut genuine errored calls ~17%, and none of that converts into delivered work. It ships **off**; the errors it removes were not the ones costing runs. Recorded on [#64](https://github.com/porkytheblack/glove/issues/64).
 

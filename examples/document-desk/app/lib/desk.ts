@@ -15,6 +15,7 @@ import { Displaymanager, Glove, MemoryStore, createAdapter } from "glove-core";
 import type { IGloveRunnable, SubscriberAdapter } from "glove-core";
 import {
   createWorkingEnvironment,
+  defineTools,
   mountWorkingEnvironment,
   type WorkingEnvironment,
 } from "glove-working-environment";
@@ -23,6 +24,8 @@ import { spreadsheets } from "glove-env-spreadsheets";
 import { images } from "glove-env-images";
 import { slides } from "glove-env-slides";
 import { archives } from "glove-env-archives";
+import { render } from "glove-env-render";
+import { visionAdapter } from "./vision";
 import { SYSTEM_PROMPT } from "./prompt";
 
 export interface Desk {
@@ -40,6 +43,7 @@ export type DeskEvent =
   | { type: "tool"; id: string; name: string; input: unknown }
   | { type: "tool_result"; id: string; status: "success" | "error"; output: string }
   | { type: "tree_changed" }
+  | { type: "presented"; path: string; name: string; mediaType: string; size: number; caption: string }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -67,12 +71,111 @@ const MUTATING = new Set([
   "checkpoint",
 ]);
 
+/**
+ * The vision model as an importable function, via `defineTools`.
+ *
+ * The distinction this example is here to show: `view_image` is a *verb*, and
+ * every answer it gives lands in the context window. Checking forty rendered
+ * pages that way costs forty round trips and buries the conversation. The same
+ * model as a *capability* is a loop —
+ *
+ * ```js
+ * const { pages } = await rasterize('/out/report.pdf', '/tmp/pages');
+ * const bad = [];
+ * for (const p of pages) {
+ *   const answer = await look({ path: p.path, prompt: 'Is any text cut off at the page edge?' });
+ *   if (/yes/i.test(answer)) bad.push(p.page);
+ * }
+ * return bad.length ? `pages with clipped text: ${bad.join(', ')}` : 'all pages clean';
+ * ```
+ *
+ * — and only that last line comes back. Bytes are read inside the call, so
+ * images never cross the worker boundary either.
+ *
+ * The `envRef` holder exists because the module has to be listed in `stdlib`
+ * before the environment it reads from exists. A capability that needs the
+ * tree is the one case where `defineTools` needs this indirection; one that
+ * only calls out to a service (an MCP server, an API) does not.
+ */
+function visionModule(
+  vision: NonNullable<ReturnType<typeof visionAdapter>>,
+  envRef: { current?: WorkingEnvironment },
+) {
+  return defineTools({
+    name: "vision",
+    description: "Ask a vision model about an image, from inside a script.",
+    fns: [
+      {
+        name: "look",
+        description:
+          "Answer a question about how an image LOOKS. Give a specific question, not 'describe this'. " +
+          "Takes a path to a raster image (PNG/JPEG) — rasterize a PDF or deck with env:render first.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "Absolute VFS path of a PNG or JPEG" },
+            prompt: { type: "string", description: "The specific question to answer about it" },
+          },
+          required: ["path", "prompt"],
+        },
+        resultShape: "string",
+        readOnlyHint: true,
+        async call(args) {
+          const { path, prompt } = args as { path?: string; prompt?: string };
+          if (!path || !prompt) throw new Error("look needs { path, prompt }");
+          if (!envRef.current) throw new Error("the environment is not ready yet");
+          const bytes = await envRef.current.fs.readBytes(path);
+          const lower = path.toLowerCase();
+          const mediaType = lower.endsWith(".jpg") || lower.endsWith(".jpeg") ? "image/jpeg" : "image/png";
+          return await vision.describe({ bytes, mediaType, prompt });
+        },
+      },
+    ],
+    docs:
+      "One call, one image, one question. For a whole document: rasterize with `env:render` " +
+      "into `/tmp`, then loop. Keep the question narrow — an open-ended look costs the same " +
+      "and answers less.",
+  });
+}
+
 export async function getDesk(id: string): Promise<Desk> {
   const existing = registry.get(id);
   if (existing) return existing;
 
+  const vision = visionAdapter();
+
+  // Declared before the environment because `onPresent` fires from inside a
+  // tool call — the desk object that owns this set does not exist yet.
+  const listeners = new Set<(event: DeskEvent) => void>();
+  const broadcast = (event: DeskEvent) => {
+    for (const listen of listeners) listen(event);
+  };
+  const envRef: { current?: WorkingEnvironment } = {};
+
   const env = await createWorkingEnvironment({
-    stdlib: [documents(), spreadsheets(), images(), slides(), archives()],
+    stdlib: [
+      documents(),
+      spreadsheets(),
+      images(),
+      slides(),
+      archives(),
+      render(),
+      // The fourth authoring route: a capability, not a library. `view_image`
+      // is one look per tool call, which is right for spot-checking and wrong
+      // for a forty-page document — so the same vision model is mounted as a
+      // function a script can loop over. The per-page answers land in a
+      // variable; only the summary comes back.
+      ...(vision ? [visionModule(vision, envRef)] : []),
+    ],
+    // Wire a vision model and the agent gains `view_image`, so it can check
+    // its own output by LOOKING at it — the one defect class that reading the
+    // text back cannot catch. Absent a key, the verb is simply not offered.
+    ...(vision ? { vision } : {}),
+    // And `present`: writing a file to /out is not the same as handing it
+    // over, because /out also accumulates drafts and intermediates.
+    onPresent: ({ path, name, mediaType, bytes, caption }) => {
+      broadcast({ type: "presented", path, name, mediaType, size: bytes.byteLength, caption });
+    },
     limits: {
       // A generous script budget: rendering a deck or a hundred-page PDF is
       // real work, and a timeout here reads to the user as "the agent broke".
@@ -85,16 +188,14 @@ export async function getDesk(id: string): Promise<Desk> {
     },
   });
 
+  envRef.current = env;
+
   const desk: Desk = {
     id,
     env,
     agent: undefined as unknown as IGloveRunnable,
-    listeners: new Set(),
+    listeners,
     createdAt: Date.now(),
-  };
-
-  const broadcast = (event: DeskEvent) => {
-    for (const listen of desk.listeners) listen(event);
   };
 
   /**
