@@ -34,6 +34,44 @@ class FakeSocket extends EventEmitter implements WebSocketLike {
   }
 }
 
+/**
+ * Translate the suite's synthetic `__conformance` descriptors into Gemini's
+ * real wire frames, so every case drives the adapter's actual mapping code.
+ */
+function toGeminiFrame(message: any): unknown {
+  switch (message?.__conformance) {
+    case "tool_call":
+      return {
+        toolCall: {
+          functionCalls: [
+            { id: message.callId, name: message.name, args: JSON.parse(message.arguments || "{}") },
+          ],
+        },
+      };
+    case "user_transcript":
+      // Gemini input transcriptions are always final.
+      return { serverContent: { inputTranscription: { text: message.text } } };
+    case "audio":
+      return {
+        serverContent: {
+          modelTurn: {
+            parts: [
+              {
+                inlineData: {
+                  data: Buffer.from(Int16Array.from(message.samples as number[]).buffer).toString(
+                    "base64",
+                  ),
+                },
+              },
+            ],
+          },
+        },
+      };
+    default:
+      return message;
+  }
+}
+
 function geminiContext(): ConformanceContext {
   const socket = new FakeSocket();
   const adapter = new GeminiLiveAdapter({
@@ -42,7 +80,7 @@ function geminiContext(): ConformanceContext {
   });
   return {
     adapter,
-    inbound: (message) => socket.fire("message", { data: JSON.stringify(message) }),
+    inbound: (message) => socket.fire("message", { data: JSON.stringify(toGeminiFrame(message)) }),
     outbound: () => socket.sent,
     settle: () => new Promise((r) => setTimeout(r, 5)),
   };

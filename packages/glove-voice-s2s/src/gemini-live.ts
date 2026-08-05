@@ -48,6 +48,10 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
   private connected = false;
   private agentTranscript = "";
   private speaking = false;
+  /** callId → function name. Gemini's functionResponse requires the NAME of
+   *  the function alongside the id; the S2S contract only threads the id, so
+   *  remember the pairing from the inbound call. */
+  private readonly callNames = new Map<string, string>();
 
   constructor(private readonly cfg: GeminiLiveConfig) {
     super();
@@ -151,10 +155,12 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
 
   sendToolResult(callId: string, output: unknown): void {
     if (!this.ws) return;
+    const name = this.callNames.get(callId) ?? callId;
+    this.callNames.delete(callId);
     this.ws.send(
       JSON.stringify({
         toolResponse: {
-          functionResponses: [{ id: callId, name: callId, response: { output } }],
+          functionResponses: [{ id: callId, name, response: { output } }],
         },
       }),
     );
@@ -193,14 +199,12 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
       return;
     }
 
-    // Conformance shim: the suite drives adapters with synthetic frames so it
-    // can test event mapping without a provider. Real traffic never has this.
-    if (msg.__conformance) return this.onConformance(msg);
-
     if (msg.toolCall?.functionCalls) {
       for (const fc of msg.toolCall.functionCalls) {
+        const callId = String(fc.id ?? fc.name);
+        this.callNames.set(callId, String(fc.name));
         this.emit("tool_call", {
-          callId: String(fc.id ?? fc.name),
+          callId,
           name: String(fc.name),
           arguments: JSON.stringify(fc.args ?? {}),
         });
@@ -246,23 +250,6 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
     }
   }
 
-  private onConformance(msg: any): void {
-    switch (msg.__conformance) {
-      case "tool_call":
-        this.emit("tool_call", {
-          callId: msg.callId,
-          name: msg.name,
-          arguments: msg.arguments,
-        });
-        break;
-      case "user_transcript":
-        this.emit("user_transcript", msg.text, msg.isFinal);
-        break;
-      case "audio":
-        this.emit("audio", Int16Array.from(msg.samples), GEMINI_OUTPUT);
-        break;
-    }
-  }
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────

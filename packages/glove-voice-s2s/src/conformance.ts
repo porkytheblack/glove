@@ -27,7 +27,16 @@ export interface ConformanceCase {
 
 export interface ConformanceContext {
   adapter: S2SAdapter;
-  /** Feed a raw provider message into the adapter, as its socket would. */
+  /**
+   * Feed a provider message into the adapter, as its socket would.
+   *
+   * The suite calls this with SYNTHETIC descriptors (`{ __conformance:
+   * "tool_call" | "user_transcript" | "audio", … }`). The harness must
+   * translate each descriptor into the provider's REAL wire shape before
+   * handing it to the adapter — that way the case exercises the adapter's
+   * actual mapping code, not a test-only shim. Never handle `__conformance`
+   * inside the adapter itself.
+   */
   inbound(message: unknown): void;
   /** Everything the adapter has sent to the provider, in order. */
   outbound(): unknown[];

@@ -22,8 +22,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import EventEmitter from "eventemitter3";
-import { getToolJsonSchema, type IGloveRunnable, type Tool } from "glove-core";
-import type { S2SAdapter, S2SSessionConfig, S2STool } from "./types";
+import { getToolJsonSchema, type IGloveRunnable, type Tool, type ToolResultData } from "glove-core";
+import type { S2SAdapter, S2SEvents, S2SSessionConfig, S2STool } from "./types";
 
 export interface RealtimeAgentConfig {
   /** A built Glove. Its prompt and tools configure the session. */
@@ -46,6 +46,13 @@ export interface RealtimeAgentConfig {
    * or takes thirty seconds, is worse than useless mid-utterance: the model
    * calls it and the room goes silent. Withheld tools stay available to the
    * same agent's text turns.
+   *
+   * Two kinds of tool should almost always be listed here:
+   * - Tools with `requiresPermission` — the voice path executes `Tool.run`
+   *   directly, without the Executor, so there is no permission prompt. A
+   *   gated tool called from a voice turn runs UNGATED.
+   * - Tools that call `display.pushAndWait` — the voice path passes no
+   *   `handOver`, so a blocking display call throws instead of rendering.
    */
   excludeTools?: string[];
   /** Notified when a tool call starts and finishes — for HUDs and metrics. */
@@ -66,9 +73,14 @@ export type RealtimeAgentEvents = {
 
 export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
   private readonly agent: IGloveRunnable;
-  private readonly adapter: S2SAdapter;
+  /** The provider session, exposed so a transport-mode host can subscribe to
+   *  `audio` / speech events without keeping a second reference around. */
+  readonly adapter: S2SAdapter;
   private readonly excluded: Set<string>;
   private started = false;
+  /** Listeners THIS class attached, so stop() removes only its own — a host's
+   *  `audio` / `interrupted` listeners on the adapter must survive a stop. */
+  private readonly bound: Array<[keyof S2SEvents, (...args: never[]) => void]> = [];
 
   constructor(private readonly cfg: RealtimeAgentConfig) {
     super();
@@ -105,15 +117,15 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
     if (this.started) return;
     this.started = true;
 
-    this.adapter.on("tool_call", (call) => void this.runTool(call));
-    this.adapter.on("user_transcript", (text, isFinal) => {
+    this.listen("tool_call", (call) => void this.runTool(call));
+    this.listen("user_transcript", (text, isFinal) => {
       if (isFinal && text) this.emit("user_said", text);
     });
-    this.adapter.on("agent_transcript_delta", (text) => this.emit("agent_delta", text));
-    this.adapter.on("agent_transcript_done", (text) => {
+    this.listen("agent_transcript_delta", (text) => this.emit("agent_delta", text));
+    this.listen("agent_transcript_done", (text) => {
       if (text) this.emit("agent_said", text);
     });
-    this.adapter.on("error", (err) => this.emit("error", err));
+    this.listen("error", (err) => this.emit("error", err));
 
     const config: S2SSessionConfig = {
       instructions: this.cfg.instructions ?? this.agent.getSystemPrompt(),
@@ -125,8 +137,17 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
 
   async stop(): Promise<void> {
     this.started = false;
-    this.adapter.removeAllListeners();
+    for (const [event, fn] of this.bound) this.adapter.off(event, fn as never);
+    this.bound.length = 0;
     await this.adapter.disconnect();
+  }
+
+  private listen<E extends keyof S2SEvents>(
+    event: E,
+    fn: (...args: S2SEvents[E]) => void,
+  ): void {
+    this.adapter.on(event, fn as never);
+    this.bound.push([event, fn as (...args: never[]) => void]);
   }
 
   /** Feed microphone PCM. `transport` mode only. */
@@ -172,7 +193,8 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
     if (!tool || this.excluded.has(call.name)) {
       this.adapter.sendToolResult(call.callId, {
         status: "error",
-        error: `Unknown tool: ${call.name}`,
+        data: null,
+        message: `Unknown tool: ${call.name}`,
       });
       return;
     }
@@ -183,7 +205,8 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
     } catch {
       this.adapter.sendToolResult(call.callId, {
         status: "error",
-        error: "Arguments were not valid JSON.",
+        data: null,
+        message: "Arguments were not valid JSON.",
       });
       return;
     }
@@ -196,7 +219,8 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
       if (!parsed.success) {
         this.adapter.sendToolResult(call.callId, {
           status: "error",
-          error: `Invalid arguments: ${parsed.error.message}`,
+          data: null,
+          message: `Invalid arguments: ${parsed.error.message}`,
         });
         return;
       }
@@ -210,12 +234,21 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
       const result = await tool.run(input, undefined, undefined);
       this.cfg.onToolCall?.(call.name, "done", result);
       this.emit("tool_finished", call.name, result);
-      this.adapter.sendToolResult(call.callId, result);
+      // Same contract as the model adapters: `renderData` (and the summary
+      // plumbing) is client-only and never reaches a model — tools rely on
+      // that to keep sensitive UI data out of the provider.
+      const { renderData: _rd, summary: _s, generateSummaryArgs: _gsa, ...wire } =
+        result as ToolResultData;
+      this.adapter.sendToolResult(call.callId, wire);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.cfg.onToolCall?.(call.name, "error", error);
       this.emit("error", error);
-      this.adapter.sendToolResult(call.callId, { status: "error", error: error.message });
+      this.adapter.sendToolResult(call.callId, {
+        status: "error",
+        data: null,
+        message: error.message,
+      });
     }
   }
 }

@@ -100,7 +100,7 @@ test("an unknown tool still gets a result, not silence", async () => {
   await new Promise((r) => setTimeout(r, 10));
 
   assert.equal(adapter.results.length, 1, "provider was left waiting — this is dead air");
-  assert.match((adapter.results[0].output as any).error, /Unknown tool/);
+  assert.match((adapter.results[0].output as any).message, /Unknown tool/);
 });
 
 test("malformed arguments still get a result", async () => {
@@ -112,7 +112,7 @@ test("malformed arguments still get a result", async () => {
   await new Promise((r) => setTimeout(r, 10));
 
   assert.equal(adapter.results.length, 1);
-  assert.match((adapter.results[0].output as any).error, /valid JSON/);
+  assert.match((adapter.results[0].output as any).message, /valid JSON/);
 });
 
 test("schema-invalid arguments are rejected before the tool runs", async () => {
@@ -126,7 +126,7 @@ test("schema-invalid arguments are rejected before the tool runs", async () => {
   await new Promise((r) => setTimeout(r, 10));
 
   assert.equal(ran, false, "tool ran with input its own schema rejects");
-  assert.match((adapter.results[0].output as any).error, /Invalid arguments/);
+  assert.match((adapter.results[0].output as any).message, /Invalid arguments/);
 });
 
 test("a throwing tool still gets a result the model can speak", async () => {
@@ -140,7 +140,49 @@ test("a throwing tool still gets a result the model can speak", async () => {
   await new Promise((r) => setTimeout(r, 10));
 
   assert.equal(adapter.results.length, 1);
-  assert.match((adapter.results[0].output as any).error, /database is down/);
+  assert.match((adapter.results[0].output as any).message, /database is down/);
+});
+
+test("renderData and summary plumbing never reach the provider", async () => {
+  const adapter = new FakeAdapter();
+  const tool = {
+    ...okTool,
+    run: async () => ({
+      status: "success",
+      data: { covered: true },
+      renderData: { email: "secret@example.com" },
+      summary: "checked warranty",
+      generateSummaryArgs: { hull: "x" },
+    }),
+  };
+  const rt = new RealtimeAgent({ agent: fakeAgent([tool]), adapter });
+  const finished: unknown[] = [];
+  rt.on("tool_finished", (_n, out) => finished.push(out));
+  await rt.start();
+
+  adapter.emit("tool_call", { callId: "c7", name: "check_warranty", arguments: '{"hull":"x"}' });
+  await new Promise((r) => setTimeout(r, 10));
+
+  const wire = adapter.results[0].output as any;
+  assert.equal(wire.renderData, undefined, "renderData is client-only, same as the model adapters");
+  assert.equal(wire.summary, undefined);
+  assert.equal(wire.generateSummaryArgs, undefined);
+  assert.deepEqual(wire.data, { covered: true });
+  // The host-side event still carries the full result.
+  assert.deepEqual((finished[0] as any).renderData, { email: "secret@example.com" });
+});
+
+test("stop() removes only its own listeners — the host's stay attached", async () => {
+  const adapter = new FakeAdapter();
+  const rt = new RealtimeAgent({ agent: fakeAgent([]), adapter });
+  const hostAudio: number[] = [];
+  adapter.on("audio", (pcm) => hostAudio.push(pcm.length));
+  await rt.start();
+  await rt.stop();
+
+  adapter.emit("audio", new Int16Array(4), adapter.inputFormat);
+  assert.deepEqual(hostAudio, [4], "host's audio wiring must survive a stop/start cycle");
+  assert.equal(adapter.listenerCount("tool_call"), 0, "bridge listeners must be gone");
 });
 
 test("transcripts surface, and injection reaches the adapter", async () => {
