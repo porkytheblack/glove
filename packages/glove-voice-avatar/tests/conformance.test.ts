@@ -73,6 +73,11 @@ test("conversation create carries pal_id + face_id; the view is the Daily room",
   const create = ctx.http.find((h) => h.url.endsWith("/v2/conversations")) as any;
   assert.equal(create.body.pal_id, "pal_echo");
   assert.equal(create.body.face_id, "face_1");
+  assert.equal(
+    create.body.custom_greeting,
+    "",
+    "an absent greeting makes Tavus speak a stock one in ITS OWN voice over our stream",
+  );
   assert.deepEqual(ctx.adapter.view, {
     kind: "webrtc-room",
     url: "https://tavus.daily.co/c_test",

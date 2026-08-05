@@ -46,6 +46,15 @@ export interface TavusEchoConfig {
   faceId: string;
   /** Conversation display name, shown in the Daily room. */
   conversationName?: string;
+  /**
+   * The greeting Tavus speaks WITH ITS OWN TTS VOICE as the conversation
+   * opens. Left unset, Tavus uses a stock greeting — which means the caller
+   * hears a second, different voice before the first echo frame arrives.
+   * Defaults to "" to suppress it: the agent's first words should come from
+   * the S2S voice through echo. Set text only if you deliberately want a
+   * provider-voiced opener.
+   */
+  greeting?: string;
   /** API base (default https://tavusapi.com). */
   apiBase?: string;
   /** How much audio to batch per echo event (default 400ms). */
@@ -101,6 +110,9 @@ export class TavusEchoAdapter extends EventEmitter<AvatarEvents> implements Avat
       body: JSON.stringify({
         pal_id: this.cfg.palId,
         face_id: this.cfg.faceId,
+        // Always sent: an absent custom_greeting means Tavus speaks a stock
+        // one in its own voice over our echo stream's opening.
+        custom_greeting: this.cfg.greeting ?? "",
         ...(this.cfg.conversationName ? { conversation_name: this.cfg.conversationName } : {}),
       }),
     });
