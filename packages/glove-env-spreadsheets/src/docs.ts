@@ -95,6 +95,9 @@ export function fromCsv(input: string, output: string, opts?: WriteOptions & { d
  * \`csv.writeFile\` and \`writeBuffer\` are async, and one of them must be
  * awaited or nothing is produced. Paths are virtual, as everywhere else.
  *
+ * Values cannot be read back off the workbook while you build it: the whole
+ * recording is replayed at the write, so there is nothing to return.
+ *
  * \`\`\`js
  * import { Workbook } from 'env:spreadsheets';
  * const wb = new Workbook();

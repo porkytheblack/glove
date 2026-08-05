@@ -231,6 +231,29 @@ if (!back.text.includes('2,435,210')) throw new Error('the total did not render'
 
 That check costs one call and is the difference between delivering a
 report and delivering a report with the wrong number in it.
+
+## When the one-call verb is not enough
+
+\`pdf.create\`, \`docx.create\`, \`write\` and \`create\` (slides) understand a
+fixed set of blocks and silently render nothing for anything else. If the
+task asks for something they cannot say — a bold header row, a coloured
+run mid-sentence, a merged title cell, a particular layout — reach for the
+wrapped library, which is exported under its own name:
+
+\`\`\`js
+import { Workbook } from 'env:spreadsheets';       // exceljs
+import { PptxGenJS } from 'env:slides';            // pptxgenjs
+import { Document, Packer, Paragraph } from 'env:documents';   // docx
+\`\`\`
+
+Worked examples: \`/skills/spreadsheets-styling.md\`,
+\`/skills/slides-custom.md\`, \`/skills/documents-styling.md\`.
+
+Two things hold for all three. **Only the write is async** — everything
+before it is synchronous, and a document you build but never write
+produces no file and no error. And **you cannot read values back off what
+you are building**; the whole thing is replayed at the write, so compute
+what you need from your own data first.
 `,
 };
 

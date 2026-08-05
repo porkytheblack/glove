@@ -21,6 +21,9 @@ export const SLIDES_TYPES = `/** env:slides — build and read PowerPoint decks 
  *
  * Errors are reported against the call that caused them — "call #7
  * addText(): ..." — because the deck is assembled when you write it.
+ *
+ * Values cannot be read back off the deck while you build it: the whole
+ * recording is replayed at the write, so there is nothing to return.
  */
 export const PptxGenJS: any;
 

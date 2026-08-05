@@ -159,6 +159,8 @@ export const docx: {
 //   await writeFile('/out/review.docx', await Packer.toBuffer(doc));
 //
 // Sizes are in twips (1 inch = 1440, 1 pt = 20); font sizes are half-points.
+// Values cannot be read back off what you build — the whole thing is replayed
+// at Packer.toBuffer, so there is nothing to return mid-build.
 // ---------------------------------------------------------------------------
 
 export {

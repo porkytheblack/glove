@@ -20,6 +20,8 @@ Design goals: **context-window discipline** (big data lives in files; tool outpu
 
 Non-goals, equally load-bearing: no networking (not configurable), no shell emulation, no bare `exec`/REPL tool (all execution goes through named, persistent scripts), no background execution or watchers.
 
+**And no agent loop.** This package makes the work possible and keeps it safe; it does not decide whether the work is *good*. Measured over 90 agent runs, 92% produced the artifact they were asked for and 54% were fully correct — the gap is judgment (a buried fact missed, a settled claim mistaken for an outstanding one), not tooling. Closing it needs generate-and-evaluate with a critic, and that belongs in the host, which is why everything it needs is public: `snapshot()`/`fromSnapshot()` to checkpoint and rewind, `export()` to pull artifacts for judging, `fs` to read what the agent actually did, `mount()` to feed a critique back in. [`examples/analyst-desk`](../../examples/analyst-desk) is a working reference for the evaluate half.
+
 ## Quick start
 
 ```ts
@@ -70,11 +72,16 @@ const env2 = await createWorkingEnvironment({ filesystem: fromSnapshot(snap), st
 ```
 /inbox    ← mounted inputs (convention)
 /scripts  ← the agent's script library + generated .d.ts siblings (/scripts/lib for utility modules)
-/std      ← materialized adapter docs (read-only)
+/skills   ← worked recipes, indexed by /skills/README.md (read-only)
+/std      ← materialized adapter types and docs (read-only)
 /tmp      ← intermediates and spilled outputs
 /out      ← deliverables (what env.export targets by convention)
 /.env     ← history.jsonl + file version store (read-only to the model)
 ```
+
+`/std` and `/skills` answer different questions and are read at different moments. `/std/<name>/index.d.ts` is the reference — what a module exports, exactly. A skill is a worked recipe for a task: here is a styled workbook, here is how you search a document too large to read. The distinction is not cosmetic. The most frequent errors measured across agent runs were *guessed imports* — a model reaches for a remembered shape before it reads a signature, so a correct example in front of it is worth more than a better error after the fact.
+
+Adapters ship their own via `skills: [...]`; they are materialized alongside the builtin ones and listed in the index. The tool preamble points at `/skills/README.md` first.
 
 ## The script contract
 
@@ -125,12 +132,12 @@ Five ship separately:
 
 | Package | Module | Gives the model |
 |---|---|---|
-| [`glove-env-documents`](../glove-env-documents) | `env:documents` | One document spec → PDF *and* DOCX; describe/merge/split/stamp; text extraction |
-| [`glove-env-spreadsheets`](../glove-env-spreadsheets) | `env:spreadsheets` | `.xlsx` as plain-JSON records; describe, page, write, append, CSV bridging |
+| [`glove-env-documents`](../glove-env-documents) | `env:documents` | One document spec → PDF *and* DOCX; describe/merge/split/stamp; text extraction. Plus `docx`'s own `Document`/`Packer`/`Paragraph` for anything the spec cannot express |
+| [`glove-env-spreadsheets`](../glove-env-spreadsheets) | `env:spreadsheets` | `.xlsx` as plain-JSON records; describe, page, write, append, CSV bridging. Plus exceljs's own `Workbook` for styling, formats and formulas |
 | [`glove-env-images`](../glove-env-images) | `env:images` | Describe without decoding; resize/convert/crop/rotate/composite/contact-sheet |
 | [`glove-env-archives`](../glove-env-archives) | `env:archives` | zip/tar/tar.gz in and out; traversal- and bomb-safe extraction. No dependencies |
 | [`glove-env-media`](../glove-env-media) | `env:media` | Video and audio via ffmpeg: describe, thumbnail, frames, clip, concat, transcode, slideshow |
-| [`glove-env-slides`](../glove-env-slides) | `env:slides` | PowerPoint decks built from a spec, and read back — outline, slide text, speaker notes |
+| [`glove-env-slides`](../glove-env-slides) | `env:slides` | PowerPoint decks from a spec, read back independently — outline, slide text, notes. Plus pptxgenjs's own `PptxGenJS` for custom layouts |
 
 ```ts
 const env = await createWorkingEnvironment({ stdlib: [documents(), spreadsheets(), images()] });
@@ -151,6 +158,7 @@ export const images = () =>
       extensions: [".png", ".jpg"],
       magic: [{ bytes: [0x89, 0x50, 0x4e, 0x47] }],   // beats any extension claim
     },
+    skills: IMAGES_SKILLS,                            // → /skills/<name>.md, listed in the index
     create: (vfs, ctx) => ({
       describe: async (path) => summarize(await vfs.readBytes(path)),
       resize: async (input, output, opts) => {
@@ -163,6 +171,72 @@ export const images = () =>
 
 `create(vfs)` is the capability boundary: the handle it receives routes through the same guarded gateway as the model verbs (zones, limits, script pipeline, versions). Convention: **paths in, paths out, structured data in between**, and every format adapter exposes `describe(path)` returning a tokens-cheap summary of a binary artifact plus format-appropriate extractors.
 
+### Exposing a library's real API
+
+A curated spec covers the common case in one call and cannot express the rest — a bold header row, a coloured run mid-sentence, a merged title cell, a landscape section. `defineBuilder` exposes the wrapped library itself, so the model writes what the library's own documentation says:
+
+```js
+import { Workbook } from 'env:spreadsheets';
+
+const wb = new Workbook();
+const ws = wb.addWorksheet('Revenue');
+ws.columns = [{ header: 'Region', key: 'region', width: 24 }];
+ws.addRows(rows);
+ws.getRow(1).font = { bold: true };
+ws.getColumn('revenue').numFmt = '#,##0';
+await wb.xlsx.writeFile('/out/revenue.xlsx');
+```
+
+That is exceljs, verbatim. The point is not elegance: models have read thousands of examples of exactly this shape, and an API that differs makes them translate. Measured — the scenario that *requires* this path (styling unreachable through the curated `write()`) is the highest-delivering one in the eval suite at 15/18.
+
+**How it works.** A live object cannot cross a thread boundary, so nothing does. The worker hands the script a recorder that logs `new`/call/get/set into a flat op list — synchronously, so the API chains exactly like the real one — and the whole list crosses once, on the terminal call. One round trip per document rather than one per call.
+
+The recorder is built *inside* the vm context, alongside the capability closures. It has to be: everything crossing that boundary is deep-copied, and a Proxy whose behaviour lives in traps has no own keys, so a copy of one is `{}`.
+
+```ts
+const Pptx = defineBuilder<InstanceType<typeof PptxGenJS>>({
+  name: "PptxGenJS",
+  construct: () => new PptxGenJS(),
+  allow: [...new Set([...methodsOf(probe), ...methodsOf(probeSlide)])],
+  data: { ShapeType: probe.ShapeType, AlignH: probe.AlignH },   // enums read as values
+  rewrite: {
+    async addImage(args) {                                       // path → bytes, via the VFS
+      const o = { ...args[0] };
+      if (typeof o.path === "string") {
+        o.data = `image/png;base64,${Buffer.from(await vfs.readBytes(o.path)).toString("base64")}`;
+        delete o.path;
+      }
+      return [o];
+    },
+  },
+  finish: {                                                      // the only calls that produce anything
+    async writeFile(pptx, args) {
+      await vfs.writeFile(args[0].fileName, new Uint8Array(await pptx.write({ outputType: "nodebuffer" })));
+      return args[0].fileName;
+    },
+  },
+});
+```
+
+Four things are not optional:
+
+- **The allowlist is read off the library** (`methodsOf`), never typed out. A hand-written list is wrong the day the dependency adds a method, and wrong *invisibly* — the symptom is a model writing correct code from the real docs and being told the method does not exist. `methodsOf` reads property descriptors rather than invoking getters, so probing a library does not run its side effects.
+- **Prototype members are refused.** Replaying a script-chosen name against a live host object would make `constructor` callable, and `constructor.constructor` is the classic route to the host realm. `defineBuilder` rejects an allowlist containing one at definition time.
+- **`rewrite` for every path-taking method.** This closed a real hole found while testing something else: `addImage({ path })` made pptxgenjs open the file *itself*, off the host filesystem, so a script could name any file the process could read and have its bytes embedded in a deck it then exported. Any wrapped library taking a filename has the same hole.
+- **`finish` replaces the library's own writer.** Bytes are produced in memory and land in the VFS through the guarded handle, so zones, limits and versioning apply exactly as to any other write.
+
+Errors name the call that caused them (`call #7 addText(): …`), because the document is assembled at write time and a bare flush failure says nothing about which line was wrong.
+
+**Libraries that are not one object.** `docx` has no root builder — a document is *assembled* from constructed values and written with a static:
+
+```js
+await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph({ children: [new TextRun(…)] })] }] }));
+```
+
+For that, `defineBuilders` declares a **family**: members share one op list and therefore one ref table, so a `Paragraph` can be named inside a `Document`'s arguments, and a member with `singleton` (like `Packer`) is used without `new`. Recorded values are substituted as refs at any depth inside arguments — without which a recorder passed as an argument deep-copies to `{}` and the argument silently vanishes.
+
+One limitation, stated in the skills because it is not guessable from code that looks exactly like the real library: **values cannot be read back off a builder**. The recording replays at the write, so there is nothing to return mid-build. Interpolating one yields `[PptxGenJS (recording; nothing is built until you await a terminal call)]` rather than throwing.
+
 Two hard rules, both from the thread boundary a script call crosses: **declare every binding `Promise<…>`** even where the implementation is synchronous, and **return data, not functions or live host objects**. `auditAdapter` fails the first; the second fails at the call naming your binding.
 
 Four things the environment does for you, which is most of why adapters are short:
@@ -172,6 +246,7 @@ Four things the environment does for you, which is most of why adapters are shor
 - **Declaring `handles` makes your `describe` reachable without a script.** The `describe` verb routes a path to whichever adapter claims it, and `ls` annotates claimed files with the module that opens them. Claims are matched from the file's head bytes without calling in, so annotating a directory of fifty documents costs fifty header reads, not fifty parses. Magic beats extension globally — declare a magic signature only where it is unambiguous (a `PK` header cannot distinguish `.xlsx` from `.docx`; both are claimed by extension instead).
 - **`create` is called twice** — once normally, once bound to a filesystem that refuses mutations, because write-time validation runs module top-level code and a rejected write must leave no trace. `ctx.readOnly` distinguishes them; most adapters ignore it. Keep `create` free of side effects outside its handle.
 - **Specs are checked eagerly.** `defineAdapter` rejects a bad name, a missing `description`, or absent `types` at definition time, where the author sees it — not at environment creation, in someone else's stack trace.
+- **`skills` is where the worked example goes.** `types` says what you export; a skill says how to get a deliverable out of it. Ship at least two if your adapter has both a one-call path and a library path — that is the shape the three format adapters use, and the measured failure was never a misused signature.
 
 ### Testing one
 
@@ -243,6 +318,25 @@ Restoring a tree whose scripts import an adapter the host did not register is re
 
 Every `run_script` appends a line to `/.env/history.jsonl` (ring-buffered) — readable and grepable by the model for self-debugging, and an audit trail for the host. Every mutation records the prior file state in a per-file version ring under `/.env/versions/`, giving linear per-file `undo`/`redo` (a fresh mutation truncates the redo branch). Version storage counts against the size cap and survives snapshots.
 
-## Deferred past v1
+## What has been measured
 
-Unified `describe(path)` tool verb · test convention (`env:assert` + `run_tests`) · auto-maintained orientation file · adapter file handlers on the post-mutation hook · COW host-directory filesystem adapter · model-facing fork/snapshot verbs.
+Design claims in this README are cheap; these are the ones with numbers behind them. The harness is [`examples/analyst-desk`](../../examples/analyst-desk) — an 80-page report that *cannot* be read into context, a messy 420-row export, and instructions to produce a briefing, a deck, a PDF and a styled workbook. Graded twice: deterministic checks own facts, a stronger model owns readings. 90 runs across `xiaomi/mimo-v2.5`, `minimax/minimax-m2.5` and `z-ai/glm-4.7-flash`.
+
+| | produced the artifact | ≥80% of facts right | fully correct |
+|---|---|---|---|
+| **all runs** | **83/90 (92%)** | 58/90 (64%) | **49/90 (54%)** |
+| xiaomi/mimo-v2.5 | 29/30 | 27/30 | **24/30 (80%)** |
+| minimax/minimax-m2.5 | 29/30 | 20/30 | 18/30 (60%) |
+| z-ai/glm-4.7-flash | 25/30 | 11/30 | 7/30 (23%) |
+
+**The environment is not the bottleneck.** 92% of runs produce the deliverable — models work out the tools, write scripts, and get files into `/out`. What fails is content, and it is strongly model-dependent: mimo delivers 80% of the time at 93% fact accuracy, while glm-4.7-flash produces a file 83% of the time and gets it right 23%. That last profile is the one to watch in production — it hands you something that looks like finished work.
+
+**The scenario needing the wrapped library's real API delivers best** (15/18), which is the argument for `defineBuilder` over a bigger options bag.
+
+**A negative result worth keeping.** `/skills` exists because guessed imports were the most frequent error. The obvious follow-up — refuse the first blind script write and point at the docs (`nudgeToDocsOnFirstWrite`) — was A/B'd over 45 runs per arm: **25/45 complete without it, 24/45 with it**, two of three models identical. It does cut genuine errored calls ~17%, and none of that converts into delivered work. It ships **off**; the errors it removes were not the ones costing runs. Recorded on [#64](https://github.com/porkytheblack/glove/issues/64).
+
+## Still deferred
+
+Adapter file handlers on the post-mutation hook ([#51](https://github.com/porkytheblack/glove/issues/51) — the `handles` registry and the `describe` verb shipped; `onWrite` and sidecar summaries did not).
+
+Shipped since v1 and no longer on this list: the unified `describe(path)` verb, the test convention (`env:assert` + `run_tests`), the orientation file, the COW host-directory filesystem, model-facing `checkpoint` verbs, worker-thread execution with an absolute time limit and a heap ceiling, `/skills`, and real library APIs via `defineBuilder`/`defineBuilders`.

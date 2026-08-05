@@ -42,6 +42,32 @@ A table longer than a slide continues onto further slides with its header repeat
 
 The palette and layout are fixed rather than configurable. An agent choosing colours per deck produces something worse than a consistent default, and every knob is a decision it has to spend a turn on.
 
+## When the spec is not enough
+
+`create` builds a good standard deck and cannot build a different one — a two-column slide, a chart, particular colours and positions. So pptxgenjs is exported as-is:
+
+```js
+import { PptxGenJS } from 'env:slides';
+
+export default async function main() {
+  const pptx = new PptxGenJS();
+  pptx.layout = 'LAYOUT_16x9';                 // 10 × 5.63 inches; positions are inches
+  const s = pptx.addSlide();
+  s.addText('By region', { x: 0.6, y: 0.4, w: 8.8, fontSize: 26, bold: true, color: '1A1A2E' });
+  s.addShape(pptx.ShapeType.rect, { x: 0.6, y: 1.1, w: 1.2, h: 0.06, fill: { color: '2563EB' } });
+  s.addTable(rows, { x: 0.6, y: 1.5, w: 4.2, autoPage: true, autoPageRepeatHeader: true });
+  s.addImage({ path: '/tmp/chart.png', x: 5.2, y: 1.5, w: 4.2, h: 3.3 });
+  s.addNotes('Revenue is concentrated in EMEA.');
+  return pptx.writeFile({ fileName: '/out/q3.pptx' });
+}
+```
+
+That is pptxgenjs, verbatim from its own documentation — which is the point. Models have read thousands of examples of this shape, and an API that differs makes them translate.
+
+Everything is synchronous until `writeFile`, the only await and the only thing that produces a file. The library's own `writeFile` is *replaced*, not wrapped: bytes are produced in memory and land in the VFS through the guarded handle. `addImage({ path })` resolves through the VFS too — left alone, pptxgenjs would open that path on the **host** filesystem.
+
+One thing that does not carry over: you cannot read values back off the deck mid-build. The whole recording replays at the write, so there is nothing to return; interpolating a builder yields a label saying so rather than throwing.
+
 ## Reading
 
 `describe()` answers "what am I holding?" for a few dozen tokens — no deck is small enough to read blind:
