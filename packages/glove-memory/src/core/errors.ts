@@ -108,3 +108,81 @@ export class ContextError extends MemoryError {
     this.name = "ContextError";
   }
 }
+
+export type FormErrorCode =
+  | "form_conflict"
+  | "form_validation_failed"
+  | "form_blocked"
+  | "form_stale"
+  /**
+   * A definition the engine cannot run — colliding field ids, a gate that
+   * throws, a repartition that never settles. Raised at compile or at commit,
+   * never surfaced to the model as something it can fix.
+   */
+  | "form_definition_error";
+
+export class FormError extends MemoryError {
+  constructor(code: FormErrorCode, message?: string) {
+    super(code, message);
+    this.name = "FormError";
+  }
+}
+
+/** Thrown by `commitInstance` when the instance moved under the caller. */
+export class FormConflictError extends FormError {
+  /** The version the caller expected. */
+  expected: number;
+  /** The version actually stored. */
+  actual: number;
+  constructor(expected: number, actual: number, message?: string) {
+    super(
+      "form_conflict",
+      message ??
+        `Form instance changed under the write (expected version ${expected}, found ${actual}).`,
+    );
+    this.name = "FormConflictError";
+    this.expected = expected;
+    this.actual = actual;
+  }
+}
+
+export class FormDefinitionError extends FormError {
+  /** The field / step / checkpoint ids at fault. */
+  ids?: string[];
+  constructor(message?: string, ids?: string[]) {
+    super("form_definition_error", message);
+    this.name = "FormDefinitionError";
+    this.ids = ids;
+  }
+}
+
+/** The registered def has moved past the version the instance pinned. */
+export class FormStaleError extends FormError {
+  instanceVersion: number;
+  defVersion: number;
+  constructor(instanceVersion: number, defVersion: number, message?: string) {
+    super(
+      "form_stale",
+      message ??
+        `Instance was started against def version ${instanceVersion}; the registered def is at ${defVersion}.`,
+    );
+    this.name = "FormStaleError";
+    this.instanceVersion = instanceVersion;
+    this.defVersion = defVersion;
+  }
+}
+
+/** The instance is parked on a blocking checkpoint. */
+export class FormBlockedError extends FormError {
+  checkpointId: string;
+  waitMessage?: string;
+  constructor(checkpointId: string, waitMessage?: string) {
+    super(
+      "form_blocked",
+      waitMessage ?? `Waiting on checkpoint "${checkpointId}".`,
+    );
+    this.name = "FormBlockedError";
+    this.checkpointId = checkpointId;
+    this.waitMessage = waitMessage;
+  }
+}

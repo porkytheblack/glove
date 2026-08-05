@@ -1,6 +1,6 @@
 {
   "name": "glove-memory",
-  "version": "0.5.0",
+  "version": "1.0.1",
   "description": "Memory layer for the Glove agent framework — entity, episodic, resources, and context primitives with bring-your-own storage.",
   "type": "module",
   "license": "MIT",
@@ -38,6 +38,10 @@
     "./context": {
       "types": "./dist/context/index.d.ts",
       "import": "./dist/context/index.js"
+    },
+    "./forms": {
+      "types": "./dist/forms/index.d.ts",
+      "import": "./dist/forms/index.js"
     },
     "./tools": {
       "types": "./dist/tools/index.d.ts",

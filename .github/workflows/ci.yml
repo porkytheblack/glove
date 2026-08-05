@@ -54,6 +54,7 @@ jobs:
         run: >-
           pnpm
           --filter glove-core
+          --filter glove-memory
           --filter glove-scratchpad
           --filter glove-egress
           --filter glove-python
@@ -70,6 +71,7 @@ jobs:
       - name: Test
         run: >-
           pnpm
+          --filter glove-memory
           --filter glove-scratchpad
           --filter glove-egress
           --filter glove-python
