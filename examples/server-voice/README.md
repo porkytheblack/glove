@@ -303,6 +303,7 @@ and nothing else.
 | `lib/front-agent.ts` / `lib/worker-agent.ts` | Nova and the researcher |
 | `lib/protocol.ts` | the whole client/server contract |
 | `lib/load-env.ts` | puts `.env.local` where station and its children can see it |
+| [`PRODUCTION.md`](./PRODUCTION.md) | adapting this pattern for real: invariants, the failure taxonomy, and what here is demo-grade |
 
 Timings stream to the browser and append to `voice-metrics.jsonl`:
 `front_ttft_ms`, `tts_first_audio_ms`, `stt_dispatch_ms`, `endpoint_hold`,
