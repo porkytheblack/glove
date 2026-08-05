@@ -9,6 +9,7 @@ export * from "./entity";
 export * from "./episodic";
 export * from "./resources";
 export * from "./context";
+export * from "./forms";
 
 // Tool factories and builder helpers
 export {
@@ -64,8 +65,27 @@ export {
   buildContextUnsetTool,
   buildContextTools,
   useContext,
+  // Forms
+  buildFormListTool,
+  buildFormStartTool,
+  buildFormStatusTool,
+  buildFormInspectTool,
+  buildFormFillTool,
+  buildFormReviseTool,
+  buildFormAbandonTool,
+  buildFormHistoryTool,
+  buildFormRunnerTools,
+  buildFormReaderTools,
+  useFormRunner,
+  useFormReader,
 } from "./tools";
-export type { FoldTarget, ContextEnableTarget } from "./tools";
+export type {
+  FoldTarget,
+  ContextEnableTarget,
+  FormEnableTarget,
+  UseFormRunnerConfig,
+  FormReaderOptions,
+} from "./tools";
 
 // Reference in-memory adapters
 export {
@@ -73,4 +93,5 @@ export {
   InMemoryEpisodicAdapter,
   InMemoryResourcesAdapter,
   InMemoryContextAdapter,
+  InMemoryFormAdapter,
 } from "./in-memory";

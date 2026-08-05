@@ -3,5 +3,7 @@
   "compilerOptions": {
     "noEmit": true
   },
-  "include": ["src", "tests/forms-types.ts"]
+  "include": [
+    "src"
+  ]
 }
