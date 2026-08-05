@@ -185,6 +185,48 @@ test("OpenAI socket: user speech over agent speech emits interrupted", async () 
   assert.deepEqual(events, ["interrupted", "stopped"], "host was never told to flush its queue");
 });
 
+test("OpenAI socket: barge-in truncates the item to what was actually heard", async () => {
+  const ctx = openaiSocketContext();
+  await ctx.adapter.connect({});
+  await ctx.settle();
+
+  // One second of audio arrives in a burst — playback has barely started.
+  ctx.inbound({
+    type: "response.output_audio.delta",
+    item_id: "itm_1",
+    delta: Buffer.from(new Int16Array(24_000).buffer).toString("base64"),
+  });
+  ctx.inbound({ type: "input_audio_buffer.speech_started" });
+  await ctx.settle();
+
+  const trunc = ctx.outbound().find((f: any) => f.type === "conversation.item.truncate") as any;
+  assert.ok(trunc, "no truncate frame — the model still believes the full reply was heard");
+  assert.equal(trunc.item_id, "itm_1");
+  assert.ok(
+    trunc.audio_end_ms < 1000,
+    `audio_end_ms was ${trunc.audio_end_ms} — should be the heard prefix, not the full second`,
+  );
+});
+
+test("OpenAI socket: no truncate when playback plainly finished", async () => {
+  const ctx = openaiSocketContext();
+  await ctx.adapter.connect({});
+  await ctx.settle();
+
+  // ~1ms of audio, then wait well past it before interrupting.
+  ctx.inbound({
+    type: "response.output_audio.delta",
+    item_id: "itm_2",
+    delta: Buffer.from(new Int16Array(24).buffer).toString("base64"),
+  });
+  await new Promise((r) => setTimeout(r, 20));
+  ctx.adapter.interrupt();
+  await ctx.settle();
+
+  const trunc = ctx.outbound().find((f: any) => f.type === "conversation.item.truncate");
+  assert.equal(trunc, undefined, "truncated an item the caller heard in full");
+});
+
 test("GeminiLiveAdapter passes the S2S conformance suite", async () => {
   const results = await runConformance(geminiContext);
   const failed = results.filter((r) => !r.passed);

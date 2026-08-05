@@ -50,6 +50,18 @@ export class OpenAIRealtimeSocketAdapter extends EventEmitter<S2SEvents> impleme
   private connected = false;
   private agentTranscript = "";
   private speaking = false;
+  /**
+   * The assistant item currently being (or last) spoken, for truncation sync.
+   *
+   * Audio generates faster than it plays, so on a barge-in the model's
+   * context holds its FULL reply while the caller heard only a prefix. The
+   * heard length is estimated from the playback clock — audio drains at
+   * realtime from the first delta, so heard ≈ min(elapsed, emitted) — and
+   * `conversation.item.truncate` rewrites the item to just that prefix. The
+   * model then knows exactly where it was cut off and can decide how much
+   * of the explanation still needs saying.
+   */
+  private spokenItem: { id: string; emittedMs: number; firstDeltaAt: number } | null = null;
 
   constructor(private readonly cfg: OpenAIRealtimeSocketConfig) {
     super();
@@ -135,6 +147,7 @@ export class OpenAIRealtimeSocketAdapter extends EventEmitter<S2SEvents> impleme
 
   interrupt(): void {
     this.send({ type: "response.cancel" });
+    this.truncateToHeard();
     // No remote playback buffer to clear over plain WS — the HOST holds the
     // queue. Always report the interruption (see speech_started above for
     // why this must not gate on `speaking`).
@@ -142,6 +155,30 @@ export class OpenAIRealtimeSocketAdapter extends EventEmitter<S2SEvents> impleme
     this.speaking = false;
     this.emit("interrupted");
     if (wasSpeaking) this.emit("agent_speech_stopped");
+  }
+
+  /**
+   * Rewrite the model's context to what the caller actually HEARD.
+   *
+   * Without this, an interrupted reply stays in context in full and the model
+   * believes everything was delivered — so it never re-explains the part that
+   * was cut. The heard length is a playback-clock estimate: audio drains at
+   * realtime from the first delta, so heard ≈ elapsed wall-clock, clamped to
+   * what was emitted. If playback plainly finished (elapsed ≥ emitted), there
+   * is nothing to truncate and no frame is sent.
+   */
+  private truncateToHeard(): void {
+    const item = this.spokenItem;
+    this.spokenItem = null;
+    if (!item || item.emittedMs <= 0) return;
+    const elapsedMs = Date.now() - item.firstDeltaAt;
+    if (elapsedMs >= item.emittedMs) return; // fully heard — nothing was cut
+    this.send({
+      type: "conversation.item.truncate",
+      item_id: item.id,
+      content_index: 0,
+      audio_end_ms: Math.max(0, Math.round(elapsedMs)),
+    });
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
@@ -199,6 +236,7 @@ export class OpenAIRealtimeSocketAdapter extends EventEmitter<S2SEvents> impleme
         // in-flight response and tell the host to flush. Flushing an empty
         // queue is free; talking over the caller is not.
         this.send({ type: "response.cancel" });
+        this.truncateToHeard();
         const wasSpeaking = this.speaking;
         this.speaking = false;
         this.emit("interrupted");
@@ -220,6 +258,13 @@ export class OpenAIRealtimeSocketAdapter extends EventEmitter<S2SEvents> impleme
       case "response.output_audio.delta":
       case "response.audio.delta": {
         const pcm = base64ToInt16(String(e.delta ?? ""));
+        const itemId = String(e.item_id ?? "");
+        if (itemId) {
+          if (this.spokenItem?.id !== itemId) {
+            this.spokenItem = { id: itemId, emittedMs: 0, firstDeltaAt: Date.now() };
+          }
+          this.spokenItem.emittedMs += (pcm.length * 1000) / OPENAI_PCM.sampleRate;
+        }
         if (!this.speaking) {
           this.speaking = true;
           this.emit("agent_speech_started");
