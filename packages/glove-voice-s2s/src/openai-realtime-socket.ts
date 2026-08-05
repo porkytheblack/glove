@@ -136,12 +136,12 @@ export class OpenAIRealtimeSocketAdapter extends EventEmitter<S2SEvents> impleme
   interrupt(): void {
     this.send({ type: "response.cancel" });
     // No remote playback buffer to clear over plain WS — the HOST holds the
-    // queue, so tell it to flush.
-    if (this.speaking) {
-      this.speaking = false;
-      this.emit("interrupted");
-      this.emit("agent_speech_stopped");
-    }
+    // queue. Always report the interruption (see speech_started above for
+    // why this must not gate on `speaking`).
+    const wasSpeaking = this.speaking;
+    this.speaking = false;
+    this.emit("interrupted");
+    if (wasSpeaking) this.emit("agent_speech_stopped");
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
@@ -188,16 +188,23 @@ export class OpenAIRealtimeSocketAdapter extends EventEmitter<S2SEvents> impleme
     }
 
     switch (e.type) {
-      case "input_audio_buffer.speech_started":
+      case "input_audio_buffer.speech_started": {
         this.emit("user_speech_started");
-        // Server VAD truncates the in-flight response on real speech; the
-        // host's playback queue is local, so it must be told to flush.
-        if (this.speaking) {
-          this.speaking = false;
-          this.emit("interrupted");
-          this.emit("agent_speech_stopped");
-        }
+        // Over plain WS the provider cannot know what the host has PLAYED.
+        // Audio arrives faster than realtime, so a response is usually done
+        // GENERATING (and `speaking` already false) while seconds of it still
+        // sit in the host's playback queue — gating the flush on `speaking`
+        // is exactly how barge-in silently stops working. User speech is
+        // therefore ALWAYS treated as a potential interruption: cancel any
+        // in-flight response and tell the host to flush. Flushing an empty
+        // queue is free; talking over the caller is not.
+        this.send({ type: "response.cancel" });
+        const wasSpeaking = this.speaking;
+        this.speaking = false;
+        this.emit("interrupted");
+        if (wasSpeaking) this.emit("agent_speech_stopped");
         break;
+      }
       case "input_audio_buffer.speech_stopped":
         this.emit("user_speech_stopped");
         break;

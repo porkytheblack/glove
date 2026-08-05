@@ -431,11 +431,14 @@ export function useRoom() {
               clearTimeout(localPauseTimer.current);
               localPauseTimer.current = null;
             }
+            // With an S2S provider, every user speech-start flushes the queue
+            // (the room cannot know what is still buffered here) — only call
+            // it an interruption when something was actually playing.
+            if (playbackActiveRef.current) line("system", "interrupted", "system");
             playbackActiveRef.current = false;
             playbackRef.current?.port.postMessage("clear");
             endedTurns.current.clear();
             novaTurn.current = null;
-            line("system", "interrupted", "system");
             break;
           case "state":
             patch({

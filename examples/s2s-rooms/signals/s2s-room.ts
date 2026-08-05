@@ -161,6 +161,11 @@ export const s2sRoom = signal("s2s-room")
         ? new OpenAIRealtimeSocketAdapter({
             getToken: () => apiKey,
             ...(input.model ? { model: input.model } : {}),
+            // semantic_vad judges WHETHER you were done; server_vad just hears
+            // you start, which makes barge-in noticeably snappier. Tunable
+            // because the right answer depends on how interruptible the agent
+            // should feel.
+            turnDetection: { type: process.env.S2S_TURN_DETECTION ?? "semantic_vad" },
           })
         : new GeminiLiveAdapter({
             getToken: () => apiKey,

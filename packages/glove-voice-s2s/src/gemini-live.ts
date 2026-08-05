@@ -178,9 +178,18 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
 
   interrupt(): void {
     // Gemini interrupts natively when the user speaks; an explicit barge-in is
-    // expressed as an empty turn, which cancels the in-flight response.
-    if (!this.ws) return;
-    this.ws.send(JSON.stringify({ clientContent: { turns: [], turnComplete: true } }));
+    // expressed as an empty turn, which cancels the in-flight response. The
+    // host's playback queue is local and often still holds audio after the
+    // turn finished GENERATING, so always report the interruption locally
+    // rather than waiting for the provider to echo one back.
+    if (this.ws) {
+      this.ws.send(JSON.stringify({ clientContent: { turns: [], turnComplete: true } }));
+    }
+    const wasSpeaking = this.speaking;
+    this.speaking = false;
+    this.agentTranscript = "";
+    this.emit("interrupted");
+    if (wasSpeaking) this.emit("agent_speech_stopped");
   }
 
   async disconnect(): Promise<void> {

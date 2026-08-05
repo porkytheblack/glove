@@ -126,7 +126,16 @@ export interface S2SAdapter extends EventEmitter<S2SEvents> {
   /** Update session config mid-call (instructions, tools). */
   updateSession(patch: Partial<S2SSessionConfig>): void;
 
-  /** Hard-stop the agent's current speech (manual barge-in). */
+  /**
+   * Hard-stop the agent's current speech (manual barge-in).
+   *
+   * MUST emit `interrupted`, unconditionally. In transport mode the host
+   * holds the playback queue, and audio generates faster than it plays — the
+   * provider-side turn is usually already over while seconds of speech are
+   * still queued host-side. The `interrupted` event is what tells the host
+   * to flush; gating it on "currently speaking" is how barge-in silently
+   * breaks. (Enforced by the conformance suite.)
+   */
   interrupt(): void;
 
   readonly isConnected: boolean;

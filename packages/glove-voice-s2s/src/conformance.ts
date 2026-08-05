@@ -190,6 +190,26 @@ export const CONFORMANCE_CASES: ConformanceCase[] = [
   },
 
   {
+    name: "interrupt() reports interrupted",
+    why:
+      "A transport host buffers audio locally, and responses generate faster " +
+      "than they play — so 'the turn is over' provider-side says nothing about " +
+      "what is still queued host-side. If interrupt() does not emit " +
+      "`interrupted`, the host never flushes and barge-in silently stops " +
+      "working the moment generation outpaces playback.",
+    async run({ adapter, settle }) {
+      await adapter.connect(SESSION);
+      let reported = false;
+      adapter.on("interrupted", () => {
+        reported = true;
+      });
+      adapter.interrupt();
+      await settle();
+      assert(reported, "interrupt() never emitted `interrupted` — the host cannot flush");
+    },
+  },
+
+  {
     name: "reports disconnection and stops claiming to be connected",
     why:
       "Hosts restart sessions off this. An adapter that stays `isConnected` after " +
