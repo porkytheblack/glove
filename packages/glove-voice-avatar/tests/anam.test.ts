@@ -76,6 +76,13 @@ test("session token bakes in audio passthrough; the view is the sdk-session toke
   assert.equal(persona.enableAudioPassthrough, true, "without the flag Anam runs its OWN LLM+TTS");
   assert.equal(persona.avatarId, "avatar_1");
   assert.ok(persona.avatarModel, "no avatarModel — passthrough docs target a specific generation");
+  assert.equal(persona.maxSessionLengthSeconds, 3_600, "Anam's short default darkens the face mid-call");
+  assert.equal(
+    (persona.voiceDetectionOptions as { silenceBeforeSessionEndSeconds: number })
+      .silenceBeforeSessionEndSeconds,
+    7_200,
+    "the avatar hears nothing by design — silence-based ending kills healthy calls",
+  );
   assert.deepEqual(ctx.adapter.view, {
     kind: "sdk-session",
     sessionToken: "sess_test",

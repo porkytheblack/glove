@@ -110,7 +110,13 @@ export default function Page() {
               display: anam.joined ? "block" : "none",
             }}
           />
-          {!faceUp && (
+          {anam.closedReason && (
+            <div className="note error">
+              avatar session closed ({anam.closedReason}) — hang up and reconnect
+              for a fresh face; the voice call itself is unaffected
+            </div>
+          )}
+          {!faceUp && !anam.closedReason && (
             <div className="empty">
               The avatar appears here once the room is up — its face and voice
               arrive through the provider's session (Daily for Tavus, the Anam

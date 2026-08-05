@@ -159,6 +159,13 @@ test("Anam handshake: persona marks the brain as ours, engine call uses the sess
   const body = token.body as { personaConfig: Record<string, unknown>; environment: Record<string, unknown> };
   assert.equal(body.personaConfig.llmId, "CUSTOMER_CLIENT_V1", "Anam must not run its own LLM");
   assert.equal(body.personaConfig.avatarId, "avatar_1");
+  assert.equal(body.personaConfig.maxSessionLengthSeconds, 3_600);
+  assert.equal(
+    (body.personaConfig.voiceDetectionOptions as { silenceBeforeSessionEndSeconds: number })
+      .silenceBeforeSessionEndSeconds,
+    7_200,
+    "conversational pauses must not end the session",
+  );
   assert.deepEqual(body.environment, { livekitUrl: "wss://lk.example", livekitToken: "jwt-avatar" });
   const engine = ctx.http.find((h) => h.url.endsWith("/v1/engine/session"));
   assert.ok(engine, "engine session never started — the avatar never joins the room");

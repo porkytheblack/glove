@@ -56,6 +56,21 @@ export interface AnamPassthroughConfig {
   avatarModel?: string;
   /** Persona display name; cosmetic. */
   name?: string;
+  /**
+   * Session lifetime cap, seconds (default 3600). Anam's own default is
+   * short (~10 min) and ends the session mid-call — the face goes dark and
+   * every later command lands on a dead session.
+   */
+  maxSessionLengthSeconds?: number;
+  /**
+   * Silence window before Anam auto-ends the session, seconds (default
+   * 7200, the documented maximum — effectively off). It MUST be long here:
+   * in passthrough the avatar hears nothing by design (the caller's mic
+   * goes up the host's duct, and the agent only sends audio while
+   * speaking), so every conversational pause reads as "silence" to Anam
+   * and a short window kills healthy calls.
+   */
+  silenceBeforeSessionEndSeconds?: number;
   /** API base (default https://api.anam.ai). */
   apiBase?: string;
   /** How much audio to batch per audio_chunk command (default 400ms). */
@@ -115,6 +130,12 @@ export class AnamPassthroughAdapter extends EventEmitter<AvatarEvents> implement
           // The whole point: OUR audio drives the face; Anam's LLM and TTS
           // stay out of the loop.
           enableAudioPassthrough: true,
+          maxSessionLengthSeconds: this.cfg.maxSessionLengthSeconds ?? 3_600,
+          voiceDetectionOptions: {
+            // The avatar hears nothing by design, so silence-based session
+            // ending would kill every healthy call at the first long pause.
+            silenceBeforeSessionEndSeconds: this.cfg.silenceBeforeSessionEndSeconds ?? 7_200,
+          },
         },
       }),
     });

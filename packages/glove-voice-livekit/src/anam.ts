@@ -25,6 +25,13 @@ export interface AnamLiveKitConfig {
   avatarId: string;
   /** Persona display name; cosmetic. */
   name?: string;
+  /** Session lifetime cap, seconds (default 3600) — Anam's own default is
+   *  short and darkens the face mid-call. */
+  maxSessionLengthSeconds?: number;
+  /** Silence window before Anam auto-ends the session (default 7200, the
+   *  documented max — effectively off; conversational pauses must not kill
+   *  the session). */
+  silenceBeforeSessionEndSeconds?: number;
 
   /** The LiveKit server the room lives on (wss://…). Handed to Anam. */
   livekitUrl: string;
@@ -63,6 +70,10 @@ export class AnamLiveKitAvatar extends LiveKitAvatarSession {
           avatarId: this.cfg.avatarId,
           // The agent IS the brain — Anam must not run its own LLM.
           llmId: "CUSTOMER_CLIENT_V1",
+          maxSessionLengthSeconds: this.cfg.maxSessionLengthSeconds ?? 3_600,
+          voiceDetectionOptions: {
+            silenceBeforeSessionEndSeconds: this.cfg.silenceBeforeSessionEndSeconds ?? 7_200,
+          },
         },
         environment: {
           livekitUrl: this.cfg.livekitUrl,

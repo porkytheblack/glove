@@ -31,20 +31,38 @@ interface AnamClient {
   }): AnamAudioStream;
   interruptPersona(): void;
   stopStreaming(): Promise<void>;
+  addListener(event: string, callback: (...args: unknown[]) => void): void;
 }
 
 export function useAnamSession() {
   const clientRef = useRef<AnamClient | null>(null);
   const streamRef = useRef<AnamAudioStream | null>(null);
   const [joined, setJoined] = useState(false);
+  const [closedReason, setClosedReason] = useState<string | null>(null);
 
   const boot = useCallback(async (sessionToken: string) => {
     if (clientRef.current) return;
-    const { createClient } = (await import("@anam-ai/js-sdk")) as unknown as {
+    const mod = (await import("@anam-ai/js-sdk")) as unknown as {
       createClient: (token: string, opts?: Record<string, unknown>) => AnamClient;
+      AnamEvent?: { CONNECTION_CLOSED?: string };
     };
-    const client = createClient(sessionToken, { disableInputAudio: true });
+    const client = mod.createClient(sessionToken, { disableInputAudio: true });
     clientRef.current = client;
+    setClosedReason(null);
+    // A dead session must not keep wearing a live face: without this, an
+    // Anam-side end (timeout, error) leaves a black rectangle and every
+    // later command lands on a closed session with no sign of why.
+    client.addListener(
+      mod.AnamEvent?.CONNECTION_CLOSED ?? "CONNECTION_CLOSED",
+      (reason?: unknown) => {
+        if (clientRef.current !== client) return;
+        clientRef.current = null;
+        streamRef.current = null;
+        setJoined(false);
+        setClosedReason(typeof reason === "string" ? reason : "connection closed");
+        console.warn("[anam] session closed:", reason);
+      },
+    );
     await client.streamToVideoElement(ANAM_VIDEO_ID);
     // One input stream for the whole call; sequences within it are delimited
     // by endSequence — the same lifecycle the passthrough docs use.
@@ -91,5 +109,5 @@ export function useAnamSession() {
     };
   }, [leave]);
 
-  return { boot, leave, apply, joined };
+  return { boot, leave, apply, joined, closedReason };
 }
