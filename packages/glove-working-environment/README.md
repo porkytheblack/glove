@@ -511,6 +511,8 @@ Design claims in this README are cheap; these are the ones with numbers behind t
 
 **The scenario needing the wrapped library's real API delivers best** (15/18), which is the argument for `defineBuilder` over a bigger options bag.
 
+**Capabilities go the same way.** The motivating request for `defineTools` was "a deck of what was accomplished this week, going over the merges" — two systems unless they meet somewhere. Mounted as `env:github` over this repository's real `git log` (239 commits available), `z-ai/glm-4.6` did it in 18 turns for **$0.026**: read `/skills`, wrote a script, guessed one export name wrong (`getCommitsSince` — the error named `list_merges` and it edited the script), pulled **100 records into a variable**, grouped them into six themes inside the script, built the deck with `env:slides`, `describe`d its own output, and handed it over with a caption naming the counts. The only thing that reached the context window was the summary. `examples/analyst-desk/src/livecheck-capabilities.ts` asserts exactly that: a script imported the module, a `.pptx` exists, and the presented file is the deck.
+
 **A negative result worth keeping.** `/skills` exists because guessed imports were the most frequent error. The obvious follow-up — refuse the first blind script write and point at the docs (`nudgeToDocsOnFirstWrite`) — was A/B'd over 45 runs per arm: **25/45 complete without it, 24/45 with it**, two of three models identical. It does cut genuine errored calls ~17%, and none of that converts into delivered work. It ships **off**; the errors it removes were not the ones costing runs. Recorded on [#64](https://github.com/porkytheblack/glove/issues/64).
 
 ## Still deferred

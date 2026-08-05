@@ -452,6 +452,17 @@ export default async function () {
         my emails&quot; stops being two systems and becomes one script.
       </p>
 
+      <div style={calloutStyle}>
+        Measured on exactly that request. With this repository&apos;s real{" "}
+        <code>git log</code> mounted as <code>env:github</code>,{" "}
+        <code>z-ai/glm-4.6</code> produced the deck in 18 turns for{" "}
+        <strong>$0.026</strong> — wrote a script, got one export name wrong and
+        fixed it from the error, pulled <strong>100 commits into a variable</strong>,
+        grouped them into six themes inside the script, built the{" "}
+        <code>.pptx</code>, checked it, and handed it over. Only the summary
+        reached the context window.
+      </div>
+
       <p>
         The <code>ToolFn</code> shape is declared structurally, so{" "}
         <code>glove-scratchpad/fns</code>&apos; builders drop straight in while
