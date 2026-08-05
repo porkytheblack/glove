@@ -1050,3 +1050,104 @@ test("a step completes when its last required field goes inapplicable", async ()
   await runner.revise("mode", "y");
   assert.equal(fired.length, 1, "and the step completes once it stops applying");
 });
+
+// ─── Triggers steering the conversation ───────────────────────────────────
+
+/** A three-step form with a checkpoint that routes. */
+function routed(run: (v: any) => any) {
+  const def = defineForm({ id: "routed", version: 1, name: "n", description: "d" })
+    .step("claimant", { title: "Claimant" }, (s) =>
+      s
+        .field("name", { schema: z.string().min(2), label: "Name" })
+        .field("email", { schema: z.string().email(), label: "Email" }),
+    )
+    .step("detail", { title: "Detail" }, (s) =>
+      s.field("detail", { schema: z.string(), label: "Detail" }),
+    )
+    .step("sign", { title: "Sign-off" }, (s) =>
+      s.field("signed", { schema: z.boolean(), label: "Signed" }),
+    )
+    .checkpoint("router", { when: (v) => Boolean(v.detail), run: (ctx) => run(ctx.values) })
+    .build();
+  const adapter = new InMemoryFormAdapter({ schema: new MemorySchema() });
+  const registry = new FormRegistry().register("routed", {
+    name: "n",
+    description: "d",
+    load: () => def,
+  });
+  return { adapter, runner: new FormRunner(adapter, { registry, subject: `s${Math.random()}` }) };
+}
+
+test("a trigger can send the conversation forward past a step", async () => {
+  const { runner } = routed(() => ({ jump: "sign" }));
+  await runner.start("routed");
+  await runner.fill({ name: "Ada Okafor", email: "ada@example.com" });
+  const result = await runner.fill({ detail: "anything" });
+  assert.equal(result.view.step?.id, "sign");
+});
+
+test("a trigger can send the conversation back to a finished step", async () => {
+  const { runner } = routed(() => ({ jump: "claimant" }));
+  await runner.start("routed");
+  await runner.fill({ name: "Ada Okafor", email: "ada@example.com" });
+  // `claimant` is complete. Before this was supported, the jump was silently
+  // dropped — the one thing a routing trigger could ask for and not get.
+  const result = await runner.fill({ detail: "high-value" });
+
+  assert.equal(result.view.step?.id, "claimant");
+  assert.equal(result.view.revisiting, true);
+  // Its answers are shown *and* asked about — there's no point being sent back
+  // to a step where every field reads as settled.
+  for (const field of result.view.fields) {
+    assert.equal(field.status, "filled", `${field.id} keeps its answer`);
+    assert.equal(field.ask, true, `${field.id} is asked about again`);
+  }
+});
+
+test("a revisit is announced in tier 0, even on a finished form", async () => {
+  const { runner } = routed(() => ({ jump: "claimant" }));
+  await runner.start("routed");
+  await runner.fill({ name: "Ada Okafor", email: "ada@example.com", signed: true });
+  await runner.fill({ detail: "high-value" });
+
+  const line = await runner.tier0();
+  assert.match(line, /back at step 1\/3 "Claimant" — go through it again/);
+});
+
+test("answering in the revisited step releases the jump", async () => {
+  const { adapter, runner } = routed(() => ({ jump: "claimant" }));
+  const started = await runner.start("routed");
+  await runner.fill({ name: "Ada Okafor", email: "ada@example.com" });
+  await runner.fill({ detail: "high-value" });
+  assert.equal(
+    (await adapter.getInstance(started.view.instanceId))!.openStepOverride,
+    "claimant",
+  );
+
+  // A jump is a nudge, not a pin: once the conversation goes where it was sent
+  // and answers something, ordering goes back to being derived.
+  await runner.fill({ email: "ada.okafor@example.com" });
+  assert.equal(
+    (await adapter.getInstance(started.view.instanceId))!.openStepOverride,
+    undefined,
+  );
+});
+
+test("a trigger can stamp a value and route in the same firing", async () => {
+  const { runner } = routed(() => [{ patch: { signed: false } }, { jump: "claimant" }]);
+  await runner.start("routed");
+  await runner.fill({ name: "Ada Okafor", email: "ada@example.com" });
+  const result = await runner.fill({ detail: "high-value" });
+
+  assert.equal(result.view.step?.id, "claimant", "the jump landed");
+  const signed = await runner.inspect({ scope: "field", id: "signed" });
+  assert.equal(signed.fields[0]!.value, false, "and so did the patch");
+});
+
+test("a jump at a step that doesn't exist is ignored rather than stranding the form", async () => {
+  const { runner } = routed(() => ({ jump: "no-such-step" }));
+  await runner.start("routed");
+  await runner.fill({ name: "Ada Okafor", email: "ada@example.com" });
+  const result = await runner.fill({ detail: "x" });
+  assert.equal(result.view.step?.id, "sign", "ordering stays derived");
+});

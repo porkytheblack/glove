@@ -68,9 +68,16 @@ export interface FormExecutorContext<V> {
   signal?: AbortSignal;
 }
 
+/**
+ * An executor may return one effect, several, or none. Several is what a
+ * routing trigger needs — stamp a derived value *and* send the conversation
+ * somewhere — and a single effect stays the common case.
+ */
+export type FormExecutorResult<V> = FormEffect<V> | FormEffect<V>[] | void;
+
 export type FormExecutor<V> = (
   ctx: FormExecutorContext<V>,
-) => Promise<FormEffect<V> | void> | FormEffect<V> | void;
+) => Promise<FormExecutorResult<V>> | FormExecutorResult<V>;
 
 // ─── Definition ───────────────────────────────────────────────────────────
 
@@ -241,6 +248,9 @@ export interface FormInstance {
   /**
    * Step forced open by a `{ jump }` effect. Not in the design doc — `jump`
    * needs somewhere to land, and open-step selection is otherwise derived.
+   *
+   * Cleared by the next write that lands in that step, so a jump steers the
+   * conversation once rather than pinning it there.
    */
   openStepOverride?: string;
   /** Reason recorded by `abandon`. */
@@ -352,6 +362,12 @@ export interface FormView {
   fields: FormFieldView[];
   /** Outline scope only. */
   steps?: FormStepSummary[];
+  /**
+   * A trigger sent the conversation back to a step that was already finished.
+   * Its answers are shown as `filled` *and* `ask: true` — go through them
+   * again rather than treating them as settled.
+   */
+  revisiting?: boolean;
   complete: boolean;
   blockedOn?: string;
   waitMessage?: string;

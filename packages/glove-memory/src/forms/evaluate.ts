@@ -29,6 +29,12 @@ export interface FormEvaluation<V = any> {
   /** The step's ask-order gate holds. */
   stepOpen: Record<string, boolean>;
   openStepId?: string;
+  /**
+   * The open step is open because a `{ jump }` sent us back to it after it was
+   * already complete. Its answered fields stay askable so there is something
+   * to talk about.
+   */
+  revisiting: boolean;
   complete: boolean;
   /** Checkpoints whose `when` currently holds. */
   checkpointActive: Record<string, boolean>;
@@ -164,6 +170,7 @@ export function evaluateForm<V extends Record<string, unknown>>(
     stepComplete,
     stepOpen,
     openStepId: pickOpenStep(compiled, instance, stepComplete, stepOpen),
+    revisiting: isRevisit(compiled, instance, stepComplete),
     complete: pass.isComplete(),
     checkpointActive,
     passes,
@@ -187,10 +194,13 @@ function pickOpenStep(
   stepComplete: Record<string, boolean>,
   stepOpen: Record<string, boolean>,
 ): string | undefined {
+  // A jump is honoured even when its target is already complete — that is a
+  // *revisit*, and refusing it silently was the one thing a routing trigger
+  // could ask for and not get. The override clears on the next write into that
+  // step, so this steers the conversation once rather than pinning it.
   const override = instance.openStepOverride;
-  if (override && compiled.stepById.has(override) && !stepComplete[override]) {
-    return override;
-  }
+  if (override && compiled.stepById.has(override)) return override;
+  void stepComplete;
   for (const step of compiled.steps) {
     if (stepOpen[step.id] && !stepComplete[step.id]) return step.id;
   }
@@ -198,6 +208,18 @@ function pickOpenStep(
     if (!stepComplete[step.id]) return step.id;
   }
   return undefined;
+}
+
+/** True when the override points at a step that had already finished. */
+function isRevisit(
+  compiled: CompiledForm<any>,
+  instance: FormInstance,
+  stepComplete: Record<string, boolean>,
+): boolean {
+  const override = instance.openStepOverride;
+  return Boolean(
+    override && compiled.stepById.has(override) && stepComplete[override],
+  );
 }
 
 // ─── One pass ─────────────────────────────────────────────────────────────

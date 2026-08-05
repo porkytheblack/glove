@@ -1260,6 +1260,17 @@ The agent reaches all four through `glove_form_revise`'s `action` (`set` / `retr
 
 **Executors** colocate at four points behind one signature — `field.onFill`, `step.onComplete`, `checkpoint.run`, `form.onComplete` — dispatched commit-then-run on **rising edges only**, with a per-occurrence idempotency key. Verified firing order within one commit: `field` → `step` → `checkpoint` → `form`. An executor returns `{ patch }`, `{ fail }`, `{ jump }` or `{ complete }`; `ctx.memory` bridges to the other four subsystems with engine-supplied provenance.
 
+**Triggers steer the conversation.** A checkpoint is a trigger — a condition over values, fired on its rising edge. Returning `{ jump }` moves the open step, forward *or back to a step that already finished*:
+
+```ts
+.checkpoint("verify-identity", {
+  when: (v) => v.claimValue > 10_000,
+  run: () => [{ patch: { verificationRequired: true } }, { jump: "claimant" }],
+})
+```
+
+An executor may return one effect or an array, so a router can stamp a value *and* move in one firing. A backwards jump is a **revisit**: the step's answers stay `filled` but come back with `ask: true`, and tier 0 says `back at step 1/3 "Claimant" — go through it again` (even on an otherwise-complete form). The override is released by the next write into that step, so a jump nudges rather than pins; a jump at a step that doesn't exist is ignored.
+
 **Lazy loading, three tiers.** Tier 0 is one line injected into the system prompt each turn — open step, its pending field *labels*, and a one-line `preview` per remaining step. Tier 1 (`glove_form_status`) is the open step in full. Tier 2 (`glove_form_inspect`) is any other step, a field, or the whole outline. Form modules aren't imported until started, so `glove_form_list` costs a name and a description.
 
 ```

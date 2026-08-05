@@ -851,6 +851,49 @@ await runner.history("mileage");         // every answer ever given`}
         provenance the engine supplies.
       </p>
 
+      <h3>Triggers that steer the conversation</h3>
+
+      <p>
+        A checkpoint <em>is</em> a trigger: a condition over values, fired on
+        its rising edge, running an executor. Returning{" "}
+        <code>{"{ jump }"}</code> moves the open step — forward to skip ahead,
+        or <strong>back to a step that already finished</strong>.
+      </p>
+
+      <CodeBlock
+        language="typescript"
+        code={`.checkpoint("verify-identity", {
+  when: (v) => v.claimValue > 10_000,
+  run: () => [
+    { patch: { verificationRequired: true } },
+    { jump: "claimant" },          // go back and re-check who we're talking to
+  ],
+})`}
+      />
+
+      <p>
+        An executor may return one effect or an array of them, so a router can
+        stamp a derived value <em>and</em> move in the same firing.
+      </p>
+
+      <p>
+        A backwards jump is a <strong>revisit</strong>: the step&apos;s answers
+        stay <code>filled</code> but come back with <code>ask: true</code>,
+        because there is no point being sent somewhere every field reads as
+        settled. Tier 0 says so too —{" "}
+        <code>
+          [form: x] back at step 1/3 &quot;Claimant&quot; — go through it again
+        </code>{" "}
+        — and it says it even when the form had already completed, since a
+        silent jump is the same as no jump at all.
+      </p>
+
+      <p>
+        A jump is a nudge, not a pin. The override is released by the next write
+        that lands in the step it sent you to, after which ordering goes back to
+        being derived. A jump naming a step that doesn&apos;t exist is ignored.
+      </p>
+
       <h3>Lazy loading</h3>
 
       <p>

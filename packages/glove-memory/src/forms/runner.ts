@@ -26,6 +26,7 @@ import type {
   FormEffect,
   FormEntry,
   FormExecutor,
+  FormExecutorResult,
   FormFailure,
   FormFieldHistoryView,
   FormFieldIssue,
@@ -169,10 +170,6 @@ export class FormRunner {
   async tier0(subject?: string): Promise<string> {
     const instance = await this.activeInstance(subject);
     if (!instance) return "";
-    // A finished form is still reachable for corrections, but it has nothing
-    // pending — so it does not get to occupy the system prompt for the rest of
-    // the conversation.
-    if (instance.status === "complete") return "";
     let compiled: CompiledForm<any>;
     try {
       compiled = await this.registry.load(instance.defId);
@@ -611,6 +608,17 @@ export class FormRunner {
     if (settled.blockedOn) closing.blockedOn = null;
     if (outcome.jump && compiled.stepById.has(outcome.jump)) {
       closing.openStepOverride = outcome.jump;
+    } else if (
+      settled.openStepOverride &&
+      Object.keys(newEntries).some(
+        (id) => compiled.fieldById.get(id)?.stepId === settled.openStepOverride,
+      )
+    ) {
+      // The conversation went where it was sent and answered something there.
+      // Releasing the override here is what keeps a jump a nudge rather than a
+      // pin — without it, a revisit would hold the form on a finished step for
+      // the rest of the conversation.
+      closing.openStepOverride = null;
     }
     const shouldComplete = outcome.forceComplete || post.complete;
     const nextStatus = shouldComplete ? "complete" : "active";
@@ -676,10 +684,10 @@ export class FormRunner {
         provenance,
       );
 
-      let effect: FormEffect<any> | void = undefined;
+      let returned: FormExecutorResult<any> = undefined;
       let error: string | undefined;
       try {
-        effect = await hook.run({
+        returned = await hook.run({
           values: evaluation.values,
           instance: current,
           hookId: hook.hookId,
@@ -692,14 +700,27 @@ export class FormRunner {
         error = e instanceof Error ? e.message : String(e);
       }
 
-      if (!error && effect && "fail" in effect) error = effect.fail;
+      // One effect or several — a routing trigger commonly wants to stamp a
+      // derived value *and* send the conversation somewhere.
+      const effects: FormEffect<any>[] = !returned
+        ? []
+        : Array.isArray(returned)
+          ? returned
+          : [returned];
+
+      if (!error) {
+        const rejection = effects.find((e) => "fail" in e);
+        if (rejection && "fail" in rejection) error = rejection.fail;
+      }
 
       if (error) {
         failures.push({ hookId: hook.hookId, message: error, at });
-      } else if (effect) {
-        if ("patch" in effect) Object.assign(patch, effect.patch);
-        else if ("jump" in effect) jump = effect.jump;
-        else if ("complete" in effect) forceComplete = true;
+      } else {
+        for (const effect of effects) {
+          if ("patch" in effect) Object.assign(patch, effect.patch);
+          else if ("jump" in effect) jump = effect.jump;
+          else if ("complete" in effect) forceComplete = true;
+        }
       }
 
       await this.adapter.recordDispatch(
@@ -993,6 +1014,7 @@ function emptyEvaluation(): FormEvaluation<any> {
     stepComplete: {},
     stepOpen: {},
     openStepId: undefined,
+    revisiting: false,
     complete: false,
     checkpointActive: {},
     passes: 0,

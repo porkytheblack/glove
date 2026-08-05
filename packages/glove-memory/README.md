@@ -507,6 +507,36 @@ Dispatch is commit-then-run: values and the rising-edge log commit in one atomic
 
 `ctx.memory` bridges to the other four subsystems (`upsertNode`, `connect`, `recordEpisode`, `writeResource`, `setContext`) with provenance supplied by the engine.
 
+### Triggers that steer the conversation
+
+A checkpoint *is* a trigger: a condition over values, fired on its rising edge,
+running an executor. Returning `{ jump }` moves the open step — forward to skip
+ahead, or **back to a step that already finished**:
+
+```ts
+.checkpoint("verify-identity", {
+  when: (v) => v.claimValue > 10_000,
+  run: () => [
+    { patch: { verificationRequired: true } },
+    { jump: "claimant" },          // go back and re-check who we're talking to
+  ],
+})
+```
+
+An executor may return one effect or an array of them, so a router can stamp a
+derived value *and* move in the same firing.
+
+A jump backwards is a **revisit**: the step's answers stay filled but come back
+with `ask: true`, because there is no point being sent somewhere every field
+reads as settled. Tier 0 says so too —
+`[form: x] back at step 1/3 "Claimant" — go through it again` — and it says it
+even when the form had already completed, since a silent jump is the same as no
+jump at all.
+
+A jump is a nudge, not a pin. The override is released by the next write that
+lands in the step it sent you to, after which ordering goes back to being
+derived. A jump naming a step that doesn't exist is ignored.
+
 ### Lazy loading
 
 Modelled on the inbox: a cheap standing notification, detail pulled on demand.

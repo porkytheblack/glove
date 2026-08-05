@@ -55,6 +55,7 @@ export function projectView<V extends Record<string, unknown>>(
 
   const failures = openFailures(instance);
   if (failures.length > 0) base.failures = failures;
+  if (ev.revisiting) base.revisiting = true;
 
   // What the two reversal verbs would do, named once at the view level. The
   // agent needs to know the move is available and what it would touch; a flag
@@ -132,6 +133,10 @@ export function projectView<V extends Record<string, unknown>>(
 function fieldView(field: CompiledField<any>, ev: FormEvaluation<any>): FormFieldView {
   const fe = ev.fields.get(field.id);
   const status = fe?.status ?? "empty";
+  // On a revisit an answered field is still worth asking about — that is the
+  // whole point of having been sent back to it. Everywhere else, `filled`
+  // means done.
+  const answered = status === "filled" && !ev.revisiting;
   const view: FormFieldView = {
     id: field.id,
     label: field.label,
@@ -139,10 +144,7 @@ function fieldView(field: CompiledField<any>, ev: FormEvaluation<any>): FormFiel
     type: field.type,
     required: field.required,
     status,
-    ask:
-      Boolean(fe?.applicable) &&
-      status !== "filled" &&
-      field.stepId === ev.openStepId,
+    ask: Boolean(fe?.applicable) && !answered && field.stepId === ev.openStepId,
   };
   if (status === "filled") view.value = fe?.value;
   else if (status === "held") view.value = fe?.raw;
@@ -202,15 +204,19 @@ export function renderTier0<V extends Record<string, unknown>>(
     const why = cp?.waitMessage ? ` — ${cp.waitMessage}` : "";
     return `${tag} awaiting "${instance.blockedOn}"${why}`;
   }
-  if (instance.status === "complete") {
-    return `${tag} complete`;
-  }
   if (instance.status === "stale") {
     return `${tag} stale — the definition changed since this was started; it can't be continued.`;
   }
   if (instance.status === "abandoned") return "";
 
   const ev = evaluation ?? evaluateForm(compiled, instance);
+
+  // A finished form says nothing — it stays reachable for corrections but
+  // doesn't get to occupy the prompt for the rest of the conversation. The
+  // exception is a revisit: a trigger sent the conversation back, and going
+  // quiet about that is how the jump becomes invisible.
+  if (instance.status === "complete" && !ev.revisiting) return "";
+
   const lines: string[] = [];
 
   const open = ev.openStepId ? compiled.stepById.get(ev.openStepId) : undefined;
@@ -223,7 +229,9 @@ export function renderTier0<V extends Record<string, unknown>>(
         return Boolean(fe?.applicable) && fe?.status !== "filled";
       })
       .map((f) => f.label);
-    const head = `${tag} step ${open.index}/${compiled.steps.length} "${open.title}"`;
+    const head = ev.revisiting
+      ? `${tag} back at step ${open.index}/${compiled.steps.length} "${open.title}" — go through it again`
+      : `${tag} step ${open.index}/${compiled.steps.length} "${open.title}"`;
     lines.push(pending.length > 0 ? `${head} · pending: ${pending.join(", ")}` : head);
   } else {
     lines.push(`${tag} nothing pending`);

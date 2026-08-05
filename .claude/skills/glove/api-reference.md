@@ -2412,10 +2412,13 @@ interface FormEntryCommit {
 type FormEffect<V> =
   | { patch: Partial<V> }          // derived values; commits like any other write
   | { fail: string }               // blocking checkpoint rejects; surfaced to the agent
-  | { jump: string }               // force a step open
+  | { jump: string }               // open a step — forward, or back to a finished one
   | { complete: true };
 
-type FormExecutor<V> = (ctx: FormExecutorContext<V>) => Promise<FormEffect<V> | void>;
+/** One effect, several, or none. Several is what a routing trigger needs. */
+type FormExecutorResult<V> = FormEffect<V> | FormEffect<V>[] | void;
+
+type FormExecutor<V> = (ctx: FormExecutorContext<V>) => Promise<FormExecutorResult<V>>;
 
 interface FormExecutorContext<V> {
   values: V;                       // live + valid only; never held
@@ -2429,6 +2432,8 @@ interface FormExecutorContext<V> {
 ```
 
 Order within one commit: `field.onFill` → `step.onComplete` → `checkpoint.run` → `form.onComplete`. Rising edges only.
+
+`{ jump }` at a step that already completed is a **revisit** — the step reopens, its answers stay `filled` but come back `ask: true`, `FormView.revisiting` is set, and tier 0 renders `back at step N/M "Title" — go through it again`. The override is stored as `FormInstance.openStepOverride` and released by the next write into that step. A jump naming an unknown step is ignored.
 
 ### Form projection (what the agent reads)
 
