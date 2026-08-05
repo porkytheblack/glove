@@ -716,14 +716,15 @@ async function reindexPass() {
       </table>
 
       {/* ------------------------------------------------------------------ */}
-      <h2>Forms</h2>
+      <h2 id="forms">Forms</h2>
 
       <p>
-        A form definition is a builder chain. Each <code>.field()</code> widens
-        the accumulated values type, so every predicate and executor downstream
-        is typed against the real shape — <code>ctx.values.incidentType</code>{" "}
-        narrows to its enum union, <code>ctx.values.phone</code> is{" "}
-        <code>string | undefined</code>.
+        Structured collection over a conversation, and the one subsystem with a
+        page of its own — it is large enough to warrant one. Definitions are{" "}
+        <strong>code</strong>: Zod schemas, gate closures and executors colocated
+        in a builder chain that the agent never reads. What the agent reads is a
+        projection of evaluated state — the open step, what is still pending, and
+        a one-line preview of what is coming.
       </p>
 
       <CodeBlock
@@ -731,35 +732,9 @@ async function reindexPass() {
         code={`import { z } from "zod";
 import { defineForm } from "glove-memory/forms";
 
-export const travelClaim = defineForm({
-  id: "travel-claim",
-  version: 1,
-  name: "Travel reimbursement claim",
-  description: "Claimant, trip, travel and approval details.",
-  conduct:
-    "Conversational — one or two questions at a time. Don't read the field " +
-    "list aloud. If the user volunteers something out of order, capture it.",
-})
+export const travelClaim = defineForm({ id: "travel-claim", version: 1, /* … */ })
   .step("claimant", { title: "Claimant", preview: "name, staff id, email" }, (s) =>
-    s
-      .field("fullName", { schema: z.string().min(2), label: "Full name" })
-      .field("email", { schema: z.string().email(), label: "Work email" }),
-  )
-  .step(
-    "travel",
-    {
-      title: "Travel",
-      preview: "how they travelled, mileage or ticket",
-      when: (v, s) => s.stepComplete("claimant"),
-    },
-    (s) =>
-      s
-        .field("mode", { schema: z.enum(["car", "rail", "air"]), label: "Mode" })
-        .field("mileage", {
-          schema: z.number().int().min(1).optional(),
-          label: "Miles driven",
-          when: (v) => v.mode === "car",
-        }),
+    s.field("fullName", { schema: z.string().min(2), label: "Full name" }),
   )
   .checkpoint("policy-cap", {
     when: (v) => typeof v.total === "number" && v.total > 750,
@@ -772,257 +747,25 @@ export const travelClaim = defineForm({
   .build();`}
       />
 
-      <h3>Optionality and type come from Zod, not from flags</h3>
-
       <p>
-        There is no <code>required</code> option. A field is optional iff its
-        schema accepts <code>undefined</code> — the same predicate the inferred
-        values type is built from, so the two can never disagree. The{" "}
-        <code>type</code> string the agent reads is derived too, via{" "}
-        <code>z.toJSONSchema</code> plus a small renderer:{" "}
-        <code>&quot;email address&quot;</code>,{" "}
-        <code>&quot;one of: car | rail | air&quot;</code>,{" "}
-        <code>&quot;integer &gt;= 1&quot;</code>. Together those delete the
-        field-type vocabulary entirely — no type union, no registry, nothing to
-        extend.
-      </p>
-
-      <h3>Writes are never gated</h3>
-
-      <p>
-        There is no lock. Any value the agent can derive, at any point in the
-        conversation, is accepted — the only thing that can reject a write is
-        Zod. A user who answers question six while being asked question two has
-        answered question six. <code>glove_form_fill</code> takes a patch of{" "}
-        <em>any</em> field ids, validates each independently so one bad value
-        doesn&apos;t reject the rest, and keeps what isn&apos;t applicable yet
-        as a <em>held</em> entry rather than dropping it.
+        The shape in one paragraph: optionality and the agent-readable type come
+        from Zod rather than from flags; <strong>writes are never gated</strong>,
+        so an answer given out of order still lands; entries are an append-only
+        log, which makes <code>retract</code> / <code>undo</code> /{" "}
+        <code>redo</code> pure cursor moves; a value that is not applicable yet is{" "}
+        <em>held</em> rather than dropped, and goes live if the branch flips back;
+        and executors colocated at four points can patch, fail, jump, complete or
+        terminate — with <code>ctx.memory</code> bridging straight into the four
+        subsystems above.
       </p>
 
       <p>
-        Sequence splits into two unrelated things: <code>when</code> decides
-        whether a field <em>means anything</em> given current answers, and
-        steps decide what to <em>steer toward</em>. A field gated off by a
-        branch doesn&apos;t count toward completion and isn&apos;t asked about,
-        but a value supplied for one is kept — applicability can flip back.
-      </p>
-
-      <h3>Nothing is ever lost</h3>
-
-      <p>
-        <code>entries</code> maps each field to an <strong>append-only log of
-        revisions</strong> plus a cursor naming the one in force. A correction
-        appends; it does not overwrite. A retraction is itself a revision,
-        which makes <code>retract</code>, <code>undo</code> and{" "}
-        <code>redo</code> pure cursor moves over a log that cannot lose an
-        answer — and makes every one of them reversible.
-      </p>
-
-      <CodeBlock
-        language="typescript"
-        code={`await runner.retract("ticketReference"); // withdraw, keeping the answer
-await runner.undo();                     // last answer anywhere on the form
-await runner.undo("mileage");            // or on one field
-await runner.redo("mileage");
-await runner.history("mileage");         // every answer ever given`}
-      />
-
-      <p>
-        The agent reaches all four through <code>glove_form_revise</code>&apos;s{" "}
-        <code>action</code> parameter rather than four separate verbs. Tool
-        schemas are re-sent on every model call, and an agentic evaluation
-        measured them at roughly three quarters of this surface&apos;s whole
-        context cost — an enum on a verb the model already has is far cheaper
-        than three more definitions.
-      </p>
-
-      <h3>Executors</h3>
-
-      <p>
-        Four colocation points behind one signature, dispatched
-        commit-then-run: <code>field.onFill</code>,{" "}
-        <code>step.onComplete</code>, <code>checkpoint.run</code>, and{" "}
-        <code>form.onComplete</code>. They fire on <em>rising edges</em> only,
-        with a per-occurrence idempotency key, so a retry reuses the key and a
-        genuine second crossing gets a fresh one. An executor can hand back{" "}
-        <code>{"{ patch }"}</code>, <code>{"{ fail }"}</code>,{" "}
-        <code>{"{ jump }"}</code> or <code>{"{ complete }"}</code>, and{" "}
-        <code>ctx.memory</code> bridges to the other four subsystems with
-        provenance the engine supplies.
-      </p>
-
-      <h3>Triggers that steer the conversation</h3>
-
-      <p>
-        A checkpoint <em>is</em> a trigger: a condition over values, fired on
-        its rising edge, running an executor. Returning{" "}
-        <code>{"{ jump }"}</code> moves the open step — forward to skip ahead,
-        or <strong>back to a step that already finished</strong>.
-      </p>
-
-      <CodeBlock
-        language="typescript"
-        code={`.checkpoint("verify-identity", {
-  when: (v) => v.claimValue > 10_000,
-  run: () => [
-    { patch: { verificationRequired: true } },
-    { jump: "claimant" },          // go back and re-check who we're talking to
-  ],
-})`}
-      />
-
-      <p>
-        An executor may return one effect or an array of them, so a router can
-        stamp a derived value <em>and</em> move in the same firing.
-      </p>
-
-      <p>
-        A backwards jump is a <strong>revisit</strong>: the step&apos;s answers
-        stay <code>filled</code> but come back with <code>ask: true</code>,
-        because there is no point being sent somewhere every field reads as
-        settled. Tier 0 says so too —{" "}
-        <code>
-          [form: x] back at step 1/3 &quot;Claimant&quot; — go through it again
-        </code>{" "}
-        — and it says it even when the form had already completed, since a
-        silent jump is the same as no jump at all.
-      </p>
-
-      <p>
-        A router branches on <strong>both</strong> halves of the state.{" "}
-        <code>when</code> and <code>run</code> each get a{" "}
-        <code>FormState</code> — step completion, which checkpoints have fired,
-        whether the form is done — alongside the typed values, so a trigger can
-        route on where the conversation has been and not only on what it holds.
-        <code>checkpointFired</code> reads the counters the gate saw, so asking
-        inside a checkpoint&apos;s own <code>run</code> reports whether it fired{" "}
-        <em>before</em>, not the firing in progress.
-      </p>
-
-      <h3>Terminating collection</h3>
-
-      <p>
-        <code>{"{ terminate: reason }"}</code> stops the form outright, for the
-        cases where carrying on would be wrong rather than merely unfinished —
-        ineligible, duplicate, withdrawn.
-      </p>
-
-      <CodeBlock
-        language="typescript"
-        code={`.checkpoint("eligibility", {
-  when: (v) => typeof v.age === "number" && v.age < 18,
-  run: () => ({ terminate: "Under 18 — not eligible for this scheme." }),
-})`}
-      />
-
-      <p>
-        It is neither of the two effects that already existed:{" "}
-        <code>fail</code> records a rejection and lets the conversation carry
-        on, and <code>complete</code> claims the form succeeded.{" "}
-        <code>terminate</code> closes the instance with the reason on{" "}
-        <code>closedReason</code>, stops every field asking, refuses further
-        writes, and takes the form out of tier 0. It beats a completion that
-        would otherwise have landed on the same commit — an ineligible claim
-        must not read as a finished one.
-      </p>
-
-      <p>
-        A jump is a nudge, not a pin. The override is released by the next write
-        that lands in the step it sent you to, after which ordering goes back to
-        being derived. A jump naming a step that doesn&apos;t exist is ignored.
-      </p>
-
-      <h3>Lazy loading</h3>
-
-      <p>
-        Modelled on the inbox — a cheap standing notification, detail pulled on
-        demand. <strong>Tier 0</strong> is one line appended to the system
-        prompt each turn:
-      </p>
-
-      <CodeBlock
-        language="text"
-        code={`[form: travel-claim] step 2/4 "Trip" · pending: Destination, Departure date
-later: Travel (how they travelled, mileage or ticket) · Approval (cost centre, manager)`}
-      />
-
-      <p>
-        Pending <em>labels</em> rather than a count, because
-        &quot;5 fields pending&quot; would force a tool call every turn just to
-        learn what to ask. A one-line <code>preview</code> per remaining step,
-        because that is what makes opportunistic capture work without loading
-        the whole form. <strong>Tier 1</strong> (<code>glove_form_status</code>)
-        is the open step in full; <strong>tier 2</strong>{" "}
-        (<code>glove_form_inspect</code>) is any other step, a single field, or
-        the whole outline. Form modules aren&apos;t imported until a form is
-        started, so <code>glove_form_list</code> costs a name and a description.
-      </p>
-
-      <h3>Wiring</h3>
-
-      <CodeBlock
-        language="typescript"
-        code={`import { FormRegistry } from "glove-memory/forms";
-import { InMemoryFormAdapter } from "glove-memory/in-memory";
-import { useFormRunner } from "glove-memory";
-
-const registry = new FormRegistry().register("travel-claim", {
-  name: "Travel reimbursement claim",
-  description: "Claimant, trip, travel and approval details.",
-  load: () => import("./forms/travel-claim").then((m) => m.travelClaim),
-});
-
-const { runner } = useFormRunner(glove, new InMemoryFormAdapter({ schema }), {
-  registry,
-  subject: conversationId,
-  memory: { entity, episodic, resources, context },
-});`}
-      />
-
-      <p>
-        <code>useFormRunner</code> folds the seven tools and wraps{" "}
-        <code>processRequest</code> for tier-0 injection, then hands back the
-        runner so a host can start instances and resolve checkpoints without
-        going through the model. <code>useFormReader</code> gives a second agent
-        read-only access to past fills.
-      </p>
-
-      <h3>Writing a form adapter</h3>
-
-      <p>
-        <code>FormAdapter</code> is a storage-and-retrieval contract and nothing
-        more — the engine holds every semantic and recomputes it from whatever
-        you hand back. Four invariants, and they are the whole of it:
-      </p>
-
-      <ol>
-        <li>
-          <strong><code>entries</code> appends, never replaces.</strong>{" "}
-          <code>commitInstance</code> receives a per-field{" "}
-          <code>{"{ append?, cursor? }"}</code>, not a replacement history.{" "}
-          <code>applyEntryCommit</code> is exported so you can reuse the exact
-          semantics.
-        </li>
-        <li>
-          <strong><code>version</code> is compare-and-set.</strong> Reject a
-          stale <code>ifVersion</code> with <code>FormConflictError</code>; bump
-          on every write that lands.
-        </li>
-        <li>
-          <strong>A commit is all-or-nothing.</strong> Entries, occurrence
-          counters, dispatch log and status land together or not at all.
-        </li>
-        <li>
-          <strong>Reads hand back snapshots.</strong>
-        </li>
-      </ol>
-
-      <p>
-        Everything else is yours: storage engine and schema, indexing,
-        retention, <em>how</em> you achieve atomicity, how much provenance you
-        keep, multi-tenancy, encryption. Per-method detail lives in doc comments
-        on the interface, and <code>InMemoryFormAdapter</code> is short enough
-        to read end to end before writing your own.
+        Attach it with <code>useFormRunner</code> (seven tools plus tier-0
+        prompt injection) or <code>useFormReader</code> for read-only history.
+        The full reference — the tool surface, liveness rules, triggers and
+        jumps, the lazy-loading tiers, operational notes and the{" "}
+        <code>FormAdapter</code> contract — is on{" "}
+        <a href="/docs/forms">the Forms page</a>.
       </p>
 
       {/* ------------------------------------------------------------------ */}

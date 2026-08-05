@@ -183,7 +183,7 @@ export const weatherTool = defineTool({
       <h2>Rendering slots in your app</h2>
 
       <p>
-        The <a href="/docs/react#useglove">useGlove</a> hook exposes{" "}
+        The <a href="/docs/react#use-glove">useGlove</a> hook exposes{" "}
         <code>slots</code> (the current stack) and <code>renderSlot()</code>{" "}
         (renders a slot using the tool&apos;s <code>render</code> function).
         Add them to your chat component:
@@ -632,7 +632,7 @@ glove.defineSubAgent({
       </table>
 
       {/* ------------------------------------------------------------------ */}
-      <h2>Display Strategies</h2>
+      <h2 id="display-strategies">Display Strategies</h2>
 
       <p>
         Tools can control when their display slots are visible using{" "}

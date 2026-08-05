@@ -1,130 +1,123 @@
 import { CodeBlock } from "@/components/code-block";
+import { DocCards } from "@/components/doc-cards";
 
-export default async function GettingStartedPage() {
+export const metadata = {
+  title: "Quickstart",
+  description:
+    "Build a working Glove agent in 15 minutes — the full-stack Next.js path and the server-only path.",
+};
+
+export default function GettingStartedPage() {
   return (
     <div className="docs-content">
-      <h1>Getting Started</h1>
+      <h1>Quickstart</h1>
 
       <p>
-        Build a working AI-powered chat app in 15 minutes. By the end, you will
-        have a Next.js app where users can ask about the weather and the AI
-        calls your custom tool to answer.
+        Fifteen minutes to a working agent that calls a tool you wrote. Two
+        paths — pick one; they share the same runtime and the same tool
+        definitions.
       </p>
 
-      {/* ------------------------------------------------------------------ */}
-      <h2>Prerequisites</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Path</th>
+            <th>For</th>
+            <th>Packages</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <a href="#full-stack">Full-stack</a>
+            </td>
+            <td>Next.js App Router, tools running in the browser</td>
+            <td>
+              <code>glove-react</code>, <code>glove-next</code>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <a href="#server-only">Server-only</a>
+            </td>
+            <td>CLI, worker, backend service — no React</td>
+            <td>
+              <code>glove-core</code>
+            </td>
+          </tr>
+        </tbody>
+      </table>
 
-      <p>Before you start, make sure you have:</p>
+      <div className="docs-note">
+        <span className="docs-note-icon">›</span>
+        <p>
+          Not installed yet? <a href="/docs/installation">Installation</a>{" "}
+          covers packages, providers and environment variables. This guide
+          assumes React components, hooks and basic TypeScript; we explain{" "}
+          <a href="https://zod.dev" target="_blank" rel="noopener noreferrer">
+            Zod
+          </a>{" "}
+          and every Glove concept as it comes up.
+        </p>
+      </div>
 
-      <ul>
-        <li>
-          <strong>Node.js 18+</strong> installed on your machine
-        </li>
-        <li>
-          <strong>A Next.js project</strong> — an existing one, or create one
-          with <code>npx create-next-app@latest</code>
-        </li>
-        <li>
-          <strong>An API key</strong> from{" "}
-          <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a> or{" "}
-          <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">Anthropic</a>
-        </li>
-      </ul>
+      <h2 id="the-three-ideas">The three ideas</h2>
 
       <p>
-        <strong>What you should know:</strong> This guide assumes familiarity
-        with React components, hooks (<code>useState</code>), and basic
-        TypeScript. If you know how to build a form in React, you have
-        everything you need. We will explain{" "}
-        <a href="https://zod.dev" target="_blank" rel="noopener noreferrer">Zod</a> and
-        Glove-specific concepts as they come up.
-      </p>
-
-      {/* ------------------------------------------------------------------ */}
-      <h2>Key Concepts</h2>
-
-      <p>
-        Three ideas power every Glove app. Refer back to these if anything
-        later in the guide feels unfamiliar:
-      </p>
-
-      <p>
-        <strong>Tools</strong> are capabilities your app can perform — things
-        like &ldquo;get weather&rdquo; or &ldquo;search products.&rdquo; Each
-        tool has a name, a description (so the AI knows what it does), an input
-        schema (defined with <a href="https://zod.dev" target="_blank" rel="noopener noreferrer">Zod</a>,
-        a validation library), and a <code>do</code> function that runs when
-        the AI calls it.
-      </p>
-
-      <p>
-        <strong>The display stack</strong> lets tools show UI to the user. A
-        tool can push a React component onto a stack that your app renders.
-        There are two modes: <code>pushAndWait</code> pauses the tool until the
-        user responds (like a confirmation dialog), while{" "}
-        <code>pushAndForget</code> shows UI and lets the tool keep running
-        (like showing a data card). We won&apos;t use the display stack in this
-        guide, but you can learn about it in{" "}
-        <a href="/docs/concepts#the-display-stack">Concepts</a>.
+        Refer back to these if anything below feels unfamiliar — each has a full
+        page in <a href="/docs/concepts">Core Concepts</a>.
       </p>
 
       <p>
-        <strong>The agent loop</strong> is the engine that drives everything.
-        When a user sends a message, the AI reads the available tools, calls
-        whichever tools it needs, reads the results, and either responds or
-        calls more tools. This loop repeats until the AI has enough information
-        to give a final answer.
+        <strong>Tools</strong> are the capabilities your app exposes. A tool is
+        a name, a description (this is what the model reads to decide), a Zod{" "}
+        <code>inputSchema</code>, and an async <code>do()</code>.
       </p>
-
-      {/* ------------------------------------------------------------------ */}
-      <h2>1. Install packages</h2>
 
       <p>
-        Install Glove and Zod (the validation library Glove uses for tool
-        inputs):
+        <strong>The agent loop</strong> is the engine. A user message goes in;
+        the model calls whichever tools it needs, reads the results, and either
+        answers or calls more. You never sequence it yourself.
       </p>
+
+      <p>
+        <strong>The display stack</strong> is how a tool shows UI mid-run.{" "}
+        <code>pushAndForget</code> renders and keeps going;{" "}
+        <code>pushAndWait</code> renders and pauses the tool until the user
+        responds. Section 6 uses it.
+      </p>
+
+      {/* ================================================================== */}
+      <h2 id="full-stack">Full-stack (Next.js + React)</h2>
+
+      <h3 id="1-install">1. Install</h3>
 
       <CodeBlock
         filename="terminal"
         language="bash"
-        code={`pnpm add glove-core glove-react glove-next zod`}
+        code={`pnpm add glove-react glove-next zod`}
       />
-
-      <p>Or with npm:</p>
-
-      <CodeBlock
-        filename="terminal"
-        language="bash"
-        code={`npm install glove-core glove-react glove-next zod`}
-      />
-
-      <p>
-        Here is what each package does:
-      </p>
 
       <ul>
         <li>
-          <code>glove-react</code> — React hooks and components for your UI (<a href="/docs/react">API reference</a>)
+          <code>glove-next</code> — the server handler that talks to your model
+          provider (<a href="/docs/next">reference</a>)
         </li>
         <li>
-          <code>glove-next</code> — server handler that connects to AI providers (<a href="/docs/next">API reference</a>)
-        </li>
-        <li>
-          <code>glove-core</code> — the runtime engine (included as a dependency of <code>glove-react</code>)
+          <code>glove-react</code> — hooks and components for the UI, with{" "}
+          <code>glove-core</code> bundled as a dependency (
+          <a href="/docs/react">reference</a>)
         </li>
         <li>
           <code>zod</code> — validates tool inputs at runtime
         </li>
       </ul>
 
-      {/* ------------------------------------------------------------------ */}
-      <h2>2. Create the server route</h2>
+      <h3 id="2-server-route">2. Create the server route</h3>
 
       <p>
-        Create an API route that handles chat requests. The{" "}
-        <code>createChatHandler</code> function from <code>glove-next</code>{" "}
-        does this in one line — it connects to your AI provider and streams
-        responses back:
+        One line gives you a streaming POST endpoint. It holds your API key and
+        proxies the model; it never sees your tool implementations.
       </p>
 
       <CodeBlock
@@ -132,40 +125,24 @@ export default async function GettingStartedPage() {
         language="typescript"
         code={`import { createChatHandler } from "glove-next";
 
-// This creates a POST endpoint that streams AI responses
 export const POST = createChatHandler({
-  provider: "openai",    // or "anthropic", "ollama", "lmstudio", etc.
-  model: "gpt-4.1-mini",  // or "claude-sonnet-4-20250514", "llama3", etc.
+  provider: "anthropic",              // "openai", "gemini", "ollama", …
+  model: "claude-sonnet-4-20250514",
 });`}
       />
-
-      <p>
-        Set your API key in <code>.env.local</code> at the root of your project:
-      </p>
 
       <CodeBlock
         filename=".env.local"
         language="bash"
-        code={`OPENAI_API_KEY=sk-...`}
+        code={`ANTHROPIC_API_KEY=sk-ant-...`}
       />
 
-      <p>
-        Using Anthropic? Change to{" "}
-        <code>provider: &quot;anthropic&quot;</code> and{" "}
-        <code>model: &quot;claude-sonnet-4-20250514&quot;</code>, then set{" "}
-        <code>ANTHROPIC_API_KEY</code> instead. Want to use a local model?
-        Set <code>provider: &quot;ollama&quot;</code> or{" "}
-        <code>&quot;lmstudio&quot;</code> with your model name — no API key needed.
-        See{" "}
-        <a href="/docs/next#supported-providers">all supported providers</a>.
-      </p>
-
-      {/* ------------------------------------------------------------------ */}
-      <h2>3. Define your tools</h2>
+      <h3 id="3-define-tools">3. Define your tools</h3>
 
       <p>
-        Create a <code>GloveClient</code> with a system prompt and tools. This
-        is where you tell the AI what your app can do:
+        The <code>GloveClient</code> holds the system prompt and the tool list.
+        Tools defined here run in the browser, so they can touch component state
+        and the display stack directly.
       </p>
 
       <CodeBlock
@@ -175,31 +152,27 @@ export const POST = createChatHandler({
 import { z } from "zod";
 
 export const gloveClient = new GloveClient({
-  // Where to send chat requests (the route you created above)
   endpoint: "/api/chat",
-
-  // Instructions for the AI — what role should it play?
   systemPrompt: "You are a helpful weather assistant.",
 
-  // Tools — capabilities the AI can use
   tools: [
     {
       name: "get_weather",
+      // The description IS the interface — the model picks tools by reading it.
       description: "Get the current weather for a city.",
-
-      // Zod schema: defines what input the AI must provide
-      // z.object() creates an object schema, z.string() validates a string
       inputSchema: z.object({
         city: z.string().describe("The city to get weather for"),
       }),
-
-      // This runs when the AI decides to use this tool
       async do(input) {
-        // In a real app, you'd call a weather API here
+        const res = await fetch(
+          \`https://wttr.in/\${encodeURIComponent(input.city)}?format=j1\`,
+        );
+        const data = await res.json();
+        const now = data.current_condition[0];
         return {
           city: input.city,
-          temperature: "72°F",
-          condition: "Sunny",
+          temperature: \`\${now.temp_C}°C\`,
+          condition: now.weatherDesc[0].value,
         };
       },
     },
@@ -208,19 +181,12 @@ export const gloveClient = new GloveClient({
       />
 
       <p>
-        The <code>inputSchema</code> tells the AI what arguments the tool
-        expects, and Zod validates them at runtime. The <code>do</code>{" "}
-        function runs when the AI calls this tool — its return value is sent
-        back to the AI as the tool result.
+        Whatever <code>do()</code> returns is fed back to the model as the tool
+        result. Keep it small and structured — it costs context on every
+        subsequent turn.
       </p>
 
-      {/* ------------------------------------------------------------------ */}
-      <h2>4. Add the provider</h2>
-
-      <p>
-        Wrap your app with <code>GloveProvider</code> so any component can
-        access the agent. Create a client component for the provider:
-      </p>
+      <h3 id="4-provider">4. Add the provider</h3>
 
       <CodeBlock
         filename="app/providers.tsx"
@@ -235,20 +201,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
 }`}
       />
 
-      <p>
-        Then wrap your root layout with it:
-      </p>
-
       <CodeBlock
         filename="app/layout.tsx"
         language="tsx"
         code={`import { Providers } from "./providers";
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
@@ -259,114 +217,13 @@ export default function RootLayout({
 }`}
       />
 
-      {/* ------------------------------------------------------------------ */}
-      <h2>5. Build the chat UI</h2>
+      <h3 id="5-chat-ui">5. Build the chat UI</h3>
 
       <p>
-        Use the <code>useGlove</code> hook to get the conversation state and a
-        function to send messages:
-      </p>
-
-      <CodeBlock
-        filename="app/page.tsx"
-        language="tsx"
-        code={`"use client";
-
-import { useState } from "react";
-import { useGlove } from "glove-react";
-
-export default function Chat() {
-  // useGlove gives you everything you need:
-  // - timeline: array of messages and tool calls
-  // - streamingText: text being streamed right now
-  // - busy: true while the AI is thinking
-  // - sendMessage: send a user message
-  const { timeline, streamingText, busy, sendMessage } = useGlove();
-  const [input, setInput] = useState("");
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!input.trim() || busy) return;
-    sendMessage(input.trim());
-    setInput("");
-  }
-
-  return (
-    <div style={{ maxWidth: 600, margin: "2rem auto", fontFamily: "sans-serif" }}>
-      <h1>Weather Chat</h1>
-
-      {/* Render the conversation */}
-      <div>
-        {timeline.map((entry, i) => {
-          // Each entry has a "kind" that tells you what type it is
-          if (entry.kind === "user") {
-            return (
-              <div key={i} style={{ margin: "1rem 0" }}>
-                <strong>You:</strong> {entry.text}
-              </div>
-            );
-          }
-
-          if (entry.kind === "agent_text") {
-            return (
-              <div key={i} style={{ margin: "1rem 0" }}>
-                <strong>Assistant:</strong> {entry.text}
-              </div>
-            );
-          }
-
-          if (entry.kind === "tool") {
-            return (
-              <div
-                key={i}
-                style={{
-                  margin: "0.5rem 0",
-                  padding: "0.5rem",
-                  background: "#f0f0f0",
-                  borderRadius: 4,
-                  fontSize: "0.875rem",
-                }}
-              >
-                Tool: <strong>{entry.name}</strong> — {entry.status}
-              </div>
-            );
-          }
-
-          return null;
-        })}
-      </div>
-
-      {/* Show text as it streams in */}
-      {streamingText && (
-        <div style={{ margin: "1rem 0", opacity: 0.7 }}>
-          <strong>Assistant:</strong> {streamingText}
-        </div>
-      )}
-
-      {/* Message input */}
-      <form onSubmit={handleSubmit} style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}>
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask about the weather..."
-          disabled={busy}
-          style={{ flex: 1, padding: "0.5rem" }}
-        />
-        <button type="submit" disabled={busy}>
-          Send
-        </button>
-      </form>
-    </div>
-  );
-}`}
-      />
-
-      <h3>Using the Render component</h3>
-
-      <p>
-        The manual mapping above is great for learning, but <code>glove-react</code>{" "}
-        includes a <code>&lt;Render&gt;</code> component that handles the timeline,
-        streaming text, and input for you. Here is the same UI with less boilerplate:
+        <code>useGlove()</code> gives you the timeline, the streaming text, a
+        busy flag and <code>sendMessage</code>. <code>&lt;Render&gt;</code>{" "}
+        wires them together — including display-stack slots and tool result
+        rendering — so you only supply the pieces you care about.
       </p>
 
       <CodeBlock
@@ -380,20 +237,17 @@ export default function Chat() {
   const glove = useGlove();
 
   return (
-    <div style={{ maxWidth: 600, margin: "2rem auto", fontFamily: "sans-serif" }}>
+    <main style={{ maxWidth: 640, margin: "2rem auto" }}>
       <h1>Weather Chat</h1>
       <Render
         glove={glove}
         renderMessage={({ entry }) => (
-          <div style={{ margin: "1rem 0" }}>
-            <strong>{entry.kind === "user" ? "You" : "Assistant"}:</strong> {entry.text}
-          </div>
+          <p>
+            <strong>{entry.kind === "user" ? "You" : "Assistant"}:</strong>{" "}
+            {entry.text}
+          </p>
         )}
-        renderStreaming={({ text }) => (
-          <div style={{ margin: "1rem 0", opacity: 0.7 }}>
-            <strong>Assistant:</strong> {text}
-          </div>
-        )}
+        renderStreaming={({ text }) => <p style={{ opacity: 0.7 }}>{text}</p>}
         renderInput={({ send, busy }) => (
           <form
             onSubmit={(e) => {
@@ -403,154 +257,85 @@ export default function Chat() {
               send(input.value.trim());
               input.value = "";
             }}
-            style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}
           >
-            <input
-              name="msg"
-              placeholder="Ask about the weather..."
-              disabled={busy}
-              style={{ flex: 1, padding: "0.5rem" }}
-            />
+            <input name="msg" placeholder="Ask about the weather…" disabled={busy} />
             <button type="submit" disabled={busy}>Send</button>
           </form>
         )}
       />
-    </div>
+    </main>
   );
 }`}
       />
 
       <p>
-        <code>&lt;Render&gt;</code> also handles display stack slots, display
-        strategies, and tool result rendering automatically — features you will
-        use when you start building with the{" "}
-        <a href="/docs/display-stack">display stack</a>. For now, both
-        approaches work identically.
+        Prefer to drive the timeline yourself? <code>useGlove()</code> returns
+        it as a plain array — map over <code>entry.kind</code> (
+        <code>user</code>, <code>agent_text</code>, <code>tool</code>) and
+        render whatever you like. <code>&lt;Render&gt;</code> is a convenience,
+        not a requirement.
       </p>
 
-      {/* ------------------------------------------------------------------ */}
-      <h2>6. Run it</h2>
+      <h3 id="6-display">6. Make a tool show UI</h3>
+
+      <p>
+        This is the part that makes Glove an application runtime rather than a
+        chat wrapper. A tool can push a component and{" "}
+        <strong>block until the user answers it</strong>:
+      </p>
+
+      <CodeBlock
+        filename="lib/glove.ts"
+        language="typescript"
+        code={`{
+  name: "book_trip",
+  description: "Book a trip once the user has confirmed the details.",
+  inputSchema: z.object({ city: z.string(), nights: z.number() }),
+  async do(input, display) {
+    // Renders <ConfirmTrip {...input} /> and suspends here.
+    const confirmed = await display.pushAndWait({
+      renderer: "confirm_trip",
+      input,
+    });
+
+    if (!confirmed.ok) return { status: "cancelled" };
+    return await bookings.create(input);
+  },
+}`}
+      />
+
+      <p>
+        Register <code>confirm_trip</code> as a renderer on the React side and{" "}
+        <code>&lt;Render&gt;</code> mounts it in the conversation. The full
+        story — renderers, display strategies, typed props via{" "}
+        <code>defineTool</code> — is in{" "}
+        <a href="/docs/display-stack">The Display Stack</a>.
+      </p>
+
+      <h3 id="7-run">7. Run it</h3>
+
+      <CodeBlock filename="terminal" language="bash" code={`pnpm dev`} />
+
+      <p>
+        Open <code>http://localhost:3000</code> and ask “What&apos;s the weather
+        in Tokyo?”. The model calls <code>get_weather</code> and answers from
+        the result.
+      </p>
+
+      {/* ================================================================== */}
+      <h2 id="server-only">Server-only (Node, CLI, worker)</h2>
+
+      <p>
+        No React, no Next.js — construct <code>Glove</code>, fold tools onto it,
+        and call <code>processRequest</code>. This is the shape for cron jobs,
+        queue workers, terminal agents and WebSocket servers.
+      </p>
 
       <CodeBlock
         filename="terminal"
         language="bash"
-        code={`pnpm dev`}
+        code={`pnpm add glove-core zod`}
       />
-
-      <p>
-        Open{" "}
-        <a href="http://localhost:3000" target="_blank" rel="noopener noreferrer">
-          http://localhost:3000
-        </a>{" "}
-        and try asking &ldquo;What&apos;s the weather in Tokyo?&rdquo;. The AI
-        will call your <code>get_weather</code> tool and respond with the
-        result.
-      </p>
-
-      {/* ------------------------------------------------------------------ */}
-      <h2>Next steps</h2>
-
-      <p>You have a working agent. Here is where to go next:</p>
-
-      <ul>
-        <li>
-          <a href="/docs/display-stack">The Display Stack</a> — add
-          interactive UI to your tools: confirmation dialogs, forms, data cards,
-          and more
-        </li>
-        <li>
-          <a href="/docs/concepts">Core Concepts</a> — understand the
-          architecture: the agent loop, adapters, and context compaction
-        </li>
-        <li>
-          <a href="/docs/extensions">Hooks, Skills &amp; Subagents</a> —
-          extend the agent with <code>/hook</code> directives,{" "}
-          <code>/skill</code> context injections, and isolated subagent
-          factories
-        </li>
-        <li>
-          <a href="/docs/react">React API Reference</a> — explore the full API
-          including{" "}
-          <a href="/docs/react#glove-client">GloveClient</a>,{" "}
-          <a href="/docs/react#useglove">useGlove</a>, and{" "}
-          <a href="/docs/react#tool-config">ToolConfig</a>
-        </li>
-        <li>
-          <a href="/docs/react#define-tool">defineTool</a> — type-safe tool
-          definitions with typed display props and resolve values
-        </li>
-      </ul>
-
-      {/* ------------------------------------------------------------------ */}
-      <h2>Memory</h2>
-
-      <p>
-        Production agents need to remember across conversations — not just
-        recent messages, but stable facts about people and projects, things
-        that happened, research artifacts, and the user&apos;s standing
-        preferences. Glove ships these as a separate package,{" "}
-        <code>glove-memory</code>, with four orthogonal primitives you can
-        attach to any agent independently.
-      </p>
-
-      <ul>
-        <li>
-          <strong>Entity memory</strong> — a typed graph of recurring things.
-          Nodes have a class (<code>Person</code>, <code>Organization</code>),
-          a Zod-validated property bag, and deterministic identity keys so
-          the same Don gets one node, even when extracted fifty times.
-        </li>
-        <li>
-          <strong>Episodic memory</strong> — append-only timeline of events
-          (meetings, decisions, milestones). Time-indexed, semantically
-          searchable, with participants referencing entity IDs.
-        </li>
-        <li>
-          <strong>Resources</strong> — POSIX-style virtual filesystem the
-          agent navigates with <code>ls</code> / <code>read</code> /{" "}
-          <code>grep</code> / <code>glob</code> / <code>edit</code>. Holds
-          research notes, transcripts, link collections.
-        </li>
-        <li>
-          <strong>Context</strong> — the user&apos;s standing brief on
-          themselves: identity, preferences, glossary, current task scope.
-          Auto-injected into the system prompt every turn.
-        </li>
-      </ul>
-
-      <p>
-        Each subsystem is its own adapter contract with a bring-your-own
-        storage backend; reference in-memory adapters ship for dev/test.
-        The conversational agent gets read-only tools; a separate{" "}
-        <strong>curator</strong> Glove instance — typically triggered by{" "}
-        <a href="https://station.dterminal.net">Station</a> — runs over
-        conversation history and writes.
-      </p>
-
-      <p>
-        The recommended shape is to <em>not</em> attach memory tools directly
-        to your main agent. Build subagents — one per retrieval task — and
-        register them via <code>defineSubAgent</code>. Each subagent attaches
-        only the adapter slice it needs, so its tool descriptions render only
-        the relevant schema. Token cost scales with role rather than with
-        total ontology size.
-      </p>
-
-      <p>
-        See <a href="/docs/memory">Memory</a> for the full reference (tools,
-        adapter contracts, embedding lifecycle, reconciliation primitives)
-        and <a href="/docs/memory/why">Why Memory</a> for the design story
-        behind the four-primitive split.
-      </p>
-
-      {/* ------------------------------------------------------------------ */}
-      <h2>Server-only quickstart</h2>
-
-      <p>
-        If you just want to run an agent from a Node script — no React, no
-        Next.js — wire <code>Glove</code> up directly with the in-process{" "}
-        <code>MemoryStore</code> from <code>glove-core</code>:
-      </p>
 
       <CodeBlock
         filename="scripts/run-agent.ts"
@@ -560,19 +345,20 @@ import { z } from "zod";
 
 const agent = new Glove({
   store: new MemoryStore("local-session"),
-  model: createAdapter({ provider: "openai", model: "gpt-4.1-mini" }),
+  model: createAdapter({ provider: "anthropic", model: "claude-sonnet-4-20250514" }),
   displayManager: new Displaymanager(),
   systemPrompt: "You are a helpful weather assistant.",
   compaction_config: {
+    // Runs automatically when the context gets long.
     compaction_instructions: "Summarize the conversation so far.",
   },
 })
   .fold({
     name: "get_weather",
     description: "Get the current weather for a city.",
-    inputSchema: z.object({ city: z.string().describe("The city to get weather for") }),
+    inputSchema: z.object({ city: z.string() }),
     async do(input) {
-      return { status: "success", data: { city: input.city, temperature: "72F", condition: "Sunny" } };
+      return { status: "success", data: { city: input.city, temperature: "22°C" } };
     },
   })
   .build();
@@ -581,12 +367,103 @@ const result = await agent.processRequest("What's the weather in Tokyo?");
 console.log(result);`}
       />
 
+      <CodeBlock
+        filename="terminal"
+        language="bash"
+        code={`npx tsx scripts/run-agent.ts`}
+      />
+
+      <h3 id="streaming-server">Watching it work</h3>
+
       <p>
-        <code>MemoryStore</code> keeps everything in process memory — perfect
-        for prototypes, scripts, and tests. For durable sessions, implement{" "}
-        <a href="/docs/core#store-adapter">StoreAdapter</a> against your own
-        backend (Postgres, Redis, S3, anything).
+        Subscribers are the server-side equivalent of the React timeline —
+        stream deltas to a terminal, a log, a socket, or a metrics sink:
       </p>
+
+      <CodeBlock
+        filename="scripts/run-agent.ts"
+        language="typescript"
+        code={`app.addSubscriber({
+  async record(event, data) {
+    if (event === "text_delta") process.stdout.write(data.text);
+    if (event === "tool_use") console.log(\`\\n→ \${data.name}\`);
+    if (event === "tool_use_result") console.log(\`← \${data.result.status}\`);
+  },
+});`}
+      />
+
+      <p>
+        More on long-running processes, WebSocket servers and terminal UIs in{" "}
+        <a href="/docs/server-side">Server-Side Agents</a>.
+      </p>
+
+      <h2 id="persistence">Making it persist</h2>
+
+      <p>
+        <code>MemoryStore</code> lives in process memory — perfect for scripts
+        and tests, gone on restart. For real sessions implement{" "}
+        <code>StoreAdapter</code> against your own backend; it is a small
+        interface (messages, turns, tokens, inbox) and the one seam that decides
+        where conversation state lives.
+      </p>
+
+      <ul>
+        <li>
+          <strong>MemoryStore</strong> (<code>glove-core</code>) — in-process,
+          for prototypes
+        </li>
+        <li>
+          <strong>createRemoteStore</strong> (<code>glove-react</code>) —
+          delegates to your own API endpoints
+        </li>
+        <li>
+          <strong>Custom StoreAdapter</strong> — Postgres, Redis, DynamoDB,
+          anything (<a href="/docs/core">contract</a>)
+        </li>
+      </ul>
+
+      <h2 id="next-steps">Where to go next</h2>
+
+      <DocCards
+        cards={[
+          {
+            href: "/docs/packages",
+            kicker: "Tour",
+            title: "All Packages",
+            desc: "Memory, sandboxes, mesh, MCP, voice — what each one solves and the snippet that turns it on.",
+          },
+          {
+            href: "/docs/display-stack",
+            kicker: "Build",
+            title: "The Display Stack",
+            desc: "Confirmation dialogs, forms and data cards pushed by the tools that need them.",
+          },
+          {
+            href: "/docs/concepts",
+            kicker: "Understand",
+            title: "Core Concepts",
+            desc: "The agent loop, adapters, subscribers and context compaction.",
+          },
+          {
+            href: "/docs/extensions",
+            kicker: "Extend",
+            title: "Hooks, Skills & Subagents",
+            desc: "Shape a turn before it runs, inject context on demand, delegate to isolated children.",
+          },
+          {
+            href: "/docs/memory",
+            kicker: "Remember",
+            title: "Memory",
+            desc: "Entities, episodes, resources and standing context — across sessions.",
+          },
+          {
+            href: "/docs/react",
+            kicker: "Reference",
+            title: "React API",
+            desc: "GloveClient, useGlove, <Render>, defineTool and typed display props.",
+          },
+        ]}
+      />
     </div>
   );
 }

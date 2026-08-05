@@ -1,4 +1,5 @@
 import { DocsSidebar } from "@/components/docs-sidebar";
+import { DocsToc } from "@/components/docs-toc";
 import { DocsBreadcrumb, DocsPager } from "@/components/docs-chrome";
 
 export default function DocsLayout({
@@ -14,6 +15,7 @@ export default function DocsLayout({
         {children}
         <DocsPager />
       </div>
+      <DocsToc />
     </div>
   );
 }
