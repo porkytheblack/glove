@@ -88,6 +88,50 @@ test("apiKey argument wins over the env key", async () => {
   assert.match(urls[0], /key=ai-explicit/);
 });
 
+test("voice resolves explicit → S2S_VOICE, and session config still wins", async () => {
+  process.env.OPENAI_API_KEY = "sk-test";
+  process.env.S2S_VOICE = "cedar";
+  const sent: unknown[] = [];
+  const socketFactory = (url: string) => {
+    const s = new NullSocket(url);
+    s.send = (d: string | ArrayBufferLike) => void sent.push(JSON.parse(String(d)));
+    return s;
+  };
+
+  // env voice lands in the session setup
+  await createS2SAdapter({ provider: "openai", socketFactory }).connect({});
+  assert.equal((sent[0] as any).session.audio.output.voice, "cedar");
+
+  // explicit factory voice beats env
+  sent.length = 0;
+  await createS2SAdapter({ provider: "openai", voice: "marin", socketFactory }).connect({});
+  assert.equal((sent[0] as any).session.audio.output.voice, "marin");
+
+  // a voice named in the session config (RealtimeAgent's `voice`) beats both
+  sent.length = 0;
+  await createS2SAdapter({ provider: "openai", voice: "marin", socketFactory }).connect({
+    voice: "alloy",
+  });
+  assert.equal((sent[0] as any).session.audio.output.voice, "alloy");
+});
+
+test("Gemini voice from the factory reaches the setup frame", async () => {
+  process.env.GEMINI_API_KEY = "ai-test";
+  const sent: unknown[] = [];
+  const adapter = createS2SAdapter({
+    provider: "gemini",
+    voice: "Charon",
+    socketFactory: (url: string) => {
+      const s = new NullSocket(url);
+      s.send = (d: string | ArrayBufferLike) => void sent.push(JSON.parse(String(d)));
+      return s;
+    },
+  });
+  await adapter.connect({});
+  const setup = (sent[0] as any).setup;
+  assert.equal(setup.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, "Charon");
+});
+
 test("S2S_TURN_DETECTION shapes the OpenAI session setup", async () => {
   process.env.OPENAI_API_KEY = "sk-test";
   process.env.S2S_TURN_DETECTION = "server_vad";

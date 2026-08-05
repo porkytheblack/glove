@@ -11,6 +11,9 @@ export interface OpenAIRealtimeConfig {
   getToken: () => Promise<string>;
   /** Realtime model (default "gpt-realtime"). */
   model?: string;
+  /** Default output voice, used when the session config doesn't name one.
+   *  Locked once the model first speaks — per-session, not mid-call. */
+  voice?: string;
   /** Where to POST the WebRTC SDP offer (default the GA calls endpoint). */
   sdpUrl?: string;
   /**
@@ -121,7 +124,11 @@ export class OpenAIRealtimeAdapter extends EventEmitter<S2SEvents> implements S2
     };
     dc.onopen = () => {
       this.connected = true;
-      if (config) this.updateSession(config);
+      if (config || this.cfg.voice) {
+        const merged = { ...(config ?? {}) };
+        if (merged.voice === undefined) merged.voice = this.cfg.voice;
+        this.updateSession(merged);
+      }
       this.emit("connected");
     };
     dc.onclose = () => {

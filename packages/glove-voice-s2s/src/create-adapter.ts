@@ -34,6 +34,11 @@ interface CommonArgs {
   provider?: S2SProvider;
   /** Explicit credential. Wins over the env key; loses to `getToken`. */
   apiKey?: string;
+  /** Output voice (provider-specific name). Default: S2S_VOICE. Providers
+   *  lock the voice once the model first speaks — this picks the voice for
+   *  the SESSION; there is no mid-call switch. A voice named in the session
+   *  config (e.g. RealtimeAgent's `voice`) wins over this. */
+  voice?: string;
 }
 
 /** Discriminated on `provider`, carrying that adapter's own options minus
@@ -96,10 +101,11 @@ export function createS2SAdapter(args: CreateS2SAdapterArgs = {}): S2SAdapter {
   }
 
   const model = a.model ?? (env("S2S_MODEL") || undefined);
+  const voice = a.voice ?? (env("S2S_VOICE") || undefined);
 
   switch (provider) {
     case "openai": {
-      const { provider: _p, apiKey: _k, getToken: _t, model: _m, ...rest } =
+      const { provider: _p, apiKey: _k, getToken: _t, model: _m, voice: _v, ...rest } =
         a as CommonArgs & OpenAIRealtimeSocketConfig;
       const turnDetection =
         rest.turnDetection ??
@@ -108,24 +114,27 @@ export function createS2SAdapter(args: CreateS2SAdapterArgs = {}): S2SAdapter {
         ...rest,
         ...(turnDetection ? { turnDetection } : {}),
         ...(model ? { model } : {}),
+        ...(voice ? { voice } : {}),
         getToken,
       });
     }
     case "openai-webrtc": {
-      const { provider: _p, apiKey: _k, getToken: _t, model: _m, ...rest } =
+      const { provider: _p, apiKey: _k, getToken: _t, model: _m, voice: _v, ...rest } =
         a as CommonArgs & OpenAIRealtimeConfig;
       return new OpenAIRealtimeAdapter({
         ...rest,
         ...(model ? { model } : {}),
+        ...(voice ? { voice } : {}),
         getToken: () => Promise.resolve(getToken()),
       });
     }
     case "gemini": {
-      const { provider: _p, apiKey: _k, getToken: _t, model: _m, ...rest } =
+      const { provider: _p, apiKey: _k, getToken: _t, model: _m, voice: _v, ...rest } =
         a as CommonArgs & GeminiLiveConfig;
       return new GeminiLiveAdapter({
         ...rest,
         ...(model ? { model } : {}),
+        ...(voice ? { voice } : {}),
         getToken,
       });
     }

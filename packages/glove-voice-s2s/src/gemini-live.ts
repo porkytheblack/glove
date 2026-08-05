@@ -21,6 +21,10 @@ export interface GeminiLiveConfig {
   getToken: () => Promise<string> | string;
   /** Default: "models/gemini-live-2.5-flash-preview". */
   model?: string;
+  /** Default prebuilt voice, used when the session config doesn't name one.
+   *  Gemini takes the voice in the first frame only — per-session, not
+   *  mid-call. */
+  voice?: string;
   /** Override the endpoint (regional deployments, Vertex). */
   url?: string;
   /**
@@ -99,12 +103,13 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
   }
 
   private buildSetup(config?: S2SSessionConfig): Record<string, unknown> {
+    const voice = config?.voice ?? this.cfg.voice;
     const setup: Record<string, unknown> = {
       model: this.cfg.model ?? "models/gemini-live-2.5-flash-preview",
       generationConfig: {
         responseModalities: ["AUDIO"],
-        ...(config?.voice
-          ? { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: config.voice } } } }
+        ...(voice
+          ? { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } }
           : {}),
       },
       // Both transcriptions on: without them the host has no record of the

@@ -28,6 +28,10 @@ export interface OpenAIRealtimeSocketConfig {
   getToken: () => Promise<string> | string;
   /** Realtime model (default "gpt-realtime"). */
   model?: string;
+  /** Default output voice, used when the session config doesn't name one.
+   *  Providers lock the voice once the model first speaks — this is a
+   *  per-session choice, not a mid-call switch. */
+  voice?: string;
   /** Override the endpoint (default wss://api.openai.com/v1/realtime). */
   url?: string;
   /** Model for user-audio transcription events (default gpt-4o-mini-transcribe). */
@@ -200,8 +204,11 @@ export class OpenAIRealtimeSocketAdapter extends EventEmitter<S2SEvents> impleme
       };
       audio.output = { format: { type: "audio/pcm", rate: OPENAI_PCM.sampleRate } };
     }
-    if (patch.voice !== undefined) {
-      audio.output = { ...(audio.output as object | undefined), voice: patch.voice };
+    // Session config wins; the adapter's configured voice is the fallback,
+    // applied only at full setup (a patch must not re-send a locked voice).
+    const voice = patch.voice ?? (full ? this.cfg.voice : undefined);
+    if (voice !== undefined) {
+      audio.output = { ...(audio.output as object | undefined), voice };
     }
     if (Object.keys(audio).length) session.audio = audio;
     if (patch.instructions !== undefined) session.instructions = patch.instructions;

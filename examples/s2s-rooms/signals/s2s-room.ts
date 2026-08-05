@@ -157,12 +157,15 @@ export const s2sRoom = signal("s2s-room")
       provider: input.provider,
       apiKey,
       ...(input.model ? { model: input.model } : {}),
+      // Voice resolves like model: room input → S2S_VOICE env → the
+      // provider's own default. Per-session — providers lock it once the
+      // model first speaks.
+      ...(input.voice ? { voice: input.voice } : {}),
     });
 
     const rt = new RealtimeAgent({
       agent: front,
       adapter,
-      voice: input.voice || (input.provider === "openai" ? "marin" : "Puck"),
       // Slim the spoken tool surface: send + list are useful mid-call, the
       // broadcast/ack verbs are not (two-agent mesh, and the transport's
       // acknowledge is deliberately inert anyway).
