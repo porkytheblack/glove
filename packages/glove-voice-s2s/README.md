@@ -235,3 +235,14 @@ Sonic implementations slot into the same contract.
 
 See `examples/layered-voice` (`/s2s` page) for a full working integration
 with true voice-to-voice measurement.
+
+## Layers on top
+
+- [`glove-voice-avatar`](../glove-voice-avatar) — a live face over this
+  stack: `AvatarAdapter` contract + Tavus echo / Anam passthrough adapters,
+  bridged with `attachAvatar(rt, avatar)`.
+- [`glove-voice-livekit`](../glove-voice-livekit) — LiveKit as the room
+  transport (`LiveKitTransport` + `attachRealtime`) and LiveKit avatars that
+  join your room as participants.
+- Runnable progression: `examples/s2s-rooms` → `avatar-rooms` →
+  `livekit-rooms` (layered front agent + mesh worker + station rooms).

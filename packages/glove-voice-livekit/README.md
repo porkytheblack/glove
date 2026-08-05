@@ -72,6 +72,13 @@ await attachAvatar(rt, avatar);       // connects + bridges speech/end/interrupt
 conformance suite, live verification pending a key
 ([#71](https://github.com/porkytheblack/glove/issues/71)).
 
+**Session renewal:** providers can end an avatar session under you — Anam's
+plan cap force-ends conversations at 3/5/10 minutes below Growth tier. The
+worker leaving the room (`participant_disconnected` on its identity) is the
+signal; `disconnect()` + `connect()` on the adapter mints a fresh session
+into the same room. `examples/livekit-rooms` does this automatically with a
+debounce.
+
 Browsers see the avatar as an ordinary room participant: attach its video
 track and you have the face — no provider SDK on the client.
 

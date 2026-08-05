@@ -59,7 +59,8 @@ export default function Page() {
           <h1>Orbital Dynamics · avatar rooms</h1>
           <div className="sub">
             your mic goes up the duct to a speech-to-speech model; the agent's face
-            and voice come back through the embedded room (Tavus echo)
+            and voice come back through the provider's session (Tavus echo / Anam
+            passthrough)
           </div>
         </div>
         <div className="spacer" />
