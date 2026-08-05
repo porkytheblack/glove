@@ -32,7 +32,7 @@ import { SqliteAdapter } from "station-adapter-sqlite";
 import { WebSocketServer, type WebSocket } from "ws";
 import { MemoryStore } from "glove-core";
 import { mountMesh } from "glove-mesh";
-import { createS2SAdapter, RealtimeAgent } from "glove-voice-s2s";
+import { RealtimeAgent } from "glove-voice-s2s";
 import { research } from "./research";
 import { buildS2SFrontAgent } from "../lib/s2s-front-agent";
 import {
@@ -128,7 +128,15 @@ export const s2sRoom = signal("s2s-room")
     // Thin front (this room, driven by the S2S model) + capable worker (its
     // own research signal run). The mesh adapter's dispatch queues the job and
     // returns — Nova keeps the floor while the worker digs.
-    const front = buildS2SFrontAgent(new MemoryStore(`s2s_front_${input.roomId}`));
+    // The agent definition carries its full realtime configuration on the
+    // model slot (s2sDrivenModel): provider + model + voice from the room
+    // input, credential resolved here, S2S_* env filling the rest.
+    const front = buildS2SFrontAgent(new MemoryStore(`s2s_front_${input.roomId}`), {
+      provider: input.provider,
+      apiKey,
+      ...(input.model ? { model: input.model } : {}),
+      ...(input.voice ? { voice: input.voice } : {}),
+    });
     const meshAdapter = new RoomMeshAdapter({
       dispatch: async ({ request, messageId }) => {
         const jobId = await research.trigger({
@@ -149,23 +157,11 @@ export const s2sRoom = signal("s2s-room")
     // Everything voice-session.ts + turn-engine.ts did lives in the provider
     // now. The room's remaining job is plumbing: PCM through, transcripts to
     // the console, worker replies into the live conversation.
-    // Same factory shape as glove-core's createAdapter: provider + model from
-    // the room input, credential resolved here, S2S_* env honoured for the
-    // rest (S2S_TURN_DETECTION etc.). Both providers implement the same
+    // No adapter wiring: the provider session derives from the config the
+    // agent's model slot carries. Both providers implement the same
     // transport-mode contract, so the room is identical from here down.
-    const adapter = createS2SAdapter({
-      provider: input.provider,
-      apiKey,
-      ...(input.model ? { model: input.model } : {}),
-      // Voice resolves like model: room input → S2S_VOICE env → the
-      // provider's own default. Per-session — providers lock it once the
-      // model first speaks.
-      ...(input.voice ? { voice: input.voice } : {}),
-    });
-
     const rt = new RealtimeAgent({
       agent: front,
-      adapter,
       // Slim the spoken tool surface: send + list are useful mid-call, the
       // broadcast/ack verbs are not (two-agent mesh, and the transport's
       // acknowledge is deliberately inert anyway).

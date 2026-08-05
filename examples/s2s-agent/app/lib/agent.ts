@@ -7,7 +7,7 @@
 // "the voice model really is calling my Glove tools" verifiable by eye.
 
 import { Displaymanager, Glove, MemoryStore } from "glove-core";
-import { s2sDrivenModel } from "glove-voice-s2s";
+import { s2sDrivenModel, type CreateS2SAdapterArgs } from "glove-voice-s2s";
 import { z } from "zod";
 
 // ── UI bridge ────────────────────────────────────────────────────────────────
@@ -35,13 +35,13 @@ const SYSTEM_PROMPT = [
   "When a tool succeeds, confirm it out loud briefly. Never read JSON aloud.",
 ].join(" ");
 
-export function buildAgent() {
+export function buildAgent(s2s: CreateS2SAdapterArgs) {
   return new Glove({
     store: new MemoryStore(`s2s_demo_${Date.now()}`),
-    // This demo only runs VOICE turns — the placeholder (from glove-voice-s2s)
-    // fails loudly if Glove's loop is ever run; wire a real createAdapter(...)
-    // to serve text turns from the same agent.
-    model: s2sDrivenModel("aria-demo"),
+    // The model slot CARRIES the realtime configuration — provider, voice,
+    // typed turn-taking knobs — so RealtimeAgent derives the provider
+    // session from the agent itself: new RealtimeAgent({ agent }).
+    model: s2sDrivenModel({ label: "aria-demo", ...s2s }),
     displayManager: new Displaymanager(),
     systemPrompt: SYSTEM_PROMPT,
     compaction_config: {

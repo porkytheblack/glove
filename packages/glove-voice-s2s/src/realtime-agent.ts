@@ -29,20 +29,51 @@ import {
   type Tool,
   type ToolResultData,
 } from "glove-core";
+import { createS2SAdapter, type CreateS2SAdapterArgs } from "./create-adapter";
 import type { S2SAdapter, S2SEvents, S2SSessionConfig, S2STool } from "./types";
 
 /**
- * A `ModelAdapter` for agents whose turns are driven by an S2S provider.
+ * A `ModelAdapter` that CARRIES its S2S configuration, so the agent
+ * definition is the single place realtime behaviour is declared.
+ */
+export interface S2SDrivenModel extends ModelAdapter {
+  /** The realtime configuration — `RealtimeAgent` derives the provider
+   *  session from this when no explicit `adapter` is passed. */
+  s2s: CreateS2SAdapterArgs;
+}
+
+/**
+ * The model slot for agents whose turns are driven by an S2S provider.
  *
  * A Glove needs a ModelAdapter to build, but a RealtimeAgent-driven agent
- * never runs Glove's own loop — the realtime model IS the model. This is the
- * canonical placeholder for that slot, so consumers stop hand-rolling
- * throwing stubs: it fails loudly (naming the agent) if anything ever calls
- * `processRequest`, and swapping in a real adapter later — to serve TEXT
- * turns from the same agent definition — stays a one-line change.
+ * never runs Glove's own loop — the realtime model IS the model. Two forms:
+ *
+ * ```ts
+ * // placeholder only — you construct/pass the adapter yourself
+ * model: s2sDrivenModel("s2s-front")
+ *
+ * // carry the FULL realtime config on the agent definition — provider,
+ * // model, voice, turn-taking, all typed — and RealtimeAgent derives the
+ * // adapter from it: new RealtimeAgent({ agent }) with no `adapter`.
+ * model: s2sDrivenModel({
+ *   label: "s2s-front",
+ *   provider: "openai",
+ *   voice: "marin",
+ *   turnDetection: { type: "semantic_vad", eagerness: "low" },
+ * })
+ * ```
+ *
+ * Either way it fails loudly (naming the agent) if anything ever runs
+ * `processRequest`, and swapping in a real `createAdapter(...)` to serve
+ * TEXT turns from the same agent definition stays a one-line change.
  */
-export function s2sDrivenModel(label = "s2s-driven"): ModelAdapter {
-  return {
+export function s2sDrivenModel(label?: string): ModelAdapter;
+export function s2sDrivenModel(config: CreateS2SAdapterArgs & { label?: string }): S2SDrivenModel;
+export function s2sDrivenModel(
+  arg: string | (CreateS2SAdapterArgs & { label?: string }) = "s2s-driven",
+): ModelAdapter | S2SDrivenModel {
+  const label = typeof arg === "string" ? arg : (arg.label ?? "s2s-driven");
+  const base: ModelAdapter = {
     name: label,
     async prompt(): Promise<never> {
       throw new Error(
@@ -55,13 +86,27 @@ export function s2sDrivenModel(label = "s2s-driven"): ModelAdapter {
       /* the realtime session carries the prompt */
     },
   };
+  if (typeof arg === "string") return base;
+  const { label: _l, ...s2s } = arg;
+  return { ...base, s2s };
+}
+
+/** Does this agent's model slot carry realtime configuration? */
+export function isS2SDrivenModel(model: ModelAdapter): model is S2SDrivenModel {
+  const s2s = (model as Partial<S2SDrivenModel>).s2s;
+  return typeof s2s === "object" && s2s !== null;
 }
 
 export interface RealtimeAgentConfig {
   /** A built Glove. Its prompt and tools configure the session. */
   agent: IGloveRunnable;
-  /** The provider session. */
-  adapter: S2SAdapter;
+  /**
+   * The provider session. Optional when the agent was built with
+   * `model: s2sDrivenModel({ provider, ... })` — the adapter is then derived
+   * from the config carried on the agent's model slot. An explicit adapter
+   * always wins.
+   */
+  adapter?: S2SAdapter;
   /** Provider-specific voice id. */
   voice?: string;
   /**
@@ -117,7 +162,16 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
   constructor(private readonly cfg: RealtimeAgentConfig) {
     super();
     this.agent = cfg.agent;
-    this.adapter = cfg.adapter;
+    if (cfg.adapter) {
+      this.adapter = cfg.adapter;
+    } else if (cfg.agent.model && isS2SDrivenModel(cfg.agent.model)) {
+      this.adapter = createS2SAdapter(cfg.agent.model.s2s);
+    } else {
+      throw new Error(
+        "RealtimeAgent needs a provider session: pass `adapter`, or build the agent with " +
+          "model: s2sDrivenModel({ provider, ... }) so the adapter can be derived from it.",
+      );
+    }
     this.excluded = new Set(cfg.excludeTools ?? []);
   }
 

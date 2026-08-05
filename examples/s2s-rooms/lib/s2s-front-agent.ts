@@ -14,7 +14,7 @@
 // through RealtimeAgent instead of Glove's own loop.
 
 import { Displaymanager, Glove, type IGloveRunnable, type StoreAdapter } from "glove-core";
-import { s2sDrivenModel } from "glove-voice-s2s";
+import { s2sDrivenModel, type CreateS2SAdapterArgs } from "glove-voice-s2s";
 import { z } from "zod";
 import { ASSISTANT_NAME } from "./speakers";
 import { STATS } from "./data/seed";
@@ -46,13 +46,14 @@ You have almost no tools of your own — just the clock. You do NOT know the cat
 - There is exactly one worker, id "worker".
 - Today is ${STATS.todayIso}.`;
 
-export function buildS2SFrontAgent(store: StoreAdapter): IGloveRunnable {
+export function buildS2SFrontAgent(store: StoreAdapter, s2s: CreateS2SAdapterArgs): IGloveRunnable {
   return new Glove({
     store,
-    // The realtime model IS the model; this placeholder (from glove-voice-s2s)
-    // fails loudly if Glove's own loop is ever run, and swapping in a real
-    // createAdapter(...) to serve TEXT turns stays a one-line change.
-    model: s2sDrivenModel("s2s-front"),
+    // The realtime model IS the model — and the model slot CARRIES its
+    // realtime configuration (provider, model, voice, turn-taking), so the
+    // agent definition is the single source of truth. RealtimeAgent derives
+    // the provider session from this; no separate adapter wiring.
+    model: s2sDrivenModel({ label: "s2s-front", ...s2s }),
     displayManager: new Displaymanager(),
     systemPrompt: S2S_FRONT_PROMPT,
     serverMode: true,

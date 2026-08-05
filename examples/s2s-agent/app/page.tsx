@@ -13,7 +13,7 @@
 // "note down: buy oat milk", "what are my notes?"
 
 import { useEffect, useRef, useState } from "react";
-import { createS2SAdapter, RealtimeAgent } from "glove-voice-s2s";
+import { RealtimeAgent } from "glove-voice-s2s";
 import { buildAgent, uiBridge, type Theme } from "./lib/agent";
 import { createPcmPlayer, startMicCapture, type PcmPlayer } from "./lib/audio";
 
@@ -74,17 +74,19 @@ export default function S2SAgentPage() {
   async function start() {
     setBusy(true);
     try {
-      // The factory, browser-style: getToken (never a raw key client-side),
-      // voice as typed config, provider picking the mode — "openai-webrtc"
-      // is DEVICE (owns mic + speakers), "gemini" is TRANSPORT (PCM only).
-      const adapter =
+      // The agent definition carries the whole realtime config — provider,
+      // getToken (never a raw key client-side), voice, typed turn-taking
+      // knobs — and RealtimeAgent derives the provider session from it.
+      // "openai-webrtc" is DEVICE mode (owns mic + speakers); "gemini" is
+      // TRANSPORT (PCM only, the page wires audio).
+      const agent =
         provider === "openai"
-          ? createS2SAdapter({
+          ? buildAgent({
               provider: "openai-webrtc",
               getToken: () => fetchToken("/api/s2s/openai-token"),
               voice: "marin",
             })
-          : createS2SAdapter({
+          : buildAgent({
               provider: "gemini",
               getToken: () => fetchToken("/api/s2s/gemini-token"),
               voice: "Puck",
@@ -96,8 +98,7 @@ export default function S2SAgentPage() {
             });
 
       const rt = new RealtimeAgent({
-        agent: buildAgent(),
-        adapter,
+        agent,
         onToolCall: (name, phase, detail) => {
           if (phase === "start") append({ kind: "tool", text: `⚙ ${name}(${JSON.stringify(detail)})` });
           if (phase === "error") append({ kind: "error", text: `⚙ ${name} failed: ${String(detail)}` });

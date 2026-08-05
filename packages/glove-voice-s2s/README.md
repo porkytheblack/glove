@@ -32,6 +32,7 @@ Production S2S APIs run **500–800ms** voice-to-voice.
 | `GeminiLiveAdapter` | **transport**-mode adapter (plain WebSocket, Node + browser): moves PCM only — the mode a server-hosted room needs |
 | `RealtimeAgent` | run a built Glove on an S2S model: its prompt + tools configure the session, tool calls execute through the same `Tool.run` |
 | `createS2SAdapter` | provider/model/credential factory, same shape as glove-core's `createAdapter` — args first, `S2S_*` env second |
+| `s2sDrivenModel` | the Glove model slot for S2S-driven agents — as a plain placeholder, or carrying the FULL realtime config so `RealtimeAgent` derives the session from the agent itself |
 | `runConformance` | the behavioural suite every adapter must pass against a fake socket |
 | `createOpenAIRealtimeToken` (`/server`) | mint an ephemeral client secret server-side |
 
@@ -124,12 +125,31 @@ Author the agent exactly as you always do — tools, prompt, store — and hand
 it to `RealtimeAgent`. One definition, two runtimes: the same tools serve
 text turns through the normal loop and voice turns through the provider's.
 
-```ts
-import { RealtimeAgent, GeminiLiveAdapter } from "glove-voice-s2s";
+The cleanest form: the agent's MODEL SLOT carries the whole realtime
+configuration, and `RealtimeAgent` derives the provider session from it —
 
+```ts
+import { RealtimeAgent, s2sDrivenModel } from "glove-voice-s2s";
+
+const agent = new Glove({
+  model: s2sDrivenModel({
+    label: "s2s-front",
+    provider: "openai",                    // or env: S2S_PROVIDER / key presence
+    voice: "marin",                        // or env: S2S_VOICE
+    turnDetection: { type: "semantic_vad", eagerness: "low" },   // typed knobs
+  }),
+  systemPrompt, store, displayManager, compaction_config,
+}).fold(myTool).build();
+
+const rt = new RealtimeAgent({ agent });   // adapter derived from the agent
+```
+
+— or pass an explicit `adapter` (it always wins over the model-slot config):
+
+```ts
 const rt = new RealtimeAgent({
   agent,                                   // a built Glove (IGloveRunnable)
-  adapter: new GeminiLiveAdapter({ getToken: () => fetchToken("/api/voice/gemini-token") }),
+  adapter: createS2SAdapter({ provider: "gemini" }),
   instructions: SPOKEN_PERSONA,            // optional: re-voice the text prompt for speech
   excludeTools: ["render_chart"],          // withhold tools that don't belong in a call
 });

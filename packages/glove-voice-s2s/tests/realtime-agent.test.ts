@@ -10,7 +10,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import EventEmitter from "eventemitter3";
 import { z } from "zod";
-import { RealtimeAgent } from "../src/realtime-agent";
+import { RealtimeAgent, s2sDrivenModel } from "../src/realtime-agent";
+import type { WebSocketLike } from "../src/gemini-live";
 import type { S2SAdapter, S2SEvents, S2SSessionConfig } from "../src/types";
 
 class FakeAdapter extends EventEmitter<S2SEvents> implements S2SAdapter {
@@ -198,6 +199,56 @@ test("transcripts surface, and injection reaches the adapter", async () => {
 
   rt.inject("the lookup finished: covered until 2031", { respond: true });
   assert.equal(adapter.injected[0].respond, true);
+});
+
+test("the adapter derives from a config-carrying s2sDrivenModel — no explicit adapter", async () => {
+  const sent: unknown[] = [];
+  const socket: WebSocketLike = {
+    readyState: 1,
+    send: (d: string | ArrayBufferLike) => void sent.push(JSON.parse(String(d))),
+    close() {},
+    addEventListener(type: string, fn: (ev: unknown) => void) {
+      if (type === "open") queueMicrotask(() => fn({}));
+    },
+  };
+  const agent = {
+    ...fakeAgent([okTool], "You are Nova."),
+    model: s2sDrivenModel({
+      label: "derived",
+      provider: "gemini",
+      apiKey: "test-key",
+      voice: "Puck",
+      socketFactory: () => socket,
+    }),
+  };
+
+  const rt = new RealtimeAgent({ agent });
+  assert.equal(rt.mode, "transport", "derived adapter should be Gemini transport");
+  await rt.start();
+  await new Promise((r) => setTimeout(r, 5));
+
+  const setup = (sent[0] as any).setup;
+  assert.equal(setup.systemInstruction.parts[0].text, "You are Nova.");
+  assert.equal(setup.tools[0].functionDeclarations[0].name, "check_warranty");
+  assert.equal(
+    setup.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName,
+    "Puck",
+  );
+});
+
+test("no adapter and no config-carrying model is a construction-time error", () => {
+  assert.throws(
+    () => new RealtimeAgent({ agent: fakeAgent([okTool]) }),
+    /s2sDrivenModel/,
+    "the error must point at the two ways to supply a session",
+  );
+});
+
+test("the placeholder still fails loudly if Glove's loop runs", async () => {
+  await assert.rejects(
+    () => s2sDrivenModel("front").prompt(undefined as never, undefined as never),
+    /"front".*placeholder/s,
+  );
 });
 
 test("refreshSession re-sends tools folded after start", async () => {
