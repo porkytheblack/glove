@@ -39,6 +39,14 @@ export interface OpenAIRealtimeSocketConfig {
   /** Turn detection. Default: semantic VAD — the model decides from LISTENING
    *  whether the speaker is done. */
   turnDetection?: Record<string, unknown>;
+  /**
+   * Context-window management (gpt-realtime: 32k window, auto-truncated).
+   * Unset = the API default: drop the oldest turns only when the window is
+   * actually full. `{ type: "retention_ratio", retention_ratio: 0.8 }`
+   * truncates down to 80% instead — fewer, larger truncations, which keeps
+   * the prompt cache warmer on long calls. `"disabled"` errors when full.
+   */
+  truncation?: "auto" | "disabled" | { type: "retention_ratio"; retention_ratio: number };
   /** Inject the socket — proxies, custom TLS, and tests. Note the subprotocol
    *  list: it carries the auth. */
   socketFactory?: (url: string, protocols: string[]) => WebSocketLike;
@@ -196,6 +204,9 @@ export class OpenAIRealtimeSocketAdapter extends EventEmitter<S2SEvents> impleme
   private sendSessionUpdate(patch: Partial<S2SSessionConfig>, full: boolean): void {
     const session: Record<string, unknown> = { type: "realtime" };
     const audio: Record<string, unknown> = {};
+    if (full && this.cfg.truncation !== undefined) {
+      session.truncation = this.cfg.truncation;
+    }
     if (full) {
       audio.input = {
         format: { type: "audio/pcm", rate: OPENAI_PCM.sampleRate },

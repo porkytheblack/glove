@@ -25,6 +25,14 @@ export interface GeminiLiveConfig {
    *  Gemini takes the voice in the first frame only — per-session, not
    *  mid-call. */
   voice?: string;
+  /**
+   * Server-side context management. ON by default (`{ slidingWindow: {} }`):
+   * without it an audio session hard-caps at ~15 MINUTES and then dies —
+   * with it, Gemini discards the oldest turns (keeping the system
+   * instruction) and the session runs indefinitely. Pass `triggerTokens` to
+   * tune when compression kicks in, or `false` to accept the 15-minute cap.
+   */
+  contextWindowCompression?: false | { triggerTokens?: number };
   /** Override the endpoint (regional deployments, Vertex). */
   url?: string;
   /**
@@ -117,6 +125,15 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
       inputAudioTranscription: {},
       outputAudioTranscription: {},
     };
+    // Context compression defaults ON — see the config doc: without it the
+    // provider ends audio sessions at ~15 minutes.
+    if (this.cfg.contextWindowCompression !== false) {
+      const cwc = this.cfg.contextWindowCompression;
+      setup.contextWindowCompression = {
+        slidingWindow: {},
+        ...(cwc?.triggerTokens ? { triggerTokens: String(cwc.triggerTokens) } : {}),
+      };
+    }
     if (config?.instructions) {
       setup.systemInstruction = { parts: [{ text: config.instructions }] };
     }

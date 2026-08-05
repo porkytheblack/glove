@@ -132,6 +132,49 @@ test("Gemini voice from the factory reaches the setup frame", async () => {
   assert.equal(setup.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, "Charon");
 });
 
+test("Gemini setup enables context compression by default; false opts out", async () => {
+  process.env.GEMINI_API_KEY = "ai-test";
+  const sent: unknown[] = [];
+  const socketFactory = (url: string) => {
+    const s = new NullSocket(url);
+    s.send = (d: string | ArrayBufferLike) => void sent.push(JSON.parse(String(d)));
+    return s;
+  };
+
+  await createS2SAdapter({ provider: "gemini", socketFactory }).connect({});
+  assert.ok(
+    (sent[0] as any).setup.contextWindowCompression?.slidingWindow,
+    "no compression — the session dies at the provider's 15-minute audio cap",
+  );
+
+  sent.length = 0;
+  await createS2SAdapter({
+    provider: "gemini",
+    contextWindowCompression: false,
+    socketFactory,
+  }).connect({});
+  assert.equal((sent[0] as any).setup.contextWindowCompression, undefined);
+});
+
+test("OpenAI truncation config reaches the session setup", async () => {
+  process.env.OPENAI_API_KEY = "sk-test";
+  const sent: unknown[] = [];
+  const adapter = createS2SAdapter({
+    provider: "openai",
+    truncation: { type: "retention_ratio", retention_ratio: 0.8 },
+    socketFactory: (url: string) => {
+      const s = new NullSocket(url);
+      s.send = (d: string | ArrayBufferLike) => void sent.push(JSON.parse(String(d)));
+      return s;
+    },
+  });
+  await adapter.connect({});
+  assert.deepEqual((sent[0] as any).session.truncation, {
+    type: "retention_ratio",
+    retention_ratio: 0.8,
+  });
+});
+
 test("S2S_TURN_DETECTION shapes the OpenAI session setup", async () => {
   process.env.OPENAI_API_KEY = "sk-test";
   process.env.S2S_TURN_DETECTION = "server_vad";
