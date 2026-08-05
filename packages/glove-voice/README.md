@@ -169,13 +169,69 @@ API keys never leave your server. Adapters use short-lived, single-use tokens:
 
 Token handlers: `createVoiceTokenHandler` from `glove-next` supports ElevenLabs, Deepgram, Cartesia.
 
+## Turn Detection (semantic endpointing)
+
+A VAD knows when *audio* stopped; it can't know whether the *speaker* is done.
+`TurnDetectorAdapter` is the pluggable layer production stacks use for this
+(LiveKit's transformer turn-detector, Pipecat's smart-turn): at each VAD
+end-of-speech boundary it inspects the live transcript and returns how much
+longer to hold before committing the utterance — `0` for "commit now".
+
+`HeuristicTurnDetector` is the zero-dependency baseline, with tiered holds:
+
+| transcript ends with | tier | default hold |
+|---|---|---|
+| 1–2 char token ("K", "0-0-7") | dictation — speaker is spelling | 2000ms |
+| `?` / `!` | question — done when asked | 0 |
+| `.` / `…` | statement — STT auto-punctuates partials, weak evidence | 600ms |
+| anything else | unfinished / mid-thought | 900ms |
+
+```ts
+import { HeuristicTurnDetector } from "glove-voice";
+
+const turns = new HeuristicTurnDetector({ statementHoldMs: 800 });
+vad.on("speech_end", async () => {
+  const { holdMs, reason } = await turns.decide(sttPartial);
+  // holdMs === 0 → commit; else arm a timer, cancel it if speech resumes
+});
+```
+
+**Model-backed detection** ships too, in the LiveKit deployment shape (model
+server-side, thin client):
+
+- `LiveKitEouScorer` (`glove-voice/server`) runs the open
+  [livekit/turn-detector](https://huggingface.co/livekit/turn-detector)
+  weights in Node via `@huggingface/transformers` (optional dependency,
+  inject the module). ~25ms per score on CPU after warmup; transcripts are
+  normalized internally (the model was trained on lowercased, unpunctuated
+  text — raw punctuated input inverts the signal).
+- `RemoteTurnDetector` (browser) POSTs the transcript to your scoring
+  endpoint at each VAD boundary: P ≥ threshold → commit now; below → the
+  fallback heuristic picks the hold (dictation/unfinished tiers still
+  apply); endpoint error or >350ms → fallback decides alone.
+
+```ts
+// app/api/turn/route.ts
+import * as transformers from "@huggingface/transformers";
+import { LiveKitEouScorer } from "glove-voice/server";
+const scorer = new LiveKitEouScorer({ transformers });
+export async function POST(req: Request) {
+  const { transcript } = await req.json();
+  return Response.json({ probability: await scorer.probability([{ role: "user", content: transcript }]) });
+}
+
+// client
+const turns = new RemoteTurnDetector({ url: "/api/turn", threshold: 0.5 });
+```
+
 ## Adapter Contracts
 
-All adapters implement typed EventEmitter interfaces. Build your own by implementing:
+All adapters implement typed interfaces. Build your own by implementing:
 
 - `STTAdapter` — Streaming speech-to-text
 - `TTSAdapter` — Streaming text-to-speech
 - `VADAdapter` — Voice activity detection
+- `TurnDetectorAdapter` — Semantic endpointing (is the speaker done?)
 
 ## Exports
 

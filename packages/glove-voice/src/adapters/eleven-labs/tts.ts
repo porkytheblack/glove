@@ -21,6 +21,26 @@ export interface ElevenLabsTTSConfig {
   /** Output audio format (default: "pcm_16000") */
   outputFormat?: string;
 
+  /**
+   * Enable ElevenLabs `auto_mode`: generation triggers as soon as a sentence
+   * completes instead of waiting for the default chunk schedule (~120+ chars
+   * buffered before ANY audio). Without this, responses shorter than the
+   * buffer threshold only synthesize at flush() — i.e. after the whole turn.
+   * When enabled, send full sentences/phrases (e.g. via `SentenceBuffer`),
+   * not raw token fragments. Default: false (previous behavior).
+   */
+  autoMode?: boolean;
+
+  /**
+   * Override the buffering schedule instead. `chunkLengthSchedule` (sent as
+   * `generation_config.chunk_length_schedule` on the BOS message) sets how
+   * many buffered characters trigger each successive generation — e.g.
+   * `[60, 120, 160, 250]` starts synthesis mid-sentence after ~60 chars,
+   * which beats sentence-boundary triggering for short single-sentence
+   * replies. Values must be 50–500 per ElevenLabs. Ignored under `autoMode`.
+   */
+  generationConfig?: { chunkLengthSchedule?: number[] };
+
   /** Voice settings */
   voiceSettings?: {
     stability?: number;
@@ -50,7 +70,10 @@ export class ElevenLabsTTSAdapter
 {
   private ws: WebSocket | null = null;
   private ready = false;
-  private queue: string[] = [];
+  private queue: Array<{ text: string; flush?: boolean }> = [];
+  private sawFinal = false;
+  private emittedAudio = false;
+  private closedByUs = false;
 
   private readonly model: string;
   private readonly outputFormat: string;
@@ -70,6 +93,7 @@ export class ElevenLabsTTSAdapter
         model_id: this.model,
         output_format: this.outputFormat,
       });
+      if (this.cfg.autoMode) params.set("auto_mode", "true");
       const url = `wss://api.elevenlabs.io/v1/text-to-speech/${this.cfg.voiceId}/stream-input?${params}`;
 
       console.debug(`[ElevenLabsTTS] connecting to ${url.replace(/single_use_token=[^&]+/, "single_use_token=***")}`);
@@ -78,6 +102,7 @@ export class ElevenLabsTTSAdapter
       this.ws.onopen = () => {
         console.debug(`[ElevenLabsTTS] WebSocket opened, sending BOS`);
         // BOS marker — required before sending text
+        const schedule = this.cfg.generationConfig?.chunkLengthSchedule;
         this.ws!.send(
           JSON.stringify({
             text: " ",
@@ -86,12 +111,15 @@ export class ElevenLabsTTSAdapter
               similarity_boost: this.cfg.voiceSettings?.similarityBoost ?? 0.8,
               speed: this.cfg.voiceSettings?.speed ?? 1.0,
             },
+            ...(schedule?.length
+              ? { generation_config: { chunk_length_schedule: schedule } }
+              : {}),
           })
         );
         this.ready = true;
 
         // Flush text that arrived before the socket opened
-        for (const text of this.queue) this._send(text);
+        for (const msg of this.queue) this._send(msg.text, msg.flush);
         this.queue = [];
 
         resolve();
@@ -99,14 +127,25 @@ export class ElevenLabsTTSAdapter
 
       this.ws.onmessage = (event) => {
         try {
-          const data: TTSServerMessage = JSON.parse(event.data as string);
+          const data: TTSServerMessage & { error?: unknown; message?: unknown; code?: unknown } =
+            JSON.parse(event.data as string);
           if (data.audio) {
             console.debug(`[ElevenLabsTTS] audio chunk (${data.audio.length} b64 chars)`);
+            this.emittedAudio = true;
             this.emit("audio_chunk", base64ToUint8Array(data.audio));
           }
           if (data.isFinal) {
             console.debug(`[ElevenLabsTTS] isFinal received`);
+            this.sawFinal = true;
             this.emit("done");
+          }
+          if (!data.audio && !data.isFinal && (data.error || data.message)) {
+            // Policy/validation frames (e.g. a rejected BOS option) — surface
+            // them instead of silently buffering-forever.
+            console.warn(`[ElevenLabsTTS] server frame:`, event.data);
+            if (data.error) {
+              this.emit("error", new Error(`ElevenLabs TTS: ${String(data.error)}`));
+            }
           }
         } catch {
           // Ignore non-JSON frames
@@ -123,20 +162,34 @@ export class ElevenLabsTTSAdapter
       this.ws.onclose = (ev) => {
         console.debug(`[ElevenLabsTTS] WebSocket closed (code=${ev.code}, reason="${ev.reason}")`);
         this.ready = false;
+        // A close without isFinal would otherwise leave consumers hanging
+        // forever (no done, no error) — always complete the lifecycle.
+        if (!this.sawFinal && !this.closedByUs) {
+          console.warn(`[ElevenLabsTTS] closed without isFinal (code=${ev.code}, reason="${ev.reason}")`);
+          this.sawFinal = true;
+          if (this.emittedAudio) this.emit("done");
+          else this.emit("error", new Error(`ElevenLabs TTS socket closed before any audio (code=${ev.code}${ev.reason ? `, ${ev.reason}` : ""})`));
+        }
       };
     });
   }
 
-  sendText(text: string): void {
+  /**
+   * Send a text chunk. Pass `opts.flush` to force ElevenLabs to synthesize
+   * everything buffered so far (the `flush: true` message flag) — the
+   * deterministic realtime trigger, independent of server-side buffering
+   * schedules.
+   */
+  sendText(text: string, opts?: { flush?: boolean }): void {
     if (!this.ready) {
-      this.queue.push(text);
+      this.queue.push({ text, flush: opts?.flush });
       return;
     }
-    this._send(text);
+    this._send(text, opts?.flush);
   }
 
-  private _send(text: string): void {
-    this.ws?.send(JSON.stringify({ text }));
+  private _send(text: string, flush?: boolean): void {
+    this.ws?.send(JSON.stringify({ text, ...(flush ? { flush: true } : {}) }));
   }
 
   flush(): void {
@@ -148,6 +201,7 @@ export class ElevenLabsTTSAdapter
 
   destroy(): void {
     this.ready = false;
+    this.closedByUs = true;
     this.queue = [];
     this.ws?.close();
     this.ws = null;
