@@ -11,3 +11,7 @@ dist
 out
 *.db
 .DS_Store
+*.db-*
+*met*.jsonl
+*.wasm
+*.onnx
