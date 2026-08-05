@@ -39,7 +39,7 @@ import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { EnvLimitError, type EnvLimits } from "../types";
 import type { ModuleContract } from "../pipeline/contract";
-import { describeShape, type HostToWorker, type NeedMessage, type ResultMessage, type ShapeNode, type WorkerToHost } from "./protocol";
+import { BUILDER, describeShape, type BuilderSpec, type HostToWorker, type NeedMessage, type ResultMessage, type ShapeNode, type WorkerToHost } from "./protocol";
 
 export interface PoolDeps {
   readSource(path: string): Promise<string | null>;
@@ -86,6 +86,13 @@ const DEFAULT_SIZE = 1;
 const DEFAULT_GRACE_MS = 250;
 const DEFAULT_MEMORY_MB = 256;
 const DEFAULT_SHUTDOWN_GRACE_MS = 5_000;
+
+/**
+ * Whether the default `console.warn` has already reported a heap ceiling that
+ * V8 refused to apply. Module-scoped because the condition it describes is a
+ * property of the process, identical for every pool in it.
+ */
+let warnedAboutHeapGlobally = false;
 
 /** Backoff for repeated worker spawn failures — station-beacon's curve. */
 const BACKOFF = { baseMs: 50, factor: 3, maxMs: 5_000 };
@@ -183,9 +190,17 @@ export class WorkerPool {
    *
    * Silence there is the worst outcome, because the operator has every reason
    * to believe the ceiling is real. So this is checked empirically against
-   * what V8 reports from inside the thread, once, with the fix in the
-   * message. It is not fatal: a raised heap is a deliberate host choice, and
-   * refusing to start over it would be worse than saying so.
+   * what V8 reports from inside the thread, with the fix in the message. It
+   * is not fatal: a raised heap is a deliberate host choice, and refusing to
+   * start over it would be worse than saying so.
+   *
+   * Reported once per *process*, not per pool. The condition is a property of
+   * the process — one flag, affecting every worker it will ever start — so a
+   * host that creates an environment per conversation, or a test suite that
+   * creates thirty, would otherwise repeat the same unchanging sentence until
+   * it reads as log noise rather than a finding. A host that routes warnings
+   * per environment still gets its own copy, since a custom `onWarning` is
+   * the caller asking to be told.
    */
   private checkHeapCeiling(actualMb: number): void {
     if (this.warnedAboutHeap) return;
@@ -194,7 +209,13 @@ export class WorkerPool {
     const tolerated = this.memoryMb * 1.5 + 64;
     if (!Number.isFinite(actualMb) || actualMb <= tolerated) return;
     this.warnedAboutHeap = true;
-    (this.options.onWarning ?? ((m: string) => console.warn(m)))(
+
+    const custom = this.options.onWarning;
+    if (!custom) {
+      if (warnedAboutHeapGlobally) return;
+      warnedAboutHeapGlobally = true;
+    }
+    (custom ?? ((m: string) => console.warn(m)))(
       `glove-working-environment: the ${this.memoryMb}MB script memory ceiling (execution.memoryMb) was not applied — ` +
         `V8 gave the worker ${Math.round(actualMb)}MB. A process-level --max-old-space-size (command line or NODE_OPTIONS) ` +
         `overrides per-worker resourceLimits, so a runaway script can exhaust the host instead of just its own thread. ` +
@@ -368,6 +389,23 @@ export class WorkerPool {
     try {
       if (message.what === "readSource") {
         respond(true, await this.deps.readSource(message.path!));
+        return;
+      }
+      if (message.what === "builder") {
+        // Addressed by FAMILY, not by binding name: one recording can mix
+        // constructors (`new Document({ children: [new Paragraph(...)] })`),
+        // and it is the family that knows how to replay all of them.
+        const ns = this.deps.envModules(message.readOnly === true).get(message.module!);
+        let spec: BuilderSpec | undefined;
+        for (const value of Object.values((ns ?? {}) as Record<string, unknown>)) {
+          const candidate = (value as { [k: symbol]: BuilderSpec } | null | undefined)?.[BUILDER];
+          if (candidate?.family === message.builder) {
+            spec = candidate;
+            break;
+          }
+        }
+        if (!spec) throw new Error(`env:${message.module} has no builder family "${message.builder}"`);
+        respond(true, await spec.replay(message.ops ?? []));
         return;
       }
       if (message.what === "capability") {

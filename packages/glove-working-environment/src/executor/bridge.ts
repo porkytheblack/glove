@@ -153,8 +153,205 @@ export const BRIDGE_SOURCE = `globalThis.__glove_bridge = (function () {
     };
   }
 
-  function bindNamespace(hostObj, seen) {
+  /*
+   * A builder library's constructor, built HERE — inside the context.
+   *
+   * Models write what the real library looks like: \`new PptxGenJS()\`, then
+   * \`addSlide()\`, then \`slide.addText(text, opts)\`. Anything else makes them
+   * translate, and translation is where they burn turns.
+   *
+   * It has to be constructed in-context rather than handed over, because
+   * everything crossing this boundary is deep-copied, and a Proxy whose whole
+   * behaviour lives in traps has no own keys — a copy of it is \`{}\`. The same
+   * property that makes the sandbox a sandbox makes a host-built proxy
+   * useless here.
+   *
+   * Nothing reaches the host until a terminal method. Every call before it is
+   * recorded into a flat op list, so the API is synchronous and chains
+   * exactly like the real one, and the whole recording crosses once.
+   */
+  function mkBuilder(meta, boundFlush, family) {
+    var terminal = {};
+    for (var ti = 0; ti < meta.terminal.length; ti++) terminal[meta.terminal[ti]] = 1;
+
+    /*
+     * One recording per family, so constructors that are used together share
+     * a ref space. \`new Document({ children: [new Paragraph(...)] })\` only
+     * works if the Paragraph and the Document are refs in the same table.
+     */
+    function ctx() {
+      if (family.rec) return family.rec;
+      family.rec = { ops: [], next: 0 };
+      return family.rec;
+    }
+
+    /*
+     * Replace recorder nodes anywhere inside an argument with a ref marker.
+     *
+     * Without this a node passed as an argument is deep-copied on its way to
+     * the host, and a Proxy whose behaviour lives in traps has no own keys —
+     * so it arrives as \`{}\` and the argument is silently gone. Silent is the
+     * problem: the library is handed an empty object and fails somewhere else
+     * entirely, or worse, does not fail at all.
+     */
+    function encode(value, depth) {
+      if (value === null || typeof value !== "object" || depth > 8) return value;
+      var ref = value[NODE_REF];
+      if (typeof ref === "number") return { __glove_ref: ref };
+      if (Array.isArray(value)) {
+        var arr = [];
+        for (var i = 0; i < value.length; i++) arr.push(encode(value[i], depth + 1));
+        return arr;
+      }
+      // Anything that is not a plain object (a Date, a Uint8Array) is left
+      // alone: structured clone carries it, and rebuilding it from string
+      // keys is how a value gets quietly hollowed out.
+      var proto = Object.getPrototypeOf(value);
+      if (proto !== Object.prototype && proto !== null) return value;
+      var out = {};
+      var keys = Object.keys(value);
+      for (var k = 0; k < keys.length; k++) out[keys[k]] = encode(value[keys[k]], depth + 1);
+      return out;
+    }
+
+    function encodeArgs(args) {
+      var out = [];
+      for (var i = 0; i < args.length; i++) out.push(encode(args[i], 0));
+      return out;
+    }
+
+    function Builder() {
+      var rec = ctx();
+      var ref = rec.next++;
+      rec.ops.push({ op: "new", ref: ref, ctor: meta.ctor, args: encodeArgs(Array.prototype.slice.call(arguments)) });
+      return node(rec, ref, meta);
+    }
+
+    /*
+     * What a recorder renders as. Not the real object's toString — there is
+     * no real object yet — but a name is far better than a crash, and it
+     * says plainly that nothing has been built.
+     */
+    function label() {
+      return "[" + meta.ctor + " (recording; nothing is built until you await a terminal call)]";
+    }
+
+    function node(rec, ref, m) {
+      return new Proxy({}, {
+        get: function (_t, prop) {
+          // \`then\` above all: a recorder for it would make the object look
+          // thenable and \`await\` would never settle.
+          if (prop === NODE_REF) return ref;
+          // Logging or interpolating a builder must not be fatal. Without
+          // this, \`\\\${slide}\` finds no toString, no valueOf and no
+          // Symbol.toPrimitive and throws "Cannot convert object to
+          // primitive value" — measured six times in one eval run, from
+          // models doing nothing worse than building a debug string.
+          if (prop === Symbol.toPrimitive || prop === "toString") return label;
+          if (typeof prop === "symbol" || PROBE_KEYS[prop]) return undefined;
+          var name = String(prop);
+
+          // Enums read as data: \`pptx.ShapeType.rect\`, \`pptx.AlignH.center\`.
+          // Recording these as calls is the difference between a model's
+          // habitual code working and getting a proxy where it expected a
+          // string.
+          if (Object.prototype.hasOwnProperty.call(m.data, name)) return m.data[name];
+
+          if (terminal[name]) {
+            return function () {
+              rec.ops.push({ op: "end", target: ref, method: name, args: encodeArgs(Array.prototype.slice.call(arguments)) });
+              var pending = rec.ops;
+              family.rec = null; // the recording is spent; a later \`new\` starts fresh
+              return boundFlush(pending);
+            };
+          }
+
+          /*
+           * A property read is ambiguous until the script says what it meant:
+           * \`ws.addRow(...)\` is a call, \`wb.xlsx.writeFile(...)\` is a read of
+           * an object followed by a call on it. Both are ordinary in the real
+           * libraries, so neither can be recorded eagerly — this returns
+           * something that is callable AND readable, and records whichever
+           * happens.
+           */
+          return member(rec, ref, name, m);
+        },
+        set: function (_t, prop, value) {
+          if (typeof prop !== "symbol") rec.ops.push({ op: "set", target: ref, prop: String(prop), value: encode(value, 0) });
+          return true;
+        },
+        // Must not look like a plain object: a script spreading or logging
+        // one would otherwise trigger recordings for every key touched.
+        ownKeys: function () { return []; },
+        getOwnPropertyDescriptor: function () { return undefined; },
+      });
+    }
+
+    /*
+     * The undecided step between \`obj\` and \`obj.name\`. Calling it records a
+     * call; reading through it records the property access first, and only
+     * then whatever came next.
+     */
+    function member(rec, target, name, m) {
+      var self = function () {
+        var child = rec.next++;
+        rec.ops.push({ op: "call", ref: child, target: target, method: name, args: encodeArgs(Array.prototype.slice.call(arguments)) });
+        // Every non-terminal call yields a recorder: the real libraries
+        // return either a new object (\`addSlide()\`) or \`this\`, and the
+        // script cannot tell which until replay.
+        return node(rec, child, m);
+      };
+      return new Proxy(self, {
+        apply: function (t, _this, args) { return t.apply(undefined, args); },
+        get: function (_t, prop) {
+          if (prop === Symbol.toPrimitive || prop === "toString") return label;
+          if (typeof prop === "symbol" || PROBE_KEYS[prop]) return undefined;
+          var child = rec.next++;
+          rec.ops.push({ op: "get", ref: child, target: target, prop: name });
+          return node(rec, child, m)[prop];
+        },
+        set: function (_t, prop, value) {
+          var child = rec.next++;
+          rec.ops.push({ op: "get", ref: child, target: target, prop: name });
+          if (typeof prop !== "symbol") rec.ops.push({ op: "set", target: child, prop: String(prop), value: encode(value, 0) });
+          return true;
+        },
+      });
+    }
+
+    try { Object.defineProperty(Builder, "name", { value: meta.ctor, configurable: true }); } catch (_) {}
+    var sk = Object.keys(meta.statics);
+    for (var si = 0; si < sk.length; si++) Builder[sk[si]] = meta.statics[sk[si]];
+    if (!meta.singleton) return Builder;
+
+    /*
+     * A member the script uses without \`new\` — \`Packer.toBuffer(doc)\`.
+     *
+     * A plain object with the real method names on it, rather than a proxy:
+     * its surface is known and fixed, so there is nothing to intercept, and a
+     * misspelling then gets the namespace guard's "available: …" list instead
+     * of silence. Each method opens its own step in whichever recording is
+     * live, so merely importing the module records nothing.
+     */
+    var singleton = {};
+    for (var mi = 0; mi < meta.methods.length; mi++) {
+      singleton[meta.methods[mi]] = (function (name) {
+        return function () {
+          var rec = ctx();
+          var ref = rec.next++;
+          rec.ops.push({ op: "new", ref: ref, ctor: meta.ctor, args: [] });
+          return node(rec, ref, meta)[name].apply(undefined, arguments);
+        };
+      })(meta.methods[mi]);
+    }
+    return singleton;
+  }
+
+  function bindNamespace(hostObj, seen, families) {
     seen = seen || new Map();
+    // Constructors sharing a family share one recording, so that a value
+    // built by one can be passed to another.
+    families = families || {};
     var hit = seen.get(hostObj);
     if (hit !== undefined) return hit;
     var out = {};
@@ -165,8 +362,14 @@ export const BRIDGE_SOURCE = `globalThis.__glove_bridge = (function () {
       var v;
       try { v = hostObj[k]; } catch (_) { continue; }
       var t = typeof v;
-      if (t === "function") out[k] = bind(v, hostObj);
-      else if (v !== null && t === "object") out[k] = bindNamespace(v, seen);
+      if (t === "function" && v.__glove_builder) {
+        var meta = v.__glove_builder;
+        var fam = families[meta.family];
+        if (!fam) { fam = { rec: null }; families[meta.family] = fam; }
+        out[k] = mkBuilder(meta, bind(meta.flush, null), fam);
+      }
+      else if (t === "function") out[k] = bind(v, hostObj);
+      else if (v !== null && t === "object") out[k] = bindNamespace(v, seen, families);
       else out[k] = v;
     }
     return out;
@@ -187,6 +390,13 @@ export const BRIDGE_SOURCE = `globalThis.__glove_bridge = (function () {
     then: 1, toJSON: 1, inspect: 1, __esModule: 1, valueOf: 1, toString: 1,
     constructor: 1, prototype: 1, nodeType: 1, length: 1, name: 1, call: 1, apply: 1,
   };
+
+  /*
+   * How a recorder node identifies itself when it turns up inside an
+   * argument. A symbol rather than a string so an ordinary object the script
+   * built cannot be mistaken for a node.
+   */
+  var NODE_REF = Symbol("glove.node.ref");
 
   function guardNamespace(obj, label, seen) {
     if (obj === null || typeof obj !== "object") return obj;
@@ -211,10 +421,22 @@ export const BRIDGE_SOURCE = `globalThis.__glove_bridge = (function () {
         if (typeof key !== "string") return Reflect.get(target, key, receiver);
         if (key in target) return Reflect.get(target, key, receiver);
         if (PROBE_KEYS[key] === 1) return undefined;
+        // Same reasoning as exportList() host-side: a wrapped library brings
+        // its whole vocabulary, and listing forty names buries the one the
+        // model was reaching for. Verbs first, classes counted.
         var available = Object.keys(target).filter(function (k) { return k !== "default"; });
-        throw new TypeError(
-          'no such export "' + key + '" on ' + label + ' — available: ' + available.join(", ") + '.'
-        );
+        var verbs = [], classes = [];
+        for (var ai = 0; ai < available.length; ai++) {
+          (/^[A-Z]/.test(available[ai]) ? classes : verbs).push(available[ai]);
+        }
+        var shown = (verbs.length > 0 ? verbs : available).slice(0, 16);
+        var msg = 'no such export "' + key + '" on ' + label + ' — available: ' + shown.join(", ");
+        if (verbs.length > shown.length) msg += ", and " + (verbs.length - shown.length) + " more";
+        if (verbs.length > 0 && classes.length > 0) {
+          msg += ". It also exports " + classes.length + " classes and enums from the library it wraps (" +
+            classes.slice(0, 3).join(", ") + ", …) — see /skills/imports.md";
+        }
+        throw new TypeError(msg + ".");
       },
     });
     seen.set(obj, proxy);

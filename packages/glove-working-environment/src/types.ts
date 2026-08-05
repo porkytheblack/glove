@@ -96,6 +96,16 @@ export interface StdlibAdapter {
    * them; most adapters can ignore it.
    */
   create(vfs: EnvFsHandle, ctx?: { name: string; readOnly: boolean }): Record<string, unknown>;
+  /**
+   * Worked recipes, materialized under `/skills` and listed in its index.
+   *
+   * `types` says what the module exports; a skill says how to do a task with
+   * it. Both matter, and they are read at different moments — a model reaches
+   * for a remembered shape before it reads a signature, which is why the most
+   * common failures in this environment are guessed imports rather than
+   * misused ones.
+   */
+  skills?: Array<{ name: string; summary: string; body: string }>;
 }
 
 /**
@@ -237,6 +247,32 @@ export interface CreateWorkingEnvironmentOptions {
    * Off by default: restoring a deliberate subset of adapters is legitimate.
    */
   strictAdapters?: boolean;
+  /**
+   * Refuse the FIRST script write of a session — once — if no docs have been
+   * opened yet, naming `/skills/README.md`. Default false.
+   *
+   * Measured: with `/skills` present and the preamble naming it first, the
+   * most frequent errors across 36 agent runs were still guessed imports.
+   * Reading is optional and guessing is free, so guessing wins; this puts the
+   * file in front of the model at the one moment it is about to matter.
+   *
+   * It is a signpost, not a gate. Resending the identical write succeeds, and
+   * nothing afterwards is ever refused — a standing rule is just another
+   * thing to work around, and every turn spent doing that is a turn not spent
+   * on the task.
+   *
+   * **It did not work, and the measurement is why this is off.** A/B over 45
+   * runs per arm (5 scenarios × 3 models × 3 reps, same build, same day):
+   * 25/45 complete without it, 24/45 with it. Two of the three models scored
+   * identically. It does remove errors — genuine errored calls fell 87 → 72,
+   * about 17% — but the errors it removes are not what costs runs, which is
+   * the whole finding.
+   *
+   * Kept as an opt-in rather than deleted because it is cheap when off and a
+   * different model mix may answer differently. Turn it on to re-measure, not
+   * because it is expected to help.
+   */
+  nudgeToDocsOnFirstWrite?: boolean;
   /** Script-execution tuning. Scripts always run in terminable workers. */
   execution?: {
     /**

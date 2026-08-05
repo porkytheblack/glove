@@ -9,7 +9,9 @@
 import { defineAdapter, type EnvFsHandle } from "glove-working-environment";
 import { createPdfBindings, type PdfSummary } from "./pdf";
 import { createDocxBindings, type DocxSummary } from "./docx";
+import { defineDocxBuilders, docxEnums } from "./compose";
 import { DOCUMENTS_DOCS, DOCUMENTS_TYPES } from "./docs";
+import { DOCUMENTS_SKILLS } from "./skills";
 
 export type { DocumentSpec, Block, PageSize } from "./model";
 export type { PdfSummary, PdfMetadata, StampOptions, ExtractedText } from "./pdf";
@@ -36,6 +38,7 @@ export const documents = () =>
     description: "Compose, inspect and rearrange PDF and DOCX documents; extract their text.",
     types: DOCUMENTS_TYPES,
     docs: DOCUMENTS_DOCS,
+    skills: DOCUMENTS_SKILLS,
     // Only PDF gets a magic claim. DOCX is a ZIP, and so is XLSX — a `PK`
     // signature cannot tell them apart, so the ZIP-based formats are claimed
     // by extension and left to disagree politely with env:spreadsheets.
@@ -53,6 +56,12 @@ export const documents = () =>
         },
         pdf,
         docx,
+        // The `docx` library itself, for documents `docx.create` cannot
+        // express. Constructors and enums sit at the top level because that
+        // is where a model expects them after `import { Document, Paragraph }
+        // from 'docx'`.
+        ...defineDocxBuilders(),
+        ...docxEnums(),
       };
     },
   });

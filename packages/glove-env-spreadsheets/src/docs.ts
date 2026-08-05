@@ -85,6 +85,34 @@ export function toCsv(input: string, output: string, opts?: ReadOptions & { deli
 
 /** Import a CSV file as a single-sheet workbook. Returns the output path. */
 export function fromCsv(input: string, output: string, opts?: WriteOptions & { delimiter?: string }): Promise<string>;
+
+/**
+ * exceljs's \`Workbook\`, with exceljs's own API — for everything \`write()\`
+ * cannot express: bold headers, number formats, column widths, merged cells,
+ * formulas, frozen panes.
+ *
+ * Everything is synchronous until you write. Only \`xlsx.writeFile\`,
+ * \`csv.writeFile\` and \`writeBuffer\` are async, and one of them must be
+ * awaited or nothing is produced. Paths are virtual, as everywhere else.
+ *
+ * Values cannot be read back off the workbook while you build it: the whole
+ * recording is replayed at the write, so there is nothing to return.
+ *
+ * \`\`\`js
+ * import { Workbook } from 'env:spreadsheets';
+ * const wb = new Workbook();
+ * const ws = wb.addWorksheet('Revenue');
+ * ws.columns = [
+ *   { header: 'Region', key: 'region', width: 24 },
+ *   { header: 'Revenue', key: 'revenue', width: 18 },
+ * ];
+ * ws.addRow({ region: 'EMEA', revenue: 9600 });
+ * ws.getRow(1).font = { bold: true };
+ * ws.getColumn(2).numFmt = '#,##0.00';
+ * await wb.xlsx.writeFile('/out/report.xlsx');
+ * \`\`\`
+ */
+export const Workbook: typeof import('exceljs').Workbook;
 `;
 
 export const SPREADSHEETS_DOCS = `# env:spreadsheets

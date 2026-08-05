@@ -92,6 +92,11 @@ export class EnvCore {
     readonly vfs: Vfs,
     readonly limits: EnvLimits,
     readonly versions: VersionStore,
+    /**
+     * Point the model at the skills once, on the first script it writes
+     * without having opened any docs. See {@link nudgeToDocsOnce}.
+     */
+    private readonly nudgeEnabled = false,
   ) {}
 
   attachExecutor(executor: WorkerPool): void {
@@ -147,6 +152,10 @@ export class EnvCore {
   }
 
   /** Any `.js` under /scripts (lib included) is loaded/validated at write time. */
+  inScriptZone(path: string): boolean {
+    return this.inPipelineScope(path);
+  }
+
   private inPipelineScope(path: string): boolean {
     return path.endsWith(".js") && isUnder(path, "/scripts");
   }
@@ -335,7 +344,24 @@ export class EnvCore {
     return `no module named "${wanted}". Registered modules: ${all}. /std/README.md indexes them.`;
   }
 
+  /**
+   * Documentation this session has actually read.
+   *
+   * Used to gate the first script write. Tracked rather than assumed because
+   * the eval showed the two are different things: `/skills` existed, the
+   * preamble named it first, and the top of the friction table was still
+   * `no module named "csv"` — models wrote the import from memory and ate the
+   * error rather than opening the file that answers it.
+   */
+  private readonly hasRead = new Set<string>();
+
+  /** True once the given doc has been read in this session. */
+  seenDoc(path: string): boolean {
+    return this.hasRead.has(normalizePath(path));
+  }
+
   async readText(path: string): Promise<string> {
+    this.hasRead.add(normalizePath(path));
     // Rebuilt on the read that asks for it, then persisted so `grep` and a
     // subsequent snapshot see the same thing `read_file` just returned.
     if (normalizePath(path) === ORIENTATION_PATH) return this.refreshOrientation();
@@ -739,6 +765,42 @@ export class EnvCore {
   async describeScript(path: string): Promise<string | null> {
     const src = await this.readSource(normalizePath(path));
     return src ? scriptOneLiner(src) : null;
+  }
+
+  private nudged = false;
+
+  /**
+   * Point at the skills once, on the first script written blind.
+   *
+   * The skills run showed the answer being available and unread: /skills
+   * existed, the preamble named it first, and the top of the friction table
+   * was still `no module named "csv"`. A model writes the import from memory
+   * and meets the answer afterwards, by which point the turn is spent.
+   *
+   * So this fires exactly once — on the first script write in a session where
+   * nothing under /skills or /std has been opened — and then never again,
+   * whether or not the model took the hint. It is a signpost, not a gate. A
+   * rule that keeps refusing is a rule the model has to work around, and
+   * every turn spent working around it is a turn not spent on the task.
+   *
+   * Called from the model-facing verbs ONLY. A host writing a script through
+   * `env.fs`, an adapter deriving one, and the adapter test harness all know
+   * what they are importing; interrupting them would charge the friction to
+   * the wrong party.
+   */
+  nudgeToDocsOnce(): void {
+    if (!this.nudgeEnabled || this.nudged) return;
+    for (const path of this.hasRead) {
+      if (path.startsWith("/skills") || path.startsWith("/std")) return;
+    }
+    // Set before throwing, so this cannot fire twice even if the model
+    // ignores it and sends the identical write again.
+    this.nudged = true;
+    throw new Error(
+      `read /skills/README.md before writing your first script — it has the exact import line for every ` +
+        `module, and a wrong import is the most common way a run is wasted here. Asked once: send this write ` +
+        `again and it will go through.`,
+    );
   }
 
   /**

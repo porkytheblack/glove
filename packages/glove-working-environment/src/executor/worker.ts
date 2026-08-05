@@ -21,7 +21,8 @@ import { ScriptContractError, contractOf } from "../pipeline/contract";
 import { createStdBindings } from "../builtins/std";
 import { createAssertBindings } from "../builtins/assert";
 import { tagBindings } from "../adapters/tag";
-import type { HostToWorker, NeedMessage, ResultMessage, RunMessage, ShapeNode, StartMessage } from "./protocol";
+import { makeBuilder } from "./recorder";
+import type { BuilderOp, HostToWorker, NeedMessage, ResultMessage, RunMessage, ShapeNode, StartMessage } from "./protocol";
 import type { EnvLimits } from "../types";
 
 if (!parentPort) throw new Error("glove worker entry loaded outside a worker thread");
@@ -48,6 +49,14 @@ function need(message: Omit<NeedMessage, "type" | "id">): Promise<unknown> {
  */
 function buildNamespace(module: string, node: ShapeNode, readOnly: boolean, route: string[] = []): unknown {
   if (node.kind === "value") return node.value;
+  if (node.kind === "builder") {
+    // The recording crosses as data on the terminal call, like any other
+    // capability argument — the proxy itself never leaves the worker.
+    return makeBuilder(node, {
+      flush: (name, ops: BuilderOp[]) =>
+        need({ what: "builder", module, builder: name, ops, readOnly }) as Promise<unknown>,
+    });
+  }
   if (node.kind === "fn") {
     const here = [...route];
     const stub = async (...args: unknown[]): Promise<unknown> =>

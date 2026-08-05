@@ -7,6 +7,7 @@
  * in a scope containing only injected capabilities — no networking, no
  * host filesystem access, no process spawning, by construction.
  */
+import { BUILTIN_SKILLS, skillsIndex } from "./skills";
 import { readFile as hostReadFile } from "node:fs/promises";
 import {
   DEFAULT_LIMITS,
@@ -76,14 +77,14 @@ export interface WorkingEnvironment {
 }
 
 const ADAPTER_NAME_RE = /^[a-z][a-z0-9_-]*$/;
-const CONVENTIONAL_DIRS = ["/inbox", "/scripts", "/scripts/lib", "/std", "/tmp", "/out", "/.env"];
+const CONVENTIONAL_DIRS = ["/inbox", "/scripts", "/scripts/lib", "/skills", "/std", "/tmp", "/out", "/.env"];
 
 export async function createWorkingEnvironment(options: CreateWorkingEnvironmentOptions = {}): Promise<WorkingEnvironment> {
   const vfs = options.filesystem ?? inMemoryFs();
   const limits: EnvLimits = { ...DEFAULT_LIMITS, ...options.limits };
   const versions = new VersionStore(vfs, limits);
   const runlog = new RunLog(vfs, limits);
-  const core = new EnvCore(vfs, limits, versions);
+  const core = new EnvCore(vfs, limits, versions, options.nudgeToDocsOnFirstWrite ?? false);
   // Scripts run in a supervised worker pool, not on the host event loop. A
   // compute-bound script is terminable there and nowhere else — see
   // executor/pool.ts for the measurement that forced this.
@@ -173,6 +174,16 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
     await writeDoc(`/std/${adapter.name}/index.d.ts`, adapter.types);
     if (adapter.docs) await writeDoc(`/std/${adapter.name}/README.md`, adapter.docs);
   }
+
+  // --- skills -------------------------------------------------------------
+  // /std is reference; /skills is worked recipes. The measured friction says
+  // models reach for a remembered shape rather than a signature, so the fix
+  // is a correct example in front of them, not a better error afterwards.
+  if (await vfs.exists("/skills")) await vfs.rm("/skills");
+  await vfs.mkdir("/skills");
+  const skills = [...BUILTIN_SKILLS, ...adapters.flatMap((a) => a.skills ?? [])];
+  for (const skill of skills) await writeDoc(`/skills/${skill.name}.md`, skill.body);
+  await writeDoc("/skills/README.md", skillsIndex(skills));
   // --- restore-time compatibility -----------------------------------------
   // A restored tree looks healthy whether or not the host registered the same
   // adapters: /scripts is intact, ls shows the catalogue, and the .d.ts files
@@ -334,6 +345,16 @@ export {
   type FileSummary,
 } from "./adapters/define";
 export { HandlerRegistry, type Claim, type HandlesSpec, type RegisteredHandler } from "./adapters/handles";
+export {
+  defineBuilder,
+  defineBuilders,
+  methodsOf,
+  type BuilderMember,
+  type DefineBuilderOptions,
+  type DefineBuildersOptions,
+  type Finish,
+} from "./adapters/builder";
+export { BUILTIN_SKILLS, skillsIndex, type Skill } from "./skills";
 export { mountWorkingEnvironment, buildPreamble, type MountWorkingEnvironmentConfig } from "./tools/mount";
 export { defaultExportError, ScriptContractError } from "./pipeline/contract";
 export { deepFreeze } from "./executor/executor";

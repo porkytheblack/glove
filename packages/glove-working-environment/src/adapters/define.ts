@@ -57,6 +57,16 @@ export interface AdapterSpec<T extends AdapterBindings> {
    */
   handles?: HandlesSpec;
   /**
+   * Worked recipes, materialized under `/skills` and listed in its index.
+   *
+   * `types` says what the module exports; a skill says how to do a task with
+   * it. Both matter, and they are read at different moments — a model reaches
+   * for a remembered shape before it reads a signature, which is why the most
+   * common failure measured in this environment is a guessed import rather
+   * than a misused one.
+   */
+  skills?: StdlibAdapter["skills"];
+  /**
    * Produce the bindings. ALL I/O must go through the given handle — it is
    * the capability boundary, routing through the same guarded gateway as the
    * model verbs (zones, limits, script pipeline, version recording). An
@@ -154,6 +164,7 @@ export function defineAdapter<T extends AdapterBindings>(spec: AdapterSpec<T>): 
     types: spec.types,
     ...(spec.docs === undefined ? {} : { docs: spec.docs }),
     ...(spec.handles === undefined ? {} : { handles: spec.handles }),
+    ...(spec.skills === undefined ? {} : { skills: spec.skills }),
     create,
   };
 }

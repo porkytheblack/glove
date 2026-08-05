@@ -45,6 +45,8 @@ jobs:
           --filter "glove-env-images..."
           --filter "glove-env-archives..."
           --filter "glove-env-media..."
+          --filter "glove-env-slides..."
+          --filter "glove-analyst-desk..."
           build
 
       # Scoped to the packages this workstream develops. A repo-wide gate would
@@ -66,6 +68,8 @@ jobs:
           --filter glove-env-images
           --filter glove-env-archives
           --filter glove-env-media
+          --filter glove-env-slides
+          --filter glove-analyst-desk
           typecheck
 
       - name: Test
@@ -83,4 +87,14 @@ jobs:
           --filter glove-env-images
           --filter glove-env-archives
           --filter glove-env-media
+          --filter glove-env-slides
           test
+
+      # The analyst-desk selfcheck solves every eval scenario with a reference
+      # script and runs the real graders over the result. No API key, no cost,
+      # ~11s — and it is the only thing that exercises documents, spreadsheets,
+      # images and slides together against the environment, which is where the
+      # interesting breakage lives. It caught three harness bugs on its first
+      # run; left ungated it would rot silently.
+      - name: Integration — analyst-desk selfcheck
+        run: pnpm --filter glove-analyst-desk selfcheck

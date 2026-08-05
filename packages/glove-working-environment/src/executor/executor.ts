@@ -85,6 +85,34 @@ interface OpState {
 
 const CAPTURE_CHAR_CAP = 1_000_000;
 
+/**
+ * Name what a module exports, without burying the answer.
+ *
+ * A wrapped library brings its whole vocabulary with it — `env:documents`
+ * exports forty names once docx's constructors and enums are there — and an
+ * error that lists all forty is worse than one that lists a useful ten: the
+ * model is looking for the one name it should have written, and every extra
+ * name is something to read past. So the lowercase names go first (they are
+ * the module's own verbs, which is what a wrong guess is nearly always
+ * reaching for), the library's capitalised classes are counted rather than
+ * spelled out, and the skill that does spell them out is named.
+ */
+function exportList(available: string[]): string {
+  if (available.length === 0) return ".";
+  const verbs = available.filter((name) => !/^[A-Z]/.test(name));
+  const classes = available.filter((name) => /^[A-Z]/.test(name));
+  const shown = (verbs.length > 0 ? verbs : available).slice(0, 16);
+  const parts = [` — it exports: ${shown.join(", ")}`];
+  if (verbs.length > shown.length) parts.push(`, and ${verbs.length - shown.length} more`);
+  if (verbs.length > 0 && classes.length > 0) {
+    parts.push(
+      `. It also exports ${classes.length} classes and enums from the library it wraps ` +
+        `(${classes.slice(0, 3).join(", ")}, …) — see /skills/imports.md`,
+    );
+  }
+  return `${parts.join("")}.`;
+}
+
 export function newCapture(): ConsoleCapture {
   return { out: [], err: [], bytes: 0, truncated: false };
 }
@@ -188,6 +216,21 @@ export class ScriptExecutor {
         // reach the script as an anonymous zero-arity function.
         Object.defineProperty(guarded, "name", { value: fn.name, configurable: true });
         Object.defineProperty(guarded, "length", { value: fn.length, configurable: true });
+        // A builder carrier is not a capability to be called — it is a
+        // description the bridge turns into an in-context constructor. The
+        // marker has to survive this wrapper, or the bridge never sees it and
+        // the script gets a plain function it cannot `new`. Its flush is a
+        // host call like any other, so it takes the same deadline check.
+        const builder = (value as { __glove_builder?: { flush: (ops: unknown[]) => Promise<unknown> } }).__glove_builder;
+        if (builder) {
+          (guarded as unknown as Record<string, unknown>).__glove_builder = {
+            ...builder,
+            flush: (ops: unknown[]) => {
+              if (Date.now() > st.deadline) throw this.limitError();
+              return builder.flush(ops);
+            },
+          };
+        }
         out[key] = guarded;
       } else if (value !== null && typeof value === "object") {
         out[key] = this.guardDeadline(value as Record<string, unknown>, st, seen);
@@ -353,8 +396,7 @@ export class ScriptExecutor {
           // than discovering it as an undefined at the call site — and the
           // same courtesy applies to relative script imports.
           const available = ns !== null && typeof ns === "object" ? Object.keys(ns).filter((k) => k !== "default") : [];
-          const suffix = available.length ? ` — it exports: ${available.join(", ")}.` : ".";
-          throw new Error(`module "${spec}" has no export "${key}"${suffix}`);
+          throw new Error(`module "${spec}" has no export "${key}"${exportList(available)}`);
         },
         st.boundConsole,
       );

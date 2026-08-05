@@ -140,8 +140,57 @@ export function parsePages(spec: string | number[] | undefined, pageCount: numbe
   return wanted.map((n) => n - 1);
 }
 
+/**
+ * Refuse a file that is not a PDF, and say what it looks like instead.
+ *
+ * Found by agent evaluation: pointing `extractText` at a text file returned
+ * pdf-lib's own `Invalid PDF structure.`, which reads as "this PDF is
+ * corrupt". A model that believes the document is damaged goes looking for a
+ * different extractor; a model told it is holding a text file just reads it.
+ * The distinction costs one header check and saves a run.
+ *
+ * Checked before handing anything to a parser, because every parser's message
+ * for "this is not my format" is written for someone who already knows what
+ * the bytes are.
+ */
+function assertPdf(path: string, bytes: Uint8Array): void {
+  // "%PDF-" — the header every PDF opens with.
+  const isPdf =
+    bytes.length >= 5 &&
+    bytes[0] === 0x25 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x44 &&
+    bytes[3] === 0x46 &&
+    bytes[4] === 0x2d;
+  if (isPdf) return;
+
+  const zip = bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4b;
+  const hint = zip
+    ? `It is a ZIP container — .docx, .xlsx and .pptx all are. If it is a Word file, use env:documents.docx; ` +
+      `for a spreadsheet use env:spreadsheets, and for a deck use env:slides.`
+    : looksTextual(bytes)
+      ? `It looks like text — read it with env:fs.readFile instead.`
+      : `Its first bytes are ${[...bytes.slice(0, 4)].map((b) => b.toString(16).padStart(2, "0")).join(" ")}.`;
+
+  throw new Error(`${path} is not a PDF: it does not start with the %PDF- header. ${hint}`);
+}
+
+/** No NUL in the first kilobyte, and mostly printable — good enough to say "text". */
+function looksTextual(bytes: Uint8Array): boolean {
+  const n = Math.min(bytes.length, 1024);
+  if (n === 0) return false;
+  let printable = 0;
+  for (let i = 0; i < n; i++) {
+    const b = bytes[i];
+    if (b === 0) return false;
+    if (b === 9 || b === 10 || b === 13 || (b >= 32 && b < 127)) printable++;
+  }
+  return printable / n > 0.9;
+}
+
 async function loadPdf(vfs: EnvFsHandle, path: string): Promise<PDFDocument> {
   const bytes = await vfs.readBytes(path);
+  assertPdf(path, bytes);
   try {
     return await PDFDocument.load(bytes, { ignoreEncryption: true });
   } catch (e) {
@@ -215,6 +264,7 @@ export function createPdfBindings(vfs: EnvFsHandle) {
     /** Structure and metadata of a PDF, without extracting any text. */
     async describe(path: string): Promise<PdfSummary> {
       const bytes = await vfs.readBytes(path);
+      assertPdf(path, bytes);
       let doc: PDFDocument;
       let encrypted = false;
       try {
@@ -472,6 +522,7 @@ export function createPdfBindings(vfs: EnvFsHandle) {
     async extractText(path: string, opts: ExtractTextOptions = {}): Promise<ExtractedText> {
       const pdfjs = await loadPdfjs();
       const bytes = await vfs.readBytes(path);
+      assertPdf(path, bytes);
       const task = pdfjs.getDocument({
         // pdfjs mutates the buffer it is given; hand it a copy.
         data: new Uint8Array(bytes),

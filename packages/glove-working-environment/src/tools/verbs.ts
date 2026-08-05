@@ -135,6 +135,9 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
             `content: JSON.stringify(value, null, 2).`,
         );
       }
+      // Model-facing only, and once per session: a host or an adapter writing
+      // a script is not the party that needs pointing at the docs.
+      if (core.inScriptZone(input.path)) core.nudgeToDocsOnce();
       const r = await core.write(input.path, input.content, { append: input.append });
       const verb = input.append ? "appended to" : r.created ? "created" : "wrote";
       let msg = `${verb} ${input.path} (${fmtBytes(r.bytes)})`;

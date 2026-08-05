@@ -411,3 +411,160 @@ test("a full read → transform → write pass works end to end", async () => {
     { region: "AMER", revenue: 5100 },
   ]);
 });
+
+// ---------------------------------------------------------------- Workbook
+//
+// The verbs cover the common case; the library covers everything else. These
+// pin the parts a real deliverable needs and our own API cannot express — a
+// bold header, a number format, a merged title, a column width — plus the
+// boundary the builder exists to hold.
+
+test("exceljs's own API produces a styled workbook, and it lands in the VFS", async () => {
+  const t = await env();
+  const out = await t.script<string>(
+    `import { Workbook } from 'env:spreadsheets';
+     export default async function main() {
+       const wb = new Workbook();
+       const ws = wb.addWorksheet('Revenue');
+       ws.columns = [
+         { header: 'Region', key: 'region', width: 24 },
+         { header: 'Revenue', key: 'revenue', width: 18 },
+       ];
+       ws.addRow({ region: 'EMEA', revenue: 9600 });
+       ws.addRow({ region: 'AMER', revenue: 5100 });
+       ws.getRow(1).font = { bold: true, size: 12 };
+       ws.getColumn(2).numFmt = '#,##0.00';
+       return wb.xlsx.writeFile('/out/styled.xlsx');
+     }`,
+  );
+  assert.equal(out, "/out/styled.xlsx");
+
+  // Read it back with the library directly: the point is that the styling
+  // survived into the file, not that our own reader agrees with itself.
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load((await t.fs.readBytes("/out/styled.xlsx")).slice().buffer as ArrayBuffer);
+  const ws = wb.getWorksheet("Revenue")!;
+  assert.equal(ws.getRow(1).font?.bold, true);
+  assert.equal(ws.getColumn(2).numFmt, "#,##0.00");
+  assert.equal(ws.getColumn(1).width, 24);
+  // exceljs indexes cells from 1, so `values` is sparse at 0.
+  assert.deepEqual(Array.from(ws.getRow(2).values as unknown[]).slice(1), ["EMEA", 9600]);
+});
+
+test("a merged title cell — reachable through the library, not through write()", async () => {
+  const t = await env();
+  await t.script(
+    `import { Workbook } from 'env:spreadsheets';
+     export default async function main() {
+       const wb = new Workbook();
+       const ws = wb.addWorksheet('Q3');
+       ws.mergeCells('A1:C1');
+       ws.getCell('A1').value = 'Q3 Results';
+       ws.getCell('A1').alignment = { horizontal: 'center' };
+       ws.addRow([]);
+       ws.addRow(['Region', 'Units', 'Revenue']);
+       return wb.xlsx.writeFile('/out/merged.xlsx');
+     }`,
+  );
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load((await t.fs.readBytes("/out/merged.xlsx")).slice().buffer as ArrayBuffer);
+  const ws = wb.getWorksheet("Q3")!;
+  assert.equal(ws.getCell("A1").value, "Q3 Results");
+  assert.equal(ws.getCell("A1").alignment?.horizontal, "center");
+  assert.equal(ws.getCell("A1").isMerged, true);
+});
+
+test("writeBuffer hands back the bytes instead of storing them", async () => {
+  const t = await env();
+  const size = await t.script<number>(
+    `import { Workbook } from 'env:spreadsheets';
+     export default async function main() {
+       const wb = new Workbook();
+       wb.addWorksheet('S').addRow(['a', 1]);
+       const bytes = await wb.xlsx.writeBuffer();
+       // Bytes are used inside the run: a script's return value goes through
+       // JSON, and a Uint8Array does not survive that intact.
+       return bytes.byteLength;
+     }`,
+  );
+  assert.ok(size > 0);
+  // Nothing was stored: the bytes went to the script, not through the gateway.
+  assert.deepEqual(await t.fs.readdir("/out"), []);
+});
+
+test("the workbook's CSV writer works the same way, through the same guard", async () => {
+  const t = await env();
+  await t.script(
+    `import { Workbook } from 'env:spreadsheets';
+     export default async function main() {
+       const wb = new Workbook();
+       const ws = wb.addWorksheet('Flat');
+       ws.addRow(['region', 'revenue']);
+       ws.addRow(['EMEA', 9600]);
+       return wb.csv.writeFile('/out/flat.csv');
+     }`,
+  );
+  assert.match(await t.fs.readFile("/out/flat.csv"), /region,revenue\s+EMEA,9600/);
+});
+
+test("a method exceljs does not have is refused, and the refusal lists what it does", async () => {
+  const t = await env();
+  const run = await t.runScript(
+    `import { Workbook } from 'env:spreadsheets';
+     export default async function main() {
+       const wb = new Workbook();
+       wb.addSheet('nope');
+       return wb.xlsx.writeFile('/out/x.xlsx');
+     }`,
+  );
+  assert.equal(run.ok, false);
+  assert.match(run.error ?? "", /Workbook has no method "addSheet"/);
+  assert.match(run.error ?? "", /addWorksheet/);
+  // And it says which call failed, not just that something did.
+  assert.match(run.error ?? "", /call #2/);
+});
+
+test("a workbook that is never written says so, rather than silently producing nothing", async () => {
+  const t = await env();
+  const run = await t.runScript(
+    `import { Workbook } from 'env:spreadsheets';
+     export default async function main() {
+       const wb = new Workbook();
+       wb.addWorksheet('S').addRow([1]);
+       return 'done';
+     }`,
+  );
+  // Nothing was awaited, so nothing crossed to the host: the run "succeeds"
+  // having written nothing, which is exactly why the terminal call is the
+  // only thing that produces a file.
+  assert.equal(run.ok, true);
+  assert.equal(await t.fs.exists("/out/x.xlsx"), false);
+});
+
+test("the prototype chain is not a way out of the sandbox", async () => {
+  const t = await env();
+  const run = await t.runScript(
+    `import { Workbook } from 'env:spreadsheets';
+     export default async function main() {
+       const wb = new Workbook();
+       const escape = wb.constructor.constructor('return process')();
+       return typeof escape;
+     }`,
+  );
+  assert.equal(run.ok, false);
+  assert.doesNotMatch(String(run.result ?? ""), /object/);
+});
+
+test("a write outside the writable zone is refused by the same gateway as any other write", async () => {
+  const t = await env();
+  const run = await t.runScript(
+    `import { Workbook } from 'env:spreadsheets';
+     export default async function main() {
+       const wb = new Workbook();
+       wb.addWorksheet('S').addRow([1]);
+       return wb.xlsx.writeFile('/std/spreadsheets/sneak.xlsx');
+     }`,
+  );
+  assert.equal(run.ok, false);
+  assert.match(run.error ?? "", /read-only|not writable/i);
+});

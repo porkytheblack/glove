@@ -74,7 +74,11 @@ test("stdout is captured, truncated in the response, and spilled in full", async
 });
 
 test("version blobs live under /.env and count toward the size cap", async () => {
-  const env = await makeEnv({ limits: { maxVfsBytes: 12_000 } });
+  // Budget relative to the base tree, for the same reason the cap test above
+  // does it: a hard-coded figure that clears today's docs fails the day a
+  // builtin grows. /std did that once; /skills did it again.
+  const base = (await (await makeEnv()).export("/**")).reduce((n, f) => n + f.bytes.byteLength, 0);
+  const env = await makeEnv({ limits: { maxVfsBytes: base + 12_000 } });
   // each write stores the prior content as a version blob; the cap counts both
   await callOk(env, "write_file", { path: "/tmp/t.txt", content: "a".repeat(4_000) });
   const msg = await callErr(env, "write_file", { path: "/tmp/t.txt", content: "b".repeat(8_000) });
@@ -241,4 +245,55 @@ test("the environment survives a script that had to be killed", async () => {
   assert.equal(after.ok, true, `environment did not recover: ${after.error}`);
   assert.equal(await env.fs.readFile("/out/after.txt"), "still working");
   await env.close();
+});
+
+test("the docs nudge fires once, on the first script written blind, and then never again", async () => {
+  // A signpost, not a gate. The skills run showed the answer being available
+  // and unread — /skills existed, the preamble named it first, and the top of
+  // the friction table was still `no module named "csv"`. One refusal puts
+  // the file in front of the model at the moment it matters; a standing rule
+  // would just be something else to work around.
+  const env = await makeEnv({ nudgeToDocsOnFirstWrite: true });
+  const script = `import { csv } from 'env:std';\nexport default async function main() { return csv.rows('a,b'); }`;
+
+  const first = await callErr(env, "write_file", { path: "/scripts/a.js", content: script });
+  assert.match(first, /read \/skills\/README\.md/);
+  assert.match(first, /Asked once/);
+
+  // The identical write, unchanged, now goes through: the model does not have
+  // to comply to make progress.
+  await callOk(env, "write_file", { path: "/scripts/a.js", content: script });
+
+  // And nothing later is gated, including a module never read about.
+  await callOk(env, "write_file", {
+    path: "/scripts/b.js",
+    content: `import { readFile } from 'env:fs';\nexport default async function main() { return readFile('/skills/README.md'); }`,
+  });
+  await env.close();
+});
+
+test("a model that read the docs first is never interrupted", async () => {
+  const env = await makeEnv({ nudgeToDocsOnFirstWrite: true });
+  await callOk(env, "read_file", { path: "/skills/README.md" });
+  await callOk(env, "write_file", {
+    path: "/scripts/a.js",
+    content: `import { csv } from 'env:std';\nexport default async function main() { return csv.rows('a'); }`,
+  });
+  await env.close();
+});
+
+test("the nudge is off by default, and never applies to host writes", async () => {
+  // Even on, it is a model-facing rule: a host, an adapter, or the test
+  // harness writing a script already knows what it imports.
+  const plain = await makeEnv();
+  await callOk(plain, "write_file", {
+    path: "/scripts/a.js",
+    content: `import { csv } from 'env:std';\nexport default async function main() { return csv.rows('a'); }`,
+  });
+  await plain.close();
+
+  const gated = await makeEnv({ nudgeToDocsOnFirstWrite: true });
+  await gated.fs.writeFile("/scripts/host.js", `export default async function main() { return 1; }`);
+  assert.equal(await gated.fs.exists("/scripts/host.js"), true);
+  await gated.close();
 });

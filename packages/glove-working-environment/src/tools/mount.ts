@@ -27,7 +27,9 @@ Layout conventions:
 - /out — deliverables; this is what the host exports
 - /.env — run history (history.jsonl) and file versions, read-only
 
-Start here: read_file /.env/orientation.md. It is regenerated on every read and tells you what is in the tree, what your scripts do, which modules they use, and what has run recently — in one call instead of four.
+Start here, in this order:
+1. read_file /skills/README.md — worked, copy-pasteable recipes for the tasks this environment is for, starting with the exact import lines. Guessing an import is the most common way a run is wasted here.
+2. read_file /.env/orientation.md. It is regenerated on every read and tells you what is in the tree, what your scripts do, which modules they use, and what has run recently — in one call instead of four.
 
 Operating discipline:
 - Keep big data in files, not in your context. Redirect outputs to files, then read slices: read_file with start_line/end_line, grep with a narrow pattern.

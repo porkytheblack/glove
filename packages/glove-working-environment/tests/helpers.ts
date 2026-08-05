@@ -5,8 +5,9 @@ export async function makeEnv(opts?: {
   stdlib?: StdlibAdapter[];
   limits?: Partial<import("../src/index").EnvLimits>;
   execution?: import("../src/index").CreateWorkingEnvironmentOptions["execution"];
+  nudgeToDocsOnFirstWrite?: boolean;
 }): Promise<WorkingEnvironment> {
-  return createWorkingEnvironment({ stdlib: opts?.stdlib, limits: opts?.limits, execution: opts?.execution });
+  return createWorkingEnvironment({ stdlib: opts?.stdlib, limits: opts?.limits, execution: opts?.execution, nudgeToDocsOnFirstWrite: opts?.nudgeToDocsOnFirstWrite });
 }
 
 export function tool(env: WorkingEnvironment, name: string): EnvTool {

@@ -41,6 +41,41 @@ export default async function main(args) {
 | `writeSheets(path, sheets, opts?)` | Several named sheets in one workbook |
 | `append(path, rows, opts?)` | Appends following the sheet's existing header order |
 | `toCsv` / `fromCsv` | Bridge one sheet to and from a CSV file |
+| `Workbook` | exceljs's own class, for everything the verbs above cannot express |
+
+## When the verbs are not enough
+
+`write(path, rows)` gets data into a file. Everything that makes a workbook a
+deliverable — a bold header, thousands separators, column widths, a merged
+title, a frozen pane, a formula — lives on exceljs's `Workbook`, which is
+exported as-is:
+
+```js
+import { Workbook } from 'env:spreadsheets';
+
+const wb = new Workbook();
+const ws = wb.addWorksheet('Revenue');
+ws.columns = [
+  { header: 'Region',  key: 'region',  width: 24 },
+  { header: 'Revenue', key: 'revenue', width: 18 },
+];
+ws.addRows(rows);
+ws.getRow(1).font = { bold: true };
+ws.getColumn('revenue').numFmt = '#,##0';
+ws.views = [{ state: 'frozen', ySplit: 1 }];
+await wb.xlsx.writeFile('/out/revenue.xlsx');
+```
+
+That is exceljs, verbatim from its own documentation — which is the point.
+Models have read thousands of examples of exactly this shape, and an API that
+differs makes them translate.
+
+Everything is synchronous until the write. `wb.xlsx.writeFile(path)`,
+`wb.csv.writeFile(path)` and `wb.xlsx.writeBuffer()` are the terminals: one of
+them must be awaited, or the workbook is built and nothing is produced. The
+library's own `writeFile` is *replaced*, not wrapped — bytes are produced in
+memory and land in the VFS through the guarded handle, so zones, limits and
+versioning apply exactly as they do to any other write.
 
 ## Design notes
 

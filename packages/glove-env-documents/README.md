@@ -56,6 +56,41 @@ export default async function main() {
 | `docx.create` | Render the same spec |
 | `docx.extractText` | Full text, paragraph by paragraph |
 
+## When the spec is not enough
+
+`docx.create(path, spec)` understands six block kinds. A coloured run inside a
+sentence, a table with borders and column widths, a page-numbered footer, a
+landscape section, paragraph spacing — none of them are expressible in it, and
+anything the spec does not name is simply not rendered.
+
+So the `docx` library is exported too, unchanged:
+
+```js
+import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'env:documents';
+import { writeFile } from 'env:fs';
+
+const doc = new Document({
+  sections: [{ children: [
+    new Paragraph({ text: 'Q3 Review', heading: HeadingLevel.TITLE }),
+    new Paragraph({ children: [
+      new TextRun({ text: 'Revenue rose ' }),
+      new TextRun({ text: '18%', bold: true, color: 'C00000' }),
+    ] }),
+  ] }],
+});
+await writeFile('/out/review.docx', await Packer.toBuffer(doc));
+```
+
+`Packer.toBuffer` is the only await and the only thing that produces anything;
+it hands the bytes back rather than writing them, so the write goes through
+`env:fs` like any other — which is also what a coding agent does in a real
+sandbox.
+
+`docx` is unusual among the libraries wrapped here in having no root object to
+call methods on: a document is *assembled* out of constructed values. That is
+what a builder family is for — every constructor here records into one op
+list, so a `Paragraph` can be named inside a `Document`'s arguments.
+
 ## Design notes
 
 **PDF text extraction is delegated, not faked.** Recovering characters from glyphs is a font and CMap problem that pdf-lib does not solve, and a naive content-stream scan returns *plausible nonsense* on any subsetted font — strictly worse than refusing, because a model cannot tell the difference. So `extractText` requires `pdfjs-dist` as an optional peer and says so plainly when it is absent; everything else works without it. DOCX extraction has no such requirement: a `.docx` is a ZIP of XML, and this package reads it with `node:zlib` rather than adding a dependency to read files it just wrote.

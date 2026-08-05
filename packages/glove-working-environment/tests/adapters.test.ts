@@ -876,3 +876,49 @@ test("magic beats extension across adapters, not just within one", async () => {
   const out = JSON.parse(await callOk(env, "describe", { path: "/inbox/real.png" }));
   assert.equal(out.module, "env:pixels");
 });
+
+test("a wrapped library's vocabulary does not bury the answer in the error", async () => {
+  // Real case, found in an eval run: once `env:documents` exports docx's
+  // constructors and enums, a wrong guess was answered with forty names.
+  // The model is looking for the one verb it should have written, and every
+  // extra name is something to read past — so the verbs come first and the
+  // library's classes are counted rather than spelled out.
+  const wide = defineAdapter({
+    name: "wide",
+    description: "An adapter that wraps a library with a large vocabulary.",
+    types: [
+      "export function describe(path: string): Promise<string>;",
+      "export function render(path: string): Promise<string>;",
+      ...["Document", "Paragraph", "TextRun", "Table", "TableCell", "ImageRun", "Bookmark"].map(
+        (n) => `export const ${n}: unknown;`,
+      ),
+      ...["AlignmentType", "BorderStyle", "HeadingLevel", "WidthType"].map((n) => `export const ${n}: unknown;`),
+    ].join("\n"),
+    create: () => {
+      const out: Record<string, unknown> = {
+        async describe(path: string) { return path; },
+        async render(path: string) { return path; },
+      };
+      for (const n of ["Document", "Paragraph", "TextRun", "Table", "TableCell", "ImageRun", "Bookmark"]) {
+        out[n] = { made: n };
+      }
+      for (const n of ["AlignmentType", "BorderStyle", "HeadingLevel", "WidthType"]) out[n] = { A: "a" };
+      return out;
+    },
+  });
+
+  const env = await makeEnv({ stdlib: [wide] });
+  const err = await scriptErr(
+    env,
+    `import { wide } from 'env:wide';
+     export default async function main() { return wide('/a'); }`,
+  );
+  assert.match(err, /has no export "wide"/);
+  // The verbs, in full.
+  assert.match(err, /it exports: describe, render/);
+  // The eleven classes and enums, counted and pointed at — not listed out.
+  assert.match(err, /11 classes and enums from the library it wraps/);
+  assert.match(err, /\/skills\/imports\.md/);
+  assert.doesNotMatch(err, /HeadingLevel/);
+  await env.close();
+});

@@ -33,10 +33,155 @@ import type { ModuleContract } from "../pipeline/contract";
 export type ShapeNode =
   | { kind: "fn"; name: string; arity: number }
   | { kind: "ns"; entries: Record<string, ShapeNode> }
-  | { kind: "value"; value: unknown };
+  | { kind: "value"; value: unknown }
+  | BuilderShape;
+
+/**
+ * A constructor whose API is used *fluently*, recorded in the worker and
+ * replayed on the host.
+ *
+ * The libraries worth wrapping — pptxgenjs, docx, exceljs — are all builders:
+ * you construct a document, call methods on it and on the objects those
+ * return, then write it out. Models have read thousands of examples of
+ * exactly that, so any API which is not that shape makes the model translate,
+ * and translation is where it burns turns. Measured in the analyst-desk eval:
+ * a model reached for `import { slides } from 'env:slides'` because the real
+ * library has a class, not a bag of verbs.
+ *
+ * A live object cannot cross a thread boundary, so nothing does. The worker
+ * hands the script a proxy that records `new`/call/set into a flat op list —
+ * synchronously, so the API chains exactly like the real one — and the whole
+ * list crosses once, when a terminal method is reached. One round trip per
+ * document rather than one per call, and no `Atomics` shim.
+ */
+export interface BuilderShape {
+  kind: "builder";
+  /** Constructor name, as the script will see it: `PptxGenJS`. */
+  name: string;
+  /**
+   * Which constructor within the family this is — `Paragraph`, `Document`.
+   * Equals `name` for a family of one.
+   */
+  ctor: string;
+  /**
+   * Constructors sharing this id share one recording, and therefore one ref
+   * table.
+   *
+   * `docx` has no root builder: a document is assembled from constructed
+   * values — `new Document({ sections: [{ children: [new Paragraph(...)] }] })`
+   * — so a Paragraph must be referable from inside a Document's arguments.
+   * That is only possible if both were recorded together.
+   */
+  family: string;
+  /**
+   * Methods that finish the document and produce something. Reaching one
+   * flushes the recording and returns a promise, so it must be awaited —
+   * everything before it is synchronous.
+   */
+  terminal: string[];
+  /**
+   * True for a member the script uses without `new` — a library namespace
+   * like `docx`'s `Packer`, whose `toBuffer(doc)` is how a document is
+   * written. It records like any other object; it is simply never
+   * constructed.
+   */
+  singleton?: boolean;
+  /**
+   * For a singleton, the names it answers to. Fixed and known, so the worker
+   * builds a plain object with exactly these on it rather than a proxy.
+   */
+  methods: string[];
+  /** Static properties carried as data, e.g. `ShapeType`, `AlignH`. */
+  statics: Record<string, unknown>;
+  /**
+   * Data properties on an *instance*, shipped so a read returns the value.
+   *
+   * Models write `pptx.ShapeType.rect` and `pptx.AlignH.center` constantly,
+   * because that is what the library's own examples do. Without this the
+   * recorder would treat `ShapeType` as a method and the read would yield a
+   * recorder rather than an enum.
+   */
+  data: Record<string, unknown>;
+}
+
+/** Marker an adapter puts on a binding to expose it as a recorded builder. */
+export const BUILDER = Symbol.for("glove.builder");
+
+export interface BuilderSpec {
+  name: string;
+  /** This constructor's own name; equals `name` for a family of one. */
+  ctor: string;
+  /** Constructors sharing this id share one recording. See {@link BuilderShape}. */
+  family: string;
+  terminal: string[];
+  statics?: Record<string, unknown>;
+  data?: Record<string, unknown>;
+  /**
+   * Method names the host will replay. Everything else is refused.
+   *
+   * Replaying a name the script chose against a live host object is a sandbox
+   * escape — `constructor`, `__proto__`, `valueOf` and anything else reachable
+   * on the prototype chain would be callable. The allowlist is the boundary,
+   * so it is required rather than defaulted.
+   */
+  allow: string[];
+  /** True for a member used without `new`. See {@link BuilderShape.singleton}. */
+  singleton?: boolean;
+  /** For a singleton, the names it answers to. See {@link BuilderShape.methods}. */
+  methods?: string[];
+  /** Replay an op list against the real library. Runs on the host. */
+  replay(ops: BuilderOp[]): Promise<unknown>;
+}
+
+/**
+ * One recorded step. Refs are indices into the run's object table.
+ *
+ * An argument may itself be a recorded object, encoded as
+ * `{ __glove_ref: n }` — see {@link BuilderRef}.
+ */
+export type BuilderOp =
+  | { op: "new"; ref: number; ctor: string; args: unknown[] }
+  | { op: "call"; ref: number; target: number; method: string; args: unknown[] }
+  | { op: "get"; ref: number; target: number; prop: string }
+  | { op: "set"; target: number; prop: string; value: unknown }
+  | { op: "end"; target: number; method: string; args: unknown[] };
+
+/**
+ * A recorded object appearing inside an argument.
+ *
+ * The recorder substitutes these on the way out because a Proxy deep-copies
+ * to `{}` — so without it, `new Document({ children: [para] })` would arrive
+ * on the host with the paragraph silently replaced by an empty object.
+ */
+export interface BuilderRef {
+  __glove_ref: number;
+}
+
+export function isBuilderRef(value: unknown): value is BuilderRef {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as BuilderRef).__glove_ref === "number" &&
+    Object.keys(value as object).length === 1
+  );
+}
 
 /** Describe a host namespace so the worker can mirror it. */
 export function describeShape(value: unknown, depth = 0): ShapeNode {
+  const spec = (value as { [BUILDER]?: BuilderSpec })?.[BUILDER];
+  if (spec) {
+    return {
+      kind: "builder",
+      name: spec.name,
+      ctor: spec.ctor,
+      family: spec.family,
+      singleton: spec.singleton === true,
+      methods: spec.methods ?? spec.terminal,
+      terminal: spec.terminal,
+      statics: spec.statics ?? {},
+      data: spec.data ?? {},
+    };
+  }
   if (typeof value === "function") {
     return { kind: "fn", name: (value as { name?: string }).name ?? "", arity: (value as { length?: number }).length ?? 0 };
   }
@@ -122,9 +267,12 @@ export interface ReadyMessage {
 export interface NeedMessage {
   type: "need";
   id: string;
-  what: "readSource" | "isEnforcedScript" | "capability";
+  what: "readSource" | "isEnforcedScript" | "capability" | "builder";
   /** For readSource / isEnforcedScript. */
   path?: string;
+  /** For builder: which constructor, and the recorded ops to replay. */
+  builder?: string;
+  ops?: BuilderOp[];
   /** For capability: which namespace, and the property path within it. */
   module?: string;
   route?: string[];
