@@ -41,7 +41,13 @@ export function useAnamSession() {
   const [closedReason, setClosedReason] = useState<string | null>(null);
 
   const boot = useCallback(async (sessionToken: string) => {
-    if (clientRef.current) return;
+    // A renewal replaces the dead session: tear the old client down first.
+    if (clientRef.current) {
+      const old = clientRef.current;
+      clientRef.current = null;
+      streamRef.current = null;
+      await old.stopStreaming().catch(() => {});
+    }
     const mod = (await import("@anam-ai/js-sdk")) as unknown as {
       createClient: (token: string, opts?: Record<string, unknown>) => AnamClient;
       AnamEvent?: { CONNECTION_CLOSED?: string };

@@ -57,9 +57,13 @@ export interface AnamPassthroughConfig {
   /** Persona display name; cosmetic. */
   name?: string;
   /**
-   * Session lifetime cap, seconds (default 3600). Anam's own default is
-   * short (~10 min) and ends the session mid-call — the face goes dark and
-   * every later command lands on a dead session.
+   * Session lifetime cap, seconds (default 3600). NOTE: Anam's PLAN limit
+   * wins regardless — conversations are force-ended at 3/5/10 minutes on
+   * Free/Starter/Explorer (unlimited on Growth+), closing the connection
+   * with SERVER_CLOSED_CONNECTION. Hosts should treat that as routine and
+   * renew: disconnect() + connect() mints a fresh session, and the client
+   * re-attaches from the new view (examples/avatar-rooms does exactly
+   * this on its `avatar_refresh` round trip).
    */
   maxSessionLengthSeconds?: number;
   /**

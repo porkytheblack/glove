@@ -61,6 +61,8 @@ export interface RoomHandlers {
   onAvatarInteraction?: (event: Record<string, unknown>) => void;
   /** Anam client commands the room asks us to apply to the SDK session. */
   onAvatarCommand?: (command: Record<string, unknown>) => void;
+  /** A fresh avatar attach point after a renewal (`avatar_refresh`). */
+  onAvatarView?: (view: { provider: string; url?: string; sessionToken?: string }) => void;
 }
 
 export function useRoom(handlers?: RoomHandlers) {
@@ -481,6 +483,9 @@ export function useRoom(handlers?: RoomHandlers) {
           case "avatar_command":
             handlersRef.current?.onAvatarCommand?.(msg.command);
             break;
+          case "avatar_view":
+            handlersRef.current?.onAvatarView?.(msg);
+            break;
           case "error":
             line("error", msg.message, "error");
             break;
@@ -511,5 +516,7 @@ export function useRoom(handlers?: RoomHandlers) {
     [send],
   );
 
-  return { state, connect, hangUp, setSpeaker, say };
+  const refreshAvatar = useCallback(() => send({ t: "avatar_refresh" }), [send]);
+
+  return { state, connect, hangUp, setSpeaker, say, refreshAvatar };
 }

@@ -18,9 +18,14 @@ const SPEAKERS: Array<{ id: SpeakerRole; label: string }> = [
 export default function Page() {
   const avatar = useAvatarCall();
   const anam = useAnamSession();
-  const { state, connect, hangUp, setSpeaker, say } = useRoom({
+  const { state, connect, hangUp, setSpeaker, say, refreshAvatar } = useRoom({
     onAvatarInteraction: avatar.relay,
     onAvatarCommand: anam.apply,
+    onAvatarView: (view) => {
+      // A renewed session after the provider ended the old one (Anam's plan
+      // cap force-ends conversations every few minutes below Growth tier).
+      if (view.sessionToken) void anam.boot(view.sessionToken);
+    },
   });
 
   // Boot whichever face the room configured: a Daily room URL (Tavus) or an
@@ -37,6 +42,12 @@ export default function Page() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.connected, avatarUrl, anamToken]);
+  // The provider ended the session (Anam's plan cap does this every few
+  // minutes below Growth tier) — ask the room for a fresh one automatically.
+  useEffect(() => {
+    if (state.connected && anam.closedReason) refreshAvatar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.connected, anam.closedReason]);
   const faceUp = avatar.joined || anam.joined;
   const [speaker, setSpeakerLocal] = useState<SpeakerRole>("operator");
   const [typed, setTyped] = useState("");
@@ -111,9 +122,10 @@ export default function Page() {
             }}
           />
           {anam.closedReason && (
-            <div className="note error">
-              avatar session closed ({anam.closedReason}) — hang up and reconnect
-              for a fresh face; the voice call itself is unaffected
+            <div className="note">
+              avatar session ended ({anam.closedReason}) — renewing… (Anam's
+              plan cap ends conversations every few minutes below Growth tier;
+              the voice call itself is unaffected)
             </div>
           )}
           {!faceUp && !anam.closedReason && (

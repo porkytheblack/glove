@@ -132,6 +132,7 @@ export const avatarRoom = signal("avatar-room")
 
     // ── the caller's audio duct ──────────────────────────────────────────────
     const caller: { ws: WebSocket | null } = { ws: null };
+    let lastAvatarRefresh = 0;
     const send = (msg: ServerMessage) => {
       const ws = caller.ws;
       if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
@@ -416,6 +417,31 @@ export const avatarRoom = signal("avatar-room")
             break;
           case "playback_done":
             // The provider owns turn-taking; nothing gates on this here.
+            break;
+          case "avatar_refresh":
+            // The avatar session died under the client — Anam's PLAN CAP
+            // force-ends conversations (3/5/10 min on Free/Starter/Explorer;
+            // unlimited on Growth+), so this is routine, not an error. Mint a
+            // fresh session and hand the client the new attach point. Rate-
+            // limited so a provider refusing sessions can't become a hot loop.
+            void (async () => {
+              if (Date.now() - lastAvatarRefresh < 10_000) return;
+              lastAvatarRefresh = Date.now();
+              try {
+                await avatar.disconnect();
+                await avatar.connect();
+                const v = avatar.view;
+                send({
+                  t: "avatar_view",
+                  provider: input.avatar,
+                  ...(v?.kind === "webrtc-room" ? { url: v.url } : {}),
+                  ...(v?.kind === "sdk-session" ? { sessionToken: v.sessionToken } : {}),
+                });
+                console.log(`${input.roomId}: ${input.avatar} avatar session renewed`);
+              } catch (err) {
+                send({ t: "error", message: `avatar renewal failed: ${(err as Error).message}` });
+              }
+            })();
             break;
         }
       });

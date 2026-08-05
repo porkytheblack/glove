@@ -240,8 +240,28 @@ export const livekitRoom = signal("livekit-room")
         assistantName: ASSISTANT_NAME,
       });
     });
+    let closing = false;
+    let lastAvatarRenew = 0;
     transport.on("participant_disconnected", (identity) => {
-      if (AVATAR_IDENTITIES.has(identity)) return;
+      if (AVATAR_IDENTITIES.has(identity)) {
+        // The provider ended the avatar session under us — Anam's plan cap
+        // force-ends conversations every few minutes below Growth tier, and
+        // Tavus sessions can drop too. Renew instead of running faceless.
+        // Rate-limited so a provider refusing sessions can't hot-loop.
+        if (closing || !avatar || Date.now() - lastAvatarRenew < 10_000) return;
+        lastAvatarRenew = Date.now();
+        void (async () => {
+          try {
+            await avatar.disconnect();
+            await avatar.connect();
+            console.log(`${input.roomId}: ${input.avatar} avatar session renewed`);
+          } catch (err) {
+            console.log(`avatar renewal failed: ${(err as Error).message}`);
+            send({ t: "error", message: `avatar renewal failed: ${(err as Error).message}` });
+          }
+        })();
+        return;
+      }
       remoteCount = Math.max(0, remoteCount - 1);
       if (remoteCount === 0) lastDetachAt = Date.now();
     });
@@ -355,6 +375,7 @@ export const livekitRoom = signal("livekit-room")
     });
 
     console.log(`${input.roomId} closing (${endedBecause})`);
+    closing = true;
     detachAvatar?.();
     detachRealtime();
     await avatar?.disconnect().catch(() => {});
