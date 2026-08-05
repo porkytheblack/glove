@@ -39,6 +39,7 @@ export const docsSections: DocsNavSection[] = [
     items: [
       { label: "Memory", href: "/docs/memory", badge: "new" },
       { label: "Scratchpad", href: "/docs/scratchpad", badge: "new" },
+      { label: "Working Environment", href: "/docs/working-environment", badge: "new" },
       { label: "SQL Engine", href: "/docs/sql" },
     ],
   },

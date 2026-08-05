@@ -30,6 +30,7 @@ import { WorkerPool } from "./executor/pool";
 import { VersionStore } from "./history/versions";
 import { RunLog } from "./history/runlog";
 import { tagBindings } from "./adapters/tag";
+import { primePureModule, pureStateOf } from "./adapters/pure";
 import { createFsHandle, createReadOnlyFsHandle, FS_DESCRIPTION, FS_TYPES } from "./builtins/fs";
 import { createStdBindings, STD_DESCRIPTION, STD_TYPES } from "./builtins/std";
 import { ASSERT_DESCRIPTION, ASSERT_TYPES, createAssertBindings } from "./builtins/assert";
@@ -88,10 +89,14 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
   // Scripts run in a supervised worker pool, not on the host event loop. A
   // compute-bound script is terminable there and nowhere else — see
   // executor/pool.ts for the measurement that forced this.
+  // Pure modules the worker must import locally rather than RPC. Filled
+  // during registration below; read lazily by the pool when it spawns.
+  const pureList: Array<{ name: string; url: string; pick: string[] }> = [];
   const executor = new WorkerPool(
     {
       readSource: core.readSource,
       envModules: (readOnly: boolean) => (readOnly ? core.envModulesReadOnly : core.envModules),
+      pureModules: () => pureList,
       limits,
     },
     options.execution,
@@ -137,6 +142,18 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
   register("assert", ASSERT_DESCRIPTION, createAssertBindings(), createAssertBindings());
   const adapters: StdlibAdapter[] = options.stdlib ?? [];
   for (const adapter of adapters) {
+    // A pure module never touches the VFS and its bindings are host-imported,
+    // not created against a handle — so it skips the instantiate machinery
+    // entirely. The host import here doubles as validation: a bad `from` or a
+    // guessed pick fails NOW, with a message naming the fix, rather than as
+    // an `undefined` inside somebody's script.
+    if (pureStateOf(adapter)) {
+      const primed = await primePureModule(adapter);
+      const bindings = adapter.create(fsHandle, { name: adapter.name, readOnly: false });
+      register(adapter.name, adapter.description, bindings, bindings);
+      pureList.push(primed);
+      continue;
+    }
     const instantiate = (vfs: EnvFsHandle, readOnly: boolean) => {
       const produced = adapter.create(vfs, { name: adapter.name, readOnly });
       if (!produced || typeof produced !== "object") {
@@ -337,6 +354,13 @@ async function snapshotVfs(vfs: Vfs): Promise<EnvSnapshot> {
 export { inMemoryFs, fromSnapshot, InMemoryFs } from "./vfs/memory";
 export { hostDirectory, HostDirectoryFs, type HostDirectoryOptions } from "./vfs/hostdir";
 export {
+  cachedRemote,
+  CachedRemoteFs,
+  type CachedRemoteOptions,
+  type ObjectStore,
+  type RemoteObject,
+} from "./vfs/remote";
+export {
   defineAdapter,
   type AdapterBindings,
   type AdapterContext,
@@ -345,6 +369,7 @@ export {
   type FileSummary,
 } from "./adapters/define";
 export { HandlerRegistry, type Claim, type HandlesSpec, type RegisteredHandler } from "./adapters/handles";
+export { definePureModule, type PureModuleSpec } from "./adapters/pure";
 export {
   defineBuilder,
   defineBuilders,

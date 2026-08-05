@@ -74,6 +74,7 @@ jobs:
           --filter glove-env-media
           --filter glove-env-slides
           --filter glove-analyst-desk
+          --filter glove-document-desk
           typecheck
 
       - name: Test

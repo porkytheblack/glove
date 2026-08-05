@@ -65,6 +65,26 @@ import { createWorkingEnvironment, fromSnapshot } from "glove-working-environmen
 const env2 = await createWorkingEnvironment({ filesystem: fromSnapshot(snap), stdlib: [...] });
 ```
 
+### Backing it with cloud storage
+
+```ts
+import { cachedRemote } from "glove-working-environment";
+
+const env = await createWorkingEnvironment({
+  filesystem: await cachedRemote(myStore, { prefix: `sessions/${id}/` }),
+});
+```
+
+`myStore` is yours to write — four methods (`get`, `put`, `delete`, `list`), which is all S3, GCS, R2 and Azure Blob have in common, and why this package still depends on none of them.
+
+The reason it is `cachedRemote` and not `remote`: the `Vfs` contract has three whole-tree operations, and they are not cold paths. `totalSize()` runs on **every write** (the byte-budget check) and `files()` backs glob, grep, recursive rm, directory mv/cp and checkpoint fork. Straight through to S3 those are a full bucket LIST per write. So the index — paths, sizes, mtimes, which directories exist — is held in memory and maintained on every mutation, and only file *content* crosses the network. `files()`, `list()`, `stat()`, `exists()` and `totalSize()` cost zero round trips; `read`, `write` and `rm` cost one, and reads are cached (32 MiB by default) because a session re-reads the same scripts and `.d.ts` siblings constantly.
+
+The index is updated only *after* the store confirms a write, so a failed put leaves it honest rather than claiming a file that is not there. Object stores have no directories: a non-empty one is implied by the keys beneath it, and `mkdir` writes a zero-byte `<key>/` marker for the empty case.
+
+**Prefer a snapshot if you only want persistence.** Writing `env.snapshot()` to one object is one round trip per session instead of one per file, and it is atomic. Reach for `cachedRemote` when the tree genuinely outgrows the heap, or when other systems need to read the files directly.
+
+There is **no distributed locking**. The environment serializes its own mutations within a process; two hosts on one prefix would race on version rings and run history. Give every session its own prefix — which also makes cleanup a single delete-by-prefix.
+
 `mountWorkingEnvironment` takes any object with `fold()` (structurally — `IGloveRunnable` and `IGloveBuilder` both qualify), so the package does not depend on `glove-core`.
 
 ## The tree
@@ -247,6 +267,47 @@ Four things the environment does for you, which is most of why adapters are shor
 - **`create` is called twice** — once normally, once bound to a filesystem that refuses mutations, because write-time validation runs module top-level code and a rejected write must leave no trace. `ctx.readOnly` distinguishes them; most adapters ignore it. Keep `create` free of side effects outside its handle.
 - **Specs are checked eagerly.** `defineAdapter` rejects a bad name, a missing `description`, or absent `types` at definition time, where the author sees it — not at environment creation, in someone else's stack trace.
 - **`skills` is where the worked example goes.** `types` says what you export; a skill says how to get a deliverable out of it. Ship at least two if your adapter has both a one-call path and a library path — that is the shape the three format adapters use, and the measured failure was never a misused signature.
+
+### Pure modules: a synchronous library in one declaration
+
+Adapter calls are async because they cross a thread — right for I/O, wrong for a library whose entire idiom is synchronous. Routing lodash through an adapter makes muscle-memory code fail *silently*: `rows.map(r => camelCase(r.name))` cannot await, an un-awaited call stringifies as `{}`, and the run reports success. Measured, not hypothetical.
+
+`definePureModule` takes the route `env:std` already uses — the package is imported *inside the worker* and bound directly into the vm context, so calls never leave the thread:
+
+```ts
+import { definePureModule } from "glove-working-environment";
+
+const env = await createWorkingEnvironment({
+  stdlib: [
+    documents(),
+    definePureModule({
+      name: "lodash",
+      from: "lodash",                       // package name, absolute path, or import.meta.resolve(...)
+      description: "Lodash utilities for shaping data.",
+      pick: ["groupBy", "sumBy", "orderBy", "uniqBy", "camelCase", "cloneDeep"],
+    }),
+  ],
+});
+```
+
+That is the whole integration — no bundling, no hand-written types, no VFS bytes. Scripts then write ordinary lodash:
+
+```js
+import { groupBy, sumBy, camelCase } from 'env:lodash';
+
+const keys = names.map((n) => camelCase(n));        // sync, inside a callback — works
+const total = sumBy(rows, 'amount');                 // no await — works
+const same  = await sumBy(rows, 'amount');           // await — also works (a no-op)
+```
+
+**There is no wrong syntax**, which is the point: sync is the forgiving direction, because `await` on a plain value is a no-op while a missed `await` on a promise is silent garbage. Types and a README are generated at creation — declared synchronous, with the import line — and `pick` is verified against the real module when the environment is created, so a typo fails with the available names rather than as `undefined` in a script.
+
+Rules of the road, each held by a test:
+
+- **`pick` is the sandbox boundary.** These functions run in the worker's realm, outside the vm. The one dangerous class is anything that compiles strings into code — `_.template` runs `Function(source)` host-side, which is arbitrary code execution outside the sandbox. Never pick it. Prototype members are refused at definition time.
+- **Callbacks work both ways.** Iteratees cross inward; a returned function (`memoize`, `curry`) crosses back as a guarded context-realm wrapper — callable, but its constructor chain dead-ends inside the sandbox.
+- **Data is copied per call**, like every capability. Pure modules suit shaping work, not shared mutable state.
+- **Route by shape:** I/O or genuinely async → adapter. Stateful builder written at the end → `defineBuilder`. Pure synchronous computation → `definePureModule`.
 
 ### Testing one
 

@@ -390,6 +390,58 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  examples/document-desk:
+    dependencies:
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-env-archives:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-archives
+      glove-env-documents:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-documents
+      glove-env-images:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-images
+      glove-env-slides:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-slides
+      glove-env-spreadsheets:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-spreadsheets
+      glove-working-environment:
+        specifier: workspace:*
+        version: link:../../packages/glove-working-environment
+      next:
+        specifier: ^15.3.3
+        version: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      pdfjs-dist:
+        specifier: ^5.0.0
+        version: 5.7.284
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.4(react@19.2.4)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.14)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   examples/fn-repl-agent:
     dependencies:
       glove-core:
@@ -10360,7 +10412,7 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 22.20.1
+      '@types/node': 25.2.3
 
   '@types/yargs-parser@21.0.3': {}
 
@@ -13094,7 +13146,7 @@ snapshots:
       '@protobufjs/path': 1.1.2
       '@protobufjs/pool': 1.1.0
       '@protobufjs/utf8': 1.1.0
-      '@types/node': 22.20.1
+      '@types/node': 25.2.3
       long: 5.3.2
 
   proxy-addr@2.0.7:

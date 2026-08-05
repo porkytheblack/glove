@@ -18,6 +18,7 @@ Real patterns drawn from the example implementations in `examples/`.
 | `examples/livekit-rooms` | Server rooms + web app | + glove-voice-livekit | LiveKit both directions: `LiveKitTransport` + `attachRealtime`, browser is a LiveKit join (~250 lines), avatars join the room as participants, server-authoritative barge-in |
 | `examples/glovebox-pdf-extractor` | Sandboxed service | glovebox + glovebox/docs base | `glovebox.wrap`, `glovebox build`, S3 outputs via `adapters` export, `GloveboxClient` |
 | `examples/forms-bench` | Agentic eval | glove-memory/forms + OpenRouter | Scripted multi-turn conversations, context-cost ledger, instruction-following metrics, offline selfcheck |
+| `examples/document-desk` | Web app | Next.js + glove-working-environment + 5 `glove-env-*` adapters | Server-side agent behind a hand-rolled SSE route, live code pane, filesystem browser + download, `serverExternalPackages` |
 | *(pattern below)* | Full-stack | React SPA + Node/Express | `createRemoteModel`, auth headers, SSE streaming, separate frontend/backend |
 
 ---
@@ -498,6 +499,87 @@ function createSession(sessionId: string, cwd: string) {
 
   return glove.build();
 }
+```
+
+---
+
+## Pattern: Server-Side Working Environment in Next.js (document-desk)
+
+When the agent has a `glove-working-environment`, it **cannot** run in the
+browser: scripts execute in worker threads with a real Node heap, and the
+format adapters wrap server-only libraries. So `createChatHandler` is the wrong
+tool — that is a model proxy for client-side tools. Run the agent in the route
+and stream its own events out:
+
+```typescript
+// app/lib/desk.ts — one env + one agent per session
+const registry: Map<string, Desk> =
+  ((globalThis as any).__deskRegistry ??= new Map());   // survives dev-server reload
+
+const env = await createWorkingEnvironment({
+  stdlib: [documents(), spreadsheets(), images(), slides(), archives()],
+  limits: { runTimeoutMs: 60_000 },
+  execution: { size: 1 },                                // one warm worker per session
+});
+
+const agent = new Glove({ store: new MemoryStore(id), model, displayManager, serverMode: true })
+  .addSubscriber({
+    record: async (type, data) => {
+      const d = data as any;
+      if (type === "text_delta") broadcast({ type: "text", text: d.text });
+      if (type === "tool_use") broadcast({ type: "tool", id: d.id, name: d.name, input: d.input });
+      // NOTE: a call carries `id`/`name`, its result carries `call_id`/`tool_name`.
+      if (type === "tool_use_result") broadcast({ type: "tool_result", id: d.call_id, ... });
+    },
+  })
+  .build();
+
+mountWorkingEnvironment(agent, { env });
+```
+
+```typescript
+// app/api/chat/route.ts
+export const runtime = "nodejs";        // worker threads + native libs: not edge
+export const maxDuration = 300;
+
+const stream = new ReadableStream({
+  async start(controller) {
+    desk.listeners.add(send);
+    try { await desk.agent.processRequest(message); send({ type: "done" }); }
+    finally { desk.listeners.delete(send); controller.close(); }
+  },
+});
+return new Response(stream, { headers: { "Content-Type": "text/event-stream", "X-Accel-Buffering": "no" } });
+```
+
+The browser reads `env.fs` through thin routes for the tree, one file's
+content, and downloads — the same guarded handle the model's verbs use, so the
+UI can never show more than the agent can see.
+
+**Two bundler traps:**
+
+1. Every environment package must be in `serverExternalPackages`. The worker
+   pool locates its entry relative to its own module URL; bundled, that URL
+   points into a Next chunk and the worker is not beside it. The failure is at
+   the first `run_script`, not at build time.
+2. In a pnpm **monorepo** that is not enough. Next matches
+   `serverExternalPackages` against the *resolved* path with `symlinks: true`
+   hardcoded, and a workspace link resolves to `../../packages/<name>` — no
+   `node_modules` segment, no match, bundled anyway. Symptom:
+   `Can't resolve './worker-dev.mjs'`. Add an explicit webpack external:
+
+```typescript
+webpack: (config, { isServer }) => {
+  if (!isServer) return config;
+  config.externals = [
+    ({ request }: any, cb: any) =>
+      WORKSPACE_LINKED.some((p) => request === p || request?.startsWith(`${p}/`))
+        ? cb(undefined, `module ${request}`)   // ESM: these are "type": "module"
+        : cb(),
+    ...(Array.isArray(config.externals) ? config.externals : [config.externals]),
+  ];
+  return config;
+},
 ```
 
 ---
