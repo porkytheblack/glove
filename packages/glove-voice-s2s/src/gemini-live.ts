@@ -26,6 +26,20 @@ export interface GeminiLiveConfig {
    *  mid-call. */
   voice?: string;
   /**
+   * Turn-taking knobs, passed through as the setup frame's
+   * `realtimeInputConfig`. Gemini's surface:
+   * - `automaticActivityDetection`: `startOfSpeechSensitivity` /
+   *   `endOfSpeechSensitivity` (`START_SENSITIVITY_HIGH|LOW`, …),
+   *   `prefixPaddingMs`, `silenceDurationMs`, or `disabled: true` for
+   *   manual activityStart/activityEnd signalling (push-to-talk).
+   * - `activityHandling`: `START_OF_ACTIVITY_INTERRUPTS` (default barge-in)
+   *   or `NO_INTERRUPTION` — the agent finishes its sentence no matter what.
+   * - `turnCoverage`: `TURN_INCLUDES_ONLY_ACTIVITY` (default) or
+   *   `TURN_INCLUDES_ALL_INPUT`.
+   * Raw JSON by design — the provider's schema is the source of truth.
+   */
+  realtimeInput?: Record<string, unknown>;
+  /**
    * Server-side context management. ON by default (`{ slidingWindow: {} }`):
    * without it an audio session hard-caps at ~15 MINUTES and then dies —
    * with it, Gemini discards the oldest turns (keeping the system
@@ -125,6 +139,9 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
       inputAudioTranscription: {},
       outputAudioTranscription: {},
     };
+    if (this.cfg.realtimeInput) {
+      setup.realtimeInputConfig = this.cfg.realtimeInput;
+    }
     // Context compression defaults ON — see the config doc: without it the
     // provider ends audio sessions at ~15 minutes.
     if (this.cfg.contextWindowCompression !== false) {

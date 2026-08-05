@@ -75,6 +75,46 @@ A missing credential fails at **construction** with the env-var name, not at
 `connect()` with a 401. Constructing adapters directly still works — the
 factory is sugar over the same classes.
 
+### Turn-taking knobs
+
+Both providers expose their full turn-taking surface through raw-JSON
+passthroughs (the provider's schema is the source of truth):
+
+**OpenAI — `turnDetection`** (session `turn_detection`):
+
+```ts
+createS2SAdapter({ provider: "openai", turnDetection: {
+  type: "semantic_vad",        // model judges WHETHER you were done
+  eagerness: "low",            // low | medium | high | auto — how quickly it takes the floor
+  // interrupt_response: false // agent finishes its sentence; barge-in off provider-side
+}})
+// or threshold-driven:
+createS2SAdapter({ provider: "openai", turnDetection: {
+  type: "server_vad",
+  threshold: 0.6,              // how loud counts as speech
+  silence_duration_ms: 700,    // trailing silence before end-of-turn
+  prefix_padding_ms: 300,      // audio kept from before speech started
+  idle_timeout_ms: 10_000,     // fires a timeout event when the caller goes quiet
+}})
+// or turn_detection: null → manual/push-to-talk (commit + response.create yourself)
+```
+
+**Gemini — `realtimeInput`** (setup `realtimeInputConfig`):
+
+```ts
+createS2SAdapter({ provider: "gemini", realtimeInput: {
+  automaticActivityDetection: {
+    startOfSpeechSensitivity: "START_SENSITIVITY_LOW",  // fewer false triggers
+    endOfSpeechSensitivity: "END_SENSITIVITY_LOW",      // waits longer before ending your turn
+    prefixPaddingMs: 300,
+    silenceDurationMs: 700,
+    // disabled: true  → manual activityStart/activityEnd (push-to-talk)
+  },
+  activityHandling: "NO_INTERRUPTION",   // agent always finishes; default is barge-in
+  turnCoverage: "TURN_INCLUDES_ALL_INPUT",
+}})
+```
+
 ## Running a Glove agent on an S2S model
 
 Author the agent exactly as you always do — tools, prompt, store — and hand

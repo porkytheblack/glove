@@ -156,6 +156,27 @@ test("Gemini setup enables context compression by default; false opts out", asyn
   assert.equal((sent[0] as any).setup.contextWindowCompression, undefined);
 });
 
+test("Gemini realtimeInput knobs reach the setup frame verbatim", async () => {
+  process.env.GEMINI_API_KEY = "ai-test";
+  const sent: unknown[] = [];
+  const adapter = createS2SAdapter({
+    provider: "gemini",
+    realtimeInput: {
+      activityHandling: "NO_INTERRUPTION",
+      automaticActivityDetection: { endOfSpeechSensitivity: "END_SENSITIVITY_LOW" },
+    },
+    socketFactory: (url: string) => {
+      const s = new NullSocket(url);
+      s.send = (d: string | ArrayBufferLike) => void sent.push(JSON.parse(String(d)));
+      return s;
+    },
+  });
+  await adapter.connect({});
+  const cfg = (sent[0] as any).setup.realtimeInputConfig;
+  assert.equal(cfg.activityHandling, "NO_INTERRUPTION");
+  assert.equal(cfg.automaticActivityDetection.endOfSpeechSensitivity, "END_SENSITIVITY_LOW");
+});
+
 test("OpenAI truncation config reaches the session setup", async () => {
   process.env.OPENAI_API_KEY = "sk-test";
   const sent: unknown[] = [];
