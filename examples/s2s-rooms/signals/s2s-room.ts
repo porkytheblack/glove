@@ -32,7 +32,7 @@ import { SqliteAdapter } from "station-adapter-sqlite";
 import { WebSocketServer, type WebSocket } from "ws";
 import { MemoryStore } from "glove-core";
 import { mountMesh } from "glove-mesh";
-import { RealtimeAgent } from "glove-voice-s2s";
+import { RealtimeAgent, type CreateS2SAdapterArgs } from "glove-voice-s2s";
 import { research } from "./research";
 import { buildS2SFrontAgent } from "../lib/s2s-front-agent";
 import {
@@ -131,12 +131,46 @@ export const s2sRoom = signal("s2s-room")
     // The agent definition carries its full realtime configuration on the
     // model slot (s2sDrivenModel): provider + model + voice from the room
     // input, credential resolved here, S2S_* env filling the rest.
-    const front = buildS2SFrontAgent(new MemoryStore(`s2s_front_${input.roomId}`), {
-      provider: input.provider,
+    //
+    // Turn-taking is tuned RESPONSIVE: a sales-floor agent that answers a
+    // beat late feels broken, and a false end-of-turn only costs a short
+    // pause the caller talks straight over. server_vad with tight trailing
+    // silence commits the turn faster than semantic VAD's deliberation;
+    // 450ms matches the cascade room's tuned VAD_SILENCE_MS, so the two
+    // flavours are comparable. S2S_TURN_DETECTION still overrides (OpenAI).
+    const shared = {
       apiKey,
       ...(input.model ? { model: input.model } : {}),
       ...(input.voice ? { voice: input.voice } : {}),
-    });
+    };
+    const s2s: CreateS2SAdapterArgs =
+      input.provider === "openai"
+        ? {
+            provider: "openai",
+            ...shared,
+            ...(process.env.S2S_TURN_DETECTION
+              ? {}
+              : {
+                  turnDetection: {
+                    type: "server_vad",
+                    silence_duration_ms: 450,
+                    prefix_padding_ms: 300,
+                  },
+                }),
+          }
+        : {
+            provider: "gemini",
+            ...shared,
+            realtimeInput: {
+              automaticActivityDetection: {
+                startOfSpeechSensitivity: "START_SENSITIVITY_HIGH",
+                endOfSpeechSensitivity: "END_SENSITIVITY_HIGH",
+                prefixPaddingMs: 300,
+                silenceDurationMs: 450,
+              },
+            },
+          };
+    const front = buildS2SFrontAgent(new MemoryStore(`s2s_front_${input.roomId}`), s2s);
     const meshAdapter = new RoomMeshAdapter({
       dispatch: async ({ request, messageId }) => {
         const jobId = await research.trigger({

@@ -90,10 +90,16 @@ export default function S2SAgentPage() {
               provider: "gemini",
               getToken: () => fetchToken("/api/s2s/gemini-token"),
               voice: "Puck",
-              // Typed turn-taking knob: wait a little longer before deciding
-              // the user finished — friendlier for think-out-loud requests.
+              // Tuned RESPONSIVE: commit the turn quickly and catch quiet
+              // openings. Flip END sensitivity to LOW if it cuts you off
+              // while you think out loud — that's the whole dial.
               realtimeInput: {
-                automaticActivityDetection: { endOfSpeechSensitivity: "END_SENSITIVITY_LOW" },
+                automaticActivityDetection: {
+                  startOfSpeechSensitivity: "START_SENSITIVITY_HIGH",
+                  endOfSpeechSensitivity: "END_SENSITIVITY_HIGH",
+                  prefixPaddingMs: 300,
+                  silenceDurationMs: 450,
+                },
               },
             });
 
