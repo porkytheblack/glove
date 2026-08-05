@@ -31,6 +31,7 @@ Production S2S APIs run **500–800ms** voice-to-voice.
 | `OpenAIRealtimeSocketAdapter` | **transport**-mode OpenAI adapter (plain WebSocket, Node + browser): 24 kHz PCM both ways — gpt-realtime in a server room |
 | `GeminiLiveAdapter` | **transport**-mode adapter (plain WebSocket, Node + browser): moves PCM only — the mode a server-hosted room needs |
 | `RealtimeAgent` | run a built Glove on an S2S model: its prompt + tools configure the session, tool calls execute through the same `Tool.run` |
+| `createS2SAdapter` | provider/model/credential factory, same shape as glove-core's `createAdapter` — args first, `S2S_*` env second |
 | `runConformance` | the behavioural suite every adapter must pass against a fake socket |
 | `createOpenAIRealtimeToken` (`/server`) | mint an ephemeral client secret server-side |
 
@@ -45,6 +46,34 @@ mismatch loudly at startup instead of discovering silence on the first call:
   `sendAudio()` and receives `audio` events. The only mode a server room or
   phone bridge can use — there is no microphone in the process. Watch the
   declared formats: Gemini takes 16 kHz in and emits 24 kHz out.
+
+### `createS2SAdapter` — the factory
+
+The same configuration shape as glove-core's `createAdapter`:
+
+```ts
+import { createS2SAdapter } from "glove-voice-s2s";
+
+// server-side: everything from env (S2S_PROVIDER, S2S_MODEL, OPENAI_API_KEY / GEMINI_API_KEY)
+const adapter = createS2SAdapter();
+
+// or explicit — args always win over env
+const adapter = createS2SAdapter({ provider: "openai", model: "gpt-realtime-2.1" });
+
+// browser: pass getToken (an ephemeral secret) — env keys never belong client-side
+const adapter = createS2SAdapter({ provider: "openai-webrtc", getToken: fetchEphemeral });
+```
+
+| env | meaning |
+| --- | --- |
+| `S2S_PROVIDER` | `openai` (WS transport) \| `openai-webrtc` (browser device) \| `gemini`. Unset: whichever key exists, OpenAI first |
+| `S2S_MODEL` | model id; unset = provider default (`gpt-realtime` / `models/gemini-live-2.5-flash-preview`) |
+| `OPENAI_API_KEY` / `GEMINI_API_KEY` | the credential when no `getToken`/`apiKey` is passed (server-side only) |
+| `S2S_TURN_DETECTION` | OpenAI: `semantic_vad` (default) \| `server_vad` (snappier barge-in) |
+
+A missing credential fails at **construction** with the env-var name, not at
+`connect()` with a 401. Constructing adapters directly still works — the
+factory is sugar over the same classes.
 
 ## Running a Glove agent on an S2S model
 

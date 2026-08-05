@@ -32,12 +32,7 @@ import { SqliteAdapter } from "station-adapter-sqlite";
 import { WebSocketServer, type WebSocket } from "ws";
 import { MemoryStore } from "glove-core";
 import { mountMesh } from "glove-mesh";
-import {
-  GeminiLiveAdapter,
-  OpenAIRealtimeSocketAdapter,
-  RealtimeAgent,
-  type S2SAdapter,
-} from "glove-voice-s2s";
+import { createS2SAdapter, RealtimeAgent } from "glove-voice-s2s";
 import { research } from "./research";
 import { buildS2SFrontAgent } from "../lib/s2s-front-agent";
 import {
@@ -154,23 +149,15 @@ export const s2sRoom = signal("s2s-room")
     // Everything voice-session.ts + turn-engine.ts did lives in the provider
     // now. The room's remaining job is plumbing: PCM through, transcripts to
     // the console, worker replies into the live conversation.
-    // Both providers implement the same transport-mode contract, so the room
-    // is identical from here down regardless of which one drives it.
-    const adapter: S2SAdapter =
-      input.provider === "openai"
-        ? new OpenAIRealtimeSocketAdapter({
-            getToken: () => apiKey,
-            ...(input.model ? { model: input.model } : {}),
-            // semantic_vad judges WHETHER you were done; server_vad just hears
-            // you start, which makes barge-in noticeably snappier. Tunable
-            // because the right answer depends on how interruptible the agent
-            // should feel.
-            turnDetection: { type: process.env.S2S_TURN_DETECTION ?? "semantic_vad" },
-          })
-        : new GeminiLiveAdapter({
-            getToken: () => apiKey,
-            ...(input.model ? { model: input.model } : {}),
-          });
+    // Same factory shape as glove-core's createAdapter: provider + model from
+    // the room input, credential resolved here, S2S_* env honoured for the
+    // rest (S2S_TURN_DETECTION etc.). Both providers implement the same
+    // transport-mode contract, so the room is identical from here down.
+    const adapter = createS2SAdapter({
+      provider: input.provider,
+      apiKey,
+      ...(input.model ? { model: input.model } : {}),
+    });
 
     const rt = new RealtimeAgent({
       agent: front,
