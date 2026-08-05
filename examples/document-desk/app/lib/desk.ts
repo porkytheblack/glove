@@ -23,6 +23,8 @@ import { spreadsheets } from "glove-env-spreadsheets";
 import { images } from "glove-env-images";
 import { slides } from "glove-env-slides";
 import { archives } from "glove-env-archives";
+import { render } from "glove-env-render";
+import { visionAdapter } from "./vision";
 import { SYSTEM_PROMPT } from "./prompt";
 
 export interface Desk {
@@ -71,8 +73,14 @@ export async function getDesk(id: string): Promise<Desk> {
   const existing = registry.get(id);
   if (existing) return existing;
 
+  const vision = visionAdapter();
+
   const env = await createWorkingEnvironment({
-    stdlib: [documents(), spreadsheets(), images(), slides(), archives()],
+    stdlib: [documents(), spreadsheets(), images(), slides(), archives(), render()],
+    // Wire a vision model and the agent gains `view_image`, so it can check
+    // its own output by LOOKING at it — the one defect class that reading the
+    // text back cannot catch. Absent a key, the verb is simply not offered.
+    ...(vision ? { vision } : {}),
     limits: {
       // A generous script budget: rendering a deck or a hundred-page PDF is
       // real work, and a timeout here reads to the user as "the agent broke".

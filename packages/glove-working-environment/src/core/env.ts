@@ -871,15 +871,22 @@ export class EnvCore {
    * error names the package that would, because "cannot view this file" is
    * only useful with the fix attached.
    */
-  async imageFor(pathRaw: string): Promise<{ bytes: Uint8Array; mediaType: string; renderedFrom?: string }> {
+  async imageFor(
+    pathRaw: string,
+    page = 1,
+  ): Promise<{ bytes: Uint8Array; mediaType: string; renderedFrom?: string }> {
     const path = normalizePath(pathRaw);
     const stat = await this.vfs.stat(path);
     if (!stat) throw new Error(`no such file or directory: ${path}`);
     if (stat.kind === "dir") throw new Error(`${path} is a directory — view_image needs a file`);
+    if (!Number.isInteger(page) || page < 1) throw new Error(`page must be a whole number from 1, got ${page}`);
 
     const bytes = await this.vfs.read(path);
     const direct = rasterType(bytes);
-    if (direct) return { bytes, mediaType: direct };
+    if (direct) {
+      if (page !== 1) throw new Error(`${path} is a single image — it has no page ${page}`);
+      return { bytes, mediaType: direct };
+    }
 
     const head = bytes.subarray(0, HEAD_BYTES);
     const renderer = this.handlers.renderer(path, head);
@@ -898,11 +905,11 @@ export class EnvCore {
     // output, and leaving page PNGs in /out would make the deliverable
     // directory a lie.
     const outDir = `/tmp/.view/${path.replace(/[^a-z0-9]+/gi, "_")}`;
-    const result = (await renderer.render(path, outDir, { pages: [1] })) as {
+    const result = (await renderer.render(path, outDir, { pages: [page] })) as {
       pages?: Array<{ path?: string }>;
     };
     const first = result?.pages?.[0]?.path;
-    if (!first) throw new Error(`env:${renderer.module} rendered no pages from ${path}`);
+    if (!first) throw new Error(`env:${renderer.module} rendered no page ${page} from ${path}`);
 
     const rendered = await this.vfs.read(normalizePath(first));
     const type = rasterType(rendered);

@@ -33,6 +33,12 @@ and assert on a figure you know should be in it. That costs one call and is
 the difference between delivering a report and delivering a report with the
 wrong number in it.
 
+**And if \`view_image\` is in your tools, look at it.** Text extraction finds a
+wrong number; it cannot see a table running off the page, a chart with no
+bars, or a heading overlapping the line beneath it. Ask a specific question —
+say what you expected, then ask what is actually there — and do it before you
+say a deliverable is finished.
+
 ## The person is watching your code
 
 Every script you write is shown to them as you write it. Write it the way you

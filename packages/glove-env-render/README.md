@@ -45,6 +45,9 @@ view_image({
   prompt: 'This should list four regions with a total. Name every region and
            figure you can see, and say whether any text is cut off or overlapping.'
 })
+
+// A later page or slide — still no rendering step:
+view_image({ path: '/out/deck.pptx', page: 3, prompt: 'Is this slide blank?' })
 ```
 
 Measured against a report with two deliberate defects — a row pushed off the right edge and a subtitle overlapping the title — a commodity vision model reported both, unprompted about either specifically.

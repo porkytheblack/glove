@@ -404,6 +404,9 @@ importers:
       glove-env-images:
         specifier: workspace:*
         version: link:../../packages/glove-env-images
+      glove-env-render:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-render
       glove-env-slides:
         specifier: workspace:*
         version: link:../../packages/glove-env-slides

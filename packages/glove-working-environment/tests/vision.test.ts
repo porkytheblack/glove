@@ -105,7 +105,62 @@ test("a document is rasterized on the way, and the render is reported", async ()
     assert.equal(calls[0].mediaType, "image/png");
     // Provenance matters: the agent has to know it looked at a picture of
     // page 1, not at the document.
-    assert.match(String(result.data), /rendered \/out\/report\.pdf -> \/tmp\/\.view\//);
+    assert.match(String(result.data), /rendered \/out\/report\.pdf page 1 -> \/tmp\/\.view\//);
+  } finally {
+    await env.close();
+  }
+});
+
+test("page reaches the renderer, so checking slide 3 is still one call", async () => {
+  const asked: unknown[] = [];
+  const renderer = defineAdapter({
+    name: "render",
+    description: "Stub rasterizer.",
+    types: `export function render(input: string, outDir: string, opts?: unknown): Promise<{ pages: Array<{ path: string }> }>;`,
+    renders: { magic: [{ bytes: [0x25, 0x50, 0x44, 0x46] }] },
+    create(vfs) {
+      return {
+        async render(_input: string, outDir: string, opts: unknown) {
+          asked.push(opts);
+          await vfs.mkdir(outDir);
+          await vfs.writeFile(`${outDir}/p.png`, png("slide3"));
+          return { pages: [{ path: `${outDir}/p.png` }] };
+        },
+      };
+    },
+  });
+
+  const { adapter, calls } = stubVision();
+  const env = await createWorkingEnvironment({ vision: adapter, stdlib: [renderer] });
+  try {
+    await env.mount(pdf(), "/out/deck.pdf");
+    const result = await viewOf(env.tools).do({ path: "/out/deck.pdf", prompt: "is it blank?", page: 3 });
+
+    assert.equal(result.status, "success");
+    assert.deepEqual(asked, [{ pages: [3] }], "the page must be pushed down to the renderer");
+    assert.equal(calls[0].tag, "slide3");
+    assert.match(String(result.data), /page 3 ->/, "provenance must say which page was seen");
+  } finally {
+    await env.close();
+  }
+});
+
+test("a page number that cannot mean anything is refused", async () => {
+  const { adapter } = stubVision();
+  const env = await createWorkingEnvironment({ vision: adapter, stdlib: [stubRenderer()] });
+  try {
+    const view = viewOf(env.tools);
+    await env.mount(pdf(), "/out/report.pdf");
+    await env.mount(png(), "/out/chart.png");
+
+    assert.match(String((await view.do({ path: "/out/report.pdf", prompt: "x", page: 0 })).message), /whole number/);
+    assert.match(String((await view.do({ path: "/out/report.pdf", prompt: "x", page: 1.5 })).message), /whole number/);
+    // A plain image has exactly one page, and pretending otherwise would hand
+    // back page 1 while the caller believed it saw page 4.
+    assert.match(
+      String((await view.do({ path: "/out/chart.png", prompt: "x", page: 4 })).message),
+      /single image — it has no page 4/,
+    );
   } finally {
     await env.close();
   }

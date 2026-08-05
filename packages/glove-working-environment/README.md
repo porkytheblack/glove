@@ -143,7 +143,7 @@ The complete, closed set — everything the model does goes through these:
 | `undo(path)` / `redo(path)` | Per-file linear undo (rm included); re-runs the pipeline for scripts |
 | `checkpoint(action, name?)` | fork/restore/list/drop the WHOLE tree — the multi-file recovery undo cannot do |
 | `history(path?, limit?)` | Runs from `history.jsonl`, or a file's saved versions |
-| `view_image(path, prompt)` | **Only when a `vision` model is wired.** Look at a file and answer a question about how it LOOKS |
+| `view_image(path, prompt, page?)` | **Only when a `vision` model is wired.** Look at a file and answer a question about how it LOOKS |
 
 ### Checking the work by looking at it
 
@@ -172,6 +172,8 @@ view_image({ path: '/out/report.pdf',
                       region and figure you can see, and say whether any text
                       is cut off or overlapping.' })
 ```
+
+`page` is 1-based and defaults to 1, so checking slide 3 of a deck is still one call — no render step, no script.
 
 An empty prompt is refused with an example. "Describe this image" costs the same as a real question and answers far less.
 

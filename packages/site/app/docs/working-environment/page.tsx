@@ -469,7 +469,10 @@ const env = await createWorkingEnvironment({
   path: '/out/report.pdf',
   prompt: 'This should list four regions with a total. Name every region and
            figure you can see, and say whether any text is cut off or overlapping.'
-})`}
+})
+
+// A later page or slide, still without a render step:
+view_image({ path: '/out/deck.pptx', page: 3, prompt: 'Is this slide blank?' })`}
         language="javascript"
       />
 

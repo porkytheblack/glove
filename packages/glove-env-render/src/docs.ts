@@ -137,7 +137,15 @@ the difference, and a model told what to expect will point at it.
 
 ## Checking more than the first page
 
-\`view_image\` looks at page 1. For the rest, render and view what you need:
+Pass \`page\` — 1-based, defaults to 1. There is no rendering step.
+
+    view_image({ path: '/out/deck.pptx', page: 3,
+                 prompt: 'Is this slide blank, and does its title fit one line?' })
+
+\`describe\` tells you how many pages there are, so you know how far to go.
+
+You only need \`render\` directly when you want the PNGs themselves — to keep
+them, or to work on them with \`env:images\`:
 
 \`\`\`js
 import { render } from 'env:render';
@@ -147,8 +155,7 @@ export default async function () {
 }
 \`\`\`
 
-Then \`view_image\` each returned path. Render to \`/tmp\`, never \`/out\` —
-that directory is what the person receives.
+Render to \`/tmp\`, never \`/out\` — that directory is what the person receives.
 
 ## When it disagrees with you
 

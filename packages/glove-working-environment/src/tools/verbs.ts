@@ -531,16 +531,18 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       "Look at a file and answer a question about how it LOOKS. Pass a specific question, not 'describe this': " +
       "the answer is only as useful as the question, and 'is the revenue table complete with four regions, and does any text run off the page?' " +
       "is worth ten of 'what is in this image'. " +
-      "Accepts images directly; PDFs, decks and Word files are rasterized first (first page) when a rendering module is registered. " +
+      "Accepts images directly; PDFs, decks and Word files are rasterized for you, so you do NOT have to render first. " +
+      "Pass page to look at a later page or slide (1-based, default 1). " +
       "Use it on your OWN output before reporting done — text extraction cannot see layout.",
     jsonSchema: schema(
       {
         path: str("Absolute VFS path of the image or document to look at"),
         prompt: str("The specific question to answer about it"),
+        page: int("Which page or slide, 1-based. Default 1. Ignored for plain images."),
       },
       ["path", "prompt"],
     ),
-    do: guard("view_image", async (input: { path: string; prompt: string }) => {
+    do: guard("view_image", async (input: { path: string; prompt: string; page?: number }) => {
       if (typeof input.path !== "string" || typeof input.prompt !== "string") {
         return err("view_image needs { path, prompt } as strings");
       }
@@ -550,13 +552,16 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
             "Example: 'does the table list four regions, and is any text cut off at the page edge?'",
         );
       }
-      const image = await core.imageFor(input.path);
+      const page = input.page ?? 1;
+      const image = await core.imageFor(input.path, page);
       const answer = await vision!.describe({
         bytes: image.bytes,
         mediaType: image.mediaType,
         prompt: input.prompt,
       });
-      const provenance = image.renderedFrom ? `rendered ${input.path} -> ${image.renderedFrom}\n\n` : "";
+      const provenance = image.renderedFrom
+        ? `rendered ${input.path} page ${page} -> ${image.renderedFrom}\n\n`
+        : "";
       return ok(`${provenance}${answer}`);
     }),
   };
