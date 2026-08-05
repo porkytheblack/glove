@@ -38,7 +38,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { MemoryStore } from "glove-core";
 import { mountMesh } from "glove-mesh";
 import { RealtimeAgent, type CreateS2SAdapterArgs } from "glove-voice-s2s";
-import { TavusEchoAdapter, attachAvatar } from "glove-voice-avatar";
+import { AnamPassthroughAdapter, TavusEchoAdapter, attachAvatar } from "glove-voice-avatar";
 import { research } from "./research";
 import { buildS2SFrontAgent } from "../lib/s2s-front-agent";
 import {
@@ -92,6 +92,11 @@ export const avatarRoom = signal("avatar-room")
       model: z.string().default(process.env.S2S_MODEL ?? ""),
       /** Voice name — provider-specific; empty picks "marin" / "Puck". */
       voice: z.string().default(process.env.S2S_VOICE ?? ""),
+      /** Which provider renders the face. Tavus = Daily room + interaction
+       *  courier; Anam = sdk-session token + command courier. */
+      avatar: z
+        .enum(["tavus", "anam"])
+        .default((process.env.AVATAR_PROVIDER as "tavus" | "anam" | undefined) ?? "tavus"),
       /** End the call after this long with nobody attached. 0 disables. */
       idleMs: z.number().default(10 * 60_000),
     }),
@@ -112,8 +117,13 @@ export const avatarRoom = signal("avatar-room")
     if (!apiKey) throw new Error(`${keyName} is not set. See .env.example.`);
     const tavusKey = process.env.TAVUS_API_KEY;
     const tavusFace = process.env.TAVUS_FACE_ID;
-    if (!tavusKey || !tavusFace) {
+    if (input.avatar === "tavus" && (!tavusKey || !tavusFace)) {
       throw new Error("TAVUS_API_KEY and TAVUS_FACE_ID must be set. See .env.example.");
+    }
+    const anamKey = process.env.ANAM_API_KEY;
+    const anamAvatarId = process.env.ANAM_AVATAR_ID;
+    if (input.avatar === "anam" && (!anamKey || !anamAvatarId)) {
+      throw new Error("AVATAR_PROVIDER=anam needs ANAM_API_KEY and ANAM_AVATAR_ID. See .env.example.");
     }
 
     // Same queue the runner drains, so the research job this room dispatches
@@ -260,28 +270,39 @@ export const avatarRoom = signal("avatar-room")
     // Tavus echo mode: our agent's PCM streams into the rendered replica, and
     // the caller joins the conversation's Daily room to see and hear it. The
     // bridge wires audio / utterance-end / barge-in and nothing else.
-    const avatar = new TavusEchoAdapter({
-      apiKey: tavusKey,
-      // No TAVUS_PAL_ID → the adapter ensures a MINIMAL echo PAL (no
-      // greeting, no TTS layer), which is what keeps the opening silent —
-      // dashboard-created PALs carry defaults that speak in Tavus's voice.
-      ...(process.env.TAVUS_PAL_ID ? { palId: process.env.TAVUS_PAL_ID } : {}),
-      faceId: tavusFace,
-      conversationName: input.roomId,
-      // Tavus interactions travel ONLY over the Daily data channel, and this
-      // room never joins the call — the BROWSER does. So the duct is the
-      // courier: events go down the WS and the client relays them via
-      // sendAppMessage. Consequence worth knowing: echo audio only reaches
-      // the face while a client is attached — which is also the only time
-      // anyone is watching it.
-      sendInteraction: (event) => send({ t: "avatar_interaction", event }),
-    });
+    // Either way the DUCT is the courier — the server never joins the media
+    // surface, the browser does. Tavus: interaction events relayed into the
+    // Daily data channel via sendAppMessage. Anam: client commands applied to
+    // the SDK session (sendAudioChunk / endSequence / interruptPersona).
+    // Consequence worth knowing for both: audio only reaches the face while a
+    // client is attached — which is also the only time anyone is watching it.
+    const avatar =
+      input.avatar === "anam"
+        ? new AnamPassthroughAdapter({
+            apiKey: anamKey!,
+            avatarId: anamAvatarId!,
+            name: ASSISTANT_NAME,
+            sendCommand: (command) => send({ t: "avatar_command", command }),
+          })
+        : new TavusEchoAdapter({
+            apiKey: tavusKey!,
+            // No TAVUS_PAL_ID → the adapter ensures a MINIMAL echo PAL (no
+            // greeting, no TTS layer), which is what keeps the opening silent —
+            // dashboard-created PALs carry defaults that speak in Tavus's voice.
+            ...(process.env.TAVUS_PAL_ID ? { palId: process.env.TAVUS_PAL_ID } : {}),
+            faceId: tavusFace!,
+            conversationName: input.roomId,
+            sendInteraction: (event) => send({ t: "avatar_interaction", event }),
+          });
     avatar.on("error", (err) => {
       console.log(`avatar error: ${err.message}`);
       send({ t: "error", message: `avatar: ${err.message}` });
     });
     const detachAvatar = await attachAvatar(rt, avatar);
-    console.log(`${input.roomId}: avatar up — ${avatar.view?.kind === "webrtc-room" ? avatar.view.url : "?"}`);
+    console.log(
+      `${input.roomId}: ${input.avatar} avatar up — ` +
+        (avatar.view?.kind === "webrtc-room" ? avatar.view.url : (avatar.view?.kind ?? "?")),
+    );
 
     // ── HTTP: health + the mesh inbound endpoint ─────────────────────────────
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -354,7 +375,11 @@ export const avatarRoom = signal("avatar-room")
           mode: "avatar",
           provider: input.provider,
           model: input.model || "(default)",
+          avatarProvider: input.avatar,
+          // The view, flattened for the client: Tavus hands a Daily room URL
+          // to join; Anam hands a session token the browser SDK boots from.
           avatarUrl: avatar.view?.kind === "webrtc-room" ? avatar.view.url : "",
+          avatarSessionToken: avatar.view?.kind === "sdk-session" ? avatar.view.sessionToken : "",
         },
         speakers: SPEAKERS.map(({ id, displayName, description }) => ({ id, displayName, description })),
         assistantName: ASSISTANT_NAME,

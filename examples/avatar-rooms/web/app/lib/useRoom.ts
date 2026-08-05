@@ -59,6 +59,8 @@ const INITIAL: RoomState = {
 export interface RoomHandlers {
   /** Tavus interaction events the room asks us to relay into the Daily call. */
   onAvatarInteraction?: (event: Record<string, unknown>) => void;
+  /** Anam client commands the room asks us to apply to the SDK session. */
+  onAvatarCommand?: (command: Record<string, unknown>) => void;
 }
 
 export function useRoom(handlers?: RoomHandlers) {
@@ -475,6 +477,9 @@ export function useRoom(handlers?: RoomHandlers) {
             break;
           case "avatar_interaction":
             handlersRef.current?.onAvatarInteraction?.(msg.event);
+            break;
+          case "avatar_command":
+            handlersRef.current?.onAvatarCommand?.(msg.command);
             break;
           case "error":
             line("error", msg.message, "error");

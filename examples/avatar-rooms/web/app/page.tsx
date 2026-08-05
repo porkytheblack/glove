@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useEffect } from "react";
 import { useRoom, type SpeakerRole } from "./lib/useRoom";
 import { useAvatarCall } from "./lib/useAvatarCall";
+import { useAnamSession, ANAM_VIDEO_ID } from "./lib/useAnamSession";
 
 // Mirrors lib/speakers.ts, which is the source of truth the ROOM uses. Kept in
 // sync by hand because this app is a separate package from the room and shares
@@ -16,18 +17,27 @@ const SPEAKERS: Array<{ id: SpeakerRole; label: string }> = [
 
 export default function Page() {
   const avatar = useAvatarCall();
+  const anam = useAnamSession();
   const { state, connect, hangUp, setSpeaker, say } = useRoom({
     onAvatarInteraction: avatar.relay,
+    onAvatarCommand: anam.apply,
   });
 
-  // Join the avatar's Daily room as soon as the room hands us its URL, and
-  // leave when the call ends.
+  // Boot whichever face the room configured: a Daily room URL (Tavus) or an
+  // SDK session token (Anam). Leave when the call ends.
   const avatarUrl = typeof state.config?.avatarUrl === "string" ? state.config.avatarUrl : "";
+  const anamToken =
+    typeof state.config?.avatarSessionToken === "string" ? state.config.avatarSessionToken : "";
   useEffect(() => {
     if (state.connected && avatarUrl) void avatar.join(avatarUrl);
-    if (!state.connected) void avatar.leave();
+    if (state.connected && anamToken) void anam.boot(anamToken);
+    if (!state.connected) {
+      void avatar.leave();
+      void anam.leave();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.connected, avatarUrl]);
+  }, [state.connected, avatarUrl, anamToken]);
+  const faceUp = avatar.joined || anam.joined;
   const [speaker, setSpeakerLocal] = useState<SpeakerRole>("operator");
   const [typed, setTyped] = useState("");
 
@@ -87,10 +97,24 @@ export default function Page() {
             }}
           />
           <audio ref={avatar.audioRef} autoPlay />
-          {!avatar.joined && (
+          {/* The Anam SDK streams face + voice into this element by id. */}
+          <video
+            id={ANAM_VIDEO_ID}
+            autoPlay
+            playsInline
+            style={{
+              width: "100%",
+              aspectRatio: "16 / 9",
+              borderRadius: 8,
+              background: "#000",
+              display: anam.joined ? "block" : "none",
+            }}
+          />
+          {!faceUp && (
             <div className="empty">
               The avatar appears here once the room is up — its face and voice
-              arrive through Daily; YOUR mic flows through this page's duct.
+              arrive through the provider's session (Daily for Tavus, the Anam
+              SDK for Anam); YOUR mic flows through this page's duct.
             </div>
           )}
           <div className="head">Conversation</div>

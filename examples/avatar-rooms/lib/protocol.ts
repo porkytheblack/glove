@@ -93,6 +93,10 @@ export type ServerMessage =
    *  via sendAppMessage — interactions travel only over the data channel,
    *  and the browser is the participant we already have in the room. */
   | { t: "avatar_interaction"; event: Record<string, unknown> }
+  /** An Anam client command the BROWSER must apply to its SDK session —
+   *  passthrough audio input lives on the client (sendAudioChunk /
+   *  endSequence / interruptPersona), so the duct is the courier here too. */
+  | { t: "avatar_command"; command: Record<string, unknown> }
   /** Timings, mirrored from the gateway's metrics log. */
   | { t: "metric"; name: string; ms?: number; data?: Record<string, unknown> }
   | { t: "error"; message: string };
