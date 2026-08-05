@@ -1271,6 +1271,161 @@ interface VoiceStatusRenderProps { mode: VoiceMode; recording?: boolean; }
 
 ---
 
+## glove-voice-s2s
+
+Run a Glove agent directly on a realtime speech-to-speech model — no STT/TTS; the model is the voice. Server-side.
+
+### s2sDrivenModel
+
+The config-carrying model slot. The agent definition is the single source of truth; `RealtimeAgent` derives the provider session from it.
+
+```typescript
+import { s2sDrivenModel, type CreateS2SAdapterArgs } from "glove-voice-s2s";
+
+s2sDrivenModel(label?: string): ModelAdapter                                   // bare slot (adapter passed explicitly)
+s2sDrivenModel(config: CreateS2SAdapterArgs & { label?: string }): S2SDrivenModel
+
+// CreateS2SAdapterArgs (every field falls back to S2S_* env: S2S_PROVIDER, S2S_MODEL, S2S_VOICE, S2S_TURN_DETECTION):
+{
+  provider?: "openai" | "gemini",     // default: whichever of OPENAI_API_KEY / GEMINI_API_KEY is set (OpenAI wins)
+  apiKey?: string,
+  model?: string,                     // defaults: "gpt-realtime" / "gemini-live-2.5-flash-preview"
+  voice?: string,                     // defaults: "marin" / "Puck"
+  // Typed turn-taking knobs, per provider:
+  turnDetection?: OpenAITurnDetection,          // { type: "semantic_vad", eagerness? } | { type: "server_vad", threshold?, silence_duration_ms?, prefix_padding_ms? }
+  realtimeInput?: GeminiRealtimeInputConfig,    // { automaticActivityDetection: { startOfSpeechSensitivity?, endOfSpeechSensitivity?, prefixPaddingMs?, silenceDurationMs? } }
+}
+// Responsive preset used by the room examples: server_vad, silence_duration_ms 450, prefix_padding_ms 300.
+```
+
+### RealtimeAgent
+
+```typescript
+import { RealtimeAgent } from "glove-voice-s2s";
+
+const rt = new RealtimeAgent({
+  agent,                    // built Glove — prompt + tools configure the session
+  adapter?,                 // explicit S2SAdapter wins; else derived from the agent's s2sDrivenModel config
+  excludeTools?: string[],  // e.g. ["glove_mesh_broadcast", "glove_mesh_acknowledge"]
+});
+await rt.start();           // opens the provider session, exposes tools
+await rt.stop();
+rt.sendAudio(pcm);          // caller mic in — Int16Array at rt.adapter.inputFormat.sampleRate
+rt.inject(text, { respond?: boolean });  // typed lines / worker results into the live session
+rt.exposedTools;            // names surfaced to the voice model
+
+// Events (rt.on):
+//   user_said(text) · agent_said(text) · agent_delta(text) · tool_started(name, input) · tool_finished(name, output) · error(err)
+// Provider session events (rt.adapter.on):
+//   audio(pcm: Int16Array, format: S2SAudioFormat)  — agent speech out (24 kHz)
+//   interrupted()                                    — barge-in: flush playback NOW (unconditional; truncation sync tells the model what was heard)
+//   agent_speech_started() / agent_speech_stopped()
+// rt.adapter.interrupt() — make a client-detected barge-in official.
+```
+
+Adapters: `OpenAIRealtimeSocketAdapter` (gpt-realtime over WS), `GeminiLiveAdapter`, or `createS2SAdapter(args)`. Conformance: `runConformance` / `CONFORMANCE_CASES` (same posture as every adapter family).
+
+---
+
+## glove-voice-avatar
+
+Live avatars as a rendering layer over the S2S stack: PCM in, a talking face on a WebRTC surface. The mic path stays yours — echo/passthrough avatars have no perception.
+
+### AvatarAdapter contract
+
+```typescript
+interface AvatarAdapter extends EventEmitter<AvatarEvents> {
+  connect(): Promise<void>;            // resolves once a client could attach; fires view_ready
+  disconnect(): Promise<void>;
+  readonly view: AvatarView | null;    // { kind: "webrtc-room", url, provider } | { kind: "sdk-session", sessionToken, provider }
+  sendAudio(pcm: Int16Array, format: S2SAudioFormat): void;
+  endUtterance(): void;                // flush — the utterance finished cleanly
+  interrupt(): void;                   // ALWAYS safe, drops buffered tail (conformance-enforced)
+  readonly isConnected: boolean;
+}
+// Events: connected · disconnected · view_ready(view) · utterance_done · error(err)
+```
+
+`attachAvatar(rt, avatar)` → `Promise<() => void>` — connects (unless already) and bridges `audio`→`sendAudio`, `agent_speech_stopped`→`endUtterance`, `interrupted`→`interrupt`. `runAvatarConformance(makeContext)` — the 6-case behavioural suite.
+
+### TavusEchoAdapter
+
+```typescript
+new TavusEchoAdapter({
+  apiKey, faceId,                     // required
+  palId?, palName?,                   // omit palId → ensureEchoPal() reuses/creates a MINIMAL echo PAL (silent open — no second voice)
+  greeting?,                          // default "" — absent greeting makes Tavus speak a stock one in ITS OWN voice
+  chunkMs?,                           // default 400
+  sendInteraction,                    // REQUIRED courier: Tavus interactions travel ONLY over the Daily data channel
+})
+// view: { kind: "webrtc-room", url: <Daily room> }. disconnect() ends the conversation (and the meter).
+```
+
+### AnamPassthroughAdapter
+
+```typescript
+new AnamPassthroughAdapter({
+  apiKey, avatarId,                   // required
+  avatarModel?,                       // default "cara-4"
+  maxSessionLengthSeconds?,           // default 3600 — but Anam's PLAN cap wins (see below)
+  silenceBeforeSessionEndSeconds?,    // default 7200 (max) — the avatar hears nothing by design; silence-ending would kill healthy calls
+  chunkMs?,
+  sendCommand,                        // REQUIRED courier: passthrough audio input lives on the BROWSER SDK
+})
+// view: { kind: "sdk-session", sessionToken } — browser boots @anam-ai/js-sdk:
+//   createClient(sessionToken, { disableInputAudio: true }); streamToVideoElement(id);
+//   stream = client.createAgentAudioInputStream({ encoding: "pcm_s16le", sampleRate: 16000, channels: 1 });
+// Courier commands → SDK: { type: "audio_chunk", audio } → stream.sendAudioChunk
+//                        { type: "end_sequence" } → stream.endSequence()
+//                        { type: "interrupt" } → client.interruptPersona() + stream.endSequence()
+```
+
+**Anam plan cap:** conversations are force-ended at 3/5/10 min (Free/Starter/Explorer; unlimited Growth+) with `SERVER_CLOSED_CONNECTION` — routine, not an error. Renew: `disconnect()` + `connect()` mints a fresh session; the client re-attaches from the new `view`. `examples/avatar-rooms` automates this (`avatar_refresh` → `avatar_view` round trip over its duct).
+
+---
+
+## glove-voice-livekit
+
+LiveKit as an adapter: the room transport for realtime agents, and avatars that join YOUR LiveKit room as participants. Server-side (`@livekit/rtc-node`).
+
+### LiveKitTransport + attachRealtime
+
+```typescript
+import { LiveKitTransport, attachRealtime, mintParticipantToken } from "glove-voice-livekit";
+
+const transport = new LiveKitTransport({
+  url, token,                          // token via mintParticipantToken({ apiKey, apiSecret }, { roomName, identity, name?, ttl? })
+  publishAgentAudio?: boolean,         // default true; FALSE when an avatar renders the voice (it publishes on the agent's behalf)
+  publishRate?,                        // default 24000
+});
+await transport.connect();
+const detach = attachRealtime(rt, transport, { agentAudio?: boolean });  // mics→model, model→track, interrupted→clear()
+transport.sendData(msg);               // reliable JSON on the data channel
+transport.clear();                     // server-authoritative barge-in flush (AudioSource.clearQueue)
+transport.avatarWire(avatarIdentity);  // the datastream leg for an avatar adapter
+// Events: connected · disconnected · participant_connected(identity) · participant_disconnected(identity)
+//         audio(pcm, sampleRate, identity) · data(msg, identity) · error(err)
+// Avatar participants (attribute lk.publish_on_behalf) are EXCLUDED from audio events — the agent must not hear itself.
+```
+
+### LiveKit avatars
+
+```typescript
+import { TavusLiveKitAvatar, TAVUS_AVATAR_IDENTITY, mintAvatarToken } from "glove-voice-livekit";
+
+const avatar = new TavusLiveKitAvatar({
+  apiKey, faceId, palId?,              // Tavus (AnamLiveKitAvatar: apiKey, avatarId, maxSessionLengthSeconds?, silenceBeforeSessionEndSeconds?)
+  livekitUrl,
+  avatarToken: await mintAvatarToken(creds, { roomName, identity: TAVUS_AVATAR_IDENTITY, onBehalfOf: "agent" }),
+  wire: transport.avatarWire(TAVUS_AVATAR_IDENTITY),
+});
+await attachAvatar(rt, avatar);        // same bridge — these implement the glove-voice-avatar contract
+```
+
+Protocol (matches LiveKit Agents' plugins — a glove agent is indistinguishable from a LiveKit agent to the avatar worker): the worker joins the room under its identity (token kind `agent`, attribute `lk.publish_on_behalf`), agent PCM flows over the `lk.audio_stream` byte stream (attrs `sample_rate`/`num_channels`; one stream per utterance, close = flush), barge-in is the `lk.clear_buffer` RPC, playback progress comes back as `lk.playback_started`/`lk.playback_finished` RPCs (`utterance_done`). Constants exported; `AvatarWire` is injectable so conformance runs credential-free. Renewal: a provider ending the session shows as the worker leaving the room — `disconnect()` + `connect()` re-invites it (see the Anam plan cap above; `examples/livekit-rooms` automates with a debounce).
+
+---
+
 ## Browser-Safe Import Paths
 
 `glove-core` no longer includes native deps — `SqliteStore` (and its `better-sqlite3` dependency) has been extracted to the separate `glove-sqlite` package. The `glove-core` barrel is now browser-safe. Subpath imports are still available:

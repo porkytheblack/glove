@@ -39,6 +39,9 @@ Works with OpenAI, Anthropic, Google Gemini, OpenRouter, and more. Bridge extern
 | [`glove-next`](packages/next) | Next.js API route handlers (SSE streaming) | [![npm](https://img.shields.io/npm/v/glove-next)](https://www.npmjs.com/package/glove-next) |
 | [`glove-voice`](packages/glove-voice) | Voice pipeline — STT/TTS/VAD adapters, ElevenLabs integration, speech-gated noise robustness | [![npm](https://img.shields.io/npm/v/glove-voice)](https://www.npmjs.com/package/glove-voice) |
 | [`glove-voice-native`](packages/glove-voice-native) | React Native / Expo audio backends — on-device mic capture, PCM playback, Silero VAD (onnxruntime-react-native) | [![npm](https://img.shields.io/npm/v/glove-voice-native)](https://www.npmjs.com/package/glove-voice-native) |
+| [`glove-voice-s2s`](packages/glove-voice-s2s) | Speech-to-speech — run a Glove agent on realtime S2S models (OpenAI Realtime / Gemini Live): `RealtimeAgent`, config-carrying `s2sDrivenModel`, typed turn-taking knobs, barge-in with truncation sync | — |
+| [`glove-voice-avatar`](packages/glove-voice-avatar) | Live avatars — a face over the S2S stack: `AvatarAdapter` contract + conformance suite, Tavus echo and Anam audio-passthrough adapters, `attachAvatar` bridge | — |
+| [`glove-voice-livekit`](packages/glove-voice-livekit) | LiveKit as an adapter — `LiveKitTransport` room leg for realtime agents, plus Tavus/Anam avatars that join your LiveKit room via the avatar datastream protocol | — |
 | [`glove-mcp`](packages/glove-mcp) | Model Context Protocol integration — bridge MCP servers' tools, on-demand discovery, opt-in OAuth runner | [![npm](https://img.shields.io/npm/v/glove-mcp)](https://www.npmjs.com/package/glove-mcp) |
 | [`glove-memory`](packages/glove-memory) | Memory layer — entity / episodic / resources / context primitives, schema-first, BYO storage | [![npm](https://img.shields.io/npm/v/glove-memory)](https://www.npmjs.com/package/glove-memory) |
 | [`glove-mesh`](packages/glove-mesh) | Inter-agent mesh networking — direct/broadcast/ack messaging on top of the inbox primitive, BYO transport | [![npm](https://img.shields.io/npm/v/glove-mesh)](https://www.npmjs.com/package/glove-mesh) |
@@ -414,6 +417,8 @@ const vad = new SileroVADNativeAdapter();
 await vad.init();
 const voice = useGloveVoice({ runnable, voice: withNativeAudio({ stt, createTTS, vad }) });
 ```
+
+**Speech-to-speech, avatars, and LiveKit** — beyond the cascade pipeline, a Glove agent can run directly on realtime S2S models (gpt-realtime / Gemini Live) with [`glove-voice-s2s`](packages/glove-voice-s2s)'s `RealtimeAgent`; wear a live face with [`glove-voice-avatar`](packages/glove-voice-avatar) (Tavus echo, Anam audio-passthrough — `attachAvatar(rt, avatar)`); and ride LiveKit as the room transport with [`glove-voice-livekit`](packages/glove-voice-livekit), where avatars join your LiveKit room as participants. The whole progression is preserved as runnable examples: `examples/layered-voice` → `server-voice` → `s2s-rooms` → `avatar-rooms` → `livekit-rooms`.
 
 ### MCP Integration
 

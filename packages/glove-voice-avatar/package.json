@@ -1,0 +1,41 @@
+{
+  "name": "glove-voice-avatar",
+  "version": "0.1.0",
+  "description": "Live avatar adapters for the Glove agent framework — a face over the speech-to-speech voice stack",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "keywords": [
+    "avatar",
+    "voice",
+    "speech-to-speech",
+    "realtime",
+    "agent"
+  ],
+  "dependencies": {
+    "eventemitter3": "^5.0.4",
+    "glove-voice-s2s": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsup": "^8.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // No DOM: rtc-node's AudioStream async-iterates via the Node web-streams
+    // types, which the DOM lib's ReadableStream declaration would shadow.
+    "lib": ["ES2023"],
+    "types": ["node"]
+  },
+  "include": ["src", "tests"]
+}

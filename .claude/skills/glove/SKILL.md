@@ -48,6 +48,9 @@ Glove is an open-source TypeScript framework for building AI-powered application
 - **`glove-next`** — `createChatHandler` (one-line SSE route), voice token handler.
 - **`glove-sqlite`** — deprecated; `SqliteStore` for persistence (server-side only).
 - **`glove-voice`** — full-duplex voice pipeline: STT/TTS/VAD adapters, `GloveVoice`, `useGloveVoice`, `useGlovePTT`, `<VoicePTTButton>`.
+- **`glove-voice-s2s`** — run a Glove agent directly on realtime speech-to-speech models (OpenAI Realtime `gpt-realtime`, Gemini Live): `RealtimeAgent` (server-side; derives its adapter from the agent's model slot), `s2sDrivenModel` (config-carrying model slot: provider/model/voice/turn-taking knobs), `createS2SAdapter` (args → `S2S_*` env fallbacks), typed `OpenAITurnDetection` / `GeminiRealtimeInputConfig`, unconditional barge-in with truncation sync (the model learns what the caller actually heard).
+- **`glove-voice-avatar`** — live avatars as a rendering layer over the S2S stack: `AvatarAdapter` contract (connect → `view` clients attach to; `sendAudio`/`endUtterance`/`interrupt`, conformance-enforced) + `runAvatarConformance`, `TavusEchoAdapter` (echo PAL, Daily room, `sendInteraction` courier — interactions are data-channel-only), `AnamPassthroughAdapter` (audio-passthrough persona, browser SDK owns audio input → `sendCommand` courier; Anam's plan cap force-ends sessions every few minutes below Growth tier — renew via `disconnect()`+`connect()`), `attachAvatar(rt, avatar)` one-call bridge.
+- **`glove-voice-livekit`** — LiveKit as an adapter: `LiveKitTransport` (join room, publish paced agent audio track, remote mics out as PCM events, JSON data channel, `clear()` = server-authoritative barge-in flush) + `attachRealtime(rt, transport)`; LiveKit avatars `TavusLiveKitAvatar`/`AnamLiveKitAvatar` implement the same `AvatarAdapter` contract — the provider's worker joins YOUR room (token kind `agent`, `lk.publish_on_behalf`) and is driven over the `lk.audio_stream` byte stream + `lk.clear_buffer` RPC; token minting via `mintParticipantToken`/`mintAvatarToken`.
 - **`glove-mcp`** — MCP servers as first-class tools: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter` (consumer-supplied per-conversation seam). `discovermcp` discovery subagent (registered via `glove.defineSubAgent(discoverySubAgent({...}))`). Opt-in OAuth helpers at `glove-mcp/oauth` (`runMcpOAuth`, `FsOAuthStore`, `MemoryOAuthStore`, `McpOAuthProvider`).
 - **`glove-memory`** — Memory layer with five sibling subsystems (entity graph / episodic timeline / resource filesystem / ambient context / forms) and matching `useMemoryReader` / `useMemoryCurator`, `useEpisodicReader` / `useEpisodicCurator`, `useResourcesReader` / `useResourcesCurator`, `useContext`, and `useFormRunner` / `useFormReader` helper families. Storage-agnostic adapter contracts plus reference `InMemory*` adapters for dev/test.
 - **`glove-mesh`** — Inter-agent messaging on top of the inbox primitive: `mountMesh(glove, { adapter, identity })` registers an agent and folds `glove_mesh_send_message` / `_broadcast` / `_list_agents` / `_acknowledge`. `MeshAdapter` is the consumer-supplied transport (BYO); ships `InMemoryMeshAdapter` + `MeshNetwork` for in-process dev/test. Each agent keeps its own inbox; incoming messages land as resolved `InboxItem`s so the existing inbox-injection path surfaces them on the next `ask()`. No authentication — sender ids are unverified.
@@ -2399,6 +2402,9 @@ Available at https://glove.dterminal.net/tools — copy-paste into your project:
 | `glove-voice-native` | React Native / Expo audio backends: `NativeAudioCapture`, `NativeAudioPlayer`, `createNativeAudioIO`, `SileroVADNativeAdapter` (subpath `/silero-vad`). Native modules: `react-native-audio-api` (required peer), `onnxruntime-react-native` + `expo-file-system` (optional, for neural VAD). Dev client / prebuild only — not Expo Go. | `pnpm add glove-voice-native` |
 | `glove-react/voice` | React hooks: `useGloveVoice`, `useGlovePTT`, `VoicePTTButton` (DOM-free — usable in React Native too) | Included in `glove-react` |
 | `glove-next` | Token handlers: `createVoiceTokenHandler` (already in `glove-next`, no separate import) | Included in `glove-next` |
+| `glove-voice-s2s` | Speech-to-speech: `RealtimeAgent`, `s2sDrivenModel`, `createS2SAdapter`, typed turn-taking knobs (see "Speech-to-Speech, Avatars & LiveKit" below) | workspace |
+| `glove-voice-avatar` | Live avatars over the S2S stack: `AvatarAdapter`, `TavusEchoAdapter`, `AnamPassthroughAdapter`, `attachAvatar` | workspace |
+| `glove-voice-livekit` | LiveKit transport + LiveKit avatars: `LiveKitTransport`, `attachRealtime`, `TavusLiveKitAvatar`, `AnamLiveKitAvatar`, token minting | workspace |
 
 ### Architecture
 
@@ -2624,6 +2630,45 @@ const voice = useGloveVoice({
 | ElevenLabs | `{ provider: "elevenlabs", type: "stt" \| "tts" }` | `ELEVENLABS_API_KEY` |
 | Deepgram | `{ provider: "deepgram" }` | `DEEPGRAM_API_KEY` |
 | Cartesia | `{ provider: "cartesia" }` | `CARTESIA_API_KEY` |
+
+## Speech-to-Speech, Avatars & LiveKit
+
+The cascade pipeline above (`glove-voice`) is one of two voice paths. The other runs the agent DIRECTLY on a realtime speech-to-speech model — no STT/TTS, the model is the voice:
+
+```typescript
+import { RealtimeAgent, s2sDrivenModel } from "glove-voice-s2s";
+
+const agent = new Glove({
+  store,
+  // The model slot CARRIES the realtime config — the agent definition is the
+  // single source of truth; RealtimeAgent derives the provider session from it.
+  model: s2sDrivenModel({
+    label: "s2s-front",
+    provider: "openai",              // or "gemini"
+    apiKey: process.env.OPENAI_API_KEY!,
+    // model/voice optional — defaults: gpt-realtime + marin / gemini-live-2.5-flash-preview + Puck
+    turnDetection: { type: "server_vad", silence_duration_ms: 450, prefix_padding_ms: 300 }, // snappy barge-in
+  }),
+  displayManager: new Displaymanager(),
+  systemPrompt: "...",
+  serverMode: true,
+}).fold({ /* tools work normally */ });
+
+const rt = new RealtimeAgent({ agent });   // derives the adapter from the model slot
+await rt.start();
+rt.sendAudio(pcm);                          // caller mic in (Int16Array at rt.adapter.inputFormat.sampleRate)
+rt.adapter.on("audio", (pcm, fmt) => {});   // agent speech out (24 kHz)
+rt.adapter.on("interrupted", () => {});     // barge-in — flush your playback
+rt.inject("<text>", { respond: true });     // typed lines / worker results into the live session
+```
+
+The proven layering (examples/s2s-rooms onward): the S2S model is a THIN front agent; heavy lookups delegate to a capable worker over `glove-mesh`, and each call is a station signal run.
+
+**Avatars** are a rendering layer over that stack — PCM in, a talking face on a WebRTC surface. `AvatarAdapter` implementations: `TavusEchoAdapter` (Tavus echo PAL + Daily room; `sendInteraction` courier required — Tavus interactions are Daily-data-channel-only), `AnamPassthroughAdapter` (Anam passthrough persona; browser SDK owns the audio input so a `sendCommand` courier is required; Anam's plan cap force-ends sessions every few minutes below Growth tier — hosts renew with `disconnect()`+`connect()` and re-attach the client). One call wires it: `const detach = await attachAvatar(rt, avatar)` (audio → sendAudio, speech-stop → endUtterance, interrupted → interrupt).
+
+**LiveKit** (`glove-voice-livekit`) replaces the hand-rolled audio duct with WebRTC both ways: `LiveKitTransport` + `attachRealtime(rt, transport)` for the voice leg (browser shrinks to `Room.connect` + `setMicrophoneEnabled`; barge-in is server-side `clear()`), and `TavusLiveKitAvatar`/`AnamLiveKitAvatar` for faces — the provider's worker joins YOUR room as a participant (mint its token with `mintAvatarToken`, identity `TAVUS_AVATAR_IDENTITY`/`ANAM_AVATAR_IDENTITY`, `onBehalfOf` the agent) and is fed over the `lk.audio_stream` byte stream; with an avatar attached set `publishAgentAudio: false` (the worker publishes the voice on the agent's behalf — don't double it).
+
+Full API in api-reference.md ("glove-voice-s2s", "glove-voice-avatar", "glove-voice-livekit"); runnable progression in `examples/layered-voice` → `server-voice` → `s2s-rooms` → `avatar-rooms` → `livekit-rooms` (each preserved, ports side-by-side).
 
 ## Supporting Files
 

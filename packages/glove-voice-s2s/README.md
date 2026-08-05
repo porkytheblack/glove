@@ -22,7 +22,186 @@ Production S2S APIs run **500–800ms** voice-to-voice.
 | barge-in + heard-prefix repair | provider-native interruption handling |
 | client endpointing (VAD, holds, EOU scoring) | **deleted** — provider semantic VAD |
 
-## Usage
+## The pieces
+
+| piece | what it is |
+| --- | --- |
+| `S2SAdapter` | the provider contract: one live session — audio in/out, tool calls as events, a text side-channel (`types.ts`) |
+| `OpenAIRealtimeAdapter` | **device**-mode adapter (WebRTC, browser-only): owns the mic and plays the reply itself |
+| `OpenAIRealtimeSocketAdapter` | **transport**-mode OpenAI adapter (plain WebSocket, Node + browser): 24 kHz PCM both ways — gpt-realtime in a server room |
+| `GeminiLiveAdapter` | **transport**-mode adapter (plain WebSocket, Node + browser): moves PCM only — the mode a server-hosted room needs |
+| `RealtimeAgent` | run a built Glove on an S2S model: its prompt + tools configure the session, tool calls execute through the same `Tool.run` |
+| `createS2SAdapter` | provider/model/credential factory, same shape as glove-core's `createAdapter` — args first, `S2S_*` env second |
+| `s2sDrivenModel` | the Glove model slot for S2S-driven agents — as a plain placeholder, or carrying the FULL realtime config so `RealtimeAgent` derives the session from the agent itself |
+| `runConformance` | the behavioural suite every adapter must pass against a fake socket |
+| `createOpenAIRealtimeToken` (`/server`) | mint an ephemeral client secret server-side |
+
+### Audio modes
+
+Every adapter declares `mode: "device" | "transport"` so a host can refuse a
+mismatch loudly at startup instead of discovering silence on the first call:
+
+- **device** — the adapter opens the microphone and plays the reply itself.
+  Least code at the call site; browser-only.
+- **transport** — the adapter moves PCM and nothing else: the host feeds
+  `sendAudio()` and receives `audio` events. The only mode a server room or
+  phone bridge can use — there is no microphone in the process. Watch the
+  declared formats: Gemini takes 16 kHz in and emits 24 kHz out.
+
+### `createS2SAdapter` — the factory
+
+The same configuration shape as glove-core's `createAdapter`:
+
+```ts
+import { createS2SAdapter } from "glove-voice-s2s";
+
+// server-side: everything from env (S2S_PROVIDER, S2S_MODEL, OPENAI_API_KEY / GEMINI_API_KEY)
+const adapter = createS2SAdapter();
+
+// or explicit — args always win over env
+const adapter = createS2SAdapter({ provider: "openai", model: "gpt-realtime-2.1" });
+
+// browser: pass getToken (an ephemeral secret) — env keys never belong client-side
+const adapter = createS2SAdapter({ provider: "openai-webrtc", getToken: fetchEphemeral });
+```
+
+| env | meaning |
+| --- | --- |
+| `S2S_PROVIDER` | `openai` (WS transport) \| `openai-webrtc` (browser device) \| `gemini`. Unset: whichever key exists, OpenAI first |
+| `S2S_MODEL` | model id; unset = provider default (`gpt-realtime` / `models/gemini-live-2.5-flash-preview`) |
+| `OPENAI_API_KEY` / `GEMINI_API_KEY` | the credential when no `getToken`/`apiKey` is passed (server-side only) |
+| `S2S_TURN_DETECTION` | OpenAI: `semantic_vad` (default) \| `server_vad` (snappier barge-in) |
+
+A missing credential fails at **construction** with the env-var name, not at
+`connect()` with a 401. Constructing adapters directly still works — the
+factory is sugar over the same classes.
+
+### Turn-taking knobs
+
+Both providers expose their full turn-taking surface as TYPED config —
+`OpenAITurnDetection` (`OpenAISemanticVad` / `OpenAIServerVad` / `null` for
+push-to-talk) and `GeminiRealtimeInputConfig` — so a typo'd field or an
+invalid enum fails at compile time instead of being silently ignored by the
+provider:
+
+**OpenAI — `turnDetection`** (session `turn_detection`):
+
+```ts
+createS2SAdapter({ provider: "openai", turnDetection: {
+  type: "semantic_vad",        // model judges WHETHER you were done
+  eagerness: "low",            // low | medium | high | auto — how quickly it takes the floor
+  // interrupt_response: false // agent finishes its sentence; barge-in off provider-side
+}})
+// or threshold-driven:
+createS2SAdapter({ provider: "openai", turnDetection: {
+  type: "server_vad",
+  threshold: 0.6,              // how loud counts as speech
+  silence_duration_ms: 700,    // trailing silence before end-of-turn
+  prefix_padding_ms: 300,      // audio kept from before speech started
+  idle_timeout_ms: 10_000,     // fires a timeout event when the caller goes quiet
+}})
+// or turn_detection: null → manual/push-to-talk (commit + response.create yourself)
+```
+
+**Gemini — `realtimeInput`** (setup `realtimeInputConfig`):
+
+```ts
+createS2SAdapter({ provider: "gemini", realtimeInput: {
+  automaticActivityDetection: {
+    startOfSpeechSensitivity: "START_SENSITIVITY_LOW",  // fewer false triggers
+    endOfSpeechSensitivity: "END_SENSITIVITY_LOW",      // waits longer before ending your turn
+    prefixPaddingMs: 300,
+    silenceDurationMs: 700,
+    // disabled: true  → manual activityStart/activityEnd (push-to-talk)
+  },
+  activityHandling: "NO_INTERRUPTION",   // agent always finishes; default is barge-in
+  turnCoverage: "TURN_INCLUDES_ALL_INPUT",
+}})
+```
+
+## Running a Glove agent on an S2S model
+
+Author the agent exactly as you always do — tools, prompt, store — and hand
+it to `RealtimeAgent`. One definition, two runtimes: the same tools serve
+text turns through the normal loop and voice turns through the provider's.
+
+The cleanest form: the agent's MODEL SLOT carries the whole realtime
+configuration, and `RealtimeAgent` derives the provider session from it —
+
+```ts
+import { RealtimeAgent, s2sDrivenModel } from "glove-voice-s2s";
+
+const agent = new Glove({
+  model: s2sDrivenModel({
+    label: "s2s-front",
+    provider: "openai",                    // or env: S2S_PROVIDER / key presence
+    voice: "marin",                        // or env: S2S_VOICE
+    turnDetection: { type: "semantic_vad", eagerness: "low" },   // typed knobs
+  }),
+  systemPrompt, store, displayManager, compaction_config,
+}).fold(myTool).build();
+
+const rt = new RealtimeAgent({ agent });   // adapter derived from the agent
+```
+
+— or pass an explicit `adapter` (it always wins over the model-slot config):
+
+```ts
+const rt = new RealtimeAgent({
+  agent,                                   // a built Glove (IGloveRunnable)
+  adapter: createS2SAdapter({ provider: "gemini" }),
+  instructions: SPOKEN_PERSONA,            // optional: re-voice the text prompt for speech
+  excludeTools: ["render_chart"],          // withhold tools that don't belong in a call
+});
+
+rt.on("user_said", (t) => log("caller:", t));
+rt.on("agent_said", (t) => log("agent:", t));
+await rt.start();
+
+// transport mode: wire audio yourself
+micStream.on("pcm", (pcm) => rt.sendAudio(pcm));
+rt.adapter.on("audio", (pcm, format) => speaker.play(pcm, format.sampleRate));
+
+// push async results into the live call — the model relays them out loud
+rt.inject("the lookup finished: covered until 2031", { respond: true });
+```
+
+**What the voice path does NOT do** (deliberately — the provider owns the
+loop, so the Glove Executor never runs):
+
+- `requiresPermission` is not enforced — there is no permission prompt
+  mid-call. Put gated tools in `excludeTools`.
+- `display.pushAndWait` tools get no `handOver` and will throw. Exclude
+  them too; voice-first tools should return descriptive `data` instead.
+- Tool calls and transcripts are not persisted to the agent's store and do
+  not fire subscriber events. Use `RealtimeAgent`'s own events
+  (`user_said`, `agent_said`, `tool_started`, `tool_finished`) to log.
+
+What IS shared with the text path: tool definitions and JSON schemas (via
+`getToolJsonSchema`), Zod input validation before `run`, the system prompt,
+and the `renderData`-stays-client-side contract — the bridge strips
+`renderData` / `summary` before anything reaches the provider, exactly like
+the model adapters do.
+
+## Writing a new provider adapter
+
+Implement `S2SAdapter`, then run the conformance suite against a fake
+socket. The suite drives your adapter with synthetic descriptors that your
+test harness translates into the provider's real wire shapes — so the cases
+exercise your actual mapping code (see `tests/conformance.test.ts` for the
+Gemini harness):
+
+```ts
+import { runConformance } from "glove-voice-s2s";
+
+const results = await runConformance(() => makeAdapterAndFakeSocket());
+```
+
+Passing means the adapter is wired correctly against its own understanding
+of the protocol. Only a live call proves the provider accepts the frames —
+verify with credentials before shipping.
+
+## Raw adapter usage (no Glove)
 
 Server (mint an ephemeral token — API keys never reach the browser):
 
@@ -56,3 +235,14 @@ Sonic implementations slot into the same contract.
 
 See `examples/layered-voice` (`/s2s` page) for a full working integration
 with true voice-to-voice measurement.
+
+## Layers on top
+
+- [`glove-voice-avatar`](../glove-voice-avatar) — a live face over this
+  stack: `AvatarAdapter` contract + Tavus echo / Anam passthrough adapters,
+  bridged with `attachAvatar(rt, avatar)`.
+- [`glove-voice-livekit`](../glove-voice-livekit) — LiveKit as the room
+  transport (`LiveKitTransport` + `attachRealtime`) and LiveKit avatars that
+  join your room as participants.
+- Runnable progression: `examples/s2s-rooms` → `avatar-rooms` →
+  `livekit-rooms` (layered front agent + mesh worker + station rooms).

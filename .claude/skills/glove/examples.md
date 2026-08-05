@@ -11,6 +11,11 @@ Real patterns drawn from the example implementations in `examples/`.
 | `examples/nextjs-agent` | Web app | Next.js + glove-react | `defineTool`, `<Render>`, `renderResult`, `displayStrategy`, trip planning |
 | `examples/coffee` | Web app | Next.js + glove-react + glove-voice | `defineTool`, `<Render>`, `renderResult`, `displayStrategy`, e-commerce flow, cart state, voice interaction, inbox (restock watches) |
 | `examples/lola` | Web app | Next.js + glove-react + glove-voice | Voice-first movie companion, 9 TMDB tools, SileroVAD, `pushAndForget` only, cinematic UI |
+| `examples/layered-voice` | Web app | Next.js + glove-react + glove-voice | Browser-hosted cascade voice (VAD → STT → LLM → TTS), thin front agent + capable worker layering |
+| `examples/server-voice` | Server rooms + web app | station-kit + glove-voice + glove-mesh | Cascade voice moved server-side: rooms as station signal runs, WS audio duct, worker delegation over the mesh |
+| `examples/s2s-rooms` | Server rooms + web app | station-kit + glove-voice-s2s + glove-mesh | Speech-to-speech front agent (`RealtimeAgent`, `s2sDrivenModel`, responsive turn-taking presets), barge-in + truncation sync, same layering |
+| `examples/avatar-rooms` | Server rooms + web app | + glove-voice-avatar | The S2S stack with a face: `AVATAR_PROVIDER=tavus\|anam` — Tavus echo (Daily room + browser interaction courier) or Anam passthrough (SDK session + command courier, automatic session renewal past Anam's plan cap) |
+| `examples/livekit-rooms` | Server rooms + web app | + glove-voice-livekit | LiveKit both directions: `LiveKitTransport` + `attachRealtime`, browser is a LiveKit join (~250 lines), avatars join the room as participants, server-authoritative barge-in |
 | `examples/glovebox-pdf-extractor` | Sandboxed service | glovebox + glovebox/docs base | `glovebox.wrap`, `glovebox build`, S3 outputs via `adapters` export, `GloveboxClient` |
 | `examples/forms-bench` | Agentic eval | glove-memory/forms + OpenRouter | Scripted multi-turn conversations, context-cost ledger, instruction-following metrics, offline selfcheck |
 | `examples/document-desk` | Web app | Next.js + glove-working-environment + 5 `glove-env-*` adapters | Server-side agent behind a hand-rolled SSE route, live code pane, filesystem browser + download, `serverExternalPackages` |

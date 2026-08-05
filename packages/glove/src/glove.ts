@@ -92,6 +92,20 @@ export interface IGloveRunnable {
    *  integrations (e.g. glove-mesh) that need to write resolved inbox
    *  items without going through the model's tool path. */
   readonly store: StoreAdapter
+  /**
+   * The tools folded into this agent, in registration order.
+   *
+   * Read-only, and readable WITHOUT running the loop — which is the point.
+   * Some runtimes own the agent loop themselves and cannot hand it to Glove:
+   * a realtime speech-to-speech model decides its own turn-taking and calls
+   * tools from inside the provider's session, so it needs the schemas up
+   * front to configure that session, then executes each call through the
+   * same `Tool.run` everything else uses. Exposing the registry is what lets
+   * a tool be authored once and work in both modes. Same door serves
+   * anything else that needs the surface without the loop — exporting it
+   * over MCP, generating documentation, auditing permissions.
+   */
+  readonly tools: ReadonlyArray<Tool<unknown>>
 }
 
 
@@ -297,6 +311,10 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
 
   get store(): StoreAdapter {
     return this._store
+  }
+
+  get tools(): ReadonlyArray<Tool<unknown>> {
+    return this.executor.tools
   }
 
   /**

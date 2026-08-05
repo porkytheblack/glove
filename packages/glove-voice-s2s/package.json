@@ -22,7 +22,8 @@
   ],
   "scripts": {
     "build": "tsup",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
   },
   "keywords": [
     "voice",
@@ -32,10 +33,13 @@
     "agent"
   ],
   "dependencies": {
-    "eventemitter3": "^5.0.4"
+    "eventemitter3": "^5.0.4",
+    "glove-core": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8.0.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "tsx": "^4.21.0",
+    "zod": "^4.3.6"
   }
 }
