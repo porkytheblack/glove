@@ -40,8 +40,18 @@ import type { AvatarAdapter, AvatarEvents, AvatarView } from "./types";
 export interface TavusEchoConfig {
   /** Tavus API key (server-side only — never ships to a browser). */
   apiKey: string;
-  /** PAL with `pipeline_mode: "echo"` (create via POST /v2/pals). */
-  palId: string;
+  /**
+   * PAL with `pipeline_mode: "echo"`. OMIT to let the adapter ensure one:
+   * it reuses (or creates) a MINIMAL echo PAL — no greeting, no TTS layer,
+   * nothing that could speak in a voice that isn't the agent's. This is the
+   * pattern every ecosystem integration uses (LiveKit creates its own echo
+   * PAL; Pipecat ships a stock silent persona): a dashboard-created PAL
+   * carries default greeting/voice configuration that talks over the echo
+   * stream's opening in Tavus's OWN voice.
+   */
+  palId?: string;
+  /** Name used when the adapter ensures its own echo PAL (default "glove-echo-pal"). */
+  palName?: string;
   /** The face the PAL renders. Required by the conversations API. */
   faceId: string;
   /** Conversation display name, shown in the Daily room. */
@@ -52,7 +62,8 @@ export interface TavusEchoConfig {
    * hears a second, different voice before the first echo frame arrives.
    * Defaults to "" to suppress it: the agent's first words should come from
    * the S2S voice through echo. Set text only if you deliberately want a
-   * provider-voiced opener.
+   * provider-voiced opener. (A dashboard-created PAL can ALSO carry its own
+   * greeting — the ensured minimal PAL is how you avoid that entirely.)
    */
   greeting?: string;
   /** API base (default https://tavusapi.com). */
@@ -72,6 +83,52 @@ export interface TavusEchoConfig {
 }
 
 const TAVUS_RATE = 24_000;
+
+/**
+ * Reuse (or create) a MINIMAL echo PAL: `pipeline_mode: "echo"`, a default
+ * face, and nothing else — no greeting, no TTS layer, no LLM defaults. This
+ * is what keeps the conversation's opening silent until the first echo frame:
+ * dashboard-created PALs carry defaults that speak in Tavus's own voice.
+ * Matched by name so repeated boots don't accumulate PALs.
+ */
+export async function ensureEchoPal(opts: {
+  apiKey: string;
+  faceId: string;
+  name?: string;
+  apiBase?: string;
+  fetchFn?: typeof fetch;
+}): Promise<string> {
+  const doFetch = opts.fetchFn ?? fetch;
+  const base = (opts.apiBase ?? "https://tavusapi.com").replace(/\/$/, "");
+  const name = opts.name ?? "glove-echo-pal";
+  const headers = { "x-api-key": opts.apiKey, "Content-Type": "application/json" };
+
+  const list = await doFetch(`${base}/v2/pals`, { headers });
+  if (list.ok) {
+    const body = (await list.json()) as
+      | Array<{ pal_id?: string; pal_name?: string }>
+      | { data?: Array<{ pal_id?: string; pal_name?: string }> };
+    const pals = Array.isArray(body) ? body : (body.data ?? []);
+    const existing = pals.find((p) => p.pal_name === name && p.pal_id);
+    if (existing?.pal_id) return existing.pal_id;
+  }
+
+  const created = await doFetch(`${base}/v2/pals`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      pal_name: name,
+      default_face_id: opts.faceId,
+      pipeline_mode: "echo",
+    }),
+  });
+  if (!created.ok) {
+    throw new Error(`Tavus PAL create failed (${created.status}): ${(await created.text()).slice(0, 300)}`);
+  }
+  const data = (await created.json()) as { pal_id?: string };
+  if (!data.pal_id) throw new Error("Tavus PAL create returned no pal_id");
+  return data.pal_id;
+}
 
 export class TavusEchoAdapter extends EventEmitter<AvatarEvents> implements AvatarAdapter {
   private connected = false;
@@ -104,11 +161,20 @@ export class TavusEchoAdapter extends EventEmitter<AvatarEvents> implements Avat
   }
 
   async connect(): Promise<void> {
+    const palId =
+      this.cfg.palId ??
+      (await ensureEchoPal({
+        apiKey: this.cfg.apiKey,
+        faceId: this.cfg.faceId,
+        name: this.cfg.palName,
+        apiBase: this.cfg.apiBase,
+        fetchFn: this.cfg.fetchFn,
+      }));
     const res = await this.fetch(`${this.base()}/v2/conversations`, {
       method: "POST",
       headers: { "x-api-key": this.cfg.apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
-        pal_id: this.cfg.palId,
+        pal_id: palId,
         face_id: this.cfg.faceId,
         // Always sent: an absent custom_greeting means Tavus speaks a stock
         // one in its own voice over our echo stream's opening.

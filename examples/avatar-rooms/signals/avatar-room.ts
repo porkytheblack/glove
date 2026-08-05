@@ -111,10 +111,9 @@ export const avatarRoom = signal("avatar-room")
     const apiKey = process.env[keyName];
     if (!apiKey) throw new Error(`${keyName} is not set. See .env.example.`);
     const tavusKey = process.env.TAVUS_API_KEY;
-    const tavusPal = process.env.TAVUS_PAL_ID;
     const tavusFace = process.env.TAVUS_FACE_ID;
-    if (!tavusKey || !tavusPal || !tavusFace) {
-      throw new Error("TAVUS_API_KEY, TAVUS_PAL_ID and TAVUS_FACE_ID must be set. See .env.example.");
+    if (!tavusKey || !tavusFace) {
+      throw new Error("TAVUS_API_KEY and TAVUS_FACE_ID must be set. See .env.example.");
     }
 
     // Same queue the runner drains, so the research job this room dispatches
@@ -263,7 +262,10 @@ export const avatarRoom = signal("avatar-room")
     // bridge wires audio / utterance-end / barge-in and nothing else.
     const avatar = new TavusEchoAdapter({
       apiKey: tavusKey,
-      palId: tavusPal,
+      // No TAVUS_PAL_ID → the adapter ensures a MINIMAL echo PAL (no
+      // greeting, no TTS layer), which is what keeps the opening silent —
+      // dashboard-created PALs carry defaults that speak in Tavus's voice.
+      ...(process.env.TAVUS_PAL_ID ? { palId: process.env.TAVUS_PAL_ID } : {}),
       faceId: tavusFace,
       conversationName: input.roomId,
       // Tavus interactions travel ONLY over the Daily data channel, and this

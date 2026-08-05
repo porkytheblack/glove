@@ -146,6 +146,58 @@ test("non-24k audio is resampled before framing", async () => {
   assert.ok(Math.abs(samples - 24_000) < 10, `expected ~24000 samples after resample, got ${samples}`);
 });
 
+test("without palId, connect ensures a minimal echo PAL (reused by name)", async () => {
+  const http: Array<{ url: string; method: string; body: unknown }> = [];
+  let palExists = false;
+  const fetchFn = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    const u = String(url);
+    const method = init?.method ?? "GET";
+    http.push({ url: u, method, body: init?.body ? JSON.parse(String(init.body)) : null });
+    if (u.endsWith("/v2/pals") && method === "GET") {
+      return new Response(
+        JSON.stringify(palExists ? [{ pal_id: "pal_auto", pal_name: "glove-echo-pal" }] : []),
+        { status: 200 },
+      );
+    }
+    if (u.endsWith("/v2/pals") && method === "POST") {
+      palExists = true;
+      return new Response(JSON.stringify({ pal_id: "pal_auto" }), { status: 200 });
+    }
+    if (u.endsWith("/v2/conversations")) {
+      return new Response(
+        JSON.stringify({ conversation_id: "c_test", conversation_url: "https://tavus.daily.co/c_test" }),
+        { status: 200 },
+      );
+    }
+    return new Response("{}", { status: 200 });
+  }) as typeof fetch;
+
+  const make = () =>
+    new TavusEchoAdapter({
+      apiKey: "k",
+      faceId: "face_1",
+      fetchFn,
+      sendInteraction: () => {},
+    });
+
+  await make().connect();
+  const created = http.find((h) => h.url.endsWith("/v2/pals") && h.method === "POST") as any;
+  assert.ok(created, "no minimal echo PAL was created");
+  assert.equal(created.body.pipeline_mode, "echo");
+  assert.equal(created.body.default_face_id, "face_1");
+  assert.equal(created.body.custom_greeting, undefined, "the minimal PAL must carry NO extras");
+  const convo = http.find((h) => h.url.endsWith("/v2/conversations")) as any;
+  assert.equal(convo.body.pal_id, "pal_auto");
+
+  // Second boot: reused by name, not recreated.
+  http.length = 0;
+  await make().connect();
+  assert.ok(
+    !http.some((h) => h.url.endsWith("/v2/pals") && h.method === "POST"),
+    "a second boot should reuse the PAL by name, not accumulate PALs",
+  );
+});
+
 test("disconnect ends the conversation", async () => {
   const ctx = tavusContext();
   await ctx.adapter.connect();
