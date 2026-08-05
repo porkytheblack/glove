@@ -1,0 +1,33 @@
+{
+  "name": "glove-document-desk",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "An agent with a real working environment: upload documents, ask for anything, watch the code it writes, and browse the filesystem it built.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "glove-core": "workspace:*",
+    "glove-env-archives": "workspace:*",
+    "glove-env-documents": "workspace:*",
+    "glove-env-images": "workspace:*",
+    "glove-env-slides": "workspace:*",
+    "glove-env-spreadsheets": "workspace:*",
+    "glove-working-environment": "workspace:*",
+    "next": "^15.3.3",
+    "pdfjs-dist": "^5.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.9.3"
+  }
+}

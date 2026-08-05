@@ -1,0 +1,284 @@
+"use client";
+
+/**
+ * The client half of the desk: one SSE stream in, three views out.
+ *
+ * The transcript, the code pane and the file explorer are all projections of
+ * the same event stream, so they are derived in one place rather than each
+ * component subscribing and keeping its own copy.
+ */
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { DeskEvent } from "./desk";
+
+/** One line of the transcript. Tool calls are inline, not a sidebar. */
+export type Entry =
+  | { kind: "user"; id: string; text: string; files: string[] }
+  | { kind: "text"; id: string; text: string }
+  | {
+      kind: "act";
+      id: string;
+      callId: string;
+      name: string;
+      input: Record<string, unknown>;
+      status: "running" | "ok" | "error";
+      output?: string;
+    };
+
+/** One file the agent authored, as it currently stands, with its last run. */
+export interface CodeCard {
+  path: string;
+  content: string;
+  /** Scripts get syntax colours; a report or a CSV is shown as it is. */
+  code: boolean;
+  status: "idle" | "running" | "ok" | "error";
+  output?: string;
+  runs: number;
+}
+
+const SCRIPT = /\.(js|mjs|cjs|ts)$/i;
+/**
+ * A written file can be as large as the environment allows — an extracted
+ * 80-page PDF is ~200KB of text. The pane shows the shape of the work, not
+ * the whole of it.
+ */
+const MAX_SHOWN = 8000;
+
+const clamp = (text: string) =>
+  text.length > MAX_SHOWN ? `${text.slice(0, MAX_SHOWN)}\n\n… ${text.length - MAX_SHOWN} more characters` : text;
+
+export function useDesk() {
+  const [sessionId, setSessionId] = useState("");
+  const [entries, setEntries] = useState<Entry[]>([]);
+  const [cards, setCards] = useState<CodeCard[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  /** Bumped whenever the agent touched the tree, so the explorer can refetch. */
+  const [treeVersion, setTreeVersion] = useState(0);
+
+  const seq = useRef(0);
+  const nextId = () => `e${seq.current++}`;
+
+  // A session survives a page refresh: the desk lives server-side, keyed by
+  // this id, so reloading the tab rejoins the same filesystem.
+  useEffect(() => {
+    const stored = sessionStorage.getItem("desk.session");
+    if (stored) {
+      setSessionId(stored);
+      setTreeVersion((v) => v + 1);
+      return;
+    }
+    const fresh = crypto.randomUUID();
+    sessionStorage.setItem("desk.session", fresh);
+    setSessionId(fresh);
+  }, []);
+
+  /**
+   * A script the agent runs but did not write this session — from an earlier
+   * turn, or restored. Pull its source so the pane is not a blank card.
+   */
+  const hydrate = useCallback(
+    async (session: string, path: string) => {
+      try {
+        const res = await fetch(`/api/fs?session=${encodeURIComponent(session)}&path=${encodeURIComponent(path)}`);
+        if (!res.ok) return;
+        const body = (await res.json()) as { text?: string };
+        const text = body.text;
+        if (typeof text !== "string") return;
+        setCards((cs) => cs.map((c) => (c.path === path && c.content === "" ? { ...c, content: clamp(text) } : c)));
+      } catch {
+        /* the card just stays empty */
+      }
+    },
+    [],
+  );
+
+  const apply = useCallback(
+    (event: DeskEvent, session: string) => {
+      switch (event.type) {
+        case "text":
+          setEntries((es) => {
+            const last = es[es.length - 1];
+            if (last?.kind === "text") {
+              return [...es.slice(0, -1), { ...last, text: last.text + event.text }];
+            }
+            return [...es, { kind: "text", id: nextId(), text: event.text }];
+          });
+          break;
+
+        case "tool": {
+          const input = (event.input ?? {}) as Record<string, unknown>;
+          setEntries((es) => [
+            ...es,
+            { kind: "act", id: nextId(), callId: event.id, name: event.name, input, status: "running" },
+          ]);
+          updateCards(event.name, input, session);
+          break;
+        }
+
+        case "tool_result":
+          setEntries((es) =>
+            es.map((e) =>
+              e.kind === "act" && e.callId === event.id
+                ? { ...e, status: event.status === "error" ? "error" : "ok", output: event.output }
+                : e,
+            ),
+          );
+          setCards((cs) =>
+            cs.map((c) =>
+              c.status === "running"
+                ? { ...c, status: event.status === "error" ? "error" : "ok", output: event.output }
+                : c,
+            ),
+          );
+          break;
+
+        case "tree_changed":
+          setTreeVersion((v) => v + 1);
+          break;
+
+        case "error":
+          setError(event.message);
+          break;
+
+        case "done":
+          break;
+      }
+    },
+    [hydrate],
+  );
+
+  /**
+   * Keep the pane in step with the filesystem.
+   *
+   * Every authored file gets a card, not only scripts. An agent that answers
+   * by writing /out/report.md straight from a read_file has still done the
+   * work in front of you, and a pane that only tracked /scripts would sit
+   * empty through the whole turn.
+   *
+   * `edit_file` is replayed rather than refetched — the tool's contract is an
+   * exactly-once replacement, so applying it locally gives the same bytes the
+   * environment holds without a round-trip.
+   */
+  function updateCards(name: string, input: Record<string, unknown>, session: string) {
+    const path = typeof input.path === "string" ? input.path : "";
+    if (!path) return;
+
+    if (name === "write_file" && typeof input.content === "string") {
+      const content = input.content;
+      const append = input.append === true;
+      setCards((cs) => {
+        const at = cs.findIndex((c) => c.path === path);
+        if (at === -1) {
+          return [...cs, { path, content: clamp(content), code: SCRIPT.test(path), status: "idle", runs: 0 }];
+        }
+        const merged = append ? cs[at].content + content : content;
+        return cs.map((c, i) =>
+          i === at ? { ...c, content: clamp(merged), status: "idle", output: undefined } : c,
+        );
+      });
+      return;
+    }
+
+    if (name === "edit_file" && typeof input.old_str === "string" && typeof input.new_str === "string") {
+      const { old_str, new_str } = input as { old_str: string; new_str: string };
+      setCards((cs) =>
+        cs.map((c) =>
+          c.path === path
+            ? { ...c, content: clamp(c.content.replace(old_str, new_str)), status: "idle", output: undefined }
+            : c,
+        ),
+      );
+      return;
+    }
+
+    if (name === "run_script" || name === "run_tests") {
+      setCards((cs) => {
+        const at = cs.findIndex((c) => c.path === path);
+        if (at === -1) {
+          void hydrate(session, path);
+          return [...cs, { path, content: "", code: true, status: "running", runs: 1 }];
+        }
+        return cs.map((c, i) =>
+          i === at ? { ...c, status: "running", output: undefined, runs: c.runs + 1 } : c,
+        );
+      });
+    }
+  }
+
+  const send = useCallback(
+    async (message: string, files: File[]) => {
+      if (!sessionId || busy) return;
+      setError(null);
+      setBusy(true);
+
+      try {
+        if (files.length > 0) {
+          const form = new FormData();
+          form.set("sessionId", sessionId);
+          for (const file of files) form.append("files", file);
+          const up = await fetch("/api/upload", { method: "POST", body: form });
+          if (!up.ok) throw new Error(((await up.json()) as { error?: string }).error ?? "upload failed");
+          setTreeVersion((v) => v + 1);
+        }
+
+        setEntries((es) => [
+          ...es,
+          { kind: "user", id: nextId(), text: message, files: files.map((f) => f.name) },
+        ]);
+
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, message }),
+        });
+        if (!res.ok || !res.body) throw new Error(`chat failed (${res.status})`);
+
+        // SSE by hand: EventSource cannot POST, and the payload here is a
+        // message rather than a query string.
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split("\n\n");
+          buffer = frames.pop() ?? "";
+          for (const frame of frames) {
+            const line = frame.trim();
+            if (!line.startsWith("data:")) continue;
+            try {
+              apply(JSON.parse(line.slice(5).trim()) as DeskEvent, sessionId);
+            } catch {
+              /* a partial frame at the tail; the next chunk completes it */
+            }
+          }
+        }
+        setTreeVersion((v) => v + 1);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [sessionId, busy, apply],
+  );
+
+  const reset = useCallback(async () => {
+    if (!sessionId) return;
+    await fetch("/api/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId }),
+    }).catch(() => {});
+    const fresh = crypto.randomUUID();
+    sessionStorage.setItem("desk.session", fresh);
+    setSessionId(fresh);
+    setEntries([]);
+    setCards([]);
+    setError(null);
+    setTreeVersion((v) => v + 1);
+  }, [sessionId]);
+
+  return { sessionId, entries, cards, busy, error, treeVersion, send, reset, setError };
+}
