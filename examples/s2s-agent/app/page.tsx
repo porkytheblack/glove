@@ -13,11 +13,7 @@
 // "note down: buy oat milk", "what are my notes?"
 
 import { useEffect, useRef, useState } from "react";
-import {
-  GeminiLiveAdapter,
-  OpenAIRealtimeAdapter,
-  RealtimeAgent,
-} from "glove-voice-s2s";
+import { createS2SAdapter, RealtimeAgent } from "glove-voice-s2s";
 import { buildAgent, uiBridge, type Theme } from "./lib/agent";
 import { createPcmPlayer, startMicCapture, type PcmPlayer } from "./lib/audio";
 
@@ -78,19 +74,30 @@ export default function S2SAgentPage() {
   async function start() {
     setBusy(true);
     try {
+      // The factory, browser-style: getToken (never a raw key client-side),
+      // voice as typed config, provider picking the mode — "openai-webrtc"
+      // is DEVICE (owns mic + speakers), "gemini" is TRANSPORT (PCM only).
       const adapter =
         provider === "openai"
-          ? new OpenAIRealtimeAdapter({
+          ? createS2SAdapter({
+              provider: "openai-webrtc",
               getToken: () => fetchToken("/api/s2s/openai-token"),
+              voice: "marin",
             })
-          : new GeminiLiveAdapter({
+          : createS2SAdapter({
+              provider: "gemini",
               getToken: () => fetchToken("/api/s2s/gemini-token"),
+              voice: "Puck",
+              // Typed turn-taking knob: wait a little longer before deciding
+              // the user finished — friendlier for think-out-loud requests.
+              realtimeInput: {
+                automaticActivityDetection: { endOfSpeechSensitivity: "END_SENSITIVITY_LOW" },
+              },
             });
 
       const rt = new RealtimeAgent({
         agent: buildAgent(),
         adapter,
-        voice: provider === "openai" ? "marin" : "Puck",
         onToolCall: (name, phase, detail) => {
           if (phase === "start") append({ kind: "tool", text: `⚙ ${name}(${JSON.stringify(detail)})` });
           if (phase === "error") append({ kind: "error", text: `⚙ ${name} failed: ${String(detail)}` });
