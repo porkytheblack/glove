@@ -59,6 +59,10 @@ export function useLivekitRoom() {
   const roomRef = useRef<Room | null>(null);
   const runRef = useRef<string | null>(null);
   const audioElsRef = useRef<HTMLAudioElement[]>([]);
+  /** Where avatar video lands, when the room has a face. The page renders the
+   *  container; the hook appends the track's element into it. */
+  const videoHostRef = useRef<HTMLDivElement | null>(null);
+  const [hasVideo, setHasVideo] = useState(false);
   const seq = useRef(0);
   const novaTurn = useRef<number | null>(null);
 
@@ -138,16 +142,27 @@ export function useLivekitRoom() {
       // The agent's voice arrives as an ordinary WebRTC audio track. Attach it
       // to an element and the browser handles playback, jitter and clock drift.
       room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
-        if (track.kind !== Track.Kind.Audio) return;
-        const el = track.attach();
-        audioElsRef.current.push(el);
-        document.body.appendChild(el);
+        if (track.kind === Track.Kind.Audio) {
+          const el = track.attach();
+          audioElsRef.current.push(el as HTMLAudioElement);
+          document.body.appendChild(el);
+          return;
+        }
+        if (track.kind === Track.Kind.Video) {
+          // The avatar worker's face. Render it where the page says.
+          const el = track.attach() as HTMLVideoElement;
+          el.style.width = "100%";
+          el.style.borderRadius = "8px";
+          videoHostRef.current?.appendChild(el);
+          setHasVideo(true);
+        }
       });
       room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
         for (const el of track.detach()) {
           audioElsRef.current = audioElsRef.current.filter((a) => a !== el);
           el.remove();
         }
+        if (track.kind === Track.Kind.Video) setHasVideo(false);
       });
 
       // Transcripts, state and delegations mirror in over the data channel.
@@ -247,5 +262,5 @@ export function useLivekitRoom() {
     [send],
   );
 
-  return { state, connect, hangUp, setSpeaker, say };
+  return { state, connect, hangUp, setSpeaker, say, videoHostRef, hasVideo };
 }

@@ -543,6 +543,12 @@ importers:
       glove-mesh:
         specifier: workspace:*
         version: link:../../packages/glove-mesh
+      glove-voice-avatar:
+        specifier: workspace:*
+        version: link:../../packages/glove-voice-avatar
+      glove-voice-livekit:
+        specifier: workspace:*
+        version: link:../../packages/glove-voice-livekit
       glove-voice-s2s:
         specifier: workspace:*
         version: link:../../packages/glove-voice-s2s
@@ -1403,6 +1409,37 @@ importers:
       glove-voice-s2s:
         specifier: workspace:*
         version: link:../glove-voice-s2s
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      tsup:
+        specifier: ^8.0.0
+        version: 8.5.1(postcss@8.5.19)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.9.0)
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/glove-voice-livekit:
+    dependencies:
+      '@livekit/rtc-node':
+        specifier: ^0.13.33
+        version: 0.13.33
+      eventemitter3:
+        specifier: ^5.0.4
+        version: 5.0.4
+      glove-voice-avatar:
+        specifier: workspace:*
+        version: link:../glove-voice-avatar
+      glove-voice-s2s:
+        specifier: workspace:*
+        version: link:../glove-voice-s2s
+      livekit-server-sdk:
+        specifier: ^2.9.0
+        version: 2.17.0
     devDependencies:
       '@types/node':
         specifier: ^22.20.1

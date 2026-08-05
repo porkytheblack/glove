@@ -1,4 +1,4 @@
-# livekit-rooms — the layered voice architecture over a LiveKit transport
+# livekit-rooms — the layered voice architecture over a LiveKit transport (avatars included)
 
 The fifth step in the voice-example series, kept as its own example so every
 step stays runnable ([#72](https://github.com/porkytheblack/glove/issues/72)):
@@ -9,11 +9,17 @@ step stays runnable ([#72](https://github.com/porkytheblack/glove/issues/72)):
 | [`examples/server-voice`](../server-voice) | cascade | bespoke WS duct (raw PCM) |
 | [`examples/s2s-rooms`](../s2s-rooms) | speech-to-speech | bespoke WS duct |
 | [`examples/avatar-rooms`](../avatar-rooms) | speech-to-speech + Tavus face | duct up, Daily room down |
-| **this** | speech-to-speech | **LiveKit, both directions** |
+| **this** | speech-to-speech (+ optional LiveKit avatar) | **LiveKit, both directions** |
 
 Same starship shop, same layering — thin front agent driven by the realtime
 model, capable worker over the mesh, rooms as station signal runs — but the
-audio duct is replaced by a LiveKit session:
+transport is now an adapter, [`glove-voice-livekit`](../../packages/glove-voice-livekit):
+`LiveKitTransport` owns the pipes, `attachRealtime` binds the agent, and with
+`AVATAR_PROVIDER=tavus|anam` the provider's avatar worker **joins the same
+room as a participant** (`TavusLiveKitAvatar` / `AnamLiveKitAvatar` — the same
+`AvatarAdapter` contract as the Daily-based echo adapter), publishing the
+agent's voice and face itself while the agent feeds it PCM over LiveKit's
+avatar datastream protocol:
 
 ```
   Next.js app (:3003)            livekit-room SIGNAL RUN — one per call
@@ -51,6 +57,8 @@ cp .env.example .env.local
 # OPENAI_API_KEY (or GEMINI_API_KEY)                   — the brain + voice
 # OPENROUTER_API_KEY                                   — the worker
 # STATION_USERNAME / STATION_PASSWORD
+# AVATAR_PROVIDER=tavus + TAVUS_API_KEY/TAVUS_FACE_ID  — optional: the face
+#   (or AVATAR_PROVIDER=anam + ANAM_API_KEY/ANAM_AVATAR_ID)
 
 pnpm install                   # from the repo root
 pnpm start                     # station: runner + dashboard on :4430
@@ -68,9 +76,17 @@ in. Ask for a price and watch the delegation run in the station dashboard
 Ports are shifted so this runs side by side with the whole series: station
 :4430, room signal ports :4801+ (health + mesh only), web :3003.
 
+With an avatar enabled, the agent stops publishing its own audio track — the
+avatar worker publishes the synchronized voice+face on the agent's behalf,
+and the page shows the video next to the transcript. Barge-in chains all the
+way through: provider VAD → S2S `interrupted` → transport flush + avatar
+`lk.clear_buffer` RPC.
+
 ## Status
 
-Milestone 1 of [#72](https://github.com/porkytheblack/glove/issues/72): voice
-transport parity with `s2s-rooms` — layered agents, mesh delegation,
-server-authoritative barge-in — over LiveKit. Milestone 2 (the avatar
-catalogue joining the room as a participant) comes next.
+[#72](https://github.com/porkytheblack/glove/issues/72): milestone 1 (voice
+transport parity over LiveKit) and milestone 2 (LiveKit avatars as glove
+adapters) are both here. The transport path is live-verified; the avatar path
+is conformance-tested against the published LiveKit avatar protocol — live
+verification with a Tavus key is the next step (Anam pending a key,
+[#71](https://github.com/porkytheblack/glove/issues/71)).

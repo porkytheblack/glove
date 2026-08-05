@@ -13,7 +13,7 @@ const SPEAKERS: Array<{ id: SpeakerRole; label: string }> = [
 ];
 
 export default function Page() {
-  const { state, connect, hangUp, setSpeaker, say } = useLivekitRoom();
+  const { state, connect, hangUp, setSpeaker, say, videoHostRef, hasVideo } = useLivekitRoom();
   const [speaker, setSpeakerLocal] = useState<SpeakerRole>("operator");
   const [typed, setTyped] = useState("");
 
@@ -103,6 +103,9 @@ export default function Page() {
         </section>
 
         <section className="side">
+          {/* The agent's face, when the room runs with AVATAR_PROVIDER set —
+              the avatar worker's video track lands here. */}
+          <div ref={videoHostRef} style={{ display: hasVideo ? "block" : "none", marginBottom: 12 }} />
           <div className="head">Transport</div>
           {state.config && (
             <div className="config">

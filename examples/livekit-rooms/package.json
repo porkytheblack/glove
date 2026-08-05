@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prestart": "pnpm --filter glove-voice build && pnpm --filter glove-voice-s2s build",
+    "prestart": "pnpm --filter glove-voice build && pnpm --filter \"glove-voice-livekit...\" build",
     "start": "station",
     "typecheck": "tsc --noEmit",
     "key": "tsx scripts/provision-key.ts"
@@ -13,6 +13,8 @@
     "dotenv": "^17.2.3",
     "glove-core": "workspace:*",
     "glove-mesh": "workspace:*",
+    "glove-voice-avatar": "workspace:*",
+    "glove-voice-livekit": "workspace:*",
     "glove-voice-s2s": "workspace:*",
     "station-adapter-sqlite": "^2.0.0",
     "station-kit": "^2.0.0",

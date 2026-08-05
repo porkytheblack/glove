@@ -1,55 +1,51 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // A LIVEKIT room — the s2s room with the hand-rolled duct deleted.
 //
-// The previous rooms carried audio over a bespoke WebSocket duct: worklets in
-// the browser, 16 kHz PCM frames, a pause/resume/clear protocol, a local VAD
-// reflex. LiveKit replaces ALL of it with standard WebRTC primitives, and the
-// signal keeps what was never the duct's job: owning the conversation's
-// lifecycle, the agents, and the mesh.
+// The transport is now an ADAPTER (`glove-voice-livekit`), not example code:
+// `LiveKitTransport` owns join/publish/subscribe/data + the server-side
+// barge-in flush, `attachRealtime` binds it to the RealtimeAgent in one
+// call, and the avatar catalogue joins the SAME room as a participant —
+// `TavusLiveKitAvatar` / `AnamLiveKitAvatar` implement the exact
+// `AvatarAdapter` contract the Daily-based echo adapter does, driven over
+// LiveKit's avatar datastream protocol (byte streams + RPC).
 //
 //   browser ── LiveKit room ──▶ this signal joins as participant "agent"
-//     mic track ───────────────▶ AudioStream frames → resample → rt.sendAudio
-//     agent audio track ◀─────── AudioSource.captureFrame (paced; clearQueue
-//     data channel ◀────────────  = barge-in flush) ← rt.adapter "audio"
-//       transcripts / typed lines / delegation notices, as JSON data packets
+//     mic track ───────────────▶ transport "audio" → rt.sendAudio
+//     agent audio track ◀─────── transport.sendAudio (paced; clear() =
+//     data channel ◀────────────  barge-in flush) ← rt.adapter "audio"
+//     avatar A/V tracks ◀─────── the PROVIDER's worker, fed agent PCM over
+//                                the lk.audio_stream byte stream (AVATAR=…)
 //                                        │ glove_mesh_send_message
 //                                        ▼
 //                               research SIGNAL — the worker (unchanged)
 //                                        │ threaded mesh reply
 //   POST /mesh ◀────────────────────────┘ → rt.inject(…, { respond: true })
 //
-// What the division buys, stated plainly:
-//   - The client shrinks to a LiveKit join: no worklets, no local VAD, no
-//     custom framing. Echo cancellation, jitter, and A/V sync are LiveKit's.
-//   - Barge-in is server-authoritative and simple: the provider hears the
-//     mic track continuously; `interrupted` clears the outbound audio queue.
-//     There is no client playback buffer to chase.
-//   - The avatar catalogue (Tavus, Anam, …) can join the same room as a
-//     video participant — the follow-up milestone on #72.
-//   - The signal still owns supervision (rooms-as-signals), the mesh still
-//     owns delegation. LiveKit owns only the pipes.
+// With an avatar attached the agent does NOT publish its own audio track —
+// the avatar worker publishes the synchronized voice+face on the agent's
+// behalf (`lk.publish_on_behalf`), and publishing our own copy would double
+// the audio. Barge-in chains through either way: provider VAD → S2S
+// `interrupted` → transport flush + avatar `lk.clear_buffer` RPC.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { signal, z, configure } from "station-signal";
 import { SqliteAdapter } from "station-adapter-sqlite";
-import {
-  AudioFrame,
-  AudioSource,
-  AudioStream,
-  LocalAudioTrack,
-  Room,
-  RoomEvent,
-  TrackKind,
-  TrackPublishOptions,
-  TrackSource,
-  dispose,
-  type RemoteTrack,
-} from "@livekit/rtc-node";
-import { AccessToken } from "livekit-server-sdk";
+import { dispose } from "@livekit/rtc-node";
 import { MemoryStore } from "glove-core";
 import { mountMesh } from "glove-mesh";
 import { RealtimeAgent, type CreateS2SAdapterArgs } from "glove-voice-s2s";
+import { attachAvatar, type AvatarAdapter } from "glove-voice-avatar";
+import {
+  ANAM_AVATAR_IDENTITY,
+  AnamLiveKitAvatar,
+  attachRealtime,
+  LiveKitTransport,
+  mintAvatarToken,
+  mintParticipantToken,
+  TAVUS_AVATAR_IDENTITY,
+  TavusLiveKitAvatar,
+} from "glove-voice-livekit";
 import { research } from "./research";
 import { buildS2SFrontAgent } from "../lib/s2s-front-agent";
 import { FRONT_IDENTITY, RoomMeshAdapter, type MeshEnvelope } from "../lib/mesh-transport";
@@ -59,26 +55,8 @@ import { ASSISTANT_NAME, SPEAKERS, frameUtterance } from "../lib/speakers";
 export const LIVEKIT_ROOM_CONCURRENCY = Number(process.env.ROOM_SLOTS ?? 4);
 export const LIVEKIT_ROOM_MAX_MS = Number(process.env.ROOM_MAX_MS ?? 60 * 60_000);
 
-/** The one rate the agent leg speaks. Both realtime providers emit 24 kHz. */
-const AGENT_RATE = 24_000;
-
-/** Linear resample — the mic arrives at LiveKit's rate (48 kHz), the S2S
- *  provider wants its declared inputFormat; and vice-versa on stray agent
- *  rates. Speech-grade is fine here. */
-function resample(pcm: Int16Array, from: number, to: number): Int16Array {
-  if (from === to) return pcm;
-  const outLen = Math.floor((pcm.length * to) / from);
-  const out = new Int16Array(outLen);
-  const ratio = from / to;
-  for (let i = 0; i < outLen; i++) {
-    const pos = i * ratio;
-    const i0 = Math.floor(pos);
-    const i1 = Math.min(i0 + 1, pcm.length - 1);
-    const frac = pos - i0;
-    out[i] = (pcm[i0] * (1 - frac) + pcm[i1] * frac) | 0;
-  }
-  return out;
-}
+const AGENT_IDENTITY = "agent";
+const AVATAR_IDENTITIES = new Set([TAVUS_AVATAR_IDENTITY, ANAM_AVATAR_IDENTITY]);
 
 export const livekitRoom = signal("livekit-room")
   .input(
@@ -96,6 +74,10 @@ export const livekitRoom = signal("livekit-room")
         ),
       model: z.string().default(process.env.S2S_MODEL ?? ""),
       voice: z.string().default(process.env.S2S_VOICE ?? ""),
+      /** The agent's face: a LiveKit avatar worker joining this room. */
+      avatar: z
+        .enum(["none", "tavus", "anam"])
+        .default((process.env.AVATAR_PROVIDER as "tavus" | "anam" | undefined) ?? "none"),
       idleMs: z.number().default(10 * 60_000),
     }),
   )
@@ -119,6 +101,7 @@ export const livekitRoom = signal("livekit-room")
     if (!lkUrl || !lkKey || !lkSecret) {
       throw new Error("LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET must be set. See .env.example.");
     }
+    const lkCreds = { apiKey: lkKey, apiSecret: lkSecret };
 
     configure({ adapter: new SqliteAdapter({ dbPath: input.dbPath }) });
 
@@ -171,95 +154,101 @@ export const livekitRoom = signal("livekit-room")
       excludeTools: ["glove_mesh_broadcast", "glove_mesh_acknowledge"],
     });
 
-    // ── the LiveKit leg ──────────────────────────────────────────────────────
-    const room = new Room();
-    const agentToken = new AccessToken(lkKey, lkSecret, {
-      identity: "agent",
-      name: ASSISTANT_NAME,
-      ttl: Math.ceil(LIVEKIT_ROOM_MAX_MS / 1000) + 300,
+    // ── the LiveKit leg: one transport adapter ───────────────────────────────
+    const transport = new LiveKitTransport({
+      url: lkUrl,
+      token: await mintParticipantToken(lkCreds, {
+        roomName: input.roomId,
+        identity: AGENT_IDENTITY,
+        name: ASSISTANT_NAME,
+        ttl: Math.ceil(LIVEKIT_ROOM_MAX_MS / 1000) + 300,
+      }),
+      // With a face attached, the avatar worker publishes the voice on the
+      // agent's behalf — publishing our own track would double the audio.
+      publishAgentAudio: input.avatar === "none",
     });
-    agentToken.addGrant({
-      roomJoin: true,
-      room: input.roomId,
-      canPublish: true,
-      canSubscribe: true,
-      canPublishData: true,
-    });
-    await room.connect(lkUrl, await agentToken.toJwt(), { autoSubscribe: true, dynacast: false });
-    console.log(`${input.roomId}: joined LiveKit room as "agent"`);
+    await transport.connect();
+    console.log(`${input.roomId}: joined LiveKit room as "${AGENT_IDENTITY}"`);
 
-    // Server messages ride the data channel as reliable JSON packets.
-    const encoder = new TextEncoder();
-    const send = (msg: ServerMessage) => {
-      void room.localParticipant
-        ?.publishData(encoder.encode(JSON.stringify(msg)), { reliable: true })
-        .catch(() => {});
-    };
-
-    // Agent speech OUT: paced by AudioSource's internal queue — captureFrame
-    // applies backpressure, so bursty provider audio plays at realtime, and
-    // clearQueue() IS the barge-in flush (no client buffer to chase).
-    const source = new AudioSource(AGENT_RATE, 1);
-    const agentTrack = LocalAudioTrack.createAudioTrack("agent-voice", source);
-    await room.localParticipant?.publishTrack(
-      agentTrack,
-      new TrackPublishOptions({ source: TrackSource.SOURCE_MICROPHONE }),
-    );
-    let captureChain = Promise.resolve();
-    rt.adapter.on("audio", (pcm, format) => {
-      const at24k = resample(pcm, format.sampleRate, AGENT_RATE);
-      const frame = new AudioFrame(at24k, AGENT_RATE, 1, at24k.length);
-      captureChain = captureChain.then(() => source.captureFrame(frame)).catch(() => {});
-    });
-    rt.adapter.on("interrupted", () => {
-      source.clearQueue();
-      send({ t: "clear" });
+    const send = (msg: ServerMessage) => transport.sendData(msg);
+    const detachRealtime = attachRealtime(rt, transport, {
+      agentAudio: input.avatar === "none",
     });
 
-    // Caller mic IN: every remote audio track feeds the S2S model.
-    const stopReaders: Array<() => void> = [];
-    room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
-      if (track.kind !== TrackKind.KIND_AUDIO) return;
-      let live = true;
-      stopReaders.push(() => {
-        live = false;
+    // ── the face, when asked for: a second participant in the same room ─────
+    let avatar: AvatarAdapter | null = null;
+    let detachAvatar: (() => void) | null = null;
+    if (input.avatar === "tavus") {
+      const tavusKey = process.env.TAVUS_API_KEY;
+      const faceId = process.env.TAVUS_FACE_ID;
+      if (!tavusKey || !faceId)
+        throw new Error("AVATAR=tavus needs TAVUS_API_KEY and TAVUS_FACE_ID. See .env.example.");
+      avatar = new TavusLiveKitAvatar({
+        apiKey: tavusKey,
+        faceId,
+        ...(process.env.TAVUS_PAL_ID ? { palId: process.env.TAVUS_PAL_ID } : {}),
+        livekitUrl: lkUrl,
+        avatarToken: await mintAvatarToken(lkCreds, {
+          roomName: input.roomId,
+          identity: TAVUS_AVATAR_IDENTITY,
+          onBehalfOf: AGENT_IDENTITY,
+          ttl: Math.ceil(LIVEKIT_ROOM_MAX_MS / 1000) + 300,
+        }),
+        wire: transport.avatarWire(TAVUS_AVATAR_IDENTITY),
       });
-      void (async () => {
-        const stream = new AudioStream(track);
-        for await (const frame of stream) {
-          if (!live) break;
-          rt.sendAudio(resample(frame.data, frame.sampleRate, rt.adapter.inputFormat.sampleRate));
-        }
-      })().catch((err) => console.log(`mic stream ended: ${(err as Error)?.message}`));
-    });
+    } else if (input.avatar === "anam") {
+      const anamKey = process.env.ANAM_API_KEY;
+      const avatarId = process.env.ANAM_AVATAR_ID;
+      if (!anamKey || !avatarId)
+        throw new Error("AVATAR=anam needs ANAM_API_KEY and ANAM_AVATAR_ID. See .env.example.");
+      avatar = new AnamLiveKitAvatar({
+        apiKey: anamKey,
+        avatarId,
+        name: ASSISTANT_NAME,
+        livekitUrl: lkUrl,
+        avatarToken: await mintAvatarToken(lkCreds, {
+          roomName: input.roomId,
+          identity: ANAM_AVATAR_IDENTITY,
+          onBehalfOf: AGENT_IDENTITY,
+          ttl: Math.ceil(LIVEKIT_ROOM_MAX_MS / 1000) + 300,
+        }),
+        wire: transport.avatarWire(ANAM_AVATAR_IDENTITY),
+      });
+    }
+    if (avatar) {
+      avatar.on("error", (err) => console.log(`avatar error: ${err.message}`));
+      detachAvatar = await attachAvatar(rt, avatar); // connects the session too
+      console.log(`${input.roomId}: ${input.avatar} avatar worker invited to the room`);
+    }
 
+    // ── presence, transcripts and typed lines over the data channel ──────────
     let remoteCount = 0;
     let lastDetachAt = Date.now();
-    room.on(RoomEvent.ParticipantConnected, () => {
+    transport.on("participant_connected", (identity) => {
+      if (AVATAR_IDENTITIES.has(identity)) return; // the face is not a caller
       remoteCount++;
       send({
         t: "ready",
         sessionId: input.roomId,
-        config: { transport: "livekit", provider: input.provider, model: input.model || "(default)" },
+        config: {
+          transport: "livekit",
+          provider: input.provider,
+          model: input.model || "(default)",
+          ...(input.avatar !== "none" ? { avatar: input.avatar } : {}),
+        },
         speakers: SPEAKERS.map(({ id, displayName, description }) => ({ id, displayName, description })),
         assistantName: ASSISTANT_NAME,
       });
     });
-    room.on(RoomEvent.ParticipantDisconnected, () => {
+    transport.on("participant_disconnected", (identity) => {
+      if (AVATAR_IDENTITIES.has(identity)) return;
       remoteCount = Math.max(0, remoteCount - 1);
       if (remoteCount === 0) lastDetachAt = Date.now();
     });
 
-    // Typed lines and speaker switches arrive as client data packets.
     let currentSpeaker: SpeakerRole = "operator";
-    const decoder = new TextDecoder();
-    room.on(RoomEvent.DataReceived, (payload: Uint8Array) => {
-      let msg: ClientMessage;
-      try {
-        msg = JSON.parse(decoder.decode(payload)) as ClientMessage;
-      } catch {
-        return;
-      }
+    transport.on("data", (raw) => {
+      const msg = raw as ClientMessage;
       switch (msg.t) {
         case "speaker":
           currentSpeaker = msg.speaker as SpeakerRole;
@@ -276,7 +265,6 @@ export const livekitRoom = signal("livekit-room")
       }
     });
 
-    // Transcripts and state, mirrored onto the data channel.
     let turnId = 0;
     let turnOpen = false;
     rt.on("user_said", (text) => send({ t: "utterance", speaker: currentSpeaker, text }));
@@ -298,6 +286,7 @@ export const livekitRoom = signal("livekit-room")
       console.log(`realtime error: ${err.message}`);
       send({ t: "error", message: err.message });
     });
+    rt.adapter.on("interrupted", () => send({ t: "clear" }));
     rt.adapter.on("agent_speech_started", () =>
       send({ t: "state", listening: false, speaking: true, thinking: false }),
     );
@@ -366,9 +355,11 @@ export const livekitRoom = signal("livekit-room")
     });
 
     console.log(`${input.roomId} closing (${endedBecause})`);
-    for (const stop of stopReaders) stop();
+    detachAvatar?.();
+    detachRealtime();
+    await avatar?.disconnect().catch(() => {});
     await rt.stop().catch(() => {});
-    await room.disconnect().catch(() => {});
+    await transport.disconnect().catch(() => {});
     await dispose().catch(() => {});
     await new Promise<void>((resolve) => server.close(() => resolve()));
 
