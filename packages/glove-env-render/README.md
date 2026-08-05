@@ -83,7 +83,7 @@ Three details that are deliberate:
 
 - **Format is decided by magic bytes, then extension.** A PDF named `.pptx` is a PDF and never reaches LibreOffice.
 - **`maxWidth` caps the long edge at 1600px.** A vision model charges by pixels and reads an A4 page perfectly well at that size; rendering at scale 3 costs several times more and answers no better.
-- **Each LibreOffice conversion gets a private user profile.** LibreOffice locks its default profile, so concurrent conversions without this silently produce nothing — and exit 0 while doing it.
+- **Each LibreOffice conversion gets a private user profile.** LibreOffice locks its user-installation directory and opens an IPC socket named after it — the machinery that makes a second document open in the LibreOffice you already have running. Headless, a second conversion sharing that profile tries to delegate to the running instance instead of converting, and exits without writing anything. Measured: four concurrent conversions on a shared profile produced **two** PDFs; the same four with a profile each produced **four**. The losers are inconsistent — some exit 1, some exit 0 having done nothing — so success is decided by whether a PDF appeared, never by the exit code.
 
 ## Verifying it yourself
 

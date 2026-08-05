@@ -110,9 +110,19 @@ export class LibreOfficeError extends Error {}
  * That makes its absence a first-class outcome rather than a crash, so every
  * failure here names the package to install.
  *
- * Each conversion gets a private user profile. LibreOffice keeps a global
- * lock on its default profile, so two concurrent conversions without this
- * silently produce nothing — and it exits 0 while doing so.
+ * Each conversion gets a private user profile, and that is load-bearing.
+ *
+ * LibreOffice locks its user-installation directory on startup and opens an
+ * IPC socket named after it — the machinery that makes a second document open
+ * in the LibreOffice you already have running. Headless, a second
+ * `--convert-to` sees the lock, tries to delegate to the running instance
+ * instead of converting, and exits without writing anything. Measured here:
+ * four concurrent conversions sharing a profile produced two PDFs; the same
+ * four with a profile each produced four.
+ *
+ * The losers do not fail consistently — some exit 1, some exit 0 having done
+ * nothing — which is why the check below is "did a PDF appear", never the
+ * exit code.
  */
 export async function officeToPdf(
   data: Uint8Array,
