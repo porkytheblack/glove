@@ -39,6 +39,7 @@ jobs:
       - name: Build shared deps
         run: >-
           pnpm
+          --filter "glove-voice-avatar..."
           --filter "glove-scratchpad..."
           --filter "glove-env-documents..."
           --filter "glove-env-spreadsheets..."
