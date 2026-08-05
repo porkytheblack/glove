@@ -225,6 +225,102 @@ test("a failing convertOffice surfaces its own error", async () => {
   }
 });
 
+/** A deck built with pptxgenjs, so the geometry is real OOXML. */
+async function sampleDeck(build: (pptx: InstanceType<typeof import("pptxgenjs").default>) => void): Promise<Uint8Array> {
+  const PptxGenJS = (await import("pptxgenjs")).default;
+  const pptx = new PptxGenJS();
+  build(pptx);
+  return new Uint8Array((await pptx.write({ outputType: "nodebuffer" })) as Buffer);
+}
+
+test("falls back to a layout schematic when nothing can render a deck", async () => {
+  // sofficePath points at nothing, so the real renderer cannot possibly run —
+  // which is the situation on any host without LibreOffice, including CI.
+  const t = await createAdapterTestEnv(render({ sofficePath: "/nonexistent/soffice" }));
+  try {
+    await t.fs.writeFile(
+      "/inbox/deck.pptx",
+      await sampleDeck((pptx) => {
+        pptx.addSlide().addText("Q2 Regional Review", { x: 0.6, y: 0.5, fontSize: 34, bold: true });
+        pptx.addSlide().addText("East leads at $163,200", { x: 0.6, y: 1.0, fontSize: 18 });
+      }),
+    );
+
+    const out = await t.script<{
+      pages: Array<{ path: string; page: number }>;
+      format: string;
+      totalPages: number;
+      approximate?: boolean;
+      note?: string;
+    }>(call(`return await render('/inbox/deck.pptx', '/tmp/proof', { pages: 'all' });`));
+
+    assert.equal(out.format, "office");
+    assert.equal(out.totalPages, 2, "slide count comes from the deck itself");
+    assert.deepEqual(out.pages.map((p) => p.page), [1, 2]);
+    assert.equal(out.approximate, true, "a schematic must announce itself as one");
+    assert.match(String(out.note), /SCHEMATIC/i);
+    assert.match(String(out.note), /not real fonts/i);
+    assert.ok(isPng(await t.fs.readBytes(out.pages[0].path)));
+    assert.ok((await t.fs.readBytes(out.pages[0].path)).byteLength > 1000, "should be a real drawing");
+  } finally {
+    await t.env.close();
+  }
+});
+
+test("a real render is never marked approximate", async () => {
+  const t = await createAdapterTestEnv(render());
+  try {
+    await t.fs.writeFile("/inbox/report.pdf", await samplePdf());
+    const out = await t.script<{ approximate?: boolean; note?: string }>(
+      call(`return await render('/inbox/report.pdf', '/tmp/proof');`),
+    );
+    assert.equal(out.approximate, undefined);
+    assert.equal(out.note, undefined);
+  } finally {
+    await t.env.close();
+  }
+});
+
+test("schematicFallback:false gives the LibreOffice error instead of a diagram", async () => {
+  const t = await createAdapterTestEnv(
+    render({ sofficePath: "/nonexistent/soffice", schematicFallback: false }),
+  );
+  try {
+    await t.fs.writeFile("/inbox/deck.pptx", await sampleDeck((p) => p.addSlide().addText("hi")));
+    const result = await t.runScript(call(`return await render('/inbox/deck.pptx', '/tmp/proof');`));
+    assert.equal(result.ok, false);
+    assert.match(String(result.error), /LibreOffice not found/);
+    assert.match(String(result.error), /libreoffice-impress/, "the error must name the fix");
+  } finally {
+    await t.env.close();
+  }
+});
+
+test("the schematic reports a slide that does not exist rather than inventing one", async () => {
+  const t = await createAdapterTestEnv(render({ sofficePath: "/nonexistent/soffice" }));
+  try {
+    await t.fs.writeFile("/inbox/deck.pptx", await sampleDeck((p) => p.addSlide().addText("only one")));
+    const result = await t.runScript(call(`return await render('/inbox/deck.pptx', '/tmp/p', { pages: [4] });`));
+    assert.equal(result.ok, false);
+    assert.match(String(result.error), /1 slide/);
+  } finally {
+    await t.env.close();
+  }
+});
+
+test("a zip that is not a deck is refused, not drawn as an empty slide", async () => {
+  const t = await createAdapterTestEnv(render({ sofficePath: "/nonexistent/soffice" }));
+  try {
+    // .docx is also a ZIP; the schematic path is pptx-only and must say so.
+    await t.fs.writeFile("/inbox/letter.docx", new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4]));
+    const result = await t.runScript(call(`return await render('/inbox/letter.docx', '/tmp/p');`));
+    assert.equal(result.ok, false);
+    assert.match(String(result.error), /LibreOffice/, "docx has no schematic path — the real error stands");
+  } finally {
+    await t.env.close();
+  }
+});
+
 test(
   "renders a .pptx through LibreOffice",
   { skip: officeReady ? false : "LibreOffice import filters not installed" },

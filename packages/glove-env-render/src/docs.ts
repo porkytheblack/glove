@@ -25,6 +25,14 @@ export interface RenderResult {
   format: "pdf" | "office" | "image";
   /** Pages in the source document (1 for an image). */
   totalPages: number;
+  /**
+   * True when these are LAYOUT SCHEMATICS of a .pptx, not a real render:
+   * real frames and text, but no theme, fonts or charts. Use them to check
+   * what is off the slide, overlapping or empty — not how it looks.
+   */
+  approximate?: boolean;
+  /** Why, when something was degraded. */
+  note?: string;
 }
 
 /**
@@ -89,11 +97,18 @@ costs several times as much and answers no better.
 |---|---|
 | \`.pdf\` | nothing |
 | \`.png .jpg .webp .gif .bmp .tiff\` | nothing |
-| \`.pptx .docx .xlsx .odp .odt .ods\` | headless LibreOffice on the host |
+| \`.pptx\` | nothing — falls back to a layout schematic |
+| \`.docx .xlsx .odp .odt .ods\` | headless LibreOffice on the host |
 
 \`libreoffice-core\` alone is not enough — it has no import filters, and
 converting anything with it fails with "source file could not be loaded".
 Install \`libreoffice-impress\` for decks and \`libreoffice-writer\` for Word.
+
+**A .pptx still works without it.** The deck is drawn from its own geometry
+instead: real frames, real text, to scale — but no theme, fonts or charts. The
+result says \`approximate: true\` and the image is captioned as a schematic.
+Use it to check what is off the slide, overlapping or empty; do not use it to
+judge how the deck looks.
 
 If it is missing, generate the PDF directly instead: \`env:documents\` renders
 the same document spec to PDF, and that path needs nothing.
@@ -156,6 +171,16 @@ export default async function () {
 \`\`\`
 
 Render to \`/tmp\`, never \`/out\` — that directory is what the person receives.
+
+## A deck when the host has no LibreOffice
+
+You still get a check: the slides come back as **layout schematics** drawn
+from the deck's own geometry, and the result says \`approximate: true\`. Real
+positions and real text; not real fonts, colours or charts.
+
+Ask positional questions of those — "is anything outside the slide area", "is
+this slide empty", "does any text overflow its box". Do not ask whether it
+looks good; the schematic cannot tell you.
 
 ## When it disagrees with you
 

@@ -58,13 +58,36 @@ Measured against a report with two deliberate defects — a row pushed off the r
 |---|---|
 | `.pdf` | nothing |
 | `.png .jpg .webp .gif .bmp .tiff` | nothing |
-| `.pptx .docx .xlsx .odp .odt .ods` | headless LibreOffice on the host |
+| `.pptx` | nothing — falls back to a layout schematic |
+| `.docx .xlsx .odp .odt .ods` | headless LibreOffice on the host |
 
 PDFs go through `pdfjs-dist` onto `@napi-rs/canvas` — both are ordinary dependencies with prebuilt binaries, no system packages.
 
 Office formats go through LibreOffice, because no npm package renders `.pptx` faithfully. **`libreoffice-core` alone is not enough**: it ships no import filters, and every conversion fails with `source file could not be loaded` while exiting 0. Install `libreoffice-impress` for decks and `libreoffice-writer` for Word. The adapter detects exactly that case and says so.
 
 If LibreOffice is not available, generate the PDF directly instead — `glove-env-documents` renders the same document spec to PDF with no system dependency.
+
+### Decks without LibreOffice: the layout schematic
+
+A `.pptx` is the one Office format that still gets a visual check with nothing installed. Rather than fail, it is **drawn from its own OOXML geometry** — every shape's real frame and real text, to scale.
+
+It is not a render and never pretends to be. No theme colours, no fonts from the deck, no charts, no SmartArt, no master-slide inheritance. The result carries `approximate: true`, and the image itself ends in a caption saying what it is.
+
+What it does catch is everything positional, which is most of what goes wrong:
+
+- a text box hanging off the slide (drawn outside the white area, outlined red)
+- text that overflows its own box (outlined red, the overflow drawn anyway)
+- a slide with nothing on it
+- shapes stacked on top of each other
+
+Two details exist because a vision model got them wrong first:
+
+- **An empty slide is left genuinely empty.** Drawing "(this slide is empty)" onto it made a model answer "yes, this slide has content" — it read the notice as content. The fact went to the caption instead.
+- **The caption says "thin rectangles are shape frames, not visible borders."** Without that line a model read a frame as a clipping boundary and reported a title cut off that was not.
+
+With both, asked *"list the text and say whether anything sits outside the slide"*, a commodity vision model named the on-slide text correctly and flagged only the genuinely off-slide box.
+
+Pass `schematicFallback: false` to get the LibreOffice error instead.
 
 ### At scale, don't spawn LibreOffice
 
@@ -109,10 +132,12 @@ render(input: string, outDir: string, opts?: {
   pages: Array<{ path: string; page: number; width: number; height: number; bytes: number }>;
   format: "pdf" | "office" | "image";
   totalPages: number;         // the document's length, not the render's
+  approximate?: true;         // set only for a .pptx layout schematic
+  note?: string;              // why, when something was degraded
 }>
 ```
 
-Host-side options: `render({ sofficePath, officeTimeoutMs, maxWidth, maxPages })`.
+Host-side options: `render({ sofficePath, officeTimeoutMs, maxWidth, maxPages, profilePoolSize, convertOffice, schematicFallback })`.
 
 Three details that are deliberate:
 

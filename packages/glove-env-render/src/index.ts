@@ -15,6 +15,8 @@
  */
 import { defineAdapter, type EnvFsHandle } from "glove-working-environment";
 import { LibreOfficeError, ProfilePool, officeToPdf, rasterizeImage, rasterizePdf } from "./raster";
+import { readLayout } from "./pptx-layout";
+import { drawSlide } from "./schematic";
 import { RENDER_DOCS, RENDER_TYPES, VERIFY_SKILL } from "./docs";
 
 export interface RenderOptions {
@@ -40,6 +42,18 @@ export interface RenderResult {
   format: "pdf" | "office" | "image";
   /** Pages in the source document (1 for an image). */
   totalPages: number;
+  /**
+   * True when the pages are a **layout schematic**, not a real render.
+   *
+   * Set when a `.pptx` was drawn from its own OOXML geometry because no
+   * LibreOffice was available. Positions and text are real; fonts, colours,
+   * charts and master-slide inheritance are not. Good enough to catch things
+   * running off the slide, overlapping or coming out empty — not good enough
+   * to judge how it looks.
+   */
+  approximate?: boolean;
+  /** Present when something was degraded, explaining what and why. */
+  note?: string;
 }
 
 export interface RenderAdapterOptions {
@@ -88,6 +102,20 @@ export interface RenderAdapterOptions {
    * PDFs and images are unaffected — they never needed LibreOffice.
    */
   convertOffice?: (bytes: Uint8Array, filename: string) => Promise<Uint8Array>;
+  /**
+   * Fall back to a layout **schematic** for `.pptx` when no real renderer is
+   * available. Default true.
+   *
+   * A deck is drawn from its own OOXML geometry — real frames, real text, no
+   * theme, no fonts, no charts. It exists because the alternative on a host
+   * without LibreOffice is no visual check at all, and the defects that
+   * matter most are positional: off the slide, overlapping, or empty.
+   *
+   * The result carries `approximate: true` and the image says so in a caption,
+   * so nothing downstream can mistake it for a render. Set false to get the
+   * LibreOffice error instead.
+   */
+  schematicFallback?: boolean;
 }
 
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46]; // %PDF
@@ -181,12 +209,23 @@ export function render(options: RenderAdapterOptions = {}) {
             };
           }
 
-          const pdfBytes =
-            kind === "pdf"
-              ? data
-              : options.convertOffice
-                ? await options.convertOffice(data, baseName(input))
-                : await officeToPdf(data, baseName(input), { sofficePath, timeoutMs: officeTimeoutMs, pool });
+          let pdfBytes: Uint8Array;
+          if (kind === "pdf") {
+            pdfBytes = data;
+          } else if (options.convertOffice) {
+            pdfBytes = await options.convertOffice(data, baseName(input));
+          } else {
+            try {
+              pdfBytes = await officeToPdf(data, baseName(input), { sofficePath, timeoutMs: officeTimeoutMs, pool });
+            } catch (e) {
+              // No real renderer. For a deck we can still draw the layout from
+              // its own geometry, which catches the positional defects; for
+              // anything else the honest answer is the error.
+              const canSchematic = (options.schematicFallback ?? true) && /\.pptx$/i.test(input);
+              if (!canSchematic) throw e;
+              return await schematic(vfs, data, input, dir, stem, wanted, maxWidth, maxPages, e);
+            }
+          }
 
           const capped = wanted === "all" ? "all" : wanted;
           const { rendered, totalPages } = await rasterizePdf(pdfBytes, capped as number[] | "all", { scale, maxWidth });
@@ -212,6 +251,54 @@ export function render(options: RenderAdapterOptions = {}) {
 
 function baseName(path: string): string {
   return path.split("/").pop() || path;
+}
+
+/**
+ * Draw a deck's layout when nothing can render it properly.
+ *
+ * The original failure is carried into `note` rather than swallowed — a host
+ * that meant to have LibreOffice needs to find out, and "why is this a
+ * diagram" should be answerable from the result alone.
+ */
+async function schematic(
+  vfs: EnvFsHandle,
+  data: Uint8Array,
+  input: string,
+  dir: string,
+  stem: string,
+  wanted: number[] | "all",
+  maxWidth: number,
+  maxPages: number,
+  cause: unknown,
+): Promise<RenderResult> {
+  const layout = readLayout(data);
+  const indices = (wanted === "all" ? layout.slides.map((s) => s.index) : wanted)
+    .filter((n) => n >= 1 && n <= layout.slides.length)
+    .slice(0, maxPages);
+  if (indices.length === 0) {
+    throw new Error(
+      `render: no slide ${wanted === "all" ? "" : String(wanted)} in ${input} — it has ${layout.slides.length} slide(s)`,
+    );
+  }
+
+  const pages: RenderedPage[] = [];
+  for (const n of indices) {
+    const drawn = await drawSlide(layout, n, { maxWidth });
+    const path = `${dir}/${stem}-p${n}.png`;
+    await vfs.writeFile(path, drawn.png);
+    pages.push({ path, page: n, width: drawn.width, height: drawn.height, bytes: drawn.png.byteLength });
+  }
+
+  return {
+    pages,
+    format: "office",
+    totalPages: layout.slides.length,
+    approximate: true,
+    note:
+      `LibreOffice could not render this deck, so these are LAYOUT SCHEMATICS drawn from the file's own geometry: ` +
+      `real positions and text, but not real fonts, colours or charts. Use them to check what is off the slide, ` +
+      `overlapping, or empty — not to judge how it looks. Cause: ${cause instanceof Error ? cause.message : String(cause)}`,
+  };
 }
 
 export { LibreOfficeError };

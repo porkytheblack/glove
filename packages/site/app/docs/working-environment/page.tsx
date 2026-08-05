@@ -412,7 +412,7 @@ definePureModule({
           ["glove-env-slides", "env:slides", ".pptx generation and read-back; the pptxgenjs builder API unchanged."],
           ["glove-env-archives", "env:archives", "zip, tar, tar.gz both directions. No dependencies — node:zlib only."],
           ["glove-env-media", "env:media", "audio/video via bundled ffmpeg — describe, thumbnail, frames, clip, transcode."],
-          ["glove-env-render", "env:render", "rasterize a PDF, deck or Word file to page PNGs — so the agent can look at what it made."],
+          ["glove-env-render", "env:render", "rasterize a PDF, deck or Word file to page PNGs — so the agent can look at what it made. A .pptx works with nothing installed, via a layout schematic."],
         ]}
       />
 
@@ -492,8 +492,18 @@ view_image({ path: '/out/deck.pptx', page: 3, prompt: 'Is this slide blank?' })`
         Any adapter can be the renderer — declare <code>renders</code> alongside
         a <code>render(input, outDir, opts?)</code> binding.{" "}
         <code>glove-env-render</code> does it for PDFs and images with no system
-        dependency, and for <code>.pptx</code> / <code>.docx</code> through
-        headless LibreOffice.
+        dependency, and for Office formats through headless LibreOffice.
+      </p>
+
+      <p>
+        A <code>.pptx</code> is the exception that needs nothing installed. With
+        no LibreOffice it is drawn from its own OOXML geometry as a{" "}
+        <strong>layout schematic</strong> — every shape&apos;s real frame and
+        real text, to scale, with no theme, fonts or charts. The result carries{" "}
+        <code>approximate: true</code> and the image is captioned as one, so it
+        cannot be mistaken for a render. It answers the positional questions,
+        which is most of what goes wrong: what is off the slide, what overlaps,
+        what came out empty.
       </p>
 
       {/* ================================================================== */}
