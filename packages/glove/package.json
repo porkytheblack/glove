@@ -39,6 +39,10 @@
       "types": "./dist/content-skills-fs.d.ts",
       "import": "./dist/content-skills-fs.js"
     },
+    "./utils": {
+      "types": "./dist/utils.d.ts",
+      "import": "./dist/utils.js"
+    },
     "./display-manager": {
       "types": "./dist/display-manager.d.ts",
       "import": "./dist/display-manager.js"

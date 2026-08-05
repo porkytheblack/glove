@@ -6,9 +6,14 @@
 // Compare against the cascaded pipeline on the main page — especially the
 // VOICE-TO-VOICE number, measured here as the real gap between the user
 // going quiet and Nova's audio starting.
+//
+// The wiring is `useGloveS2S` + a tool host: the session publishes whatever
+// the server-side host declares and routes every tool call back to it, so
+// this page contains no tool dispatch, no schema, and no latency stopwatch.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { OpenAIRealtimeAdapter } from "glove-voice-s2s";
+import { OpenAIRealtimeAdapter, httpToolHost } from "glove-voice-s2s";
+import { useGloveS2S } from "glove-react/s2s";
 import type { MetricRecord } from "../lib/shared/types";
 
 interface LogLine {
@@ -17,26 +22,24 @@ interface LogLine {
   text: string;
 }
 
+const STATUS: Record<string, string> = {
+  idle: "idle",
+  connecting: "connecting…",
+  listening: "listening",
+  user_speaking: "you're speaking",
+  thinking: "thinking",
+  speaking: "nova speaking",
+};
+
 export default function S2SPage() {
-  const [connected, setConnected] = useState(false);
-  const [status, setStatus] = useState("idle");
-  const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<LogLine[]>([]);
   const [v2v, setV2v] = useState<number[]>([]);
-  const [workerBusy, setWorkerBusy] = useState(0);
-  const adapterRef = useRef<OpenAIRealtimeAdapter | null>(null);
   const seq = useRef(0);
-  const userStoppedAt = useRef(0);
-  const novaLine = useRef("");
   const logRef = useRef<HTMLDivElement>(null);
 
   const append = useCallback((who: LogLine["who"], text: string) => {
     setLog((l) => [...l.slice(-120), { id: ++seq.current, who, text }]);
   }, []);
-
-  useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
-  }, [log]);
 
   const postMetric = useCallback((name: string, ms?: number, data?: Record<string, unknown>) => {
     const rec: MetricRecord = {
@@ -54,111 +57,75 @@ export default function S2SPage() {
     }).catch(() => {});
   }, []);
 
-  const disconnect = useCallback(async () => {
-    await adapterRef.current?.disconnect();
-    adapterRef.current = null;
-    setConnected(false);
-    setStatus("idle");
-  }, []);
+  const s2s = useGloveS2S({
+    adapter: () =>
+      new OpenAIRealtimeAdapter({
+        getToken: async () => {
+          const res = await fetch("/api/voice/s2s-token", { method: "POST" });
+          const data = await res.json();
+          if (!res.ok || !data.token) throw new Error(data.error ?? "token mint failed");
+          return data.token as string;
+        },
+      }),
+    // Tool calls travel to the worker behind /api/s2s/tools. The declarations
+    // were already baked into the token, so no list round trip is needed.
+    tools: httpToolHost({ endpoint: "/api/s2s/tools" }),
+    publishTools: false,
+  });
 
-  const connect = useCallback(async () => {
-    setError(null);
-    setStatus("connecting…");
-    const adapter = new OpenAIRealtimeAdapter({
-      getToken: async () => {
-        const res = await fetch("/api/voice/s2s-token", { method: "POST" });
-        const data = await res.json();
-        if (!res.ok || !data.token) throw new Error(data.error ?? "token mint failed");
-        return data.token as string;
-      },
-    });
-    adapterRef.current = adapter;
+  // Transcript + delegation log, straight off the session's events.
+  useEffect(() => {
+    const session = s2s.session;
+    if (!session) return;
 
-    adapter.on("connected", () => {
-      setConnected(true);
-      setStatus("listening");
-      append("system", "connected — just talk");
-    });
-    adapter.on("disconnected", () => setConnected(false));
-    adapter.on("error", (e) => setError(e.message));
-
-    adapter.on("user_speech_started", () => setStatus("you're speaking"));
-    adapter.on("user_speech_stopped", () => {
-      userStoppedAt.current = Date.now();
-      setStatus("thinking");
-    });
-    adapter.on("user_transcript", (text, isFinal) => {
+    const onUser = (text: string, isFinal: boolean) => {
       if (isFinal && text.trim()) append("you", text.trim());
-    });
-
-    adapter.on("agent_speech_started", () => {
-      setStatus("nova speaking");
-      if (userStoppedAt.current) {
-        const ms = Date.now() - userStoppedAt.current;
-        userStoppedAt.current = 0;
-        // The headline number: real voice-to-voice, user quiet → Nova audible.
-        setV2v((xs) => [...xs.slice(-19), ms]);
-        postMetric("s2s_voice_to_voice_ms", ms);
-      }
-    });
-    adapter.on("agent_speech_stopped", () => setStatus("listening"));
-    adapter.on("agent_transcript_delta", (d) => {
-      novaLine.current += d;
-    });
-    adapter.on("agent_transcript_done", (text) => {
-      novaLine.current = "";
+    };
+    const onNova = (text: string) => {
       if (text.trim()) append("nova", text.trim());
-    });
-    adapter.on("interrupted", () => append("system", "interrupted — nova cut off"));
+    };
+    const onInterrupted = () => append("system", "interrupted — nova cut off");
+    const onToolStart = ({ name, input }: { name: string; input: unknown }) => {
+      const request = String((input as { request?: unknown })?.request ?? "");
+      append("system", `${name} → worker: ${request.slice(0, 120)}`);
+    };
+    const onToolEnd = ({ ms, ok }: { ms: number; ok: boolean }) => {
+      append("system", ok ? `worker replied in ${(ms / 1000).toFixed(1)}s` : `worker failed after ${(ms / 1000).toFixed(1)}s`);
+      postMetric("s2s_delegation_roundtrip_ms", ms, { ok });
+    };
+    // The headline number: real voice-to-voice, user quiet → Nova audible.
+    const onV2v = (ms: number) => {
+      setV2v((xs) => [...xs.slice(-19), ms]);
+      postMetric("s2s_voice_to_voice_ms", ms);
+    };
+    const onConnected = () => append("system", "connected — just talk");
 
-    // The delegation bridge: tool call → heavy worker over HTTP → result
-    // injected back; the model then relays it out loud.
-    adapter.on("tool_call", async ({ callId, name, arguments: rawArgs }) => {
-      if (name !== "delegate_to_worker") {
-        adapter.sendToolResult(callId, { error: `unknown tool ${name}` });
-        return;
-      }
-      let request = "";
-      try {
-        request = String((JSON.parse(rawArgs) as { request?: string }).request ?? "");
-      } catch {
-        /* leave empty */
-      }
-      append("system", `delegating → worker: ${request.slice(0, 120)}`);
-      setWorkerBusy((n) => n + 1);
-      const t0 = Date.now();
-      try {
-        const res = await fetch("/api/s2s/delegate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ request }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? `delegate failed (${res.status})`);
-        append("system", `worker replied in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-        postMetric("s2s_delegation_roundtrip_ms", Date.now() - t0);
-        adapter.sendToolResult(callId, data.result);
-      } catch (err) {
-        adapter.sendToolResult(callId, {
-          error: `The lookup failed: ${(err as Error)?.message ?? "unknown"}. Level with the customer.`,
-        });
-      } finally {
-        setWorkerBusy((n) => Math.max(0, n - 1));
-      }
-    });
+    session.on("connected", onConnected);
+    session.on("user_transcript", onUser);
+    session.on("agent_transcript_done", onNova);
+    session.on("interrupted", onInterrupted);
+    session.on("tool_start", onToolStart);
+    session.on("tool_end", onToolEnd);
+    session.on("voice_to_voice", onV2v);
 
-    try {
-      await adapter.connect();
-    } catch (err) {
-      setError((err as Error)?.message ?? "connect failed");
-      setStatus("idle");
-      adapterRef.current = null;
-    }
-  }, [append, postMetric]);
+    return () => {
+      session.off("connected", onConnected);
+      session.off("user_transcript", onUser);
+      session.off("agent_transcript_done", onNova);
+      session.off("interrupted", onInterrupted);
+      session.off("tool_start", onToolStart);
+      session.off("tool_end", onToolEnd);
+      session.off("voice_to_voice", onV2v);
+    };
+  }, [s2s.session, append, postMetric]);
 
-  useEffect(() => () => void adapterRef.current?.disconnect(), []);
+  useEffect(() => {
+    logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
+  }, [log]);
 
   const avg = v2v.length ? Math.round(v2v.reduce((a, b) => a + b, 0) / v2v.length) : null;
+  const error = s2s.error?.message ?? null;
+  const workerBusy = s2s.toolsRunning.length;
 
   return (
     <div className="app">
@@ -171,9 +138,9 @@ export default function S2SPage() {
           </div>
         </div>
         <div className="spacer" />
-        <div className="phase-pill" data-active={connected}>
+        <div className="phase-pill" data-active={s2s.enabled}>
           <span className="dot" />
-          {status}
+          {STATUS[s2s.state] ?? s2s.state}
         </div>
         {workerBusy > 0 && (
           <div className="phase-pill worker-pill" data-active="true">
@@ -181,8 +148,11 @@ export default function S2SPage() {
             Worker researching…
           </div>
         )}
-        <button className="reset-btn" onClick={() => (connected ? void disconnect() : void connect())}>
-          {connected ? "Hang up" : "🎙 Connect"}
+        <button
+          className="reset-btn"
+          onClick={() => (s2s.enabled ? void s2s.stop() : void s2s.start())}
+        >
+          {s2s.enabled ? "Hang up" : "🎙 Connect"}
         </button>
       </header>
 

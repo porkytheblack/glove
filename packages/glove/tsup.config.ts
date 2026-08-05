@@ -13,6 +13,7 @@ export default defineConfig({
     "src/extensions.ts",
     "src/content-skills.ts",
     "src/content-skills-fs.ts",
+    "src/utils.ts",
     "src/display-manager.ts",
     "src/tools/task-tool.ts",
     "src/tools/inbox-tool.ts",

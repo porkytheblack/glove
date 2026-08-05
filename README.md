@@ -38,6 +38,7 @@ Works with OpenAI, Anthropic, Google Gemini, OpenRouter, and more. Bridge extern
 | [`glove-react`](packages/react) | React hooks, `<Render>` component, `defineTool`, client bindings | [![npm](https://img.shields.io/npm/v/glove-react)](https://www.npmjs.com/package/glove-react) |
 | [`glove-next`](packages/next) | Next.js API route handlers (SSE streaming) | [![npm](https://img.shields.io/npm/v/glove-next)](https://www.npmjs.com/package/glove-next) |
 | [`glove-voice`](packages/glove-voice) | Voice pipeline — STT/TTS/VAD adapters, ElevenLabs integration, speech-gated noise robustness | [![npm](https://img.shields.io/npm/v/glove-voice)](https://www.npmjs.com/package/glove-voice) |
+| [`glove-voice-s2s`](packages/glove-voice-s2s) | Speech-to-speech — `GloveS2S` realtime sessions, tool hosts bridging the model to a Glove agent, OpenAI Realtime adapter | [![npm](https://img.shields.io/npm/v/glove-voice-s2s)](https://www.npmjs.com/package/glove-voice-s2s) |
 | [`glove-voice-native`](packages/glove-voice-native) | React Native / Expo audio backends — on-device mic capture, PCM playback, Silero VAD (onnxruntime-react-native) | [![npm](https://img.shields.io/npm/v/glove-voice-native)](https://www.npmjs.com/package/glove-voice-native) |
 | [`glove-mcp`](packages/glove-mcp) | Model Context Protocol integration — bridge MCP servers' tools, on-demand discovery, opt-in OAuth runner | [![npm](https://img.shields.io/npm/v/glove-mcp)](https://www.npmjs.com/package/glove-mcp) |
 | [`glove-memory`](packages/glove-memory) | Memory layer — entity / episodic / resources / context primitives, schema-first, BYO storage | [![npm](https://img.shields.io/npm/v/glove-memory)](https://www.npmjs.com/package/glove-memory) |
@@ -414,6 +415,27 @@ const vad = new SileroVADNativeAdapter();
 await vad.init();
 const voice = useGloveVoice({ runnable, voice: withNativeAudio({ stt, createTTS, vad }) });
 ```
+
+### Speech-to-speech
+
+`glove-voice-s2s` is the same idea one architecture layer down. The cascade above bottoms out around 1.3–1.6s voice-to-voice; a realtime model collapses it to 500–800ms by deciding turn-taking from *listening* instead of from transcripts. The intelligence splits: the model owns what must be instant (persona, turn-taking, barge-in, the voice), the Glove owns what must be right (tools, permissions, memory, the agent loop).
+
+The only thing crossing between them is a tool call, and the declarations are derived from the agent — fold a tool and the voice model has it:
+
+```typescript
+// server — one host, read by the token route AND the tool route
+export const host = () => gloveToolHost(agent);          // or delegateToolHost(worker)
+export const POST = createS2STokenHandler(() => ({ instructions: PERSONA, voice: "marin", tools: host() }));
+
+// client
+const s2s = useGloveS2S({
+  adapter: () => new OpenAIRealtimeAdapter({ getToken }),
+  tools: httpToolHost({ endpoint: "/api/s2s/tools" }),
+});
+// s2s.state: "idle" | "connecting" | "listening" | "user_speaking" | "thinking" | "speaking"
+```
+
+`S2SAdapter` is provider-agnostic, so Gemini Live / Nova Sonic implementations slot in without touching call sites. See [packages/glove-voice-s2s](packages/glove-voice-s2s) for the tradeoffs against the cascade.
 
 ### MCP Integration
 

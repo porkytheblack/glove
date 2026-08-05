@@ -8,5 +8,5 @@ export default defineConfig({
   clean: true,
   splitting: true,
   outDir: "dist",
-  external: ["eventemitter3"],
+  external: ["glove-core", "eventemitter3"],
 });

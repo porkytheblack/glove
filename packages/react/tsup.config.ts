@@ -6,12 +6,12 @@ export default defineConfig({
   // with those names exist. The prefix is what makes that shadowing
   // impossible.
   removeNodeProtocol: false,
-  entry: ["src/index.ts", "src/adapters/index.ts", "src/voice/index.ts"],
+  entry: ["src/index.ts", "src/adapters/index.ts", "src/voice/index.ts", "src/s2s/index.ts"],
   format: ["esm"],
   dts: true,
   target: "es2022",
   clean: true,
   splitting: true,
   outDir: "dist",
-  external: ["react", "glove-voice"],
+  external: ["react", "glove-voice", "glove-voice-s2s"],
 });

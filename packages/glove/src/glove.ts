@@ -67,8 +67,39 @@ export interface GloveFoldArgs<I> {
   generateToolSummary?: (summaryArgs?: unknown) => Promise<string>
 }
 
+export interface InvokeToolOptions {
+  /** Abort signal forwarded into the tool's `run`. */
+  signal?: AbortSignal
+  /**
+   * Override the hand-over used for permission prompts and interactive
+   * renders. Defaults to this Glove's display manager — the same one the
+   * model loop uses.
+   */
+  handOver?: HandOverFunction
+}
+
 export interface IGloveRunnable {
   processRequest: (request: string | ContentPart[], signal?: AbortSignal) => Promise<ModelPromptResult | Message>
+  /**
+   * Every tool registered on this agent — the ones you folded plus the
+   * auto-registered skill/subagent dispatchers. Read-only: fold to add.
+   *
+   * This is what lets a non-text driver publish the agent's capabilities
+   * somewhere else (a realtime voice model's session, an MCP server, a
+   * tool-catalogue UI) instead of hand-maintaining a parallel schema list.
+   * Pair with `getToolJsonSchema(tool)` to serialize each one.
+   */
+  readonly tools: ReadonlyArray<Tool<any>>
+  /**
+   * Run one of this agent's tools directly, bypassing the model loop.
+   *
+   * Goes through the same executor path as a model-issued call — permission
+   * gate, schema validation, retries, `tool_use` / `tool_use_result`
+   * subscriber events — so an external caller gets identical behaviour to
+   * the model. Never throws for a failing tool: the failure comes back as
+   * `{ status: "error" }`.
+   */
+  invokeTool: (name: string, input: unknown, opts?: InvokeToolOptions) => Promise<ToolResultData>
   setModel: (model: ModelAdapter) => void
   setSystemPrompt: (prompt: string) => void
   getSystemPrompt: () => string
@@ -299,6 +330,41 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     return this._store
   }
 
+  get tools(): ReadonlyArray<Tool<any>> {
+    return this.executor.tools
+  }
+
+  /**
+   * Run one of this agent's tools directly. See
+   * {@link IGloveRunnable.invokeTool}.
+   */
+  async invokeTool(name: string, input: unknown, opts?: InvokeToolOptions): Promise<ToolResultData> {
+    const id = `direct_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    await this.notifyExtensionEvent("tool_use", { id, name, input })
+
+    const { result } = await this.executor.runToolCall(
+      { tool_name: name, input_args: input, id },
+      opts?.handOver ?? this.buildHandOver(),
+      opts?.signal,
+    )
+    return result
+  }
+
+  /**
+   * The hand-over the model loop uses: route interactive requests
+   * (permission prompts, forms) through the display stack and wait.
+   */
+  private buildHandOver(): HandOverFunction {
+    return async (input: unknown) => {
+      const obj = input as Record<string, unknown>;
+      const renderer = (typeof obj?.renderer === 'string') ? obj.renderer : 'generic';
+      return this.displayManager.pushAndWait({
+        renderer,
+        input,
+      })
+    }
+  }
+
   /**
    * Swap the display manager. Subagents typically call this to share the
    * parent agent's display stack (passed in via `controls.displayManager`)
@@ -411,14 +477,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   async processRequest(request: string | ContentPart[], signal?: AbortSignal) {
     if (!this.built) throw new Error("Call build before processRequest");
 
-    const handOver: HandOverFunction = async (input: unknown)=> {
-      const obj = input as Record<string, unknown>;
-      const renderer = (typeof obj?.renderer === 'string') ? obj.renderer : 'generic';
-      return this.displayManager.pushAndWait({
-        renderer,
-        input,
-      })
-    }
+    const handOver: HandOverFunction = this.buildHandOver()
 
     // Pull raw text out of the incoming request so we can scan for tokens.
     let rawText: string;

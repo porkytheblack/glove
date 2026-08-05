@@ -332,17 +332,31 @@ The `/s2s` page runs the architecture step past it: **gpt-realtime over
 WebRTC IS the front agent** — persona, addressing judgment, turn-taking
 (provider semantic VAD), barge-in, and the voice collapse into one model —
 while the SAME heavy text worker researches behind a `delegate_to_worker`
-function tool (`/api/s2s/delegate`). Client endpointing, holds, EOU scoring:
-all deleted in this mode; the model decides turns by listening. Expect
-500–800ms voice-to-voice (the page measures the real number per turn:
-you-go-quiet → Nova-audible, logged as `s2s_voice_to_voice_ms`).
+function tool. Client endpointing, holds, EOU scoring: all deleted in this
+mode; the model decides turns by listening. Expect 500–800ms voice-to-voice
+(the page measures the real number per turn: you-go-quiet → Nova-audible,
+logged as `s2s_voice_to_voice_ms`).
+
+The whole integration is three small files, because the delegation lives in
+a **tool host** rather than in hand-written glue:
+
+| file | what it is |
+| --- | --- |
+| `app/lib/server/s2s.ts` | `delegateToolHost(worker)` — the worker's full agent loop behind one tool, runs serialized, final message becomes the result |
+| `app/api/voice/s2s-token/route.ts` | `createS2STokenHandler` — persona + the host's declarations baked into an ephemeral token |
+| `app/api/s2s/tools/route.ts` | `createS2SToolHandler` — the bridge the browser calls; `export const GET/POST = handler` |
+
+The page itself is `useGloveS2S({ adapter, tools: httpToolHost({ endpoint }) })`
+and contains no tool dispatch, no JSON Schema, and no latency stopwatch —
+the declarations the model is given come from the same host that answers
+them, so they cannot drift apart.
 
 Setup: add `OPENAI_API_KEY=` to `.env.local` (Realtime is OpenAI-only;
 tokens are minted server-side as ephemeral client secrets — the key never
 reaches the browser). `S2S_MODEL` / `S2S_VOICE` override the defaults
-(`gpt-realtime` / `marin`). Powered by the new `glove-voice-s2s` package
-(`OpenAIRealtimeAdapter` + `createOpenAIRealtimeToken`); the `S2SAdapter`
-contract is provider-agnostic for Gemini Live / Nova Sonic later.
+(`gpt-realtime` / `marin`). Powered by the `glove-voice-s2s` package; the
+`S2SAdapter` contract is provider-agnostic for Gemini Live / Nova Sonic
+later.
 
 ### Latency metrics → local file
 

@@ -1,11 +1,51 @@
 import type {
+  ContentPart,
   InboxItem,
   Message,
+  ModelPromptResult,
   PermissionStatus,
   StoreAdapter,
   Task,
   TokenConsumptionCounter,
 } from "./core";
+
+/**
+ * Pull the agent's spoken/written answer out of whatever `processRequest`
+ * returned — it resolves to a `ModelPromptResult` on the normal path and a
+ * bare `Message` when a hook short-circuits the turn.
+ *
+ * Drivers that hand an agent's reply to something other than a chat
+ * transcript (a voice pipeline, a realtime model relaying it out loud, an
+ * HTTP delegation bridge) all need this same unwrap. Returns `""` when the
+ * turn produced no agent text.
+ */
+export function extractAgentText(result: Message | ModelPromptResult | null | undefined): string {
+  if (!result || typeof result !== "object") return "";
+
+  if ("messages" in result) {
+    const last = [...result.messages].reverse().find((m) => m.sender === "agent");
+    return last ? messageText(last) : "";
+  }
+
+  return messageText(result);
+}
+
+function messageText(m: Message): string {
+  if (m.sender !== "agent") return "";
+
+  if (m.content?.length) {
+    const text = m.content
+      .filter((p): p is ContentPart & { text: string } =>
+        p.type === "text" && typeof p.text === "string"
+      )
+      .map((p) => p.text)
+      .join(" ")
+      .trim();
+    if (text) return text;
+  }
+
+  return m.text ?? "";
+}
 
 /**
  * Build a canonical permission key from a tool name and its input.

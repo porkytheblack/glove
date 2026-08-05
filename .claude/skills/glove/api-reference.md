@@ -1659,11 +1659,20 @@ interface IGloveRunnable {
   defineSubAgent(args: DefineSubAgentArgs): IGloveRunnable;
   /** Re-bind to a new store post-construction. Equivalent to .build(store). */
   rebuild(store?: StoreAdapter): IGloveRunnable;
+  /** Every registered tool — folded ones plus the auto-registered skill/subagent dispatchers. */
+  readonly tools: ReadonlyArray<Tool<any>>;
+  /** Run one tool directly, bypassing the model loop. Same executor path a model call takes. */
+  invokeTool(name: string, input: unknown, opts?: { signal?: AbortSignal; handOver?: HandOverFunction }): Promise<ToolResultData>;
   readonly displayManager: DisplayManagerAdapter;
   readonly model: ModelAdapter;
   readonly serverMode: boolean;
+  readonly store: StoreAdapter;
 }
 ```
+
+**`tools` + `invokeTool` — the non-text driver seam.** Anything that isn't the model loop but still needs to run the agent's tools goes through these two: a realtime voice model (`glove-voice-s2s`), an MCP server, an eval harness. `tools` publishes the capability list (pair with `getToolJsonSchema(tool)` to serialize each schema); `invokeTool` executes one through the full executor path — permission gate, schema validation, retries, `tool_use` / `tool_use_result` subscriber events. It never throws for a failing tool; the failure comes back as `{ status: "error" }`. Underneath, `Executor.runToolCall(call, handOver?, signal?)` runs a single call without touching the call stack.
+
+`extractAgentText(result)` (from `glove-core`, also `glove-core/utils`) unwraps whatever `processRequest` returned — `ModelPromptResult` normally, a bare `Message` when a hook short-circuits — into the agent's reply text. Drivers that hand a reply to something other than a chat transcript all need it.
 
 The `built` throw was removed. Tools that need to register more tools at runtime (e.g. the `discovermcp` subagent's `activate`) read `glove` from `do(input, display, glove, signal?)` and call `glove.fold(...)`.
 

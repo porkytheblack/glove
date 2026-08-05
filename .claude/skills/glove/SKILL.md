@@ -48,6 +48,7 @@ Glove is an open-source TypeScript framework for building AI-powered application
 - **`glove-next`** — `createChatHandler` (one-line SSE route), voice token handler.
 - **`glove-sqlite`** — deprecated; `SqliteStore` for persistence (server-side only).
 - **`glove-voice`** — full-duplex voice pipeline: STT/TTS/VAD adapters, `GloveVoice`, `useGloveVoice`, `useGlovePTT`, `<VoicePTTButton>`.
+- **`glove-voice-s2s`** — speech-to-speech (realtime models): `GloveS2S` wraps a Glove the way `GloveVoice` does, but the model owns turn-taking and the voice while the Glove owns the tools. Tool calls cross the boundary through an `S2SToolHost` (`gloveToolHost` / `delegateToolHost` / `localToolHost` / `httpToolHost`). `useGloveS2S` from `glove-react/s2s`; token + tool routes from `glove-voice-s2s/server`.
 - **`glove-mcp`** — MCP servers as first-class tools: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter` (consumer-supplied per-conversation seam). `discovermcp` discovery subagent (registered via `glove.defineSubAgent(discoverySubAgent({...}))`). Opt-in OAuth helpers at `glove-mcp/oauth` (`runMcpOAuth`, `FsOAuthStore`, `MemoryOAuthStore`, `McpOAuthProvider`).
 - **`glove-memory`** — Memory layer with five sibling subsystems (entity graph / episodic timeline / resource filesystem / ambient context / forms) and matching `useMemoryReader` / `useMemoryCurator`, `useEpisodicReader` / `useEpisodicCurator`, `useResourcesReader` / `useResourcesCurator`, `useContext`, and `useFormRunner` / `useFormReader` helper families. Storage-agnostic adapter contracts plus reference `InMemory*` adapters for dev/test.
 - **`glove-mesh`** — Inter-agent messaging on top of the inbox primitive: `mountMesh(glove, { adapter, identity })` registers an agent and folds `glove_mesh_send_message` / `_broadcast` / `_list_agents` / `_acknowledge`. `MeshAdapter` is the consumer-supplied transport (BYO); ships `InMemoryMeshAdapter` + `MeshNetwork` for in-process dev/test. Each agent keeps its own inbox; incoming messages land as resolved `InboxItem`s so the existing inbox-injection path surfaces them on the next `ask()`. No authentication — sender ids are unverified.
@@ -2624,6 +2625,79 @@ const voice = useGloveVoice({
 | ElevenLabs | `{ provider: "elevenlabs", type: "stt" \| "tts" }` | `ELEVENLABS_API_KEY` |
 | Deepgram | `{ provider: "deepgram" }` | `DEEPGRAM_API_KEY` |
 | Cartesia | `{ provider: "cartesia" }` | `CARTESIA_API_KEY` |
+
+## Speech-to-Speech (`glove-voice-s2s`)
+
+The architecture step past the cascade. `GloveVoice` chains VAD → STT → LLM → TTS and bottoms out around **1.3–1.6s** voice-to-voice. A realtime model collapses the chain — audio in, one model, audio out, turn-taking decided by the model *listening* — and runs **500–800ms**.
+
+| Package | Purpose |
+|---------|---------|
+| `glove-voice-s2s` | `GloveS2S` session, tool hosts, `S2SAdapter` contract, `OpenAIRealtimeAdapter` |
+| `glove-voice-s2s/server` | `createS2STokenHandler`, `createS2SToolHandler`, `createOpenAIRealtimeToken`, the Glove-backed hosts |
+| `glove-react/s2s` | `useGloveS2S` |
+
+### The split
+
+The realtime model owns what must be **instant** — persona, addressing judgment, turn-taking, barge-in, the voice. The Glove owns what must be **right** — tools, permissions, memory, the agent loop. The only thing crossing between them is a tool call, and `S2SToolHost` is that seam:
+
+```typescript
+gloveToolHost(glove)      // the agent's tools 1:1 — fast, well-scoped calls
+delegateToolHost(glove)   // the WHOLE agent as one tool — the layered pattern
+localToolHost([...])      // browser-side tools (navigate, scroll, fill)
+httpToolHost({endpoint})  // browser → your route → a host on the server
+composeToolHosts(a, b)    // any combination
+```
+
+Declarations are **derived** from the agent (`glove.tools` + `getToolJsonSchema`), so folding a tool is all it takes for the voice model to gain it — there is no parallel JSON-Schema list to drift.
+
+### Quick Start (Next.js)
+
+```typescript
+// app/lib/server/s2s.ts — one host, read by both routes
+export const host = () => delegateToolHost(workerAgent());   // or gloveToolHost(agent)
+
+// app/api/voice/s2s-token/route.ts
+export const POST = createS2STokenHandler(() => ({ instructions: PERSONA, voice: "marin", tools: host() }));
+
+// app/api/s2s/tools/route.ts
+const handler = createS2SToolHandler(host);
+export const GET = handler;
+export const POST = handler;
+```
+
+```tsx
+// client
+const s2s = useGloveS2S({
+  adapter: () => new OpenAIRealtimeAdapter({ getToken }),
+  tools: httpToolHost({ endpoint: "/api/s2s/tools" }),
+  publishTools: false,          // the token already baked the list in
+});
+// s2s.state, s2s.enabled, s2s.error, s2s.transcript, s2s.agentTranscript
+// s2s.voiceToVoiceMs, s2s.toolsRunning
+// s2s.start(), s2s.stop(), s2s.interrupt()
+// s2s.relay(text)    — inject + speak in reaction (async worker result, webhook)
+// s2s.observe(text)  — inject silently (overheard typing, state change, correction)
+```
+
+Node/vanilla is the same object without the hook: `new GloveS2S({ adapter, tools, mirrorTo })` → `start()`.
+
+### What `GloveS2S` handles
+
+- Publishes the host's declarations into the session on connect (`publishTools`).
+- Dispatches `tool_call` → host → `sendToolResult`, converting a thrown error into an error result the model can speak about (never leaves the model waiting on a dead promise).
+- `toolTimeoutMs` for the same reason.
+- `voice_to_voice` event: user quiet → agent audible, per turn.
+- `mirrorTo` — mirrors the spoken conversation into a `StoreAdapter` (pass a Glove directly) so the text side can read what was said out loud.
+- `state`: `idle → connecting → listening → user_speaking → thinking → speaking`.
+
+### Choosing between the two hosts
+
+- **`gloveToolHost`** — one tool round trip per call. Right for fast, bounded lookups and state changes.
+- **`delegateToolHost`** — one call, the agent's full loop behind it. Right for multi-step research. Runs are serialized (a Glove is single-threaded over its history) and the agent's final message becomes the tool result. Have the persona acknowledge out loud before delegating; the wait is real.
+
+### Tradeoffs vs the cascade
+
+What S2S deletes: client endpointing (VAD, holds, EOU scoring), heard-prefix barge-in repair, sentence chunking into TTS. What it costs: turn-taking becomes a black box you cannot inspect or tune, and you are on one provider's voice + model. `glove-voice` remains the right choice when you need to swap STT/TTS independently, run on-device VAD, or tune endpointing.
 
 ## Supporting Files
 

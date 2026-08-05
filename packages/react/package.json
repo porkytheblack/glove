@@ -26,6 +26,10 @@
     "./voice": {
       "types": "./dist/voice/index.d.ts",
       "import": "./dist/voice/index.js"
+    },
+    "./s2s": {
+      "types": "./dist/s2s/index.d.ts",
+      "import": "./dist/s2s/index.js"
     }
   },
   "files": [
@@ -41,15 +45,20 @@
   },
   "peerDependencies": {
     "react": ">=18.0.0",
-    "glove-voice": "workspace:*"
+    "glove-voice": "workspace:*",
+    "glove-voice-s2s": "workspace:*"
   },
   "peerDependenciesMeta": {
     "glove-voice": {
+      "optional": true
+    },
+    "glove-voice-s2s": {
       "optional": true
     }
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "glove-voice-s2s": "workspace:*"
   }
 }

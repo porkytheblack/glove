@@ -656,185 +656,214 @@ export class Executor {
     const toolResults: Array<ToolResult> = [];
 
     for (const call of this.toolCallStack) {
-      const tool = this.tools.find(
-        (t) => t.name.toLowerCase() == call.tool_name.toLowerCase(),
-      );
-
-      // Skip abortable tools when signal is aborted, but let unAbortable
-      // tools through so they run to completion (e.g. checkout form).
-      if (signal?.aborted && !tool?.unAbortable) {
-        toolResults.push({
-          tool_name: call.tool_name,
-          call_id: call.id,
-          result: {
-            status: "aborted",
-            message: "Tool execution was aborted by the user.",
-            data: null,
-          },
-        });
-        await this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
-        continue;
-      }
-
-      if (!tool) {
-        toolResults.push({
-          result: {
-            status: "error",
-            data: null,
-            message: `No tool called ${call.tool_name} exists.`,
-          },
-          tool_name: call.tool_name,
-          call_id: call.id,
-        });
-        await this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
-
-        continue;
-      }
-
-      const permitted = await this.checkPermission(tool, call.input_args, handOver);
-      if (!permitted) {
-        toolResults.push({
-          tool_name: call.tool_name,
-          call_id: call.id,
-          result: {
-            status: "error",
-            message: `Permission denied for tool "${call.tool_name}". The user has not granted permission to run this tool.`,
-            data: null,
-          },
-        });
-        await this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
-        continue;
-      }
-
-      let validatedInput: unknown = call.input_args;
-
-      if (tool.input_schema) {
-        const parsed_input = tool.input_schema.safeParse(call.input_args);
-
-        if (!parsed_input.success) {
-          toolResults.push({
-            tool_name: call.tool_name,
-            call_id: call.id,
-            result: {
-              status: "error",
-              message: "TOOL_INPUT_INVALID",
-              data: `Failed to validate the input args provided for the tool:: ${JSON.stringify(z.treeifyError(parsed_input.error))}`,
-            },
-          });
-
-          await this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
-
-          continue;
-        }
-        validatedInput = parsed_input.data;
-      }
-
-      // Fire the open-bracket for subagent invocations here — once we've
-      // passed all skip conditions and are about to actually run the
-      // dispatcher. The matching close-bracket fires below in the result
-      // handlers (success, error, and abort), guaranteeing 1:1 symmetry
-      // even when the executor's abortablePromise wrapper short-circuits
-      // the dispatcher's own promise.
-      if (call.tool_name === SUBAGENT_DISPATCH_TOOL_NAME) {
-        const args = call.input_args as { name?: string; prompt?: string } | undefined;
-        if (args?.name) {
-          this.notifySubscribers("subagent_invoked", {
-            name: args.name,
-            prompt: args.prompt ?? "",
-          });
-        }
-      }
-
-      let toolRunEffect = Effect.tryPromise({
-        try: async () => {
-          // Only check abort signal for abortable tools
-          if (signal?.aborted && !tool.unAbortable) throw new AbortError();
-          const result = tool.unAbortable ?
-            await tool.run(validatedInput, handOver, signal) :
-            await abortablePromise(signal, tool.run(validatedInput, handOver, signal));
-
-          // add tool result summary to make future tool calls more efficient and less token consuming
-          if (tool.generateSummary && result.generateSummaryArgs) {
-            result.summary = await tool.generateSummary(result.generateSummaryArgs)
-          }
-          return result
-        },
-        catch(e) {
-          return e
-        }
-      })
-
-      let retriedEffect = Effect.retry(toolRunEffect, {
-        times: this.MAX_RETRIES,
-        // Allow retries for unAbortable tools even when signal is aborted
-        while: () => !signal?.aborted || !!tool.unAbortable,
-      })
-      let toolResult = await Effect.runPromise(Effect.either(retriedEffect))
-
-      let wasAborted = false;
-
-      Either.match(toolResult, {
-        onLeft: (error) => {
-          // Detect abort: custom AbortError, native DOMException, or signal already aborted
-          const isAbort =
-            error instanceof AbortError ||
-            (error instanceof Error && error.name === "AbortError") ||
-            signal?.aborted;
-
-          if (isAbort) {
-            wasAborted = true;
-            toolResults.push({
-              tool_name: call.tool_name,
-              call_id: call.id,
-              result: {
-                status: "aborted",
-                message: "Tool execution was aborted by the user.",
-                data: null,
-              },
-            });
-            this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
-            this.maybeCloseSubagentBracket(call, "error", "Subagent run aborted by the user.");
-            return;
-          }
-
-          toolResults.push({
-            tool_name: call.tool_name,
-            call_id: call.id,
-            result: {
-              status: "error",
-              message:
-                `Failed to run tool successfully. Tool Errored out with ${error}, after ${this.MAX_RETRIES}/${this.MAX_RETRIES} retries. ABORT EXECUTION`,
-              data: null,
-            },
-          });
-
-          this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
-          this.maybeCloseSubagentBracket(call, "error", `Subagent dispatcher errored: ${error}`);
-        },
-        onRight: (value: ToolResultData) => {
-          toolResults.push({
-            tool_name: call.tool_name,
-            call_id: call.id,
-            result: value,
-          });
-
-          this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
-          this.maybeCloseSubagentBracket(
-            call,
-            value.status === "success" ? "success" : "error",
-            value.message,
-          );
-        },
-      })
+      const { result, aborted } = await this.executeCall(call, handOver, signal);
+      toolResults.push(result);
 
       // Exit the loop if aborted (only for abortable tools)
-      if (wasAborted) break;
-
+      if (aborted) break;
     }
 
     this.toolCallStack = [];
 
     return toolResults;
+  }
+
+  /**
+   * Run a SINGLE tool call through the full executor path — permission gate,
+   * input validation, retries, abort handling, and `tool_use_result` /
+   * subagent-bracket subscriber events — without touching the call stack or
+   * requiring a model turn.
+   *
+   * This is the seam non-text drivers execute through. A speech-to-speech
+   * model (`glove-voice-s2s`), an MCP server, or an eval harness all hand
+   * the agent a `{ tool_name, input_args }` and get back the same
+   * `ToolResult` the model loop would have produced — same gating, same
+   * events, same errors-as-values contract (this never throws for a failing
+   * tool; it returns a result with `status: "error"`).
+   */
+  async runToolCall(
+    call: ToolCall,
+    handOver?: HandOverFunction,
+    signal?: AbortSignal,
+  ): Promise<ToolResult> {
+    const { result } = await this.executeCall(call, handOver, signal);
+    return result;
+  }
+
+  /**
+   * The per-call body shared by {@link executeToolStack} and
+   * {@link runToolCall}. `aborted` is true only when an in-flight abortable
+   * tool was cut short — the signal the stack loop uses to stop draining
+   * remaining calls.
+   */
+  private async executeCall(
+    call: ToolCall,
+    handOver?: HandOverFunction,
+    signal?: AbortSignal,
+  ): Promise<{ result: ToolResult; aborted: boolean }> {
+    const tool = this.tools.find(
+      (t) => t.name.toLowerCase() == call.tool_name.toLowerCase(),
+    );
+
+    const settle = async (result: ToolResult, aborted = false) => {
+      await this.notifySubscribers("tool_use_result", result);
+      return { result, aborted };
+    };
+
+    // Skip abortable tools when signal is aborted, but let unAbortable
+    // tools through so they run to completion (e.g. checkout form).
+    if (signal?.aborted && !tool?.unAbortable) {
+      return settle({
+        tool_name: call.tool_name,
+        call_id: call.id,
+        result: {
+          status: "aborted",
+          message: "Tool execution was aborted by the user.",
+          data: null,
+        },
+      });
+    }
+
+    if (!tool) {
+      return settle({
+        result: {
+          status: "error",
+          data: null,
+          message: `No tool called ${call.tool_name} exists.`,
+        },
+        tool_name: call.tool_name,
+        call_id: call.id,
+      });
+    }
+
+    const permitted = await this.checkPermission(tool, call.input_args, handOver);
+    if (!permitted) {
+      return settle({
+        tool_name: call.tool_name,
+        call_id: call.id,
+        result: {
+          status: "error",
+          message: `Permission denied for tool "${call.tool_name}". The user has not granted permission to run this tool.`,
+          data: null,
+        },
+      });
+    }
+
+    let validatedInput: unknown = call.input_args;
+
+    if (tool.input_schema) {
+      const parsed_input = tool.input_schema.safeParse(call.input_args);
+
+      if (!parsed_input.success) {
+        return settle({
+          tool_name: call.tool_name,
+          call_id: call.id,
+          result: {
+            status: "error",
+            message: "TOOL_INPUT_INVALID",
+            data: `Failed to validate the input args provided for the tool:: ${JSON.stringify(z.treeifyError(parsed_input.error))}`,
+          },
+        });
+      }
+      validatedInput = parsed_input.data;
+    }
+
+    // Fire the open-bracket for subagent invocations here — once we've
+    // passed all skip conditions and are about to actually run the
+    // dispatcher. The matching close-bracket fires below in the result
+    // handlers (success, error, and abort), guaranteeing 1:1 symmetry
+    // even when the executor's abortablePromise wrapper short-circuits
+    // the dispatcher's own promise.
+    if (call.tool_name === SUBAGENT_DISPATCH_TOOL_NAME) {
+      const args = call.input_args as { name?: string; prompt?: string } | undefined;
+      if (args?.name) {
+        this.notifySubscribers("subagent_invoked", {
+          name: args.name,
+          prompt: args.prompt ?? "",
+        });
+      }
+    }
+
+    let toolRunEffect = Effect.tryPromise({
+      try: async () => {
+        // Only check abort signal for abortable tools
+        if (signal?.aborted && !tool.unAbortable) throw new AbortError();
+        const result = tool.unAbortable ?
+          await tool.run(validatedInput, handOver, signal) :
+          await abortablePromise(signal, tool.run(validatedInput, handOver, signal));
+
+        // add tool result summary to make future tool calls more efficient and less token consuming
+        if (tool.generateSummary && result.generateSummaryArgs) {
+          result.summary = await tool.generateSummary(result.generateSummaryArgs)
+        }
+        return result
+      },
+      catch(e) {
+        return e
+      }
+    })
+
+    let retriedEffect = Effect.retry(toolRunEffect, {
+      times: this.MAX_RETRIES,
+      // Allow retries for unAbortable tools even when signal is aborted
+      while: () => !signal?.aborted || !!tool.unAbortable,
+    })
+    let toolResult = await Effect.runPromise(Effect.either(retriedEffect))
+
+    return Either.match(toolResult, {
+      onLeft: (error) => {
+        // Detect abort: custom AbortError, native DOMException, or signal already aborted
+        const isAbort =
+          error instanceof AbortError ||
+          (error instanceof Error && error.name === "AbortError") ||
+          signal?.aborted;
+
+        if (isAbort) {
+          const result: ToolResult = {
+            tool_name: call.tool_name,
+            call_id: call.id,
+            result: {
+              status: "aborted",
+              message: "Tool execution was aborted by the user.",
+              data: null,
+            },
+          };
+          this.notifySubscribers("tool_use_result", result);
+          this.maybeCloseSubagentBracket(call, "error", "Subagent run aborted by the user.");
+          return { result, aborted: true };
+        }
+
+        const result: ToolResult = {
+          tool_name: call.tool_name,
+          call_id: call.id,
+          result: {
+            status: "error",
+            message:
+              `Failed to run tool successfully. Tool Errored out with ${error}, after ${this.MAX_RETRIES}/${this.MAX_RETRIES} retries. ABORT EXECUTION`,
+            data: null,
+          },
+        };
+
+        this.notifySubscribers("tool_use_result", result);
+        this.maybeCloseSubagentBracket(call, "error", `Subagent dispatcher errored: ${error}`);
+        return { result, aborted: false };
+      },
+      onRight: (value: ToolResultData) => {
+        const result: ToolResult = {
+          tool_name: call.tool_name,
+          call_id: call.id,
+          result: value,
+        };
+
+        this.notifySubscribers("tool_use_result", result);
+        this.maybeCloseSubagentBracket(
+          call,
+          value.status === "success" ? "success" : "error",
+          value.message,
+        );
+        return { result, aborted: false };
+      },
+    })
   }
 }
 

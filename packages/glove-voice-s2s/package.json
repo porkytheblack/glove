@@ -32,9 +32,11 @@
     "agent"
   ],
   "dependencies": {
-    "eventemitter3": "^5.0.4"
+    "eventemitter3": "^5.0.4",
+    "glove-core": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "^25.2.3",
     "tsup": "^8.0.0",
     "typescript": "^5.9.3"
   }
