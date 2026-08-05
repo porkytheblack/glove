@@ -151,6 +151,14 @@ export const docsSections: DocsNavSection[] = [
         packages: ["glove-memory"],
       },
       {
+        label: "Forms",
+        href: "/docs/forms",
+        badge: "new",
+        summary:
+          "Structured collection over a conversation — Zod-authored definitions, lazily loaded, with colocated executors.",
+        packages: ["glove-memory"],
+      },
+      {
         label: "Why Memory",
         href: "/docs/memory/why",
         summary: "The design story behind the four-primitive split.",

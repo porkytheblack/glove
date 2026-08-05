@@ -218,7 +218,7 @@ provider prompt caching. Cache usage is reported on every response as
 | glove-voice-s2s | run an agent on realtime speech-to-speech models (OpenAI Realtime, Gemini Live) |
 | glove-voice-avatar | live avatars over the S2S audio (Tavus echo, Anam passthrough) |
 | glove-voice-livekit | LiveKit room transport + LiveKit-native avatars |
-| glove-memory | entity graph, episodic timeline, resource filesystem, standing context |
+| glove-memory | entity graph, episodic timeline, resource filesystem, standing context, forms |
 | glove-scratchpad | expose tools as a relational database driven by one execute_sql tool |
 | glove-sql | zero-dependency Postgres-subset SQL engine (scratchpad's default backend) |
 | glove-working-environment | persistent sandboxed VFS: scripts, runs, artifacts |
@@ -249,7 +249,96 @@ useContext(agent, new InMemoryContextAdapter());  // injected into the prompt ea
 
 Recommended shape: do not attach every memory tool to the main agent. Build one
 subagent per retrieval task with \`defineSubAgent\`, attaching only the adapter
-slice it needs, so token cost scales with role rather than ontology size.
+slice it needs, so token cost scales with role rather than ontology size. The
+exception is \`useContext\` — keep that on the agent the user actually talks to.
+
+### glove-memory forms — structured collection over a conversation
+
+The fifth subsystem. Definitions are CODE (zod schemas, gate closures and
+executors in one builder chain); the agent never reads them, only a projection
+of evaluated state.
+
+\`\`\`ts
+import { z } from "zod";
+import { defineForm } from "glove-memory/forms";
+
+export const travelClaim = defineForm({
+  id: "travel-claim", version: 1,
+  name: "Travel reimbursement claim",
+  description: "Claimant, trip, travel and approval details.",
+  conduct: "Conversational — one or two questions at a time.",
+})
+  .step("claimant", { title: "Claimant", preview: "name, staff id, email" }, (s) =>
+    s.field("fullName", { schema: z.string().min(2), label: "Full name" })
+     .field("email", { schema: z.string().email(), label: "Work email" }),
+  )
+  .step("travel", { title: "Travel", preview: "mileage or ticket",
+                    when: (v, s) => s.stepComplete("claimant") }, (s) =>
+    s.field("mode", { schema: z.enum(["car", "rail", "air"]), label: "Mode" })
+     .field("mileage", { schema: z.number().int().min(1).optional(),
+                         label: "Miles driven",
+                         when: (v) => v.mode === "car" }),
+  )
+  .checkpoint("policy-cap", {
+    when: (v) => typeof v.total === "number" && v.total > 750,
+    blocking: true,
+    run: () => ({ fail: "Over the limit — needs Finance pre-approval." }),
+  })
+  .onComplete(async (ctx) => { await ctx.memory.upsertNode("Person", { name: ctx.values.fullName }); })
+  .build();
+\`\`\`
+
+Wiring:
+
+\`\`\`ts
+import { FormRegistry } from "glove-memory/forms";
+import { useFormRunner, useFormReader, InMemoryFormAdapter } from "glove-memory";
+
+const registry = new FormRegistry().register("travel-claim", {
+  name: "…", description: "…",
+  load: () => import("./forms/travel-claim").then((m) => m.travelClaim),  // lazy
+});
+
+const { runner } = useFormRunner(glove, new InMemoryFormAdapter({ schema }), {
+  registry, subject: conversationId,
+  memory: { entity, episodic, resources, context },   // optional bridge
+});
+useFormReader(auditor, adapter, { registry });        // read-only history
+\`\`\`
+
+Rules that decide whether generated code is correct:
+
+- **There is no \`required\` flag.** A field is optional iff its zod schema
+  accepts \`undefined\`. The agent-readable \`type\` string is derived via
+  \`z.toJSONSchema\`. Do not invent a field-type vocabulary.
+- **Writes are never gated.** \`glove_form_fill\` accepts a patch of ANY field
+  ids at any time; only zod can reject. Ids resolve case/punctuation-insensitively
+  (\`full_name\` = \`Full name\` = \`fullName\`), with \`did_you_mean\` on a miss.
+- **\`when\` is applicability, steps are ask order.** An inapplicable field is
+  not asked and does not count toward completion, but a value given for it is
+  kept as \`held\` and goes live again if the branch flips back. \`values\` =
+  live entries; \`held\` = the rest; \`onComplete\` only ever sees \`values\`.
+- **\`entries\` is an append-only log per field plus a cursor.** Corrections
+  append. \`retract\` / \`undo\` / \`redo\` are cursor moves, reached by the model
+  through \`glove_form_revise\`'s \`action\` param, not separate tools.
+- **Executors** — \`field.onFill\`, \`step.onComplete\`, \`checkpoint.run\`,
+  \`form.onComplete\` — fire on RISING EDGES only, in that order, commit-then-run,
+  at-least-once with a per-occurrence \`idempotencyKey\`. They return
+  \`{ patch } | { fail } | { jump } | { complete } | { terminate }\`, or an array.
+  A throwing executor does NOT roll back the write; a recorded failure is not
+  retried.
+- **Tiers.** Tier 0 is one system-prompt line per turn (open step + pending
+  labels + later-step previews). Tier 1 = \`glove_form_status\` (open step in
+  full). Tier 2 = \`glove_form_inspect\` (any step / field / outline).
+- **Tools:** \`glove_form_list\` / \`_start\` / \`_status\` / \`_inspect\` / \`_fill\` /
+  \`_revise\` / \`_abandon\` from the runner, \`glove_form_history\` from the reader.
+- **A blocking checkpoint** leaves the instance \`awaiting\` with writes refused
+  (\`form_blocked\`) until the host calls \`runner.resolveCheckpoint\`. No timeout.
+- **\`FormAdapter\`** is storage only. Invariants: entries append never replace
+  (\`applyEntryCommit\` is exported), \`version\` is compare-and-set (throw
+  \`FormConflictError\`), a commit is all-or-nothing, reads return snapshots.
+- Instances pin \`defVersion\`; drift defaults to \`status: "stale"\` unless the
+  def supplies \`migrate(old, fromVersion)\`.
 
 ### glove-scratchpad (+ glove-sql)
 

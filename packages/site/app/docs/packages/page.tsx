@@ -413,15 +413,20 @@ await rt.start();`}
 
       <Pkg name="glove-memory" tag="long-term memory">
         <p>
-          Four orthogonal primitives, each an independent bring-your-own-storage
-          adapter with its own tool surface: an <strong>entity</strong> graph
-          (typed nodes with deterministic identity keys),{" "}
-          <strong>episodic</strong> memory (an append-only, time-indexed,
+          Five orthogonal subsystems, each an independent
+          bring-your-own-storage adapter with its own tool surface: an{" "}
+          <strong>entity</strong> graph (typed nodes with deterministic identity
+          keys), <strong>episodic</strong> memory (an append-only, time-indexed,
           semantically searchable timeline), <strong>resources</strong> (a
           POSIX-style virtual filesystem the agent walks with{" "}
-          <code>ls</code>/<code>read</code>/<code>grep</code>), and{" "}
-          <strong>context</strong> (the user&apos;s standing brief, injected
-          into the system prompt every turn).
+          <code>ls</code>/<code>read</code>/<code>grep</code>),{" "}
+          <strong>context</strong> (the user&apos;s standing brief, injected into
+          the system prompt every turn), and{" "}
+          <a href="/docs/forms">
+            <strong>forms</strong>
+          </a>{" "}
+          (structured collection over a conversation — Zod-authored definitions,
+          lazily loaded, with colocated executors).
         </p>
         <CodeBlock
           filename="terminal"
@@ -446,6 +451,25 @@ useContext(agent, new InMemoryContextAdapter());       // injected every turn
 
 // Writes belong to a separate curator instance:
 // useMemoryCurator(curator, entities);`}
+        />
+        <CodeBlock
+          filename="forms.ts"
+          language="typescript"
+          code={`import { FormRegistry } from "glove-memory/forms";
+import { useFormRunner, InMemoryFormAdapter } from "glove-memory";
+
+const registry = new FormRegistry().register("travel-claim", {
+  name: "Travel reimbursement claim",
+  description: "Claimant, trip, travel and approval details.",
+  load: () => import("./forms/travel-claim").then((m) => m.travelClaim),
+});
+
+// Folds seven glove_form_* tools and injects the one-line tier-0 status
+// into the system prompt each turn.
+const { runner } = useFormRunner(agent, new InMemoryFormAdapter({ schema }), {
+  registry,
+  subject: conversationId,
+});`}
         />
         <p>
           The recommended shape is <em>not</em> to hang every memory tool off
