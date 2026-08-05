@@ -18,6 +18,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
       { label: "Memory", href: "/docs/memory" },
       { label: "Mesh", href: "/docs/mesh" },
       { label: "Scratchpad", href: "/docs/scratchpad" },
+      { label: "Working Environment", href: "/docs/working-environment" },
       { label: "MCP", href: "/docs/mcp" },
       { label: "Glovebox", href: "/docs/glovebox" },
     ],
