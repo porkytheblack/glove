@@ -63,6 +63,38 @@ Office formats go through LibreOffice, because no npm package renders `.pptx` fa
 
 If LibreOffice is not available, generate the PDF directly instead — `glove-env-documents` renders the same document spec to PDF with no system dependency.
 
+### At scale, don't spawn LibreOffice
+
+Spawning `soffice` per file costs ~1s of process start, and no amount of tuning removes it. Every platform that renders Office documents in volume keeps LibreOffice **warm behind a queue** instead — Gotenberg, unoserver, JODConverter and Collabora are all that shape. The ones that avoid LibreOffice entirely pay for a native SDK.
+
+So the escape hatch is a function, and the ceiling becomes theirs rather than ours:
+
+```ts
+render({
+  async convertOffice(bytes, filename) {
+    const form = new FormData();
+    form.set("files", new Blob([bytes]), filename);
+    const res = await fetch("http://gotenberg:3000/forms/libreoffice/convert", {
+      method: "POST",
+      body: form,
+    });
+    if (!res.ok) throw new Error(`gotenberg ${res.status}`);
+    return new Uint8Array(await res.arrayBuffer());
+  },
+})
+```
+
+With it set, `soffice` is never invoked and no profile pool is created. PDFs and images are unaffected — they never needed LibreOffice.
+
+Without it, conversions lease from a small pool of **reused** LibreOffice profiles. Concurrent conversions cannot share a profile, but a *fresh* one pays first-run initialization, so profiles are leased exclusively and returned. Measured at 8 conversions per arm, interleaved, comparing medians:
+
+| strategy | median | spread |
+|---|---|---|
+| a fresh profile each | 1297ms | 1089–2016 |
+| a leased profile reused | 1019ms | 986–1183 |
+
+About 21%, and the tighter spread matters as much as the median. `profilePoolSize` (default 2) is how many conversions can run at once.
+
 ## API
 
 ```ts

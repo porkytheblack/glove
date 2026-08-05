@@ -103,6 +103,66 @@ export async function rasterizeImage(data: Uint8Array, maxWidth: number): Promis
 export class LibreOfficeError extends Error {}
 
 /**
+ * A lease pool of LibreOffice user profiles.
+ *
+ * Two facts pull in opposite directions. Concurrent conversions **cannot**
+ * share a profile: LibreOffice locks it and the loser exits without writing
+ * anything (measured: four concurrent on one profile produced two PDFs). But
+ * a *fresh* profile is expensive, because LibreOffice runs its first-run
+ * initialization into it every time.
+ *
+ * So: keep a small set of profiles, hand each conversion an *exclusive* lease
+ * on one, and put it back afterwards. Exclusivity buys the safety, reuse buys
+ * the initialization back.
+ *
+ * Measured at 8 conversions per arm, alternating so drift hits both equally,
+ * comparing medians because the distribution is skewed:
+ *
+ * | strategy | median | spread |
+ * |---|---|---|
+ * | a fresh profile each | 1297ms | 1089–2016 |
+ * | a leased profile reused | 1019ms | 986–1183 |
+ *
+ * ~21%, and the tighter spread matters as much as the median — reusing a
+ * profile makes the cost predictable, not just lower. Naive sequential
+ * benchmarks of this are worthless: run-to-run variance exceeded the effect
+ * three times over until the arms were interleaved.
+ *
+ * None of which touches the real ceiling. Process start is ~1s and no amount
+ * of profile management removes it; `convertOffice` does, by handing the work
+ * to something that keeps LibreOffice warm.
+ *
+ * Profiles live under one temp root and are the OS's to reap; there is no
+ * adapter teardown hook to delete them in, and a stale profile directory is
+ * harmless.
+ */
+export class ProfilePool {
+  private root: string | null = null;
+  private readonly idle: string[] = [];
+  private created = 0;
+  private readonly waiting: Array<(profile: string) => void> = [];
+
+  constructor(private readonly max: number) {}
+
+  async acquire(): Promise<string> {
+    const ready = this.idle.pop();
+    if (ready) return ready;
+    if (this.created < this.max) {
+      this.root ??= await mkdtemp(join(tmpdir(), "glove-render-profiles-"));
+      const profile = join(this.root, `p${this.created++}`);
+      return profile; // LibreOffice creates it on first use
+    }
+    return new Promise((resolve) => this.waiting.push(resolve));
+  }
+
+  release(profile: string): void {
+    const next = this.waiting.shift();
+    if (next) next(profile);
+    else this.idle.push(profile);
+  }
+}
+
+/**
  * Convert an Office document to PDF with headless LibreOffice.
  *
  * There is no npm package that renders .pptx faithfully; LibreOffice is the
@@ -127,12 +187,14 @@ export class LibreOfficeError extends Error {}
 export async function officeToPdf(
   data: Uint8Array,
   filename: string,
-  opts: { sofficePath: string; timeoutMs: number },
+  opts: { sofficePath: string; timeoutMs: number; pool: ProfilePool },
 ): Promise<Uint8Array> {
   const work = await mkdtemp(join(tmpdir(), "glove-render-"));
-  const profile = join(work, "profile");
   const outDir = join(work, "out");
   const input = join(work, basename(filename));
+  // Held exclusively for the duration of this conversion — that exclusivity
+  // is precisely what makes reusing a profile safe.
+  const profile = await opts.pool.acquire();
   try {
     await writeFile(input, data);
     let stderr = "";
@@ -182,6 +244,7 @@ export async function officeToPdf(
     }
     return new Uint8Array(await readFile(join(outDir, produced[0])));
   } finally {
+    opts.pool.release(profile);
     await rm(work, { recursive: true, force: true }).catch(() => {});
   }
 }

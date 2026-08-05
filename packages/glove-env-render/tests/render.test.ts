@@ -176,6 +176,55 @@ test("the declared types match the real bindings", async () => {
   }
 });
 
+test("convertOffice replaces LibreOffice entirely", async () => {
+  // The escape hatch for scale: point it at Gotenberg/unoserver and soffice
+  // is never invoked. Which is also why this test runs everywhere — it needs
+  // no LibreOffice, unlike the one below.
+  const seen: string[] = [];
+  const t = await createAdapterTestEnv(
+    render({
+      sofficePath: "/nonexistent/soffice", // proves we never reach for it
+      async convertOffice(bytes, filename) {
+        seen.push(`${filename}:${bytes.byteLength}`);
+        return await samplePdf(2);
+      },
+    }),
+  );
+  try {
+    // Any zip with an Office extension classifies as "office".
+    await t.fs.writeFile("/inbox/deck.pptx", new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4]));
+    const out = await t.script<{ pages: Array<{ path: string }>; format: string; totalPages: number }>(
+      call(`return await render('/inbox/deck.pptx', '/tmp/proof', { pages: 'all' });`),
+    );
+
+    assert.equal(out.format, "office");
+    assert.equal(out.totalPages, 2, "the pages come from the PDF the hook returned");
+    assert.equal(seen.length, 1);
+    assert.match(seen[0], /^deck\.pptx:8$/, "the hook receives the original bytes and filename");
+    assert.ok(isPng(await t.fs.readBytes(out.pages[0].path)));
+  } finally {
+    await t.env.close();
+  }
+});
+
+test("a failing convertOffice surfaces its own error", async () => {
+  const t = await createAdapterTestEnv(
+    render({
+      async convertOffice() {
+        throw new Error("gotenberg 503");
+      },
+    }),
+  );
+  try {
+    await t.fs.writeFile("/inbox/deck.pptx", new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4]));
+    const result = await t.runScript(call(`return await render('/inbox/deck.pptx', '/tmp/proof');`));
+    assert.equal(result.ok, false);
+    assert.match(String(result.error), /gotenberg 503/);
+  } finally {
+    await t.env.close();
+  }
+});
+
 test(
   "renders a .pptx through LibreOffice",
   { skip: officeReady ? false : "LibreOffice import filters not installed" },

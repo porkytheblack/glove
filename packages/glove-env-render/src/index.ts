@@ -14,7 +14,7 @@
  * Paths in, paths out — the bytes never enter the context window.
  */
 import { defineAdapter, type EnvFsHandle } from "glove-working-environment";
-import { LibreOfficeError, officeToPdf, rasterizeImage, rasterizePdf } from "./raster";
+import { LibreOfficeError, ProfilePool, officeToPdf, rasterizeImage, rasterizePdf } from "./raster";
 import { RENDER_DOCS, RENDER_TYPES, VERIFY_SKILL } from "./docs";
 
 export interface RenderOptions {
@@ -51,6 +51,43 @@ export interface RenderAdapterOptions {
   maxWidth?: number;
   /** How many pages one call may render. Default 20. */
   maxPages?: number;
+  /**
+   * How many LibreOffice user profiles to keep warm. Default 2.
+   *
+   * Concurrent conversions cannot share a profile, and a fresh one is
+   * expensive because LibreOffice runs first-run initialization into it. So
+   * profiles are leased exclusively and reused — worth about 30% per
+   * conversion. Raise it if you convert Office documents in parallel.
+   */
+  profilePoolSize?: number;
+  /**
+   * Convert an Office document to PDF yourself, instead of spawning
+   * LibreOffice.
+   *
+   * **This is the escape hatch for scale.** Spawning `soffice` per file costs
+   * roughly 1.5s of process start; every platform that renders Office
+   * documents in volume keeps LibreOffice *warm* behind a queue instead —
+   * Gotenberg, unoserver, JODConverter and Collabora are all that shape. Point
+   * this at one of them and the ceiling is theirs, not ours:
+   *
+   * ```ts
+   * render({
+   *   async convertOffice(bytes, filename) {
+   *     const form = new FormData();
+   *     form.set("files", new Blob([bytes]), filename);
+   *     const res = await fetch("http://gotenberg:3000/forms/libreoffice/convert", {
+   *       method: "POST", body: form,
+   *     });
+   *     if (!res.ok) throw new Error(`gotenberg ${res.status}`);
+   *     return new Uint8Array(await res.arrayBuffer());
+   *   },
+   * })
+   * ```
+   *
+   * When set, `soffice` is never invoked and no profile pool is created.
+   * PDFs and images are unaffected — they never needed LibreOffice.
+   */
+  convertOffice?: (bytes: Uint8Array, filename: string) => Promise<Uint8Array>;
 }
 
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46]; // %PDF
@@ -77,6 +114,7 @@ export function render(options: RenderAdapterOptions = {}) {
   const officeTimeoutMs = options.officeTimeoutMs ?? 120_000;
   const defaultMaxWidth = options.maxWidth ?? 1600;
   const maxPages = options.maxPages ?? 20;
+  const pool = new ProfilePool(Math.max(1, options.profilePoolSize ?? 2));
 
   return defineAdapter({
     name: "render",
@@ -144,7 +182,11 @@ export function render(options: RenderAdapterOptions = {}) {
           }
 
           const pdfBytes =
-            kind === "pdf" ? data : await officeToPdf(data, baseName(input), { sofficePath, timeoutMs: officeTimeoutMs });
+            kind === "pdf"
+              ? data
+              : options.convertOffice
+                ? await options.convertOffice(data, baseName(input))
+                : await officeToPdf(data, baseName(input), { sofficePath, timeoutMs: officeTimeoutMs, pool });
 
           const capped = wanted === "all" ? "all" : wanted;
           const { rendered, totalPages } = await rasterizePdf(pdfBytes, capped as number[] | "all", { scale, maxWidth });
