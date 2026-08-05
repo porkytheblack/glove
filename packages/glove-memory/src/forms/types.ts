@@ -39,18 +39,32 @@ export type FormWhen<V, S extends string = string> = (
  *   entries, so they re-run the gates and can themselves trigger hooks.
  * - `fail` — a blocking checkpoint rejecting. Recorded, and surfaced to the
  *   agent as a tool result it can act on. The instance unblocks either way.
- * - `jump` — force a step open. Escape hatch; ordering is otherwise derived.
+ * - `jump` — open a step. Forward, or back to one that already finished.
  * - `complete` — force the instance complete regardless of pending fields.
+ * - `terminate` — stop collecting altogether. For the cases where carrying on
+ *   would be wrong rather than merely unfinished: ineligible, duplicate,
+ *   withdrawn. `fail` is not this — it records a rejection and lets the
+ *   conversation continue; `complete` is not this either, because it claims
+ *   the form succeeded.
  */
 export type FormEffect<V> =
   | { patch: Partial<V> }
   | { fail: string }
   | { jump: string }
-  | { complete: true };
+  | { complete: true }
+  | { terminate: string };
 
 export interface FormExecutorContext<V> {
   /** Live, valid values only. Held entries are never visible here. */
   values: V;
+  /**
+   * The same view of the instance a gate closure gets — step completion,
+   * which checkpoints have fired, whether the form is done.
+   *
+   * Without it a router could branch on field values but not on where the
+   * conversation had been, which is half of what routing means.
+   */
+  state: FormState;
   instance: FormInstance;
   /** Prefixed hook id — `field:email`, `step:identity`, `checkpoint:conflict-check`, `form`. */
   hookId: string;
@@ -373,6 +387,8 @@ export interface FormView {
   waitMessage?: string;
   /** Blocking-checkpoint rejections the agent hasn't acted on yet. */
   failures?: FormFailure[];
+  /** Why collection stopped. Set when a trigger or the agent closed the form. */
+  closedReason?: string;
   /**
    * What undo and redo would do right now. One line at the view level rather
    * than a flag on every field row — the agent needs to know the move exists,

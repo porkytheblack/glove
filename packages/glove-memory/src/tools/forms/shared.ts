@@ -77,6 +77,11 @@ export function renderView(view: FormView): Record<string, unknown> {
       view.redo.becomes === undefined ? " → empty" : ` → ${JSON.stringify(view.redo.becomes)}`
     }`;
   }
+  if (view.closedReason) {
+    out.closed_reason = view.closedReason;
+    out.closed_note =
+      "Collection stopped — don't keep asking for the remaining fields. Tell the user why.";
+  }
   if (view.conduct) out.conduct = view.conduct;
   return out;
 }

@@ -533,6 +533,44 @@ reads as settled. Tier 0 says so too —
 even when the form had already completed, since a silent jump is the same as no
 jump at all.
 
+A router branches on **both** halves of the state. `when` and `run` each get a
+`FormState` — step completion, which checkpoints have already fired, whether the
+form is done — alongside the typed values, so a trigger can route on where the
+conversation has been and not only on what it holds:
+
+```ts
+.checkpoint("route", {
+  when: (v, s) => Boolean(v.kind) && s.stepComplete("triage"),
+  run: (ctx) => ({
+    jump: ctx.state.stepComplete("triage") && ctx.values.kind === "complex"
+      ? "complex-detail"
+      : "simple-detail",
+  }),
+})
+```
+
+`checkpointFired` reads the same counters the gate saw, so asking about a
+checkpoint inside its own `run` reports whether it fired *before* — not the
+firing in progress.
+
+**Terminating collection.** `{ terminate: reason }` stops the form outright, for
+the cases where carrying on would be wrong rather than merely unfinished —
+ineligible, duplicate, withdrawn:
+
+```ts
+.checkpoint("eligibility", {
+  when: (v) => typeof v.age === "number" && v.age < 18,
+  run: () => ({ terminate: "Under 18 — not eligible for this scheme." }),
+})
+```
+
+It is neither of the two effects that already existed: `fail` records a
+rejection and lets the conversation carry on, and `complete` claims the form
+succeeded. `terminate` closes the instance with the reason on `closedReason`,
+stops every field asking, refuses further writes, and takes the form out of tier
+0. It beats a completion that would otherwise have landed on the same commit —
+an ineligible claim must not read as a finished one.
+
 A jump is a nudge, not a pin. The override is released by the next write that
 lands in the step it sent you to, after which ordering goes back to being
 derived. A jump naming a step that doesn't exist is ignored.

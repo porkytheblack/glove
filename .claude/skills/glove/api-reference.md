@@ -2413,7 +2413,8 @@ type FormEffect<V> =
   | { patch: Partial<V> }          // derived values; commits like any other write
   | { fail: string }               // blocking checkpoint rejects; surfaced to the agent
   | { jump: string }               // open a step — forward, or back to a finished one
-  | { complete: true };
+  | { complete: true }
+  | { terminate: string };         // stop collecting; closedReason = the string
 
 /** One effect, several, or none. Several is what a routing trigger needs. */
 type FormExecutorResult<V> = FormEffect<V> | FormEffect<V>[] | void;
@@ -2422,6 +2423,7 @@ type FormExecutor<V> = (ctx: FormExecutorContext<V>) => Promise<FormExecutorResu
 
 interface FormExecutorContext<V> {
   values: V;                       // live + valid only; never held
+  state: FormState;                // stepComplete / checkpointFired / complete
   instance: FormInstance;
   hookId: string;                  // field:email | step:identity | checkpoint:cp | form
   idempotencyKey: string;          // `${instanceId}:${hookId}:${occurrence}`

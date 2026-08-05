@@ -33,6 +33,7 @@ import type {
   FormInstance,
   FormEntryCommit,
   FormInstanceCommit,
+  FormState,
   FormUnknownField,
   FormView,
   FormViewScope,
@@ -540,6 +541,7 @@ export class FormRunner {
     let committed: FormInstance | undefined;
     let hooks: Hook[] = [];
     let after: FormEvaluation<any> | undefined;
+    let beforeOccurrences: Record<string, number> | undefined;
 
     for (let attempt = 0; ; attempt++) {
       const before = opts.fromScratch
@@ -552,6 +554,7 @@ export class FormRunner {
       after = evaluateForm(compiled, projected);
       assertNoDefects(compiled, after);
 
+      beforeOccurrences = { ...current.occurrences };
       const edges = risingEdges(compiled, before, after, current.occurrences);
       hooks = edges.hooks;
 
@@ -594,6 +597,11 @@ export class FormRunner {
       committed!,
       hooks,
       after!,
+      // The occurrence counters as they stood when the gates ran. Passing the
+      // post-commit ones would have `checkpointFired("me")` return true inside
+      // that checkpoint's own executor, so `when` and `run` would disagree
+      // about the same predicate on the same firing.
+      beforeOccurrences!,
       provenance,
       opts.signal,
     );
@@ -620,12 +628,20 @@ export class FormRunner {
       // the rest of the conversation.
       closing.openStepOverride = null;
     }
-    const shouldComplete = outcome.forceComplete || post.complete;
-    const nextStatus = shouldComplete ? "complete" : "active";
-    if (settled.status !== nextStatus && settled.status !== "abandoned") {
-      closing.status = nextStatus;
-      if (nextStatus === "complete" && !settled.completedAt) {
-        closing.completedAt = new Date().toISOString();
+    if (outcome.terminate !== undefined) {
+      // Collection stops here. Not `complete` — nothing was achieved — and not
+      // `fail`, which lets the conversation carry on regardless.
+      closing.status = "abandoned";
+      closing.closedReason = outcome.terminate;
+      closing.openStepOverride = null;
+    } else {
+      const shouldComplete = outcome.forceComplete || post.complete;
+      const nextStatus = shouldComplete ? "complete" : "active";
+      if (settled.status !== nextStatus && settled.status !== "abandoned") {
+        closing.status = nextStatus;
+        if (nextStatus === "complete" && !settled.completedAt) {
+          closing.completedAt = new Date().toISOString();
+        }
       }
     }
     if (Object.keys(closing).length > 0) {
@@ -640,7 +656,11 @@ export class FormRunner {
       if (!compiled.fieldById.has(id)) continue;
       patchEntries[id] = this.entry(compiled, id, value, provenance, ++patchSeq);
     }
-    if (Object.keys(patchEntries).length > 0 && round < MAX_DISPATCH_ROUNDS) {
+    if (
+      outcome.terminate === undefined &&
+      Object.keys(patchEntries).length > 0 &&
+      round < MAX_DISPATCH_ROUNDS
+    ) {
       const next = await this.applyEntries(compiled, settled, patchEntries, provenance, {
         signal: opts.signal,
         round: round + 1,
@@ -656,6 +676,7 @@ export class FormRunner {
     instance: FormInstance,
     hooks: Hook[],
     evaluation: FormEvaluation<any>,
+    priorOccurrences: Record<string, number>,
     provenance: Provenance,
     signal?: AbortSignal,
   ): Promise<{
@@ -664,12 +685,24 @@ export class FormRunner {
     patch: Record<string, unknown>;
     jump?: string;
     forceComplete: boolean;
+    terminate?: string;
   }> {
     const failures: FormFailure[] = [];
     const patch: Record<string, unknown> = {};
     let jump: string | undefined;
     let forceComplete = false;
+    let terminate: string | undefined;
     let current = instance;
+
+    // The same view a gate closure gets, derived from the evaluation this
+    // dispatch was computed from — so a router branches on the state that
+    // fired it, not on a re-read that may have moved on.
+    const state: FormState = {
+      stepComplete: (id: string) => evaluation.stepComplete[id] ?? false,
+      checkpointFired: (id: string) =>
+        (priorOccurrences[`checkpoint:${id}`] ?? 0) > 0,
+      complete: evaluation.complete,
+    };
 
     for (const hook of hooks) {
       const idempotencyKey = `${instance.id}:${hook.hookId}:${hook.occurrence}`;
@@ -689,6 +722,7 @@ export class FormRunner {
       try {
         returned = await hook.run({
           values: evaluation.values,
+          state,
           instance: current,
           hookId: hook.hookId,
           idempotencyKey,
@@ -720,6 +754,7 @@ export class FormRunner {
           if ("patch" in effect) Object.assign(patch, effect.patch);
           else if ("jump" in effect) jump = effect.jump;
           else if ("complete" in effect) forceComplete = true;
+          else if ("terminate" in effect) terminate = effect.terminate;
         }
       }
 
@@ -739,7 +774,7 @@ export class FormRunner {
       if (reloaded) current = reloaded;
     }
 
-    return { instance: current, failures, patch, jump, forceComplete };
+    return { instance: current, failures, patch, jump, forceComplete, terminate };
   }
 
   /** A closing status write must not lose the hook results to a conflict. */

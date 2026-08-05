@@ -1151,3 +1151,132 @@ test("a jump at a step that doesn't exist is ignored rather than stranding the f
   const result = await runner.fill({ detail: "x" });
   assert.equal(result.view.step?.id, "sign", "ordering stays derived");
 });
+
+// ─── Routing on state, and terminating collection ─────────────────────────
+
+function triaged(def: FormDef<any, any>) {
+  const adapter = new InMemoryFormAdapter({ schema: new MemorySchema() });
+  const registry = new FormRegistry().register(def.id, {
+    name: "n",
+    description: "d",
+    load: () => def,
+  });
+  return { adapter, runner: new FormRunner(adapter, { registry, subject: `s${Math.random()}` }) };
+}
+
+test("a router can branch on step history, not just field values", async () => {
+  let seen: { firstDone: boolean; alreadyFired: boolean } | undefined;
+  const def = defineForm({ id: "hist", version: 1, name: "n", description: "d" })
+    .step("triage", { title: "Triage" }, (s) =>
+      s.field("kind", { schema: z.enum(["simple", "complex"]), label: "Kind" }),
+    )
+    .step("simple", { title: "Simple" }, (s) =>
+      s.field("a", { schema: z.string(), label: "A" }),
+    )
+    .step("complex", { title: "Complex" }, (s) =>
+      s.field("b", { schema: z.string(), label: "B" }),
+    )
+    .checkpoint("route", {
+      when: (v) => Boolean(v.kind),
+      run: (ctx) => {
+        // Branching on where the conversation has been, not only on values.
+        seen = {
+          firstDone: ctx.state.stepComplete("triage"),
+          alreadyFired: ctx.state.checkpointFired("route"),
+        };
+        return {
+          jump: ctx.state.stepComplete("triage") && ctx.values.kind === "complex"
+            ? "complex"
+            : "simple",
+        };
+      },
+    })
+    .build();
+
+  const { runner } = triaged(def);
+  await runner.start("hist");
+  const result = await runner.fill({ kind: "complex" });
+
+  assert.deepEqual(seen, { firstDone: true, alreadyFired: false });
+  assert.equal(result.view.step?.id, "complex");
+});
+
+test("a trigger can terminate collection outright", async () => {
+  const def = defineForm({ id: "elig", version: 1, name: "n", description: "d" })
+    .step("a", { title: "A" }, (s) =>
+      s
+        .field("age", { schema: z.number(), label: "Age" })
+        .field("more", { schema: z.string(), label: "More" }),
+    )
+    .checkpoint("eligibility", {
+      when: (v) => typeof v.age === "number" && v.age < 18,
+      run: () => ({ terminate: "Under 18 — not eligible for this scheme." }),
+    })
+    .build();
+
+  const { runner } = triaged(def);
+  await runner.start("elig");
+  const result = await runner.fill({ age: 12 });
+
+  // Not `complete` — nothing was achieved. Not `active` — carrying on would
+  // be wrong, and `fail` would have left it asking for `more`.
+  assert.equal(result.view.status, "abandoned");
+  assert.equal(result.view.complete, false);
+  assert.match(result.view.closedReason!, /Under 18/);
+  assert.equal(
+    result.view.fields.filter((f) => f.ask).length,
+    0,
+    "and it stops asking",
+  );
+
+  // A terminated form takes no more answers. Reached by subject there is no
+  // open form at all; reached by id it says why it's closed.
+  await assert.rejects(
+    () => runner.fill({ more: "anything" }),
+    /No open form instance/,
+  );
+  await assert.rejects(
+    () => runner.fill({ more: "anything" }, { instanceId: result.view.instanceId }),
+    /abandoned/,
+  );
+});
+
+test("terminate beats a completion that would otherwise have landed", async () => {
+  const def = defineForm({ id: "both", version: 1, name: "n", description: "d" })
+    .step("a", { title: "A" }, (s) =>
+      s.field("age", { schema: z.number(), label: "Age" }),
+    )
+    .checkpoint("eligibility", {
+      when: (v) => typeof v.age === "number" && v.age < 18,
+      run: () => ({ terminate: "Not eligible." }),
+    })
+    .build();
+
+  const { runner } = triaged(def);
+  await runner.start("both");
+  // `age` is the only required field, so the form would be complete — the
+  // termination has to win, or an ineligible claim reads as a finished one.
+  const result = await runner.fill({ age: 12 });
+  assert.equal(result.view.status, "abandoned");
+});
+
+test("a terminated form is not the conversation's open form any more", async () => {
+  const def = defineForm({ id: "gone", version: 1, name: "n", description: "d" })
+    .step("a", { title: "A" }, (s) =>
+      s
+        .field("age", { schema: z.number(), label: "Age" })
+        .field("more", { schema: z.string(), label: "More" }),
+    )
+    .checkpoint("eligibility", {
+      when: (v) => typeof v.age === "number" && v.age < 18,
+      run: () => ({ terminate: "Not eligible." }),
+    })
+    .build();
+
+  const { runner } = triaged(def);
+  await runner.start("gone");
+  await runner.fill({ age: 12 });
+
+  assert.equal(await runner.activeInstance(), null);
+  assert.equal(await runner.tier0(), "", "and it stops occupying the prompt");
+});

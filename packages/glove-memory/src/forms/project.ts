@@ -32,6 +32,7 @@ export function projectView<V extends Record<string, unknown>>(
   evaluation?: FormEvaluation<V>,
 ): FormView {
   const ev = evaluation ?? evaluateForm(compiled, instance);
+  const asking = instance.status !== "abandoned";
 
   const base: FormView = {
     instanceId: instance.id,
@@ -56,6 +57,7 @@ export function projectView<V extends Record<string, unknown>>(
   const failures = openFailures(instance);
   if (failures.length > 0) base.failures = failures;
   if (ev.revisiting) base.revisiting = true;
+  if (instance.closedReason) base.closedReason = instance.closedReason;
 
   // What the two reversal verbs would do, named once at the view level. The
   // agent needs to know the move is available and what it would touch; a flag
@@ -80,7 +82,7 @@ export function projectView<V extends Record<string, unknown>>(
   if (scope.scope === "field") {
     const field = compiled.fieldById.get(scope.id);
     if (field) {
-      base.fields = [fieldView(field, ev)];
+      base.fields = [fieldView(field, ev, asking)];
       const step = compiled.stepById.get(field.stepId);
       if (step) {
         base.step = {
@@ -97,7 +99,7 @@ export function projectView<V extends Record<string, unknown>>(
 
   if (scope.scope === "outline") {
     base.steps = compiled.steps.map((step) => stepSummary(compiled, ev, step.id));
-    base.fields = compiled.fields.map((f) => fieldView(f, ev));
+    base.fields = compiled.fields.map((f) => fieldView(f, ev, asking));
     return base;
   }
 
@@ -120,7 +122,7 @@ export function projectView<V extends Record<string, unknown>>(
   base.fields = step.fieldIds
     .map((id) => compiled.fieldById.get(id))
     .filter((f): f is CompiledField<V> => Boolean(f))
-    .map((f) => fieldView(f, ev));
+    .map((f) => fieldView(f, ev, asking));
   return base;
 }
 
@@ -130,7 +132,11 @@ export function projectView<V extends Record<string, unknown>>(
  * inapplicable, or belongs to a step that isn't open — and the agent doesn't
  * need to know which. `status` carries what it does need.
  */
-function fieldView(field: CompiledField<any>, ev: FormEvaluation<any>): FormFieldView {
+function fieldView(
+  field: CompiledField<any>,
+  ev: FormEvaluation<any>,
+  asking = true,
+): FormFieldView {
   const fe = ev.fields.get(field.id);
   const status = fe?.status ?? "empty";
   // On a revisit an answered field is still worth asking about — that is the
@@ -144,7 +150,13 @@ function fieldView(field: CompiledField<any>, ev: FormEvaluation<any>): FormFiel
     type: field.type,
     required: field.required,
     status,
-    ask: Boolean(fe?.applicable) && !answered && field.stepId === ev.openStepId,
+    // A closed form asks for nothing — leaving `ask` set on an abandoned
+    // instance invites the agent to keep collecting for a form that stopped.
+    ask:
+      asking &&
+      Boolean(fe?.applicable) &&
+      !answered &&
+      field.stepId === ev.openStepId,
   };
   if (status === "filled") view.value = fe?.value;
   else if (status === "held") view.value = fe?.raw;

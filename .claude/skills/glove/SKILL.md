@@ -1271,6 +1271,19 @@ The agent reaches all four through `glove_form_revise`'s `action` (`set` / `retr
 
 An executor may return one effect or an array, so a router can stamp a value *and* move in one firing. A backwards jump is a **revisit**: the step's answers stay `filled` but come back with `ask: true`, and tier 0 says `back at step 1/3 "Claimant" — go through it again` (even on an otherwise-complete form). The override is released by the next write into that step, so a jump nudges rather than pins; a jump at a step that doesn't exist is ignored.
 
+**Routing on state, not just values.** `when` *and* `run` each get a `FormState` — `stepComplete(id)`, `checkpointFired(id)`, `complete` — alongside typed values, so a router branches on where the conversation has been:
+
+```ts
+.checkpoint("route", {
+  when: (v, s) => Boolean(v.kind) && s.stepComplete("triage"),
+  run: (ctx) => ({ jump: ctx.values.kind === "complex" ? "complex" : "simple" }),
+})
+```
+
+`checkpointFired` reads the counters the gate saw, so asking inside a checkpoint's own `run` reports whether it fired *before*, not the firing in progress.
+
+**Terminating collection.** `{ terminate: reason }` stops the form — for ineligible / duplicate / withdrawn, where carrying on is wrong rather than merely unfinished. Distinct from the two that already existed: `fail` records a rejection and continues; `complete` claims success. `terminate` closes the instance with `closedReason`, stops every field asking, refuses further writes, drops it out of tier 0, and beats a completion landing on the same commit.
+
 **Lazy loading, three tiers.** Tier 0 is one line injected into the system prompt each turn — open step, its pending field *labels*, and a one-line `preview` per remaining step. Tier 1 (`glove_form_status`) is the open step in full. Tier 2 (`glove_form_inspect`) is any other step, a field, or the whole outline. Form modules aren't imported until started, so `glove_form_list` costs a name and a description.
 
 ```
