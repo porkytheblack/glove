@@ -48,6 +48,33 @@ export class OpenAIRealtimeAdapter extends EventEmitter<S2SEvents> implements S2
   private readonly model: string;
   private readonly sdpUrl: string;
 
+  /**
+   * WebRTC: this adapter opens the microphone and plays the reply itself, so
+   * the host has nothing to wire. The cost is that it only runs in a browser
+   * and cannot serve a room process, which has no microphone to open — use a
+   * `transport`-mode adapter there.
+   */
+  readonly mode = "device" as const;
+
+  /** What the browser captures; declared for symmetry, unused in device mode. */
+  readonly inputFormat = {
+    sampleRate: 24_000,
+    channels: 1 as const,
+    encoding: "pcm_s16le" as const,
+  };
+
+  /**
+   * Refused, deliberately. This adapter is already holding the microphone, so
+   * accepting PCM it would never transmit would leave the host believing the
+   * caller is being heard while the model hears nothing.
+   */
+  sendAudio(): never {
+    throw new Error(
+      "OpenAIRealtimeAdapter runs in device mode and captures its own microphone. " +
+        "Use a transport-mode adapter to feed PCM from a server or phone bridge.",
+    );
+  }
+
   constructor(private readonly cfg: OpenAIRealtimeConfig) {
     super();
     this.model = cfg.model ?? "gpt-realtime";

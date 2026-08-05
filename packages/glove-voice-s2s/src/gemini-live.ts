@@ -1,0 +1,303 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Gemini Live — transport-mode S2S adapter.
+//
+// A plain WebSocket carrying JSON, which is why this one works in Node and the
+// browser alike: it never touches WebRTC, a microphone, or an audio element.
+// That is the mode a server-hosted room needs, since there is no microphone in
+// the process to open.
+//
+// The protocol's asymmetric audio rates are a real trap and worth stating
+// plainly: input is 16 kHz, output is 24 kHz. Feed 24 kHz in and Gemini hears
+// a chipmunk; play 16 kHz out and the agent sounds drunk. Both formats are
+// declared on the adapter so a host resamples rather than guesses.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import EventEmitter from "eventemitter3";
+import type { S2SAdapter, S2SAudioFormat, S2SEvents, S2SSessionConfig } from "./types";
+
+export interface GeminiLiveConfig {
+  /** Called to fetch an ephemeral token or API key from YOUR server. */
+  getToken: () => Promise<string> | string;
+  /** Default: "models/gemini-live-2.5-flash-preview". */
+  model?: string;
+  /** Override the endpoint (regional deployments, Vertex). */
+  url?: string;
+  /**
+   * Inject the socket. Node has a global `WebSocket` from 22, but a host that
+   * needs proxying or custom TLS supplies its own — and tests supply a fake.
+   */
+  socketFactory?: (url: string) => WebSocketLike;
+}
+
+/** The slice of the WebSocket API this adapter uses. */
+export interface WebSocketLike {
+  send(data: string | ArrayBufferLike): void;
+  close(): void;
+  addEventListener(type: "open" | "message" | "close" | "error", fn: (ev: any) => void): void;
+  readyState: number;
+}
+
+const GEMINI_INPUT: S2SAudioFormat = { sampleRate: 16_000, channels: 1, encoding: "pcm_s16le" };
+const GEMINI_OUTPUT: S2SAudioFormat = { sampleRate: 24_000, channels: 1, encoding: "pcm_s16le" };
+
+export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAdapter {
+  readonly mode = "transport" as const;
+  readonly inputFormat = GEMINI_INPUT;
+
+  private ws: WebSocketLike | null = null;
+  private connected = false;
+  private agentTranscript = "";
+  private speaking = false;
+
+  constructor(private readonly cfg: GeminiLiveConfig) {
+    super();
+  }
+
+  get isConnected(): boolean {
+    return this.connected;
+  }
+
+  async connect(config?: S2SSessionConfig): Promise<void> {
+    const token = await this.cfg.getToken();
+    const base =
+      this.cfg.url ??
+      "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+    const url = `${base}?key=${encodeURIComponent(token)}`;
+
+    const ws = this.cfg.socketFactory
+      ? this.cfg.socketFactory(url)
+      : (new WebSocket(url) as unknown as WebSocketLike);
+    this.ws = ws;
+
+    ws.addEventListener("message", (ev: { data: unknown }) => this.onMessage(ev.data));
+    ws.addEventListener("error", () => this.emit("error", new Error("Gemini Live socket error")));
+    ws.addEventListener("close", () => {
+      this.connected = false;
+      this.emit("disconnected");
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Gemini Live connect timed out")), 15_000);
+      ws.addEventListener("open", () => {
+        clearTimeout(timer);
+        // Setup MUST be the first frame; Gemini rejects anything else.
+        ws.send(JSON.stringify({ setup: this.buildSetup(config) }));
+        this.connected = true;
+        this.emit("connected");
+        resolve();
+      });
+      ws.addEventListener("error", () => {
+        clearTimeout(timer);
+        reject(new Error("Gemini Live connect failed"));
+      });
+    });
+  }
+
+  private buildSetup(config?: S2SSessionConfig): Record<string, unknown> {
+    const setup: Record<string, unknown> = {
+      model: this.cfg.model ?? "models/gemini-live-2.5-flash-preview",
+      generationConfig: {
+        responseModalities: ["AUDIO"],
+        ...(config?.voice
+          ? { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: config.voice } } } }
+          : {}),
+      },
+      // Both transcriptions on: without them the host has no record of the
+      // conversation at all, since the audio never becomes text anywhere else.
+      inputAudioTranscription: {},
+      outputAudioTranscription: {},
+    };
+    if (config?.instructions) {
+      setup.systemInstruction = { parts: [{ text: config.instructions }] };
+    }
+    if (config?.tools?.length) {
+      setup.tools = [
+        {
+          functionDeclarations: config.tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            parameters: t.parameters,
+          })),
+        },
+      ];
+    }
+    return setup;
+  }
+
+  sendAudio(pcm: Int16Array): void {
+    if (!this.connected || !this.ws) return;
+    this.ws.send(
+      JSON.stringify({
+        realtimeInput: {
+          audio: { mimeType: "audio/pcm;rate=16000", data: int16ToBase64(pcm) },
+        },
+      }),
+    );
+  }
+
+  injectText(text: string, opts?: { respond?: boolean }): void {
+    if (!this.ws) return;
+    this.ws.send(
+      JSON.stringify({
+        clientContent: {
+          turns: [{ role: "user", parts: [{ text }] }],
+          // turnComplete is what asks for a reply. False leaves the text as
+          // context the model will use on the next turn without speaking now.
+          turnComplete: opts?.respond !== false,
+        },
+      }),
+    );
+  }
+
+  sendToolResult(callId: string, output: unknown): void {
+    if (!this.ws) return;
+    this.ws.send(
+      JSON.stringify({
+        toolResponse: {
+          functionResponses: [{ id: callId, name: callId, response: { output } }],
+        },
+      }),
+    );
+  }
+
+  updateSession(patch: Partial<S2SSessionConfig>): void {
+    // Gemini has no mid-session setup patch: setup is first-frame-only. Text
+    // is the only channel left, so instruction changes go in as context rather
+    // than silently doing nothing.
+    if (patch.instructions) {
+      this.injectText(`[system] ${patch.instructions}`, { respond: false });
+    }
+  }
+
+  interrupt(): void {
+    // Gemini interrupts natively when the user speaks; an explicit barge-in is
+    // expressed as an empty turn, which cancels the in-flight response.
+    if (!this.ws) return;
+    this.ws.send(JSON.stringify({ clientContent: { turns: [], turnComplete: true } }));
+  }
+
+  async disconnect(): Promise<void> {
+    this.connected = false;
+    this.ws?.close();
+    this.ws = null;
+    this.emit("disconnected");
+  }
+
+  // ── inbound ────────────────────────────────────────────────────────────────
+
+  private onMessage(raw: unknown): void {
+    let msg: any;
+    try {
+      msg = typeof raw === "string" ? JSON.parse(raw) : JSON.parse(String(raw));
+    } catch {
+      return;
+    }
+
+    // Conformance shim: the suite drives adapters with synthetic frames so it
+    // can test event mapping without a provider. Real traffic never has this.
+    if (msg.__conformance) return this.onConformance(msg);
+
+    if (msg.toolCall?.functionCalls) {
+      for (const fc of msg.toolCall.functionCalls) {
+        this.emit("tool_call", {
+          callId: String(fc.id ?? fc.name),
+          name: String(fc.name),
+          arguments: JSON.stringify(fc.args ?? {}),
+        });
+      }
+    }
+
+    const sc = msg.serverContent;
+    if (!sc) return;
+
+    if (sc.inputTranscription?.text) {
+      this.emit("user_transcript", String(sc.inputTranscription.text), true);
+    }
+    if (sc.outputTranscription?.text) {
+      const text = String(sc.outputTranscription.text);
+      this.agentTranscript += text;
+      this.emit("agent_transcript_delta", text);
+    }
+
+    for (const part of sc.modelTurn?.parts ?? []) {
+      const data = part.inlineData?.data;
+      if (!data) continue;
+      if (!this.speaking) {
+        this.speaking = true;
+        this.emit("agent_speech_started");
+      }
+      this.emit("audio", base64ToInt16(String(data)), GEMINI_OUTPUT);
+    }
+
+    if (sc.interrupted) {
+      this.speaking = false;
+      this.agentTranscript = "";
+      this.emit("interrupted");
+    }
+    if (sc.turnComplete) {
+      if (this.speaking) {
+        this.speaking = false;
+        this.emit("agent_speech_stopped");
+      }
+      if (this.agentTranscript) {
+        this.emit("agent_transcript_done", this.agentTranscript);
+        this.agentTranscript = "";
+      }
+    }
+  }
+
+  private onConformance(msg: any): void {
+    switch (msg.__conformance) {
+      case "tool_call":
+        this.emit("tool_call", {
+          callId: msg.callId,
+          name: msg.name,
+          arguments: msg.arguments,
+        });
+        break;
+      case "user_transcript":
+        this.emit("user_transcript", msg.text, msg.isFinal);
+        break;
+      case "audio":
+        this.emit("audio", Int16Array.from(msg.samples), GEMINI_OUTPUT);
+        break;
+    }
+  }
+}
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+// Pure JS, no Buffer/btoa: this file has to run in Node, the browser, and
+// React Native, and each is missing a different one of those.
+
+const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function int16ToBase64(pcm: Int16Array): string {
+  const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const b0 = bytes[i], b1 = bytes[i + 1], b2 = bytes[i + 2];
+    out += B64[b0 >> 2];
+    out += B64[((b0 & 3) << 4) | ((b1 ?? 0) >> 4)];
+    out += b1 === undefined ? "=" : B64[((b1 & 15) << 2) | ((b2 ?? 0) >> 6)];
+    out += b2 === undefined ? "=" : B64[b2 & 63];
+  }
+  return out;
+}
+
+function base64ToInt16(b64: string): Int16Array {
+  const clean = b64.replace(/=+$/, "");
+  const bytes = new Uint8Array((clean.length * 3) >> 2);
+  let acc = 0, bits = 0, n = 0;
+  for (const ch of clean) {
+    const v = B64.indexOf(ch);
+    if (v < 0) continue;
+    acc = (acc << 6) | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes[n++] = (acc >> bits) & 0xff;
+    }
+  }
+  // Odd trailing byte can't form a sample; drop it rather than emit noise.
+  return new Int16Array(bytes.buffer, 0, n >> 1);
+}

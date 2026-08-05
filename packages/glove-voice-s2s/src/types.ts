@@ -37,9 +37,27 @@ export interface S2SSessionConfig {
   tools?: S2STool[];
 }
 
+/** PCM format on the wire. Providers differ; adapters convert to their own. */
+export interface S2SAudioFormat {
+  /** Samples per second. Providers commonly want 16000 in, 24000 out. */
+  sampleRate: number;
+  /** Always 1 today — every realtime provider is mono. */
+  channels: 1;
+  /** Always signed 16-bit little-endian PCM. */
+  encoding: "pcm_s16le";
+}
+
 export type S2SEvents = {
   connected: [];
   disconnected: [];
+  /**
+   * A chunk of the agent's speech, as PCM.
+   *
+   * Only emitted by adapters running in TRANSPORT mode — where the host owns
+   * capture and playback (a server room, a phone bridge). Adapters in DEVICE
+   * mode play audio themselves and never emit this.
+   */
+  audio: [pcm: Int16Array, format: S2SAudioFormat];
   /** The provider's VAD heard the user start / stop speaking. */
   user_speech_started: [];
   user_speech_stopped: [];
@@ -65,9 +83,33 @@ export type S2SEvents = {
  * out-of-band context (async worker results, typed messages, corrections).
  */
 export interface S2SAdapter extends EventEmitter<S2SEvents> {
-  /** Open the session: mic capture, peer connection, audio playback. */
+  /**
+   * Which half of the audio path this adapter owns.
+   *
+   * - `"device"` — the adapter opens the microphone and plays the reply
+   *   itself. Browser-only (WebRTC), and the least code at the call site.
+   * - `"transport"` — the adapter moves PCM and nothing else: the host feeds
+   *   `sendAudio()` and receives `audio` events. Works in Node and the
+   *   browser, and is the only mode a server-hosted room or a phone bridge
+   *   can use, because there is no microphone in the process.
+   *
+   * Declared rather than inferred so a host can refuse a mismatch loudly at
+   * startup instead of discovering silence on the first call.
+   */
+  readonly mode: "device" | "transport";
+
+  /** Open the session. */
   connect(config?: S2SSessionConfig): Promise<void>;
   disconnect(): Promise<void>;
+
+  /**
+   * Feed captured microphone PCM. `transport` mode only — a `device`-mode
+   * adapter throws, because it is already holding the microphone.
+   */
+  sendAudio(pcm: Int16Array): void;
+
+  /** The PCM format this adapter expects from `sendAudio`. */
+  readonly inputFormat: S2SAudioFormat;
 
   /**
    * Inject a TEXT item into the live conversation — the §5 wakeup path.
