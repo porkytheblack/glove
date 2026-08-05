@@ -21,6 +21,7 @@ import { ScriptContractError, contractOf } from "../pipeline/contract";
 import { createStdBindings } from "../builtins/std";
 import { createAssertBindings } from "../builtins/assert";
 import { tagBindings } from "../adapters/tag";
+import { pickFrom } from "../adapters/pure";
 import { makeBuilder } from "./recorder";
 import type { BuilderOp, HostToWorker, NeedMessage, ResultMessage, RunMessage, ShapeNode, StartMessage } from "./protocol";
 import type { EnvLimits } from "../types";
@@ -95,7 +96,11 @@ const LOCAL_BUILTINS: Record<string, () => Record<string, unknown>> = {
   assert: createAssertBindings,
 };
 
-function buildModules(shapes: Record<string, ShapeNode>, readOnly: boolean): Map<string, Record<string, unknown>> {
+function buildModules(
+  shapes: Record<string, ShapeNode>,
+  readOnly: boolean,
+  pure: Map<string, Record<string, unknown>>,
+): Map<string, Record<string, unknown>> {
   const modules = new Map<string, Record<string, unknown>>();
   for (const [name, shape] of Object.entries(shapes)) {
     const local = LOCAL_BUILTINS[name];
@@ -107,6 +112,14 @@ function buildModules(shapes: Record<string, ShapeNode>, readOnly: boolean): Map
     ns.default = ns;
     modules.set(name, ns);
   }
+  // Pure modules take the LOCAL_BUILTINS path, not the shape path: their
+  // bindings live in this thread, and going through tagBindings means a
+  // failure inside one still names the capability.
+  for (const [name, bindings] of pure) {
+    const ns = tagBindings(name, bindings) as Record<string, unknown>;
+    ns.default = ns;
+    modules.set(name, ns);
+  }
   return modules;
 }
 
@@ -115,10 +128,23 @@ let limits: EnvLimits;
 let readWrite: Map<string, Record<string, unknown>>;
 let readOnlySet: Map<string, Record<string, unknown>>;
 
-function start(message: StartMessage): void {
+async function start(message: StartMessage): Promise<void> {
   limits = message.limits;
-  readWrite = buildModules(message.shapes.readWrite, false);
-  readOnlySet = buildModules(message.shapes.readOnly, true);
+
+  // Pure modules are imported HERE, in the worker's own realm, which is what
+  // makes them synchronous for scripts — a call never leaves the thread. The
+  // host already imported the same URLs and verified every pick, so this is
+  // a replay of a known-good import, not a first attempt.
+  const pure = new Map<string, Record<string, unknown>>();
+  for (const p of message.pure ?? []) {
+    const ns = (await import(p.url)) as Record<string, unknown>;
+    const bindings: Record<string, unknown> = {};
+    for (const name of p.pick) bindings[name] = pickFrom(ns, name);
+    pure.set(p.name, bindings);
+  }
+
+  readWrite = buildModules(message.shapes.readWrite, false, pure);
+  readOnlySet = buildModules(message.shapes.readOnly, true, pure);
   executor = new ScriptExecutor({
     readSource: async (path) => (await need({ what: "readSource", path })) as string | null,
     envModules: (ro) => (ro ? readOnlySet : readWrite),
@@ -189,7 +215,11 @@ async function handleRun(message: RunMessage): Promise<void> {
 }
 
 port.on("message", (message: HostToWorker) => {
-  if (message.type === "start") return start(message);
+  // start() is async only for pure-module imports. A rejection here is a
+  // broken environment (the host already imported the same URLs), and letting
+  // it become an unhandled rejection kills this worker — which is the right
+  // outcome, and the pool's failure translation names it.
+  if (message.type === "start") return void start(message);
   if (message.type === "run") {
     void handleRun(message);
     return;

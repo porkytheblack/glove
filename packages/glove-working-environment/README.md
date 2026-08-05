@@ -248,6 +248,47 @@ Four things the environment does for you, which is most of why adapters are shor
 - **Specs are checked eagerly.** `defineAdapter` rejects a bad name, a missing `description`, or absent `types` at definition time, where the author sees it — not at environment creation, in someone else's stack trace.
 - **`skills` is where the worked example goes.** `types` says what you export; a skill says how to get a deliverable out of it. Ship at least two if your adapter has both a one-call path and a library path — that is the shape the three format adapters use, and the measured failure was never a misused signature.
 
+### Pure modules: a synchronous library in one declaration
+
+Adapter calls are async because they cross a thread — right for I/O, wrong for a library whose entire idiom is synchronous. Routing lodash through an adapter makes muscle-memory code fail *silently*: `rows.map(r => camelCase(r.name))` cannot await, an un-awaited call stringifies as `{}`, and the run reports success. Measured, not hypothetical.
+
+`definePureModule` takes the route `env:std` already uses — the package is imported *inside the worker* and bound directly into the vm context, so calls never leave the thread:
+
+```ts
+import { definePureModule } from "glove-working-environment";
+
+const env = await createWorkingEnvironment({
+  stdlib: [
+    documents(),
+    definePureModule({
+      name: "lodash",
+      from: "lodash",                       // package name, absolute path, or import.meta.resolve(...)
+      description: "Lodash utilities for shaping data.",
+      pick: ["groupBy", "sumBy", "orderBy", "uniqBy", "camelCase", "cloneDeep"],
+    }),
+  ],
+});
+```
+
+That is the whole integration — no bundling, no hand-written types, no VFS bytes. Scripts then write ordinary lodash:
+
+```js
+import { groupBy, sumBy, camelCase } from 'env:lodash';
+
+const keys = names.map((n) => camelCase(n));        // sync, inside a callback — works
+const total = sumBy(rows, 'amount');                 // no await — works
+const same  = await sumBy(rows, 'amount');           // await — also works (a no-op)
+```
+
+**There is no wrong syntax**, which is the point: sync is the forgiving direction, because `await` on a plain value is a no-op while a missed `await` on a promise is silent garbage. Types and a README are generated at creation — declared synchronous, with the import line — and `pick` is verified against the real module when the environment is created, so a typo fails with the available names rather than as `undefined` in a script.
+
+Rules of the road, each held by a test:
+
+- **`pick` is the sandbox boundary.** These functions run in the worker's realm, outside the vm. The one dangerous class is anything that compiles strings into code — `_.template` runs `Function(source)` host-side, which is arbitrary code execution outside the sandbox. Never pick it. Prototype members are refused at definition time.
+- **Callbacks work both ways.** Iteratees cross inward; a returned function (`memoize`, `curry`) crosses back as a guarded context-realm wrapper — callable, but its constructor chain dead-ends inside the sandbox.
+- **Data is copied per call**, like every capability. Pure modules suit shaping work, not shared mutable state.
+- **Route by shape:** I/O or genuinely async → adapter. Stateful builder written at the end → `defineBuilder`. Pure synchronous computation → `definePureModule`.
+
 ### Testing one
 
 ```ts

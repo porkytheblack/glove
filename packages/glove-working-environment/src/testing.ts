@@ -24,6 +24,7 @@
  * ```
  */
 import { createWorkingEnvironment, type WorkingEnvironment } from "./index";
+import { primePureModule, pureStateOf } from "./adapters/pure";
 import { createFsHandle } from "./builtins/fs";
 import type { AdapterContext } from "./adapters/define";
 import type { EnvFsHandle, EnvLimits, RunResult, StdlibAdapter, Vfs } from "./types";
@@ -229,6 +230,13 @@ export async function auditAdapter(adapter: StdlibAdapter, env?: WorkingEnvironm
   } else if (adapter.description.length > 200) {
     warnings.push(`description is ${adapter.description.length} chars; it is a one-liner, keep it under ~200`);
   }
+  // A pure module's bindings AND generated types come from a host import,
+  // not from create() — prime it before reading either, so auditing one
+  // standalone works the same as auditing it through an environment.
+  // Priming twice is harmless.
+  const pure = pureStateOf(adapter) !== null;
+  if (pure) await primePureModule(adapter);
+
   const types = typeof adapter?.types === "string" ? adapter.types : "";
   if (types.trim() === "") errors.push("types is empty — the model has no way to learn the API");
   if (typeof adapter?.docs !== "string" || adapter.docs.trim() === "") {
@@ -283,14 +291,28 @@ export async function auditAdapter(adapter: StdlibAdapter, env?: WorkingEnvironm
   const signatures = callableSignatures(types);
   for (const key of callableNames(bindings)) {
     const declared = signatures.get(key);
-    if (declared && declared.length > 0 && !declared.some(Boolean)) {
+    if (!declared || declared.length === 0) continue;
+    if (pure) {
+      // The contract INVERTS for a pure module: its bindings run in the
+      // script's own thread and return values, so a Promise declaration is
+      // the lie here — it teaches a model to expect the wrong shape on the
+      // one axis this mechanism exists to get right.
+      if (declared.every(Boolean)) {
+        errors.push(
+          `binding \`${key}\` is declared \`Promise<…>\`, but pure modules are synchronous — declare the value ` +
+            `it actually returns (generated types get this right; consider omitting \`types\`)`,
+        );
+      }
+    } else if (!declared.some(Boolean)) {
       errors.push(
         `binding \`${key}\` is declared with a synchronous return type — scripts call capabilities across a thread boundary, so it must be declared \`Promise<…>\` (a script that forgets to await gets a promise where the docs promised a value)`,
       );
     }
   }
 
-  if (!names.includes("describe")) {
+  // A pure module has no files to describe and generates its own docs, so
+  // the format-adapter conventions do not apply to it.
+  if (!pure && !names.includes("describe")) {
     warnings.push(
       "no describe(path) binding — format adapters should expose one so a model can summarize a binary artifact without reading bytes it cannot interpret",
     );
