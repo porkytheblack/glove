@@ -21,10 +21,10 @@ export default function Page() {
     <div className="app">
       <header>
         <div>
-          <h1>Orbital Dynamics · rooms</h1>
+          <h1>Orbital Dynamics · s2s rooms</h1>
           <div className="sub">
-            this page is an audio duct — the room beacon runs VAD, transcription,
-            endpointing, the agent and speech
+            this page is an audio duct — the room runs a speech-to-speech model
+            that IS the front agent; lookups delegate to the worker over the mesh
           </div>
         </div>
         <div className="spacer" />
@@ -121,7 +121,7 @@ export default function Page() {
           </div>
           <div className="note dim">
             Room lifecycle, delegation runs and live logs are in the station
-            dashboard at <a href="http://localhost:4400/beacons">localhost:4400</a>.
+            dashboard at <a href="http://localhost:4410/signals">localhost:4410</a>.
           </div>
         </section>
       </main>

@@ -1,26 +1,20 @@
 {
-  "name": "glove-server-voice",
+  "name": "glove-s2s-rooms",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "prestart": "pnpm --filter glove-voice build",
+    "prestart": "pnpm --filter glove-voice build && pnpm --filter glove-voice-s2s build",
     "start": "station",
-    "smoke": "node scripts/smoke.mjs",
-    "runs": "tsx scripts/inspect-runs.ts",
     "typecheck": "tsc --noEmit",
     "key": "tsx scripts/provision-key.ts"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.2.0",
     "dotenv": "^17.2.3",
-    "eventemitter3": "^5.0.4",
     "glove-core": "workspace:*",
     "glove-mesh": "workspace:*",
-    "glove-voice": "workspace:*",
-    "onnxruntime-node": "^1.22.0",
+    "glove-voice-s2s": "workspace:*",
     "station-adapter-sqlite": "^2.0.0",
-    "station-beacon": "^2.0.0",
     "station-kit": "^2.0.0",
     "station-signal": "^2.0.0",
     "ws": "^8.18.0",
@@ -29,7 +23,6 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
-    "playwright": "^1.62.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
