@@ -10,17 +10,38 @@ filesystem both of you are working in.
 
 ```bash
 pnpm install
-echo "ANTHROPIC_API_KEY=sk-ant-..." > examples/document-desk/.env.local
-pnpm --filter glove-document-desk dev
+cd examples/document-desk
+cat > .env.local <<'ENV'
+ANTHROPIC_API_KEY=sk-ant-...
+OPENROUTER_API_KEY=sk-or-...      # optional — turns on `view_image`
+ENV
+pnpm dev
 # http://localhost:3000
 ```
 
 Any provider `glove-core` knows works — `DESK_PROVIDER=openrouter` plus
 `DESK_MODEL=<slug>` swaps it without touching code.
 
+### Letting it check its own work
+
+| Variable | Effect |
+|---|---|
+| `OPENROUTER_API_KEY` or `VISION_API_KEY` | **Enables `view_image`.** Without one, the verb is not offered at all |
+| `VISION_MODEL` | Default `google/gemini-2.5-flash` |
+| `VISION_BASE_URL` | Default OpenRouter's; any OpenAI-compatible chat endpoint |
+
+With a vision key set, the agent can look at what it produced instead of only
+reading its text back. Ask for a report and watch it call `view_image` on its
+own PDF — that is the only way it catches a table running off the page or a
+heading printed twice.
+
+The whole integration is `app/lib/vision.ts`: one `describe({ bytes,
+mediaType, prompt })` function. Swap the `fetch` for whatever you already run
+and nothing else changes.
+
 ## What it demonstrates
 
-Five stdlib adapters mounted at once, so a single agent handles every format
+Six stdlib adapters mounted at once, so a single agent handles every format
 in one conversation:
 
 | Module | Package | What the agent gets |
@@ -30,6 +51,7 @@ in one conversation:
 | `env:images` | `glove-env-images` | resize, crop, convert, composite, contact sheets |
 | `env:slides` | `glove-env-slides` | `.pptx` generation and read-back |
 | `env:archives` | `glove-env-archives` | zip and tar, in and out |
+| `env:render` | `glove-env-render` | rasterize a PDF, deck or Word file to page PNGs — what `view_image` looks at |
 
 Plus `env:fs`, `env:std` and `env:assert`, which the environment provides
 itself.
