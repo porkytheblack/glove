@@ -89,6 +89,10 @@ export type ServerMessage =
   | { t: "state"; listening: boolean; speaking: boolean; thinking: boolean }
   /** A delegation's lifecycle, so the UI can show the worker at work. */
   | { t: "delegation"; jobId: string; phase: "queued" | "done" | "failed"; detail?: string }
+  /** A Tavus interaction event the BROWSER must relay into the Daily call
+   *  via sendAppMessage — interactions travel only over the data channel,
+   *  and the browser is the participant we already have in the room. */
+  | { t: "avatar_interaction"; event: Record<string, unknown> }
   /** Timings, mirrored from the gateway's metrics log. */
   | { t: "metric"; name: string; ms?: number; data?: Record<string, unknown> }
   | { t: "error"; message: string };

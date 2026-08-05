@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useEffect } from "react";
 import { useRoom, type SpeakerRole } from "./lib/useRoom";
+import { useAvatarCall } from "./lib/useAvatarCall";
 
 // Mirrors lib/speakers.ts, which is the source of truth the ROOM uses. Kept in
 // sync by hand because this app is a separate package from the room and shares
@@ -13,7 +15,19 @@ const SPEAKERS: Array<{ id: SpeakerRole; label: string }> = [
 ];
 
 export default function Page() {
-  const { state, connect, hangUp, setSpeaker, say } = useRoom();
+  const avatar = useAvatarCall();
+  const { state, connect, hangUp, setSpeaker, say } = useRoom({
+    onAvatarInteraction: avatar.relay,
+  });
+
+  // Join the avatar's Daily room as soon as the room hands us its URL, and
+  // leave when the call ends.
+  const avatarUrl = typeof state.config?.avatarUrl === "string" ? state.config.avatarUrl : "";
+  useEffect(() => {
+    if (state.connected && avatarUrl) void avatar.join(avatarUrl);
+    if (!state.connected) void avatar.leave();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.connected, avatarUrl]);
   const [speaker, setSpeakerLocal] = useState<SpeakerRole>("operator");
   const [typed, setTyped] = useState("");
 
@@ -60,18 +74,23 @@ export default function Page() {
       <main>
         <section>
           <div className="head">Aria — live</div>
-          {typeof state.config?.avatarUrl === "string" && state.config.avatarUrl ? (
-            <iframe
-              src={state.config.avatarUrl}
-              allow="camera; microphone; autoplay; display-capture"
-              style={{ width: "100%", aspectRatio: "16 / 9", border: 0, borderRadius: 8 }}
-              title="avatar"
-            />
-          ) : (
+          <video
+            ref={avatar.videoRef}
+            autoPlay
+            playsInline
+            style={{
+              width: "100%",
+              aspectRatio: "16 / 9",
+              borderRadius: 8,
+              background: "#000",
+              display: avatar.joined ? "block" : "none",
+            }}
+          />
+          <audio ref={avatar.audioRef} autoPlay />
+          {!avatar.joined && (
             <div className="empty">
-              The avatar's room appears here once connected. Join it (mic can stay
-              off — the room is the agent's face and voice; YOUR mic flows through
-              this page).
+              The avatar appears here once the room is up — its face and voice
+              arrive through Daily; YOUR mic flows through this page's duct.
             </div>
           )}
           <div className="head">Conversation</div>

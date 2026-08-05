@@ -20,8 +20,10 @@ model, capable worker over the mesh, rooms as station signal runs — plus a
   mic ──16k PCM (duct)──▶      RealtimeAgent (gpt-realtime / Gemini Live)
   transcripts ◀── (duct)              │ agent PCM (24 kHz)
                                       ▼
-  Daily room iframe ◀───────── TavusEchoAdapter — lip-syncs into the
-  (the face AND the voice)     conversation's Daily room
+  Daily call object ◀───────── TavusEchoAdapter — frames conversation.echo
+  (the face AND the voice,     events; the BROWSER relays them into the
+   plus the event courier)     Daily data channel (the only transport
+                               Tavus interactions have)
                                       │ glove_mesh_send_message
                                       ▼
                                research SIGNAL — the worker (unchanged)
@@ -42,7 +44,7 @@ Tavus interrupt — the face stops with the voice.
 cp .env.example .env.local
 # OPENAI_API_KEY (or GEMINI_API_KEY)  — the brain + voice
 # OPENROUTER_API_KEY                  — the worker
-# TAVUS_API_KEY + TAVUS_PERSONA_ID    — the face (persona with pipeline_mode "echo")
+# TAVUS_API_KEY + TAVUS_PAL_ID + TAVUS_FACE_ID — the face (PAL with pipeline_mode "echo")
 # STATION_USERNAME / STATION_PASSWORD
 
 pnpm install                   # from the repo root
@@ -52,11 +54,13 @@ pnpm key "web app" trigger read cancel   # → STATION_API_KEY into .env.local
 cd web && pnpm dev             # the app on :3002
 ```
 
-Open http://localhost:3002, Connect, allow the mic, and join the embedded
-Daily room when it appears (its mic can stay off — the room is the agent's
-face and voice; YOUR mic flows through this page). Ask for a price and watch
-the delegation run in the station dashboard (:4420/signals) while the avatar
-holds the floor.
+Open http://localhost:3002, Connect, and allow the mic. The page joins the
+avatar's Daily room automatically (muted — the room is the agent's face and
+voice; YOUR mic flows through this page's duct) and doubles as the event
+courier: Tavus interactions only travel over the Daily data channel, so the
+room sends them down the WS and the browser relays them via sendAppMessage.
+Ask for a price and watch the delegation run in the station dashboard
+(:4420/signals) while the avatar holds the floor.
 
 Ports are shifted so this runs side by side with the whole series: station
 :4420, rooms :4701+, web :3002.

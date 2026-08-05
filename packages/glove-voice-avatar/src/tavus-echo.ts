@@ -1,27 +1,36 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Tavus echo — the first concrete AvatarAdapter.
 //
-// Echo mode (`pipeline_mode: "echo"` on the persona) bypasses Tavus's whole
-// CVI pipeline — Perception, STT, LLM, TTS — and streams OUR pre-generated
-// audio straight into the rendered face. That is precisely the division of
-// labour the layered architecture wants: the S2S model stays the brain and
-// the voice, Tavus is the face. Two consequences worth stating plainly:
+// Echo mode (`pipeline_mode: "echo"` on the PAL, created via /v2/pals)
+// bypasses Tavus's whole CVI pipeline — Perception, STT, LLM, TTS — and
+// streams OUR pre-generated audio straight into the rendered face. That is
+// precisely the division of labour the layered architecture wants: the S2S
+// model stays the brain and the voice, Tavus is the face. Consequences:
 //   - No perception layer: the avatar does not see or hear the caller. The
 //     caller's mic keeps flowing through the host's own duct to the S2S
 //     model, exactly as before.
 //   - Interruption logic is OURS. The voice side already treats every user
-//     speech-start as a barge-in; this adapter forwards it as an interrupt
-//     interaction so the face stops with the voice.
+//     speech-start as a barge-in; this adapter forwards it as a
+//     conversation.interrupt so the face stops with the voice.
 //
-// The session is a Tavus CONVERSATION created over REST; the caller joins
-// its Daily room (the adapter's `view`) to see and hear the avatar. Audio
-// goes up as base64 24 kHz PCM `conversation.echo` interaction events.
+// The session is a Tavus CONVERSATION (REST: pal_id + face_id in, a Daily
+// room URL out — the adapter's `view`). Interaction events, though, are
+// delivered EXCLUSIVELY over the Daily data channel (`sendAppMessage`) —
+// there is no REST interactions endpoint — so the host MUST supply
+// `sendInteraction`, a courier into the call. Two honest ways to build one:
+//   - a browser already joined to the Daily room relays events the server
+//     hands it (what examples/avatar-rooms does — the duct carries them);
+//   - a server-side Daily SDK participant (e.g. daily-python) sends them
+//     directly.
 //
-// Verification honesty, same as every adapter in this series: conformance
-// proves the wiring against our reading of the protocol; only a live call
-// with credentials proves the reading. The interaction TRANSPORT is
-// injectable (`sendInteraction`) because that is the part of the protocol a
-// live test is most likely to move — e.g. onto the Daily data channel.
+// Wire facts verified against docs.tavus.io (llms.txt index):
+//   create   POST /v2/conversations  { pal_id, face_id, conversation_name? }
+//   end      POST /v2/conversations/{id}/end
+//   echo     { message_type, event_type: "conversation.echo", conversation_id,
+//              properties: { modality: "audio", audio: <base64>,
+//                            sample_rate: 24000, inference_id, done } }
+//   interrupt{ message_type, event_type: "conversation.interrupt",
+//              conversation_id }  — NO properties object
 // ─────────────────────────────────────────────────────────────────────────────
 
 import EventEmitter from "eventemitter3";
@@ -31,24 +40,26 @@ import type { AvatarAdapter, AvatarEvents, AvatarView } from "./types";
 export interface TavusEchoConfig {
   /** Tavus API key (server-side only — never ships to a browser). */
   apiKey: string;
-  /** Persona with `pipeline_mode: "echo"`. */
-  personaId: string;
-  /** Replica (the face). Optional when the persona carries a default. */
-  replicaId?: string;
+  /** PAL with `pipeline_mode: "echo"` (create via POST /v2/pals). */
+  palId: string;
+  /** The face the PAL renders. Required by the conversations API. */
+  faceId: string;
   /** Conversation display name, shown in the Daily room. */
   conversationName?: string;
   /** API base (default https://tavusapi.com). */
   apiBase?: string;
   /** How much audio to batch per echo event (default 400ms). */
   chunkMs?: number;
-  /** Inject the HTTP layer — proxies and tests. */
+  /** Inject the HTTP layer (conversation create/end) — proxies and tests. */
   fetchFn?: typeof fetch;
   /**
-   * Inject the interaction transport. Default POSTs to the conversation's
-   * interactions endpoint; a host already holding a Daily connection can
-   * route events over the data channel instead.
+   * The interaction courier — REQUIRED, because Tavus interaction events
+   * travel only over the Daily data channel (`sendAppMessage`), which this
+   * adapter deliberately does not own. Forward each event into the call:
+   * from a browser participant the host controls, or a server-side Daily
+   * SDK participant.
    */
-  sendInteraction?: (event: Record<string, unknown>) => Promise<void>;
+  sendInteraction: (event: Record<string, unknown>) => Promise<void> | void;
 }
 
 const TAVUS_RATE = 24_000;
@@ -66,6 +77,13 @@ export class TavusEchoAdapter extends EventEmitter<AvatarEvents> implements Avat
 
   constructor(private readonly cfg: TavusEchoConfig) {
     super();
+    if (typeof cfg.sendInteraction !== "function") {
+      throw new Error(
+        "TavusEchoAdapter needs `sendInteraction`: Tavus interaction events travel only over " +
+          "the Daily data channel, so the host must supply a courier into the call " +
+          "(a joined browser participant relaying events, or a server-side Daily SDK).",
+      );
+    }
   }
 
   get isConnected(): boolean {
@@ -81,8 +99,8 @@ export class TavusEchoAdapter extends EventEmitter<AvatarEvents> implements Avat
       method: "POST",
       headers: { "x-api-key": this.cfg.apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
-        persona_id: this.cfg.personaId,
-        ...(this.cfg.replicaId ? { replica_id: this.cfg.replicaId } : {}),
+        pal_id: this.cfg.palId,
+        face_id: this.cfg.faceId,
         ...(this.cfg.conversationName ? { conversation_name: this.cfg.conversationName } : {}),
       }),
     });
@@ -106,7 +124,7 @@ export class TavusEchoAdapter extends EventEmitter<AvatarEvents> implements Avat
     this.conversationId = null;
     this.resetUtterance();
     if (id) {
-      // End the conversation so the room (and the meter) actually closes.
+      // End the conversation so the Daily room (and the meter) actually closes.
       await this.fetch(`${this.base()}/v2/conversations/${id}/end`, {
         method: "POST",
         headers: { "x-api-key": this.cfg.apiKey },
@@ -135,14 +153,13 @@ export class TavusEchoAdapter extends EventEmitter<AvatarEvents> implements Avat
   interrupt(): void {
     if (!this.connected) return;
     // Drop the cut sentence entirely — the next reply must not inherit its
-    // buffered tail or its inference identity (conformance-enforced).
-    const interrupted = this.inferenceId;
+    // buffered tail or its inference identity (conformance-enforced). The
+    // interrupt event carries NO properties, per the interactions protocol.
     this.resetUtterance();
     void this.deliver({
       message_type: "conversation",
       event_type: "conversation.interrupt",
       conversation_id: this.conversationId,
-      ...(interrupted ? { properties: { inference_id: interrupted } } : {}),
     });
   }
 
@@ -179,21 +196,7 @@ export class TavusEchoAdapter extends EventEmitter<AvatarEvents> implements Avat
 
   private async deliver(event: Record<string, unknown>): Promise<void> {
     try {
-      if (this.cfg.sendInteraction) {
-        await this.cfg.sendInteraction(event);
-        return;
-      }
-      const res = await this.fetch(
-        `${this.base()}/v2/conversations/${this.conversationId}/interactions`,
-        {
-          method: "POST",
-          headers: { "x-api-key": this.cfg.apiKey, "Content-Type": "application/json" },
-          body: JSON.stringify(event),
-        },
-      );
-      if (!res.ok) {
-        this.emit("error", new Error(`Tavus interaction rejected (${res.status})`));
-      }
+      await this.cfg.sendInteraction(event);
     } catch (err) {
       this.emit("error", err instanceof Error ? err : new Error(String(err)));
     }

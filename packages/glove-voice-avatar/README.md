@@ -26,7 +26,7 @@ mic ──▶ S2S model (the brain + voice) ──▶ agent PCM ──▶ Avatar
 | --- | --- |
 | `AvatarAdapter` | the contract: `connect()` → a `view` clients attach to, `sendAudio(pcm, format)`, `endUtterance()`, `interrupt()` (always safe — conformance-enforced) |
 | `AvatarView` | how a client attaches, as a tagged union: a WebRTC room URL (Tavus/Daily) or an SDK session token (Anam) |
-| `TavusEchoAdapter` | first concrete adapter: Tavus `pipeline_mode: "echo"` — our PCM streams into the rendered replica as base64 24 kHz `conversation.echo` events; the caller joins the conversation's Daily room |
+| `TavusEchoAdapter` | first concrete adapter: Tavus `pipeline_mode: "echo"` (a PAL) — our PCM frames as base64 24 kHz `conversation.echo` events; the caller joins the conversation's Daily room |
 | `attachAvatar(rt, avatar)` | the one-call bridge from a `RealtimeAgent`: `audio` → `sendAudio`, `agent_speech_stopped` → `endUtterance`, `interrupted` → `interrupt`. Returns a detach fn |
 | `runAvatarConformance` | the behavioural suite every adapter must pass against a fake transport |
 
@@ -40,8 +40,13 @@ const rt = new RealtimeAgent({ agent });   // the voice stack, exactly as before
 await rt.start();
 
 const avatar = new TavusEchoAdapter({
-  apiKey: process.env.TAVUS_API_KEY!,      // server-side only
-  personaId: process.env.TAVUS_PERSONA_ID!, // a persona with pipeline_mode: "echo"
+  apiKey: process.env.TAVUS_API_KEY!,       // server-side only
+  palId: process.env.TAVUS_PAL_ID!,         // a PAL with pipeline_mode: "echo"
+  faceId: process.env.TAVUS_FACE_ID!,       // the face it renders
+  // Interactions travel ONLY over the Daily data channel — supply the
+  // courier: a joined browser participant relaying events (what
+  // examples/avatar-rooms does via its WS duct), or a server-side Daily SDK.
+  sendInteraction: (event) => duct.send({ t: "avatar_interaction", event }),
 });
 const detach = await attachAvatar(rt, avatar);
 
@@ -70,9 +75,11 @@ Same posture as every adapter in this series: the conformance suite proves
 an adapter is wired correctly against its own reading of the protocol — via
 harnesses that capture real wire frames, no `__conformance` shims in
 production code — and only a live call with credentials proves the reading.
-The Tavus interaction *transport* is injectable (`sendInteraction`) because
-that is the part a live test is most likely to move (e.g. onto the Daily
-data channel).
+The wire facts (create with `pal_id`+`face_id`, bare `conversation.interrupt`,
+data-channel-only interactions) are synced against docs.tavus.io's llms.txt
+index; `sendInteraction` is REQUIRED precisely because the data channel is
+the only interaction transport and the adapter deliberately does not own a
+Daily connection.
 
 ## Roadmap
 

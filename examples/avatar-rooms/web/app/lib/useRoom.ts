@@ -56,8 +56,15 @@ const INITIAL: RoomState = {
   error: null,
 };
 
-export function useRoom() {
+export interface RoomHandlers {
+  /** Tavus interaction events the room asks us to relay into the Daily call. */
+  onAvatarInteraction?: (event: Record<string, unknown>) => void;
+}
+
+export function useRoom(handlers?: RoomHandlers) {
   const [state, setState] = useState<RoomState>(INITIAL);
+  const handlersRef = useRef<RoomHandlers | undefined>(handlers);
+  handlersRef.current = handlers;
   const patch = useCallback(
     (p: Partial<RoomState>) => setState((s) => ({ ...s, ...p })),
     [],
@@ -465,6 +472,9 @@ export function useRoom() {
               );
               patch({ ttft: msg.ms, ttftAvg: avg });
             }
+            break;
+          case "avatar_interaction":
+            handlersRef.current?.onAvatarInteraction?.(msg.event);
             break;
           case "error":
             line("error", msg.message, "error");

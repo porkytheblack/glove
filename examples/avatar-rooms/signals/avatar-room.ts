@@ -111,9 +111,10 @@ export const avatarRoom = signal("avatar-room")
     const apiKey = process.env[keyName];
     if (!apiKey) throw new Error(`${keyName} is not set. See .env.example.`);
     const tavusKey = process.env.TAVUS_API_KEY;
-    const tavusPersona = process.env.TAVUS_PERSONA_ID;
-    if (!tavusKey || !tavusPersona) {
-      throw new Error("TAVUS_API_KEY and TAVUS_PERSONA_ID must be set. See .env.example.");
+    const tavusPal = process.env.TAVUS_PAL_ID;
+    const tavusFace = process.env.TAVUS_FACE_ID;
+    if (!tavusKey || !tavusPal || !tavusFace) {
+      throw new Error("TAVUS_API_KEY, TAVUS_PAL_ID and TAVUS_FACE_ID must be set. See .env.example.");
     }
 
     // Same queue the runner drains, so the research job this room dispatches
@@ -262,9 +263,16 @@ export const avatarRoom = signal("avatar-room")
     // bridge wires audio / utterance-end / barge-in and nothing else.
     const avatar = new TavusEchoAdapter({
       apiKey: tavusKey,
-      personaId: tavusPersona,
-      ...(process.env.TAVUS_REPLICA_ID ? { replicaId: process.env.TAVUS_REPLICA_ID } : {}),
+      palId: tavusPal,
+      faceId: tavusFace,
       conversationName: input.roomId,
+      // Tavus interactions travel ONLY over the Daily data channel, and this
+      // room never joins the call — the BROWSER does. So the duct is the
+      // courier: events go down the WS and the client relays them via
+      // sendAppMessage. Consequence worth knowing: echo audio only reaches
+      // the face while a client is attached — which is also the only time
+      // anyone is watching it.
+      sendInteraction: (event) => send({ t: "avatar_interaction", event }),
     });
     avatar.on("error", (err) => {
       console.log(`avatar error: ${err.message}`);
