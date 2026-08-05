@@ -26,7 +26,8 @@ mic ──▶ S2S model (the brain + voice) ──▶ agent PCM ──▶ Avatar
 | --- | --- |
 | `AvatarAdapter` | the contract: `connect()` → a `view` clients attach to, `sendAudio(pcm, format)`, `endUtterance()`, `interrupt()` (always safe — conformance-enforced) |
 | `AvatarView` | how a client attaches, as a tagged union: a WebRTC room URL (Tavus/Daily) or an SDK session token (Anam) |
-| `TavusEchoAdapter` | first concrete adapter: Tavus `pipeline_mode: "echo"` (a PAL) — our PCM frames as base64 24 kHz `conversation.echo` events; the caller joins the conversation's Daily room |
+| `TavusEchoAdapter` | first concrete adapter: Tavus `pipeline_mode: "echo"` — our PCM frames as base64 24 kHz `conversation.echo` events; the caller joins the conversation's Daily room |
+| `ensureEchoPal` | reuse-or-create the MINIMAL echo PAL (no greeting, no TTS layer) — the ecosystem pattern that keeps the opening silent; used automatically when `palId` is omitted |
 | `attachAvatar(rt, avatar)` | the one-call bridge from a `RealtimeAgent`: `audio` → `sendAudio`, `agent_speech_stopped` → `endUtterance`, `interrupted` → `interrupt`. Returns a detach fn |
 | `runAvatarConformance` | the behavioural suite every adapter must pass against a fake transport |
 
@@ -41,8 +42,9 @@ await rt.start();
 
 const avatar = new TavusEchoAdapter({
   apiKey: process.env.TAVUS_API_KEY!,       // server-side only
-  palId: process.env.TAVUS_PAL_ID!,         // a PAL with pipeline_mode: "echo"
   faceId: process.env.TAVUS_FACE_ID!,       // the face it renders
+  // palId omitted → ensureEchoPal() reuses-or-creates a MINIMAL echo PAL
+  // (no greeting, no TTS layer) so the ONLY voice is ever the agent's.
   // Interactions travel ONLY over the Daily data channel — supply the
   // courier: a joined browser participant relaying events (what
   // examples/avatar-rooms does via its WS duct), or a server-side Daily SDK.
@@ -78,7 +80,8 @@ production code — and a live call proves the reading. The wire facts (create
 with `pal_id`+`face_id`, bare `conversation.interrupt`, data-channel-only
 interactions) are synced against docs.tavus.io's llms.txt index, and the
 Tavus adapter is **live-verified** (2026-08-05) through
-`examples/avatar-rooms`. `sendInteraction` is REQUIRED precisely because
+`examples/avatar-rooms` — including the silent open via the ensured
+minimal PAL and single-voice echo throughout. `sendInteraction` is REQUIRED precisely because
 the data channel is the only interaction transport and the adapter
 deliberately does not own a Daily connection.
 

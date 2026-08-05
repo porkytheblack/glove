@@ -44,7 +44,7 @@ Tavus interrupt — the face stops with the voice.
 cp .env.example .env.local
 # OPENAI_API_KEY (or GEMINI_API_KEY)  — the brain + voice
 # OPENROUTER_API_KEY                  — the worker
-# TAVUS_API_KEY + TAVUS_PAL_ID + TAVUS_FACE_ID — the face (PAL with pipeline_mode "echo")
+# TAVUS_API_KEY + TAVUS_FACE_ID       — the face (a minimal echo PAL is ensured automatically)
 # STATION_USERNAME / STATION_PASSWORD
 
 pnpm install                   # from the repo root
@@ -68,8 +68,9 @@ Ports are shifted so this runs side by side with the whole series: station
 ## Status
 
 **Live-verified against the Tavus API** (2026-08-05): conversation create,
-echo audio through the browser courier, and the rendered face all confirmed
-working end to end, on top of the conformance suite. Anam passthrough
+echo audio through the browser courier, the rendered face, barge-in, and the
+silent open (ensured minimal PAL — no second voice) all confirmed working
+end to end, on top of the conformance suite. Anam passthrough
 ([#71](https://github.com/porkytheblack/glove/issues/71)) and a LiveKit
 transport variant ([#72](https://github.com/porkytheblack/glove/issues/72))
 come next.
