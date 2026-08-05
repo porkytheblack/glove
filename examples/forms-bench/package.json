@@ -1,0 +1,22 @@
+{
+  "name": "glove-forms-bench",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Agentic evaluation: real models via OpenRouter driving glove-memory/forms through a scripted multi-turn intake, measuring context cost and instruction following.",
+  "scripts": {
+    "bench": "tsx --env-file-if-exists=../../.env src/run.ts",
+    "selfcheck": "tsx src/selfcheck.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "glove-memory": "workspace:*",
+    "gpt-tokenizer": "^3.4.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}

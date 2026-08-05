@@ -12,6 +12,7 @@ Real patterns drawn from the example implementations in `examples/`.
 | `examples/coffee` | Web app | Next.js + glove-react + glove-voice | `defineTool`, `<Render>`, `renderResult`, `displayStrategy`, e-commerce flow, cart state, voice interaction, inbox (restock watches) |
 | `examples/lola` | Web app | Next.js + glove-react + glove-voice | Voice-first movie companion, 9 TMDB tools, SileroVAD, `pushAndForget` only, cinematic UI |
 | `examples/glovebox-pdf-extractor` | Sandboxed service | glovebox + glovebox/docs base | `glovebox.wrap`, `glovebox build`, S3 outputs via `adapters` export, `GloveboxClient` |
+| `examples/forms-bench` | Agentic eval | glove-memory/forms + OpenRouter | Scripted multi-turn conversations, context-cost ledger, instruction-following metrics, offline selfcheck |
 | *(pattern below)* | Full-stack | React SPA + Node/Express | `createRemoteModel`, auth headers, SSE streaming, separate frontend/backend |
 
 ---
@@ -1017,6 +1018,151 @@ const { inbox } = useGlove({ tools, sessionId });
 **Blocking vs non-blocking:**
 - `blocking: false` (default) — agent continues, result arrives later
 - `blocking: true` — agent is told it cannot proceed until resolved (soft enforcement via prompt)
+
+---
+
+## Pattern: Forms — collecting structured data over a conversation
+
+Definitions are code. The agent never reads the definition — it reads a projection of
+evaluated state, one tier at a time.
+
+```ts
+// forms/travel-claim.ts — imported lazily, only when the form is started
+import { z } from "zod";
+import { defineForm } from "glove-memory/forms";
+
+export const travelClaim = defineForm({
+  id: "travel-claim",
+  version: 1,
+  name: "Travel reimbursement claim",
+  description: "Claimant, trip, travel and approval details for a staff claim.",
+  conduct:
+    "Conversational — one or two questions at a time. Don't read the field list " +
+    "aloud. If the user volunteers something out of order, capture it and carry on.",
+})
+  .step("claimant", { title: "Claimant", preview: "name, staff id, email" }, (s) =>
+    s
+      .field("fullName", { schema: z.string().min(2), label: "Full name" })
+      .field("staffId", {
+        schema: z.string().regex(/^[A-Z]{2}-\d{4}$/),
+        label: "Staff ID",
+        hint: "Two capital letters, a hyphen, then four digits — like FN-4471.",
+      })
+      .field("email", { schema: z.string().email(), label: "Work email" }),
+  )
+  .step(
+    "travel",
+    {
+      title: "Travel",
+      preview: "how they travelled, mileage or ticket, total",
+      when: (v, s) => s.stepComplete("claimant"),
+    },
+    (s) =>
+      s
+        .field("mode", { schema: z.enum(["car", "rail", "air"]), label: "Mode" })
+        .field("mileage", {
+          schema: z.number().int().min(1).optional(),
+          label: "Miles driven",
+          // Applicability, not ask-order. On a rail trip this field means
+          // nothing — it isn't asked, doesn't block completion, and a value
+          // given for it is *held* rather than dropped.
+          when: (v) => v.mode === "car",
+        })
+        .field("totalAmount", { schema: z.number().min(0), label: "Total (GBP)" })
+        .onComplete(async (ctx) => {
+          await ctx.memory.recordEpisode("travel_costed", {
+            total: ctx.values.totalAmount,
+          });
+        }),
+  )
+  .checkpoint("policy-cap", {
+    when: (v) => typeof v.totalAmount === "number" && v.totalAmount > 750,
+    blocking: true,
+    waitMessage: "Checking this against the travel policy — one moment.",
+    run: () => ({
+      fail: "£750 is the limit a manager can approve alone. This needs Finance " +
+        "pre-approval. Tell the claimant, and carry on collecting the rest.",
+    }),
+  })
+  .onComplete(async (ctx) => {
+    await ctx.memory.upsertNode("Person", {
+      name: ctx.values.fullName,
+      email: ctx.values.email,
+    });
+  })
+  .build();
+```
+
+Wire it up. The registry defers the import, so a form nobody starts costs a name and a
+description:
+
+```ts
+import { FormRegistry } from "glove-memory/forms";
+import { InMemoryFormAdapter } from "glove-memory/in-memory";
+import { MemorySchema } from "glove-memory/core";
+import { useFormRunner } from "glove-memory";
+
+const schema = new MemorySchema();
+schema.defineNodeClass({ name: "Person", schema: z.object({ name: z.string(), email: z.string() }) });
+schema.defineEpisodeKind({ name: "travel_costed" });
+
+const registry = new FormRegistry().register("travel-claim", {
+  name: "Travel reimbursement claim",
+  description: "New staff travel claim — claimant, trip, travel, approval.",
+  load: () => import("./forms/travel-claim").then((m) => m.travelClaim),
+});
+
+const { runner } = useFormRunner(glove, new InMemoryFormAdapter({ schema }), {
+  registry,
+  subject: conversationId,
+  memory: { entity, episodic },   // what ctx.memory bridges to
+});
+
+// The host can drive it directly too — no model in the loop.
+await runner.start("travel-claim", { seed: { fullName: "Ada Okafor" } });
+```
+
+**What the agent sees each turn** — one line appended to the system prompt:
+
+```
+[form: travel-claim] step 2/3 "Travel" · pending: Mode, Total (GBP)
+later: Approval (cost centre, approving manager, receipts)
+Conversational — one or two questions at a time. Don't read the field list aloud.
+```
+
+It calls `glove_form_status` for the open step in full, `glove_form_inspect` for anything
+else, and `glove_form_fill` with a patch of **any** field ids — including ones from steps
+it hasn't reached:
+
+```ts
+// The user dumped everything in one breath. All of it lands in one call.
+glove_form_fill({
+  values: {
+    fullName: "Ada Okafor", staffId: "FN-4471", email: "ada.okafor@example.com",
+    mode: "rail", totalAmount: 410, costCentre: "OPS-220",
+  },
+})
+```
+
+**Corrections don't destroy anything.** `entries` is an append-only log per field, so a
+revision appends and a retraction is itself a revision:
+
+```ts
+// "Actually, scrap that ticket reference."
+glove_form_revise({ action: "retract", field: "ticketReference" })
+
+// "No wait, put it back."
+glove_form_revise({ action: "undo" })          // most recent change anywhere
+glove_form_revise({ action: "undo", field: "mileage" })   // or one field
+```
+
+Tell the model to reach for `retract` rather than blanking a field — writing `""` or `0`
+to "clear" something is the instinct an agentic eval caught models acting on, and before
+per-field history it destroyed the real answer.
+
+**A blocking checkpoint** parks the instance while it runs. On `{ fail }` the instance
+unblocks and the reason is surfaced to the agent as something to relay, not an error to
+swallow. Host-side or mesh resolution goes through `runner.resolveCheckpoint(...)`.
 
 ---
 

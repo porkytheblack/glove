@@ -15,10 +15,28 @@ import {
   buildResourcesCuratorTools,
 } from "./resources";
 import { useContext, type ContextEnableTarget } from "./context";
+import { useFormReader, type FormEnableTarget } from "./forms";
 
 export * from "./entity";
 export * from "./episodic";
 export * from "./resources";
+export {
+  buildFormListTool,
+  buildFormStartTool,
+  buildFormStatusTool,
+  buildFormInspectTool,
+  buildFormFillTool,
+  buildFormReviseTool,
+  buildFormAbandonTool,
+  buildFormHistoryTool,
+  buildFormRunnerTools,
+  buildFormReaderTools,
+  useFormRunner,
+  useFormReader,
+  type FormEnableTarget,
+  type UseFormRunnerConfig,
+  type FormReaderOptions,
+} from "./forms";
 export {
   buildContextGetTool,
   buildContextSetTool,
@@ -111,3 +129,14 @@ export function useResourcesCurator<G extends FoldTarget>(
 
 void useContext;
 void ({} as ContextEnableTarget);
+
+// ─── Forms ───────────────────────────────────────────────────────────────
+
+// `useFormRunner` is exported above (re-exported from ./forms) — like
+// `useContext` it wraps `processRequest` for system-prompt injection, so it
+// needs the richer `FormEnableTarget` rather than the bare `FoldTarget`. It
+// also returns the runner, because hosts start instances and resolve
+// checkpoints without going through the model.
+
+void useFormReader;
+void ({} as FormEnableTarget);
