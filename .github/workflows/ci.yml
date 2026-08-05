@@ -57,6 +57,7 @@ jobs:
           pnpm
           --filter glove-core
           --filter glove-voice-s2s
+          --filter glove-voice-avatar
           --filter glove-memory
           --filter glove-scratchpad
           --filter glove-egress
@@ -77,6 +78,7 @@ jobs:
         run: >-
           pnpm
           --filter glove-voice-s2s
+          --filter glove-voice-avatar
           --filter glove-memory
           --filter glove-scratchpad
           --filter glove-egress

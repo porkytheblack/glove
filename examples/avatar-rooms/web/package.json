@@ -1,0 +1,30 @@
+{
+  "name": "glove-avatar-rooms-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/vendor-vad.mjs && next dev -p 3002",
+    "build": "node scripts/vendor-vad.mjs && next build",
+    "start": "next start -p 3002",
+    "typecheck": "tsc --noEmit",
+    "vendor:vad": "node scripts/vendor-vad.mjs",
+    "postinstall": "node scripts/vendor-vad.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "next": "^15.3.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "server-only": "^0.0.1",
+    "glove-voice": "workspace:*",
+    "onnxruntime-web": "^1.24.2",
+    "@ricky0123/vad-web": "^0.0.30"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.9.3"
+  }
+}
