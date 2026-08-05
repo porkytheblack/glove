@@ -1,0 +1,45 @@
+{
+  "name": "glove-voice-livekit",
+  "version": "0.1.0",
+  "description": "LiveKit adapters for the Glove voice stack — room transport for realtime agents, and avatars that join the room as participants",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "keywords": [
+    "livekit",
+    "avatar",
+    "voice",
+    "speech-to-speech",
+    "realtime",
+    "agent"
+  ],
+  "dependencies": {
+    "@livekit/rtc-node": "^0.13.33",
+    "eventemitter3": "^5.0.4",
+    "glove-voice-avatar": "workspace:*",
+    "glove-voice-s2s": "workspace:*",
+    "livekit-server-sdk": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsup": "^8.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

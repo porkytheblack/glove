@@ -5,4 +5,5 @@ packages:
   - "examples/server-voice/web"
   - "examples/s2s-rooms/web"
   - "examples/avatar-rooms/web"
+  - "examples/livekit-rooms/web"
   - "benches/*"

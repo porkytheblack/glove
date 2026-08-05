@@ -20,7 +20,8 @@
     "glove-voice": "workspace:*",
     "onnxruntime-web": "^1.24.2",
     "@ricky0123/vad-web": "^0.0.30",
-    "@daily-co/daily-js": "^0.85.0"
+    "@daily-co/daily-js": "^0.85.0",
+    "@anam-ai/js-sdk": "^4.23.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

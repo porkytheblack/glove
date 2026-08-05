@@ -46,10 +46,6 @@ export type ClientMessage =
   | { t: "speaker"; speaker: SpeakerRole }
   /** Type instead of talk — same path as a spoken utterance, minus the audio. */
   | { t: "say"; speaker: SpeakerRole; text: string }
-  /** The avatar session died under the client (e.g. Anam's plan cap
-   *  force-ends conversations) — ask the room to mint a fresh one. The room
-   *  answers with `avatar_view`. */
-  | { t: "avatar_refresh" }
   /** Client-side playback finished draining. Lets the gateway reopen the STT
    *  gate at the moment the room actually goes quiet rather than guessing. */
   | { t: "playback_done"; turnId: number }
@@ -93,17 +89,6 @@ export type ServerMessage =
   | { t: "state"; listening: boolean; speaking: boolean; thinking: boolean }
   /** A delegation's lifecycle, so the UI can show the worker at work. */
   | { t: "delegation"; jobId: string; phase: "queued" | "done" | "failed"; detail?: string }
-  /** A Tavus interaction event the BROWSER must relay into the Daily call
-   *  via sendAppMessage — interactions travel only over the data channel,
-   *  and the browser is the participant we already have in the room. */
-  | { t: "avatar_interaction"; event: Record<string, unknown> }
-  /** An Anam client command the BROWSER must apply to its SDK session —
-   *  passthrough audio input lives on the client (sendAudioChunk /
-   *  endSequence / interruptPersona), so the duct is the courier here too. */
-  | { t: "avatar_command"; command: Record<string, unknown> }
-  /** A fresh avatar attach point after an `avatar_refresh` — the same
-   *  view fields the ready config carries. */
-  | { t: "avatar_view"; provider: string; url?: string; sessionToken?: string }
   /** Timings, mirrored from the gateway's metrics log. */
   | { t: "metric"; name: string; ms?: number; data?: Record<string, unknown> }
   | { t: "error"; message: string };

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useEffect } from "react";
 import { useRoom, type SpeakerRole } from "./lib/useRoom";
 import { useAvatarCall } from "./lib/useAvatarCall";
+import { useAnamSession, ANAM_VIDEO_ID } from "./lib/useAnamSession";
 
 // Mirrors lib/speakers.ts, which is the source of truth the ROOM uses. Kept in
 // sync by hand because this app is a separate package from the room and shares
@@ -16,18 +17,38 @@ const SPEAKERS: Array<{ id: SpeakerRole; label: string }> = [
 
 export default function Page() {
   const avatar = useAvatarCall();
-  const { state, connect, hangUp, setSpeaker, say } = useRoom({
+  const anam = useAnamSession();
+  const { state, connect, hangUp, setSpeaker, say, refreshAvatar } = useRoom({
     onAvatarInteraction: avatar.relay,
+    onAvatarCommand: anam.apply,
+    onAvatarView: (view) => {
+      // A renewed session after the provider ended the old one (Anam's plan
+      // cap force-ends conversations every few minutes below Growth tier).
+      if (view.sessionToken) void anam.boot(view.sessionToken);
+    },
   });
 
-  // Join the avatar's Daily room as soon as the room hands us its URL, and
-  // leave when the call ends.
+  // Boot whichever face the room configured: a Daily room URL (Tavus) or an
+  // SDK session token (Anam). Leave when the call ends.
   const avatarUrl = typeof state.config?.avatarUrl === "string" ? state.config.avatarUrl : "";
+  const anamToken =
+    typeof state.config?.avatarSessionToken === "string" ? state.config.avatarSessionToken : "";
   useEffect(() => {
     if (state.connected && avatarUrl) void avatar.join(avatarUrl);
-    if (!state.connected) void avatar.leave();
+    if (state.connected && anamToken) void anam.boot(anamToken);
+    if (!state.connected) {
+      void avatar.leave();
+      void anam.leave();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.connected, avatarUrl]);
+  }, [state.connected, avatarUrl, anamToken]);
+  // The provider ended the session (Anam's plan cap does this every few
+  // minutes below Growth tier) — ask the room for a fresh one automatically.
+  useEffect(() => {
+    if (state.connected && anam.closedReason) refreshAvatar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.connected, anam.closedReason]);
+  const faceUp = avatar.joined || anam.joined;
   const [speaker, setSpeakerLocal] = useState<SpeakerRole>("operator");
   const [typed, setTyped] = useState("");
 
@@ -38,7 +59,8 @@ export default function Page() {
           <h1>Orbital Dynamics · avatar rooms</h1>
           <div className="sub">
             your mic goes up the duct to a speech-to-speech model; the agent's face
-            and voice come back through the embedded room (Tavus echo)
+            and voice come back through the provider's session (Tavus echo / Anam
+            passthrough)
           </div>
         </div>
         <div className="spacer" />
@@ -87,10 +109,31 @@ export default function Page() {
             }}
           />
           <audio ref={avatar.audioRef} autoPlay />
-          {!avatar.joined && (
+          {/* The Anam SDK streams face + voice into this element by id. */}
+          <video
+            id={ANAM_VIDEO_ID}
+            autoPlay
+            playsInline
+            style={{
+              width: "100%",
+              aspectRatio: "16 / 9",
+              borderRadius: 8,
+              background: "#000",
+              display: anam.joined ? "block" : "none",
+            }}
+          />
+          {anam.closedReason && (
+            <div className="note">
+              avatar session ended ({anam.closedReason}) — renewing… (Anam's
+              plan cap ends conversations every few minutes below Growth tier;
+              the voice call itself is unaffected)
+            </div>
+          )}
+          {!faceUp && !anam.closedReason && (
             <div className="empty">
               The avatar appears here once the room is up — its face and voice
-              arrive through Daily; YOUR mic flows through this page's duct.
+              arrive through the provider's session (Daily for Tavus, the Anam
+              SDK for Anam); YOUR mic flows through this page's duct.
             </div>
           )}
           <div className="head">Conversation</div>

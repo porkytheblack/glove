@@ -28,6 +28,7 @@ mic ──▶ S2S model (the brain + voice) ──▶ agent PCM ──▶ Avatar
 | `AvatarView` | how a client attaches, as a tagged union: a WebRTC room URL (Tavus/Daily) or an SDK session token (Anam) |
 | `TavusEchoAdapter` | first concrete adapter: Tavus `pipeline_mode: "echo"` — our PCM frames as base64 24 kHz `conversation.echo` events; the caller joins the conversation's Daily room |
 | `ensureEchoPal` | reuse-or-create the MINIMAL echo PAL (no greeting, no TTS layer) — the ecosystem pattern that keeps the opening silent; used automatically when `palId` is omitted |
+| `AnamPassthroughAdapter` | second concrete adapter: Anam audio-passthrough mode (`enableAudioPassthrough` on the persona — Anam's LLM/TTS stay out of the loop). The server mints the session token; the BROWSER owns the SDK session and audio input, so the adapter requires a `sendCommand` courier ferrying `audio_chunk` / `end_sequence` / `interrupt` commands to the joined client |
 | `attachAvatar(rt, avatar)` | the one-call bridge from a `RealtimeAgent`: `audio` → `sendAudio`, `agent_speech_stopped` → `endUtterance`, `interrupted` → `interrupt`. Returns a detach fn |
 | `runAvatarConformance` | the behavioural suite every adapter must pass against a fake transport |
 
@@ -60,6 +61,39 @@ Barge-in follows the voice automatically: the S2S side's `interrupted`
 drops the buffered tail and frames the provider interrupt — the face stops
 with the voice, and the next utterance starts a fresh inference.
 
+### Anam (audio passthrough)
+
+```ts
+import { AnamPassthroughAdapter } from "glove-voice-avatar";
+
+const avatar = new AnamPassthroughAdapter({
+  apiKey: process.env.ANAM_API_KEY!,        // server-side only
+  avatarId: process.env.ANAM_AVATAR_ID!,
+  // Anam's passthrough audio input lives on the BROWSER SDK
+  // (createAgentAudioInputStream) — supply the courier to the joined client:
+  sendCommand: (command) => duct.send({ t: "avatar_command", command }),
+});
+const detach = await attachAvatar(rt, avatar);
+
+avatar.view; // { kind: "sdk-session", sessionToken, provider: "anam" } — the
+             // browser boots @anam-ai/js-sdk from it (disableInputAudio: true)
+```
+
+The browser applies commands to the SDK session: `audio_chunk` →
+`sendAudioChunk(base64)` (16 kHz pcm_s16le), `end_sequence` →
+`endSequence()`, `interrupt` → `interruptPersona()` + `endSequence()`.
+
+**Plan-cap fact worth knowing:** Anam force-ends conversations at its plan
+limit (3/5/10 minutes on Free/Starter/Explorer; unlimited on Growth+) —
+the connection closes with `SERVER_CLOSED_CONNECTION` regardless of
+`maxSessionLengthSeconds`. Treat it as routine and RENEW: `disconnect()` +
+`connect()` mints a fresh session and the client re-attaches from the new
+`view` (`examples/avatar-rooms` does this automatically on its
+`avatar_refresh` round trip — the face blinks instead of dying). The
+adapter also pins `silenceBeforeSessionEndSeconds` high by default: the
+avatar hears nothing by design, so silence-based ending would kill every
+healthy call at the first long pause.
+
 ## Echo-mode facts worth knowing (Tavus)
 
 - Echo bypasses Tavus's whole pipeline — Perception, STT, LLM, TTS. The
@@ -85,9 +119,17 @@ minimal PAL and single-voice echo throughout. `sendInteraction` is REQUIRED prec
 the data channel is the only interaction transport and the adapter
 deliberately does not own a Daily connection.
 
-## Roadmap
+The Anam adapter is synced against anam.ai/docs (llms.txt index) and
+`@anam-ai/js-sdk@4.23.1`'s type declarations; live verification is tracked
+on [#71](https://github.com/porkytheblack/glove/issues/71).
 
-- Anam audio-passthrough adapter — [#71](https://github.com/porkytheblack/glove/issues/71)
-- LiveKit as a room transport (the plugin catalogue for free) — [#72](https://github.com/porkytheblack/glove/issues/72)
+## Related
 
-See `examples/avatar-rooms` for the full layered integration.
+- **LiveKit avatars** — [`glove-voice-livekit`](../glove-voice-livekit)
+  implements this same `AvatarAdapter` contract over LiveKit's avatar
+  protocol (the provider's worker joins YOUR LiveKit room), with Tavus and
+  Anam variants — [#72](https://github.com/porkytheblack/glove/issues/72).
+
+See `examples/avatar-rooms` for the full layered integration
+(`AVATAR_PROVIDER=tavus|anam`), and `examples/livekit-rooms` for the
+LiveKit transport variant.

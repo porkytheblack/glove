@@ -67,10 +67,21 @@ Ports are shifted so this runs side by side with the whole series: station
 
 ## Status
 
-**Live-verified against the Tavus API** (2026-08-05): conversation create,
-echo audio through the browser courier, the rendered face, barge-in, and the
-silent open (ensured minimal PAL — no second voice) all confirmed working
-end to end, on top of the conformance suite. Anam passthrough
-([#71](https://github.com/porkytheblack/glove/issues/71)) and a LiveKit
-transport variant ([#72](https://github.com/porkytheblack/glove/issues/72))
-come next.
+**Tavus: live-verified against the Tavus API** (2026-08-05): conversation
+create, echo audio through the browser courier, the rendered face, barge-in,
+and the silent open (ensured minimal PAL — no second voice) all confirmed
+working end to end, on top of the conformance suite.
+
+**Anam: wired, awaiting live verification**
+([#71](https://github.com/porkytheblack/glove/issues/71)): set
+`AVATAR_PROVIDER=anam` + `ANAM_API_KEY`/`ANAM_AVATAR_ID` and the room swaps
+the face to `AnamPassthroughAdapter` (audio-passthrough mode — Anam's LLM and
+TTS stay out of the loop). The duct is the courier here too: the room sends
+commands down the WS and the browser applies them to the Anam SDK session
+(`sendAudioChunk` / `endSequence` / `interruptPersona`). Conformance-tested;
+needs a live run with an Anam key.
+
+The LiveKit transport variant
+([#72](https://github.com/porkytheblack/glove/issues/72)) lives in
+[`examples/livekit-rooms`](../livekit-rooms) with both providers as LiveKit
+avatars.
