@@ -11,7 +11,7 @@
  * which agent evaluation shows is the first thing a model does with an
  * unfamiliar inbox.
  */
-import type { EnvLimits, EnvTool, EnvToolResult, VisionAdapter } from "../types";
+import type { EnvLimits, EnvTool, EnvToolResult, PresentedFile, VisionAdapter } from "../types";
 import type { EnvCore } from "../core/env";
 import type { RunLog } from "../history/runlog";
 import { executeRun } from "./run";
@@ -26,6 +26,8 @@ interface ToolDeps {
   prefix: string;
   /** When the host wired one, `view_image` joins the verb set. */
   vision?: VisionAdapter;
+  /** When the host wired one, `present` joins the verb set. */
+  onPresent?: (item: PresentedFile) => Promise<void> | void;
 }
 
 /**
@@ -103,7 +105,7 @@ function schema(props: Record<string, unknown>, required: string[]): Record<stri
 }
 
 export function buildTools(deps: ToolDeps): EnvTool[] {
-  const { core, limits, prefix, vision } = deps;
+  const { core, limits, prefix, vision, onPresent } = deps;
   const name = (n: string) => `${prefix}${n}`;
   // One tracker per environment: the loop being detected is a model repeating
   // itself within a session, so the counts must outlive individual calls and
@@ -566,7 +568,50 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     }),
   };
 
+  /**
+   * Hand a finished file to the person.
+   *
+   * Writing to `/out` makes a file; this is the act of *delivering* it. The
+   * distinction matters because `/out` accumulates — drafts, a superseded
+   * version, the spreadsheet that fed the report — and only the agent knows
+   * which of those was the answer. Without an explicit hand-off the host is
+   * left guessing from filenames and timestamps.
+   *
+   * `/out` only, on purpose: presenting from `/tmp` or `/inbox` would mean
+   * shipping an intermediate or echoing back the person's own upload.
+   */
+  const present: EnvTool = {
+    name: name("present"),
+    description:
+      "Hand a finished file to the person, with a one-line caption saying what it is. " +
+      "Use it when a deliverable in /out is ready — writing the file is not the same as delivering it, " +
+      "and /out also holds drafts and intermediates that only you can tell apart. " +
+      "Present the final artifact, not every file you made.",
+    jsonSchema: schema(
+      {
+        path: str("Absolute VFS path of the file to present. Must be under /out."),
+        caption: str("One line: what this is and what is in it. The person reads this, not the filename."),
+      },
+      ["path", "caption"],
+    ),
+    do: guard("present", async (input: { path: string; caption: string }) => {
+      if (typeof input.path !== "string" || typeof input.caption !== "string") {
+        return err("present needs { path, caption } as strings");
+      }
+      if (input.caption.trim() === "") {
+        return err(
+          "present needs a caption — the person sees it instead of the filename. " +
+            "Example: 'Q2 revenue by region, four regions with East highest at $163,200.'",
+        );
+      }
+      const item = await core.presentable(input.path);
+      await onPresent!({ ...item, caption: input.caption.trim() });
+      return ok(`presented ${item.name} (${fmtBytes(item.bytes.byteLength)}) — ${input.caption.trim()}`);
+    }),
+  };
+
   const verbs = [writeFile, editFile, rm, mv, cp, readFile, ls, grep, describe, runScript, runTests, undo, redo, checkpoint, history];
   if (vision) verbs.push(viewImage);
+  if (onPresent) verbs.push(present);
   return verbs;
 }

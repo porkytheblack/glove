@@ -132,6 +132,28 @@ input, textarea { font: inherit; color: inherit; }
 }
 .chip svg { width: 11px; height: 11px; color: var(--text-tertiary); }
 
+/* a deliverable the agent handed over with `present` — the one row in the
+   transcript that is an artifact rather than a step */
+.deliverable {
+  display: flex; align-items: center; gap: 0.7rem;
+  padding: 0.7rem 0.85rem; border-radius: 10px; text-decoration: none;
+  background: var(--bg-surface-2); border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.deliverable:hover { background: var(--bg-elevated); border-color: var(--accent); }
+.deliverable svg { width: 16px; height: 16px; color: var(--accent); flex-shrink: 0; }
+.deliverable-body { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; flex: 1; }
+.deliverable-body b {
+  font-family: var(--mono); font-size: 0.76rem; font-weight: 600;
+  color: var(--text-primary); overflow-wrap: anywhere;
+}
+.deliverable-body span { font-size: 0.78rem; color: var(--text-secondary); line-height: 1.35; }
+.deliverable-size {
+  font-family: var(--mono); font-size: 0.68rem; color: var(--text-tertiary);
+  flex-shrink: 0; align-self: flex-start;
+}
+
 /* activity: the verbs, inline in the transcript */
 .activity { display: flex; flex-direction: column; gap: 1px; }
 .act {

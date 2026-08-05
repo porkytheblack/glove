@@ -1430,6 +1430,9 @@ importers:
       glove-mcp:
         specifier: workspace:*
         version: link:../glove-mcp
+      glove-working-environment:
+        specifier: workspace:*
+        version: link:../glove-working-environment
       tsx:
         specifier: ^4.19.0
         version: 4.21.0

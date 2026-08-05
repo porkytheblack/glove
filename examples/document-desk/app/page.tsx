@@ -43,6 +43,7 @@ export default function Page() {
 
       <div className="split">
         <ChatPane
+          sessionId={sessionId}
           entries={entries}
           busy={busy}
           error={error}

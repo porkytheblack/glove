@@ -299,7 +299,7 @@ const env = await createWorkingEnvironment({
       {/* ================================================================== */}
       {/* ROUTES                                                             */}
       {/* ================================================================== */}
-      <h2 id="routes">Three routes to expose a library</h2>
+      <h2 id="routes">Four routes to expose a capability</h2>
 
       <p>
         This is the decision to get right. The <em>shape</em> of the library picks
@@ -312,6 +312,7 @@ const env = await createWorkingEnvironment({
           ["Does I/O — reads or writes files, calls out", "defineAdapter", "async"],
           ["Stateful builder — new X(), chained mutation, terminal save", "defineBuilder / defineBuilders", "async"],
           ["Pure computation — no I/O, no state", "definePureModule", "synchronous"],
+          ["Not a library at all — an MCP server, a Glove tool, any async fn", "defineTools", "async"],
         ]}
       />
 
@@ -391,6 +392,83 @@ definePureModule({
         <em>unchanged</em> — the model writes the library&apos;s real API, the one
         it already knows from training.
       </p>
+
+      <h3>Capabilities → <code>defineTools</code></h3>
+
+      <p>
+        The three routes above wrap <em>libraries</em>. This one wraps whatever
+        the host already has as a tool — an MCP server, a Glove tool, a plain
+        async function — and turns it into a module scripts import.
+      </p>
+
+      <CodeBlock
+        code={`import { defineTools } from "glove-working-environment";
+import { fnsFromMcp, fnFromTool, defineFn } from "glove-scratchpad/fns";
+
+const env = await createWorkingEnvironment({
+  stdlib: [
+    documents(),
+    slides(),
+    defineTools({ name: "github", fns: await fnsFromMcp(gh) }),   // a whole MCP server
+    defineTools({
+      name: "workspace",
+      fns: [fnFromTool(searchInbox), defineFn({ name: "today", handler: () => todayIso() })],
+      docs: "Tokens belong to the workspace bot. \`since\` is inclusive.",
+    }),
+  ],
+});`}
+        language="typescript"
+      />
+
+      <div style={calloutStyle}>
+        <strong>A tool call puts its whole result in the context window. A tool
+        call from a script puts the result in a variable.</strong> That is the
+        entire argument — and it is the same context discipline the rest of this
+        environment applies to files, applied to capabilities.
+      </div>
+
+      <CodeBlock
+        code={`import { list_pull_requests } from 'env:github';
+import { create } from 'env:slides';
+
+export default async function () {
+  const prs = await list_pull_requests({ repo: 'you/repo', since: '2026-08-01' });
+  const byAuthor = Object.groupBy(prs, (p) => p.author);
+  await create('/out/week.pptx', {
+    slides: Object.entries(byAuthor).map(([author, items]) => ({
+      title: author, bullets: items.map((p) => p.title),
+    })),
+  });
+  return \`\${prs.length} PRs from \${Object.keys(byAuthor).length} people\`;
+}`}
+        language="javascript"
+      />
+
+      <p>
+        Two hundred pull requests, a thousand emails, a year of calendar events —
+        the model writes the loop that reduces them and only the last line comes
+        back. And because the capability lands beside{" "}
+        <code>env:documents</code> and <code>env:slides</code>, &quot;a PDF of all
+        my emails&quot; stops being two systems and becomes one script.
+      </p>
+
+      <p>
+        The <code>ToolFn</code> shape is declared structurally, so{" "}
+        <code>glove-scratchpad/fns</code>&apos; builders drop straight in while
+        this package keeps its zero dependencies. Anything matching{" "}
+        <code>{"{ name, description?, inputSchema?, call(args) }"}</code>{" "}
+        qualifies. Types and a README are generated from the input schemas —
+        enums arrive as unions, not as <code>string</code>.
+      </p>
+
+      <div style={warnStyle}>
+        <strong>Write-time validation cannot fire a real effect.</strong> Every
+        script write executes the module&apos;s top level against a read-only
+        environment. For a filesystem adapter that is merely wasteful; for a
+        capability it would mean the email goes out when the script is{" "}
+        <em>saved</em>. A top-level call is refused with the fix attached — move
+        it inside the default export.
+      </div>
 
       {/* ================================================================== */}
       {/* ADAPTERS                                                           */}
@@ -504,6 +582,51 @@ view_image({ path: '/out/deck.pptx', page: 3, prompt: 'Is this slide blank?' })`
         cannot be mistaken for a render. It answers the positional questions,
         which is most of what goes wrong: what is off the slide, what overlaps,
         what came out empty.
+      </p>
+
+      {/* ================================================================== */}
+      {/* DELIVERING                                                         */}
+      {/* ================================================================== */}
+      <h2 id="delivering">Handing the work over</h2>
+
+      <p>
+        Writing a file to <code>/out</code> makes a file. <code>present</code>{" "}
+        <em>delivers</em> it — and the distinction earns its keep because{" "}
+        <code>/out</code> accumulates. By the end of a task it holds drafts, a
+        superseded version, and the spreadsheet that fed the report. Only the
+        agent knows which of those was the answer, so without an explicit
+        hand-off the host is left guessing from filenames and timestamps.
+      </p>
+
+      <CodeBlock
+        code={`const env = await createWorkingEnvironment({
+  onPresent: async ({ name, bytes, mediaType, caption }) => {
+    await sendToUser({ name, bytes, mediaType, caption });   // upload, attach, stream — your call
+  },
+});
+
+// The agent then calls:
+//   present({ path: '/out/q2-review.pptx',
+//             caption: 'Q2 review, 8 slides — revenue by region, East flagged as the outlier.' })`}
+        language="typescript"
+      />
+
+      <p>
+        Wired on the same terms as <code>view_image</code>: no receiver, no verb.
+        The path must be under <code>/out</code> — presenting from{" "}
+        <code>/tmp</code> would ship an intermediate and presenting from{" "}
+        <code>/inbox</code> would echo the person&apos;s own upload back at them
+        as work. The refusal names the fix, and making the agent copy the file
+        first <em>is</em> the check: it forces a decision about what is finished.
+      </p>
+
+      <p>
+        The caption is required, and an empty one is refused with an example. The
+        person reads it in place of the filename, and{" "}
+        <code>report.pdf</code> is not a description. A matching{" "}
+        <code>/skills/delivering.md</code> appears alongside the verb, and stays
+        absent without it — a recipe for a capability that is not offered is how
+        an agent learns to hallucinate the call.
       </p>
 
       {/* ================================================================== */}

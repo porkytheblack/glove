@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Entry } from "@/lib/useDesk";
 import { formatInline } from "@/lib/inline";
 import { Activity } from "./Activity";
-import { CloseIcon, FileIcon, PaperclipIcon, SendIcon } from "./icons";
+import { CloseIcon, DownloadIcon, FileIcon, PaperclipIcon, SendIcon } from "./icons";
 
 const SUGGESTIONS = [
   {
@@ -21,13 +21,19 @@ const SUGGESTIONS = [
   },
 ];
 
+const KB = 1024;
+const fmtBytes = (n: number) =>
+  n < KB ? `${n} B` : n < KB * KB ? `${(n / KB).toFixed(1)} KB` : `${(n / KB / KB).toFixed(1)} MB`;
+
 export function ChatPane({
+  sessionId,
   entries,
   busy,
   error,
   onSend,
   onDismissError,
 }: {
+  sessionId: string;
   entries: Entry[];
   busy: boolean;
   error: string | null;
@@ -70,7 +76,7 @@ export function ChatPane({
   };
 
   // Group consecutive tool calls so a ten-verb turn reads as one block.
-  type Group = Extract<Entry, { kind: "act" }>[] | Extract<Entry, { kind: "user" | "text" }>;
+  type Group = Extract<Entry, { kind: "act" }>[] | Extract<Entry, { kind: "user" | "text" | "gift" }>;
   const groups: Group[] = [];
   for (const entry of entries) {
     if (entry.kind !== "act") {
@@ -121,6 +127,22 @@ export function ChatPane({
                     </div>
                   )}
                 </div>
+              ) : group.kind === "gift" ? (
+                // The agent singled this file out of everything in /out, so it
+                // gets a row of its own rather than another line of tool output.
+                <a
+                  key={group.id}
+                  className="deliverable"
+                  href={`/api/download?session=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(group.path)}`}
+                  download={group.name}
+                >
+                  <DownloadIcon />
+                  <div className="deliverable-body">
+                    <b>{group.name}</b>
+                    <span>{group.caption}</span>
+                  </div>
+                  <span className="deliverable-size">{fmtBytes(group.size)}</span>
+                </a>
               ) : (
                 <div key={group.id} className="msg msg-agent">
                   <span className="msg-role">Agent</span>

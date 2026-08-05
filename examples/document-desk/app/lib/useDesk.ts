@@ -22,6 +22,22 @@ export type Entry =
       input: Record<string, unknown>;
       status: "running" | "ok" | "error";
       output?: string;
+    }
+  /**
+   * A deliverable the agent handed over with `present`.
+   *
+   * Deliberately its own entry kind rather than another tool row: the point of
+   * the verb is that the agent singled this file out of everything in /out, so
+   * burying it among the other calls would throw away the signal.
+   */
+  | {
+      kind: "gift";
+      id: string;
+      path: string;
+      name: string;
+      mediaType: string;
+      size: number;
+      caption: string;
     };
 
 /** One file the agent authored, as it currently stands, with its last run. */
@@ -134,6 +150,21 @@ export function useDesk() {
 
         case "tree_changed":
           setTreeVersion((v) => v + 1);
+          break;
+
+        case "presented":
+          setEntries((es) => [
+            ...es,
+            {
+              kind: "gift",
+              id: nextId(),
+              path: event.path,
+              name: event.name,
+              mediaType: event.mediaType,
+              size: event.size,
+              caption: event.caption,
+            },
+          ]);
           break;
 
         case "error":

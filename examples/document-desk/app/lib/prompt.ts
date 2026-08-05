@@ -39,6 +39,11 @@ bars, or a heading overlapping the line beneath it. Ask a specific question —
 say what you expected, then ask what is actually there — and do it before you
 say a deliverable is finished.
 
+**Then hand it over with \`present\`.** Writing the file is not delivering it —
+by the end of a task /out also holds drafts and intermediates, and only you
+know which one was the answer. One call per finished artifact, with a caption
+saying what is in it; the person reads that instead of the filename.
+
 ## The person is watching your code
 
 Every script you write is shown to them as you write it. Write it the way you

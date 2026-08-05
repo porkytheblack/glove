@@ -918,6 +918,32 @@ export class EnvCore {
   }
 
   /**
+   * Resolve a path to a deliverable the host can hand over.
+   *
+   * `/out` only, on purpose. Presenting from `/tmp` would ship an
+   * intermediate, and presenting from `/inbox` would echo the person's own
+   * upload back at them as if it were work. Making the agent copy the file
+   * to `/out` first is the whole check: it forces a decision about what is
+   * finished.
+   */
+  async presentable(pathRaw: string): Promise<{ path: string; name: string; bytes: Uint8Array; mediaType: string }> {
+    const path = normalizePath(pathRaw);
+    if (!isUnder(path, "/out")) {
+      throw new Error(
+        `present only works on files under /out, and ${path} is not one. ` +
+          `Copy it there first (cp ${path} /out/${basename(path)}) — /out is what counts as finished.`,
+      );
+    }
+    const stat = await this.vfs.stat(path);
+    if (!stat) throw new Error(`no such file or directory: ${path}`);
+    if (stat.kind === "dir") throw new Error(`${path} is a directory — present takes one file at a time`);
+
+    const bytes = await this.vfs.read(path);
+    const name = basename(path);
+    return { path, name, bytes, mediaType: mediaTypeFor(name, bytes) };
+  }
+
+  /**
    * Summarise any file: the claiming adapter's own `describe()` when one
    * exists, otherwise a generic structural summary.
    *
@@ -989,6 +1015,41 @@ export class EnvCore {
     base.preview = lines.slice(0, 5).join("\n").slice(0, 500);
     return base;
   }
+}
+
+const MEDIA_TYPES: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".csv": "text/csv",
+  ".txt": "text/plain",
+  ".md": "text/markdown",
+  ".json": "application/json",
+  ".html": "text/html",
+  ".xml": "application/xml",
+  ".zip": "application/zip",
+  ".tar": "application/x-tar",
+  ".gz": "application/gzip",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+};
+
+/**
+ * Media type for a deliverable, from the extension first.
+ *
+ * The other way round from {@link rasterType}, and deliberately: this label
+ * travels with the filename to whatever opens it, so it should agree with
+ * the name the agent chose. Magic bytes only settle the extensionless case.
+ */
+function mediaTypeFor(name: string, bytes: Uint8Array): string {
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot).toLowerCase() : "";
+  return MEDIA_TYPES[ext] ?? rasterType(bytes) ?? "application/octet-stream";
 }
 
 /**

@@ -263,6 +263,19 @@ export interface VisionAdapter {
   describe(input: { bytes: Uint8Array; mediaType: string; prompt: string }): Promise<string>;
 }
 
+/** A deliverable the agent is handing over, as passed to `onPresent`. */
+export interface PresentedFile {
+  /** VFS path, always under `/out`. */
+  path: string;
+  /** File name, for a download or an attachment. */
+  name: string;
+  bytes: Uint8Array;
+  /** Guessed from the extension; `application/octet-stream` when unknown. */
+  mediaType: string;
+  /** The agent's one-line description of what this is and why. */
+  caption: string;
+}
+
 export interface CreateWorkingEnvironmentOptions {
   /** Filesystem backend. Default: a fresh {@link inMemoryFs}. */
   filesystem?: Vfs;
@@ -271,6 +284,19 @@ export interface CreateWorkingEnvironmentOptions {
    * set entirely — an agent is never shown a capability the host did not wire.
    */
   vision?: VisionAdapter;
+  /**
+   * Enables the `present` verb: the agent hands a finished file to the person.
+   *
+   * Without it the agent can only *say* it wrote something to `/out`, and the
+   * host has to guess when a turn produced a deliverable. With it, the moment
+   * of "here it is" is an explicit act with a caption attached — which is
+   * exactly what a UI needs to render a download, an inline preview, or a
+   * message with an attachment.
+   *
+   * Throwing surfaces to the agent as a failed verb, so a rejected file (too
+   * large, wrong type, the user is gone) is something it can respond to.
+   */
+  onPresent?: (item: PresentedFile) => Promise<void> | void;
   /** Stdlib adapters to register (materialized under /std, importable as env:<name>). */
   stdlib?: StdlibAdapter[];
   /** Resource limit overrides. */

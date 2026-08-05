@@ -300,6 +300,53 @@ parser.
 `,
 };
 
+/**
+ * Only mounted when the host wired `onPresent`.
+ *
+ * Conditional for the same reason the verb is: an agent that reads "call
+ * present when you are done" and has no `present` will either hallucinate the
+ * call or report a blocker that does not exist.
+ */
+export const DELIVERING: Skill = {
+  name: "delivering",
+  summary: "How to hand a finished file to the person.",
+  body: `# Delivering
+
+Writing a file to \`/out\` does not deliver it. \`present\` does:
+
+\`\`\`
+present({ path: '/out/q2-review.pptx',
+          caption: 'Q2 review, 8 slides — revenue by region, East flagged as the outlier.' })
+\`\`\`
+
+The two exist separately because \`/out\` accumulates. By the end of a task
+it holds drafts, a superseded version, and the spreadsheet that fed the
+report — and only you know which of those was the answer.
+
+**Present the final artifact, not every file you made.** One deliverable,
+one call. If a task genuinely produced two (a report and the data behind
+it), present both, and say in each caption what it is for.
+
+**The caption is what the person reads**, in place of the filename. Say
+what is in it, not what you did:
+
+- Good: \`Q2 revenue by region — four regions, East highest at $163,200.\`
+- Useless: \`Here is the report you asked for.\`
+
+**Only \`/out\` works.** Presenting from \`/tmp\` would ship an intermediate,
+and presenting from \`/inbox\` would hand back the person's own upload. If
+the file you want is elsewhere, copy it first:
+
+\`\`\`
+cp /tmp/chart.png /out/chart.png
+\`\`\`
+
+Check the file before you present it — \`describe\` for structure, and
+\`view_image\` if that verb is available. Presenting is the last step, not
+the verification.
+`,
+};
+
 /** Skills the environment always ships, independent of registered adapters. */
 export const BUILTIN_SKILLS: Skill[] = [IMPORTS, LARGE_DOCUMENTS, MESSY_DATA, PRODUCING_FILES, SCRIPTS];
 
