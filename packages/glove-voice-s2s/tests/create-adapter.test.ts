@@ -196,6 +196,23 @@ test("OpenAI truncation config reaches the session setup", async () => {
   });
 });
 
+test("turnDetection: null survives to the wire — manual push-to-talk, not the default", async () => {
+  process.env.OPENAI_API_KEY = "sk-test";
+  const sent: unknown[] = [];
+  const adapter = createS2SAdapter({
+    provider: "openai",
+    turnDetection: null,
+    socketFactory: (url: string) => {
+      const s = new NullSocket(url);
+      s.send = (d: string | ArrayBufferLike) => void sent.push(JSON.parse(String(d)));
+      return s;
+    },
+  });
+  await adapter.connect({});
+  const td = (sent[0] as any).session.audio.input.turn_detection;
+  assert.equal(td, null, "null was swallowed by a ?? fallback — manual mode is impossible");
+});
+
 test("S2S_TURN_DETECTION shapes the OpenAI session setup", async () => {
   process.env.OPENAI_API_KEY = "sk-test";
   process.env.S2S_TURN_DETECTION = "server_vad";

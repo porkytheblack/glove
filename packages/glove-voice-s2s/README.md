@@ -77,8 +77,11 @@ factory is sugar over the same classes.
 
 ### Turn-taking knobs
 
-Both providers expose their full turn-taking surface through raw-JSON
-passthroughs (the provider's schema is the source of truth):
+Both providers expose their full turn-taking surface as TYPED config —
+`OpenAITurnDetection` (`OpenAISemanticVad` / `OpenAIServerVad` / `null` for
+push-to-talk) and `GeminiRealtimeInputConfig` — so a typo'd field or an
+invalid enum fails at compile time instead of being silently ignored by the
+provider:
 
 **OpenAI — `turnDetection`** (session `turn_detection`):
 

@@ -23,6 +23,46 @@ import type { S2SAdapter, S2SAudioFormat, S2SEvents, S2SSessionConfig } from "./
 import type { WebSocketLike } from "./gemini-live";
 import { base64ToInt16, int16ToBase64 } from "./pcm";
 
+// ── turn-taking types ────────────────────────────────────────────────────────
+// The provider's schema, typed — these knobs are static and the whole point
+// of an adapter is that a typo'd field or invalid enum fails at COMPILE time.
+
+/** Model-judged end-of-turn: a classifier scores whether you were DONE, not
+ *  just quiet. */
+export interface OpenAISemanticVad {
+  type: "semantic_vad";
+  /** How quickly the model takes the floor. `low` lets slow talkers finish;
+   *  `high` chunks audio as soon as possible; `auto` ≈ `medium`. */
+  eagerness?: "low" | "medium" | "high" | "auto";
+  /** Auto-reply when your turn ends (default true). */
+  create_response?: boolean;
+  /** Speech-start cancels the in-flight response (default true). `false`
+   *  means the agent always finishes its sentence. */
+  interrupt_response?: boolean;
+}
+
+/** Threshold-driven end-of-turn: volume and silence, no semantics. */
+export interface OpenAIServerVad {
+  type: "server_vad";
+  /** 0–1: how loud counts as speech (default 0.5). */
+  threshold?: number;
+  /** Audio kept from BEFORE speech was detected, so first syllables aren't
+   *  clipped (default 300). */
+  prefix_padding_ms?: number;
+  /** Trailing silence before your turn commits — the latency/patience trade
+   *  (default 500). */
+  silence_duration_ms?: number;
+  /** Emits a timeout event when the caller goes quiet this long — the hook
+   *  for "are you still there?". */
+  idle_timeout_ms?: number;
+  create_response?: boolean;
+  interrupt_response?: boolean;
+}
+
+/** `null` = no provider detection at all: manual / push-to-talk — the host
+ *  commits the input buffer and triggers responses itself. */
+export type OpenAITurnDetection = OpenAISemanticVad | OpenAIServerVad | null;
+
 export interface OpenAIRealtimeSocketConfig {
   /** An ephemeral client secret (browser) or the API key (server-side only). */
   getToken: () => Promise<string> | string;
@@ -37,8 +77,8 @@ export interface OpenAIRealtimeSocketConfig {
   /** Model for user-audio transcription events (default gpt-4o-mini-transcribe). */
   transcriptionModel?: string;
   /** Turn detection. Default: semantic VAD — the model decides from LISTENING
-   *  whether the speaker is done. */
-  turnDetection?: Record<string, unknown>;
+   *  whether the speaker is done. Pass `null` for manual push-to-talk. */
+  turnDetection?: OpenAITurnDetection;
   /**
    * Context-window management (gpt-realtime: 32k window, auto-truncated).
    * Unset = the API default: drop the oldest turns only when the window is
@@ -211,7 +251,10 @@ export class OpenAIRealtimeSocketAdapter extends EventEmitter<S2SEvents> impleme
       audio.input = {
         format: { type: "audio/pcm", rate: OPENAI_PCM.sampleRate },
         transcription: { model: this.cfg.transcriptionModel ?? "gpt-4o-mini-transcribe" },
-        turn_detection: this.cfg.turnDetection ?? { type: "semantic_vad" },
+        // `null` is a real value here (manual push-to-talk), so only an
+        // UNSET config falls back to the semantic-VAD default.
+        turn_detection:
+          this.cfg.turnDetection !== undefined ? this.cfg.turnDetection : { type: "semantic_vad" },
       };
       audio.output = { format: { type: "audio/pcm", rate: OPENAI_PCM.sampleRate } };
     }

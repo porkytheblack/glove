@@ -1,6 +1,10 @@
 // Server-side helpers — API keys never reach the browser (the same token
 // pattern as glove-voice/server).
 
+import type { OpenAITurnDetection } from "../openai-realtime-socket";
+
+export type { OpenAITurnDetection };
+
 export interface RealtimeTokenConfig {
   /** Your OpenAI API key (server-side only). */
   apiKey: string;
@@ -15,8 +19,9 @@ export interface RealtimeTokenConfig {
   /**
    * Turn detection. Default: semantic VAD — the model decides from LISTENING
    * whether the speaker is done, replacing client-side endpointing entirely.
+   * `null` bakes in manual push-to-talk.
    */
-  turnDetection?: Record<string, unknown>;
+  turnDetection?: OpenAITurnDetection;
   /** Model for user-audio transcription events (default gpt-4o-mini-transcribe). */
   transcriptionModel?: string;
   /** API base (default https://api.openai.com/v1). */
@@ -38,7 +43,9 @@ export async function createOpenAIRealtimeToken(
     audio: {
       input: {
         transcription: { model: cfg.transcriptionModel ?? "gpt-4o-mini-transcribe" },
-        turn_detection: cfg.turnDetection ?? { type: "semantic_vad" },
+        // `null` is a real value (manual push-to-talk) — only UNSET defaults.
+        turn_detection:
+          cfg.turnDetection !== undefined ? cfg.turnDetection : { type: "semantic_vad" },
       },
       ...(cfg.voice ? { output: { voice: cfg.voice } } : {}),
     },

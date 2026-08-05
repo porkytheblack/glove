@@ -24,6 +24,7 @@ import { OpenAIRealtimeAdapter, type OpenAIRealtimeConfig } from "./openai-realt
 import {
   OpenAIRealtimeSocketAdapter,
   type OpenAIRealtimeSocketConfig,
+  type OpenAITurnDetection,
 } from "./openai-realtime-socket";
 import type { S2SAdapter } from "./types";
 
@@ -107,12 +108,21 @@ export function createS2SAdapter(args: CreateS2SAdapterArgs = {}): S2SAdapter {
     case "openai": {
       const { provider: _p, apiKey: _k, getToken: _t, model: _m, voice: _v, ...rest } =
         a as CommonArgs & OpenAIRealtimeSocketConfig;
-      const turnDetection =
-        rest.turnDetection ??
-        (env("S2S_TURN_DETECTION") ? { type: env("S2S_TURN_DETECTION") } : undefined);
+      // Env can only pick the MODE — richer tuning (eagerness, thresholds)
+      // is typed config. An unrecognised env value is ignored rather than
+      // sent as an invalid frame.
+      const envTd = env("S2S_TURN_DETECTION");
+      const turnDetection: OpenAITurnDetection | undefined =
+        rest.turnDetection !== undefined
+          ? rest.turnDetection
+          : envTd === "server_vad"
+            ? { type: "server_vad" }
+            : envTd === "semantic_vad"
+              ? { type: "semantic_vad" }
+              : undefined;
       return new OpenAIRealtimeSocketAdapter({
         ...rest,
-        ...(turnDetection ? { turnDetection } : {}),
+        ...(turnDetection !== undefined ? { turnDetection } : {}),
         ...(model ? { model } : {}),
         ...(voice ? { voice } : {}),
         getToken,

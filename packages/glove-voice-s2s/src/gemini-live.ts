@@ -16,6 +16,48 @@ import EventEmitter from "eventemitter3";
 import type { S2SAdapter, S2SAudioFormat, S2SEvents, S2SSessionConfig } from "./types";
 import { base64ToInt16, int16ToBase64 } from "./pcm";
 
+// ── turn-taking types ────────────────────────────────────────────────────────
+// Gemini's realtimeInputConfig, typed — static schema, so a typo'd field or
+// invalid enum fails at compile time instead of being silently ignored by
+// the provider.
+
+export type GeminiStartSensitivity =
+  | "START_SENSITIVITY_UNSPECIFIED"
+  | "START_SENSITIVITY_HIGH"
+  | "START_SENSITIVITY_LOW";
+
+export type GeminiEndSensitivity =
+  | "END_SENSITIVITY_UNSPECIFIED"
+  | "END_SENSITIVITY_HIGH"
+  | "END_SENSITIVITY_LOW";
+
+export interface GeminiAutomaticActivityDetection {
+  /** `true` disables provider VAD entirely — manual activityStart /
+   *  activityEnd signalling (push-to-talk). */
+  disabled?: boolean;
+  /** How readily speech START is detected. HIGH triggers on shorter speech
+   *  (more false positives); LOW needs more before committing. */
+  startOfSpeechSensitivity?: GeminiStartSensitivity;
+  /** How readily speech END is called. LOW waits longer before ending your
+   *  turn — the patience knob for slow talkers. */
+  endOfSpeechSensitivity?: GeminiEndSensitivity;
+  /** Audio kept from BEFORE speech was detected, so first syllables aren't
+   *  clipped. */
+  prefixPaddingMs?: number;
+  /** Trailing silence before end-of-speech commits. */
+  silenceDurationMs?: number;
+}
+
+export interface GeminiRealtimeInputConfig {
+  automaticActivityDetection?: GeminiAutomaticActivityDetection;
+  /** Default `START_OF_ACTIVITY_INTERRUPTS` (barge-in). `NO_INTERRUPTION`
+   *  means the agent always finishes its sentence. */
+  activityHandling?: "ACTIVITY_HANDLING_UNSPECIFIED" | "START_OF_ACTIVITY_INTERRUPTS" | "NO_INTERRUPTION";
+  /** Whether the model's turn sees only detected speech (default) or ALL
+   *  input audio, background included. */
+  turnCoverage?: "TURN_COVERAGE_UNSPECIFIED" | "TURN_INCLUDES_ONLY_ACTIVITY" | "TURN_INCLUDES_ALL_INPUT";
+}
+
 export interface GeminiLiveConfig {
   /** Called to fetch an ephemeral token or API key from YOUR server. */
   getToken: () => Promise<string> | string;
@@ -25,20 +67,8 @@ export interface GeminiLiveConfig {
    *  Gemini takes the voice in the first frame only — per-session, not
    *  mid-call. */
   voice?: string;
-  /**
-   * Turn-taking knobs, passed through as the setup frame's
-   * `realtimeInputConfig`. Gemini's surface:
-   * - `automaticActivityDetection`: `startOfSpeechSensitivity` /
-   *   `endOfSpeechSensitivity` (`START_SENSITIVITY_HIGH|LOW`, …),
-   *   `prefixPaddingMs`, `silenceDurationMs`, or `disabled: true` for
-   *   manual activityStart/activityEnd signalling (push-to-talk).
-   * - `activityHandling`: `START_OF_ACTIVITY_INTERRUPTS` (default barge-in)
-   *   or `NO_INTERRUPTION` — the agent finishes its sentence no matter what.
-   * - `turnCoverage`: `TURN_INCLUDES_ONLY_ACTIVITY` (default) or
-   *   `TURN_INCLUDES_ALL_INPUT`.
-   * Raw JSON by design — the provider's schema is the source of truth.
-   */
-  realtimeInput?: Record<string, unknown>;
+  /** Turn-taking knobs, sent as the setup frame's `realtimeInputConfig`. */
+  realtimeInput?: GeminiRealtimeInputConfig;
   /**
    * Server-side context management. ON by default (`{ slidingWindow: {} }`):
    * without it an audio session hard-caps at ~15 MINUTES and then dies —
