@@ -325,10 +325,14 @@ export function useRoom() {
     setState((s) => ({ ...INITIAL, log: s.log }));
   }, [stopAudio]);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (mode: "cascade" | "s2s" = "cascade") => {
     patch({ status: "claiming a room…", error: null });
     try {
-      const res = await fetch("/api/rooms", { method: "POST" });
+      const res = await fetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
       const data = (await res.json()) as {
         runId?: string;
         port?: number;

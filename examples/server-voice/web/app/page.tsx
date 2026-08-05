@@ -16,6 +16,7 @@ export default function Page() {
   const { state, connect, hangUp, setSpeaker, say } = useRoom();
   const [speaker, setSpeakerLocal] = useState<SpeakerRole>("operator");
   const [typed, setTyped] = useState("");
+  const [mode, setMode] = useState<"cascade" | "s2s">("cascade");
 
   return (
     <div className="app">
@@ -50,7 +51,16 @@ export default function Page() {
             </option>
           ))}
         </select>
-        <button onClick={() => void (state.connected ? hangUp() : connect())}>
+        <select
+          value={mode}
+          disabled={state.connected}
+          onChange={(e) => setMode(e.target.value as "cascade" | "s2s")}
+          title="Which room to claim: the cascaded pipeline (VAD→STT→LLM→TTS) or a speech-to-speech model driving the same front agent"
+        >
+          <option value="cascade">pipeline room</option>
+          <option value="s2s">s2s room</option>
+        </select>
+        <button onClick={() => void (state.connected ? hangUp() : connect(mode))}>
           {state.connected ? "Hang up" : "🎙 Connect"}
         </button>
       </header>

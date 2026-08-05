@@ -287,13 +287,47 @@ and nothing else.
 - **Hang up and check the dashboard.** The run shows as `cancelled` with its
   logs and duration — every call leaves an audit trail.
 
+## S2S rooms — the same layering on a speech-to-speech model
+
+The room pool has a second flavour: pick **s2s room** in the app's header
+before connecting (or `POST /api/rooms` with `{ "mode": "s2s" }`). It claims
+the same kind of long-lived signal run on the same ports — but the run is
+`signals/s2s-room.ts`, which replaces the entire cascaded pipeline
+(VAD → STT → endpointing → front model → TTS, ~2200 lines of session
+machinery) with one `RealtimeAgent` from `glove-voice-s2s` on a Gemini Live
+session in transport mode.
+
+What stays exactly the same is the LAYERING:
+
+- **The front is thin, the worker is the capable model.** The realtime model
+  IS Nova — persona, turn-taking, barge-in, the voice — and it still cannot
+  look anything up. Every catalog fact is delegated.
+- **The rooms are the communication primitive.** Delegation is the same
+  `glove_mesh_send_message` tool folded by `mountMesh`, dispatched as the
+  same `research` signal run, replying to the same `/mesh` endpoint with the
+  same mesh token. The worker cannot tell which room flavour asked.
+- **The client is untouched.** Same audio duct, same protocol; the room
+  resamples Gemini's 24 kHz output to the duct's 16 kHz.
+
+What changes is who drives the front agent: `RealtimeAgent` reads the same
+Glove declaration (prompt, tools, mesh send) to configure the live session,
+executes each tool call through the same `Tool.run`, and when the worker's
+reply lands at `/mesh`, the room injects it into the live conversation with
+`rt.inject("<worker-result>…", { respond: true })` — the proactive-relay
+wakeup, spoken by the provider instead of synthesized by a TTS stage.
+
+Needs `GEMINI_API_KEY` in `.env.local` (and Node 22+, for the global
+WebSocket the adapter uses). `S2S_MODEL` / `S2S_VOICE` are optional.
+
 ## Files
 
 | | |
 | --- | --- |
 | `station.config.ts` | the whole deployment: dirs, adapters, dashboard port |
 | `signals/room.ts` | a room — WebSocket audio in/out, `/mesh` inbound |
-| `signals/research.ts` | the delegation job, replying over the mesh |
+| `signals/s2s-room.ts` | the S2S flavour — same room, pipeline replaced by `RealtimeAgent` + Gemini Live |
+| `signals/research.ts` | the delegation job, replying over the mesh — shared by both room flavours |
+| `lib/s2s-front-agent.ts` | Nova for S2S rooms: the audio-channel prompt machinery gone, the selling and delegation rules kept |
 | `lib/mesh-transport.ts` | the two mesh adapters that span the process boundary |
 | `web/` | the Next.js app you actually test in |
 | `lib/turn-engine.ts` | the commitment engine, ported from the browser hook |

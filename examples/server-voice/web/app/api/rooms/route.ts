@@ -32,24 +32,30 @@ const ROOM_HOST = process.env.NEXT_PUBLIC_ROOM_HOST ?? "localhost";
 /** A run that has not reached a terminal status still owns its port. */
 const LIVE = new Set(["pending", "running"]);
 
+/** Both room flavours share the same port range, so a claim has to see the
+ *  live runs of each. */
+const ROOM_SIGNALS = ["room", "s2s-room"] as const;
+
 /** Ports currently spoken for, straight from station's run records. */
 async function allocatedPorts(): Promise<Set<number>> {
-  const res = await stationV1("/runs?signalName=room&limit=100");
-  if (!res.ok) throw new Error(`station returned ${res.status} listing rooms`);
-  const { data } = (await res.json()) as {
-    data?: Array<{ status: string; input?: string | { port?: number } }>;
-  };
   const taken = new Set<number>();
-  for (const run of data ?? []) {
-    if (!LIVE.has(run.status)) continue;
-    try {
-      const input =
-        typeof run.input === "string"
-          ? (JSON.parse(run.input) as { port?: number })
-          : (run.input ?? {});
-      if (typeof input.port === "number") taken.add(input.port);
-    } catch {
-      /* unreadable input — cannot claim its port, so skip it */
+  for (const name of ROOM_SIGNALS) {
+    const res = await stationV1(`/runs?signalName=${name}&limit=100`);
+    if (!res.ok) throw new Error(`station returned ${res.status} listing rooms`);
+    const { data } = (await res.json()) as {
+      data?: Array<{ status: string; input?: string | { port?: number } }>;
+    };
+    for (const run of data ?? []) {
+      if (!LIVE.has(run.status)) continue;
+      try {
+        const input =
+          typeof run.input === "string"
+            ? (JSON.parse(run.input) as { port?: number })
+            : (run.input ?? {});
+        if (typeof input.port === "number") taken.add(input.port);
+      } catch {
+        /* unreadable input — cannot claim its port, so skip it */
+      }
     }
   }
   return taken;
@@ -64,8 +70,14 @@ async function firstFreePort(): Promise<number | null> {
   return null;
 }
 
-export async function POST(): Promise<NextResponse> {
+export async function POST(request: Request): Promise<NextResponse> {
   try {
+    // Two room flavours behind one allocator: the cascaded pipeline room
+    // ("room") and the speech-to-speech room ("s2s-room"). Same ports, same
+    // lifecycle, same mesh — only the signal name differs.
+    const { mode } = (await request.json().catch(() => ({}))) as { mode?: string };
+    const signalName = mode === "s2s" ? "s2s-room" : "room";
+
     const port = await firstFreePort();
     if (port === null) {
       return NextResponse.json(
@@ -74,11 +86,11 @@ export async function POST(): Promise<NextResponse> {
       );
     }
 
-    const roomId = `room-${port}-${Date.now().toString(36)}`;
+    const roomId = `${signalName}-${port}-${Date.now().toString(36)}`;
     const res = await stationV1("/trigger", {
       method: "POST",
       body: JSON.stringify({
-        signalName: "room",
+        signalName,
         input: { roomId, port, meshToken: MESH_TOKEN },
       }),
     });

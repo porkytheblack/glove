@@ -624,6 +624,9 @@ importers:
       glove-voice:
         specifier: workspace:*
         version: link:../../packages/glove-voice
+      glove-voice-s2s:
+        specifier: workspace:*
+        version: link:../../packages/glove-voice-s2s
       onnxruntime-node:
         specifier: ^1.22.0
         version: 1.27.0
