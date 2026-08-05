@@ -6,7 +6,8 @@
 // or take a note and you can see the tool call land on the page, which makes
 // "the voice model really is calling my Glove tools" verifiable by eye.
 
-import { Displaymanager, Glove, MemoryStore, type ModelAdapter } from "glove-core";
+import { Displaymanager, Glove, MemoryStore } from "glove-core";
+import { s2sDrivenModel } from "glove-voice-s2s";
 import { z } from "zod";
 
 // ── UI bridge ────────────────────────────────────────────────────────────────
@@ -23,22 +24,6 @@ export interface UiBridge {
 
 export const uiBridge: { current: UiBridge | null } = { current: null };
 
-// ── model stub ───────────────────────────────────────────────────────────────
-// This demo only runs VOICE turns: the S2S provider is the model, and
-// RealtimeAgent executes tool calls directly — Glove's own loop (and therefore
-// its ModelAdapter) is never invoked. A real app would wire a real adapter
-// here so the same agent can also serve text turns.
-
-const voiceOnlyModel: ModelAdapter = {
-  name: "voice-only-stub",
-  async prompt() {
-    throw new Error(
-      "This demo agent only speaks through RealtimeAgent — no text model is wired.",
-    );
-  },
-  setSystemPrompt() {},
-};
-
 // ── the agent ────────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = [
@@ -53,7 +38,10 @@ const SYSTEM_PROMPT = [
 export function buildAgent() {
   return new Glove({
     store: new MemoryStore(`s2s_demo_${Date.now()}`),
-    model: voiceOnlyModel,
+    // This demo only runs VOICE turns — the placeholder (from glove-voice-s2s)
+    // fails loudly if Glove's loop is ever run; wire a real createAdapter(...)
+    // to serve text turns from the same agent.
+    model: s2sDrivenModel("aria-demo"),
     displayManager: new Displaymanager(),
     systemPrompt: SYSTEM_PROMPT,
     compaction_config: {

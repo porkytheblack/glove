@@ -22,8 +22,40 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import EventEmitter from "eventemitter3";
-import { getToolJsonSchema, type IGloveRunnable, type Tool, type ToolResultData } from "glove-core";
+import {
+  getToolJsonSchema,
+  type IGloveRunnable,
+  type ModelAdapter,
+  type Tool,
+  type ToolResultData,
+} from "glove-core";
 import type { S2SAdapter, S2SEvents, S2SSessionConfig, S2STool } from "./types";
+
+/**
+ * A `ModelAdapter` for agents whose turns are driven by an S2S provider.
+ *
+ * A Glove needs a ModelAdapter to build, but a RealtimeAgent-driven agent
+ * never runs Glove's own loop — the realtime model IS the model. This is the
+ * canonical placeholder for that slot, so consumers stop hand-rolling
+ * throwing stubs: it fails loudly (naming the agent) if anything ever calls
+ * `processRequest`, and swapping in a real adapter later — to serve TEXT
+ * turns from the same agent definition — stays a one-line change.
+ */
+export function s2sDrivenModel(label = "s2s-driven"): ModelAdapter {
+  return {
+    name: label,
+    async prompt(): Promise<never> {
+      throw new Error(
+        `This agent's turns are driven by an S2S provider through RealtimeAgent — ` +
+          `the "${label}" ModelAdapter is a placeholder. Wire a real adapter ` +
+          `(createAdapter(...) from glove-core) to serve text turns from the same agent.`,
+      );
+    },
+    setSystemPrompt() {
+      /* the realtime session carries the prompt */
+    },
+  };
+}
 
 export interface RealtimeAgentConfig {
   /** A built Glove. Its prompt and tools configure the session. */

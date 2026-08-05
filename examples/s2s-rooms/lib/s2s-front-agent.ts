@@ -13,22 +13,11 @@
 // owns her voice, her turn-taking and her barge-in, and executes her tools
 // through RealtimeAgent instead of Glove's own loop.
 
-import { Displaymanager, Glove, type IGloveRunnable, type ModelAdapter, type StoreAdapter } from "glove-core";
+import { Displaymanager, Glove, type IGloveRunnable, type StoreAdapter } from "glove-core";
+import { s2sDrivenModel } from "glove-voice-s2s";
 import { z } from "zod";
 import { ASSISTANT_NAME } from "./speakers";
 import { STATS } from "./data/seed";
-
-// Never invoked: the S2S provider is the model, and RealtimeAgent executes
-// tool calls without running Glove's loop. It exists because a Glove needs a
-// ModelAdapter to build — and so that wiring a real one later (to serve TEXT
-// turns from the same agent definition) is a one-line change.
-const s2sDrivenModel: ModelAdapter = {
-  name: "s2s-driven",
-  async prompt() {
-    throw new Error("This agent's turns are driven by the S2S provider, not Glove's loop.");
-  },
-  setSystemPrompt() {},
-};
 
 const S2S_FRONT_PROMPT = `You are ${ASSISTANT_NAME}, a salesperson on the showroom floor at ORBITAL DYNAMICS, a starship dealership. You are talking OUT LOUD with a customer — speak naturally, in short conversational turns of a breath or two. No markdown, no lists, no URLs; say numbers the natural spoken way and round for the ear.
 
@@ -60,7 +49,10 @@ You have almost no tools of your own — just the clock. You do NOT know the cat
 export function buildS2SFrontAgent(store: StoreAdapter): IGloveRunnable {
   return new Glove({
     store,
-    model: s2sDrivenModel,
+    // The realtime model IS the model; this placeholder (from glove-voice-s2s)
+    // fails loudly if Glove's own loop is ever run, and swapping in a real
+    // createAdapter(...) to serve TEXT turns stays a one-line change.
+    model: s2sDrivenModel("s2s-front"),
     displayManager: new Displaymanager(),
     systemPrompt: S2S_FRONT_PROMPT,
     serverMode: true,
