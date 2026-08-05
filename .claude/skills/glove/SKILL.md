@@ -2698,6 +2698,8 @@ mountWorkingEnvironment(agent, { env });   // structural — no glove-core depen
 
 Host doors: `env.mount(bytes|path|{text}, dest)` in, `env.export(glob)` out, `env.snapshot()` / `fromSnapshot` to persist, `env.close()` to release worker threads.
 
+**Where the tree lives.** `filesystem` takes any `Vfs`. Three ship: `inMemoryFs()` (default), `hostDirectory(dir)` (copy-on-write over a real directory — the agent cannot damage the source until `commit()`), and `cachedRemote(store, { prefix })` (object storage; you supply `get`/`put`/`delete`/`list`, so no SDK dependency). For plain persistence across restarts prefer `snapshot()` to one object — one round trip per session instead of one per file, and atomic. `cachedRemote` keeps the structural index (paths, sizes, mtimes, dirs) in memory because `totalSize()` runs on every write and `files()` backs glob/grep/rm -r; only content crosses the network. No distributed locking — one prefix per session.
+
 ### Three routes to expose a library — pick by shape
 
 This is the decision implementers get wrong. The shape of the library picks the route:

@@ -210,6 +210,93 @@ const files = await env.export("/out/**");              // door out`}
       </p>
 
       {/* ================================================================== */}
+      {/* STORAGE                                                            */}
+      {/* ================================================================== */}
+      <h2 id="storage">Where the tree lives</h2>
+
+      <p>
+        The filesystem is pluggable — <code>filesystem</code> takes any{" "}
+        <code>Vfs</code>. Three ship, and which you want depends on why you are
+        asking.
+      </p>
+
+      <PropTable
+        headers={["Backend", "Use when", "Cost"]}
+        rows={[
+          ["inMemoryFs()", "Default. The tree is a data structure, so snapshot and restore are near-free.", "heap, per environment"],
+          ["hostDirectory(dir)", "Point the agent at a real corpus. Copy-on-write — nothing on disk changes until commit().", "reads fall through to disk"],
+          ["cachedRemote(store)", "The tree outgrows the heap, or other systems must read the files directly.", "one round trip per file read/write"],
+        ]}
+      />
+
+      <p>
+        For plain persistence across restarts, none of those is the answer —{" "}
+        <code>snapshot()</code> is. It serializes the whole tree, empty
+        directories and mtimes included, to one object:
+      </p>
+
+      <CodeBlock
+        code={`await s3.put(\`sessions/\${id}.json\`, JSON.stringify(await env.snapshot()));
+
+// …later
+const env = await createWorkingEnvironment({
+  filesystem: fromSnapshot(saved),
+  stdlib: [documents()],
+});`}
+        language="typescript"
+      />
+
+      <p>
+        One round trip per session instead of one per file, and atomic. Reach
+        for <code>cachedRemote</code> only when you need the files to exist as
+        individual objects.
+      </p>
+
+      <h3>Object storage, and why the index matters</h3>
+
+      <p>
+        You supply the backend — four methods (<code>get</code>,{" "}
+        <code>put</code>, <code>delete</code>, <code>list</code>), which is all
+        S3, GCS, R2 and Azure Blob have in common, and why this package depends
+        on none of them.
+      </p>
+
+      <CodeBlock
+        code={`const env = await createWorkingEnvironment({
+  filesystem: await cachedRemote(myStore, { prefix: \`sessions/\${id}/\` }),
+});`}
+        language="typescript"
+      />
+
+      <div style={warnStyle}>
+        It is <code>cachedRemote</code> rather than <code>remote</code> for a
+        reason. The <code>Vfs</code> contract has three whole-tree operations
+        and they are not cold paths — <code>totalSize()</code> runs on{" "}
+        <strong>every write</strong>, and <code>files()</code> backs glob, grep,
+        recursive rm and checkpoint fork. Passed straight through, that is a
+        full bucket LIST per write.
+      </div>
+
+      <p>
+        So the structural index — paths, sizes, mtimes, which directories exist
+        — stays in memory and is maintained on every mutation. Only file{" "}
+        <em>content</em> crosses the network:{" "}
+        <code>files()</code>, <code>list()</code>, <code>stat()</code>,{" "}
+        <code>exists()</code> and <code>totalSize()</code> cost zero round
+        trips. The index is updated only <em>after</em> the store confirms a
+        write, so a failed put leaves it honest rather than claiming a file
+        that is not there.
+      </p>
+
+      <p>
+        One thing it does not do: <strong>distributed locking</strong>. The
+        environment serializes its own mutations within a process, but two
+        hosts on one prefix would race on version rings and run history. Give
+        every session its own prefix — which also makes cleanup a single
+        delete-by-prefix.
+      </p>
+
+      {/* ================================================================== */}
       {/* ROUTES                                                             */}
       {/* ================================================================== */}
       <h2 id="routes">Three routes to expose a library</h2>

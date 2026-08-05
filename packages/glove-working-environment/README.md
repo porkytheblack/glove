@@ -65,6 +65,26 @@ import { createWorkingEnvironment, fromSnapshot } from "glove-working-environmen
 const env2 = await createWorkingEnvironment({ filesystem: fromSnapshot(snap), stdlib: [...] });
 ```
 
+### Backing it with cloud storage
+
+```ts
+import { cachedRemote } from "glove-working-environment";
+
+const env = await createWorkingEnvironment({
+  filesystem: await cachedRemote(myStore, { prefix: `sessions/${id}/` }),
+});
+```
+
+`myStore` is yours to write — four methods (`get`, `put`, `delete`, `list`), which is all S3, GCS, R2 and Azure Blob have in common, and why this package still depends on none of them.
+
+The reason it is `cachedRemote` and not `remote`: the `Vfs` contract has three whole-tree operations, and they are not cold paths. `totalSize()` runs on **every write** (the byte-budget check) and `files()` backs glob, grep, recursive rm, directory mv/cp and checkpoint fork. Straight through to S3 those are a full bucket LIST per write. So the index — paths, sizes, mtimes, which directories exist — is held in memory and maintained on every mutation, and only file *content* crosses the network. `files()`, `list()`, `stat()`, `exists()` and `totalSize()` cost zero round trips; `read`, `write` and `rm` cost one, and reads are cached (32 MiB by default) because a session re-reads the same scripts and `.d.ts` siblings constantly.
+
+The index is updated only *after* the store confirms a write, so a failed put leaves it honest rather than claiming a file that is not there. Object stores have no directories: a non-empty one is implied by the keys beneath it, and `mkdir` writes a zero-byte `<key>/` marker for the empty case.
+
+**Prefer a snapshot if you only want persistence.** Writing `env.snapshot()` to one object is one round trip per session instead of one per file, and it is atomic. Reach for `cachedRemote` when the tree genuinely outgrows the heap, or when other systems need to read the files directly.
+
+There is **no distributed locking**. The environment serializes its own mutations within a process; two hosts on one prefix would race on version rings and run history. Give every session its own prefix — which also makes cleanup a single delete-by-prefix.
+
 `mountWorkingEnvironment` takes any object with `fold()` (structurally — `IGloveRunnable` and `IGloveBuilder` both qualify), so the package does not depend on `glove-core`.
 
 ## The tree

@@ -354,6 +354,13 @@ async function snapshotVfs(vfs: Vfs): Promise<EnvSnapshot> {
 export { inMemoryFs, fromSnapshot, InMemoryFs } from "./vfs/memory";
 export { hostDirectory, HostDirectoryFs, type HostDirectoryOptions } from "./vfs/hostdir";
 export {
+  cachedRemote,
+  CachedRemoteFs,
+  type CachedRemoteOptions,
+  type ObjectStore,
+  type RemoteObject,
+} from "./vfs/remote";
+export {
   defineAdapter,
   type AdapterBindings,
   type AdapterContext,
