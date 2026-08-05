@@ -208,7 +208,7 @@ present({ path: '/out/q2-review.pptx',
 
 An adapter bridges a real host-side library into the tree. The model experiences it as a typed importable module plus docs living at `/std/<name>/`.
 
-Five ship separately:
+These ship separately:
 
 | Package | Module | Gives the model |
 |---|---|---|
@@ -218,6 +218,7 @@ Five ship separately:
 | [`glove-env-archives`](../glove-env-archives) | `env:archives` | zip/tar/tar.gz in and out; traversal- and bomb-safe extraction. No dependencies |
 | [`glove-env-media`](../glove-env-media) | `env:media` | Video and audio via ffmpeg: describe, thumbnail, frames, clip, concat, transcode, slideshow |
 | [`glove-env-slides`](../glove-env-slides) | `env:slides` | PowerPoint decks from a spec, read back independently — outline, slide text, notes. Plus pptxgenjs's own `PptxGenJS` for custom layouts |
+| [`glove-env-motion`](../glove-env-motion) | `env:motion` | A React scene — Reanimated included — to video, GIF, PNG frames or a still. Deterministic: same scene, same bytes. **Exploratory** |
 
 ```ts
 const env = await createWorkingEnvironment({ stdlib: [documents(), spreadsheets(), images()] });

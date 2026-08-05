@@ -48,6 +48,7 @@ jobs:
           --filter "glove-env-media..."
           --filter "glove-env-slides..."
           --filter "glove-env-render..."
+          --filter "glove-env-motion..."
           --filter "glove-analyst-desk..."
           build
 
@@ -75,9 +76,16 @@ jobs:
           --filter glove-env-media
           --filter glove-env-slides
           --filter glove-env-render
+          --filter glove-env-motion
           --filter glove-analyst-desk
           --filter glove-document-desk
           typecheck
+
+      # env:motion renders in a real browser. Without this step its render
+      # tests skip with a message rather than passing quietly — which means a
+      # green CI would say nothing about the part of that package that matters.
+      - name: Install Chromium for env:motion
+        run: pnpm --filter glove-env-motion exec playwright-core install --with-deps chromium
 
       - name: Test
         run: >-
@@ -99,6 +107,7 @@ jobs:
           --filter glove-env-media
           --filter glove-env-slides
           --filter glove-env-render
+          --filter glove-env-motion
           test
 
       # The analyst-desk selfcheck solves every eval scenario with a reference
