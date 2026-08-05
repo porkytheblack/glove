@@ -13,7 +13,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { createAdapterTestEnv } from "glove-working-environment/testing";
-import { motion, resolveBrowser } from "../src/index";
+import { doctor, motion, MOTION_LIMITS, resolveBrowser } from "../src/index";
 
 const HAVE_BROWSER = (await resolveBrowser()) !== null;
 const skip = HAVE_BROWSER ? false : "no Chromium available — set GLOVE_CHROMIUM_PATH or run `npx playwright install chromium`";
@@ -65,7 +65,7 @@ export default function Scene() {
  */
 async function envWith() {
   return createAdapterTestEnv(motion({ resolveFrom: new URL("..", import.meta.url).pathname }), {
-    limits: { runTimeoutMs: 240_000 },
+    limits: MOTION_LIMITS,
   });
 }
 
@@ -80,6 +80,13 @@ test("capabilities reports what this host can do before a render is spent", asyn
     assert.equal(caps.canRender, HAVE_BROWSER, "canRender must agree with whether a browser actually exists");
     assert.equal(caps.reanimated, true, "this package devDepends on reanimated + react-native-web");
     assert.ok(caps.maxFrames > 0);
+
+    // The generated docs carry the same facts, so the agent learns what this
+    // host can do from /std before spending a render finding out.
+    const docs = await env.fs.readFile("/std/motion/README.md");
+    assert.match(docs, /## On this host/);
+    assert.match(docs, HAVE_BROWSER ? /Browser: available/ : /Browser: \*\*none found\*\*/);
+    assert.match(docs, /Reanimated: available/);
   } finally {
     await env.close();
   }
@@ -100,7 +107,7 @@ test("a scene path that does not exist fails by name, before launching anything"
 });
 
 test("a frame count past the ceiling is refused with the limit and the reason", async () => {
-  const { runScript, env } = await createAdapterTestEnv(motion({ maxFrames: 10 }), { limits: { runTimeoutMs: 240_000 } });
+  const { runScript, env } = await createAdapterTestEnv(motion({ maxFrames: 10 }), { limits: MOTION_LIMITS });
   try {
     await env.fs.writeFile("/scenes/a.jsx", FRAME_SCENE);
     const r = await runScript(
@@ -289,6 +296,86 @@ test("a scene importing a sibling file resolves it", { skip }, async () => {
     assert.ok((await env.fs.readBytes("/out/t.png")).byteLength > 100);
   } finally {
     await env.close();
+  }
+});
+
+
+test("a useFrame scene animates with zero configuration — no mode required", { skip }, async () => {
+  const { script, env } = await envWith();
+  try {
+    await env.fs.writeFile("/scenes/a.jsx", FRAME_SCENE);
+    const out = await script<{ frames: number; warnings: string[] }>(
+      `import { render } from 'env:motion';
+       export default async function main() {
+         return render('/scenes/a.jsx', '/tmp/auto', { durationInFrames: 6, fps: 6, width: 640, height: 360 });
+       }`,
+    );
+    assert.equal(out.frames, 6);
+    assert.deepEqual(out.warnings, [], "auto mode must not report the scene as static");
+    const first = Buffer.from(await env.fs.readBytes("/tmp/auto/frame-00000.png"));
+    const last = Buffer.from(await env.fs.readBytes("/tmp/auto/frame-00005.png"));
+    assert.ok(!first.equals(last), "the box must have moved with nobody choosing a mode");
+  } finally {
+    await env.close();
+  }
+});
+
+test("a still of a clock-driven scene captures the moment, not the initial state", { skip }, async () => {
+  const { script, env } = await envWith();
+  try {
+    await env.fs.writeFile("/scenes/r.jsx", REANIMATED_SCENE);
+    for (const frame of [0, 10]) {
+      await script(
+        `import { still } from 'env:motion';
+         export default async function main(args) {
+           return still('/scenes/r.jsx', '/out/r' + args.frame + '.png', { frame: args.frame, fps: 12, width: 640, height: 360 });
+         }`,
+        { frame },
+      );
+    }
+    const start = Buffer.from(await env.fs.readBytes("/out/r0.png"));
+    const later = Buffer.from(await env.fs.readBytes("/out/r10.png"));
+    // Before auto mode, still() forced frame-driving and a Reanimated still
+    // was always the initial state — this is the regression that would bring
+    // that bug back.
+    assert.ok(!start.equals(later), "frame 10 of a withTiming scene must differ from frame 0");
+  } finally {
+    await env.close();
+  }
+});
+
+test("a render that cannot fit the script budget is refused with the exact fix", async () => {
+  // Deliberately the DEFAULT environment limits — the misconfiguration every
+  // new host starts with.
+  const { runScript, env } = await createAdapterTestEnv(motion());
+  try {
+    await env.fs.writeFile("/scenes/a.jsx", FRAME_SCENE);
+    const r = await runScript(
+      `import { render } from 'env:motion';
+       export default async function main() {
+         return render('/scenes/a.jsx', '/out/a.mp4', { durationInFrames: 90 });
+       }`,
+    );
+    assert.equal(r.ok, false);
+    assert.match(String(r.error), /script budget/);
+    assert.match(String(r.error), /limits: \{ runTimeoutMs: \d+ \}/, "the error must contain the exact line that fixes it");
+    assert.match(String(r.error), /MOTION_LIMITS/);
+  } finally {
+    await env.close();
+  }
+});
+
+test("doctor names every requirement, and every failure carries its fix", async () => {
+  const report = await doctor({ resolveFrom: new URL("..", import.meta.url).pathname });
+  const byName = new Map(report.checks.map((c) => [c.name, c]));
+  for (const name of ["browser", "ffmpeg", "react", "reanimated"]) {
+    assert.ok(byName.has(name), `doctor must check ${name}`);
+  }
+  assert.equal(byName.get("browser")!.ok, HAVE_BROWSER, "doctor must agree with reality about the browser");
+  assert.equal(byName.get("react")!.ok, true, "react ships with the package, so it can only fail on a broken install");
+  assert.equal(byName.get("reanimated")!.ok, true);
+  for (const check of report.checks.filter((c) => !c.ok)) {
+    assert.ok(check.fix, `the failing check "${check.name}" must name its fix`);
   }
 });
 

@@ -22,19 +22,21 @@
  * silently when it is not.
  */
 import { mkdtemp, rm, mkdir, writeFile, readFile, readdir } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, relative } from "node:path";
 import { defineAdapter, type EnvFsHandle, type StdlibAdapter } from "glove-working-environment";
 import { bundleScene } from "./bundle";
-import { captureFrames, resolveBrowser } from "./capture";
+import { captureFrames, resolveBrowser, resolveBrowserSync } from "./capture";
 import { encodeVideo } from "./encode";
 import { RUNTIME_SOURCE, entrySource } from "./runtime";
-import { MOTION_DOCS, MOTION_TYPES, MOTION_SKILL } from "./docs";
+import { MOTION_DOCS, MOTION_TYPES, MOTION_SKILL, hostNotes } from "./docs";
 
 export { resolveBrowser } from "./capture";
 export { BundleError } from "./bundle";
 export { CaptureError } from "./capture";
 export { EncodeError } from "./encode";
+export { doctor, type DoctorCheck, type DoctorOptions, type DoctorReport } from "./doctor";
 
 export interface MotionOptions {
   /**
@@ -68,23 +70,61 @@ interface RenderArgs {
   width?: number;
   height?: number;
   background?: string;
-  mode?: "clock" | "frame";
+  mode?: "auto" | "clock" | "frame";
   crf?: number;
   keepFrames?: string;
 }
 
 const DEFAULTS = { fps: 30, width: 1280, height: 720, background: "#ffffff", crf: 18 };
 
+/**
+ * Environment limits that fit a render.
+ *
+ * A render is a browser launch plus a screenshot per frame, and the
+ * environment's default 30s script budget is nowhere near that. Mount this
+ * beside the adapter — `createWorkingEnvironment({ stdlib: [motion()],
+ * limits: MOTION_LIMITS })` — or forget to, and the render refuses up front
+ * with this exact line in the error rather than dying mid-run.
+ */
+export const MOTION_LIMITS = { runTimeoutMs: 240_000 } as const;
+
 export function motion(options: MotionOptions = {}): StdlibAdapter {
   const timeoutMs = options.timeoutMs ?? 180_000;
   const maxFrames = options.maxFrames ?? 1800;
   const resolveFrom = options.resolveFrom ?? process.cwd();
 
+  // Resolution the way the bundler does it: the host's tree first, then this
+  // package's own dependencies. Used for the docs below and by capabilities().
+  const localRequire = createRequire(join(resolveFrom, "noop.js"));
+  const selfRequire = createRequire(import.meta.url);
+  const seen = (name: string): boolean => {
+    try {
+      localRequire.resolve(name);
+      return true;
+    } catch {
+      /* fall through to our own dependencies */
+    }
+    try {
+      selfRequire.resolve(name);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   return defineAdapter({
     name: "motion",
     description: "Render a React scene (Reanimated included) to video, animated GIF, PNG frames or a still image.",
     types: MOTION_TYPES,
-    docs: MOTION_DOCS,
+    // The generated /std/motion/README.md tells the agent what THIS host can
+    // actually do, so "no browser here" is learned from the docs instead of
+    // from a failed render.
+    docs:
+      MOTION_DOCS +
+      hostNotes({
+        browser: resolveBrowserSync(options.browserPath) !== null,
+        reanimated: seen("react-native-reanimated") && seen("react-native-web"),
+      }),
     skills: [MOTION_SKILL],
     create(vfs: EnvFsHandle) {
       /**
@@ -154,6 +194,24 @@ export function motion(options: MotionOptions = {}): StdlibAdapter {
           );
         }
 
+        // Refuse work that cannot fit the environment's script budget, up
+        // front and with the fix, instead of letting the wall-clock kill it
+        // mid-render with a generic timeout. The estimate is deliberately
+        // rough: ~20s of browser launch and bundling, ~330ms per screenshot,
+        // ~30ms per walked-but-not-captured frame (stills).
+        const budgetMs = vfs.limits.runTimeoutMs;
+        const screenshots = stillFrame !== undefined ? 1 : durationInFrames;
+        const walked = stillFrame !== undefined ? stillFrame : 0;
+        const estimateMs = 20_000 + screenshots * 330 + walked * 30;
+        if (estimateMs > budgetMs) {
+          const suggest = Math.max(120_000, Math.ceil((estimateMs * 1.5) / 60_000) * 60_000);
+          throw new Error(
+            `a ${durationInFrames}-frame render needs roughly ${Math.ceil(estimateMs / 1000)}s — a browser launch, then a screenshot per frame — ` +
+              `but this environment's script budget (limits.runTimeoutMs) is ${Math.round(budgetMs / 1000)}s, so it would be killed mid-render. ` +
+              `Create the environment with limits: { runTimeoutMs: ${suggest} } (this package exports MOTION_LIMITS as a good default), or render fewer frames.`,
+          );
+        }
+
         const staged = await stage(scenePath);
         try {
           const bundle = await bundleScene({
@@ -172,9 +230,10 @@ export function motion(options: MotionOptions = {}): StdlibAdapter {
             fps,
             durationInFrames,
             background: args.background ?? DEFAULTS.background,
-            // A still is one moment, so it is asked for by frame number even
-            // when the scene animates against the clock.
-            mode: args.mode ?? "clock",
+            // "auto" drives both the frame number and the clock, so a scene
+            // animates without the caller knowing which kind it is.
+            mode: args.mode ?? "auto",
+            ...(stillFrame !== undefined ? { still: stillFrame } : {}),
             browserPath: options.browserPath,
             timeoutMs,
           });
@@ -190,13 +249,13 @@ export function motion(options: MotionOptions = {}): StdlibAdapter {
           if (capture.allIdentical && durationInFrames > 1) {
             warnings.push(
               "every frame is identical — the scene is not animating. " +
-                "If it uses useAnimatedStyle/withTiming, the Reanimated worklet plugin may not be compiling; " +
-                "if it uses useFrame(), pass mode: 'frame'.",
+                "Check that the animation actually starts (an effect that never fires, a zero duration), " +
+                "and that the scene moves with useFrame() or an animation library rather than real wall-clock time.",
             );
           }
 
           if (stillFrame !== undefined || ext === ".png") {
-            const wanted = capture.frames[stillFrame ?? capture.frames.length - 1];
+            const wanted = stillFrame !== undefined ? capture.frames[0] : capture.frames[capture.frames.length - 1];
             await vfs.writeFile(outPath, await readFile(wanted));
             return { path: outPath, width, height, frames: 1, warnings };
           }
@@ -259,7 +318,7 @@ export function motion(options: MotionOptions = {}): StdlibAdapter {
           if (!Number.isInteger(frame) || frame < 0) {
             throw new Error(`still needs a frame index of 0 or more, got ${frame}`);
           }
-          return renderTo(scenePath, outPath, { ...args, mode: args.mode ?? "frame" }, frame);
+          return renderTo(scenePath, outPath, args, frame);
         },
 
         /**
@@ -269,20 +328,10 @@ export function motion(options: MotionOptions = {}): StdlibAdapter {
          */
         async capabilities() {
           const browser = await resolveBrowser(options.browserPath);
-          let reanimated = false;
-          try {
-            const { createRequire } = await import("node:module");
-            const r = createRequire(join(resolveFrom, "noop.js"));
-            r.resolve("react-native-reanimated");
-            r.resolve("react-native-web");
-            reanimated = true;
-          } catch {
-            reanimated = false;
-          }
           return {
             browser: browser ?? null,
             canRender: browser !== null,
-            reanimated,
+            reanimated: seen("react-native-reanimated") && seen("react-native-web"),
             maxFrames,
             formats: [".mp4", ".webm", ".gif", ".png", "directory of frames"],
           };

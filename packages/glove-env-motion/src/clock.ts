@@ -83,4 +83,8 @@ export const FRAME_GLOBALS = `(() => {
     for (const l of listeners) l(f);
   };
   window.__gloveOnFrame = (l) => { listeners.add(l); return () => listeners.delete(l); };
+  // How the renderer tells a frame-driven scene from a clock-driven one: a
+  // useFrame() scene subscribes here on mount, and a scene with subscribers
+  // and no pending clock callbacks can be JUMPED to any frame directly.
+  window.__gloveFrameListenerCount = () => listeners.size;
 })();`;

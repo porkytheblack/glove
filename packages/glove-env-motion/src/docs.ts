@@ -30,11 +30,12 @@ export interface RenderArgs {
   /** CSS colour behind the scene. Default '#ffffff'. */
   background?: string;
   /**
-   * 'clock' (default) advances time 1/fps per frame — for Reanimated and
-   * anything animating against a clock.
-   * 'frame' sets the frame number directly — for scenes using useFrame().
+   * How frames are driven. 'auto' (the default) drives BOTH the frame number
+   * (useFrame scenes) and the clock (Reanimated/withTiming scenes), so any
+   * scene animates with no configuration. Set 'frame' or 'clock' only to
+   * isolate one signal.
    */
-  mode?: 'clock' | 'frame';
+  mode?: 'auto' | 'clock' | 'frame';
   /** x264/vp9 quality, 0-51. Lower is better and bigger. Default 18. */
   crf?: number;
   /** Also write the PNG frames to this directory. */
@@ -61,7 +62,7 @@ export interface RenderResult {
  */
 export function render(scenePath: string, outPath: string, args?: RenderArgs): Promise<RenderResult>;
 
-/** One frame as a PNG. Defaults to mode 'frame' and frame 0. */
+/** One frame as a PNG. Defaults to frame 0; works on any kind of scene. */
 export function still(
   scenePath: string,
   outPath: string,
@@ -122,9 +123,9 @@ export default function Scene() {
 }
 \`\`\`
 
-Pass \`mode: 'frame'\` when you render this. Any frame can be produced on its
-own, so you can check frame 90 without rendering the 89 before it — which is
-how you iterate cheaply.
+Any frame can be produced on its own — the renderer notices a frame-driven
+scene and jumps straight to whatever frame you ask for, so checking frame 90
+does not cost the 89 before it. That is what makes iterating cheap.
 
 ### Reanimated — real React Native motion code
 
@@ -145,9 +146,9 @@ export default function Scene() {
 }
 \`\`\`
 
-This runs under the default \`mode: 'clock'\`. Animations start on mount and
-the renderer advances time frame by frame, so a two-second \`withTiming\` takes
-exactly two seconds of video.
+No configuration either: animations start on mount and the renderer advances
+time frame by frame, so a two-second \`withTiming\` is exactly two seconds of
+video.
 
 ## Stills
 
@@ -156,7 +157,7 @@ card or a social graphic:
 
 \`\`\`js
 await still('/scenes/card.jsx', '/out/card.png', { width: 1200, height: 630 });
-await still('/scenes/intro.jsx', '/tmp/check-90.png', { frame: 90 });   // spot-check one frame
+await still('/scenes/intro.jsx', '/tmp/check-90.png', { frame: 90 });   // spot-check one frame, cheaply
 \`\`\`
 
 ## Check what you made
@@ -188,6 +189,9 @@ view_image({ path: '/tmp/frames/frame-00045.png',
 - There is a hard frame ceiling per render; \`capabilities()\` reports it.
 - Renders are **deterministic**: the same scene produces the same bytes, so
   re-rendering after an edit shows a real difference.
+- A render that cannot fit the environment's script time budget is **refused
+  up front**, with the exact limits line the host must set — nothing dies
+  mid-render.
 `;
 
 export const MOTION_SKILL: Skill = {
@@ -227,7 +231,7 @@ screenshot; a 5-second video costs 150.
 \`\`\`js
 import { still } from 'env:motion';
 export default async function main() {
-  return still('/scenes/intro.jsx', '/tmp/f30.png', { frame: 30, mode: 'frame' });
+  return still('/scenes/intro.jsx', '/tmp/f30.png', { frame: 30 });
 }
 \`\`\`
 
@@ -238,15 +242,15 @@ an element behind another — are invisible in code and obvious in the picture.
 
 \`\`\`js
 const out = await render('/scenes/intro.jsx', '/out/intro.mp4',
-                         { durationSeconds: 4, mode: 'frame' });
+                         { durationSeconds: 4 });
 if (out.warnings.length) throw new Error(out.warnings.join('; '));
 \`\`\`
 
 ## The mistakes that cost a render
 
-**Forgetting \`mode\`.** \`useFrame()\` scenes need \`mode: 'frame'\`.
-Reanimated scenes need \`mode: 'clock'\` (the default). Get it wrong and every
-frame is identical — you get a valid video of a still image.
+**Asking for more than the time budget.** A render that cannot fit the
+environment's script budget is refused up front, and the error contains the
+exact limits line the host must set. Stills and short scenes always fit.
 
 **Rendering long before checking short.** Iterate on a still. Only render the
 whole thing once it looks right.
@@ -267,3 +271,24 @@ await still('/scenes/card.jsx', '/out/card.png', { width: 1200, height: 630 });
 \`\`\`
 `,
 };
+
+/**
+ * The "on this host" tail of the generated README — what THIS environment can
+ * actually do, checked when it was created. Facts only, no host paths: the
+ * docs are agent-visible, and the agent needs "no browser here", not where
+ * the binary lives.
+ */
+export function hostNotes(host: { browser: boolean; reanimated: boolean }): string {
+  return [
+    "",
+    "## On this host (checked when the environment was created)",
+    "",
+    host.browser
+      ? "- Browser: available — `render` and `still` work."
+      : "- Browser: **none found** — `render` and `still` will FAIL until the host installs Chromium (`npx playwright-core install chromium` or GLOVE_CHROMIUM_PATH) and recreates the environment.",
+    host.reanimated
+      ? "- Reanimated: available — React Native motion code (useSharedValue, withTiming) renders here."
+      : "- Reanimated: not installed — write scenes with `glove/motion` (useFrame, interpolate), which needs nothing extra. React Native motion code would need the host to add react-native-reanimated + react-native-web.",
+    "",
+  ].join("\n");
+}

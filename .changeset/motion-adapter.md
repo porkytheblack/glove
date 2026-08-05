@@ -44,6 +44,14 @@ The adapter checks all four and says what it found. `capabilities()` reports whe
 
 `render()` returns `warnings`, and an empty array is the good case. The one that matters most says every frame came out identical: the scene is not animating, and the video is technically valid and useless. Pair `keepFrames` with `view_image` to catch the rest — text off the edge and white-on-white are invisible in code and obvious in a picture.
 
+### Zero-config by construction
+
+The five silent-failure findings above are not host configuration. `@babel/core@^7`, the presets, React and ffmpeg are **dependencies** — the host's Babel (any version, or none) never enters the picture, and a bare server with no React of its own still renders `useFrame()` scenes after nothing but `pnpm add glove-env-motion` plus a Chromium. The Reanimated path is one install (`react-native-reanimated react-native-web`) with the worklets transform applied automatically; a missing install fails at bundle time with the command to run, not with still frames.
+
+The `mode` switch is gone as a requirement: the renderer drives **both** the frame number and the clock every frame, so `useFrame()` and Reanimated scenes animate with no configuration, and a still of a clock-driven scene now captures the animated moment instead of the initial state (frame-driven stills are jumped to directly; clock-driven ones are walked without intermediate screenshots).
+
+Renders that cannot fit the environment's script budget are **refused up front** with the exact `limits: { runTimeoutMs: … }` line to add (`MOTION_LIMITS` exports a good default) instead of dying mid-run. `glove-motion-doctor` checks a host in one command — browser, ffmpeg, react, reanimated — with the one-line fix on every failure, and the generated `/std/motion/README.md` carries an "On this host" section so the agent knows what is available before spending a render.
+
 ### Cost
 
 Every frame is a browser screenshot, roughly a second per 10 frames. There is a hard ceiling per render (default 1800 frames), and passing it is refused with the number and the reason rather than timing out deep into the run. A host mounting this must raise `limits.runTimeoutMs` — the 30s default is nowhere near a render.
