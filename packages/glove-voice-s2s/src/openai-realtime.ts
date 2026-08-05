@@ -11,6 +11,9 @@ export interface OpenAIRealtimeConfig {
   getToken: () => Promise<string>;
   /** Realtime model (default "gpt-realtime"). */
   model?: string;
+  /** Default output voice, used when the session config doesn't name one.
+   *  Locked once the model first speaks — per-session, not mid-call. */
+  voice?: string;
   /** Where to POST the WebRTC SDP offer (default the GA calls endpoint). */
   sdpUrl?: string;
   /**
@@ -47,6 +50,33 @@ export class OpenAIRealtimeAdapter extends EventEmitter<S2SEvents> implements S2
   private agentTranscript = "";
   private readonly model: string;
   private readonly sdpUrl: string;
+
+  /**
+   * WebRTC: this adapter opens the microphone and plays the reply itself, so
+   * the host has nothing to wire. The cost is that it only runs in a browser
+   * and cannot serve a room process, which has no microphone to open — use a
+   * `transport`-mode adapter there.
+   */
+  readonly mode = "device" as const;
+
+  /** What the browser captures; declared for symmetry, unused in device mode. */
+  readonly inputFormat = {
+    sampleRate: 24_000,
+    channels: 1 as const,
+    encoding: "pcm_s16le" as const,
+  };
+
+  /**
+   * Refused, deliberately. This adapter is already holding the microphone, so
+   * accepting PCM it would never transmit would leave the host believing the
+   * caller is being heard while the model hears nothing.
+   */
+  sendAudio(): never {
+    throw new Error(
+      "OpenAIRealtimeAdapter runs in device mode and captures its own microphone. " +
+        "Use a transport-mode adapter to feed PCM from a server or phone bridge.",
+    );
+  }
 
   constructor(private readonly cfg: OpenAIRealtimeConfig) {
     super();
@@ -94,7 +124,11 @@ export class OpenAIRealtimeAdapter extends EventEmitter<S2SEvents> implements S2
     };
     dc.onopen = () => {
       this.connected = true;
-      if (config) this.updateSession(config);
+      if (config || this.cfg.voice) {
+        const merged = { ...(config ?? {}) };
+        if (merged.voice === undefined) merged.voice = this.cfg.voice;
+        this.updateSession(merged);
+      }
       this.emit("connected");
     };
     dc.onclose = () => {

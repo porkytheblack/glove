@@ -548,6 +548,123 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  examples/s2s-agent:
+    dependencies:
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-voice-s2s:
+        specifier: workspace:*
+        version: link:../../packages/glove-voice-s2s
+      next:
+        specifier: ^15.3.3
+        version: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.4(react@19.2.4)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.14)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  examples/s2s-rooms:
+    dependencies:
+      dotenv:
+        specifier: ^17.2.3
+        version: 17.3.1
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-mesh:
+        specifier: workspace:*
+        version: link:../../packages/glove-mesh
+      glove-voice-s2s:
+        specifier: workspace:*
+        version: link:../../packages/glove-voice-s2s
+      station-adapter-sqlite:
+        specifier: ^2.0.0
+        version: 2.1.0(station-beacon@2.1.0(station-signal@2.0.0))(station-broadcast@2.0.0(station-signal@2.0.0))(station-env@2.0.0)(station-schedules@2.0.0)(station-signal@2.0.0)
+      station-kit:
+        specifier: ^2.0.0
+        version: 2.1.0(babel-plugin-react-compiler@1.0.0)(station-beacon@2.1.0(station-signal@2.0.0))(station-broadcast@2.0.0(station-signal@2.0.0))(station-signal@2.0.0)
+      station-signal:
+        specifier: ^2.0.0
+        version: 2.0.0
+      ws:
+        specifier: ^8.18.0
+        version: 8.19.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      '@types/ws':
+        specifier: ^8.5.13
+        version: 8.18.1
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  examples/s2s-rooms/web:
+    dependencies:
+      '@ricky0123/vad-web':
+        specifier: ^0.0.30
+        version: 0.0.30
+      dotenv:
+        specifier: ^17.2.3
+        version: 17.3.1
+      glove-voice:
+        specifier: workspace:*
+        version: link:../../../packages/glove-voice
+      next:
+        specifier: ^15.3.3
+        version: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      onnxruntime-web:
+        specifier: ^1.24.2
+        version: 1.24.2
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.4(react@19.2.4)
+      server-only:
+        specifier: ^0.0.1
+        version: 0.0.1
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.14)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   examples/scratchpad-agent:
     dependencies:
       glove-core:
@@ -1139,13 +1256,22 @@ importers:
       eventemitter3:
         specifier: ^5.0.4
         version: 5.0.4
+      glove-core:
+        specifier: workspace:*
+        version: link:../glove
     devDependencies:
       tsup:
         specifier: ^8.0.0
         version: 8.5.1(postcss@8.5.19)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.9.0)
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
 
   packages/glove-working-environment:
     devDependencies:
@@ -9710,7 +9836,7 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 22.20.1
+      '@types/node': 25.2.3
 
   '@types/yargs-parser@21.0.3': {}
 
@@ -12358,7 +12484,7 @@ snapshots:
       '@protobufjs/path': 1.1.2
       '@protobufjs/pool': 1.1.0
       '@protobufjs/utf8': 1.1.0
-      '@types/node': 22.20.1
+      '@types/node': 25.2.3
       long: 5.3.2
 
   proxy-addr@2.0.7:
