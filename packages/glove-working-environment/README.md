@@ -143,6 +143,39 @@ The complete, closed set — everything the model does goes through these:
 | `undo(path)` / `redo(path)` | Per-file linear undo (rm included); re-runs the pipeline for scripts |
 | `checkpoint(action, name?)` | fork/restore/list/drop the WHOLE tree — the multi-file recovery undo cannot do |
 | `history(path?, limit?)` | Runs from `history.jsonl`, or a file's saved versions |
+| `view_image(path, prompt)` | **Only when a `vision` model is wired.** Look at a file and answer a question about how it LOOKS |
+
+### Checking the work by looking at it
+
+Everything above verifies by reading text back. That finds a wrong number and misses a table running off the page, a chart with no bars, or a title overlapping its subtitle — the defects a person notices first.
+
+Wire a vision model and the `view_image` verb appears. Leave it out and the verb is absent from the tool set entirely; an agent is never shown a capability that would fail on use.
+
+```ts
+const env = await createWorkingEnvironment({
+  stdlib: [render()],                       // glove-env-render, for documents
+  vision: {
+    async describe({ bytes, mediaType, prompt }) {
+      return await myVisionModel(bytes, mediaType, prompt);
+    },
+  },
+});
+```
+
+One function rather than a model adapter, so this package keeps its zero dependencies and works with whatever the host already has.
+
+The verb takes a path and a **question**, and rasterizes documents on the way — so checking a PDF is one call, not render-then-look:
+
+```
+view_image({ path: '/out/report.pdf',
+             prompt: 'This should list four regions with a total. Name every
+                      region and figure you can see, and say whether any text
+                      is cut off or overlapping.' })
+```
+
+An empty prompt is refused with an example. "Describe this image" costs the same as a real question and answers far less.
+
+Any adapter can be the renderer: declare `renders` (a `HandlesSpec`, like `handles`) alongside a `render(input, outDir, opts?)` binding. It is kept in a separate registry from `handles` on purpose — otherwise registering a renderer would steal `describe` dispatch from the module that actually understands the format.
 
 ## Stdlib adapters
 

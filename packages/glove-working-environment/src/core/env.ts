@@ -864,6 +864,53 @@ export class EnvCore {
   }
 
   /**
+   * Resolve a path to raster bytes a vision model can accept.
+   *
+   * A PNG is already the answer. Anything else has to go through whichever
+   * module registered itself as able to rasterize it — and if none did, the
+   * error names the package that would, because "cannot view this file" is
+   * only useful with the fix attached.
+   */
+  async imageFor(pathRaw: string): Promise<{ bytes: Uint8Array; mediaType: string; renderedFrom?: string }> {
+    const path = normalizePath(pathRaw);
+    const stat = await this.vfs.stat(path);
+    if (!stat) throw new Error(`no such file or directory: ${path}`);
+    if (stat.kind === "dir") throw new Error(`${path} is a directory — view_image needs a file`);
+
+    const bytes = await this.vfs.read(path);
+    const direct = rasterType(bytes);
+    if (direct) return { bytes, mediaType: direct };
+
+    const head = bytes.subarray(0, HEAD_BYTES);
+    const renderer = this.handlers.renderer(path, head);
+    if (!renderer) {
+      const available = this.handlers.listRenderers().map((r) => `env:${r.module}`);
+      throw new Error(
+        `${path} is not an image, and ${
+          available.length === 0
+            ? `no module is registered that can rasterize it. Add glove-env-render to the host's stdlib to view PDFs, decks and Word files`
+            : `none of ${available.join(", ")} claims this format`
+        }.`,
+      );
+    }
+
+    // A private scratch directory: rendering to view is not the agent's
+    // output, and leaving page PNGs in /out would make the deliverable
+    // directory a lie.
+    const outDir = `/tmp/.view/${path.replace(/[^a-z0-9]+/gi, "_")}`;
+    const result = (await renderer.render(path, outDir, { pages: [1] })) as {
+      pages?: Array<{ path?: string }>;
+    };
+    const first = result?.pages?.[0]?.path;
+    if (!first) throw new Error(`env:${renderer.module} rendered no pages from ${path}`);
+
+    const rendered = await this.vfs.read(normalizePath(first));
+    const type = rasterType(rendered);
+    if (!type) throw new Error(`env:${renderer.module} produced ${first}, which is not a raster image`);
+    return { bytes: rendered, mediaType: type, renderedFrom: first };
+  }
+
+  /**
    * Summarise any file: the claiming adapter's own `describe()` when one
    * exists, otherwise a generic structural summary.
    *
@@ -935,4 +982,26 @@ export class EnvCore {
     base.preview = lines.slice(0, 5).join("\n").slice(0, 500);
     return base;
   }
+}
+
+/**
+ * Raster format by magic bytes, not by extension.
+ *
+ * A `.png` that is really a PDF must not be handed to a vision model as a
+ * PNG — the provider rejects it, and the error names the media type rather
+ * than the actual problem.
+ */
+function rasterType(bytes: Uint8Array): string | null {
+  const at = (i: number) => bytes[i];
+  if (bytes.length >= 8 && at(0) === 0x89 && at(1) === 0x50 && at(2) === 0x4e && at(3) === 0x47) return "image/png";
+  if (bytes.length >= 3 && at(0) === 0xff && at(1) === 0xd8 && at(2) === 0xff) return "image/jpeg";
+  if (bytes.length >= 6 && at(0) === 0x47 && at(1) === 0x49 && at(2) === 0x46) return "image/gif";
+  if (
+    bytes.length >= 12 &&
+    at(0) === 0x52 && at(1) === 0x49 && at(2) === 0x46 && at(3) === 0x46 &&
+    at(8) === 0x57 && at(9) === 0x45 && at(10) === 0x42 && at(11) === 0x50
+  ) {
+    return "image/webp";
+  }
+  return null;
 }

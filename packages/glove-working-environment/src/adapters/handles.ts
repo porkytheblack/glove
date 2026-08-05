@@ -92,11 +92,39 @@ function matchesExtension(handles: HandlesSpec, path: string): boolean {
   return (handles.extensions ?? []).some((e) => e.toLowerCase() === ext);
 }
 
+/** A module that can rasterize a file to page images. */
+export interface RegisteredRenderer {
+  module: string;
+  renders: HandlesSpec;
+  render: (input: string, outDir: string, opts?: unknown) => Promise<unknown>;
+}
+
 export class HandlerRegistry {
   private readonly entries: RegisteredHandler[] = [];
+  private readonly renderers: RegisteredRenderer[] = [];
 
   register(entry: RegisteredHandler): void {
     this.entries.push(entry);
+  }
+
+  registerRenderer(entry: RegisteredRenderer): void {
+    this.renderers.push(entry);
+  }
+
+  /** Every module that can rasterize, in registration order. */
+  listRenderers(): readonly RegisteredRenderer[] {
+    return this.renderers;
+  }
+
+  /** Which module can rasterize this file? Same magic-beats-extension rule. */
+  renderer(path: string, head: Uint8Array): RegisteredRenderer | null {
+    for (const entry of this.renderers) {
+      if (matchesMagic(entry.renders, head)) return entry;
+    }
+    for (const entry of this.renderers) {
+      if (matchesExtension(entry.renders, path)) return entry;
+    }
+    return null;
   }
 
   /** Every registered module that declares a claim, in registration order. */

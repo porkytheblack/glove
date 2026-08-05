@@ -57,6 +57,12 @@ export interface AdapterSpec<T extends AdapterBindings> {
    */
   handles?: HandlesSpec;
   /**
+   * The files this adapter can rasterize, declared alongside a `render`
+   * binding. Separate from `handles` so registering a renderer cannot steal
+   * `describe` dispatch from the module that understands the format.
+   */
+  renders?: HandlesSpec;
+  /**
    * Worked recipes, materialized under `/skills` and listed in its index.
    *
    * `types` says what the module exports; a skill says how to do a task with
@@ -149,6 +155,7 @@ export function defineAdapter<T extends AdapterBindings>(spec: AdapterSpec<T>): 
     throw new TypeError(`${where}: create(vfs, ctx) is required and must return the module's bindings`);
   }
   if (spec.handles !== undefined) validateHandles(spec.handles, where);
+  if (spec.renders !== undefined) validateHandles(spec.renders, where);
 
   const create = (vfs: EnvFsHandle, ctx?: Partial<AdapterContext>): T => {
     const bindings = spec.create(vfs, { name: spec.name, readOnly: false, ...ctx });
@@ -164,6 +171,7 @@ export function defineAdapter<T extends AdapterBindings>(spec: AdapterSpec<T>): 
     types: spec.types,
     ...(spec.docs === undefined ? {} : { docs: spec.docs }),
     ...(spec.handles === undefined ? {} : { handles: spec.handles }),
+    ...(spec.renders === undefined ? {} : { renders: spec.renders }),
     ...(spec.skills === undefined ? {} : { skills: spec.skills }),
     create,
   };

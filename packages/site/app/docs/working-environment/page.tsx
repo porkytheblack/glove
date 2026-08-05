@@ -412,6 +412,7 @@ definePureModule({
           ["glove-env-slides", "env:slides", ".pptx generation and read-back; the pptxgenjs builder API unchanged."],
           ["glove-env-archives", "env:archives", "zip, tar, tar.gz both directions. No dependencies — node:zlib only."],
           ["glove-env-media", "env:media", "audio/video via bundled ffmpeg — describe, thumbnail, frames, clip, transcode."],
+          ["glove-env-render", "env:render", "rasterize a PDF, deck or Word file to page PNGs — so the agent can look at what it made."],
         ]}
       />
 
@@ -421,6 +422,75 @@ definePureModule({
         context window. It is the orientation verb, and the environment routes the
         generic <code>describe</code> to whichever module recognises the format by
         its magic bytes.
+      </p>
+
+      {/* ================================================================== */}
+      {/* SEEING                                                             */}
+      {/* ================================================================== */}
+      <h2 id="seeing">Letting the agent see its own work</h2>
+
+      <p>
+        Everything above verifies by reading text back. That finds a wrong
+        number and misses a table running off the page, a chart with no bars, or
+        a title overlapping its subtitle — the defects a person notices in the
+        first second.
+      </p>
+
+      <p>
+        Wire a vision model and a <code>view_image</code> verb appears. Leave it
+        out and the verb is absent from the tool set entirely: an agent is never
+        shown a capability that would fail on use.
+      </p>
+
+      <CodeBlock
+        code={`import { render } from "glove-env-render";
+
+const env = await createWorkingEnvironment({
+  stdlib: [documents(), render()],
+  vision: {
+    // One function, not a model adapter — so this package keeps its zero
+    // dependencies and works with whatever you already have.
+    async describe({ bytes, mediaType, prompt }) {
+      return await myVisionModel(bytes, mediaType, prompt);
+    },
+  },
+});`}
+        language="typescript"
+      />
+
+      <p>
+        The verb takes a path and a <strong>question</strong>, and rasterizes
+        documents on the way — so checking a PDF is one call rather than
+        render-then-look:
+      </p>
+
+      <CodeBlock
+        code={`view_image({
+  path: '/out/report.pdf',
+  prompt: 'This should list four regions with a total. Name every region and
+           figure you can see, and say whether any text is cut off or overlapping.'
+})`}
+        language="javascript"
+      />
+
+      <div style={calloutStyle}>
+        Measured against a report carrying two deliberate defects — a row pushed
+        off the right edge and a subtitle overlapping the title — a commodity
+        vision model reported both, without being told what to look for.
+      </div>
+
+      <p>
+        An empty prompt is refused with an example. &quot;Describe this
+        image&quot; costs the same as a real question and answers far less: say
+        what you <em>expected</em>, then ask what is actually there.
+      </p>
+
+      <p>
+        Any adapter can be the renderer — declare <code>renders</code> alongside
+        a <code>render(input, outDir, opts?)</code> binding.{" "}
+        <code>glove-env-render</code> does it for PDFs and images with no system
+        dependency, and for <code>.pptx</code> / <code>.docx</code> through
+        headless LibreOffice.
       </p>
 
       {/* ================================================================== */}

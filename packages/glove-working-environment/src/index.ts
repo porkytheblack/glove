@@ -177,6 +177,23 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
       const describe = typeof ns.describe === "function" ? (ns.describe as (p: string) => Promise<unknown>) : undefined;
       core.handlers.register({ module: adapter.name, handles: adapter.handles, describe });
     }
+    if (adapter.renders) {
+      // Same read-WRITE binding as describe, and for a stronger reason:
+      // rasterizing has to put page images somewhere.
+      const ns = core.envModules.get(adapter.name) ?? {};
+      const render = ns.render;
+      if (typeof render !== "function") {
+        throw new TypeError(
+          `stdlib adapter "${adapter.name}" declares renders but exposes no render() binding — ` +
+            `create() must return { render(input, outDir, opts?) }`,
+        );
+      }
+      core.handlers.registerRenderer({
+        module: adapter.name,
+        renders: adapter.renders,
+        render: render as (input: string, outDir: string, opts?: unknown) => Promise<unknown>,
+      });
+    }
   }
 
   // --- materialize the tree ----------------------------------------------
@@ -231,11 +248,11 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
 
   core.attachRunLog(runlog);
 
-  const tools = buildTools({ core, runlog, limits, prefix: "" });
+  const tools = buildTools({ core, runlog, limits, prefix: "", vision: options.vision });
 
   return {
     tools,
-    toolsWithPrefix: (prefix: string) => buildTools({ core, runlog, limits, prefix }),
+    toolsWithPrefix: (prefix: string) => buildTools({ core, runlog, limits, prefix, vision: options.vision }),
     fs: fsHandle,
     limits,
     moduleDescriptions: core.moduleDescriptions,
@@ -368,7 +385,7 @@ export {
   type DefinedAdapter,
   type FileSummary,
 } from "./adapters/define";
-export { HandlerRegistry, type Claim, type HandlesSpec, type RegisteredHandler } from "./adapters/handles";
+export { HandlerRegistry, type Claim, type HandlesSpec, type RegisteredHandler, type RegisteredRenderer } from "./adapters/handles";
 export { definePureModule, type PureModuleSpec } from "./adapters/pure";
 export {
   defineBuilder,
@@ -398,6 +415,7 @@ export {
   type RunResult,
   type StdlibAdapter,
   type Vfs,
+  type VisionAdapter,
   type VfsEntry,
   type VfsStat,
 } from "./types";

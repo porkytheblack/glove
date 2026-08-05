@@ -1,0 +1,48 @@
+{
+  "name": "glove-env-render",
+  "version": "0.1.0",
+  "description": "Rendering stdlib adapter for glove-working-environment. Rasterizes PDFs, slide decks, Word files and images to page PNGs inside the agent's virtual filesystem as env:render — so an agent can look at what it produced instead of only reading its text back.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-env-render"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.3",
+    "pdfjs-dist": "^6.2.0"
+  },
+  "peerDependencies": {
+    "glove-working-environment": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "glove-working-environment": "workspace:*",
+    "pdf-lib": "^1.17.1",
+    "pptxgenjs": "^4.0.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}

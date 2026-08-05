@@ -11,7 +11,7 @@
  * which agent evaluation shows is the first thing a model does with an
  * unfamiliar inbox.
  */
-import type { EnvLimits, EnvTool, EnvToolResult } from "../types";
+import type { EnvLimits, EnvTool, EnvToolResult, VisionAdapter } from "../types";
 import type { EnvCore } from "../core/env";
 import type { RunLog } from "../history/runlog";
 import { executeRun } from "./run";
@@ -24,6 +24,8 @@ interface ToolDeps {
   runlog: RunLog;
   limits: EnvLimits;
   prefix: string;
+  /** When the host wired one, `view_image` joins the verb set. */
+  vision?: VisionAdapter;
 }
 
 /**
@@ -101,7 +103,7 @@ function schema(props: Record<string, unknown>, required: string[]): Record<stri
 }
 
 export function buildTools(deps: ToolDeps): EnvTool[] {
-  const { core, limits, prefix } = deps;
+  const { core, limits, prefix, vision } = deps;
   const name = (n: string) => `${prefix}${n}`;
   // One tracker per environment: the loop being detected is a model repeating
   // itself within a session, so the counts must outlive individual calls and
@@ -511,5 +513,55 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     }),
   };
 
-  return [writeFile, editFile, rm, mv, cp, readFile, ls, grep, describe, runScript, runTests, undo, redo, checkpoint, history];
+  /**
+   * Look at a file and answer a question about it.
+   *
+   * The one verb in this set that can catch a *visual* defect. Everything else
+   * verifies by reading text back, which finds a wrong number and misses a
+   * table running off the page, a chart with no bars, or a title overlapping
+   * its subtitle. Those are the failures a person spots instantly and an
+   * extraction never sees.
+   *
+   * Registered only when the host wired a vision model — an agent is never
+   * shown a capability that would fail on use.
+   */
+  const viewImage: EnvTool = {
+    name: name("view_image"),
+    description:
+      "Look at a file and answer a question about how it LOOKS. Pass a specific question, not 'describe this': " +
+      "the answer is only as useful as the question, and 'is the revenue table complete with four regions, and does any text run off the page?' " +
+      "is worth ten of 'what is in this image'. " +
+      "Accepts images directly; PDFs, decks and Word files are rasterized first (first page) when a rendering module is registered. " +
+      "Use it on your OWN output before reporting done — text extraction cannot see layout.",
+    jsonSchema: schema(
+      {
+        path: str("Absolute VFS path of the image or document to look at"),
+        prompt: str("The specific question to answer about it"),
+      },
+      ["path", "prompt"],
+    ),
+    do: guard("view_image", async (input: { path: string; prompt: string }) => {
+      if (typeof input.path !== "string" || typeof input.prompt !== "string") {
+        return err("view_image needs { path, prompt } as strings");
+      }
+      if (input.prompt.trim() === "") {
+        return err(
+          "view_image needs a prompt saying what to check — an open-ended look back costs the same and answers less. " +
+            "Example: 'does the table list four regions, and is any text cut off at the page edge?'",
+        );
+      }
+      const image = await core.imageFor(input.path);
+      const answer = await vision!.describe({
+        bytes: image.bytes,
+        mediaType: image.mediaType,
+        prompt: input.prompt,
+      });
+      const provenance = image.renderedFrom ? `rendered ${input.path} -> ${image.renderedFrom}\n\n` : "";
+      return ok(`${provenance}${answer}`);
+    }),
+  };
+
+  const verbs = [writeFile, editFile, rm, mv, cp, readFile, ls, grep, describe, runScript, runTests, undo, redo, checkpoint, history];
+  if (vision) verbs.push(viewImage);
+  return verbs;
 }
