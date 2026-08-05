@@ -44,6 +44,12 @@ import { BUILDER, describeShape, type BuilderSpec, type HostToWorker, type NeedM
 export interface PoolDeps {
   readSource(path: string): Promise<string | null>;
   envModules(readOnly: boolean): Map<string, Record<string, unknown>>;
+  /**
+   * Pure modules the worker imports locally instead of RPC-ing. A getter
+   * because they are registered after the pool is constructed, exactly like
+   * `envModules`; read once when the first worker spawns.
+   */
+  pureModules?(): Array<{ name: string; url: string; pick: string[] }>;
   limits: EnvLimits;
 }
 
@@ -164,9 +170,15 @@ export class WorkerPool {
    */
   private shapeSet(): { readWrite: Record<string, ShapeNode>; readOnly: Record<string, ShapeNode> } {
     if (this.shapes) return this.shapes;
+    // Pure modules are imported inside the worker, not mirrored as RPC stubs;
+    // describing them here would deliver a second, async copy that shadows
+    // the synchronous one.
+    const pure = new Set((this.deps.pureModules?.() ?? []).map((p) => p.name));
     const describe = (readOnly: boolean): Record<string, ShapeNode> => {
       const out: Record<string, ShapeNode> = {};
-      for (const [name, ns] of this.deps.envModules(readOnly)) out[name] = describeShape(ns);
+      for (const [name, ns] of this.deps.envModules(readOnly)) {
+        if (!pure.has(name)) out[name] = describeShape(ns);
+      }
       return out;
     };
     this.shapes = { readWrite: describe(false), readOnly: describe(true) };
@@ -264,7 +276,12 @@ export class WorkerPool {
       });
     });
 
-    worker.postMessage({ type: "start", limits: this.deps.limits, shapes: this.shapeSet() } satisfies HostToWorker);
+    worker.postMessage({
+      type: "start",
+      limits: this.deps.limits,
+      shapes: this.shapeSet(),
+      pure: this.deps.pureModules?.() ?? [],
+    } satisfies HostToWorker);
     return slot;
   }
 

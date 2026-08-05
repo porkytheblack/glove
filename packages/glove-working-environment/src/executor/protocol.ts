@@ -220,6 +220,14 @@ export interface StartMessage {
   limits: EnvLimits;
   /** Namespace name → shape, for both the normal and validation-time sets. */
   shapes: { readWrite: Record<string, ShapeNode>; readOnly: Record<string, ShapeNode> };
+  /**
+   * Pure modules the worker imports locally — the mechanism that makes them
+   * SYNCHRONOUS, which is their entire point. The host resolved each `url`
+   * and already imported it successfully with every `pick` name verified, so
+   * by the time this arrives, failure is a broken environment rather than a
+   * user mistake.
+   */
+  pure?: Array<{ name: string; url: string; pick: string[] }>;
 }
 
 export interface RunMessage {

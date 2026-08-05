@@ -18,6 +18,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
     links: [
       { label: "Display Stack", href: "/docs/display-stack" },
       { label: "Memory", href: "/docs/memory" },
+      { label: "Scratchpad", href: "/docs/scratchpad" },
       { label: "Working Environment", href: "/docs/working-environment" },
       { label: "Code Execution", href: "/docs/code-execution" },
       { label: "Realtime Voice", href: "/docs/realtime-voice" },

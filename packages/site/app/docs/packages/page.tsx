@@ -569,6 +569,14 @@ mountWorkingEnvironment(agent, { env });          // model-facing verbs + preamb
 const deliverables = await env.export("/out/**"); // → [{ path, bytes }]`}
         />
         <p>
+          Back the tree with memory, a real directory (<code>hostDirectory</code>,
+          copy-on-write), a snapshot, or object storage (<code>cachedRemote</code>
+          ). Expose your own libraries to the model with{" "}
+          <code>defineAdapter</code> (I/O), <code>defineBuilder</code> (stateful
+          builder APIs), or <code>definePureModule</code> (pure, synchronous
+          computation).
+        </p>
+        <p>
           → <a href="/docs/working-environment">Working environment guide</a>
         </p>
       </Pkg>
@@ -672,7 +680,7 @@ import { images } from "glove-env-images";
 const env = await createWorkingEnvironment({ stdlib: [documents(), images()] });`}
         />
         <p>
-          → <a href="/docs/working-environment#stdlib">Stdlib adapters</a>
+          → <a href="/docs/working-environment#adapters">Stdlib adapters</a>
         </p>
       </Pkg>
 

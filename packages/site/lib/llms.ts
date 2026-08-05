@@ -319,6 +319,24 @@ Tree: \`/inbox\` inputs, \`/scripts\` the agent's script library (+ generated .d
 default-export a function; validation happens at write time. Scripts may import
 relative VFS paths and \`env:*\` modules only — no network, no host fs, no process.
 
+Backing the tree: \`inMemoryFs()\` (default), \`hostDirectory(dir)\` (copy-on-write
+over a real directory; \`commit()\` / \`discard()\`), \`fromSnapshot(snap)\`, or
+\`cachedRemote(store)\` for object storage.
+
+Exposing a library to the model — the shape picks the route, and the wrong route
+fails quietly:
+
+| library shape | route | call style |
+| --- | --- | --- |
+| does I/O — reads/writes files, calls out | \`defineAdapter\` | async |
+| stateful builder — \`new X()\`, chaining, terminal save | \`defineBuilder\` / \`defineBuilders\` | async |
+| pure computation — no I/O, no state | \`definePureModule\` | synchronous |
+
+\`definePureModule({ name, from, description, pick })\` imports the package inside
+the worker and binds it directly, so calls stay synchronous. \`pick\` is the
+sandbox boundary, not a convenience — never pick a string-to-code member (e.g.
+\`_.template\`, which compiles with \`Function(source)\`).
+
 ### glove-egress
 
 \`\`\`ts

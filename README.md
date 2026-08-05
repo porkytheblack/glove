@@ -577,6 +577,24 @@ pnpm mcp:notion-mcp-auth   # one-time OAuth dance
 pnpm mcp:cli                # multi-MCP agent with discovery
 ```
 
+### Document Desk
+
+An agent with a **working environment** instead of a menu of document actions. Drop in a PDF, workbook, deck or image and ask for something — it writes code against your files rather than picking from a fixed tool list. The left pane is the conversation, the right pane is the code the agent is writing as it writes it, and a modal opens the filesystem you are both working in. All five format adapters mounted at once.
+
+```bash
+cd examples/document-desk && pnpm dev
+```
+
+### Analyst Desk
+
+The eval harness behind [`glove-working-environment`](packages/glove-working-environment) — five document/data scenarios with programmatic checks and a strong-model judge, run against real models over OpenRouter. `pnpm selfcheck` runs the reference solutions with no API calls.
+
+```bash
+cd examples/analyst-desk
+pnpm selfcheck   # free — proves every scenario is solvable
+pnpm start       # the real thing, needs OPENROUTER_API_KEY
+```
+
 ## Claude Code Skill
 
 This repo includes an [Agent Skill](https://agentskills.io) that gives Claude Code (and other compatible agents) deep knowledge of the Glove framework — architecture, API reference, patterns from the examples, and common gotchas.
