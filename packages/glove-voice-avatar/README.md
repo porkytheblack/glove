@@ -74,12 +74,13 @@ with the voice, and the next utterance starts a fresh inference.
 Same posture as every adapter in this series: the conformance suite proves
 an adapter is wired correctly against its own reading of the protocol — via
 harnesses that capture real wire frames, no `__conformance` shims in
-production code — and only a live call with credentials proves the reading.
-The wire facts (create with `pal_id`+`face_id`, bare `conversation.interrupt`,
-data-channel-only interactions) are synced against docs.tavus.io's llms.txt
-index; `sendInteraction` is REQUIRED precisely because the data channel is
-the only interaction transport and the adapter deliberately does not own a
-Daily connection.
+production code — and a live call proves the reading. The wire facts (create
+with `pal_id`+`face_id`, bare `conversation.interrupt`, data-channel-only
+interactions) are synced against docs.tavus.io's llms.txt index, and the
+Tavus adapter is **live-verified** (2026-08-05) through
+`examples/avatar-rooms`. `sendInteraction` is REQUIRED precisely because
+the data channel is the only interaction transport and the adapter
+deliberately does not own a Daily connection.
 
 ## Roadmap
 

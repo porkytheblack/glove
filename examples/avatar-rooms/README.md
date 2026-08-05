@@ -67,9 +67,9 @@ Ports are shifted so this runs side by side with the whole series: station
 
 ## Status
 
-The `AvatarAdapter` contract and Tavus adapter pass the avatar conformance
-suite; **nothing here has spoken to the live Tavus API yet** — this example
-is that verification, same as `s2s-rooms` was for gpt-realtime. Anam
-passthrough ([#71](https://github.com/porkytheblack/glove/issues/71)) and a
-LiveKit transport variant
-([#72](https://github.com/porkytheblack/glove/issues/72)) come next.
+**Live-verified against the Tavus API** (2026-08-05): conversation create,
+echo audio through the browser courier, and the rendered face all confirmed
+working end to end, on top of the conformance suite. Anam passthrough
+([#71](https://github.com/porkytheblack/glove/issues/71)) and a LiveKit
+transport variant ([#72](https://github.com/porkytheblack/glove/issues/72))
+come next.
