@@ -1,5 +1,6 @@
 import { RevealOnScroll } from "@/components/reveal";
 import { GloveLogo } from "@/components/glove-logo";
+import { CodeBlock } from "@/components/code-block";
 import type { CSSProperties, ReactNode } from "react";
 
 /* ── Capability icons — minimal 24px line glyphs ───────────────────── */
@@ -73,6 +74,36 @@ const icons: Record<string, ReactNode> = {
       <path d="M12 12.5v4a3 3 0 0 1-3 3H7.5" />
     </svg>
   ),
+  avatar: (
+    <svg {...iconProps}>
+      <circle cx="12" cy="9.5" r="3.4" />
+      <path d="M5 20a7 7 0 0 1 14 0" />
+      <path d="M2.8 7.5v-2a2 2 0 0 1 2-2h2M21.2 7.5v-2a2 2 0 0 0-2-2h-2" opacity=".6" />
+    </svg>
+  ),
+  sandbox: (
+    <svg {...iconProps}>
+      <path d="M3.5 7.5a2 2 0 0 1 2-2h3.2l1.6 2h8.2a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />
+      <path d="M7.5 12.5l2 1.8-2 1.8M12 16.1h4" opacity=".7" />
+    </svg>
+  ),
+  code: (
+    <svg {...iconProps}>
+      <path d="M8.5 8 4 12l4.5 4M15.5 8 20 12l-4.5 4M13.5 5l-3 14" />
+    </svg>
+  ),
+  shield: (
+    <svg {...iconProps}>
+      <path d="M12 3.2 19 6v5.4c0 4.2-2.8 7.6-7 9.4-4.2-1.8-7-5.2-7-9.4V6z" />
+      <path d="M9.3 12.2l1.9 1.9 3.6-3.7" opacity=".75" />
+    </svg>
+  ),
+  ship: (
+    <svg {...iconProps}>
+      <path d="M12 3 20.5 7.5v9L12 21l-8.5-4.5v-9z" />
+      <path d="M3.5 7.5 12 12l8.5-4.5M12 12v9" opacity=".65" />
+    </svg>
+  ),
 };
 
 type Cap = {
@@ -125,6 +156,20 @@ const capabilityGroups: CapGroup[] = [
           </>
         ),
       },
+      {
+        icon: "avatar",
+        kicker: "Realtime & avatars",
+        name: "Speech-to-Speech",
+        href: "/docs/realtime-voice",
+        badge: "new",
+        desc: (
+          <>
+            Run the same agent on a realtime model — 500–800ms voice-to-voice,
+            turn-taking decided by the model listening. Then give it a face, and
+            put it in a LiveKit room.
+          </>
+        ),
+      },
     ],
   },
   {
@@ -169,6 +214,56 @@ const capabilityGroups: CapGroup[] = [
             A persistent mailbox for what can&apos;t resolve now. The agent
             posts a request; a webhook, cron, or human resolves it later — and
             it&apos;s injected on the next turn, across restarts.
+          </>
+        ),
+      },
+    ],
+  },
+  {
+    cat: "var(--c-deploy)",
+    name: "Compute",
+    line: "Somewhere for the model to do the work",
+    caps: [
+      {
+        icon: "sandbox",
+        kicker: "Sandboxed filesystem",
+        name: "Working Environment",
+        href: "/docs/working-environment",
+        badge: "new",
+        desc: (
+          <>
+            A persistent virtual filesystem the agent works in — writes scripts,
+            runs them, inspects intermediates, iterates. No network, no host fs,
+            no process; only the capabilities you inject.
+          </>
+        ),
+        meta: "PDF, xlsx, slides, images, media adapters",
+      },
+      {
+        icon: "code",
+        kicker: "One eval tool",
+        name: "Code Execution",
+        href: "/docs/code-execution",
+        badge: "new",
+        desc: (
+          <>
+            Fifty tool definitions become one sandboxed REPL — JavaScript,
+            Python or Lisp over the same catalog. The model composes and
+            branches in a single call, and only the answer enters its context.
+          </>
+        ),
+      },
+      {
+        icon: "shield",
+        kicker: "Enforced boundary",
+        name: "Egress Control",
+        href: "/docs/egress",
+        badge: "beta",
+        desc: (
+          <>
+            Make that boundary a privacy boundary: programs must end in a
+            bounded decision, a bit budget caps cumulative disclosure, and a
+            meter reports exactly what crossed.
           </>
         ),
       },
@@ -239,6 +334,20 @@ const capabilityGroups: CapGroup[] = [
           </>
         ),
       },
+      {
+        icon: "ship",
+        kicker: "Ship it",
+        name: "Glovebox",
+        href: "/docs/glovebox",
+        badge: "beta",
+        desc: (
+          <>
+            Package an agent as a sandboxed container with one authenticated
+            WebSocket endpoint per session. Five base images, a storage policy
+            for payloads, and a client SDK.
+          </>
+        ),
+      },
     ],
   },
 ];
@@ -265,10 +374,10 @@ export default function LandingPage() {
     <main>
       {/* ── Hero ────────────────────────────────────────────────── */}
       <section className="hero">
-        <a className="hero-badge" href="/docs/v3">
+        <a className="hero-badge" href="/docs/packages">
           <span className="dot" />
           <span>
-            <strong>v3.0</strong> — memory, mesh & the scratchpad
+            <strong>New</strong> — sandboxes, code execution & realtime voice
           </span>
         </a>
         <GloveLogo className="hero-icon" />
@@ -276,21 +385,25 @@ export default function LandingPage() {
           Build agents that do <strong>cool things.</strong>
         </h1>
         <p className="hero-sub">
-          Glove is your open-source TypeScript toolkit for{" "}
-          <strong>multi-agent orchestration systems</strong> — agents with
-          tools, memory, a shared mailbox, a mesh to talk over, and a way to
-          ship.
+          Glove is an open-source TypeScript framework for{" "}
+          <strong>AI-powered applications</strong>. You define tools; the agent
+          decides when to use them — then renders UI, speaks, remembers,
+          computes in a sandbox, and coordinates with other agents.
         </p>
         <div className="hero-pills">
           {[
+            "Display Stack",
             "Memory",
             "Inbox",
-            "Mesh",
             "Scratchpad",
+            "Sandboxes",
+            "Code Execution",
+            "Mesh",
             "Continuum",
             "Voice",
+            "Avatars",
             "MCP",
-            "Subagents",
+            "Glovebox",
           ].map((p) => (
             <span key={p} className="hero-pill">
               {p}
@@ -372,9 +485,9 @@ export default function LandingPage() {
         </h2>
         <p className="section-desc">
           An agent that only calls tools and prints text hits a wall fast. Glove
-          gives it the rest — memory, a mailbox, peers to coordinate with, a
-          schedule to run on, and external services to reach — each an
-          independent piece you can adopt on its own.
+          gives it the rest — a way to render UI and speak, memory and a
+          mailbox, a sandbox to compute in, peers to coordinate with, and a way
+          to ship. Every one is a separate package you can adopt on its own.
         </p>
 
         {capabilityGroups.map((group) => (
@@ -426,6 +539,85 @@ export default function LandingPage() {
             </div>
           </RevealOnScroll>
         ))}
+      </section>
+
+      {/* ── Start ───────────────────────────────────────────────── */}
+      <section id="start">
+        <span className="section-label">Start</span>
+        <h2 className="section-title">
+          A tool, a model, and <strong>you&apos;re running.</strong>
+        </h2>
+        <p className="section-desc">
+          Everything else is opt-in. Install the runtime, describe what your app
+          can do, and let the agent sequence it.
+        </p>
+        <RevealOnScroll>
+          <div className="start-grid">
+            <CodeBlock
+              filename="agent.ts"
+              language="typescript"
+              code={`import {
+  Glove, MemoryStore, Displaymanager, createAdapter,
+} from "glove-core";
+import { z } from "zod";
+
+const agent = new Glove({
+  store: new MemoryStore("session-1"),
+  model: createAdapter({ provider: "anthropic" }),
+  displayManager: new Displaymanager(),
+  systemPrompt: "You are a helpful assistant.",
+})
+  .fold({
+    name: "search_products",
+    description: "Search the product catalog",
+    inputSchema: z.object({ query: z.string() }),
+    async do(input, display) {
+      const hits = await catalog.search(input.query);
+
+      // Render a grid mid-conversation, keep going.
+      await display.pushAndForget({
+        renderer: "product_grid",
+        input: hits,
+      });
+
+      return hits;
+    },
+  })
+  .build();
+
+await agent.processRequest("Running shoes under $100");`}
+            />
+            <div className="start-notes">
+              <div className="start-note">
+                <span className="start-note-k">One install per capability</span>
+                <p>
+                  <code>glove-core</code> is the runtime. Memory, sandboxes,
+                  voice, mesh and MCP are separate packages that mount onto it —
+                  nothing you skip costs you anything.
+                </p>
+              </div>
+              <div className="start-note">
+                <span className="start-note-k">Tools render, and can wait</span>
+                <p>
+                  <code>pushAndForget</code> shows UI mid-run;{" "}
+                  <code>pushAndWait</code> suspends the tool until the user
+                  answers, then resumes with their value.
+                </p>
+              </div>
+              <div className="start-note">
+                <span className="start-note-k">Any model, any store</span>
+                <p>
+                  Anthropic, OpenAI, Gemini, OpenRouter, Bedrock, Ollama and LM
+                  Studio behind one factory — and a store interface small enough
+                  to implement over whatever you already run.
+                </p>
+              </div>
+              <a href="/docs/packages" className="btn-secondary">
+                Browse all packages
+              </a>
+            </div>
+          </div>
+        </RevealOnScroll>
       </section>
 
       {/* ── Architecture ────────────────────────────────────────── */}

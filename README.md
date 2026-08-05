@@ -498,11 +498,26 @@ Glove is built on five adapter interfaces. Swap any layer without changing appli
 
 ## Documentation
 
-- [Getting Started](https://glove.dterminal.net/docs/getting-started)
-- [Core API Reference](https://glove.dterminal.net/docs/core)
-- [Server-Side Agents](https://glove.dterminal.net/docs/server-side) — CLI tools, backend services, WebSocket servers
-- [Voice](https://glove.dterminal.net/docs/voice)
-- [Full Documentation](https://glove.dterminal.net)
+Start here:
+
+- [What is Glove?](https://glove.dterminal.net/docs/intro) — the idea in five minutes
+- [Installation](https://glove.dterminal.net/docs/installation) — packages, providers, environment variables
+- [Quickstart](https://glove.dterminal.net/docs/getting-started) — a working agent in 15 minutes, full-stack or server-only
+- [Core Concepts](https://glove.dterminal.net/docs/concepts) — the agent loop, tools, adapters, compaction
+- [All Packages](https://glove.dterminal.net/docs/packages) — every package, what it solves, and the snippet that uses it
+
+Reference:
+
+- [Core API](https://glove.dterminal.net/docs/core) · [React](https://glove.dterminal.net/docs/react) · [Next.js](https://glove.dterminal.net/docs/next)
+- [Display Stack](https://glove.dterminal.net/docs/display-stack) · [Server-Side Agents](https://glove.dterminal.net/docs/server-side) · [Memory](https://glove.dterminal.net/docs/memory)
+- [Working Environment](https://glove.dterminal.net/docs/working-environment) · [Code Execution](https://glove.dterminal.net/docs/code-execution) · [Egress Control](https://glove.dterminal.net/docs/egress)
+- [Voice](https://glove.dterminal.net/docs/voice) · [Realtime Voice & Avatars](https://glove.dterminal.net/docs/realtime-voice) · [MCP](https://glove.dterminal.net/docs/mcp) · [Glovebox](https://glove.dterminal.net/docs/glovebox)
+
+For language models:
+
+- [llms.txt](https://glove.dterminal.net/llms.txt) — the docs index, machine-readable
+- [llms-full.txt](https://glove.dterminal.net/llms-full.txt) — the whole framework condensed into one file a coding model can work from
+- [Agent Skill](https://glove.dterminal.net/docs/agent-skill) — `npx skills add porkytheblack/glove -a claude-code`
 
 ## Examples
 

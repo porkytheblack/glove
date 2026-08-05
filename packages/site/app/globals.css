@@ -246,6 +246,15 @@ section { padding: 6rem clamp(1.25rem, 4vw, 2rem); max-width: var(--maxw); margi
 .code-block-content pre.shiki code { font-family: var(--mono); background: none; }
 .code-block-content pre.shiki .line { display: block; }
 
+/* ─── Start (landing quick-look) ─── */
+#start { border-top: 1px solid var(--border-subtle); }
+.start-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 1.75rem; margin-top: 3rem; align-items: start; }
+.start-notes { display: flex; flex-direction: column; gap: 1.35rem; align-items: flex-start; }
+.start-note { display: flex; flex-direction: column; gap: 0.35rem; }
+.start-note-k { font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.09em; color: var(--accent-soft); }
+.start-note p { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.7; font-weight: 300; }
+.start-note code { font-family: var(--mono); font-size: 0.84em; color: var(--accent); }
+
 /* ─── Adapters ─── */
 #adapters { border-top: 1px solid var(--border-subtle); }
 .adapter-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--border-subtle); border-radius: var(--radius-lg); overflow: hidden; margin-top: 3.5rem; border: 1px solid var(--border-subtle); }
@@ -273,7 +282,7 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
 .footer-logo { width: 20px; height: 20px; color: var(--accent); }
 .footer-brand-name { font-size: 0.95rem; font-weight: 600; }
 .footer-tagline { font-size: 0.82rem; color: var(--text-tertiary); font-weight: 300; line-height: 1.6; }
-.footer-cols { display: flex; gap: 3.5rem; flex-wrap: wrap; }
+.footer-cols { display: flex; gap: 2.5rem 3rem; flex-wrap: wrap; }
 .footer-col { display: flex; flex-direction: column; gap: 0.7rem; }
 .footer-col-title { font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-tertiary); margin-bottom: 0.15rem; }
 .footer-col a { font-size: 0.85rem; color: var(--text-secondary); text-decoration: none; transition: color 0.2s; }
@@ -296,13 +305,34 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
 }
 
 /* ─── Docs ─── */
-.docs-layout { display: grid; grid-template-columns: 244px 1fr; max-width: var(--maxw); margin: 0 auto; padding-top: var(--nav-h); min-height: 100vh; position: relative; }
-.docs-sidebar { padding: 2.25rem 1.5rem 3rem 2rem; border-right: 1px solid var(--border-subtle); position: sticky; top: var(--nav-h); height: calc(100vh - var(--nav-h)); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+/* The docs shell is deliberately NOT capped at --maxw: reference material wants
+   the width. Three columns — nav, content, on-this-page — spanning 95vw. */
+.docs-layout {
+  display: grid;
+  grid-template-columns: 256px minmax(0, 1fr) 236px;
+  width: 95%;
+  max-width: 2100px;
+  margin: 0 auto;
+  padding-top: var(--nav-h);
+  min-height: 100vh;
+  position: relative;
+}
+.docs-sidebar { padding: 2.25rem 1.25rem 3rem 0.25rem; border-right: 1px solid var(--border-subtle); position: sticky; top: var(--nav-h); height: calc(100vh - var(--nav-h)); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 .docs-sidebar::-webkit-scrollbar { width: 6px; }
 .docs-sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-.docs-sidebar-section { margin-bottom: 1.6rem; }
-.docs-sidebar-label { font-family: var(--mono); font-size: 0.68rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.11em; margin-bottom: 0.6rem; padding-left: 0.75rem; }
+.docs-sidebar-search { display: flex; align-items: center; gap: 0.5rem; margin: 0 0.35rem 1.5rem; padding: 0.45rem 0.7rem; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-elevated); color: var(--text-tertiary); transition: border-color 0.2s; }
+.docs-sidebar-search:focus-within { border-color: var(--accent-line); color: var(--accent-soft); }
+.docs-sidebar-search input { flex: 1; min-width: 0; border: none; background: none; color: var(--text-primary); font-family: var(--sans); font-size: 0.82rem; outline: none; }
+.docs-sidebar-search input::placeholder { color: var(--text-tertiary); }
+.docs-sidebar-search input::-webkit-search-cancel-button { filter: invert(0.6); }
+.docs-sidebar-empty { font-size: 0.82rem; color: var(--text-tertiary); padding: 0 0.75rem; }
+.docs-sidebar-section { margin-bottom: 1.35rem; }
+.docs-sidebar-label { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; width: 100%; font-family: var(--mono); font-size: 0.68rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.11em; margin-bottom: 0.5rem; padding: 0.25rem 0.6rem 0.25rem 0.75rem; background: none; border: none; cursor: pointer; text-align: left; border-radius: 6px; transition: color 0.18s, background 0.18s; }
+.docs-sidebar-label:hover { color: var(--text-secondary); background: var(--accent-glow); }
+.docs-sidebar-caret { flex-shrink: 0; opacity: 0.6; transition: transform 0.18s ease; }
+.docs-sidebar-caret.closed { transform: rotate(-90deg); }
 .docs-sidebar-link { display: flex; align-items: center; padding: 0.34rem 0.75rem; font-size: 0.86rem; color: var(--text-secondary); text-decoration: none; border-left: 2px solid transparent; transition: color 0.18s, border-color 0.18s, background 0.18s; margin-bottom: 0.1rem; border-radius: 0 6px 6px 0; }
+.docs-sidebar-link-label { min-width: 0; }
 .docs-sidebar-link:hover { color: var(--text-primary); background: var(--accent-glow); }
 .docs-sidebar-link.active { color: var(--accent); border-left-color: var(--accent); background: var(--accent-dim); font-weight: 500; }
 .docs-badge { display: inline-flex; align-items: center; margin-left: 6px; padding: 1px 5px; font-size: 9px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; border-radius: 3px; line-height: 1.5; }
@@ -310,8 +340,26 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
 .docs-badge.beta { background: rgba(131, 179, 226, 0.16); color: var(--c-network); }
 .docs-badge.new { background: rgba(158, 212, 184, 0.16); color: var(--accent); }
 
-.docs-main { min-width: 0; padding: 2.25rem 2rem 6rem 3rem; }
-.docs-content { max-width: 760px; min-width: 0; }
+.docs-main { min-width: 0; padding: 2.25rem 2.5rem 6rem 2.75rem; }
+.docs-content { max-width: none; min-width: 0; }
+/* Tables, code, cards and grids run the full column. Only running prose keeps a
+   measure, and a generous one — it still fills the column on a laptop. */
+.docs-content > p,
+.docs-content > ul,
+.docs-content > ol,
+.docs-content > blockquote { max-width: 105ch; }
+
+/* On this page */
+.docs-toc { position: relative; }
+.docs-toc-inner { position: sticky; top: calc(var(--nav-h) + 2.25rem); padding: 0 0.25rem 2rem 1.5rem; border-left: 1px solid var(--border-subtle); max-height: calc(100vh - var(--nav-h) - 4rem); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.docs-toc-inner::-webkit-scrollbar { width: 5px; }
+.docs-toc-inner::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.docs-toc-label { font-family: var(--mono); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.11em; color: var(--text-tertiary); margin-bottom: 0.75rem; }
+.docs-toc nav { display: flex; flex-direction: column; gap: 0.1rem; }
+.docs-toc-link { font-size: 0.79rem; line-height: 1.45; color: var(--text-tertiary); text-decoration: none; padding: 0.28rem 0.5rem; border-radius: 6px; transition: color 0.18s, background 0.18s; }
+.docs-toc-link:hover { color: var(--text-primary); background: var(--accent-glow); }
+.docs-toc-link.level-3 { padding-left: 1.25rem; font-size: 0.755rem; }
+.docs-toc-link.active { color: var(--accent); background: var(--accent-dim); }
 .docs-breadcrumb { display: flex; align-items: center; gap: 0.5rem; font-size: 0.78rem; color: var(--text-tertiary); font-family: var(--mono); margin-bottom: 1.5rem; }
 .docs-breadcrumb a { color: var(--text-tertiary); text-decoration: none; transition: color 0.2s; }
 .docs-breadcrumb a:hover { color: var(--accent); }
@@ -354,17 +402,39 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
 .pattern-table td { padding: 0.75rem 1rem; color: var(--text-secondary); line-height: 1.6; border-bottom: 1px solid var(--border-subtle); vertical-align: top; }
 .pattern-table td code { font-family: var(--mono); font-size: 0.825em; color: var(--accent); background: var(--accent-dim); padding: 0.15rem 0.4rem; border-radius: 4px; }
 
+/* ─── Docs cards — link grids used by the index / packages pages ─── */
+.doc-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.85rem; margin: 1.75rem 0; }
+.doc-card { display: flex; flex-direction: column; gap: 0.45rem; padding: 1.15rem 1.25rem; border: 1px solid var(--border-subtle); border-radius: var(--radius); background: var(--bg-elevated); text-decoration: none; transition: border-color 0.2s, background 0.2s, transform 0.2s; }
+.doc-card:hover { border-color: var(--border-strong); background: var(--bg-surface); transform: translateY(-2px); }
+.doc-card-kicker { font-family: var(--mono); font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent-soft); }
+.doc-card-title { font-size: 0.98rem; font-weight: 500; color: var(--text-primary); display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.doc-card-desc { font-size: 0.86rem; color: var(--text-secondary); line-height: 1.6; font-weight: 300; margin: 0; }
+.doc-card-pkgs { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.15rem; }
+.doc-card-pkg { font-family: var(--mono); font-size: 0.66rem; color: var(--text-tertiary); border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0.1rem 0.35rem; }
+
+/* Package reference block — a heading + install line + snippet, repeated */
+.pkg-head { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; margin-top: 2.5rem; margin-bottom: 0.5rem; }
+.docs-content .pkg-head h3.pkg-name { font-family: var(--mono); font-size: 1rem; font-weight: 500; color: var(--accent); margin: 0; }
+.pkg-tag { font-family: var(--mono); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-tertiary); border: 1px solid var(--border-subtle); border-radius: 999px; padding: 0.1rem 0.5rem; }
+.docs-badge.deprecated { background: rgba(228, 184, 121, 0.12); color: var(--warn); }
+
 /* ─── Sidebar Toggle (hidden on desktop) ─── */
 .docs-sidebar-toggle { display: none; }
 .docs-sidebar-backdrop { display: none; }
+
+/* ─── Laptop (<=1280px) — drop the on-this-page rail ─── */
+@media (max-width: 1280px) {
+  .docs-layout { grid-template-columns: 244px minmax(0, 1fr); width: 96%; }
+  .docs-toc { display: none; }
+}
 
 /* ─── Tablet (<=1024px) ─── */
 @media (max-width: 1024px) {
   .cap-grid { grid-template-columns: repeat(2, 1fr); }
   .arch-layer { grid-template-columns: 150px 1fr; padding: 1.5rem; gap: 1.5rem; }
-  .docs-layout { grid-template-columns: 210px 1fr; }
-  .docs-sidebar { padding: 2rem 1rem 2rem 1.5rem; }
-  .docs-main { padding: 2rem 1.5rem 6rem 2rem; }
+  .docs-layout { grid-template-columns: 214px minmax(0, 1fr); width: 100%; padding-left: 1rem; padding-right: 1rem; }
+  .docs-sidebar { padding: 2rem 0.85rem 2rem 0; }
+  .docs-main { padding: 2rem 0.5rem 6rem 1.75rem; }
   .platform-deco { display: none; }
 }
 
@@ -399,6 +469,8 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
   .code-block-content pre.shiki { font-size: 0.75rem; padding: 0.75rem 1rem; }
   .code-block-header { padding: 0.6rem 1rem; font-size: 0.65rem; }
 
+  .start-grid { grid-template-columns: 1fr; gap: 2rem; margin-top: 2.5rem; }
+
   .adapter-grid { grid-template-columns: 1fr; margin-top: 2.5rem; }
   .adapter-card { padding: 1.5rem; }
 
@@ -411,7 +483,8 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
   .footer-bottom { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
 
   /* Docs */
-  .docs-layout { grid-template-columns: 1fr; }
+  .docs-layout { grid-template-columns: 1fr; padding-left: 0; padding-right: 0; }
+  .docs-content > p, .docs-content > ul, .docs-content > ol, .docs-content > blockquote { max-width: 100%; }
   .docs-sidebar-toggle {
     display: flex; align-items: center; justify-content: center;
     position: fixed; top: 0.72rem; right: 4.5rem; z-index: 110;

@@ -1,71 +1,260 @@
 // Single source of truth for docs navigation. The sidebar renders these
 // sections directly; the breadcrumb + prev/next pager derive their linear
 // reading order from the same list, so adding a page only touches this file.
+//
+// Section order is the reading order: start here → build → interfaces →
+// state → sandboxes → multi-agent → ship → showcase → resources.
 
-export type DocsBadge = "voice" | "beta" | "new";
+export type DocsBadge = "voice" | "beta" | "new" | "deprecated";
 
 export interface DocsNavItem {
   label: string;
   href: string;
   badge?: DocsBadge;
+  /** One-line summary — used by the section index cards and llms.txt. */
+  summary?: string;
+  /** npm packages this page documents. */
+  packages?: string[];
 }
 
 export interface DocsNavSection {
   title: string;
+  /** Shown on section index cards and in llms.txt. */
+  blurb?: string;
   items: DocsNavItem[];
 }
 
 export const docsSections: DocsNavSection[] = [
   {
-    title: "Getting Started",
+    title: "Start Here",
+    blurb: "What Glove is, how to install it, and a tour of every package.",
     items: [
-      { label: "What is Glove?", href: "/docs/intro" },
-      { label: "Getting Started", href: "/docs/getting-started" },
-      { label: "Core Concepts", href: "/docs/concepts" },
+      {
+        label: "What is Glove?",
+        href: "/docs/intro",
+        summary:
+          "The idea behind Glove: define capabilities as tools, let an agent orchestrate them.",
+      },
+      {
+        label: "Installation",
+        href: "/docs/installation",
+        summary:
+          "Which packages to install for which shape of app, model providers, and environment variables.",
+        packages: ["glove-core", "glove-react", "glove-next"],
+      },
+      {
+        label: "Quickstart",
+        href: "/docs/getting-started",
+        summary:
+          "Build a working agent in 15 minutes — full-stack (Next.js + React) and server-only paths.",
+        packages: ["glove-core", "glove-react", "glove-next"],
+      },
+      {
+        label: "Core Concepts",
+        href: "/docs/concepts",
+        summary:
+          "The agent loop, tools, the display stack, stores, adapters and context compaction.",
+      },
+      {
+        label: "All Packages",
+        href: "/docs/packages",
+        summary:
+          "Every package Glove ships, what it is for, and the smallest snippet that uses it.",
+      },
     ],
   },
   {
-    title: "Core",
+    title: "Building Agents",
+    blurb: "The runtime surface you write against every day.",
     items: [
-      { label: "The Display Stack", href: "/docs/display-stack" },
-      { label: "The Inbox", href: "/docs/inbox" },
-      { label: "Hooks, Skills & Subagents", href: "/docs/extensions" },
-      { label: "Server-Side Agents", href: "/docs/server-side" },
-      { label: "Core API", href: "/docs/core" },
+      {
+        label: "The Display Stack",
+        href: "/docs/display-stack",
+        summary:
+          "Tools push UI mid-conversation — pushAndWait, pushAndForget, display strategies.",
+        packages: ["glove-core", "glove-react"],
+      },
+      {
+        label: "Hooks, Skills & Subagents",
+        href: "/docs/extensions",
+        summary:
+          "Mutate state before a turn, inject context on demand, and route work to isolated children.",
+        packages: ["glove-core"],
+      },
+      {
+        label: "The Inbox",
+        href: "/docs/inbox",
+        summary:
+          "A persistent mailbox for work that cannot resolve now — resolved later, injected next turn.",
+        packages: ["glove-core"],
+      },
+      {
+        label: "Server-Side Agents",
+        href: "/docs/server-side",
+        summary:
+          "CLI tools, backend services and WebSocket servers with no React in sight.",
+        packages: ["glove-core"],
+      },
+      {
+        label: "Core API Reference",
+        href: "/docs/core",
+        summary:
+          "Glove, Agent, PromptMachine, Executor, Observer, DisplayManager and every adapter contract.",
+        packages: ["glove-core"],
+      },
+    ],
+  },
+  {
+    title: "Interfaces",
+    blurb: "How people reach the agent — rendered UI, speech, and a live face.",
+    items: [
+      {
+        label: "React",
+        href: "/docs/react",
+        summary:
+          "GloveClient, GloveProvider, useGlove, <Render>, defineTool and the client bindings.",
+        packages: ["glove-react"],
+      },
+      {
+        label: "Next.js",
+        href: "/docs/next",
+        summary: "createChatHandler — SSE streaming route handlers for the App Router.",
+        packages: ["glove-next"],
+      },
+      {
+        label: "Voice Pipeline",
+        href: "/docs/voice",
+        badge: "voice",
+        summary:
+          "The cascade — VAD → STT → agent → TTS — with barge-in, push-to-talk and React Native.",
+        packages: ["glove-voice", "glove-voice-native"],
+      },
+      {
+        label: "Realtime Voice & Avatars",
+        href: "/docs/realtime-voice",
+        badge: "new",
+        summary:
+          "Speech-to-speech models, live avatars, and LiveKit as the room transport.",
+        packages: ["glove-voice-s2s", "glove-voice-avatar", "glove-voice-livekit"],
+      },
     ],
   },
   {
     title: "Memory & State",
+    blurb: "What the agent knows, and what it carries between turns.",
     items: [
-      { label: "Memory", href: "/docs/memory", badge: "new" },
-      { label: "Scratchpad", href: "/docs/scratchpad", badge: "new" },
-      { label: "SQL Engine", href: "/docs/sql" },
+      {
+        label: "Memory",
+        href: "/docs/memory",
+        summary:
+          "Entity graph, episodic timeline, resource filesystem and ambient context — BYO storage.",
+        packages: ["glove-memory"],
+      },
+      {
+        label: "Why Memory",
+        href: "/docs/memory/why",
+        summary: "The design story behind the four-primitive split.",
+      },
+      {
+        label: "Scratchpad",
+        href: "/docs/scratchpad",
+        summary:
+          "Expose tools as a relational database the model queries with one execute_sql tool.",
+        packages: ["glove-scratchpad"],
+      },
+      {
+        label: "SQL Engine",
+        href: "/docs/sql",
+        summary:
+          "The zero-dependency Postgres-subset engine behind the scratchpad.",
+        packages: ["glove-sql"],
+      },
+    ],
+  },
+  {
+    title: "Sandboxes & Execution",
+    blurb:
+      "Give the model a place to compute instead of a wall of tool definitions.",
+    items: [
+      {
+        label: "Working Environment",
+        href: "/docs/working-environment",
+        badge: "new",
+        summary:
+          "A persistent sandboxed virtual filesystem — write scripts, run them, iterate, export artifacts.",
+        packages: [
+          "glove-working-environment",
+          "glove-env-documents",
+          "glove-env-spreadsheets",
+          "glove-env-images",
+          "glove-env-slides",
+          "glove-env-archives",
+          "glove-env-media",
+        ],
+      },
+      {
+        label: "Code Execution",
+        href: "/docs/code-execution",
+        badge: "new",
+        summary:
+          "One eval tool instead of fifty tool definitions — JavaScript, Python and Lisp REPLs.",
+        packages: ["glove-js", "glove-python", "glove-lisp"],
+      },
+      {
+        label: "Egress Control",
+        href: "/docs/egress",
+        badge: "beta",
+        summary:
+          "Make the sandbox boundary a measured, enforced privacy boundary.",
+        packages: ["glove-egress"],
+      },
     ],
   },
   {
     title: "Multi-Agent",
+    blurb: "Many agents, coordinated.",
     items: [
-      { label: "Mesh", href: "/docs/mesh", badge: "new" },
-      { label: "Continuum", href: "/docs/continuum", badge: "beta" },
+      {
+        label: "Mesh",
+        href: "/docs/mesh",
+        summary:
+          "Direct, broadcast and acknowledged messaging between agents over a pluggable transport.",
+        packages: ["glove-mesh"],
+      },
+      {
+        label: "Continuum",
+        href: "/docs/continuum",
+        badge: "beta",
+        summary:
+          "Supervise agents as subprocesses — triggered (cold) and concurrent (warm) modes.",
+        packages: ["glove-continuum-signal"],
+      },
     ],
   },
   {
     title: "Integrate & Deploy",
+    blurb: "Reach the outside world, then ship.",
     items: [
-      { label: "MCP", href: "/docs/mcp" },
-      { label: "Glovebox", href: "/docs/glovebox", badge: "beta" },
-    ],
-  },
-  {
-    title: "Framework Packages",
-    items: [
-      { label: "React", href: "/docs/react" },
-      { label: "Next.js", href: "/docs/next" },
-      { label: "Voice", href: "/docs/voice", badge: "voice" },
+      {
+        label: "MCP",
+        href: "/docs/mcp",
+        summary:
+          "Bridge Model Context Protocol servers in as first-class tools, with a discovery subagent.",
+        packages: ["glove-mcp"],
+      },
+      {
+        label: "Glovebox",
+        href: "/docs/glovebox",
+        badge: "beta",
+        summary:
+          "Package an agent as a sandboxed container with one authenticated WebSocket endpoint.",
+        packages: ["glovebox-core", "glovebox-kit", "glovebox-client"],
+      },
     ],
   },
   {
     title: "Showcase",
+    blurb: "Complete applications, read end to end.",
     items: [
       { label: "Travel Planner", href: "/docs/showcase/travel-planner" },
       { label: "Coding Agent", href: "/docs/showcase/coding-agent" },
@@ -78,10 +267,16 @@ export const docsSections: DocsNavSection[] = [
   },
   {
     title: "Resources",
+    blurb: "Everything else.",
     items: [
+      {
+        label: "Glove for LLMs",
+        href: "/docs/llms",
+        badge: "new",
+        summary: "llms.txt, llms-full.txt and the Claude Code agent skill.",
+      },
       { label: "Agent Skill", href: "/docs/agent-skill" },
       { label: "v3.0.0 Release Notes", href: "/docs/v3" },
-      { label: "Why Memory", href: "/docs/memory/why", badge: "beta" },
     ],
   },
 ];
@@ -100,3 +295,8 @@ export const docsOrder: DocsOrderEntry[] = docsSections.flatMap((section) =>
     section: section.title,
   })),
 );
+
+/** Look up the section a page belongs to. */
+export function sectionFor(href: string): DocsNavSection | undefined {
+  return docsSections.find((s) => s.items.some((i) => i.href === href));
+}

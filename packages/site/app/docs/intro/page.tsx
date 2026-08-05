@@ -1,172 +1,202 @@
+import { CodeBlock } from "@/components/code-block";
+import { DocCards } from "@/components/doc-cards";
+
+export const metadata = {
+  title: "What is Glove?",
+  description:
+    "Glove is an open-source TypeScript framework for AI-powered apps: you define tools, an agent decides when to use them.",
+};
+
 export default function IntroPage() {
   return (
     <div className="docs-content">
       <h1>What is Glove?</h1>
 
       <p>
-        Glove is an open-source TypeScript framework for building AI-powered
-        applications. Instead of wiring up pages, routes, and navigation
-        manually, you describe what your app can do — and an AI figures out when
-        to do it, based on what users ask for.
+        Glove is an open-source TypeScript framework for building applications
+        where an <strong>AI agent drives the app</strong>. You define
+        capabilities as <strong>tools</strong>. The agent decides which ones to
+        call, in what order, and renders the results — as text, as UI, or as
+        speech.
       </p>
-
-      <h2>The core idea</h2>
 
       <p>
-        Traditional apps encode user flows in UI: click this button, go to this
-        page, fill out this form. Glove replaces that wiring with a
-        conversation. The user says what they want, and an AI decides which
-        capabilities to use.
+        It is not a chatbot SDK. The runtime ships a display stack, a persistent
+        inbox, a memory layer, a mesh for agents to talk over, sandboxes for the
+        model to compute in, and a packaging story for deployment. Every piece
+        is a separate package you can adopt on its own.
       </p>
 
-      <p>This means three things for you as a developer:</p>
-
-      <ol>
-        <li>You define capabilities (called <strong>tools</strong>)</li>
-        <li>
-          You define how results look (called <strong>renderers</strong>)
-        </li>
-        <li>
-          The AI handles navigation, flow, and orchestration
-        </li>
-      </ol>
-
-      <h2>Key terms</h2>
+      <h2 id="the-core-idea">The core idea</h2>
 
       <p>
-        These are the building blocks of every Glove app. You&apos;ll see
-        them throughout the docs:
+        Traditional apps encode user flows in UI — pages, routes, navigation
+        hierarchies, state machines. Glove replaces that wiring with an agent
+        loop:
       </p>
+
+      <CodeBlock
+        filename="what a session looks like"
+        language="text"
+        code={`User: "Find me running shoes under $100"
+  → agent calls search_products  → pushes a product grid onto the display stack
+
+User: "Add the Nike ones to my cart and check out"
+  → agent calls add_to_cart      → returns the updated cart
+  → agent calls checkout         → pushes a payment form and WAITS for the user
+  → the tool resumes with the submitted payment and creates the order`}
+      />
+
+      <p>
+        You never wrote a route, a wizard, or a step counter. You wrote three
+        tools and let the model sequence them.
+      </p>
+
+      <h2 id="key-terms">Key terms</h2>
+
+      <p>
+        Five words carry most of the framework. Each has a page of its own; this
+        is the one-line version.
+      </p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Term</th>
+            <th>What it is</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <strong>Tool</strong>
+            </td>
+            <td>
+              A capability: a name, a description, a Zod input schema, and an
+              async <code>do()</code>. Registered with <code>fold()</code>.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <strong>Agent loop</strong>
+            </td>
+            <td>
+              Prompt the model → run the tools it asks for → feed results back →
+              repeat until it answers with text.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <strong>Display stack</strong>
+            </td>
+            <td>
+              What the user sees. Tools push components onto it —{" "}
+              <code>pushAndForget</code> to show, <code>pushAndWait</code> to
+              pause the tool until the user responds.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <strong>Store</strong>
+            </td>
+            <td>
+              Where the conversation lives. In-memory, SQLite, your own backend
+              — anything implementing <code>StoreAdapter</code>.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <strong>Adapter</strong>
+            </td>
+            <td>
+              The seam at every layer: model, store, display, subscriber, voice.
+              Swap the implementation, keep the app.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 id="what-you-can-build">What you can build</h2>
 
       <ul>
         <li>
-          <strong>Agent</strong> &mdash; An AI that reads what the user
-          asks for and decides which tools to call. Think of it as a smart
-          coordinator that replaces your router and navigation logic.
+          <strong>Commerce and booking flows</strong> — search, cart, checkout,
+          confirmation dialogs rendered inline by the tools that need them.
         </li>
         <li>
-          <strong>Tool</strong> &mdash; A single capability your app
-          exposes. &ldquo;Search products,&rdquo; &ldquo;get weather,&rdquo;
-          &ldquo;submit order&rdquo; are all tools. Each has a name (so the AI
-          knows what it does), an input schema (so inputs are validated), and
-          a function that runs when called.
+          <strong>Voice-first products</strong> — the same tools, spoken:
+          cascade (STT → agent → TTS), realtime speech-to-speech, or a live
+          avatar in a LiveKit room.
         </li>
         <li>
-          <strong>Display stack</strong> &mdash; A stack of UI components
-          that tools push onto. When a tool runs, it can show the user a
-          product grid, a form, a confirmation dialog — anything.
+          <strong>Back-office and analyst agents</strong> — a sandboxed working
+          environment where the agent writes scripts, produces spreadsheets and
+          PDFs, and hands back artifacts.
         </li>
         <li>
-          <strong>pushAndWait</strong> &mdash; Push a UI component and
-          pause the tool until the user responds. Used for forms,
-          confirmations, and choices where the tool needs user input before
-          continuing.
+          <strong>Operations agents over many services</strong> — dozens of MCP
+          servers folded behind one SQL or code-eval tool instead of a hundred
+          tool definitions.
         </li>
         <li>
-          <strong>pushAndForget</strong> &mdash; Push a UI component but
-          keep the tool running. Used for displaying data, status updates, and
-          results where the tool doesn&apos;t need to wait.
-        </li>
-        <li>
-          <strong>Renderer</strong> &mdash; A React component that
-          renders one entry on the display stack. You define it alongside the
-          tool, so the tool and its UI live together.
-        </li>
-        <li>
-          <strong>Hook / Skill / Subagent</strong> &mdash; Three extension
-          primitives. <code>/hook</code> directives mutate agent state before
-          the model sees a turn; <code>/skill</code> directives inject
-          context as a synthetic user message; subagents are isolated child
-          agents the main agent routes to via the auto-registered{" "}
-          <code>glove_invoke_subagent</code> tool. See the{" "}
-          <a href="/docs/extensions">Extensions guide</a>.
-        </li>
-        <li>
-          <strong>Adapter</strong> &mdash; A pluggable interface. Glove
-          uses adapters for the AI model, data storage, UI state, and event
-          observation. Swap OpenAI for Anthropic (or anything else) without
-          changing your app code.
+          <strong>Multi-agent systems</strong> — a planner and its workers,
+          messaging over the mesh, supervised as subprocesses.
         </li>
       </ul>
 
-      <h2>How it works</h2>
-
-      <ol>
-        <li>
-          A user sends a message (like &ldquo;Find me running shoes under
-          $100&rdquo;)
-        </li>
-        <li>
-          The AI reads your list of tools and picks the right ones to call
-        </li>
-        <li>
-          Tools execute &mdash; searching a database, calling an API, computing
-          a result
-        </li>
-        <li>
-          Tools can push UI onto the display stack &mdash; product grids,
-          forms, confirmation dialogs
-        </li>
-        <li>
-          The AI reads tool results and either responds to the user or calls
-          more tools
-        </li>
-        <li>This loop continues until the user&apos;s request is fulfilled</li>
-      </ol>
-
-      <h2>What can you build?</h2>
-
-      <ul>
-        <li>
-          <strong>Shopping assistant</strong> &mdash; tools for product search,
-          cart management, checkout with payment confirmation
-        </li>
-        <li>
-          <strong>Customer support bot</strong> &mdash; tools for searching
-          docs, creating tickets, escalating to humans
-        </li>
-        <li>
-          <strong>Internal dashboard</strong> &mdash; tools for querying
-          databases, generating reports, running scripts with approval
-        </li>
-        <li>
-          <strong>Onboarding flow</strong> &mdash; tools for collecting user
-          info, setting preferences, configuring accounts
-        </li>
-      </ul>
-
-      <h2>Which packages do I need?</h2>
-
-      <ul>
-        <li>
-          <code>glove-react</code> &mdash; React hooks and components.{" "}
-          <strong>Start here</strong> if you&apos;re building a React/Next.js
-          app. Includes <code>glove-core</code> as a dependency.
-        </li>
-        <li>
-          <code>glove-next</code> &mdash; One-line server handler for
-          Next.js API routes. Connects to OpenAI, Anthropic, and{" "}
-          <a href="/docs/next#supported-providers">other providers</a>.
-        </li>
-        <li>
-          <code>glove-core</code> &mdash; The runtime engine. Agent loop,
-          tool execution, display manager. You rarely import this directly
-          &mdash; <code>glove-react</code> re-exports what you need.
-        </li>
-      </ul>
+      <h2 id="how-it-fits-together">How it fits together</h2>
 
       <p>
-        <strong>Most projects need just two packages:</strong>{" "}
-        <code>glove-react</code> and <code>glove-next</code>.
+        One runtime, five components, and a set of packages that plug into it.
       </p>
 
-      <h2>Ready to build?</h2>
+      <CodeBlock
+        filename="architecture"
+        language="text"
+        code={`  your tools ─┐
+              ▼
+┌──────────────────────────────────────────────────────────┐
+│  Agent          the agentic loop                         │
+│  PromptMachine  model wrapper + system prompt            │
+│  Executor       tool runner (Zod validation, retries)    │
+│  Observer       turns, tokens, context compaction        │
+│  DisplayManager the UI state machine                     │
+└──────────────────────────────────────────────────────────┘
+      ▼                ▼               ▼            ▼
+ ModelAdapter    StoreAdapter   DisplayManager   Subscriber
+ (any LLM)       (any DB)       (any UI layer)   (any sink)`}
+      />
 
-      <p>
-        <a href="/docs/getting-started">
-          Get Started — build a working agent in 15 minutes &rarr;
-        </a>
-      </p>
+      <h2 id="where-to-go-next">Where to go next</h2>
+
+      <DocCards
+        cards={[
+          {
+            href: "/docs/installation",
+            kicker: "Step 1",
+            title: "Installation",
+            desc: "Pick the packages your app shape needs, set a provider key, and you are running.",
+          },
+          {
+            href: "/docs/getting-started",
+            kicker: "Step 2",
+            title: "Quickstart",
+            desc: "A working agent with a real tool in 15 minutes — full-stack or server-only.",
+          },
+          {
+            href: "/docs/concepts",
+            kicker: "Step 3",
+            title: "Core Concepts",
+            desc: "The agent loop, tools, the display stack and compaction, explained properly.",
+          },
+          {
+            href: "/docs/packages",
+            kicker: "Reference",
+            title: "All Packages",
+            desc: "Every package Glove ships, what it solves, and the smallest snippet that uses it.",
+          },
+        ]}
+      />
     </div>
   );
 }

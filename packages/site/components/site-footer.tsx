@@ -7,26 +7,45 @@ const columns: { title: string; links: { label: string; href: string; external?:
     title: "Learn",
     links: [
       { label: "What is Glove?", href: "/docs/intro" },
-      { label: "Getting Started", href: "/docs/getting-started" },
-      { label: "Display Stack", href: "/docs/display-stack" },
+      { label: "Installation", href: "/docs/installation" },
+      { label: "Quickstart", href: "/docs/getting-started" },
       { label: "Core Concepts", href: "/docs/concepts" },
+      { label: "All Packages", href: "/docs/packages" },
     ],
   },
   {
-    title: "Packages",
+    title: "Capabilities",
     links: [
+      { label: "Display Stack", href: "/docs/display-stack" },
       { label: "Memory", href: "/docs/memory" },
+      { label: "Working Environment", href: "/docs/working-environment" },
+      { label: "Code Execution", href: "/docs/code-execution" },
+      { label: "Realtime Voice", href: "/docs/realtime-voice" },
       { label: "Mesh", href: "/docs/mesh" },
-      { label: "Scratchpad", href: "/docs/scratchpad" },
+    ],
+  },
+  {
+    title: "Ship",
+    links: [
+      { label: "Server-Side Agents", href: "/docs/server-side" },
       { label: "MCP", href: "/docs/mcp" },
       { label: "Glovebox", href: "/docs/glovebox" },
+      { label: "Showcase", href: "/docs/showcase/travel-planner" },
+    ],
+  },
+  {
+    title: "For LLMs",
+    links: [
+      // Plain text routes, not pages — let the browser fetch them directly.
+      { label: "llms.txt", href: "/llms.txt", external: true },
+      { label: "llms-full.txt", href: "/llms-full.txt", external: true },
+      { label: "Agent Skill", href: "/docs/agent-skill" },
     ],
   },
   {
     title: "Community",
     links: [
       { label: "GitHub", href: "https://github.com/porkytheblack/glove", external: true },
-      { label: "Showcase", href: "/docs/showcase/travel-planner" },
       { label: "v3 Release Notes", href: "/docs/v3" },
       { label: "Used by Proxima", href: "https://proximadroids.com", external: true },
     ],

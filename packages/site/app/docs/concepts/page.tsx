@@ -42,7 +42,7 @@ export default function ConceptsPage() {
       <p>
         This loop is implemented by the{" "}
         <a href="/docs/core#agent">Agent class</a>. On the client side, the{" "}
-        <a href="/docs/react#useglove">useGlove hook</a> manages this loop
+        <a href="/docs/react#use-glove">useGlove hook</a> manages this loop
         automatically.
       </p>
 
@@ -150,7 +150,7 @@ export default function ConceptsPage() {
 
       <p>
         On the React side, the{" "}
-        <a href="/docs/react#useglove">useGlove hook</a> exposes{" "}
+        <a href="/docs/react#use-glove">useGlove hook</a> exposes{" "}
         <code>slots</code> (the current stack) and{" "}
         <code>renderSlot()</code> (renders a slot using the tool&apos;s{" "}
         <code>render</code> function). See{" "}
@@ -170,7 +170,7 @@ export default function ConceptsPage() {
         When you call <code>display.pushAndWait({"{ input }"})</code> from a
         tool that has a <code>render</code> function, Glove automatically uses
         the tool&apos;s name to match the slot to the renderer. The{" "}
-        <a href="/docs/react#useglove">useGlove hook</a> builds the renderer
+        <a href="/docs/react#use-glove">useGlove hook</a> builds the renderer
         map and provides <code>renderSlot()</code> to your component.
       </p>
 
@@ -212,7 +212,7 @@ export default function ConceptsPage() {
         </li>
         <li>
           <strong>
-            <a href="/docs/core#display-manager-adapter">
+            <a href="/docs/core#display-manager">
               DisplayManagerAdapter
             </a>
           </strong>{" "}
