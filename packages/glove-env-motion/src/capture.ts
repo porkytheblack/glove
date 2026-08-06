@@ -7,7 +7,7 @@
  */
 import { accessSync, constants as fsConstants, readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { CLOCK_SHIM, FRAME_GLOBALS } from "./clock";
@@ -57,12 +57,73 @@ export interface CaptureResult {
 }
 
 /**
- * Where Chromium is.
+ * Playwright's per-platform browser layouts under `PLAYWRIGHT_BROWSERS_PATH`.
  *
- * Playwright normally answers this from its own registry, but a container that
- * pre-installs browsers (as some do, at `PLAYWRIGHT_BROWSERS_PATH`) may have a
- * layout playwright-core does not expect. Checking the explicit overrides
- * first means an operator can always name the binary and be obeyed.
+ * Full chromium is listed before headless_shell on each platform: the shell
+ * cannot do some compositing paths, and a wrong-looking frame is worse than a
+ * slow one.
+ */
+export const PW_BROWSER_SUBPATHS = [
+  "chrome-linux/chrome",
+  "chrome-linux/headless_shell",
+  "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+  "chrome-mac/headless_shell",
+  "chrome-win/chrome.exe",
+  "chrome-win/headless_shell.exe",
+];
+
+/**
+ * Where a browser that is ALREADY INSTALLED lives, per platform.
+ *
+ * This is the difference between "works on a laptop out of the box" and
+ * "every macOS or Windows developer must run a browser install for a browser
+ * they already have". Chrome, Edge and Chromium are all Chromium engines and
+ * all screenshot identically for our purposes. Takes the platform as an
+ * argument so the list for every OS is testable from any OS.
+ */
+export function systemBrowserCandidates(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  if (platform === "darwin") {
+    return [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Chromium.app/Contents/MacOS/Chromium",
+      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+      "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    ];
+  }
+  if (platform === "win32") {
+    const pf = env.PROGRAMFILES ?? "C:\\Program Files";
+    const pf86 = env["PROGRAMFILES(X86)"] ?? "C:\\Program Files (x86)";
+    const local = env.LOCALAPPDATA;
+    return [
+      join(pf, "Google", "Chrome", "Application", "chrome.exe"),
+      join(pf86, "Google", "Chrome", "Application", "chrome.exe"),
+      ...(local ? [join(local, "Google", "Chrome", "Application", "chrome.exe")] : []),
+      join(pf, "Microsoft", "Edge", "Application", "msedge.exe"),
+      join(pf86, "Microsoft", "Edge", "Application", "msedge.exe"),
+    ];
+  }
+  return [
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/snap/bin/chromium",
+    "/usr/bin/microsoft-edge",
+  ];
+}
+
+/**
+ * Where Chromium is, on any platform.
+ *
+ * The order encodes a policy: an explicit answer is always obeyed
+ * (option, then GLOVE_CHROMIUM_PATH / CHROME_PATH); then playwright's
+ * browsers — a pre-provisioned `PLAYWRIGHT_BROWSERS_PATH` layout, then the
+ * conventional registry — because a pinned build beats whatever the system
+ * browser auto-updated to this week; then the system Chrome/Edge/Chromium,
+ * so a laptop with a browser needs no install at all.
  *
  * Synchronous so it can also run inside `motion()` itself, where the result
  * is written into the docs the agent reads — the agent learns "no browser
@@ -71,6 +132,8 @@ export interface CaptureResult {
 export function resolveBrowserSync(explicit?: string): string | null {
   const ok = (p: string) => {
     try {
+      // On Windows X_OK degrades to an existence check, which is the right
+      // question there anyway.
       accessSync(p, fsConstants.X_OK);
       return true;
     } catch {
@@ -78,23 +141,17 @@ export function resolveBrowserSync(explicit?: string): string | null {
     }
   };
 
-  const candidates = [explicit, process.env.GLOVE_CHROMIUM_PATH, process.env.CHROME_PATH].filter(Boolean) as string[];
-  for (const c of candidates) if (ok(c)) return c;
+  const named = [explicit, process.env.GLOVE_CHROMIUM_PATH, process.env.CHROME_PATH].filter(Boolean) as string[];
+  for (const c of named) if (ok(c)) return c;
 
   const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
   if (root) {
     try {
-      // Prefer full chromium over headless_shell: the shell cannot do some
-      // compositing paths, and a wrong-looking frame is worse than a slow one.
       const dirs = readdirSync(root)
         .filter((e) => e.startsWith("chromium"))
         .sort((a, b) => Number(b.startsWith("chromium-")) - Number(a.startsWith("chromium-")));
       for (const d of dirs) {
-        for (const rel of [
-          "chrome-linux/chrome",
-          "chrome-linux/headless_shell",
-          "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
-        ]) {
+        for (const rel of PW_BROWSER_SUBPATHS) {
           const p = join(root, d, rel);
           if (ok(p)) return p;
         }
@@ -111,6 +168,8 @@ export function resolveBrowserSync(explicit?: string): string | null {
   } catch {
     /* no registered browser */
   }
+
+  for (const c of systemBrowserCandidates()) if (ok(c)) return c;
   return null;
 }
 
@@ -199,7 +258,7 @@ async function renderWith(browser: Browser, options: CaptureOptions): Promise<Ca
     { fps: options.fps, durationInFrames: options.durationInFrames, width: options.width, height: options.height },
   );
 
-  const bundleName = options.bundle.split("/").pop() ?? "bundle.js";
+  const bundleName = basename(options.bundle);
   const pageFile = join(dirname(options.bundle), "__page.html");
   await writeFile(pageFile, PAGE_HTML(options.background, bundleName));
   await page.goto(pathToFileURL(pageFile).href, { waitUntil: "load" });

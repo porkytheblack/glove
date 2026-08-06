@@ -13,7 +13,15 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { createAdapterTestEnv } from "glove-working-environment/testing";
-import { doctor, motion, MOTION_LIMITS, resolveBrowser } from "../src/index";
+import {
+  doctor,
+  motion,
+  MOTION_LIMITS,
+  resolveBrowser,
+  resolveFfmpegSync,
+  systemBrowserCandidates,
+  PW_BROWSER_SUBPATHS,
+} from "../src/index";
 
 const HAVE_BROWSER = (await resolveBrowser()) !== null;
 const skip = HAVE_BROWSER ? false : "no Chromium available — set GLOVE_CHROMIUM_PATH or run `npx playwright install chromium`";
@@ -363,6 +371,47 @@ test("a render that cannot fit the script budget is refused with the exact fix",
   } finally {
     await env.close();
   }
+});
+
+
+test("browser discovery is not a Linux assumption — every platform has candidates", () => {
+  // The lists are platform-parameterized precisely so this can be pinned from
+  // any OS: a regression that drops macOS or Windows fails here on Linux CI.
+  assert.ok(
+    systemBrowserCandidates("darwin").some((p) => p.includes("Google Chrome.app")),
+    "macOS must look in /Applications",
+  );
+  assert.ok(
+    systemBrowserCandidates("win32", { PROGRAMFILES: "C:\\Program Files" }).some((p) => p.endsWith("chrome.exe")),
+    "Windows must look for chrome.exe under Program Files",
+  );
+  assert.ok(
+    systemBrowserCandidates("win32", { PROGRAMFILES: "C:\\Program Files" }).some((p) => p.endsWith("msedge.exe")),
+    "Edge is a Chromium and ships with Windows — a host with only Edge must still render",
+  );
+  assert.ok(
+    systemBrowserCandidates("linux").some((p) => p === "/usr/bin/chromium"),
+    "Linux must look in /usr/bin",
+  );
+
+  for (const layout of ["chrome-linux/chrome", "chrome-mac/Chromium.app/Contents/MacOS/Chromium", "chrome-win/chrome.exe"]) {
+    assert.ok(PW_BROWSER_SUBPATHS.includes(layout), `the playwright scan must know ${layout}`);
+  }
+});
+
+test("ffmpeg resolution is explicit-first and falls back beyond the bundled binary", () => {
+  // On this host the bundled installer exists, so it wins when nothing is named.
+  const bundled = resolveFfmpegSync();
+  assert.ok(bundled, "the bundled @ffmpeg-installer must resolve here");
+  assert.equal(bundled!.source, "bundled");
+
+  // An explicit answer is always obeyed, without existence-checking a path
+  // the host deliberately chose.
+  assert.deepEqual(resolveFfmpegSync("/custom/ffmpeg"), { path: "/custom/ffmpeg", source: "option" });
+
+  // The env override is honoured when it points at something real.
+  const real = bundled!.path;
+  assert.deepEqual(resolveFfmpegSync(undefined, { GLOVE_FFMPEG_PATH: real }), { path: real, source: "env" });
 });
 
 test("doctor names every requirement, and every failure carries its fix", async () => {

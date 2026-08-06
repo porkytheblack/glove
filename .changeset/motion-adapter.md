@@ -52,6 +52,10 @@ The `mode` switch is gone as a requirement: the renderer drives **both** the fra
 
 Renders that cannot fit the environment's script budget are **refused up front** with the exact `limits: { runTimeoutMs: … }` line to add (`MOTION_LIMITS` exports a good default) instead of dying mid-run. `glove-motion-doctor` checks a host in one command — browser, ffmpeg, react, reanimated — with the one-line fix on every failure, and the generated `/std/motion/README.md` carries an "On this host" section so the agent knows what is available before spending a render.
 
+### Cross-platform by default
+
+Nothing in discovery assumes Linux. The browser is found in order: `GLOVE_CHROMIUM_PATH` / `CHROME_PATH`, a `PLAYWRIGHT_BROWSERS_PATH` layout (linux, mac and win subpaths), playwright's own registry, then the **system Chrome / Edge / Chromium** in each OS's standard locations — so a macOS or Windows laptop with a browser installed needs no browser install at all. ffmpeg resolves explicit-first (`ffmpegPath`, then `GLOVE_FFMPEG_PATH` / `FFMPEG_PATH`), then the bundled `@ffmpeg-installer` build, then a `ffmpeg` on PATH for the platform/arch pairs the installer does not ship; the failure message names the platform's own install command (brew / winget / apt). The per-platform candidate lists are exported and platform-parameterized, so Linux CI pins the macOS and Windows behavior too.
+
 ### Cost
 
 Every frame is a browser screenshot, roughly a second per 10 frames. There is a hard ceiling per render (default 1800 frames), and passing it is refused with the number and the reason rather than timing out deep into the run. A host mounting this must raise `limits.runTimeoutMs` — the 30s default is nowhere near a render.

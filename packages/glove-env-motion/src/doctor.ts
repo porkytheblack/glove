@@ -12,6 +12,7 @@
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { resolveBrowserSync } from "./capture";
+import { ffmpegInstallHint, resolveFfmpegSync } from "./encode";
 
 const require_ = createRequire(import.meta.url);
 
@@ -63,27 +64,26 @@ export async function doctor(options: DoctorOptions = {}): Promise<DoctorReport>
       : {
           name: "browser",
           ok: false,
-          detail: "no Chromium found — render and still cannot work without one",
-          fix: "set GLOVE_CHROMIUM_PATH to a Chromium/Chrome binary, or run: npx playwright-core install chromium",
+          detail: "no Chromium-family browser found — render and still cannot work without one",
+          fix:
+            "install Google Chrome / Edge / Chromium (found automatically), or run: npx playwright-core install chromium, " +
+            "or set GLOVE_CHROMIUM_PATH to a browser binary",
         },
   );
 
-  let ffmpeg = options.ffmpegPath ?? null;
-  if (!ffmpeg) {
-    try {
-      ffmpeg = (require_("@ffmpeg-installer/ffmpeg") as { path: string }).path;
-    } catch {
-      /* reported below */
-    }
-  }
+  const ffmpeg = resolveFfmpegSync(options.ffmpegPath);
   checks.push(
     ffmpeg
-      ? { name: "ffmpeg", ok: true, detail: ffmpeg }
+      ? {
+          name: "ffmpeg",
+          ok: true,
+          detail: ffmpeg.source === "bundled" ? `bundled with the package (${ffmpeg.path})` : `${ffmpeg.path} (from ${ffmpeg.source})`,
+        }
       : {
           name: "ffmpeg",
           ok: false,
-          detail: "not found — video and GIF outputs need it (stills and PNG frames do not)",
-          fix: "pass ffmpegPath to motion(), or reinstall glove-env-motion (@ffmpeg-installer/ffmpeg ships with it)",
+          detail: `the bundled @ffmpeg-installer has no build for ${process.platform}-${process.arch} and none was found on PATH — video and GIF outputs need it (stills and PNG frames do not)`,
+          fix: ffmpegInstallHint(),
         },
   );
 

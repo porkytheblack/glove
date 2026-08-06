@@ -8,8 +8,11 @@ A stdlib adapter for [`glove-working-environment`](../glove-working-environment)
 
 ```bash
 pnpm add glove-env-motion
-npx playwright-core install chromium        # the one real requirement
 ```
+
+Works on macOS, Windows and Linux. An installed **Chrome, Edge or Chromium is
+found automatically** — `npx playwright-core install chromium` is only needed
+on hosts with no browser at all (CI, bare containers).
 
 ```ts
 import { createWorkingEnvironment } from "glove-working-environment";

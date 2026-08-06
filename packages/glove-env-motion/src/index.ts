@@ -34,8 +34,8 @@ import { MOTION_DOCS, MOTION_TYPES, MOTION_SKILL, hostNotes } from "./docs";
 
 export { resolveBrowser } from "./capture";
 export { BundleError } from "./bundle";
-export { CaptureError } from "./capture";
-export { EncodeError } from "./encode";
+export { CaptureError, systemBrowserCandidates, PW_BROWSER_SUBPATHS } from "./capture";
+export { EncodeError, ffmpegInstallHint, resolveFfmpegSync, type FfmpegResolution } from "./encode";
 export { doctor, type DoctorCheck, type DoctorOptions, type DoctorReport } from "./doctor";
 
 export interface MotionOptions {

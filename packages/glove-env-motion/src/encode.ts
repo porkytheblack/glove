@@ -8,31 +8,88 @@
  * know what to do with.
  */
 import { execFile } from "node:child_process";
+import { accessSync, constants as fsConstants } from "node:fs";
 import { chmod, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { createRequire } from "node:module";
 
 const require_ = createRequire(import.meta.url);
 
 export class EncodeError extends Error {}
 
-let cached: string | null = null;
+export interface FfmpegResolution {
+  path: string;
+  /** Where it came from — the doctor shows this to the host. */
+  source: "option" | "env" | "bundled" | "PATH";
+}
 
-async function ffmpegPath(override?: string): Promise<string> {
-  if (override) return override;
-  if (cached) return cached;
+/**
+ * Find an ffmpeg, on any platform.
+ *
+ * The bundled `@ffmpeg-installer/ffmpeg` covers the common platform/arch
+ * pairs, but not all of them — and a host that installed ffmpeg themselves
+ * (brew, winget, apt) should not need to configure anything. So: an explicit
+ * answer first (option, then GLOVE_FFMPEG_PATH / FFMPEG_PATH), the bundled
+ * binary second, and a `ffmpeg` on PATH as the fallback for the platforms the
+ * installer does not ship.
+ */
+export function resolveFfmpegSync(
+  explicit?: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): FfmpegResolution | null {
+  const usable = (p: string) => {
+    try {
+      accessSync(p, fsConstants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  if (explicit) return { path: explicit, source: "option" };
+  for (const name of ["GLOVE_FFMPEG_PATH", "FFMPEG_PATH"] as const) {
+    const p = env[name];
+    if (p && usable(p)) return { path: p, source: "env" };
+  }
+
   try {
     const mod = require_("@ffmpeg-installer/ffmpeg") as { path: string };
-    // The installed binary is not reliably executable after some package
-    // managers unpack it; the same fix glove-env-media makes.
-    await chmod(mod.path, 0o755).catch(() => {});
-    cached = mod.path;
-    return cached;
+    if (mod.path) return { path: mod.path, source: "bundled" };
   } catch {
+    /* no build for this platform/arch — fall through to PATH */
+  }
+
+  const exe = platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
+  for (const dir of (env.PATH ?? "").split(delimiter)) {
+    if (!dir) continue;
+    const p = join(dir, exe);
+    if (usable(p)) return { path: p, source: "PATH" };
+  }
+  return null;
+}
+
+/** The install command for THIS platform, for error messages and the doctor. */
+export function ffmpegInstallHint(platform: NodeJS.Platform = process.platform): string {
+  const cmd =
+    platform === "darwin" ? "brew install ffmpeg" : platform === "win32" ? "winget install Gyan.FFmpeg" : "apt install ffmpeg";
+  return `install it (${cmd}) so it is on PATH, or pass ffmpegPath to motion()`;
+}
+
+async function ffmpegPath(override?: string): Promise<string> {
+  const found = resolveFfmpegSync(override);
+  if (!found) {
     throw new EncodeError(
-      "ffmpeg is not available. Install @ffmpeg-installer/ffmpeg, or pass ffmpegPath to motion().",
+      `ffmpeg is not available: the bundled @ffmpeg-installer has no build for ${process.platform}-${process.arch} and none was found on PATH. ` +
+        `Video and GIF outputs need it (stills and PNG frames do not) — ${ffmpegInstallHint()}.`,
     );
   }
+  if (found.source === "bundled" && process.platform !== "win32") {
+    // The installed binary is not reliably executable after some package
+    // managers unpack it; the same fix glove-env-media makes.
+    await chmod(found.path, 0o755).catch(() => {});
+  }
+  return found.path;
 }
 
 export interface EncodeOptions {
