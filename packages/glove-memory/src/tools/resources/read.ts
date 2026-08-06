@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { GloveFoldArgs } from "glove-core";
 import type { ResourceFsAdapter } from "../../resources/adapter";
-import { errorResult, publicFile, renderResourceRootsSection } from "./shared";
+import { errorResult, publicFile, renderResourceGuidance } from "./shared";
 
 const ReadInputSchema = z.object({
   path: z.string().min(1),
@@ -17,8 +17,8 @@ export function buildResourcesReadTool(adapter: ResourceFsAdapter): GloveFoldArg
   return {
     name: "glove_resources_read",
     description:
-      `Read a file body, with optional line range. Defaults to the first 50 lines — call again with a wider range or use \`stat\` first when you suspect a long file.\n\n` +
-      `${renderResourceRootsSection(adapter.schema)}`,
+      `Read a file body, with optional line range. Defaults to the first 50 lines — call again with a wider range or use \`stat\` first when you suspect a long file.` +
+      renderResourceGuidance(adapter),
     inputSchema: ReadInputSchema,
     async do(input) {
       try {

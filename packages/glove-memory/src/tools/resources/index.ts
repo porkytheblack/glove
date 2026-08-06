@@ -29,7 +29,11 @@ export {
   buildResourcesRemoveTool,
   buildResourcesSetMetadataTool,
 };
-export { renderResourceRootsSection } from "./shared";
+export {
+  renderResourceRootsSection,
+  renderResourceAccessSection,
+  renderResourceGuidance,
+} from "./shared";
 
 /**
  * Reader tools for resources. Semantic search is only registered when the

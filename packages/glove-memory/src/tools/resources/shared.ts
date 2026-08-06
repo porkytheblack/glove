@@ -13,6 +13,8 @@ import type {
   ResourceMetadata,
 } from "../../resources/types";
 import type { MemorySchema, ResourceRootDef } from "../../core/schema";
+import type { ResourceFsAdapter } from "../../resources/adapter";
+import { getResourceAccessControl } from "../../resources/access";
 
 export const ProvenanceArgSchema = ProvenanceSchema;
 
@@ -59,6 +61,36 @@ export function errorResult(e: unknown): ToolResultData {
 export function publicFile(file: ResourceFile): Omit<ResourceFile, "provenance"> {
   const { provenance: _provenance, ...rest } = file;
   return rest;
+}
+
+/**
+ * Renders the access policy the adapter enforces, so the model is told about
+ * the walls instead of discovering them one refused call at a time. Empty
+ * when the adapter isn't access-controlled, when the policy is unrestricted,
+ * or when the policy opts out with `describe: false`.
+ */
+export function renderResourceAccessSection(adapter: ResourceFsAdapter): string {
+  const control = getResourceAccessControl(adapter);
+  if (!control || !control.describe) return "";
+  return control.render();
+}
+
+/**
+ * Trailing block appended to the resource tool descriptions: the registered
+ * roots (skip with `roots: false` for the tools that don't need them) plus
+ * the active access policy. Returns "" when there's nothing to say, so
+ * callers can concatenate it unconditionally.
+ */
+export function renderResourceGuidance(
+  adapter: ResourceFsAdapter,
+  opts: { roots?: boolean } = {},
+): string {
+  const blocks: string[] = [];
+  if (opts.roots !== false) blocks.push(renderResourceRootsSection(adapter.schema));
+  const access = renderResourceAccessSection(adapter);
+  if (access) blocks.push(access);
+  if (blocks.length === 0) return "";
+  return `\n\n${blocks.join("\n\n")}`;
 }
 
 export function renderResourceRootsSection(schema: MemorySchema): string {

@@ -26,6 +26,7 @@ Draft v0.1. Pre-implementation scope from the spec is complete; storage backends
 | `glove-memory/context` | `ContextAdapter` contract, `ContextEntry` type, default markdown rendering |
 | `glove-memory/forms` | `defineForm` builder, `FormAdapter` contract, compiler, engine, projection |
 | `glove-memory/tools` | Auto-registered read/write tool factories and `useMemory*` / `useEpisodic*` / `useResources*` / `useContext` / `useFormRunner` helpers |
+| `glove-memory/layered` | `layerEntity` / `layerEpisodic` / `layerResources` / `layerContext` — several adapters per subsystem presented to the agent as one |
 | `glove-memory/in-memory` | Reference in-process adapters for dev/test |
 
 ## Architecture
@@ -40,7 +41,7 @@ Why:
 
 - **Bounded prompt surface.** The main agent's tool descriptions don't render every node class, every relationship, every episode kind, and every resource root on every turn. Each subagent renders only the schema slice for its role. Token cost scales with role, not with total ontology size.
 - **Sharper routing.** Subagent names and descriptions are themselves part of the model's reasoning surface. "When the user asks about a person, route to `lookup`" is a tighter signal than "you have these eight memory tools, decide which to call."
-- **Mutation scope is explicit.** A retrieval subagent attached with `useMemoryReader` *cannot* write — the affordance isn't there. The main agent never has to be told "don't accidentally create entities mid-conversation"; it structurally can't.
+- **Mutation scope is explicit.** A retrieval subagent attached with `useMemoryReader` *cannot* write — the affordance isn't there. The main agent never has to be told "don't accidentally create entities mid-conversation"; it structurally can't. For anything finer than the reader / curator line — one folder readable but not writable, a curator that files but never deletes — see [Narrowing what the agent may do](#narrowing-what-the-agent-may-do).
 - **Adapters are still shared.** All subagents read and write to the same underlying graph, timeline, and filesystem. Splitting **memory** across subagents would defeat the point; splitting **tools** does not.
 
 The exception is `useContext`. Context is small (4 tools), user-driven ("remember that…"), and ships with the system-prompt-injection wrapper that has to live on the agent the user actually talks to. Keep `useContext` on the main agent.
@@ -331,6 +332,184 @@ Why this beats one Glove with everything attached:
 | `glove_form_revise` | Amend an earlier answer |
 | `glove_form_abandon` | Close out with a reason |
 | `glove_form_history` | Read past fills *(reader registration)* |
+
+## Layered memory — shared and private strata in one view
+
+Memory arrives in strata. Some of it is shared, authored elsewhere, and the agent must read it but never change it — an org handbook, a common ontology, published events, standing instructions. Some of it is the agent's own, and it may do as it likes. The two live in **different stores**, because a shared corpus can't be copied into every private one, but the agent shouldn't have to know that.
+
+Each `layer*` function takes a stack of adapters and returns one adapter of the ordinary contract, so the existing helpers fold the ordinary tool surface over it:
+
+```ts
+import { layerResources, useResourcesCurator } from "glove-memory";
+
+const resources = layerResources([
+  { name: "handbook", adapter: sharedFs,  access: "read", paths: ["/handbook"] },
+  { name: "notes",    adapter: privateFs, access: "write" },
+]);
+
+useResourcesCurator(glove, resources);
+```
+
+The agent now runs `ls /`, sees `/handbook` and `/notes` side by side, greps across both, and gets a refusal naming the stratum if it tries to edit the handbook. It never learns there are two stores.
+
+All four subsystems layer: `layerEntity`, `layerEpisodic`, `layerResources`, `layerContext`. Every stack takes **exactly one** `access: "write"` stratum — zero would make every write tool a trap, two would make write routing ambiguous, and both fail at construction rather than at the first write.
+
+### The rules that hold everywhere
+
+- **Reads merge in layer order.** Earlier layers win an id or path collision, so order is the shadowing rule.
+- **Writes route to whichever stratum owns the target**, and are refused with `MemoryLayerError` (`code: "layer_read_only"`) when that stratum is read-only. The error names the layer, so "`/handbook/pay.md` belongs to the read-only layer \"handbook\"" is what the agent reads back.
+- **`limit` / `offset` apply to the merged result.** Each stratum is asked for `limit + offset` rows with no offset, because the rows an earlier layer skipped aren't the rows the merged view skips.
+- **`layerOf(id)` / `layerOf(path)`** tells the host which stratum something came from. The agent's tools never surface it.
+- **Indexing is allowed against read-only strata.** `setEmbedding` runs on the host's behalf, not the agent's, and a shared corpus still needs its index maintained.
+
+### Resources — mounted or union, one mechanism
+
+Layer order is precedence and `paths` scopes a layer to a subtree, which covers both arrangements:
+
+```ts
+// Mounted: disjoint namespaces, nothing overlaps.
+layerResources([
+  { name: "handbook", adapter: shared,  access: "read", paths: ["/handbook"] },
+  { name: "notes",    adapter: private, access: "write" },
+]);
+
+// Union: both span the whole tree, private shadows shared on a collision.
+layerResources([
+  { name: "notes",    adapter: private, access: "write" },
+  { name: "handbook", adapter: shared,  access: "read" },
+]);
+```
+
+- **Paths are not translated.** A layer scoped to `/handbook` serves `/handbook/pay.md` by calling its adapter with that same absolute path, so the shared store must already be authored under that prefix. Translating would silently invalidate every `metadata.links` target and every `linksFor` answer stored in it.
+- **A stratum can't leak outside its prefix.** Results are filtered to what the layer claims, so a shared adapter that also holds `/scratch` never surfaces it through a `/handbook` mount. Directories on the way down to a claimed prefix stay listable, so the mount is reachable.
+- **Writes route to whoever already holds the path**, falling back to the prefix owner for a new path. That ordering is what makes refusals legible: `remove("/handbook/pay.md")` reports a read-only stratum rather than the "not found" you'd get from trying the private store first.
+- **There is no copy-on-write.** Editing a shared file is refused, not forked into a private shadow.
+- **A move across strata is refused** rather than half-completed — copy-then-delete would land its delete half in a stratum that refuses it. Read and write instead.
+- **A recursive remove that would reach a shared stratum is refused**, so the agent can't report having cleared a subtree another stratum still serves.
+- **A directory only one stratum has still lists.** Adapters signal a missing directory by throwing; a per-layer failure is only fatal when every stratum that could serve the path fails.
+
+### Entity — identity resolves against the shared graph, and edges can't straddle
+
+Two consequences worth knowing before you layer a graph.
+
+**`addNode` checks the shared strata first.** Before writing, it looks for a node matching the class's `identityKeys` in each read-only stratum, and returns that node's id with `created: false` when it finds one:
+
+```ts
+// The shared ontology already has Acme (domain: acme.com).
+await entity.addNode("Organization", { name: "Acme Corporation", domain: "acme.com" }, prov);
+// → { id: "<the shared node's id>", created: false } — no private duplicate.
+```
+
+Without that check every agent would grow a private copy of every shared entity on first mention, and the graph the layering exists to share would quietly fork. The consequence: the id you get back may belong to a read-only stratum, so a follow-up `updateNode` on it is refused — correctly, since the entity is shared and immutable.
+
+**Edges cannot cross strata.** `EntityMemoryAdapter.connect` resolves and validates both endpoints inside one adapter, and the private store has no row for a shared node, so it cannot hold an edge pointing at one. A `connect` whose endpoints land in different strata is refused with `MemoryLayerError` (`code: "cross_layer_unsupported"`) rather than half-written:
+
+```
+Cannot connect "p_1" (layer "private") to "o_7" (layer "ontology"): an edge has to
+live in one stratum, and neither store holds both endpoints. Record the association
+as an episode participant or a resource link instead — those cross strata freely.
+```
+
+That last sentence is the workaround, and it's a real one: episodic `participants` and resource `metadata.links` are plain ids that nothing validates, so "my note about their company" crosses strata without any special handling. This is the one place layering a graph is genuinely lossy, and it's why the other three subsystems layer more cleanly.
+
+`disconnect` is the other rough edge: the contract has no `getEdge`, so ownership can't be resolved before the call. It routes to the writable stratum and translates a not-found into an error that names the read-only possibility.
+
+### Episodic and context
+
+Both layer cleanly.
+
+**Episodic** interleaves strata into one true chronological timeline — `find`, `episodesForEntity` and `episodesBetween` merge and re-sort on the requested key. Participants may reference entity ids from any stratum. `supportsSemanticSearch` is true when *any* stratum supports it, and `searchEpisodes` queries only those that do, so a shared corpus with a built index composes with a private store that has none. Scores from two independently-built indexes aren't strictly comparable, so the merged ranking is a best-effort interleave rather than a true global one.
+
+**Context** merges `list` / `get` and concatenates each stratum's `render` block **shared first**, so a private entry that refines a shared one reads as the later, more specific word. `setSection` replaces only the writable stratum's entries in that section — shared entries in the same section survive and keep rendering, rather than letting a shared section name poison the user's preferences pane.
+
+### Layering and path policies compose
+
+They answer different questions. Layering answers *which store does this live in*; `withResourceAccess` answers *what may be done inside one store*. Wrap a layer's adapter to gate it further, or wrap the layered adapter to gate the merged view:
+
+```ts
+const resources = withResourceAccess(
+  layerResources([
+    { name: "handbook", adapter: sharedFs,  access: "read", paths: ["/handbook"] },
+    { name: "notes",    adapter: privateFs, access: "write" },
+  ]),
+  { rules: [{ path: "/notes/archive", access: "read" }] },
+);
+```
+
+All layers in a stack are expected to share one `MemorySchema` — the package's model is one ontology object passed to every adapter. The layered adapter reports the first layer's.
+
+## Narrowing what the agent may do
+
+Two independent knobs, meant to be used together. One removes the *affordance* — the tool never reaches the model. The other removes the *capability* — the adapter refuses the call however it arrives.
+
+### Tool allowlists — `options.tools`
+
+Every `use*` helper takes an optional third argument selecting which tools of the surface get folded:
+
+```ts
+// A curator that files notes but can never delete or relocate anything.
+useResourcesCurator(glove, resources, { tools: { deny: ["remove", "move"] } });
+
+// An entity curator that may create and connect, but never merge.
+useMemoryCurator(glove, entity, { tools: { deny: ["merge_nodes"] } });
+
+// Context the agent adds to and revises, but can't clear.
+useContext(glove, context, { tools: { deny: ["unset"] } });
+
+// Or start from nothing and name what's allowed.
+useResourcesCurator(glove, resources, {
+  tools: { allow: ["ls", "read", "grep", "glob", "write"] },
+});
+```
+
+Names may be full (`"glove_resources_remove"`) or short (`"remove"`). `allow` narrows first, then `deny` subtracts. **A selector that matches nothing throws `MemoryToolSelectionError`** — a typo in a `deny` entry would otherwise leave the tool registered, which is exactly what a denylist exists to prevent.
+
+`useFormRunner` takes the same thing on its config (`tools: { deny: ["abandon"] }`), and `selectTools` is exported for filtering a surface you build yourself.
+
+This is a *prompt-surface* control, not a data boundary: the adapter is still fully capable, and anything else holding it can still write. When the restriction has to hold structurally, reach for the next one.
+
+### Path-scoped access policies — `withResourceAccess`
+
+Wraps a `ResourceFsAdapter` so every call is checked against a policy keyed on path. A read-only research corpus, an off-limits subtree, an allowlist of the few places the agent may write:
+
+```ts
+import { withResourceAccess, useResourcesCurator } from "glove-memory";
+
+const resources = withResourceAccess(new InMemoryResourcesAdapter({ schema }), {
+  default: "none",
+  rules: [
+    { path: "/research", access: "read", note: "curated by the research team" },
+    { path: "/research/scratch", access: "write" },
+    { path: "/notes", access: "write" },
+    { path: "/**/*.locked.md", access: "read" },
+  ],
+});
+
+useResourcesCurator(glove, resources);
+```
+
+| Mode | Effect |
+|------|--------|
+| `"write"` | Readable and mutable. The default when no policy says otherwise. |
+| `"read"` | Readable, but `write` / `edit` / `mkdir` / `move` / `remove` / `set_metadata` are refused with `ResourceAccessError` (`code: "access_denied"`). |
+| `"none"` | Invisible. Reads are refused, and the path is filtered out of `ls`, `grep`, `glob`, `search`, and `links_for` results. |
+
+- `path` is an absolute directory prefix (`/research` — the directory and everything under it) or a glob using the same `*` / `**` / `?` vocabulary as `glove_resources_glob`.
+- Rules are evaluated in order and **the last match wins** — the `.gitignore` cascade. Write the broad rule first and the exception after it.
+- `default` (`"write"` unless set) covers anything no rule matches. Set it to `"none"` for an allowlist-shaped policy.
+
+Enforcement lives on the adapter, not the tool surface, for the same reason the reader / curator split does: it's structural. Whichever tools you fold, and whatever the model asks for, a write into a `"read"` path is refused.
+
+Details worth knowing:
+
+- **Multi-path reads filter rather than fail.** `ls`, `grep`, `glob`, `searchSemantic`, and `linksFor` drop hidden paths from their results, so a policy narrows what the agent sees instead of breaking navigation. Naming a hidden path *explicitly* (`read`, `stat`, or a `path`-scoped grep) is still refused — `exists` returns `false` rather than throwing, so it can't be used to probe.
+- **Directories on the way to a grant stay listable.** With `{ default: "none", rules: [{ path: "/research/deep", access: "read" }] }`, `/research` shows up in `ls /` even though it isn't readable itself — otherwise the grant would be unreachable. Traversal is not read access; the files directly under it stay refused.
+- **Blast radius is checked.** A recursive `remove` (or a directory `move`) is refused when it would reach *any* path the policy protects, so `rm -r /` can't take a read-only subtree with it. The check is conservative: a non-write rule whose territory merely intersects the subtree fails it.
+- **The policy is in the tool descriptions.** Every resource tool appends a plain-language summary, so the model is told about the walls instead of discovering them one refused call at a time. Opt out with `describe: false` — that suppresses the text, never the enforcement.
+- **`replaceLinkTarget` is refused under any restrictive policy.** It rewrites the whole tree and can't be scoped path-by-path. It's an orchestrator primitive with no tool exposing it — run reconciliation against the unwrapped adapter.
+- **The embedding lifecycle passes through unfiltered.** `findFilesNeedingEmbedding` / `setEmbedding` run out-of-band on the host's behalf, not the agent's, and a read-only directory still needs its index maintained.
+
+`getResourceAccessControl(adapter)` returns the compiled policy (or `undefined` for an unwrapped adapter); `ResourceAccessControl` is exported directly if you want to resolve modes yourself.
 
 ## System-prompt injection (context)
 

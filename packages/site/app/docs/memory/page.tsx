@@ -510,6 +510,360 @@ const curator = new Glove({ /* ... */ })
       </p>
 
       {/* ------------------------------------------------------------------ */}
+      <h2 id="layered">Layered memory — shared and private strata</h2>
+
+      <p>
+        Memory arrives in strata. Some of it is shared, authored elsewhere,
+        and the agent must read it but never change it — an org handbook, a
+        common ontology, published events, standing instructions. Some of it
+        is the agent&apos;s own. The two live in <strong>different stores</strong>,
+        because a shared corpus can&apos;t be copied into every private one,
+        but the agent shouldn&apos;t have to know that.
+      </p>
+
+      <p>
+        Each <code>layer*</code> function takes a stack of adapters and
+        returns one adapter of the ordinary contract, so the existing helpers
+        fold the ordinary tool surface over it.
+      </p>
+
+      <CodeBlock
+        language="typescript"
+        code={`import { layerResources, useResourcesCurator } from "glove-memory";
+
+const resources = layerResources([
+  { name: "handbook", adapter: sharedFs,  access: "read", paths: ["/handbook"] },
+  { name: "notes",    adapter: privateFs, access: "write" },
+]);
+
+useResourcesCurator(glove, resources);`}
+      />
+
+      <p>
+        The agent runs <code>ls /</code>, sees <code>/handbook</code> and{" "}
+        <code>/notes</code> side by side, greps across both, and gets a
+        refusal naming the stratum if it tries to edit the handbook. It never
+        learns there are two stores. All four subsystems layer:{" "}
+        <code>layerEntity</code>, <code>layerEpisodic</code>,{" "}
+        <code>layerResources</code>, <code>layerContext</code>.
+      </p>
+
+      <h3>The rules that hold everywhere</h3>
+
+      <ul>
+        <li>
+          <strong>Exactly one writable stratum per stack.</strong> Zero would
+          make every write tool a trap; two would make write routing
+          ambiguous. Both fail at construction, not at the first write.
+        </li>
+        <li>
+          <strong>Reads merge in layer order</strong> — earlier layers win an
+          id or path collision, so order is the shadowing rule.
+        </li>
+        <li>
+          <strong>Writes route to whichever stratum owns the target</strong>,
+          and are refused with <code>MemoryLayerError</code> (
+          <code>code: &quot;layer_read_only&quot;</code>) when it&apos;s
+          read-only. The error names the layer.
+        </li>
+        <li>
+          <strong><code>limit</code> / <code>offset</code> apply to the merged
+          result.</strong> Each stratum is asked for <code>limit + offset</code>{" "}
+          rows with no offset — the rows an earlier layer skipped aren&apos;t
+          the rows the merged view skips.
+        </li>
+        <li>
+          <strong>Indexing is allowed against read-only strata.</strong>{" "}
+          <code>setEmbedding</code> runs on the host&apos;s behalf, not the
+          agent&apos;s.
+        </li>
+      </ul>
+
+      <h3>Resources — mounted or union, one mechanism</h3>
+
+      <p>
+        Layer order is precedence and <code>paths</code> scopes a layer to a
+        subtree, which covers both arrangements.
+      </p>
+
+      <CodeBlock
+        language="typescript"
+        code={`// Mounted: disjoint namespaces, nothing overlaps.
+layerResources([
+  { name: "handbook", adapter: shared,  access: "read", paths: ["/handbook"] },
+  { name: "notes",    adapter: private, access: "write" },
+]);
+
+// Union: both span the whole tree, private shadows shared on a collision.
+layerResources([
+  { name: "notes",    adapter: private, access: "write" },
+  { name: "handbook", adapter: shared,  access: "read" },
+]);`}
+      />
+
+      <ul>
+        <li>
+          <strong>Paths are not translated.</strong> A layer scoped to{" "}
+          <code>/handbook</code> serves <code>/handbook/pay.md</code> by
+          calling its adapter with that same absolute path, so the shared
+          store must already be authored under that prefix. Translating would
+          silently invalidate every <code>metadata.links</code> target stored
+          in it.
+        </li>
+        <li>
+          <strong>A stratum can&apos;t leak outside its prefix.</strong>{" "}
+          Results are filtered to what the layer claims; directories on the
+          way down to a claimed prefix stay listable so the mount is
+          reachable.
+        </li>
+        <li>
+          <strong>Writes route to whoever already holds the path</strong>,
+          falling back to the prefix owner for a new path. That ordering makes
+          refusals legible: <code>remove(&quot;/handbook/pay.md&quot;)</code>{" "}
+          reports a read-only stratum rather than the &quot;not found&quot;
+          you&apos;d get from trying the private store first.
+        </li>
+        <li>
+          <strong>No copy-on-write.</strong> Editing a shared file is refused,
+          not forked into a private shadow.
+        </li>
+        <li>
+          <strong>A move across strata is refused</strong> rather than
+          half-completed, and a <strong>recursive remove that would reach a
+          shared stratum</strong> is refused too.
+        </li>
+      </ul>
+
+      <h3>Entity — the one lossy case</h3>
+
+      <p>
+        <strong><code>addNode</code> checks the shared strata first.</strong>{" "}
+        Before writing it looks for a node matching the class&apos;s{" "}
+        <code>identityKeys</code> in each read-only stratum, and returns that
+        node&apos;s id with <code>created: false</code> when it finds one.
+        Without it every agent would grow a private copy of every shared
+        entity on first mention, and the graph the layering exists to share
+        would quietly fork. The consequence: the id you get back may belong to
+        a read-only stratum, so a follow-up <code>updateNode</code> on it is
+        refused — correctly, since the entity is shared and immutable.
+      </p>
+
+      <p>
+        <strong>Edges cannot cross strata.</strong>{" "}
+        <code>EntityMemoryAdapter.connect</code> resolves and validates both
+        endpoints inside one adapter, and the private store has no row for a
+        shared node, so it cannot hold an edge pointing at one. A{" "}
+        <code>connect</code> whose endpoints land in different strata is
+        refused with <code>code: &quot;cross_layer_unsupported&quot;</code>{" "}
+        rather than half-written.
+      </p>
+
+      <p>
+        The workaround is real: episodic <code>participants</code> and
+        resource <code>metadata.links</code> are plain ids that nothing
+        validates, so &quot;my note about their company&quot; crosses strata
+        without special handling. This is the one place layering a graph is
+        genuinely lossy, and why the other three subsystems layer more
+        cleanly.
+      </p>
+
+      <h3>Episodic and context</h3>
+
+      <p>
+        <strong>Episodic</strong> interleaves strata into one true
+        chronological timeline. Participants may reference entity ids from any
+        stratum. <code>supportsSemanticSearch</code> is true when <em>any</em>{" "}
+        stratum supports it and <code>searchEpisodes</code> queries only those
+        that do, so a shared corpus with a built index composes with a private
+        store that has none — though scores from two independently-built
+        indexes aren&apos;t strictly comparable, making the merged ranking a
+        best-effort interleave.
+      </p>
+
+      <p>
+        <strong>Context</strong> merges <code>list</code> / <code>get</code>{" "}
+        and concatenates each stratum&apos;s <code>render</code> block{" "}
+        <strong>shared first</strong>, so a private entry that refines a
+        shared one reads as the later, more specific word.{" "}
+        <code>setSection</code> replaces only the writable stratum&apos;s
+        entries, so a shared section name can&apos;t poison the user&apos;s
+        preferences pane.
+      </p>
+
+      <p>
+        Layering and path policies compose — layering answers <em>which store
+        does this live in</em>, <code>withResourceAccess</code> answers{" "}
+        <em>what may be done inside one store</em>. Wrap a layer&apos;s
+        adapter to gate it further, or wrap the layered adapter to gate the
+        merged view.
+      </p>
+
+      {/* ------------------------------------------------------------------ */}
+      <h2 id="access">Narrowing what the agent may do</h2>
+
+      <p>
+        Two independent knobs, meant to be used together. One removes the{" "}
+        <em>affordance</em> — the tool never reaches the model. The other
+        removes the <em>capability</em> — the adapter refuses the call however
+        it arrives.
+      </p>
+
+      <h3>Tool allowlists</h3>
+
+      <p>
+        Every <code>use*</code> helper takes an options bag selecting which
+        tools of the surface get folded. Names resolve in full (
+        <code>&quot;glove_resources_remove&quot;</code>) or short (
+        <code>&quot;remove&quot;</code>); <code>allow</code> narrows first, then{" "}
+        <code>deny</code> subtracts.
+      </p>
+
+      <CodeBlock
+        language="typescript"
+        code={`// A curator that files notes but can never delete or relocate anything.
+useResourcesCurator(glove, resources, { tools: { deny: ["remove", "move"] } });
+
+// An entity curator that may create and connect, but never merge.
+useMemoryCurator(glove, entity, { tools: { deny: ["merge_nodes"] } });
+
+// Context the agent adds to and revises, but can't clear.
+useContext(glove, context, { tools: { deny: ["unset"] } });
+
+// Or start from nothing and name what's allowed.
+useResourcesCurator(glove, resources, {
+  tools: { allow: ["ls", "read", "grep", "glob", "write"] },
+});`}
+      />
+
+      <p>
+        A selector that matches nothing throws{" "}
+        <code>MemoryToolSelectionError</code> rather than doing nothing quietly
+        — a typo in a <code>deny</code> entry would otherwise leave the tool
+        registered, which is exactly what a denylist exists to prevent.{" "}
+        <code>selectTools</code> is exported for surfaces you build yourself.
+      </p>
+
+      <p>
+        This is a <strong>prompt-surface</strong> control, not a data boundary:
+        the adapter is still fully capable, and anything else holding it can
+        still write. When the restriction has to hold structurally, reach for
+        the next one.
+      </p>
+
+      <h3>Path-scoped access policies</h3>
+
+      <p>
+        <code>withResourceAccess</code> wraps a <code>ResourceFsAdapter</code>{" "}
+        so every call is checked against a policy keyed on path — a read-only
+        research corpus, an off-limits subtree, an allowlist of the few places
+        the agent may write.
+      </p>
+
+      <CodeBlock
+        language="typescript"
+        code={`import { withResourceAccess, useResourcesCurator } from "glove-memory";
+
+const resources = withResourceAccess(new InMemoryResourcesAdapter({ schema }), {
+  default: "none",
+  rules: [
+    { path: "/research", access: "read", note: "curated by the research team" },
+    { path: "/research/scratch", access: "write" },
+    { path: "/notes", access: "write" },
+    { path: "/**/*.locked.md", access: "read" },
+  ],
+});
+
+useResourcesCurator(glove, resources);`}
+      />
+
+      <table className="pattern-table">
+        <thead>
+          <tr><th>Mode</th><th>Effect</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>&quot;write&quot;</code></td>
+            <td>Readable and mutable. The default when no policy says otherwise.</td>
+          </tr>
+          <tr>
+            <td><code>&quot;read&quot;</code></td>
+            <td>
+              Readable, but <code>write</code> / <code>edit</code> /{" "}
+              <code>mkdir</code> / <code>move</code> / <code>remove</code> /{" "}
+              <code>set_metadata</code> are refused with{" "}
+              <code>ResourceAccessError</code>.
+            </td>
+          </tr>
+          <tr>
+            <td><code>&quot;none&quot;</code></td>
+            <td>
+              Invisible. Reads are refused, and the path is filtered out of{" "}
+              <code>ls</code>, <code>grep</code>, <code>glob</code>,{" "}
+              <code>search</code> and <code>links_for</code> results.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        <code>path</code> is an absolute directory prefix (
+        <code>/research</code> — the directory and everything under it) or a
+        glob using the same <code>*</code> / <code>**</code> / <code>?</code>{" "}
+        vocabulary as <code>glove_resources_glob</code>. Rules are evaluated in
+        order and <strong>the last match wins</strong> — the{" "}
+        <code>.gitignore</code> cascade. <code>default</code> (
+        <code>&quot;write&quot;</code> unless set) covers anything no rule
+        matches.
+      </p>
+
+      <p>
+        Enforcement lives on the adapter, not the tool surface, for the same
+        reason the reader / curator split does: it&apos;s structural. Whichever
+        tools you fold, and whatever the model asks for, a write into a{" "}
+        <code>&quot;read&quot;</code> path is refused.
+      </p>
+
+      <ul>
+        <li>
+          <strong>Multi-path reads filter rather than fail.</strong>{" "}
+          <code>ls</code>, <code>grep</code>, <code>glob</code>,{" "}
+          <code>searchSemantic</code> and <code>linksFor</code> drop hidden
+          paths from their results, so a policy narrows what the agent sees
+          instead of breaking navigation. Naming a hidden path explicitly is
+          still refused — <code>exists</code> returns <code>false</code> rather
+          than throwing, so it can&apos;t be used to probe.
+        </li>
+        <li>
+          <strong>Directories on the way to a grant stay listable.</strong>{" "}
+          Otherwise an allowlist policy would strand the subtree it just
+          granted. Traversal is not read access; the files directly under it
+          stay refused.
+        </li>
+        <li>
+          <strong>Blast radius is checked.</strong> A recursive{" "}
+          <code>remove</code> (or a directory <code>move</code>) is refused when
+          it would reach any path the policy protects, so <code>rm -r /</code>{" "}
+          can&apos;t take a read-only subtree with it.
+        </li>
+        <li>
+          <strong>The policy is in the tool descriptions.</strong> The model is
+          told about the walls instead of discovering them one refused call at a
+          time. <code>describe: false</code> suppresses the text, never the
+          enforcement.
+        </li>
+        <li>
+          <strong><code>replaceLinkTarget</code> is refused</strong> under any
+          restrictive policy — it rewrites the whole tree and can&apos;t be
+          scoped path-by-path. Run reconciliation against the unwrapped adapter.
+        </li>
+        <li>
+          <strong>The embedding lifecycle passes through unfiltered.</strong> It
+          runs out-of-band on the host&apos;s behalf, not the agent&apos;s, and
+          a read-only directory still needs its index maintained.
+        </li>
+      </ul>
+
+      {/* ------------------------------------------------------------------ */}
       <h2>Embedding lifecycle</h2>
 
       <p>

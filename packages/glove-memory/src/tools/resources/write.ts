@@ -5,7 +5,7 @@ import {
   errorResult,
   fillProvenance,
   ProvenanceArgSchema,
-  renderResourceRootsSection,
+  renderResourceGuidance,
   ResourceBodySchema,
   ResourceMetadataSchema,
 } from "./shared";
@@ -26,8 +26,8 @@ export function buildResourcesWriteTool(adapter: ResourceFsAdapter): GloveFoldAr
   return {
     name: "glove_resources_write",
     description:
-      `Create or overwrite a file. Body types: text, markdown, url (with optional cachedText). Marks the file's embedding stale (or missing on initial create) so the lifecycle picks it up.\n\n` +
-      `${renderResourceRootsSection(adapter.schema)}`,
+      `Create or overwrite a file. Body types: text, markdown, url (with optional cachedText). Marks the file's embedding stale (or missing on initial create) so the lifecycle picks it up.` +
+      renderResourceGuidance(adapter),
     inputSchema: WriteInputSchema,
     async do(input) {
       try {

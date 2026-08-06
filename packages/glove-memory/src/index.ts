@@ -56,6 +56,8 @@ export {
   buildResourcesRemoveTool,
   buildResourcesSetMetadataTool,
   renderResourceRootsSection,
+  renderResourceAccessSection,
+  renderResourceGuidance,
   useResourcesReader,
   useResourcesCurator,
   // Context
@@ -78,14 +80,41 @@ export {
   buildFormReaderTools,
   useFormRunner,
   useFormReader,
+  // Tool allowlisting
+  selectTools,
+  selectFoldArgs,
 } from "./tools";
 export type {
+  ToolSelection,
+  MemoryToolOptions,
   FoldTarget,
   ContextEnableTarget,
   FormEnableTarget,
   UseFormRunnerConfig,
   FormReaderOptions,
 } from "./tools";
+
+// Layered memory — several adapters per subsystem presented to the agent as one
+export {
+  layerEntity,
+  layerEpisodic,
+  layerResources,
+  layerContext,
+  resolveLayers,
+} from "./layered";
+export type {
+  LayerAccess,
+  MemoryLayer,
+  ResolvedLayers,
+  EntityLayer,
+  EpisodicLayer,
+  ResourceLayer,
+  ContextLayer,
+  LayeredEntityAdapter,
+  LayeredEpisodicAdapter,
+  LayeredResourceFsAdapter,
+  LayeredContextAdapter,
+} from "./layered";
 
 // Reference in-memory adapters
 export {

@@ -1,7 +1,12 @@
 import { z } from "zod";
 import type { GloveFoldArgs } from "glove-core";
 import type { ResourceFsAdapter } from "../../resources/adapter";
-import { errorResult, fillProvenance, ProvenanceArgSchema } from "./shared";
+import {
+  ProvenanceArgSchema,
+  errorResult,
+  fillProvenance,
+  renderResourceGuidance,
+} from "./shared";
 
 const MkdirInputSchema = z.object({
   path: z.string().min(1),
@@ -14,7 +19,8 @@ export function buildResourcesMkdirTool(adapter: ResourceFsAdapter): GloveFoldAr
   return {
     name: "glove_resources_mkdir",
     description:
-      `Create an empty directory. Folders are normally implicit — created when a file is written under them — so use this only when you want an empty folder to exist on its own.`,
+      `Create an empty directory. Folders are normally implicit — created when a file is written under them — so use this only when you want an empty folder to exist on its own.` +
+      renderResourceGuidance(adapter, { roots: false }),
     inputSchema: MkdirInputSchema,
     async do(input) {
       try {

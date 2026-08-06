@@ -16,10 +16,17 @@ import {
 } from "./resources";
 import { useContext, type ContextEnableTarget } from "./context";
 import { useFormReader, type FormEnableTarget } from "./forms";
+import { selectFoldArgs, type MemoryToolOptions } from "./selection";
 
 export * from "./entity";
 export * from "./episodic";
 export * from "./resources";
+export {
+  selectTools,
+  selectFoldArgs,
+  type ToolSelection,
+  type MemoryToolOptions,
+} from "./selection";
 export {
   buildFormListTool,
   buildFormStartTool,
@@ -65,8 +72,9 @@ export type FoldTarget = {
 function foldAll<G extends FoldTarget>(
   glove: G,
   tools: Array<GloveFoldArgs<any>>,
+  options?: MemoryToolOptions,
 ): G {
-  for (const tool of tools) {
+  for (const tool of selectFoldArgs(tools, options?.tools)) {
     glove.fold(tool);
   }
   return glove;
@@ -77,15 +85,17 @@ function foldAll<G extends FoldTarget>(
 export function useMemoryReader<G extends FoldTarget>(
   glove: G,
   adapter: EntityMemoryAdapter,
+  options?: MemoryToolOptions,
 ): G {
-  return foldAll(glove, buildEntityReaderTools(adapter));
+  return foldAll(glove, buildEntityReaderTools(adapter), options);
 }
 
 export function useMemoryCurator<G extends FoldTarget>(
   glove: G,
   adapter: EntityMemoryAdapter,
+  options?: MemoryToolOptions,
 ): G {
-  return foldAll(glove, buildEntityCuratorTools(adapter));
+  return foldAll(glove, buildEntityCuratorTools(adapter), options);
 }
 
 // ─── Episodic ────────────────────────────────────────────────────────────
@@ -93,15 +103,17 @@ export function useMemoryCurator<G extends FoldTarget>(
 export function useEpisodicReader<G extends FoldTarget>(
   glove: G,
   adapter: EpisodicMemoryAdapter,
+  options?: MemoryToolOptions,
 ): G {
-  return foldAll(glove, buildEpisodicReaderTools(adapter));
+  return foldAll(glove, buildEpisodicReaderTools(adapter), options);
 }
 
 export function useEpisodicCurator<G extends FoldTarget>(
   glove: G,
   adapter: EpisodicMemoryAdapter,
+  options?: MemoryToolOptions,
 ): G {
-  return foldAll(glove, buildEpisodicCuratorTools(adapter));
+  return foldAll(glove, buildEpisodicCuratorTools(adapter), options);
 }
 
 // ─── Resources ───────────────────────────────────────────────────────────
@@ -109,15 +121,28 @@ export function useEpisodicCurator<G extends FoldTarget>(
 export function useResourcesReader<G extends FoldTarget>(
   glove: G,
   adapter: ResourceFsAdapter,
+  options?: MemoryToolOptions,
 ): G {
-  return foldAll(glove, buildResourcesReaderTools(adapter));
+  return foldAll(glove, buildResourcesReaderTools(adapter), options);
 }
 
+/**
+ * Full resource surface — reader tools plus write / edit / mkdir / move /
+ * remove / set_metadata.
+ *
+ * Two independent ways to hold it back, meant to be used together:
+ *
+ * - `options.tools` picks which tools are folded, so the affordance never
+ *   reaches the model.
+ * - `withResourceAccess(adapter, policy)` gates the adapter by path, so a
+ *   write into a read-only folder is refused no matter which tool asks.
+ */
 export function useResourcesCurator<G extends FoldTarget>(
   glove: G,
   adapter: ResourceFsAdapter,
+  options?: MemoryToolOptions,
 ): G {
-  return foldAll(glove, buildResourcesCuratorTools(adapter));
+  return foldAll(glove, buildResourcesCuratorTools(adapter), options);
 }
 
 // ─── Context ─────────────────────────────────────────────────────────────
