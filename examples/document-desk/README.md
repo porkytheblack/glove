@@ -67,6 +67,37 @@ any other tool — `fnsFromMcp(conn)` from `glove-scratchpad/fns` produces the
 list `defineTools` wants, so a GitHub or mail server mounts the same way and
 "a PDF of all my emails" becomes one script instead of two systems.
 
+### Things that move
+
+`env:motion` is mounted too, so the desk is not limited to documents. The agent
+writes a React component and gets a video, a GIF or a PNG back — the browser is
+the drawing surface, which is why the same capability covers an animated
+explainer, a title card and a chart image.
+
+```
+Write a motion scene that counts a headline figure up from zero over two
+seconds on a dark background, render it to /out as a 4-second mp4, and
+present it.
+```
+
+A presented video **plays in the transcript** rather than arriving as a
+download row, and the file explorer previews video and images inline. For a
+render, watching it is the check.
+
+Two things are worth knowing before you try it:
+
+- **A render needs a browser.** Chrome, Edge or Chromium is found
+  automatically; run `pnpm check:motion` to see what this machine has and to
+  render a test clip end to end with no model and no API key. Every failing
+  line comes with the command that fixes it.
+- **Renders are slow enough to need their own budget.** `MOTION_LIMITS`
+  (4 minutes) replaces the 60s script ceiling in `app/lib/desk.ts`. Without it
+  a render is refused up front — with the exact fix named, but still refused.
+
+If the inline player shows a black rectangle with working controls, the video
+is fine and your browser has no H.264 decoder — that is a plain Chromium build
+rather than Chrome. Ask for `.webm` there.
+
 ### Handing the result over
 
 The agent also has `present`, wired through `onPresent` in `app/lib/desk.ts`.
@@ -76,14 +107,15 @@ When it finishes something it calls
 present({ path: '/out/q2.pdf', caption: 'Q2 revenue by region — East highest at $163,200.' })
 ```
 
-and the file appears in the transcript as a download row with that caption.
-The verb only accepts paths under `/out`, which is the point: by the end of a
-task `/out` also holds drafts and the intermediate workbook, and only the agent
-knows which one was the answer.
+and the file appears in the transcript with that caption — as a player if it is
+a video or an image, as a download row otherwise. The verb only accepts paths
+under `/out`, which is the point: by the end of a task `/out` also holds drafts
+and the intermediate workbook, and only the agent knows which one was the
+answer.
 
 ## What it demonstrates
 
-Six stdlib adapters mounted at once, so a single agent handles every format
+Seven stdlib adapters mounted at once, so a single agent handles every format
 in one conversation:
 
 | Module | Package | What the agent gets |
@@ -94,12 +126,13 @@ in one conversation:
 | `env:slides` | `glove-env-slides` | `.pptx` generation and read-back |
 | `env:archives` | `glove-env-archives` | zip and tar, in and out |
 | `env:render` | `glove-env-render` | rasterize a PDF, deck or Word file to page PNGs — what `view_image` looks at |
+| `env:motion` | `glove-env-motion` | a React scene to an mp4, GIF, PNG frames or a still |
 | `env:vision` | — (`defineTools`) | the vision model as a function, so a script can check every page in a loop |
 
 Plus `env:fs`, `env:std` and `env:assert`, which the environment provides
 itself.
 
-`env:vision` is the odd one out and deliberately so: the first six wrap
+`env:vision` is the odd one out and deliberately so: the first seven wrap
 *libraries*, it wraps a *capability*. Same module shape, same import line, no
 adapter to write — see `visionModule` in `app/lib/desk.ts`.
 
@@ -119,7 +152,8 @@ event stream to the browser as SSE.
 | `app/api/chat/route.ts` | Runs the turn, streams `text` / `tool` / `tool_result` / `tree_changed` |
 | `app/api/upload/route.ts` | `env.mount(bytes, "/inbox/<name>")` |
 | `app/api/fs/route.ts` | The tree, and one file's content, read off `env.fs` |
-| `app/api/download/route.ts` | `env.fs.readBytes` with a Content-Disposition |
+| `app/api/download/route.ts` | `env.fs.readBytes`, `inline` for media the page can play, `attachment` otherwise |
+| `scripts/check-motion.ts` | `pnpm check:motion` — renders a clip end to end, no model involved |
 | `app/lib/useDesk.ts` | The client half: SSE in, transcript + code cards + tree version out |
 
 The three views on screen are projections of one event stream. The code pane

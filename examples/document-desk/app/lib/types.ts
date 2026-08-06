@@ -22,5 +22,7 @@ export interface FilePreview {
   size: number;
   /** True for anything the preview pane will not try to render as text. */
   binary?: boolean;
+  /** From the extension — tells the pane whether it can show this itself. */
+  mediaType?: string;
   text?: string;
 }

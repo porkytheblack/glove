@@ -101,6 +101,12 @@ test("the media type follows the extension the agent chose", async () => {
       ["/out/data.csv", "text/csv"],
       ["/out/notes.md", "text/markdown"],
       ["/out/chart.PNG", "image/png"],
+      // A rendered animation is a deliverable like any other: the label is
+      // what decides whether the person gets a player or a download prompt.
+      ["/out/intro.mp4", "video/mp4"],
+      ["/out/intro.webm", "video/webm"],
+      ["/out/loop.gif", "image/gif"],
+      ["/out/voiceover.mp3", "audio/mpeg"],
       ["/out/blob.wat", "application/octet-stream"],
     ];
     for (const [path] of cases) await env.mount(text("x"), path);
