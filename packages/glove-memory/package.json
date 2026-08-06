@@ -47,6 +47,10 @@
       "types": "./dist/tools/index.d.ts",
       "import": "./dist/tools/index.js"
     },
+    "./layered": {
+      "types": "./dist/layered/index.d.ts",
+      "import": "./dist/layered/index.js"
+    },
     "./in-memory": {
       "types": "./dist/in-memory/index.d.ts",
       "import": "./dist/in-memory/index.js"

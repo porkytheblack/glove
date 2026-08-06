@@ -252,6 +252,16 @@ subagent per retrieval task with \`defineSubAgent\`, attaching only the adapter
 slice it needs, so token cost scales with role rather than ontology size. The
 exception is \`useContext\` — keep that on the agent the user actually talks to.
 
+Memory arrives in strata: a shared corpus the agent reads but must never change
+(authored elsewhere, one copy for everyone) plus its own private store. They are
+different adapters; \`layerEntity\` / \`layerEpisodic\` / \`layerResources\` /
+\`layerContext\` merge a stack into one adapter of the ordinary contract, so the
+usual \`use*\` helpers fold the usual tools over it and the agent never learns
+there are two stores. Exactly one \`access: "write"\` stratum per stack; reads
+merge in layer order; writes route to the owning stratum and are refused when it
+is read-only. Entity is the lossy one — edges cannot straddle strata, so model
+cross-stratum associations as episode participants or resource links.
+
 Narrow what the agent may do two independent ways, meant to be combined.
 \`{ tools: { allow, deny } }\` on any \`use*\` helper picks which tools are folded,
 so the affordance never reaches the model. \`withResourceAccess(adapter, policy)\`

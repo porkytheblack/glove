@@ -94,6 +94,28 @@ export type {
   FormReaderOptions,
 } from "./tools";
 
+// Layered memory — several adapters per subsystem presented to the agent as one
+export {
+  layerEntity,
+  layerEpisodic,
+  layerResources,
+  layerContext,
+  resolveLayers,
+} from "./layered";
+export type {
+  LayerAccess,
+  MemoryLayer,
+  ResolvedLayers,
+  EntityLayer,
+  EpisodicLayer,
+  ResourceLayer,
+  ContextLayer,
+  LayeredEntityAdapter,
+  LayeredEpisodicAdapter,
+  LayeredResourceFsAdapter,
+  LayeredContextAdapter,
+} from "./layered";
+
 // Reference in-memory adapters
 export {
   InMemoryEntityAdapter,

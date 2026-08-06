@@ -997,6 +997,28 @@ Each helper folds the relevant tool surface onto a Glove. All return the same `G
 
 Every helper takes an optional trailing `{ tools?: { allow?, deny? } }` (on `useFormRunner`, a field on its config) narrowing which tools actually get folded — see below.
 
+### Layered memory — shared and private strata in one view
+
+Memory arrives in strata: some shared and authored elsewhere (an org handbook, a common ontology, published events, standing instructions) that the agent reads but must never change, some its own. They live in **different stores** — a shared corpus can't be copied into every private one — and the agent shouldn't have to know that. Each `layer*` function takes a stack and returns one adapter of the ordinary contract, so the existing `use*` helpers fold the ordinary tool surface over it.
+
+```ts
+const resources = layerResources([
+  { name: "handbook", adapter: sharedFs,  access: "read", paths: ["/handbook"] },
+  { name: "notes",    adapter: privateFs, access: "write" },
+]);
+useResourcesCurator(glove, resources);
+```
+
+All four subsystems layer: `layerEntity`, `layerEpisodic`, `layerResources`, `layerContext` (from `glove-memory/layered`). Rules that hold everywhere: **exactly one** `access: "write"` stratum per stack (zero makes every write tool a trap, two makes routing ambiguous — both throw at construction); reads merge in layer order (earlier wins a collision, so order IS the shadowing rule); writes route to whichever stratum owns the target and are refused with `MemoryLayerError` (`code: "layer_read_only"`, naming the layer); `limit`/`offset` apply to the merged result (each stratum is asked for `limit + offset` with no offset, because the rows an earlier layer skipped aren't the rows the merged view skips); `setEmbedding` is allowed against read-only strata because indexing is the host's business, not the agent's; `layerOf(id|path)` tells the host which stratum something came from.
+
+**Resources** — layer order is precedence and `paths` scopes a layer to a subtree, which covers both mounted (disjoint prefixes) and union (both span `/`, private listed first shadows shared) with one mechanism. Paths are NOT translated: a layer scoped to `/handbook` calls its adapter with that same absolute path, so the shared store must be authored under that prefix — translating would silently invalidate every stored `metadata.links` target. A stratum can't leak outside its prefix (results are filtered to what it claims), but directories on the way down to a claimed prefix stay listable so the mount is reachable. Writes route to whoever already HOLDS the path, falling back to the prefix owner for a new path — that ordering is what makes `remove("/handbook/pay.md")` report a read-only stratum instead of the "not found" you'd get from trying the private store first. No copy-on-write; a cross-stratum move and a recursive remove that would reach a shared stratum are both refused.
+
+**Entity** — two things to know. `addNode` resolves identity against the read-only strata BEFORE writing (via the class's `identityKeys`) and returns the shared node's id with `created: false`, because otherwise every agent grows a private duplicate of every shared entity on first mention and the shared graph quietly forks; the consequence is that the returned id may be immutable, so a follow-up `updateNode` is refused. And **edges cannot straddle strata** — `connect` validates both endpoints inside one adapter and the private store has no row for a shared node, so a cross-stratum `connect` is refused with `code: "cross_layer_unsupported"`. The workaround is real: episodic `participants` and resource `metadata.links` are unvalidated plain ids, so they cross strata freely. This is the one genuinely lossy part of layering a graph.
+
+**Episodic** interleaves strata into one true chronological timeline; `supportsSemanticSearch` is true when ANY stratum supports it and `searchEpisodes` queries only those that do (merged ranking is a best-effort interleave — two independently-built indexes don't produce comparable scores). **Context** merges reads and concatenates each stratum's `render` block shared-first; `setSection` replaces only the writable stratum's entries.
+
+Layering composes with `withResourceAccess` rather than replacing it: layering answers *which store does this live in*, path policies answer *what may be done inside one store*. Wrap a layer's adapter to gate it further, or wrap the layered adapter to gate the merged view. All layers in a stack are expected to share one `MemorySchema`.
+
 ### Narrowing what the agent may do
 
 Two independent knobs, meant to be used together. One removes the **affordance** — the tool never reaches the model. The other removes the **capability** — the adapter refuses the call however it arrives.
@@ -1385,8 +1407,9 @@ Everything else is the implementer's: storage engine, schema, indexing, retentio
 | Reader / curator helpers | `useMemoryReader` / `useMemoryCurator`, `useEpisodicReader` / `useEpisodicCurator`, `useResourcesReader` / `useResourcesCurator`, `useContext`, `useFormRunner` / `useFormReader` from `glove-memory/tools` |
 | Narrow the folded tool surface | `{ tools: { allow, deny } }` on any `use*` helper; `selectTools`, `ToolSelection` from `glove-memory/tools` |
 | Gate resources by path | `withResourceAccess`, `ResourceAccessControl`, `getResourceAccessControl`, `ResourceAccessPolicy` from `glove-memory/resources` |
+| Merge a shared + private store into one view | `layerEntity` / `layerEpisodic` / `layerResources` / `layerContext`, `MemoryLayer` from `glove-memory/layered` |
 | Reference in-process adapters | `InMemoryEntityAdapter`, `InMemoryEpisodicAdapter`, `InMemoryResourcesAdapter`, `InMemoryContextAdapter`, `InMemoryFormAdapter` from `glove-memory/in-memory` |
-| Error classes | `MemoryError`, `MemoryNotFoundError`, `MemorySchemaError`, `MemoryQueryError`, `MemoryWriteError`, `MemoryToolSelectionError`, `EpisodicMemoryError`, `ResourceFsError`, `ResourceAccessError`, `ContextError`, `FormError` / `FormConflictError` / `FormStaleError` / `FormBlockedError` / `FormDefinitionError` from `glove-memory/core` |
+| Error classes | `MemoryError`, `MemoryNotFoundError`, `MemorySchemaError`, `MemoryQueryError`, `MemoryWriteError`, `MemoryToolSelectionError`, `MemoryLayerError`, `EpisodicMemoryError`, `ResourceFsError`, `ResourceAccessError`, `ContextError`, `FormError` / `FormConflictError` / `FormStaleError` / `FormBlockedError` / `FormDefinitionError` from `glove-memory/core` |
 
 See [api-reference.md — `glove-memory`](api-reference.md) for full type signatures, and [examples.md — Memory](examples.md) for worked examples (schema definition, subagent-delegated reader, curator composition, context flow, form definition).
 

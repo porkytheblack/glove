@@ -26,6 +26,7 @@ Draft v0.1. Pre-implementation scope from the spec is complete; storage backends
 | `glove-memory/context` | `ContextAdapter` contract, `ContextEntry` type, default markdown rendering |
 | `glove-memory/forms` | `defineForm` builder, `FormAdapter` contract, compiler, engine, projection |
 | `glove-memory/tools` | Auto-registered read/write tool factories and `useMemory*` / `useEpisodic*` / `useResources*` / `useContext` / `useFormRunner` helpers |
+| `glove-memory/layered` | `layerEntity` / `layerEpisodic` / `layerResources` / `layerContext` — several adapters per subsystem presented to the agent as one |
 | `glove-memory/in-memory` | Reference in-process adapters for dev/test |
 
 ## Architecture
@@ -331,6 +332,111 @@ Why this beats one Glove with everything attached:
 | `glove_form_revise` | Amend an earlier answer |
 | `glove_form_abandon` | Close out with a reason |
 | `glove_form_history` | Read past fills *(reader registration)* |
+
+## Layered memory — shared and private strata in one view
+
+Memory arrives in strata. Some of it is shared, authored elsewhere, and the agent must read it but never change it — an org handbook, a common ontology, published events, standing instructions. Some of it is the agent's own, and it may do as it likes. The two live in **different stores**, because a shared corpus can't be copied into every private one, but the agent shouldn't have to know that.
+
+Each `layer*` function takes a stack of adapters and returns one adapter of the ordinary contract, so the existing helpers fold the ordinary tool surface over it:
+
+```ts
+import { layerResources, useResourcesCurator } from "glove-memory";
+
+const resources = layerResources([
+  { name: "handbook", adapter: sharedFs,  access: "read", paths: ["/handbook"] },
+  { name: "notes",    adapter: privateFs, access: "write" },
+]);
+
+useResourcesCurator(glove, resources);
+```
+
+The agent now runs `ls /`, sees `/handbook` and `/notes` side by side, greps across both, and gets a refusal naming the stratum if it tries to edit the handbook. It never learns there are two stores.
+
+All four subsystems layer: `layerEntity`, `layerEpisodic`, `layerResources`, `layerContext`. Every stack takes **exactly one** `access: "write"` stratum — zero would make every write tool a trap, two would make write routing ambiguous, and both fail at construction rather than at the first write.
+
+### The rules that hold everywhere
+
+- **Reads merge in layer order.** Earlier layers win an id or path collision, so order is the shadowing rule.
+- **Writes route to whichever stratum owns the target**, and are refused with `MemoryLayerError` (`code: "layer_read_only"`) when that stratum is read-only. The error names the layer, so "`/handbook/pay.md` belongs to the read-only layer \"handbook\"" is what the agent reads back.
+- **`limit` / `offset` apply to the merged result.** Each stratum is asked for `limit + offset` rows with no offset, because the rows an earlier layer skipped aren't the rows the merged view skips.
+- **`layerOf(id)` / `layerOf(path)`** tells the host which stratum something came from. The agent's tools never surface it.
+- **Indexing is allowed against read-only strata.** `setEmbedding` runs on the host's behalf, not the agent's, and a shared corpus still needs its index maintained.
+
+### Resources — mounted or union, one mechanism
+
+Layer order is precedence and `paths` scopes a layer to a subtree, which covers both arrangements:
+
+```ts
+// Mounted: disjoint namespaces, nothing overlaps.
+layerResources([
+  { name: "handbook", adapter: shared,  access: "read", paths: ["/handbook"] },
+  { name: "notes",    adapter: private, access: "write" },
+]);
+
+// Union: both span the whole tree, private shadows shared on a collision.
+layerResources([
+  { name: "notes",    adapter: private, access: "write" },
+  { name: "handbook", adapter: shared,  access: "read" },
+]);
+```
+
+- **Paths are not translated.** A layer scoped to `/handbook` serves `/handbook/pay.md` by calling its adapter with that same absolute path, so the shared store must already be authored under that prefix. Translating would silently invalidate every `metadata.links` target and every `linksFor` answer stored in it.
+- **A stratum can't leak outside its prefix.** Results are filtered to what the layer claims, so a shared adapter that also holds `/scratch` never surfaces it through a `/handbook` mount. Directories on the way down to a claimed prefix stay listable, so the mount is reachable.
+- **Writes route to whoever already holds the path**, falling back to the prefix owner for a new path. That ordering is what makes refusals legible: `remove("/handbook/pay.md")` reports a read-only stratum rather than the "not found" you'd get from trying the private store first.
+- **There is no copy-on-write.** Editing a shared file is refused, not forked into a private shadow.
+- **A move across strata is refused** rather than half-completed — copy-then-delete would land its delete half in a stratum that refuses it. Read and write instead.
+- **A recursive remove that would reach a shared stratum is refused**, so the agent can't report having cleared a subtree another stratum still serves.
+- **A directory only one stratum has still lists.** Adapters signal a missing directory by throwing; a per-layer failure is only fatal when every stratum that could serve the path fails.
+
+### Entity — identity resolves against the shared graph, and edges can't straddle
+
+Two consequences worth knowing before you layer a graph.
+
+**`addNode` checks the shared strata first.** Before writing, it looks for a node matching the class's `identityKeys` in each read-only stratum, and returns that node's id with `created: false` when it finds one:
+
+```ts
+// The shared ontology already has Acme (domain: acme.com).
+await entity.addNode("Organization", { name: "Acme Corporation", domain: "acme.com" }, prov);
+// → { id: "<the shared node's id>", created: false } — no private duplicate.
+```
+
+Without that check every agent would grow a private copy of every shared entity on first mention, and the graph the layering exists to share would quietly fork. The consequence: the id you get back may belong to a read-only stratum, so a follow-up `updateNode` on it is refused — correctly, since the entity is shared and immutable.
+
+**Edges cannot cross strata.** `EntityMemoryAdapter.connect` resolves and validates both endpoints inside one adapter, and the private store has no row for a shared node, so it cannot hold an edge pointing at one. A `connect` whose endpoints land in different strata is refused with `MemoryLayerError` (`code: "cross_layer_unsupported"`) rather than half-written:
+
+```
+Cannot connect "p_1" (layer "private") to "o_7" (layer "ontology"): an edge has to
+live in one stratum, and neither store holds both endpoints. Record the association
+as an episode participant or a resource link instead — those cross strata freely.
+```
+
+That last sentence is the workaround, and it's a real one: episodic `participants` and resource `metadata.links` are plain ids that nothing validates, so "my note about their company" crosses strata without any special handling. This is the one place layering a graph is genuinely lossy, and it's why the other three subsystems layer more cleanly.
+
+`disconnect` is the other rough edge: the contract has no `getEdge`, so ownership can't be resolved before the call. It routes to the writable stratum and translates a not-found into an error that names the read-only possibility.
+
+### Episodic and context
+
+Both layer cleanly.
+
+**Episodic** interleaves strata into one true chronological timeline — `find`, `episodesForEntity` and `episodesBetween` merge and re-sort on the requested key. Participants may reference entity ids from any stratum. `supportsSemanticSearch` is true when *any* stratum supports it, and `searchEpisodes` queries only those that do, so a shared corpus with a built index composes with a private store that has none. Scores from two independently-built indexes aren't strictly comparable, so the merged ranking is a best-effort interleave rather than a true global one.
+
+**Context** merges `list` / `get` and concatenates each stratum's `render` block **shared first**, so a private entry that refines a shared one reads as the later, more specific word. `setSection` replaces only the writable stratum's entries in that section — shared entries in the same section survive and keep rendering, rather than letting a shared section name poison the user's preferences pane.
+
+### Layering and path policies compose
+
+They answer different questions. Layering answers *which store does this live in*; `withResourceAccess` answers *what may be done inside one store*. Wrap a layer's adapter to gate it further, or wrap the layered adapter to gate the merged view:
+
+```ts
+const resources = withResourceAccess(
+  layerResources([
+    { name: "handbook", adapter: sharedFs,  access: "read", paths: ["/handbook"] },
+    { name: "notes",    adapter: privateFs, access: "write" },
+  ]),
+  { rules: [{ path: "/notes/archive", access: "read" }] },
+);
+```
+
+All layers in a stack are expected to share one `MemorySchema` — the package's model is one ontology object passed to every adapter. The layered adapter reports the first layer's.
 
 ## Narrowing what the agent may do
 

@@ -2700,6 +2700,48 @@ function useFormReader<G extends FoldTarget>(
 ): G;
 ```
 
+### Layered memory — `layer*`
+
+Several adapters per subsystem presented to the agent as one. Exported from `glove-memory` and `glove-memory/layered`.
+
+```ts
+import {
+  layerEntity, layerEpisodic, layerResources, layerContext,
+  type MemoryLayer, type LayerAccess, type ResourceLayer,
+} from "glove-memory";
+import { MemoryLayerError } from "glove-memory/core";
+
+type LayerAccess = "read" | "write";
+
+interface MemoryLayer<A> {
+  name: string;      // appears in refusal messages
+  adapter: A;
+  access: LayerAccess;
+}
+
+interface ResourceLayer extends MemoryLayer<ResourceFsAdapter> {
+  paths?: string[];  // prefixes this stratum serves; default ["/"]. NOT translated.
+}
+
+function layerEntity(layers: Array<MemoryLayer<EntityMemoryAdapter>>): LayeredEntityAdapter;
+function layerEpisodic(layers: Array<MemoryLayer<EpisodicMemoryAdapter>>): LayeredEpisodicAdapter;
+function layerResources(layers: ResourceLayer[]): LayeredResourceFsAdapter;
+function layerContext(layers: Array<MemoryLayer<ContextAdapter>>): LayeredContextAdapter;
+
+// Each returned adapter satisfies its ordinary contract, plus:
+//   readonly layers: <the stack>
+//   layerOf(idOrPath): Promise<string | null>   // which stratum owns it
+```
+
+Invariants across all four: exactly one `access: "write"` stratum (zero or two throws `MemoryLayerError("layer_config")` at construction, as does a duplicate layer name); reads merge in layer order with earlier layers winning a collision; writes route to the stratum owning the target and are refused with `MemoryLayerError("layer_read_only")` naming it; `limit`/`offset` apply to the merged result (layers are queried with `limit + offset` and no offset); `setEmbedding` is permitted against read-only strata.
+
+Per-subsystem specifics:
+
+- **`layerResources`** — `paths` scopes a stratum; order is precedence, so disjoint prefixes give a mounted arrangement and overlapping ones give a union with private-first shadowing. Paths are not translated (the shared store must be authored under its prefix, or its stored `metadata.links` targets would be invalidated). Results are filtered to what each stratum claims; directories on the way down to a claimed prefix stay listable. Writes route to whoever already holds the path, falling back to the prefix owner. Cross-stratum `move` → `MemoryLayerError("cross_layer_unsupported")`. Recursive `remove` reaching a read-only stratum → refused. `replaceLinkTarget` targets the writable stratum only. A `list` whose every candidate stratum throws rethrows the first error; otherwise per-layer failures are tolerated.
+- **`layerEntity`** — `addNode` resolves the class's `identityKeys` against the read-only strata first and returns the shared node's id with `created: false` (so the shared graph doesn't fork per agent; the returned id may then be immutable). `connect` across strata → `MemoryLayerError("cross_layer_unsupported")`, because `EntityMemoryAdapter.connect` validates both endpoints inside one adapter. `disconnect` routes to the writable stratum and translates a not-found into an error naming the read-only possibility (the contract has no `getEdge`). `getNodeWithNeighbours` reads from the owning stratum only — complete, since edges never cross.
+- **`layerEpisodic`** — merges and re-sorts on the requested key across strata. `supportsSemanticSearch` is true when any stratum supports it; `searchEpisodes` queries only those, and the merged ranking is a best-effort interleave (scores from independently-built indexes aren't comparable). `replaceParticipantId` targets the writable stratum only.
+- **`layerContext`** — `render` concatenates each stratum's block shared-first. `setSection` / `unsetSection` affect the writable stratum only, so shared entries in the same section survive.
+
 ### Tool allowlists — `ToolSelection`
 
 Narrows which tools of a surface get folded. Names resolve in full (`"glove_resources_remove"`) or short (`"remove"` — matches any tool whose name ends with `_remove`). `allow` narrows first, then `deny` subtracts.

@@ -15,6 +15,7 @@ export default defineConfig({
     "src/context/index.ts",
     "src/forms/index.ts",
     "src/tools/index.ts",
+    "src/layered/index.ts",
     "src/in-memory/index.ts",
   ],
   format: ["esm"],

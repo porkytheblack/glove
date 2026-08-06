@@ -130,6 +130,29 @@ export class ResourceAccessError extends ResourceFsError {
   }
 }
 
+export type MemoryLayerErrorCode =
+  /** A write was aimed at a read-only stratum. */
+  | "layer_read_only"
+  /** The layer stack itself is malformed — no writable layer, two of them, duplicate names. */
+  | "layer_config"
+  /** The operation would have to span two strata, which the contract can't express. */
+  | "cross_layer_unsupported";
+
+/**
+ * Raised by the layered adapters when an operation can't be served by the
+ * stratum that owns the target — a write into a shared read-only layer, or a
+ * relationship that would have to straddle two of them.
+ */
+export class MemoryLayerError extends MemoryError {
+  /** The layer whose ownership caused the refusal, when one is identifiable. */
+  layer?: string;
+  constructor(code: MemoryLayerErrorCode, message?: string, layer?: string) {
+    super(code, message);
+    this.name = "MemoryLayerError";
+    this.layer = layer;
+  }
+}
+
 /**
  * Raised when a tool allowlist / denylist names a tool that isn't in the
  * surface it's filtering. A typo in a `deny` entry would otherwise silently

@@ -510,6 +510,195 @@ const curator = new Glove({ /* ... */ })
       </p>
 
       {/* ------------------------------------------------------------------ */}
+      <h2 id="layered">Layered memory — shared and private strata</h2>
+
+      <p>
+        Memory arrives in strata. Some of it is shared, authored elsewhere,
+        and the agent must read it but never change it — an org handbook, a
+        common ontology, published events, standing instructions. Some of it
+        is the agent&apos;s own. The two live in <strong>different stores</strong>,
+        because a shared corpus can&apos;t be copied into every private one,
+        but the agent shouldn&apos;t have to know that.
+      </p>
+
+      <p>
+        Each <code>layer*</code> function takes a stack of adapters and
+        returns one adapter of the ordinary contract, so the existing helpers
+        fold the ordinary tool surface over it.
+      </p>
+
+      <CodeBlock
+        language="typescript"
+        code={`import { layerResources, useResourcesCurator } from "glove-memory";
+
+const resources = layerResources([
+  { name: "handbook", adapter: sharedFs,  access: "read", paths: ["/handbook"] },
+  { name: "notes",    adapter: privateFs, access: "write" },
+]);
+
+useResourcesCurator(glove, resources);`}
+      />
+
+      <p>
+        The agent runs <code>ls /</code>, sees <code>/handbook</code> and{" "}
+        <code>/notes</code> side by side, greps across both, and gets a
+        refusal naming the stratum if it tries to edit the handbook. It never
+        learns there are two stores. All four subsystems layer:{" "}
+        <code>layerEntity</code>, <code>layerEpisodic</code>,{" "}
+        <code>layerResources</code>, <code>layerContext</code>.
+      </p>
+
+      <h3>The rules that hold everywhere</h3>
+
+      <ul>
+        <li>
+          <strong>Exactly one writable stratum per stack.</strong> Zero would
+          make every write tool a trap; two would make write routing
+          ambiguous. Both fail at construction, not at the first write.
+        </li>
+        <li>
+          <strong>Reads merge in layer order</strong> — earlier layers win an
+          id or path collision, so order is the shadowing rule.
+        </li>
+        <li>
+          <strong>Writes route to whichever stratum owns the target</strong>,
+          and are refused with <code>MemoryLayerError</code> (
+          <code>code: &quot;layer_read_only&quot;</code>) when it&apos;s
+          read-only. The error names the layer.
+        </li>
+        <li>
+          <strong><code>limit</code> / <code>offset</code> apply to the merged
+          result.</strong> Each stratum is asked for <code>limit + offset</code>{" "}
+          rows with no offset — the rows an earlier layer skipped aren&apos;t
+          the rows the merged view skips.
+        </li>
+        <li>
+          <strong>Indexing is allowed against read-only strata.</strong>{" "}
+          <code>setEmbedding</code> runs on the host&apos;s behalf, not the
+          agent&apos;s.
+        </li>
+      </ul>
+
+      <h3>Resources — mounted or union, one mechanism</h3>
+
+      <p>
+        Layer order is precedence and <code>paths</code> scopes a layer to a
+        subtree, which covers both arrangements.
+      </p>
+
+      <CodeBlock
+        language="typescript"
+        code={`// Mounted: disjoint namespaces, nothing overlaps.
+layerResources([
+  { name: "handbook", adapter: shared,  access: "read", paths: ["/handbook"] },
+  { name: "notes",    adapter: private, access: "write" },
+]);
+
+// Union: both span the whole tree, private shadows shared on a collision.
+layerResources([
+  { name: "notes",    adapter: private, access: "write" },
+  { name: "handbook", adapter: shared,  access: "read" },
+]);`}
+      />
+
+      <ul>
+        <li>
+          <strong>Paths are not translated.</strong> A layer scoped to{" "}
+          <code>/handbook</code> serves <code>/handbook/pay.md</code> by
+          calling its adapter with that same absolute path, so the shared
+          store must already be authored under that prefix. Translating would
+          silently invalidate every <code>metadata.links</code> target stored
+          in it.
+        </li>
+        <li>
+          <strong>A stratum can&apos;t leak outside its prefix.</strong>{" "}
+          Results are filtered to what the layer claims; directories on the
+          way down to a claimed prefix stay listable so the mount is
+          reachable.
+        </li>
+        <li>
+          <strong>Writes route to whoever already holds the path</strong>,
+          falling back to the prefix owner for a new path. That ordering makes
+          refusals legible: <code>remove(&quot;/handbook/pay.md&quot;)</code>{" "}
+          reports a read-only stratum rather than the &quot;not found&quot;
+          you&apos;d get from trying the private store first.
+        </li>
+        <li>
+          <strong>No copy-on-write.</strong> Editing a shared file is refused,
+          not forked into a private shadow.
+        </li>
+        <li>
+          <strong>A move across strata is refused</strong> rather than
+          half-completed, and a <strong>recursive remove that would reach a
+          shared stratum</strong> is refused too.
+        </li>
+      </ul>
+
+      <h3>Entity — the one lossy case</h3>
+
+      <p>
+        <strong><code>addNode</code> checks the shared strata first.</strong>{" "}
+        Before writing it looks for a node matching the class&apos;s{" "}
+        <code>identityKeys</code> in each read-only stratum, and returns that
+        node&apos;s id with <code>created: false</code> when it finds one.
+        Without it every agent would grow a private copy of every shared
+        entity on first mention, and the graph the layering exists to share
+        would quietly fork. The consequence: the id you get back may belong to
+        a read-only stratum, so a follow-up <code>updateNode</code> on it is
+        refused — correctly, since the entity is shared and immutable.
+      </p>
+
+      <p>
+        <strong>Edges cannot cross strata.</strong>{" "}
+        <code>EntityMemoryAdapter.connect</code> resolves and validates both
+        endpoints inside one adapter, and the private store has no row for a
+        shared node, so it cannot hold an edge pointing at one. A{" "}
+        <code>connect</code> whose endpoints land in different strata is
+        refused with <code>code: &quot;cross_layer_unsupported&quot;</code>{" "}
+        rather than half-written.
+      </p>
+
+      <p>
+        The workaround is real: episodic <code>participants</code> and
+        resource <code>metadata.links</code> are plain ids that nothing
+        validates, so &quot;my note about their company&quot; crosses strata
+        without special handling. This is the one place layering a graph is
+        genuinely lossy, and why the other three subsystems layer more
+        cleanly.
+      </p>
+
+      <h3>Episodic and context</h3>
+
+      <p>
+        <strong>Episodic</strong> interleaves strata into one true
+        chronological timeline. Participants may reference entity ids from any
+        stratum. <code>supportsSemanticSearch</code> is true when <em>any</em>{" "}
+        stratum supports it and <code>searchEpisodes</code> queries only those
+        that do, so a shared corpus with a built index composes with a private
+        store that has none — though scores from two independently-built
+        indexes aren&apos;t strictly comparable, making the merged ranking a
+        best-effort interleave.
+      </p>
+
+      <p>
+        <strong>Context</strong> merges <code>list</code> / <code>get</code>{" "}
+        and concatenates each stratum&apos;s <code>render</code> block{" "}
+        <strong>shared first</strong>, so a private entry that refines a
+        shared one reads as the later, more specific word.{" "}
+        <code>setSection</code> replaces only the writable stratum&apos;s
+        entries, so a shared section name can&apos;t poison the user&apos;s
+        preferences pane.
+      </p>
+
+      <p>
+        Layering and path policies compose — layering answers <em>which store
+        does this live in</em>, <code>withResourceAccess</code> answers{" "}
+        <em>what may be done inside one store</em>. Wrap a layer&apos;s
+        adapter to gate it further, or wrap the layered adapter to gate the
+        merged view.
+      </p>
+
+      {/* ------------------------------------------------------------------ */}
       <h2 id="access">Narrowing what the agent may do</h2>
 
       <p>
