@@ -19,6 +19,10 @@ const SUGGESTIONS = [
     title: "Build a deck from a document",
     body: "Extract the text of the PDF in /inbox and turn its main sections into a six-slide deck in /out, with a title slide and one bullet list per section.",
   },
+  {
+    title: "Animate a number",
+    body: "Write a motion scene that counts a headline figure up from zero over two seconds on a dark background, render it to /out as a 4-second mp4, and present it.",
+  },
 ];
 
 const KB = 1024;
@@ -128,21 +132,7 @@ export function ChatPane({
                   )}
                 </div>
               ) : group.kind === "gift" ? (
-                // The agent singled this file out of everything in /out, so it
-                // gets a row of its own rather than another line of tool output.
-                <a
-                  key={group.id}
-                  className="deliverable"
-                  href={`/api/download?session=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(group.path)}`}
-                  download={group.name}
-                >
-                  <DownloadIcon />
-                  <div className="deliverable-body">
-                    <b>{group.name}</b>
-                    <span>{group.caption}</span>
-                  </div>
-                  <span className="deliverable-size">{fmtBytes(group.size)}</span>
-                </a>
+                <Deliverable key={group.id} sessionId={sessionId} gift={group} />
               ) : (
                 <div key={group.id} className="msg msg-agent">
                   <span className="msg-role">Agent</span>
@@ -236,5 +226,50 @@ export function ChatPane({
         <p className="composer-hint">Uploads land in /inbox · deliverables appear in /out</p>
       </div>
     </section>
+  );
+}
+
+/**
+ * A file the agent singled out of everything in /out with `present`.
+ *
+ * It gets a row of its own rather than another line of tool output — and if
+ * the browser can play it, it plays here. A rendered video the person has to
+ * download to watch is a video they mostly do not watch, and for a render,
+ * watching it *is* the check. The media type comes from the `present` event,
+ * so the environment decides what this is, not a filename match here.
+ */
+function Deliverable({ sessionId, gift }: { sessionId: string; gift: Extract<Entry, { kind: "gift" }> }) {
+  const href = `/api/download?session=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(gift.path)}`;
+  const [kind] = gift.mediaType.split("/");
+
+  // The download link is a sibling of the player, never its parent: a click on
+  // the play button must not also start a download.
+  const row = (
+    <a className="deliverable" href={href} download={gift.name}>
+      <DownloadIcon />
+      <div className="deliverable-body">
+        <b>{gift.name}</b>
+        <span>{gift.caption}</span>
+      </div>
+      <span className="deliverable-size">{fmtBytes(gift.size)}</span>
+    </a>
+  );
+
+  if (kind !== "video" && kind !== "image" && kind !== "audio") return row;
+
+  return (
+    <figure className="gift">
+      <div className={`gift-media ${kind}`}>
+        {kind === "video" ? (
+          <video src={href} controls playsInline preload="metadata" />
+        ) : kind === "audio" ? (
+          <audio src={href} controls preload="metadata" />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element -- bytes out of the VFS, not a static asset
+          <img src={href} alt={gift.caption || gift.name} />
+        )}
+      </div>
+      {row}
+    </figure>
   );
 }

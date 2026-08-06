@@ -156,6 +156,8 @@ Every frame is a browser screenshot — roughly a second per 10 frames. A 10-sec
 | `…/x.png` | A single frame |
 | `…/frames` (no extension) | A directory of `frame-00000.png` … |
 
+**Render `.mp4` for people, `.webm` for a bare Chromium.** H.264 is the format Chrome, Edge, Safari and Firefox all play, so it is the right default for anything a person opens. Chromium builds *without proprietary codecs* — including the one `playwright-core install` puts on disk — cannot decode it, and the failure is the usual silent one: a `<video>` element with working controls, a correct duration, and a black rectangle. `canPlayType('video/mp4; codecs="avc1.42E01E"')` returns `""` on such a build. If your viewer is that kind of Chromium, render VP9 instead; the file itself is fine either way.
+
 ## Known limits
 
 - **No audio.** Add it with `env:media` — that package owns ffmpeg for the agent, and this one deliberately stops at "frames to a playable file".

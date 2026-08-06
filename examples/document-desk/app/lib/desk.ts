@@ -25,6 +25,7 @@ import { images } from "glove-env-images";
 import { slides } from "glove-env-slides";
 import { archives } from "glove-env-archives";
 import { render } from "glove-env-render";
+import { motion, MOTION_LIMITS } from "glove-env-motion";
 import { visionAdapter } from "./vision";
 import { SYSTEM_PROMPT } from "./prompt";
 
@@ -160,6 +161,16 @@ export async function getDesk(id: string): Promise<Desk> {
       slides(),
       archives(),
       render(),
+      // The desk can make things that move. A scene is a React component and
+      // the browser is the drawing surface, so the same capability covers an
+      // animated explainer, a title card and a chart PNG — which is why it is
+      // `env:motion` and not `env:video`.
+      //
+      // Mounted unconditionally on purpose: if this host has no browser, the
+      // adapter says so in its own `/std/motion/README.md` and in
+      // `capabilities()`, rather than the agent discovering it by burning a
+      // render. `glove-motion-doctor` answers the same question from a shell.
+      motion(),
       // The fourth authoring route: a capability, not a library. `view_image`
       // is one look per tool call, which is right for spot-checking and wrong
       // for a forty-page document — so the same vision model is mounted as a
@@ -179,7 +190,13 @@ export async function getDesk(id: string): Promise<Desk> {
     limits: {
       // A generous script budget: rendering a deck or a hundred-page PDF is
       // real work, and a timeout here reads to the user as "the agent broke".
-      runTimeoutMs: 60_000,
+      //
+      // Video needs more than that again — a few hundred screenshots through a
+      // browser — so the ceiling comes from `env:motion` itself. Leave it at
+      // 60s and renders are refused *before* they start, with this exact line
+      // named as the fix; that is better than a generic timeout four minutes
+      // in, but it is still a refusal.
+      ...MOTION_LIMITS,
     },
     execution: {
       // One warm worker per session. The browser drives one request at a time.

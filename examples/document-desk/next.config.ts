@@ -10,7 +10,9 @@ import type { NextConfig } from "next";
  * node_modules is what makes the probe work.
  *
  * `sharp` (via env:images) is native and must be external for its own reasons;
- * `pdfjs-dist` ships its own worker and dislikes being rewritten.
+ * `pdfjs-dist` ships its own worker and dislikes being rewritten. `env:motion`
+ * shells out to a browser and an ffmpeg binary and resolves its own toolchain
+ * off its package root at runtime — a bundled copy has no package root.
  */
 const EXTERNAL = [
   "glove-working-environment",
@@ -20,8 +22,10 @@ const EXTERNAL = [
   "glove-env-slides",
   "glove-env-archives",
   "glove-env-render",
+  "glove-env-motion",
   "sharp",
   "pdfjs-dist",
+  "playwright-core",
 ];
 
 /**
