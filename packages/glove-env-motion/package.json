@@ -1,0 +1,66 @@
+{
+  "name": "glove-env-motion",
+  "version": "0.1.0",
+  "description": "Motion stdlib adapter for glove-working-environment. Renders React scenes \u2014 including React Native Reanimated \u2014 to deterministic PNG frames, stills and MP4 video, as env:motion. The agent writes a component; a file comes out.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-env-motion"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "dependencies": {
+    "@babel/core": "^7.28.0",
+    "@babel/preset-react": "^7.27.0",
+    "@babel/preset-typescript": "^7.27.0",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "esbuild": "^0.25.0",
+    "playwright-core": "^1.50.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "peerDependencies": {
+    "glove-working-environment": "workspace:*",
+    "react-native-reanimated": ">=3",
+    "react-native-web": ">=0.19"
+  },
+  "peerDependenciesMeta": {
+    "react-native-reanimated": {
+      "optional": true
+    },
+    "react-native-web": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "glove-working-environment": "workspace:*",
+    "react-native-reanimated": "^4.5.0",
+    "react-native-web": "^0.21.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  },
+  "bin": {
+    "glove-motion-doctor": "./dist/doctor-cli.js"
+  }
+}

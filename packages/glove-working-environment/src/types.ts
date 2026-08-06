@@ -297,6 +297,33 @@ export interface CreateWorkingEnvironmentOptions {
    * large, wrong type, the user is gone) is something it can respond to.
    */
   onPresent?: (item: PresentedFile) => Promise<void> | void;
+  /**
+   * Directories the agent can read but never mutate.
+   *
+   * The rule the environment already applies to `/std` and `/skills`, made
+   * host-configurable: everything under these paths is readable, greppable
+   * and describable, and every mutation — write, edit, rm, mv in or out,
+   * mkdir, undo — is refused with an error naming the zone and the fix.
+   *
+   * Enforced at the core mutation gateway, so it binds the model verbs,
+   * scripts going through `env:fs`, and stdlib adapters alike. The host
+   * doors stay open: `env.mount()` seeds content INTO a read-only zone,
+   * which is the intended workflow —
+   *
+   * ```ts
+   * const env = await createWorkingEnvironment({ readOnlyPaths: ["/corpus"] });
+   * await env.mount("./handbook.pdf", "/corpus/handbook.pdf");   // host: fine
+   * // agent: read_file/grep/describe on /corpus work; write_file is refused
+   * ```
+   *
+   * Combine with `hostDirectory("./project")` to hand an agent a real
+   * directory where some subtrees are reference-only.
+   *
+   * Paths are normalized; `/` itself is refused (an environment the agent
+   * cannot write to at all has no reason to exist). Not persisted in
+   * snapshots — like `stdlib`, the host re-supplies it on restore.
+   */
+  readOnlyPaths?: string[];
   /** Stdlib adapters to register (materialized under /std, importable as env:<name>). */
   stdlib?: StdlibAdapter[];
   /** Resource limit overrides. */

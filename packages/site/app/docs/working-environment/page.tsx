@@ -230,6 +230,29 @@ const files = await env.export("/out/**");              // door out`}
       />
 
       <p>
+        Orthogonal to the backend: <code>readOnlyPaths</code> fences directories
+        the agent can read but never mutate — the rule the environment already
+        applies to <code>/std</code>, made configurable.
+      </p>
+
+      <CodeBlock
+        code={`const env = await createWorkingEnvironment({
+  filesystem: hostDirectory("./project"),
+  readOnlyPaths: ["/src"],     // read and grep the source; write only elsewhere
+});
+await env.mount("./handbook.pdf", "/src/handbook.pdf");   // the host door stays open`}
+        language="typescript"
+      />
+
+      <p>
+        Enforced at the core mutation gateway, so it binds the model verbs,
+        scripts going through <code>env:fs</code>, and adapters alike — and the
+        refusal names the zone and the fix (copy to <code>/tmp</code>, work on
+        the copy). The orientation file announces each zone up front, so the
+        model learns the boundary by reading, not by being refused.
+      </p>
+
+      <p>
         For plain persistence across restarts, none of those is the answer —{" "}
         <code>snapshot()</code> is. It serializes the whole tree, empty
         directories and mtimes included, to one object:
