@@ -510,6 +510,171 @@ const curator = new Glove({ /* ... */ })
       </p>
 
       {/* ------------------------------------------------------------------ */}
+      <h2 id="access">Narrowing what the agent may do</h2>
+
+      <p>
+        Two independent knobs, meant to be used together. One removes the{" "}
+        <em>affordance</em> — the tool never reaches the model. The other
+        removes the <em>capability</em> — the adapter refuses the call however
+        it arrives.
+      </p>
+
+      <h3>Tool allowlists</h3>
+
+      <p>
+        Every <code>use*</code> helper takes an options bag selecting which
+        tools of the surface get folded. Names resolve in full (
+        <code>&quot;glove_resources_remove&quot;</code>) or short (
+        <code>&quot;remove&quot;</code>); <code>allow</code> narrows first, then{" "}
+        <code>deny</code> subtracts.
+      </p>
+
+      <CodeBlock
+        language="typescript"
+        code={`// A curator that files notes but can never delete or relocate anything.
+useResourcesCurator(glove, resources, { tools: { deny: ["remove", "move"] } });
+
+// An entity curator that may create and connect, but never merge.
+useMemoryCurator(glove, entity, { tools: { deny: ["merge_nodes"] } });
+
+// Context the agent adds to and revises, but can't clear.
+useContext(glove, context, { tools: { deny: ["unset"] } });
+
+// Or start from nothing and name what's allowed.
+useResourcesCurator(glove, resources, {
+  tools: { allow: ["ls", "read", "grep", "glob", "write"] },
+});`}
+      />
+
+      <p>
+        A selector that matches nothing throws{" "}
+        <code>MemoryToolSelectionError</code> rather than doing nothing quietly
+        — a typo in a <code>deny</code> entry would otherwise leave the tool
+        registered, which is exactly what a denylist exists to prevent.{" "}
+        <code>selectTools</code> is exported for surfaces you build yourself.
+      </p>
+
+      <p>
+        This is a <strong>prompt-surface</strong> control, not a data boundary:
+        the adapter is still fully capable, and anything else holding it can
+        still write. When the restriction has to hold structurally, reach for
+        the next one.
+      </p>
+
+      <h3>Path-scoped access policies</h3>
+
+      <p>
+        <code>withResourceAccess</code> wraps a <code>ResourceFsAdapter</code>{" "}
+        so every call is checked against a policy keyed on path — a read-only
+        research corpus, an off-limits subtree, an allowlist of the few places
+        the agent may write.
+      </p>
+
+      <CodeBlock
+        language="typescript"
+        code={`import { withResourceAccess, useResourcesCurator } from "glove-memory";
+
+const resources = withResourceAccess(new InMemoryResourcesAdapter({ schema }), {
+  default: "none",
+  rules: [
+    { path: "/research", access: "read", note: "curated by the research team" },
+    { path: "/research/scratch", access: "write" },
+    { path: "/notes", access: "write" },
+    { path: "/**/*.locked.md", access: "read" },
+  ],
+});
+
+useResourcesCurator(glove, resources);`}
+      />
+
+      <table className="pattern-table">
+        <thead>
+          <tr><th>Mode</th><th>Effect</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>&quot;write&quot;</code></td>
+            <td>Readable and mutable. The default when no policy says otherwise.</td>
+          </tr>
+          <tr>
+            <td><code>&quot;read&quot;</code></td>
+            <td>
+              Readable, but <code>write</code> / <code>edit</code> /{" "}
+              <code>mkdir</code> / <code>move</code> / <code>remove</code> /{" "}
+              <code>set_metadata</code> are refused with{" "}
+              <code>ResourceAccessError</code>.
+            </td>
+          </tr>
+          <tr>
+            <td><code>&quot;none&quot;</code></td>
+            <td>
+              Invisible. Reads are refused, and the path is filtered out of{" "}
+              <code>ls</code>, <code>grep</code>, <code>glob</code>,{" "}
+              <code>search</code> and <code>links_for</code> results.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        <code>path</code> is an absolute directory prefix (
+        <code>/research</code> — the directory and everything under it) or a
+        glob using the same <code>*</code> / <code>**</code> / <code>?</code>{" "}
+        vocabulary as <code>glove_resources_glob</code>. Rules are evaluated in
+        order and <strong>the last match wins</strong> — the{" "}
+        <code>.gitignore</code> cascade. <code>default</code> (
+        <code>&quot;write&quot;</code> unless set) covers anything no rule
+        matches.
+      </p>
+
+      <p>
+        Enforcement lives on the adapter, not the tool surface, for the same
+        reason the reader / curator split does: it&apos;s structural. Whichever
+        tools you fold, and whatever the model asks for, a write into a{" "}
+        <code>&quot;read&quot;</code> path is refused.
+      </p>
+
+      <ul>
+        <li>
+          <strong>Multi-path reads filter rather than fail.</strong>{" "}
+          <code>ls</code>, <code>grep</code>, <code>glob</code>,{" "}
+          <code>searchSemantic</code> and <code>linksFor</code> drop hidden
+          paths from their results, so a policy narrows what the agent sees
+          instead of breaking navigation. Naming a hidden path explicitly is
+          still refused — <code>exists</code> returns <code>false</code> rather
+          than throwing, so it can&apos;t be used to probe.
+        </li>
+        <li>
+          <strong>Directories on the way to a grant stay listable.</strong>{" "}
+          Otherwise an allowlist policy would strand the subtree it just
+          granted. Traversal is not read access; the files directly under it
+          stay refused.
+        </li>
+        <li>
+          <strong>Blast radius is checked.</strong> A recursive{" "}
+          <code>remove</code> (or a directory <code>move</code>) is refused when
+          it would reach any path the policy protects, so <code>rm -r /</code>{" "}
+          can&apos;t take a read-only subtree with it.
+        </li>
+        <li>
+          <strong>The policy is in the tool descriptions.</strong> The model is
+          told about the walls instead of discovering them one refused call at a
+          time. <code>describe: false</code> suppresses the text, never the
+          enforcement.
+        </li>
+        <li>
+          <strong><code>replaceLinkTarget</code> is refused</strong> under any
+          restrictive policy — it rewrites the whole tree and can&apos;t be
+          scoped path-by-path. Run reconciliation against the unwrapped adapter.
+        </li>
+        <li>
+          <strong>The embedding lifecycle passes through unfiltered.</strong> It
+          runs out-of-band on the host&apos;s behalf, not the agent&apos;s, and
+          a read-only directory still needs its index maintained.
+        </li>
+      </ul>
+
+      {/* ------------------------------------------------------------------ */}
       <h2>Embedding lifecycle</h2>
 
       <p>

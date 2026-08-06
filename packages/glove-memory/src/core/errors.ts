@@ -76,6 +76,7 @@ export class EpisodicMemoryError extends MemoryError {
 }
 
 export type ResourceFsErrorCode =
+  | "access_denied"
   | "path_not_found"
   | "path_already_exists"
   | "not_a_directory"
@@ -93,6 +94,62 @@ export class ResourceFsError extends MemoryError {
   constructor(code: ResourceFsErrorCode, message?: string) {
     super(code, message);
     this.name = "ResourceFsError";
+  }
+}
+
+/**
+ * Raised when an access policy refuses a resource call — the path is outside
+ * what the policy allows, or the operation needs a higher mode than the path
+ * grants. Always a policy decision, never a storage failure: the same call
+ * against the unwrapped adapter would have succeeded.
+ */
+export class ResourceAccessError extends ResourceFsError {
+  /** The path that was refused. */
+  path: string;
+  /** The mode the operation needed. */
+  required: "read" | "write";
+  /** The mode the policy grants for `path`. */
+  granted: "none" | "read" | "write";
+  constructor(
+    path: string,
+    required: "read" | "write",
+    granted: "none" | "read" | "write",
+    message?: string,
+  ) {
+    super(
+      "access_denied",
+      message ??
+        `Access denied: "${path}" is ${
+          granted === "none" ? "not accessible" : `${granted}-only`
+        } under the active access policy (needed: ${required}).`,
+    );
+    this.name = "ResourceAccessError";
+    this.path = path;
+    this.required = required;
+    this.granted = granted;
+  }
+}
+
+/**
+ * Raised when a tool allowlist / denylist names a tool that isn't in the
+ * surface it's filtering. A typo in a `deny` entry would otherwise silently
+ * leave the tool registered — exactly the failure mode a denylist exists to
+ * prevent — so unknown selectors are an error, not a no-op.
+ */
+export class MemoryToolSelectionError extends MemoryError {
+  /** The selectors that matched nothing. */
+  unknown: string[];
+  /** The tool names that were available to match against. */
+  available: string[];
+  constructor(unknown: string[], available: string[], message?: string) {
+    super(
+      "unknown_tool",
+      message ??
+        `Unknown tool selector(s): ${unknown.map((u) => `"${u}"`).join(", ")}. Available: ${available.join(", ")}.`,
+    );
+    this.name = "MemoryToolSelectionError";
+    this.unknown = unknown;
+    this.available = available;
   }
 }
 

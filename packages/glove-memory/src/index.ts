@@ -56,6 +56,8 @@ export {
   buildResourcesRemoveTool,
   buildResourcesSetMetadataTool,
   renderResourceRootsSection,
+  renderResourceAccessSection,
+  renderResourceGuidance,
   useResourcesReader,
   useResourcesCurator,
   // Context
@@ -78,8 +80,13 @@ export {
   buildFormReaderTools,
   useFormRunner,
   useFormReader,
+  // Tool allowlisting
+  selectTools,
+  selectFoldArgs,
 } from "./tools";
 export type {
+  ToolSelection,
+  MemoryToolOptions,
   FoldTarget,
   ContextEnableTarget,
   FormEnableTarget,

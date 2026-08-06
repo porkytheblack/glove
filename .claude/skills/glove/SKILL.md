@@ -972,7 +972,7 @@ Why:
 
 - **Bounded prompt surface.** Tool descriptions render the schema slice for that role only — token cost scales with role, not with total ontology size.
 - **Sharper routing.** `lookup` / `recall` / `find-notes` subagent names are themselves a reasoning surface. Tighter signal than "you have eight memory tools, decide which".
-- **Mutation scope is structural.** A subagent attached with `useMemoryReader` *cannot* write; the affordance isn't there.
+- **Mutation scope is structural.** A subagent attached with `useMemoryReader` *cannot* write; the affordance isn't there. Finer than that — one folder readable but not writable, a curator that files but never deletes — is `{ tools: { allow, deny } }` plus `withResourceAccess`.
 - **Adapters stay shared.** All subagents read and write to the same underlying graph / timeline / filesystem. Splitting tools does not split the data.
 
 Same advice on the curator side: a parent curator that routes to specialised write-side subagents (entity-linker, episode-recorder, resource-filer) beats a single curator with every write tool attached.
@@ -994,6 +994,32 @@ Each helper folds the relevant tool surface onto a Glove. All return the same `G
 | `useResourcesReader(glove, adapter)` | `glove_resources_ls`, `_read`, `_stat`, `_grep`, `_glob`, `_search`, `_links_for` | `_search` only when `supportsSemanticSearch`. |
 | `useResourcesCurator(glove, adapter)` | reader tools + `_write`, `_edit`, `_mkdir`, `_move`, `_remove`, `_set_metadata` | |
 | `useContext(glove, adapter)` | `glove_context_get`, `_set`, `_update`, `_unset` | **Also wraps `processRequest`** to call `adapter.render()` and prepend the rendered markdown block to the system prompt every turn. |
+
+Every helper takes an optional trailing `{ tools?: { allow?, deny? } }` (on `useFormRunner`, a field on its config) narrowing which tools actually get folded — see below.
+
+### Narrowing what the agent may do
+
+Two independent knobs, meant to be used together. One removes the **affordance** — the tool never reaches the model. The other removes the **capability** — the adapter refuses the call however it arrives.
+
+**Tool allowlists.** `useResourcesCurator(glove, resources, { tools: { deny: ["remove", "move"] } })` folds a curator that files notes but can never delete or relocate; `{ tools: { allow: ["ls", "read", "grep"] } }` starts from nothing and names what's permitted. Selectors resolve in full (`"glove_resources_remove"`) or short (`"remove"`); `allow` narrows first, `deny` subtracts. A selector matching nothing throws `MemoryToolSelectionError` — a typo in a `deny` entry would otherwise leave the tool registered. `selectTools` is exported for surfaces you build yourself. This is a prompt-surface control only; the adapter stays fully capable.
+
+**Path-scoped access policies.** `withResourceAccess(adapter, policy)` wraps a `ResourceFsAdapter` so every call is checked by path:
+
+```ts
+const resources = withResourceAccess(new InMemoryResourcesAdapter({ schema }), {
+  default: "none",
+  rules: [
+    { path: "/research", access: "read", note: "curated by the research team" },
+    { path: "/notes", access: "write" },
+    { path: "/**/*.locked.md", access: "read" },
+  ],
+});
+useResourcesCurator(glove, resources);
+```
+
+`"write"` is readable and mutable; `"read"` refuses every mutation with `ResourceAccessError` (`code: "access_denied"`); `"none"` refuses reads and is filtered out of `ls` / `grep` / `glob` / `search` / `links_for` results. `path` is an absolute directory prefix or a glob (`*` / `**` / `?`, same vocabulary as `glove_resources_glob`); rules cascade **last-match-wins** over `default` (`"write"` unless set). Enforcement is on the adapter, not the tool list, so a write into a read-only folder is refused whichever tool asks — and the two knobs compose.
+
+Details that bite if you don't know them: multi-path reads *filter* rather than fail (naming a hidden path explicitly is still refused; `exists` returns `false` rather than throwing); directories on the way to a granted subtree stay listable, so an allowlist policy is navigable, but traversal is not read access; a recursive `remove` or a directory `move` is refused when it would reach any protected path; the policy is rendered into every resource tool description (`describe: false` suppresses the text, never the enforcement); `replaceLinkTarget` is refused under any restrictive policy (run reconciliation unwrapped); and `findFilesNeedingEmbedding` / `setEmbedding` pass through unfiltered because the embedding loop is the host's, not the agent's.
 
 ### Tool inventory
 
@@ -1357,8 +1383,10 @@ Everything else is the implementer's: storage engine, schema, indexing, retentio
 | Form engine (host-side) | `FormRunner` from `glove-memory/forms` |
 | Reuse append+clamp in an adapter | `applyEntryCommit` from `glove-memory/forms` |
 | Reader / curator helpers | `useMemoryReader` / `useMemoryCurator`, `useEpisodicReader` / `useEpisodicCurator`, `useResourcesReader` / `useResourcesCurator`, `useContext`, `useFormRunner` / `useFormReader` from `glove-memory/tools` |
+| Narrow the folded tool surface | `{ tools: { allow, deny } }` on any `use*` helper; `selectTools`, `ToolSelection` from `glove-memory/tools` |
+| Gate resources by path | `withResourceAccess`, `ResourceAccessControl`, `getResourceAccessControl`, `ResourceAccessPolicy` from `glove-memory/resources` |
 | Reference in-process adapters | `InMemoryEntityAdapter`, `InMemoryEpisodicAdapter`, `InMemoryResourcesAdapter`, `InMemoryContextAdapter`, `InMemoryFormAdapter` from `glove-memory/in-memory` |
-| Error classes | `MemoryError`, `MemoryNotFoundError`, `MemorySchemaError`, `MemoryQueryError`, `MemoryWriteError`, `EpisodicMemoryError`, `ResourceFsError`, `ContextError`, `FormError` / `FormConflictError` / `FormStaleError` / `FormBlockedError` / `FormDefinitionError` from `glove-memory/core` |
+| Error classes | `MemoryError`, `MemoryNotFoundError`, `MemorySchemaError`, `MemoryQueryError`, `MemoryWriteError`, `MemoryToolSelectionError`, `EpisodicMemoryError`, `ResourceFsError`, `ResourceAccessError`, `ContextError`, `FormError` / `FormConflictError` / `FormStaleError` / `FormBlockedError` / `FormDefinitionError` from `glove-memory/core` |
 
 See [api-reference.md — `glove-memory`](api-reference.md) for full type signatures, and [examples.md — Memory](examples.md) for worked examples (schema definition, subagent-delegated reader, curator composition, context flow, form definition).
 

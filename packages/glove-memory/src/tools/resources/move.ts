@@ -1,7 +1,12 @@
 import { z } from "zod";
 import type { GloveFoldArgs } from "glove-core";
 import type { ResourceFsAdapter } from "../../resources/adapter";
-import { errorResult, fillProvenance, ProvenanceArgSchema } from "./shared";
+import {
+  ProvenanceArgSchema,
+  errorResult,
+  fillProvenance,
+  renderResourceGuidance,
+} from "./shared";
 
 const MoveInputSchema = z.object({
   fromPath: z.string().min(1),
@@ -15,7 +20,8 @@ export function buildResourcesMoveTool(adapter: ResourceFsAdapter): GloveFoldArg
   return {
     name: "glove_resources_move",
     description:
-      `Rename or relocate a file or directory. After moving, links pointing to the old path are NOT cascaded — orchestrators reach for replaceLinkTarget separately.`,
+      `Rename or relocate a file or directory. After moving, links pointing to the old path are NOT cascaded — orchestrators reach for replaceLinkTarget separately.` +
+      renderResourceGuidance(adapter, { roots: false }),
     inputSchema: MoveInputSchema,
     async do(input) {
       try {

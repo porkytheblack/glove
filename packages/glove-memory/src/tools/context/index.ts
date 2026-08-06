@@ -1,5 +1,6 @@
 import type { ContentPart, GloveFoldArgs, Message, ModelPromptResult } from "glove-core";
 import type { ContextAdapter } from "../../context/adapter";
+import { selectFoldArgs, type MemoryToolOptions } from "../selection";
 import { buildContextGetTool } from "./get";
 import { buildContextSetTool } from "./set";
 import { buildContextUpdateTool } from "./update";
@@ -68,12 +69,18 @@ export interface ContextEnableTarget {
  * Multiple `useContext` calls on the same Glove will stack — each call
  * captures the current base prompt, so calling it twice with different
  * adapters will inject both blocks. Most consumers call it once.
+ *
+ * `options.tools` narrows the folded surface without touching the injection
+ * wrapper — `{ tools: { deny: ["unset"] } }` gives an agent that can add to
+ * and revise context but never clear it; `{ tools: { allow: ["get"] } }`
+ * makes context read-only while the user's own UI does the writing.
  */
 export function useContext<G extends ContextEnableTarget>(
   glove: G,
   adapter: ContextAdapter,
+  options?: MemoryToolOptions,
 ): G {
-  for (const tool of buildContextTools(adapter)) {
+  for (const tool of selectFoldArgs(buildContextTools(adapter), options?.tools)) {
     glove.fold(tool);
   }
 

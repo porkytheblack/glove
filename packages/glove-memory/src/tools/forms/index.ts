@@ -3,6 +3,7 @@ import type { DisplayManagerAdapter } from "glove-core";
 import type { FormAdapter } from "../../forms/adapter";
 import type { FormMemoryAdapters } from "../../forms/bridge";
 import type { FormRegistry } from "../../forms/registry";
+import { selectFoldArgs, type ToolSelection } from "../selection";
 import { FormRunner } from "../../forms/runner";
 import { buildFormAbandonTool } from "./abandon";
 import { buildFormFillTool } from "./fill";
@@ -71,6 +72,12 @@ export interface UseFormRunnerConfig {
   source?: string;
   /** Skip the tier-0 system-prompt injection and drive it yourself. */
   injectStatus?: boolean;
+  /**
+   * Narrow the folded surface. `{ deny: ["abandon"] }` leaves the agent
+   * unable to close an instance out; `{ allow: ["list", "status", "fill"] }`
+   * keeps it to the straight-line path.
+   */
+  tools?: ToolSelection;
 }
 
 /**
@@ -109,7 +116,9 @@ export function useFormRunner<G extends FormEnableTarget>(
     source: config.source,
   });
 
-  for (const tool of buildFormRunnerTools(runner)) glove.fold(tool);
+  for (const tool of selectFoldArgs(buildFormRunnerTools(runner), config.tools)) {
+    glove.fold(tool);
+  }
 
   if (config.injectStatus !== false) {
     // Snapshot the developer prompt once — `setSystemPrompt` overwrites the
@@ -140,8 +149,10 @@ export function useFormRunner<G extends FormEnableTarget>(
 export function useFormReader<G extends { fold: <I>(args: GloveFoldArgs<I>) => unknown }>(
   glove: G,
   adapter: FormAdapter,
-  options: FormReaderOptions = {},
+  options: FormReaderOptions & { tools?: ToolSelection } = {},
 ): G {
-  for (const tool of buildFormReaderTools(adapter, options)) glove.fold(tool);
+  for (const tool of selectFoldArgs(buildFormReaderTools(adapter, options), options.tools)) {
+    glove.fold(tool);
+  }
   return glove;
 }

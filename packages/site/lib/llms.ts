@@ -252,6 +252,14 @@ subagent per retrieval task with \`defineSubAgent\`, attaching only the adapter
 slice it needs, so token cost scales with role rather than ontology size. The
 exception is \`useContext\` — keep that on the agent the user actually talks to.
 
+Narrow what the agent may do two independent ways, meant to be combined.
+\`{ tools: { allow, deny } }\` on any \`use*\` helper picks which tools are folded,
+so the affordance never reaches the model. \`withResourceAccess(adapter, policy)\`
+gates the resource filesystem by path — \`"write"\`, \`"read"\` (mutations refused),
+\`"none"\` (invisible, filtered out of listings and search) over prefix or glob
+rules that cascade last-match-wins — so a write into a read-only folder is
+refused whichever tool asks.
+
 ### glove-memory forms — structured collection over a conversation
 
 The fifth subsystem. Definitions are CODE (zod schemas, gate closures and

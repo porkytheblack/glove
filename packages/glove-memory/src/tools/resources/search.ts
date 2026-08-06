@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { GloveFoldArgs } from "glove-core";
 import type { ResourceFsAdapter } from "../../resources/adapter";
-import { errorResult, renderResourceRootsSection } from "./shared";
+import { errorResult, renderResourceGuidance } from "./shared";
 
 const SearchInputSchema = z.object({
   query: z.string().min(1),
@@ -17,8 +17,8 @@ export function buildResourcesSearchTool(adapter: ResourceFsAdapter): GloveFoldA
   return {
     name: "glove_resources_search",
     description:
-      `Semantic search over resource bodies. Use for "find me notes about the regulatory licensing approach" — when you have a topic but no path or filename to grep for.\n\n` +
-      `${renderResourceRootsSection(adapter.schema)}`,
+      `Semantic search over resource bodies. Use for "find me notes about the regulatory licensing approach" — when you have a topic but no path or filename to grep for.` +
+      renderResourceGuidance(adapter),
     inputSchema: SearchInputSchema,
     async do(input) {
       try {

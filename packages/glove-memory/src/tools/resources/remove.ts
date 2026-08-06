@@ -1,7 +1,12 @@
 import { z } from "zod";
 import type { GloveFoldArgs } from "glove-core";
 import type { ResourceFsAdapter } from "../../resources/adapter";
-import { errorResult, fillProvenance, ProvenanceArgSchema } from "./shared";
+import {
+  ProvenanceArgSchema,
+  errorResult,
+  fillProvenance,
+  renderResourceGuidance,
+} from "./shared";
 
 const RemoveInputSchema = z.object({
   path: z.string().min(1),
@@ -15,7 +20,8 @@ export function buildResourcesRemoveTool(adapter: ResourceFsAdapter): GloveFoldA
   return {
     name: "glove_resources_remove",
     description:
-      `Delete a file or directory. For non-empty directories, pass recursive=true. Resources that link to the removed paths are NOT cascaded — orchestrators must call linksFor / replaceLinkTarget separately.`,
+      `Delete a file or directory. For non-empty directories, pass recursive=true. Resources that link to the removed paths are NOT cascaded — orchestrators must call linksFor / replaceLinkTarget separately.` +
+      renderResourceGuidance(adapter, { roots: false }),
     inputSchema: RemoveInputSchema,
     async do(input) {
       try {

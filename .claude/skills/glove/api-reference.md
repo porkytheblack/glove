@@ -2665,13 +2665,17 @@ interface ContextEnableTarget {
   ): Promise<ModelPromptResult | Message>;
 }
 
-function useMemoryReader<G extends FoldTarget>(glove: G, adapter: EntityMemoryAdapter): G;
-function useMemoryCurator<G extends FoldTarget>(glove: G, adapter: EntityMemoryAdapter): G;
-function useEpisodicReader<G extends FoldTarget>(glove: G, adapter: EpisodicMemoryAdapter): G;
-function useEpisodicCurator<G extends FoldTarget>(glove: G, adapter: EpisodicMemoryAdapter): G;
-function useResourcesReader<G extends FoldTarget>(glove: G, adapter: ResourceFsAdapter): G;
-function useResourcesCurator<G extends FoldTarget>(glove: G, adapter: ResourceFsAdapter): G;
-function useContext<G extends ContextEnableTarget>(glove: G, adapter: ContextAdapter): G;
+// Every helper takes an optional `MemoryToolOptions` selecting which tools of
+// the surface actually get folded. See "Tool allowlists" below.
+interface MemoryToolOptions { tools?: ToolSelection }
+
+function useMemoryReader<G extends FoldTarget>(glove: G, adapter: EntityMemoryAdapter, options?: MemoryToolOptions): G;
+function useMemoryCurator<G extends FoldTarget>(glove: G, adapter: EntityMemoryAdapter, options?: MemoryToolOptions): G;
+function useEpisodicReader<G extends FoldTarget>(glove: G, adapter: EpisodicMemoryAdapter, options?: MemoryToolOptions): G;
+function useEpisodicCurator<G extends FoldTarget>(glove: G, adapter: EpisodicMemoryAdapter, options?: MemoryToolOptions): G;
+function useResourcesReader<G extends FoldTarget>(glove: G, adapter: ResourceFsAdapter, options?: MemoryToolOptions): G;
+function useResourcesCurator<G extends FoldTarget>(glove: G, adapter: ResourceFsAdapter, options?: MemoryToolOptions): G;
+function useContext<G extends ContextEnableTarget>(glove: G, adapter: ContextAdapter, options?: MemoryToolOptions): G;
 
 // Forms — different shape: config bag in, runner out.
 function useFormRunner<G extends FormEnableTarget>(
@@ -2685,15 +2689,84 @@ function useFormRunner<G extends FormEnableTarget>(
     actor?: string;
     source?: string;
     injectStatus?: boolean;   // false to drive tier 0 yourself
+    tools?: ToolSelection;    // narrow the folded surface
   },
 ): { glove: G; runner: FormRunner };
 
 function useFormReader<G extends FoldTarget>(
   glove: G,
   adapter: FormAdapter,
-  options?: { registry?: FormRegistry; subject?: string | (() => string) },
+  options?: { registry?: FormRegistry; subject?: string | (() => string); tools?: ToolSelection },
 ): G;
 ```
+
+### Tool allowlists — `ToolSelection`
+
+Narrows which tools of a surface get folded. Names resolve in full (`"glove_resources_remove"`) or short (`"remove"` — matches any tool whose name ends with `_remove`). `allow` narrows first, then `deny` subtracts.
+
+```ts
+import { selectTools, type ToolSelection, type MemoryToolOptions } from "glove-memory";
+
+interface ToolSelection {
+  allow?: string[];
+  deny?: string[];
+}
+
+function selectTools<T extends { name: string }>(tools: T[], selection?: ToolSelection): T[];
+
+useResourcesCurator(glove, resources, { tools: { deny: ["remove", "move"] } });
+useMemoryCurator(glove, entity, { tools: { deny: ["merge_nodes"] } });
+useContext(glove, context, { tools: { allow: ["get"] } });
+```
+
+A selector matching nothing throws `MemoryToolSelectionError` (`code: "unknown_tool"`, carries `unknown` / `available`) — a typo in a `deny` entry would otherwise silently leave the tool registered. This is a prompt-surface control only: the adapter stays fully capable. For a boundary that holds regardless of which tools are folded, use `withResourceAccess`.
+
+### Path-scoped access — `withResourceAccess`
+
+```ts
+import {
+  withResourceAccess, ResourceAccessControl, getResourceAccessControl,
+  type ResourceAccessPolicy, type ResourceAccessRule, type ResourceAccessMode,
+} from "glove-memory";
+import { ResourceAccessError } from "glove-memory/core";
+
+type ResourceAccessMode = "none" | "read" | "write";
+
+interface ResourceAccessRule {
+  path: string;                  // absolute prefix ("/research") or glob ("/**/*.locked.md")
+  access: ResourceAccessMode;
+  note?: string;                 // surfaced in tool descriptions
+}
+
+interface ResourceAccessPolicy {
+  default?: ResourceAccessMode;  // default "write"
+  rules?: ResourceAccessRule[];  // last match wins (.gitignore cascade)
+  describe?: boolean;            // append the policy to tool descriptions; default true
+}
+
+function withResourceAccess(
+  adapter: ResourceFsAdapter,
+  policy: ResourceAccessPolicy | ResourceAccessControl,
+): ResourceFsAdapter & { readonly accessControl: ResourceAccessControl };
+
+function getResourceAccessControl(adapter: ResourceFsAdapter): ResourceAccessControl | undefined;
+
+class ResourceAccessControl {
+  readonly defaultAccess: ResourceAccessMode;
+  readonly describe: boolean;
+  get unrestricted(): boolean;
+  modeFor(path: string): ResourceAccessMode;
+  canRead(path: string): boolean;
+  canWrite(path: string): boolean;
+  canTraverse(path: string): boolean;      // listable on the way to a grant
+  subtreeWritable(path: string): boolean;  // the bar for recursive remove / directory move
+  assertRead(path: string): void;
+  assertWrite(path: string): void;
+  render(): string;                        // plain-language summary; "" when unrestricted
+}
+```
+
+Behaviour: `"read"` refuses every mutation with `ResourceAccessError` (`ResourceFsError` subclass, `code: "access_denied"`, carries `path` / `required` / `granted`). `"none"` refuses reads and is filtered out of `ls` / `grep` / `glob` / `searchSemantic` / `linksFor` results; `exists` returns `false` rather than throwing. A recursive `remove` or a directory `move` is refused when any protected path intersects the subtree. `replaceLinkTarget` is refused under any restrictive policy (run reconciliation unwrapped). `findFilesNeedingEmbedding` / `setEmbedding` pass through unfiltered — the embedding loop is the host's, not the agent's. Wrappers compose: wrapping a wrapped adapter narrows further.
 
 `useContext` snapshots the developer-supplied system prompt at registration time, then on every subsequent `processRequest` it calls `adapter.render()` and composes `<base>\n\n<rendered>` (rendered context goes **after** developer guardrails). Multiple `useContext` calls stack — each captures the then-current base prompt.
 

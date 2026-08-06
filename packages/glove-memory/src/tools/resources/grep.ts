@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { GloveFoldArgs } from "glove-core";
 import type { ResourceFsAdapter } from "../../resources/adapter";
-import { errorResult } from "./shared";
+import { errorResult, renderResourceGuidance } from "./shared";
 
 const GrepInputSchema = z.object({
   query: z.string().min(1),
@@ -19,7 +19,8 @@ export function buildResourcesGrepTool(adapter: ResourceFsAdapter): GloveFoldArg
   return {
     name: "glove_resources_grep",
     description:
-      `Text/regex search across the resource tree. Returns matches with paths, line numbers, and surrounding context. URL bodies without cachedText are skipped.`,
+      `Text/regex search across the resource tree. Returns matches with paths, line numbers, and surrounding context. URL bodies without cachedText are skipped.` +
+      renderResourceGuidance(adapter, { roots: false }),
     inputSchema: GrepInputSchema,
     async do(input) {
       try {

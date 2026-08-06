@@ -40,7 +40,7 @@ Why:
 
 - **Bounded prompt surface.** The main agent's tool descriptions don't render every node class, every relationship, every episode kind, and every resource root on every turn. Each subagent renders only the schema slice for its role. Token cost scales with role, not with total ontology size.
 - **Sharper routing.** Subagent names and descriptions are themselves part of the model's reasoning surface. "When the user asks about a person, route to `lookup`" is a tighter signal than "you have these eight memory tools, decide which to call."
-- **Mutation scope is explicit.** A retrieval subagent attached with `useMemoryReader` *cannot* write — the affordance isn't there. The main agent never has to be told "don't accidentally create entities mid-conversation"; it structurally can't.
+- **Mutation scope is explicit.** A retrieval subagent attached with `useMemoryReader` *cannot* write — the affordance isn't there. The main agent never has to be told "don't accidentally create entities mid-conversation"; it structurally can't. For anything finer than the reader / curator line — one folder readable but not writable, a curator that files but never deletes — see [Narrowing what the agent may do](#narrowing-what-the-agent-may-do).
 - **Adapters are still shared.** All subagents read and write to the same underlying graph, timeline, and filesystem. Splitting **memory** across subagents would defeat the point; splitting **tools** does not.
 
 The exception is `useContext`. Context is small (4 tools), user-driven ("remember that…"), and ships with the system-prompt-injection wrapper that has to live on the agent the user actually talks to. Keep `useContext` on the main agent.
@@ -331,6 +331,79 @@ Why this beats one Glove with everything attached:
 | `glove_form_revise` | Amend an earlier answer |
 | `glove_form_abandon` | Close out with a reason |
 | `glove_form_history` | Read past fills *(reader registration)* |
+
+## Narrowing what the agent may do
+
+Two independent knobs, meant to be used together. One removes the *affordance* — the tool never reaches the model. The other removes the *capability* — the adapter refuses the call however it arrives.
+
+### Tool allowlists — `options.tools`
+
+Every `use*` helper takes an optional third argument selecting which tools of the surface get folded:
+
+```ts
+// A curator that files notes but can never delete or relocate anything.
+useResourcesCurator(glove, resources, { tools: { deny: ["remove", "move"] } });
+
+// An entity curator that may create and connect, but never merge.
+useMemoryCurator(glove, entity, { tools: { deny: ["merge_nodes"] } });
+
+// Context the agent adds to and revises, but can't clear.
+useContext(glove, context, { tools: { deny: ["unset"] } });
+
+// Or start from nothing and name what's allowed.
+useResourcesCurator(glove, resources, {
+  tools: { allow: ["ls", "read", "grep", "glob", "write"] },
+});
+```
+
+Names may be full (`"glove_resources_remove"`) or short (`"remove"`). `allow` narrows first, then `deny` subtracts. **A selector that matches nothing throws `MemoryToolSelectionError`** — a typo in a `deny` entry would otherwise leave the tool registered, which is exactly what a denylist exists to prevent.
+
+`useFormRunner` takes the same thing on its config (`tools: { deny: ["abandon"] }`), and `selectTools` is exported for filtering a surface you build yourself.
+
+This is a *prompt-surface* control, not a data boundary: the adapter is still fully capable, and anything else holding it can still write. When the restriction has to hold structurally, reach for the next one.
+
+### Path-scoped access policies — `withResourceAccess`
+
+Wraps a `ResourceFsAdapter` so every call is checked against a policy keyed on path. A read-only research corpus, an off-limits subtree, an allowlist of the few places the agent may write:
+
+```ts
+import { withResourceAccess, useResourcesCurator } from "glove-memory";
+
+const resources = withResourceAccess(new InMemoryResourcesAdapter({ schema }), {
+  default: "none",
+  rules: [
+    { path: "/research", access: "read", note: "curated by the research team" },
+    { path: "/research/scratch", access: "write" },
+    { path: "/notes", access: "write" },
+    { path: "/**/*.locked.md", access: "read" },
+  ],
+});
+
+useResourcesCurator(glove, resources);
+```
+
+| Mode | Effect |
+|------|--------|
+| `"write"` | Readable and mutable. The default when no policy says otherwise. |
+| `"read"` | Readable, but `write` / `edit` / `mkdir` / `move` / `remove` / `set_metadata` are refused with `ResourceAccessError` (`code: "access_denied"`). |
+| `"none"` | Invisible. Reads are refused, and the path is filtered out of `ls`, `grep`, `glob`, `search`, and `links_for` results. |
+
+- `path` is an absolute directory prefix (`/research` — the directory and everything under it) or a glob using the same `*` / `**` / `?` vocabulary as `glove_resources_glob`.
+- Rules are evaluated in order and **the last match wins** — the `.gitignore` cascade. Write the broad rule first and the exception after it.
+- `default` (`"write"` unless set) covers anything no rule matches. Set it to `"none"` for an allowlist-shaped policy.
+
+Enforcement lives on the adapter, not the tool surface, for the same reason the reader / curator split does: it's structural. Whichever tools you fold, and whatever the model asks for, a write into a `"read"` path is refused.
+
+Details worth knowing:
+
+- **Multi-path reads filter rather than fail.** `ls`, `grep`, `glob`, `searchSemantic`, and `linksFor` drop hidden paths from their results, so a policy narrows what the agent sees instead of breaking navigation. Naming a hidden path *explicitly* (`read`, `stat`, or a `path`-scoped grep) is still refused — `exists` returns `false` rather than throwing, so it can't be used to probe.
+- **Directories on the way to a grant stay listable.** With `{ default: "none", rules: [{ path: "/research/deep", access: "read" }] }`, `/research` shows up in `ls /` even though it isn't readable itself — otherwise the grant would be unreachable. Traversal is not read access; the files directly under it stay refused.
+- **Blast radius is checked.** A recursive `remove` (or a directory `move`) is refused when it would reach *any* path the policy protects, so `rm -r /` can't take a read-only subtree with it. The check is conservative: a non-write rule whose territory merely intersects the subtree fails it.
+- **The policy is in the tool descriptions.** Every resource tool appends a plain-language summary, so the model is told about the walls instead of discovering them one refused call at a time. Opt out with `describe: false` — that suppresses the text, never the enforcement.
+- **`replaceLinkTarget` is refused under any restrictive policy.** It rewrites the whole tree and can't be scoped path-by-path. It's an orchestrator primitive with no tool exposing it — run reconciliation against the unwrapped adapter.
+- **The embedding lifecycle passes through unfiltered.** `findFilesNeedingEmbedding` / `setEmbedding` run out-of-band on the host's behalf, not the agent's, and a read-only directory still needs its index maintained.
+
+`getResourceAccessControl(adapter)` returns the compiled policy (or `undefined` for an unwrapped adapter); `ResourceAccessControl` is exported directly if you want to resolve modes yourself.
 
 ## System-prompt injection (context)
 
