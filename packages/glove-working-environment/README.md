@@ -58,6 +58,30 @@ Reads fall through to disk; writes and deletes land in an in-memory overlay; not
 
 Containment is checked *after* symlink resolution, on the real path, for every access: a link out of the root — or a symlinked parent directory — is refused rather than followed, with a test for each. Links that stay inside the root work normally, because the rule is containment, not link-avoidance.
 
+### Read-only zones: a directory the agent can read but never edit
+
+The rule the environment already applies to `/std` and `/skills`, made yours to configure:
+
+```ts
+const env = await createWorkingEnvironment({ readOnlyPaths: ["/corpus"] });
+await env.mount("./handbook.pdf", "/corpus/handbook.pdf");   // the host door stays open
+```
+
+Everything under `/corpus` is readable, greppable and describable; every mutation — `write_file`, `edit_file`, `rm`, `mv` in **or out**, `mkdir`, `undo` — is refused with an error naming the zone and the fix (`cp` the file to `/tmp` and work on the copy). The orientation file announces the zone up front, so the model learns "read-only" by reading, not by being refused.
+
+Enforcement lives at the core mutation gateway, so it binds every surface at once: the model verbs, scripts going through `env:fs`, and stdlib adapters. Only `env.mount()` bypasses it — seeding content the agent can only read is what the option is for. `env.fs`, the *guarded* host handle, obeys the same rules as the model.
+
+Pairs naturally with `hostDirectory`: hand the agent a real project where some subtrees are reference-only —
+
+```ts
+const env = await createWorkingEnvironment({
+  filesystem: hostDirectory("./project"),
+  readOnlyPaths: ["/src"],          // read and grep the source, write only /tmp, /out, /notes…
+});
+```
+
+Like `stdlib`, the option is not stored in snapshots — the host re-supplies it on restore.
+
 Restore later:
 
 ```ts

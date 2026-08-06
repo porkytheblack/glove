@@ -97,6 +97,13 @@ export class EnvCore {
      * without having opened any docs. See {@link nudgeToDocsOnce}.
      */
     private readonly nudgeEnabled = false,
+    /**
+     * Host-configured read-only zones (normalized absolute paths). Same
+     * standing as /std: readable everywhere, mutable nowhere — enforced in
+     * {@link assertMutable}, which every mutation path runs through.
+     * Public so the orientation file can tell the model BEFORE it tries.
+     */
+    readonly readOnlyZones: string[] = [],
   ) {}
 
   attachExecutor(executor: WorkerPool): void {
@@ -181,6 +188,14 @@ export class EnvCore {
     }
     if (isUnder(p, "/std")) {
       throw new Error(`cannot ${op} ${p}: /std holds materialized adapter docs and is read-only`);
+    }
+    for (const zone of this.readOnlyZones) {
+      if (isUnder(p, zone)) {
+        throw new Error(
+          `cannot ${op} ${p}: ${zone} is read-only in this environment (host-configured reference material). ` +
+            `Copy what you need out first — cp ${p} /tmp/${basename(p)} — and work on the copy.`,
+        );
+      }
     }
     if (this.isDerivedPath(p)) {
       throw new Error(
