@@ -129,6 +129,14 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
       ? this.cfg.socketFactory(url)
       : (new WebSocket(url) as unknown as WebSocketLike);
     this.ws = ws;
+    // Gemini delivers its JSON over BINARY frames. Ask for ArrayBuffer so we
+    // decode synchronously; without this, browsers (and undici) hand back a
+    // Blob. Best-effort — fakes and exotic sockets may not have the property.
+    try {
+      (ws as { binaryType?: string }).binaryType = "arraybuffer";
+    } catch {
+      /* fake sockets */
+    }
 
     ws.addEventListener("message", (ev: { data: unknown }) => this.onMessage(ev.data));
     ws.addEventListener("error", () => this.emit("error", new Error("Gemini Live socket error")));
@@ -271,9 +279,33 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
   // ── inbound ────────────────────────────────────────────────────────────────
 
   private onMessage(raw: unknown): void {
+    // THE trap of this protocol: Gemini sends its JSON over BINARY WebSocket
+    // frames, not text. `String(blob)` is "[object Blob]", so a naive parse
+    // silently drops every inbound message — the session connects, the mic
+    // streams up, and nothing ever comes back. Decode by frame type instead.
+    if (typeof Blob !== "undefined" && raw instanceof Blob) {
+      void raw
+        .text()
+        .then((text) => this.handleFrame(text))
+        .catch(() => {});
+      return;
+    }
+    if (raw instanceof ArrayBuffer) {
+      this.handleFrame(new TextDecoder().decode(raw));
+      return;
+    }
+    if (ArrayBuffer.isView(raw)) {
+      // Node Buffer (ws package) lands here.
+      this.handleFrame(new TextDecoder().decode(raw as Uint8Array));
+      return;
+    }
+    this.handleFrame(String(raw));
+  }
+
+  private handleFrame(text: string): void {
     let msg: any;
     try {
-      msg = typeof raw === "string" ? JSON.parse(raw) : JSON.parse(String(raw));
+      msg = JSON.parse(text);
     } catch {
       return;
     }
