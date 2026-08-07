@@ -27,6 +27,33 @@ export const posts: BlogPost[] = [
     tags: ["working-environment", "motion", "video", "engineering"],
   },
   {
+    slug: "glove-from-a-to-z",
+    title: "Glove from A to Z: Building agents from scratch",
+    summary:
+      "Start with a loop that calls a function, then add one piece at a time — only when something breaks. Every primitive in the framework, in the order it earns its place.",
+    date: "2026-08-07",
+    readingTime: 18,
+    tags: ["guide", "concepts", "tools", "memory", "deployment"],
+  },
+  {
+    slug: "shipping-forms",
+    title: "Shipping Forms",
+    summary:
+      "A collection primitive for conversations — the decisions behind it, and the five defects a fifty-cent agentic eval found that reading the code had not.",
+    date: "2026-08-07",
+    readingTime: 11,
+    tags: ["memory", "forms", "evals", "design"],
+  },
+  {
+    slug: "building-the-voice-stack",
+    title: "Building the voice stack: what only live calls told us",
+    summary:
+      "Five examples, three avatar providers, and a run of bugs that every test suite passed through. Notes on the decisions that held and the ones the wire corrected.",
+    date: "2026-08-07",
+    readingTime: 11,
+    tags: ["voice", "avatars", "livekit", "field-notes"],
+  },
+  {
     slug: "eight-new-packages",
     title: "Eight new packages",
     summary:
