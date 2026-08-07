@@ -18,6 +18,15 @@ export interface BlogPost {
 
 export const posts: BlogPost[] = [
   {
+    slug: "silent-failures",
+    title: "Every failure in this one was silent",
+    summary:
+      "Building video rendering for agents — plus a fourth way to expose a capability, a verb for handing work over, and directories an agent may read but never edit. Six bugs that reported success, and what each one changed about the design.",
+    date: "2026-08-07",
+    readingTime: 12,
+    tags: ["working-environment", "motion", "video", "engineering"],
+  },
+  {
     slug: "eight-new-packages",
     title: "Eight new packages",
     summary:
