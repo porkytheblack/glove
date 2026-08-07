@@ -27,6 +27,15 @@ export const posts: BlogPost[] = [
     tags: ["guide", "concepts", "tools", "memory", "deployment"],
   },
   {
+    slug: "shipping-forms",
+    title: "Shipping Forms",
+    summary:
+      "A collection primitive for conversations — the decisions behind it, and the five defects a fifty-cent agentic eval found that reading the code had not.",
+    date: "2026-08-07",
+    readingTime: 11,
+    tags: ["memory", "forms", "evals", "design"],
+  },
+  {
     slug: "eight-new-packages",
     title: "Eight new packages",
     summary:
