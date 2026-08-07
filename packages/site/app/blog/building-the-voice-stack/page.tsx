@@ -1,13 +1,10 @@
 import { CodeBlock } from "@/components/code-block";
 import { BlogPostHeader } from "@/components/blog-post-header";
-import { getPost } from "@/lib/blog";
+import { getPost, postMetadata } from "@/lib/blog";
 
 const post = getPost("building-the-voice-stack")!;
 
-export const metadata = {
-  title: post.title,
-  description: post.summary,
-};
+export const metadata = postMetadata(post);
 
 export default async function Post() {
   return (

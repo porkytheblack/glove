@@ -1,13 +1,10 @@
 import { CodeBlock } from "@/components/code-block";
 import { BlogPostHeader } from "@/components/blog-post-header";
-import { getPost } from "@/lib/blog";
+import { getPost, postMetadata } from "@/lib/blog";
 
 const post = getPost("glove-from-a-to-z")!;
 
-export const metadata = {
-  title: post.title,
-  description: post.summary,
-};
+export const metadata = postMetadata(post);
 
 export default async function Post() {
   return (
@@ -16,9 +13,10 @@ export default async function Post() {
 
       <p className="blog-lede">
         Start with a loop that calls a function. Add one thing at a time, only
-        when something breaks. By the end you have a voice-capable, memory-backed,
-        multi-agent system in a container — and you understand every piece,
-        because you watched each one earn its place.
+        when something breaks. By the end you have an agent that runs code,
+        remembers, answers the phone with a face on it, and ships in a container —
+        and you understand every piece, because you watched each one earn its
+        place.
       </p>
 
       <p>
@@ -335,7 +333,7 @@ console.log(result.messages.at(-1)?.text);`}
       <p>
         Between tool-result summaries and compaction, context stops being
         something you think about until you are doing something genuinely large —
-        at which point section I is the real answer.
+        at which point section J is the real answer.
       </p>
 
       {/* ---------------------------------------------------------------- */}
@@ -483,67 +481,206 @@ console.log(result.messages.at(-1)?.text);`}
       </p>
 
       {/* ---------------------------------------------------------------- */}
-      <h2 id="too-many-tools">J. The wall: too many tools</h2>
+      <h2 id="code-execution">J. Stop calling tools. Run code.</h2>
 
       <p>
-        Now the real problem. Tool definitions are re-sent on <em>every single
-        model call</em>. Forty tools with decent descriptions and schemas is tens
-        of thousands of tokens per turn, before the conversation has said
-        anything. And the failure is not only cost — a model choosing among forty
-        similar names chooses worse than one choosing among six.
+        Now the real problem, and the one with the most interesting answer. Tool
+        definitions are re-sent on <em>every single model call</em>. And results
+        come back <em>to the model</em>: ask &ldquo;how many of these forty PRs
+        are stale&rdquo; and the whole list pages through the context window so
+        the model can count them by eye.
       </p>
 
       <p>
-        Glove has three answers, and they are genuinely different shapes rather
-        than three flavours of the same idea.
+        Both costs grow with your integrations, and we{" "}
+        <a href="https://github.com/porkytheblack/glove/blob/main/benches/scratchpad-bench/PAPER.md">
+          measured
+        </a>{" "}
+        where that ends. A production-shaped fleet — <strong>40 servers, 367 tools</strong>, of
+        which any given task needs at most four — costs a conventional agent{" "}
+        <strong>~39k tokens of standing tool schemas</strong> before the
+        conversation has said anything. At that scale the conventional arm does
+        not just get expensive, it <strong>inverts</strong>: it becomes the{" "}
+        <em>least</em> accurate arm in the suite, at 12× the peak context and
+        roughly 6× the cost of a single code-execution tool. Folding tools is
+        fine at six and actively harmful at three hundred.
       </p>
 
-      <h3>Capabilities as a database</h3>
+      <p>
+        So: stop giving the model a menu. Give it a{" "}
+        <strong>runtime, and one tool to run code in it</strong>. Your
+        capabilities become <em>functions</em> — a shared{" "}
+        <code>ToolFn</code> catalogue that mounts on any of the surfaces below
+        unchanged, and which an MCP connection can populate in one line.
+      </p>
+
+      <h3>The JavaScript REPL</h3>
+
+      <CodeBlock
+        filename="agent.ts"
+        language="typescript"
+        code={`import { JsSession, mountJs } from "glove-js";
+import { fnsFromMcp } from "glove-scratchpad/fns/mcp";
+
+const session = JsSession.create();
+session.registerAll(await fnsFromMcp(githubConn));  // github__list_pull_requests, …
+
+mountJs(agent, { session });   // one tool: execute_js`}
+      />
+
+      <p>Now the model works by writing programs:</p>
+
+      <CodeBlock
+        filename="what the model writes"
+        language="javascript"
+        code={`const prs = github.list_pull_requests({ state: "open" });
+const stale = prs.filter(p => p.age_days > 30);
+
+stale.length === 0
+  ? "all fresh"
+  : \`\${stale.length} stale: \${stale.map(p => p.number).join(", ")}\`;`}
+      />
 
       <p>
-        <a href="/docs/scratchpad"><code>glove-scratchpad</code></a> exposes your
-        capabilities as a relational database behind{" "}
-        <strong>one <code>execute_sql</code> tool</strong>. Resources become
-        tables; their CRUD verbs map to the underlying tools; a <code>WHERE</code>{" "}
-        equality is pushed down as an argument.
+        One call. Forty rows were fetched, filtered and counted — and the only
+        thing that crossed back into the context window is a sentence. That is
+        the whole argument, and it has four consequences worth naming.
+      </p>
+
+      <p>
+        <strong>Data flow goes off-context.</strong>{" "}
+        <code>const prs = …</code> parks the rows in the REPL and echoes a
+        summary. The model then works with <code>prs.length</code> and{" "}
+        <code>prs.slice(0, 5)</code> rather than with the corpus. Values past a
+        bound are structurally elided with a marker naming the true size, so a
+        careless <code>console.log</code> cannot blow up the turn.
+      </p>
+
+      <p>
+        <strong>Decide-and-act is one call.</strong>{" "}
+        <code>if (incidents.length === 0) slack.post(…) else email.send(…)</code>{" "}
+        — a read, a decision and an effect, without the model round-tripping to
+        look at the read first. On a benchmark scenario graded on which side
+        effect actually fired, this was the only surface where every model
+        passed, and three of them did the whole thing in a single tool call.
+      </p>
+
+      <p>
+        <strong>Effects are exactly-once by construction.</strong> A function
+        fires when its expression evaluates. There is no planner that might
+        re-run it, which is a much stronger guarantee than a prompt asking
+        nicely.
+      </p>
+
+      <p>
+        <strong>Discovery is progressive and in-band.</strong> Nothing is primed
+        by default. The model calls <code>search(&quot;open pull requests&quot;)</code>{" "}
+        to jump straight to matching functions, or browses{" "}
+        <code>servers()</code> → <code>fns(&quot;github&quot;)</code> →{" "}
+        <code>describe(name)</code>. The same tiers also exist as native tools,
+        and those names work <em>inside</em> the code as aliases — so a model
+        primed on the tool names lands its call whichever way it reaches.
+      </p>
+
+      <h3>The Python REPL</h3>
+
+      <p>
+        The identical catalogue, a different language. Tool calls take keyword
+        arguments; comprehensions, f-strings, slicing and <code>def</code> are
+        all in the subset.
+      </p>
+
+      <CodeBlock
+        filename="the same job, in execute_python"
+        language="python"
+        code={`prs = github.list_pull_requests(state="open")
+stale = [p for p in prs if p["age_days"] > 30]
+
+"all fresh" if not stale else f"{len(stale)} stale: " + ", ".join(str(p["number"]) for p in stale)`}
+      />
+
+      <CodeBlock
+        filename="agent.ts"
+        language="typescript"
+        code={`const session = PySession.create();
+session.registerAll(await fnsFromMcp(githubConn));
+
+mountPy(agent, { session });   // one tool: execute_python`}
+      />
+
+      <p>
+        Pick the language your models are most fluent in — that is the entire
+        selection criterion, and it is measurable. Hardening the JS surface
+        against real transcripts moved it from <strong>78% to 97%</strong> on the
+        benchmark; Python, built with that tuning already baked in, landed
+        parity-class from day one. Fluency is not a property you hope for, it is
+        a knob you turn — and the turning is unglamorous: every place a surface
+        silently deviated from what the model expected was a place a weak model
+        failed, and every fix that made truth cheaper to see bought more
+        capability than any prompt instruction.
+      </p>
+
+      <div className="blog-note">
+        <strong>The sandbox is structural.</strong> A program is parsed,
+        whitelist-validated and only then run — by a tree-walking evaluator with
+        a fuel budget (so <code>while (true) &#123;&#125;</code> cannot hang), a
+        recursion cap, and an abort signal. Every property read and method call
+        goes through a boundary that blocks <code>constructor</code>,{" "}
+        <code>__proto__</code>, <code>call</code>/<code>apply</code>/
+        <code>bind</code>. No <code>import</code>, no <code>eval</code>, no{" "}
+        <code>fetch</code>. A program cannot climb back to the host.
+      </div>
+
+      <h3>The same capabilities as a database</h3>
+
+      <p>
+        <a href="/docs/scratchpad"><code>glove-scratchpad</code></a> is where all
+        of this started, and it is still the right surface for a particular
+        shape of work. Same idea — one <code>execute_sql</code> tool instead of a
+        catalogue — but capabilities are modelled as <strong>tables</strong>
+        rather than functions: resources with columns, CRUD verbs wired
+        independently, and <code>WHERE</code> equalities pushed down as
+        arguments.
       </p>
 
       <CodeBlock
         filename="what the model writes"
         language="sql"
-        code={`-- discovery is information_schema; there is no separate mechanism
-SELECT table_name FROM information_schema.tables;
-
--- and composition is a JOIN across two different services
+        code={`-- composition across two services, executed inside the engine
 INSERT INTO linear_issue (title, body)
 SELECT title, 'Follow-up for ' || url FROM github_pr WHERE merged = true;`}
       />
 
       <p>
-        The reason this works is not cleverness, it is that the model already
-        knows SQL fluently at every size. And you inherit the things databases
-        solved decades ago for free: discovery is{" "}
-        <code>information_schema</code>, dry-run is <code>EXPLAIN</code>{" "}
-        (which calls no resolvers at all), and staged approval is{" "}
-        <code>BEGIN … COMMIT</code> — inside a transaction, writes are recorded
-        with their exact arguments and fired only on commit. Every statement is
-        parsed and security-gated before any tool runs, because a syntax tree is
-        something you can actually reject.
+        Reach for it when the work is <em>aggregation and composition</em> —
+        grouping, joining, piping one service into another — or when you want the
+        things a database solved decades ago: discovery through{" "}
+        <code>information_schema</code>, a genuine dry run via{" "}
+        <code>EXPLAIN</code> (it calls no resolvers at all), and{" "}
+        <strong>staged writes</strong> inside <code>BEGIN … COMMIT</code>, where
+        each effect is recorded with its exact arguments and fired only on
+        commit. That staging surface is the best approval gate in the framework,
+        and it is the one thing the REPLs deliberately do not have — there, the
+        write verb <em>is</em> the function, and calling it fires it.
       </p>
 
       <p>
-        Prefer a different language? The same catalogue is exposed as a Lisp, a
-        JavaScript, or a Python REPL (<code>glove-lisp</code>,{" "}
-        <code>glove-js</code>, <code>glove-python</code>) behind one{" "}
-        <code>execute_*</code> tool. Branch and loop in a single call; keep
-        intermediates in variables instead of in the context window.
+        The honest trade runs the other way too. SQL cannot express conditional
+        branching in one statement, so decide-and-act is two round trips; its
+        exactly-once guarantee needed a whole pre-resolution subsystem to build;
+        and a table needs modelling up front, which you cannot do for an
+        arbitrary MCP server discovered at runtime. Functions need none of that.
+        You can also mount both surfaces on one catalogue — measured at no cost,
+        and models pick SQL for shaping data and the REPL for branching, without
+        being told to.
       </p>
 
       <h3>A place where state accumulates</h3>
 
       <p>
-        A REPL is stateless per call. When the work is a <em>project</em> —
-        forty PDFs to merge, a spreadsheet to reconcile, a deck to build —{" "}
+        A REPL session keeps variables. It does not keep <em>artifacts</em>. When
+        the work is a project rather than a query — forty PDFs to merge, a
+        spreadsheet to reconcile, a deck to build and check —{" "}
         <a href="/docs/working-environment"><code>glove-working-environment</code></a>{" "}
         gives the agent a sandboxed filesystem and a script runtime instead.
       </p>
@@ -582,13 +719,15 @@ mountWorkingEnvironment(agent, { env });`}
         the environment ships worked recipes in <code>/skills</code> with the
         exact import line for every module, and corrects a wrong import at{" "}
         <em>write</em> time rather than spending a run on it. Point your system
-        prompt at <code>/skills/README.md</code> first.
+        prompt at <code>/skills/README.md</code> first. Six more bugs from this
+        subsystem — every one of which <em>reported success</em> — are in{" "}
+        <a href="/blog/silent-failures">Every failure in this one was silent</a>.
       </div>
 
       <h3>Or just split the agent</h3>
 
       <p>
-        The third answer is the one from section H, and it is often the right
+        The last answer is the one from section H, and it is often the right
         one: give each subagent the slice of the surface its job needs. This is
         the explicit recommendation for{" "}
         <a href="/docs/memory">memory</a> — do not attach the entity, episodic
@@ -647,13 +786,10 @@ mountWorkingEnvironment(agent, { env });`}
       </table>
 
       <p>
-        Two design choices are worth stealing even if you never use the package.
-        Every write carries <strong>provenance</strong> — source, actor,
-        timestamp, optional rationale — appended, never replaced, so &ldquo;why
-        does the agent believe this&rdquo; is always answerable. And{" "}
-        <strong>nothing is ever lost</strong> in forms: an answer is an
-        append-only log with a cursor, so correcting, retracting, undoing and
-        redoing are all cursor moves over a history that cannot drop a value.
+        One design choice is worth stealing even if you never use the package:
+        every write carries <strong>provenance</strong> — source, actor,
+        timestamp, optional rationale — appended, never replaced. &ldquo;Why does
+        the agent believe this&rdquo; stays answerable a year later.
       </p>
 
       <p>
@@ -668,40 +804,418 @@ mountWorkingEnvironment(agent, { env });`}
         with writes routed to whoever owns the target.
       </p>
 
+      <h3 id="forms">Forms: the wizard, deleted</h3>
+
+      <p>
+        The fifth subsystem is the one that changes what an app looks like, so it
+        gets its own section. A form — an insurance claim, an onboarding flow, a
+        support intake — is conventionally a sequence of screens, and the
+        sequence <em>is</em> the product: you cannot answer question six while
+        being asked question two, and correcting question one means going back
+        through three, four and five.
+      </p>
+
+      <p>
+        Glove forms delete the sequence and keep the structure. The definition is{" "}
+        <strong>code</strong> — Zod schemas, gate closures and executors in one
+        type-threaded chain — and the agent never reads it. It reads a projection
+        of evaluated state.
+      </p>
+
+      <CodeBlock
+        filename="forms/travel-claim.ts"
+        language="typescript"
+        code={`export const travelClaim = defineForm({
+  id: "travel-claim",
+  name: "Travel reimbursement claim",
+  conduct: "Conversational — one or two questions at a time. Don't read the field list aloud.",
+})
+  .step("claimant", { title: "Claimant", preview: "name, staff id, email" }, (s) =>
+    s
+      .field("fullName", { schema: z.string().min(2), label: "Full name" })
+      .field("email", { schema: z.string().email(), label: "Work email" }),
+  )
+  .step("travel", { title: "Travel", preview: "mode, mileage or ticket" }, (s) =>
+    s
+      .field("mode", { schema: z.enum(["car", "rail", "air"]), label: "Mode" })
+      .field("mileage", {
+        schema: z.number().int().min(1).optional(),
+        label: "Miles driven",
+        when: (v) => v.mode === "car",     // applicability, not ask-order
+      }),
+  )
+  .checkpoint("policy-cap", {
+    when: (v) => v.total > 750,
+    blocking: true,
+    run: () => ({ fail: "Over the limit — needs Finance pre-approval." }),
+  })
+  .onComplete(async (ctx) => {
+    await ctx.memory.upsertNode("Person", { name: ctx.values.fullName });
+  })
+  .build();`}
+      />
+
+      <p>
+        Every <code>.field()</code> widens the accumulated values type, so{" "}
+        <code>ctx.values.mode</code> narrows to its enum and{" "}
+        <code>ctx.values.mileage</code> is <code>number | undefined</code> at
+        every downstream callsite. There is no <code>required</code> option and
+        no field-type vocabulary: a field is optional <em>iff</em> its schema
+        accepts <code>undefined</code>, and the type description the agent
+        reads (&ldquo;email address&rdquo;, &ldquo;one of: car | rail |
+        air&rdquo;) is rendered from the schema. Both derived, neither declared.
+      </p>
+
+      <p>
+        Four properties fall out of that, and each one deletes a class of code
+        you would otherwise write.
+      </p>
+
+      <p>
+        <strong>Writes are never gated.</strong> No locks, no
+        &ldquo;complete step 2 first&rdquo;. A patch can carry any field ids at
+        once, each validated independently so one bad value does not reject the
+        rest, and an answer that is not applicable <em>yet</em> is held rather
+        than dropped. A user who answers question six while being asked question
+        two has answered question six. Field ids are forgiving too —{" "}
+        <code>full_name</code>, <code>Full name</code> and <code>fullName</code>{" "}
+        all land, and a miss comes back with <code>did_you_mean</code>.
+      </p>
+
+      <p>
+        <strong>Nothing is ever lost.</strong> Each field is an append-only log
+        of revisions plus a cursor naming the one in force. A correction appends.
+        A retraction is itself a revision — which makes retract, undo and redo
+        pure cursor moves over a history that cannot drop an answer, and every
+        one of them reversible. The agent reaches all four through one{" "}
+        <code>action</code> parameter rather than four verbs, because tool
+        schemas are re-sent every call and an eval put four verbs at ~75% of this
+        surface&apos;s entire context cost.
+      </p>
+
+      <p>
+        <strong>Triggers steer the conversation.</strong> A checkpoint is a
+        condition over values and <em>state</em> — <code>stepComplete(id)</code>,{" "}
+        <code>checkpointFired(id)</code> — fired on its rising edge, and what it
+        returns can move the conversation: <code>{`{ patch }`}</code> to stamp a
+        value, <code>{`{ jump }`}</code> to route forward <em>or back to a step
+        that already finished</em>, <code>{`{ fail }`}</code> to record a
+        rejection and carry on, <code>{`{ terminate }`}</code> to stop collection
+        outright when continuing would be wrong rather than merely unfinished. A
+        backwards jump is a revisit, not a reset: the answers stay filled but
+        come back asking, and the next write into that step releases the
+        override.
+      </p>
+
+      <p>
+        <strong>It costs almost nothing to have.</strong> Tier 0 is a single line
+        injected into the system prompt each turn — the open step, its pending
+        field labels, and a one-line preview of what is still to come. Tier 1 is
+        the open step in full, on request; tier 2 is any other step, one field,
+        or the whole outline. Form modules are not even imported until an
+        instance starts, so a registered sixty-field form costs a name and a
+        description until someone needs it.
+      </p>
+
+      <CodeBlock
+        filename="tier 0 — the whole standing cost"
+        language="text"
+        code={`[form: travel-claim] step 2/4 "Trip" · pending: Destination, Departure date
+later: Travel (mode, mileage or ticket) · Approval (cost centre, manager)`}
+      />
+
+      <p>
+        Wiring is one call. <code>useFormRunner</code> folds the tools, wraps{" "}
+        <code>processRequest</code> for that tier-0 line, and hands back the
+        runner so your own code can start instances and resolve blocking
+        checkpoints without going through the model at all.
+      </p>
+
+      <CodeBlock
+        filename="agent.ts"
+        language="typescript"
+        code={`const { runner } = useFormRunner(glove, adapter, {
+  registry,                    // lazy: { load: () => import("./forms/travel-claim") }
+  subject: conversationId,
+  memory: { entity, episodic, resources, context },   // executors can write to all four
+});`}
+      />
+
+      <p>
+        That <code>memory</code> bridge is the point of putting forms in this
+        package rather than in a package of their own. A completed claim is not a
+        JSON blob to hand off — it is a person in the entity graph, an episode on
+        the timeline, and a document in the resource tree, all written with
+        engine-supplied provenance by an <code>onComplete</code> that runs on the
+        commit that finished the form. The decisions behind all of that, and the
+        five defects an agentic eval found that reading the code had not, are in{" "}
+        <a href="/blog/shipping-forms">Shipping Forms</a>.
+      </p>
+
       {/* ---------------------------------------------------------------- */}
-      <h2 id="voice">L. Talking to it</h2>
+      <h2 id="realtime">L. Realtime: a voice, and a face to put it on</h2>
 
       <p>
-        Two paths, and the choice is about latency versus control.
+        Everything so far assumed typing. Realtime is where the same agent
+        answers a phone call or looks back at you from a screen, and it is a
+        stack you climb one layer at a time — each layer useful without the ones
+        above it.
+      </p>
+
+      <h3>The cascade</h3>
+
+      <p>
+        <a href="/docs/voice"><code>glove-voice</code></a> is{" "}
+        <em>speech → text → agent → text → speech</em>. Every stage is an adapter
+        you choose, the agent in the middle is untouched, and text streams into
+        TTS sentence by sentence as the model produces it rather than waiting for
+        the turn to finish.
       </p>
 
       <p>
-        The <strong>cascade</strong> (<a href="/docs/voice"><code>glove-voice</code></a>)
-        is <em>speech → text → agent → text → speech</em>. Every stage is an
-        adapter you pick, the agent in the middle is unchanged, and latency is
-        the sum of the parts. Mic audio is speech-gated by default, so a door
-        slam is never transcribed and never interrupts the agent mid-sentence.
+        The part worth knowing is what happens to <strong>noise</strong>. By
+        default mic audio is speech-gated: it sits in a rolling pre-roll buffer
+        and is released to the speech-to-text provider only once the voice
+        detector confirms real speech survived a minimum duration. A door slam is
+        never transcribed, never hallucinated into words, and never interrupts
+        the agent mid-sentence — its audio is discarded outright. That is the
+        difference between a demo and something usable in a kitchen.
+      </p>
+
+      <h3>Speech-to-speech</h3>
+
+      <p>
+        The cascade&apos;s latency is the sum of its parts.{" "}
+        <a href="/docs/realtime-voice"><code>glove-voice-s2s</code></a> collapses
+        the stack: the model listens and speaks directly, and turn-taking is
+        decided by something that can actually hear the caller. Your tools,
+        display stack and context management all still apply — only the transport
+        underneath changed.
+      </p>
+
+      <CodeBlock
+        filename="agent.ts"
+        language="typescript"
+        code={`const agent = new Glove({
+  store,
+  // The model slot CARRIES the realtime config, so the agent definition stays
+  // the single source of truth and RealtimeAgent derives the session from it.
+  model: s2sDrivenModel({
+    provider: "openai",                  // or "gemini"
+    turnDetection: { type: "server_vad", silence_duration_ms: 450 },
+  }),
+  displayManager: new Displaymanager(),
+  systemPrompt: "...",
+  serverMode: true,
+}).fold(bookTableTool);                  // tools work exactly as before
+
+const rt = new RealtimeAgent({ agent });
+await rt.start();
+
+rt.sendAudio(pcm);                       // caller's mic in
+rt.adapter.on("audio", (pcm) => { /* agent speech out */ });
+rt.adapter.on("interrupted", () => { /* flush your playback */ });`}
+      />
+
+      <p>
+        Two details took the longest and matter the most. Turn-taking knobs are{" "}
+        <strong>typed</strong> rather than raw JSON, because a silence threshold
+        is the difference between an agent that talks over people and one that
+        feels patient — that is a number you will tune, so it should
+        autocomplete. And barge-in does <strong>truncation sync</strong>: when a
+        caller cuts the agent off, the model is told what the caller actually{" "}
+        <em>heard</em>, not what it had planned to say. Without it the agent
+        carries on as though it delivered a sentence nobody received, and every
+        later turn is built on that false belief.
+      </p>
+
+      <div className="blog-note">
+        <strong>The layering that works in practice.</strong> Keep the S2S model
+        as a <em>thin front agent</em> — it is the ears and the mouth, and it
+        should stay responsive. Heavy lookups get delegated to a capable worker
+        agent over the mesh (section N). A realtime model held up mid-sentence by
+        a three-second database query sounds exactly as bad as it is.
+      </div>
+
+      <h3>A face</h3>
+
+      <p>
+        An avatar provider is, structurally, a lip-sync renderer over an audio
+        stream: PCM in, a talking face out on a WebRTC surface. Which is exactly
+        the shape of the audio the S2S layer already emits — so{" "}
+        <code>glove-voice-avatar</code> is a <em>rendering layer</em> over the
+        stack rather than a replacement for any of it. The mic path, the tools
+        and the delegation are untouched.
+      </p>
+
+      <CodeBlock
+        filename="the whole integration"
+        language="typescript"
+        code={`const rt = new RealtimeAgent({ agent });
+await rt.start();
+
+const avatar = new TavusEchoAdapter({ apiKey: process.env.TAVUS_API_KEY! });
+const detach = await attachAvatar(rt, avatar);
+// audio → sendAudio · speech-stop → endUtterance · interrupted → interrupt`}
+      />
+
+      <p>
+        <code>AvatarAdapter</code> is the contract — <code>connect()</code>{" "}
+        returns a <em>view</em> clients attach to (a WebRTC room URL, or an SDK
+        session token, as a tagged union), plus <code>sendAudio</code>,{" "}
+        <code>endUtterance</code> and an <code>interrupt</code> that is{" "}
+        <em>always</em> safe to call. That last guarantee is not documentation, it
+        is enforced: every adapter has to pass a behavioural conformance suite
+        against a fake transport before it ships. Two do today — Tavus in echo
+        mode and Anam in audio-passthrough mode, both configured so the
+        provider&apos;s own language model and voice stay out of the loop. Your
+        agent is the brain; the provider is the face.
+      </p>
+
+      <h3>WebRTC both ways</h3>
+
+      <p>
+        <code>glove-voice-livekit</code> replaces the hand-rolled audio duct with
+        a real transport. The browser side shrinks to <code>Room.connect</code>{" "}
+        plus a microphone toggle; barge-in becomes a server-authoritative buffer
+        flush instead of a client-side race. And the avatars compose with it: the
+        provider&apos;s worker joins <em>your</em> LiveKit room as a participant
+        and publishes the voice on the agent&apos;s behalf — at which point you
+        set <code>publishAgentAudio: false</code>, because otherwise the caller
+        hears the agent twice.
       </p>
 
       <p>
-        <strong>Speech-to-speech</strong> (<a href="/docs/realtime-voice"><code>glove-voice-s2s</code></a>)
-        collapses the stack: the model listens and speaks directly. Your tools,
-        display stack and context management still apply — only the transport
-        underneath is different. Barge-in does <em>truncation sync</em>, so when
-        a caller cuts the agent off the model is told what the caller actually
-        heard, not what it had planned to say. Without that it carries on as
-        though it delivered a sentence nobody received.
-      </p>
-
-      <p>
-        Above that sit avatars (a face over the audio) and LiveKit (WebRTC in
-        both directions, with barge-in as a server-authoritative buffer flush).
-        Three packages rather than one, because a phone agent needs S2S and no
-        avatar, and a kiosk needs an avatar and no LiveKit.
+        Three packages rather than one, for the reason the layers are separable
+        at all: a phone agent needs speech-to-speech and no avatar, a kiosk needs
+        an avatar and no LiveKit, and nobody should carry three vendors&apos;
+        dependencies to use one of them. What the wire taught us while building
+        all of that — including the bugs every test suite passed through — is its
+        own post: <a href="/blog/building-the-voice-stack">what only live calls
+        told us</a>.
       </p>
 
       {/* ---------------------------------------------------------------- */}
-      <h2 id="many-agents">M. More than one agent</h2>
+      <h2 id="images">M. Image workflows</h2>
+
+      <p>
+        The same trajectory happens with images, and it is worth watching because
+        it is the clearest example in the framework of a one-line tool turning
+        into a subsystem.
+      </p>
+
+      <p>
+        You start with <code>generate_image(prompt)</code>. It shells out to a
+        provider and returns a URL, and it works — exactly once. The moment
+        images are a repeated job, four things break at the same time:
+      </p>
+
+      <ul>
+        <li>
+          <strong>Prompts are built, not typed.</strong> The useful prompt is the
+          user&apos;s intent <em>plus</em> house style <em>plus</em> the
+          character&apos;s canonical description <em>plus</em> the scene&apos;s
+          palette <em>plus</em> a model-specific rewrite. That is a pipeline, and
+          every app rebuilds it inline and loses the intermediate states.
+        </li>
+        <li>
+          <strong>Recurring subjects drift.</strong> &ldquo;Draw Mira again, but
+          at the harbour&rdquo; only works if Mira is a durable thing, not a
+          phrase the model half-remembers from six turns ago.
+        </li>
+        <li>
+          <strong>Existing images are inputs.</strong> Users bring photos;
+          earlier generations become references. Image bytes need a home that is
+          not the context window.
+        </li>
+        <li>
+          <strong>Nobody knows what it cost.</strong> Until the invoice arrives.
+        </li>
+      </ul>
+
+      <p>
+        <a href="/docs/image"><code>glove-image</code></a> makes each of those a
+        named primitive.
+      </p>
+
+      <CodeBlock
+        filename="agent.ts"
+        language="typescript"
+        code={`await mountImage(glove, {
+  adapter: openrouterImages(),              // BYO image model
+  assets: new InMemoryImageAssetStore(),    // where bytes live
+  library: new InMemoryImageLibrary(),      // characters + scenes
+
+  // The prompt pipeline: ordered "inbetweens" that build every request.
+  pipeline: [
+    expandCharacters(),                     // splices canonical wording verbatim
+    expandScenes(),
+    styleDirective("gouache, muted palette"),
+    llmEnhance(),                           // one rewrite pass, characters preserved
+  ],
+
+  usage: meter,
+  onUsage: (source, usage) => billing.record(source, usage),
+});`}
+      />
+
+      <p>
+        A generation never sends raw model text to the image model. An intent
+        becomes a draft, the draft runs through the inbetweens in order, and each
+        stage appends a <strong>trace entry</strong> recording what it changed.
+        The <em>intent is never mutated</em> — you can always see what was asked
+        for next to what was actually sent.
+      </p>
+
+      <p>
+        <strong>Characters and scenes are durable identities</strong> whose
+        wording is spliced into every prompt <em>verbatim</em>. That is the whole
+        trick, and it is deliberately unglamorous: consistency comes from
+        repetition, not from the model remembering. Promoting a good generation
+        to a character reference image is the &ldquo;lock in this look&rdquo;
+        move.
+      </p>
+
+      <p>
+        The last stage of the pipeline is always <code>fitToModel()</code>,
+        appended whether you ask for it or not, and it is the one I would steal
+        for any provider-backed feature. It reconciles the request against what
+        the adapter can actually do — folds a negative prompt into the text when
+        the model has no negative slot, drops unsupported reference roles, clamps
+        the reference count identity-first, snaps the size, drops an unsupported
+        seed — and <strong>writes every degradation into the trace</strong>. The
+        request is never silently changed. You get told what you did not get.
+      </p>
+
+      <p>
+        Two more primitives fall out of having a pipeline at all.{" "}
+        <strong>Lineage</strong>: every derived image records the recipe that
+        made it, so &ldquo;same, but at dusk&rdquo; is one call that replays the
+        recipe through the <em>current</em> library — edit a character, regenerate,
+        and the edit is picked up. <strong>Cost</strong>: every model-touching
+        call is metered at four scopes — per call, per image, per session, and
+        per host — in real dollars where the provider reports them, including the
+        enhancer&apos;s own tokens and any vision review.
+      </p>
+
+      <div className="blog-note">
+        <strong>Bytes never enter <code>data</code>.</strong> Model-facing results
+        carry asset ids, dimensions and degradations; thumbnails ride on{" "}
+        <code>renderData</code> for your renderers. Context cost is flat no matter
+        how many images a session touches — which is section C&apos;s split doing
+        real work.
+      </div>
+
+      <p>
+        And the honest part, which belongs in the docs as much as the capability
+        does: these are generative approximations. Woven, textile and craft goods
+        hold up well. A product carrying an exact logo, a precise colourway or
+        fine hardware detail will not reproduce faithfully — not even with its
+        own packshot pinned as a reference image.
+      </p>
+
+      {/* ---------------------------------------------------------------- */}
+      <h2 id="many-agents">N. More than one agent</h2>
 
       <p>
         Subagents are nested and synchronous — the parent waits. Peers are a
