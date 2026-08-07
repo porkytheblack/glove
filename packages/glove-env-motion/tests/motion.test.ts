@@ -1,0 +1,440 @@
+/**
+ * `env:motion` end to end.
+ *
+ * These render for real: a browser opens, frames are screenshotted, ffmpeg
+ * encodes. That is slow and it is the point — the failure this adapter invites
+ * is a render that "succeeds" and produces a video of a still image, which no
+ * amount of unit testing the pieces would catch.
+ *
+ * Every render test skips with a message when no Chromium is present, rather
+ * than passing quietly. A green suite that never rendered anything is worse
+ * than a red one.
+ */
+import { strict as assert } from "node:assert";
+import { test } from "node:test";
+import { createAdapterTestEnv } from "glove-working-environment/testing";
+import {
+  doctor,
+  motion,
+  MOTION_LIMITS,
+  resolveBrowser,
+  resolveFfmpegSync,
+  systemBrowserCandidates,
+  PW_BROWSER_SUBPATHS,
+} from "../src/index";
+
+const HAVE_BROWSER = (await resolveBrowser()) !== null;
+const skip = HAVE_BROWSER ? false : "no Chromium available — set GLOVE_CHROMIUM_PATH or run `npx playwright install chromium`";
+
+/** Frame-driven: a pure function of the frame number. */
+const FRAME_SCENE = `
+import { useFrame, useVideoConfig, interpolate } from 'glove/motion';
+
+export default function Scene() {
+  const frame = useFrame();
+  const { width, height } = useVideoConfig();
+  const x = interpolate(frame, [0, 29], [0, 600]);
+  return (
+    <div style={{ width, height, background: '#0b0b10' }}>
+      <div style={{
+        position: 'absolute', top: 200, left: 40,
+        width: 160, height: 160, background: '#7c5cff',
+        transform: 'translateX(' + x + 'px)',
+      }} />
+    </div>
+  );
+}
+`;
+
+/** Clock-driven: real React Native Reanimated code. */
+const REANIMATED_SCENE = `
+import { useEffect } from 'react';
+import { View } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
+
+export default function Scene() {
+  const x = useSharedValue(0);
+  useEffect(() => {
+    x.value = withTiming(600, { duration: 1000, easing: Easing.inOut(Easing.cubic) });
+  }, []);
+  const style = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
+  return (
+    <View style={{ width: 640, height: 360, backgroundColor: '#0b0b10' }}>
+      <Animated.View style={[{ width: 80, height: 80, backgroundColor: '#7c5cff' }, style]} />
+    </View>
+  );
+}
+`;
+
+/**
+ * A render is a browser launch plus one screenshot per frame, which blows
+ * straight through the environment's 30s default script budget. Any host
+ * mounting this adapter has to raise `runTimeoutMs` the same way.
+ */
+async function envWith() {
+  return createAdapterTestEnv(motion({ resolveFrom: new URL("..", import.meta.url).pathname }), {
+    limits: MOTION_LIMITS,
+  });
+}
+
+test("capabilities reports what this host can do before a render is spent", async () => {
+  const { script, env } = await envWith();
+  try {
+    const caps = await script<{ canRender: boolean; browser: string | null; reanimated: boolean; maxFrames: number }>(
+      `import { capabilities } from 'env:motion';
+       export default async function main() { return capabilities(); }`,
+    );
+    assert.equal(typeof caps.canRender, "boolean");
+    assert.equal(caps.canRender, HAVE_BROWSER, "canRender must agree with whether a browser actually exists");
+    assert.equal(caps.reanimated, true, "this package devDepends on reanimated + react-native-web");
+    assert.ok(caps.maxFrames > 0);
+
+    // The generated docs carry the same facts, so the agent learns what this
+    // host can do from /std before spending a render finding out.
+    const docs = await env.fs.readFile("/std/motion/README.md");
+    assert.match(docs, /## On this host/);
+    assert.match(docs, HAVE_BROWSER ? /Browser: available/ : /Browser: \*\*none found\*\*/);
+    assert.match(docs, /Reanimated: available/);
+  } finally {
+    await env.close();
+  }
+});
+
+test("a scene path that does not exist fails by name, before launching anything", async () => {
+  const { runScript, env } = await envWith();
+  try {
+    const r = await runScript(
+      `import { render } from 'env:motion';
+       export default async function main() { return render('/scenes/nope.jsx', '/out/x.mp4'); }`,
+    );
+    assert.equal(r.ok, false);
+    assert.match(String(r.error), /no such scene: \/scenes\/nope\.jsx/);
+  } finally {
+    await env.close();
+  }
+});
+
+test("a frame count past the ceiling is refused with the limit and the reason", async () => {
+  const { runScript, env } = await createAdapterTestEnv(motion({ maxFrames: 10 }), { limits: MOTION_LIMITS });
+  try {
+    await env.fs.writeFile("/scenes/a.jsx", FRAME_SCENE);
+    const r = await runScript(
+      `import { render } from 'env:motion';
+       export default async function main() {
+         return render('/scenes/a.jsx', '/out/a.mp4', { durationInFrames: 500 });
+       }`,
+    );
+    assert.equal(r.ok, false);
+    assert.match(String(r.error), /500 frames exceeds the 10-frame limit/);
+    assert.match(String(r.error), /each frame is a full browser screenshot/);
+  } finally {
+    await env.close();
+  }
+});
+
+test("a scene with a syntax error fails with the location, not a browser timeout", { skip }, async () => {
+  const { runScript, env } = await envWith();
+  try {
+    await env.fs.writeFile("/scenes/broken.jsx", `export default function Scene() { return <div>unclosed }`);
+    const r = await runScript(
+      `import { still } from 'env:motion';
+       export default async function main() { return still('/scenes/broken.jsx', '/out/x.png'); }`,
+    );
+    assert.equal(r.ok, false);
+    assert.match(String(r.error), /broken\.jsx/, "the error should name the file the agent wrote");
+  } finally {
+    await env.close();
+  }
+});
+
+test("a frame-driven scene renders a still at an exact frame", { skip }, async () => {
+  const { script, env } = await envWith();
+  try {
+    await env.fs.writeFile("/scenes/a.jsx", FRAME_SCENE);
+    const out = await script<{ path: string; frames: number; warnings: string[] }>(
+      `import { still } from 'env:motion';
+       export default async function main() {
+         return still('/scenes/a.jsx', '/out/frame15.png', { frame: 15, width: 640, height: 360 });
+       }`,
+    );
+    assert.equal(out.frames, 1);
+    assert.deepEqual(out.warnings, [], "a clean render should warn about nothing");
+
+    const bytes = await env.fs.readBytes("/out/frame15.png");
+    assert.ok(bytes.byteLength > 100);
+    assert.deepEqual([...bytes.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47], "must actually be a PNG");
+  } finally {
+    await env.close();
+  }
+});
+
+test("two stills at different frames differ — the scene is a function of the frame", { skip }, async () => {
+  const { script, env } = await envWith();
+  try {
+    await env.fs.writeFile("/scenes/a.jsx", FRAME_SCENE);
+    for (const frame of [0, 25]) {
+      await script(
+        `import { still } from 'env:motion';
+         export default async function main(args) {
+           return still('/scenes/a.jsx', '/out/f' + args.frame + '.png', { frame: args.frame, width: 640, height: 360 });
+         }`,
+        { frame },
+      );
+    }
+    const a = await env.fs.readBytes("/out/f0.png");
+    const b = await env.fs.readBytes("/out/f25.png");
+    assert.notEqual(Buffer.from(a).toString("base64"), Buffer.from(b).toString("base64"), "frame 0 and frame 25 must not be the same picture");
+  } finally {
+    await env.close();
+  }
+});
+
+test("the same scene renders byte-identically twice — renders are deterministic", { skip }, async () => {
+  const { script, env } = await envWith();
+  try {
+    await env.fs.writeFile("/scenes/a.jsx", FRAME_SCENE);
+    for (const n of [1, 2]) {
+      await script(
+        `import { still } from 'env:motion';
+         export default async function main(args) {
+           return still('/scenes/a.jsx', '/out/run' + args.n + '.png', { frame: 12, width: 640, height: 360 });
+         }`,
+        { n },
+      );
+    }
+    const one = Buffer.from(await env.fs.readBytes("/out/run1.png"));
+    const two = Buffer.from(await env.fs.readBytes("/out/run2.png"));
+    assert.ok(one.equals(two), "determinism is what makes a re-render after an edit a real diff");
+  } finally {
+    await env.close();
+  }
+});
+
+test("a frame-driven scene renders to a playable mp4", { skip }, async () => {
+  const { script, env } = await envWith();
+  try {
+    await env.fs.writeFile("/scenes/a.jsx", FRAME_SCENE);
+    const out = await script<{ frames: number; bytes: number; durationSeconds: number; warnings: string[] }>(
+      `import { render } from 'env:motion';
+       export default async function main() {
+         return render('/scenes/a.jsx', '/out/a.mp4',
+                       { durationInFrames: 20, fps: 20, width: 640, height: 360, mode: 'frame' });
+       }`,
+    );
+    assert.equal(out.frames, 20);
+    assert.equal(out.durationSeconds, 1);
+    assert.ok(out.bytes > 0);
+    assert.deepEqual(out.warnings, [], `unexpected warnings: ${out.warnings.join("; ")}`);
+
+    const bytes = await env.fs.readBytes("/out/a.mp4");
+    // ftyp box at offset 4 — a real MP4 container, not an empty file.
+    assert.equal(Buffer.from(bytes.subarray(4, 8)).toString("ascii"), "ftyp");
+  } finally {
+    await env.close();
+  }
+});
+
+test("a Reanimated scene actually animates under the synthetic clock", { skip }, async () => {
+  const { script, env } = await envWith();
+  try {
+    await env.fs.writeFile("/scenes/r.jsx", REANIMATED_SCENE);
+    const out = await script<{ frames: number; warnings: string[] }>(
+      `import { render } from 'env:motion';
+       export default async function main() {
+         return render('/scenes/r.jsx', '/tmp/frames',
+                       { durationInFrames: 12, fps: 12, width: 640, height: 360 });
+       }`,
+    );
+    assert.equal(out.frames, 12);
+    // The warning that matters: identical frames mean the worklet plugin did
+    // not run and withTiming never ticked.
+    assert.deepEqual(out.warnings, [], `Reanimated did not animate: ${out.warnings.join("; ")}`);
+
+    const first = Buffer.from(await env.fs.readBytes("/tmp/frames/frame-00000.png"));
+    const last = Buffer.from(await env.fs.readBytes("/tmp/frames/frame-00011.png"));
+    assert.ok(!first.equals(last), "withTiming must have moved the box between the first and last frame");
+  } finally {
+    await env.close();
+  }
+});
+
+test("a static scene is reported as a warning rather than passing as a video", { skip }, async () => {
+  const { script, env } = await envWith();
+  try {
+    await env.fs.writeFile(
+      "/scenes/static.jsx",
+      `export default function Scene() {
+         return <div style={{ width: 320, height: 180, background: '#222' }} />;
+       }`,
+    );
+    const out = await script<{ warnings: string[] }>(
+      `import { render } from 'env:motion';
+       export default async function main() {
+         return render('/scenes/static.jsx', '/out/s.mp4',
+                       { durationInFrames: 6, fps: 6, width: 320, height: 180 });
+       }`,
+    );
+    assert.equal(out.warnings.length, 1, "a video of a still image is valid and almost never intended");
+    assert.match(out.warnings[0], /every frame is identical/);
+  } finally {
+    await env.close();
+  }
+});
+
+test("a scene importing a sibling file resolves it", { skip }, async () => {
+  const { script, env } = await envWith();
+  try {
+    await env.fs.writeFile("/scenes/theme.js", `export const accent = '#ff5c7c';`);
+    await env.fs.writeFile(
+      "/scenes/uses-theme.jsx",
+      `import { accent } from './theme.js';
+       import { useFrame } from 'glove/motion';
+       export default function Scene() {
+         const f = useFrame();
+         return <div style={{ width: 320, height: 180, background: accent, opacity: (f + 1) / 10 }} />;
+       }`,
+    );
+    const out = await script<{ warnings: string[] }>(
+      `import { still } from 'env:motion';
+       export default async function main() {
+         return still('/scenes/uses-theme.jsx', '/out/t.png', { frame: 3, width: 320, height: 180 });
+       }`,
+    );
+    assert.deepEqual(out.warnings, []);
+    assert.ok((await env.fs.readBytes("/out/t.png")).byteLength > 100);
+  } finally {
+    await env.close();
+  }
+});
+
+
+test("a useFrame scene animates with zero configuration — no mode required", { skip }, async () => {
+  const { script, env } = await envWith();
+  try {
+    await env.fs.writeFile("/scenes/a.jsx", FRAME_SCENE);
+    const out = await script<{ frames: number; warnings: string[] }>(
+      `import { render } from 'env:motion';
+       export default async function main() {
+         return render('/scenes/a.jsx', '/tmp/auto', { durationInFrames: 6, fps: 6, width: 640, height: 360 });
+       }`,
+    );
+    assert.equal(out.frames, 6);
+    assert.deepEqual(out.warnings, [], "auto mode must not report the scene as static");
+    const first = Buffer.from(await env.fs.readBytes("/tmp/auto/frame-00000.png"));
+    const last = Buffer.from(await env.fs.readBytes("/tmp/auto/frame-00005.png"));
+    assert.ok(!first.equals(last), "the box must have moved with nobody choosing a mode");
+  } finally {
+    await env.close();
+  }
+});
+
+test("a still of a clock-driven scene captures the moment, not the initial state", { skip }, async () => {
+  const { script, env } = await envWith();
+  try {
+    await env.fs.writeFile("/scenes/r.jsx", REANIMATED_SCENE);
+    for (const frame of [0, 10]) {
+      await script(
+        `import { still } from 'env:motion';
+         export default async function main(args) {
+           return still('/scenes/r.jsx', '/out/r' + args.frame + '.png', { frame: args.frame, fps: 12, width: 640, height: 360 });
+         }`,
+        { frame },
+      );
+    }
+    const start = Buffer.from(await env.fs.readBytes("/out/r0.png"));
+    const later = Buffer.from(await env.fs.readBytes("/out/r10.png"));
+    // Before auto mode, still() forced frame-driving and a Reanimated still
+    // was always the initial state — this is the regression that would bring
+    // that bug back.
+    assert.ok(!start.equals(later), "frame 10 of a withTiming scene must differ from frame 0");
+  } finally {
+    await env.close();
+  }
+});
+
+test("a render that cannot fit the script budget is refused with the exact fix", async () => {
+  // Deliberately the DEFAULT environment limits — the misconfiguration every
+  // new host starts with.
+  const { runScript, env } = await createAdapterTestEnv(motion());
+  try {
+    await env.fs.writeFile("/scenes/a.jsx", FRAME_SCENE);
+    const r = await runScript(
+      `import { render } from 'env:motion';
+       export default async function main() {
+         return render('/scenes/a.jsx', '/out/a.mp4', { durationInFrames: 90 });
+       }`,
+    );
+    assert.equal(r.ok, false);
+    assert.match(String(r.error), /script budget/);
+    assert.match(String(r.error), /limits: \{ runTimeoutMs: \d+ \}/, "the error must contain the exact line that fixes it");
+    assert.match(String(r.error), /MOTION_LIMITS/);
+  } finally {
+    await env.close();
+  }
+});
+
+
+test("browser discovery is not a Linux assumption — every platform has candidates", () => {
+  // The lists are platform-parameterized precisely so this can be pinned from
+  // any OS: a regression that drops macOS or Windows fails here on Linux CI.
+  assert.ok(
+    systemBrowserCandidates("darwin").some((p) => p.includes("Google Chrome.app")),
+    "macOS must look in /Applications",
+  );
+  assert.ok(
+    systemBrowserCandidates("win32", { PROGRAMFILES: "C:\\Program Files" }).some((p) => p.endsWith("chrome.exe")),
+    "Windows must look for chrome.exe under Program Files",
+  );
+  assert.ok(
+    systemBrowserCandidates("win32", { PROGRAMFILES: "C:\\Program Files" }).some((p) => p.endsWith("msedge.exe")),
+    "Edge is a Chromium and ships with Windows — a host with only Edge must still render",
+  );
+  assert.ok(
+    systemBrowserCandidates("linux").some((p) => p === "/usr/bin/chromium"),
+    "Linux must look in /usr/bin",
+  );
+
+  for (const layout of ["chrome-linux/chrome", "chrome-mac/Chromium.app/Contents/MacOS/Chromium", "chrome-win/chrome.exe"]) {
+    assert.ok(PW_BROWSER_SUBPATHS.includes(layout), `the playwright scan must know ${layout}`);
+  }
+});
+
+test("ffmpeg resolution is explicit-first and falls back beyond the bundled binary", () => {
+  // On this host the bundled installer exists, so it wins when nothing is named.
+  const bundled = resolveFfmpegSync();
+  assert.ok(bundled, "the bundled @ffmpeg-installer must resolve here");
+  assert.equal(bundled!.source, "bundled");
+
+  // An explicit answer is always obeyed, without existence-checking a path
+  // the host deliberately chose.
+  assert.deepEqual(resolveFfmpegSync("/custom/ffmpeg"), { path: "/custom/ffmpeg", source: "option" });
+
+  // The env override is honoured when it points at something real.
+  const real = bundled!.path;
+  assert.deepEqual(resolveFfmpegSync(undefined, { GLOVE_FFMPEG_PATH: real }), { path: real, source: "env" });
+});
+
+test("doctor names every requirement, and every failure carries its fix", async () => {
+  const report = await doctor({ resolveFrom: new URL("..", import.meta.url).pathname });
+  const byName = new Map(report.checks.map((c) => [c.name, c]));
+  for (const name of ["browser", "ffmpeg", "react", "reanimated"]) {
+    assert.ok(byName.has(name), `doctor must check ${name}`);
+  }
+  assert.equal(byName.get("browser")!.ok, HAVE_BROWSER, "doctor must agree with reality about the browser");
+  assert.equal(byName.get("react")!.ok, true, "react ships with the package, so it can only fail on a broken install");
+  assert.equal(byName.get("reanimated")!.ok, true);
+  for (const check of report.checks.filter((c) => !c.ok)) {
+    assert.ok(check.fix, `the failing check "${check.name}" must name its fix`);
+  }
+});
+
+test("types and bindings agree in both directions", async () => {
+  const { audit, env } = await envWith();
+  try {
+    const report = await audit();
+    assert.deepEqual(report.errors, [], report.errors.join("\n"));
+    assert.deepEqual([...report.bindings].sort(), ["capabilities", "render", "still"]);
+  } finally {
+    await env.close();
+  }
+});

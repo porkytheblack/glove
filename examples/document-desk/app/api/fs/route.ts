@@ -6,6 +6,7 @@
  * could not.
  */
 import { peekDesk } from "@/lib/desk";
+import { mediaTypeOf } from "@/lib/mime";
 import type { TreeNode } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -28,7 +29,9 @@ export async function GET(req: Request): Promise<Response> {
       const stat = await desk.env.fs.stat(path);
       if (!stat || stat.kind !== "file") return Response.json({ error: "not a file" }, { status: 404 });
       if (!TEXTUAL.test(path)) {
-        return Response.json({ path, binary: true, size: stat.size });
+        // Binary, but not necessarily opaque — the media type decides whether
+        // the preview pane can show it or has to offer a download.
+        return Response.json({ path, binary: true, size: stat.size, mediaType: mediaTypeOf(path) });
       }
       // Cap it: a 200KB extracted-text file should not be shipped to the
       // browser in full just because someone clicked it.
@@ -38,6 +41,7 @@ export async function GET(req: Request): Promise<Response> {
         path,
         binary: false,
         size: stat.size,
+        mediaType: mediaTypeOf(path),
         text: capped ? `${text.slice(0, 60_000)}\n\n… truncated (${text.length} chars total)` : text,
       });
     } catch (e) {

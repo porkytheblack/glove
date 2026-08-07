@@ -693,6 +693,30 @@ const deliverables = await env.export("/out/**"); // → [{ path, bytes }]`}
                 concat, transcode
               </td>
             </tr>
+            <tr>
+              <td>
+                <code>glove-env-render</code>
+              </td>
+              <td>
+                <code>env:render</code>
+              </td>
+              <td>
+                Rasterize a PDF, deck or Word file to page PNGs — so the agent
+                can look at what it made
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>glove-env-motion</code>
+              </td>
+              <td>
+                <code>env:motion</code>
+              </td>
+              <td>
+                A React scene → mp4, GIF, PNG frames or a still, rendered
+                deterministically. Reanimated scenes work unchanged
+              </td>
+            </tr>
           </tbody>
         </table>
         <CodeBlock

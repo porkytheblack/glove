@@ -2,10 +2,11 @@ import { z } from "zod";
 import type { GloveFoldArgs } from "glove-core";
 import type { ResourceFsAdapter } from "../../resources/adapter";
 import {
-  errorResult,
-  fillProvenance,
   ProvenanceArgSchema,
   ResourceMetadataPatchSchema,
+  errorResult,
+  fillProvenance,
+  renderResourceGuidance,
 } from "./shared";
 
 const SetMetadataInputSchema = z.object({
@@ -20,7 +21,8 @@ export function buildResourcesSetMetadataTool(adapter: ResourceFsAdapter): Glove
   return {
     name: "glove_resources_set_metadata",
     description:
-      `Patch a file's metadata without rewriting the body. Common flow: a user dropped a transcript at \`/transcripts/...\`; on its next pass the curator notices it lacks summary / tags / links and patches them in here.`,
+      `Patch a file's metadata without rewriting the body. Common flow: a user dropped a transcript at \`/transcripts/...\`; on its next pass the curator notices it lacks summary / tags / links and patches them in here.` +
+      renderResourceGuidance(adapter, { roots: false }),
     inputSchema: SetMetadataInputSchema,
     async do(input) {
       try {

@@ -154,6 +154,18 @@ input, textarea { font: inherit; color: inherit; }
   flex-shrink: 0; align-self: flex-start;
 }
 
+/* a deliverable the browser can play: the artifact itself, then its row */
+.gift { display: flex; flex-direction: column; gap: 0.4rem; margin: 0; }
+.gift-media {
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  background: var(--bg-surface-2); line-height: 0;
+}
+.gift-media.audio { padding: 0.6rem 0.7rem; line-height: normal; }
+.gift-media video, .gift-media img {
+  display: block; width: 100%; max-height: 380px; object-fit: contain; background: #000;
+}
+.gift-media audio { display: block; width: 100%; }
+
 /* activity: the verbs, inline in the transcript */
 .activity { display: flex; flex-direction: column; gap: 1px; }
 .act {
@@ -339,6 +351,11 @@ input, textarea { font: inherit; color: inherit; }
 .preview-binary { display: flex; flex-direction: column; align-items: center; gap: 0.85rem; padding: 3rem 1rem; text-align: center; }
 .preview-binary svg { width: 34px; height: 34px; color: var(--text-tertiary); }
 .preview-binary p { color: var(--text-secondary); font-size: 0.85rem; }
+.preview-media {
+  display: block; max-width: 100%; max-height: 100%; margin: 0 auto;
+  border-radius: var(--radius-sm); background: #000;
+}
+.preview-audio { display: block; width: 100%; margin-top: 1rem; }
 
 .dl-btn {
   display: inline-flex; align-items: center; gap: 0.4rem;

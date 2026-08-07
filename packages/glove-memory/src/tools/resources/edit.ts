@@ -1,7 +1,12 @@
 import { z } from "zod";
 import type { GloveFoldArgs } from "glove-core";
 import type { ResourceFsAdapter } from "../../resources/adapter";
-import { errorResult, fillProvenance, ProvenanceArgSchema } from "./shared";
+import {
+  ProvenanceArgSchema,
+  errorResult,
+  fillProvenance,
+  renderResourceGuidance,
+} from "./shared";
 
 const EditInputSchema = z.object({
   path: z.string().min(1),
@@ -16,7 +21,8 @@ export function buildResourcesEditTool(adapter: ResourceFsAdapter): GloveFoldArg
   return {
     name: "glove_resources_edit",
     description:
-      `Replace a unique substring within a file. Same convention as the str_replace tool — oldStr must match exactly once. If it appears zero times or more than once, the call returns an error.`,
+      `Replace a unique substring within a file. Same convention as the str_replace tool — oldStr must match exactly once. If it appears zero times or more than once, the call returns an error.` +
+      renderResourceGuidance(adapter, { roots: false }),
     inputSchema: EditInputSchema,
     async do(input) {
       try {

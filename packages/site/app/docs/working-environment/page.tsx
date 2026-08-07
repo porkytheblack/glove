@@ -230,6 +230,29 @@ const files = await env.export("/out/**");              // door out`}
       />
 
       <p>
+        Orthogonal to the backend: <code>readOnlyPaths</code> fences directories
+        the agent can read but never mutate — the rule the environment already
+        applies to <code>/std</code>, made configurable.
+      </p>
+
+      <CodeBlock
+        code={`const env = await createWorkingEnvironment({
+  filesystem: hostDirectory("./project"),
+  readOnlyPaths: ["/src"],     // read and grep the source; write only elsewhere
+});
+await env.mount("./handbook.pdf", "/src/handbook.pdf");   // the host door stays open`}
+        language="typescript"
+      />
+
+      <p>
+        Enforced at the core mutation gateway, so it binds the model verbs,
+        scripts going through <code>env:fs</code>, and adapters alike — and the
+        refusal names the zone and the fix (copy to <code>/tmp</code>, work on
+        the copy). The orientation file announces each zone up front, so the
+        model learns the boundary by reading, not by being refused.
+      </p>
+
+      <p>
         For plain persistence across restarts, none of those is the answer —{" "}
         <code>snapshot()</code> is. It serializes the whole tree, empty
         directories and mtimes included, to one object:
@@ -502,6 +525,7 @@ export default async function () {
           ["glove-env-archives", "env:archives", "zip, tar, tar.gz both directions. No dependencies — node:zlib only."],
           ["glove-env-media", "env:media", "audio/video via bundled ffmpeg — describe, thumbnail, frames, clip, transcode."],
           ["glove-env-render", "env:render", "rasterize a PDF, deck or Word file to page PNGs — so the agent can look at what it made. A .pptx works with nothing installed, via a layout schematic."],
+          ["glove-env-motion", "env:motion", "a React scene to an mp4, GIF, PNG frames or a still — deterministically. React Native Reanimated scenes render unchanged."],
         ]}
       />
 
@@ -593,6 +617,82 @@ view_image({ path: '/out/deck.pptx', page: 3, prompt: 'Is this slide blank?' })`
         cannot be mistaken for a render. It answers the positional questions,
         which is most of what goes wrong: what is off the slide, what overlaps,
         what came out empty.
+      </p>
+
+      {/* ================================================================== */}
+      {/* MOTION                                                             */}
+      {/* ================================================================== */}
+      <h2 id="motion">Things that move</h2>
+
+      <p>
+        <code>glove-env-motion</code> is the adapter for output that is not a
+        document. The agent writes a React component; a video, an animated GIF,
+        PNG frames or a still image comes out. The browser is the drawing
+        surface, which is why one capability covers an animated explainer, a
+        title card and a chart image — it is <code>env:motion</code>, not{" "}
+        <code>env:video</code>.
+      </p>
+
+      <CodeBlock
+        code={`import { motion, MOTION_LIMITS } from "glove-env-motion";
+
+const env = await createWorkingEnvironment({
+  stdlib: [motion()],
+  limits: MOTION_LIMITS,   // renders need more than the 30s default script budget
+});`}
+        language="typescript"
+      />
+
+      <p>
+        React, the Babel toolchain and ffmpeg ship <em>with</em> the package. An
+        installed Chrome, Edge or Chromium is found automatically on macOS,
+        Windows and Linux; only a bare container needs{" "}
+        <code>npx playwright-core install chromium</code>. Add{" "}
+        <code>react-native-reanimated</code> and{" "}
+        <code>react-native-web</code> and React Native motion code renders
+        unchanged, worklets included.
+      </p>
+
+      <p>
+        The hard part is that a browser animation is a function of wall-clock
+        time, so screenshotting the same scene twice gives two different
+        pictures. Time is therefore <strong>replaced</strong>, not measured:
+        before any scene code runs, <code>requestAnimationFrame</code> becomes a
+        queue nobody drains except the renderer, and{" "}
+        <code>performance.now()</code> returns a number it sets. One advance is
+        one frame. Two independent runs of the same 60-frame scene produce
+        byte-identical PNGs, which is what makes a re-render after an edit a real
+        diff.
+      </p>
+
+      <p>
+        Scenes come in two shapes and the caller picks neither. A{" "}
+        <code>useFrame()</code> scene is a pure function of the frame number; a
+        Reanimated scene is driven by its own clock. The renderer advances{" "}
+        <em>both</em> signals every frame, and each is inert for the other kind
+        — so any scene animates with no configuration, and frame{" "}
+        <em>f</em> is always <em>t = f/fps</em>.
+      </p>
+
+      <p>
+        Two things are configuration rather than code, and both fail loudly on
+        purpose. Renders are slow — a frame is a screenshot — so a render is
+        refused <em>before it starts</em> if the environment&apos;s{" "}
+        <code>runTimeoutMs</code> cannot cover it, naming the exact limit to set
+        rather than timing out halfway. And{" "}
+        <code>glove-motion-doctor</code> answers &quot;can this host
+        render?&quot; from a shell, with the fix command on every failing row;
+        the same checks feed <code>capabilities()</code> at runtime and the
+        generated <code>/std/motion/README.md</code> the agent reads.
+      </p>
+
+      <p>
+        One thing worth knowing before you preview a render: a Chromium built{" "}
+        <em>without proprietary codecs</em> — including the one{" "}
+        <code>playwright-core</code> installs — cannot decode H.264, and shows a
+        black rectangle with working controls rather than an error. The file is
+        fine; Chrome, Edge, Safari and Firefox all play it. Render{" "}
+        <code>.webm</code> if your viewer is that kind of Chromium.
       </p>
 
       {/* ================================================================== */}

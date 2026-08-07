@@ -149,14 +149,10 @@ export function FileExplorer({
                 </div>
                 <div className="preview-body">
                   {preview.binary ? (
-                    <div className="preview-binary">
-                      <BinaryIcon />
-                      <p>
-                        {preview.path.split(".").pop()?.toUpperCase()} · {bytes(preview.size)}
-                        <br />
-                        Download it to open in its own application.
-                      </p>
-                    </div>
+                    <BinaryPreview
+                      preview={preview}
+                      src={`/api/download?session=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(preview.path)}`}
+                    />
                   ) : (
                     <pre>{preview.text}</pre>
                   )}
@@ -166,6 +162,36 @@ export function FileExplorer({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A file the pane will not show as text.
+ *
+ * "Binary" is not one thing. A rendered PNG or mp4 is binary and completely
+ * viewable; a .docx is binary and genuinely opaque here. Showing the first
+ * kind matters because the agent's own outputs land in this tree — checking a
+ * render should not require a download round trip.
+ */
+function BinaryPreview({ preview, src }: { preview: FilePreview; src: string }) {
+  const [kind] = (preview.mediaType ?? "").split("/");
+
+  if (kind === "video") return <video className="preview-media" src={src} controls playsInline preload="metadata" />;
+  if (kind === "audio") return <audio className="preview-audio" src={src} controls preload="metadata" />;
+  if (kind === "image") {
+    // eslint-disable-next-line @next/next/no-img-element -- bytes out of the VFS, not a static asset
+    return <img className="preview-media" src={src} alt={preview.path} />;
+  }
+
+  return (
+    <div className="preview-binary">
+      <BinaryIcon />
+      <p>
+        {preview.path.split(".").pop()?.toUpperCase()} · {bytes(preview.size)}
+        <br />
+        Download it to open in its own application.
+      </p>
     </div>
   );
 }

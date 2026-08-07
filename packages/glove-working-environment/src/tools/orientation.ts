@@ -46,7 +46,14 @@ export async function buildOrientation(core: EnvCore, runlog: RunLogLike | null)
     "",
   ];
 
-  for (const [zone, blurb] of ZONES) {
+  // Host-configured read-only zones join the conventional listing, marked as
+  // such — the model should learn "read-only" from orientation, not from a
+  // refused write.
+  const listing: Array<readonly [string, string]> = [
+    ...ZONES,
+    ...core.readOnlyZones.map((z) => [z, "READ-ONLY reference material — copy out to /tmp to work on it"] as const),
+  ];
+  for (const [zone, blurb] of listing) {
     const files = (await core.glob(`${zone}/**`)).filter((p) => !p.endsWith(".d.ts"));
     let bytes = 0;
     for (const f of files) bytes += (await core.stat(f))?.size ?? 0;

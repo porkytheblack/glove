@@ -85,7 +85,22 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
   const limits: EnvLimits = { ...DEFAULT_LIMITS, ...options.limits };
   const versions = new VersionStore(vfs, limits);
   const runlog = new RunLog(vfs, limits);
-  const core = new EnvCore(vfs, limits, versions, options.nudgeToDocsOnFirstWrite ?? false);
+  // Host-configured read-only zones, validated eagerly: a bad path should
+  // fail here, to the host, not as a confusing refusal to the model later.
+  const readOnlyZones = [...new Set((options.readOnlyPaths ?? []).map((raw) => {
+    if (typeof raw !== "string" || !raw.startsWith("/")) {
+      throw new Error(`readOnlyPaths entries must be absolute VFS paths, got ${JSON.stringify(raw)}`);
+    }
+    const zone = normalizePath(raw);
+    if (zone === "/") {
+      throw new Error(
+        "readOnlyPaths cannot contain \"/\" — an environment the agent cannot write to at all has no reason to exist. " +
+          "Use hostDirectory(dir, { mode: \"readonly\" }) if you want a fully read-only tree.",
+      );
+    }
+    return zone;
+  }))];
+  const core = new EnvCore(vfs, limits, versions, options.nudgeToDocsOnFirstWrite ?? false, readOnlyZones);
   // Scripts run in a supervised worker pool, not on the host event loop. A
   // compute-bound script is terminable there and nowhere else — see
   // executor/pool.ts for the measurement that forced this.
@@ -198,6 +213,9 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
 
   // --- materialize the tree ----------------------------------------------
   for (const d of CONVENTIONAL_DIRS) await vfs.mkdir(d);
+  // Read-only zones are created up front (raw vfs — the guard would refuse a
+  // mkdir later) so they show up in ls and the host can mount into them.
+  for (const zone of readOnlyZones) await vfs.mkdir(zone);
   if (await vfs.exists("/std")) await vfs.rm("/std"); // drop stale docs from a restored snapshot
   await vfs.mkdir("/std");
   const writeDoc = (p: string, content: string) => vfs.write(p, toBytes(content));
@@ -272,6 +290,9 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
       if (isUnder(p, "/.env") || isUnder(p, "/std")) {
         throw new Error(`cannot mount into ${p}: /.env and /std are maintained by the environment`);
       }
+      // Deliberately NOT guarded by readOnlyPaths: mount is the host door,
+      // and seeding content into a zone the agent can only read is exactly
+      // what the option is for.
       const data =
         typeof source === "string"
           ? new Uint8Array(await hostReadFile(source))

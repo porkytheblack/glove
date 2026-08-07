@@ -222,7 +222,7 @@ provider prompt caching. Cache usage is reported on every response as
 | glove-scratchpad | expose tools as a relational database driven by one execute_sql tool |
 | glove-sql | zero-dependency Postgres-subset SQL engine (scratchpad's default backend) |
 | glove-working-environment | persistent sandboxed VFS: scripts, runs, artifacts |
-| glove-env-documents/-spreadsheets/-images/-slides/-archives/-media | stdlib adapters for the working environment |
+| glove-env-documents/-spreadsheets/-images/-slides/-archives/-media/-render/-motion | stdlib adapters for the working environment |
 | glove-js / glove-python / glove-lisp | one eval tool over a shared ToolFn catalog |
 | glove-egress | measured, enforced egress boundary over that catalog |
 | glove-mesh | direct/broadcast/ack messaging between agents |
@@ -251,6 +251,24 @@ Recommended shape: do not attach every memory tool to the main agent. Build one
 subagent per retrieval task with \`defineSubAgent\`, attaching only the adapter
 slice it needs, so token cost scales with role rather than ontology size. The
 exception is \`useContext\` — keep that on the agent the user actually talks to.
+
+Memory arrives in strata: a shared corpus the agent reads but must never change
+(authored elsewhere, one copy for everyone) plus its own private store. They are
+different adapters; \`layerEntity\` / \`layerEpisodic\` / \`layerResources\` /
+\`layerContext\` merge a stack into one adapter of the ordinary contract, so the
+usual \`use*\` helpers fold the usual tools over it and the agent never learns
+there are two stores. Exactly one \`access: "write"\` stratum per stack; reads
+merge in layer order; writes route to the owning stratum and are refused when it
+is read-only. Entity is the lossy one — edges cannot straddle strata, so model
+cross-stratum associations as episode participants or resource links.
+
+Narrow what the agent may do two independent ways, meant to be combined.
+\`{ tools: { allow, deny } }\` on any \`use*\` helper picks which tools are folded,
+so the affordance never reaches the model. \`withResourceAccess(adapter, policy)\`
+gates the resource filesystem by path — \`"write"\`, \`"read"\` (mutations refused),
+\`"none"\` (invisible, filtered out of listings and search) over prefix or glob
+rules that cascade last-match-wins — so a write into a read-only folder is
+refused whichever tool asks.
 
 ### glove-memory forms — structured collection over a conversation
 
@@ -420,11 +438,31 @@ fails quietly:
 | does I/O — reads/writes files, calls out | \`defineAdapter\` | async |
 | stateful builder — \`new X()\`, chaining, terminal save | \`defineBuilder\` / \`defineBuilders\` | async |
 | pure computation — no I/O, no state | \`definePureModule\` | synchronous |
+| a capability, not a library — MCP server, model, HTTP API | \`defineTools\` | async |
 
 \`definePureModule({ name, from, description, pick })\` imports the package inside
 the worker and binds it directly, so calls stay synchronous. \`pick\` is the
 sandbox boundary, not a convenience — never pick a string-to-code member (e.g.
 \`_.template\`, which compiles with \`Function(source)\`).
+
+\`defineTools({ name, description, fns })\` takes the same \`ToolFn\` catalog as
+\`glove-scratchpad/fns\`, so \`fnsFromMcp(conn)\` mounts an MCP server as an
+\`env:\` module with no adapter written. A verb puts every answer in the context
+window; the same capability as a function lets a script loop and return one line.
+
+Host options gate verbs: \`vision\` adds \`view_image\`, \`onPresent\` adds
+\`present\` (deliver one file from \`/out\`, with a caption and a media type),
+\`readOnlyPaths: ["/corpus"]\` fences subtrees the agent may read but never edit —
+enforced at the single core mutation gateway, so verbs, \`env:fs\` and adapter
+handles are all covered, while \`env.mount()\` deliberately still writes there.
+
+\`glove-env-motion\` renders a React scene to video — \`render(scene, '/out/x.mp4',
+{ durationSeconds })\` or \`still(scene, '/out/x.png', { frame })\`. Mount it WITH
+\`limits: MOTION_LIMITS\`; a frame is a browser screenshot, and a render that
+cannot fit \`runTimeoutMs\` is refused up front rather than timing out. Time is
+replaced rather than measured, so two runs of a scene are byte-identical, and
+React Native Reanimated scenes render unchanged. \`glove-motion-doctor\` reports
+what a host is missing, with the fix per row.
 
 ### glove-egress
 
