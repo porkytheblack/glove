@@ -26,6 +26,21 @@ const icons: Record<string, ReactNode> = {
       <path d="M4 10v4M8 6.5v11M12 3v18M16 7v10M20 10v4" />
     </svg>
   ),
+  image: (
+    <svg {...iconProps}>
+      <rect x="3" y="4.5" width="18" height="15" rx="2" />
+      <circle cx="8.5" cy="10" r="1.7" />
+      <path d="M21 16.2 16 10.5l-6 6.5" />
+    </svg>
+  ),
+  gallery: (
+    <svg {...iconProps}>
+      <rect x="3" y="3.5" width="7.5" height="7.5" rx="1.4" />
+      <rect x="13.5" y="3.5" width="7.5" height="7.5" rx="1.4" />
+      <rect x="3" y="13" width="7.5" height="7.5" rx="1.4" />
+      <rect x="13.5" y="13" width="7.5" height="7.5" rx="1.4" />
+    </svg>
+  ),
   memory: (
     <svg {...iconProps}>
       <circle cx="6" cy="7" r="2.2" />
@@ -169,6 +184,45 @@ const capabilityGroups: CapGroup[] = [
             put it in a LiveKit room.
           </>
         ),
+      },
+    ],
+  },
+  {
+    cat: "var(--c-media)",
+    name: "Generative Media",
+    line: "Images as a workflow, not a one-off call",
+    caps: [
+      {
+        icon: "image",
+        kicker: "Agentic image generation",
+        name: "Image Workflows",
+        href: "/docs/image",
+        badge: "new",
+        desc: (
+          <>
+            Prompts are <em>built</em> by a pipeline, not typed — durable
+            characters and scenes splice in verbatim, reference images carry
+            roles, and every degradation the model forces is written into the
+            trace. Edit, re-run a recipe, or composite a contact sheet.
+          </>
+        ),
+        meta: "Per-call cost tracking, in real dollars",
+      },
+      {
+        icon: "gallery",
+        kicker: "Worked examples",
+        name: "Image Gallery",
+        href: "/docs/image/gallery",
+        badge: "new",
+        desc: (
+          <>
+            A campaign shot in one scripted run: one model and one product held
+            across five locations, a catalog matrix, recipe replay and a style
+            swap — each frame shown with the prompt that made it and what it
+            cost.
+          </>
+        ),
+        meta: "19 images · $0.78 · one run, no retries",
       },
     ],
   },
