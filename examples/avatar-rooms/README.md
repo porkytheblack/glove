@@ -73,8 +73,16 @@ prints the provider's own error (a rejected setup frame is the usual cause,
 and it otherwise presents as silence):
 
 ```bash
-pnpm probe:gemini      # → "✓ WORKING — 48000 audio samples back" or the close reason
+pnpm probe:gemini          # → "✓ WORKING — 48000 audio samples back" or the close reason
+pnpm probe:gemini --list   # → which models THIS key can open a Live session with
 ```
+
+`--list` exists because Gemini's most common failure — `<model> is not found
+for API version v1beta, or is not supported for bidiGenerateContent` — has
+three causes the message can't tell apart (wrong model id, wrong API version,
+no Live access on the key). It asks Google directly and prints the
+`S2S_MODEL=` / `S2S_API_VERSION=` lines to paste into `.env.local`. Newer
+preview models frequently land on `v1alpha` before `v1beta`.
 
 ## Status
 
