@@ -65,6 +65,17 @@ Ask for a price and watch the delegation run in the station dashboard
 Ports are shifted so this runs side by side with the whole series: station
 :4420, rooms :4701+, web :3002.
 
+## Debugging the realtime provider
+
+If a call connects but the agent never answers, probe the provider directly —
+it drives the same agent and tools the room does, minus the microphone, and
+prints the provider's own error (a rejected setup frame is the usual cause,
+and it otherwise presents as silence):
+
+```bash
+pnpm probe:gemini      # → "✓ WORKING — 48000 audio samples back" or the close reason
+```
+
 ## Status
 
 **Tavus: live-verified against the Tavus API** (2026-08-05): conversation
