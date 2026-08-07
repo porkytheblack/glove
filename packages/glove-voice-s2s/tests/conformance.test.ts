@@ -81,11 +81,36 @@ function geminiContext(): ConformanceContext {
   });
   return {
     adapter,
-    inbound: (message) => socket.fire("message", { data: JSON.stringify(toGeminiFrame(message)) }),
+    // BINARY frames, deliberately: the real Gemini endpoint delivers its JSON
+    // as binary WebSocket frames, and an adapter that only parses strings
+    // passes a string-based fake while dropping every live message.
+    inbound: (message) =>
+      socket.fire("message", {
+        data: new TextEncoder().encode(JSON.stringify(toGeminiFrame(message))),
+      }),
     outbound: () => socket.sent,
     settle: () => new Promise((r) => setTimeout(r, 5)),
   };
 }
+
+test("Gemini frames decode from every wire shape: ArrayBuffer, Blob, string", async () => {
+  for (const encode of [
+    (s: string) => new TextEncoder().encode(s).buffer,          // ArrayBuffer
+    (s: string) => new Blob([s]),                                // Blob (browser default)
+    (s: string) => s,                                            // string (some proxies)
+  ]) {
+    const socket = new FakeSocket();
+    const adapter = new GeminiLiveAdapter({ getToken: () => "t", socketFactory: () => socket });
+    await adapter.connect();
+    const transcripts: string[] = [];
+    adapter.on("user_transcript", (text) => void transcripts.push(text));
+    socket.fire("message", {
+      data: encode(JSON.stringify({ serverContent: { inputTranscription: { text: "hello" } } })),
+    });
+    await new Promise((r) => setTimeout(r, 5));
+    assert.deepEqual(transcripts, ["hello"], `frame shape ${encode("x").constructor.name} was dropped`);
+  }
+});
 
 // ── OpenAI Realtime (WebSocket transport) harness ────────────────────────────
 
