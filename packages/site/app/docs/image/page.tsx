@@ -29,6 +29,13 @@ export default async function ImagePage() {
         code={`pnpm add glove-image`}
       />
 
+      <p>
+        If you would rather see it than read it, the{" "}
+        <a href="/docs/image/gallery">image gallery</a> is a worked campaign —
+        every frame shown with the prompt that produced it, the pipeline trace,
+        and what it cost, plus a canvas diagramming how one image was built.
+      </p>
+
       {/* ------------------------------------------------------------------ */}
       <h2 id="why">Why not just one generate_image tool</h2>
 

@@ -549,3 +549,77 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
 
   .docs-sidebar-toggle { right: 4.25rem; width: 40px; height: 40px; font-size: 1.1rem; }
 }
+
+/* ── Provenance canvas + gallery ─────────────────────────────────────────
+   The canvas draws an image's real Recipe: library nodes → pipeline stages
+   → final prompt → image. Colours are role-coded so the same hue means the
+   same kind of thing in the graph and in the gallery legend. */
+:root {
+  --pc-card: var(--bg-surface);
+  --pc-label: var(--accent-strong);
+  --pc-body: #93a49b;
+  --pc-caption: #5e6f66;
+  --pc-edge: var(--border-strong);
+  --pc-edge-dim: var(--border);
+  --pc-character: #9ED4B8;
+  --pc-scene: #7FA7D4;
+  --pc-style: #C9A87C;
+  --pc-stage: #6E8A7C;
+  --pc-prompt: #BEE7D0;
+}
+
+.pc-wrap {
+  margin: 1.5rem 0 2rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  overflow-x: auto;
+}
+.pc-svg { display: block; width: 100%; min-width: 720px; height: auto; }
+
+.gallery-legend {
+  display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem;
+  margin: 1rem 0 2rem; padding: 0.85rem 1rem;
+  border: 1px solid var(--border-subtle); border-radius: 8px;
+  background: var(--bg-elevated);
+  font-family: var(--mono); font-size: 0.72rem; color: var(--pc-body);
+}
+.gallery-legend span { display: inline-flex; align-items: center; gap: 0.45rem; }
+.gallery-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+.gallery-grid {
+  display: grid; gap: 1rem; margin: 1.25rem 0 2rem;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+}
+.gallery-item {
+  border: 1px solid var(--border-subtle); border-radius: 9px;
+  background: var(--bg-elevated); overflow: hidden;
+}
+.gallery-item img { display: block; width: 100%; height: auto; aspect-ratio: 1 / 1; object-fit: cover; }
+.gallery-meta { padding: 0.6rem 0.7rem 0.7rem; }
+.gallery-meta strong {
+  display: block; font-family: var(--mono); font-size: 0.74rem;
+  font-weight: 500; color: var(--accent-strong); margin-bottom: 0.25rem;
+}
+.gallery-meta span { font-size: 0.72rem; color: var(--pc-body); line-height: 1.45; }
+.gallery-cost {
+  float: right; font-family: var(--mono); font-size: 0.68rem; color: var(--pc-caption);
+}
+
+.gallery-pair {
+  display: grid; gap: 1rem; margin: 1.25rem 0 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.gallery-note {
+  margin: 0.75rem 0 1.75rem; padding: 0.7rem 0.95rem;
+  border-left: 2px solid var(--accent-line); border-radius: 0 6px 6px 0;
+  background: var(--accent-glow);
+  font-size: 0.86rem; color: var(--pc-body);
+}
+
+@media (max-width: 640px) {
+  .gallery-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .pc-wrap { padding: 0.5rem; }
+}
