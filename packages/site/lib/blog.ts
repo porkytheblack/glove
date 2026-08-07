@@ -20,6 +20,15 @@ export interface BlogPost {
 
 export const posts: BlogPost[] = [
   {
+    slug: "silent-failures",
+    title: "Every failure in this one was silent",
+    summary:
+      "Building video rendering for agents — plus a fourth way to expose a capability, a verb for handing work over, and directories an agent may read but never edit. Six bugs that reported success, and what each one changed about the design.",
+    date: "2026-08-07",
+    readingTime: 12,
+    tags: ["working-environment", "motion", "video", "engineering"],
+  },
+  {
     slug: "glove-from-a-to-z",
     title: "Glove from A to Z: Building agents from scratch",
     summary:
@@ -27,6 +36,24 @@ export const posts: BlogPost[] = [
     date: "2026-08-07",
     readingTime: 26,
     tags: ["guide", "code-execution", "memory", "realtime", "images"],
+  },
+  {
+    slug: "shipping-forms",
+    title: "Shipping Forms",
+    summary:
+      "A collection primitive for conversations — the decisions behind it, and the five defects a fifty-cent agentic eval found that reading the code had not.",
+    date: "2026-08-07",
+    readingTime: 11,
+    tags: ["memory", "forms", "evals", "design"],
+  },
+  {
+    slug: "building-the-voice-stack",
+    title: "Building the voice stack: what only live calls told us",
+    summary:
+      "Five examples, three avatar providers, and a run of bugs that every test suite passed through. Notes on the decisions that held and the ones the wire corrected.",
+    date: "2026-08-07",
+    readingTime: 11,
+    tags: ["voice", "avatars", "livekit", "field-notes"],
   },
   {
     slug: "eight-new-packages",
