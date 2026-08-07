@@ -56,6 +56,15 @@ export const posts: BlogPost[] = [
     tags: ["voice", "avatars", "livekit", "field-notes"],
   },
   {
+    slug: "a-product-is-a-character",
+    title: "A product is a character too",
+    summary:
+      "What it takes to shoot the same model, carrying the same bag, in five places — and why agentic image generation is a workflow problem rather than a tool problem.",
+    date: "2026-08-07",
+    readingTime: 7,
+    tags: ["images", "glove-image", "workflow"],
+  },
+  {
     slug: "eight-new-packages",
     title: "Eight new packages",
     summary:
