@@ -5,8 +5,13 @@ enhancer inbetweens, persistent **characters** and **scenes**, reference
 images and assembly, all behind a small set of `glove_image_*` tools and a
 BYO image-model adapter.
 
-**Status: spec (draft v0.1) — not yet implemented.** This document is the
-design. Contracts may shift before the first release.
+**Status: draft v0.1 — implemented.** Core contracts, the prompt pipeline
+and built-in inbetweens, the full `glove_image_*` tool surface, in-memory
+reference adapters, and an OpenRouter model adapter ship today (tested
+live against `google/gemini-2.5-flash-image`). Still planned: React
+renderers, the multi-candidate picker slot, OpenAI/Gemini direct adapters,
+system-prompt priming, and the scratchpad/working-environment bridges —
+each is marked below. Contracts may still shift before the first release.
 
 ```bash
 pnpm add glove-image        # (once released)
@@ -75,7 +80,7 @@ intent + {characters, scene, refs}
   candidates → ImageAssetStore (with Recipe lineage) → display slot / picker
 ```
 
-## Quick start (target API)
+## Quick start
 
 ```ts
 import { Glove, Displaymanager, MemoryStore, createAdapter } from "glove-core";
@@ -88,7 +93,7 @@ import {
   styleDirective,
   llmEnhance,
 } from "glove-image";
-import { openaiImages } from "glove-image/openai";
+import { openrouterImages } from "glove-image/openrouter";
 
 const glove = new Glove({
   store: new MemoryStore("studio"),
@@ -99,9 +104,10 @@ const glove = new Glove({
 });
 
 await mountImage(glove, {
-  adapter: openaiImages({ apiKey: process.env.OPENAI_API_KEY! }),
+  adapter: openrouterImages(),   // reads OPENROUTER_API_KEY; default model google/gemini-2.5-flash-image
   assets: new InMemoryImageAssetStore(),
   library: new InMemoryImageLibrary(),
+  model: createAdapter({ provider: "openrouter", model: "openai/gpt-4o-mini", stream: false }),
   pipeline: [
     expandCharacters(),
     expandScenes(),
@@ -196,8 +202,9 @@ interface PromptDraft {
   negative?: string;
   refs: RefImage[];                 // accumulated reference images
   params: GenerationParams;         // { size?, seed?, candidates?, extra? }
-  characters: ResolvedCharacter[];  // filled by expandCharacters()
-  scene?: ResolvedScene;            // filled by expandScenes()
+  requested: { characters: string[]; scene?: string };  // library names from the call
+  characters: CharacterDef[];       // resolved by expandCharacters()
+  scene?: SceneDef;                 // resolved by expandScenes()
   trace: TraceEntry[];
 }
 
@@ -223,8 +230,9 @@ interface PromptEnhancer {
 interface EnhancerContext {
   library: ImageLibraryReader;      // read-only character/scene lookup
   assets: Pick<ImageAssetStore, "get" | "list">;
-  model?: ModelAdapter;             // an LLM slot for rewrite passes (defaults to the agent's model)
+  model?: ModelAdapter;             // an LLM slot for rewrite passes (the mount's `model` config)
   capabilities: ImageModelCapabilities;  // what the target model supports
+  note(message: string): void;      // attach an explanation to this stage's trace entry
   signal?: AbortSignal;
 }
 ```
@@ -423,10 +431,13 @@ Notes:
 - **`fitToModel()` is the compatibility layer.** Adapters never receive a
   negative prompt they can't take or more refs than `maxRefs` — they can
   assume requests are in-capability and throw on anything else.
-- **v0.1 reference adapters**, each a subpath with zero SDK deps (plain
-  `fetch`): `glove-image/openai` (gpt-image-1: generate + edit + masks),
-  `glove-image/gemini` (Gemini image generation: generate + refs). BYO
-  for Stability, Replicate, fal, ComfyUI, or anything local.
+- **v0.1 ships one reference adapter**, a subpath with zero SDK deps
+  (plain `fetch`): `glove-image/openrouter` — image-output models through
+  OpenRouter's chat endpoint (`openrouterImages()`, default
+  `google/gemini-2.5-flash-image`; generate + edit, refs as image inputs,
+  candidates fan out as parallel requests). Planned: `glove-image/openai`
+  (gpt-image-1) and `glove-image/gemini` direct. BYO for Stability,
+  Replicate, fal, ComfyUI, or anything local.
 
 ## `mountImage` — the canonical entry point
 
@@ -436,6 +447,7 @@ await mountImage(glove, {
   assets,                           // ImageAssetStore                    (required)
   library,                          // ImageLibraryAdapter                (required)
   pipeline?,                        // PromptEnhancer[]  — default [expandCharacters(), expandScenes()]
+  model?,                           // ModelAdapter handed to enhancers (llmEnhance) — usually the agent's model
   curate?,                          // default true; false folds read-only library tools only
   candidates?,                      // default 1; clamped to capabilities.maxCandidates
   review?,                          // vision review loop config — see below
@@ -444,21 +456,21 @@ await mountImage(glove, {
 ```
 
 What it does: validates the pipeline (unique names), appends
-`fitToModel()`, folds the tools below, and primes the system prompt with
-a short standing block — the adapter's capabilities, the library's
-current character/scene names, and the rule that images are referred to
-by asset id. Async, non-chainable, callable before or after `build()` —
-same convention as `mountMcp` / `mountMesh`.
+`fitToModel()`, and folds the tools below. Async, non-chainable, callable
+before or after `build()` — same convention as `mountMcp` / `mountMesh`.
+*Planned:* priming the system prompt with a short standing block (adapter
+capabilities, current character/scene names, the asset-id rule) — today
+the tool descriptions carry that context.
 
 ### The tools
 
 | Tool | Input (shape) | Behavior |
 |------|--------------|----------|
-| `glove_image_generate` | `{ intent, characters?, scene?, refs?, size?, seed?, candidates?, name? }` | Builds the draft, runs the pipeline, calls `adapter.generate`, stores each candidate with its recipe. One candidate → returns the asset and pushes a gallery slot (`pushAndForget`). Multiple → pushes a picker slot (`pushAndWait`); the chosen asset is returned to the model, the rest stay stored and tagged `rejected-candidate`. |
+| `glove_image_generate` | `{ intent, characters?, scene?, refs?, negative?, size?, seed?, candidates?, name?, tags? }` | Builds the draft, runs the pipeline, calls `adapter.generate`, stores every candidate with its recipe, and returns all candidate summaries (with thumbnails on `renderData`). *Planned:* a `pushAndWait` picker slot for multi-candidate runs. |
 | `glove_image_edit` | `{ asset, instruction, mask?, refs?, name? }` | Edit/inpaint against `adapter.edit`; recipe records `parent`. Error if the adapter lacks `edit` mode. |
 | `glove_image_regenerate` | `{ asset, tweak? }` | Replays the asset's recipe through the *current* pipeline, appending `tweak` to the intent. |
 | `glove_image_assemble` | `AssemblySpec & { name? }` | Deterministic composite via sharp; stores result with `kind: "assembled"`. |
-| `glove_image_import` | `{ url? \| data? \| from_message?, name?, tags? }` | Lands an external image in the store. `from_message: true` pulls image `ContentPart`s off the current user message. |
+| `glove_image_import` | `{ url? \| data?, mime?, name?, tags? }` | Lands an external image in the store — http(s) URL, data: URL, or raw base64. Format and dimensions are sniffed from the bytes. *Planned:* `from_message: true` to pull image `ContentPart`s off the current user message. |
 | `glove_image_describe` | `{ asset }` | Metadata (dims, source, recipe summary) at zero model cost; when `review.vision` is configured, adds a one-paragraph visual description. The context-safe way to "look at" an asset. |
 | `glove_image_asset_list` | `{ filter? }` | Browse the store — ids, names, dims, sources, tags. Never bytes. |
 | `glove_image_character_save` / `_get` / `_list` / `_remove` | `CharacterDef` fields | Library CRUD. `_save`/`_remove` only folded when `curate: true`. |
@@ -491,7 +503,7 @@ regeneration round runs. Bounded by `rounds`, off by default, and every
 round's critique lands in the final recipe — inspectable, like the rest
 of the pipeline.
 
-## React surface (`glove-image/react`)
+## React surface (`glove-image/react`) — planned
 
 Prebuilt `ToolConfig`s with colocated renderers, mirroring the tool
 registry pattern — copy-paste or import:
@@ -582,11 +594,12 @@ can't fan out spend on its own.
 |------|--------|
 | Mount the surface | `mountImage(glove, { adapter, assets, library, … })` |
 | Model contract | `ImageModelAdapter`, `ImageModelCapabilities` |
-| Reference model adapters | `openaiImages` from `glove-image/openai`, `geminiImages` from `glove-image/gemini` |
+| Reference model adapter | `openrouterImages` from `glove-image/openrouter` (`glove-image/openai`, `glove-image/gemini` planned) |
 | Asset storage contract | `ImageAssetStore`; reference `InMemoryImageAssetStore` |
 | Character/scene storage | `ImageLibraryAdapter`; reference `InMemoryImageLibrary` |
 | Author an inbetween | `PromptEnhancer` interface |
 | Built-in inbetweens | `expandCharacters`, `expandScenes`, `styleDirective`, `negativeDefaults`, `llmEnhance`, `fitToModel` |
 | Assembly spec | `AssemblySpec` (sharp optional peer) |
 | Lineage | `Recipe` on `ImageAsset.recipe` |
-| React renderers | `glove-image/react` |
+| React renderers | `glove-image/react` (planned) |
+| Reference in-memory adapters | `InMemoryImageAssetStore`, `InMemoryImageLibrary` from `glove-image/in-memory` |
