@@ -719,7 +719,9 @@ mountWorkingEnvironment(agent, { env });`}
         the environment ships worked recipes in <code>/skills</code> with the
         exact import line for every module, and corrects a wrong import at{" "}
         <em>write</em> time rather than spending a run on it. Point your system
-        prompt at <code>/skills/README.md</code> first.
+        prompt at <code>/skills/README.md</code> first. Six more bugs from this
+        subsystem — every one of which <em>reported success</em> — are in{" "}
+        <a href="/blog/silent-failures">Every failure in this one was silent</a>.
       </div>
 
       <h3>Or just split the agent</h3>
@@ -945,7 +947,9 @@ later: Travel (mode, mileage or ticket) · Approval (cost centre, manager)`}
         JSON blob to hand off — it is a person in the entity graph, an episode on
         the timeline, and a document in the resource tree, all written with
         engine-supplied provenance by an <code>onComplete</code> that runs on the
-        commit that finished the form.
+        commit that finished the form. The decisions behind all of that, and the
+        five defects an agentic eval found that reading the code had not, are in{" "}
+        <a href="/blog/shipping-forms">Shipping Forms</a>.
       </p>
 
       {/* ---------------------------------------------------------------- */}
@@ -1085,7 +1089,10 @@ const detach = await attachAvatar(rt, avatar);
         Three packages rather than one, for the reason the layers are separable
         at all: a phone agent needs speech-to-speech and no avatar, a kiosk needs
         an avatar and no LiveKit, and nobody should carry three vendors&apos;
-        dependencies to use one of them.
+        dependencies to use one of them. What the wire taught us while building
+        all of that — including the bugs every test suite passed through — is its
+        own post: <a href="/blog/building-the-voice-stack">what only live calls
+        told us</a>.
       </p>
 
       {/* ---------------------------------------------------------------- */}
