@@ -538,6 +538,34 @@ importers:
         specifier: workspace:*
         version: link:../../packages/glovebox
 
+  examples/image-studio:
+    dependencies:
+      dotenv:
+        specifier: ^17.2.4
+        version: 17.3.1
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-image:
+        specifier: workspace:*
+        version: link:../../packages/glove-image
+      sharp:
+        specifier: ^0.34.5
+        version: 0.34.5
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   examples/layered-voice:
     dependencies:
       '@anthropic-ai/sdk':
@@ -1319,6 +1347,28 @@ importers:
       glove-working-environment:
         specifier: workspace:*
         version: link:../glove-working-environment
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/glove-image:
+    dependencies:
+      glove-core:
+        specifier: workspace:*
+        version: link:../glove
+      sharp:
+        specifier: '>=0.33.0'
+        version: 0.35.3(@types/node@25.2.3)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
       tsx:
         specifier: ^4.19.0
         version: 4.21.0

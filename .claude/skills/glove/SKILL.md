@@ -25,6 +25,7 @@ Glove is an open-source TypeScript framework for building AI-powered application
 | `glove-next` | One-line Next.js API route handler (`createChatHandler`) for streaming SSE | `pnpm add glove-next` |
 | `glove-mcp` | Bridge MCP servers into a Glove agent: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter`, `discovermcp` discovery subagent. Opt-in OAuth helpers at `glove-mcp/oauth`. | `pnpm add glove-mcp` |
 | `glove-memory` | Schema-first memory layer with five sibling subsystems: entity graph, episodic timeline, resource filesystem, ambient context, and conversational forms. BYO storage via the adapter contracts; reference in-memory adapters ship for dev/test. Storage backends (`glove-memory-sqlite`, `glove-memory-postgres`) are companion packages — not yet released. Draft v0.1. | `pnpm add glove-memory` |
+| `glove-image` | **Agentic image generation.** Image work as a *workflow*, not one `generate_image` tool: a `PromptEnhancer[]` pipeline of "inbetweens" builds every prompt (characters/scenes expanded verbatim, style, LLM rewrite, then a mandatory `fitToModel()` that clamps to adapter capabilities and traces each degradation), durable **characters** and **scenes** in a BYO library, reference images with roles (identity/style/composition/content/mask), `Recipe` lineage on every derived asset (so `regenerate` replays it), deterministic `assemble` via optional `sharp`, opt-in vision review/describe, and `ImageUsage` cost tracking at four scopes. `mountImage(glove, { adapter, assets, library, ... })`. Draft v0.1. | `pnpm add glove-image` |
 | `glove-mesh` | Inter-agent communication on top of the inbox primitive: `mountMesh`, `MeshAdapter` (BYO transport), `MeshNetwork` + `InMemoryMeshAdapter` reference impl. Four tools — `glove_mesh_send_message`, `glove_mesh_broadcast`, `glove_mesh_list_agents`, `glove_mesh_acknowledge`. No auth (consumer's job). | `pnpm add glove-mesh` |
 | `glove-continuum-signal` | Subprocess-based runtime substrate for agent collaboration across time. Two modes: **triggered** (cold, spawn-per-wakeup) and **concurrent** (warm, long-lived subprocess notified inline). `agent()` builder, `ContinuumRunner` (discovery + supervision + IPC), `ContinuumAdapter` (BYO persistence; `MemoryAdapter` default), `ContinuumSubscriber` (lifecycle + forwarded Glove events). Pairs with `glove-mesh` for inter-agent talk — substrate provides the supervised subprocesses, mesh provides the messaging. | `pnpm add glove-continuum-signal` |
 | `glovebox-core` | Authoring + `glovebox` build CLI. `glovebox.wrap(runnable, config)` packages a built Glove agent into a deployable artifact (Dockerfile + nixpacks.toml + bundled server + manifest + auth key). Storage DSL (`rule.*`, `composite`) and wire protocol types live here too. The unscoped `glovebox` name is taken on npm — install as `glovebox-core`; the CLI binary is still `glovebox`. | `pnpm add glovebox-core` |
@@ -58,6 +59,7 @@ Glove is an open-source TypeScript framework for building AI-powered application
 - **`glove-voice-livekit`** — LiveKit as an adapter: `LiveKitTransport` (join room, publish paced agent audio track, remote mics out as PCM events, JSON data channel, `clear()` = server-authoritative barge-in flush) + `attachRealtime(rt, transport)`; LiveKit avatars `TavusLiveKitAvatar`/`AnamLiveKitAvatar` implement the same `AvatarAdapter` contract — the provider's worker joins YOUR room (token kind `agent`, `lk.publish_on_behalf`) and is driven over the `lk.audio_stream` byte stream + `lk.clear_buffer` RPC; token minting via `mintParticipantToken`/`mintAvatarToken`.
 - **`glove-mcp`** — MCP servers as first-class tools: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter` (consumer-supplied per-conversation seam). `discovermcp` discovery subagent (registered via `glove.defineSubAgent(discoverySubAgent({...}))`). Opt-in OAuth helpers at `glove-mcp/oauth` (`runMcpOAuth`, `FsOAuthStore`, `MemoryOAuthStore`, `McpOAuthProvider`).
 - **`glove-memory`** — Memory layer with five sibling subsystems (entity graph / episodic timeline / resource filesystem / ambient context / forms) and matching `useMemoryReader` / `useMemoryCurator`, `useEpisodicReader` / `useEpisodicCurator`, `useResourcesReader` / `useResourcesCurator`, `useContext`, and `useFormRunner` / `useFormReader` helper families. Storage-agnostic adapter contracts plus reference `InMemory*` adapters for dev/test.
+- **`glove-image`** — Agentic image generation. `mountImage(glove, { adapter, assets, library, pipeline?, model?, review?, usage?, onUsage?, curate?, candidates?, requirePermission? })` folds `glove_image_generate` / `_edit` / `_regenerate` / `_import` / `_describe` / `_asset_list` / `_assemble` / `_usage` plus `_character_*` / `_scene_*` CRUD. The prompt pipeline (`expandCharacters`, `expandScenes`, `styleDirective`, `negativeDefaults`, `llmEnhance`, terminal `fitToModel`) turns an intent into the final request with a per-stage trace. Reference adapter: `openrouterImages()` from `glove-image/openrouter`.
 - **`glove-mesh`** — Inter-agent messaging on top of the inbox primitive: `mountMesh(glove, { adapter, identity })` registers an agent and folds `glove_mesh_send_message` / `_broadcast` / `_list_agents` / `_acknowledge`. `MeshAdapter` is the consumer-supplied transport (BYO); ships `InMemoryMeshAdapter` + `MeshNetwork` for in-process dev/test. Each agent keeps its own inbox; incoming messages land as resolved `InboxItem`s so the existing inbox-injection path surfaces them on the next `ask()`. No authentication — sender ids are unverified.
 - **`glove-continuum-signal`** — Subprocess-based runtime substrate modeled on `station-signal` but agent-shaped. `agent("name").input(zod).triggered()|.concurrent()` builder produces branded agents; `ContinuumRunner` discovers them from a directory, pre-warms concurrent ones, dispatches triggered runs from an adapter queue (per-spawn isolation), and routes `notify` IPC envelopes to warm subprocesses inline. `ContinuumAdapter` is the persistence contract (`MemoryAdapter` ships; consumers BYO for SQLite/Postgres/etc.). Single fat `onAgentEvent(envelope)` subscriber forwards every Glove `SubscriberEvent` from any child upstream with the agent identity attached. Mesh integrates by being mounted per-agent inside the factory — no special IPC machinery.
 - **`glove-scratchpad`** — Database emulator for LLM tool use. Instead of loading many tool definitions, expose capabilities as a relational database queried with one `execute_sql` tool. Resources (`github_pr`, `emails`, `time`, `images`, …) become tables; CRUD verbs map to (possibly different) underlying tools. `Database.create()`, `defineResource({ name, schema, keys?, volatility, select?, insert?, update?, delete? })` (Zod-first — the schema is columns AND the end-to-end row type) or `resourceFromTool(tool, { name, volatility, schema })`, `mountDatabase(glove, { db })` folds `execute_sql` + `explain_sql` and primes the prompt. Discovery via `information_schema`; `WHERE` equalities push down as arguments (Steampipe's required-key model); writes stage inside `BEGIN … COMMIT` for preview; `EXPLAIN` reports which tools a query hits with no resolver calls. Every statement is parsed and security-gated before any tool runs. MCP servers become tables via `glove-scratchpad/mcp` (`mcpResources` / `mountMcpDatabase`). Backend is `glove-sql` (bundled, zero-dep) or `PgliteBackend` (`glove-scratchpad/pglite`).
@@ -1413,6 +1415,191 @@ Everything else is the implementer's: storage engine, schema, indexing, retentio
 | Error classes | `MemoryError`, `MemoryNotFoundError`, `MemorySchemaError`, `MemoryQueryError`, `MemoryWriteError`, `MemoryToolSelectionError`, `MemoryLayerError`, `EpisodicMemoryError`, `ResourceFsError`, `ResourceAccessError`, `ContextError`, `FormError` / `FormConflictError` / `FormStaleError` / `FormBlockedError` / `FormDefinitionError` from `glove-memory/core` |
 
 See [api-reference.md — `glove-memory`](api-reference.md) for full type signatures, and [examples.md — Memory](examples.md) for worked examples (schema definition, subagent-delegated reader, curator composition, context flow, form definition).
+
+## Image Workflows (`glove-image`)
+
+Agentic image generation. Where a hand-rolled `generate_image(prompt)` tool covers exactly one call, `glove-image` covers the workflow: prompts are *built* by a pipeline, subjects and settings are *durable*, existing images are *inputs*, results carry *lineage*, and every model call is *metered*.
+
+### When to use it
+
+- Images recur with the same subjects, styles or settings (character art, storyboards, product shots, brand assets).
+- Prompt construction should be inspectable and composable, not a template string.
+- Users bring images in, and outputs feed back in as references.
+- You need to know what generation actually cost.
+
+One "make me a picture" tool? Plain `glove.fold(...)` is still simpler.
+
+### `mountImage` — the canonical entry point
+
+```typescript
+import {
+  mountImage, InMemoryImageAssetStore, InMemoryImageLibrary,
+  expandCharacters, expandScenes, styleDirective, llmEnhance, UsageMeter,
+} from "glove-image";
+import { openrouterImages } from "glove-image/openrouter";
+
+const meter = new UsageMeter();
+
+await mountImage(glove, {
+  adapter: openrouterImages(),             // ImageModelAdapter          (required)
+  assets: new InMemoryImageAssetStore(),   // ImageAssetStore            (required)
+  library: new InMemoryImageLibrary(),     // ImageLibraryAdapter        (required)
+  model: createAdapter({ provider: "openrouter", model: "openai/gpt-4o-mini", stream: false }),
+  pipeline: [expandCharacters(), expandScenes(), styleDirective("gouache"), llmEnhance()],
+  review: { vision: visionAdapter, rounds: 1, rubric: "..." },  // opt-in vision
+  usage: meter,
+  onUsage: (source, usage) => billing.record(source, usage),
+  curate: true,             // default — false folds read-only library tools
+  candidates: 1,            // default; clamped to capabilities.maxCandidates
+  requirePermission: false, // true gates generate/edit/regenerate
+});
+```
+
+Async, non-chainable, callable before or after `build()` (same convention as `mountMcp` / `mountMesh`). It validates the pipeline (unique enhancer names — duplicates throw), appends `fitToModel()`, and folds the tools.
+
+### The prompt pipeline (the core idea)
+
+A generation **never** sends raw model text to the image model. It builds a `PromptDraft` and runs it through the enhancers in order, appending one `TraceEntry` per stage:
+
+```typescript
+interface PromptDraft {
+  intent: string;        // the original ask — NEVER mutated
+  positive: string;      // the working prompt
+  negative?: string;
+  refs: RefImage[];
+  params: GenerationParams;                            // { size?, seed?, candidates?, extra? }
+  requested: { characters: string[]; scene?: string }; // names from the call
+  characters: CharacterDef[];  // resolved by expandCharacters()
+  scene?: SceneDef;            // resolved by expandScenes()
+  trace: TraceEntry[];         // { enhancer, note?, positive_after }
+}
+
+interface PromptEnhancer {
+  name: string;   // must be unique across the pipeline
+  run(draft: PromptDraft, ctx: EnhancerContext): Promise<PromptDraft | void>;  // void = keep mutated draft
+}
+
+interface EnhancerContext {
+  library: ImageLibraryReader;
+  assets: Pick<ImageAssetStore, "get" | "list">;
+  model?: ModelAdapter;                  // the mount's `model` slot
+  capabilities: ImageModelCapabilities;
+  note(message: string): void;           // → this stage's trace entry
+  recordUsage(usage: Partial<ImageUsage>): void;
+  signal?: AbortSignal;
+}
+```
+
+| Inbetween | Behavior |
+|-----------|----------|
+| `expandCharacters()` | Splices each named character's `appearance` VERBATIM, merges its `negative`, attaches its ref images as `identity` refs. Missing name → `ImageCharacterNotFoundError` naming what IS available. |
+| `expandScenes()` | Same for the scene's `setting`, plus `style`/`composition` refs. |
+| `styleDirective(text)` | Appends a fixed house-style clause. |
+| `negativeDefaults(list)` | Merges standing negatives without duplicating or clobbering per-call ones. |
+| `llmEnhance({ model?, instructions? })` | One LLM rewrite pass; instructed to preserve character wording verbatim. Skips with a trace note when no model. Reports its token usage. |
+| `fitToModel()` | **Terminal, always appended.** Folds `negative` into the prompt as `Avoid: …` when the model has no negative slot; drops unsupported ref roles; clamps refs to `maxRefs` (identity first); snaps `size`; clamps `candidates`; drops unsupported `seed`. Every adjustment → a trace note. |
+
+Default pipeline when none is passed: `[expandCharacters(), expandScenes()]`. Whatever you pass replaces the middle; `fitToModel()` runs last regardless.
+
+### Characters & scenes
+
+```typescript
+interface CharacterDef {
+  name: string;              // kebab-case library key
+  display_name?: string;
+  appearance: string;        // ONE paragraph, spliced VERBATIM — write it prompt-ready
+  notes?: string;            // non-visual; NEVER sent to the image model
+  negative?: string;
+  ref_images?: Array<{ asset: string; label?: string }>;  // identity anchors
+  tags?: string[];
+  created_at: string; updated_at: string;
+}
+
+interface SceneDef {
+  name: string; display_name?: string;
+  setting: string;           // location/era/palette/lighting/mood, spliced verbatim
+  negative?: string;
+  ref_images?: Array<{ asset: string; role: "style" | "composition"; label?: string }>;
+  tags?: string[]; created_at: string; updated_at: string;
+}
+```
+
+Consistency comes from **repetition, not memory** — the library owns the wording and it is re-spliced every call. Promoting a good generation to a character ref (`ref_images: [{ asset: "img_..." }]`) is the "lock in this look" move.
+
+### Assets, lineage, regeneration
+
+```typescript
+interface Recipe {
+  kind: "generated" | "edited" | "assembled";
+  intent?: string; finalPrompt?: string; negative?: string;
+  params?: GenerationParams; adapter?: string;
+  characters?: string[]; scene?: string;
+  refs?: Array<{ asset: string; role: RefRole }>;
+  trace?: TraceEntry[];
+  parent?: string;        // "edited": source asset
+  spec?: AssemblySpec;    // "assembled"
+  usage?: ImageUsage;     // what this asset cost
+}
+```
+
+`glove_image_regenerate({ asset, tweak? })` replays a `generated` recipe through the **current** pipeline (library edits since are picked up) with `tweak` appended to the intent. Regenerating an import/edit is refused with a clear error.
+
+### Usage & cost tracking
+
+```typescript
+interface ImageUsage { requests: number; tokens_in: number; tokens_out: number; cost_usd?: number }
+type UsageSource = "generate" | "edit" | "enhance" | "review" | "describe";
+```
+
+Four scopes: per call (`data.usage`), per asset (`Recipe.usage`), per session (`UsageMeter.report()` → `{ total, by_source }`, also readable by the agent via `glove_image_usage`), and per host (`onUsage(source, usage)`). Adapters opt in by returning `usage` on `ImageModelResult`; one that reports nothing still counts `{ requests: 1 }`. OpenRouter reports **real USD** (`usage: { include: true }`).
+
+### Vision (opt-in)
+
+`review: { vision, rounds?, rubric? }` — any vision-capable `ModelAdapter`. Powers two things: `glove_image_describe` gains a `visual_description`, and with `rounds > 0` each generation is critiqued (PASS → done; FAIL → critique appended as revision notes, traced as the `review` stage, one more round). Off by default because an image costs ~25k input tokens per look.
+
+### Tools folded
+
+`glove_image_generate` · `_edit` · `_regenerate` · `_import` · `_describe` · `_asset_list` · `_assemble` · `_usage` · `_character_save/_get/_list/_remove` · `_scene_save/_get/_list/_remove` (writes gated by `curate`).
+
+Model-facing `data` carries asset ids/dimensions/degradations/usage; `renderData` carries thumbnail data-URLs. **Bytes never enter `data`** — context cost is flat regardless of how many images a session touches.
+
+### `ImageModelAdapter` (BYO)
+
+```typescript
+interface ImageModelCapabilities {
+  modes: Array<"generate" | "edit" | "variation">;
+  maxRefs: number; refRoles: RefRole[];
+  sizes: string[] | "flexible";
+  negativePrompt: boolean; seed: boolean; maxCandidates: number;
+}
+
+interface ImageModelAdapter {
+  name: string;
+  capabilities: ImageModelCapabilities;
+  generate(req: ImageGenerateRequest, signal?: AbortSignal): Promise<ImageModelResult>;
+  edit?(req: ImageEditRequest, signal?: AbortSignal): Promise<ImageModelResult>;
+}
+```
+
+The mount resolves ref bytes before calling — adapters receive materialised bytes and never touch the store, and may assume requests are already in-capability (that's `fitToModel`'s job). Ships `openrouterImages({ apiKey?, model?, baseUrl?, referer?, title? })` from `glove-image/openrouter` (plain `fetch`, default `google/gemini-2.5-flash-image`, generate + edit, candidate fan-out).
+
+### Quick reference — where things live
+
+| Need | Symbol |
+|------|--------|
+| Mount the surface | `mountImage(glove, { adapter, assets, library, … })` |
+| Model contract | `ImageModelAdapter`, `ImageModelCapabilities` |
+| Reference model adapter | `openrouterImages` from `glove-image/openrouter` |
+| Asset storage contract | `ImageAssetStore`; reference `InMemoryImageAssetStore` |
+| Character/scene storage | `ImageLibraryAdapter`; reference `InMemoryImageLibrary` |
+| Author an inbetween | `PromptEnhancer` from `glove-image/pipeline` |
+| Built-in inbetweens | `expandCharacters`, `expandScenes`, `styleDirective`, `negativeDefaults`, `llmEnhance`, `fitToModel` |
+| Run a pipeline by hand | `createDraft`, `runPipeline`, `defaultPipeline` |
+| Spend accounting | `ImageUsage`, `UsageMeter`, `addUsage`, `emptyUsage` |
+| Lineage | `Recipe` on `ImageAsset.recipe` |
+| Assembly | `AssemblySpec` (needs optional `sharp` peer) |
+| Byte helpers | `sniffImage`, `toDataUrl`, `fromDataUrl` |
+| Error classes | `ImageError`, `ImageAssetNotFoundError`, `ImageCharacterNotFoundError`, `ImageSceneNotFoundError`, `ImageCapabilityError` |
 
 ## Mesh Network (`glove-mesh`)
 

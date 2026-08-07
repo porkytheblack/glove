@@ -49,6 +49,7 @@ jobs:
           --filter "glove-env-slides..."
           --filter "glove-env-render..."
           --filter "glove-env-motion..."
+          --filter "glove-image..."
           --filter "glove-analyst-desk..."
           build
 
@@ -77,6 +78,7 @@ jobs:
           --filter glove-env-slides
           --filter glove-env-render
           --filter glove-env-motion
+          --filter glove-image
           --filter glove-analyst-desk
           --filter glove-document-desk
           typecheck
@@ -108,6 +110,7 @@ jobs:
           --filter glove-env-slides
           --filter glove-env-render
           --filter glove-env-motion
+          --filter glove-image
           test
 
       # The analyst-desk selfcheck solves every eval scenario with a reference

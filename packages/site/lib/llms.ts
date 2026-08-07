@@ -225,6 +225,7 @@ provider prompt caching. Cache usage is reported on every response as
 | glove-env-documents/-spreadsheets/-images/-slides/-archives/-media/-render/-motion | stdlib adapters for the working environment |
 | glove-js / glove-python / glove-lisp | one eval tool over a shared ToolFn catalog |
 | glove-egress | measured, enforced egress boundary over that catalog |
+| glove-image | agentic image generation: prompt pipeline, characters/scenes, refs, edit, assemble, cost |
 | glove-mesh | direct/broadcast/ack messaging between agents |
 | glove-continuum-signal | subprocess runtime: triggered (cold) and concurrent (warm) agents |
 | glove-mcp | bridge Model Context Protocol servers in as tools |
@@ -474,6 +475,53 @@ const guarded = guardEffectFns(catalog, DEFAULT_EGRESS_POLICY, onBlock);
 
 Programs must end in a bounded decision; a per-session min-entropy bit budget
 caps cumulative disclosure.
+
+### glove-image
+
+\`\`\`ts
+import {
+  mountImage, InMemoryImageAssetStore, InMemoryImageLibrary,
+  expandCharacters, expandScenes, styleDirective, llmEnhance,
+  openrouterImages, UsageMeter,
+} from "glove-image";
+
+const meter = new UsageMeter();
+
+await mountImage(glove, {
+  adapter: openrouterImages(),            // OPENROUTER_API_KEY; google/gemini-2.5-flash-image
+  assets: new InMemoryImageAssetStore(),  // BYO ImageAssetStore in production
+  library: new InMemoryImageLibrary(),    // BYO ImageLibraryAdapter in production
+  model: createAdapter({ provider: "openrouter", model: "openai/gpt-4o-mini", stream: false }),
+  pipeline: [expandCharacters(), expandScenes(), styleDirective("gouache"), llmEnhance()],
+  review: { vision: visionAdapter, rounds: 1 },   // optional: describe + self-critique
+  usage: meter,                                    // optional: read spend host-side
+});
+\`\`\`
+
+Folds \`glove_image_generate\`, \`_edit\`, \`_regenerate\`, \`_import\`, \`_describe\`,
+\`_asset_list\`, \`_assemble\`, \`_usage\`, plus \`_character_*\` / \`_scene_*\` CRUD
+(writes only when \`curate\` is true, the default).
+
+Key facts:
+- A generation NEVER sends raw text to the image model. It builds a \`PromptDraft\`
+  and runs it through the \`PromptEnhancer[]\` pipeline; \`fitToModel()\` is always
+  appended last and clamps the request to the adapter's declared capabilities,
+  writing each degradation into the trace (surfaced as \`data.degradations\`).
+- Characters/scenes are referenced by NAME in tool ARGS (\`characters: ["mira"]\`),
+  never inline syntax. \`CharacterDef.appearance\` and \`SceneDef.setting\` are
+  spliced VERBATIM — \`llmEnhance\` is instructed not to reword them.
+- The model works in asset ids. Bytes never enter tool \`data\`; thumbnails ride
+  \`renderData\`.
+- Every derived asset carries a \`Recipe\` (intent, final prompt, trace, parent,
+  usage) — \`glove_image_regenerate({ asset, tweak })\` replays it.
+- \`glove_image_assemble\` needs the OPTIONAL \`sharp\` peer; it refuses with an
+  install hint when absent.
+- Cost: \`ImageUsage { requests, tokens_in, tokens_out, cost_usd? }\` per call
+  (\`data.usage\`), per asset (\`Recipe.usage\`), per session (\`UsageMeter\` +
+  \`glove_image_usage\`), plus an \`onUsage(source, usage)\` callback. OpenRouter
+  reports real USD.
+- Vision is OPT-IN via \`review\` — without it \`describe\` returns metadata only
+  and generations are not critiqued.
 
 ### glove-mesh
 
