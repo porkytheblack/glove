@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="packages/site/public/og-data.png" alt="Glove" width="600" />
+  <img src="packages/site/public/og.png" alt="Glove" width="600" />
 </p>
 
 <h3 align="center">Build entire apps as conversations.</h3>

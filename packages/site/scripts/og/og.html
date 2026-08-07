@@ -1,0 +1,140 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#080B0A; --accent:#9ED4B8; --accent-strong:#BEE7D0; --accent-soft:#7BBFA0;
+    --text:#EAF2ED; --muted:#8FA398; --line:rgba(158,212,184,.16);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1200px;height:630px;overflow:hidden}
+  body{background:var(--bg);font-family:'DM Sans',sans-serif;position:relative}
+
+  /* arcade playfield grid */
+  .grid{position:absolute;inset:0;
+    background-image:
+      linear-gradient(rgba(158,212,184,.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(158,212,184,.055) 1px, transparent 1px);
+    background-size:30px 30px;
+    -webkit-mask-image:radial-gradient(115% 95% at 32% 50%, #000 20%, transparent 78%);
+            mask-image:radial-gradient(115% 95% at 32% 50%, #000 20%, transparent 78%);
+  }
+  /* phosphor bloom behind the catch */
+  .bloom{position:absolute;left:360px;top:312px;width:700px;height:700px;transform:translate(-50%,-50%);
+    background:radial-gradient(circle, rgba(158,212,184,.15) 0%, rgba(158,212,184,.05) 34%, transparent 66%);}
+
+  svg.scene{position:absolute;inset:0;width:1200px;height:630px}
+
+  .glove{position:absolute;left:360px;top:312px;width:258px;height:258px;transform:translate(-50%,-50%);
+    color:var(--accent-strong);
+    filter:drop-shadow(0 0 18px rgba(158,212,184,.55)) drop-shadow(0 0 46px rgba(158,212,184,.28));}
+  .glove svg{width:100%;height:100%;display:block}
+
+  .type{position:absolute;z-index:5;left:648px;top:50%;transform:translateY(-50%);width:492px}
+  .kicker{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500;letter-spacing:.22em;
+    text-transform:uppercase;color:var(--accent-soft);display:flex;align-items:center;gap:11px;margin-bottom:20px}
+  .kicker::before{content:'';width:26px;height:1px;background:var(--line)}
+  h1{font-size:104px;font-weight:500;letter-spacing:-.035em;line-height:.92;color:var(--text)}
+  .rule{width:62px;height:2px;background:var(--accent);margin:22px 0 20px;
+    box-shadow:0 0 12px rgba(158,212,184,.6)}
+  p{font-size:29px;font-weight:300;line-height:1.34;color:var(--muted);letter-spacing:-.011em}
+  p b{color:var(--accent-strong);font-weight:400}
+  .foot{position:absolute;z-index:5;left:648px;bottom:58px;display:flex;gap:9px;align-items:center;
+    font-family:'JetBrains Mono',monospace;font-size:14.5px;color:#5E6F66;letter-spacing:.02em}
+  .foot i{width:3px;height:3px;border-radius:50%;background:#3A4C43;font-style:normal}
+
+  /* arcade corner brackets */
+  .brk{position:absolute;width:24px;height:24px;border:1.5px solid rgba(158,212,184,.22)}
+  .tl{top:34px;left:34px;border-right:0;border-bottom:0}
+  .tr{top:34px;right:34px;border-left:0;border-bottom:0}
+  .bl{bottom:34px;left:34px;border-right:0;border-top:0}
+  .br{bottom:34px;right:34px;border-left:0;border-top:0}
+
+  /* CRT scanlines */
+  .scan{position:absolute;inset:0;pointer-events:none;
+    background:repeating-linear-gradient(180deg, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.30) 2px 4px);
+    opacity:.34;mix-blend-mode:multiply;z-index:3}
+  .vig{position:absolute;inset:0;pointer-events:none;z-index:3;
+    background:radial-gradient(125% 105% at 50% 45%, transparent 52%, rgba(0,0,0,.62) 100%)}
+</style>
+</head>
+<body>
+  <div class="grid"></div>
+  <div class="bloom"></div>
+
+  <svg class="scene" id="scene" viewBox="0 0 1200 630">
+    <defs>
+      <linearGradient id="trail" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%"   stop-color="#9ED4B8" stop-opacity="0"/>
+        <stop offset="55%"  stop-color="#9ED4B8" stop-opacity=".30"/>
+        <stop offset="100%" stop-color="#BEE7D0" stop-opacity=".62"/>
+      </linearGradient>
+    </defs>
+    <g id="paths" fill="none" stroke="url(#trail)" stroke-width="1.5" stroke-dasharray="3 7" stroke-linecap="round">
+      <path d="M -20 84  Q 190 108 348 250"/>
+      <path d="M -20 208 Q 168 222 330 286"/>
+      <path d="M -20 348 Q 170 380 332 344"/>
+      <path d="M -20 486 Q 182 486 348 378"/>
+      <path d="M -20 590 Q 222 578 366 408"/>
+    </g>
+    <g id="rings" fill="none" stroke="#9ED4B8">
+      <circle cx="360" cy="312" r="152" stroke-opacity=".13" stroke-width="1"/>
+      <circle cx="360" cy="312" r="196" stroke-opacity=".07" stroke-width="1" stroke-dasharray="2 10"/>
+    </g>
+    <g id="pix"></g>
+  </svg>
+
+  <div class="glove">
+    <svg viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path id="hand" fill="currentColor"/>
+      <path id="cuff" fill="currentColor"/>
+    </svg>
+  </div>
+
+  <div class="type">
+    <h1>Glove</h1>
+    <div class="rule"></div>
+    <p>Build agents that do <b>cool things</b>.</p>
+  </div>
+
+  <div class="foot">MIT <i></i> v3</div>
+
+  <div class="brk tl"></div><div class="brk tr"></div>
+  <div class="brk bl"></div><div class="brk br"></div>
+  <div class="scan"></div>
+  <div class="vig"></div>
+
+<script>
+  // Logo glyph paths, lifted verbatim from components/glove-logo.tsx
+  document.getElementById('hand').setAttribute('d', window.HAND || 'M410.08 393.32C410.08 393.447 410.105 393.573 410.153 393.69C410.202 393.807 410.273 393.913 410.362 394.002C410.451 394.092 410.557 394.162 410.673 394.21C410.79 394.257 410.914 394.281 411.04 394.28L422.48 394.22C422.626 394.22 422.766 394.162 422.869 394.059C422.972 393.956 423.03 393.816 423.03 393.67L422.1 203.44C422.099 203.381 422.109 203.323 422.131 203.269C422.153 203.214 422.186 203.164 422.228 203.122C422.27 203.081 422.32 203.047 422.375 203.024C422.431 203.002 422.49 202.99 422.55 202.99L479.35 202.88C479.631 202.88 479.901 202.992 480.1 203.19C480.298 203.389 480.41 203.659 480.41 203.94L480.76 393.79C480.76 393.904 480.805 394.013 480.886 394.094C480.967 394.175 481.076 394.22 481.19 394.22L493.3 394.16C493.449 394.157 493.592 394.096 493.697 393.99C493.801 393.883 493.86 393.739 493.86 393.59L493.45 172.81C493.45 172.593 493.536 172.384 493.69 172.23C493.844 172.076 494.053 171.99 494.27 171.99L546.6 171.73C546.674 171.73 546.745 171.759 546.798 171.812C546.85 171.865 546.88 171.936 546.88 172.01L547.29 394C547.29 394.217 547.376 394.426 547.53 394.58C547.684 394.734 547.893 394.82 548.11 394.82L559.31 394.8C559.543 394.8 559.767 394.706 559.932 394.539C560.097 394.372 560.19 394.146 560.19 393.91L559.84 203.7C559.84 203.498 559.921 203.305 560.066 203.163C560.21 203.02 560.406 202.94 560.61 202.94L617.16 202.83C617.36 202.83 617.552 202.91 617.694 203.052C617.836 203.194 617.917 203.388 617.92 203.59L618.46 497.93C618.459 498.009 618.48 498.087 618.523 498.153C618.565 498.22 618.627 498.273 618.699 498.305C618.772 498.338 618.854 498.349 618.934 498.338C619.013 498.326 619.089 498.292 619.15 498.24L710.7 416.63C710.966 416.396 711.296 416.256 711.64 416.23C712.093 416.197 713.19 416.98 714.93 418.58C726.357 429.047 738.423 439.817 751.13 450.89C752.057 451.697 752.843 452.367 753.49 452.9C753.881 453.221 754.13 453.685 754.183 454.19C754.235 454.695 754.087 455.201 753.77 455.6C748.957 461.66 744.16 467.85 739.38 474.17C730.767 485.563 722.277 496.827 713.91 507.96C704.103 521.013 694.037 534.443 683.71 548.25C682.31 550.123 681.463 551.257 681.17 551.65C651.197 591.923 635.867 612.51 635.18 613.41C633.727 615.303 626.6 624.933 613.8 642.3C612.853 643.587 611.92 644.223 611 644.21C593.94 643.94 576.01 644.48 560.67 644.48C557.17 644.48 507.53 644.427 411.75 644.32C410.983 644.32 410.13 644.353 409.19 644.42C408.676 644.453 408.163 644.342 407.709 644.1C407.255 643.858 406.878 643.494 406.62 643.05C403.013 636.843 400.117 631.393 397.93 626.7C394.94 620.29 392.01 614.85 389 608.75C382.72 595.99 376.747 583.813 371.08 572.22C368.85 567.67 364.77 560.45 362.06 554.23C362.014 554.138 361.99 554.035 361.99 553.93L362 269.83C362 269.637 362.039 269.445 362.115 269.267C362.192 269.09 362.303 268.929 362.444 268.797C362.584 268.664 362.75 268.561 362.932 268.494C363.114 268.428 363.307 268.399 363.5 268.41C378.36 269.18 393.79 268.85 408.23 268.58C408.441 268.575 408.651 268.612 408.847 268.689C409.043 268.766 409.222 268.881 409.373 269.028C409.524 269.176 409.644 269.352 409.726 269.546C409.808 269.74 409.85 269.949 409.85 270.16L410.08 393.32Z');
+  document.getElementById('cuff').setAttribute('d', window.CUFF || 'M406.91 658.31C406.91 658.22 406.946 658.133 407.01 658.07C407.073 658.006 407.16 657.97 407.25 657.97C462.983 657.857 503.02 657.817 527.36 657.85C559.72 657.9 574.5 657.57 611.92 657.12C612.178 657.117 612.435 657.166 612.674 657.263C612.913 657.36 613.131 657.504 613.315 657.686C613.499 657.869 613.646 658.085 613.746 658.325C613.846 658.564 613.899 658.82 613.9 659.08L614.06 747.46C614.06 747.776 613.946 748.08 613.738 748.318C613.53 748.555 613.243 748.709 612.93 748.75C612.257 748.837 610.613 748.88 608 748.88C574.107 748.9 508.023 748.873 409.75 748.8C407.817 748.8 406.85 747.943 406.85 746.23C406.903 718.95 406.923 689.643 406.91 658.31Z');
+
+  // Pixel projectiles sampled along each trajectory — squares grow and
+  // brighten as they approach the catch, so the eye reads motion inward.
+  const pix = document.getElementById('pix');
+  document.querySelectorAll('#paths path').forEach((p) => {
+    const L = p.getTotalLength();
+    const N = 9;
+    for (let i = 0; i < N; i++) {
+      const t = 0.14 + (i / (N - 1)) * 0.82;      // skip the very start
+      const pt = p.getPointAtLength(L * t);
+      const size = 2.6 + t * 6.6;                  // 2.2px → 7.8px
+      const op = 0.10 + Math.pow(t, 1.7) * 0.78;
+      const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      r.setAttribute('x', pt.x - size / 2);
+      r.setAttribute('y', pt.y - size / 2);
+      r.setAttribute('width', size);
+      r.setAttribute('height', size);
+      r.setAttribute('fill', t > 0.72 ? '#BEE7D0' : '#9ED4B8');
+      r.setAttribute('opacity', op.toFixed(3));
+      pix.appendChild(r);
+    }
+  });
+  window.__ready = true;
+</script>
+</body>
+</html>

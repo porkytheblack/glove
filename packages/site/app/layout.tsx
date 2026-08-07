@@ -38,7 +38,7 @@ export const metadata: Metadata = {
     url: siteUrl,
     images: [
       {
-        url: "/og-data.png",
+        url: "/og.png",
         width: 1200,
         height: 630,
         alt: "Glove — a toolkit for multi-agent orchestration systems",
@@ -49,7 +49,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Glove",
     description,
-    images: ["/og-data.png"],
+    images: ["/og.png"],
   },
 };
 
