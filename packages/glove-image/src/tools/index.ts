@@ -15,12 +15,17 @@ import {
   type ImageGenerateRequest,
   type ImageLibraryAdapter,
   type ImageModelAdapter,
+  type ImageUsage,
   type Recipe,
   type RefImage,
   type RefRole,
   type ResolvedRef,
   type SceneDef,
+  type UsageSource,
   ImageError,
+  UsageMeter,
+  addUsage,
+  emptyUsage,
   fromDataUrl,
   nowIso,
   sniffImage,
@@ -77,6 +82,18 @@ export interface MountImageConfig {
   review?: ReviewConfig;
   /** Gate generate/edit/regenerate behind the permission flow. Default false. */
   requirePermission?: boolean;
+  /**
+   * Session spend accounting. Pass your own UsageMeter to read totals from
+   * the host; omitted, the mount creates one (the agent can still read it
+   * via glove_image_usage).
+   */
+  usage?: UsageMeter;
+  /**
+   * Fires after every model-touching call with the source and that call's
+   * usage. The seam for wiring spend into your own accounting — e.g.
+   * `store.addTokens({ tokens_in, tokens_out })` or a billing table.
+   */
+  onUsage?: (source: UsageSource, usage: ImageUsage) => void;
 }
 
 interface ToolContext {
@@ -87,6 +104,21 @@ interface ToolContext {
   model?: ModelAdapter;
   defaultCandidates: number;
   review?: ReviewConfig;
+  meter: UsageMeter;
+  onUsage?: (source: UsageSource, usage: ImageUsage) => void;
+}
+
+/** Record spend on the session meter, the host callback, and an optional per-call accumulator. */
+function recordUsage(
+  ctx: ToolContext,
+  source: UsageSource,
+  usage: Partial<ImageUsage>,
+  callTotal?: ImageUsage,
+): void {
+  const normalized = addUsage(emptyUsage(), usage);
+  ctx.meter.record(source, normalized);
+  if (callTotal) addUsage(callTotal, normalized);
+  ctx.onUsage?.(source, normalized);
 }
 
 // ─── Shared helpers ────────────────────────────────────────────────────────
@@ -135,9 +167,11 @@ function assetSummary(asset: ImageAsset): Record<string, unknown> {
 
 /** Run the vision critique. Returns null on PASS, the critique text on FAIL. */
 async function critique(
+  ctx: ToolContext,
   review: ReviewConfig,
   draft: PromptDraft,
   image: { bytes: Uint8Array; mime: string },
+  callTotal: ImageUsage,
   signal?: AbortSignal,
 ): Promise<string | null> {
   const rubricLine = review.rubric ? `Rubric: ${review.rubric}` : "";
@@ -179,6 +213,12 @@ async function critique(
     noopNotify,
     signal,
   );
+  recordUsage(
+    ctx,
+    "review",
+    { requests: 1, tokens_in: result.tokens_in, tokens_out: result.tokens_out },
+    callTotal,
+  );
   const text = result.messages[result.messages.length - 1]?.text?.trim() ?? "";
   if (/^pass\b/i.test(text)) return null;
   return text.replace(/^fail\b[:\s]*/i, "").trim() || "Does not satisfy the brief.";
@@ -190,6 +230,8 @@ interface GenerationOutcome {
   degradations: string[];
   revised_prompt?: string;
   review_notes?: string[];
+  /** Whole-call spend: enhance pass + generation(s) + review rounds. */
+  usage: ImageUsage;
 }
 
 /**
@@ -203,23 +245,25 @@ async function generateFromDraft(
   opts: { name?: string; tags?: string[] },
   signal?: AbortSignal,
 ): Promise<GenerationOutcome> {
+  const callTotal = emptyUsage();
   const enhancers = [...ctx.pipeline.filter((e) => e.name !== "fit-to-model"), fitToModel()];
   let finalDraft = await runPipeline(draft, enhancers, {
     library: ctx.library,
     assets: ctx.assets,
     model: ctx.model,
     capabilities: ctx.adapter.capabilities,
+    recordUsage: (u) => recordUsage(ctx, "enhance", u, callTotal),
     signal,
   });
 
   const reviewNotes: string[] = [];
   const maxRounds = ctx.review?.rounds ?? 0;
-  let result = await callAdapter(ctx, finalDraft, signal);
+  let result = await callAdapter(ctx, finalDraft, callTotal, signal);
 
   for (let round = 0; round < maxRounds; round++) {
     const first = result.images[0];
     if (!first || !ctx.review) break;
-    const note = await critique(ctx.review, finalDraft, first, signal);
+    const note = await critique(ctx, ctx.review, finalDraft, first, callTotal, signal);
     if (note === null) break;
     reviewNotes.push(note);
     finalDraft.positive = `${finalDraft.positive}\n\nRevision notes (address these): ${note}`;
@@ -228,7 +272,7 @@ async function generateFromDraft(
       note,
       positive_after: finalDraft.positive,
     });
-    result = await callAdapter(ctx, finalDraft, signal);
+    result = await callAdapter(ctx, finalDraft, callTotal, signal);
   }
 
   const recipeBase: Recipe = {
@@ -244,6 +288,7 @@ async function generateFromDraft(
     scene: finalDraft.requested.scene,
     refs: finalDraft.refs.map((r) => ({ asset: r.asset, role: r.role })),
     trace: finalDraft.trace,
+    usage: callTotal,
   };
 
   const stored: ImageAsset[] = [];
@@ -268,12 +313,14 @@ async function generateFromDraft(
     degradations: degradations(finalDraft),
     revised_prompt: result.revised_prompt,
     review_notes: reviewNotes.length ? reviewNotes : undefined,
+    usage: callTotal,
   };
 }
 
 async function callAdapter(
   ctx: ToolContext,
   draft: PromptDraft,
+  callTotal: ImageUsage,
   signal?: AbortSignal,
 ) {
   const request: ImageGenerateRequest = {
@@ -285,7 +332,14 @@ async function callAdapter(
     candidates: draft.params.candidates,
     extra: draft.params.extra,
   };
-  return ctx.adapter.generate(request, signal);
+  const result = await ctx.adapter.generate(request, signal);
+  recordUsage(
+    ctx,
+    "generate",
+    result.usage ?? { requests: 1 },
+    callTotal,
+  );
+  return result;
 }
 
 // ─── Schemas ───────────────────────────────────────────────────────────────
@@ -485,6 +539,7 @@ export function buildGenerateTool(
             degradations: outcome.degradations,
             review_notes: outcome.review_notes,
             revised_prompt: outcome.revised_prompt,
+            usage: outcome.usage,
           },
           renderData: {
             kind: "gallery",
@@ -533,6 +588,8 @@ export function buildEditTool(
           { prompt: input.instruction, base, mask, refs },
           signal,
         );
+        const callTotal = emptyUsage();
+        recordUsage(ctx, "edit", result.usage ?? { requests: 1 }, callTotal);
 
         const stored: ImageAsset[] = [];
         for (const image of result.images) {
@@ -553,6 +610,7 @@ export function buildEditTool(
                   asset: r.asset,
                   role: r.role as RefRole,
                 })),
+                usage: callTotal,
               },
             }),
           );
@@ -560,7 +618,7 @@ export function buildEditTool(
         const thumbs = await Promise.all(stored.map((a) => renderThumb(ctx, a)));
         return {
           status: "success",
-          data: { assets: stored.map(assetSummary), parent: input.asset },
+          data: { assets: stored.map(assetSummary), parent: input.asset, usage: callTotal },
           renderData: {
             kind: "gallery",
             images: stored.map((a, i) => ({ ...assetSummary(a), dataUrl: thumbs[i] })),
@@ -611,6 +669,7 @@ export function buildRegenerateTool(
             assets: outcome.assets.map(assetSummary),
             regenerated_from: input.asset,
             degradations: outcome.degradations,
+            usage: outcome.usage,
           },
           renderData: {
             kind: "gallery",
@@ -719,6 +778,11 @@ export function buildDescribeTool(ctx: ToolContext): GloveFoldArgs<DescribeInput
             noopNotify,
             signal,
           );
+          recordUsage(ctx, "describe", {
+            requests: 1,
+            tokens_in: result.tokens_in,
+            tokens_out: result.tokens_out,
+          });
           visual = result.messages[result.messages.length - 1]?.text?.trim();
         }
 
@@ -736,6 +800,7 @@ export function buildDescribeTool(ctx: ToolContext): GloveFoldArgs<DescribeInput
                   scene: meta.recipe.scene,
                   parent: meta.recipe.parent,
                   adapter: meta.recipe.adapter,
+                  usage: meta.recipe.usage,
                 }
               : undefined,
             visual_description: visual,
@@ -843,6 +908,23 @@ export function buildAssembleTool(
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));
       }
+    },
+  };
+}
+
+const UsageSchema = z.object({});
+type UsageInput = z.infer<typeof UsageSchema>;
+
+export function buildUsageTool(ctx: ToolContext): GloveFoldArgs<UsageInput> {
+  return {
+    name: "glove_image_usage",
+    description:
+      "Report this session's image-workflow spend: total and per-source (generate, edit, " +
+      "enhance, review, describe) API requests, tokens in/out, and USD cost when the " +
+      "provider reports it. Use it to answer \"what has this cost so far?\".",
+    inputSchema: UsageSchema,
+    async do(): Promise<ToolResultData> {
+      return { status: "success", data: ctx.meter.report() };
     },
   };
 }
@@ -1048,6 +1130,8 @@ export async function mountImage(
     model: config.model,
     defaultCandidates: Math.max(1, config.candidates ?? 1),
     review: config.review,
+    meter: config.usage ?? new UsageMeter(),
+    onUsage: config.onUsage,
   };
   const gate = config.requirePermission ?? false;
 
@@ -1058,6 +1142,7 @@ export async function mountImage(
   glove.fold(buildDescribeTool(ctx));
   glove.fold(buildAssetListTool(ctx));
   glove.fold(buildAssembleTool(ctx));
+  glove.fold(buildUsageTool(ctx));
 
   glove.fold(buildCharacterGetTool(ctx));
   glove.fold(buildCharacterListTool(ctx));

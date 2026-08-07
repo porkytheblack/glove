@@ -473,6 +473,7 @@ the tool descriptions carry that context.
 | `glove_image_import` | `{ url? \| data?, mime?, name?, tags? }` | Lands an external image in the store — http(s) URL, data: URL, or raw base64. Format and dimensions are sniffed from the bytes. *Planned:* `from_message: true` to pull image `ContentPart`s off the current user message. |
 | `glove_image_describe` | `{ asset }` | Metadata (dims, source, recipe summary) at zero model cost; when `review.vision` is configured, adds a one-paragraph visual description. The context-safe way to "look at" an asset. |
 | `glove_image_asset_list` | `{ filter? }` | Browse the store — ids, names, dims, sources, tags. Never bytes. |
+| `glove_image_usage` | `{}` | This session's spend report: total and per-source requests, tokens, and USD cost when reported. |
 | `glove_image_character_save` / `_get` / `_list` / `_remove` | `CharacterDef` fields | Library CRUD. `_save`/`_remove` only folded when `curate: true`. |
 | `glove_image_scene_save` / `_get` / `_list` / `_remove` | `SceneDef` fields | Same. |
 
@@ -554,6 +555,50 @@ keying. `candidates` is clamped to `capabilities.maxCandidates` and to
 the mount's own `candidates` config, whichever is lower, so a model
 can't fan out spend on its own.
 
+### Usage & cost tracking
+
+Every model-touching path is metered — image generations and edits, the
+`llmEnhance` rewrite pass, vision review rounds, and vision describes.
+The unit is `ImageUsage`: `{ requests, tokens_in, tokens_out, cost_usd? }`,
+where `cost_usd` is filled when the provider reports real spend (the
+OpenRouter adapter requests it via `usage: { include: true }` — verified
+live, an image generation reports its actual USD cost).
+
+Spend surfaces in four places:
+
+1. **Per call** — `glove_image_generate` / `_edit` / `_regenerate`
+   results carry `data.usage` for that whole call (enhance + generation
+   + review rounds), so the model sees what each action cost.
+2. **Per asset** — the call's usage is pinned to `Recipe.usage`, so any
+   asset can answer "what did this image cost to make" forever
+   (`glove_image_describe` includes it).
+3. **Per session** — a `UsageMeter` aggregates totals with per-source
+   attribution (`generate` / `edit` / `enhance` / `review` /
+   `describe`). Pass your own via `mountImage({ usage: meter })` to read
+   it host-side, or let the agent read it through the auto-folded
+   `glove_image_usage` tool.
+4. **Your accounting** — `mountImage({ onUsage: (source, usage) => … })`
+   fires on every spend event; wire it to `store.addTokens(...)`, a
+   billing table, or logging.
+
+```ts
+const meter = new UsageMeter();
+await mountImage(glove, {
+  adapter: openrouterImages(),
+  assets, library,
+  usage: meter,
+  onUsage: (source, u) => metrics.increment(`image.${source}`, u.cost_usd ?? 0),
+});
+// later, host-side:
+meter.report();
+// { total: { requests: 3, tokens_in: 29, tokens_out: 3901, cost_usd: 0.116 },
+//   by_source: { generate: {...}, enhance: {...}, edit: {...} } }
+```
+
+Adapters participate by returning `usage` on `ImageModelResult`; an
+adapter that reports nothing is still counted as `{ requests: 1 }` so
+request counts stay honest even without token/cost data.
+
 ## Out of scope (v0.1)
 
 - **Video** — `ContentPart` reserves the type; adapters here are stills only.
@@ -563,8 +608,9 @@ can't fan out spend on its own.
   `ImageModelAdapter` with an `edit`-only mode if you BYO; no built-in.
 - **CDN/serving concerns** — the asset store contract stops at bytes;
   URLs, signing, and caching are the host's.
-- **Cost accounting** — recorded nowhere in v0.1; the host meters at the
-  adapter boundary if needed.
+- **Pricing tables** — `cost_usd` is recorded only when the provider
+  reports real spend (OpenRouter does); the package does not estimate
+  costs from token counts for providers that don't.
 - **Inline prompt syntax** — no `{{character:x}}` parsing, by design (see
   Prompt pipeline).
 - **Multi-character identity guarantees** — `expandCharacters()` splices
@@ -601,5 +647,6 @@ can't fan out spend on its own.
 | Built-in inbetweens | `expandCharacters`, `expandScenes`, `styleDirective`, `negativeDefaults`, `llmEnhance`, `fitToModel` |
 | Assembly spec | `AssemblySpec` (sharp optional peer) |
 | Lineage | `Recipe` on `ImageAsset.recipe` |
+| Spend accounting | `ImageUsage`, `UsageMeter`, `mountImage({ usage, onUsage })`, `glove_image_usage` tool |
 | React renderers | `glove-image/react` (planned) |
 | Reference in-memory adapters | `InMemoryImageAssetStore`, `InMemoryImageLibrary` from `glove-image/in-memory` |

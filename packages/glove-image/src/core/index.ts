@@ -56,6 +56,70 @@ export interface Recipe {
   parent?: string;
   /** For kind "assembled". */
   spec?: AssemblySpec;
+  /**
+   * What this asset cost to make — model requests, tokens, and USD when the
+   * provider reports it. Covers the whole call that produced it: enhance
+   * pass + generation + any review rounds. Candidates from one call share
+   * the same (whole-call) usage record.
+   */
+  usage?: ImageUsage;
+}
+
+// ─── Usage & cost ──────────────────────────────────────────────────────────
+
+/** Where a unit of spend came from. */
+export type UsageSource = "generate" | "edit" | "enhance" | "review" | "describe";
+
+export interface ImageUsage {
+  /** Upstream API requests made. */
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+  /** USD, when the provider reports it (OpenRouter does). Absent otherwise. */
+  cost_usd?: number;
+}
+
+export function emptyUsage(): ImageUsage {
+  return { requests: 0, tokens_in: 0, tokens_out: 0 };
+}
+
+/** Accumulate `b` into `a` (mutates and returns `a`). */
+export function addUsage(a: ImageUsage, b?: Partial<ImageUsage>): ImageUsage {
+  if (!b) return a;
+  a.requests += b.requests ?? 0;
+  a.tokens_in += b.tokens_in ?? 0;
+  a.tokens_out += b.tokens_out ?? 0;
+  if (b.cost_usd !== undefined) a.cost_usd = (a.cost_usd ?? 0) + b.cost_usd;
+  return a;
+}
+
+/**
+ * Session-scoped spend accounting across every model-touching path —
+ * image generations/edits, LLM enhance passes, vision review/describe
+ * calls. The mount records into one of these; read it with `report()` or
+ * let the agent read it via the glove_image_usage tool.
+ */
+export class UsageMeter {
+  private total = emptyUsage();
+  private bySource = new Map<UsageSource, ImageUsage>();
+
+  record(source: UsageSource, usage: Partial<ImageUsage>): void {
+    addUsage(this.total, usage);
+    const bucket = this.bySource.get(source) ?? emptyUsage();
+    addUsage(bucket, usage);
+    this.bySource.set(source, bucket);
+  }
+
+  report(): { total: ImageUsage; by_source: Record<string, ImageUsage> } {
+    const by_source: Record<string, ImageUsage> = {};
+    for (const [source, usage] of this.bySource) by_source[source] = { ...usage };
+    return { total: { ...this.total }, by_source };
+  }
+
+  reset(): void {
+    this.total = emptyUsage();
+    this.bySource.clear();
+  }
 }
 
 export interface ImageAsset {
@@ -207,6 +271,8 @@ export interface ImageModelResult {
   images: Array<{ bytes: Uint8Array; mime: string; seed?: number }>;
   /** Provider-reported final prompt when it rewrites. Recorded in the recipe. */
   revised_prompt?: string;
+  /** Spend for this call, as reported by the provider. */
+  usage?: Partial<ImageUsage>;
 }
 
 export interface ImageModelAdapter {

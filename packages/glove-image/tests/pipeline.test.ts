@@ -10,7 +10,6 @@ import {
   negativeDefaults,
   llmEnhance,
   fitToModel,
-  type EnhancerContext,
 } from "../src/pipeline/index";
 import {
   ImageCharacterNotFoundError,
@@ -28,7 +27,10 @@ const caps: ImageModelCapabilities = {
   maxCandidates: 2,
 };
 
-function ctx(library: InMemoryImageLibrary, model?: ModelAdapter): Omit<EnhancerContext, "note"> {
+function ctx(
+  library: InMemoryImageLibrary,
+  model?: ModelAdapter,
+): Parameters<typeof runPipeline>[2] {
   return {
     library,
     assets: new InMemoryImageAssetStore(),
@@ -107,22 +109,23 @@ test("styleDirective and negativeDefaults compose; duplicates are not re-added",
   assert.equal(out.negative, "watermark, extra fingers");
 });
 
-test("llmEnhance rewrites via the model and notes it; skips without a model", async () => {
+test("llmEnhance rewrites via the model, records usage, and notes it; skips without a model", async () => {
   const library = await seededLibrary();
   const fakeModel: ModelAdapter = {
     name: "fake",
     async prompt() {
-      return { messages: [{ sender: "agent", text: "REWRITTEN PROMPT" }], tokens_in: 0, tokens_out: 0 };
+      return { messages: [{ sender: "agent", text: "REWRITTEN PROMPT" }], tokens_in: 120, tokens_out: 40 };
     },
     setSystemPrompt() {},
   };
-  const withModel = await runPipeline(
-    createDraft({ intent: "x" }),
-    [llmEnhance()],
-    ctx(library, fakeModel),
-  );
+  const recorded: Array<Record<string, unknown>> = [];
+  const withModel = await runPipeline(createDraft({ intent: "x" }), [llmEnhance()], {
+    ...ctx(library, fakeModel),
+    recordUsage: (u) => recorded.push(u as Record<string, unknown>),
+  });
   assert.equal(withModel.positive, "REWRITTEN PROMPT");
   assert.match(withModel.trace[0]!.note ?? "", /Rewritten/);
+  assert.deepEqual(recorded, [{ requests: 1, tokens_in: 120, tokens_out: 40 }]);
 
   const without = await runPipeline(createDraft({ intent: "x" }), [llmEnhance()], ctx(library));
   assert.equal(without.positive, "x");

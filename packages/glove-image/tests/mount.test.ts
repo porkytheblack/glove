@@ -4,6 +4,9 @@ import type { GloveFoldArgs, ToolResultData } from "glove-core";
 import {
   type ImageModelAdapter,
   type ImageGenerateRequest,
+  type ImageUsage,
+  type UsageSource,
+  UsageMeter,
 } from "../src/core/index";
 import { InMemoryImageAssetStore, InMemoryImageLibrary } from "../src/in-memory/index";
 import { mountImage, type ImageMountTarget } from "../src/tools/index";
@@ -44,10 +47,14 @@ function fakeAdapter(log: ImageGenerateRequest[] = []): ImageModelAdapter {
       const n = Math.max(1, req.candidates ?? 1);
       return {
         images: Array.from({ length: n }, () => ({ bytes: PNG_1x1, mime: "image/png" })),
+        usage: { requests: n, tokens_in: 10 * n, tokens_out: 1000 * n, cost_usd: 0.03 * n },
       };
     },
     async edit() {
-      return { images: [{ bytes: PNG_1x1, mime: "image/png" }] };
+      return {
+        images: [{ bytes: PNG_1x1, mime: "image/png" }],
+        usage: { requests: 1, tokens_in: 15, tokens_out: 1200, cost_usd: 0.04 },
+      };
     },
   };
 }
@@ -57,13 +64,17 @@ async function setup(opts: { curate?: boolean } = {}) {
   const assets = new InMemoryImageAssetStore();
   const library = new InMemoryImageLibrary();
   const log: ImageGenerateRequest[] = [];
+  const meter = new UsageMeter();
+  const usageEvents: Array<{ source: UsageSource; usage: ImageUsage }> = [];
   await mountImage(glove, {
     adapter: fakeAdapter(log),
     assets,
     library,
     curate: opts.curate,
+    usage: meter,
+    onUsage: (source, usage) => usageEvents.push({ source, usage }),
   });
-  return { glove, assets, library, log };
+  return { glove, assets, library, log, meter, usageEvents };
 }
 
 test("mountImage folds the full surface; curate:false drops library writes", async () => {
@@ -243,6 +254,52 @@ test("character save preserves created_at on upsert and enforces kebab-case", as
   const tool = (glove as any).tools.get("glove_image_character_save");
   const bad = tool.inputSchema.safeParse({ name: "Not Kebab", appearance: "long enough here" });
   assert.equal(bad.success, false);
+});
+
+test("usage: per-call cost lands in data + recipe, aggregates on the meter, fires onUsage", async () => {
+  const { glove, assets, meter, usageEvents } = await setup();
+
+  const gen = await glove.run("glove_image_generate", { intent: "a lighthouse", candidates: 2 });
+  assert.equal(gen.status, "success");
+  const callUsage = (gen.data as any).usage as ImageUsage;
+  // Fake adapter reports per-candidate usage: 2 requests, 0.06 USD.
+  assert.equal(callUsage.requests, 2);
+  assert.equal(callUsage.tokens_out, 2000);
+  assert.ok(Math.abs((callUsage.cost_usd ?? 0) - 0.06) < 1e-9);
+
+  // Recipe pins the whole-call spend to the asset.
+  const stored = await assets.get((gen.data as any).assets[0].id);
+  assert.equal(stored?.recipe?.usage?.requests, 2);
+
+  // Edit adds its own spend under a separate source.
+  const imported = await glove.run("glove_image_import", {
+    data: Buffer.from(PNG_1x1).toString("base64"),
+  });
+  const edited = await glove.run("glove_image_edit", {
+    asset: (imported.data as any).id,
+    instruction: "bluer",
+  });
+  assert.equal((edited.data as any).usage.cost_usd, 0.04);
+  const editedMeta = await assets.get((edited.data as any).assets[0].id);
+  assert.equal(editedMeta?.recipe?.usage?.tokens_out, 1200);
+
+  // Meter aggregates across calls with per-source attribution...
+  const report = meter.report();
+  assert.equal(report.total.requests, 3);
+  assert.equal(report.total.tokens_out, 3200);
+  assert.ok(Math.abs((report.total.cost_usd ?? 0) - 0.1) < 1e-9);
+  assert.equal(report.by_source.generate!.requests, 2);
+  assert.equal(report.by_source.edit!.requests, 1);
+
+  // ...the agent can read the same report through the tool...
+  const toolReport = await glove.run("glove_image_usage", {});
+  assert.deepEqual((toolReport.data as any).total, report.total);
+
+  // ...and the host callback saw every spend event with its source.
+  assert.deepEqual(
+    usageEvents.map((e) => e.source),
+    ["generate", "edit"],
+  );
 });
 
 test("assemble composites layers onto a canvas (sharp present in workspace)", async (t) => {

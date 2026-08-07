@@ -9,8 +9,11 @@ import {
   type ImageGenerateRequest,
   type ImageModelAdapter,
   type ImageModelResult,
+  type ImageUsage,
   type ResolvedRef,
   ImageError,
+  addUsage,
+  emptyUsage,
   fromDataUrl,
   toDataUrl,
 } from "../core/index";
@@ -59,7 +62,7 @@ export function openrouterImages(
     parts: ChatContentPart[],
     extra: Record<string, unknown> | undefined,
     signal?: AbortSignal,
-  ): Promise<{ bytes: Uint8Array; mime: string }[]> {
+  ): Promise<{ images: { bytes: Uint8Array; mime: string }[]; usage: ImageUsage }> {
     if (!apiKey) {
       throw new ImageError(
         "OpenRouter API key missing — pass apiKey or set OPENROUTER_API_KEY.",
@@ -78,6 +81,9 @@ export function openrouterImages(
         model,
         modalities: ["image", "text"],
         messages: [{ role: "user", content: parts }],
+        // Ask OpenRouter to report token counts AND the actual USD cost
+        // of the request in the response body.
+        usage: { include: true },
         ...extra,
       }),
     });
@@ -92,9 +98,16 @@ export function openrouterImages(
           content?: string;
         };
       }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
       error?: { message?: string };
     };
     if (json.error?.message) throw new ImageError(`OpenRouter: ${json.error.message}`);
+    const usage: ImageUsage = {
+      requests: 1,
+      tokens_in: json.usage?.prompt_tokens ?? 0,
+      tokens_out: json.usage?.completion_tokens ?? 0,
+      ...(json.usage?.cost !== undefined ? { cost_usd: json.usage.cost } : {}),
+    };
     const images = json.choices?.[0]?.message?.images ?? [];
     if (images.length === 0) {
       const text = json.choices?.[0]?.message?.content?.slice(0, 300);
@@ -102,11 +115,14 @@ export function openrouterImages(
         `OpenRouter returned no images${text ? ` — model said: ${text}` : ""}`,
       );
     }
-    return images.map((img) => {
-      const url = img.image_url?.url;
-      if (!url) throw new ImageError("OpenRouter image entry missing image_url");
-      return fromDataUrl(url);
-    });
+    return {
+      images: images.map((img) => {
+        const url = img.image_url?.url;
+        if (!url) throw new ImageError("OpenRouter image entry missing image_url");
+        return fromDataUrl(url);
+      }),
+      usage,
+    };
   }
 
   function buildParts(prompt: string, refs: ResolvedRef[]): ChatContentPart[] {
@@ -141,7 +157,9 @@ export function openrouterImages(
       const batches = await Promise.all(
         Array.from({ length: n }, () => callOnce(parts, req.extra, signal)),
       );
-      return { images: batches.flat() };
+      const usage = emptyUsage();
+      for (const batch of batches) addUsage(usage, batch.usage);
+      return { images: batches.flatMap((b) => b.images), usage };
     },
     async edit(req: ImageEditRequest, signal?: AbortSignal): Promise<ImageModelResult> {
       const refs: ResolvedRef[] = [
@@ -155,8 +173,8 @@ export function openrouterImages(
         `Edit the base image as instructed, changing nothing else: ${req.prompt}`,
         refs,
       );
-      const images = await callOnce(parts, req.extra, signal);
-      return { images };
+      const { images, usage } = await callOnce(parts, req.extra, signal);
+      return { images, usage };
     },
   };
 }

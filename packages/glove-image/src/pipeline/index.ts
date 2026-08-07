@@ -10,6 +10,7 @@ import {
   type ImageAssetStore,
   type ImageLibraryReader,
   type ImageModelCapabilities,
+  type ImageUsage,
   type RefImage,
   type SceneDef,
   type TraceEntry,
@@ -46,6 +47,11 @@ export interface EnhancerContext {
   capabilities: ImageModelCapabilities;
   /** Attach an explanation to this stage's trace entry. */
   note(message: string): void;
+  /**
+   * Report model spend this stage incurred (LLM rewrite passes etc.).
+   * The mount aggregates it into the session UsageMeter under "enhance".
+   */
+  recordUsage(usage: Partial<ImageUsage>): void;
   signal?: AbortSignal;
 }
 
@@ -84,7 +90,9 @@ export function createDraft(args: {
 export async function runPipeline(
   draft: PromptDraft,
   enhancers: PromptEnhancer[],
-  ctx: Omit<EnhancerContext, "note">,
+  ctx: Omit<EnhancerContext, "note" | "recordUsage"> & {
+    recordUsage?: (usage: Partial<ImageUsage>) => void;
+  },
 ): Promise<PromptDraft> {
   let current = draft;
   for (const enhancer of enhancers) {
@@ -92,6 +100,7 @@ export async function runPipeline(
     const stageCtx: EnhancerContext = {
       ...ctx,
       note: (message) => notes.push(message),
+      recordUsage: ctx.recordUsage ?? (() => {}),
     };
     const result = await enhancer.run(current, stageCtx);
     if (result) current = result;
@@ -257,6 +266,11 @@ export function llmEnhance(options: LlmEnhanceOptions = {}): PromptEnhancer {
         noopNotify,
         ctx.signal,
       );
+      ctx.recordUsage({
+        requests: 1,
+        tokens_in: result.tokens_in,
+        tokens_out: result.tokens_out,
+      });
       const text = result.messages[result.messages.length - 1]?.text?.trim();
       if (text) {
         draft.positive = text;
