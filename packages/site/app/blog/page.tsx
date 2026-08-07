@@ -1,10 +1,26 @@
 import Link from "next/link";
 import { sortedPosts, formatDate } from "@/lib/blog";
 
+const description =
+  "Release notes and writing from the Glove project — what shipped, why it exists, and what it is for.";
+
 export const metadata = {
   title: "Blog",
-  description:
-    "Release notes and writing from the Glove project — what shipped, why it exists, and what it is for.",
+  description,
+  openGraph: {
+    type: "website",
+    siteName: "Glove",
+    title: "The Glove blog",
+    description,
+    url: "/blog",
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "The Glove blog" }],
+  },
+  twitter: {
+    card: "summary_large_image" as const,
+    title: "The Glove blog",
+    description,
+    images: ["/og.png"],
+  },
 };
 
 export default function BlogIndexPage() {

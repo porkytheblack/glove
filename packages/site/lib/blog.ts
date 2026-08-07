@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+
 // Single source of truth for the blog index.
 //
 // Each post is an ordinary page under app/blog/<slug>/page.tsx — same shape
@@ -23,8 +25,8 @@ export const posts: BlogPost[] = [
     summary:
       "Start with a loop that calls a function, then add one piece at a time — only when something breaks. Every primitive in the framework, in the order it earns its place.",
     date: "2026-08-07",
-    readingTime: 18,
-    tags: ["guide", "concepts", "tools", "memory", "deployment"],
+    readingTime: 26,
+    tags: ["guide", "code-execution", "memory", "realtime", "images"],
   },
   {
     slug: "eight-new-packages",
@@ -41,6 +43,50 @@ export const sortedPosts = [...posts].sort((a, b) => b.date.localeCompare(a.date
 
 export function getPost(slug: string): BlogPost | undefined {
   return posts.find((p) => p.slug === slug);
+}
+
+/**
+ * Page metadata for a post, including the social card.
+ *
+ * The root layout sets `openGraph.title` / `twitter.title` to "Glove", and
+ * those do NOT inherit the page's `title` — so a post shared to X, Slack or
+ * LinkedIn would render a card headed "Glove" with no hint of what the link
+ * actually is. Setting them per post is the fix, and it lives here so every
+ * future post gets it by construction rather than by remembering.
+ *
+ * The card image stays the site's `/og.png`; only the text is per post.
+ */
+export function postMetadata(post: BlogPost): Metadata {
+  const url = `/blog/${post.slug}`;
+
+  return {
+    title: post.title,
+    description: post.summary,
+    alternates: { canonical: url },
+    openGraph: {
+      type: "article",
+      siteName: "Glove",
+      title: post.title,
+      description: post.summary,
+      url,
+      publishedTime: post.date,
+      tags: post.tags,
+      images: [
+        {
+          url: "/og.png",
+          width: 1200,
+          height: 630,
+          alt: post.title,
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: post.title,
+      description: post.summary,
+      images: ["/og.png"],
+    },
+  };
 }
 
 export function formatDate(iso: string): string {
