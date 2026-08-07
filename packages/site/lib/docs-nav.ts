@@ -151,6 +151,14 @@ export const docsSections: DocsNavSection[] = [
           "Prompt pipelines with enhancer inbetweens, durable characters and scenes, reference images, editing, assembly, vision review and per-call cost tracking.",
         packages: ["glove-image"],
       },
+      {
+        label: "Image Gallery",
+        href: "/docs/image/gallery",
+        badge: "new",
+        summary:
+          "A worked SS26 campaign — every image with its real prompt, pipeline trace and cost, plus a provenance canvas showing how one was made.",
+        packages: ["glove-image"],
+      },
     ],
   },
   {
