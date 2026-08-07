@@ -115,6 +115,16 @@ export default function PackagesPage() {
             </td>
           </tr>
           <tr>
+            <td>Generative media</td>
+            <td>
+              <code>glove-image</code>
+            </td>
+            <td>
+              The agent generates and refines images — recurring characters,
+              scenes, references.
+            </td>
+          </tr>
+          <tr>
             <td>Coordination</td>
             <td>
               <code>glove-mesh</code>, <code>glove-continuum-signal</code>
@@ -843,6 +853,53 @@ meter.report(canaries);  // what actually crossed`}
         />
         <p>
           → <a href="/docs/egress">Egress control</a>
+        </p>
+      </Pkg>
+
+      {/* ============================================================ */}
+      <h2 id="generative-media">Generative media</h2>
+
+      <Pkg name="glove-image" tag="agentic image generation">
+        <p>
+          Image generation as a workflow rather than a single call: a prompt
+          pipeline of <em>enhancer inbetweens</em>, durable characters and
+          scenes spliced verbatim into every prompt, reference images with
+          roles, editing, deterministic assembly, an optional vision model to
+          review its own output, and per-call cost tracking. The image model is
+          an adapter you bring.
+        </p>
+        <CodeBlock
+          filename="terminal"
+          language="bash"
+          code={`pnpm add glove-image`}
+        />
+        <CodeBlock
+          filename="image.ts"
+          language="typescript"
+          code={`import {
+  mountImage,
+  InMemoryImageAssetStore,
+  InMemoryImageLibrary,
+  expandCharacters,
+  expandScenes,
+  styleDirective,
+  openrouterImages,
+} from "glove-image";
+
+await mountImage(glove, {
+  adapter: openrouterImages(),               // OPENROUTER_API_KEY
+  assets: new InMemoryImageAssetStore(),
+  library: new InMemoryImageLibrary(),
+  pipeline: [expandCharacters(), expandScenes(), styleDirective("gouache, muted palette")],
+});
+
+// The agent then works in asset ids:
+//   glove_image_character_save({ name: "mira", appearance: "..." })
+//   glove_image_generate({ intent: "Mira at the harbor", characters: ["mira"] })
+//   glove_image_regenerate({ asset: "img_...", tweak: "at dusk" })`}
+        />
+        <p>
+          → <a href="/docs/image">Image workflows guide</a>
         </p>
       </Pkg>
 

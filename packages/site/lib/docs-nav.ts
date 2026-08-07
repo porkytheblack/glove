@@ -140,6 +140,20 @@ export const docsSections: DocsNavSection[] = [
     ],
   },
   {
+    title: "Generative Media",
+    blurb: "Agentic generation of images — workflows, not one-off calls.",
+    items: [
+      {
+        label: "Image Workflows",
+        href: "/docs/image",
+        badge: "new",
+        summary:
+          "Prompt pipelines with enhancer inbetweens, durable characters and scenes, reference images, editing, assembly, vision review and per-call cost tracking.",
+        packages: ["glove-image"],
+      },
+    ],
+  },
+  {
     title: "Memory & State",
     blurb: "What the agent knows, and what it carries between turns.",
     items: [
