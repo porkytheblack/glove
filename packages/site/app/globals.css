@@ -678,3 +678,34 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
   .blog-shell { padding: calc(var(--nav-h) + 1.25rem) 1.25rem 3.5rem; }
   .blog-card { padding: 1.2rem 1.25rem; }
 }
+
+/* Blog figures — image sets inside a post. The grid is fixed-column rather
+   than auto-fill so a five-across comparison stays five across: the whole
+   point of those rows is reading the same subject left to right. */
+.blog-figure { margin: 1.75rem 0 2rem; }
+.blog-figure-grid { display: grid; gap: 0.5rem; }
+.blog-figure-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.blog-figure-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.blog-figure-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.blog-figure-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
+.blog-figure-grid img {
+  display: block; width: 100%; height: auto; aspect-ratio: 1 / 1;
+  object-fit: cover; border-radius: 7px;
+  border: 1px solid var(--border-subtle); background: var(--bg-elevated);
+}
+.blog-figure figcaption {
+  margin-top: 0.7rem; font-size: 0.8rem; line-height: 1.55;
+  color: var(--text-tertiary);
+}
+
+@media (max-width: 720px) {
+  /* Below this the five-across row is unreadable; drop to a scannable grid
+     rather than five slivers. */
+  .blog-figure-grid.cols-4,
+  .blog-figure-grid.cols-5 { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 440px) {
+  .blog-figure-grid.cols-3,
+  .blog-figure-grid.cols-4,
+  .blog-figure-grid.cols-5 { grid-template-columns: repeat(2, 1fr); }
+}
