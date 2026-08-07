@@ -17,6 +17,11 @@
 //   OPENAI_API_KEY /     the credential, when `getToken` isn't supplied.
 //   GEMINI_API_KEY       Server-side only — env keys never belong in a browser.
 //   S2S_TURN_DETECTION   OpenAI only: semantic_vad (default) | server_vad.
+//   S2S_API_VERSION      Gemini only: v1beta (default) | v1alpha. Which one
+//                        serves a Live model is model-dependent; the wrong
+//                        one closes the session with "not found for API
+//                        version …". `listGeminiLiveModels()` reports which
+//                        versions serve which models for your key.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { GeminiLiveAdapter, type GeminiLiveConfig } from "./gemini-live";
@@ -141,8 +146,14 @@ export function createS2SAdapter(args: CreateS2SAdapterArgs = {}): S2SAdapter {
     case "gemini": {
       const { provider: _p, apiKey: _k, getToken: _t, model: _m, voice: _v, ...rest } =
         a as CommonArgs & GeminiLiveConfig;
+      // Which API version serves a Live model is model-dependent (newer
+      // previews land on v1alpha first), and getting it wrong closes the
+      // session with "not found for API version …" — so it must be settable
+      // without a code change, like the model itself.
+      const apiVersion = rest.apiVersion ?? (env("S2S_API_VERSION") || undefined);
       return new GeminiLiveAdapter({
         ...rest,
+        ...(apiVersion ? { apiVersion } : {}),
         ...(model ? { model } : {}),
         ...(voice ? { voice } : {}),
         getToken,

@@ -229,3 +229,44 @@ test("S2S_TURN_DETECTION shapes the OpenAI session setup", async () => {
   const update = sent[0] as { session?: { audio?: { input?: { turn_detection?: { type?: string } } } } };
   assert.equal(update.session?.audio?.input?.turn_detection?.type, "server_vad");
 });
+
+test("Gemini: the API version is settable — the wrong one closes the session", async () => {
+  // Which version serves a Live model is model-dependent, so it must be
+  // reachable from config AND env, not baked into the URL.
+  const urls: string[] = [];
+  const socketFactory = (url: string) => {
+    urls.push(url);
+    return {
+      send() {},
+      close() {},
+      readyState: 1,
+      addEventListener(type: string, fn: (ev: any) => void) {
+        if (type === "open") queueMicrotask(() => fn({}));
+      },
+    };
+  };
+
+  const explicit = createS2SAdapter({
+    provider: "gemini",
+    apiKey: "k",
+    apiVersion: "v1alpha",
+    socketFactory,
+  });
+  await explicit.connect();
+  assert.match(urls[0], /generativelanguage\.v1alpha\.GenerativeService/);
+
+  const prev = process.env.S2S_API_VERSION;
+  process.env.S2S_API_VERSION = "v1alpha";
+  try {
+    const fromEnv = createS2SAdapter({ provider: "gemini", apiKey: "k", socketFactory });
+    await fromEnv.connect();
+    assert.match(urls[1], /v1alpha/, "S2S_API_VERSION was ignored");
+  } finally {
+    if (prev === undefined) delete process.env.S2S_API_VERSION;
+    else process.env.S2S_API_VERSION = prev;
+  }
+
+  const dflt = createS2SAdapter({ provider: "gemini", apiKey: "k", socketFactory });
+  await dflt.connect();
+  assert.match(urls[2], /v1beta/, "default must stay v1beta");
+});

@@ -11,13 +11,35 @@
 
 import "../lib/load-env";
 import { MemoryStore } from "glove-core";
-import { RealtimeAgent } from "glove-voice-s2s";
+import { RealtimeAgent, listGeminiLiveModels } from "glove-voice-s2s";
 import { buildS2SFrontAgent } from "../lib/s2s-front-agent";
 
-const apiKey = process.env.GEMINI_API_KEY;
+const apiKey = process.env.GEMINI_API_KEY ?? "";
 if (!apiKey) {
   console.error("GEMINI_API_KEY is not set — put it in .env.local (see .env.example).");
   process.exit(1);
+}
+
+/** What THIS key can actually open a Live session with, and from where. */
+async function reportAvailableModels(): Promise<void> {
+  const models = await listGeminiLiveModels({ apiKey });
+  if (models.length === 0) {
+    console.log(
+      "\nNo models on this key report bidiGenerateContent support on either\n" +
+        "v1beta or v1alpha — which usually means the key itself lacks Live access.",
+    );
+    return;
+  }
+  console.log("\nModels THIS key can open a Live session with:\n");
+  for (const m of models) {
+    console.log(`  S2S_MODEL=${m.name}${m.apiVersion === "v1beta" ? "" : `  S2S_API_VERSION=${m.apiVersion}`}`);
+  }
+  console.log("\n(Copy one of those lines into .env.local.)");
+}
+
+if (process.argv.includes("--list")) {
+  await reportAvailableModels();
+  process.exit(0);
 }
 
 const agent = buildS2SFrontAgent(new MemoryStore("probe"), {
@@ -64,8 +86,10 @@ if (samples > 0) {
 console.log(
   "✗ NO AUDIO CAME BACK.\n" +
     "  If an error printed above, that IS the diagnosis — a rejected setup frame\n" +
-    "  (unsupported tool-schema keys, a bad model name, a bad key) closes the\n" +
-    "  session and leaves every call silent. Compare the close reason against the\n" +
-    "  setup we send in packages/glove-voice-s2s/src/gemini-live.ts.",
+    "  (bad model id, wrong API version, unsupported tool-schema keys, bad key)\n" +
+    "  closes the session and leaves every call silent.",
 );
+// "not found for API version …" has three different causes the message can't
+// tell apart — so answer it from the key itself rather than leaving a guess.
+await reportAvailableModels().catch(() => {});
 process.exit(1);

@@ -77,7 +77,19 @@ export interface GeminiLiveConfig {
    * tune when compression kicks in, or `false` to accept the 15-minute cap.
    */
   contextWindowCompression?: false | { triggerTokens?: number };
-  /** Override the endpoint (regional deployments, Vertex). */
+  /**
+   * The API version the Live endpoint is served from. Default "v1beta".
+   *
+   * This is model-dependent and NOT cosmetic: a model served only from
+   * another version is reported as "<model> is not found for API version
+   * v1beta, or is not supported for bidiGenerateContent" and the session
+   * closes (1008). Newer preview models commonly land on "v1alpha" first.
+   * `listGeminiLiveModels()` answers which versions serve which models for
+   * your own key.
+   */
+  apiVersion?: "v1beta" | "v1alpha" | (string & {});
+  /** Override the endpoint entirely (regional deployments, Vertex). Wins
+   *  over `apiVersion`. */
   url?: string;
   /**
    * Inject the socket. Node has a global `WebSocket` from 22, but a host that
@@ -154,6 +166,54 @@ export function geminiSchema(schema: unknown): Record<string, unknown> {
   return out;
 }
 
+/**
+ * Ask Google which models THIS key can actually open a Live session with.
+ *
+ * "<model> is not found for API version v1beta, or is not supported for
+ * bidiGenerateContent" is the single most common Gemini Live failure, and it
+ * has three different causes (wrong id, wrong API version, no access on this
+ * key) that the message doesn't distinguish. ListModels does: it reports each
+ * model's `supportedGenerationMethods`, per version, for the caller's own
+ * project — so this replaces guesswork with an answer.
+ */
+export async function listGeminiLiveModels(opts: {
+  apiKey: string;
+  /** Versions to probe. Default: both — which one serves a model is exactly
+   *  the thing in question. */
+  apiVersions?: string[];
+  fetchFn?: typeof fetch;
+}): Promise<Array<{ name: string; apiVersion: string; displayName?: string }>> {
+  const doFetch = opts.fetchFn ?? fetch;
+  const out: Array<{ name: string; apiVersion: string; displayName?: string }> = [];
+  for (const version of opts.apiVersions ?? ["v1beta", "v1alpha"]) {
+    try {
+      const res = await doFetch(
+        `https://generativelanguage.googleapis.com/${version}/models?key=${encodeURIComponent(opts.apiKey)}&pageSize=200`,
+      );
+      if (!res.ok) continue;
+      const body = (await res.json()) as {
+        models?: Array<{
+          name?: string;
+          displayName?: string;
+          supportedGenerationMethods?: string[];
+        }>;
+      };
+      for (const m of body.models ?? []) {
+        if (!m.name) continue;
+        if (!m.supportedGenerationMethods?.includes("bidiGenerateContent")) continue;
+        out.push({
+          name: m.name.replace(/^models\//, ""),
+          apiVersion: version,
+          ...(m.displayName ? { displayName: m.displayName } : {}),
+        });
+      }
+    } catch {
+      /* one version being unreachable must not hide the other */
+    }
+  }
+  return out;
+}
+
 export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAdapter {
   readonly mode = "transport" as const;
   readonly inputFormat = GEMINI_INPUT;
@@ -177,9 +237,10 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
 
   async connect(config?: S2SSessionConfig): Promise<void> {
     const token = await this.cfg.getToken();
+    const version = this.cfg.apiVersion ?? "v1beta";
     const base =
       this.cfg.url ??
-      "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+      `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.${version}.GenerativeService.BidiGenerateContent`;
     const url = `${base}?key=${encodeURIComponent(token)}`;
 
     const ws = this.cfg.socketFactory
