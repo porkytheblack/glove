@@ -97,6 +97,63 @@ export interface WebSocketLike {
 const GEMINI_INPUT: S2SAudioFormat = { sampleRate: 16_000, channels: 1, encoding: "pcm_s16le" };
 const GEMINI_OUTPUT: S2SAudioFormat = { sampleRate: 24_000, channels: 1, encoding: "pcm_s16le" };
 
+/**
+ * Every field Gemini's `Schema` accepts — an OpenAPI 3.0 subset, NOT JSON
+ * Schema. An allowlist rather than a blocklist on purpose: the input comes
+ * from `z.toJSONSchema()`, and a Zod release that starts emitting one more
+ * keyword must not be able to take the voice down again.
+ */
+const GEMINI_SCHEMA_KEYS = new Set([
+  "type", "format", "title", "description", "nullable", "enum", "items",
+  "properties", "required", "minItems", "maxItems", "minProperties",
+  "maxProperties", "minLength", "maxLength", "pattern", "minimum", "maximum",
+  "default", "anyOf", "example", "propertyOrdering",
+]);
+
+/**
+ * Project a JSON Schema onto Gemini's Schema.
+ *
+ * This is load-bearing, not hygiene. Gemini validates the setup frame
+ * strictly and rejects the ENTIRE session over a single unknown key —
+ * `$schema` and `additionalProperties`, both of which `z.toJSONSchema()`
+ * emits by default, are each enough. The socket then closes and the call is
+ * silent end to end: mic streaming up, nothing ever coming back. (OpenAI
+ * Realtime accepts full JSON Schema, which is why only this adapter needs it.)
+ */
+export function geminiSchema(schema: unknown): Record<string, unknown> {
+  if (!schema || typeof schema !== "object") return { type: "object", properties: {} };
+  const src = schema as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(src)) {
+    if (!GEMINI_SCHEMA_KEYS.has(key)) continue;
+    if (key === "properties" && value && typeof value === "object") {
+      const props: Record<string, unknown> = {};
+      for (const [name, sub] of Object.entries(value as Record<string, unknown>)) {
+        props[name] = geminiSchema(sub);
+      }
+      out.properties = props;
+    } else if (key === "items") {
+      out.items = geminiSchema(value);
+    } else if (key === "anyOf" && Array.isArray(value)) {
+      out.anyOf = value.map((s) => geminiSchema(s));
+    } else if (key === "type" && Array.isArray(value)) {
+      // JSON Schema's `["string", "null"]` union is Gemini's `nullable`.
+      const types = value.filter((t) => t !== "null");
+      out.type = types[0] ?? "string";
+      if (types.length !== value.length) out.nullable = true;
+    } else {
+      out[key] = value;
+    }
+  }
+
+  // `const` has no Gemini equivalent, but a single-value enum says the same
+  // thing — and dropping it silently would widen the contract instead.
+  if ("const" in src && !("enum" in out)) out.enum = [src.const];
+  if (out.type === "object" && !out.properties) out.properties = {};
+  return out;
+}
+
 export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAdapter {
   readonly mode = "transport" as const;
   readonly inputFormat = GEMINI_INPUT;
@@ -139,9 +196,30 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
     }
 
     ws.addEventListener("message", (ev: { data: unknown }) => this.onMessage(ev.data));
-    ws.addEventListener("error", () => this.emit("error", new Error("Gemini Live socket error")));
-    ws.addEventListener("close", () => {
+    ws.addEventListener("error", (ev: { message?: string; error?: { message?: string } }) =>
+      this.emit(
+        "error",
+        new Error(`Gemini Live socket error: ${ev?.error?.message ?? ev?.message ?? "unknown"}`),
+      ),
+    );
+    ws.addEventListener("close", (ev: { code?: number; reason?: string }) => {
+      const wasConnected = this.connected;
       this.connected = false;
+      // Gemini reports a REJECTED SETUP by closing with a descriptive reason
+      // ("Unknown name \"$schema\" at 'setup.tools[0]…'"). Swallowing it turns
+      // every configuration mistake into an unexplained silent call, so an
+      // abnormal close is surfaced as an error, not just a disconnect.
+      const code = ev?.code;
+      const reason = ev?.reason;
+      if (code !== undefined && code !== 1000 && code !== 1005) {
+        this.emit(
+          "error",
+          new Error(
+            `Gemini Live closed (${code})${reason ? `: ${reason}` : ""}` +
+              (wasConnected ? "" : " — the session never started; check the setup frame"),
+          ),
+        );
+      }
       this.emit("disconnected");
     });
 
@@ -198,7 +276,9 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
           functionDeclarations: config.tools.map((t) => ({
             name: t.name,
             description: t.description,
-            parameters: t.parameters,
+            // MUST be sanitized: Gemini's Schema is an OpenAPI 3.0 subset and
+            // REJECTS THE WHOLE SETUP over one unknown key. See geminiSchema.
+            parameters: geminiSchema(t.parameters),
           })),
         },
       ];

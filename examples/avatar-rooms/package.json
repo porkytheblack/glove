@@ -7,7 +7,8 @@
     "prestart": "pnpm --filter glove-voice build && pnpm --filter glove-voice-s2s build && pnpm --filter glove-voice-avatar build",
     "start": "station",
     "typecheck": "tsc --noEmit",
-    "key": "tsx scripts/provision-key.ts"
+    "key": "tsx scripts/provision-key.ts",
+    "probe:gemini": "tsx scripts/probe-gemini.ts"
   },
   "dependencies": {
     "dotenv": "^17.2.3",

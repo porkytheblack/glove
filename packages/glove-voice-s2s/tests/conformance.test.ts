@@ -93,6 +93,69 @@ function geminiContext(): ConformanceContext {
   };
 }
 
+test("Gemini tool schemas are projected onto Gemini's Schema subset", async () => {
+  const socket = new FakeSocket();
+  const adapter = new GeminiLiveAdapter({ getToken: () => "t", socketFactory: () => socket });
+  await adapter.connect({
+    tools: [
+      {
+        name: "send_message",
+        description: "send",
+        // Exactly what z.toJSONSchema() emits — $schema and
+        // additionalProperties are each enough for Gemini to reject the
+        // whole setup and close the socket.
+        parameters: {
+          $schema: "https://json-schema.org/draft/2020-12/schema",
+          type: "object",
+          properties: {
+            recipient: { type: "string", description: "who" },
+            mode: { const: "async" },
+            note: { type: ["string", "null"] },
+            tags: { type: "array", items: { type: "string", $comment: "x" } },
+          },
+          required: ["recipient"],
+          additionalProperties: false,
+        },
+      },
+    ],
+  });
+
+  const setup = (socket.sent[0] as { setup: any }).setup;
+  const params = setup.tools[0].functionDeclarations[0].parameters;
+  const serialized = JSON.stringify(params);
+  for (const banned of ["$schema", "additionalProperties", "$comment"]) {
+    assert.ok(!serialized.includes(banned), `${banned} survived — Gemini rejects the whole session`);
+  }
+  assert.equal(params.properties.recipient.description, "who", "real fields must survive");
+  assert.deepEqual(params.required, ["recipient"]);
+  assert.deepEqual(params.properties.mode.enum, ["async"], "const should become a single-value enum");
+  assert.equal(params.properties.note.type, "string");
+  assert.equal(params.properties.note.nullable, true, "[\"string\",\"null\"] is Gemini's nullable");
+  assert.equal(params.properties.tags.items.type, "string");
+});
+
+test("an abnormal close surfaces the provider's reason instead of silence", async () => {
+  const socket = new FakeSocket();
+  const adapter = new GeminiLiveAdapter({ getToken: () => "t", socketFactory: () => socket });
+  const errors: string[] = [];
+  adapter.on("error", (err) => void errors.push(err.message));
+  await adapter.connect();
+
+  socket.fire("close", { code: 1007, reason: 'Unknown name "$schema" at \'setup.tools[0]\'' });
+  assert.equal(errors.length, 1, "a rejected setup must not look like a clean disconnect");
+  assert.match(errors[0], /1007/);
+  assert.match(errors[0], /\$schema/);
+
+  // A normal close is not an error.
+  const clean = new FakeSocket();
+  const adapter2 = new GeminiLiveAdapter({ getToken: () => "t", socketFactory: () => clean });
+  const errors2: string[] = [];
+  adapter2.on("error", (err) => void errors2.push(err.message));
+  await adapter2.connect();
+  clean.fire("close", { code: 1000 });
+  assert.deepEqual(errors2, []);
+});
+
 test("Gemini frames decode from every wire shape: ArrayBuffer, Blob, string", async () => {
   for (const encode of [
     (s: string) => new TextEncoder().encode(s).buffer,          // ArrayBuffer
