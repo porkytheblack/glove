@@ -14,6 +14,7 @@ export function SiteNav() {
       <div className="nav-links">
         <Link href="/docs/intro">Docs</Link>
         <Link href="/docs/showcase/travel-planner">Showcase</Link>
+        <Link href="/blog">Blog</Link>
         <a
           href="https://github.com/porkytheblack/glove"
           target="_blank"
