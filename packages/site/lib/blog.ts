@@ -36,6 +36,15 @@ export const posts: BlogPost[] = [
     tags: ["memory", "forms", "evals", "design"],
   },
   {
+    slug: "building-the-voice-stack",
+    title: "Building the voice stack: what only live calls told us",
+    summary:
+      "Five examples, three avatar providers, and a run of bugs that every test suite passed through. Notes on the decisions that held and the ones the wire corrected.",
+    date: "2026-08-07",
+    readingTime: 11,
+    tags: ["voice", "avatars", "livekit", "field-notes"],
+  },
+  {
     slug: "eight-new-packages",
     title: "Eight new packages",
     summary:
