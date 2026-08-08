@@ -43,6 +43,17 @@ export function useTime() {
  */
 export function interpolate(input, inputRange, outputRange, options) {
   const easing = options?.easing ?? ((t) => t);
+  // \`Easing.out(Easing.cubic)\` is the shape other libraries use, and here it
+  // evaluates the curve AT a function, yielding NaN. The failure then surfaces
+  // as "easing is not a function" from inside this file, which names neither
+  // the scene nor the option that was wrong.
+  if (typeof easing !== 'function') {
+    throw new Error(
+      \`interpolate got easing: \${typeof easing === 'number' && Number.isNaN(easing) ? 'NaN' : JSON.stringify(easing)}, which is not a function. \` +
+        'Pass the curve itself — { easing: Easing.out } — not a call like Easing.out(Easing.cubic). ' +
+        'For a custom curve use Easing.bezier(x1, y1, x2, y2) or any (t) => number.'
+    );
+  }
   let i = 0;
   while (i < inputRange.length - 2 && input > inputRange[i + 1]) i++;
   const [inMin, inMax] = [inputRange[i], inputRange[i + 1]];

@@ -54,6 +54,14 @@ export interface CaptureResult {
   pageErrors: string[];
   /** True when every frame is byte-identical: almost always a broken scene. */
   allIdentical: boolean;
+  /**
+   * `src` of every image the browser could not draw.
+   *
+   * A missing picture is the one defect that survives every other check: the
+   * render succeeds, the file is valid, and the hole is visible only by
+   * looking at it. Asking the page directly is the only way to know.
+   */
+  brokenImages: string[];
 }
 
 /**
@@ -350,6 +358,21 @@ async function renderWith(browser: Browser, options: CaptureOptions): Promise<Ca
     pageErrors.push(...scriptErrors.slice(0, 5));
   };
 
+  /**
+   * Ask the page which pictures it could not draw.
+   *
+   * A broken `<img>` raises no page error and fails no request the renderer
+   * watches — it just paints nothing, and the render reports success. The
+   * browser knows: a decoded image has a non-zero `naturalWidth`.
+   */
+  const findBrokenImages = async (): Promise<string[]> =>
+    (await page.evaluate(`
+      Array.from(document.images)
+        .filter((i) => !i.complete || i.naturalWidth === 0)
+        .map((i) => i.getAttribute('src') || '(no src)')
+        .slice(0, 5)
+    `)) as string[];
+
   // --- a single frame ------------------------------------------------------
   if (options.still !== undefined) {
     const target = options.still;
@@ -373,8 +396,9 @@ async function renderWith(browser: Browser, options: CaptureOptions): Promise<Ca
     }
     const { file } = await shot(`frame-${String(target).padStart(5, "0")}.png`);
     await drainErrors();
+    const brokenImages = await findBrokenImages();
     await page.close();
-    return { frames: [file], pageErrors, allIdentical: false };
+    return { frames: [file], pageErrors, allIdentical: false, brokenImages };
   }
 
   // --- the whole run -------------------------------------------------------
@@ -391,7 +415,8 @@ async function renderWith(browser: Browser, options: CaptureOptions): Promise<Ca
   }
 
   await drainErrors();
+  const brokenImages = await findBrokenImages();
   await page.close();
 
-  return { frames, pageErrors, allIdentical: digests.size === 1 && frames.length > 1 };
+  return { frames, pageErrors, allIdentical: digests.size === 1 && frames.length > 1, brokenImages };
 }
