@@ -178,6 +178,31 @@ anyway — the error is `Can't resolve './worker-dev.mjs'`, several layers from
 the cause. `next.config.ts` carries an explicit webpack external to bypass the
 path heuristic. An app installing these from npm does not need it.
 
+## Getting files in
+
+**Drop anything, anywhere in the window** — or paste it, or use the paperclip.
+There is no format filter: the environment is a filesystem, and an allowlist
+could only ever be wrong about a format nobody thought of. A `.webp`, a `.heic`,
+a 60MB scan and a `.bin` all land the same way.
+
+Files upload **the moment they arrive**, not when you send a message. The chip
+is the receipt — it spins, then turns green with the name it landed as, or red
+with the reason it did not. So attaching is its own action: the file is in
+`/inbox` whether or not you ever say anything about it, and a failing chat turn
+can no longer look like a failing upload.
+
+Three details that were bugs before, in case you are building something similar:
+
+| Detail | Why |
+|---|---|
+| Drops are handled on the **window** | Handling them only on the composer means a drop anywhere else hits the browser's default — which *navigates away from the app to open the file*. For an image that looks exactly like a rejection |
+| Send works with **files and no text** | Requiring a message to carry a file makes "here, look at this" impossible to express. With no text it sends what you did: the names, and where they are |
+| One bad file **does not fail the batch** | Uploads are reported per file. Previously the first failure 400'd the whole request, so a single oversized file silently discarded the result for everything beside it |
+
+Uploads are capped by `limits.maxFileBytes` in `app/lib/desk.ts` (96MB here).
+If you deploy this, note that serverless platforms impose their own request
+body limit — Vercel's is 4.5MB — which is a platform ceiling, not this app's.
+
 ## Trying it
 
 Upload a spreadsheet and ask for a ranking. Watch the right pane: the agent

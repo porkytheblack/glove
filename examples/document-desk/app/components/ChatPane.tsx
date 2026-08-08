@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Entry } from "@/lib/useDesk";
+import type { Entry, Upload } from "@/lib/useDesk";
 import { formatInline } from "@/lib/inline";
 import { Activity } from "./Activity";
 import { CloseIcon, DownloadIcon, FileIcon, PaperclipIcon, SendIcon } from "./icons";
@@ -34,6 +34,9 @@ export function ChatPane({
   entries,
   busy,
   error,
+  uploads,
+  onUpload,
+  onClearUpload,
   onSend,
   onDismissError,
 }: {
@@ -41,12 +44,13 @@ export function ChatPane({
   entries: Entry[];
   busy: boolean;
   error: string | null;
-  onSend: (message: string, files: File[]) => void;
+  uploads: Upload[];
+  onUpload: (files: File[]) => void;
+  onClearUpload: (id: string) => void;
+  onSend: (message: string, attached: string[]) => void;
   onDismissError: () => void;
 }) {
   const [draft, setDraft] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
-  const [dropping, setDropping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const pickerRef = useRef<HTMLInputElement>(null);
@@ -66,17 +70,20 @@ export function ChatPane({
     el.style.height = `${el.scrollHeight}px`;
   }, [draft]);
 
-  const submit = () => {
-    const text = draft.trim();
-    if (!text || busy) return;
-    onSend(text, files);
-    setDraft("");
-    setFiles([]);
-  };
+  const ready = uploads.filter((u) => u.status === "ready");
+  const settled = uploads.every((u) => u.status !== "uploading");
+  // Sending with files but no words is a real intent — "here, look at these".
+  // Rather than invent a request, state what happened and let the agent read
+  // the tree; the alternative was a disabled button and no explanation.
+  const canSend = !busy && settled && (draft.trim() !== "" || ready.length > 0);
 
-  const addFiles = (list: FileList | null) => {
-    if (!list) return;
-    setFiles((f) => [...f, ...Array.from(list)]);
+  const submit = () => {
+    if (!canSend) return;
+    const text =
+      draft.trim() ||
+      `I've put ${ready.map((u) => u.name).join(", ")} in /inbox — take a look.`;
+    onSend(text, ready.map((u) => u.name));
+    setDraft("");
   };
 
   // Group consecutive tool calls so a ten-verb turn reads as one block.
@@ -157,29 +164,15 @@ export function ChatPane({
             {error}
           </div>
         )}
-        <div
-          className={`composer ${dropping ? "dropping" : ""}`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDropping(true);
-          }}
-          onDragLeave={() => setDropping(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDropping(false);
-            addFiles(e.dataTransfer.files);
-          }}
-        >
-          {files.length > 0 && (
+        <div className="composer">
+          {uploads.length > 0 && (
             <div className="composer-files">
-              {files.map((file, i) => (
-                <span key={`${file.name}-${i}`} className="chip">
-                  <FileIcon />
-                  {file.name}
-                  <button
-                    onClick={() => setFiles((f) => f.filter((_, j) => j !== i))}
-                    aria-label={`Remove ${file.name}`}
-                  >
+              {uploads.map((up) => (
+                <span key={up.id} className={`chip chip-${up.status}`} title={up.error ?? up.path ?? up.name}>
+                  {up.status === "uploading" ? <span className="chip-spinner" /> : <FileIcon />}
+                  {up.name}
+                  {up.status === "error" && <em>{up.error}</em>}
+                  <button onClick={() => onClearUpload(up.id)} aria-label={`Remove ${up.name}`}>
                     <CloseIcon />
                   </button>
                 </span>
@@ -191,8 +184,23 @@ export function ChatPane({
               ref={areaRef}
               rows={1}
               value={draft}
-              placeholder={busy ? "Working…" : "Ask for something, or drop files here"}
+              placeholder={
+                busy
+                  ? "Working…"
+                  : ready.length > 0
+                    ? "Ask about it, or just send"
+                    : "Ask for something, or drop a file anywhere"
+              }
               onChange={(e) => setDraft(e.target.value)}
+              // Pasting a screenshot is the fastest way to get an image in, and
+              // the clipboard is where most of them already are.
+              onPaste={(e) => {
+                const pasted = Array.from(e.clipboardData.files);
+                if (pasted.length > 0) {
+                  e.preventDefault();
+                  onUpload(pasted);
+                }
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -203,27 +211,27 @@ export function ChatPane({
             <button className="icon-btn" onClick={() => pickerRef.current?.click()} aria-label="Attach files">
               <PaperclipIcon />
             </button>
-            <button
-              className="icon-btn send-btn"
-              onClick={submit}
-              disabled={busy || draft.trim() === ""}
-              aria-label="Send"
-            >
+            <button className="icon-btn send-btn" onClick={submit} disabled={!canSend} aria-label="Send">
               <SendIcon />
             </button>
           </div>
+          {/* No `accept` filter: the environment takes any bytes, and an
+              allowlist here could only ever be wrong about a format it has
+              never heard of. */}
           <input
             ref={pickerRef}
             type="file"
             multiple
             hidden
             onChange={(e) => {
-              addFiles(e.target.files);
+              onUpload(Array.from(e.target.files ?? []));
               e.target.value = "";
             }}
           />
         </div>
-        <p className="composer-hint">Uploads land in /inbox · deliverables appear in /out</p>
+        <p className="composer-hint">
+          Drop, paste or attach anything — it lands in /inbox · deliverables appear in /out
+        </p>
       </div>
     </section>
   );

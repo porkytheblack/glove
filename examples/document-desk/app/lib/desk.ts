@@ -197,6 +197,11 @@ export async function getDesk(id: string): Promise<Desk> {
       // named as the fix; that is better than a generic timeout four minutes
       // in, but it is still a refusal.
       ...MOTION_LIMITS,
+      // Room for what people actually drop in. The 32MB default turns a
+      // scanned contract or a photo library into a refused upload, and "any
+      // file I want to work on" is the whole premise of the inbox.
+      maxFileBytes: 96 * 1024 * 1024,
+      maxVfsBytes: 512 * 1024 * 1024,
     },
     execution: {
       // One warm worker per session. The browser drives one request at a time.
