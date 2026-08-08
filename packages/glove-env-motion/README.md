@@ -94,6 +94,10 @@ export default function Scene() {
 }
 ```
 
+A scene can use **any file in the tree** as a picture — `<img src="/inbox/photo.webp" />` — not just files sitting beside it. Referenced assets are staged for the render; a path the tree does not have becomes a warning naming it, and any image the browser could not decode is reported the same way. A missing picture is the one defect that survives every other check, because the render succeeds and the file is valid.
+
+`Easing` carries `linear`, `in`, `out`, `inOut` (also as `ease`, `easeIn`, `easeOut`, `easeInOut`), `quad`, `cubic`, `sin`, `expo`, `circle`, `back`, `bounce`, and `Easing.bezier(x1, y1, x2, y2)` for anything else — plus any `(t) => number` you write yourself. A name that does not exist throws with the list of ones that do, rather than arriving inside `interpolate` as `undefined is not a function`.
+
 ### Reanimated — real React Native motion code, unchanged
 
 ```jsx

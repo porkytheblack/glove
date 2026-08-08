@@ -364,7 +364,15 @@ export class ScriptExecutor {
       try {
         script = new vm.Script(wrapper, { filename: norm, lineOffset: -headerLines });
       } catch (e) {
-        throw new Error(`${norm}: syntax error: ${e instanceof Error ? e.message : String(e)}`);
+        // V8 puts the offending line and a caret in the stack, not the
+        // message. Without it "Unexpected identifier 'the'" is a search
+        // through the whole file for a word that probably appears in it
+        // several times — and the observed cost was three identical rewrites
+        // before the author found an unterminated comment.
+        const where = locateSyntaxError(e);
+        throw new Error(
+          `${norm}: syntax error: ${e instanceof Error ? e.message : String(e)}${where}`,
+        );
       }
 
       // `__exports` and the `__glove_current` record are built INSIDE the
@@ -588,6 +596,26 @@ export function hostify(value: unknown, seen = new WeakMap<object, unknown>()): 
  */
 function hintable(message: string): string {
   return message.slice(0, 400).split("\n")[0];
+}
+
+/**
+ * The line, the source, and the caret — which V8 puts in the stack, not the
+ * message.
+ *
+ * `new vm.Script` throws a SyntaxError whose `.message` is just
+ * "Unexpected identifier 'the'". The stack's first three lines are
+ * `file:line`, the offending source, and a `^^^` under the token. That is the
+ * part worth showing; the rest of the stack is host frames.
+ */
+function locateSyntaxError(e: unknown): string {
+  const stack = e instanceof Error ? (e.stack ?? "") : "";
+  const [head, source, caret] = stack.split("\n");
+  const line = /:(\d+)$/.exec(head ?? "")?.[1];
+  if (!line || !source) return "";
+  const shown = source.length > 200 ? `${source.slice(0, 200)}…` : source;
+  // The caret column only means anything against the untruncated line.
+  const pointer = caret?.trim().startsWith("^") && source.length <= 200 ? `\n${caret}` : "";
+  return `\n  at line ${line}:\n${shown}${pointer}`;
 }
 
 export function importHint(message: string, modules: Map<string, Record<string, unknown>>): string | null {

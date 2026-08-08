@@ -136,7 +136,14 @@ export function motion(options: MotionOptions = {}): StdlibAdapter {
        * relative imports (`./title.jsx`, `../lib/theme.js`) working exactly as
        * the agent wrote them.
        */
-      async function stage(scenePath: string): Promise<{ dir: string; entry: string; runtime: string; cleanup(): Promise<void> }> {
+      async function stage(scenePath: string): Promise<{
+        dir: string;
+        entry: string;
+        runtime: string;
+        /** Absolute VFS paths the scene names as assets that are not in the tree. */
+        missing: string[];
+        cleanup(): Promise<void>;
+      }> {
         const dir = await mkdtemp(join(tmpdir(), "glove-motion-"));
         const sceneDir = dirname(scenePath);
         const files = await vfs.glob(`${sceneDir}/**`);
@@ -158,13 +165,50 @@ export function motion(options: MotionOptions = {}): StdlibAdapter {
           await writeFile(dest, await vfs.readBytes(p));
         }
 
+        /**
+         * Assets the scene names by absolute VFS path — `/inbox/bag.webp`.
+         *
+         * The page is a `file://` URL, so an absolute src resolves against the
+         * real filesystem root and quietly finds nothing. Uploaded photos live
+         * in `/inbox`, which is the single most obvious thing to put in a
+         * video, and it produced a broken-image box with no warning and no
+         * error. Each referenced file is staged next to the page and the
+         * literal is rewritten to point at the copy.
+         */
+        const ASSET = /(["'`])(\/[^"'`\s]+\.(?:png|jpe?g|gif|webp|avif|svg|woff2?|ttf|otf|mp4|webm|mp3|wav))\1/gi;
+        const staged = new Map<string, string>();
+        const missing: string[] = [];
+
+        for (const p of files) {
+          if (!/\.(jsx?|tsx?|css)$/i.test(p)) continue;
+          const source = new TextDecoder().decode(await vfs.readBytes(p));
+          let rewritten = source;
+          for (const [, , vfsPath] of source.matchAll(ASSET)) {
+            if (staged.has(vfsPath) || missing.includes(vfsPath)) {
+              // already resolved on an earlier file
+            } else if (await vfs.exists(vfsPath)) {
+              const dest = join(dir, "assets", vfsPath);
+              await mkdir(dirname(dest), { recursive: true });
+              await writeFile(dest, await vfs.readBytes(vfsPath));
+              staged.set(vfsPath, `./assets${vfsPath}`);
+            } else {
+              missing.push(vfsPath);
+            }
+            const local = staged.get(vfsPath);
+            if (local) rewritten = rewritten.split(vfsPath).join(local);
+          }
+          if (rewritten !== source) {
+            await writeFile(join(dir, "scene", relative(sceneDir, p)), rewritten);
+          }
+        }
+
         const runtime = join(dir, "glove-motion-runtime.js");
         await writeFile(runtime, RUNTIME_SOURCE);
         const sceneRel = `./scene/${basename(scenePath)}`;
         const entry = join(dir, "__entry.jsx");
         await writeFile(entry, entrySource(sceneRel));
 
-        return { dir, entry, runtime, cleanup: () => rm(dir, { recursive: true, force: true }) };
+        return { dir, entry, runtime, missing, cleanup: () => rm(dir, { recursive: true, force: true }) };
       }
 
       async function renderTo(scenePath: string, outPath: string, args: RenderArgs, stillFrame?: number) {
@@ -246,6 +290,20 @@ export function motion(options: MotionOptions = {}): StdlibAdapter {
 
           const ext = extname(outPath).toLowerCase();
           const warnings = [...bundle.warnings];
+          // A picture that did not load is the failure most likely to ship: the
+          // render succeeds, the file is valid, and the hole where the product
+          // should be is only visible by looking. Both halves are reported —
+          // paths that are not in the tree at all, and anything the browser
+          // could not draw for any other reason.
+          for (const p of staged.missing) {
+            warnings.push(
+              `the scene references ${p}, which is not in this environment — that image will render as an empty box. ` +
+                `Check the path with ls, or mount the file first.`,
+            );
+          }
+          for (const src of capture.brokenImages) {
+            warnings.push(`an image failed to load and rendered as an empty box: ${src}`);
+          }
           if (capture.allIdentical && durationInFrames > 1) {
             warnings.push(
               "every frame is identical — the scene is not animating. " +
@@ -314,9 +372,18 @@ export function motion(options: MotionOptions = {}): StdlibAdapter {
 
         /** One frame as a PNG — a chart, a title card, a social image. */
         async still(scenePath: string, outPath: string, args: RenderArgs & { frame?: number } = {}) {
-          const frame = args.frame ?? 0;
+          const raw: unknown = args.frame ?? 0;
+          // Script arguments arrive as JSON a model wrote, where "78" and 78
+          // are the same intent. Rejecting the string was defensible; printing
+          // it as `got 78` was not — the message then states a rule the
+          // printed value satisfies, which reads as a broken validator and
+          // sends the reader hunting in the wrong place.
+          const frame: number = typeof raw === "string" && raw.trim() !== "" ? Number(raw) : (raw as number);
           if (!Number.isInteger(frame) || frame < 0) {
-            throw new Error(`still needs a frame index of 0 or more, got ${frame}`);
+            throw new Error(
+              `still needs a frame index of 0 or more, got ${JSON.stringify(raw)} (${typeof raw}). ` +
+                `Pass a whole number, e.g. { frame: 78 }.`,
+            );
           }
           return renderTo(scenePath, outPath, args, frame);
         },

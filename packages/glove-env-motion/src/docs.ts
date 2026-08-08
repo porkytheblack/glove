@@ -127,6 +127,19 @@ Any frame can be produced on its own — the renderer notices a frame-driven
 scene and jumps straight to whatever frame you ask for, so checking frame 90
 does not cost the 89 before it. That is what makes iterating cheap.
 
+**Pictures.** Reference any file in the tree by its absolute path —
+\`<img src="/inbox/photo.webp" />\` — and it is staged for the render. A path
+that is not in the tree comes back as a warning naming it, so check the
+warnings on the result rather than assuming a successful render drew
+everything.
+
+**Easings**, all on \`Easing\`: \`linear\`, \`in\`, \`out\`, \`inOut\`
+(aliased \`ease\`, \`easeIn\`, \`easeOut\`, \`easeInOut\`), \`quad\`, \`cubic\`,
+\`sin\`, \`expo\`, \`circle\`, \`back\`, \`bounce\`, plus
+\`Easing.bezier(x1, y1, x2, y2)\` for a custom curve. Any \`(t) => number\`
+works too, so nothing stops you writing your own. Asking for a name that does
+not exist throws and lists the ones that do.
+
 ### Reanimated — real React Native motion code
 
 \`\`\`jsx
