@@ -94,6 +94,8 @@ export default function Scene() {
 }
 ```
 
+`Easing` carries `linear`, `in`, `out`, `inOut` (also as `ease`, `easeIn`, `easeOut`, `easeInOut`), `quad`, `cubic`, `sin`, `expo`, `circle`, `back`, `bounce`, and `Easing.bezier(x1, y1, x2, y2)` for anything else — plus any `(t) => number` you write yourself. A name that does not exist throws with the list of ones that do, rather than arriving inside `interpolate` as `undefined is not a function`.
+
 ### Reanimated — real React Native motion code, unchanged
 
 ```jsx

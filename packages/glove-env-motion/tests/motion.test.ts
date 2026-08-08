@@ -147,6 +147,85 @@ test("a scene with a syntax error fails with the location, not a browser timeout
   }
 });
 
+/**
+ * A scene that throws is dead the moment it throws.
+ *
+ * This used to wait out the whole mount timeout — measured at 188s against the
+ * 180s default — and then report only "the scene never mounted", while the
+ * browser's own error sat one line below in a field the caller was free to
+ * ignore. An agent retried it five times. The cost of a typo was a quarter of
+ * an hour.
+ */
+test("a scene that throws fails immediately, carrying the browser's own error", { skip }, async () => {
+  const { runScript, env } = await envWith();
+  try {
+    await env.fs.writeFile(
+      "/scenes/throws.jsx",
+      `export default function Scene() { throw new Error('boom in the scene'); }`,
+    );
+    const started = Date.now();
+    const r = await runScript(
+      `import { still } from 'env:motion';
+       export default async function main() { return still('/scenes/throws.jsx', '/out/x.png'); }`,
+    );
+    const elapsed = Date.now() - started;
+
+    assert.equal(r.ok, false);
+    assert.match(String(r.error), /boom in the scene/, "the scene's own error must survive to the caller");
+    assert.match(String(r.error), /threw while rendering/, "and be named as the scene's fault, not the renderer's");
+    assert.ok(elapsed < 30_000, `should fail on the error, not the timeout — took ${elapsed}ms`);
+  } finally {
+    await env.close();
+  }
+});
+
+test("an easing that does not exist says so, and lists the ones that do", { skip }, async () => {
+  const { runScript, env } = await envWith();
+  try {
+    await env.fs.writeFile(
+      "/scenes/easing.jsx",
+      `import { useFrame, interpolate, Easing } from 'glove/motion';
+       export default function Scene() {
+         return <div style={{ opacity: interpolate(useFrame(), [0, 30], [0, 1], { easing: Easing.elastic }) }} />;
+       }`,
+    );
+    const r = await runScript(
+      `import { still } from 'env:motion';
+       export default async function main() { return still('/scenes/easing.jsx', '/out/x.png'); }`,
+    );
+    assert.equal(r.ok, false);
+    assert.match(String(r.error), /Easing\.elastic does not exist/);
+    assert.match(String(r.error), /bezier/, "the message should list what is available");
+  } finally {
+    await env.close();
+  }
+});
+
+test("the easings a scene is likely to reach for all exist and are usable", { skip }, async () => {
+  const { runScript, env } = await envWith();
+  try {
+    // Names borrowed from muscle memory elsewhere must not crash the render.
+    await env.fs.writeFile(
+      "/scenes/eases.jsx",
+      `import { useFrame, interpolate, Easing } from 'glove/motion';
+       const NAMES = ['linear','in','out','inOut','ease','easeIn','easeOut','easeInOut','quad','cubic','sin','expo','circle','back','bounce'];
+       export default function Scene() {
+         const f = useFrame();
+         const xs = NAMES.map((n) => interpolate(f, [0, 30], [0, 100], { easing: Easing[n] }));
+         const b = interpolate(f, [0, 30], [0, 100], { easing: Easing.bezier(0.4, 0, 0.2, 1) });
+         return <div style={{ width: 200, height: 60, background: '#111' }}>{xs.length + b}</div>;
+       }`,
+    );
+    const r = await runScript(
+      `import { still } from 'env:motion';
+       export default async function main() { return still('/scenes/eases.jsx', '/out/eases.png'); }`,
+    );
+    assert.equal(r.ok, true, String(r.error));
+  } finally {
+    await env.close();
+  }
+});
+
 test("a frame-driven scene renders a still at an exact frame", { skip }, async () => {
   const { script, env } = await envWith();
   try {

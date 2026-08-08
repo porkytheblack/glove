@@ -58,12 +58,79 @@ export function spring(t) {
   return 1 - Math.pow(2, -10 * t) * Math.cos((t * Math.PI * 2) / 0.6);
 }
 
-export const Easing = {
+/**
+ * Cubic bezier, the same four numbers CSS takes.
+ *
+ * Solved by bisection rather than Newton: 24 iterations is exact enough for a
+ * pixel and has no convergence edge cases to get wrong.
+ */
+function bezier(x1, y1, x2, y2) {
+  const curve = (a, b, t) => {
+    const u = 1 - t;
+    return 3 * u * u * t * a + 3 * u * t * t * b + t * t * t;
+  };
+  return (t) => {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2;
+      if (curve(x1, x2, mid) < t) lo = mid;
+      else hi = mid;
+    }
+    return curve(y1, y2, (lo + hi) / 2);
+  };
+}
+
+const EASINGS = {
   linear: (t) => t,
   in: (t) => t * t * t,
   out: (t) => 1 - Math.pow(1 - t, 3),
   inOut: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
+  quad: (t) => t * t,
+  cubic: (t) => t * t * t,
+  sin: (t) => 1 - Math.cos((t * Math.PI) / 2),
+  expo: (t) => (t === 0 ? 0 : Math.pow(2, 10 * t - 10)),
+  circle: (t) => 1 - Math.sqrt(1 - t * t),
+  back: (t) => 2.70158 * t * t * t - 1.70158 * t * t,
+  bounce: (t) => {
+    const n = 7.5625;
+    const d = 2.75;
+    if (t < 1 / d) return n * t * t;
+    if (t < 2 / d) return n * (t -= 1.5 / d) * t + 0.75;
+    if (t < 2.5 / d) return n * (t -= 2.25 / d) * t + 0.9375;
+    return n * (t -= 2.625 / d) * t + 0.984375;
+  },
+  bezier,
 };
+
+// The names other motion libraries use, so a scene written from muscle memory
+// works instead of crashing on \`undefined is not a function\`.
+EASINGS.ease = EASINGS.inOut;
+EASINGS.easeIn = EASINGS.in;
+EASINGS.easeOut = EASINGS.out;
+EASINGS.easeInOut = EASINGS.inOut;
+
+/**
+ * Reaching for an easing that does not exist should say so.
+ *
+ * \`Easing.elastic\` is plain \`undefined\`, and passing it to \`interpolate\`
+ * throws "is not a function" from inside the runtime — a message that points
+ * at the wrong file. The proxy names the mistake and lists the way out.
+ */
+export const Easing = new Proxy(EASINGS, {
+  get(target, key) {
+    if (typeof key !== 'string' || key in target) return target[key];
+    // Bundlers, React and Promise resolution all probe for odd keys; only a
+    // plain identifier-looking miss is a real authoring mistake.
+    if (!/^[a-zA-Z][a-zA-Z0-9]*$/.test(key)) return undefined;
+    throw new Error(
+      \`Easing.\${key} does not exist. Available: \${Object.keys(target).sort().join(', ')} — \` +
+        \`or build your own with Easing.bezier(x1, y1, x2, y2), or pass any (t) => number.\`
+    );
+  },
+});
 
 /** Show children only between two frames. */
 export function Sequence({ from = 0, durationInFrames = Infinity, children }) {
