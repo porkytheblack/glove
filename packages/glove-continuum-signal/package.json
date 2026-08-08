@@ -1,6 +1,6 @@
 {
   "name": "glove-continuum-signal",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Runtime substrate for Glove agent collaboration — triggered (async) and concurrent (sync) agents in subprocesses, modelled on station-signal.",
   "type": "module",
   "license": "MIT",

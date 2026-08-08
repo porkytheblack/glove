@@ -1,6 +1,6 @@
 {
   "name": "glove-document-desk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "An agent with a real working environment: upload documents, ask for anything, watch the code it writes, and browse the filesystem it built.",

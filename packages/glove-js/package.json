@@ -1,6 +1,6 @@
 {
   "name": "glove-js",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A JavaScript REPL for LLM tool use — expose an agent's capabilities as async functions in a tiny, sandboxed JS interpreter it drives with one execute_js tool. Tools become functions, results are plain data, top-level const/let persist across calls, big values stay out of context via elision, and a fuel budget bounds runaway work. Consumes the same ToolFn catalog as glove-lisp's function mode.",
   "type": "module",
   "license": "MIT",

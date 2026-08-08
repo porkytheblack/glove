@@ -1,7 +1,7 @@
 {
   "name": "glove-env-motion",
-  "version": "0.1.0",
-  "description": "Motion stdlib adapter for glove-working-environment. Renders React scenes \u2014 including React Native Reanimated \u2014 to deterministic PNG frames, stills and MP4 video, as env:motion. The agent writes a component; a file comes out.",
+  "version": "1.0.0",
+  "description": "Motion stdlib adapter for glove-working-environment. Renders React scenes — including React Native Reanimated — to deterministic PNG frames, stills and MP4 video, as env:motion. The agent writes a component; a file comes out.",
   "type": "module",
   "license": "MIT",
   "repository": {

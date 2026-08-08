@@ -1,6 +1,6 @@
 {
   "name": "glove-env-slides",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Slides stdlib adapter for glove-working-environment. Builds PowerPoint decks and reads them back as env:slides — create, describe, extract text and speaker notes, outline. Paths in, paths out.",
   "type": "module",
   "license": "MIT",

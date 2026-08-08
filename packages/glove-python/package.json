@@ -1,6 +1,6 @@
 {
   "name": "glove-python",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A Python REPL for LLM tool use — expose an agent's capabilities as functions in a tiny, sandboxed Python interpreter it drives with one execute_python tool. Tools become functions called with kwargs, results are plain data, module-level names persist across calls, big values stay out of context via elision, and a fuel budget bounds runaway work. Consumes the same ToolFn catalog as glove-js and glove-lisp's function mode.",
   "type": "module",
   "license": "MIT",
