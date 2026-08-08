@@ -15,11 +15,25 @@ import { useState } from "react";
 import { useDesk } from "@/lib/useDesk";
 import { ChatPane } from "@/components/ChatPane";
 import { CodePane } from "@/components/CodePane";
+import { DropZone } from "@/components/DropZone";
 import { FileExplorer } from "@/components/FileExplorer";
 import { FolderIcon, GloveMark, RefreshIcon } from "@/components/icons";
 
 export default function Page() {
-  const { sessionId, entries, cards, busy, error, treeVersion, send, reset, setError } = useDesk();
+  const {
+    sessionId,
+    entries,
+    cards,
+    busy,
+    error,
+    treeVersion,
+    uploads,
+    upload,
+    clearUpload,
+    send,
+    reset,
+    setError,
+  } = useDesk();
   const [explorerOpen, setExplorerOpen] = useState(false);
 
   return (
@@ -47,11 +61,17 @@ export default function Page() {
           entries={entries}
           busy={busy}
           error={error}
+          uploads={uploads}
+          onUpload={upload}
+          onClearUpload={clearUpload}
           onSend={send}
           onDismissError={() => setError(null)}
         />
         <CodePane cards={cards} busy={busy} />
       </div>
+
+      {/* Anywhere in the window, not just the composer. */}
+      <DropZone onFiles={upload} />
 
       {explorerOpen && sessionId && (
         <FileExplorer sessionId={sessionId} treeVersion={treeVersion} onClose={() => setExplorerOpen(false)} />

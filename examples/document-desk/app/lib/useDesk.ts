@@ -40,6 +40,23 @@ export type Entry =
       caption: string;
     };
 
+/**
+ * One file on its way into (or already in) /inbox.
+ *
+ * Held separately from the transcript because an upload is not a message: it
+ * has its own outcome, and it stays useful whether or not anything is ever
+ * said about it.
+ */
+export interface Upload {
+  id: string;
+  /** The landed name — which may differ from the picked one on a collision. */
+  name: string;
+  size: number;
+  status: "uploading" | "ready" | "error";
+  path?: string;
+  error?: string;
+}
+
 /** One file the agent authored, as it currently stands, with its last run. */
 export interface CodeCard {
   path: string;
@@ -68,6 +85,8 @@ export function useDesk() {
   const [cards, setCards] = useState<CodeCard[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Files put in /inbox but not yet mentioned in a message. */
+  const [uploads, setUploads] = useState<Upload[]>([]);
   /** Bumped whenever the agent touched the tree, so the explorer can refetch. */
   const [treeVersion, setTreeVersion] = useState(0);
 
@@ -236,26 +255,75 @@ export function useDesk() {
     }
   }
 
+  /**
+   * Put files in /inbox now, rather than when a message is sent.
+   *
+   * Uploading used to happen inside `send`, which coupled two unrelated things:
+   * a file could not go in without a message to carry it, and a failing chat
+   * turn looked like a failing upload. Attaching is its own action with its own
+   * outcome — the file is in the tree the moment it lands, and the agent can be
+   * asked about it later, or never.
+   */
+  const upload = useCallback(
+    async (files: File[]) => {
+      if (!sessionId || files.length === 0) return;
+
+      const pending: Upload[] = files.map((f) => ({
+        id: nextId(),
+        name: f.name,
+        size: f.size,
+        status: "uploading",
+      }));
+      setUploads((u) => [...u, ...pending]);
+
+      const form = new FormData();
+      form.set("sessionId", sessionId);
+      for (const file of files) form.append("files", file);
+
+      try {
+        const res = await fetch("/api/upload", { method: "POST", body: form });
+        const body = (await res.json()) as {
+          files?: Array<{ path: string; name: string; original: string; bytes: number }>;
+          errors?: Array<{ name: string; error: string }>;
+        };
+
+        // Matched on the name that was sent, not on the one that came back:
+        // a collision rename means those differ, and reversing the rename rule
+        // client-side would be a second implementation of it to keep in sync.
+        const landed = new Map<string, { path: string; name: string }>();
+        for (const f of body.files ?? []) landed.set(f.original, f);
+        const failed = new Map((body.errors ?? []).map((e) => [e.name, e.error]));
+
+        setUploads((u) =>
+          u.map((up) => {
+            if (!pending.some((p) => p.id === up.id)) return up;
+            const hit = landed.get(up.name);
+            if (hit) return { ...up, status: "ready", path: hit.path, name: hit.name };
+            return { ...up, status: "error", error: failed.get(up.name) ?? "upload failed" };
+          }),
+        );
+        setTreeVersion((v) => v + 1);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        setUploads((u) =>
+          u.map((up) => (pending.some((p) => p.id === up.id) ? { ...up, status: "error", error: message } : up)),
+        );
+      }
+    },
+    [sessionId],
+  );
+
+  const clearUpload = useCallback((id: string) => setUploads((u) => u.filter((x) => x.id !== id)), []);
+
   const send = useCallback(
-    async (message: string, files: File[]) => {
+    async (message: string, attached: string[]) => {
       if (!sessionId || busy) return;
       setError(null);
       setBusy(true);
 
       try {
-        if (files.length > 0) {
-          const form = new FormData();
-          form.set("sessionId", sessionId);
-          for (const file of files) form.append("files", file);
-          const up = await fetch("/api/upload", { method: "POST", body: form });
-          if (!up.ok) throw new Error(((await up.json()) as { error?: string }).error ?? "upload failed");
-          setTreeVersion((v) => v + 1);
-        }
-
-        setEntries((es) => [
-          ...es,
-          { kind: "user", id: nextId(), text: message, files: files.map((f) => f.name) },
-        ]);
+        setEntries((es) => [...es, { kind: "user", id: nextId(), text: message, files: attached }]);
+        setUploads([]);
 
         const res = await fetch("/api/chat", {
           method: "POST",
@@ -307,9 +375,23 @@ export function useDesk() {
     setSessionId(fresh);
     setEntries([]);
     setCards([]);
+    setUploads([]);
     setError(null);
     setTreeVersion((v) => v + 1);
   }, [sessionId]);
 
-  return { sessionId, entries, cards, busy, error, treeVersion, send, reset, setError };
+  return {
+    sessionId,
+    entries,
+    cards,
+    busy,
+    error,
+    treeVersion,
+    uploads,
+    upload,
+    clearUpload,
+    send,
+    reset,
+    setError,
+  };
 }

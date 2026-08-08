@@ -132,6 +132,31 @@ input, textarea { font: inherit; color: inherit; }
 }
 .chip svg { width: 11px; height: 11px; color: var(--text-tertiary); }
 
+/* an upload, mid-flight or landed — the chip IS the receipt, so its state has
+   to be legible without opening the file explorer */
+.chip-ready { border-color: var(--accent-line); }
+.chip-ready svg { color: var(--accent); }
+.chip-error { border-color: rgba(226, 136, 124, 0.4); color: var(--c-danger); }
+.chip-error svg { color: var(--c-danger); }
+.chip-error em { font-style: normal; opacity: 0.85; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-spinner {
+  width: 10px; height: 10px; flex-shrink: 0; border-radius: 50%;
+  border: 1.5px solid var(--border); border-top-color: var(--accent);
+  animation: chip-spin 0.7s linear infinite;
+}
+@keyframes chip-spin { to { transform: rotate(360deg); } }
+
+/* the whole window accepts a drop; this only appears while one is in flight */
+.dropzone {
+  position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
+  background: rgba(4, 8, 6, 0.72); backdrop-filter: blur(2px); pointer-events: none;
+}
+.dropzone-card {
+  padding: 1.1rem 1.6rem; border-radius: 12px; font-size: 0.9rem;
+  color: var(--text-primary); background: var(--bg-surface-2);
+  border: 1px dashed var(--accent);
+}
+
 /* a deliverable the agent handed over with `present` — the one row in the
    transcript that is an artifact rather than a step */
 .deliverable {
