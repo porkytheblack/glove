@@ -306,24 +306,50 @@ export class HostDirectoryFs implements Vfs {
    * Deletes are applied before writes: a path that was removed and then
    * written again must end up present, and applying them the other way round
    * would leave it gone.
+   *
+   * ## Why this clears entry by entry rather than `overlay.clear()`
+   *
+   * A commit is a sequence of awaited disk operations, and the environment
+   * keeps accepting writes throughout — a host calls `commit()` on a Save
+   * button while a `run_script` is still writing `/out`. Clearing the whole
+   * overlay at the end therefore discards every write that arrived *during*
+   * the commit: writes the environment accepted, version-recorded, and
+   * reported to the model as successful, gone from disk and from the VFS
+   * view alike, with no error anywhere.
+   *
+   * So each entry is removed only if it is still the same object this commit
+   * wrote. A write that landed mid-commit has replaced it, and survives to
+   * the next one. Same for tombstones: only the ones this commit applied are
+   * dropped.
    */
   async commit(): Promise<{ written: string[]; removed: string[] }> {
     if (this.readOnly) throw new PathError(`cannot commit: this environment is backed by a read-only host directory`);
     const removed: string[] = [];
+    const appliedTombstones: string[] = [];
     for (const t of [...this.tombstones].sort()) {
       if (this.overlay.has(t)) continue; // rewritten since; the write covers it
       await hostRm(await this.hostPathFor(t), { recursive: true, force: true });
+      appliedTombstones.push(t);
       removed.push(t);
     }
     const written: string[] = [];
+    const applied: Array<[string, OverlayFile]> = [];
     for (const [p, node] of [...this.overlay.entries()].sort(([a], [b]) => a.localeCompare(b))) {
       const host = await this.hostPathFor(p);
       await hostMkdir(resolve(host, ".."), { recursive: true });
       await writeFile(host, node.data);
+      applied.push([p, node]);
       written.push(p);
     }
-    this.overlay.clear();
-    this.tombstones.clear();
+    for (const [p, node] of applied) {
+      if (this.overlay.get(p) === node) this.overlay.delete(p);
+    }
+    for (const t of appliedTombstones) {
+      // A path re-deleted during the commit wants the same outcome this
+      // commit already produced, so dropping it is right either way. A path
+      // deleted for the FIRST time during the commit was never in this list.
+      this.tombstones.delete(t);
+    }
     this.sizeCache = null;
     return { written, removed };
   }
