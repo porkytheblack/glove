@@ -49,9 +49,9 @@
  * in `node_modules` it did not put there ("added 1 package, and removed 1
  * package"), so a vendored tree staged first is deleted by the install step.
  */
-import { existsSync, readFileSync, statSync } from "node:fs"
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs"
 import { cp, mkdir } from "node:fs/promises"
-import { createRequire } from "node:module"
+import { isBuiltin } from "node:module"
 import path from "node:path"
 
 /**
@@ -116,39 +116,44 @@ export function packageNameOf(specifier: string): string {
 /**
  * Locate an installed package's root directory.
  *
- * `require.resolve("<name>/package.json")` is the obvious way and fails for
- * exactly the packages here: a modern `exports` map that lists `.` and
- * `./testing` does not expose `./package.json`, and Node refuses rather than
- * falling back. So resolve the entry point and walk up to the manifest that
- * claims the name.
+ * Walks the `node_modules` chain by hand rather than asking a resolver,
+ * because both of Node's resolvers refuse the packages that matter most here.
+ *
+ * `createRequire().resolve()` answers under the **`require`** condition, and
+ * the whole env family is ESM-only: an `exports` map with no `require` branch
+ * returns ERR_PACKAGE_PATH_NOT_EXPORTED for the entry point *and* for
+ * `<name>/package.json`, unless the map happens to list `./package.json`
+ * explicitly. Measured against this example's four env packages, exactly one
+ * — `glove-env-render`, the only one exporting `./package.json` — resolved.
+ * The other three, `glove-working-environment` among them, reported as
+ * unresolvable and were left out of the image entirely. Silently shipping an
+ * artifact without the hub is precisely the failure #128 is about, so this
+ * cannot depend on a package's choice of export map.
+ *
+ * A directory is all any caller needs: files are copied out of it and the
+ * version is read from its manifest. Nothing in this build ever imports the
+ * package, so whether its entry point is reachable is beside the point.
+ *
+ * The result is realpath'd because under pnpm `node_modules/<name>` is a
+ * symlink into the store or the workspace, and `cp` does not follow one —
+ * copying the link itself would put a dangling symlink in the artifact.
  */
 export function resolvePackageDir(name: string, from: string): string | null {
-  const req = createRequire(path.join(from, "__glovebox-resolve__.js"))
-  try {
-    return path.dirname(req.resolve(`${name}/package.json`))
-  } catch {
-    /* exports map hides package.json — walk up from the entry instead */
-  }
-  let dir: string
-  try {
-    dir = path.dirname(req.resolve(name))
-  } catch {
-    return null
-  }
-  for (let i = 0; i < 8; i++) {
-    const manifest = path.join(dir, "package.json")
-    if (existsSync(manifest)) {
+  const segments = name.split("/")
+  let dir = path.resolve(from)
+  for (;;) {
+    const candidate = path.join(dir, "node_modules", ...segments)
+    if (existsSync(path.join(candidate, "package.json"))) {
       try {
-        if (JSON.parse(readFileSync(manifest, "utf8")).name === name) return dir
+        return realpathSync(candidate)
       } catch {
-        /* unreadable manifest — keep walking */
+        return candidate
       }
     }
     const parent = path.dirname(dir)
-    if (parent === dir) break
+    if (parent === dir) return null
     dir = parent
   }
-  return null
 }
 
 interface PackageManifest {
@@ -215,6 +220,15 @@ export async function stageExternals(args: StageArgs): Promise<StageResult> {
   const queue: Array<{ name: string; from: string }> = []
   for (const specifier of used) {
     const name = packageNameOf(specifier)
+    // Node's own modules are in the image by virtue of being Node. Left in,
+    // they are wrong in both directions: `fs`, `path` and `crypto` have no
+    // package to resolve and were reported to the user as missing installs,
+    // while `buffer`, `events` and `https` DO exist on npm as userland shims
+    // and happened to be installed here as somebody's transitive dependency —
+    // so they were resolved and written into the server's package.json,
+    // making the image install a polyfill that shadows the real builtin.
+    // `isBuiltin` covers both the bare and `node:`-prefixed spellings.
+    if (isBuiltin(specifier) || isBuiltin(name)) continue
     if (isEnvFamily(name)) queue.push({ name, from: resolveDir })
     else declare(name, resolveDir)
   }
