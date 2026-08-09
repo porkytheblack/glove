@@ -16,9 +16,12 @@
  *    executing the module's top level, so it runs with a READ-ONLY
  *    filesystem handle. Otherwise a rejected `write_file` could still delete
  *    files, and a script could plant state that breaks the environment.
- * 3. **Serialize mutations.** Version recording is read-modify-write; two
+ * 3. **Serialize access.** Version recording is read-modify-write; two
  *    concurrent writers that both capture the same "prior" silently destroy
- *    undo history. All mutations run through one queue.
+ *    undo history. Every mutation runs through one queue — and so does every
+ *    whole-tree *read* (snapshot, export, checkpoint), because a walk that
+ *    interleaves with a half-finished mutation captures a tree the
+ *    environment was never in. See {@link EnvCore.exclusive}.
  */
 import type { EnvLimits, FileVersionInfo, VfsEntry, VfsStat, Vfs } from "../types";
 import { EnvLimitError, looksBinary, toBytes, toText } from "../types";
@@ -120,11 +123,24 @@ export class EnvCore {
   }
 
   /**
-   * Run a mutation with exclusive access. Validation uses a read-only
-   * filesystem, so a script executing inside a held lock can never take the
-   * lock again — this cannot deadlock.
+   * Run a body with exclusive access to the tree.
+   *
+   * Public because the mutation queue is not only for mutations: a host door
+   * that *walks* the tree (`snapshot`, `export`) has to see a state no
+   * half-finished mutation is inside, or it captures a version index that
+   * records a write the tree does not have, or reads a version blob the ring
+   * rotated out between `list()` and `read()`. Every in-band verb, every
+   * host door and every whole-tree operation goes through here, so "the tree
+   * is consistent" has exactly one meaning.
+   *
+   * **Not reentrant.** A body that calls back into a serialized method
+   * deadlocks. Internal callers follow one convention to make that
+   * impossible to write by accident: the public method takes the lock and an
+   * `…Inner` private does the work, and nothing an `…Inner` calls is public.
+   * Validation is safe for the same reason — it runs against a read-only
+   * filesystem handle, which has no path back to this lock.
    */
-  private serialize<T>(fn: () => Promise<T>): Promise<T> {
+  exclusive<T>(fn: () => Promise<T>): Promise<T> {
     const result = this.queue.then(fn, fn);
     this.queue = result.then(
       () => undefined,
@@ -425,7 +441,7 @@ export class EnvCore {
     content: string | Uint8Array,
     opts?: { append?: boolean },
   ): Promise<{ bytes: number; nudge?: string; created: boolean }> {
-    return this.serialize(() => this.writeInner(path, content, opts));
+    return this.exclusive(() => this.writeInner(path, content, opts));
   }
 
   private async writeInner(
@@ -461,7 +477,7 @@ export class EnvCore {
   }
 
   edit(path: string, oldStr: string, newStr: string): Promise<{ nudge?: string; bytes: number }> {
-    return this.serialize(() => this.editInner(path, oldStr, newStr));
+    return this.exclusive(() => this.editInner(path, oldStr, newStr));
   }
 
   private async editInner(path: string, oldStr: string, newStr: string): Promise<{ nudge?: string; bytes: number }> {
@@ -496,7 +512,7 @@ export class EnvCore {
   }
 
   rm(path: string): Promise<{ removed: string[] }> {
-    return this.serialize(() => this.rmInner(path));
+    return this.exclusive(() => this.rmInner(path));
   }
 
   private async rmInner(path: string): Promise<{ removed: string[] }> {
@@ -528,7 +544,7 @@ export class EnvCore {
   }
 
   mkdir(path: string): Promise<void> {
-    return this.serialize(async () => {
+    return this.exclusive(async () => {
       const p = normalizePath(path);
       this.assertMutable(p, "mkdir");
       await this.vfs.mkdir(p);
@@ -536,11 +552,11 @@ export class EnvCore {
   }
 
   mv(from: string, to: string): Promise<{ moved: Array<[string, string]>; nudge?: string }> {
-    return this.serialize(() => this.transfer(from, to, "mv"));
+    return this.exclusive(() => this.transfer(from, to, "mv"));
   }
 
   cp(from: string, to: string): Promise<{ moved: Array<[string, string]>; nudge?: string }> {
-    return this.serialize(() => this.transfer(from, to, "cp"));
+    return this.exclusive(() => this.transfer(from, to, "cp"));
   }
 
   private async transfer(fromRaw: string, toRaw: string, op: "mv" | "cp"): Promise<{ moved: Array<[string, string]>; nudge?: string }> {
@@ -640,11 +656,11 @@ export class EnvCore {
   // ---------------------------------------------------------------- undo/redo
 
   undo(path: string): Promise<{ restoredOp: string; ts: number; present: boolean }> {
-    return this.serialize(() => this.timeTravel(path, "undo"));
+    return this.exclusive(() => this.timeTravel(path, "undo"));
   }
 
   redo(path: string): Promise<{ restoredOp: string; ts: number; present: boolean }> {
-    return this.serialize(() => this.timeTravel(path, "redo"));
+    return this.exclusive(() => this.timeTravel(path, "redo"));
   }
 
   private async timeTravel(pathRaw: string, dir: "undo" | "redo"): Promise<{ restoredOp: string; ts: number; present: boolean }> {
@@ -850,17 +866,24 @@ export class EnvCore {
    * "you are out of space" is exactly when orientation is most worth having.
    */
   async refreshOrientation(): Promise<string> {
+    // Built outside the lock on purpose. It is a summary, it says so at the
+    // top ("if it disagrees with `ls`, trust `ls`"), and holding the one
+    // mutation queue for a whole-tree walk plus a stat per file would stall
+    // every concurrently running script to produce a nicety.
     const text = await buildOrientation(this, this.runlog);
     const bytes = toBytes(text);
-    // Written directly: /.env is environment-maintained and `assertMutable`
-    // exists precisely to stop anyone else writing here — which also means
-    // the usual size accounting has to be done by hand.
+    // The persist is a different matter: /.env is environment-maintained and
+    // `assertMutable` exists precisely to stop anyone else writing here,
+    // which means the size accounting is done by hand — and by hand outside
+    // the lock it is a check against a total another writer is changing.
     try {
-      const prior = (await this.vfs.stat(ORIENTATION_PATH))?.size ?? 0;
-      const delta = bytes.byteLength - prior;
-      if (delta <= 0 || (await this.vfs.totalSize()) + delta <= this.limits.maxVfsBytes) {
-        await this.vfs.write(ORIENTATION_PATH, bytes);
-      }
+      await this.exclusive(async () => {
+        const prior = (await this.vfs.stat(ORIENTATION_PATH))?.size ?? 0;
+        const delta = bytes.byteLength - prior;
+        if (delta <= 0 || (await this.vfs.totalSize()) + delta <= this.limits.maxVfsBytes) {
+          await this.vfs.write(ORIENTATION_PATH, bytes);
+        }
+      });
     } catch {
       // Orientation is a convenience; a filesystem that refuses the write
       // must not turn a read into a failure.

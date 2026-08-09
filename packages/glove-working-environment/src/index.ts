@@ -293,6 +293,10 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
       // Deliberately NOT guarded by readOnlyPaths: mount is the host door,
       // and seeding content into a zone the agent can only read is exactly
       // what the option is for.
+      //
+      // Host I/O stays OUTSIDE the lock. Reading a file off the host disk can
+      // take as long as the disk takes, and holding the environment's one
+      // mutation queue for it would stall every concurrently running script.
       const data =
         typeof source === "string"
           ? new Uint8Array(await hostReadFile(source))
@@ -304,24 +308,38 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
           `file size limit exceeded: mounting ${p} at ${data.byteLength} bytes, over the ${limits.maxFileBytes}-byte cap (limits.maxFileBytes)`,
         );
       }
-      const total = await vfs.totalSize();
-      if (total + data.byteLength > limits.maxVfsBytes) {
-        throw new EnvLimitError(
-          `environment size limit exceeded: mounting ${p} would grow the tree past ${limits.maxVfsBytes} bytes (limits.maxVfsBytes)`,
-        );
-      }
-      await vfs.write(p, data);
+      // The size check and the write are one transaction: apart, two mounts
+      // (or a mount and a script's write) that each fit under the cap can
+      // both pass and together exceed it.
+      await core.exclusive(async () => {
+        const total = await vfs.totalSize();
+        if (total + data.byteLength > limits.maxVfsBytes) {
+          throw new EnvLimitError(
+            `environment size limit exceeded: mounting ${p} would grow the tree past ${limits.maxVfsBytes} bytes (limits.maxVfsBytes)`,
+          );
+        }
+        await vfs.write(p, data);
+      });
     },
 
     async export(pattern: string): Promise<Array<{ path: string; bytes: Uint8Array }>> {
-      const paths = await core.glob(pattern);
-      const out: Array<{ path: string; bytes: Uint8Array }> = [];
-      for (const p of paths) out.push({ path: p, bytes: await vfs.read(p) });
-      return out;
+      // Under the lock so the set of matched paths and their bytes describe
+      // one moment: unlocked, a run deleting `/out/draft.pdf` between the glob
+      // and the read makes the door throw on a file it just listed.
+      return core.exclusive(async () => {
+        const paths = await core.glob(pattern);
+        const out: Array<{ path: string; bytes: Uint8Array }> = [];
+        for (const p of paths) out.push({ path: p, bytes: await vfs.read(p) });
+        return out;
+      });
     },
 
     async snapshot(): Promise<EnvSnapshot> {
-      return snapshotVfs(vfs);
+      // The durability door. Interleaved with a mutation it captured a tree
+      // the environment was never in — a version index recording a write the
+      // files do not have — or threw outright, when the version ring rotated
+      // a blob out between the `list()` that named it and the `read()`.
+      return core.exclusive(() => snapshotVfs(vfs));
     },
 
     async close(options?: { graceMs?: number }): Promise<void> {

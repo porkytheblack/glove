@@ -111,6 +111,31 @@ export class VersionStore {
     await this.persist();
   }
 
+  /**
+   * Drop the undo/redo history for these paths, freeing their blobs.
+   *
+   * For whole-tree operations that replace a file's content without going
+   * through `recordMutation` — today, `checkpoint restore`. Leaving the ring
+   * in place is worse than losing it: the entries describe an era the tree is
+   * no longer in, so the next `undo` on a restored file silently reinstates
+   * content from before the restore, and `history` reports steps that mean
+   * nothing. Returns the number of paths that had history.
+   */
+  async forget(paths: Iterable<string>): Promise<number> {
+    await this.load();
+    let cleared = 0;
+    for (const raw of paths) {
+      const p = normalizePath(raw);
+      const s = this.index.get(p);
+      if (!s) continue;
+      for (const e of [...s.undo, ...s.redo]) await this.dropBlob(e);
+      this.index.delete(p);
+      cleared += 1;
+    }
+    if (cleared > 0) await this.persist();
+    return cleared;
+  }
+
   async canUndo(path: string): Promise<boolean> {
     await this.load();
     return (this.index.get(normalizePath(path))?.undo.length ?? 0) > 0;

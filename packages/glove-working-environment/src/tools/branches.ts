@@ -60,7 +60,13 @@ export function validateBranchName(name: unknown): string {
   return name;
 }
 
-/** Everything outside `/.env`, which is what a checkpoint covers. */
+/**
+ * Everything outside `/.env`, which is what a checkpoint covers.
+ *
+ * The walk awaits per entry, so it must run under the environment's exclusive
+ * lock: interleaved with a mutation it captures a tree that never existed —
+ * half of one write and half of the next.
+ */
 async function captureTree(vfs: Vfs): Promise<EnvSnapshot> {
   const files: EnvSnapshot["files"] = [];
   const dirs: string[] = [];
@@ -83,7 +89,7 @@ async function captureTree(vfs: Vfs): Promise<EnvSnapshot> {
   return { version: 1, dirs: dirs.sort(), files };
 }
 
-/** Save the tree under `name`. Returns what was captured. */
+/** Save the tree under `name`. Returns what was captured. Hold the lock. */
 export async function forkBranch(vfs: Vfs, name: string): Promise<BranchInfo> {
   validateBranchName(name);
   const snapshot = await captureTree(vfs);
@@ -120,24 +126,67 @@ async function readBranch(vfs: Vfs, name: string): Promise<StoredBranch> {
  * Everything outside `/.env` is replaced: files the checkpoint does not have
  * are removed, which is the whole point — "put it back" has to mean the file
  * you created is gone, not merely that the ones you edited are reverted.
+ *
+ * **All or nothing.** A restore is a long sequence of removes and writes, and
+ * a failure part-way through leaves the tree in a state that is neither the
+ * old one nor the new one — the exact outcome checkpoints exist to prevent.
+ * So the current tree is captured first and reinstated if any step throws,
+ * and the caller reports the original failure. The capture is the same walk
+ * `fork` does; on the in-memory filesystem this costs one pass and the bytes
+ * of the tree, which is the price of the guarantee.
+ *
+ * Callers must hold the environment's exclusive lock (see
+ * `EnvCore.exclusive`) — every path below reads then writes.
  */
-export async function restoreBranch(vfs: Vfs, name: string): Promise<{ restored: number; removed: number }> {
+export async function restoreBranch(
+  vfs: Vfs,
+  name: string,
+): Promise<{ restored: number; removed: number; touched: string[] }> {
   const { snapshot } = await readBranch(vfs, name);
+  const before = await captureTree(vfs);
 
+  try {
+    return await applyTree(vfs, snapshot);
+  } catch (e) {
+    // Best effort, and deliberately not allowed to mask the real failure: if
+    // the rollback also fails the caller still sees why the restore did.
+    try {
+      await applyTree(vfs, before);
+    } catch {
+      throw new Error(
+        `restoring checkpoint "${name}" failed part-way and the tree could not be rolled back — ` +
+          `it is in a mixed state. Original failure: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+    throw e;
+  }
+}
+
+/** Make the tree outside `/.env` match `snapshot`. Not atomic on its own. */
+async function applyTree(vfs: Vfs, snapshot: EnvSnapshot): Promise<{ restored: number; removed: number; touched: string[] }> {
   const wanted = new Set(snapshot.files.map((f) => normalizePath(f.path)));
+  const touched: string[] = [];
   let removed = 0;
   for (const path of await vfs.files()) {
     if (isUnder(path, "/.env") || wanted.has(path)) continue;
+    // Tolerate a path that is already gone. `vfs.files()` and the `rm` that
+    // follows are two round trips against a filesystem the host may also own
+    // (hostDirectory, a remote VFS), and "the file I was about to delete is
+    // deleted" is success, not a reason to abandon a restore half-done.
+    if (!(await vfs.exists(path))) continue;
     await vfs.rm(path);
+    touched.push(path);
     removed += 1;
   }
   for (const dir of snapshot.dirs) {
     if (!isUnder(dir, "/.env")) await vfs.mkdir(dir);
   }
   for (const file of snapshot.files) {
-    await vfs.write(normalizePath(file.path), base64ToBytes(file.data));
+    const p = normalizePath(file.path);
+    await vfs.write(p, base64ToBytes(file.data));
+    touched.push(p);
   }
-  return { restored: snapshot.files.length, removed };
+  return { restored: snapshot.files.length, removed, touched };
 }
 
 export async function listBranches(vfs: Vfs): Promise<BranchInfo[]> {

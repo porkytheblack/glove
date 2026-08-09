@@ -417,30 +417,44 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     ),
     do: guard("checkpoint", async (input: { action?: string; name?: string }) => {
       const action = input.action ?? "list";
+      // Every branch of this verb walks or rewrites the whole tree, so all of
+      // them take the environment's exclusive lock. Without it a `fork`
+      // concurrent with a running script captures a tree that never existed,
+      // and a `restore` leaves one behind.
       if (action === "list") {
-        const branches = await listBranches(core.vfs);
+        const branches = await core.exclusive(() => listBranches(core.vfs));
         if (branches.length === 0) return ok("no checkpoints yet — checkpoint({action:'fork', name:'before-refactor'}) saves the tree as it is now");
         return ok(branches.map((b) => `${b.name}  ${b.files} file(s), ${fmtBytes(b.bytes)}, saved ${b.created}`).join("\n"));
       }
       if (typeof input.name !== "string") return err(`checkpoint ${action} needs { name }`);
+      const branchName = input.name;
 
       if (action === "fork") {
-        const info = await forkBranch(core.vfs, input.name);
+        const info = await core.exclusive(() => forkBranch(core.vfs, branchName));
         return ok(
           `saved checkpoint "${info.name}": ${info.files} file(s), ${fmtBytes(info.bytes)}. ` +
             `checkpoint({action:'restore', name:'${info.name}'}) puts the tree back exactly here.`,
         );
       }
       if (action === "restore") {
-        const r = await restoreBranch(core.vfs, input.name);
+        const r = await core.exclusive(async () => {
+          const result = await restoreBranch(core.vfs, branchName);
+          // The restore replaced content without going through the mutation
+          // gateway, so the per-file undo rings for the files it touched now
+          // describe an era the tree has left. Keeping them would let a later
+          // `undo` quietly reinstate post-checkpoint content.
+          const forgotten = await core.versions.forget(result.touched);
+          return { ...result, forgotten };
+        });
         return ok(
-          `restored "${input.name}": ${r.restored} file(s) put back, ${r.removed} created since then removed. ` +
+          `restored "${branchName}": ${r.restored} file(s) put back, ${r.removed} created since then removed. ` +
+            (r.forgotten > 0 ? `Per-file undo history was cleared for the ${r.forgotten} file(s) this changed. ` : "") +
             `Run history is unchanged — it records what actually ran.`,
         );
       }
       if (action === "drop") {
-        await dropBranch(core.vfs, input.name);
-        return ok(`dropped checkpoint "${input.name}"`);
+        await core.exclusive(() => dropBranch(core.vfs, branchName));
+        return ok(`dropped checkpoint "${branchName}"`);
       }
       return err(`unknown checkpoint action ${JSON.stringify(action)} — use fork, restore, list or drop`);
     }),
