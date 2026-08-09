@@ -5,6 +5,16 @@
  * directly. A .docx body is a predictable, machine-generated XML shape —
  * paragraphs (`w:p`) of runs (`w:t`) — which is why text recovery here is a
  * scan rather than a full XML parse.
+ *
+ * `replaceText` is the third direction, and it goes through neither library.
+ * Editing an existing document by re-composing it means re-composing only
+ * what this file's spec can express, which is a fraction of what a real
+ * contract contains: measured on a document with a header, a coloured run and
+ * a logo, an extract-and-rebuild cycle dropped `word/header1.xml`, its
+ * relationships and `word/media/*.png`, and returned the bold red client name
+ * as plain text. So the edit is made in the package: the one part that
+ * contains the text is inflated, spliced and re-deflated, and every other
+ * entry is copied across still compressed.
  */
 import {
   AlignmentType,
@@ -32,7 +42,8 @@ import {
   validateSpec,
   type DocumentSpec,
 } from "./model";
-import { readZip, readZipEntry } from "./zip";
+import { readZip, readZipEntry, rewriteZip } from "./zip";
+import { normalizeRules, replaceInPart, WORD_TAGS, type ReplaceRule } from "./ooxml";
 
 export interface DocxSummary {
   path: string;
@@ -55,7 +66,38 @@ export interface DocxText {
   characters: number;
 }
 
+export interface DocxReplaceOptions {
+  /** Where to write. Default: back over `path`. */
+  output?: string;
+  /**
+   * `"all"` (default) also edits headers, footers, footnotes and endnotes —
+   * a client name usually appears in a header too. `"body"` is document.xml
+   * alone.
+   */
+  parts?: "body" | "all";
+}
+
+export interface DocxEdit {
+  /** The file written. */
+  path: string;
+  /** Total occurrences replaced. */
+  replacements: number;
+  /** Which parts changed, and by how much. */
+  parts: Array<{ part: string; replacements: number }>;
+  /** Search strings that matched nothing. Empty when every rule landed. */
+  unmatched: string[];
+}
+
 const DOCUMENT_PART = "word/document.xml";
+
+/**
+ * The parts that carry document text.
+ *
+ * Deliberately not `word/comments.xml` (a comment is someone else's writing,
+ * not the document's), nor `docProps/*` (metadata has its own verb), nor
+ * anything under `word/glossary/` (building blocks, not this document).
+ */
+const TEXT_PARTS = /^word\/(document|header\d*|footer\d*|footnotes|endnotes)\.xml$/;
 
 const HEADINGS: Record<number, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = {
   1: HeadingLevel.HEADING_1,
@@ -103,7 +145,20 @@ export function parseDocumentXml(xml: string): { paragraphs: ParsedParagraph[]; 
   return { paragraphs, tables };
 }
 
-async function readDocumentXml(vfs: EnvFsHandle, path: string): Promise<string> {
+/**
+ * What any one part may inflate to.
+ *
+ * Read off the live environment rather than left to the module default, so a
+ * host that lowered `maxVfsBytes` gets the lower ceiling it asked for. Every
+ * read path in this file goes through it — a new one that did not would
+ * reopen the bomb the cap exists to stop.
+ */
+function inflationBudget(vfs: EnvFsHandle): number {
+  return Math.max(1, vfs.limits.maxVfsBytes);
+}
+
+/** Open a .docx through the guarded handle, refusing anything that is not one. */
+async function openDocx(vfs: EnvFsHandle, path: string) {
   const bytes = await vfs.readBytes(path);
   let entries;
   try {
@@ -111,13 +166,17 @@ async function readDocumentXml(vfs: EnvFsHandle, path: string): Promise<string> 
   } catch (e) {
     throw new Error(`${path} could not be read as a .docx: ${e instanceof Error ? e.message : String(e)}`);
   }
-  const entry = entries.get(DOCUMENT_PART);
-  if (!entry) {
+  if (!entries.has(DOCUMENT_PART)) {
     throw new Error(
       `${path} is a ZIP but not a Word document (no ${DOCUMENT_PART}) — .xlsx and .pptx are also ZIPs, check the file`,
     );
   }
-  return readZipEntry(bytes, entry).toString("utf8");
+  return { bytes, entries };
+}
+
+async function readDocumentXml(vfs: EnvFsHandle, path: string): Promise<string> {
+  const { bytes, entries } = await openDocx(vfs, path);
+  return readZipEntry(bytes, entries.get(DOCUMENT_PART)!, inflationBudget(vfs)).toString("utf8");
 }
 
 function words(text: string): number {
@@ -152,6 +211,67 @@ export function createDocxBindings(vfs: EnvFsHandle) {
       const kept = paragraphs.map((p) => p.text).filter((t) => t.trim() !== "");
       const text = kept.join("\n");
       return { path, paragraphs: kept, text, characters: text.length };
+    },
+
+    /**
+     * Find and replace text inside an existing .docx, in place.
+     *
+     * This is an **edit**, not a re-render: only the parts that carry the
+     * matched text are rewritten, and every other entry in the package —
+     * styles, numbering, themes, images, headers you did not match, the
+     * relationship graph — is copied across byte for byte. Formatting around
+     * a replacement survives because the surrounding runs are never touched,
+     * and the replacement itself lands in the run the match started in, so it
+     * inherits that run's formatting.
+     *
+     * Matching is literal, case-sensitive, and within a paragraph.
+     */
+    async replaceText(
+      path: string,
+      replacements: Record<string, string> | ReplaceRule[],
+      options: DocxReplaceOptions = {},
+    ): Promise<DocxEdit> {
+      const rules = normalizeRules(replacements);
+      const { bytes, entries } = await openDocx(vfs, path);
+      const budget = inflationBudget(vfs);
+
+      const wanted = [...entries.keys()].filter((name) =>
+        options.parts === "body" ? name === DOCUMENT_PART : TEXT_PARTS.test(name),
+      );
+
+      const edited = new Map<string, Uint8Array>();
+      const parts: Array<{ part: string; replacements: number }> = [];
+      const perRule = rules.map(() => 0);
+
+      for (const name of wanted) {
+        const xml = readZipEntry(bytes, entries.get(name)!, budget).toString("utf8");
+        const result = replaceInPart(xml, rules, WORD_TAGS);
+        if (result.count === 0) continue;
+        edited.set(name, Buffer.from(result.xml, "utf8"));
+        parts.push({ part: name, replacements: result.count });
+        result.perRule.forEach((n, i) => (perRule[i] += n));
+      }
+
+      const total = perRule.reduce((a, b) => a + b, 0);
+      if (total === 0) {
+        // Writing a byte-identical copy and reporting success is the failure
+        // that costs a run: the model believes the rename happened. The text
+        // is there to be checked, so say what was searched for and where to
+        // look.
+        throw new Error(
+          `nothing to replace in ${path}: none of ${rules.map((r) => JSON.stringify(r.find)).join(", ")} appears in it. ` +
+            `Matching is literal and case-sensitive — read docx.extractText('${path}') and copy the text exactly as it is written.`,
+        );
+      }
+
+      const output = options.output ?? path;
+      await vfs.writeFile(output, rewriteZip(bytes, edited));
+      return {
+        path: output,
+        replacements: total,
+        parts,
+        unmatched: rules.filter((_, i) => perRule[i] === 0).map((r) => r.find),
+      };
     },
 
     /** Render a document spec to a .docx. Returns the output path. */

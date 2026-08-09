@@ -19,11 +19,13 @@
  */
 import PptxGenJSImport from "pptxgenjs";
 import { defineAdapter, defineBuilder, methodsOf, type EnvFsHandle, type FileSummary } from "glove-working-environment";
-import { readDeck, looksZip, type SlideText } from "./pptx";
+import { readDeck, looksZip, notesPartFor, readPart, readZip, rewriteZip, slidePartsOf, type SlideText } from "./pptx";
+import { normalizeRules, parseSlides, replaceInPart, type ReplaceRule } from "./edit";
 import { SLIDES_DOCS, SLIDES_TYPES } from "./docs";
 import { SLIDES_SKILLS } from "./skills";
 
 export type { SlideText };
+export type { ReplaceRule } from "./edit";
 /**
  * The independent reader, exported for hosts that need to verify a deck from
  * outside the environment — a test asserting on what an agent produced, for
@@ -65,6 +67,26 @@ export interface DeckSummary extends FileSummary {
   titles: string[];
   words: number;
   media: number;
+}
+
+export interface ReplaceTextOptions {
+  /** 1-based slide numbers, as `extract`/`describe` number them. Default: every slide. */
+  slides?: number | number[];
+  /** Also edit speaker notes. Default false — a typo on a slide is rarely in its notes. */
+  notes?: boolean;
+  /** Where to write. Default: back over the input path. */
+  output?: string;
+}
+
+export interface DeckEdit {
+  /** The file written. */
+  path: string;
+  /** Total occurrences replaced. */
+  replacements: number;
+  /** Which slides changed, and by how much. */
+  slides: Array<{ slide: number; replacements: number }>;
+  /** Search strings that matched nothing. Empty when every rule landed. */
+  unmatched: string[];
 }
 
 /**
@@ -274,8 +296,16 @@ export const slides = () =>
         },
       });
 
-      /** Read, verify it really is a deck, and hand back parsed content. */
-      const open = async (path: string) => {
+      /**
+       * The inflation cap comes from the environment rather than a constant of
+       * our own: a budget this adapter invented would either be uselessly
+       * small or exactly the hole that lets a crafted deck exhaust the heap.
+       * Every part this adapter inflates — reading or editing — passes it.
+       */
+      const budget = () => Math.max(1, vfs.limits.maxVfsBytes);
+
+      /** Bytes through the guarded handle, refusing anything that is not a deck. */
+      const openBytes = async (path: string): Promise<Uint8Array> => {
         const bytes = await vfs.readBytes(path);
         if (!looksZip(bytes)) {
           throw new Error(
@@ -283,10 +313,13 @@ export const slides = () =>
               `A .pptx is a ZIP container; this file is something else.`,
           );
         }
-        // The inflation cap comes from the environment rather than a constant
-        // of our own: a budget this adapter invented would either be uselessly
-        // small or exactly the hole that lets a crafted deck exhaust the heap.
-        return { bytes, deck: readDeck(bytes, Math.max(1, vfs.limits.maxVfsBytes)) };
+        return bytes;
+      };
+
+      /** Read, verify it really is a deck, and hand back parsed content. */
+      const open = async (path: string) => {
+        const bytes = await openBytes(path);
+        return { bytes, deck: readDeck(bytes, budget()) };
       };
 
       return {
@@ -323,6 +356,79 @@ export const slides = () =>
               return parts.join("\n");
             })
             .join("\n\n");
+        },
+
+        /**
+         * Find and replace text in an existing deck, in place.
+         *
+         * This is an **edit**, not a regeneration. Only the slide parts that
+         * contain the matched text are rewritten; the master, the layouts, the
+         * theme, the images, the animations and every slide you did not scope
+         * to are copied across byte for byte. A replacement lands in the run
+         * the match started in, so it keeps that run's font, size and colour.
+         *
+         * Matching is literal, case-sensitive, and within a paragraph.
+         */
+        async replaceText(
+          path: string,
+          replacements: Record<string, string> | ReplaceRule[],
+          options: ReplaceTextOptions = {},
+        ): Promise<DeckEdit> {
+          const rules = normalizeRules(replacements);
+          const bytes = await openBytes(path);
+          const max = budget();
+          const entries = readZip(bytes);
+          const parts = slidePartsOf(entries);
+          if (parts.length === 0) {
+            throw new Error(
+              "this is a ZIP but not a PowerPoint deck (no ppt/slides/) — .docx and .xlsx are also ZIPs, check the file",
+            );
+          }
+
+          const edited = new Map<string, Uint8Array>();
+          const touched: Array<{ slide: number; replacements: number }> = [];
+          const perRule = rules.map(() => 0);
+
+          for (const index of parseSlides(options.slides, parts.length)) {
+            const slidePart = parts[index];
+            const targets = [slidePart];
+            if (options.notes) {
+              const notes = notesPartFor(bytes, entries, slidePart, max);
+              if (notes) targets.push(notes);
+            }
+
+            let onThisSlide = 0;
+            for (const name of targets) {
+              const result = replaceInPart(readPart(bytes, entries.get(name)!, max), rules);
+              if (result.count === 0) continue;
+              edited.set(name, Buffer.from(result.xml, "utf8"));
+              onThisSlide += result.count;
+              result.perRule.forEach((n, i) => (perRule[i] += n));
+            }
+            if (onThisSlide > 0) touched.push({ slide: index + 1, replacements: onThisSlide });
+          }
+
+          const total = perRule.reduce((a, b) => a + b, 0);
+          if (total === 0) {
+            // Writing a byte-identical deck and reporting success is the
+            // failure that costs a run: the model believes the fix landed. The
+            // text is right there to be checked, so say what was looked for.
+            const where = options.slides === undefined ? "" : ` on slide ${JSON.stringify(options.slides)}`;
+            throw new Error(
+              `nothing to replace in ${path}${where}: none of ` +
+                `${rules.map((r) => JSON.stringify(r.find)).join(", ")} appears there. ` +
+                `Matching is literal and case-sensitive — read outline('${path}') and copy the text exactly as it is written.`,
+            );
+          }
+
+          const out = options.output ?? path;
+          await vfs.writeFile(out, rewriteZip(bytes, edited));
+          return {
+            path: out,
+            replacements: total,
+            slides: touched,
+            unmatched: rules.filter((_, i) => perRule[i] === 0).map((r) => r.find),
+          };
         },
 
         async create(spec: DeckSpec, output: string): Promise<string> {

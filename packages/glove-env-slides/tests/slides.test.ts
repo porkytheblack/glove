@@ -516,6 +516,35 @@ test("a deck that lies about a part's size is refused rather than inflated", asy
   assert.match(String(run.error), /maxVfsBytes/);
 });
 
+test("replaceText inflates through the same cap, so an edit is not a way past it", async () => {
+  // The edit path opens parts of its own. A read path added without the
+  // budget would be a hole reopened one release after it was closed, and
+  // nothing about `replaceText` looks like a place to check for a zip bomb.
+  const t = await createAdapterTestEnv(slides(), { limits: { maxVfsBytes: 200_000 } });
+  const bomb = craftedZip("ppt/slides/slide1.xml", deflateRawSync(Buffer.alloc(5_000_000)), { declaredSize: 512 });
+  await t.fs.writeFile("/inbox/bomb.pptx", bomb);
+
+  const run = await t.runScript(
+    `import { replaceText } from 'env:slides';
+     export default async function main() { return replaceText('/inbox/bomb.pptx', { a: 'b' }); }`,
+  );
+  assert.equal(run.ok, false);
+  assert.match(String(run.error), /expands past the 200000-byte inflation budget/);
+});
+
+test("replaceText refuses an encrypted deck rather than splicing ciphertext", async () => {
+  const t = await createAdapterTestEnv(slides());
+  const locked = craftedZip("ppt/slides/slide1.xml", Buffer.from("<p:sld/>"), { flags: 0x0001, stored: true });
+  await t.fs.writeFile("/inbox/locked.pptx", locked);
+
+  const run = await t.runScript(
+    `import { replaceText } from 'env:slides';
+     export default async function main() { return replaceText('/inbox/locked.pptx', { a: 'b' }); }`,
+  );
+  assert.equal(run.ok, false);
+  assert.match(String(run.error), /encrypted ZIP entries are not supported/);
+});
+
 test("an encrypted deck is refused by name, not misread as 'not a deck'", async () => {
   // Inflating ciphertext yields garbage rather than an error, so without the
   // flag check the deck comes back as "no ppt/slides/" — true, useless, and

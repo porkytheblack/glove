@@ -13,9 +13,18 @@ import { defineDocxBuilders, docxEnums } from "./compose";
 import { DOCUMENTS_DOCS, DOCUMENTS_TYPES } from "./docs";
 import { DOCUMENTS_SKILLS } from "./skills";
 
-export type { DocumentSpec, Block, PageSize } from "./model";
-export type { PdfSummary, PdfMetadata, StampOptions, ExtractedText } from "./pdf";
-export type { DocxSummary, DocxText } from "./docx";
+export type { DocumentSpec, Block, PageSize, FontSpec } from "./model";
+export type {
+  PdfSummary,
+  PdfMetadata,
+  StampOptions,
+  ExtractedText,
+  PdfFormField,
+  PdfFormContents,
+  FillFormOptions,
+  FilledForm,
+} from "./pdf";
+export type { DocxSummary, DocxText, DocxEdit, DocxReplaceOptions } from "./docx";
 
 export type DocumentSummary = PdfSummary | DocxSummary;
 

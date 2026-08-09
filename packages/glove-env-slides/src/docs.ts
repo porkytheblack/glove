@@ -81,14 +81,52 @@ export interface DeckSummary {
   media: number;
 }
 
+export interface ReplaceTextOptions {
+  /** 1-based slide numbers, as describe()/extract() number them. Default: every slide. */
+  slides?: number | number[];
+  /** Also edit speaker notes. Default false. */
+  notes?: boolean;
+  /** Where to write. Default: back over the input path. */
+  output?: string;
+}
+
+export interface DeckEdit {
+  path: string;
+  replacements: number;
+  slides: Array<{ slide: number; replacements: number }>;
+  /** Search strings that matched nothing. Empty when every rule landed. */
+  unmatched: string[];
+}
+
 /**
  * Summarise a deck without reading it into context: slide count, the full
  * outline of titles, word count.
  */
 export function describe(path: string): Promise<DeckSummary>;
 
-/** Build a deck. Returns the output path. */
+/** Build a NEW deck from a spec. Returns the output path. */
 export function create(spec: DeckSpec, output: string): Promise<string>;
+
+/**
+ * Find and replace text in an EXISTING deck, preserving everything else.
+ *
+ * This is an edit, not a regeneration. Only the slide parts holding the
+ * matched text are rewritten; the master, layouts, theme, images, animations
+ * and every slide you did not scope to are copied byte for byte. A replacement
+ * lands in the run its match started in, so it keeps that run's font, size and
+ * colour.
+ *
+ * Matching is literal, case-sensitive, and does not cross a paragraph
+ * boundary. Text split across formatting runs is still found. If nothing
+ * matches it throws rather than writing an identical deck.
+ *
+ *     await replaceText('/inbox/q3.pptx', { 'Nortwind': 'Northwind' }, { slides: 4 });
+ */
+export function replaceText(
+  path: string,
+  replacements: Record<string, string> | Array<{ find: string; replace: string }>,
+  options?: ReplaceTextOptions,
+): Promise<DeckEdit>;
 
 /**
  * Every slide's text, including speaker notes.
@@ -149,6 +187,45 @@ export default async function main() {
 Then \`grep\` \`/tmp/deck.md\` for what you actually need. Writing the flattened
 text to a file and searching it costs a fraction of pulling 31 slides through
 the response cap.
+
+## Fixing a slide without rebuilding the deck
+
+\`replaceText\` edits a deck **in place**. Reach for it whenever the file
+already exists — 'fix the typo on slide 4', 'rename the client throughout'.
+
+\`\`\`js
+import { outline, replaceText } from 'env:slides';
+
+export default async function main() {
+  // Read it first: matching is literal, so copy the text as it is written.
+  const text = await outline('/inbox/q3.pptx');
+
+  const edit = await replaceText('/inbox/q3.pptx', { 'Nortwind': 'Northwind' }, {
+    slides: 4,
+    output: '/out/q3.pptx',
+  });
+  // → { path: '/out/q3.pptx', replacements: 1, slides: [{ slide: 4, replacements: 1 }], unmatched: [] }
+  return edit;
+}
+\`\`\`
+
+The alternative — \`extract()\` then \`create()\` — is a **regeneration**, and it
+rebuilds the deck out of the only things \`DeckSpec\` can say. Measured on a deck
+this adapter wrote, that cycle lost the chart image and the footer's slide
+layout; on a deck someone else made, it would lose their entire design.
+
+- Only the slide parts that matched are rewritten. Everything else — masters,
+  layouts, theme, \`ppt/media/*\`, animations — is copied byte for byte.
+- \`slides\` takes a number or an array, numbered as \`describe\`/\`extract\` do.
+  Omit it to search the whole deck.
+- Speaker notes are left alone unless you pass \`{ notes: true }\`.
+- Matching is **literal and case-sensitive** and never crosses a paragraph. It
+  does find text split across formatting runs.
+- If nothing matches it throws instead of writing an identical deck;
+  \`unmatched\` names the rules that missed when others hit.
+
+For anything beyond replacing strings — adding a slide, changing a layout —
+build a new deck with \`PptxGenJS\`. There is no way to open one with it.
 
 ## Notes
 

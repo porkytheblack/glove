@@ -79,6 +79,21 @@ const summary = await describe('/inbox/board.pptx');
 
 `extract()` returns every slide's title, body paragraphs and speaker notes. `outline()` flattens the whole deck to markdown with `## Slide N: Title` headers — write that to a file and `grep` it, which costs a fraction of pulling 31 slides through the response cap.
 
+## Editing, not regenerating
+
+`create()` writes a new deck. `replaceText()` changes one that already exists — 'fix the typo on slide 4' — and the difference is the whole point:
+
+```js
+await replaceText('/inbox/q3.pptx', { 'Nortwind': 'Northwind' }, { slides: 4 });
+// → { path, replacements: 1, slides: [{ slide: 4, replacements: 1 }], unmatched: [] }
+```
+
+Only the slide parts holding the matched text are rewritten. Every other part — masters, layouts, theme, `ppt/media/*`, animations, the slides you did not scope to — is copied across **still compressed**, so code that never decoded a part cannot change it. Measured on a deck this adapter wrote: the edit rewrote one of 50 parts and left the other 49 byte-identical, where reading the text out and rebuilding the deck lost the chart image and the footer's slide layout. On a deck a designer made, the rebuild loses the design.
+
+pptxgenjs cannot open a .pptx, so this goes through the same independent OOXML path as the reader: inflate the part, splice its text runs, re-emit. Text split across formatting runs is still found — runs are joined per paragraph before matching — and a replacement lands in the run its match started in, keeping that run's font, size and colour. A search that matches nothing throws rather than writing an identical deck.
+
+Anything beyond replacing strings — adding a slide, moving one, changing a layout — still means building a new deck.
+
 ## Why the reader is not pptxgenjs
 
 Writing goes through [pptxgenjs](https://gitbrent.github.io/PptxGenJS/); reading goes through this package's own ZIP + OOXML reader in `src/pptx.ts`, and that asymmetry is deliberate.
@@ -89,6 +104,7 @@ Two things that reader gets right and a naive one does not:
 
 - **Runs are joined within a paragraph.** PowerPoint splits one visual line into several `<a:t>` runs wherever formatting changes, so "Revenue **grew** 12%" is three runs. Joining on run boundaries turns one bullet into three and every count downstream is wrong.
 - **Footers live on the slide master, not the slide.** A footer stamped into each slide's own XML comes back as a body line on every slide, so a 30-slide deck yields 30 copies of "Confidential" and any summary built from the text inherits them. Chrome is not content.
+- **Speaker notes are resolved through relationships, not by number.** `slide7.xml` ↔ `notesSlide7.xml` holds for decks this package writes and for little else: PowerPoint numbers notes parts in creation order, so a deck where slide 2 got notes first has `notesSlide1.xml` hanging off slide 2. The rels part is the answer the file itself gives; the numeric convention survives only as the fallback for a deck with no rels at all.
 
 The test suite reads decks back through that independent path, and one test skips both readers entirely — it runs the system `unzip` to CRC-check the archive and assert every OOXML part the spec requires is present, so a deck only our own code can open still fails.
 
@@ -101,3 +117,4 @@ Claims `.pptx` by extension only. A pptx is a ZIP and so are `.docx` and `.xlsx`
 - ZIP64 archives are refused with a message rather than mis-parsed.
 - Charts are not generated. Render one with `env:images` and place it via `image`.
 - Reading recovers text, notes and media counts — not layout, animation or theming. It is built for review, not for round-tripping someone else's design.
+- Editing replaces text, and only text. It preserves layout, animation and theming by never touching them, which is a different guarantee from understanding them: `replaceText` cannot add a slide, resize a shape or restyle a run, and matching is literal, case-sensitive and confined to one paragraph.

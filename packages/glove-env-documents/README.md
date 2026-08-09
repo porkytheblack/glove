@@ -52,9 +52,54 @@ export default async function main() {
 | `pdf.merge` / `split` / `extractPages` | Concatenate, explode, select (`'1-3,7'` or `[1,3,7]`, 1-based) |
 | `pdf.setMetadata` / `stamp` | Rewrite metadata; draw a watermark on chosen pages |
 | `pdf.extractText` | Page-by-page text — **needs the optional `pdfjs-dist` peer** |
+| `pdf.readForm` / `fillForm` | List an AcroForm's fields; fill them by name, optionally flattened |
 | `docx.describe` | Heading outline, counts, short preview |
 | `docx.create` | Render the same spec |
 | `docx.extractText` | Full text, paragraph by paragraph |
+| `docx.replaceText` | **Edit** an existing .docx in place, preserving everything unmatched |
+
+## Editing, not regenerating
+
+`docx.create` writes a new file. `docx.replaceText` changes one that already
+exists, and the difference matters more than it sounds:
+
+```js
+await docx.replaceText('/inbox/contract.docx', { 'Northwind Traders': 'Contoso Ltd' });
+// → { path, replacements: 2, parts: [{ part: 'word/document.xml', replacements: 1 },
+//     { part: 'word/footer1.xml', replacements: 1 }], unmatched: [] }
+```
+
+Only the parts holding the matched text are rewritten; every other entry in the
+package is copied across **still compressed**, so it cannot be changed by code
+that never decoded it. Measured on a contract with a header, a bold red client
+name and a logo: the edit rewrote two of 28 parts and left the other 26
+byte-identical, where extracting the text and re-rendering it dropped the
+header, its relationships and the image, and returned the client name as plain
+text.
+
+Text split across formatting runs is still found — runs are joined per
+paragraph before matching, which is what makes a bold name inside a plain
+sentence reachable — and the replacement lands in the run the match started in,
+so it keeps that run's formatting. A search that matches nothing throws rather
+than writing an identical file.
+
+## Non-Latin text
+
+`pdf.create`, `pdf.stamp` and `pdf.fillForm` take a `font` — a VFS path to a
+TTF/OTF — and embed it with fontkit, subsetted to the glyphs used. Without one,
+text is drawn in Helvetica and anything past Latin-1 becomes `?`.
+
+```js
+await pdf.create('/out/keiyaku.pdf', {
+  font: '/fonts/NotoSansJP-Regular.ttf',
+  content: [{ heading: '契約書' }, { text: '本契約は…' }],
+});
+```
+
+A font with no glyph for a character in the document is **refused by name**
+rather than drawing glyph 0, which every viewer shows as a blank box — a
+failure that looks like success to whoever produced the file. Metadata needs no
+font at all: PDF text strings are UTF-16.
 
 ## When the spec is not enough
 
@@ -95,7 +140,9 @@ list, so a `Paragraph` can be named inside a `Document`'s arguments.
 
 **PDF text extraction is delegated, not faked.** Recovering characters from glyphs is a font and CMap problem that pdf-lib does not solve, and a naive content-stream scan returns *plausible nonsense* on any subsetted font — strictly worse than refusing, because a model cannot tell the difference. So `extractText` requires `pdfjs-dist` as an optional peer and says so plainly when it is absent; everything else works without it. DOCX extraction has no such requirement: a `.docx` is a ZIP of XML, and this package reads it with `node:zlib` rather than adding a dependency to read files it just wrote.
 
-**Unicode degrades where it must, and only there.** pdf-lib's standard fonts are WinAnsi-encoded and throw on anything outside Latin-1 — an em dash in agent-written prose would fail an entire render. Curly quotes, dashes and ellipses are transliterated to their ASCII equivalents and anything else becomes `?`. DOCX keeps full Unicode; the docs tell the model to pick that format when it matters.
+**Unicode degrades only when no font was supplied.** pdf-lib's standard fonts are WinAnsi-encoded and throw on anything outside Latin-1 — an em dash in agent-written prose would fail an entire render — so without a `font` curly quotes, dashes and ellipses are transliterated and anything else becomes `?`. With a `font`, nothing is transliterated and a character the font cannot draw is a refusal instead: the two behaviours are opposite on purpose. A substitution is right when the alternative is failing a whole document over punctuation, and wrong when the alternative is a page of blank boxes nobody notices. DOCX keeps full Unicode either way — it names fonts rather than carrying them.
+
+**Editing goes through the package, not through a library.** `docx` cannot read a .docx and pdf-lib cannot re-typeset a page, so "edit this file" has no library answer. `docx.replaceText` inflates only the parts it changes and copies the rest as stored bytes; the same guarded VFS handle and the same inflation cap apply, because an edit path that skipped them would be a bomb reopened in a verb nobody thinks of as a reader.
 
 **Malformed specs fail loudly.** An unrecognised block would otherwise vanish silently, and a report missing a section costs far more to notice than a failed call. `content[3] is not a recognised block` names the index and lists the block kinds.
 

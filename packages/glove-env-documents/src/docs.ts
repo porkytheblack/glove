@@ -19,6 +19,13 @@ export type Block =
   | { image: string; width?: number; height?: number }   // image is a VFS path to a PNG or JPEG
   | { pageBreak: true };
 
+/** A font to embed, as VFS paths to .ttf/.otf/.woff files. */
+export interface FontSpec {
+  regular: string;
+  /** Bold face. Without one, headings and table headers use the regular face. */
+  bold?: string;
+}
+
 export interface DocumentSpec {
   title?: string;
   author?: string;
@@ -27,6 +34,15 @@ export interface DocumentSpec {
   pageSize?: PageSize;
   /** Points of margin on every side. Default 56 (about 2cm). PDF only. */
   margin?: number;
+  /**
+   * A font to embed, so text can be written in the script it is written in.
+   * PDF only. Without it, Helvetica is used, which stops at Latin-1 and turns
+   * anything past it into "?" — so this is required for Japanese, Chinese,
+   * Korean, Cyrillic, Greek, Arabic, Hebrew, Thai, Devanagari and the rest.
+   * A font that has no glyph for a character in the document is refused by
+   * name rather than drawing blank boxes.
+   */
+  font?: string | FontSpec;
   content: Block[];
 }
 
@@ -102,6 +118,64 @@ export interface StampOptions {
   rotate?: number;
   /** 1-based pages, or a range like "1-3,7". Default: all. */
   pages?: string | number[];
+  /** A font to embed — needed for stamp text outside Latin-1. */
+  font?: string | FontSpec;
+}
+
+// -------------------------------------------------------------- edit a docx
+
+export interface DocxReplaceOptions {
+  /** Where to write. Default: back over the input path. */
+  output?: string;
+  /** "all" (default) also edits headers, footers, footnotes and endnotes. "body" is document.xml alone. */
+  parts?: "body" | "all";
+}
+
+export interface DocxEdit {
+  path: string;
+  replacements: number;
+  parts: Array<{ part: string; replacements: number }>;
+  /** Search strings that matched nothing. Empty when every rule landed. */
+  unmatched: string[];
+}
+
+// ------------------------------------------------------------- pdf forms
+
+export interface PdfFormField {
+  name: string;
+  type: "text" | "checkbox" | "radio" | "dropdown" | "optionlist" | "button" | "signature";
+  /** A string, a list for multi-select, a boolean for a checkbox, null when unset. */
+  value: string | string[] | boolean | null;
+  /** The permitted values, for the field kinds that have a fixed set. */
+  options?: string[];
+  readOnly: boolean;
+  required: boolean;
+}
+
+export interface PdfFormContents {
+  path: string;
+  fields: PdfFormField[];
+  /** True for an XFA form, whose AcroForm fields may be a stale shadow. */
+  xfa: boolean;
+  /** Present when something about the form needs saying before you trust it. */
+  note?: string;
+}
+
+export interface FillFormOptions {
+  /** Where to write. Default: back over the input path. */
+  output?: string;
+  /** A font to render the values with — required for non-Latin values. */
+  font?: string | FontSpec;
+  /** Bake the values into the page and remove the fields. */
+  flatten?: boolean;
+  /** Fill an XFA form's AcroForm layer anyway. Off by default. */
+  allowXfa?: boolean;
+}
+
+export interface FilledForm {
+  path: string;
+  filled: string[];
+  flattened: boolean;
 }
 
 // ----------------------------------------------------------------- verbs
@@ -126,6 +200,21 @@ export const pdf: {
   stamp(input: string, output: string, opts: StampOptions): Promise<string>;
   /** Extract text page by page. Requires the optional pdfjs-dist peer. */
   extractText(path: string, opts?: { pages?: string | number[] }): Promise<ExtractedText>;
+  /**
+   * The fields of a fillable PDF. Call this BEFORE fillForm: field names are
+   * the form author's ("topmostSubform[0].Page1[0].f1_04[0]"), not the labels
+   * printed beside the boxes.
+   */
+  readForm(path: string): Promise<PdfFormContents>;
+  /**
+   * Fill fields by name and save. An unknown field name is an error naming
+   * the fields that do exist, never a silent no-op.
+   */
+  fillForm(
+    path: string,
+    values: Record<string, string | number | boolean | string[]>,
+    options?: FillFormOptions,
+  ): Promise<FilledForm>;
 };
 
 export const docx: {
@@ -135,6 +224,25 @@ export const docx: {
   create(path: string, spec: DocumentSpec): Promise<string>;
   /** Full text, paragraph by paragraph. */
   extractText(path: string): Promise<DocxText>;
+  /**
+   * Find and replace inside an EXISTING .docx, preserving everything else.
+   *
+   * This is an edit, not a re-render: only the parts holding the matched text
+   * are rewritten and every other part of the package — styles, numbering,
+   * theme, images, headers you did not match — is copied byte for byte. The
+   * replacement lands in the run the match started in, so it keeps that run's
+   * bold/colour/size.
+   *
+   * Matching is literal, case-sensitive, and does not cross a paragraph
+   * boundary. Text split across formatting runs is still found, because runs
+   * are joined per paragraph before matching. If nothing matches at all it
+   * throws rather than writing an identical file.
+   */
+  replaceText(
+    path: string,
+    replacements: Record<string, string> | Array<{ find: string; replace: string }>,
+    options?: DocxReplaceOptions,
+  ): Promise<DocxEdit>;
 };
 
 // ---------------------------------------------------------------------------
@@ -301,6 +409,104 @@ A scan has no text layer, so no extractor will do better — the pages have to
 be rasterised and read as images (a vision model, or OCR host-side). \`empty\`
 means the pages really are blank, which is a different problem.
 
+## Editing a document you were given
+
+\`docx.replaceText\` changes an existing .docx **in place**. It is not a
+re-render: the parts holding the matched text are rewritten and every other
+part — styles, numbering, theme, images, headers you did not match — is copied
+across byte for byte.
+
+\`\`\`js
+import { docx } from 'env:documents';
+
+export default async function main() {
+  const edit = await docx.replaceText('/inbox/contract.docx', {
+    'Northwind Traders': 'Contoso Ltd',
+    '2025-01-01': '2026-04-01',
+  });
+  // → { path, replacements: 7, parts: [{ part: 'word/document.xml', replacements: 6 },
+  //     { part: 'word/header1.xml', replacements: 1 }], unmatched: [] }
+  if (edit.unmatched.length > 0) throw new Error('not found: ' + edit.unmatched.join(', '));
+  return edit;
+}
+\`\`\`
+
+The alternative — \`extractText\` then \`docx.create\` — is a **regeneration**,
+and it keeps only what the document spec can say. Measured on a contract with a
+header, a coloured client name and a logo, that cycle dropped the header, the
+logo and the colour. Reach for \`replaceText\` whenever the file already exists.
+
+Things worth knowing:
+
+- Matching is **literal and case-sensitive**, and never crosses a paragraph.
+- Text split across formatting runs is still found — runs are joined per
+  paragraph before matching, which is what makes a bold client name reachable.
+- A replacement inherits the formatting of the run its match started in.
+- Headers, footers, footnotes and endnotes are edited too. Pass
+  \`{ parts: 'body' }\` for document.xml alone.
+- If **nothing** matches it throws instead of writing an identical file.
+  \`unmatched\` names the rules that missed when others hit.
+- Pass \`{ output: '/out/edited.docx' }\` to write elsewhere.
+
+## Non-Latin text: embed a font
+
+PDFs draw with the font they carry. Without one, \`pdf.create\` uses Helvetica,
+which stops at Latin-1 — so Japanese, Cyrillic, Greek, Arabic and the rest come
+out as \`?\`. Give it a font file from the tree and the glyphs travel with the
+document:
+
+\`\`\`js
+import { pdf } from 'env:documents';
+
+export default async function main() {
+  await pdf.create('/out/keiyaku.pdf', {
+    font: '/fonts/NotoSansJP-Regular.ttf',            // or { regular, bold }
+    content: [{ heading: '契約書' }, { text: '本契約は…' }],
+  });
+  const back = await pdf.extractText('/out/keiyaku.pdf');
+  return back.text;                                   // 契約書 …, not ????
+}
+\`\`\`
+
+Only the glyphs the document uses are embedded, so a multi-megabyte CJK face
+costs a few kilobytes. If the font has **no glyph** for a character in the
+document, the render is refused and the message names the characters — a
+missing glyph would otherwise be drawn as a blank box, which looks fine to the
+code and wrong to the reader. A Latin font cannot stand in for a CJK one.
+
+Titles, authors and subjects need no font: PDF metadata is UTF-16 and carries
+any script on its own.
+
+## Filling a form
+
+\`\`\`js
+import { pdf } from 'env:documents';
+
+export default async function main() {
+  const form = await pdf.readForm('/inbox/application.pdf');
+  // → { fields: [{ name: 'applicant.name', type: 'text', value: null, … },
+  //              { name: 'applicant.plan', type: 'dropdown', options: ['Basic','Pro'], … }], xfa: false }
+
+  return pdf.fillForm('/inbox/application.pdf', {
+    'applicant.name': 'Ada Lovelace',
+    'applicant.agree': true,
+    'applicant.plan': 'Pro',
+  }, { output: '/out/application.pdf', flatten: true });
+}
+\`\`\`
+
+**Read the form first.** Field names are the form author's, not the labels
+printed next to the boxes, and a name that is nearly right would otherwise fill
+nothing — so an unknown name is an error that lists the real ones.
+
+- A checkbox takes \`true\`/\`false\`; a dropdown or radio group takes one of its
+  \`options\`; an option list takes an array. Anything else is refused.
+- \`flatten: true\` bakes the answers into the page and removes the fields.
+- Non-Latin values need \`{ font }\`, for the same reason \`create\` does.
+- An **XFA** form is refused: setting its AcroForm layer makes a file that
+  looks filled here and blank in Acrobat. \`readForm\` reports \`xfa: true\`, and
+  \`{ allowXfa: true }\` overrides for hybrid forms you have checked.
+
 ## Rearranging PDFs
 
 \`\`\`js
@@ -320,10 +526,15 @@ Page selections are **1-based**, as a string range (\`'1-3,7'\`) or an array
 
 - Images in a spec are VFS paths to PNG or JPEG files. Convert other formats
   with \`env:images\` first.
-- PDFs use the standard Helvetica family, which covers Latin-1. Characters
-  outside it are transliterated where there is an obvious equivalent (curly
-  quotes, dashes, ellipsis) and otherwise become \`?\`. For full Unicode, emit
-  DOCX.
-- \`setMetadata\` writes back to the same path unless you pass an output path.
+- Without \`font\`, PDFs use the standard Helvetica family, which covers
+  Latin-1. Characters outside it are transliterated where there is an obvious
+  equivalent (curly quotes, dashes, ellipsis) and otherwise become \`?\`. Pass
+  \`font\` for anything else — or emit DOCX, which names fonts rather than
+  carrying them.
+- \`setMetadata\` writes back to the same path unless you pass an output path,
+  and it carries any script without a font.
 - Only \`.docx\` is readable, not legacy \`.doc\` or \`.rtf\`.
+- \`docx.replaceText\` edits an existing file; \`docx.create\` regenerates one
+  from a spec. Editing preserves what the spec cannot express, so prefer it on
+  any document you did not write.
 `;

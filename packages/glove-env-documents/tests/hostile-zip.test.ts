@@ -51,6 +51,37 @@ test("describe refuses a zip-bomb .docx instead of inflating it onto the host he
   assert.match(String(run.error), /maxVfsBytes/);
 });
 
+test("replaceText inflates through the same cap, so an edit is not a way past it", async () => {
+  // The edit path opens parts of its own — document.xml plus every header and
+  // footer. A read path added without the budget would be a hole reopened one
+  // release after it was closed, and nothing about a find/replace looks like a
+  // place to check for a zip bomb.
+  const t = await createAdapterTestEnv(documents(), { limits: { maxVfsBytes: 200_000 } });
+  const bomb = craftedZip(DOCUMENT_PART, deflateRawSync(Buffer.alloc(5_000_000)), { declaredSize: 512 });
+  await t.fs.writeFile("/inbox/bomb.docx", bomb);
+
+  const run = await t.runScript(
+    `import { docx } from 'env:documents';
+     export default async function main() { return docx.replaceText('/inbox/bomb.docx', { a: 'b' }); }`,
+  );
+  assert.equal(run.ok, false);
+  assert.match(String(run.error), /expands past the 200000-byte inflation budget/);
+  assert.match(String(run.error), /maxVfsBytes/);
+});
+
+test("replaceText refuses an encrypted .docx rather than splicing ciphertext", async () => {
+  const t = await createAdapterTestEnv(documents());
+  const locked = craftedZip(DOCUMENT_PART, Buffer.from("<w:document/>"), { flags: 0x0001, stored: true });
+  await t.fs.writeFile("/inbox/locked.docx", locked);
+
+  const run = await t.runScript(
+    `import { docx } from 'env:documents';
+     export default async function main() { return docx.replaceText('/inbox/locked.docx', { a: 'b' }); }`,
+  );
+  assert.equal(run.ok, false);
+  assert.match(String(run.error), /encrypted ZIP entries are not supported/);
+});
+
 test("an encrypted .docx is refused by name, not misread as a broken document", async () => {
   const t = await createAdapterTestEnv(documents());
   const locked = craftedZip(DOCUMENT_PART, Buffer.from("<w:document/>"), { flags: 0x0001, stored: true });
