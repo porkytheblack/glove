@@ -75,6 +75,14 @@ export const JSDOC_NUDGE =
 
 type DerivedAction = { write: string; content: string } | { remove: string };
 
+/** Byte-for-byte equality, treating "absent" as distinct from empty. */
+function sameBytes(a: Uint8Array | null, b: Uint8Array | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.byteLength !== b.byteLength) return false;
+  for (let i = 0; i < a.byteLength; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 interface ScriptEffects {
   derived: DerivedAction[];
   nudge?: string;
@@ -465,21 +473,51 @@ export class EnvCore {
 
   // ---------------------------------------------------------------- writes
 
-  write(
-    path: string,
-    content: string | Uint8Array,
-    opts?: { append?: boolean },
-  ): Promise<{ bytes: number; nudge?: string; created: boolean }> {
-    return this.exclusive(() => this.writeInner(path, content, opts));
-  }
-
-  private async writeInner(
+  /**
+   * ## Why validation happens outside the lock
+   *
+   * Validating a script means executing its top level in a worker, with a
+   * budget of `runTimeoutMs` — up to 30 seconds by default. Done inside the
+   * mutation queue, every other mutation waits behind it, including the
+   * `env:fs` writes RPC'd from scripts that are running *right now* and whose
+   * own deadlines keep ticking. Measured shape of the failure: a 20-second
+   * top level in a script the model is saving kills an unrelated run with a
+   * timeout that reads as that run's fault.
+   *
+   * So validation runs first, against an overlay, holding nothing; the lock
+   * is taken only for the commit. Nothing is lost by this — the validated
+   * bytes are the caller's, not the tree's, and the derived `.d.ts` is
+   * derived from those same bytes. Only the two paths whose *content*
+   * depends on the current file — `append`, and `edit` — need the base to
+   * still be what they read, and both re-check it under the lock.
+   */
+  async write(
     path: string,
     content: string | Uint8Array,
     opts?: { append?: boolean },
   ): Promise<{ bytes: number; nudge?: string; created: boolean }> {
     const p = normalizePath(path);
     this.assertMutable(p, "write");
+
+    // An append's bytes are a function of the file, so it is prepared and
+    // committed as one locked step. It is also the rare case: appending to a
+    // script is unusual, and appending to anything else validates nothing.
+    if (opts?.append || !this.inPipelineScope(p)) {
+      return this.exclusive(() => this.writeInner(p, content, opts));
+    }
+
+    if ((await this.vfs.stat(p))?.kind === "dir") throw new Error(`cannot write ${p}: it is a directory`);
+    const bytes = toBytes(content);
+    this.checkFileSize(p, bytes.byteLength);
+    const effects = await this.scriptEffects(p, toText(bytes));
+    return this.exclusive(() => this.commitWrite(p, bytes, effects, "write"));
+  }
+
+  private async writeInner(
+    p: string,
+    content: string | Uint8Array,
+    opts?: { append?: boolean },
+  ): Promise<{ bytes: number; nudge?: string; created: boolean }> {
     if ((await this.vfs.stat(p))?.kind === "dir") throw new Error(`cannot write ${p}: it is a directory`);
 
     const prior = await this.currentContent(p);
@@ -491,53 +529,82 @@ export class EnvCore {
       bytes = joined;
     }
     this.checkFileSize(p, bytes.byteLength);
-
-    // Everything that can fail happens before the first write.
     const effects = await this.scriptEffects(p, toText(bytes));
+    return this.commitWrite(p, bytes, effects, opts?.append ? "append" : "write");
+  }
+
+  /**
+   * The locked half of a write: everything that can fail is checked before
+   * the first byte lands, so a rejected write leaves no trace.
+   *
+   * `prior` is read here rather than passed in. Its only uses — the undo
+   * record and the size delta — want whatever the file holds at commit time,
+   * not what it held when validation started.
+   */
+  private async commitWrite(
+    p: string,
+    bytes: Uint8Array,
+    effects: ScriptEffects,
+    op: string,
+  ): Promise<{ bytes: number; nudge?: string; created: boolean }> {
+    if ((await this.vfs.stat(p))?.kind === "dir") throw new Error(`cannot write ${p}: it is a directory`);
+    const prior = await this.currentContent(p);
     const derivedDelta = await this.prepareDerived(effects.derived);
     await this.checkTotalSize(
       bytes.byteLength - (prior?.byteLength ?? 0) + derivedDelta + this.versions.versionOverhead(prior),
     );
 
-    await this.versions.recordMutation(p, prior, opts?.append ? "append" : "write");
+    await this.versions.recordMutation(p, prior, op);
     await this.vfs.write(p, bytes);
     await this.applyDerived(effects.derived);
     return { bytes: bytes.byteLength, nudge: effects.nudge, created: prior === null };
   }
 
-  edit(path: string, oldStr: string, newStr: string): Promise<{ nudge?: string; bytes: number }> {
-    return this.exclusive(() => this.editInner(path, oldStr, newStr));
-  }
+  /** How many times an edit re-reads and re-validates before giving up. */
+  private static readonly EDIT_ATTEMPTS = 3;
 
-  private async editInner(path: string, oldStr: string, newStr: string): Promise<{ nudge?: string; bytes: number }> {
+  async edit(path: string, oldStr: string, newStr: string): Promise<{ nudge?: string; bytes: number }> {
     const p = normalizePath(path);
     this.assertMutable(p, "edit");
-    const stat = await this.vfs.stat(p);
-    if (!stat) throw new Error(`no such file: ${p}`);
-    if (stat.kind === "dir") throw new Error(`cannot edit ${p}: it is a directory`);
     if (oldStr === "") throw new Error(`old_str must be non-empty`);
-    const text = await this.readText(p);
 
-    let count = 0;
-    for (let idx = text.indexOf(oldStr); idx !== -1; idx = text.indexOf(oldStr, idx + oldStr.length)) count += 1;
-    if (count === 0) throw new Error(`old_str not found in ${p} (0 matches). Read the file and copy the exact text to replace.`);
-    if (count > 1) {
-      throw new Error(`old_str matches ${count} times in ${p}; it must match exactly once. Include more surrounding context to disambiguate.`);
+    // Optimistic: read and validate outside the lock, then commit only if the
+    // file is still what was read. A concurrent write to the same file makes
+    // the prepared bytes wrong, so it starts over rather than committing a
+    // replacement of text that is no longer there.
+    for (let attempt = 1; ; attempt++) {
+      const stat = await this.vfs.stat(p);
+      if (!stat) throw new Error(`no such file: ${p}`);
+      if (stat.kind === "dir") throw new Error(`cannot edit ${p}: it is a directory`);
+      const text = await this.readText(p);
+
+      let count = 0;
+      for (let idx = text.indexOf(oldStr); idx !== -1; idx = text.indexOf(oldStr, idx + oldStr.length)) count += 1;
+      if (count === 0) throw new Error(`old_str not found in ${p} (0 matches). Read the file and copy the exact text to replace.`);
+      if (count > 1) {
+        throw new Error(`old_str matches ${count} times in ${p}; it must match exactly once. Include more surrounding context to disambiguate.`);
+      }
+
+      const next = text.replace(oldStr, () => newStr);
+      const bytes = toBytes(next);
+      this.checkFileSize(p, bytes.byteLength);
+      const base = toBytes(text);
+      const effects = await this.scriptEffects(p, next);
+
+      const committed = await this.exclusive(async () => {
+        const current = await this.currentContent(p);
+        if (!sameBytes(current, base)) return null; // changed under us — prepare again
+        return this.commitWrite(p, bytes, effects, "edit");
+      });
+      if (committed) return { nudge: committed.nudge, bytes: committed.bytes };
+
+      if (attempt >= EnvCore.EDIT_ATTEMPTS) {
+        throw new Error(
+          `could not edit ${p}: it was rewritten by something else ${attempt} times while this edit was being prepared. ` +
+            `Read it again and reapply the change against its current contents.`,
+        );
+      }
     }
-
-    const next = text.replace(oldStr, () => newStr);
-    const bytes = toBytes(next);
-    this.checkFileSize(p, bytes.byteLength);
-    const prior = toBytes(text);
-
-    const effects = await this.scriptEffects(p, next);
-    const derivedDelta = await this.prepareDerived(effects.derived);
-    await this.checkTotalSize(bytes.byteLength - prior.byteLength + derivedDelta + this.versions.versionOverhead(prior));
-
-    await this.versions.recordMutation(p, prior, "edit");
-    await this.vfs.write(p, bytes);
-    await this.applyDerived(effects.derived);
-    return { nudge: effects.nudge, bytes: bytes.byteLength };
   }
 
   rm(path: string): Promise<{ removed: string[] }> {

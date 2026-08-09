@@ -401,3 +401,54 @@ test("a write from a run reported dead does not land afterwards", async () => {
     await env.close({ graceMs: 200 });
   }
 });
+
+test("validating a slow script write does not stall a concurrent run's fs calls", async () => {
+  // Validation executes the module's top level with a budget of runTimeoutMs
+  // — up to 30 seconds. Held inside the mutation queue, every other mutation
+  // waits behind it, including the `env:fs` writes of scripts that are
+  // running right now and whose own deadlines keep ticking. The run then dies
+  // with a timeout that reads as its own fault.
+  const env = await createWorkingEnvironment({ execution: { size: 2 } });
+  try {
+    await env.fs.writeFile(
+      "/scripts/timed.js",
+      `export default async function timed(args) {
+         const fs = await import('env:fs');
+         let slowest = 0;
+         for (let i = 0; i < args.n; i++) {
+           const t0 = Date.now();
+           await fs.writeFile('/tmp/t' + i + '.txt', 'x');
+           slowest = Math.max(slowest, Date.now() - t0);
+           const until = Date.now() + 15;
+           while (Date.now() < until) await null;
+         }
+         return { slowest };
+       }`,
+    );
+    const running = env.runScript("/scripts/timed.js", { n: 40 });
+    await new Promise((r) => setTimeout(r, 60)); // let it get going
+
+    // A script whose top level takes ~1.2s to evaluate. Perfectly legal, and
+    // exactly what an expensive import or a generated table costs.
+    const STALL_MS = 1_200;
+    const slowWrite = env.fs.writeFile(
+      "/scripts/slow.js",
+      `const until = Date.now() + ${STALL_MS};\n` +
+        `while (Date.now() < until) {}\n` +
+        `/** Slow to load. @param {{}} args @returns {Promise<number>} */\n` +
+        `export default async function slow(args) { return 1; }\n`,
+    );
+
+    await slowWrite; // it must still be validated and committed
+    const run = await running;
+    assert.equal(run.ok, true, run.error ?? "");
+    const { slowest } = run.result as { slowest: number };
+    assert.ok(
+      slowest < STALL_MS / 2,
+      `a concurrent run's writeFile waited ${slowest}ms behind script validation (stall was ${STALL_MS}ms)`,
+    );
+    assert.match(await env.fs.readFile("/scripts/slow.d.ts"), /Slow to load/, "the slow script was not validated");
+  } finally {
+    await env.close({ graceMs: 500 });
+  }
+});
