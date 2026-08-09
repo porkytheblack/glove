@@ -114,10 +114,30 @@ export interface LsEntry {
 export class EnvCore {
   /** `env:*` namespaces (builtins + adapters), populated during construction. */
   readonly envModules = new Map<string, Record<string, unknown>>();
-  /** The same namespaces bound to a read-only filesystem, used for validation. */
+  /**
+   * The same namespaces bound to a read-only filesystem, used for validation.
+   *
+   * **Filled lazily**, on the first thing that needs them — building an
+   * adapter's second instance is ~4 ms of a 15.6 ms create and a host that
+   * never runs a script never touches it (#129). So this map is EMPTY until
+   * `createWorkingEnvironment`'s `readOnlyModules()` has run; read it through
+   * the pool's `envModules(true)`, never directly.
+   */
   readonly envModulesReadOnly = new Map<string, Record<string, unknown>>();
   /** name → one-liner, for `ls /std` and the tool description. */
   readonly moduleDescriptions = new Map<string, string>();
+  /** name → `StdlibAdapter.version`, for the modules that declare one. */
+  readonly moduleVersions = new Map<string, string>();
+  /**
+   * Adapter contract versions that changed since this tree was last used.
+   *
+   * Filled at startup by `createWorkingEnvironment` and rendered into the
+   * orientation file. It reaches the MODEL because that is who pays for the
+   * skew: `WorkingEnvironment.warnings` is host-only, and a host that logs it
+   * and carries on leaves the agent running stored scripts against bindings
+   * whose signatures moved under them.
+   */
+  readonly adapterSkew: string[] = [];
   /** Which adapter understands which file — shared by `describe` and `ls`. */
   readonly handlers = new HandlerRegistry();
   private executor!: WorkerPool;

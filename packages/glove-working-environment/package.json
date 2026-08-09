@@ -25,7 +25,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "LIFECYCLE.md"
   ],
   "scripts": {
     "build": "tsup",

@@ -107,6 +107,7 @@ jobs:
           --filter glove-image
           --filter glove-analyst-desk
           --filter glove-document-desk
+          --filter glovebox-env-example
           typecheck
 
       # env:motion renders in a real browser. Without this step its render

@@ -78,6 +78,29 @@ export interface StdlibAdapter {
   description: string;
   /** `.d.ts` source describing the module's exports (materialized at /std/<name>/index.d.ts). */
   types: string;
+  /**
+   * The version of this adapter's **binding contract** — bump it whenever a
+   * signature changes, not when the implementation does.
+   *
+   * The gap it closes: a module this host never registered is caught at
+   * startup, and a binding that was renamed or removed fails at the next run
+   * with an error naming it. A binding whose *signature* changed under the
+   * same name is undetectable at every layer — the stored script imports a
+   * name that still exists, calls it with arguments that no longer mean the
+   * same thing, and fails deep inside the adapter with a message about
+   * neither.
+   *
+   * Recorded in `/.env/adapters.json` on every startup, so the tree carries
+   * the version it was last used with. On the next startup a differing version
+   * is reported on `WorkingEnvironment.warnings` **and** in the model's
+   * orientation file. A warning, never a refusal: restoring across a version
+   * bump is legitimate and usually fine, and a host that cannot restore a
+   * year-old snapshot has lost the data either way.
+   *
+   * Optional, and omitting it opts out of the check entirely — an adapter with
+   * no version is never compared against one.
+   */
+  version?: string;
   /** Optional README with worked examples (materialized at /std/<name>/README.md). */
   docs?: string;
   /**
@@ -489,6 +512,40 @@ export interface CreateWorkingEnvironmentOptions {
      * Default 5000ms. Overridable per call: `close({ graceMs })`.
      */
     shutdownGraceMs?: number;
+    /**
+     * How long a warm worker may sit unused before it is terminated, in ms.
+     * Default 60000. `0` keeps it forever.
+     *
+     * An environment nobody is using was measured at 16.5 MB and one OS thread
+     * of steady residency — five open environments at +82.5 MB and +5 threads,
+     * all of it returned on `close()` and none of it before. That is the bill
+     * a multi-tenant host pays for every conversation someone left open.
+     *
+     * The trade is cheap in the other direction: a replacement worker is ready
+     * in ~82 ms, which is noise beside the model round trip that precedes any
+     * script. Raise it for a latency-critical single-tenant host; set `0` when
+     * a warm worker matters more than the thread.
+     *
+     * This reclaims the *worker*, not the tree. The environment stays usable
+     * and its files are untouched — LIFECYCLE.md covers reclaiming the rest
+     * (`close()` on idle, `fromSnapshot` to resume).
+     */
+    idleTimeoutMs?: number;
+    /**
+     * Start the pool's workers in the background as soon as the environment is
+     * created, instead of on the first script. Default false.
+     *
+     * The first `run_script` of a session — or the first script the model
+     * *writes*, since write-time validation runs in a worker too — otherwise
+     * carries ~82 ms of thread start-up. A host that knows a session is
+     * beginning can spend it during the wait it already has.
+     *
+     * Never fails a create: a prewarm spawn that does not come up leaves the
+     * pool exactly as it was and is retried on demand at the first acquire.
+     * `env.warmup()` does the same thing at a moment of the host's choosing —
+     * after restoring a snapshot, say — and can be awaited.
+     */
+    prewarm?: boolean;
     /**
      * How long a freshly spawned worker has to become ready. Default 10000ms.
      *

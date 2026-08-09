@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import {
   createWorkingEnvironment,
   fromSnapshot,
+  inMemoryFs,
   mountWorkingEnvironment,
   type EnvFsHandle,
   type EnvTool,
@@ -17,10 +18,11 @@ import {
 import { callErr, callOk, makeEnv, VALID_SCRIPT } from "./helpers";
 
 /** A miniature format adapter following the §4 conventions (paths in, paths out, describe()). */
-function textkit(): StdlibAdapter {
+function textkit(version?: string): StdlibAdapter {
   return {
     name: "textkit",
     description: "Toy text-format adapter (upper-case 'rendering' + describe).",
+    ...(version ? { version } : {}),
     types: `export function render(path: string, text: string): Promise<{ output: string }>;\nexport function describe(path: string): Promise<{ chars: number; preview: string }>;\n`,
     docs: `# textkit\n\nRender text loudly: await render('/out/x.txt', 'hi')\n`,
     create(vfs: EnvFsHandle) {
@@ -330,4 +332,119 @@ test("the adapter scan reads imports, not text that looks like one", async () =>
   const snap = await env.snapshot();
   const restored = await createWorkingEnvironment({ filesystem: fromSnapshot(snap) });
   assert.deepEqual(restored.warnings, [], "a commented-out or quoted specifier is not an import");
+});
+
+// ─────────────────────────────── adapter contract versions
+
+/** A stored script that imports textkit, so a skew warning has something to be about. */
+async function seedTextkitScript(env: Awaited<ReturnType<typeof makeEnv>>): Promise<void> {
+  await callOk(env, "write_file", {
+    path: "/scripts/uses_it.js",
+    content: `import { render } from 'env:textkit';\n\n/** Shouts. */\nexport default async function main() { return render('/out/a.txt', 'hi'); }\n`,
+  });
+}
+
+test("a changed adapter contract version is reported to the host on restore", async () => {
+  const env = await makeEnv({ stdlib: [textkit("1.4.0")] });
+  await seedTextkitScript(env);
+  const snap = await env.snapshot();
+
+  // The case no other layer can see: the module is registered, the binding
+  // still exists under the same name, and only its signature moved.
+  const restored = await createWorkingEnvironment({ filesystem: fromSnapshot(snap), stdlib: [textkit("2.0.0")] });
+  assert.equal(restored.warnings.length, 1, restored.warnings.join("\n"));
+  assert.match(restored.warnings[0], /env:textkit has changed contract version/);
+  assert.match(restored.warnings[0], /1\.4\.0 → 2\.0\.0/);
+  assert.match(restored.warnings[0], /\/std\/textkit\/index\.d\.ts/);
+});
+
+test("version skew reaches the MODEL, not only the host", async () => {
+  const env = await makeEnv({ stdlib: [textkit("1.4.0")] });
+  await seedTextkitScript(env);
+  const snap = await env.snapshot();
+
+  // env.warnings is host-only; a host that logs it and carries on would leave
+  // the agent running stored scripts against moved signatures.
+  const restored = await createWorkingEnvironment({ filesystem: fromSnapshot(snap), stdlib: [textkit("2.0.0")] });
+  const text = await callOk(restored, "read_file", { path: "/.env/orientation.md" });
+  assert.match(text, /this tree does not fully match this environment/);
+  assert.match(text, /env:textkit has changed contract version .*1\.4\.0 → 2\.0\.0/);
+  assert.match(text, /`env:textkit` \(v2\.0\.0\)/, "the live version is on the module listing too");
+});
+
+test("an unchanged version, and an adapter with no version, say nothing", async () => {
+  const versioned = await makeEnv({ stdlib: [textkit("1.4.0")] });
+  await seedTextkitScript(versioned);
+  const same = await createWorkingEnvironment({
+    filesystem: fromSnapshot(await versioned.snapshot()),
+    stdlib: [textkit("1.4.0")],
+  });
+  assert.deepEqual(same.warnings, []);
+
+  // Declaring no version opts out entirely: comparing a known version against
+  // "unknown" produces a warning nobody can act on.
+  const bare = await makeEnv({ stdlib: [textkit()] });
+  await seedTextkitScript(bare);
+  const stillBare = await createWorkingEnvironment({
+    filesystem: fromSnapshot(await bare.snapshot()),
+    stdlib: [textkit()],
+  });
+  assert.deepEqual(stillBare.warnings, []);
+  assert.equal(await stillBare.fs.exists("/.env/adapters.json"), false, "no versions declared, no file to pay for");
+});
+
+test("a version bump is a warning, never a refusal — even under strictAdapters", async () => {
+  const env = await makeEnv({ stdlib: [textkit("1.4.0")] });
+  await seedTextkitScript(env);
+  const snap = await env.snapshot();
+  // The host upgraded a dependency. Refusing to start would make every
+  // upgrade a data-loss event for anyone holding a snapshot.
+  const restored = await createWorkingEnvironment({
+    filesystem: fromSnapshot(snap),
+    stdlib: [textkit("2.0.0")],
+    strictAdapters: true,
+  });
+  assert.equal(restored.warnings.length, 1);
+});
+
+test("/std/README.md carries the contract version the model is coding against", async () => {
+  const env = await makeEnv({ stdlib: [textkit("2.0.0")] });
+  const index = await callOk(env, "read_file", { path: "/std/README.md" });
+  assert.match(index, /\| `env:textkit` \(v2\.0\.0\) \|/);
+  assert.match(index, /binding-contract version/);
+  assert.doesNotMatch(index, /`env:fs` \(v/, "builtins declare no version and should not grow an empty one");
+});
+
+test("orientation names the unregistered modules the restored scripts import", async () => {
+  const env = await makeEnv({ stdlib: [textkit()] });
+  await seedTextkitScript(env);
+  const snap = await env.snapshot();
+
+  // Host forgot the adapter. Before this the tree oriented cleanly — the
+  // script catalogue listed uses_it.js, the module list showed only what WAS
+  // registered, and the break surfaced when the agent ran it.
+  const restored = await createWorkingEnvironment({ filesystem: fromSnapshot(snap) });
+  const text = await callOk(restored, "read_file", { path: "/.env/orientation.md" });
+  assert.match(text, /`env:textkit` is imported by scripts here but is NOT registered/);
+  assert.match(text, /\/scripts\/uses_it\.js/);
+});
+
+test("orientation catches a module that goes missing after startup", async () => {
+  // `checkpoint restore` puts a stored tree back by writing straight into the
+  // filesystem, below validation — so a session can acquire scripts importing
+  // an unregistered module without ever restarting, which a startup-only scan
+  // would never see. Reproduced here at the same layer.
+  const raw = inMemoryFs();
+  const env = await createWorkingEnvironment({ filesystem: raw });
+  assert.deepEqual(env.warnings, [], "nothing imports textkit at startup");
+  assert.doesNotMatch(await callOk(env, "read_file", { path: "/.env/orientation.md" }), /textkit/);
+
+  await raw.write(
+    "/scripts/uses_it.js",
+    new TextEncoder().encode(
+      `import { render } from 'env:textkit';\n\n/** Shouts. */\nexport default async function main() { return render('/out/a.txt', 'hi'); }\n`,
+    ),
+  );
+  const text = await callOk(env, "read_file", { path: "/.env/orientation.md" });
+  assert.match(text, /`env:textkit` is imported by scripts here but is NOT registered/);
 });
