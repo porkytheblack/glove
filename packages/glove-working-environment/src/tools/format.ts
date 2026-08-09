@@ -99,12 +99,24 @@ export async function withSpillover(
   let spilled: string | null = null;
   try {
     let content = full;
-    if (content.length > SPILL_CAP_BYTES || content.length > limits.maxFileBytes) {
-      const cap = Math.min(SPILL_CAP_BYTES, limits.maxFileBytes);
-      content = content.slice(0, cap) + "\n… [spill truncated]\n";
+    // Budgeted in BYTES, which is what the cap is measured in. Two ways this
+    // went wrong before, and each ended the same way — the spill refusing its
+    // own write, so the model was told its output was too big to show AND too
+    // big to save, which is the one outcome this mechanism exists to prevent.
+    // The marker was appended after truncating to exactly the cap; and both
+    // sides were counted in characters, though `…` alone is three bytes.
+    const budget = Math.min(SPILL_CAP_BYTES, limits.maxFileBytes);
+    if (Buffer.byteLength(content, "utf8") > budget) {
+      const marker = "\n… [spill truncated]\n";
+      const room = Math.max(0, budget - Buffer.byteLength(marker, "utf8"));
+      // Slicing bytes can cut a multi-byte character in half; the decoder
+      // turns the remnant into U+FFFD, which is dropped rather than written.
+      const head = new TextDecoder("utf-8").decode(Buffer.from(content, "utf8").subarray(0, room)).replace(/\uFFFD$/, "");
+      content = head + marker;
     }
     await core.write(spillPath, content);
     spilled = spillPath;
+    core.counters.spillovers += 1;
     spillNote = `… [${fmtCount(t.totalLines - t.shownLines)} more lines — written to ${spillPath}]`;
   } catch (e) {
     const msg = e instanceof EnvLimitError ? e.message : e instanceof Error ? e.message : String(e);

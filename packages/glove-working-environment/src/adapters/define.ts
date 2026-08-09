@@ -73,6 +73,12 @@ export interface AdapterSpec<T extends AdapterBindings> {
    */
   skills?: StdlibAdapter["skills"];
   /**
+   * Release whatever this adapter holds. Called once by `env.close()`, after
+   * the worker pool is down. See {@link StdlibAdapter.close} — most adapters
+   * need nothing here.
+   */
+  close?: StdlibAdapter["close"];
+  /**
    * Produce the bindings. ALL I/O must go through the given handle — it is
    * the capability boundary, routing through the same guarded gateway as the
    * model verbs (zones, limits, script pipeline, version recording). An
@@ -173,6 +179,7 @@ export function defineAdapter<T extends AdapterBindings>(spec: AdapterSpec<T>): 
     ...(spec.handles === undefined ? {} : { handles: spec.handles }),
     ...(spec.renders === undefined ? {} : { renders: spec.renders }),
     ...(spec.skills === undefined ? {} : { skills: spec.skills }),
+    ...(spec.close === undefined ? {} : { close: spec.close }),
     create,
   };
 }

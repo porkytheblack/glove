@@ -14,6 +14,7 @@ import {
   toBytes,
   EnvLimitError,
   type CreateWorkingEnvironmentOptions,
+  type EnvCounters,
   type EnvFsHandle,
   type EnvLimits,
   type EnvSnapshot,
@@ -47,6 +48,13 @@ export interface WorkingEnvironment {
   limits: EnvLimits;
   /** `env:*` module name → one-line description (builtins + registered adapters). */
   moduleDescriptions: ReadonlyMap<string, string>;
+  /**
+   * Live counters for a dashboard: limit hits, spillovers, mutations.
+   *
+   * Read them on a schedule; the object is the environment's own, not a copy,
+   * so there is nothing to subscribe to and nothing to leak.
+   */
+  counters: EnvCounters;
   /**
    * Problems found at startup that are not fatal — today, stored scripts
    * importing modules this host did not register. Empty for a fresh
@@ -281,6 +289,10 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
 
   core.attachRunLog(runlog);
 
+  // Captured out here: `close(options?)` shadows the outer `options`, and a
+  // warning that silently went nowhere would be worse than none.
+  const warn = options.execution?.onWarning ?? ((m: string) => console.warn(m));
+
   const tools = buildTools({
     core,
     runlog,
@@ -289,6 +301,7 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
     vision: options.vision,
     onPresent: options.onPresent,
     onAsk: options.onAsk,
+    onVerb: options.onVerb,
   });
 
   return {
@@ -302,10 +315,12 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
         vision: options.vision,
         onPresent: options.onPresent,
         onAsk: options.onAsk,
+        onVerb: options.onVerb,
       }),
     fs: fsHandle,
     limits,
     moduleDescriptions: core.moduleDescriptions,
+    counters: core.counters,
     warnings,
 
     async runScript(
@@ -392,6 +407,21 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
       // the time the executor is down no script can be running, so any
       // mutation after this point is a host that did not notice it closed.
       await executor.close(options);
+
+      // After the pool, never before: an in-flight run given its shutdown
+      // grace may still be calling into an adapter, and disposing one out from
+      // under it would turn a graceful close into a crash inside the script.
+      for (const adapter of adapters) {
+        if (!adapter.close) continue;
+        try {
+          await adapter.close();
+        } catch (e) {
+          // A host that has asked to close must not be left holding an
+          // environment it cannot dispose of.
+          const message = `stdlib adapter "${adapter.name}" failed to close: ${e instanceof Error ? e.message : String(e)}`;
+          warn(message);
+        }
+      }
       core.close();
     },
   };

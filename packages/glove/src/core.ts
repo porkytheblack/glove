@@ -162,6 +162,16 @@ export interface ToolResult {
   tool_name: string;
   call_id?: string;
   result: ToolResultData
+  /**
+   * Wall-clock time this call took, in ms, measured around the whole attempt
+   * — validation, retries and summary generation included, because that is
+   * what the user waited for.
+   *
+   * Optional so nothing that constructs a `ToolResult` by hand has to change.
+   * Every result Glove itself emits carries it, which is what a host needs to
+   * report per-tool latency without wrapping every tool it folds.
+   */
+  duration_ms?: number
 }
 
 export interface Tool<I> {
@@ -655,7 +665,18 @@ export class Executor {
 
     const toolResults: Array<ToolResult> = [];
 
+    // Stamped centrally rather than at each of the seven places a result is
+    // pushed: the duration belongs to the call, not to the outcome, and
+    // attaching it per-branch is how one branch ends up missing it.
+    let startedAt = Date.now();
+    const emitResult = () => {
+      const latest = toolResults.at(-1)!;
+      latest.duration_ms = Date.now() - startedAt;
+      return this.notifySubscribers("tool_use_result", latest);
+    };
+
     for (const call of this.toolCallStack) {
+      startedAt = Date.now();
       const tool = this.tools.find(
         (t) => t.name.toLowerCase() == call.tool_name.toLowerCase(),
       );
@@ -672,7 +693,7 @@ export class Executor {
             data: null,
           },
         });
-        await this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
+        await emitResult();
         continue;
       }
 
@@ -699,7 +720,7 @@ export class Executor {
           tool_name: call.tool_name,
           call_id: call.id,
         });
-        await this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
+        await emitResult();
 
         continue;
       }
@@ -715,7 +736,7 @@ export class Executor {
             data: null,
           },
         });
-        await this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
+        await emitResult();
         continue;
       }
 
@@ -735,7 +756,7 @@ export class Executor {
             },
           });
 
-          await this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
+          await emitResult();
 
           continue;
         }
@@ -805,7 +826,7 @@ export class Executor {
                 data: null,
               },
             });
-            this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
+            emitResult();
             this.maybeCloseSubagentBracket(call, "error", "Subagent run aborted by the user.");
             return;
           }
@@ -821,7 +842,7 @@ export class Executor {
             },
           });
 
-          this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
+          emitResult();
           this.maybeCloseSubagentBracket(call, "error", `Subagent dispatcher errored: ${error}`);
         },
         onRight: (value: ToolResultData) => {
@@ -831,7 +852,7 @@ export class Executor {
             result: value,
           });
 
-          this.notifySubscribers("tool_use_result", toolResults.at(-1)!);
+          emitResult();
           this.maybeCloseSubagentBracket(
             call,
             value.status === "success" ? "success" : "error",

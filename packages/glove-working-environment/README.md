@@ -285,6 +285,25 @@ await env.runScript('/scripts/render.js', args, { signal: controller.signal });
 
 `EnvTool.do` matches glove-core's fold signature — `(input, display, glove, signal)` — so an agent built with `mountWorkingEnvironment` gets this for nothing: glove already passes the active request's signal to every tool, and `run_script` now forwards it into the run. A cancelled run resolves with a cancellation error, the environment stays usable, and anything it had already handed to the host is refused rather than committed. `defineTools` capabilities receive the same signal, so a cancelled run stops the call it is sitting on.
 
+### Telemetry
+
+Two things a host always ends up wanting, and both were previously reverse-engineered from the examples in this repo.
+
+```ts
+const env = await createWorkingEnvironment({
+  onVerb: ({ name, ok, durationMs, mutated }) => {
+    metrics.timing(`env.verb.${name}`, durationMs);
+    if (mutated) refreshFileTree();
+  },
+});
+
+env.counters;   // { limitHits, spillovers, mutations } — read them on a schedule
+```
+
+`mutated` is **measured, not inferred from the verb's name**. A hand-maintained list of mutating verbs is wrong twice over: it drifts the moment a verb is added, and it ignores `toolsWithPrefix`, so a host that renamed the verbs matches nothing. It also cannot tell a `run_script` that wrote a file from one that only read — which is exactly when a UI should not refresh.
+
+`EnvTool.mutates` carries the static answer for hosts that want it up front, and `tool_use_result` in glove-core now carries `duration_ms`, so per-tool latency needs no wrapper around every folded tool.
+
 ## Stdlib adapters
 
 An adapter bridges a real host-side library into the tree. The model experiences it as a typed importable module plus docs living at `/std/<name>/`.

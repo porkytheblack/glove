@@ -96,6 +96,21 @@ export interface StdlibAdapter {
    */
   renders?: HandlesSpec;
   /**
+   * Release whatever this adapter is holding. Called by `env.close()`, once
+   * per created instance, after the worker pool has been shut down.
+   *
+   * Most adapters need nothing here — they own no resource that outlives a
+   * call. It exists for the ones that do: `env:motion` keeps a browser warm
+   * between renders, and without this the only ways it comes back are an idle
+   * timer or process exit, so a host that closes fifty environments in a loop
+   * is holding fifty browsers it has finished with.
+   *
+   * Awaited, but never allowed to fail the close: a throw is reported through
+   * `execution.onWarning` and shutdown continues, because a host that has
+   * asked to close cannot be left with an environment it cannot dispose of.
+   */
+  close?(): Promise<void> | void;
+  /**
    * Factory producing the actual bindings. ALL I/O goes through the given VFS
    * handle.
    *
@@ -225,6 +240,23 @@ export interface EnvToolResult {
  * `GloveFoldArgs` (raw JSON Schema variant), so `glove.fold(tool)` accepts it
  * directly — without this package depending on glove-core.
  */
+/**
+ * Cheap counters a host can scrape for a dashboard.
+ *
+ * Plain numbers on a live object rather than an event stream, deliberately:
+ * these are the questions asked on a schedule — "how often are we hitting the
+ * size cap?", "how much output is spilling to /tmp?" — and an event per
+ * occurrence is the wrong shape for a gauge.
+ */
+export interface EnvCounters {
+  /** Refusals caused by `maxFileBytes` or `maxVfsBytes`. */
+  limitHits: number;
+  /** Tool responses too large to inline, written to a `/tmp` file instead. */
+  spillovers: number;
+  /** Successful changes to the tree, from any source. */
+  mutations: number;
+}
+
 export interface EnvTool {
   name: string;
   description: string;
@@ -243,6 +275,16 @@ export interface EnvTool {
    * the input is optional.
    */
   do(input: any, display?: unknown, agent?: unknown, signal?: AbortSignal): Promise<EnvToolResult>;
+  /**
+   * Whether this verb is able to change the tree.
+   *
+   * Declared here so a host does not keep its own list of verb names. The
+   * hand-maintained version goes wrong twice over: it drifts the moment a
+   * verb is added, and it ignores `toolsWithPrefix`, so a host that renamed
+   * the verbs matches nothing at all. For "did this call actually change
+   * anything" — a `run_script` may well not have — use `onVerb`'s `mutated`.
+   */
+  mutates: boolean;
 }
 
 /**
@@ -329,6 +371,24 @@ export interface CreateWorkingEnvironmentOptions {
    * takes a minute to reply would kill the run.
    */
   onAsk?: (question: { question: string; options?: string[] }) => Promise<string>;
+  /**
+   * Called after every model-facing verb, for telemetry.
+   *
+   * `durationMs` is what the model waited for. `mutated` is whether the tree
+   * really changed — measured, not inferred from the verb's name, so a
+   * `run_script` that only read something reports false and a UI does not
+   * refresh its file tree for nothing.
+   *
+   * ```ts
+   * onVerb: ({ name, ok, durationMs, mutated }) => {
+   *   metrics.timing(`env.verb.${name}`, durationMs);
+   *   if (mutated) refreshTree();
+   * }
+   * ```
+   *
+   * Never allowed to fail a verb: a throw here is swallowed.
+   */
+  onVerb?: (event: { name: string; ok: boolean; durationMs: number; mutated: boolean }) => void;
   /**
    * Directories the agent can read but never mutate.
    *

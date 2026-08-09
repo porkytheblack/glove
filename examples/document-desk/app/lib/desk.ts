@@ -79,19 +79,7 @@ export type DeskEvent =
 const registry: Map<string, Desk> = ((globalThis as Record<string, unknown>).__deskRegistry ??=
   new Map()) as Map<string, Desk>;
 
-/** Verbs that change the tree, so the browser knows when to refresh it. */
-const MUTATING = new Set([
-  "write_file",
-  "edit_file",
-  "rm",
-  "mv",
-  "cp",
-  "run_script",
-  "run_tests",
-  "undo",
-  "redo",
-  "checkpoint",
-]);
+
 
 /**
  * The vision model as an importable function, via `defineTools`.
@@ -261,6 +249,13 @@ export async function getDesk(id: string): Promise<Desk> {
       // instead of a spinner that means nothing.
       onProgress: ({ script, stream, text }) => broadcast({ type: "progress", script, stream, text }),
     },
+    // Measured, not guessed. This replaced a hand-maintained set of verb
+    // names in this file: it went stale whenever a verb was added, it ignored
+    // `toolsWithPrefix` entirely, and it could not tell a `run_script` that
+    // wrote a file from one that only read.
+    onVerb: ({ mutated }) => {
+      if (mutated) broadcast({ type: "tree_changed" });
+    },
   });
 
   envRef.current = env;
@@ -316,9 +311,12 @@ export async function getDesk(id: string): Promise<Desk> {
               ? String(inner.data ?? inner.message ?? "")
               : String(inner.data ?? "");
           broadcast({ type: "tool_result", id: String(result.call_id ?? ""), status, output });
-          // A tree-changed ping after any mutating verb, so the file explorer
-          // can stay live without polling.
-          if (result.tool_name && MUTATING.has(result.tool_name)) broadcast({ type: "tree_changed" });
+          // The tree-changed signal used to come from a list of verb names
+          // kept here. That list was wrong twice over: it drifted the moment
+          // a verb was added, and it could not tell a `run_script` that wrote
+          // a file from one that only read — so the explorer refreshed for
+          // nothing. `onVerb` reports what actually changed; see the env
+          // options above.
           break;
         }
       }

@@ -23,7 +23,7 @@
  *    interleaves with a half-finished mutation captures a tree the
  *    environment was never in. See {@link EnvCore.exclusive}.
  */
-import type { EnvLimits, FileVersionInfo, VfsEntry, VfsStat, Vfs } from "../types";
+import type { EnvCounters, EnvLimits, FileVersionInfo, VfsEntry, VfsStat, Vfs } from "../types";
 import { EnvLimitError, looksBinary, toBytes, toText } from "../types";
 import { basename, dirname, globToRegExp, isUnder, normalizePath } from "../paths";
 import { defaultExportError } from "../pipeline/contract";
@@ -239,7 +239,27 @@ export class EnvCore {
     return p.split("/").some((seg) => seg.endsWith(".d.ts"));
   }
 
+  /**
+   * How many times the tree has changed.
+   *
+   * A counter rather than an event because the question a host actually has
+   * is "did that verb change anything" — it compares the number either side
+   * of a call. The alternative in the wild is a hand-maintained list of which
+   * verb names mutate, which silently goes wrong the moment a verb is added
+   * and cannot see that a `run_script` did nothing.
+   */
+  mutations = 0;
+
+  /** Counters a host can scrape. See {@link EnvCounters}. */
+  readonly counters: EnvCounters = { limitHits: 0, spillovers: 0, mutations: 0 };
+
   private isClosed = false;
+
+  /** Called by every path that actually changed the tree. */
+  markMutated(): void {
+    this.mutations += 1;
+    this.counters.mutations += 1;
+  }
 
   /**
    * Refuse further mutations. Called by `env.close()`.
@@ -294,6 +314,7 @@ export class EnvCore {
 
   private checkFileSize(path: string, bytes: number): void {
     if (bytes > this.limits.maxFileBytes) {
+      this.counters.limitHits += 1;
       throw new EnvLimitError(
         `file size limit exceeded: ${path} would be ${bytes} bytes, over the ${this.limits.maxFileBytes}-byte cap (limits.maxFileBytes)`,
       );
@@ -304,6 +325,7 @@ export class EnvCore {
     if (deltaBytes <= 0) return;
     const total = await this.vfs.totalSize();
     if (total + deltaBytes > this.limits.maxVfsBytes) {
+      this.counters.limitHits += 1;
       throw new EnvLimitError(
         `environment size limit exceeded: this mutation would grow the tree past ${this.limits.maxVfsBytes} bytes (limits.maxVfsBytes)`,
       );
@@ -585,6 +607,7 @@ export class EnvCore {
     await this.versions.recordMutation(p, prior, op);
     await this.vfs.write(p, bytes);
     await this.applyDerived(effects.derived);
+    this.markMutated();
     return { bytes: bytes.byteLength, nudge: effects.nudge, created: prior === null };
   }
 
@@ -653,6 +676,7 @@ export class EnvCore {
       await this.versions.recordMutation(p, prior, "rm");
       await this.vfs.rm(p);
       if (this.producesDts(p)) await this.applyDerived([{ remove: this.dtsPathFor(p) }]);
+      this.markMutated();
       return { removed: [p] };
     }
 
@@ -667,6 +691,7 @@ export class EnvCore {
       removed.push(f);
     }
     await this.vfs.rm(p);
+    this.markMutated();
     return { removed };
   }
 
@@ -675,6 +700,7 @@ export class EnvCore {
       const p = normalizePath(path);
       this.assertMutable(p, "mkdir");
       await this.vfs.mkdir(p);
+      this.markMutated();
     });
   }
 
@@ -780,6 +806,7 @@ export class EnvCore {
       }
     }
     await this.applyDerived(allEffects);
+    this.markMutated();
     return { moved: pairs, nudge };
   }
 
@@ -822,10 +849,12 @@ export class EnvCore {
     if (v.content === null) {
       if (await this.vfs.exists(p)) await this.vfs.rm(p);
       await this.applyDerived(effects.derived);
+      this.markMutated();
       return { restoredOp: v.op, ts: v.ts, present: false };
     }
     await this.vfs.write(p, v.content);
     await this.applyDerived(effects.derived);
+    this.markMutated();
     return { restoredOp: v.op, ts: v.ts, present: true };
   }
 
