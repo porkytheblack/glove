@@ -147,6 +147,169 @@ test("a scene with a syntax error fails with the location, not a browser timeout
   }
 });
 
+/**
+ * A scene that throws is dead the moment it throws.
+ *
+ * This used to wait out the whole mount timeout — measured at 188s against the
+ * 180s default — and then report only "the scene never mounted", while the
+ * browser's own error sat one line below in a field the caller was free to
+ * ignore. An agent retried it five times. The cost of a typo was a quarter of
+ * an hour.
+ */
+test("a scene that throws fails immediately, carrying the browser's own error", { skip }, async () => {
+  const { runScript, env } = await envWith();
+  try {
+    await env.fs.writeFile(
+      "/scenes/throws.jsx",
+      `export default function Scene() { throw new Error('boom in the scene'); }`,
+    );
+    const started = Date.now();
+    const r = await runScript(
+      `import { still } from 'env:motion';
+       export default async function main() { return still('/scenes/throws.jsx', '/out/x.png'); }`,
+    );
+    const elapsed = Date.now() - started;
+
+    assert.equal(r.ok, false);
+    assert.match(String(r.error), /boom in the scene/, "the scene's own error must survive to the caller");
+    assert.match(String(r.error), /threw while rendering/, "and be named as the scene's fault, not the renderer's");
+    assert.ok(elapsed < 30_000, `should fail on the error, not the timeout — took ${elapsed}ms`);
+  } finally {
+    await env.close();
+  }
+});
+
+test("an easing that does not exist says so, and lists the ones that do", { skip }, async () => {
+  const { runScript, env } = await envWith();
+  try {
+    await env.fs.writeFile(
+      "/scenes/easing.jsx",
+      `import { useFrame, interpolate, Easing } from 'glove/motion';
+       export default function Scene() {
+         return <div style={{ opacity: interpolate(useFrame(), [0, 30], [0, 1], { easing: Easing.elastic }) }} />;
+       }`,
+    );
+    const r = await runScript(
+      `import { still } from 'env:motion';
+       export default async function main() { return still('/scenes/easing.jsx', '/out/x.png'); }`,
+    );
+    assert.equal(r.ok, false);
+    assert.match(String(r.error), /Easing\.elastic does not exist/);
+    assert.match(String(r.error), /bezier/, "the message should list what is available");
+  } finally {
+    await env.close();
+  }
+});
+
+test("the easings a scene is likely to reach for all exist and are usable", { skip }, async () => {
+  const { runScript, env } = await envWith();
+  try {
+    // Names borrowed from muscle memory elsewhere must not crash the render.
+    await env.fs.writeFile(
+      "/scenes/eases.jsx",
+      `import { useFrame, interpolate, Easing } from 'glove/motion';
+       const NAMES = ['linear','in','out','inOut','ease','easeIn','easeOut','easeInOut','quad','cubic','sin','expo','circle','back','bounce'];
+       export default function Scene() {
+         const f = useFrame();
+         const xs = NAMES.map((n) => interpolate(f, [0, 30], [0, 100], { easing: Easing[n] }));
+         const b = interpolate(f, [0, 30], [0, 100], { easing: Easing.bezier(0.4, 0, 0.2, 1) });
+         return <div style={{ width: 200, height: 60, background: '#111' }}>{xs.length + b}</div>;
+       }`,
+    );
+    const r = await runScript(
+      `import { still } from 'env:motion';
+       export default async function main() { return still('/scenes/eases.jsx', '/out/eases.png'); }`,
+    );
+    assert.equal(r.ok, true, String(r.error));
+  } finally {
+    await env.close();
+  }
+});
+
+/**
+ * The scene's pictures live in the tree, not next to the scene.
+ *
+ * `/inbox/bag.webp` is the most obvious thing to put in a video — an upload —
+ * and the page is a `file://` URL, so an absolute src resolved against the
+ * real filesystem root and found nothing. The render succeeded, the file was
+ * valid, and the product was an empty box. Nothing said so.
+ */
+test("an image referenced by VFS path from anywhere in the tree renders", { skip }, async () => {
+  const { runScript, env } = await envWith();
+  try {
+    // A 1×1 PNG is enough: the assertion is that the browser decoded something.
+    const pixel = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    await env.mount(new Uint8Array(pixel), "/inbox/bag.webp");
+    await env.fs.writeFile(
+      "/scenes/shot.jsx",
+      `export default function Scene() {
+         return <div style={{ width: 200, height: 80, background: '#111' }}><img src="/inbox/bag.webp" width="60" /></div>;
+       }`,
+    );
+    const r = await runScript(
+      `import { still } from 'env:motion';
+       export default async function main() { return still('/scenes/shot.jsx', '/out/shot.png', { frame: 0 }); }`,
+    );
+    assert.equal(r.ok, true, String(r.error));
+    const warnings = (r.result as { warnings: string[] }).warnings;
+    assert.deepEqual(warnings, [], `the image should load, got warnings: ${warnings.join(" / ")}`);
+  } finally {
+    await env.close();
+  }
+});
+
+test("an image the tree does not have is a warning, not a silent empty box", { skip }, async () => {
+  const { runScript, env } = await envWith();
+  try {
+    await env.fs.writeFile(
+      "/scenes/gone.jsx",
+      `export default function Scene() { return <div><img src="/inbox/nope.png" /></div>; }`,
+    );
+    const r = await runScript(
+      `import { still } from 'env:motion';
+       export default async function main() { return still('/scenes/gone.jsx', '/out/gone.png', { frame: 0 }); }`,
+    );
+    assert.equal(r.ok, true, String(r.error));
+    const warnings = (r.result as { warnings: string[] }).warnings;
+    assert.ok(
+      warnings.some((w) => w.includes("/inbox/nope.png")),
+      `a missing image must be named in the warnings, got: ${JSON.stringify(warnings)}`,
+    );
+  } finally {
+    await env.close();
+  }
+});
+
+test("a frame index sent as a string is accepted, and a real one is rejected by type", { skip }, async () => {
+  const { runScript, env } = await envWith();
+  try {
+    await env.fs.writeFile(
+      "/scenes/plain.jsx",
+      `export default function Scene() { return <div style={{ width: 100, height: 40, background: '#333' }} />; }`,
+    );
+    // Script args are JSON a model wrote: "3" and 3 are the same intent.
+    const coerced = await runScript(
+      `import { still } from 'env:motion';
+       export default async function main() { return still('/scenes/plain.jsx', '/out/a.png', { frame: '3' }); }`,
+    );
+    assert.equal(coerced.ok, true, String(coerced.error));
+
+    const rejected = await runScript(
+      `import { still } from 'env:motion';
+       export default async function main() { return still('/scenes/plain.jsx', '/out/b.png', { frame: 'later' }); }`,
+    );
+    assert.equal(rejected.ok, false);
+    // The old message printed a bare value, so a type error read as a value
+    // error against a rule the printed value satisfied.
+    assert.match(String(rejected.error), /"later" \(string\)/);
+  } finally {
+    await env.close();
+  }
+});
+
 test("a frame-driven scene renders a still at an exact frame", { skip }, async () => {
   const { script, env } = await envWith();
   try {

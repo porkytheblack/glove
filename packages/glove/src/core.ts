@@ -677,11 +677,24 @@ export class Executor {
       }
 
       if (!tool) {
+        // Naming the alternatives is the whole value of this message. Without
+        // them a model that guessed a plausible name — `ask_user`, `search` —
+        // has nothing to correct towards, and the observed behaviour is that
+        // it guesses again, several times, before giving up on the capability
+        // entirely. The list is what it already has in its tool definitions,
+        // but repeating it here is cheap and lands at the moment of the miss.
+        const available = this.tools.map((t) => t.name);
+        const near = available.filter(
+          (n) => n.includes(call.tool_name) || call.tool_name.includes(n),
+        );
         toolResults.push({
           result: {
             status: "error",
             data: null,
-            message: `No tool called ${call.tool_name} exists.`,
+            message:
+              `No tool called ${call.tool_name} exists.` +
+              (near.length ? ` Did you mean ${near.join(" or ")}?` : "") +
+              (available.length ? ` Available tools: ${available.join(", ")}.` : " No tools are registered."),
           },
           tool_name: call.tool_name,
           call_id: call.id,

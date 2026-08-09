@@ -251,7 +251,15 @@ export async function getDesk(id: string): Promise<Desk> {
           };
           const inner = result.result ?? {};
           const status = inner.status === "error" ? "error" : "success";
-          const output = inner.status === "error" ? String(inner.message ?? "") : String(inner.data ?? "");
+          // On failure the verbs put a one-line summary in `message` and the
+          // whole story in `data` — the stack, the stderr, the browser's own
+          // error. Showing only `message` meant watching "the scene never
+          // mounted" five times while the line underneath said exactly which
+          // symbol was undefined. The model saw it; the person did not.
+          const output =
+            inner.status === "error"
+              ? String(inner.data ?? inner.message ?? "")
+              : String(inner.data ?? "");
           broadcast({ type: "tool_result", id: String(result.call_id ?? ""), status, output });
           // A tree-changed ping after any mutating verb, so the file explorer
           // can stay live without polling.

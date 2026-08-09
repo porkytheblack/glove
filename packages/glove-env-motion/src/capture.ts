@@ -54,6 +54,14 @@ export interface CaptureResult {
   pageErrors: string[];
   /** True when every frame is byte-identical: almost always a broken scene. */
   allIdentical: boolean;
+  /**
+   * `src` of every image the browser could not draw.
+   *
+   * A missing picture is the one defect that survives every other check: the
+   * render succeeds, the file is valid, and the hole is visible only by
+   * looking at it. Asking the page directly is the only way to know.
+   */
+  brokenImages: string[];
 }
 
 /**
@@ -240,7 +248,27 @@ async function renderWith(browser: Browser, options: CaptureOptions): Promise<Ca
   });
 
   const pageErrors: string[] = [];
-  page.on("pageerror", (e) => pageErrors.push(String(e).slice(0, 400)));
+  /**
+   * A scene that throws is dead immediately, and waiting out the mount timeout
+   * only converts a one-second answer into a three-minute one — which an agent
+   * then retries. `crashed` rejects the moment an uncaught error arrives so the
+   * render fails at the speed the cause was actually known.
+   *
+   * Only `pageerror` counts as fatal. A `console.error` is often React
+   * narrating a problem it went on to survive, and aborting on those would
+   * fail renders that were about to succeed.
+   */
+  let fatal: string | null = null;
+  let onFatal: ((message: string) => void) | null = null;
+  page.on("pageerror", (e) => {
+    const text = String(e).slice(0, 400);
+    pageErrors.push(text);
+    // Recorded as well as signalled: most scene errors throw during `goto`,
+    // before anything is waiting to hear about them. Only signalling would
+    // drop exactly the common case on the floor.
+    fatal ??= text;
+    onFatal?.(text);
+  });
   page.on("console", (m) => {
     if (m.type() === "error") pageErrors.push(m.text().slice(0, 400));
   });
@@ -263,15 +291,38 @@ async function renderWith(browser: Browser, options: CaptureOptions): Promise<Ca
   await writeFile(pageFile, PAGE_HTML(options.background, bundleName));
   await page.goto(pathToFileURL(pageFile).href, { waitUntil: "load" });
 
+  const crashed = new Promise<never>((_, reject) => {
+    const fail = (message: string) =>
+      reject(
+        new CaptureError(
+          `the scene threw while rendering, so it never mounted.\n${message}\n` +
+            "Fix the scene and render again — this is the scene's own error, not a renderer failure.",
+        ),
+      );
+    if (fatal) fail(fatal);
+    else onFatal = fail;
+  });
+  // The loser of the race stays pending forever; without this an error arriving
+  // after a successful mount would surface as an unhandled rejection.
+  crashed.catch(() => {});
+
   try {
-    await page.waitForFunction("window.__gloveMounted === true", null, { timeout: options.timeoutMs });
-  } catch {
+    await Promise.race([
+      page.waitForFunction("window.__gloveMounted === true", null, { timeout: options.timeoutMs }),
+      crashed,
+    ]);
+  } catch (e) {
+    if (e instanceof CaptureError) throw e;
     throw new CaptureError(
       `the scene never mounted within ${options.timeoutMs}ms.` +
         (pageErrors.length
           ? `\n${pageErrors.slice(0, 3).join("\n")}`
           : " The page reported no error, so check that the entry file default-exports a component."),
     );
+  } finally {
+    // Past this point a page error is context for a later frame, not a reason
+    // to reject a promise nobody is waiting on.
+    onFatal = null;
   }
 
   const step = 1000 / options.fps;
@@ -307,6 +358,21 @@ async function renderWith(browser: Browser, options: CaptureOptions): Promise<Ca
     pageErrors.push(...scriptErrors.slice(0, 5));
   };
 
+  /**
+   * Ask the page which pictures it could not draw.
+   *
+   * A broken `<img>` raises no page error and fails no request the renderer
+   * watches — it just paints nothing, and the render reports success. The
+   * browser knows: a decoded image has a non-zero `naturalWidth`.
+   */
+  const findBrokenImages = async (): Promise<string[]> =>
+    (await page.evaluate(`
+      Array.from(document.images)
+        .filter((i) => !i.complete || i.naturalWidth === 0)
+        .map((i) => i.getAttribute('src') || '(no src)')
+        .slice(0, 5)
+    `)) as string[];
+
   // --- a single frame ------------------------------------------------------
   if (options.still !== undefined) {
     const target = options.still;
@@ -330,8 +396,9 @@ async function renderWith(browser: Browser, options: CaptureOptions): Promise<Ca
     }
     const { file } = await shot(`frame-${String(target).padStart(5, "0")}.png`);
     await drainErrors();
+    const brokenImages = await findBrokenImages();
     await page.close();
-    return { frames: [file], pageErrors, allIdentical: false };
+    return { frames: [file], pageErrors, allIdentical: false, brokenImages };
   }
 
   // --- the whole run -------------------------------------------------------
@@ -348,7 +415,8 @@ async function renderWith(browser: Browser, options: CaptureOptions): Promise<Ca
   }
 
   await drainErrors();
+  const brokenImages = await findBrokenImages();
   await page.close();
 
-  return { frames, pageErrors, allIdentical: digests.size === 1 && frames.length > 1 };
+  return { frames, pageErrors, allIdentical: digests.size === 1 && frames.length > 1, brokenImages };
 }
