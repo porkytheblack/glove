@@ -27,6 +27,20 @@
  * followed. Refusing is the right default: an agent pointed at a directory
  * has been given that directory, and silently following a link out of it is
  * not something the person who granted it would expect.
+ *
+ * ## One environment per directory
+ *
+ * Two environments opened over the same host directory will corrupt each
+ * other, quietly. Each keeps its own `VersionStore` in memory but writes it
+ * to the same `/.env/versions/index.json`, and blob ids come from a
+ * per-environment counter — so both allocate `v1`, `v2`, `v3`, and each one's
+ * `undo` eventually restores the other's content. The tree looks fine
+ * throughout; only the history is wrong.
+ *
+ * There is no locking here to prevent it, because the fix is structural: give
+ * each environment its own directory (or its own subdirectory of a shared
+ * root) and commit them separately. `cachedRemote` documents the same rule
+ * for key prefixes and it holds for the same reason.
  */
 import { readdir, readFile, realpath, stat as hostStat, mkdir as hostMkdir, writeFile, rm as hostRm } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";

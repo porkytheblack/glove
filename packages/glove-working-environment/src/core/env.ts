@@ -233,7 +233,29 @@ export class EnvCore {
     return p.split("/").some((seg) => seg.endsWith(".d.ts"));
   }
 
+  private isClosed = false;
+
+  /**
+   * Refuse further mutations. Called by `env.close()`.
+   *
+   * Reads stay open on purpose: `export()` and `snapshot()` after `close()`
+   * are how a host drains an environment it has just shut down, and taking
+   * that away to catch a mistake would break the correct flow. Mutations are
+   * different — nothing will run them, nothing will persist them, and
+   * accepting one silently leaves the host believing work landed that did
+   * not.
+   */
+  close(): void {
+    this.isClosed = true;
+  }
+
   private assertMutable(path: string, op: string): void {
+    if (this.isClosed) {
+      throw new Error(
+        `cannot ${op} ${normalizePath(path)}: this working environment has been closed. ` +
+          `Reads, export() and snapshot() still work; create a new environment (or fromSnapshot) to keep working.`,
+      );
+    }
     const p = normalizePath(path);
     if (p === "/") throw new Error(`cannot ${op} the root directory`);
     if (isUnder(p, "/.env")) {

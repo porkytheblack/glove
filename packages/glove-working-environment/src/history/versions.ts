@@ -39,25 +39,33 @@ export interface RestoredVersion {
 export class VersionStore {
   private index = new Map<string, PathVersions>();
   private counter = 0;
-  private loaded = false;
+  /**
+   * The in-flight load, so two concurrent callers share one.
+   *
+   * A `loaded` boolean set before the first await lets a second caller
+   * through against an index that is still empty, and its `recordMutation`
+   * then writes a version ring the real load is about to overwrite.
+   */
+  private loading: Promise<void> | null = null;
 
   constructor(
     private vfs: Vfs,
     private limits: EnvLimits,
   ) {}
 
-  private async load(): Promise<void> {
-    if (this.loaded) return;
-    this.loaded = true;
-    if (await this.vfs.exists(INDEX_PATH)) {
-      try {
-        const parsed = JSON.parse(new TextDecoder().decode(await this.vfs.read(INDEX_PATH))) as IndexFile;
-        this.counter = parsed.counter ?? 0;
-        for (const [p, v] of Object.entries(parsed.paths ?? {})) this.index.set(p, v);
-      } catch {
-        // A corrupt index means version history is lost, not the environment.
+  private load(): Promise<void> {
+    this.loading ??= (async () => {
+      if (await this.vfs.exists(INDEX_PATH)) {
+        try {
+          const parsed = JSON.parse(new TextDecoder().decode(await this.vfs.read(INDEX_PATH))) as IndexFile;
+          this.counter = parsed.counter ?? 0;
+          for (const [p, v] of Object.entries(parsed.paths ?? {})) this.index.set(p, v);
+        } catch {
+          // A corrupt index means version history is lost, not the environment.
+        }
       }
-    }
+    })();
+    return this.loading;
   }
 
   private async persist(): Promise<void> {

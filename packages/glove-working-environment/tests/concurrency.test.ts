@@ -452,3 +452,77 @@ test("validating a slow script write does not stall a concurrent run's fs calls"
     await env.close({ graceMs: 500 });
   }
 });
+
+test("mount and export copy their buffers", async () => {
+  // `InMemoryFs` stores and returns the buffer it is given. A host that
+  // mounts a pooled read buffer, or writes into what it exported, would
+  // otherwise be editing the tree in place — no verb recorded, no version
+  // taken, and nothing for the model to notice.
+  await withGate(async (env) => {
+    const source = new TextEncoder().encode("as mounted");
+    await env.mount(source, "/inbox/doc.txt");
+    source.fill(88); // the host reuses its buffer
+    assert.equal(await env.fs.readFile("/inbox/doc.txt"), "as mounted", "mount adopted the host's buffer");
+
+    const [exported] = await env.export("/inbox/doc.txt");
+    exported.bytes.fill(89); // the host writes into what it was given
+    assert.equal(await env.fs.readFile("/inbox/doc.txt"), "as mounted", "export handed out the live buffer");
+  });
+});
+
+test("after close(), env.fs refuses mutations but still reads", async () => {
+  // Nothing will run, validate or persist a write made after close. Accepting
+  // one leaves the host believing work landed that has nowhere to go.
+  const env = await createWorkingEnvironment({});
+  await env.fs.writeFile("/out/report.txt", "the deliverable");
+  await env.close({ graceMs: 100 });
+
+  await assert.rejects(() => env.fs.writeFile("/out/late.txt", "too late"), /has been closed/);
+  await assert.rejects(() => env.fs.rm("/out/report.txt"), /has been closed/);
+
+  // Draining a closed environment is the correct flow, so reads stay open.
+  assert.equal(await env.fs.readFile("/out/report.txt"), "the deliverable");
+  const exported = await env.export("/out/**");
+  assert.equal(exported.length, 1);
+  assert.ok(((await env.snapshot()) as Snap).files.some((f) => f.path === "/out/report.txt"));
+});
+
+test("waiting runs are served in the order they arrived", async () => {
+  // A `release` that only says "one is free" leaves the freed worker up for
+  // grabs, and a caller entering acquire in the same turn takes it ahead of
+  // whoever has been waiting. Under sustained load that starves the queue.
+  //
+  // Unlike its neighbours this one does NOT fail against the unfixed pool:
+  // the window is a single microtask wide and `runScript` does async work
+  // before it reaches `acquire`, so it never lands inside it. Kept as a pin
+  // on the invariant — handing the slot over is what makes the queue order
+  // mean anything — not as a reproduction.
+  const env = await createWorkingEnvironment({ execution: { size: 1 } });
+  try {
+    await env.fs.writeFile(
+      "/scripts/mark.js",
+      `export default async function mark(args) {
+         const fs = await import('env:fs');
+         await fs.appendFile('/tmp/order.txt', args.tag + '\\n');
+         const until = Date.now() + args.ms;
+         while (Date.now() < until) await null;
+         return { tag: args.tag };
+       }`,
+    );
+    // The first takes the only worker; the rest queue in arrival order, each
+    // started a beat apart so "arrival order" is unambiguous.
+    // Spacing is deliberately close to the run length, so new arrivals land
+    // in the same turns as releases — the window where a barging caller can
+    // take a slot ahead of someone already waiting for one.
+    const tags = "abcdefghij".split("");
+    const runs: Array<Promise<unknown>> = [];
+    for (const tag of tags) {
+      runs.push(env.runScript("/scripts/mark.js", { tag, ms: 6 }));
+      await new Promise((r) => setTimeout(r, 6));
+    }
+    await Promise.all(runs);
+    assert.equal((await env.fs.readFile("/tmp/order.txt")).trim().split("\n").join(""), tags.join(""));
+  } finally {
+    await env.close({ graceMs: 500 });
+  }
+});

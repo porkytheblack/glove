@@ -297,11 +297,15 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
       // Host I/O stays OUTSIDE the lock. Reading a file off the host disk can
       // take as long as the disk takes, and holding the environment's one
       // mutation queue for it would stall every concurrently running script.
+      // Copied, not adopted. A host that mounts a buffer it goes on to reuse
+      // — a pooled read buffer, a slice of a larger upload — would otherwise
+      // be editing the tree in place, with no verb recorded, no version
+      // taken, and no way for the model to see it happen.
       const data =
         typeof source === "string"
           ? new Uint8Array(await hostReadFile(source))
           : source instanceof Uint8Array
-            ? source
+            ? new Uint8Array(source)
             : toBytes(source.text);
       if (data.byteLength > limits.maxFileBytes) {
         throw new EnvLimitError(
@@ -329,7 +333,10 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
       return core.exclusive(async () => {
         const paths = await core.glob(pattern);
         const out: Array<{ path: string; bytes: Uint8Array }> = [];
-        for (const p of paths) out.push({ path: p, bytes: await vfs.read(p) });
+        // Copies, for the same reason mount takes one: `InMemoryFs.read`
+        // hands back the live buffer, and a host that writes into what it
+        // exported would be editing the tree behind the model's back.
+        for (const p of paths) out.push({ path: p, bytes: new Uint8Array(await vfs.read(p)) });
         return out;
       });
     },
@@ -343,7 +350,13 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
     },
 
     async close(options?: { graceMs?: number }): Promise<void> {
+      // Order matters. The grace exists so a run part-way through writing its
+      // outputs can finish the file, and those writes come back through this
+      // core — sealing it first would break exactly what the grace is for. By
+      // the time the executor is down no script can be running, so any
+      // mutation after this point is a host that did not notice it closed.
       await executor.close(options);
+      core.close();
     },
   };
 }

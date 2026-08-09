@@ -23,6 +23,15 @@ export interface RunLogEntry {
 
 export class RunLog {
   private lines: string[] | null = null;
+  /**
+   * The in-flight load, so two concurrent callers share one.
+   *
+   * Caching the RESULT is not enough: the first caller reaches an await
+   * before it has anything to cache, and a second arriving in that window
+   * starts its own load. Both then read the same file and one of them appends
+   * to a list the other is about to replace.
+   */
+  private loading: Promise<string[]> | null = null;
   private runCounter = 0;
 
   constructor(
@@ -35,15 +44,18 @@ export class RunLog {
     return `run_${Date.now().toString(36)}_${this.runCounter}`;
   }
 
-  private async load(): Promise<string[]> {
-    if (this.lines) return this.lines;
-    if (await this.vfs.exists(HISTORY_PATH)) {
-      const text = new TextDecoder().decode(await this.vfs.read(HISTORY_PATH));
-      this.lines = text.split("\n").filter((l) => l.trim() !== "");
-    } else {
-      this.lines = [];
-    }
-    return this.lines;
+  private load(): Promise<string[]> {
+    if (this.lines) return Promise.resolve(this.lines);
+    this.loading ??= (async () => {
+      if (await this.vfs.exists(HISTORY_PATH)) {
+        const text = new TextDecoder().decode(await this.vfs.read(HISTORY_PATH));
+        this.lines = text.split("\n").filter((l) => l.trim() !== "");
+      } else {
+        this.lines = [];
+      }
+      return this.lines;
+    })();
+    return this.loading;
   }
 
   async append(entry: RunLogEntry): Promise<void> {

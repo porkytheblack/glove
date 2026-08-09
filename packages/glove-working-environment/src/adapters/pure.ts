@@ -206,6 +206,22 @@ export function pickFrom(ns: Record<string, unknown>, name: string): unknown {
  * `createWorkingEnvironment`; the host import doubles as validation, so a bad
  * `from` or a guessed pick fails HERE with a message naming the fix — never
  * inside a worker, and never as `undefined` in a script.
+ *
+ * ## A pure module must be stateless
+ *
+ * This is a requirement, not a style note, and nothing enforces it. The
+ * module is imported by URL — once per process on the host, once per worker
+ * thread — and Node caches module instances, so every environment in the
+ * process and every run in a worker share the SAME instance. A module that
+ * keeps top-level state therefore leaks it: between runs of one agent, and
+ * between tenants of a multi-tenant host, where one conversation's data
+ * becomes readable from another's script with nothing in the tree to show it
+ * happened.
+ *
+ * Pure functions of their arguments (lodash, date-fns, a formatter) are the
+ * intended shape. Anything holding a cache, a connection, a counter or a
+ * configured client belongs in an adapter, where `create(vfs, ctx)` is called
+ * per environment and the instance cannot be shared.
  */
 export async function primePureModule(adapter: StdlibAdapter): Promise<{ name: string; url: string; pick: string[] }> {
   const state = pureStateOf(adapter);

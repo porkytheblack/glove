@@ -163,7 +163,17 @@ function workerEntry(): { url: URL; execArgv: string[] | undefined } {
 
 export class WorkerPool {
   private slots: Slot[] = [];
-  private queue: Array<() => void> = [];
+  /**
+   * Waiters for a worker, in arrival order, each handed a slot directly.
+   *
+   * Handing the slot over rather than merely waking the waiter is what makes
+   * the order mean anything: a `release` that only says "one is free" leaves
+   * the freed worker up for grabs, and a caller entering `acquire` in the
+   * same turn takes it before the woken waiter runs. Under sustained load
+   * that starves whoever has waited longest — the opposite of a queue. `null`
+   * means "nothing was handed over, look again".
+   */
+  private queue: Array<(slot: Slot | null) => void> = [];
   private shapes: { readWrite: Record<string, ShapeNode>; readOnly: Record<string, ShapeNode> } | null = null;
   private spawnFailures = 0;
   private warnedAboutHeap = false;
@@ -376,8 +386,18 @@ export class WorkerPool {
           continue;
         }
       }
-      // All busy — wait for one to be released.
-      await new Promise<void>((resolve) => this.queue.push(resolve));
+      // All busy — wait to be handed one.
+      const handed = await new Promise<Slot | null>((resolve) => this.queue.push(resolve));
+      if (handed) {
+        // Already reserved for us by `release`; nobody could take it in
+        // between. It has run before, so `ready` is long since settled.
+        try {
+          await this.awaitReady(handed);
+          return handed;
+        } catch {
+          this.discard(handed);
+        }
+      }
     }
   }
 
@@ -448,12 +468,20 @@ export class WorkerPool {
     // re-entrant-validation deadlock, and without this the pool would keep
     // every worker that peak nesting ever needed, permanently.
     const surplus = !slot.poisoned && this.slots.filter((s) => !s.poisoned).length > this.size;
-    if (slot.poisoned || surplus) {
+    const reusable = !slot.poisoned && !surplus;
+    if (!reusable) {
       this.slots = this.slots.filter((s) => s !== slot);
       void slot.worker.terminate();
     }
+
     const next = this.queue.shift();
-    if (next) next();
+    if (!next) return;
+    if (!reusable || this.closed) {
+      next(null); // nothing to give; let the waiter re-enter the loop
+      return;
+    }
+    slot.busy = true; // reserved for this waiter before anyone else can look
+    next(slot);
   }
 
   /** Mark a run dead so no further host work is done on its behalf. */
@@ -717,7 +745,7 @@ export class WorkerPool {
   async close(options: { graceMs?: number } = {}): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    for (const waiter of this.queue.splice(0)) waiter();
+    for (const waiter of this.queue.splice(0)) waiter(null);
 
     const grace = options.graceMs ?? this.options.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS;
     const deadline = Date.now() + Math.max(0, grace);
