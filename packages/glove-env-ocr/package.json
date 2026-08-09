@@ -1,13 +1,13 @@
 {
-  "name": "glove-env-render",
+  "name": "glove-env-ocr",
   "version": "0.1.0",
-  "description": "Rendering stdlib adapter for glove-working-environment. Rasterizes PDFs, slide decks, Word files and images to page PNGs inside the agent's virtual filesystem as env:render — so an agent can look at what it produced instead of only reading its text back.",
+  "description": "OCR stdlib adapter for glove-working-environment. Turns a scanned PDF or a photo of a document into text inside the agent's virtual filesystem as env:ocr — bundled Tesseract WASM plus bundled English training data, so it works with no host wiring and no network.",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/porkytheblack/glove.git",
-    "directory": "packages/glove-env-render"
+    "directory": "packages/glove-env-ocr"
   },
   "homepage": "https://github.com/porkytheblack/glove",
   "bugs": "https://github.com/porkytheblack/glove/issues",
@@ -18,12 +18,7 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./raster": {
-      "types": "./dist/raster.d.ts",
-      "import": "./dist/raster.js"
-    },
-    "./package.json": "./package.json"
+    }
   },
   "files": [
     "dist"
@@ -35,17 +30,19 @@
     "test": "node --test --import tsx tests/*.test.ts"
   },
   "dependencies": {
-    "@napi-rs/canvas": "^1.0.3",
-    "pdfjs-dist": "^6.2.0"
+    "@tesseract.js-data/eng": "^1.0.0",
+    "glove-env-render": "workspace:*",
+    "pdfjs-dist": "^6.2.0",
+    "tesseract.js": "^7.0.0"
   },
   "peerDependencies": {
-    "glove-working-environment": "workspace:^"
+    "glove-working-environment": "workspace:*"
   },
   "devDependencies": {
+    "@napi-rs/canvas": "^1.0.3",
     "@types/node": "^25.2.3",
-    "glove-working-environment": "workspace:^",
+    "glove-working-environment": "workspace:*",
     "pdf-lib": "^1.17.1",
-    "pptxgenjs": "^4.0.1",
     "tsx": "^4.19.0",
     "typescript": "^5.9.3"
   }

@@ -1,13 +1,13 @@
 {
-  "name": "glove-env-render",
+  "name": "glove-env-email",
   "version": "0.1.0",
-  "description": "Rendering stdlib adapter for glove-working-environment. Rasterizes PDFs, slide decks, Word files and images to page PNGs inside the agent's virtual filesystem as env:render — so an agent can look at what it produced instead of only reading its text back.",
+  "description": "Email stdlib adapter for glove-working-environment. Opens .eml and Outlook .msg messages inside the agent's virtual filesystem as env:email — headers, body, and attachments written into the tree so they flow into the document, image and archive adapters.",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/porkytheblack/glove.git",
-    "directory": "packages/glove-env-render"
+    "directory": "packages/glove-env-email"
   },
   "homepage": "https://github.com/porkytheblack/glove",
   "bugs": "https://github.com/porkytheblack/glove/issues",
@@ -18,12 +18,7 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./raster": {
-      "types": "./dist/raster.d.ts",
-      "import": "./dist/raster.js"
-    },
-    "./package.json": "./package.json"
+    }
   },
   "files": [
     "dist"
@@ -35,17 +30,17 @@
     "test": "node --test --import tsx tests/*.test.ts"
   },
   "dependencies": {
-    "@napi-rs/canvas": "^1.0.3",
-    "pdfjs-dist": "^6.2.0"
+    "@kenjiuno/msgreader": "^1.28.0",
+    "mailparser": "^3.9.15"
   },
   "peerDependencies": {
-    "glove-working-environment": "workspace:^"
+    "glove-working-environment": "workspace:*"
   },
   "devDependencies": {
+    "@tutao/oxmsg": "^0.2.3",
+    "@types/mailparser": "^3.4.6",
     "@types/node": "^25.2.3",
-    "glove-working-environment": "workspace:^",
-    "pdf-lib": "^1.17.1",
-    "pptxgenjs": "^4.0.1",
+    "glove-working-environment": "workspace:*",
     "tsx": "^4.19.0",
     "typescript": "^5.9.3"
   }
