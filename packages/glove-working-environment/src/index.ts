@@ -585,6 +585,7 @@ async function snapshotVfs(vfs: Vfs): Promise<EnvSnapshot> {
 export { inMemoryFs, fromSnapshot, InMemoryFs } from "./vfs/memory";
 export { hostDirectory, HostDirectoryFs, type HostDirectoryOptions } from "./vfs/hostdir";
 export { defineTools, type DefineToolsSpec, type ToolFn, type ToolFnContext } from "./adapters/tools";
+export { createSessionManager, type SessionManager, type SessionManagerOptions } from "./hosting";
 export {
   cachedRemote,
   CachedRemoteFs,
