@@ -34,11 +34,11 @@
     "@ffprobe-installer/ffprobe": "^2.1.2"
   },
   "peerDependencies": {
-    "glove-working-environment": "workspace:*"
+    "glove-working-environment": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
-    "glove-working-environment": "workspace:*",
+    "glove-working-environment": "workspace:^",
     "tsx": "^4.19.0",
     "typescript": "^5.9.3"
   }

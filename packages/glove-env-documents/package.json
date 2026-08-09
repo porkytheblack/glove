@@ -34,12 +34,12 @@
     "pdf-lib": "^1.17.1"
   },
   "peerDependencies": {
-    "glove-working-environment": "workspace:*",
+    "glove-working-environment": "workspace:^",
     "pdfjs-dist": "^5.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
-    "glove-working-environment": "workspace:*",
+    "glove-working-environment": "workspace:^",
     "tsx": "^4.19.0",
     "typescript": "^5.9.3",
     "pdfjs-dist": "^5.4.149"

@@ -8,7 +8,7 @@
     "typecheck": "pnpm -r --filter './packages/*' typecheck",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "pnpm --filter \"glove-python...\" --filter \"glove-js...\" --filter \"glove-lisp...\" build && changeset publish",
+    "release": "node scripts/check-release-versions.mjs && pnpm --filter \"glove-python...\" --filter \"glove-js...\" --filter \"glove-lisp...\" --filter \"glove-working-environment...\" --filter \"glove-env-documents...\" --filter \"glove-env-spreadsheets...\" --filter \"glove-env-images...\" --filter \"glove-env-slides...\" --filter \"glove-env-archives...\" --filter \"glove-env-media...\" --filter \"glove-env-render...\" --filter \"glove-env-motion...\" build && changeset publish",
     "scratchpad:db": "tsx examples/scratchpad-agent/database.ts",
     "weather:agent": "tsx examples/weather-agent/index.tsx",
     "coding:agent": "tsx examples/coding-agent/index.tsx",
@@ -22,7 +22,8 @@
     "mcp:notion-server": "pnpm mcp:build && tsx examples/mcp-cli/notion-server.ts",
     "mcp:notion-status": "pnpm mcp:build && tsx examples/mcp-cli/notion-status.ts",
     "mcp:gmail": "pnpm mcp:build && tsx examples/mcp-cli/gmail-agent.ts",
-    "mcp:gmail-auth": "pnpm mcp:build && tsx examples/mcp-cli/gmail-mcp-auth.ts"
+    "mcp:gmail-auth": "pnpm mcp:build && tsx examples/mcp-cli/gmail-mcp-auth.ts",
+    "check:release": "node scripts/check-release-versions.mjs"
   },
   "packageManager": "pnpm@10.28.2",
   "pnpm": {
