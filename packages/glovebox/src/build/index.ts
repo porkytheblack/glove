@@ -35,13 +35,51 @@ export interface BuildResult {
   unresolved: string[]
 }
 
+/**
+ * Load the wrap module, whatever language it is written in.
+ *
+ * Every documented example writes it in TypeScript and imports its siblings
+ * the way TypeScript is written — `import { buildAgent } from "./agent"`, no
+ * extension. Node cannot resolve that. Recent Node strips the *types* on its
+ * own, so the file parses and the failure lands one level down, on the first
+ * relative import, reading:
+ *
+ *     Error [ERR_MODULE_NOT_FOUND]: Cannot find module
+ *     …/glovebox-env/agent imported from …/glovebox-env/glovebox.ts
+ *
+ * which names a file that is plainly there. On Node older than 22.18 there is
+ * no type stripping either and it fails earlier, on the first type annotation.
+ * Either way `glovebox build` could not build a wrap module split across more
+ * than one file — including the one shipped in examples/glovebox-pdf-extractor.
+ *
+ * tsx is the repo's answer to this everywhere else, and it is the right one
+ * here too: it registers a loader, so the graph still loads file by file with
+ * ordinary resolution and each module's own `import.meta.url`. Pre-bundling
+ * the entry instead would flatten exactly the thing this build has to observe.
+ *
+ * Registered only for a TypeScript entry, and unregistered afterwards — a
+ * plain .js/.mjs wrap module should not pay for a loader it does not need.
+ */
+async function importWrapModule(entry: string): Promise<Record<string, unknown>> {
+  const href = pathToFileURL(entry).href
+  if (!/\.(m|c)?tsx?$/.test(entry)) return (await import(href)) as Record<string, unknown>
+
+  const { register } = (await import("tsx/esm/api")) as { register: () => () => void }
+  const unregister = register()
+  try {
+    return (await import(href)) as Record<string, unknown>
+  } finally {
+    unregister()
+  }
+}
+
 export async function build(args: BuildArgs): Promise<BuildResult> {
   const entry = path.resolve(args.entry)
   const entryDir = path.dirname(entry)
   const outDir = path.resolve(args.outDir ?? path.join(entryDir, "dist"))
 
-  const mod = await import(pathToFileURL(entry).href)
-  const app: GloveboxApp | undefined = mod.default ?? mod.app
+  const mod = await importWrapModule(entry)
+  const app: GloveboxApp | undefined = (mod.default ?? mod.app) as GloveboxApp | undefined
   if (!app || (app as GloveboxApp).__glovebox !== 1) {
     throw new Error(
       `Entry ${entry} did not default-export a GloveboxApp. Did you call glovebox.wrap(...)?`,
