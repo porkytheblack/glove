@@ -53,6 +53,8 @@ jobs:
           --filter "glove-env-motion..."
           --filter "glove-image..."
           --filter "glove-analyst-desk..."
+          --filter "glovebox-kit..."
+          --filter "glovebox-client..."
           build
 
       # Scoped to the packages this workstream develops. A repo-wide gate would
