@@ -20,6 +20,9 @@
  * None of them is a build error. All of them are a run error, and four of the
  * five only appear inside the container.
  */
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+
 import { buildEnvironment } from "./environment";
 import type { RunResult, WorkingEnvironment } from "glove-working-environment";
 
@@ -134,6 +137,33 @@ async function runOne(env: WorkingEnvironment, path: string): Promise<string> {
   return summarize(result);
 }
 
+/**
+ * Copy everything the run produced out to a host directory.
+ *
+ * A green checklist says each call returned without throwing; it does not say
+ * the PNG has any ink on it. That distinction is not hypothetical here —
+ * pdf.js logs `getOperatorList — ignoring errors` and carries on, so a
+ * rasterize that lost half its content still reports a path and a byte count
+ * and still reads as `ok`. Mount a directory, pass GLOVEBOX_SELFCHECK_EXPORT,
+ * and look at the output:
+ *
+ *     docker run --rm -v "$PWD/out:/export" \
+ *       -e GLOVEBOX_KEY=selfcheck -e GLOVEBOX_SELFCHECK=1 \
+ *       -e GLOVEBOX_SELFCHECK_EXPORT=/export glovebox-env:local
+ */
+async function exportOutputs(env: WorkingEnvironment, dest: string): Promise<string> {
+  const paths = await env.fs.glob("/out/**");
+  let written = 0;
+  for (const p of paths) {
+    if ((await env.fs.stat(p))?.kind !== "file") continue;
+    const target = path.join(dest, p.slice("/out/".length));
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, await env.fs.readBytes(p));
+    written += 1;
+  }
+  return `${written} file(s) → ${dest}`;
+}
+
 export async function selfcheck(): Promise<Check[]> {
   const checks: Check[] = [];
   let env: WorkingEnvironment | undefined;
@@ -158,6 +188,8 @@ export async function selfcheck(): Promise<Check[]> {
     checks.push(await timed("render (LibreOffice + pdf.js)", () => runOne(e, "/scripts/rasterize.js")));
     checks.push(await timed("motion still (Chromium)", () => runOne(e, "/scripts/still.js")));
     checks.push(await timed("motion video (ffmpeg)", () => runOne(e, "/scripts/video.js")));
+    const dest = process.env.GLOVEBOX_SELFCHECK_EXPORT;
+    if (dest) checks.push(await timed("export", () => exportOutputs(e, dest)));
     await e.close();
   }
 
