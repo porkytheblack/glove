@@ -671,6 +671,29 @@ Two consequences for adapter authors, both enforced with a named error rather th
 
 The pool is one thread per environment by default, which is right for an agent loop that runs a script at a time; `execution.size` raises it for hosts that genuinely run scripts concurrently against one environment. `env.close()` shuts the pool down.
 
+### Lifecycle: what an idle environment costs, and how to stop paying for it
+
+Measured with the four format adapters registered and nothing running, an environment holds **~16.5 MB and one OS thread** of steady residency — five of them at +82.5 MB and +5 threads, all returned on `close()` and none of it before. That is not a leak, it is residency, and a host with a session per conversation pays it for every tab somebody left open.
+
+Three levels, in the order you should reach for them:
+
+```ts
+const env = await createWorkingEnvironment({
+  filesystem: fromSnapshot(parked),      // resume: the tree IS the session
+  stdlib: [documents(), spreadsheets()], // re-supplied; adapters are not in a snapshot
+  execution: {
+    idleTimeoutMs: 60_000,               // the default — reap the worker after a quiet minute
+    prewarm: true,                       // and pay the next spawn off the request path
+  },
+});
+```
+
+- **Idle workers reap themselves.** `execution.idleTimeoutMs` (default 60s, `0` to disable) terminates a worker nobody has used; the environment stays completely usable and the next script spawns a replacement in ~82 ms — noise beside the model round trip that precedes any script. A busy worker is never touched, and the timer is `unref`'d.
+- **Close on idle, resume from a snapshot.** The tree, the version rings and the adapters only come back on `close()`, so the tree is what you park: `snapshot()` → `close()` → `createWorkingEnvironment({ filesystem: fromSnapshot(snap), … })`. An identical restore now writes nothing — `/std` and `/skills` are still regenerated, but only *written* where the bytes differ, which is the difference between free and 32 network round trips on `cachedRemote`.
+- **Prewarm.** `execution.prewarm: true` (or `env.warmup()`, awaitable, at a moment of your choosing) starts the pool in the background. First action measured at **~300 ms cold against ~13 ms prewarmed**. Neither can fail a create: a spawn that does not come up leaves the pool as it was, retried on demand.
+
+**[LIFECYCLE.md](./LIFECYCLE.md)** is the full guide: a worked registry with TTL and a live ceiling, exactly what a snapshot carries and what you re-supply, sizing `N × maxVfsBytes` and `N × execution.memoryMb`, and shutting down with a grace. [`examples/document-desk`](../../examples/document-desk) implements the pattern.
+
 **Realm isolation is what makes that stick.** Absence of a global is not isolation: in JavaScript, *any* host-realm object reaching sandboxed code hands it `value.constructor.constructor` — the host `Function` constructor — and `Function("return process")()` escapes completely. So the boundary is enforced by construction on both sides:
 
 - Host functions are never handed over. They are wrapped by closures built *inside* the context (a closure isn't reachable through property access, so the host callee stays hidden), and every returned value is deep-copied into context-realm objects. Host errors are re-thrown as context-realm `Error`s carrying only name and message. Run arguments cross as a JSON string — a primitive — and are parsed inside the context.
@@ -690,9 +713,9 @@ Found by adversarial audit and left open deliberately — each is a real constra
 - **Stack-trace line numbers are exact; columns can shift** by a few characters on lines the transform rewrote.
 - The transform is a lexical scanner, not a parser. It is checked against real Node ESM by a differential suite — the same source imported by Node and by the environment, namespaces compared — covering templates, regex-vs-division, ASI, every import/export form (destructuring exports included: renames, defaults, rest, computed keys, nesting, holes, later declarator positions), generators, hashbangs, and import attributes — but exotic syntax may still diverge, and a divergence is a bug worth reporting.
 
-Limits (all configurable; failures name the limit): `runTimeoutMs` 30s · `maxVfsBytes` 128MB · `maxFileBytes` 32MB · `maxToolResponseBytes` ~8KB / `maxToolResponseLines` 200 · `maxVersionsPerFile` 10 · `maxHistoryLines` 5000 · `execution.memoryMb` 256.
+Limits (all configurable; failures name the limit): `runTimeoutMs` 30s · `maxVfsBytes` 128MB · `maxFileBytes` 32MB · `maxToolResponseBytes` ~8KB / `maxToolResponseLines` 200 · `maxVersionsPerFile` 10 · `maxHistoryLines` 5000 · `execution.memoryMb` 256 · `execution.idleTimeoutMs` 60s.
 
-**Sizing for a multi-tenant host.** Two of those are per-environment claims on the host, and a host running N agents in one process pays N times: `maxVfsBytes` is host heap under the default in-memory filesystem, and `execution.memoryMb` is a worker thread's heap. The defaults assume an agent working on a handful of documents. Both err low on purpose — too low is a named error an operator raises in one line, too high is an OOM kill that takes every other agent in the process with it.
+**Sizing for a multi-tenant host.** Two of those are per-environment claims on the host, and a host running N agents in one process pays N times: `maxVfsBytes` is host heap under the default in-memory filesystem, and `execution.memoryMb` is a worker thread's heap — claimed only while a worker exists, which is what `idleTimeoutMs` bounds. The defaults assume an agent working on a handful of documents. Both err low on purpose — too low is a named error an operator raises in one line, too high is an OOM kill that takes every other agent in the process with it. [LIFECYCLE.md](./LIFECYCLE.md) works the whole policy through.
 
 ## History & recovery
 
