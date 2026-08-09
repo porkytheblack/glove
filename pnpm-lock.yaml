@@ -501,6 +501,40 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  examples/glovebox-env:
+    dependencies:
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-env-documents:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-documents
+      glove-env-motion:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-motion
+      glove-env-render:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-render
+      glove-working-environment:
+        specifier: workspace:*
+        version: link:../../packages/glove-working-environment
+      glovebox-core:
+        specifier: workspace:*
+        version: link:../../packages/glovebox
+      pdfjs-dist:
+        specifier: ^5.4.149
+        version: 5.7.284
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   examples/glovebox-pdf-extractor:
     dependencies:
       glove-core:
@@ -1783,6 +1817,9 @@ importers:
       glovebox-kit:
         specifier: workspace:*
         version: link:../glovebox-kit
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
     devDependencies:
       '@types/node':
         specifier: ^25.2.3

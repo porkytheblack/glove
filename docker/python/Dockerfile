@@ -2,7 +2,7 @@
 #
 # uv (fast pip), numpy, pandas, pillow. Surfaces @analyst as a data-analysis
 # subagent.
-FROM ghcr.io/porkytheblack/glovebox/base:1.0
+FROM ghcr.io/porkytheblack/glovebox/base:1.1
 
 USER root
 
@@ -32,7 +32,7 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
       "matplotlib>=3.9"
 
 ENV GLOVEBOX_BASE_IMAGE=glovebox/python \
-    GLOVEBOX_BASE_VERSION=1.3 \
+    GLOVEBOX_BASE_VERSION=1.4 \
     PIP_BREAK_SYSTEM_PACKAGES=1
 
 USER glovebox

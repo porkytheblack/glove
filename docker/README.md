@@ -7,11 +7,34 @@ mentions the agent can route to.
 
 | Image | Tag | Adds |
 |---|---|---|
-| `glovebox/base` | 1.0 | Node 20, `glovebox` user, /work/input/output layout, prebuilt better-sqlite3 |
-| `glovebox/media` | 1.4 | ffmpeg, imagemagick, sox, yt-dlp, Python (for yt-dlp) |
-| `glovebox/docs` | 1.2 | pandoc, qpdf, pdftk-java, ghostscript, libreoffice headless |
-| `glovebox/python` | 1.3 | uv + scientific stack (numpy, pandas, pillow, scipy, matplotlib) |
-| `glovebox/browser` | 1.1 | Playwright with bundled Chromium |
+| `glovebox/base` | 1.1 | Node 22, `glovebox` user, /work/input/output layout, prebuilt better-sqlite3 |
+| `glovebox/media` | 1.5 | ffmpeg, imagemagick, sox, yt-dlp, Python (for yt-dlp) |
+| `glovebox/docs` | 1.3 | pandoc, qpdf, pdftk-java, ghostscript, libreoffice headless |
+| `glovebox/python` | 1.4 | uv + scientific stack (numpy, pandas, pillow, scipy, matplotlib) |
+| `glovebox/browser` | 1.2 | Playwright with bundled Chromium |
+| `glovebox/studio` | 1.1 | docs + Chromium — the one image where `env:render` and `env:motion` both work |
+
+### Which one for a working environment
+
+`glove-working-environment` adapters have base-image requirements, and two of
+them disagreed until `studio` existed: `env:render` rasterizes through
+headless LibreOffice, `env:motion` renders React scenes in a headless browser,
+and `docs` has no browser while `browser` has no LibreOffice. An agent that
+can build a deck but not look at it is half an agent, so `studio` is `docs`
+plus Chromium. `examples/glovebox-env` is the worked proof: it builds against
+`studio`, and its selfcheck runs both adapters inside the container.
+
+### Node 22, from base 1.1 on
+
+The bump from Node 20 is not cosmetic. pdf.js — pdfjs-dist v5+, which
+`env:render` rasterizes through — calls
+`ArrayBuffer.prototype.transferToFixedLength`, added in Node 21. When it is
+missing pdf.js catches the error per operator, logs `getOperatorList -
+ignoring errors`, and finishes the page anyway. Measured in-container on the
+Node 20 base: a rasterized Word document reported a path, 893x1263 dimensions
+and 7224 bytes, every layer above called it a success, and the PNG was blank.
+Node 20 also left maintenance in April 2026. Every image's tag moved because
+every image contains the new runtime.
 
 ## Building locally
 

@@ -3,16 +3,38 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import path from "node:path"
 
-import { build as esbuild } from "esbuild"
+import { build as esbuild, type Metafile } from "esbuild"
+
+import {
+  externalPatterns,
+  packageNameOf,
+  serverDependencies,
+  stageExternals,
+  type StageResult,
+} from "./externals"
 
 const requireFromHere = createRequire(import.meta.url)
 
 /**
- * The server bundle dropped into `dist/server/` is a single ESM file:
- * `index.js`. esbuild inlines glovebox-kit, glovebox, glove-core, and the
- * developer's wrap module. Native binaries (better-sqlite3) stay external
- * because they can't be JS-bundled — they're either provided by the base
- * image or installed via the emitted package.json.
+ * The server bundle dropped into `dist/server/` is a single ESM file,
+ * `index.js`, plus the things that cannot go inside it.
+ *
+ * esbuild inlines glovebox-kit, glovebox-core, glove-core, and the developer's
+ * wrap module — all ordinary JavaScript that does not care where it lives.
+ * Two families stay out, for reasons `./externals.ts` documents in full:
+ *
+ * - `glove-working-environment` and `glove-env-*` resolve files relative to
+ *   themselves (a worker thread opened by URL, pdf.js's font directory,
+ *   motion's own React). They are vendored into `dist/server/vendor/` and
+ *   copied into `node_modules` by the generated Dockerfile.
+ * - native modules (better-sqlite3, sharp, @napi-rs/canvas, the ffmpeg
+ *   installers, playwright-core, esbuild) are declared in the emitted
+ *   `package.json` and installed inside the image, where npm resolves the
+ *   binary for the image's platform.
+ *
+ * Only externals the bundle actually imports are emitted, read back from
+ * esbuild's metafile — a media agent should not carry a Chromium dependency
+ * because the external list mentions one.
  */
 export interface ServerBundleArgs {
   /** Absolute path to the developer's wrap module (the file passed to `glovebox build`). */
@@ -21,10 +43,17 @@ export interface ServerBundleArgs {
   outDir: string
   /** Name field of the developer's app. */
   appName: string
+  /**
+   * True when the base image already carries a compiled better-sqlite3 under
+   * /opt/glovebox-prebuilt, which the generated Dockerfile links in.
+   */
+  sqliteFromBaseImage: boolean
 }
 
-/** Native modules that can't be bundled and must be installed at runtime. */
-const NATIVE_EXTERNALS = ["better-sqlite3"]
+export interface ServerBundleResult extends StageResult {
+  /** Registry dependencies written into the emitted `package.json`. */
+  dependencies: Record<string, string>
+}
 
 const SYNTHETIC_ENTRY = (wrapEntry: string, kitEntry: string) => `import { startGlovebox } from ${JSON.stringify(kitEntry)}
 import * as wrapModule from ${JSON.stringify(wrapEntry)}
@@ -58,19 +87,38 @@ await startGlovebox({
 })
 `
 
-const PACKAGE_JSON = (appName: string) => ({
+const PACKAGE_JSON = (appName: string, dependencies: Record<string, string>) => ({
   name: `${appName}-server`,
   version: "0.0.0",
   private: true,
   type: "module",
   main: "index.js",
-  dependencies: {
-    "better-sqlite3": "^11.5.0",
-  },
+  dependencies,
 })
 
-export async function emitServerBundle(args: ServerBundleArgs): Promise<void> {
-  const { wrapEntry, outDir, appName } = args
+/**
+ * Bare specifiers esbuild left unresolved in the emitted bundle.
+ *
+ * Read from the metafile rather than from the external list, because the two
+ * are not the same set: the list is everything that MAY stay out, the metafile
+ * is what actually did. Node builtins are filtered — `node:fs` is external in
+ * every bundle and is nobody's dependency.
+ */
+function externalImports(metafile: Metafile, outfile: string): string[] {
+  const key = Object.keys(metafile.outputs).find((k) => path.resolve(k) === path.resolve(outfile))
+  const imports = key ? (metafile.outputs[key]?.imports ?? []) : []
+  const names = new Set<string>()
+  for (const imp of imports) {
+    if (!imp.external) continue
+    const spec = imp.path
+    if (spec.startsWith("node:") || spec.startsWith(".") || path.isAbsolute(spec)) continue
+    names.add(packageNameOf(spec))
+  }
+  return [...names].sort()
+}
+
+export async function emitServerBundle(args: ServerBundleArgs): Promise<ServerBundleResult> {
+  const { wrapEntry, outDir, appName, sqliteFromBaseImage } = args
 
   if (!existsSync(wrapEntry)) {
     throw new Error(`Wrap entry not found: ${wrapEntry}`)
@@ -91,20 +139,23 @@ export async function emitServerBundle(args: ServerBundleArgs): Promise<void> {
     )
   }
   const entryContents = SYNTHETIC_ENTRY(wrapEntry, kitEntry)
+  const outfile = path.join(outDir, "index.js")
+  const resolveDir = path.dirname(wrapEntry)
 
-  await esbuild({
+  const result = await esbuild({
     stdin: {
       contents: entryContents,
-      resolveDir: path.dirname(wrapEntry),
+      resolveDir,
       sourcefile: "synthetic-entry.ts",
       loader: "ts",
     },
-    outfile: path.join(outDir, "index.js"),
+    outfile,
     bundle: true,
     platform: "node",
     format: "esm",
     target: "node20",
-    external: NATIVE_EXTERNALS,
+    external: externalPatterns(),
+    metafile: true,
     // Mark the dynamic-import-only paths so esbuild doesn't choke if user's
     // wrap module pulls in optional providers (anthropic, openai, bedrock).
     logLevel: "error",
@@ -114,8 +165,18 @@ export async function emitServerBundle(args: ServerBundleArgs): Promise<void> {
     },
   })
 
+  const staged = await stageExternals({
+    used: externalImports(result.metafile, outfile),
+    resolveDir,
+    outDir,
+  })
+
+  const dependencies = serverDependencies(staged.dependencies, { sqliteFromBaseImage, resolveDir })
+
   await writeFile(
     path.join(outDir, "package.json"),
-    JSON.stringify(PACKAGE_JSON(appName), null, 2) + "\n",
+    JSON.stringify(PACKAGE_JSON(appName, dependencies), null, 2) + "\n",
   )
+
+  return { ...staged, dependencies }
 }
