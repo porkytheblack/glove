@@ -344,3 +344,60 @@ test("a restore that fails part-way rolls the tree back", async () => {
     await env.close({ graceMs: 200 });
   }
 });
+
+test("a write from a run reported dead does not land afterwards", async () => {
+  // Terminating the worker does not stop the host. A `core.write` the script
+  // asked for is already over here, and it can be queued behind whatever
+  // holds the mutation lock — so it commits seconds after `run_script` has
+  // told the model the run was killed, silently diverging the tree and
+  // potentially clobbering the retry's output.
+  //
+  // Staged exactly: the host takes the lock for longer than the run's whole
+  // budget, the script's write queues behind it, and the deadline fires while
+  // it waits.
+  const storage = inMemoryFs();
+  const slowPath = "/tmp/slow.bin";
+  const fs: Vfs = {
+    ...gatedFs(storage).fs,
+    write: async (p, d) => {
+      if (p === slowPath) await new Promise((r) => setTimeout(r, 1_500));
+      await tick();
+      return storage.write(p, d);
+    },
+  };
+  const env = await createWorkingEnvironment({
+    filesystem: fs,
+    limits: { runTimeoutMs: 400 },
+    execution: { graceMs: 100 },
+  });
+  try {
+    await env.fs.writeFile(
+      "/scripts/late.js",
+      `export default async function late() {
+         const fs = await import('env:fs');
+         const until = Date.now() + 150;
+         while (Date.now() < until) await null;
+         await fs.writeFile('/out/zombie.txt', 'written by a run that was already dead');
+         return { wrote: true };
+       }`,
+    );
+
+    const running = env.runScript("/scripts/late.js", {});
+    const holding = env.fs.writeFile(slowPath, "x".repeat(64));
+
+    const run = await running;
+    assert.equal(run.ok, false, "the run should have been killed on its deadline");
+    assert.match(run.error ?? "", /wall-clock limit|deadline|terminated/);
+
+    await holding;
+    // Give the queued write every chance to commit.
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(
+      await env.fs.exists("/out/zombie.txt"),
+      false,
+      "a write from a run already reported dead landed in the tree",
+    );
+  } finally {
+    await env.close({ graceMs: 200 });
+  }
+});

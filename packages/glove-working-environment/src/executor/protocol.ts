@@ -275,6 +275,11 @@ export interface ReadyMessage {
 export interface NeedMessage {
   type: "need";
   id: string;
+  /**
+   * The run this call belongs to, so the host can refuse work from a run it
+   * has already reported dead. Absent for calls made outside a run.
+   */
+  run?: string;
   what: "readSource" | "isEnforcedScript" | "capability" | "builder";
   /** For readSource / isEnforcedScript. */
   path?: string;

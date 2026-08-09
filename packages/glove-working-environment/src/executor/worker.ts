@@ -31,13 +31,22 @@ const port = parentPort;
 
 let seq = 0;
 const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+/**
+ * The run currently executing, stamped onto every host call it makes.
+ *
+ * A worker serves one run at a time, so a single variable is the whole
+ * bookkeeping. The host needs it because a slot is not a run: a terminated
+ * run's last call can still be in flight on the host when the pool has
+ * already replaced the worker.
+ */
+let currentRun: string | undefined;
 
 /** Ask the host something and await its reply. */
 function need(message: Omit<NeedMessage, "type" | "id">): Promise<unknown> {
   const id = `n${++seq}`;
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
-    port.postMessage({ type: "need", id, ...message } satisfies NeedMessage);
+    port.postMessage({ type: "need", id, run: currentRun, ...message } satisfies NeedMessage);
   });
 }
 
@@ -168,6 +177,7 @@ function enforced(path: string): boolean {
 }
 
 async function handleRun(message: RunMessage): Promise<void> {
+  currentRun = message.id;
   const capture = newCapture();
   const reply = (partial: Omit<ResultMessage, "type" | "id" | "stdout" | "stderr">): void => {
     port.postMessage({

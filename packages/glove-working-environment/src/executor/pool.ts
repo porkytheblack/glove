@@ -39,6 +39,7 @@ import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { EnvLimitError, type EnvLimits } from "../types";
 import type { ModuleContract } from "../pipeline/contract";
+import { runContext } from "../core/env";
 import { BUILDER, describeShape, type BuilderSpec, type HostToWorker, type NeedMessage, type ResultMessage, type ShapeNode, type WorkerToHost } from "./protocol";
 
 export interface PoolDeps {
@@ -168,6 +169,17 @@ export class WorkerPool {
   private warnedAboutHeap = false;
   private closed = false;
   private seq = 0;
+  /**
+   * Runs whose result has already been reported as a failure.
+   *
+   * A terminated worker does not stop the host: a capability call it made is
+   * still running here, and `core.write` in particular may be queued behind
+   * whatever holds the mutation lock. So "this run is over" has to be a fact
+   * the host can consult, not something inferred from the worker being gone.
+   * Insertion-ordered and trimmed, because the only thing that matters is the
+   * recent past — anything older has long since finished or failed.
+   */
+  private readonly abandonedRuns = new Set<string>();
 
   constructor(
     private readonly deps: PoolDeps,
@@ -444,6 +456,25 @@ export class WorkerPool {
     if (next) next();
   }
 
+  /** Mark a run dead so no further host work is done on its behalf. */
+  private abandon(id: string): void {
+    this.abandonedRuns.add(id);
+    while (this.abandonedRuns.size > 256) {
+      const oldest = this.abandonedRuns.values().next().value;
+      if (oldest === undefined) break;
+      this.abandonedRuns.delete(oldest);
+    }
+  }
+
+  /** Why a call on behalf of `run` must be refused, or null while it is live. */
+  private refusalFor(run: string | undefined): string | null {
+    if (run === undefined || !this.abandonedRuns.has(run)) return null;
+    return (
+      `this script's run has already ended (it was terminated or the environment was closed), ` +
+      `so the environment refused to apply its remaining changes`
+    );
+  }
+
   /** Serve one `need` from the worker. */
   private async serve(slot: Slot, message: NeedMessage): Promise<void> {
     const post = (payload: HostToWorker): void => slot.worker.postMessage(payload);
@@ -486,6 +517,16 @@ export class WorkerPool {
       }
     };
 
+    // Checked before anything is invoked, not only before replying. A run
+    // reported dead must stop having effects, and by the time the reply is
+    // written the mutation has already happened.
+    const refusal = slot.poisoned ? "the script worker was terminated" : this.refusalFor(message.run);
+    if (refusal) {
+      respond(false, undefined, new Error(refusal));
+      return;
+    }
+    const guard = { abandoned: (): string | null => this.refusalFor(message.run) };
+
     try {
       if (message.what === "readSource") {
         respond(true, await this.deps.readSource(message.path!));
@@ -505,7 +546,7 @@ export class WorkerPool {
           }
         }
         if (!spec) throw new Error(`env:${message.module} has no builder family "${message.builder}"`);
-        respond(true, await spec.replay(message.ops ?? []));
+        respond(true, await runContext.run(guard, () => spec.replay(message.ops ?? [])));
         return;
       }
       if (message.what === "capability") {
@@ -523,7 +564,10 @@ export class WorkerPool {
         let owner: unknown = ns;
         const route = message.route ?? [];
         for (const key of route.slice(0, -1)) owner = (owner as Record<string, unknown>)?.[key];
-        const result = await (target as (...a: unknown[]) => unknown).apply(owner, message.args ?? []);
+        // Inside the run context, so a mutation that queues behind the
+        // lock is refused if this run dies while it waits — the window the
+        // entry check above cannot cover.
+        const result = await runContext.run(guard, () => (target as (...a: unknown[]) => unknown).apply(owner, message.args ?? []));
         respond(true, result);
         return;
       }
@@ -564,6 +608,12 @@ export class WorkerPool {
         const finish = (value: Awaited<ReturnType<WorkerPool["execute"]>>): void => {
           if (settled) return;
           settled = true;
+          // The moment a failure is reported is the moment the run's remaining
+          // host work becomes illegitimate — the caller has been told the run
+          // died, and anything that lands afterwards diverges the tree from
+          // what the model believes. Terminating the worker does not stop
+          // work already in flight over here.
+          if (!value.ok) this.abandon(id);
           clearTimeout(killer);
           slot.worker.off("message", onMessage);
           slot.worker.off("error", onError);
