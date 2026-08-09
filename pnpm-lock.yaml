@@ -1167,7 +1167,7 @@ importers:
         specifier: ^25.2.3
         version: 25.2.3
       glove-working-environment:
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../glove-working-environment
       tsx:
         specifier: ^4.19.0
@@ -1189,7 +1189,7 @@ importers:
         specifier: ^25.2.3
         version: 25.2.3
       glove-working-environment:
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../glove-working-environment
       pdfjs-dist:
         specifier: ^5.4.149
@@ -1211,7 +1211,7 @@ importers:
         specifier: ^25.2.3
         version: 25.2.3
       glove-working-environment:
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../glove-working-environment
       tsx:
         specifier: ^4.19.0
@@ -1233,7 +1233,7 @@ importers:
         specifier: ^25.2.3
         version: 25.2.3
       glove-working-environment:
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../glove-working-environment
       tsx:
         specifier: ^4.19.0
@@ -1273,7 +1273,7 @@ importers:
         specifier: ^25.2.3
         version: 25.2.3
       glove-working-environment:
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../glove-working-environment
       react-native-reanimated:
         specifier: ^4.5.0
@@ -1301,7 +1301,7 @@ importers:
         specifier: ^25.2.3
         version: 25.2.3
       glove-working-environment:
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../glove-working-environment
       pdf-lib:
         specifier: ^1.17.1
@@ -1326,7 +1326,7 @@ importers:
         specifier: ^25.2.3
         version: 25.2.3
       glove-working-environment:
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../glove-working-environment
       tsx:
         specifier: ^4.19.0
@@ -1345,7 +1345,7 @@ importers:
         specifier: ^25.2.3
         version: 25.2.3
       glove-working-environment:
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../glove-working-environment
       tsx:
         specifier: ^4.19.0
