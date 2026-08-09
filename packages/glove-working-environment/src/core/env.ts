@@ -35,26 +35,8 @@ import { envImportsOf } from "../pipeline/imports";
 import { buildOrientation, ORIENTATION_PATH } from "../tools/orientation";
 import type { VersionStore } from "../history/versions";
 import type { RunLog } from "../history/runlog";
-import { AsyncLocalStorage } from "node:async_hooks";
-
-/**
- * The run a host-side capability call is being made on behalf of, if any.
- *
- * The pool enters this around every RPC it serves. `exclusive` reads it after
- * the lock is granted, which is the only place a check is worth anything: a
- * mutation can sit in the queue for as long as the operation ahead of it
- * takes, and the run that asked for it can be killed and reported dead in
- * that window. Without the check its write lands afterwards — into a tree the
- * model has been told it did not change.
- *
- * `AsyncLocalStorage` rather than a parameter because the path from `serve()`
- * to `exclusive` runs through arbitrary adapter code. Threading an argument
- * would only cover `env:fs`; the context covers anything that mutates.
- */
-export const runContext = new AsyncLocalStorage<{
-  /** A refusal reason once the run is dead, null while it is alive. */
-  abandoned(): string | null;
-}>();
+import { runContext } from "./run-context";
+export { runContext, type RunContext } from "./run-context";
 
 /** Only `tail` is needed here; see tools/orientation. */
 type RunLogLike = Pick<RunLog, "tail">;

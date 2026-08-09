@@ -229,7 +229,20 @@ export interface EnvTool {
   name: string;
   description: string;
   jsonSchema: Record<string, unknown>;
-  do(input: any): Promise<EnvToolResult>;
+  /**
+   * The trailing parameters are glove-core's fold signature —
+   * `(input, display, glove, signal)` — and only the last one is used here.
+   *
+   * Matching it exactly is what makes cancellation free: glove already passes
+   * the active request's signal to every tool it calls, and `run_script`
+   * simply ignored it, so an aborted turn abandoned the script rather than
+   * stopping it. Now the same signal terminates the run.
+   *
+   * A host calling a verb directly passes `tool.do(input, undefined,
+   * undefined, signal)` — or just `tool.do(input)`, since everything after
+   * the input is optional.
+   */
+  do(input: any, display?: unknown, agent?: unknown, signal?: AbortSignal): Promise<EnvToolResult>;
 }
 
 /**
@@ -297,6 +310,25 @@ export interface CreateWorkingEnvironmentOptions {
    * large, wrong type, the user is gone) is something it can respond to.
    */
   onPresent?: (item: PresentedFile) => Promise<void> | void;
+  /**
+   * Let the agent ask the person a question mid-task.
+   *
+   * Without one there is no channel at all, and the observed behaviour is not
+   * "the agent asks in prose" — it is the agent inventing an `ask_user` tool
+   * and burning turns on "no such tool", or, in a turn-capped loop where
+   * ending the turn *is* failing the run, guessing. "Two sheets are named
+   * Revenue — which one?" has a right answer the environment cannot supply.
+   *
+   * Everything about how the question is asked belongs to the host: the UI,
+   * the timeout, whether `options` become buttons or a list. Return the
+   * person's answer as a string; throw (or resolve with a refusal) if nobody
+   * answers, and the agent is told so and carries on.
+   *
+   * A **verb** rather than an `env:` module, deliberately: a script blocking
+   * on a human would spend its own `runTimeoutMs` waiting, and a person who
+   * takes a minute to reply would kill the run.
+   */
+  onAsk?: (question: { question: string; options?: string[] }) => Promise<string>;
   /**
    * Directories the agent can read but never mutate.
    *
@@ -409,6 +441,23 @@ export interface CreateWorkingEnvironmentOptions {
      * message naming the usual causes instead.
      */
     readyTimeoutMs?: number;
+    /**
+     * Watch a run as it happens, rather than reading its transcript
+     * afterwards.
+     *
+     * Called with each console line a running script writes, batched in the
+     * worker so narration inside a loop does not become the slowest thing the
+     * script does. `runId` matches the id in `/.env/history.jsonl`.
+     *
+     * ```ts
+     * execution: { onProgress: (e) => sse.send({ type: "progress", ...e }) }
+     * ```
+     *
+     * The same lines still arrive in full with the run's result, so a host
+     * that ignores this loses nothing — and the worker only streams when a
+     * callback is present.
+     */
+    onProgress?: (event: { runId: string; script: string; stream: "stdout" | "stderr"; text: string }) => void;
     /**
      * Where to report a misconfigured host. Defaults to `console.warn`; point
      * it at your logger. Called at most once per environment.

@@ -28,6 +28,8 @@ interface ToolDeps {
   vision?: VisionAdapter;
   /** When the host wired one, `present` joins the verb set. */
   onPresent?: (item: PresentedFile) => Promise<void> | void;
+  /** When the host wired one, `ask_user` joins the verb set. */
+  onAsk?: (question: { question: string; options?: string[] }) => Promise<string>;
 }
 
 /**
@@ -80,12 +82,12 @@ function guarded(
   verb: string,
   limits: EnvLimits,
   repeats: RepeatTracker,
-  fn: (input: any) => Promise<EnvToolResult>,
-): (input: any) => Promise<EnvToolResult> {
-  return async (input) => {
+  fn: (input: any, signal?: AbortSignal) => Promise<EnvToolResult>,
+): (input: any, display?: unknown, agent?: unknown, signal?: AbortSignal) => Promise<EnvToolResult> {
+  return async (input, _display, _agent, signal) => {
     let result: EnvToolResult;
     try {
-      result = await fn(input ?? {});
+      result = await fn(input ?? {}, signal);
     } catch (e) {
       result = err(e instanceof Error ? e.message : String(e));
     }
@@ -105,13 +107,14 @@ function schema(props: Record<string, unknown>, required: string[]): Record<stri
 }
 
 export function buildTools(deps: ToolDeps): EnvTool[] {
-  const { core, limits, prefix, vision, onPresent } = deps;
+  const { core, limits, prefix, vision, onPresent, onAsk } = deps;
   const name = (n: string) => `${prefix}${n}`;
   // One tracker per environment: the loop being detected is a model repeating
   // itself within a session, so the counts must outlive individual calls and
   // must not be shared between environments.
   const repeats = new RepeatTracker();
-  const guard = (verb: string, fn: (input: any) => Promise<EnvToolResult>) => guarded(verb, limits, repeats, fn);
+  const guard = (verb: string, fn: (input: any, signal?: AbortSignal) => Promise<EnvToolResult>) =>
+    guarded(verb, limits, repeats, fn);
 
   const writeFile: EnvTool = {
     name: name("write_file"),
@@ -326,12 +329,22 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       {
         path: str("Script path, e.g. /scripts/csv_to_report.js"),
         args: { type: "object", description: "Plain-JSON arguments object passed to the default export. Default {}.", additionalProperties: true },
+        timeout_ms: {
+          type: "number",
+          description:
+            `Budget for THIS run in milliseconds. Default and maximum ${limits.runTimeoutMs}. ` +
+            `Raise it only for work that is genuinely slow — a video render, a large batch — so an accidental ` +
+            `infinite loop in an ordinary script still fails fast instead of holding the worker.`,
+        },
       },
       ["path"],
     ),
-    do: guard("run_script", async (input: { path: string; args?: unknown }) => {
+    do: guard("run_script", async (input: { path: string; args?: unknown; timeout_ms?: number }, signal?: AbortSignal) => {
       if (typeof input.path !== "string") return err("run_script needs { path }");
-      const outcome = await executeRun(deps, input.path, input.args ?? {});
+      const outcome = await executeRun(deps, input.path, input.args ?? {}, {
+        timeoutMs: input.timeout_ms,
+        signal,
+      });
       return outcome.run.ok ? ok(outcome.text) : err(outcome.shortError ?? "script failed", outcome.text);
     }),
   };
@@ -624,8 +637,51 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     }),
   };
 
+  const askUser: EnvTool = {
+    name: name("ask_user"),
+    description:
+      "Ask the person a question and wait for their answer. " +
+      "For a decision only they can make: which of two plausible inputs to use, whether to overwrite a file, " +
+      "what a business term means in their data. " +
+      "Not for anything the tree can answer — read the file, describe it, or grep for it first. " +
+      "Asking costs the person's attention, so ask once, specifically, and include options when the answer is a choice between things you can name.",
+    jsonSchema: schema(
+      {
+        question: str("The question, in one or two sentences. Include the context that makes it answerable without scrollback."),
+        options: {
+          type: "array",
+          items: { type: "string" },
+          description: "The choices, when the answer is one of a known set. Omit for an open question.",
+        },
+      },
+      ["question"],
+    ),
+    do: guard("ask_user", async (input: { question?: string; options?: unknown }) => {
+      const question = typeof input.question === "string" ? input.question.trim() : "";
+      if (question === "") return err("ask_user needs { question } as a non-empty string");
+      let options: string[] | undefined;
+      if (input.options !== undefined) {
+        if (!Array.isArray(input.options) || input.options.some((o) => typeof o !== "string")) {
+          return err("ask_user options must be an array of strings, or omitted");
+        }
+        options = (input.options as string[]).map((o) => o.trim()).filter((o) => o !== "");
+        if (options.length === 0) options = undefined;
+      }
+      const answer = await onAsk!({ question, options });
+      // A host that answers with nothing has answered nothing, and the model
+      // must not read an empty string as consent.
+      if (typeof answer !== "string" || answer.trim() === "") {
+        return err(
+          "no answer came back — the person did not respond. Carry on with the most reasonable assumption and say in your final message which one you made and why.",
+        );
+      }
+      return ok(answer.trim());
+    }),
+  };
+
   const verbs = [writeFile, editFile, rm, mv, cp, readFile, ls, grep, describe, runScript, runTests, undo, redo, checkpoint, history];
   if (vision) verbs.push(viewImage);
   if (onPresent) verbs.push(present);
+  if (onAsk) verbs.push(askUser);
   return verbs;
 }

@@ -31,6 +31,7 @@ export default function Page() {
     upload,
     clearUpload,
     send,
+    answer,
     reset,
     setError,
   } = useDesk();
@@ -65,6 +66,7 @@ export default function Page() {
           onUpload={upload}
           onClearUpload={clearUpload}
           onSend={send}
+          onAnswer={answer}
           onDismissError={() => setError(null)}
         />
         <CodePane cards={cards} busy={busy} />

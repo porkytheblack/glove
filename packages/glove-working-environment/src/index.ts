@@ -7,7 +7,7 @@
  * in a scope containing only injected capabilities — no networking, no
  * host filesystem access, no process spawning, by construction.
  */
-import { BUILTIN_SKILLS, DELIVERING, skillsIndex } from "./skills";
+import { ASKING, BUILTIN_SKILLS, DELIVERING, skillsIndex } from "./skills";
 import { readFile as hostReadFile } from "node:fs/promises";
 import {
   DEFAULT_LIMITS,
@@ -53,8 +53,18 @@ export interface WorkingEnvironment {
    * environment. Pass `strictAdapters: true` to make them throw instead.
    */
   warnings: string[];
-  /** Host-side script execution (full result, no truncation; still logged to history). */
-  runScript(path: string, args?: unknown): Promise<RunResult>;
+  /**
+   * Host-side script execution (full result, no truncation; still logged to
+   * history).
+   *
+   * `timeoutMs` budgets this run alone and is clamped to
+   * `limits.runTimeoutMs` — it can ask for less than the environment allows,
+   * never more. `signal` cancels this run and nothing else: the worker is
+   * terminated, the run resolves with a cancellation error, and the
+   * environment stays usable. Anything the cancelled run had already handed
+   * to the host is refused rather than committed.
+   */
+  runScript(path: string, args?: unknown, opts?: { timeoutMs?: number; signal?: AbortSignal }): Promise<RunResult>;
   /** Door in: place a host file (path), bytes, or literal text into the tree. */
   mount(source: string | Uint8Array | { text: string }, dest: string): Promise<void>;
   /** Door out: collect files matching a glob, e.g. `/out/**`. */
@@ -236,6 +246,7 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
   const skills = [
     ...BUILTIN_SKILLS,
     ...(options.onPresent ? [DELIVERING] : []),
+    ...(options.onAsk ? [ASKING] : []),
     ...adapters.flatMap((a) => a.skills ?? []),
   ];
   for (const skill of skills) await writeDoc(`/skills/${skill.name}.md`, skill.body);
@@ -270,18 +281,43 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
 
   core.attachRunLog(runlog);
 
-  const tools = buildTools({ core, runlog, limits, prefix: "", vision: options.vision, onPresent: options.onPresent });
+  const tools = buildTools({
+    core,
+    runlog,
+    limits,
+    prefix: "",
+    vision: options.vision,
+    onPresent: options.onPresent,
+    onAsk: options.onAsk,
+  });
 
   return {
     tools,
-    toolsWithPrefix: (prefix: string) => buildTools({ core, runlog, limits, prefix, vision: options.vision, onPresent: options.onPresent }),
+    toolsWithPrefix: (prefix: string) =>
+      buildTools({
+        core,
+        runlog,
+        limits,
+        prefix,
+        vision: options.vision,
+        onPresent: options.onPresent,
+        onAsk: options.onAsk,
+      }),
     fs: fsHandle,
     limits,
     moduleDescriptions: core.moduleDescriptions,
     warnings,
 
-    async runScript(path: string, args: unknown = {}): Promise<RunResult> {
-      const outcome = await executeRun({ core, runlog, limits, executor }, path, args, { spill: false });
+    async runScript(
+      path: string,
+      args: unknown = {},
+      opts?: { timeoutMs?: number; signal?: AbortSignal },
+    ): Promise<RunResult> {
+      const outcome = await executeRun({ core, runlog, limits, executor }, path, args, {
+        spill: false,
+        timeoutMs: opts?.timeoutMs,
+        signal: opts?.signal,
+      });
       return outcome.run;
     },
 

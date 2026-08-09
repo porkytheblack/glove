@@ -163,12 +163,13 @@ The complete, closed set — everything the model does goes through these:
 | `grep(pattern, path?, glob?, context?, max_matches?)` | Capped; also covers `/.env/history.jsonl` |
 | `run_tests(path?)` | Runs every `*.test.js` under a path; `import * as assert from 'env:assert'` |
 | `describe(path)` | Routes to whichever adapter understands the format (magic bytes, not extension); generic summary otherwise |
-| `run_script(path, args)` | `await defaultExport(args)`; result + stdout/stderr; oversized output spills to `/tmp/run-<id>.*` |
+| `run_script(path, args, timeout_ms?)` | `await defaultExport(args)`; result + stdout/stderr; oversized output spills to `/tmp/run-<id>.*`. `timeout_ms` budgets this run alone, clamped to `limits.runTimeoutMs` |
 | `undo(path)` / `redo(path)` | Per-file linear undo (rm included); re-runs the pipeline for scripts |
 | `checkpoint(action, name?)` | fork/restore/list/drop the WHOLE tree — the multi-file recovery undo cannot do |
 | `history(path?, limit?)` | Runs from `history.jsonl`, or a file's saved versions |
 | `view_image(path, prompt, page?)` | **Only when a `vision` model is wired.** Look at a file and answer a question about how it LOOKS |
 | `present(path, caption)` | **Only when `onPresent` is wired.** Hand a finished file from `/out` to the person, with a one-line caption |
+| `ask_user(question, options?)` | **Only when `onAsk` is wired.** Put a question to the person and wait for their answer |
 
 ### Checking the work by looking at it
 
@@ -227,6 +228,61 @@ present({ path: '/out/q2-review.pptx',
 - **The caption is required**, and an empty one is refused with an example. The person reads it instead of the filename, and "report.pdf" is not a description.
 - **`mediaType` follows the extension the agent chose**, so the label agrees with the name; magic bytes only settle the extensionless case.
 - **The callback is awaited** before the verb reports success, and a throw surfaces as a tool error the agent can retry — never as a crash.
+
+### Asking the person
+
+Some things the tree cannot answer. Two sheets are named `Revenue`; `/out/report.pdf` already exists; "active customer" means something specific in this business. Without a channel the observed behaviour is not "the agent asks in prose" — it is the agent inventing an `ask_user` tool and spending turns on *no such tool*, or, in a turn-capped loop where ending the turn to ask **is** failing the run, guessing.
+
+Wire a receiver and the verb appears, on the same terms as `view_image` and `present`:
+
+```ts
+const env = await createWorkingEnvironment({
+  onAsk: async ({ question, options }) => {
+    return await promptTheHuman(question, options);   // a UI, a Slack message, a CLI readline
+  },
+});
+```
+
+```
+ask_user({ question: 'Two sheets are named "Revenue" — Q1 has 480 rows, Q2 has 512. Which should the report use?',
+           options: ['Q1 (480 rows)', 'Q2 (512 rows)', 'Both, as separate sections'] })
+```
+
+- **A verb, not an `env:` module.** A script blocking on a human would spend its own `runTimeoutMs` waiting, and a person who takes a minute to reply would kill the run.
+- **Everything about the asking is the host's**: the UI, the timeout, whether `options` become buttons. Return the answer as a string; throw, and the agent is told and carries on.
+- **An empty answer is reported as no answer**, never as consent — the verb tells the agent to proceed on a stated assumption rather than reading silence as yes.
+- A conditional `/skills/asking.md` and one preamble line appear only when the callback is supplied, for the same reason the verb does.
+
+### Long runs: budget, progress, cancel
+
+A four-minute render used to be three separate problems. All three are host-side, and none changes what the model writes.
+
+**Budget per run.** There was one `runTimeoutMs`, so permitting one slow render meant handing four minutes to every script — including the accidental `for(;;)` that then holds the warm worker for all of it.
+
+```ts
+await env.runScript('/scripts/render.js', args, { timeoutMs: 240_000 });   // host side
+run_script({ path: '/scripts/render.js', timeout_ms: 240_000 })            // model side
+```
+
+Clamped to `limits.runTimeoutMs`: a caller can ask for less than the environment allows, never more. The refusal names whichever budget actually applied, so it points at the knob that would fix it.
+
+**Progress.** Scripts already narrate with `console.log`; that output used to cross only with the final result.
+
+```ts
+execution: {
+  onProgress: ({ runId, script, stream, text }) => sse.send({ type: 'progress', script, text }),
+}
+```
+
+Batched in the worker, so narration inside a loop does not become the slowest thing the script does. `runId` matches `/.env/history.jsonl`. The full transcript still arrives with the result, so ignoring this loses nothing — and the worker only streams when a callback is present.
+
+**Cancellation.** The only ways a run could end early were the global deadline and `close()`, which shuts the whole pool.
+
+```ts
+await env.runScript('/scripts/render.js', args, { signal: controller.signal });
+```
+
+`EnvTool.do` matches glove-core's fold signature — `(input, display, glove, signal)` — so an agent built with `mountWorkingEnvironment` gets this for nothing: glove already passes the active request's signal to every tool, and `run_script` now forwards it into the run. A cancelled run resolves with a cancellation error, the environment stays usable, and anything it had already handed to the host is refused rather than committed. `defineTools` capabilities receive the same signal, so a cancelled run stops the call it is sitting on.
 
 ## Stdlib adapters
 

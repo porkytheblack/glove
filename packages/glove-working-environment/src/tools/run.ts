@@ -92,7 +92,7 @@ export async function executeRun(
   deps: RunDeps & { executor?: WorkerPool },
   pathRaw: string,
   args: unknown,
-  opts?: { spill?: boolean; kind?: "test" },
+  opts?: { spill?: boolean; kind?: "test"; timeoutMs?: number; signal?: AbortSignal },
 ): Promise<RunOutcome> {
   const { core, runlog, limits } = deps;
   const path = normalizePath(pathRaw);
@@ -104,7 +104,7 @@ export async function executeRun(
   const run = unrunnable
     ? { ok: false, result: undefined, stdout: "", stderr: "", durationMs: 0, error: unrunnable }
     : await executor
-        .execute({ mode: "run", path, args, readOnly: false })
+        .execute({ mode: "run", path, args, readOnly: false, timeoutMs: opts?.timeoutMs, runId, signal: opts?.signal })
         .then((r) => ({
           ok: r.ok,
           result: r.result,

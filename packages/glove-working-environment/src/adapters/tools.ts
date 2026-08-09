@@ -38,6 +38,7 @@
  * keeps its zero dependencies and anything matching the shape qualifies.
  */
 import { defineAdapter } from "./define";
+import { runContext } from "../core/run-context";
 import type { EnvFsHandle, StdlibAdapter } from "../types";
 
 /** Context handed to a capability on each call. */
@@ -150,7 +151,13 @@ export function defineTools(spec: DefineToolsSpec): StdlibAdapter {
                 `move the call inside the default export instead of running it at module top level.`,
             );
           }
-          return await fn.call(args ?? {});
+          // The context was part of the contract from the start and was never
+          // actually passed, so a capability that wanted to honour
+          // cancellation could not. The signal belongs to the RUN, not to the
+          // adapter instance (which is created once per environment), so it
+          // comes from the ambient run context the pool enters around every
+          // call it serves.
+          return await fn.call(args ?? {}, { signal: runContext.getStore()?.signal });
         };
       }
       return bindings;

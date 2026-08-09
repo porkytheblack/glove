@@ -39,7 +39,7 @@ import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { EnvLimitError, type EnvLimits } from "../types";
 import type { ModuleContract } from "../pipeline/contract";
-import { runContext } from "../core/env";
+import { runContext } from "../core/run-context";
 import { BUILDER, describeShape, type BuilderSpec, type HostToWorker, type NeedMessage, type ResultMessage, type ShapeNode, type WorkerToHost } from "./protocol";
 
 export interface PoolDeps {
@@ -92,6 +92,20 @@ export interface PoolOptions {
    */
   readyTimeoutMs?: number;
   /**
+   * Watch a run as it happens: called with batches of console output while
+   * the script is still going.
+   *
+   * Without it a long run is silent between `tool_use` and `tool_result`, and
+   * a host cannot tell frame 900 of 1800 from a hang — which is also what it
+   * needs in order to offer a meaningful cancel. Scripts already narrate with
+   * `console.log`; nothing about the model-facing surface changes.
+   *
+   * The lines still arrive in full with the result, so this is a tee: a host
+   * that ignores it loses nothing. Streaming is only switched on in the
+   * worker when a callback is present.
+   */
+  onProgress?: (event: { runId: string; script: string; stream: "stdout" | "stderr"; text: string }) => void;
+  /**
    * Where to report a misconfigured host. Defaults to `console.warn`, and is
    * called at most once per pool.
    *
@@ -123,6 +137,20 @@ const BACKOFF = { baseMs: 50, factor: 3, maxMs: 5_000 };
 
 function backoffMs(attempt: number): number {
   return Math.min(BACKOFF.maxMs, Math.round(BACKOFF.baseMs * Math.pow(BACKOFF.factor, Math.max(0, attempt))));
+}
+
+/**
+ * A per-run budget, bounded by the environment's ceiling.
+ *
+ * Clamped rather than refused: a caller asking for more than the environment
+ * allows gets the environment's answer, which is the same thing that would
+ * have happened without the parameter. Nonsense (zero, negative, NaN) falls
+ * back to the ceiling for the same reason — a run with no budget at all is
+ * never what anyone meant.
+ */
+function clampBudget(requested: number | undefined, ceiling: number): number {
+  if (typeof requested !== "number" || !Number.isFinite(requested) || requested <= 0) return ceiling;
+  return Math.min(Math.round(requested), ceiling);
 }
 
 export interface Slot {
@@ -190,6 +218,14 @@ export class WorkerPool {
    * recent past — anything older has long since finished or failed.
    */
   private readonly abandonedRuns = new Set<string>();
+  /**
+   * Runs in flight, so a capability call can be given its run's abort signal.
+   *
+   * Keyed by the same id the worker stamps onto every `need`. Entries are
+   * removed the moment the run settles — a run that has finished cannot have
+   * a call outstanding worth cancelling.
+   */
+  private readonly liveRuns = new Map<string, { signal?: AbortSignal }>();
 
   constructor(
     private readonly deps: PoolDeps,
@@ -553,7 +589,10 @@ export class WorkerPool {
       respond(false, undefined, new Error(refusal));
       return;
     }
-    const guard = { abandoned: (): string | null => this.refusalFor(message.run) };
+    const guard = {
+      abandoned: (): string | null => this.refusalFor(message.run),
+      signal: message.run === undefined ? undefined : this.liveRuns.get(message.run)?.signal,
+    };
 
     try {
       if (message.what === "readSource") {
@@ -615,6 +654,26 @@ export class WorkerPool {
     args?: unknown;
     readOnly: boolean;
     overlay?: Map<string, string>;
+    /** Host-facing id for progress events, so they line up with run history. */
+    runId?: string;
+    /**
+     * Cancel this run without touching the rest of the environment.
+     *
+     * The only ways a run could end early were the global deadline and
+     * `close()`, which shuts the whole pool — so a host with a Stop button, or
+     * an SSE client that hung up, had to rebuild the environment from a
+     * snapshot and lose the warm worker to stop one script.
+     */
+    signal?: AbortSignal;
+    /**
+     * Budget for this run alone, clamped to `limits.runTimeoutMs`.
+     *
+     * The ceiling is the environment's; this only ever asks for less. Raising
+     * the environment-wide limit to accommodate one slow adapter is what the
+     * absence of this forced, and it hands the same four minutes to an
+     * accidental `for(;;)`.
+     */
+    timeoutMs?: number;
   }): Promise<{ ok: boolean; result?: unknown; error?: string; stdout: string; stderr: string; contract?: ModuleContract }> {
     // Validation is re-entrant by nature — it is triggered by a write, and a
     // write can come from a script that is itself running in a worker.
@@ -628,7 +687,9 @@ export class WorkerPool {
       return { ok: false, error: e instanceof Error ? e.message : String(e), stdout: "", stderr: "" };
     }
     const id = `r${++this.seq}`;
-    const deadline = Date.now() + this.deps.limits.runTimeoutMs;
+    const budgetMs = clampBudget(request.timeoutMs, this.deps.limits.runTimeoutMs);
+    const deadline = Date.now() + budgetMs;
+    this.liveRuns.set(id, { signal: request.signal });
 
     try {
       return await new Promise((resolve) => {
@@ -642,7 +703,9 @@ export class WorkerPool {
           // what the model believes. Terminating the worker does not stop
           // work already in flight over here.
           if (!value.ok) this.abandon(id);
+          this.liveRuns.delete(id);
           clearTimeout(killer);
+          request.signal?.removeEventListener("abort", cancel);
           slot.worker.off("message", onMessage);
           slot.worker.off("error", onError);
           slot.worker.off("exit", onExit);
@@ -652,6 +715,24 @@ export class WorkerPool {
         const onMessage = (m: WorkerToHost): void => {
           if (m.type === "need") {
             void this.serve(slot, m);
+            return;
+          }
+          if (m.type === "progress") {
+            if (m.id !== id) return; // a batch from a previous run on this worker
+            for (const line of m.lines) {
+              // A host callback must not be able to fail the run it is
+              // watching — it is an observer, not a participant.
+              try {
+                this.options.onProgress?.({
+                  runId: request.runId ?? id,
+                  script: request.path,
+                  stream: line.stream,
+                  text: line.text,
+                });
+              } catch {
+                // ignored on purpose
+              }
+            }
             return;
           }
           if (m.type === "result" && m.id === id) {
@@ -689,6 +770,22 @@ export class WorkerPool {
           });
         };
 
+        // Cancellation reuses the killer's path exactly — poison, terminate,
+        // resolve with a name — because that path is already the only thing
+        // that reliably stops a thread whatever it is doing. `finish` marks
+        // the run abandoned, so a write it had already handed to the host is
+        // refused rather than landing after the caller was told it stopped.
+        const cancel = (): void => {
+          slot.poisoned = true;
+          void slot.worker.terminate();
+          finish({
+            ok: false,
+            error: "the script was cancelled by the host before it finished",
+            stdout: "",
+            stderr: "",
+          });
+        };
+
         // THE backstop. Everything else about the deadline is advisory; this
         // is the part that cannot be defeated by what the script does.
         const killer = setTimeout(
@@ -698,14 +795,26 @@ export class WorkerPool {
             finish({
               ok: false,
               error: new EnvLimitError(
-                `script exceeded the wall-clock limit: ${this.deps.limits.runTimeoutMs}ms (limits.runTimeoutMs) and was terminated`,
+                budgetMs >= this.deps.limits.runTimeoutMs
+                  ? `script exceeded the wall-clock limit: ${budgetMs}ms (limits.runTimeoutMs) and was terminated`
+                  : `script exceeded the wall-clock limit for this run: ${budgetMs}ms (run_script timeout_ms) and was terminated; ` +
+                    `this environment allows up to ${this.deps.limits.runTimeoutMs}ms`,
               ).message,
               stdout: "",
               stderr: "",
             });
           },
-          this.deps.limits.runTimeoutMs + (this.options.graceMs ?? DEFAULT_GRACE_MS),
+          budgetMs + (this.options.graceMs ?? DEFAULT_GRACE_MS),
         );
+
+        // Registered after the killer exists: `finish` clears it, and an
+        // already-aborted signal firing before that `const` is initialised
+        // reaches it in its temporal dead zone.
+        if (request.signal?.aborted) {
+          cancel();
+          return;
+        }
+        request.signal?.addEventListener("abort", cancel, { once: true });
 
         slot.worker.on("message", onMessage);
         slot.worker.once("error", onError);
@@ -719,6 +828,8 @@ export class WorkerPool {
           readOnly: request.readOnly,
           overlay: request.overlay ? [...request.overlay.entries()] : undefined,
           deadline,
+          budgetMs,
+          progress: this.options.onProgress !== undefined,
         } satisfies HostToWorker);
       });
     } finally {

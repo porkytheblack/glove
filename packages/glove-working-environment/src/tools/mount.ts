@@ -21,6 +21,13 @@ export function buildPreamble(env: WorkingEnvironment): string {
   // model to use a verb that is not in its tool list buys a wasted call and
   // a confusing failure.
   const canSee = env.tools.some((t) => t.name.endsWith("view_image"));
+  // Same rule as `view_image`: mentioned only when the verb is really there.
+  // Priming a model to ask a question it has no way to ask produces a
+  // hallucinated call or a reported blocker that does not exist.
+  const canAsk = env.tools.some((t) => t.name.endsWith("ask_user"));
+  const asking = canAsk
+    ? `\n- Ask when only the person can decide: ask_user(question, options) puts a question in front of them and waits. For a choice between two plausible inputs, an overwrite, or what a term means in their data — never for something the tree can answer, so read, describe or grep first. Ask before the expensive step rather than after it, and include enough context that the question stands on its own.`
+    : "";
   const seeing = canSee
     ? `\n- Look at what you made: view_image(path, prompt) answers a question about how a file LOOKS, rasterizing PDFs and decks for you (pass page for a later one). Reading text back cannot see a table running off the page, a chart with no bars, or a title overlapping its subtitle. Ask something falsifiable — state what you expected, then ask what is actually there — and do it before you report a deliverable finished.`
     : "";
@@ -43,7 +50,7 @@ Operating discipline:
 - All execution goes through named scripts: write_file a script under /scripts, then run_script it. Every script must \`export default async function (args) { ... }\` — validation happens at write time and tells you exactly what to fix. Give each script a JSDoc block: it becomes the generated .d.ts and the description shown by ls.
 - Scripts import capabilities — and each other: \`import { readFile, writeFile } from 'env:fs'\`, \`import { csv } from 'env:std'\`, \`import parse from './parse.js'\`. Nothing else is importable: no npm packages, no network, no host filesystem, no process — these do not exist in the sandbox.
 - Discover before you build: ls /scripts is your capability catalog (one-line descriptions from JSDoc); ls /std lists stdlib modules; read_file /std/<name>/index.d.ts gives exact signatures; grep finds which script handles what.
-- Orient before you parse: describe(path) summarises any file — page counts, sheet names, image dimensions — by routing to the module that understands the format. Use it on an unfamiliar input instead of guessing, and on your own output to check what you produced.${seeing}
+- Orient before you parse: describe(path) summarises any file — page counts, sheet names, image dimensions — by routing to the module that understands the format. Use it on an unfamiliar input instead of guessing, and on your own output to check what you produced.${seeing}${asking}
 - Iterate like a developer: generate, inspect the artifact (read_file a CSV, describe a binary), correct, re-run. undo/redo revert per-file mistakes; history shows recent runs or a file's versions.
 - Before restructuring several files at once, checkpoint({action:'fork', name:'...'}). One restore puts the whole tree back — undo is per-file and linear, so a multi-file dead end is otherwise an error-prone reverse-order unwind.
 

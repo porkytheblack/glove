@@ -36,6 +36,23 @@ export interface Desk {
   /** Subscribers attached for the lifetime of one request. */
   listeners: Set<(event: DeskEvent) => void>;
   createdAt: number;
+  /**
+   * Cancels the turn in flight.
+   *
+   * Replaced per turn. The browser closing the SSE stream — a Stop button, a
+   * reload, a closed tab — aborts this, which reaches `run_script` and stops
+   * the script rather than leaving it writing into a turn nobody is reading.
+   */
+  turn: AbortController;
+  /**
+   * Questions the agent has asked and the person has not answered yet.
+   *
+   * The verb returns a promise that stays pending until `POST /api/answer`
+   * resolves it, so the agent's turn genuinely waits — which is the point,
+   * and is also why `ask_user` is a verb rather than something a script calls
+   * (a script waiting on a human would spend its own run budget doing it).
+   */
+  questions: Map<string, { resolve: (answer: string) => void; reject: (e: Error) => void }>;
 }
 
 /** What the browser sees. A narrowed projection of Glove's subscriber stream. */
@@ -45,6 +62,10 @@ export type DeskEvent =
   | { type: "tool_result"; id: string; status: "success" | "error"; output: string }
   | { type: "tree_changed" }
   | { type: "presented"; path: string; name: string; mediaType: string; size: number; caption: string }
+  /** A line a running script wrote, forwarded while it is still running. */
+  | { type: "progress"; script: string; stream: "stdout" | "stderr"; text: string }
+  /** The agent is waiting for an answer. */
+  | { type: "ask"; id: string; question: string; options?: string[] }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -145,12 +166,17 @@ export async function getDesk(id: string): Promise<Desk> {
 
   const vision = visionAdapter();
 
-  // Declared before the environment because `onPresent` fires from inside a
-  // tool call — the desk object that owns this set does not exist yet.
+  // Declared before the environment because `onPresent`, `onAsk` and
+  // `onProgress` all fire from inside a tool call — the desk object that owns
+  // these does not exist yet.
   const listeners = new Set<(event: DeskEvent) => void>();
   const broadcast = (event: DeskEvent) => {
     for (const listen of listeners) listen(event);
   };
+  const questions: Desk["questions"] = new Map();
+  let questionSeq = 0;
+  // Aborted when the browser hangs up. Replaced at the start of every turn.
+  const turnRef = { current: new AbortController() };
   const envRef: { current?: WorkingEnvironment } = {};
 
   const env = await createWorkingEnvironment({
@@ -187,6 +213,28 @@ export async function getDesk(id: string): Promise<Desk> {
     onPresent: ({ path, name, mediaType, bytes, caption }) => {
       broadcast({ type: "presented", path, name, mediaType, size: bytes.byteLength, caption });
     },
+    // …and `ask_user`: the one thing the tree cannot answer is what the
+    // person wants. Without this the model has no channel and, measurably,
+    // invents one — so the verb only exists because this callback does.
+    //
+    // Everything about *how* the question is asked is ours: the promise stays
+    // pending until POST /api/answer resolves it, which is what makes the
+    // agent's turn actually wait for a human.
+    onAsk: ({ question, options }) =>
+      new Promise<string>((resolve, reject) => {
+        const qid = `q${++questionSeq}`;
+        questions.set(qid, {
+          resolve: (answer) => {
+            questions.delete(qid);
+            resolve(answer);
+          },
+          reject: (e) => {
+            questions.delete(qid);
+            reject(e);
+          },
+        });
+        broadcast({ type: "ask", id: qid, question, options });
+      }),
     limits: {
       // A generous script budget: rendering a deck or a hundred-page PDF is
       // real work, and a timeout here reads to the user as "the agent broke".
@@ -207,6 +255,11 @@ export async function getDesk(id: string): Promise<Desk> {
       // One warm worker per session. The browser drives one request at a time.
       size: 1,
       onWarning: (message) => console.warn(`[desk:${id}] ${message}`),
+      // A render is four minutes of nothing between tool_use and tool_result.
+      // The script already narrates with console.log; this forwards those
+      // lines while it is still going, so the UI can show frame 900 of 1800
+      // instead of a spinner that means nothing.
+      onProgress: ({ script, stream, text }) => broadcast({ type: "progress", script, stream, text }),
     },
   });
 
@@ -218,6 +271,8 @@ export async function getDesk(id: string): Promise<Desk> {
     agent: undefined as unknown as IGloveRunnable,
     listeners,
     createdAt: Date.now(),
+    turn: turnRef.current,
+    questions,
   };
 
   /**
@@ -295,6 +350,12 @@ export async function getDesk(id: string): Promise<Desk> {
     .build();
 
   // The verb set, plus a preamble telling the model what the tree is for.
+  //
+  // Cancellation needs no wiring here: glove passes the active request's
+  // AbortSignal to every tool it calls, `EnvTool.do` now has that same
+  // signature, and `run_script` forwards it into the run. All this route has
+  // to do is give `processRequest` a signal worth propagating — see
+  // app/api/chat/route.ts.
   mountWorkingEnvironment(agent, { env });
 
   desk.agent = agent;

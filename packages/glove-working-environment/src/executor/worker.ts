@@ -16,14 +16,14 @@
  */
 import { parentPort } from "node:worker_threads";
 import { getHeapStatistics } from "node:v8";
-import { ScriptExecutor, newCapture } from "./executor";
+import { ScriptExecutor, newCapture, type ConsoleCapture } from "./executor";
 import { ScriptContractError, contractOf } from "../pipeline/contract";
 import { createStdBindings } from "../builtins/std";
 import { createAssertBindings } from "../builtins/assert";
 import { tagBindings } from "../adapters/tag";
 import { pickFrom } from "../adapters/pure";
 import { makeBuilder } from "./recorder";
-import type { BuilderOp, HostToWorker, NeedMessage, ResultMessage, RunMessage, ShapeNode, StartMessage } from "./protocol";
+import type { BuilderOp, HostToWorker, NeedMessage, ProgressMessage, ResultMessage, RunMessage, ShapeNode, StartMessage } from "./protocol";
 import type { EnvLimits } from "../types";
 
 if (!parentPort) throw new Error("glove worker entry loaded outside a worker thread");
@@ -176,10 +176,71 @@ function enforced(path: string): boolean {
   return path.endsWith(".js") && !path.startsWith("/scripts/lib/");
 }
 
+/** Batching window for progress lines. See {@link streamProgress}. */
+const PROGRESS_FLUSH_MS = 120;
+const PROGRESS_MAX_BATCH = 50;
+
+/**
+ * Tee this run's console output to the host as it is written, in batches.
+ *
+ * Batched rather than per-line because a script logging inside a loop would
+ * otherwise post a message per iteration, and `postMessage` structured-clones
+ * and wakes the host each time — turning narration into the slowest thing the
+ * script does. The transcript still crosses in full with the result; this is
+ * only about *when* the host can see it.
+ *
+ * ## Why the window is checked at write time and not on a timer
+ *
+ * A timer here does not fire. Scripts have no `setTimeout` of their own, so
+ * the way a model writes "wait" is `while (Date.now() < until) await null` —
+ * which keeps the microtask queue permanently non-empty and starves the
+ * macrotask queue the timer lives on. Measured: a 10-step script logging each
+ * step delivered every line at the end, i.e. exactly the silence this exists
+ * to remove.
+ *
+ * So the elapsed check happens where lines actually arrive. The timer stays
+ * as a backstop for the other shape — a few lines, then a long wait on a real
+ * capability call, which does yield to macrotasks.
+ */
+function streamProgress(capture: ConsoleCapture, runId: string): () => void {
+  let pending: Array<{ stream: "stdout" | "stderr"; text: string }> = [];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let lastFlush = Date.now();
+
+  const flush = (): void => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    lastFlush = Date.now();
+    if (pending.length === 0) return;
+    const lines = pending;
+    pending = [];
+    port.postMessage({ type: "progress", id: runId, lines } satisfies ProgressMessage);
+  };
+
+  capture.onLine = (stream, text) => {
+    pending.push({ stream, text });
+    if (pending.length >= PROGRESS_MAX_BATCH || Date.now() - lastFlush >= PROGRESS_FLUSH_MS) return flush();
+    if (timer === undefined) {
+      timer = setTimeout(flush, PROGRESS_FLUSH_MS);
+      // Never hold the thread open for a batch nobody is waiting on.
+      timer.unref?.();
+    }
+  };
+  return flush;
+}
+
 async function handleRun(message: RunMessage): Promise<void> {
   currentRun = message.id;
   const capture = newCapture();
+  // Only real runs stream. A `load` is write-time validation: its console
+  // output is a side effect of evaluating a module the model is saving, not
+  // progress on anything the host asked for.
+  const flushProgress = message.mode === "run" && message.progress ? streamProgress(capture, message.id) : null;
   const reply = (partial: Omit<ResultMessage, "type" | "id" | "stdout" | "stderr">): void => {
+    capture.onLine = undefined;
+    flushProgress?.();
     port.postMessage({
       type: "result",
       id: message.id,
@@ -194,12 +255,27 @@ async function handleRun(message: RunMessage): Promise<void> {
 
   try {
     if (message.mode === "load") {
-      const ns = await executor.loadModule(message.path, { overlay, capture, readOnly: message.readOnly });
+      const ns = await executor.loadModule(message.path, {
+        overlay,
+        capture,
+        readOnly: message.readOnly,
+        deadline: message.deadline,
+        budgetMs: message.budgetMs,
+      });
       reply({ ok: true, contract: contractOf(ns) });
       return;
     }
     const args = message.argsJson === undefined ? undefined : JSON.parse(message.argsJson);
-    const run = await executor.run(message.path, args, { overlay, capture, readOnly: message.readOnly });
+    // The host's deadline, not a fresh one. Recomputing `now + runTimeoutMs`
+    // here gave the worker a later deadline than the killer already counting
+    // down, and made a per-run budget invisible to everything inside the vm.
+    const run = await executor.run(message.path, args, {
+      overlay,
+      capture,
+      readOnly: message.readOnly,
+      deadline: message.deadline,
+      budgetMs: message.budgetMs,
+    });
     // JSON rather than structured clone: the host must receive plain data,
     // and a value that will not serialize is a script bug worth reporting
     // rather than a clone error from the thread boundary.

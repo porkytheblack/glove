@@ -62,7 +62,15 @@ export function Activity({ acts }: { acts: Extract<Entry, { kind: "act" }>[] }) 
           >
             <span className="act-dot" />
             <span className="act-name">{act.name}</span>
-            <span className="act-arg">{failed ? (act.output ?? "").split("\n")[0] : argument(act.name, act.input)}</span>
+            {/* While a script is running, what it last printed beats the
+                argument it was called with: "frame 900/1800" is the thing
+                worth showing, and the argument has not changed since the row
+                appeared. */}
+            <span className="act-arg">
+              {failed
+                ? (act.output ?? "").split("\n")[0]
+                : (act.status === "running" && act.progress) || argument(act.name, act.input)}
+            </span>
           </div>
         );
       })}

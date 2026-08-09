@@ -31,6 +31,14 @@ export interface ConsoleCapture {
   err: string[];
   bytes: number;
   truncated: boolean;
+  /**
+   * Called as each line is written, for hosts that want to watch a run rather
+   * than read it afterwards.
+   *
+   * The line is still appended to `out`/`err` — this is a tee, not a
+   * redirect, so the final result is unchanged whether anyone is listening.
+   */
+  onLine?(stream: "stdout" | "stderr", line: string): void;
 }
 
 export interface ExecutorDeps {
@@ -53,6 +61,17 @@ export interface LoadOptions {
   capture?: ConsoleCapture;
   /** Bind the validation-time `env:*` set, whose filesystem refuses mutations. */
   readOnly?: boolean;
+  /**
+   * Absolute deadline for this operation, in ms since epoch.
+   *
+   * The host sets it so both sides agree on one moment: recomputing
+   * `now + runTimeoutMs` in here would give the worker a later deadline than
+   * the killer that is already counting down, and a per-run budget would be
+   * ignored entirely. Defaults to `now + limits.runTimeoutMs`.
+   */
+  deadline?: number;
+  /** The budget `deadline` represents, for the message when it is exceeded. */
+  budgetMs?: number;
 }
 
 interface RegistryEntry {
@@ -66,6 +85,8 @@ interface OpState {
   overlay?: Map<string, string>;
   capture: ConsoleCapture;
   deadline: number;
+  /** What `deadline` was derived from, so the error can name the right knob. */
+  budgetMs: number;
   /** Context-realm bridge; the only way host values reach the sandbox. */
   bridge: Bridge;
   /** Per-context bound `env:*` namespaces (binding is context-specific). */
@@ -118,24 +139,33 @@ export function newCapture(): ConsoleCapture {
 }
 
 function makeConsole(capture: ConsoleCapture): Record<string, unknown> {
-  const write = (target: string[]) => (...args: unknown[]) => {
+  const write = (target: string[], stream: "stdout" | "stderr") => (...args: unknown[]) => {
     if (capture.bytes >= CAPTURE_CHAR_CAP) {
       if (!capture.truncated) {
         capture.truncated = true;
         target.push("[console output truncated]");
+        capture.onLine?.(stream, "[console output truncated]");
       }
       return;
     }
     const line = format(...args);
     capture.bytes += line.length;
     target.push(line);
+    // A listener must never be able to break the script that logged. This is
+    // the sandbox boundary in the other direction: a throwing host callback
+    // would surface as an error from the model's own `console.log`.
+    try {
+      capture.onLine?.(stream, line);
+    } catch {
+      // ignored on purpose
+    }
   };
   return Object.freeze({
-    log: write(capture.out),
-    info: write(capture.out),
-    debug: write(capture.out),
-    warn: write(capture.err),
-    error: write(capture.err),
+    log: write(capture.out, "stdout"),
+    info: write(capture.out, "stdout"),
+    debug: write(capture.out, "stdout"),
+    warn: write(capture.err, "stderr"),
+    error: write(capture.err, "stderr"),
   });
 }
 
@@ -168,7 +198,8 @@ export class ScriptExecutor {
       registry: new Map(),
       overlay: opts?.overlay,
       capture,
-      deadline: Date.now() + this.deps.limits.runTimeoutMs,
+      deadline: opts?.deadline ?? Date.now() + this.deps.limits.runTimeoutMs,
+      budgetMs: opts?.budgetMs ?? this.deps.limits.runTimeoutMs,
       bridge,
       envCache: new Map(),
       boundConsole,
@@ -208,7 +239,7 @@ export class ScriptExecutor {
       if (typeof value === "function") {
         const fn = value as (...a: unknown[]) => unknown;
         const guarded = (...args: unknown[]) => {
-          if (Date.now() > st.deadline) throw this.limitError();
+          if (Date.now() > st.deadline) throw this.limitError(st);
           return fn.apply(host, args.map((a) => hostify(a)));
         };
         // The bridge copies name/arity from whatever it is handed, so this
@@ -226,7 +257,7 @@ export class ScriptExecutor {
           (guarded as unknown as Record<string, unknown>).__glove_builder = {
             ...builder,
             flush: (ops: unknown[]) => {
-              if (Date.now() > st.deadline) throw this.limitError();
+              if (Date.now() > st.deadline) throw this.limitError(st);
               return builder.flush(ops);
             },
           };
@@ -243,13 +274,24 @@ export class ScriptExecutor {
 
   private remaining(st: OpState): number {
     const ms = st.deadline - Date.now();
-    if (ms <= 0) throw this.limitError();
+    if (ms <= 0) throw this.limitError(st);
     return ms;
   }
 
-  private limitError(): EnvLimitError {
+  /**
+   * Names the budget that was actually applied, and the knob that sets it.
+   *
+   * A per-run budget quoting `limits.runTimeoutMs` would send the reader to
+   * reconfigure the environment when the fix is to pass a larger
+   * `timeout_ms` — the opposite of what happened.
+   */
+  private limitError(st: OpState): EnvLimitError {
+    const ceiling = this.deps.limits.runTimeoutMs;
     return new EnvLimitError(
-      `script exceeded the wall-clock limit: ${this.deps.limits.runTimeoutMs}ms (limits.runTimeoutMs)`,
+      st.budgetMs >= ceiling
+        ? `script exceeded the wall-clock limit: ${ceiling}ms (limits.runTimeoutMs)`
+        : `script exceeded the wall-clock limit for this run: ${st.budgetMs}ms ` +
+          `(run_script timeout_ms; this environment allows up to ${ceiling}ms)`,
     );
   }
 
@@ -266,7 +308,7 @@ export class ScriptExecutor {
         err?.code === "ERR_SCRIPT_EXECUTION_TIMEOUT" ||
         (typeof err?.message === "string" && /Script execution timed out/.test(err.message))
       ) {
-        throw this.limitError();
+        throw this.limitError(st);
       }
       throw e;
     }
@@ -279,7 +321,7 @@ export class ScriptExecutor {
       return await Promise.race([
         p,
         new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(this.limitError()), ms);
+          timer = setTimeout(() => reject(this.limitError(st)), ms);
         }),
       ]);
     } finally {
