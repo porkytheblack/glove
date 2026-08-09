@@ -398,6 +398,18 @@ export interface CreateWorkingEnvironmentOptions {
      */
     shutdownGraceMs?: number;
     /**
+     * How long a freshly spawned worker has to become ready. Default 10000ms.
+     *
+     * The failure this bounds is the quiet one: a worker that never signals
+     * ready holds the slot it was given, so at the default pool size of 1
+     * every `run_script` after it waits forever — and nothing times out,
+     * because the run deadline only starts once a worker has been acquired.
+     * Meanwhile writes and validation keep working through the overflow path,
+     * so the environment looks healthy. Past this, the run fails with a
+     * message naming the usual causes instead.
+     */
+    readyTimeoutMs?: number;
+    /**
      * Where to report a misconfigured host. Defaults to `console.warn`; point
      * it at your logger. Called at most once per environment.
      *

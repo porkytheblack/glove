@@ -78,6 +78,19 @@ export interface PoolOptions {
   /** Grace given to in-flight runs by {@link WorkerPool.close}. Default 5000. */
   shutdownGraceMs?: number;
   /**
+   * How long a freshly spawned worker has to signal that it is ready, in ms.
+   * Default 10000.
+   *
+   * There is no scenario where waiting longer is better than being told. A
+   * worker that never signals ready holds the slot it was given, and with the
+   * default pool size of 1 that means `run_script` waits forever — silently,
+   * because write-time validation still works through the overflow path, so
+   * the environment looks healthy right up until a run is asked for. Measured
+   * causes: a host whose `execArgv` the worker inherits and which blocks on
+   * stdin, and thread-creation pressure under many concurrent environments.
+   */
+  readyTimeoutMs?: number;
+  /**
    * Where to report a misconfigured host. Defaults to `console.warn`, and is
    * called at most once per pool.
    *
@@ -92,6 +105,10 @@ const DEFAULT_SIZE = 1;
 const DEFAULT_GRACE_MS = 250;
 const DEFAULT_MEMORY_MB = 256;
 const DEFAULT_SHUTDOWN_GRACE_MS = 5_000;
+const DEFAULT_READY_TIMEOUT_MS = 10_000;
+
+/** What a queued run is told when the environment shuts down under it. */
+const CLOSED_MESSAGE = "the working environment was closed before this script started";
 
 /**
  * Whether the default `console.warn` has already reported a heap ceiling that
@@ -107,7 +124,7 @@ function backoffMs(attempt: number): number {
   return Math.min(BACKOFF.maxMs, Math.round(BACKOFF.baseMs * Math.pow(BACKOFF.factor, Math.max(0, attempt))));
 }
 
-interface Slot {
+export interface Slot {
   worker: Worker;
   /** Resolves when the worker has built its namespaces and is ready to run. */
   ready: Promise<void>;
@@ -235,7 +252,8 @@ export class WorkerPool {
     );
   }
 
-  private spawn(): Slot {
+  /** Protected so a test can substitute a worker that misbehaves on purpose. */
+  protected spawn(): Slot {
     const { url, execArgv } = workerEntry();
     const worker = new Worker(url, {
       ...(execArgv ? { execArgv } : {}),
@@ -275,6 +293,10 @@ export class WorkerPool {
         if (code !== 0) reject(new Error(`worker exited with code ${code} before becoming ready`));
       });
     });
+    // `awaitReady` can abandon this promise on its own deadline, and a
+    // rejection nobody is awaiting takes the host process down. Marking it
+    // handled here does not stop `await slot.ready` from seeing the failure.
+    slot.ready.catch(() => undefined);
 
     worker.postMessage({
       type: "start",
@@ -296,35 +318,96 @@ export class WorkerPool {
    * is short-lived and released as soon as the validation finishes.
    */
   private async acquire(overflow = false): Promise<Slot> {
-    if (this.closed) throw new Error("the working environment has been closed");
     for (;;) {
+      // Re-checked every pass, not just on entry. `close()` wakes the queued
+      // waiters, and a waiter that resumed here used to find free capacity,
+      // spawn a worker AFTER close, and run the queued script on a thread
+      // nothing would ever terminate — leaking it with its heap until the
+      // process exits, and violating the contract that close() means closed.
+      if (this.closed) throw new Error(CLOSED_MESSAGE);
+
       const free = this.slots.find((s) => !s.busy && !s.poisoned);
       if (free) {
         free.busy = true;
-        await free.ready;
-        return free;
-      }
-      if (overflow || this.slots.filter((s) => !s.poisoned).length < this.size) {
         try {
-          const slot = this.spawn();
+          await this.awaitReady(free);
+          return free;
+        } catch {
+          // Never became usable after all: drop it and look again rather
+          // than handing back a slot marked busy forever.
+          this.discard(free);
+          continue;
+        }
+      }
+
+      if (overflow || this.slots.filter((s) => !s.poisoned).length < this.size) {
+        let slot: Slot | null = null;
+        try {
+          slot = this.spawn();
           this.slots.push(slot);
           slot.busy = true;
-          await slot.ready;
+          await this.awaitReady(slot);
           return slot;
         } catch (e) {
+          // The slot was counted against capacity from the moment it was
+          // pushed. Leaving it there — busy, never ready — permanently
+          // shrinks the pool, and at the default size of 1 that means every
+          // later run waits forever with nothing to time it out.
+          if (slot) this.discard(slot);
           this.spawnFailures += 1;
-          const wait = backoffMs(this.spawnFailures - 1);
           if (this.spawnFailures > 5) {
             throw new Error(
               `could not start a script worker after ${this.spawnFailures} attempts: ${e instanceof Error ? e.message : String(e)}`,
             );
           }
-          await new Promise((r) => setTimeout(r, wait));
+          await new Promise((r) => setTimeout(r, backoffMs(this.spawnFailures - 1)));
           continue;
         }
       }
       // All busy — wait for one to be released.
       await new Promise<void>((resolve) => this.queue.push(resolve));
+    }
+  }
+
+  /** Remove a slot from the pool and terminate its thread. */
+  private discard(slot: Slot): void {
+    this.slots = this.slots.filter((s) => s !== slot);
+    slot.poisoned = true;
+    void slot.worker.terminate().catch(() => undefined);
+  }
+
+  /**
+   * Wait for a worker to signal ready, bounded.
+   *
+   * Unbounded, this is the quietest way the environment fails: the slot stays
+   * busy, `run_script` never returns, and no deadline fires because the
+   * deadline killer is only armed after acquire succeeds. Everything else
+   * keeps working — write-time validation takes the overflow path — so the
+   * environment looks healthy while runs pile up against nothing.
+   */
+  private async awaitReady(slot: Slot): Promise<void> {
+    const ms = Math.max(1, this.options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        slot.ready,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `a script worker did not become ready within ${ms}ms (execution.readyTimeoutMs). ` +
+                    `Something is blocking the thread before it can run anything — most often a host --exec-argv ` +
+                    `the worker inherits (an inspector or a flag that reads stdin), or thread-creation pressure ` +
+                    `from too many environments at once.`,
+                ),
+              ),
+            ms,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -463,7 +546,15 @@ export class WorkerPool {
   }): Promise<{ ok: boolean; result?: unknown; error?: string; stdout: string; stderr: string; contract?: ModuleContract }> {
     // Validation is re-entrant by nature — it is triggered by a write, and a
     // write can come from a script that is itself running in a worker.
-    const slot = await this.acquire(request.mode === "load");
+    let slot: Slot;
+    try {
+      slot = await this.acquire(request.mode === "load");
+    } catch (e) {
+      // A pool that cannot hand out a worker — closed, or out of spawn
+      // attempts — is a failed run, not a thrown host error. `runScript`
+      // promises to resolve with a reason rather than leave a caller hanging.
+      return { ok: false, error: e instanceof Error ? e.message : String(e), stdout: "", stderr: "" };
+    }
     const id = `r${++this.seq}`;
     const deadline = Date.now() + this.deps.limits.runTimeoutMs;
 
