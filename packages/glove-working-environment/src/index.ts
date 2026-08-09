@@ -97,9 +97,11 @@ export interface WorkingEnvironment {
    * Release the environment's worker threads.
    *
    * Call it when a session ends. Workers are `unref`'d so they never hold the
-   * process open, but the tree, the version rings and the adapters are only
-   * released here — a long-lived host that creates environments per
-   * conversation would otherwise accumulate them.
+   * process open, and one that has been idle for `execution.idleTimeoutMs`
+   * (default 60s) is reaped on its own — but the tree, the version rings and
+   * the adapters are only released here. A long-lived host holding hundreds of
+   * sessions should close them on idle and resume from a snapshot — see
+   * LIFECYCLE.md.
    *
    * A run still in flight is given `graceMs` (default 5s) to reach its own
    * end before its worker is terminated, so a script part-way through writing

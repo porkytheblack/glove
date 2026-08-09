@@ -513,6 +513,25 @@ export interface CreateWorkingEnvironmentOptions {
      */
     shutdownGraceMs?: number;
     /**
+     * How long a warm worker may sit unused before it is terminated, in ms.
+     * Default 60000. `0` keeps it forever.
+     *
+     * An environment nobody is using was measured at 16.5 MB and one OS thread
+     * of steady residency — five open environments at +82.5 MB and +5 threads,
+     * all of it returned on `close()` and none of it before. That is the bill
+     * a multi-tenant host pays for every conversation someone left open.
+     *
+     * The trade is cheap in the other direction: a replacement worker is ready
+     * in ~82 ms, which is noise beside the model round trip that precedes any
+     * script. Raise it for a latency-critical single-tenant host; set `0` when
+     * a warm worker matters more than the thread.
+     *
+     * This reclaims the *worker*, not the tree. The environment stays usable
+     * and its files are untouched — LIFECYCLE.md covers reclaiming the rest
+     * (`close()` on idle, `fromSnapshot` to resume).
+     */
+    idleTimeoutMs?: number;
+    /**
      * Start the pool's workers in the background as soon as the environment is
      * created, instead of on the first script. Default false.
      *

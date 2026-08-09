@@ -1,15 +1,20 @@
 /**
- * What it costs to start an environment.
+ * What an environment costs when nobody is using it, and what it costs to
+ * start one.
  *
- * The failure these pin is not a crash — it is a bill nobody itemised: the
- * validation-time adapter instances, the unconditional `/std` + `/skills`
- * rewrite, and a cold pool that makes the first script of a session pay for
- * thread start-up
- * ([#129](https://github.com/porkytheblack/glove/issues/129)).
+ * The failure these pin is not a crash — it is a bill. Steady residency for an
+ * idle environment was measured at 16.5 MB and one OS thread, returned only on
+ * `close()`; five open environments at +82.5 MB and +5 threads. A host holding
+ * hundreds of sessions accumulates all of it with nothing built in to reap it
+ * ([#122](https://github.com/porkytheblack/glove/issues/122)). The other half
+ * is the create path: the validation-time adapter instances, the unconditional
+ * `/std` + `/skills` rewrite, and a cold pool that makes the first script pay
+ * for thread start-up ([#129](https://github.com/porkytheblack/glove/issues/129)).
  *
- * The prewarm tests are timing-shaped, so nothing here *waits and hopes*: they
- * poll for an observable fact until a deadline rather than sleeping for a
- * guess.
+ * Everything here is timing-shaped, so nothing here *waits and hopes*: the
+ * idle tests use a short `idleTimeoutMs` and assert on the pool's own slot
+ * list, and the prewarm test polls for an observable fact until a deadline
+ * rather than sleeping for a guess.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -56,6 +61,11 @@ class ProbePool extends WorkerPool {
   get liveSlots(): number {
     return (this as unknown as { slots: Slot[] }).slots.length;
   }
+  /** The pool's own pending idle sweep. Named apart from the private field it
+   *  reads, because a public member of the same name is not assignable to it. */
+  get sweep(): { hasRef?(): boolean } | null {
+    return (this as unknown as { reapTimer: { hasRef?(): boolean } | null }).reapTimer;
+  }
 }
 
 const run = (pool: WorkerPool) => pool.execute({ mode: "run", path: TRIVIAL, readOnly: false });
@@ -68,10 +78,90 @@ async function until(check: () => boolean, ms = 10_000): Promise<boolean> {
   return check();
 }
 
+// ==================================================== idle worker reaping
+
+test("an idle worker is reaped and the next run spawns a fresh one", async () => {
+  const pool = new ProbePool({ size: 1, idleTimeoutMs: 60 });
+  try {
+    assert.equal((await run(pool)).ok, true);
+    assert.equal(pool.liveSlots, 1);
+
+    assert.ok(await until(() => pool.liveSlots === 0, 2_000), "the idle worker was never reaped");
+
+    const again = await run(pool);
+    assert.equal(again.ok, true, again.error ?? "");
+    assert.equal(again.result, 42, "a reaped pool did not come back on demand");
+    assert.equal(pool.spawns, 2, "expected exactly one replacement worker");
+  } finally {
+    await pool.close({ graceMs: 100 });
+  }
+});
+
+test("idleTimeoutMs: 0 keeps the worker warm forever", async () => {
+  const pool = new ProbePool({ size: 1, idleTimeoutMs: 0 });
+  try {
+    assert.equal((await run(pool)).ok, true);
+    assert.equal(pool.sweep, null, "a sweep was armed for a pool that opted out of reaping");
+    await sleep(150);
+    assert.equal(pool.liveSlots, 1, "the warm worker was reaped despite idleTimeoutMs: 0");
+    assert.equal(pool.spawns, 1);
+  } finally {
+    await pool.close({ graceMs: 100 });
+  }
+});
+
+test("the idle sweep never holds the process open", async () => {
+  // An interval that keeps the event loop alive would hang every test run and
+  // every host embedding this — the same reason `spawn()` unrefs the worker.
+  const pool = new ProbePool({ size: 1, idleTimeoutMs: 60_000 });
+  try {
+    assert.equal((await run(pool)).ok, true);
+    const timer = pool.sweep;
+    assert.ok(timer, "no sweep was armed for the freed worker");
+    assert.equal(timer.hasRef?.(), false, "the idle sweep timer is not unref'd");
+  } finally {
+    await pool.close({ graceMs: 100 });
+  }
+});
+
+test("close() clears the idle sweep", async () => {
+  const pool = new ProbePool({ size: 1, idleTimeoutMs: 60_000 });
+  assert.equal((await run(pool)).ok, true);
+  assert.notEqual(pool.sweep, null);
+  await pool.close({ graceMs: 100 });
+  // Left armed, the sweep outlives the pool it was armed for and goes on
+  // discarding slots `close()` has already taken.
+  assert.equal(pool.sweep, null, "close() left a sweep armed");
+});
+
+test("a worker running a script is never reaped out from under it", async () => {
+  // The sweep has to already be armed for the slot the slow run then takes —
+  // otherwise nothing fires while it is busy and the test proves nothing.
+  const env = await createWorkingEnvironment({ execution: { size: 1, idleTimeoutMs: 40 } });
+  try {
+    await env.fs.writeFile("/scripts/quick.js", `export default async function quick() { return 'ok'; }`);
+    await env.fs.writeFile(
+      "/scripts/slow.js",
+      `export default async function slow() {
+         const until = Date.now() + 400;
+         while (Date.now() < until) await null;
+         return 'done';
+       }`,
+    );
+    assert.equal((await env.runScript("/scripts/quick.js")).ok, true);
+
+    const result = await env.runScript("/scripts/slow.js");
+    assert.equal(result.ok, true, `the reaper terminated a busy worker: ${result.error ?? ""}`);
+    assert.equal(result.result, "done");
+  } finally {
+    await env.close({ graceMs: 100 });
+  }
+});
+
 // ======================================================= prewarm / warmup
 
 test("warmup spawns the pool up front and the first run reuses it", async () => {
-  const pool = new ProbePool({ size: 2 });
+  const pool = new ProbePool({ size: 2, idleTimeoutMs: 0 });
   try {
     await pool.warmup();
     assert.equal(pool.spawns, 2, "warmup did not fill the pool");
@@ -86,7 +176,7 @@ test("warmup spawns the pool up front and the first run reuses it", async () => 
 });
 
 test("a failed prewarm leaves the pool exactly as it was, to be retried on demand", async () => {
-  const pool = new ProbePool({ size: 1, readyTimeoutMs: 2_000 }, 1);
+  const pool = new ProbePool({ size: 1, idleTimeoutMs: 0, readyTimeoutMs: 2_000 }, 1);
   try {
     await pool.warmup(); // must not reject, and must not leave the slot behind
     assert.equal(pool.liveSlots, 0, "the failed prewarm slot still counts against capacity");
