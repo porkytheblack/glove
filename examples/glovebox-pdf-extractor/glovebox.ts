@@ -5,7 +5,7 @@ import { agent } from "./agent";
  * The wrap module. `glovebox build ./glovebox.ts` consumes this default export
  * and emits a Dockerfile + nixpacks.toml + bundled server + manifest.
  *
- * Base: glovebox/docs:1.2 — already ships pandoc, qpdf, pdftk-java,
+ * Base: glovebox/docs:1.3 — already ships pandoc, qpdf, pdftk-java,
  * ghostscript, libreoffice. We add poppler-utils for `pdftotext`.
  */
 export default glovebox.wrap(agent, {

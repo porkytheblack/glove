@@ -114,7 +114,15 @@ export interface LsEntry {
 export class EnvCore {
   /** `env:*` namespaces (builtins + adapters), populated during construction. */
   readonly envModules = new Map<string, Record<string, unknown>>();
-  /** The same namespaces bound to a read-only filesystem, used for validation. */
+  /**
+   * The same namespaces bound to a read-only filesystem, used for validation.
+   *
+   * **Filled lazily**, on the first thing that needs them — building an
+   * adapter's second instance is ~4 ms of a 15.6 ms create and a host that
+   * never runs a script never touches it (#129). So this map is EMPTY until
+   * `createWorkingEnvironment`'s `readOnlyModules()` has run; read it through
+   * the pool's `envModules(true)`, never directly.
+   */
   readonly envModulesReadOnly = new Map<string, Record<string, unknown>>();
   /** name → one-liner, for `ls /std` and the tool description. */
   readonly moduleDescriptions = new Map<string, string>();

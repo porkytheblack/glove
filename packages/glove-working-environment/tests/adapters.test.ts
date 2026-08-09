@@ -73,13 +73,24 @@ test("create receives its module name and whether the instance is read-only", as
       return { ping: () => "pong" };
     },
   });
-  await makeEnv({ stdlib: [spy] });
-  // Two instances: normal execution, and the read-only one backing write-time
-  // validation. Adapter authors must be able to tell them apart.
-  assert.deepEqual(seen, [
-    { name: "spy", readOnly: false },
-    { name: "spy", readOnly: true },
-  ]);
+  const env = await makeEnv({ stdlib: [spy] });
+  try {
+    // Two instances: normal execution, and the read-only one backing
+    // write-time validation. Adapter authors must be able to tell them apart.
+    //
+    // The read-only one is built on FIRST USE (#129) — it is ~4ms of a 15.6ms
+    // create, spent on an object a host that only mounts files and snapshots
+    // never touches. Anything a script does needs it, because the pool
+    // describes both namespaces into the worker when it starts one.
+    assert.deepEqual(seen, [{ name: "spy", readOnly: false }], "the read-only twin was built eagerly");
+    await script(env, "export default async function main() { return 1; }");
+    assert.deepEqual(seen, [
+      { name: "spy", readOnly: false },
+      { name: "spy", readOnly: true },
+    ]);
+  } finally {
+    await env.close({ graceMs: 100 });
+  }
 });
 
 test("an adapter whose create returns a non-object fails loudly at registration", async () => {
