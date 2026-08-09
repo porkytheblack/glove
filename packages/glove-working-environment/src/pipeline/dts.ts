@@ -136,8 +136,12 @@ function destructuredProps(paramSrc: string): string | null {
   return `{ ${props.join("; ")} }`;
 }
 
-/** Split on commas that sit outside (), [], {}, strings handled crudely by depth only. */
-function splitTopLevel(s: string): string[] {
+/**
+ * Split on separators that sit outside (), [], {}; strings handled crudely by
+ * depth only. Exported because arg pre-flight needs the same scan, and two
+ * copies of a brace-counter is one too many.
+ */
+export function splitTopLevel(s: string, separators = ","): string[] {
   const out: string[] = [];
   let depth = 0;
   let start = 0;
@@ -152,11 +156,30 @@ function splitTopLevel(s: string): string[] {
     if (c === '"' || c === "'" || c === "`") quote = c;
     else if (c === "(" || c === "[" || c === "{") depth += 1;
     else if (c === ")" || c === "]" || c === "}") depth -= 1;
-    else if (c === "," && depth === 0) {
+    else if (depth === 0 && separators.includes(c)) {
       out.push(s.slice(start, i));
       start = i + 1;
     }
   }
   out.push(s.slice(start));
   return out;
+}
+
+/** Index of the first `needle` outside brackets/strings, or -1. */
+export function indexOfTopLevel(s: string, needle: string): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (quote) {
+      if (c === "\\") i += 1;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") quote = c;
+    else if (c === "(" || c === "[" || c === "{") depth += 1;
+    else if (c === ")" || c === "]" || c === "}") depth -= 1;
+    else if (depth === 0 && c === needle) return i;
+  }
+  return -1;
 }

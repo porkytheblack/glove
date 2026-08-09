@@ -15,7 +15,7 @@ import type { EnvLimits, EnvTool, EnvToolResult, PresentedFile, VisionAdapter } 
 import type { EnvCore } from "../core/env";
 import type { RunLog } from "../history/runlog";
 import { executeRun } from "./run";
-import { capResponse, fmtBytes, fmtCount, numberLines, truncateText } from "./format";
+import { capResponse, fmtBytes, fmtCount, numberLines, truncateText, unifiedDiff } from "./format";
 import { RepeatTracker, escalate } from "./repeat";
 import { dropBranch, forkBranch, listBranches, restoreBranch } from "./branches";
 
@@ -127,11 +127,21 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
         path: str("Absolute VFS path, e.g. /scripts/parse_invoice.js or /tmp/notes.md"),
         content: str("Full file content (or the chunk to append)"),
         append: { type: "boolean", description: "Append instead of overwrite. Default false." },
+        encoding: {
+          type: "string",
+          enum: ["utf8", "base64"],
+          description:
+            "How to read `content`. Default utf8. Use base64 to write BINARY bytes — a PNG you built, " +
+            "a file you decoded — without going through a script.",
+        },
       },
       ["path", "content"],
     ),
-    do: guard("write_file", async (input: { path: string; content: string; append?: boolean }) => {
+    do: guard("write_file", async (input: { path: string; content: string; append?: boolean; encoding?: string }) => {
       if (typeof input.path !== "string") return err("write_file needs { path } as a string");
+      if (input.encoding !== undefined && input.encoding !== "utf8" && input.encoding !== "base64") {
+        return err(`write_file encoding must be "utf8" or "base64", got ${JSON.stringify(input.encoding)}`);
+      }
       if (typeof input.content !== "string") {
         // Observed: a model passing the object it wanted to save. The intent
         // is obvious and the fix is one call away, so say which one rather
@@ -145,7 +155,22 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       // Model-facing only, and once per session: a host or an adapter writing
       // a script is not the party that needs pointing at the docs.
       if (core.inScriptZone(input.path)) core.nudgeToDocsOnce();
-      const r = await core.write(input.path, input.content, { append: input.append });
+
+      let content: string | Uint8Array = input.content;
+      if (input.encoding === "base64") {
+        // Strict, because a silent partial decode writes a corrupt file that
+        // only fails later, in whatever tries to read it.
+        const cleaned = input.content.replace(/\s+/g, "");
+        if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleaned) || cleaned.length % 4 !== 0) {
+          return err(
+            `write_file: content is not valid base64. Node decodes malformed base64 to whatever it can, ` +
+              `which writes a corrupt file that only fails later — so this is refused instead.`,
+          );
+        }
+        const buf = Buffer.from(cleaned, "base64");
+        content = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+      }
+      const r = await core.write(input.path, content, { append: input.append });
       const verb = input.append ? "appended to" : r.created ? "created" : "wrote";
       let msg = `${verb} ${input.path} (${fmtBytes(r.bytes)})`;
       if (core.producesDts(input.path)) msg += ` — .d.ts regenerated`;
@@ -637,6 +662,37 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     }),
   };
 
+  const diff: EnvTool = {
+    name: name("diff"),
+    description:
+      "Show what changed in a file: current content against the version undo would restore, or against a named checkpoint. " +
+      "Use it before undo or checkpoint restore, to see what you are about to throw away — those verbs are otherwise " +
+      "the only way to find out, and they find out by doing it.",
+    jsonSchema: schema(
+      {
+        path: str("File to compare"),
+        checkpoint: str("Compare against this checkpoint instead of the previous version"),
+      },
+      ["path"],
+    ),
+    do: guard("diff", async (input: { path: string; checkpoint?: string }) => {
+      if (typeof input.path !== "string") return err("diff needs { path }");
+      const cmp = await core.compare(input.path, { checkpoint: input.checkpoint });
+      if (cmp.before === null && cmp.after === null) {
+        return err(`${cmp.path} does not exist now and did not exist in ${cmp.label}`);
+      }
+      if (cmp.before === null) {
+        return ok(`${cmp.path} did not exist in ${cmp.label} — it is new (${cmp.after!.split("\n").length} lines).`);
+      }
+      if (cmp.after === null) {
+        return ok(`${cmp.path} exists in ${cmp.label} but not now — it was removed (${cmp.before.split("\n").length} lines then).`);
+      }
+      const body = unifiedDiff(cmp.before, cmp.after);
+      if (body === "") return ok(`${cmp.path} is unchanged since ${cmp.label}`);
+      return ok(`${cmp.path} vs ${cmp.label} (- was, + is now):\n${body}`);
+    }),
+  };
+
   const askUser: EnvTool = {
     name: name("ask_user"),
     description:
@@ -679,7 +735,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     }),
   };
 
-  const verbs = [writeFile, editFile, rm, mv, cp, readFile, ls, grep, describe, runScript, runTests, undo, redo, checkpoint, history];
+  const verbs = [writeFile, editFile, rm, mv, cp, readFile, ls, grep, describe, runScript, runTests, undo, redo, checkpoint, diff, history];
   if (vision) verbs.push(viewImage);
   if (onPresent) verbs.push(present);
   if (onAsk) verbs.push(askUser);

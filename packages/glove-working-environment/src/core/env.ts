@@ -33,6 +33,8 @@ import type { WorkerPool } from "../executor/pool";
 import { HandlerRegistry, HEAD_BYTES, type Claim } from "../adapters/handles";
 import { envImportsOf } from "../pipeline/imports";
 import { buildOrientation, ORIENTATION_PATH } from "../tools/orientation";
+import { readBranchSnapshot } from "../tools/branches";
+import { base64ToBytes } from "../vfs/memory";
 import type { VersionStore } from "../history/versions";
 import type { RunLog } from "../history/runlog";
 import { runContext } from "./run-context";
@@ -56,6 +58,28 @@ export const JSDOC_NUDGE =
   "/** What it does. @param {{ x: string }} args @returns {Promise<...>} */";
 
 type DerivedAction = { write: string; content: string } | { remove: string };
+
+/**
+ * A path the model wrote as a wildcard.
+ *
+ * `rm('/tmp/*.png')` is a natural thing to reach for and produces a literal
+ * "no such file or directory: /tmp/*.png", which reads as a filesystem
+ * problem rather than an unsupported shape. The verbs take one path each on
+ * purpose — a batch delete is a script, where the model can see and check
+ * the list first — so the fix is to say that, with the recipe.
+ */
+function globHint(path: string, op: "remove" | "move" | "copy"): string | null {
+  if (!/[*?[\]]/.test(path)) return null;
+  const recipe =
+    op === "remove"
+      ? `const fs = await import('env:fs');\nfor (const p of await fs.glob('${path}')) await fs.rm(p);`
+      : `const fs = await import('env:fs');\nfor (const p of await fs.glob('${path}')) await fs.${op === "move" ? "mv" : "cp"}(p, '/out/' + p.split('/').pop());`;
+  return (
+    `cannot ${op} ${path}: this verb takes one path, not a pattern — nothing on disk is named "${path}". ` +
+    `Do it in a script, where you can see the list before acting on it:\n${recipe}\n` +
+    `(\`ls\` and \`grep\` do take patterns; the mutating verbs deliberately do not.)`
+  );
+}
 
 /** Byte-for-byte equality, treating "absent" as distinct from empty. */
 function sameBytes(a: Uint8Array | null, b: Uint8Array | null): boolean {
@@ -619,7 +643,10 @@ export class EnvCore {
     const p = normalizePath(path);
     this.assertMutable(p, "remove");
     const stat = await this.vfs.stat(p);
-    if (!stat) throw new Error(`no such file or directory: ${p}`);
+    if (!stat) {
+      const hint = globHint(p, "remove");
+      throw new Error(hint ?? `no such file or directory: ${p}`);
+    }
 
     if (stat.kind === "file") {
       const prior = await this.vfs.read(p);
@@ -665,7 +692,10 @@ export class EnvCore {
     if (op === "mv") this.assertMutable(from, "move");
     this.assertMutable(to, op === "mv" ? "move to" : "copy to");
     const stat = await this.vfs.stat(from);
-    if (!stat) throw new Error(`no such file or directory: ${from}`);
+    if (!stat) {
+      const hint = globHint(from, op === "mv" ? "move" : "copy");
+      throw new Error(hint ?? `no such file or directory: ${from}`);
+    }
     if (from === to) throw new Error(`source and destination are the same path: ${from}`);
     if (isUnder(to, from) && stat.kind === "dir") throw new Error(`cannot ${op} ${from} into itself`);
 
@@ -801,6 +831,46 @@ export class EnvCore {
 
   async historyFor(path: string): Promise<{ undo: FileVersionInfo[]; redo: FileVersionInfo[] }> {
     return this.versions.history(normalizePath(path));
+  }
+
+  /**
+   * A file as it is now, and as some earlier state had it.
+   *
+   * `against` is the version `undo` would restore, or a named checkpoint.
+   * Either may be absent — the file might not have existed then, or might not
+   * exist now — which the caller reports rather than treating as an error.
+   */
+  async compare(
+    pathRaw: string,
+    against: { checkpoint?: string } = {},
+  ): Promise<{ path: string; label: string; before: string | null; after: string | null }> {
+    const p = normalizePath(pathRaw);
+    const current = await this.currentContent(p);
+    const decode = (data: Uint8Array | null): string | null => {
+      if (data === null) return null;
+      if (looksBinary(data)) throw new Error(`${p} is a binary file — diff only handles text`);
+      return toText(data);
+    };
+
+    if (against.checkpoint) {
+      const stored = await readBranchSnapshot(this.vfs, against.checkpoint);
+      const file = stored.files.find((f) => normalizePath(f.path) === p);
+      return {
+        path: p,
+        label: `checkpoint "${against.checkpoint}"`,
+        before: file ? decode(base64ToBytes(file.data)) : null,
+        after: decode(current),
+      };
+    }
+
+    const peek = await this.versions.peekUndo(p);
+    if (!peek) throw new Error(`no earlier version of ${p} is recorded — nothing to compare against`);
+    return {
+      path: p,
+      label: `the version before "${peek.op}" (${new Date(peek.ts).toISOString()})`,
+      before: decode(peek.content),
+      after: decode(current),
+    };
   }
 
   // ---------------------------------------------------------------- discovery

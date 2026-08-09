@@ -189,6 +189,11 @@ async function applyTree(vfs: Vfs, snapshot: EnvSnapshot): Promise<{ restored: n
   return { restored: snapshot.files.length, removed, touched };
 }
 
+/** The tree a checkpoint holds, for callers that only want to read it. */
+export async function readBranchSnapshot(vfs: Vfs, name: string): Promise<EnvSnapshot> {
+  return (await readBranch(vfs, name)).snapshot;
+}
+
 export async function listBranches(vfs: Vfs): Promise<BranchInfo[]> {
   if (!(await vfs.exists(BRANCH_DIR))) return [];
   const out: BranchInfo[] = [];

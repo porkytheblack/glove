@@ -155,7 +155,7 @@ The complete, closed set — everything the model does goes through these:
 
 | Verb | Notes |
 |---|---|
-| `write_file(path, content, append?)` | Parent dirs auto-created; scripts validated, `.d.ts` generated |
+| `write_file(path, content, append?, encoding?)` | Parent dirs auto-created; scripts validated, `.d.ts` generated |
 | `edit_file(path, old_str, new_str)` | str_replace semantics — exactly one match or fail with the count |
 | `rm(path)` / `mv(from, to)` / `cp(from, to)` | Keep `.d.ts` siblings consistent; validate scripts at destinations |
 | `read_file(path, start_line?, end_line?)` | Line-numbered, capped with an explicit tail; binary files refused |
@@ -166,6 +166,7 @@ The complete, closed set — everything the model does goes through these:
 | `run_script(path, args, timeout_ms?)` | `await defaultExport(args)`; result + stdout/stderr; oversized output spills to `/tmp/run-<id>.*`. `timeout_ms` budgets this run alone, clamped to `limits.runTimeoutMs` |
 | `undo(path)` / `redo(path)` | Per-file linear undo (rm included); re-runs the pipeline for scripts |
 | `checkpoint(action, name?)` | fork/restore/list/drop the WHOLE tree — the multi-file recovery undo cannot do |
+| `diff(path, checkpoint?)` | What changed, against the version `undo` would restore or against a checkpoint — so you can see what you are about to throw away |
 | `history(path?, limit?)` | Runs from `history.jsonl`, or a file's saved versions |
 | `view_image(path, prompt, page?)` | **Only when a `vision` model is wired.** Look at a file and answer a question about how it LOOKS |
 | `present(path, caption)` | **Only when `onPresent` is wired.** Hand a finished file from `/out` to the person, with a one-line caption |

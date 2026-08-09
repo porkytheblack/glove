@@ -95,6 +95,23 @@ export async function buildOrientation(core: EnvCore, runlog: RunLogLike | null)
     if (out.length > MAX_OUT) lines.push(`- … ${out.length - MAX_OUT} more — \`ls /out\``);
   }
 
+  // --- the budgets this tree runs under -------------------------------------
+  // Asked constantly and answerable nowhere: "how long may a render run",
+  // "how big a file can I write". Every one of those was previously found out
+  // by hitting the limit, which costs a run and reads as a defect.
+  const { limits } = core;
+  lines.push(
+    "",
+    "## Limits",
+    "",
+    `- A single file: up to ${fmtBytes(limits.maxFileBytes)}`,
+    `- The whole tree: up to ${fmtBytes(limits.maxVfsBytes)} (file versions count against this too)`,
+    `- One run: up to ${limits.runTimeoutMs}ms — \`run_script\` takes \`timeout_ms\` to ask for LESS, never more`,
+    `- Undo depth: ${limits.maxVersionsPerFile} version(s) per file`,
+    "",
+    "Exceeding one is a refusal that names the limit, not a crash — but it costs the call.",
+  );
+
   // --- what has run ---------------------------------------------------------
   lines.push("", "## Recent runs", "");
   const runs = runlog ? await runlog.tail(MAX_RUNS) : [];
