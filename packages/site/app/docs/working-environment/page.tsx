@@ -809,7 +809,11 @@ const EXTERNAL = [
   "glove-env-images",
   "glove-env-slides",
   "glove-env-archives",
-  "sharp",
+  "glove-env-render",
+  "glove-env-motion",
+  "sharp",        // native
+  "pdfjs-dist",   // ships its own worker and dislikes being rewritten
+  "playwright-core",
 ];
 
 const nextConfig: NextConfig = {

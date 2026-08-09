@@ -1,6 +1,6 @@
 # glove-env-motion
 
-**Status: exploratory.** The renderer works and is measured; the API may still move.
+**Draft v0.1** — same standing as the other `glove-env-*` adapters. Published, measured, and byte-deterministic; the API may still move before 1.0.
 
 A stdlib adapter for [`glove-working-environment`](../glove-working-environment). The agent writes a React component; a video, an animated GIF, PNG frames or a still image comes out.
 

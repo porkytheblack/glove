@@ -3,7 +3,7 @@
 #
 # Surfaces @scraper and @screenshotter mentions. Uses Playwright's bundled
 # Chromium so dependency drift is bounded.
-FROM ghcr.io/porkytheblack/glovebox/base:1.0
+FROM ghcr.io/porkytheblack/glovebox/base:1.1
 
 USER root
 
@@ -41,7 +41,7 @@ RUN mkdir -p /opt/glovebox-prebuilt \
  && chown -R glovebox:glovebox /opt/glovebox-prebuilt
 
 ENV GLOVEBOX_BASE_IMAGE=glovebox/browser \
-    GLOVEBOX_BASE_VERSION=1.1 \
+    GLOVEBOX_BASE_VERSION=1.2 \
     PLAYWRIGHT_BROWSERS_PATH=/opt/glovebox-prebuilt/.playwright \
     NODE_PATH=/opt/glovebox-prebuilt/node_modules
 

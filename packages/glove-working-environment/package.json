@@ -25,13 +25,15 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "LIFECYCLE.md"
   ],
   "scripts": {
     "build": "tsup",
     "prepublishOnly": "pnpm build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --import tsx tests/*.test.ts"
+    "test": "node --test --import tsx tests/*.test.ts",
+    "bench": "tsx bench/write-latency.ts"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",

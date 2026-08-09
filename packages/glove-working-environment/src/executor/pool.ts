@@ -79,6 +79,27 @@ export interface PoolOptions {
   /** Grace given to in-flight runs by {@link WorkerPool.close}. Default 5000. */
   shutdownGraceMs?: number;
   /**
+   * How long a worker may sit unused before it is terminated. Default 60000;
+   * `0` keeps warm workers forever.
+   *
+   * Steady residency for an environment nobody is using was measured at 16.5
+   * MB and one OS thread, and five open environments at +82.5 MB / +5 threads
+   * — all of it returned on `close()`, none of it before. A host holding
+   * hundreds of sessions (a chat server, a per-tenant desk) therefore pays for
+   * every conversation anyone has left open, whether or not a script will ever
+   * run in it again.
+   *
+   * Reaping is cheap because re-spawning is: a replacement worker is ready in
+   * ~82 ms, which is noise against the model round trip that precedes any
+   * script. One idle minute means the session is between turns at best, so the
+   * default trades that 82 ms for the thread and its heap. Raise it for a
+   * latency-critical single-tenant host; set `0` to opt out entirely.
+   *
+   * A busy worker is never reaped, and the timer is `unref`'d — an idle pool
+   * does not hold the process open.
+   */
+  idleTimeoutMs?: number;
+  /**
    * How long a freshly spawned worker has to signal that it is ready, in ms.
    * Default 10000.
    *
@@ -121,6 +142,7 @@ const DEFAULT_GRACE_MS = 250;
 const DEFAULT_MEMORY_MB = 256;
 const DEFAULT_SHUTDOWN_GRACE_MS = 5_000;
 const DEFAULT_READY_TIMEOUT_MS = 10_000;
+const DEFAULT_IDLE_TIMEOUT_MS = 60_000;
 
 /** What a queued run is told when the environment shuts down under it. */
 const CLOSED_MESSAGE = "the working environment was closed before this script started";
@@ -160,6 +182,11 @@ export interface Slot {
   busy: boolean;
   /** Set when this worker must not be reused — it was terminated mid-run. */
   poisoned: boolean;
+  /**
+   * When this worker last stopped being needed — spawn time, then every
+   * `release`. The idle reaper measures from here.
+   */
+  idleSince: number;
 }
 
 /**
@@ -226,6 +253,16 @@ export class WorkerPool {
    * a call outstanding worth cancelling.
    */
   private readonly liveRuns = new Map<string, { signal?: AbortSignal }>();
+  /**
+   * The one pending idle sweep, armed for the earliest eviction due.
+   *
+   * A single timer rather than one per slot, and re-armed rather than left
+   * ticking: a pool with no warm workers must hold no timer at all, or the
+   * thing that reaps idle residency becomes idle residency.
+   */
+  private reapTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The warm in flight, so a second caller joins it instead of over-spawning. */
+  private warming: Promise<void> | null = null;
 
   constructor(
     private readonly deps: PoolDeps,
@@ -234,6 +271,11 @@ export class WorkerPool {
 
   private get size(): number {
     return Math.max(1, this.options.size ?? DEFAULT_SIZE);
+  }
+
+  private get idleTimeoutMs(): number {
+    const configured = this.options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+    return Number.isFinite(configured) && configured > 0 ? configured : 0;
   }
 
   /**
@@ -335,7 +377,7 @@ export class WorkerPool {
     });
     worker.unref();
 
-    const slot: Slot = { worker, busy: false, poisoned: false, ready: Promise.resolve() };
+    const slot: Slot = { worker, busy: false, poisoned: false, ready: Promise.resolve(), idleSince: Date.now() };
     slot.ready = new Promise<void>((resolve, reject) => {
       const onMessage = (m: WorkerToHost): void => {
         if (m.type === "ready") {
@@ -445,6 +487,109 @@ export class WorkerPool {
   }
 
   /**
+   * Spawn up to `size` workers now, so the first script does not pay for it.
+   *
+   * A cold pool spawns on first `acquire`, which means the first `run_script`
+   * of a session — or the first script the model writes, since write-time
+   * validation runs in a worker too — carries ~82 ms of thread start-up that
+   * has nothing to do with the work. A host that knows a session is beginning
+   * (an environment created per conversation, a desk restored from a snapshot)
+   * can pay it during the wait it already has.
+   *
+   * **Never rejects.** It is called from `createWorkingEnvironment` without an
+   * `await`, and a rejected promise nobody is holding takes the process down.
+   * A spawn that fails is discarded and the pool is left exactly as it was, to
+   * be retried on demand at the first acquire — where the backoff, the attempt
+   * counter and the named error already live. Nothing about a failed prewarm
+   * is worth failing a create over: the environment is entirely usable, it is
+   * just cold.
+   */
+  async warmup(): Promise<void> {
+    if (this.closed) return;
+    // A second caller joins the warm already running rather than starting
+    // another. `createWorkingEnvironment` fires one off when `prewarm` is set,
+    // and a host that then calls `env.warmup()` to wait for it must actually
+    // wait — two independent warms would race past `size` and spawn threads
+    // the pool immediately discards as surplus.
+    if (this.warming) return this.warming;
+    const warm = this.warmInner().finally(() => {
+      this.warming = null;
+      this.scheduleReap();
+    });
+    this.warming = warm;
+    return warm;
+  }
+
+  private async warmInner(): Promise<void> {
+    while (!this.closed && this.slots.filter((s) => !s.poisoned).length < this.size) {
+      let slot: Slot | null = null;
+      try {
+        slot = this.spawn();
+        this.slots.push(slot);
+        await this.awaitReady(slot);
+        // `close()` can land while a worker is starting. It took its copy of
+        // `slots` before this one was pushed, so nothing else will ever
+        // terminate it — the exact leak `acquire` re-checks `closed` for.
+        if (this.closed) this.discard(slot);
+      } catch {
+        if (slot) this.discard(slot);
+        return;
+      }
+    }
+  }
+
+  /**
+   * Arm (or clear) the single idle sweep, for the earliest worker due.
+   *
+   * Called wherever a slot becomes free or the set of slots changes. Computing
+   * the deadline each time rather than running a fixed interval is what keeps
+   * an environment nobody is using genuinely free: no eligible worker, no
+   * timer.
+   */
+  private scheduleReap(): void {
+    if (this.reapTimer) {
+      clearTimeout(this.reapTimer);
+      this.reapTimer = null;
+    }
+    const idleMs = this.idleTimeoutMs;
+    if (idleMs === 0 || this.closed) return;
+    // Only genuinely free workers have a deadline. A busy one is running a
+    // script; a poisoned one is already on its way out.
+    let earliest = Infinity;
+    for (const slot of this.slots) {
+      if (slot.busy || slot.poisoned) continue;
+      if (slot.idleSince < earliest) earliest = slot.idleSince;
+    }
+    if (earliest === Infinity) return;
+    const timer = setTimeout(() => this.reapIdle(), Math.max(1, earliest + idleMs - Date.now()));
+    // Without this the reaper — the thing that exists to stop an idle
+    // environment costing anything — would itself keep the host process alive.
+    // Same reason `spawn()` unrefs the worker.
+    timer.unref?.();
+    this.reapTimer = timer;
+  }
+
+  /**
+   * Terminate every worker that has been unused for `idleTimeoutMs`.
+   *
+   * Safe against `release()`'s direct hand-off because both run to completion
+   * synchronously: `release` clears `busy` and, if a waiter is queued, sets it
+   * again before yielding, so a slot reserved for somebody is never seen here
+   * as free. The queue check is belt and braces for the same invariant.
+   */
+  private reapIdle(): void {
+    this.reapTimer = null;
+    const idleMs = this.idleTimeoutMs;
+    if (idleMs === 0 || this.closed || this.queue.length > 0) return;
+    const now = Date.now();
+    for (const slot of [...this.slots]) {
+      if (slot.busy || slot.poisoned) continue;
+      if (now - slot.idleSince >= idleMs) this.discard(slot);
+    }
+    this.scheduleReap();
+  }
+
+  /**
    * Wait for a worker to signal ready, bounded.
    *
    * Unbounded, this is the quietest way the environment fails: the slot stays
@@ -499,6 +644,7 @@ export class WorkerPool {
 
   private release(slot: Slot): void {
     slot.busy = false;
+    slot.idleSince = Date.now();
     // A poisoned worker is destroyed rather than reused. So is a surplus one:
     // `acquire(overflow)` deliberately spawns past the pool size to break the
     // re-entrant-validation deadlock, and without this the pool would keep
@@ -511,7 +657,13 @@ export class WorkerPool {
     }
 
     const next = this.queue.shift();
-    if (!next) return;
+    if (!next) {
+      // Nobody is waiting, so this worker starts counting down. Armed here
+      // rather than on a fixed interval: this is the only moment a slot can
+      // begin being idle.
+      this.scheduleReap();
+      return;
+    }
     if (!reusable || this.closed) {
       next(null); // nothing to give; let the waiter re-enter the loop
       return;
@@ -856,6 +1008,13 @@ export class WorkerPool {
   async close(options: { graceMs?: number } = {}): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    // Before anything else: a pending sweep outlives the pool it was armed
+    // for, and `reapIdle` would go on discarding slots — terminating workers
+    // a second time — after close has already taken them.
+    if (this.reapTimer) {
+      clearTimeout(this.reapTimer);
+      this.reapTimer = null;
+    }
     for (const waiter of this.queue.splice(0)) waiter(null);
 
     const grace = options.graceMs ?? this.options.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS;

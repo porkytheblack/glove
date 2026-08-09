@@ -47,7 +47,26 @@ export type SubscriberEvent =
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "model_response"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
   | { type: "model_response_complete"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
-  | { type: "tool_use_result"; tool_name: string; call_id?: string; result: ToolResultData }
+  /**
+   * `id` and `name` are ALIASES of `call_id` and `tool_name`, carrying
+   * identical values, and they are the pair to prefer.
+   *
+   * A tool *call* arrives as `{ id, name }` and its *result* as
+   * `{ call_id, tool_name }`. Correlating the two therefore means keying on a
+   * different field on each side, and getting it wrong produces a UI where
+   * every tool spins forever — the calls are recorded, the results arrive
+   * under a key nothing is waiting on, and nothing errors. Hosts have been
+   * carrying a comment about this instead of a fix.
+   *
+   * `call_id`/`tool_name` are still emitted and are not deprecated: they are
+   * the field names of the persisted `ToolResult`, which is what a store
+   * replays from, so a consumer reading history sees those. Both are on the
+   * event so one `case` can handle either source.
+   *
+   * `duration_ms` was always emitted (it is stamped on the `ToolResult`) and
+   * simply missing from this declaration.
+   */
+  | { type: "tool_use_result"; tool_name: string; call_id?: string; result: ToolResultData; id?: string; name?: string; duration_ms?: number }
   | { type: "compaction_start"; current_token_consumption: number }
   | { type: "compaction_end"; current_token_consumption: number; summary_message: Message }
   | { type: "token_consumption"; consumption: TokenConsumptionCounter }
@@ -672,7 +691,13 @@ export class Executor {
     const emitResult = () => {
       const latest = toolResults.at(-1)!;
       latest.duration_ms = Date.now() - startedAt;
-      return this.notifySubscribers("tool_use_result", latest);
+      // Aliased onto a COPY, not onto `latest`: that object is pushed into the
+      // message history and persisted, and the stored shape is `ToolResult` —
+      // widening it would put two spellings of the same field into everyone's
+      // store. The event is where the two spellings are useful, because it is
+      // the only place a consumer has to line results up against `tool_use`
+      // (which carries `id`/`name`).
+      return this.notifySubscribers("tool_use_result", { ...latest, id: latest.call_id, name: latest.tool_name });
     };
 
     for (const call of this.toolCallStack) {

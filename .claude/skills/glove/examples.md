@@ -2386,7 +2386,7 @@ await context.update(
 
 ## Pattern: Glovebox PDF Extractor (`examples/glovebox-pdf-extractor`)
 
-A worked example of wrapping a Glove agent for sandboxed deployment. Lives at `examples/glovebox-pdf-extractor` and runs on the `glovebox/docs:1.2` base (pandoc / qpdf / pdftk-java / ghostscript / libreoffice headless prebuilt). The agent reads PDFs from `/input`, extracts tables / text, and writes results to `/output` — clients hit one WebSocket endpoint and stream events back.
+A worked example of wrapping a Glove agent for sandboxed deployment. Lives at `examples/glovebox-pdf-extractor` and runs on the `glovebox/docs:1.3` base (pandoc / qpdf / pdftk-java / ghostscript / libreoffice headless prebuilt). The agent reads PDFs from `/input`, extracts tables / text, and writes results to `/output` — clients hit one WebSocket endpoint and stream events back.
 
 ### Wrap module (`glovebox.ts`)
 

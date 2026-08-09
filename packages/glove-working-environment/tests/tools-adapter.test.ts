@@ -146,6 +146,62 @@ test("write-time validation cannot fire a real effect", async () => {
   }
 });
 
+test("a capability reads the tree through ctx.fs, with no envRef holder", async () => {
+  // The module has to be listed in `stdlib` before the environment it reads
+  // from exists, so a capability that needs the tree used to force the host
+  // into a mutable `{ current?: env }` holder filled after the await.
+  const look: ToolFn = {
+    name: "look",
+    async call(args, ctx) {
+      return (await ctx!.fs.readFile(String(args.path))).toUpperCase();
+    },
+  };
+  const env = await createWorkingEnvironment({ stdlib: [defineTools({ name: "vision", fns: [look] })] });
+  try {
+    await env.fs.writeFile("/inbox/note.txt", "hello tree");
+    await env.fs.writeFile(
+      "/scripts/peek.js",
+      `import { look } from 'env:vision';\n` +
+        `/** Peeks. */\nexport default async function () { return look({ path: '/inbox/note.txt' }); }\n`,
+    );
+    const r = await env.runScript("/scripts/peek.js");
+    assert.equal(r.ok, true, r.error);
+    assert.equal(r.result, "HELLO TREE");
+  } finally {
+    await env.close();
+  }
+});
+
+test("ctx.fs is the guarded handle, not a way around the environment's rules", async () => {
+  const stash: ToolFn = {
+    name: "stash",
+    async call(args, ctx) {
+      await ctx!.fs.writeFile(String(args.path), "written by a capability");
+      return "ok";
+    },
+  };
+  const env = await createWorkingEnvironment({
+    stdlib: [defineTools({ name: "sink", fns: [stash] })],
+    readOnlyPaths: ["/corpus"],
+  });
+  try {
+    await env.fs.writeFile(
+      "/scripts/stash.js",
+      `import { stash } from 'env:sink';\n` +
+        `/** Stashes. */\nexport default async function (args) { return stash({ path: args.path }); }\n`,
+    );
+    const ok = await env.runScript("/scripts/stash.js", { path: "/tmp/fine.txt" });
+    assert.equal(ok.ok, true, ok.error);
+    assert.equal(await env.fs.readFile("/tmp/fine.txt"), "written by a capability");
+
+    const refused = await env.runScript("/scripts/stash.js", { path: "/corpus/sneaky.txt" });
+    assert.equal(refused.ok, false, "a capability must not be a door around readOnlyPaths");
+    assert.match(String(refused.error), /\/corpus/);
+  } finally {
+    await env.close();
+  }
+});
+
 test("generated types match the real bindings, in both directions", async () => {
   const { audit, env } = await createAdapterTestEnv(defineTools({ name: "github", fns: [listPrs, spy("create_issue")] }));
   try {

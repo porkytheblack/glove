@@ -33,8 +33,38 @@ function standardFontDataUrl(): string {
   return join(root, "standard_fonts") + "/";
 }
 
+/**
+ * Refuse a runtime pdf.js will fail *quietly* on.
+ *
+ * pdf.js v5+ transfers page buffers with `ArrayBuffer.prototype
+ * .transferToFixedLength`, which arrived in Node 21. On an older runtime the
+ * call throws — and pdf.js catches it per operator, logs
+ *
+ *     getOperatorList - ignoring errors during "GetOperatorList: page 0" task:
+ *     "TypeError: buffer.transferToFixedLength is not a function"
+ *
+ * and finishes the page regardless. Measured on Node 20: rasterizing a Word
+ * document returned a path, 893x1263 dimensions and 7224 bytes — and the PNG
+ * was entirely blank. Every layer above reported success, including a
+ * selfcheck written to catch exactly this, because a byte count is not ink.
+ *
+ * A missing capability is knowable before any of that, so this checks once
+ * and refuses. Loud and wrong-runtime beats silent and blank.
+ */
+function assertPdfRuntime(): void {
+  if (typeof (ArrayBuffer.prototype as { transferToFixedLength?: unknown }).transferToFixedLength === "function") {
+    return;
+  }
+  throw new Error(
+    `env:render needs Node 21 or newer to rasterize PDFs — this is Node ${process.versions.node}. ` +
+      `pdf.js relies on ArrayBuffer.prototype.transferToFixedLength; without it every page renders blank ` +
+      `rather than failing, so this refuses instead. Upgrade Node, or pin pdfjs-dist below v5.`,
+  );
+}
+
 let pdfjsModule: Promise<typeof import("pdfjs-dist/legacy/build/pdf.mjs")> | null = null;
 function pdfjs() {
+  assertPdfRuntime();
   // The legacy build is the one that runs on Node without a DOM.
   pdfjsModule ??= import("pdfjs-dist/legacy/build/pdf.mjs");
   return pdfjsModule;
