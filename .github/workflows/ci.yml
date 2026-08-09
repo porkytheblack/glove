@@ -78,6 +78,9 @@ jobs:
           --filter glove-env-archives
           --filter glove-env-media
           --filter glove-env-slides
+          --filter glovebox-core
+          --filter glovebox-kit
+          --filter glovebox-client
           --filter glove-env-render
           --filter glove-env-ocr
           --filter glove-env-email
