@@ -35,9 +35,45 @@ async function solid(opts: SolidOptions = {}): Promise<Uint8Array> {
   return new Uint8Array(buf);
 }
 
+/**
+ * An animated GIF whose frames are distinguishable: frame i is solid
+ * (i × 60, 10, 10), so both the count AND the order can be asserted.
+ */
+async function animatedGif(frames = 4, width = 40, height = 20): Promise<Uint8Array> {
+  const pages: Buffer[] = [];
+  for (let i = 0; i < frames; i++) {
+    pages.push(
+      await sharp({ create: { width, height, channels: 3, background: { r: i * 60, g: 10, b: 10 } } }).png().toBuffer(),
+    );
+  }
+  return new Uint8Array(await sharp(pages, { join: { animated: true } }).gif().toBuffer());
+}
+
+/** A 100×50 SVG — text, not pixels, until something rasterizes it. */
+function svg(): Uint8Array {
+  return new TextEncoder().encode(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"><circle cx="50" cy="25" r="24" fill="#3366cc"/></svg>`,
+  );
+}
+
 /** Read an output back host-side, so assertions do not depend on the adapter. */
 async function meta(t: AdapterTestEnv, path: string) {
   return sharp(Buffer.from(await t.fs.readBytes(path))).metadata();
+}
+
+/** Every frame's red channel, sampled at the centre of each frame. */
+async function frameReds(t: AdapterTestEnv, path: string): Promise<number[]> {
+  const bytes = Buffer.from(await t.fs.readBytes(path));
+  const m = await sharp(bytes, { animated: true }).metadata();
+  const raw = await sharp(bytes, { animated: true }).raw().toBuffer({ resolveWithObject: true });
+  const pageHeight = m.pageHeight ?? m.height ?? 0;
+  const reds: number[] = [];
+  for (let page = 0; page < (m.pages ?? 1); page++) {
+    const y = page * pageHeight + Math.floor(pageHeight / 2);
+    const x = Math.floor((m.width ?? 0) / 2);
+    reds.push(raw.data[(y * raw.info.width + x) * raw.info.channels]);
+  }
+  return reds;
 }
 
 test("the adapter passes its own audit", async () => {
@@ -379,6 +415,357 @@ test("outputs land in the tree and obey the environment's limits", async () => {
   assert.equal(run.ok, false);
   assert.match(run.error ?? "", /maxFileBytes/);
   assert.equal(await t.fs.exists("/out/huge.png"), false);
+});
+
+// ================================================================ animation
+
+/** Frame colours survive a re-encode, but a palette is not bit-exact. */
+function assertFrames(actual: number[], expected: number[], why: string): void {
+  assert.equal(actual.length, expected.length, `${why}: got ${actual.length} frames, expected ${expected.length}`);
+  for (const [i, want] of expected.entries()) {
+    assert.ok(Math.abs(actual[i] - want) <= 4, `${why}: frame ${i} was ${actual[i]}, expected about ${want}`);
+  }
+}
+
+test("an animated GIF round-trips through resize with its frames intact", async () => {
+  const t = await env();
+  await t.fs.writeFile("/inbox/loop.gif", await animatedGif(4, 40, 20));
+
+  const out = await t.script<{ before: ImageSummary; after: ImageSummary }>(
+    `import { describe, resize } from 'env:images';
+     export default async function main() {
+       const before = await describe('/inbox/loop.gif');
+       await resize('/inbox/loop.gif', '/out/small.gif', { width: 20, height: 10 });
+       return { before, after: await describe('/out/small.gif') };
+     }`,
+  );
+  assert.equal(out.before.pages, 4, "describe must see four frames going in");
+  assert.equal(out.after.pages, 4, "and four coming out — this is the whole bug");
+  assert.deepEqual([out.after.width, out.after.height], [20, 10], "dimensions are one frame's, not the strip's");
+  assertFrames(await frameReds(t, "/out/small.gif"), [0, 60, 120, 180], "resize");
+});
+
+test("frames survive a convert into another animated format, in order", async () => {
+  const t = await env();
+  await t.fs.writeFile("/inbox/loop.gif", await animatedGif(4));
+  await t.script(
+    `import { convert } from 'env:images';
+     export default async function main() { return convert('/inbox/loop.gif', '/out/loop.webp'); }`,
+  );
+  assert.equal((await meta(t, "/out/loop.webp")).format, "webp");
+  assertFrames(await frameReds(t, "/out/loop.webp"), [0, 60, 120, 180], "convert to webp");
+});
+
+test("a still output format takes frame one, not a strip of all of them", async () => {
+  // The failure mode decoding every frame introduces: libvips holds them as one
+  // tall image, and a PNG encoder writes that tall image rather than flattening.
+  const t = await env();
+  await t.fs.writeFile("/inbox/loop.gif", await animatedGif(4, 40, 20));
+  await t.script(
+    `import { convert, resize } from 'env:images';
+     export default async function main() {
+       await convert('/inbox/loop.gif', '/out/one.png');
+       await resize('/inbox/loop.gif', '/out/one.jpg', { width: 20 });
+     }`,
+  );
+  const png = await meta(t, "/out/one.png");
+  assert.deepEqual([png.width, png.height], [40, 20], "a 4-frame GIF must not become an 80px-tall PNG");
+  assertFrames(await frameReds(t, "/out/one.png"), [0], "flattened png");
+  const jpg = await meta(t, "/out/one.jpg");
+  assert.deepEqual([jpg.width, jpg.height], [20, 10]);
+});
+
+test("animated: false flattens on purpose, even into a format that could hold frames", async () => {
+  const t = await env();
+  await t.fs.writeFile("/inbox/loop.gif", await animatedGif(4));
+  const after = await t.script<ImageSummary>(
+    `import { describe, resize } from 'env:images';
+     export default async function main() {
+       await resize('/inbox/loop.gif', '/out/first.gif', { width: 20, animated: false });
+       return describe('/out/first.gif');
+     }`,
+  );
+  assert.equal(after.pages, 1);
+});
+
+test("crop and thumbnail keep the frames, and the box is measured against one of them", async () => {
+  const t = await env();
+  await t.fs.writeFile("/inbox/loop.gif", await animatedGif(4, 40, 20));
+  await t.script(
+    `import { crop, thumbnail } from 'env:images';
+     export default async function main() {
+       await crop('/inbox/loop.gif', '/out/piece.gif', { left: 5, top: 5, width: 10, height: 10 });
+       await thumbnail('/inbox/loop.gif', '/out/thumb.gif', 16);
+     }`,
+  );
+  const piece = await meta(t, "/out/piece.gif");
+  assert.deepEqual([piece.width, piece.height], [10, 10], "the crop is a frame-sized rectangle");
+  assertFrames(await frameReds(t, "/out/piece.gif"), [0, 60, 120, 180], "crop");
+  assertFrames(await frameReds(t, "/out/thumb.gif"), [0, 60, 120, 180], "thumbnail");
+});
+
+test("a crop box past the edge of a frame says so instead of saying 'bad extract area'", async () => {
+  const t = await env();
+  await t.fs.writeFile("/inbox/loop.gif", await animatedGif(4, 40, 20));
+  const run = await t.runScript(
+    `import { crop } from 'env:images';
+     export default async function main() { return crop('/inbox/loop.gif', '/out/x.gif', { left: 0, top: 15, width: 10, height: 10 }); }`,
+  );
+  assert.equal(run.ok, false);
+  assert.match(run.error ?? "", /falls outside 40×20 \(one of 4 frames\)/);
+});
+
+test("rotate refuses an animation rather than reversing its frames", async () => {
+  // libvips rotates the strip, not the frames: a quarter turn is unsupported
+  // and a half turn plays the animation backwards. Both are worth a refusal.
+  const t = await env();
+  await t.fs.writeFile("/inbox/loop.gif", await animatedGif(4));
+  const run = await t.runScript(
+    `import { rotate } from 'env:images';
+     export default async function main() { return rotate('/inbox/loop.gif', '/out/turned.gif', { angle: 90 }); }`,
+  );
+  assert.equal(run.ok, false);
+  assert.match(run.error ?? "", /has 4 frames and libvips cannot rotate a multi-page image/);
+  assert.match(run.error ?? "", /\{ animated: false \}/, "the refusal has to name the way out");
+
+  const summary = await t.script<ImageSummary>(
+    `import { describe, rotate } from 'env:images';
+     export default async function main() {
+       await rotate('/inbox/loop.gif', '/out/turned.gif', { angle: 90, animated: false });
+       return describe('/out/turned.gif');
+     }`,
+  );
+  assert.deepEqual([summary.width, summary.height, summary.pages], [20, 40, 1]);
+});
+
+test("a watermark lands on every frame, not just the first", async () => {
+  const t = await env();
+  await t.fs.writeFile("/inbox/loop.gif", await animatedGif(4, 60, 40));
+  await t.fs.writeFile("/inbox/dot.png", await solid({ width: 8, height: 8, colour: { r: 255, g: 255, b: 255, alpha: 1 } }));
+  await t.script(
+    `import { composite } from 'env:images';
+     export default async function main() {
+       return composite('/inbox/loop.gif', '/out/marked.gif', [{ input: '/inbox/dot.png', gravity: 'northwest' }]);
+     }`,
+  );
+  const bytes = Buffer.from(await t.fs.readBytes("/out/marked.gif"));
+  const m = await sharp(bytes, { animated: true }).metadata();
+  assert.equal(m.pages, 4, "the animation survived the composite");
+  const raw = await sharp(bytes, { animated: true }).raw().toBuffer({ resolveWithObject: true });
+  for (let page = 0; page < 4; page++) {
+    const y = page * (m.pageHeight ?? 0) + 2;
+    const px = raw.data[(y * raw.info.width + 2) * raw.info.channels];
+    assert.ok(px > 200, `frame ${page} should carry the mark, read ${px}`);
+  }
+});
+
+test("still images are untouched by any of this", async () => {
+  // The animated read is a different libvips code path; the regression to guard
+  // against is it changing what a plain PNG does.
+  const t = await env();
+  await t.fs.writeFile("/inbox/wide.png", await solid({ width: 60, height: 20 }));
+  await t.script(
+    `import { resize, rotate, crop, thumbnail } from 'env:images';
+     export default async function main() {
+       await resize('/inbox/wide.png', '/out/r.gif', { width: 30, height: 10 });
+       await rotate('/inbox/wide.png', '/out/t.png', { angle: 90 });
+       await crop('/inbox/wide.png', '/out/c.png', { left: 1, top: 1, width: 10, height: 5 });
+       await thumbnail('/inbox/wide.png', '/out/th.gif', 16);
+     }`,
+  );
+  const r = await meta(t, "/out/r.gif");
+  assert.deepEqual([r.width, r.height, r.pages], [30, 10, 1]);
+  const rot = await meta(t, "/out/t.png");
+  assert.deepEqual([rot.width, rot.height], [20, 60]);
+  const c = await meta(t, "/out/c.png");
+  assert.deepEqual([c.width, c.height], [10, 5]);
+  const th = await meta(t, "/out/th.gif");
+  assert.deepEqual([th.width, th.height, th.pages], [16, 16, 1]);
+});
+
+// ====================================================================== SVG
+
+test("an SVG is claimed, described, and rasterized at the size you ask for", async () => {
+  const t = await env();
+  await t.fs.writeFile("/inbox/logo.svg", svg());
+
+  const out = await t.script<{ info: ImageSummary; natural: string; twice: string; dpi: string }>(
+    `import { describe, convert } from 'env:images';
+     export default async function main() {
+       return {
+         info: await describe('/inbox/logo.svg'),
+         natural: await convert('/inbox/logo.svg', '/out/natural.png'),
+         twice: await convert('/inbox/logo.svg', '/out/2x.png', { scale: 2 }),
+         dpi: await convert('/inbox/logo.svg', '/out/print.png', { density: 288 }),
+       };
+     }`,
+  );
+  assert.equal(out.info.format, "svg");
+  assert.deepEqual([out.info.width, out.info.height], [100, 50]);
+  const natural = await meta(t, "/out/natural.png");
+  assert.deepEqual([natural.width, natural.height], [100, 50]);
+  const twice = await meta(t, "/out/2x.png");
+  assert.deepEqual([twice.width, twice.height], [200, 100], "scale 2 renders at twice natural size");
+  const dpi = await meta(t, "/out/print.png");
+  assert.deepEqual([dpi.width, dpi.height], [400, 200], "288 DPI is four times the natural 72");
+
+  // Not just the right dimensions — the vector actually drew something.
+  const px = await sharp(Buffer.from(await t.fs.readBytes("/out/2x.png"))).raw().toBuffer({ resolveWithObject: true });
+  const centre = (px.info.height / 2) * px.info.width + px.info.width / 2;
+  assert.ok(px.data[centre * px.info.channels + 2] > 150, "the circle rendered blue at the centre");
+});
+
+test("resize renders a vector AT the target size instead of blowing up a small raster", async () => {
+  const t = await env();
+  await t.fs.writeFile("/inbox/logo.svg", svg());
+  await t.script(
+    `import { resize } from 'env:images';
+     export default async function main() { return resize('/inbox/logo.svg', '/out/big.png', { width: 800 }); }`,
+  );
+  const m = await meta(t, "/out/big.png");
+  assert.equal(m.width, 800);
+  // A rasterize-then-upscale would leave a soft edge; rendering at 800 keeps it
+  // hard, so the transition row has few intermediate values.
+  const raw = await sharp(Buffer.from(await t.fs.readBytes("/out/big.png"))).raw().toBuffer({ resolveWithObject: true });
+  const row = (m.height ?? 0) >> 1;
+  let soft = 0;
+  for (let x = 0; x < (m.width ?? 0); x++) {
+    const b = raw.data[(row * raw.info.width + x) * raw.info.channels + 2];
+    if (b > 40 && b < 160) soft++;
+  }
+  assert.ok(soft < 12, `an edge rendered at full size should be crisp, found ${soft} half-lit pixels`);
+});
+
+test("writing an SVG is refused, because sharp cannot encode one", async () => {
+  const t = await env();
+  await t.fs.writeFile("/inbox/a.png", await solid());
+  const run = await t.runScript(
+    `import { convert } from 'env:images';
+     export default async function main() { return convert('/inbox/a.png', '/out/a.svg'); }`,
+  );
+  assert.equal(run.ok, false);
+  assert.match(run.error ?? "", /SVG is read-only here/);
+  assert.match(run.error ?? "", /Write \.png or \.webp instead/);
+  assert.equal(await t.fs.exists("/out/a.svg"), false);
+});
+
+test("scale and density are checked before libvips is asked for something absurd", async () => {
+  const t = await env();
+  await t.fs.writeFile("/inbox/logo.svg", svg());
+  for (const [opts, pattern] of [
+    ["{ scale: 0 }", /scale must be a positive multiplier/],
+    ["{ scale: 1000 }", /up to 100/],
+    ["{ density: -5 }", /density must be a DPI between 1 and 7200/],
+  ] as const) {
+    const run = await t.runScript(
+      `import { convert } from 'env:images';
+       export default async function main() { return convert('/inbox/logo.svg', '/out/x.png', ${opts}); }`,
+    );
+    assert.equal(run.ok, false, opts);
+    assert.match(run.error ?? "", pattern);
+  }
+});
+
+// ===================================================================== text
+
+/** The brightest pixel anywhere in the image — did anything get drawn? */
+async function brightest(t: AdapterTestEnv, path: string): Promise<number> {
+  const s = await sharp(Buffer.from(await t.fs.readBytes(path))).stats();
+  return Math.max(...s.channels.slice(0, 3).map((c) => c.max));
+}
+
+test("text draws onto an image", async () => {
+  const t = await env();
+  await t.fs.writeFile(
+    "/inbox/dark.png",
+    await solid({ width: 300, height: 120, colour: { r: 0, g: 0, b: 0, alpha: 1 } }),
+  );
+  assert.equal(await brightest(t, "/inbox/dark.png"), 0, "the base is black to begin with");
+
+  const out = await t.script<string>(
+    `import { text } from 'env:images';
+     export default async function main() {
+       return text('/inbox/dark.png', '/out/titled.png', { text: 'DRAFT', size: 40, colour: '#ffffff' });
+     }`,
+  );
+  assert.equal(out, "/out/titled.png");
+  const m = await meta(t, "/out/titled.png");
+  assert.deepEqual([m.width, m.height], [300, 120], "the base keeps its size");
+  assert.ok(await brightest(t, "/out/titled.png") > 200, "white text should leave white pixels");
+});
+
+test("text lands where gravity says, and on every frame of an animation", async () => {
+  const t = await env();
+  await t.fs.writeFile(
+    "/inbox/dark.png",
+    await solid({ width: 300, height: 120, colour: { r: 0, g: 0, b: 0, alpha: 1 } }),
+  );
+  await t.script(
+    `import { text } from 'env:images';
+     export default async function main() {
+       await text('/inbox/dark.png', '/out/nw.png', { text: 'X', size: 40, gravity: 'northwest' });
+     }`,
+  );
+  const raw = await sharp(Buffer.from(await t.fs.readBytes("/out/nw.png"))).raw().toBuffer({ resolveWithObject: true });
+  const brightestIn = (x0: number, y0: number, x1: number, y1: number) => {
+    let max = 0;
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) max = Math.max(max, raw.data[(y * raw.info.width + x) * raw.info.channels]);
+    }
+    return max;
+  };
+  assert.ok(brightestIn(0, 0, 150, 60) > 200, "northwest means the top-left quadrant");
+  assert.equal(brightestIn(150, 60, 300, 120), 0, "and nothing in the opposite one");
+
+  await t.fs.writeFile("/inbox/loop.gif", await animatedGif(3, 120, 60));
+  await t.script(
+    `import { text } from 'env:images';
+     export default async function main() {
+       return text('/inbox/loop.gif', '/out/marked.gif', { text: 'HI', size: 24, gravity: 'centre' });
+     }`,
+  );
+  const bytes = Buffer.from(await t.fs.readBytes("/out/marked.gif"));
+  const m = await sharp(bytes, { animated: true }).metadata();
+  assert.equal(m.pages, 3, "captioning must not cost the animation");
+  const frames = await sharp(bytes, { animated: true }).raw().toBuffer({ resolveWithObject: true });
+  for (let page = 0; page < 3; page++) {
+    let max = 0;
+    for (let y = page * (m.pageHeight ?? 0); y < (page + 1) * (m.pageHeight ?? 0); y++) {
+      for (let x = 0; x < frames.info.width; x++) {
+        max = Math.max(max, frames.data[(y * frames.info.width + x) * frames.info.channels + 1]);
+      }
+    }
+    assert.ok(max > 180, `frame ${page} should carry the caption, brightest green was ${max}`);
+  }
+});
+
+test("text is text, not markup", async () => {
+  const t = await env();
+  await t.fs.writeFile("/inbox/dark.png", await solid({ width: 400, height: 100, colour: { r: 0, g: 0, b: 0, alpha: 1 } }));
+  await t.script(
+    `import { text } from 'env:images';
+     export default async function main() {
+       return text('/inbox/dark.png', '/out/quoted.png', { text: '<b>a & "b"</b>', size: 24 });
+     }`,
+  );
+  assert.ok(await brightest(t, "/out/quoted.png") > 200, "angle brackets must draw, not break the document");
+});
+
+test("text refuses an empty string and an invented gravity", async () => {
+  const t = await env();
+  await t.fs.writeFile("/inbox/a.png", await solid({ width: 100, height: 100 }));
+  for (const [opts, pattern] of [
+    ["{ text: '   ' }", /needs a \{ text \} string/],
+    ["{ text: 'hi', gravity: 'up-a-bit' }", /is not one of north, northeast/],
+    ["{ text: 'hi', size: -4 }", /size must be a positive number/],
+  ] as const) {
+    const run = await t.runScript(
+      `import { text } from 'env:images';
+       export default async function main() { return text('/inbox/a.png', '/out/x.png', ${opts}); }`,
+    );
+    assert.equal(run.ok, false, opts);
+    assert.match(run.error ?? "", pattern);
+  }
 });
 
 test("a batch pass over many files is one run, not one per file", async () => {

@@ -1,7 +1,7 @@
 {
   "name": "glove-env-media",
   "version": "0.1.0",
-  "description": "Video and audio stdlib adapter for glove-working-environment. Bridges ffmpeg into the agent's virtual filesystem as env:media — describe a video without looking at it, thumbnail, extract frames, clip, concat, transcode, build a slideshow. Paths in, paths out.",
+  "description": "Video and audio stdlib adapter for glove-working-environment. Bridges ffmpeg into the agent's virtual filesystem as env:media — describe a video without looking at it, thumbnail, extract frames, clip, concat, transcode, extract and burn in subtitles, measure and normalise loudness, build a slideshow. Paths in, paths out.",
   "type": "module",
   "license": "MIT",
   "repository": {

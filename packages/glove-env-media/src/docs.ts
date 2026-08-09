@@ -5,11 +5,69 @@ export const MEDIA_TYPES = `/** env:media — video and audio, by path. Nothing 
 export interface StreamSummary {
   kind: "video" | "audio" | "subtitle" | "other";
   codec: string;
+  /** Position among streams of the SAME kind, from 0 — what \`track\` means below. */
+  track: number;
+  /** ISO 639 code the file records, e.g. "eng". */
+  language?: string;
+  /** The label the file carries, e.g. "Forced English". */
+  title?: string;
   width?: number;
   height?: number;
   fps?: number;
   channels?: number;
   sampleRate?: number;
+}
+
+/** Encoders, by the name you think in rather than ffmpeg's. */
+export type AudioCodec = "mp3" | "aac" | "flac" | "opus" | "vorbis" | "pcm" | "copy";
+
+export interface AudioOptions {
+  /** Omitted, ffmpeg picks from the output extension. "copy" re-muxes untouched. */
+  codec?: AudioCodec;
+  /** kbps, e.g. 192. Lossy codecs only. */
+  bitrate?: number;
+  /** Hz, e.g. 44100. */
+  sampleRate?: number;
+  /** 1 mono, 2 stereo. */
+  channels?: number;
+}
+
+export interface NormalizeOptions extends AudioOptions {
+  /** Integrated target in LUFS. Default -14, what streaming platforms use. */
+  lufs?: number;
+  /** True-peak ceiling in dBTP. Default -1.5. */
+  truePeak?: number;
+  /** Loudness range target in LU. Default 11. */
+  range?: number;
+}
+
+export interface LoudnessSummary {
+  path: string;
+  /** Integrated loudness, LUFS. */
+  lufs: number;
+  /** True peak, dBTP. Above 0 clips on playback. */
+  truePeak: number;
+  /** Loudness range, LU. */
+  range: number;
+  /** The gate the integrated reading used, LUFS. */
+  threshold: number;
+}
+
+export interface SubtitleOptions {
+  /** Which subtitle stream, from 0. Matches \`track\` in describe(). */
+  track?: number;
+}
+
+export interface BurnOptions extends SubtitleOptions {
+  /** A subtitle file in the tree to burn instead of one of the video's own streams. */
+  subtitles?: string;
+}
+
+export interface WaveformOptions {
+  /** Pixels. Default [1000, 200]. */
+  size?: [number, number];
+  /** Trace colour as #rrggbb. Default "#3366cc". */
+  colour?: string;
 }
 
 export interface MediaSummary {
@@ -61,8 +119,30 @@ export function transcode(
   opts?: { crf?: number; scale?: [number, number]; fps?: number },
 ): Promise<string>;
 
-/** Strip the audio track into its own file (format follows the output extension). */
-export function extractAudio(input: string, output: string): Promise<string>;
+/**
+ * Strip the audio track into its own file (format follows the output extension).
+ * Without options the container's defaults choose the codec and bitrate, which
+ * is how "just extract the audio" ends up as 64 kbps mono.
+ */
+export function extractAudio(input: string, output: string, opts?: AudioOptions): Promise<string>;
+
+/** How loud is this, in the units platforms specify? Reads the file, writes nothing. */
+export function loudness(input: string): Promise<LoudnessSummary>;
+
+/**
+ * Normalise loudness to a target, in two passes — measure, then apply.
+ * Video streams are copied, not re-encoded.
+ */
+export function normalize(input: string, output: string, opts?: NormalizeOptions): Promise<string>;
+
+/** Draw the audio as an image: where the silence is, where it clips. */
+export function waveform(input: string, output: string, opts?: WaveformOptions): Promise<string>;
+
+/** Pull a subtitle stream out as a file; the format follows the output extension. */
+export function extractSubtitles(input: string, output: string, opts?: SubtitleOptions): Promise<string>;
+
+/** Burn subtitles into the picture, from a file in the tree or from an embedded track. */
+export function burnSubtitles(input: string, output: string, opts?: BurnOptions): Promise<string>;
 
 /** Turn an ordered list of images into a video. \`frameMs\` is how long each is held. */
 export function slideshow(
@@ -136,6 +216,64 @@ export default async function main() {
 
 \`concat\` copies streams without re-encoding, which is fast but requires the
 inputs to match. If it complains, \`transcode\` them to a common format first.
+
+## Audio you asked for, not audio you were given
+
+\`extractAudio\` with no options leaves the codec and the bitrate to the
+container's defaults. Say what you want instead:
+
+\`\`\`js
+import { extractAudio } from 'env:media';
+
+await extractAudio('/inbox/talk.mp4', '/out/talk.mp3',
+                   { codec: 'mp3', bitrate: 192, sampleRate: 44100, channels: 2 });
+
+// Or skip the question entirely — 'copy' moves the encoded stream across
+// untouched, which is instant and lossless where the container will take it.
+await extractAudio('/inbox/talk.mp4', '/out/talk.m4a', { codec: 'copy' });
+\`\`\`
+
+## Loudness
+
+\`\`\`js
+import { loudness, normalize, waveform } from 'env:media';
+
+export default async function main() {
+  const before = await loudness('/inbox/episode.wav');   // { lufs: -27.4, truePeak: -6.1, ... }
+  await normalize('/inbox/episode.wav', '/out/episode.mp3', { lufs: -16, codec: 'mp3', bitrate: 192 });
+  await waveform('/out/episode.mp3', '/out/episode.png');
+  return { before: before.lufs, after: (await loudness('/out/episode.mp3')).lufs };
+}
+\`\`\`
+
+\`normalize\` measures first and then applies that measurement, because loudnorm
+run blind only lands *near* a target — and near -14 LUFS is not what anyone
+means by "normalise to -14 LUFS". Video streams are copied through untouched.
+
+\`waveform\` is to audio what \`thumbnail\` is to video: you cannot listen to a
+file any more than you can look at one, and a picture shows dead air, clipping
+and "is there anything in here at all" in one glance.
+
+## Subtitles
+
+\`describe\` reports subtitle streams with a \`track\` number and a language, and
+both subtitle verbs take that same number:
+
+\`\`\`js
+import { describe, extractSubtitles, burnSubtitles } from 'env:media';
+
+export default async function main() {
+  const info = await describe('/inbox/film.mkv');
+  const subs = info.streams.filter(s => s.kind === 'subtitle');   // [{ track: 0, language: 'eng' }, …]
+
+  await extractSubtitles('/inbox/film.mkv', '/out/film.srt', { track: 0 });
+  await extractSubtitles('/inbox/film.mkv', '/out/film.vtt', { track: 0 });   // and converts
+
+  // Burned in: pixels, not a track a player can switch off.
+  await burnSubtitles('/inbox/film.mkv', '/out/hardsubbed.mp4', { track: 0 });
+  await burnSubtitles('/inbox/clip.mp4', '/out/captioned.mp4', { subtitles: '/inbox/captions.srt' });
+}
+\`\`\`
 
 ## Two things worth knowing
 
