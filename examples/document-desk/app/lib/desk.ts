@@ -102,15 +102,13 @@ const registry: Map<string, Desk> = ((globalThis as Record<string, unknown>).__d
  * — and only that last line comes back. Bytes are read inside the call, so
  * images never cross the worker boundary either.
  *
- * The `envRef` holder exists because the module has to be listed in `stdlib`
- * before the environment it reads from exists. A capability that needs the
- * tree is the one case where `defineTools` needs this indirection; one that
- * only calls out to a service (an MCP server, an API) does not.
+ * The tree arrives as `ctx.fs` — the same guarded handle the format adapters
+ * get, so read-only zones and the size limits apply here too. This used to
+ * need a mutable `{ current?: env }` holder filled after
+ * `createWorkingEnvironment` resolved, because the module has to be listed in
+ * `stdlib` before the environment it reads from exists.
  */
-function visionModule(
-  vision: NonNullable<ReturnType<typeof visionAdapter>>,
-  envRef: { current?: WorkingEnvironment },
-) {
+function visionModule(vision: NonNullable<ReturnType<typeof visionAdapter>>) {
   return defineTools({
     name: "vision",
     description: "Ask a vision model about an image, from inside a script.",
@@ -130,11 +128,10 @@ function visionModule(
         },
         resultShape: "string",
         readOnlyHint: true,
-        async call(args) {
+        async call(args, ctx) {
           const { path, prompt } = args as { path?: string; prompt?: string };
           if (!path || !prompt) throw new Error("look needs { path, prompt }");
-          if (!envRef.current) throw new Error("the environment is not ready yet");
-          const bytes = await envRef.current.fs.readBytes(path);
+          const bytes = await ctx!.fs.readBytes(path);
           const lower = path.toLowerCase();
           const mediaType = lower.endsWith(".jpg") || lower.endsWith(".jpeg") ? "image/jpeg" : "image/png";
           return await vision.describe({ bytes, mediaType, prompt });
@@ -165,7 +162,6 @@ export async function getDesk(id: string): Promise<Desk> {
   let questionSeq = 0;
   // Aborted when the browser hangs up. Replaced at the start of every turn.
   const turnRef = { current: new AbortController() };
-  const envRef: { current?: WorkingEnvironment } = {};
 
   const env = await createWorkingEnvironment({
     stdlib: [
@@ -190,7 +186,7 @@ export async function getDesk(id: string): Promise<Desk> {
       // for a forty-page document — so the same vision model is mounted as a
       // function a script can loop over. The per-page answers land in a
       // variable; only the summary comes back.
-      ...(vision ? [visionModule(vision, envRef)] : []),
+      ...(vision ? [visionModule(vision)] : []),
     ],
     // Wire a vision model and the agent gains `view_image`, so it can check
     // its own output by LOOKING at it — the one defect class that reading the
@@ -258,8 +254,6 @@ export async function getDesk(id: string): Promise<Desk> {
     },
   });
 
-  envRef.current = env;
-
   const desk: Desk = {
     id,
     env,
@@ -273,10 +267,12 @@ export async function getDesk(id: string): Promise<Desk> {
   /**
    * Glove's event stream, narrowed to what the UI actually renders.
    *
-   * Note the field names: a tool *call* carries `id` and `name`, its *result*
-   * carries `call_id` and `tool_name`. They are not the same two keys, and
-   * matching results to calls on the wrong one produces a UI where every verb
-   * spins forever.
+   * Both events are keyed on `id`/`name`. That used to be impossible: a tool
+   * *call* carried `id`/`name` and its *result* only `call_id`/`tool_name`, so
+   * a UI keyed on `id` throughout matched nothing and showed every verb
+   * spinning forever, with nothing thrown anywhere. glove-core now emits
+   * `id`/`name` on the result too — `call_id`/`tool_name` are still there, and
+   * are what a persisted `ToolResult` replayed from a store carries.
    */
   const subscriber: SubscriberAdapter = {
     record: async (eventType, data) => {
@@ -295,8 +291,7 @@ export async function getDesk(id: string): Promise<Desk> {
           break;
         case "tool_use_result": {
           const result = d as {
-            call_id?: string;
-            tool_name?: string;
+            id?: string;
             result?: { status?: string; data?: unknown; message?: string };
           };
           const inner = result.result ?? {};
@@ -310,7 +305,7 @@ export async function getDesk(id: string): Promise<Desk> {
             inner.status === "error"
               ? String(inner.data ?? inner.message ?? "")
               : String(inner.data ?? "");
-          broadcast({ type: "tool_result", id: String(result.call_id ?? ""), status, output });
+          broadcast({ type: "tool_result", id: String(result.id ?? ""), status, output });
           // The tree-changed signal used to come from a list of verb names
           // kept here. That list was wrong twice over: it drifted the moment
           // a verb was added, and it could not tell a `run_script` that wrote

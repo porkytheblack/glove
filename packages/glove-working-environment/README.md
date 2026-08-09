@@ -304,6 +304,96 @@ env.counters;   // { limitHits, spillovers, mutations } — read them on a sched
 
 `EnvTool.mutates` carries the static answer for hosts that want it up front, and `tool_use_result` in glove-core now carries `duration_ms`, so per-tool latency needs no wrapper around every folded tool.
 
+## Hosting the environment
+
+Everything below was reverse-engineered out of [`examples/document-desk`](../../examples/document-desk) by anyone who wanted to run this in a server. It is written down here because every host arrives at the same five problems, and three of them have a wrong answer that looks right.
+
+### The session registry
+
+An environment is per-conversation and expensive: a worker thread, a tree on the heap, and whatever the adapters hold (`env:motion` keeps a browser warm). It has to outlive the request, so it lives in a registry — and the obvious registry is wrong:
+
+```ts
+// WRONG — two requests arriving together each build an environment.
+if (!map.has(id)) map.set(id, await create(id));
+return map.get(id)!;
+```
+
+Both callers pass the guard before either `create` resolves. One environment is orphaned with its worker thread alive and its `close()` never called, and the two requests act on different trees — the file one of them wrote is not there for the other. Nothing throws.
+
+`createSessionManager` memoizes the **promise**, so concurrent callers share one create:
+
+```ts
+import { createSessionManager } from "glove-working-environment";
+
+export const sessions = createSessionManager({
+  globalKey: "__deskSessions",          // survives a dev server's module reload
+  idleMs: 30 * 60_000,
+  max: 50,
+  async create(id) {
+    const env = await createWorkingEnvironment({ stdlib: [documents(), spreadsheets()] });
+    const agent = buildAgent(id);
+    mountWorkingEnvironment(agent, { env });
+    return { id, env, agent, listeners: new Set() };
+  },
+  dispose: (session) => session.env.close(),
+});
+```
+
+It is generic over the session value on purpose: a real host's session is an environment *plus* an agent, its listeners, and the turn's `AbortController`. A create that rejects is not remembered, so a transient failure does not pin that id to an error for the life of the process.
+
+`globalKey` addresses a different trap. Next's dev server re-evaluates route modules on edit, so a module-level `Map` is dropped on every save — taking every live environment and its worker threads with it, mid-conversation. Storing the manager on `globalThis` survives the reload.
+
+### Eviction, and the turn you must not evict
+
+A tab left open for a day accumulates threads, so sessions have to be dropped. Reaping on a timer keeps the process alive and does not exist on a serverless runtime; the workable answer is to reap on the way through whatever route is already handling a request, which is why `reap()` is cheap, idempotent, and safe to call concurrently — overlapping callers share one sweep rather than each starting their own, so a session can never be disposed twice.
+
+```ts
+const session = await sessions.get(sessionId);
+void sessions.reap();                     // from every route
+```
+
+The failure a naive sweep introduces: a turn can spend four minutes inside one `run_script`, and `get` only marks the session used at the moment it hands it over. An idle sweep firing in the middle closes the worker pool under the running script, and the person is told the environment was closed part-way through their render. Take a lease for the length of the turn:
+
+```ts
+const release = sessions.hold(sessionId);
+try {
+  await session.agent.processRequest(message, turn.signal);
+} finally {
+  release();
+}
+```
+
+`idleMs` (default 30 minutes) covers the ordinary case; `maxAgeMs` drops a session that never goes idle; `max` is the backstop for a burst of new conversations inside one idle window, evicting least-recently-used first. All three skip anything held.
+
+### Streaming the turn to a browser
+
+The agent runs server-side, so the browser sees events rather than tool calls. Two things bite:
+
+**Match a result to its call on `id`/`name`.** A tool call arrives as `{ id, name }`; its result historically carried only `{ call_id, tool_name }`. A UI keyed on `id` throughout records the calls, never matches the results, and shows every tool spinning forever — with nothing thrown anywhere. glove-core now emits `id`/`name` on `tool_use_result` as well, so one pair of names works for both; `call_id`/`tool_name` are still emitted and are what a persisted `ToolResult` replayed from a store carries.
+
+**Show `data`, not `message`, when a verb fails.** The verbs put a one-line summary in `message` and the whole story in `data` — the stack, the stderr, the failing line. Showing only `message` means watching "the scene never mounted" five times while the line underneath says exactly which symbol was undefined. The model sees it; the person does not.
+
+```ts
+const output = inner.status === "error"
+  ? String(inner.data ?? inner.message ?? "")
+  : String(inner.data ?? "");
+```
+
+**Cancel by passing the signal.** `EnvTool.do` takes glove's fold signature, so the active request's `AbortSignal` already reaches `run_script`, which forwards it into the run. Give `processRequest` a controller you abort when the browser hangs up, and a script stops instead of writing into a stream nobody is reading. The alternative — `env.close()` — throws away the whole session, warm worker and all, to stop one run.
+
+### Files in
+
+Uploads go to `/inbox` through `env.mount()`, which is the host door and is deliberately not subject to `readOnlyPaths`. Two rules learned the hard way:
+
+- **Never overwrite.** Uploading `chart.png` twice must not destroy the first one — the agent may already have referenced it, and a silent overwrite is the kind of data loss nobody reports because nobody sees it. Pick a free name (`chart-2.png`) and report both the original and what it landed as, so the caller can match its own pending list without guessing the rename rule.
+- **Report per file, not per request.** One bad file failing the whole request throws away the result for the good ones already written, and the caller cannot tell what landed. Return `{ files: [...], errors: [...] }` with a 200 — a status code cannot express "three landed, one was too big".
+
+Accept anything. The environment is a filesystem, not a format allowlist: an adapter may not understand a `.heic`, but the agent can still describe it, convert it, or hand it to something that does.
+
+### Files out
+
+`/out` accumulates drafts as well as deliverables, so "wrote a file" is not "handed it over". `onPresent` is the explicit moment, with a caption attached — which is what a UI needs to render a download, an inline preview, or a message with an attachment. Throwing from it surfaces to the agent as a failed verb, so a rejected file (too large, wrong type, the person is gone) is something it can respond to. `env.export("/out/**")` is the bulk door for everything else.
+
 ## Stdlib adapters
 
 An adapter bridges a real host-side library into the tree. The model experiences it as a typed importable module plus docs living at `/std/<name>/`.
@@ -525,7 +615,21 @@ Details that matter in practice:
 
 - **Everything is async.** These cross a thread and usually a network, which is the one shape where a missed `await` is loud rather than silent.
 - **Names must be valid identifiers**, checked at definition time — a script binds them as one. MCP's `server__tool` convention already qualifies; a dash or a dot fails with the rename attached rather than producing a module nobody can import.
-- **Write-time validation cannot fire a real effect.** Every script write executes the module's top level with a read-only environment. For a filesystem adapter that is merely wasteful; for a capability it would mean the email goes out when the script is *saved*. A top-level call is refused with the fix ("move it inside the default export").
+- **Write-time validation cannot fire a real effect.** Every script write executes the module's top level with a read-only environment. For a filesystem adapter that is merely wasteful; for a capability it would mean the email goes out when the script is *saved*. A top-level call is refused with the fix ("move it inside the default export"). Handing capabilities the tree does not soften this: the reason was never the filesystem, it is the effect on the other side, which this layer cannot see and cannot undo.
+- **The tree arrives as `ctx.fs`** — the same guarded handle the format adapters get, with the same read-only zones, size limits and version recording. A capability that needs the tree is not exotic ("answer a question about this image", "post this file", "index everything under `/out`"), and without it the host has to hand `defineTools` a mutable `{ current?: env }` holder and fill it after `createWorkingEnvironment` resolves, because the module must appear in `stdlib` before the environment exists.
+
+  ```ts
+  defineTools({
+    name: "vision",
+    fns: [{
+      name: "look",
+      async call(args, ctx) {
+        const bytes = await ctx.fs.readBytes(String(args.path));   // no envRef holder
+        return vision.describe({ bytes, mediaType: "image/png", prompt: String(args.prompt) });
+      },
+    }],
+  });
+  ```
 - **Types and docs are generated** from the input schemas — a `.d.ts` with enums as unions and a `/std/<name>/README.md` listing every capability. `docs` appends the things only the host knows: whose tokens these are, what "recent" means for this server, what not to call twice.
 
 ### Testing one
