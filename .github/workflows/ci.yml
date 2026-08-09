@@ -53,9 +53,26 @@ jobs:
           --filter "glove-env-motion..."
           --filter "glove-image..."
           --filter "glove-analyst-desk..."
-          --filter "glovebox-kit..."
-          --filter "glovebox-client..."
           build
+
+      # glovebox-core and glovebox-kit each declare the other as a dependency:
+      # the `glovebox build` CLI resolves and bundles the in-container runtime,
+      # and that runtime imports the wire protocol's types. pnpm reports the
+      # cycle ("There are cyclic workspace dependencies") and, having no
+      # topological order to follow, runs both `tsup` processes at once. Their
+      # dts builds then race, and glovebox-kit loses about as often as it wins:
+      #   error TS7016: Could not find a declaration file for module
+      #                 'glovebox-core/protocol'
+      # Only one direction of the cycle is real at build time — nothing in
+      # glovebox-core's source imports the kit, so it compiles with no kit
+      # dist at all. So the order is forced by hand. It has to be two separate
+      # invocations rather than one pre-build pass, because `clean: true` in
+      # both tsup configs means a second pass over glovebox-core would delete
+      # the .d.ts the kit is mid-read of.
+      - name: Build glovebox (cyclic — ordered by hand)
+        run: |
+          pnpm --filter glovebox-core build
+          pnpm --filter glovebox-kit --filter glovebox-client build
 
       # Scoped to the packages this workstream develops. A repo-wide gate would
       # first need the full build graph to be green (e.g. glove-react consumes
