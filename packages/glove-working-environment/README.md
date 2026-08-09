@@ -594,7 +594,31 @@ Limits (all configurable; failures name the limit): `runTimeoutMs` 30s · `maxVf
 
 `/.env/orientation.md` answers "where am I and what has happened here?" in one read — tree shape with counts, the script catalogue with one-liners, which modules those scripts use, what sits in `/out`, and the last runs. It is rebuilt on every read rather than maintained on write: a file kept current by hooks goes stale on the mutation someone forgot to hook, and a stale orientation file is worse than none because it is believed. It is not written until first read, so an environment that never asks doesn't pay for it.
 
+### Restoring against a different set of adapters
+
 Restoring a tree whose scripts import an adapter the host did not register is reported at startup on `env.warnings`, naming the modules and the scripts that need them — the alternative is a tree that looks healthy (`ls` shows the catalogue, the `.d.ts` files describe capabilities that no longer exist) and breaks mid-task. `strictAdapters: true` makes it throw instead. The check reads the tree, not snapshot metadata, so it works for a host-supplied persistent filesystem too.
+
+The same facts now reach the **model**, at the top of `/.env/orientation.md`, under a heading that says the tree does not match the environment. `env.warnings` is host-only, and a host that logs it and carries on leaves the agent orienting cleanly on a tree it cannot actually run. Orientation recomputes the set on every read rather than reusing the startup scan, because `checkpoint restore` writes a stored tree in below validation — a session can acquire scripts importing an unregistered module without ever restarting.
+
+Three restore-time failures, and what catches each:
+
+| What changed | Caught by | When |
+|---|---|---|
+| The module is not registered at all | the startup scan, `env.warnings` + orientation | startup |
+| A binding was renamed or removed | the run itself — the error names the missing binding | first run |
+| A binding's **signature** changed, same name | `StdlibAdapter.version` | startup |
+
+The third one is why `version` exists. Nothing else can see it: the import resolves, the call is made with arguments that no longer mean what they did, and the failure lands somewhere inside the adapter with a message about neither.
+
+```ts
+export function documents(): StdlibAdapter {
+  return { name: "documents", version: "2.0.0", /* … */ };
+}
+```
+
+It is the **binding contract's** version, not the package's — bump it when a signature changes, not when the implementation does. Every startup records the registered versions in `/.env/adapters.json`, so the tree carries what it was last used with (in the tree, not in snapshot metadata: no `EnvSnapshot` format bump, and it works for a persistent filesystem that never passed through `snapshot()`). The next startup compares, and a difference is reported on `env.warnings` and named in orientation, with the `.d.ts` to re-read. The version also rides beside the module in `/std/README.md` and in orientation's module list, so the model can see what it is coding against.
+
+Skew is a **warning, never a refusal** — including under `strictAdapters`. Restoring across a version bump is the normal case (the host upgraded a dependency), and refusing to start would make every upgrade a data-loss event for anyone holding a snapshot. An adapter that declares no version opts out entirely: nothing is compared against it, no file is written, and comparing a known version against "unknown" would only produce a line nobody can act on.
 
 Every `run_script` appends a line to `/.env/history.jsonl` (ring-buffered) — readable and grepable by the model for self-debugging, and an audit trail for the host. Every mutation records the prior file state in a per-file version ring under `/.env/versions/`, giving linear per-file `undo`/`redo` (a fresh mutation truncates the redo branch). Version storage counts against the size cap and survives snapshots.
 

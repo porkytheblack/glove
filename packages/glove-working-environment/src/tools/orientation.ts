@@ -35,6 +35,7 @@ const ZONES = [
 const MAX_SCRIPTS = 15;
 const MAX_OUT = 15;
 const MAX_RUNS = 8;
+const MAX_UNREGISTERED = 5;
 
 export async function buildOrientation(core: EnvCore, runlog: RunLogLike | null): Promise<string> {
   const lines: string[] = [
@@ -42,9 +43,36 @@ export async function buildOrientation(core: EnvCore, runlog: RunLogLike | null)
     "",
     "Regenerated every time this file is read. If it disagrees with `ls`, trust `ls`.",
     "",
-    "## Tree",
-    "",
   ];
+
+  // --- what does not line up in this tree ----------------------------------
+  // First, not last: everything below describes a tree that is assumed to
+  // work, and these are the reasons it might not. `WorkingEnvironment.warnings`
+  // carries the same facts to the HOST, which is no use to the agent that has
+  // to run the scripts — a host that logs them and carries on leaves the model
+  // discovering the break mid-task.
+  const usage = await core.moduleUsage();
+  const unregistered = [...usage.entries()].filter(([name]) => !core.moduleDescriptions.has(name));
+  if (core.adapterSkew.length > 0 || unregistered.length > 0) {
+    lines.push("## Read this first — this tree does not fully match this environment", "");
+    for (const line of core.adapterSkew) lines.push(`- ${line}`);
+    // Computed live rather than taken from the startup scan, because scripts
+    // can arrive after startup: `checkpoint restore` writes a stored tree
+    // straight into the filesystem, so a session can acquire scripts importing
+    // a module nobody registered without ever restarting.
+    for (const [name, scripts] of unregistered) {
+      const shown = scripts.slice(0, MAX_UNREGISTERED).join(", ");
+      const more = scripts.length > MAX_UNREGISTERED ? `, +${scripts.length - MAX_UNREGISTERED} more` : "";
+      lines.push(
+        `- \`env:${name}\` is imported by scripts here but is NOT registered in this environment — ` +
+          `those scripts will fail when run: ${shown}${more}. Rewrite them against the modules listed below, ` +
+          `or tell the person the capability is missing.`,
+      );
+    }
+    lines.push("");
+  }
+
+  lines.push("## Tree", "");
 
   // Host-configured read-only zones join the conventional listing, marked as
   // such — the model should learn "read-only" from orientation, not from a
@@ -76,12 +104,12 @@ export async function buildOrientation(core: EnvCore, runlog: RunLogLike | null)
   }
 
   // --- modules, with real usage counts -------------------------------------
-  const usage = await core.moduleUsage();
   lines.push("", "## Modules scripts can import", "");
   for (const [name, description] of core.moduleDescriptions) {
     const n = usage.get(name)?.length ?? 0;
     const used = n === 0 ? "" : ` — used by ${n} script(s)`;
-    lines.push(`- \`env:${name}\` — ${description}${used}`);
+    const version = core.moduleVersions.get(name);
+    lines.push(`- \`env:${name}\`${version ? ` (v${version})` : ""} — ${description}${used}`);
   }
   lines.push("", "Signatures live in `/std/<name>/index.d.ts`. Read them before calling in.");
 

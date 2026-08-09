@@ -12,6 +12,7 @@ import { readFile as hostReadFile } from "node:fs/promises";
 import {
   DEFAULT_LIMITS,
   toBytes,
+  toText,
   EnvLimitError,
   type CreateWorkingEnvironmentOptions,
   type EnvCounters,
@@ -229,6 +230,13 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
     }
   }
 
+  // Recorded after registration (which is what rejects a duplicate name) and
+  // in one place, so a pure module — whose branch above skips the instantiate
+  // machinery entirely — is versioned like any other adapter.
+  for (const adapter of adapters) {
+    if (adapter.version) core.moduleVersions.set(adapter.name, adapter.version);
+  }
+
   // --- materialize the tree ----------------------------------------------
   for (const d of CONVENTIONAL_DIRS) await vfs.mkdir(d);
   // Read-only zones are created up front (raw vfs — the guard would refuse a
@@ -282,10 +290,29 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
     if (options.strictAdapters) throw new Error(warnings.join("\n"));
   }
 
+  // The other half of the same problem, and the half nothing could see. A
+  // missing module is caught above; a renamed binding fails at the next run
+  // with its own name in the error. A binding whose SIGNATURE changed under
+  // the same name is invisible at every layer — the import resolves, the
+  // call is made, and the failure lands somewhere inside the adapter.
+  //
+  // Same reasoning as the scan above: the record lives in the tree rather
+  // than in snapshot metadata, so it works for a host-supplied persistent
+  // filesystem and needs no EnvSnapshot format bump.
+  //
+  // Deliberately NOT covered by `strictAdapters`, which is about a capability
+  // that is simply gone. Restoring across a version bump is the normal case —
+  // the host upgraded a dependency — and a startup throw would make every
+  // upgrade a data-loss event. It is a warning to the host and, more to the
+  // point, a warning to the model in orientation.
+  const skew = await compareAdapterVersions(vfs, core.moduleVersions);
+  core.adapterSkew.push(...skew);
+  warnings.push(...skew);
+
   // Written after the scan so the index can say which modules the stored
   // scripts actually use — on a restored tree that is the difference between
   // a menu and a map.
-  await writeDoc("/std/README.md", stdIndex(core.moduleDescriptions, adapters, usage));
+  await writeDoc("/std/README.md", stdIndex(core.moduleDescriptions, adapters, usage, core.moduleVersions));
 
   core.attachRunLog(runlog);
 
@@ -427,6 +454,55 @@ export async function createWorkingEnvironment(options: CreateWorkingEnvironment
   };
 }
 
+/** Where the tree records the adapter contract versions it was last used with. */
+const ADAPTER_MANIFEST = "/.env/adapters.json";
+
+/**
+ * Compare the versions this host registers against the ones the tree was last
+ * used with, then record the current set.
+ *
+ * Only names present on BOTH sides with differing values are reported. An
+ * adapter that declares no version opts out — comparing a known version
+ * against "unknown" produces a warning nobody can act on, and the point of
+ * this file is that every line in it names something the reader can do.
+ */
+async function compareAdapterVersions(vfs: Vfs, current: ReadonlyMap<string, string>): Promise<string[]> {
+  let previous: Record<string, string> = {};
+  if (await vfs.exists(ADAPTER_MANIFEST)) {
+    try {
+      const parsed = JSON.parse(toText(await vfs.read(ADAPTER_MANIFEST))) as { modules?: Record<string, string> };
+      if (parsed?.modules && typeof parsed.modules === "object") previous = parsed.modules;
+    } catch {
+      // A manifest we cannot read tells us nothing, and failing startup over a
+      // corrupt advisory file would be worse than the skew it exists to catch.
+      // The write below replaces it.
+    }
+  }
+
+  const warnings: string[] = [];
+  for (const [name, version] of current) {
+    const was = previous[name];
+    if (typeof was === "string" && was !== version) {
+      warnings.push(
+        `env:${name} has changed contract version since this tree was last used: ${was} → ${version}. ` +
+          `Stored scripts were written against the older module; a binding whose signature moved will fail ` +
+          `when they run. Re-read /std/${name}/index.d.ts before trusting a stored script that imports it.`,
+      );
+    }
+  }
+
+  // Written only when something declares a version, so an environment that
+  // does not use the feature never pays a file for it — and an existing
+  // record is left alone rather than erased by a host that happens to be
+  // running unversioned adapters today.
+  if (current.size > 0) {
+    const modules: Record<string, string> = {};
+    for (const name of [...current.keys()].sort()) modules[name] = current.get(name)!;
+    await vfs.write(ADAPTER_MANIFEST, toBytes(`${JSON.stringify({ version: 1, modules }, null, 2)}\n`));
+  }
+  return warnings;
+}
+
 /**
  * `/std/README.md` — the one file that answers "what can I import?". Without
  * it a model has to `ls /std`, then open each `index.d.ts` to find out what
@@ -436,6 +512,7 @@ function stdIndex(
   descriptions: ReadonlyMap<string, string>,
   adapters: StdlibAdapter[],
   usage: ReadonlyMap<string, string[]>,
+  versions: ReadonlyMap<string, string>,
 ): string {
   const lines = [
     "# /std — importable modules",
@@ -449,7 +526,22 @@ function stdIndex(
   for (const [name, description] of descriptions) {
     const n = usage.get(name)?.length ?? 0;
     const used = n === 0 ? "–" : `${n} script(s)`;
-    lines.push(`| \`env:${name}\` | ${description.replace(/\|/g, "\\|")} | \`/std/${name}/index.d.ts\` | ${used} |`);
+    // The version rides in the module cell rather than in a column of its own:
+    // most rows are builtins that have none, and an almost-empty column reads
+    // as missing data instead of as "not applicable".
+    const v = versions.get(name);
+    lines.push(
+      `| \`env:${name}\`${v ? ` (v${v})` : ""} | ${description.replace(/\|/g, "\\|")} | \`/std/${name}/index.d.ts\` | ${used} |`,
+    );
+  }
+  if (versions.size > 0) {
+    lines.push(
+      "",
+      "A `(v…)` is the module's binding-contract version. If this tree was restored",
+      "from a session that used a different one, `/.env/orientation.md` says so and",
+      "names the module — a stored script written against the older version may call",
+      "a binding whose signature has since moved.",
+    );
   }
   const withDocs = adapters.filter((a) => a.docs);
   if (withDocs.length > 0) {

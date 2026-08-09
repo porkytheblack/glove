@@ -78,6 +78,29 @@ export interface StdlibAdapter {
   description: string;
   /** `.d.ts` source describing the module's exports (materialized at /std/<name>/index.d.ts). */
   types: string;
+  /**
+   * The version of this adapter's **binding contract** — bump it whenever a
+   * signature changes, not when the implementation does.
+   *
+   * The gap it closes: a module this host never registered is caught at
+   * startup, and a binding that was renamed or removed fails at the next run
+   * with an error naming it. A binding whose *signature* changed under the
+   * same name is undetectable at every layer — the stored script imports a
+   * name that still exists, calls it with arguments that no longer mean the
+   * same thing, and fails deep inside the adapter with a message about
+   * neither.
+   *
+   * Recorded in `/.env/adapters.json` on every startup, so the tree carries
+   * the version it was last used with. On the next startup a differing version
+   * is reported on `WorkingEnvironment.warnings` **and** in the model's
+   * orientation file. A warning, never a refusal: restoring across a version
+   * bump is legitimate and usually fine, and a host that cannot restore a
+   * year-old snapshot has lost the data either way.
+   *
+   * Optional, and omitting it opts out of the check entirely — an adapter with
+   * no version is never compared against one.
+   */
+  version?: string;
   /** Optional README with worked examples (materialized at /std/<name>/README.md). */
   docs?: string;
   /**
