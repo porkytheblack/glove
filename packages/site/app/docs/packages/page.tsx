@@ -608,7 +608,8 @@ const deliverables = await env.export("/out/**"); // → [{ path, bytes }]`}
           ). Expose your own libraries to the model with{" "}
           <code>defineAdapter</code> (I/O), <code>defineBuilder</code> (stateful
           builder APIs), or <code>definePureModule</code> (pure, synchronous
-          computation).
+          computation) — and your own <em>capabilities</em>, an MCP server or a
+          plain async function, with <code>defineTools</code>.
         </p>
         <p>
           → <a href="/docs/working-environment">Working environment guide</a>

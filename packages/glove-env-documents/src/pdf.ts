@@ -933,7 +933,8 @@ export function createPdfBindings(vfs: EnvFsHandle) {
           scanned.length > 0
             ? `${scanned.length} page(s) are images of text, not text: ${summarizePages(scanned)}. ` +
               `No extractor will get more out of them — the document has no text layer there. ` +
-              `Rasterise those pages outside the environment and read them with a vision model, or run OCR host-side.`
+              `Read them with env:ocr: recognize(path, { pages: [...] }) rasterises those pages and OCRs them ` +
+              `in-environment, reporting per-page confidence. A vision model through view_image also works for a page or two.`
             : kind === "empty"
               ? `This PDF draws no text and no images on the pages requested — it is blank, not unreadable.`
               : undefined;
