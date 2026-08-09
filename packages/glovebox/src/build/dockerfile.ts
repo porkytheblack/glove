@@ -8,6 +8,7 @@ const KNOWN_BASE_TAGS: Record<string, string> = {
   "glovebox/docs": "1.2",
   "glovebox/python": "1.3",
   "glovebox/browser": "1.1",
+  "glovebox/studio": "1.0",
 }
 
 /**
@@ -18,7 +19,7 @@ const KNOWN_BASE_TAGS: Record<string, string> = {
  *
  * For these images, the generated per-app Dockerfile skips the user/layout
  * setup and links the prebuilt native modules into the server bundle's
- * node_modules instead of running `npm install`.
+ * node_modules instead of rebuilding them.
  */
 const STANDARD_GLOVEBOX_BASES = new Set([
   "glovebox/base",
@@ -26,7 +27,12 @@ const STANDARD_GLOVEBOX_BASES = new Set([
   "glovebox/docs",
   "glovebox/python",
   "glovebox/browser",
+  "glovebox/studio",
 ])
+
+export function isStandardBase(base: string): boolean {
+  return STANDARD_GLOVEBOX_BASES.has(base)
+}
 
 /**
  * Resolve a `glovebox/<name>` base reference to a fully-qualified registry
@@ -46,12 +52,22 @@ export function resolveBaseImage(base: string): string {
   return `${registry}/${base}:${tag}`
 }
 
-export function generateDockerfile(config: ResolvedGloveboxConfig): string {
+/** What `emitServerBundle` left in `dist/server/` for the image to finish. */
+export interface BundleLayout {
+  /** Registry dependencies in the emitted `package.json`. */
+  dependencies: Record<string, string>
+  /** Env-family packages staged under `dist/server/vendor/`. */
+  vendored: string[]
+}
+
+export function generateDockerfile(config: ResolvedGloveboxConfig, bundle: BundleLayout): string {
   const baseImage = resolveBaseImage(config.base)
-  const isStandardBase = STANDARD_GLOVEBOX_BASES.has(config.base)
+  const standardBase = isStandardBase(config.base)
   const apt = config.packages.apt ?? []
   const pip = config.packages.pip ?? []
   const npm = config.packages.npm ?? []
+  const hasDeps = Object.keys(bundle.dependencies).length > 0
+  const hasVendor = bundle.vendored.length > 0
 
   const lines: string[] = []
   lines.push(`FROM ${baseImage} AS base`)
@@ -85,7 +101,7 @@ export function generateDockerfile(config: ResolvedGloveboxConfig): string {
   }
 
   // For non-standard bases, do the user/layout setup ourselves.
-  if (!isStandardBase) {
+  if (!standardBase) {
     const mountLines: string[] = []
     for (const mount of Object.values(config.fs)) {
       mountLines.push(`mkdir -p ${mount.path}`)
@@ -109,18 +125,42 @@ export function generateDockerfile(config: ResolvedGloveboxConfig): string {
   // Copy the esbuild-bundled server.
   lines.push("COPY --chown=glovebox:glovebox server /opt/glovebox-server")
   lines.push("WORKDIR /opt/glovebox-server")
-
-  if (isStandardBase) {
-    // Reuse the prebuilt better-sqlite3 baked into the base image. Faster
-    // and avoids needing a C toolchain in the final layer.
-    lines.push("RUN mkdir -p node_modules \\")
-    lines.push(" && ln -sfn /opt/glovebox-prebuilt/node_modules/better-sqlite3 node_modules/better-sqlite3")
-  } else {
-    lines.push("RUN npm install --omit=dev --no-package-lock --no-audit --no-fund")
-  }
   lines.push("")
 
+  // Registry dependencies first, in their own layer: npm resolves the native
+  // binaries for THIS image's platform, which is the whole reason they were
+  // kept out of the bundle.
+  if (hasDeps) {
+    lines.push("RUN npm install --omit=dev --no-package-lock --no-audit --no-fund")
+    lines.push("")
+  }
+
+  // Everything below has to come after `npm install`, not before: npm prunes
+  // anything in node_modules it did not put there, so a linked or vendored
+  // tree staged first is deleted by the install.
+  const finish: string[] = []
+  if (standardBase) {
+    // Reuse the prebuilt better-sqlite3 baked into the base image. Faster
+    // and avoids needing a C toolchain in the final layer.
+    finish.push("ln -sfn /opt/glovebox-prebuilt/node_modules/better-sqlite3 node_modules/better-sqlite3")
+  }
+  if (hasVendor) {
+    // The env family ships as real directories rather than an npm install:
+    // these are the exact builds the bundle was compiled against, and a
+    // workspace package that was never published has no other way in.
+    finish.push("cp -R vendor/. node_modules/")
+    finish.push("rm -rf vendor")
+  }
+  if (finish.length > 0) {
+    lines.push(`RUN mkdir -p node_modules \\\n && ${finish.join(" \\\n && ")}`)
+    lines.push("")
+  }
+
   if (needsRoot) {
+    // node_modules was written by root; hand the tree back to the user the
+    // server runs as.
+    lines.push("RUN chown -R glovebox:glovebox /opt/glovebox-server")
+    lines.push("")
     lines.push("USER glovebox")
     lines.push("")
   }

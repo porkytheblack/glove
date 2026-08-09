@@ -82,6 +82,25 @@ async function main() {
     process.stdout.write("✓ Generated Dockerfile\n")
     process.stdout.write("✓ Generated nixpacks.toml\n")
     process.stdout.write("✓ Generated server bundle\n")
+    if (result.vendored.length > 0) {
+      process.stdout.write(
+        `✓ Vendored ${result.vendored.length} module(s) kept out of the bundle: ${result.vendored.join(", ")}\n`,
+      )
+    }
+    const deps = Object.keys(result.dependencies)
+    if (deps.length > 0) {
+      process.stdout.write(`✓ Declared ${deps.length} runtime dependenc(ies): ${deps.join(", ")}\n`)
+    }
+    if (result.unresolved.length > 0) {
+      // Not fatal: an optional peer that this project never installed is a
+      // legitimate miss. But the container will not have it either, and
+      // finding that out from a failed render is worse than from here.
+      process.stdout.write(
+        `! Could not resolve ${result.unresolved.join(", ")} on this machine — ` +
+          `the image will not have ${result.unresolved.length > 1 ? "them" : "it"} either. ` +
+          `Install ${result.unresolved.length > 1 ? "them" : "it"} in this project if the agent needs ${result.unresolved.length > 1 ? "them" : "it"}.\n`,
+      )
+    }
     process.stdout.write(`✓ Generated auth key (fingerprint: ${result.keyFingerprint})\n`)
     process.stdout.write(`✓ Wrote ${rel}/\n\n`)
     process.stdout.write(`Next:\n`)

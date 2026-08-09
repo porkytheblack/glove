@@ -3,7 +3,7 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 
 import type { GloveboxApp } from "../config"
-import { generateDockerfile, resolveBaseImage } from "./dockerfile"
+import { generateDockerfile, isStandardBase, resolveBaseImage } from "./dockerfile"
 import { ensureAuthKey } from "./key"
 import { generateEnvExample, generateManifest } from "./manifest"
 import { generateNixpacks } from "./nixpacks"
@@ -23,6 +23,16 @@ export interface BuildResult {
   baseImage: string
   keyFingerprint: string
   packages: { apt: number; pip: number; npm: number }
+  /** Env-family packages vendored into `dist/server/vendor/`. */
+  vendored: string[]
+  /** Registry dependencies the image installs (native modules and adapter deps). */
+  dependencies: Record<string, string>
+  /**
+   * Externals the bundle imports that could not be resolved on the build host.
+   * Not fatal — an optional peer is a legitimate miss — but the container will
+   * not have them either, so the CLI says so.
+   */
+  unresolved: string[]
 }
 
 export async function build(args: BuildArgs): Promise<BuildResult> {
@@ -47,18 +57,25 @@ export async function build(args: BuildArgs): Promise<BuildResult> {
   const keyPath = path.join(outDir, "glovebox.key")
   const { fingerprint } = await ensureAuthKey(keyPath)
 
-  const dockerfile = generateDockerfile(config)
-  const nixpacks = generateNixpacks(config)
-  const manifest = generateManifest({ config, keyFingerprint: fingerprint })
-  const envExample = generateEnvExample(config)
-
-  await writeFile(path.join(outDir, "Dockerfile"), dockerfile)
-  await writeFile(path.join(outDir, "nixpacks.toml"), nixpacks)
-  await writeFile(path.join(outDir, "glovebox.json"), JSON.stringify(manifest, null, 2) + "\n")
-  await writeFile(path.join(outDir, ".env.example"), envExample)
-
+  // The bundle runs first: the Dockerfile and nixpacks.toml both depend on
+  // what it left behind — which native modules to install, whether there is a
+  // vendored env family to copy in. Generating them from the config alone is
+  // how the old build shipped an image that could not start a script worker.
   const serverDir = path.join(outDir, "server")
-  await emitServerBundle({ wrapEntry: entry, outDir: serverDir, appName: config.name })
+  const bundle = await emitServerBundle({
+    wrapEntry: entry,
+    outDir: serverDir,
+    appName: config.name,
+    sqliteFromBaseImage: isStandardBase(config.base),
+  })
+
+  const manifest = generateManifest({ config, keyFingerprint: fingerprint })
+
+  await writeFile(path.join(outDir, "Dockerfile"), generateDockerfile(config, bundle))
+  await writeFile(path.join(outDir, "nixpacks.toml"), generateNixpacks(config, bundle))
+  await writeFile(path.join(outDir, "glovebox.json"), JSON.stringify(manifest, null, 2) + "\n")
+  await writeFile(path.join(outDir, ".env.example"), generateEnvExample(config))
+
   // The runtime expects glovebox.json next to index.js so import.meta.url
   // resolution works.
   await writeFile(
@@ -75,5 +92,8 @@ export async function build(args: BuildArgs): Promise<BuildResult> {
       pip: config.packages.pip?.length ?? 0,
       npm: config.packages.npm?.length ?? 0,
     },
+    vendored: bundle.vendored,
+    dependencies: bundle.dependencies,
+    unresolved: bundle.unresolved,
   }
 }
