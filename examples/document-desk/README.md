@@ -148,13 +148,29 @@ event stream to the browser as SSE.
 
 | File | Role |
 |---|---|
-| `app/lib/desk.ts` | One environment + one agent per session, held in a module-global registry |
+| `app/lib/desk.ts` | One environment + one agent per session, held in a module-global registry with idle/TTL eviction |
 | `app/api/chat/route.ts` | Runs the turn, streams `text` / `tool` / `tool_result` / `tree_changed` |
 | `app/api/upload/route.ts` | `env.mount(bytes, "/inbox/<name>")` |
 | `app/api/fs/route.ts` | The tree, and one file's content, read off `env.fs` |
 | `app/api/download/route.ts` | `env.fs.readBytes`, `inline` for media the page can play, `attachment` otherwise |
 | `scripts/check-motion.ts` | `pnpm check:motion` — renders a clip end to end, no model involved |
 | `app/lib/useDesk.ts` | The client half: SSE in, transcript + code cards + tree version out |
+
+**Desks do not live forever.** Each one owns a worker thread and an in-memory
+tree — ~16.5 MB and one OS thread of steady residency even with nothing
+running — so `reapOldDesks` closes any desk untouched for fifteen minutes, plus
+the least recently used past a ceiling of twelve. It runs after every chat
+request *and* on an unref'd interval, because a request-driven sweep never runs
+on the host that has stopped receiving requests, which is exactly the host with
+idle desks to reap. The worker itself is reaped sooner and independently, by
+`execution.idleTimeoutMs` inside the package.
+
+This example *drops* the tree on eviction, which is right for a demo where a
+reset costs a re-upload. A real host parks it — `snapshot()` before `close()`,
+`fromSnapshot` on the way back in — so an idle session costs a row in a table
+rather than a thread. `glove-working-environment`'s
+[LIFECYCLE.md](../../packages/glove-working-environment/LIFECYCLE.md) works that
+policy through.
 
 The three views on screen are projections of one event stream. The code pane
 tracks written files by replaying `write_file` and `edit_file` locally — the
