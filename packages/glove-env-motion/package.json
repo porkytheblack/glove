@@ -27,7 +27,8 @@
     "build": "tsup",
     "prepublishOnly": "pnpm build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --import tsx tests/*.test.ts"
+    "test": "node --test --import tsx tests/*.test.ts",
+    "bench": "node --import tsx bench/render.ts"
   },
   "dependencies": {
     "@babel/core": "^7.28.0",

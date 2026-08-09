@@ -26,6 +26,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, relative } from "node:path";
 import { defineAdapter, type EnvFsHandle, type StdlibAdapter } from "glove-working-environment";
+import { browserFleetCap, limitBrowserFleet } from "./browser-pool";
 import { bundleScene } from "./bundle";
 import { captureFrames, resolveBrowser, resolveBrowserSync } from "./capture";
 import { encodeVideo } from "./encode";
@@ -34,6 +35,15 @@ import { MOTION_DOCS, MOTION_TYPES, MOTION_SKILL, hostNotes } from "./docs";
 
 export { resolveBrowser } from "./capture";
 export { BundleError } from "./bundle";
+export {
+  browserFleetCap,
+  browserFleetStats,
+  closeMotionBrowsers,
+  limitBrowserFleet,
+  BrowserFleetError,
+  DEFAULT_IDLE_MS,
+  DEFAULT_MAX_BROWSERS,
+} from "./browser-pool";
 export { CaptureError, systemBrowserCandidates, PW_BROWSER_SUBPATHS } from "./capture";
 export { EncodeError, ffmpegInstallHint, resolveFfmpegSync, type FfmpegResolution } from "./encode";
 export { doctor, type DoctorCheck, type DoctorOptions, type DoctorReport } from "./doctor";
@@ -61,7 +71,26 @@ export interface MotionOptions {
    * number in the message is kinder than a timeout at frame 4000.
    */
   maxFrames?: number;
+  /**
+   * Chromium processes allowed across **every** environment in this process,
+   * not just this one. `maxFrames` bounds a single render; this bounds the
+   * fleet, which is the number that decides whether a multi-tenant host stays
+   * up. Default {@link DEFAULT_MAX_BROWSERS}, or `GLOVE_MOTION_MAX_BROWSERS`.
+   *
+   * Because the fleet is process-wide, so is this setting: when two adapters
+   * name different values the smallest wins. See {@link limitBrowserFleet}.
+   */
+  maxBrowsers?: number;
+  /**
+   * How long this environment's browser is kept alive between renders.
+   * Default {@link DEFAULT_IDLE_MS}. Longer keeps more renders warm; shorter
+   * gives the memory back sooner.
+   */
+  browserIdleMs?: number;
 }
+
+/** Distinguishes one adapter instance's browser from another's. */
+let instances = 0;
 
 interface RenderArgs {
   fps?: number;
@@ -81,10 +110,15 @@ const DEFAULTS = { fps: 30, width: 1280, height: 720, background: "#ffffff", crf
  * Environment limits that fit a render.
  *
  * A render is a browser launch plus a screenshot per frame, and the
- * environment's default 30s script budget is nowhere near that. Mount this
- * beside the adapter — `createWorkingEnvironment({ stdlib: [motion()],
- * limits: MOTION_LIMITS })` — or forget to, and the render refuses up front
- * with this exact line in the error rather than dying mid-run.
+ * environment's default 30s ceiling is nowhere near that. `runTimeoutMs` is
+ * the **most** any one run may be granted, not what every run gets: a script
+ * asks for the time it needs with `run_script`'s `timeout_ms`, and that is
+ * clamped to this. So raising it here does not hand four minutes to an
+ * accidental `for(;;)` — it only makes four minutes askable for.
+ *
+ * Mount it beside the adapter — `createWorkingEnvironment({ stdlib: [motion()],
+ * limits: MOTION_LIMITS })` — or forget to, and a render that cannot fit
+ * refuses up front, naming both the `timeout_ms` to ask for and this ceiling.
  */
 export const MOTION_LIMITS = { runTimeoutMs: 240_000 } as const;
 
@@ -92,6 +126,7 @@ export function motion(options: MotionOptions = {}): StdlibAdapter {
   const timeoutMs = options.timeoutMs ?? 180_000;
   const maxFrames = options.maxFrames ?? 1800;
   const resolveFrom = options.resolveFrom ?? process.cwd();
+  if (options.maxBrowsers !== undefined) limitBrowserFleet(options.maxBrowsers);
 
   // Resolution the way the bundler does it: the host's tree first, then this
   // package's own dependencies. Used for the docs below and by capabilities().
@@ -127,6 +162,10 @@ export function motion(options: MotionOptions = {}): StdlibAdapter {
       }),
     skills: [MOTION_SKILL],
     create(vfs: EnvFsHandle) {
+      // One key per adapter instance, so one environment gets one browser and
+      // no two environments ever share a Chromium process.
+      const browserKey = `motion-${++instances}`;
+
       /**
        * Stage the scene and everything it imports onto a real disk.
        *
@@ -238,21 +277,32 @@ export function motion(options: MotionOptions = {}): StdlibAdapter {
           );
         }
 
-        // Refuse work that cannot fit the environment's script budget, up
+        // Refuse work that cannot fit the time this run can be granted, up
         // front and with the fix, instead of letting the wall-clock kill it
-        // mid-render with a generic timeout. The estimate is deliberately
-        // rough: ~20s of browser launch and bundling, ~330ms per screenshot,
-        // ~30ms per walked-but-not-captured frame (stills).
-        const budgetMs = vfs.limits.runTimeoutMs;
+        // mid-render with a generic timeout.
+        //
+        // The 20s head is deliberately kept, even though a browser launch is
+        // no longer paid per render (see ./browser-pool). The FIRST render in
+        // an environment still pays a cold launch, and that is the one this
+        // has to be safe for; the later ones only ever come in under it. Being
+        // wrong high refuses a render that would have fit, which the agent can
+        // see and answer. Being wrong low kills a render at frame 400, which
+        // is the whole thing this check exists to prevent — so lowering it
+        // wants a measurement of a full-size multi-frame render, not a guess
+        // from the stills measured here.
+        // ~330ms per screenshot, ~30ms per walked-but-not-captured frame.
+        const ceilingMs = vfs.limits.runTimeoutMs;
         const screenshots = stillFrame !== undefined ? 1 : durationInFrames;
         const walked = stillFrame !== undefined ? stillFrame : 0;
         const estimateMs = 20_000 + screenshots * 330 + walked * 30;
-        if (estimateMs > budgetMs) {
+        if (estimateMs > ceilingMs) {
           const suggest = Math.max(120_000, Math.ceil((estimateMs * 1.5) / 60_000) * 60_000);
           throw new Error(
-            `a ${durationInFrames}-frame render needs roughly ${Math.ceil(estimateMs / 1000)}s — a browser launch, then a screenshot per frame — ` +
-              `but this environment's script budget (limits.runTimeoutMs) is ${Math.round(budgetMs / 1000)}s, so it would be killed mid-render. ` +
-              `Create the environment with limits: { runTimeoutMs: ${suggest} } (this package exports MOTION_LIMITS as a good default), or render fewer frames.`,
+            `a ${durationInFrames}-frame render needs roughly ${Math.ceil(estimateMs / 1000)}s — bundling, then a screenshot per frame. ` +
+              `Ask for that time on the call: run_script with timeout_ms: ${estimateMs}. ` +
+              `This environment allows at most ${ceilingMs}ms per run (limits.runTimeoutMs) and timeout_ms is clamped to it, ` +
+              `so the ceiling has to come up too: create the environment with limits: { runTimeoutMs: ${suggest} } ` +
+              `(this package exports MOTION_LIMITS as a good default), or render fewer frames.`,
           );
         }
 
@@ -279,6 +329,10 @@ export function motion(options: MotionOptions = {}): StdlibAdapter {
             mode: args.mode ?? "auto",
             ...(stillFrame !== undefined ? { still: stillFrame } : {}),
             browserPath: options.browserPath,
+            browserKey,
+            browserIdleMs: options.browserIdleMs,
+            // Never wait longer for a permit than the render itself may take.
+            browserWaitMs: timeoutMs,
             timeoutMs,
           });
 
@@ -400,6 +454,8 @@ export function motion(options: MotionOptions = {}): StdlibAdapter {
             canRender: browser !== null,
             reanimated: seen("react-native-reanimated") && seen("react-native-web"),
             maxFrames,
+            /** Concurrent renders allowed across every environment in this process. */
+            maxBrowsers: browserFleetCap(),
             formats: [".mp4", ".webm", ".gif", ".png", "directory of frames"],
           };
         },

@@ -8,12 +8,21 @@
  */
 import ExcelJS from "exceljs";
 import { defineAdapter, defineBuilder, methodsOf, type EnvFsHandle, type FileSummary } from "glove-working-environment";
-import { cellFormula, columnLetter, headerKeys, normalizeCell, trimRow, type CellValue } from "./cells";
+import { columnLetter, headerKeys, normalizeCell, trimRow, type CellValue } from "./cells";
 import { parseCsv, toCsvText } from "./csv";
 import { SPREADSHEETS_DOCS, SPREADSHEETS_TYPES } from "./docs";
+import {
+  createSheetSource,
+  loadWorkbookModel,
+  pickParsedSheet,
+  DEFAULT_CACHE_CELLS,
+  DEFAULT_STREAM_BYTES,
+  type ParsedSheet,
+} from "./sheets";
 import { SPREADSHEETS_SKILLS } from "./skills";
 
 export type { CellValue };
+export { DEFAULT_CACHE_CELLS, DEFAULT_STREAM_BYTES } from "./sheets";
 
 export interface SheetSummary {
   name: string;
@@ -64,20 +73,7 @@ export interface WriteOptions {
 
 type RowInput = Array<Record<string, unknown>> | unknown[][];
 
-const XLSX_HINT =
-  "expected an .xlsx workbook — .xls (the old binary format) and Numbers/ODS files are not supported; convert first or use a CSV";
-
-async function loadWorkbook(vfs: EnvFsHandle, path: string): Promise<ExcelJS.Workbook> {
-  const bytes = await vfs.readBytes(path);
-  const wb = new ExcelJS.Workbook();
-  try {
-    await wb.xlsx.load(Buffer.from(bytes) as unknown as ArrayBuffer);
-  } catch (e) {
-    throw new Error(`${path} could not be read as a workbook (${XLSX_HINT}): ${e instanceof Error ? e.message : String(e)}`);
-  }
-  return wb;
-}
-
+/** Sheet lookup on a live (fully loaded) workbook — `append` still needs one. */
 function pickSheet(wb: ExcelJS.Workbook, want: string | number | undefined, path: string): ExcelJS.Worksheet {
   const names = wb.worksheets.map((w) => w.name);
   if (names.length === 0) throw new Error(`${path} has no sheets`);
@@ -92,29 +88,17 @@ function pickSheet(wb: ExcelJS.Workbook, want: string | number | undefined, path
   return sheet;
 }
 
-/** Every row of a sheet as normalised scalars, padded to the used width. */
-function sheetMatrix(sheet: ExcelJS.Worksheet): { values: CellValue[][]; formulas: Array<Array<string | null>> } {
-  const values: CellValue[][] = [];
-  const formulas: Array<Array<string | null>> = [];
-  const width = sheet.columnCount;
-  // eachRow skips empty rows entirely, so index by row number rather than by
-  // iteration order or a gap silently shifts every row below it.
-  sheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
-    const v: CellValue[] = [];
-    const f: Array<string | null> = [];
-    for (let c = 1; c <= width; c++) {
-      const cell = row.getCell(c);
-      v.push(normalizeCell(cell.value));
-      f.push(cellFormula(cell.value));
-    }
-    values[rowNumber - 1] = v;
-    formulas[rowNumber - 1] = f;
-  });
-  for (let i = 0; i < values.length; i++) {
-    if (!values[i]) values[i] = new Array(width).fill(null);
-    if (!formulas[i]) formulas[i] = new Array(width).fill(null);
-  }
-  return { values, formulas };
+/** The header row of a parsed sheet, as record keys. */
+function headersOf(sheet: ParsedSheet, headerIndex: number): string[] {
+  return headerKeys(trimRow(sheet.values[headerIndex] ?? []));
+}
+
+/** Row 1 of a live worksheet, normalised — what `append` matches columns against. */
+function liveHeaderRow(sheet: ExcelJS.Worksheet): CellValue[] {
+  const row = sheet.getRow(1);
+  const header: CellValue[] = [];
+  for (let c = 1; c <= sheet.columnCount; c++) header.push(normalizeCell(row.getCell(c).value));
+  return trimRow(header);
 }
 
 function isRecordRows(rows: RowInput): rows is Array<Record<string, unknown>> {
@@ -168,7 +152,7 @@ interface Writer {
  * The allowlist is read off live objects rather than typed out, so it is the
  * library's genuine surface and stays right when the dependency moves.
  */
-function defineWorkbook(vfs: EnvFsHandle): unknown {
+function defineWorkbook(vfs: EnvFsHandle, invalidate: (path: string) => void): unknown {
   const probe = new ExcelJS.Workbook();
   const sheet = probe.addWorksheet("probe");
   const row = sheet.addRow([1]);
@@ -181,6 +165,9 @@ function defineWorkbook(vfs: EnvFsHandle): unknown {
       throw new Error("writeFile needs a path: await workbook.xlsx.writeFile('/out/report.xlsx')");
     }
     await vfs.writeFile(path, new Uint8Array(await bytesOf(target)));
+    // A script can build a workbook here and then read it back with `read()`;
+    // whatever the cache holds for that path describes the old file.
+    invalidate(path);
     return path;
   };
 
@@ -264,7 +251,24 @@ function defineWorkbook(vfs: EnvFsHandle): unknown {
   });
 }
 
-export const spreadsheets = () =>
+export interface SpreadsheetsOptions {
+  /**
+   * How many flattened cells this environment may keep across parsed
+   * workbooks, so a paged loop parses once instead of once per page. Default
+   * {@link DEFAULT_CACHE_CELLS}; a workbook larger than the whole budget is
+   * simply never cached rather than evicting everything to hold it.
+   */
+  cacheCells?: number;
+  /**
+   * File size, in bytes, at or above which a workbook is read with the
+   * streaming reader instead of the full loader. Default
+   * {@link DEFAULT_STREAM_BYTES}, which is where the two were measured to
+   * cross over; set it to 0 to always stream.
+   */
+  streamBytes?: number;
+}
+
+export const spreadsheets = (options: SpreadsheetsOptions = {}) =>
   defineAdapter({
     name: "spreadsheets",
     description: "Read, write and summarise .xlsx workbooks; bridge sheets to and from CSV.",
@@ -276,28 +280,42 @@ export const spreadsheets = () =>
     // "1,240 lines, here are the first five" summary tells a model more than
     // loading it as a one-sheet workbook would.
     handles: { extensions: [".xlsx", ".xlsm"] },
-    create: (vfs: EnvFsHandle) => ({
+    create: (vfs: EnvFsHandle) => {
+      // Per environment, never per process — see the note in ./sheets.
+      const source = createSheetSource(vfs, options.cacheCells, options.streamBytes);
+
+      /** Load a live workbook to mutate, and forget the flattened copy of it. */
+      const mutable = async (path: string): Promise<ExcelJS.Workbook> =>
+        loadWorkbookModel(await vfs.readBytes(path), path);
+
+      /** Every write invalidates: the file the cache describes just changed. */
+      const saveAndDrop = async (wb: ExcelJS.Workbook, path: string): Promise<string> => {
+        await saveWorkbook(vfs, wb, path);
+        source.drop(path);
+        return path;
+      };
+
+      return {
       /**
        * exceljs's `Workbook`. Use it when the verbs below are not enough —
        * styling, number formats, merged cells, column widths, formulas.
        */
-      Workbook: defineWorkbook(vfs),
+      Workbook: defineWorkbook(vfs, source.drop),
 
       /** Structure of a workbook — sheet names, sizes, headers, one sample row. */
       async describe(path: string): Promise<WorkbookSummary> {
-        const wb = await loadWorkbook(vfs, path);
-        const sheets: SheetSummary[] = wb.worksheets.map((sheet) => {
-          const { values } = sheetMatrix(sheet);
-          const header = trimRow(values[0] ?? []);
+        const wb = await source.read(path);
+        const sheets: SheetSummary[] = wb.sheets.map((sheet) => {
+          const header = trimRow(sheet.values[0] ?? []);
           const headers = headerKeys(header);
-          const first = values[1];
+          const first = sheet.values[1];
           const sample =
             first === undefined
               ? null
               : Object.fromEntries(headers.map((h, i) => [h, first[i] ?? null]));
           return {
             name: sheet.name,
-            rows: Math.max(0, values.length - 1),
+            rows: Math.max(0, sheet.values.length - 1),
             columns: header.length,
             headers,
             sample,
@@ -313,20 +331,23 @@ export const spreadsheets = () =>
 
       /** Sheet names, in workbook order. */
       async sheets(path: string): Promise<string[]> {
-        const wb = await loadWorkbook(vfs, path);
-        return wb.worksheets.map((w) => w.name);
+        return (await source.read(path)).sheets.map((s) => s.name);
       },
 
-      /** A sheet as records keyed by its header row. */
+      /**
+       * A sheet as records keyed by its header row.
+       *
+       * The workbook is parsed once per (path, content) and every later page
+       * is a slice of the flattened sheet, so a paged loop is linear in the
+       * rows rather than in rows × pages.
+       */
       async read(path: string, opts: ReadOptions = {}): Promise<ReadResult> {
-        const wb = await loadWorkbook(vfs, path);
-        const sheet = pickSheet(wb, opts.sheet, path);
-        const { values, formulas } = sheetMatrix(sheet);
+        const wb = await source.read(path, opts.formulas === true);
+        const sheet = pickParsedSheet(wb, opts.sheet, path);
         const headerIndex = (opts.headerRow ?? 1) - 1;
         if (headerIndex < 0) throw new Error(`headerRow is 1-based; got ${opts.headerRow}`);
-        const headers = headerKeys(trimRow(values[headerIndex] ?? []));
-        const body = values.slice(headerIndex + 1);
-        const bodyFormulas = formulas.slice(headerIndex + 1);
+        const headers = headersOf(sheet, headerIndex);
+        const body = sheet.values.slice(headerIndex + 1);
         const offset = Math.max(0, opts.offset ?? 0);
         const end = opts.limit === undefined ? body.length : offset + Math.max(0, opts.limit);
         const window = body.slice(offset, end);
@@ -334,30 +355,30 @@ export const spreadsheets = () =>
         const rows = window.map((row) => Object.fromEntries(headers.map((h, i) => [h, row[i] ?? null])));
         const result: ReadResult = { sheet: sheet.name, headers, rows, totalRows: body.length };
         if (opts.formulas) {
-          result.formulas = bodyFormulas.slice(offset, end).map((row) =>
-            Object.fromEntries(
-              headers.flatMap((h, i) => (row[i] ? [[h, row[i] as string]] : [])),
-            ),
-          );
+          result.formulas = window.map((_row, n) => {
+            // Sheet-absolute row index: past the header, then into the window.
+            const f = sheet.formulas.get(headerIndex + 1 + offset + n);
+            if (!f) return {};
+            return Object.fromEntries(headers.flatMap((h, i) => (f.has(i) ? [[h, f.get(i) as string]] : [])));
+          });
         }
         return result;
       },
 
       /** A sheet as raw rows, header row included — for headerless data. */
       async readRows(path: string, opts: ReadOptions = {}): Promise<CellValue[][]> {
-        const wb = await loadWorkbook(vfs, path);
-        const sheet = pickSheet(wb, opts.sheet, path);
-        const { values } = sheetMatrix(sheet);
+        const wb = await source.read(path);
+        const sheet = pickParsedSheet(wb, opts.sheet, path);
         const offset = Math.max(0, opts.offset ?? 0);
-        const end = opts.limit === undefined ? values.length : offset + Math.max(0, opts.limit);
-        return values.slice(offset, end).map(trimRow);
+        const end = opts.limit === undefined ? sheet.values.length : offset + Math.max(0, opts.limit);
+        return sheet.values.slice(offset, end).map(trimRow);
       },
 
       /** Write records (or raw rows) to a new single-sheet workbook. */
       async write(path: string, rows: RowInput, opts: WriteOptions = {}): Promise<string> {
         const wb = new ExcelJS.Workbook();
         buildSheet(wb, rows ?? [], opts);
-        return saveWorkbook(vfs, wb, path);
+        return saveAndDrop(wb, path);
       },
 
       /** Write several named sheets at once. */
@@ -366,42 +387,45 @@ export const spreadsheets = () =>
         const names = Object.keys(sheets ?? {});
         if (names.length === 0) throw new Error("writeSheets needs at least one sheet");
         for (const name of names) buildSheet(wb, sheets[name] ?? [], { ...opts, sheet: name });
-        return saveWorkbook(vfs, wb, path);
+        return saveAndDrop(wb, path);
       },
 
       /**
        * Append rows to an existing sheet, matching the existing header order.
        * Creates the workbook if it does not exist yet.
+       *
+       * This one still loads the whole workbook: the file is being rewritten,
+       * and a flattened copy cannot carry back the styles, merges and number
+       * formats that have to survive the round trip.
        */
       async append(path: string, rows: RowInput, opts: WriteOptions = {}): Promise<string> {
         if (!(await vfs.exists(path))) {
           const wb = new ExcelJS.Workbook();
           buildSheet(wb, rows ?? [], opts);
-          return saveWorkbook(vfs, wb, path);
+          return saveAndDrop(wb, path);
         }
-        const wb = await loadWorkbook(vfs, path);
+        const wb = await mutable(path);
         const sheet = pickSheet(wb, opts.sheet, path);
         const list = rows ?? [];
         if (list.length === 0) return path;
         if (isRecordRows(list)) {
-          const { values } = sheetMatrix(sheet);
           // Follow the sheet's own header order, not the record's key order —
           // appending a record whose keys happen to be ordered differently
           // must not scramble the columns.
-          const headers = opts.headers ?? headerKeys(trimRow(values[0] ?? []));
+          const headers = opts.headers ?? headerKeys(liveHeaderRow(sheet));
           for (const record of list) sheet.addRow(headers.map((h) => toCellInput(record[h])));
         } else {
           for (const row of list as unknown[][]) sheet.addRow((row ?? []).map(toCellInput));
         }
-        return saveWorkbook(vfs, wb, path);
+        return saveAndDrop(wb, path);
       },
 
       /** Export one sheet to a CSV file. */
       async toCsv(input: string, output: string, opts: ReadOptions & { delimiter?: string } = {}): Promise<string> {
-        const wb = await loadWorkbook(vfs, input);
-        const sheet = pickSheet(wb, opts.sheet, input);
-        const { values } = sheetMatrix(sheet);
-        await vfs.writeFile(output, toCsvText(values.map(trimRow), opts.delimiter ?? ","));
+        const wb = await source.read(input);
+        const sheet = pickParsedSheet(wb, opts.sheet, input);
+        await vfs.writeFile(output, toCsvText(sheet.values.map(trimRow), opts.delimiter ?? ","));
+        source.drop(output);
         return output;
       },
 
@@ -411,9 +435,10 @@ export const spreadsheets = () =>
         const wb = new ExcelJS.Workbook();
         const sheet = wb.addWorksheet(opts.sheet ?? "Sheet1");
         for (const row of rows) sheet.addRow(row);
-        return saveWorkbook(vfs, wb, output);
+        return saveAndDrop(wb, output);
       },
-    }),
+      };
+    },
   });
 
 export { columnLetter, normalizeCell };

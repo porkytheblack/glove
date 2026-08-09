@@ -75,6 +75,11 @@ export function capabilities(): Promise<{
   canRender: boolean;
   reanimated: boolean;
   maxFrames: number;
+  /**
+   * Renders that can run at once across every environment on this host. Past
+   * this, a render waits for a slot rather than opening another browser.
+   */
+  maxBrowsers: number;
   formats: string[];
 }>;
 `;
@@ -201,9 +206,17 @@ view_image({ path: '/tmp/frames/frame-00045.png',
   fast enough to need it.
 - There is a hard frame ceiling per render; \`capabilities()\` reports it.
 - Renders are **deterministic**: the same scene produces the same bytes, so
-  re-rendering after an edit shows a real difference.
-- A render that cannot fit the environment's script time budget is **refused
-  up front**, with the exact limits line the host must set — nothing dies
+  re-rendering after an edit shows a real difference. That holds whether the
+  browser was just started or has already rendered something else.
+- **The first render costs more than the ones after it.** The browser is kept
+  between renders, so a still that costs a second cold costs about half that
+  warm. Iterating on stills is cheaper than it looks.
+- Other agents share the browsers. \`capabilities().maxBrowsers\` is how many
+  renders can run at once across the whole host; past that a render waits for
+  a slot instead of opening another browser.
+- A render that cannot fit the time this run can be granted is **refused up
+  front**, naming the \`timeout_ms\` to pass on the \`run_script\` call (bounded
+  by the environment's \`limits.runTimeoutMs\` ceiling) — nothing dies
   mid-render.
 `;
 
@@ -261,9 +274,11 @@ if (out.warnings.length) throw new Error(out.warnings.join('; '));
 
 ## The mistakes that cost a render
 
-**Asking for more than the time budget.** A render that cannot fit the
-environment's script budget is refused up front, and the error contains the
-exact limits line the host must set. Stills and short scenes always fit.
+**Asking for more than the run was granted.** A render that cannot fit is
+refused up front rather than killed mid-way, and the error names the
+\`timeout_ms\` to pass on the \`run_script\` call — that is how a script asks for
+more time, bounded by the environment's \`limits.runTimeoutMs\` ceiling. Stills
+and short scenes always fit.
 
 **Rendering long before checking short.** Iterate on a still. Only render the
 whole thing once it looks right.

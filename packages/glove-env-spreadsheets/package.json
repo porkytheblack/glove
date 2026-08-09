@@ -27,7 +27,8 @@
     "build": "tsup",
     "prepublishOnly": "pnpm build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --import tsx tests/*.test.ts"
+    "test": "node --test --import tsx tests/*.test.ts",
+    "bench": "node --import tsx bench/paging.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0"

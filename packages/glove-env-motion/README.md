@@ -20,7 +20,7 @@ import { motion, MOTION_LIMITS } from "glove-env-motion";
 
 const env = await createWorkingEnvironment({
   stdlib: [motion()],
-  limits: MOTION_LIMITS,   // renders need more than the 30s default script budget
+  limits: MOTION_LIMITS,   // raises the per-run ceiling; renders need more than 30s
 });
 ```
 
@@ -46,7 +46,9 @@ ready — env:motion can render on this host
 
 Every failing line comes with the one command that fixes it. The same checks feed `capabilities()` (what the agent can call at runtime) and the generated `/std/motion/README.md` (which tells the agent what *this* host can do before it spends a render finding out).
 
-And if you forget `MOTION_LIMITS`? The render is **refused up front** with the exact `limits: { runTimeoutMs: … }` line to add — it does not die mid-run with a generic timeout.
+`MOTION_LIMITS` raises the *ceiling*, not every script's allowance: a run asks for the time it needs with `run_script`'s `timeout_ms`, and that is clamped to `runTimeoutMs`. So a long render becomes possible without also handing four minutes to an accidental `for(;;)`.
+
+And if you forget it? The render is **refused up front**, naming both the `timeout_ms` to ask for and the ceiling that has to allow it — it does not die mid-run with a generic timeout.
 
 ## What the agent does
 
@@ -148,7 +150,9 @@ view_image({ path: '/tmp/frames/frame-00045.png',
 
 ## Cost
 
-Every frame is a browser screenshot — roughly a second per 10 frames. A 10-second clip at 30fps is 300 frames. Three guards, in order: a hard frame ceiling per render (default 1800, refused with the number), the up-front budget check against the environment's `runTimeoutMs` (refused with the fix), and the docs steering agents to iterate on stills before rendering the whole thing.
+Every frame is a browser screenshot — roughly a second per 10 frames. A 10-second clip at 30fps is 300 frames. Four guards, in order: a hard frame ceiling per render (default 1800, refused with the number), the up-front budget check (refused with the `timeout_ms` to ask for and the ceiling that bounds it), a process-wide cap on how many Chromiums exist at once across every environment (`maxBrowsers`, default 2), and the docs steering agents to iterate on stills before rendering the whole thing.
+
+The browser itself is **reused** between renders in an environment — a fresh browser *context* per render keeps the isolation, while the process stays warm — so the second still in a session does not pay the launch again.
 
 ## Output formats
 
