@@ -226,6 +226,8 @@ export class WorkerPool {
    * a call outstanding worth cancelling.
    */
   private readonly liveRuns = new Map<string, { signal?: AbortSignal }>();
+  /** The warm in flight, so a second caller joins it instead of over-spawning. */
+  private warming: Promise<void> | null = null;
 
   constructor(
     private readonly deps: PoolDeps,
@@ -442,6 +444,57 @@ export class WorkerPool {
     this.slots = this.slots.filter((s) => s !== slot);
     slot.poisoned = true;
     void slot.worker.terminate().catch(() => undefined);
+  }
+
+  /**
+   * Spawn up to `size` workers now, so the first script does not pay for it.
+   *
+   * A cold pool spawns on first `acquire`, which means the first `run_script`
+   * of a session — or the first script the model writes, since write-time
+   * validation runs in a worker too — carries ~82 ms of thread start-up that
+   * has nothing to do with the work. A host that knows a session is beginning
+   * (an environment created per conversation, a desk restored from a snapshot)
+   * can pay it during the wait it already has.
+   *
+   * **Never rejects.** It is called from `createWorkingEnvironment` without an
+   * `await`, and a rejected promise nobody is holding takes the process down.
+   * A spawn that fails is discarded and the pool is left exactly as it was, to
+   * be retried on demand at the first acquire — where the backoff, the attempt
+   * counter and the named error already live. Nothing about a failed prewarm
+   * is worth failing a create over: the environment is entirely usable, it is
+   * just cold.
+   */
+  async warmup(): Promise<void> {
+    if (this.closed) return;
+    // A second caller joins the warm already running rather than starting
+    // another. `createWorkingEnvironment` fires one off when `prewarm` is set,
+    // and a host that then calls `env.warmup()` to wait for it must actually
+    // wait — two independent warms would race past `size` and spawn threads
+    // the pool immediately discards as surplus.
+    if (this.warming) return this.warming;
+    const warm = this.warmInner().finally(() => {
+      this.warming = null;
+    });
+    this.warming = warm;
+    return warm;
+  }
+
+  private async warmInner(): Promise<void> {
+    while (!this.closed && this.slots.filter((s) => !s.poisoned).length < this.size) {
+      let slot: Slot | null = null;
+      try {
+        slot = this.spawn();
+        this.slots.push(slot);
+        await this.awaitReady(slot);
+        // `close()` can land while a worker is starting. It took its copy of
+        // `slots` before this one was pushed, so nothing else will ever
+        // terminate it — the exact leak `acquire` re-checks `closed` for.
+        if (this.closed) this.discard(slot);
+      } catch {
+        if (slot) this.discard(slot);
+        return;
+      }
+    }
   }
 
   /**

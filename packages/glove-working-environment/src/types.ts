@@ -513,6 +513,21 @@ export interface CreateWorkingEnvironmentOptions {
      */
     shutdownGraceMs?: number;
     /**
+     * Start the pool's workers in the background as soon as the environment is
+     * created, instead of on the first script. Default false.
+     *
+     * The first `run_script` of a session — or the first script the model
+     * *writes*, since write-time validation runs in a worker too — otherwise
+     * carries ~82 ms of thread start-up. A host that knows a session is
+     * beginning can spend it during the wait it already has.
+     *
+     * Never fails a create: a prewarm spawn that does not come up leaves the
+     * pool exactly as it was and is retried on demand at the first acquire.
+     * `env.warmup()` does the same thing at a moment of the host's choosing —
+     * after restoring a snapshot, say — and can be awaited.
+     */
+    prewarm?: boolean;
+    /**
      * How long a freshly spawned worker has to become ready. Default 10000ms.
      *
      * The failure this bounds is the quiet one: a worker that never signals
