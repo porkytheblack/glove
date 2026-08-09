@@ -28,12 +28,12 @@
   "packageManager": "pnpm@10.28.2",
   "pnpm": {
     "onlyBuiltDependencies": [
-      "better-sqlite3",
-      "onnxruntime-node"
+      "better-sqlite3"
     ],
     "ignoredBuiltDependencies": [
       "@ffmpeg-installer/darwin-arm64",
       "@ffprobe-installer/darwin-arm64",
+      "onnxruntime-node",
       "sharp"
     ]
   },
