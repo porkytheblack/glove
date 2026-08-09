@@ -20,12 +20,12 @@ REGISTRY="${REGISTRY:-ghcr.io/porkytheblack}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 
 declare -A IMAGES=(
-  [base]=1.0
-  [media]=1.4
-  [docs]=1.2
-  [python]=1.3
-  [browser]=1.1
-  [studio]=1.0
+  [base]=1.1
+  [media]=1.5
+  [docs]=1.3
+  [python]=1.4
+  [browser]=1.2
+  [studio]=1.1
 )
 
 # base must build first since the others FROM it, and studio FROM docs.

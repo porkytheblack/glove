@@ -2,7 +2,7 @@
 #
 # pdftk, pandoc, qpdf, libreoffice headless. Surfaces @pdfwright and
 # @docconverter mentions for high-fidelity document manipulation.
-FROM ghcr.io/porkytheblack/glovebox/base:1.0
+FROM ghcr.io/porkytheblack/glovebox/base:1.1
 
 USER root
 
@@ -33,7 +33,7 @@ RUN apt-get update \
 RUN su glovebox -c "libreoffice --headless --terminate_after_init || true"
 
 ENV GLOVEBOX_BASE_IMAGE=glovebox/docs \
-    GLOVEBOX_BASE_VERSION=1.2 \
+    GLOVEBOX_BASE_VERSION=1.3 \
     HOME=/home/glovebox
 
 USER glovebox

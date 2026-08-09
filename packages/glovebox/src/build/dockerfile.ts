@@ -3,12 +3,12 @@ import type { ResolvedGloveboxConfig } from "../config"
 const DEFAULT_BASE_IMAGE_REGISTRY = "ghcr.io/porkytheblack"
 
 const KNOWN_BASE_TAGS: Record<string, string> = {
-  "glovebox/base": "1.0",
-  "glovebox/media": "1.4",
-  "glovebox/docs": "1.2",
-  "glovebox/python": "1.3",
-  "glovebox/browser": "1.1",
-  "glovebox/studio": "1.0",
+  "glovebox/base": "1.1",
+  "glovebox/media": "1.5",
+  "glovebox/docs": "1.3",
+  "glovebox/python": "1.4",
+  "glovebox/browser": "1.2",
+  "glovebox/studio": "1.1",
 }
 
 /**

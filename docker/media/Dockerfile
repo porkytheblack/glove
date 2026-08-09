@@ -2,7 +2,7 @@
 #
 # ffmpeg, imagemagick, sox, yt-dlp. The @transcoder mention surfaces an
 # ffmpeg-expert subagent at runtime via glovebox-kit's base-mention registry.
-FROM ghcr.io/porkytheblack/glovebox/base:1.0
+FROM ghcr.io/porkytheblack/glovebox/base:1.1
 
 USER root
 
@@ -27,6 +27,6 @@ RUN sed -i 's/rights="none" pattern="PDF"/rights="read|write" pattern="PDF"/' \
       /etc/ImageMagick-6/policy.xml || true
 
 ENV GLOVEBOX_BASE_IMAGE=glovebox/media \
-    GLOVEBOX_BASE_VERSION=1.4
+    GLOVEBOX_BASE_VERSION=1.5
 
 USER glovebox

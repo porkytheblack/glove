@@ -13,7 +13,7 @@ export function generateNixpacks(config: ResolvedGloveboxConfig, bundle: BundleL
   const pip = config.packages.pip ?? []
   const npm = config.packages.npm ?? []
 
-  const nixPkgs = ["nodejs_20", ...apt]
+  const nixPkgs = ["nodejs_22", ...apt]
   if (pip.length > 0) {
     nixPkgs.push("python311")
     for (const p of pip) nixPkgs.push(`python311Packages.${p}`)

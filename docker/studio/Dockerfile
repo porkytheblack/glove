@@ -18,7 +18,7 @@
 # is one transaction that also brings its own runtime libraries, and it is not
 # tied to the playwright-core version the app happens to install. The launch
 # already passes `--no-sandbox`, which is what a container needs.
-FROM ghcr.io/porkytheblack/glovebox/docs:1.2
+FROM ghcr.io/porkytheblack/glovebox/docs:1.3
 
 USER root
 
@@ -31,7 +31,7 @@ RUN apt-get update \
 # Both adapters resolve their binary by name/path at run time; naming them
 # here means an app never has to configure either.
 ENV GLOVEBOX_BASE_IMAGE=glovebox/studio \
-    GLOVEBOX_BASE_VERSION=1.0 \
+    GLOVEBOX_BASE_VERSION=1.1 \
     GLOVE_CHROMIUM_PATH=/usr/bin/chromium \
     CHROME_PATH=/usr/bin/chromium
 
