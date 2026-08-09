@@ -214,6 +214,40 @@ function defineWorkbook(vfs: EnvFsHandle): unknown {
         "csv",
       ]),
     ],
+    rewrite: {
+      /**
+       * `workbook.addImage({ filename })` makes exceljs open the file itself
+       * — off the HOST filesystem, which would let a script pull any host
+       * file it can name into a workbook it then exports. The path is
+       * resolved here instead, through the guarded VFS handle, and handed on
+       * as bytes.
+       *
+       * It also puts the failure where it belongs: exceljs defers reading
+       * until `writeBuffer()`, so a missing image otherwise surfaced against
+       * the write instead of the `addImage()` that named it.
+       *
+       * `worksheet.addImage(id, range)` shares the name and takes the id this
+       * call returns, which is why the rewrite is on the argument's shape
+       * rather than on the method name alone.
+       */
+      async addImage(args) {
+        const first = args[0];
+        if (!first || typeof first !== "object") return args;
+        const opts = { ...(first as Record<string, unknown>) };
+        const filename = opts.filename;
+        if (typeof filename !== "string") return args;
+        const bytes = await vfs.readBytes(filename);
+        delete opts.filename;
+        opts.buffer = Buffer.from(bytes);
+        // exceljs names the media part `xl/media/<name>.<extension>`, and with
+        // the filename gone it has nothing left to infer the extension from.
+        if (typeof opts.extension !== "string") {
+          const ext = (filename.split(".").pop() ?? "png").toLowerCase();
+          opts.extension = ext === "jpg" ? "jpeg" : ext;
+        }
+        return [opts, ...args.slice(1)];
+      },
+    },
     finish: {
       /**
        * exceljs's own `writeFile` writes to the HOST filesystem. It is

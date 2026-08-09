@@ -4,6 +4,9 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import ExcelJS from "exceljs";
 import { assertAdapterOk, createAdapterTestEnv, type AdapterTestEnv } from "glove-working-environment/testing";
 import { spreadsheets } from "../src/index";
@@ -567,4 +570,50 @@ test("a write outside the writable zone is refused by the same gateway as any ot
   );
   assert.equal(run.ok, false);
   assert.match(run.error ?? "", /read-only|not writable/i);
+});
+
+test("an image is read from the VFS, and a host path cannot reach the workbook", async () => {
+  // exceljs opens `filename` itself, off the real disk, at write time — so
+  // without the rewrite a script could name any host file it liked and have
+  // its bytes shipped inside a workbook it then exports. The host file here
+  // genuinely exists, so a failure to read it is the guard and not a typo.
+  const t = await env();
+  const dir = mkdtempSync(join(tmpdir(), "glove-spreadsheets-escape-"));
+  const host = join(dir, "secret.png");
+  writeFileSync(host, "HOST-ONLY-fdc41a2e");
+
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  await t.fs.writeFile("/tmp/logo.png", new Uint8Array(png));
+
+  // The VFS path works and the bytes land in the workbook's media part.
+  await t.script(
+    `import { Workbook } from 'env:spreadsheets';
+     export default async function main() {
+       const wb = new Workbook();
+       const ws = wb.addWorksheet('Cover');
+       const id = wb.addImage({ filename: '/tmp/logo.png' });
+       ws.addImage(id, 'B2:D6');
+       return wb.xlsx.writeFile('/out/with-image.xlsx');
+     }`,
+  );
+  const back = new ExcelJS.Workbook();
+  await back.xlsx.load((await t.fs.readBytes("/out/with-image.xlsx")).slice().buffer as ArrayBuffer);
+  assert.equal(back.model.media.length, 1, "the VFS image should be embedded");
+
+  const run = await t.runScript(
+    `import { Workbook } from 'env:spreadsheets';
+     export default async function main() {
+       const wb = new Workbook();
+       const ws = wb.addWorksheet('Leak');
+       ws.addImage(wb.addImage({ filename: ${JSON.stringify(host)} }), 'A1:B2');
+       return wb.xlsx.writeFile('/out/leak.xlsx');
+     }`,
+  );
+  assert.equal(run.ok, false, "a host path must not be readable through addImage");
+  assert.match(run.error ?? "", /no such file|not found|outside/i);
+  assert.equal(await t.fs.exists("/out/leak.xlsx"), false, "host bytes must not reach a deliverable");
+  assert.equal(readFileSync(host, "utf8"), "HOST-ONLY-fdc41a2e", "the host file was there to be read all along");
 });

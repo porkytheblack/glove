@@ -12,6 +12,7 @@
  * dies here.
  */
 import { inflateRawSync } from "node:zlib";
+import { DEFAULT_LIMITS } from "glove-working-environment";
 
 interface ZipEntry {
   name: string;
@@ -23,6 +24,19 @@ interface ZipEntry {
 
 const SIG_EOCD = 0x06054b50;
 const SIG_CENTRAL = 0x02014b50;
+/** General-purpose bit 0: the entry is encrypted. */
+const FLAG_ENCRYPTED = 0x0001;
+
+/**
+ * Ceiling on what one part may inflate to when the caller does not say.
+ *
+ * The adapter passes the environment's real `maxVfsBytes`; this stands in for
+ * a host calling `readDeck` on bytes of its own, which has no limits to
+ * consult. The default limit is the honest stand-in — the figure the
+ * environment uses unless a host raised it — and erring low is the safe
+ * direction: too low is a named error, too high is an OOM.
+ */
+const DEFAULT_MAX_INFLATED = DEFAULT_LIMITS.maxVfsBytes;
 
 /**
  * Parse the central directory.
@@ -59,6 +73,12 @@ function readZip(bytes: Uint8Array): Map<string, ZipEntry> {
     const extraLen = view.getUint16(offset + 30, true);
     const commentLen = view.getUint16(offset + 32, true);
     const name = new TextDecoder().decode(bytes.subarray(offset + 46, offset + 46 + nameLen));
+    if (view.getUint16(offset + 8, true) & FLAG_ENCRYPTED) {
+      // Inflating ciphertext produces garbage rather than an error, so the
+      // deck would come back as "not a PowerPoint deck" — a refusal that
+      // names the password is the one a person can act on.
+      throw new Error(`encrypted ZIP entries are not supported: ${name} — save the deck without a password`);
+    }
     entries.set(name, {
       name,
       compression: view.getUint16(offset + 10, true),
@@ -71,7 +91,16 @@ function readZip(bytes: Uint8Array): Map<string, ZipEntry> {
   return entries;
 }
 
-function readEntry(bytes: Uint8Array, entry: ZipEntry): Uint8Array {
+/**
+ * Inflate one part, refusing to produce more than `maxBytes`.
+ *
+ * The cap is the whole defence, not belt-and-braces: `uncompressedSize` comes
+ * from the file being inspected, so trusting it catches only honest decks.
+ * `maxOutputLength` is what stops a few kilobytes of deflate stream from
+ * becoming gigabytes of host heap — a .pptx is bounded on the way in by
+ * `maxFileBytes`, which a deflate stream expands many-fold.
+ */
+function readEntry(bytes: Uint8Array, entry: ZipEntry, maxBytes: number): Uint8Array {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const h = entry.localHeaderOffset;
   // The local header's name/extra lengths can differ from the central
@@ -80,15 +109,34 @@ function readEntry(bytes: Uint8Array, entry: ZipEntry): Uint8Array {
   const extraLen = view.getUint16(h + 28, true);
   const start = h + 30 + nameLen + extraLen;
   const raw = bytes.subarray(start, start + entry.compressedSize);
-  if (entry.compression === 0) return raw;
-  if (entry.compression === 8) return new Uint8Array(inflateRawSync(raw));
-  throw new Error(`unsupported ZIP compression method ${entry.compression} for ${entry.name}`);
+  if (entry.compression === 0) {
+    if (raw.byteLength > maxBytes) throw new Error(bombMessage(entry, maxBytes));
+    return raw;
+  }
+  if (entry.compression !== 8) {
+    throw new Error(`unsupported ZIP compression method ${entry.compression} for ${entry.name}`);
+  }
+  try {
+    return new Uint8Array(inflateRawSync(raw, { maxOutputLength: maxBytes }));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/maxOutputLength|buffer|ERR_BUFFER_TOO_LARGE/i.test(msg)) throw new Error(bombMessage(entry, maxBytes));
+    throw new Error(`could not inflate ${entry.name}: ${msg}`);
+  }
 }
 
-function readText(bytes: Uint8Array, name: string): string | null {
+function bombMessage(entry: ZipEntry, maxBytes: number): string {
+  return (
+    `${entry.name} expands past the ${maxBytes}-byte inflation budget for this environment` +
+    (entry.uncompressedSize > 0 ? ` (it declares ${entry.uncompressedSize} bytes)` : "") +
+    `. This deck is either corrupt or crafted to exhaust memory; raise limits.maxVfsBytes if it is genuinely this large.`
+  );
+}
+
+function readText(bytes: Uint8Array, name: string, maxBytes: number): string | null {
   const entries = readZip(bytes);
   const entry = entries.get(name);
-  return entry ? new TextDecoder().decode(readEntry(bytes, entry)) : null;
+  return entry ? new TextDecoder().decode(readEntry(bytes, entry, maxBytes)) : null;
 }
 
 /** `ppt/slides/slide12.xml` → 12. Used to order slides numerically, not lexically. */
@@ -144,8 +192,13 @@ export interface DeckContent {
   media: string[];
 }
 
-/** Read a deck's text, slide by slide, from the file itself. */
-export function readDeck(bytes: Uint8Array): DeckContent {
+/**
+ * Read a deck's text, slide by slide, from the file itself.
+ *
+ * `maxBytes` bounds what any one part may inflate to; the adapter passes the
+ * environment's `maxVfsBytes`.
+ */
+export function readDeck(bytes: Uint8Array, maxBytes: number = DEFAULT_MAX_INFLATED): DeckContent {
   const entries = readZip(bytes);
 
   const slideParts = [...entries.keys()]
@@ -159,9 +212,9 @@ export function readDeck(bytes: Uint8Array): DeckContent {
   }
 
   const slides: SlideText[] = slideParts.map((part, i) => {
-    const paragraphs = paragraphsOf(readText(bytes, part) ?? "");
+    const paragraphs = paragraphsOf(readText(bytes, part, maxBytes) ?? "");
     const notesPart = `ppt/notesSlides/notesSlide${slideNumber(part)}.xml`;
-    const notes = entries.has(notesPart) ? paragraphsOf(readText(bytes, notesPart) ?? "").join("\n") : "";
+    const notes = entries.has(notesPart) ? paragraphsOf(readText(bytes, notesPart, maxBytes) ?? "").join("\n") : "";
     return {
       slide: i + 1,
       title: paragraphs[0] ?? "",

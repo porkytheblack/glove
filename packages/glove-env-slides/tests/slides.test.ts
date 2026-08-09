@@ -7,9 +7,16 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { deflateRawSync } from "node:zlib";
 import { assertAdapterOk, createAdapterTestEnv } from "glove-working-environment/testing";
 import { slides, type DeckSummary, type SlideText } from "../src/index";
 import { readDeck } from "../src/pptx";
+
+/** Content of the host file the escape tests try, and fail, to reach. */
+const HOST_MARKER = "HOST-ONLY-4f19c7b3";
 
 const deckSpec = `{
   title: 'Q3 Review',
@@ -368,6 +375,62 @@ test("an image is read from the VFS, never the host filesystem", async () => {
   assert.match(err, /no such file|not found|outside/i);
 });
 
+test("media and backgrounds are read from the VFS too, never the host filesystem", async () => {
+  // `addImage` was rewritten; `addMedia` and `background` were not, and they
+  // reach the same `fs.readFileSync(rel.path)` inside pptxgenjs at write time.
+  // The host file below genuinely exists and holds a marker, so a failure to
+  // read it is the guard doing its job rather than a mistyped path.
+  const t = await createAdapterTestEnv(slides());
+  const host = join(mkdtempSync(join(tmpdir(), "glove-slides-escape-")), "secret.png");
+  writeFileSync(host, HOST_MARKER);
+
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  await t.fs.writeFile("/tmp/bg.png", new Uint8Array(png));
+  await t.fs.writeFile("/tmp/clip.mp3", new Uint8Array([0x49, 0x44, 0x33, 3, 0, 0, 0, 0, 0, 0]));
+
+  // Paths in the tree keep working, through all three routes.
+  const summary = await t.script<DeckSummary>(`
+    import { PptxGenJS, describe } from 'env:slides';
+    export default async function main() {
+      const pptx = new PptxGenJS();
+      pptx.defineSlideMaster({ title: 'branded', background: { path: '/tmp/bg.png' } });
+      const s = pptx.addSlide();
+      s.background = { path: '/tmp/bg.png' };
+      s.addText('hi', { x: 1, y: 1 });
+      s.addMedia({ type: 'audio', path: '/tmp/clip.mp3', x: 1, y: 3, w: 2, h: 1 });
+      await pptx.writeFile({ fileName: '/out/media.pptx' });
+      return describe('/out/media.pptx');
+    }
+  `);
+  assert.ok(summary.media >= 2, `VFS media should be embedded, got ${summary.media} parts`);
+
+  // And a host path is refused whichever of the three named it.
+  const routes: Array<[string, string]> = [
+    ["addMedia", `pptx.addSlide().addMedia({ type: 'audio', path: HOST, x: 1, y: 1, w: 2, h: 1 });`],
+    ["slide background", `pptx.addSlide().background = { path: HOST };`],
+    ["master background", `pptx.defineSlideMaster({ title: 'm', background: { path: HOST } });`],
+  ];
+  for (const [label, attack] of routes) {
+    const run = await t.runScript(`
+      import { PptxGenJS } from 'env:slides';
+      const HOST = ${JSON.stringify(host)};
+      export default async function main() {
+        const pptx = new PptxGenJS();
+        ${attack}
+        pptx.addSlide().addText('filler', { x: 1, y: 1 });
+        return pptx.writeFile({ fileName: '/out/leak.pptx' });
+      }
+    `);
+    assert.equal(run.ok, false, `${label}: a host path must not be readable`);
+    assert.match(String(run.error), /no such file|not found|outside|never from the host/i, label);
+    assert.equal(await t.fs.exists("/out/leak.pptx"), false, `${label}: host bytes reached a deliverable`);
+  }
+  assert.equal(readFileSync(host, "utf8"), HOST_MARKER, "the host file was there to be read all along");
+});
+
 test("a method the library does not have is refused, and lists what it does", async () => {
   const t = await createAdapterTestEnv(slides());
   const err = await t
@@ -431,6 +494,93 @@ test("prototype methods are not reachable through a builder", async () => {
   assert.match(rendered, /^\[PptxGenJS \(recording/);
   assert.equal(await t.fs.exists("/out/x.pptx"), false);
 });
+
+// ============================================ decks built to be hostile
+
+test("a deck that lies about a part's size is refused rather than inflated", async () => {
+  // A .pptx arrives from outside and gets read on the way in. The declared
+  // uncompressedSize comes out of that same file, so trusting it catches only
+  // honest decks — this one declares 512 bytes and expands to five megabytes,
+  // on the host heap, outside VFS accounting.
+  const t = await createAdapterTestEnv(slides(), { limits: { maxVfsBytes: 200_000 } });
+  const bomb = craftedZip("ppt/slides/slide1.xml", deflateRawSync(Buffer.alloc(5_000_000)), { declaredSize: 512 });
+  assert.ok(bomb.byteLength < 20_000, `the fixture must be small to be a bomb, it is ${bomb.byteLength} bytes`);
+  await t.fs.writeFile("/inbox/bomb.pptx", bomb);
+
+  const run = await t.runScript(
+    `import { describe } from 'env:slides';
+     export default async function main() { return describe('/inbox/bomb.pptx'); }`,
+  );
+  assert.equal(run.ok, false);
+  assert.match(String(run.error), /expands past the 200000-byte inflation budget/);
+  assert.match(String(run.error), /maxVfsBytes/);
+});
+
+test("an encrypted deck is refused by name, not misread as 'not a deck'", async () => {
+  // Inflating ciphertext yields garbage rather than an error, so without the
+  // flag check the deck comes back as "no ppt/slides/" — true, useless, and
+  // silent about the password that is actually in the way.
+  const t = await createAdapterTestEnv(slides());
+  const locked = craftedZip("ppt/slides/slide1.xml", Buffer.from("<p:sld/>"), { flags: 0x0001, stored: true });
+  await t.fs.writeFile("/inbox/locked.pptx", locked);
+
+  const run = await t.runScript(
+    `import { extract } from 'env:slides';
+     export default async function main() { return extract('/inbox/locked.pptx'); }`,
+  );
+  assert.equal(run.ok, false);
+  assert.match(String(run.error), /encrypted ZIP entries are not supported/);
+  assert.match(String(run.error), /without a password/);
+});
+
+/**
+ * A one-entry ZIP whose headers can lie.
+ *
+ * Written by hand rather than committed as a fixture: the point of a bomb is
+ * that a few hundred bytes claim to be megabytes, and a checked-in binary
+ * would hide both numbers.
+ */
+function craftedZip(
+  name: string,
+  body: Uint8Array,
+  opts: { declaredSize?: number; flags?: number; stored?: boolean } = {},
+): Uint8Array {
+  const nameBuf = Buffer.from(name, "utf8");
+  const declared = opts.declaredSize ?? body.byteLength;
+  const method = opts.stored ? 0 : 8;
+  const flags = opts.flags ?? 0;
+
+  const local = Buffer.alloc(30 + nameBuf.length);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(20, 4);
+  local.writeUInt16LE(flags, 6);
+  local.writeUInt16LE(method, 8);
+  local.writeUInt32LE(body.byteLength, 18);
+  local.writeUInt32LE(declared, 22);
+  local.writeUInt16LE(nameBuf.length, 26);
+  nameBuf.copy(local, 30);
+
+  const central = Buffer.alloc(46 + nameBuf.length);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(20, 4);
+  central.writeUInt16LE(20, 6);
+  central.writeUInt16LE(flags, 8);
+  central.writeUInt16LE(method, 10);
+  central.writeUInt32LE(body.byteLength, 20);
+  central.writeUInt32LE(declared, 24);
+  central.writeUInt16LE(nameBuf.length, 28);
+  central.writeUInt32LE(0, 42);
+  nameBuf.copy(central, 46);
+
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(1, 8);
+  eocd.writeUInt16LE(1, 10);
+  eocd.writeUInt32LE(central.length, 12);
+  eocd.writeUInt32LE(local.length + body.byteLength, 16);
+
+  return new Uint8Array(Buffer.concat([local, Buffer.from(body), central, eocd]));
+}
 
 test("a deck that is never written says so, rather than failing silently", async () => {
   const t = await createAdapterTestEnv(slides());
