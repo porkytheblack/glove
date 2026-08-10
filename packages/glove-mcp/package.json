@@ -1,6 +1,6 @@
 {
   "name": "glove-mcp",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Model Context Protocol (MCP) integration for the Glove agent framework",
   "type": "module",
   "license": "MIT",

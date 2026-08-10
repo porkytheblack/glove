@@ -1,6 +1,6 @@
 {
   "name": "glove-env-zip",
-  "version": "0.5.0",
+  "version": "1.0.0",
   "description": "Archive stdlib adapter for glove-working-environment. Reads and writes zip, tar and tar.gz inside the agent's virtual filesystem as env:archives — list, describe, extract selectively, package a directory back up. Dependency-free: node:zlib and nothing else.",
   "type": "module",
   "license": "MIT",

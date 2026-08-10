@@ -1,0 +1,174 @@
+# glove-env-documents
+
+## 1.0.0
+
+### Minor Changes
+
+- [#47](https://github.com/porkytheblack/glove/pull/47) [`5e9c527`](https://github.com/porkytheblack/glove/commit/5e9c5279ed0381ba01c72f4ef15d1fb88ea53cd0) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Three stdlib adapter packages for `glove-working-environment`, each carrying its own heavy dependency so the core stays zero-dependency.
+
+  `glove-env-spreadsheets` (`env:spreadsheets`, exceljs) makes `.xlsx` workbooks readable as plain JSON. exceljs returns rich objects — `{ richText: [...] }`, `{ formula, result }`, `{ error: '#DIV/0!' }`, `Date`s, hyperlink pairs — and handing those to a model spends tokens saying nothing while teaching it to write defensive unwrapping; everything is flattened at the boundary, with `read({ formulas: true })` for when the formula text is the point. `describe(path)` summarises sheets, sizes, headers and one sample row at a cost independent of file size, and `read` reports `totalRows` so `offset`/`limit` paging has an obvious loop condition. Blank headers become their column letter and duplicates get a `_2` suffix so no column is silently dropped, and `append` follows the sheet's existing header order rather than the incoming record's key order.
+
+  `glove-env-documents` (`env:documents`, pdf-lib + docx) renders one document spec — headings, text, bullets, tables, images, page breaks — to both PDF and DOCX, wrapping and paginating on its own. `describe(path)` sniffs the format from the bytes rather than the extension. PDF text extraction is delegated to an optional `pdfjs-dist` peer and refuses cleanly when it is absent: decoding glyphs back to characters is a font/CMap problem, and a naive content-stream scan returns plausible nonsense on any subsetted font, which a model cannot tell from the real thing. DOCX extraction needs no extra dependency — a `.docx` is a ZIP of XML, read here with `node:zlib`. pdf-lib's standard fonts are WinAnsi-only and throw on an em dash, so non-Latin-1 characters are transliterated where there is an obvious equivalent rather than failing an entire render; the docs point at DOCX for full Unicode.
+
+  `glove-env-images` (`env:images`, sharp) keeps image bytes out of the context window entirely: `describe(path)` answers what a file is without decoding pixels, `stats(path)` adds channel spread and dominant colour (enough to tell a blank scan from a real one, ignoring alpha so transparent PNGs do not read as dark), and everything else turns one path into another. The output extension picks the encoder unless `{ format }` overrides it. EXIF orientation is surfaced rather than silently applied, because cropping a sideways image without normalising first gives coordinates on the wrong axis and nothing else would say so.
+
+  All three follow the §4.4 convention — paths in, paths out, structured data in between — expose `describe(path)`, validate arguments before reaching the underlying library so failures are sentences rather than library stack traces, and are tested from inside real scripts via `glove-working-environment/testing`.
+
+- [#131](https://github.com/porkytheblack/glove/pull/131) [`2e2810c`](https://github.com/porkytheblack/glove/commit/2e2810c9fd9f6d3bf0a14742e1c52d0678eb540e) Thanks [@claude](https://github.com/apps/claude)! - "Change the client name in this contract" rebuilt the contract instead of changing it
+
+  Both of the make-a-document adapters were regenerate-only, and the way they failed was quiet. `docx` is a write-only library and pptxgenjs cannot open a deck, so the only route to an edit was to extract the text and render a new file from it — which rebuilds the document out of the small vocabulary our own spec can express, and drops everything else on the floor while reporting success.
+
+  Measured, not assumed. A contract with a header, a bold red client name and a logo went through that cycle and came back missing `word/header1.xml`, its relationships and `word/media/*.png`, with the client name returned as plain text. A deck with a chart and a footer lost `ppt/media/image-3-1.png` and the footer's slide layout. Neither loss shows up in a text round-trip, which is exactly why it was worth fixing.
+
+  **`docx.replaceText(path, replacements, options?)` and `slides.replaceText(path, replacements, options?)` edit the package instead.** The one part carrying the matched text is inflated, spliced and re-deflated; every other entry is copied across _still compressed_, with its recorded CRC and method. That is the guarantee, and it is a property of the bytes rather than of a model of the document: code that never decoded `word/styles.xml` cannot change it. The DOCX edit rewrote 2 of 28 parts and left 26 byte-identical; the slide edit rewrote 1 of 50 and left 49. The tests hash every part before and after and assert on the exact set that moved.
+
+  The interesting half is the splicing. Neither format stores "Northwind Traders" anywhere — Word and PowerPoint start a new run wherever anything changes, including a spell-check marker or a revision id, so a name a person reads as one word is routinely two or three `<w:t>` elements and a per-element replace finds nothing. Runs are therefore reassembled per paragraph, matched there, and written back onto the runs they came from: the replacement goes wholly into the run where the match _started_, so a bold client name stays bold and a red one stays red, and the runs around it are re-emitted unchanged.
+
+  Three decisions worth naming, because each has a wrong answer that produces a plausible file:
+
+  - **Paragraphs are found with a stack, not a regex.** They nest — a text box lives inside a run and carries paragraphs of its own, and so does a table cell. A non-greedy `<w:p>…</w:p>` ends the outer paragraph at the inner `</w:p>`, which would splice the opening of one sentence onto the text of an unrelated box and could match a phrase that is nowhere in the document.
+  - **Rules are applied in one pass.** `{ Acme: 'Globex', Globex: 'Initech' }` run in sequence carries the original Acme all the way to Initech. One pass with first-rule-wins makes the outcome a function of the rules rather than of their execution order.
+  - **A search that matches nothing throws.** Writing a byte-identical file and returning success is the failure that costs a run: the model believes the rename happened. When several rules are given and only some hit, `unmatched` names the misses.
+
+  Scope is text, and it says so. `slides.replaceText` takes `{ slides: 4 }` or `{ slides: [2, 4] }`, numbered exactly as `describe` and `extract` number them, and leaves speaker notes alone unless asked. `docx.replaceText` edits headers, footers, footnotes and endnotes by default — a client name is usually in a header too — with `{ parts: 'body' }` to narrow it. Matching is literal, case-sensitive, and never crosses a paragraph boundary, because two paragraphs are two lines on the page and joining them would let a replacement swallow the break.
+
+  Both edit paths read through the same guarded VFS handle and the same inflation cap as the readers, with tests that point a zip bomb and an encrypted archive at `replaceText` specifically. A new read path is exactly where a closed hole gets reopened, and nothing about a find/replace looks like a place to check for a decompression bomb.
+
+  One correctness fix fell out of the work: **a slide's speaker notes are now resolved through the slide's relationships rather than by matching numbers.** `slide7.xml` ↔ `notesSlide7.xml` holds for decks this package writes and for very little else — PowerPoint numbers notes parts in creation order, so a deck where slide 2 got notes first has `notesSlide1.xml` hanging off slide 2. Reading and editing consult the same resolver, so an edit scoped to a slide cannot land on a different slide's notes.
+
+  36 tests added across the two packages.
+
+- [#131](https://github.com/porkytheblack/glove/pull/131) [`2e2810c`](https://github.com/porkytheblack/glove/commit/2e2810c9fd9f6d3bf0a14742e1c52d0678eb540e) Thanks [@claude](https://github.com/apps/claude)! - "Write this PDF in Japanese" produced `????????`, and "fill in this form" had no route at all
+
+  Two capabilities sat one call away in pdf-lib and were not offered.
+
+  **Non-Latin PDF text was transliterated away.** `pdf.create` embedded Helvetica, whose encoding stops at Latin-1, so every character past it became `?` — measured: `契約書：山田太郎` came back out as eight question marks and `Договор — Иван Петров` as `??????? - ???? ??????`. `pdf.create`, `pdf.stamp` and the new `pdf.fillForm` now take a `font`: a VFS path to a `.ttf`/`.otf`, or `{ regular, bold }`, embedded through fontkit and subsetted to the glyphs actually used. A 6.2 MB Japanese face became a 4 KB PDF, and the Japanese came back out of it character-for-character through pdfjs, which shares no code with the writer.
+
+  **A font that cannot draw the text is refused, and this is the part that mattered most.** pdf-lib does not fail on an unmapped code point — it emits glyph 0, which every viewer renders as a blank box. So the document's text is checked against the font's own character set _before_ anything is drawn, and the whole document is checked at once: "`/fonts/sans.ttf` has no glyph for 8 characters in this document: "契" (U+5951), …" is one fix, where failing at the first bad character is eight runs. A Latin font is not a CJK font with a few extras, and now it cannot pretend to be one.
+
+  The transliteration stays where there is no font, and the two behaviours are opposite on purpose. Substituting a hyphen for an em dash is right when the alternative is failing an entire render over punctuation; substituting a blank box is wrong when the alternative is a page nobody can read. A test pins the `?` fallback so it cannot drift into throwing.
+
+  Metadata stopped being transliterated at all. PDF text strings are UTF-16 and need no font, so putting `toWinAnsi` in front of `setTitle` was costing a Japanese title its characters for nothing.
+
+  **`pdf.readForm(path)` and `pdf.fillForm(path, values, options?)`** cover AcroForms. `readForm` returns each field's name, kind, current value, permitted `options`, and read-only/required flags; `fillForm` sets them by name, with `{ flatten: true }` to bake the answers into the page.
+
+  Reading first is not politeness, it is the whole failure mode: field names are whatever the form's author typed — `topmostSubform[0].Page1[0].f1_04[0]` is a real one — and they are never the labels printed beside the boxes. So **an unknown field name is an error that lists the real ones**, never a no-op, because a call that reports success while setting nothing is indistinguishable from one that worked. Values of the wrong kind are refused the same way, with a dropdown or radio group naming its choices.
+
+  An XFA form is refused unless `{ allowXfa: true }`. Setting the AcroForm layer of a dynamic XFA form produces a file that looks filled to this code and blank in Acrobat, which is worse than not filling it; `readForm` reports `xfa: true` with a note either way, and a PDF with no fields at all says it is a flat document rather than returning an empty list for a model to misread as an empty form.
+
+  Two upstream limits are named rather than surfaced as library internals: a font _collection_ (`.ttc`/`.otc`) is refused with its faces listed, because neither pdf-lib nor fontkit can pick one; and a font that parses but that pdf-lib's embedder rejects — four of the 47 faces on the development host do this — reports which file and suggests a TrueType build, instead of "Not a CFF Font".
+
+  Adds `@pdf-lib/fontkit` as a dependency. 19 tests added, every claim about text on a page verified by reading the glyphs back with pdfjs, and the form values verified by flattening them onto the page — a widget annotation's value can be recorded correctly and still never be drawn.
+
+- [#66](https://github.com/porkytheblack/glove/pull/66) [`49f6e3a`](https://github.com/porkytheblack/glove/commit/49f6e3a27cf2122c51c1e32e9951ea12a12b01c3) Thanks [@porkytheblack](https://github.com/porkytheblack)! - The wrapped libraries are now reachable in full — exceljs and docx as well as pptxgenjs — and the recording protocol grew what those two needed.
+
+  ```js
+  import { Workbook } from "env:spreadsheets";
+
+  const wb = new Workbook();
+  const ws = wb.addWorksheet("Revenue");
+  ws.columns = [
+    { header: "Region", key: "region", width: 24 },
+    { header: "Revenue", key: "revenue", width: 18 },
+  ];
+  ws.addRows(rows);
+  ws.getRow(1).font = { bold: true };
+  ws.getColumn("revenue").numFmt = "#,##0";
+  ws.views = [{ state: "frozen", ySplit: 1 }];
+  await wb.xlsx.writeFile("/out/revenue.xlsx");
+  ```
+
+  ```js
+  import {
+    Document,
+    Packer,
+    Paragraph,
+    TextRun,
+    HeadingLevel,
+  } from "env:documents";
+  import { writeFile } from "env:fs";
+
+  const doc = new Document({
+    sections: [
+      {
+        children: [
+          new Paragraph({ text: "Q3 Review", heading: HeadingLevel.TITLE }),
+          new Paragraph({
+            children: [
+              new TextRun({ text: "Revenue rose " }),
+              new TextRun({ text: "18%", bold: true, color: "C00000" }),
+            ],
+          }),
+        ],
+      },
+    ],
+  });
+  await writeFile("/out/review.docx", await Packer.toBuffer(doc));
+  ```
+
+  Both are the libraries' own code, unchanged from their documentation. The curated `write(path, rows)` and `docx.create(path, spec)` stay and are still the shorter path; they were simply the only path, and everything they did not name — a bold header, a number format, a merged title, a coloured run, a bordered table, a landscape section — was unreachable.
+
+  **Three additions to the recording protocol**, each one a library making a demand:
+
+  - **Property reads.** `workbook.xlsx.writeFile(...)` is a read followed by a call, and at `wb.xlsx` the recorder cannot yet know which it is — `ws.addRow(...)` is a call at exactly the same syntactic position. A property now records lazily: calling it records a call, reading through it records the access first.
+  - **Constructed values as arguments.** `new Document({ children: [new Paragraph(...)] })` needs the paragraph to be nameable inside the document's arguments. This was also a latent correctness bug: a recorder node passed as an argument deep-copied to `{}` on its way to the host, so the argument silently vanished. Nodes are now substituted as refs and resolved at replay, at any depth inside objects and arrays.
+  - **Builder families.** `docx` has no root object to call methods on — a document is _assembled_ out of constructed values and written with a static, `Packer.toBuffer(doc)`. Constructors declared in one family record into one op list, so a value built by one can be handed to another, and `Packer` is a member used without `new`.
+
+  `defineBuilders` is the general form; `defineBuilder` is now the single-constructor case of it. `methodsOf` reads descriptors instead of invoking getters — building an allowlist by reading every property runs library code for its side effects, which is how exceljs's deprecated `tabColor` came to print a stack trace on every adapter construction.
+
+  **Adapters can ship skills.** `StdlibAdapter.skills` was declared and unused; `defineAdapter` now accepts it, and slides, documents and spreadsheets each ship two — one for the one-call path, one for the library. `/std/<name>/index.d.ts` says what a module exports; a skill says how to get a deliverable out of it, and the measured failure was never a misused signature.
+
+  **Two fixes found by running the eval against this, both regressions the feature itself introduced:**
+
+  - Exporting docx's vocabulary made `env:documents` answer a wrong import with forty names, burying the verb the model was reaching for. The correction now leads with the module's own verbs in full and counts the library's classes, pointing at `/skills/imports.md` for the rest. Applied on both paths that answer a bad name.
+  - Interpolating a builder into a string threw `Cannot convert object to primitive value` — a recorder had no `toString`, no `valueOf` and no `Symbol.toPrimitive`, so an ordinary debug string was fatal. Both now render as `[PptxGenJS (recording; nothing is built until you await a terminal call)]`. It is answered inside the sandbox and records nothing, so `constructor`, `valueOf` and `__defineGetter__` are still refused.
+
+  Measured on the analyst-desk eval: the scenario that _requires_ the library path — styling unreachable through the curated `write()` — is the highest-delivering in the suite at 15/18, across three models that had never seen this API.
+
+### Patch Changes
+
+- [#131](https://github.com/porkytheblack/glove/pull/131) [`416d1dd`](https://github.com/porkytheblack/glove/commit/416d1ddb992e6b82119f9eef78c8af7dfe96014e) Thanks [@claude](https://github.com/apps/claude)! - Adapters accept a range of hub versions instead of pinning one exactly
+
+  Every `glove-env-*` declared its `glove-working-environment` peer as `workspace:*`, which pnpm rewrites to an **exact** version at publish time. The published packages had already diverged because of it — `glove-env-documents@0.1.0` required exactly `0.1.0` while `glove-env-motion@0.1.0` required exactly `0.2.0`, so installing both from npm was unsatisfiable, and every future hub release orphaned every adapter already out there.
+
+  The peer is now `workspace:^`, which publishes as a caret range (`^0.2.0`). Verified against a real `pnpm pack` tarball rather than assumed from the source manifest.
+
+- [#47](https://github.com/porkytheblack/glove/pull/47) [`fa1b473`](https://github.com/porkytheblack/glove/commit/fa1b47358a9f030f0b36061340d870858d5a17bf) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Fix the three things real agents actually tripped over.
+
+  Four models were run through four end-to-end deliverable scenarios via OpenRouter (`benches/working-environment-bench`). Of 38 errored tool calls, three classes accounted for 16 of them — and none was a crash. They were messages that sent the model the wrong way.
+
+  **Running a script that does not exist reported `no such module`.** That is the _import resolver's_ error, surfacing on a verb the model called with a path, so it reads as a dependency problem rather than "you have not written this yet". It now says `no such script: /scripts/x.js` and lists the scripts that do exist — or that `/scripts` is empty and to `write_file` first. Directories and non-`.js` targets are refused in their own terms too.
+
+  **Running or importing anything under `/std` was incoherent.** Models read `/std/documents/index.d.ts` and then reach for that _path_ — reasonably, since every verb in the surface takes an absolute path. Running it tried to evaluate a `.d.ts` as a module (`could not parse export statement`, from a file the model had just been told to read as documentation); importing it reported a missing file. Both now say that `/std` holds documentation and name the specifier to use instead — and the import case is caught at _write_ time, so the script is never stored.
+
+  **`readdir` returns entry objects; Node's returns strings.** Every `f.endsWith is not a function` in the run came from `entries.filter(f => f.endsWith('.png'))`. The `env:fs` types now say so at the point of use and point at `glob()`, which returns full paths and filters in one step.
+
+  Also silences pdfjs, which narrated font substitution to stderr on every `extractText` call. Pointing it at the bundled fonts made it worse — pdfjs 5 ships Foxit faces but asks for Liberation ones — so verbosity is set to errors-only. Real failures still throw.
+
+  The remaining friction class, models guessing binding names (`csv.parseRows`, `readFile is not defined`), is filed rather than fixed: the runtime knows what is available and could say so, but doing it through a `Proxy` has to happen inside the vm context or it reopens the realm leak the sandbox tests exist to catch.
+
+- [#66](https://github.com/porkytheblack/glove/pull/66) [`f39945f`](https://github.com/porkytheblack/glove/commit/f39945f01915730d6a30937e701a189b7c7bef09) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Say a file is not a PDF, rather than that the PDF is broken.
+
+  Found by agent evaluation. Pointing `pdf.extractText` at a text file returned pdf-lib's own `Invalid PDF structure.`, which reads as "this document is corrupt" — so a model goes looking for a different extractor instead of noticing it opened the wrong file.
+
+  Files are now checked for the `%PDF-` header before any parser sees them, and the refusal names what the file appears to be:
+
+  ```
+  /tmp/notes.txt is not a PDF: it does not start with the %PDF- header.
+  It looks like text — read it with env:fs.readFile instead.
+  ```
+
+  A ZIP gets the more useful version of the same, since `.docx`, `.xlsx` and `.pptx` are all ZIPs and the answer is which module to reach for rather than which parser to retry.
+
+  `describe` and the internal loader already wrapped their failures as "could not be read as a PDF"; `extractText` wrapped nothing, which is why it was the one that surfaced. All three share the check now, and the wrapping is left to handle genuinely malformed PDFs — the case it was written for.
+
+- [#131](https://github.com/porkytheblack/glove/pull/131) [`84dc7cd`](https://github.com/porkytheblack/glove/commit/84dc7cdbb24c38b78d10a62d6538582759e99234) Thanks [@claude](https://github.com/apps/claude)! - Close two ways out of the sandbox, and stop three readers inflating without a bound
+
+  **A script could put any host file it could name into a deliverable.** `new Workbook().addImage({ filename: '/etc/…' })` and, on a deck, `addMedia({ path })` or `background: { path }` are all resolved by the library itself — exceljs and pptxgenjs each open the path off the _real_ filesystem at write time, not off the agent's tree. Nothing failed, nothing was logged: the workbook or deck was written, `present`ed, and the file's bytes went out with it. `addImage` on slides was already routed through the guarded VFS handle for exactly this reason; the other three were not. They are now, and a path the tree does not have fails on the call that named it rather than on the write. A slide's background is _assigned_ rather than called, which argument rewriting structurally cannot see, so that one is resolved at write time instead — the same defence one step later, at the point the library would otherwise reach for the disk.
+
+  **A 200 KB upload could take the process down.** The documents, slides and render OOXML readers called `inflateRawSync` with no `maxOutputLength`, so a crafted `.docx` or `.pptx` inflated unbounded on the host heap during an ordinary `describe` or `extractText` — outside VFS accounting, in a process that may be serving other agents. The declared uncompressed size is no help, because it comes out of the same hostile file; the bound has to be on the inflate's output, which is what the archives adapter has always done. All three now cap inflation at the environment's `maxVfsBytes` (the live value where the reader is given a VFS handle, the default where it is handed bytes alone) and refuse the entry by name when it is exceeded.
+
+  **An encrypted Office file was read as a broken one.** Inflating ciphertext yields garbage rather than an error, so a password-protected `.docx` came back as "not a Word document" and a protected `.pptx` as "no ppt/slides/" — both true, neither actionable. The ZIP encryption flag is now checked and named, so the answer is the password rather than the file.
+
+- Updated dependencies [[`5e9c527`](https://github.com/porkytheblack/glove/commit/5e9c5279ed0381ba01c72f4ef15d1fb88ea53cd0), [`fe2fd69`](https://github.com/porkytheblack/glove/commit/fe2fd6907dcaaea277859bb8ed4a06ddea3c459b), [`104478e`](https://github.com/porkytheblack/glove/commit/104478eb35b0fc2f43396b2b04afcc181fb81900), [`fa1b473`](https://github.com/porkytheblack/glove/commit/fa1b47358a9f030f0b36061340d870858d5a17bf), [`6d95d17`](https://github.com/porkytheblack/glove/commit/6d95d17078521ccb5e02a72c34f8d4de91c8092b), [`281fd23`](https://github.com/porkytheblack/glove/commit/281fd230eae3a26224b84f17d465b6a3e9f96868), [`f2e13ef`](https://github.com/porkytheblack/glove/commit/f2e13ef7dffa37649b6c4efc2e2ad4d1d3500128), [`4774ff3`](https://github.com/porkytheblack/glove/commit/4774ff3573167e5779e09e0d17238398546caaf5), [`e49bf99`](https://github.com/porkytheblack/glove/commit/e49bf994260336c4f689a709e6c32494f1643df2), [`4099b67`](https://github.com/porkytheblack/glove/commit/4099b671ca1ca9489cb12934859ea5d7c002e24d), [`fc3cd2b`](https://github.com/porkytheblack/glove/commit/fc3cd2b83fe5adc7dfbb4ef1d1ddf533d2769988), [`b57dfca`](https://github.com/porkytheblack/glove/commit/b57dfcac6454aceb33684bf6edc0cf7fd4708361), [`c47e4f0`](https://github.com/porkytheblack/glove/commit/c47e4f08d2b5ae30081e7ee393076dc15f44c182), [`f600236`](https://github.com/porkytheblack/glove/commit/f600236010a168040b9eb9b6cb0ff1b8f9c7608a), [`eeffd52`](https://github.com/porkytheblack/glove/commit/eeffd52a74666ca438d20bc2a48a7464c2ced38f), [`37d84f6`](https://github.com/porkytheblack/glove/commit/37d84f6289689e333a3cce4f5d9c8530c8640eb1), [`2d3e974`](https://github.com/porkytheblack/glove/commit/2d3e9741254c00d3561a32118a34d59fd97dfa10), [`bfbb73b`](https://github.com/porkytheblack/glove/commit/bfbb73bf3cc2ae4c9b2f3a714a920cfcb60232bb), [`eeffd52`](https://github.com/porkytheblack/glove/commit/eeffd52a74666ca438d20bc2a48a7464c2ced38f), [`53d9c66`](https://github.com/porkytheblack/glove/commit/53d9c66e0e950fe4d69a5e5526125a94428a8b80), [`701f4d9`](https://github.com/porkytheblack/glove/commit/701f4d9a7cd37aef314d0521793bd960cf985fe8), [`568a250`](https://github.com/porkytheblack/glove/commit/568a2506ff1ccd280347ed5d5cc3698748b378f1), [`8fcfea7`](https://github.com/porkytheblack/glove/commit/8fcfea7baececdc85a7b144b55caf2e91ce8049d), [`f003e59`](https://github.com/porkytheblack/glove/commit/f003e591b2d0cae6608358c3e2c6e1a58bbb1e63), [`49f6e3a`](https://github.com/porkytheblack/glove/commit/49f6e3a27cf2122c51c1e32e9951ea12a12b01c3), [`1d6650a`](https://github.com/porkytheblack/glove/commit/1d6650a61257658f9e2276ce5238e50fd893dd34), [`443e414`](https://github.com/porkytheblack/glove/commit/443e41424b47106228f8a1a8743871f146c484ad), [`d72834d`](https://github.com/porkytheblack/glove/commit/d72834d8819d37b95c16809bf7e0e646073f6948), [`8df9ee3`](https://github.com/porkytheblack/glove/commit/8df9ee3ef41bd2f1b7c1234ef379ef0704d5a765), [`7ed19c3`](https://github.com/porkytheblack/glove/commit/7ed19c3521da4043147e8abb29326e2a2233b61c), [`ae34ca1`](https://github.com/porkytheblack/glove/commit/ae34ca1c56eaa65502afe3c6595d671bbc704860), [`78ffe34`](https://github.com/porkytheblack/glove/commit/78ffe34bd8ccb304239a65f931635053b93d4e50)]:
+  - glove-working-environment@0.6.0
