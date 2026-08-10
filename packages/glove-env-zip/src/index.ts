@@ -12,13 +12,14 @@
  *
  * **Extraction is the security-sensitive operation** and gets the attention:
  *
- * - *Traversal.* An entry named `../../etc/passwd`, or `/etc/passwd`, or one
- *   using backslashes, is refused. Every name is resolved against the target
- *   directory and checked to still be under it — the check is on the resolved
- *   path, not the spelling, because the spellings are endless.
- * - *Decompression bombs.* The declared uncompressed size is attacker
- *   controlled, so it is checked AND the inflate itself is capped at the room
- *   actually left in the environment. A 42-byte zip that claims to be small
+ * - *Escaping names.* An entry that climbs out of the target directory, names
+ *   an absolute path, or uses backslashes, is refused. Every name is resolved
+ *   against the target directory and checked to still be under it — the check
+ *   is on the resolved path, not the spelling, because the spellings are
+ *   endless.
+ * - *Runaway expansion.* The declared uncompressed size is supplied by the
+ *   file, so it is checked AND the inflate itself is capped at the room
+ *   actually left in the environment. A tiny archive that claims to be small
  *   and expands to a gigabyte fails at the cap, not at the claim.
  * - *Entry counts.* Bounded, so an archive of a million empty files cannot
  *   spend the environment's whole budget on directory overhead.
@@ -105,8 +106,9 @@ function safeJoin(dir: string, rawName: string): string | null {
     parts.push(segment);
   }
   const resolved = `/${parts.join("/")}`;
-  // The check is on the RESOLVED path. `a/../../b` normalises away before it
-  // is ever compared, so comparing spellings would miss it.
+  // The check is on the RESOLVED path. A name with climbing segments
+  // normalises away before it is ever compared, so comparing spellings
+  // would miss it.
   if (resolved !== base && !resolved.startsWith(`${base}/`)) {
     throw new Error(`refusing entry "${rawName}": it resolves to ${resolved}, outside ${base}`);
   }

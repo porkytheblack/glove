@@ -111,12 +111,13 @@ first makes it one.
 
 ## What is refused, and why
 
-- **Entries that escape the destination.** \`../../etc/passwd\`, an absolute
-  path, or backslash separators — all refused by name. The check is on the
-  resolved path, not the spelling.
-- **Decompression bombs.** A small archive that expands enormously fails at
-  the environment's size cap. The declared size is checked *and* the
-  decompression itself is capped, because declared sizes lie.
+- **Entries that escape the destination.** A relative name that climbs out of
+  the target directory, an absolute path, or backslash separators — all
+  refused by name. The check is on the resolved path, not the spelling.
+- **Archives that expand far past what they declare.** A small archive that
+  inflates enormously fails at the environment's size cap. The declared size
+  is checked *and* the decompression itself is capped, because a declared
+  size cannot be trusted.
 - **Encrypted and ZIP64 archives**, and tar entries that are symlinks,
   devices or hard links. These are refused explicitly rather than half-read:
   an extraction that silently drops or mangles entries is worse than one that

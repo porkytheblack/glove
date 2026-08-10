@@ -56,7 +56,7 @@ Messages arrive from export tools named `message`, `1.txt`, `forward.eml.txt`. S
 
 ## Attachment names are the sender's, not yours
 
-An attachment filename is chosen by whoever sent the message, and `../../etc/passwd` is a legal MIME filename. The rule is one step rather than a detector: **only the basename survives**, so a path cannot be spelled at all. On top of that, control characters are stripped, `.`/`..`/empty become `attachment-N`, and collisions are disambiguated (`report.pdf`, `report-2.pdf`).
+An attachment filename is chosen by whoever sent the message, and a path that climbs out of the destination is a legal MIME filename. The rule is one step rather than a detector: **only the basename survives**, so a path cannot be spelled at all. On top of that, control characters are stripped, `.`/`..`/empty become `attachment-N`, and collisions are disambiguated (`report.pdf`, `report-2.pdf`).
 
 Read `attachments[].path` rather than assuming the name you saw.
 

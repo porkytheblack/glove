@@ -8,7 +8,7 @@
  * dependency for a format this stable.
  *
  * The read path is the security-sensitive one — see `extract` in index.ts for
- * traversal and decompression-bomb handling. This file's contribution is
+ * escaping-name and runaway-expansion handling. This file's contribution is
  * refusing what it cannot honestly read (ZIP64, encryption, unknown
  * compression) rather than mishandling it quietly, and honouring the caller's
  * output cap when inflating.
@@ -110,7 +110,7 @@ export function readZipEntry(bytes: Uint8Array, entry: ZipEntry, maxBytes: numbe
   const body = buf.subarray(start, start + entry.compressedSize);
 
   if (entry.compression === 0) {
-    if (body.length > maxBytes) throw new Error(bombMessage(entry.name, body.length, maxBytes));
+    if (body.length > maxBytes) throw new Error(overExpandedMessage(entry.name, body.length, maxBytes));
     return body;
   }
   if (entry.compression !== 8) {
@@ -123,13 +123,13 @@ export function readZipEntry(bytes: Uint8Array, entry: ZipEntry, maxBytes: numbe
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (/maxOutputLength|buffer|ERR_BUFFER_TOO_LARGE/i.test(msg)) {
-      throw new Error(bombMessage(entry.name, entry.uncompressedSize, maxBytes));
+      throw new Error(overExpandedMessage(entry.name, entry.uncompressedSize, maxBytes));
     }
     throw new Error(`could not inflate ${entry.name}: ${msg}`);
   }
 }
 
-function bombMessage(name: string, size: number, maxBytes: number): string {
+function overExpandedMessage(name: string, size: number, maxBytes: number): string {
   return (
     `${name} expands past the ${maxBytes}-byte budget still available in this environment` +
     (size > 0 ? ` (it declares ${size} bytes)` : "") +

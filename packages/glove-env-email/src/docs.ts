@@ -152,7 +152,8 @@ export default async function main() {
 ## Filenames are the sender's, not yours
 
 An attachment filename is chosen by whoever sent the message, and
-\`../../etc/passwd\` is a legal one. Names are reduced to a bare filename,
+a path that climbs out of the destination is a legal one. Names are reduced
+to a bare filename,
 stripped of control characters, and de-duplicated (\`report.pdf\`,
 \`report-2.pdf\`) — so **use \`attachments[].path\`**, not the name you expected.
 
