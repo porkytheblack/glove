@@ -395,9 +395,9 @@ importers:
       glove-core:
         specifier: workspace:*
         version: link:../../packages/glove
-      glove-env-archives:
+      glove-env-zip:
         specifier: workspace:*
-        version: link:../../packages/glove-env-archives
+        version: link:../../packages/glove-env-zip
       glove-env-documents:
         specifier: workspace:*
         version: link:../../packages/glove-env-documents
@@ -1195,7 +1195,7 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  packages/glove-env-archives:
+  packages/glove-env-zip:
     devDependencies:
       '@types/node':
         specifier: ^25.2.3

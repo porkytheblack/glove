@@ -522,7 +522,7 @@ export default async function () {
           ["glove-env-spreadsheets", "env:spreadsheets", ".xlsx as plain-JSON records with paging; CSV both ways; the exceljs Workbook for styling."],
           ["glove-env-images", "env:images", "resize, convert, crop, rotate, composite, contact sheets — without decoding pixels into context."],
           ["glove-env-slides", "env:slides", ".pptx generation and read-back; the pptxgenjs builder API unchanged."],
-          ["glove-env-archives", "env:archives", "zip, tar, tar.gz both directions. No dependencies — node:zlib only."],
+          ["glove-env-zip", "env:archives", "zip, tar, tar.gz both directions. No dependencies — node:zlib only."],
           ["glove-env-media", "env:media", "audio/video via bundled ffmpeg — describe, thumbnail, frames, clip, transcode."],
           ["glove-env-render", "env:render", "rasterize a PDF, deck or Word file to page PNGs — so the agent can look at what it made. A .pptx works with nothing installed, via a layout schematic."],
           ["glove-env-motion", "env:motion", "a React scene to an mp4, GIF, PNG frames or a still — deterministically. React Native Reanimated scenes render unchanged."],
@@ -808,7 +808,7 @@ const EXTERNAL = [
   "glove-env-spreadsheets",
   "glove-env-images",
   "glove-env-slides",
-  "glove-env-archives",
+  "glove-env-zip",
   "glove-env-render",
   "glove-env-motion",
   "sharp",        // native

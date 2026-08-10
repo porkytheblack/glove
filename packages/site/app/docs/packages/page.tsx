@@ -682,7 +682,7 @@ const deliverables = await env.export("/out/**"); // → [{ path, bytes }]`}
             </tr>
             <tr>
               <td>
-                <code>glove-env-archives</code>
+                <code>glove-env-zip</code>
               </td>
               <td>
                 <code>env:archives</code>

@@ -23,7 +23,7 @@ import { documents } from "glove-env-documents";
 import { spreadsheets } from "glove-env-spreadsheets";
 import { images } from "glove-env-images";
 import { slides } from "glove-env-slides";
-import { archives } from "glove-env-archives";
+import { archives } from "glove-env-zip";
 import { render } from "glove-env-render";
 import { motion, MOTION_LIMITS } from "glove-env-motion";
 import { visionAdapter } from "./vision";

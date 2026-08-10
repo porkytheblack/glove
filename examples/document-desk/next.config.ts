@@ -20,7 +20,7 @@ const EXTERNAL = [
   "glove-env-spreadsheets",
   "glove-env-images",
   "glove-env-slides",
-  "glove-env-archives",
+  "glove-env-zip",
   "glove-env-render",
   "glove-env-motion",
   "sharp",

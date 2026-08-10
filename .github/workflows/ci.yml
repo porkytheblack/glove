@@ -44,7 +44,7 @@ jobs:
           --filter "glove-env-documents..."
           --filter "glove-env-spreadsheets..."
           --filter "glove-env-images..."
-          --filter "glove-env-archives..."
+          --filter "glove-env-zip..."
           --filter "glove-env-media..."
           --filter "glove-env-slides..."
           --filter "glove-env-render..."
@@ -94,7 +94,7 @@ jobs:
           --filter glove-env-documents
           --filter glove-env-spreadsheets
           --filter glove-env-images
-          --filter glove-env-archives
+          --filter glove-env-zip
           --filter glove-env-media
           --filter glove-env-slides
           --filter glovebox-core
@@ -132,7 +132,7 @@ jobs:
           --filter glove-env-documents
           --filter glove-env-spreadsheets
           --filter glove-env-images
-          --filter glove-env-archives
+          --filter glove-env-zip
           --filter glove-env-media
           --filter glove-env-slides
           --filter glove-env-render
