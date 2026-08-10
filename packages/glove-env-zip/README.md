@@ -58,10 +58,10 @@ export default async function main() {
 
 ## Extraction is the part that has to be right
 
-A zip reader that round-trips its own output but writes `/etc/passwd` when handed a hostile archive has failed at the only job that is hard. The tests that matter here are the refusals, not the round trips.
+A zip reader that round-trips its own output but writes outside the destination when handed a hostile archive has failed at the only job that is hard. The tests that matter here are the refusals, not the round trips.
 
-- **Traversal.** `../../etc/passwd`, an absolute path, backslash separators, `safe/../../../escaped` — all refused, by name. The check is on the *resolved* path rather than the spelling, because `a/../../b` normalises away before any string comparison would catch it. `a/../b.txt`, which resolves back inside, is allowed: refusing it would reject archives real tools produce.
-- **Decompression bombs.** The declared uncompressed size is attacker-controlled, so it is checked *and* the decompression itself is capped at the environment's `maxVfsBytes`. A zip that declares ten bytes and expands to five megabytes fails at the cap, not at the claim. `.tar.gz` gets the same treatment, before the tar is even parsed — it has no declared size to check at all.
+- **Escaping names.** A name that climbs out of the destination, an absolute path, backslash separators — all refused, by name. The check is on the *resolved* path rather than the spelling, because climbing segments normalise away before any string comparison would catch them. A name that climbs but resolves back inside the destination is allowed: refusing it would reject archives real tools produce.
+- **Runaway expansion.** The declared uncompressed size is supplied by the file itself, so it is checked *and* the decompression is capped at the environment's `maxVfsBytes`. An archive that declares ten bytes and expands to five megabytes fails at the cap, not at the claim. `.tar.gz` gets the same treatment before the tar is even parsed — it has no declared size to check at all.
 - **Entry counts** are bounded, so an archive of a million empty entries cannot spend the whole budget on overhead.
 - **Extracted bytes count against `maxVfsBytes`** like any other write, because they go through the same guarded handle.
 - **Nested archives are not extracted recursively.** An extracted `.zip` is just a file; extracting it is a second, separately budgeted call.

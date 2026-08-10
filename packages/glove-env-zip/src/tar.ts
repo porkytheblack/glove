@@ -51,7 +51,7 @@ export function isGzip(bytes: Uint8Array): boolean {
  * Decompress if gzipped, refusing to produce more than `maxBytes`.
  *
  * The same reasoning as the ZIP inflate cap: a `.tar.gz` is exactly as good a
- * decompression bomb as a `.zip`, and there is no declared size to check
+ * runaway expansion as a `.zip`, and there is no declared size to check
  * beforehand at all.
  */
 export function ungzip(bytes: Uint8Array, maxBytes: number): Uint8Array {

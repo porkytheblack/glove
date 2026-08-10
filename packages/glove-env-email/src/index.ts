@@ -24,7 +24,8 @@
  * are and the extension only breaks ties.
  *
  * **Filenames from a message are hostile input.** They are chosen by whoever
- * sent the mail, and `../../etc/passwd` is a legal MIME filename. Every one is
+ * sent the mail, and a path that climbs out of the destination is a legal MIME
+ * filename. Every one is
  * reduced to a bare name and resolved against the destination, and anything
  * that still escapes is refused — same rule, and same reason, as `env:archives`.
  */
@@ -108,7 +109,8 @@ const DEFAULT_MAX_ATTACHMENTS = 200;
  * The rules, in the order they matter:
  *
  * 1. **Only the basename survives.** A MIME filename is a name, not a path;
- *    `../../etc/passwd` and `C:\windows\x` are both just `passwd` and `x`. This
+ *    a climbing POSIX path and a Windows drive path are both reduced to their
+ *    last segment. This
  *    single step removes traversal entirely rather than trying to detect it.
  * 2. Control characters and the separators themselves are replaced, because a
  *    NUL or a newline in a path is a different class of bug.
