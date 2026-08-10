@@ -36,6 +36,31 @@ export interface Desk {
   /** Subscribers attached for the lifetime of one request. */
   listeners: Set<(event: DeskEvent) => void>;
   createdAt: number;
+  /**
+   * When this desk was last touched by a request.
+   *
+   * The eviction key, and deliberately not `createdAt`: an oldest-first drop
+   * evicts the session somebody has been working in all afternoon before the
+   * one they abandoned after a single question.
+   */
+  lastUsedAt: number;
+  /**
+   * Cancels the turn in flight.
+   *
+   * Replaced per turn. The browser closing the SSE stream — a Stop button, a
+   * reload, a closed tab — aborts this, which reaches `run_script` and stops
+   * the script rather than leaving it writing into a turn nobody is reading.
+   */
+  turn: AbortController;
+  /**
+   * Questions the agent has asked and the person has not answered yet.
+   *
+   * The verb returns a promise that stays pending until `POST /api/answer`
+   * resolves it, so the agent's turn genuinely waits — which is the point,
+   * and is also why `ask_user` is a verb rather than something a script calls
+   * (a script waiting on a human would spend its own run budget doing it).
+   */
+  questions: Map<string, { resolve: (answer: string) => void; reject: (e: Error) => void }>;
 }
 
 /** What the browser sees. A narrowed projection of Glove's subscriber stream. */
@@ -45,6 +70,10 @@ export type DeskEvent =
   | { type: "tool_result"; id: string; status: "success" | "error"; output: string }
   | { type: "tree_changed" }
   | { type: "presented"; path: string; name: string; mediaType: string; size: number; caption: string }
+  /** A line a running script wrote, forwarded while it is still running. */
+  | { type: "progress"; script: string; stream: "stdout" | "stderr"; text: string }
+  /** The agent is waiting for an answer. */
+  | { type: "ask"; id: string; question: string; options?: string[] }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -58,19 +87,27 @@ export type DeskEvent =
 const registry: Map<string, Desk> = ((globalThis as Record<string, unknown>).__deskRegistry ??=
   new Map()) as Map<string, Desk>;
 
-/** Verbs that change the tree, so the browser knows when to refresh it. */
-const MUTATING = new Set([
-  "write_file",
-  "edit_file",
-  "rm",
-  "mv",
-  "cp",
-  "run_script",
-  "run_tests",
-  "undo",
-  "redo",
-  "checkpoint",
-]);
+/**
+ * How long a desk may sit untouched before it is closed.
+ *
+ * A desk is a working environment: a worker thread, an in-memory tree, and
+ * whatever the adapters are holding — measured at ~16.5 MB and one OS thread
+ * of steady residency for an idle one, returned only on `close()`. A browser
+ * tab left open overnight is indistinguishable from a session in progress
+ * until somebody says otherwise, so this is what says otherwise.
+ *
+ * Fifteen minutes is chosen for a demo, where a reset is cheap and losing an
+ * uploaded document is only annoying. A real host should park the tree instead
+ * of dropping it — `snapshot()` before `close()`, `fromSnapshot` on the way
+ * back in. See glove-working-environment's LIFECYCLE.md.
+ */
+const IDLE_MS = 15 * 60_000;
+/** Ceiling as well as a TTL: a burst fills the box long before anything ages out. */
+const MAX_DESKS = 12;
+/** How often the background sweep runs when no request is arriving. */
+const SWEEP_MS = 60_000;
+
+
 
 /**
  * The vision model as an importable function, via `defineTools`.
@@ -93,15 +130,13 @@ const MUTATING = new Set([
  * — and only that last line comes back. Bytes are read inside the call, so
  * images never cross the worker boundary either.
  *
- * The `envRef` holder exists because the module has to be listed in `stdlib`
- * before the environment it reads from exists. A capability that needs the
- * tree is the one case where `defineTools` needs this indirection; one that
- * only calls out to a service (an MCP server, an API) does not.
+ * The tree arrives as `ctx.fs` — the same guarded handle the format adapters
+ * get, so read-only zones and the size limits apply here too. This used to
+ * need a mutable `{ current?: env }` holder filled after
+ * `createWorkingEnvironment` resolved, because the module has to be listed in
+ * `stdlib` before the environment it reads from exists.
  */
-function visionModule(
-  vision: NonNullable<ReturnType<typeof visionAdapter>>,
-  envRef: { current?: WorkingEnvironment },
-) {
+function visionModule(vision: NonNullable<ReturnType<typeof visionAdapter>>) {
   return defineTools({
     name: "vision",
     description: "Ask a vision model about an image, from inside a script.",
@@ -121,11 +156,10 @@ function visionModule(
         },
         resultShape: "string",
         readOnlyHint: true,
-        async call(args) {
+        async call(args, ctx) {
           const { path, prompt } = args as { path?: string; prompt?: string };
           if (!path || !prompt) throw new Error("look needs { path, prompt }");
-          if (!envRef.current) throw new Error("the environment is not ready yet");
-          const bytes = await envRef.current.fs.readBytes(path);
+          const bytes = await ctx!.fs.readBytes(path);
           const lower = path.toLowerCase();
           const mediaType = lower.endsWith(".jpg") || lower.endsWith(".jpeg") ? "image/jpeg" : "image/png";
           return await vision.describe({ bytes, mediaType, prompt });
@@ -141,17 +175,24 @@ function visionModule(
 
 export async function getDesk(id: string): Promise<Desk> {
   const existing = registry.get(id);
-  if (existing) return existing;
+  if (existing) {
+    existing.lastUsedAt = Date.now();
+    return existing;
+  }
 
   const vision = visionAdapter();
 
-  // Declared before the environment because `onPresent` fires from inside a
-  // tool call — the desk object that owns this set does not exist yet.
+  // Declared before the environment because `onPresent`, `onAsk` and
+  // `onProgress` all fire from inside a tool call — the desk object that owns
+  // these does not exist yet.
   const listeners = new Set<(event: DeskEvent) => void>();
   const broadcast = (event: DeskEvent) => {
     for (const listen of listeners) listen(event);
   };
-  const envRef: { current?: WorkingEnvironment } = {};
+  const questions: Desk["questions"] = new Map();
+  let questionSeq = 0;
+  // Aborted when the browser hangs up. Replaced at the start of every turn.
+  const turnRef = { current: new AbortController() };
 
   const env = await createWorkingEnvironment({
     stdlib: [
@@ -176,7 +217,7 @@ export async function getDesk(id: string): Promise<Desk> {
       // for a forty-page document — so the same vision model is mounted as a
       // function a script can loop over. The per-page answers land in a
       // variable; only the summary comes back.
-      ...(vision ? [visionModule(vision, envRef)] : []),
+      ...(vision ? [visionModule(vision)] : []),
     ],
     // Wire a vision model and the agent gains `view_image`, so it can check
     // its own output by LOOKING at it — the one defect class that reading the
@@ -187,6 +228,28 @@ export async function getDesk(id: string): Promise<Desk> {
     onPresent: ({ path, name, mediaType, bytes, caption }) => {
       broadcast({ type: "presented", path, name, mediaType, size: bytes.byteLength, caption });
     },
+    // …and `ask_user`: the one thing the tree cannot answer is what the
+    // person wants. Without this the model has no channel and, measurably,
+    // invents one — so the verb only exists because this callback does.
+    //
+    // Everything about *how* the question is asked is ours: the promise stays
+    // pending until POST /api/answer resolves it, which is what makes the
+    // agent's turn actually wait for a human.
+    onAsk: ({ question, options }) =>
+      new Promise<string>((resolve, reject) => {
+        const qid = `q${++questionSeq}`;
+        questions.set(qid, {
+          resolve: (answer) => {
+            questions.delete(qid);
+            resolve(answer);
+          },
+          reject: (e) => {
+            questions.delete(qid);
+            reject(e);
+          },
+        });
+        broadcast({ type: "ask", id: qid, question, options });
+      }),
     limits: {
       // A generous script budget: rendering a deck or a hundred-page PDF is
       // real work, and a timeout here reads to the user as "the agent broke".
@@ -206,11 +269,29 @@ export async function getDesk(id: string): Promise<Desk> {
     execution: {
       // One warm worker per session. The browser drives one request at a time.
       size: 1,
+      // A desk is created the moment a tab opens, and the model's first turn
+      // takes seconds — so the thread starts underneath it and the first
+      // script the agent writes does not pay for the spawn. Nothing here can
+      // fail the create; a spawn that does not come up is retried on demand.
+      prewarm: true,
+      // Left at the package default (60s) deliberately: between turns a desk
+      // is idle for as long as the person takes to read the answer, and the
+      // ~82ms respawn is invisible next to the model round trip that follows.
       onWarning: (message) => console.warn(`[desk:${id}] ${message}`),
+      // A render is four minutes of nothing between tool_use and tool_result.
+      // The script already narrates with console.log; this forwards those
+      // lines while it is still going, so the UI can show frame 900 of 1800
+      // instead of a spinner that means nothing.
+      onProgress: ({ script, stream, text }) => broadcast({ type: "progress", script, stream, text }),
+    },
+    // Measured, not guessed. This replaced a hand-maintained set of verb
+    // names in this file: it went stale whenever a verb was added, it ignored
+    // `toolsWithPrefix` entirely, and it could not tell a `run_script` that
+    // wrote a file from one that only read.
+    onVerb: ({ mutated }) => {
+      if (mutated) broadcast({ type: "tree_changed" });
     },
   });
-
-  envRef.current = env;
 
   const desk: Desk = {
     id,
@@ -218,15 +299,20 @@ export async function getDesk(id: string): Promise<Desk> {
     agent: undefined as unknown as IGloveRunnable,
     listeners,
     createdAt: Date.now(),
+    lastUsedAt: Date.now(),
+    turn: turnRef.current,
+    questions,
   };
 
   /**
    * Glove's event stream, narrowed to what the UI actually renders.
    *
-   * Note the field names: a tool *call* carries `id` and `name`, its *result*
-   * carries `call_id` and `tool_name`. They are not the same two keys, and
-   * matching results to calls on the wrong one produces a UI where every verb
-   * spins forever.
+   * Both events are keyed on `id`/`name`. That used to be impossible: a tool
+   * *call* carried `id`/`name` and its *result* only `call_id`/`tool_name`, so
+   * a UI keyed on `id` throughout matched nothing and showed every verb
+   * spinning forever, with nothing thrown anywhere. glove-core now emits
+   * `id`/`name` on the result too — `call_id`/`tool_name` are still there, and
+   * are what a persisted `ToolResult` replayed from a store carries.
    */
   const subscriber: SubscriberAdapter = {
     record: async (eventType, data) => {
@@ -245,8 +331,7 @@ export async function getDesk(id: string): Promise<Desk> {
           break;
         case "tool_use_result": {
           const result = d as {
-            call_id?: string;
-            tool_name?: string;
+            id?: string;
             result?: { status?: string; data?: unknown; message?: string };
           };
           const inner = result.result ?? {};
@@ -260,10 +345,13 @@ export async function getDesk(id: string): Promise<Desk> {
             inner.status === "error"
               ? String(inner.data ?? inner.message ?? "")
               : String(inner.data ?? "");
-          broadcast({ type: "tool_result", id: String(result.call_id ?? ""), status, output });
-          // A tree-changed ping after any mutating verb, so the file explorer
-          // can stay live without polling.
-          if (result.tool_name && MUTATING.has(result.tool_name)) broadcast({ type: "tree_changed" });
+          broadcast({ type: "tool_result", id: String(result.id ?? ""), status, output });
+          // The tree-changed signal used to come from a list of verb names
+          // kept here. That list was wrong twice over: it drifted the moment
+          // a verb was added, and it could not tell a `run_script` that wrote
+          // a file from one that only read — so the explorer refreshed for
+          // nothing. `onVerb` reports what actually changed; see the env
+          // options above.
           break;
         }
       }
@@ -295,6 +383,12 @@ export async function getDesk(id: string): Promise<Desk> {
     .build();
 
   // The verb set, plus a preamble telling the model what the tree is for.
+  //
+  // Cancellation needs no wiring here: glove passes the active request's
+  // AbortSignal to every tool it calls, `EnvTool.do` now has that same
+  // signature, and `run_script` forwards it into the run. All this route has
+  // to do is give `processRequest` a signal worth propagating — see
+  // app/api/chat/route.ts.
   mountWorkingEnvironment(agent, { env });
 
   desk.agent = agent;
@@ -308,20 +402,61 @@ export async function deskFor(id: string): Promise<Desk> {
 }
 
 export function peekDesk(id: string): Desk | undefined {
-  return registry.get(id);
+  const desk = registry.get(id);
+  if (desk) desk.lastUsedAt = Date.now();
+  return desk;
 }
 
 /**
- * Drop the oldest sessions once there are too many.
+ * Close desks nobody is using: idle past the TTL first, then the oldest-used
+ * over the ceiling.
  *
- * Each desk owns a worker thread and an in-memory tree; an example left open
- * in a tab for a day should not accumulate them without bound.
+ * Both halves are needed. A ceiling alone holds a session forever as long as
+ * the box is quiet — which is the whole failing case, since a desk costs its
+ * worker thread and its tree whether or not anyone comes back to it. A TTL
+ * alone lets a busy afternoon put more desks in flight than the process can
+ * afford long before the first one ages out.
+ *
+ * This example *drops* the tree, which is the right trade for a demo where a
+ * reset costs a re-upload. A real host parks it — `snapshot()` before
+ * `close()`, `fromSnapshot` on the way back in — so an idle session costs a
+ * row in a table rather than a thread. That is the second half of
+ * glove-working-environment's LIFECYCLE.md.
  */
-export async function reapOldDesks(keep = 12): Promise<void> {
-  if (registry.size <= keep) return;
-  const oldest = [...registry.values()].sort((a, b) => a.createdAt - b.createdAt).slice(0, registry.size - keep);
-  for (const desk of oldest) {
+export async function reapOldDesks(keep = MAX_DESKS): Promise<void> {
+  const now = Date.now();
+  const doomed = [...registry.values()].filter((d) => now - d.lastUsedAt > IDLE_MS);
+  const remaining = registry.size - doomed.length;
+  if (remaining > keep) {
+    doomed.push(
+      ...[...registry.values()]
+        .filter((d) => !doomed.includes(d))
+        .sort((a, b) => a.lastUsedAt - b.lastUsedAt)
+        .slice(0, remaining - keep),
+    );
+  }
+  for (const desk of doomed) {
+    // Deleted before the await, so a request arriving mid-close gets a fresh
+    // desk rather than the one being torn down underneath it.
     registry.delete(desk.id);
-    await desk.env.close().catch(() => {});
+    // The turn, if any, is aborted first: `close()`'s grace is for a script
+    // finishing its own output, not for a conversation nobody is reading.
+    desk.turn.abort();
+    await desk.env.close({ graceMs: 2_000 }).catch(() => {});
   }
 }
+
+/**
+ * Sweep on a timer as well as per request.
+ *
+ * A request-driven sweep never runs on the host that has stopped receiving
+ * requests — which is precisely the host with idle desks to reap. `unref` so
+ * it never holds the process open, and hung off `globalThis` so Next's dev
+ * server re-evaluating this module does not stack a second interval on top of
+ * the first.
+ */
+((globalThis as Record<string, unknown>).__deskSweeper ??= (() => {
+  const timer = setInterval(() => void reapOldDesks(), SWEEP_MS);
+  timer.unref?.();
+  return timer;
+})());

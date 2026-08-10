@@ -78,6 +78,29 @@ export interface StdlibAdapter {
   description: string;
   /** `.d.ts` source describing the module's exports (materialized at /std/<name>/index.d.ts). */
   types: string;
+  /**
+   * The version of this adapter's **binding contract** — bump it whenever a
+   * signature changes, not when the implementation does.
+   *
+   * The gap it closes: a module this host never registered is caught at
+   * startup, and a binding that was renamed or removed fails at the next run
+   * with an error naming it. A binding whose *signature* changed under the
+   * same name is undetectable at every layer — the stored script imports a
+   * name that still exists, calls it with arguments that no longer mean the
+   * same thing, and fails deep inside the adapter with a message about
+   * neither.
+   *
+   * Recorded in `/.env/adapters.json` on every startup, so the tree carries
+   * the version it was last used with. On the next startup a differing version
+   * is reported on `WorkingEnvironment.warnings` **and** in the model's
+   * orientation file. A warning, never a refusal: restoring across a version
+   * bump is legitimate and usually fine, and a host that cannot restore a
+   * year-old snapshot has lost the data either way.
+   *
+   * Optional, and omitting it opts out of the check entirely — an adapter with
+   * no version is never compared against one.
+   */
+  version?: string;
   /** Optional README with worked examples (materialized at /std/<name>/README.md). */
   docs?: string;
   /**
@@ -95,6 +118,21 @@ export interface StdlibAdapter {
    * one claim would make registering a renderer silently steal `describe`.
    */
   renders?: HandlesSpec;
+  /**
+   * Release whatever this adapter is holding. Called by `env.close()`, once
+   * per created instance, after the worker pool has been shut down.
+   *
+   * Most adapters need nothing here — they own no resource that outlives a
+   * call. It exists for the ones that do: `env:motion` keeps a browser warm
+   * between renders, and without this the only ways it comes back are an idle
+   * timer or process exit, so a host that closes fifty environments in a loop
+   * is holding fifty browsers it has finished with.
+   *
+   * Awaited, but never allowed to fail the close: a throw is reported through
+   * `execution.onWarning` and shutdown continues, because a host that has
+   * asked to close cannot be left with an environment it cannot dispose of.
+   */
+  close?(): Promise<void> | void;
   /**
    * Factory producing the actual bindings. ALL I/O goes through the given VFS
    * handle.
@@ -225,11 +263,51 @@ export interface EnvToolResult {
  * `GloveFoldArgs` (raw JSON Schema variant), so `glove.fold(tool)` accepts it
  * directly — without this package depending on glove-core.
  */
+/**
+ * Cheap counters a host can scrape for a dashboard.
+ *
+ * Plain numbers on a live object rather than an event stream, deliberately:
+ * these are the questions asked on a schedule — "how often are we hitting the
+ * size cap?", "how much output is spilling to /tmp?" — and an event per
+ * occurrence is the wrong shape for a gauge.
+ */
+export interface EnvCounters {
+  /** Refusals caused by `maxFileBytes` or `maxVfsBytes`. */
+  limitHits: number;
+  /** Tool responses too large to inline, written to a `/tmp` file instead. */
+  spillovers: number;
+  /** Successful changes to the tree, from any source. */
+  mutations: number;
+}
+
 export interface EnvTool {
   name: string;
   description: string;
   jsonSchema: Record<string, unknown>;
-  do(input: any): Promise<EnvToolResult>;
+  /**
+   * The trailing parameters are glove-core's fold signature —
+   * `(input, display, glove, signal)` — and only the last one is used here.
+   *
+   * Matching it exactly is what makes cancellation free: glove already passes
+   * the active request's signal to every tool it calls, and `run_script`
+   * simply ignored it, so an aborted turn abandoned the script rather than
+   * stopping it. Now the same signal terminates the run.
+   *
+   * A host calling a verb directly passes `tool.do(input, undefined,
+   * undefined, signal)` — or just `tool.do(input)`, since everything after
+   * the input is optional.
+   */
+  do(input: any, display?: unknown, agent?: unknown, signal?: AbortSignal): Promise<EnvToolResult>;
+  /**
+   * Whether this verb is able to change the tree.
+   *
+   * Declared here so a host does not keep its own list of verb names. The
+   * hand-maintained version goes wrong twice over: it drifts the moment a
+   * verb is added, and it ignores `toolsWithPrefix`, so a host that renamed
+   * the verbs matches nothing at all. For "did this call actually change
+   * anything" — a `run_script` may well not have — use `onVerb`'s `mutated`.
+   */
+  mutates: boolean;
 }
 
 /**
@@ -297,6 +375,43 @@ export interface CreateWorkingEnvironmentOptions {
    * large, wrong type, the user is gone) is something it can respond to.
    */
   onPresent?: (item: PresentedFile) => Promise<void> | void;
+  /**
+   * Let the agent ask the person a question mid-task.
+   *
+   * Without one there is no channel at all, and the observed behaviour is not
+   * "the agent asks in prose" — it is the agent inventing an `ask_user` tool
+   * and burning turns on "no such tool", or, in a turn-capped loop where
+   * ending the turn *is* failing the run, guessing. "Two sheets are named
+   * Revenue — which one?" has a right answer the environment cannot supply.
+   *
+   * Everything about how the question is asked belongs to the host: the UI,
+   * the timeout, whether `options` become buttons or a list. Return the
+   * person's answer as a string; throw (or resolve with a refusal) if nobody
+   * answers, and the agent is told so and carries on.
+   *
+   * A **verb** rather than an `env:` module, deliberately: a script blocking
+   * on a human would spend its own `runTimeoutMs` waiting, and a person who
+   * takes a minute to reply would kill the run.
+   */
+  onAsk?: (question: { question: string; options?: string[] }) => Promise<string>;
+  /**
+   * Called after every model-facing verb, for telemetry.
+   *
+   * `durationMs` is what the model waited for. `mutated` is whether the tree
+   * really changed — measured, not inferred from the verb's name, so a
+   * `run_script` that only read something reports false and a UI does not
+   * refresh its file tree for nothing.
+   *
+   * ```ts
+   * onVerb: ({ name, ok, durationMs, mutated }) => {
+   *   metrics.timing(`env.verb.${name}`, durationMs);
+   *   if (mutated) refreshTree();
+   * }
+   * ```
+   *
+   * Never allowed to fail a verb: a throw here is swallowed.
+   */
+  onVerb?: (event: { name: string; ok: boolean; durationMs: number; mutated: boolean }) => void;
   /**
    * Directories the agent can read but never mutate.
    *
@@ -397,6 +512,69 @@ export interface CreateWorkingEnvironmentOptions {
      * Default 5000ms. Overridable per call: `close({ graceMs })`.
      */
     shutdownGraceMs?: number;
+    /**
+     * How long a warm worker may sit unused before it is terminated, in ms.
+     * Default 60000. `0` keeps it forever.
+     *
+     * An environment nobody is using was measured at 16.5 MB and one OS thread
+     * of steady residency — five open environments at +82.5 MB and +5 threads,
+     * all of it returned on `close()` and none of it before. That is the bill
+     * a multi-tenant host pays for every conversation someone left open.
+     *
+     * The trade is cheap in the other direction: a replacement worker is ready
+     * in ~82 ms, which is noise beside the model round trip that precedes any
+     * script. Raise it for a latency-critical single-tenant host; set `0` when
+     * a warm worker matters more than the thread.
+     *
+     * This reclaims the *worker*, not the tree. The environment stays usable
+     * and its files are untouched — LIFECYCLE.md covers reclaiming the rest
+     * (`close()` on idle, `fromSnapshot` to resume).
+     */
+    idleTimeoutMs?: number;
+    /**
+     * Start the pool's workers in the background as soon as the environment is
+     * created, instead of on the first script. Default false.
+     *
+     * The first `run_script` of a session — or the first script the model
+     * *writes*, since write-time validation runs in a worker too — otherwise
+     * carries ~82 ms of thread start-up. A host that knows a session is
+     * beginning can spend it during the wait it already has.
+     *
+     * Never fails a create: a prewarm spawn that does not come up leaves the
+     * pool exactly as it was and is retried on demand at the first acquire.
+     * `env.warmup()` does the same thing at a moment of the host's choosing —
+     * after restoring a snapshot, say — and can be awaited.
+     */
+    prewarm?: boolean;
+    /**
+     * How long a freshly spawned worker has to become ready. Default 10000ms.
+     *
+     * The failure this bounds is the quiet one: a worker that never signals
+     * ready holds the slot it was given, so at the default pool size of 1
+     * every `run_script` after it waits forever — and nothing times out,
+     * because the run deadline only starts once a worker has been acquired.
+     * Meanwhile writes and validation keep working through the overflow path,
+     * so the environment looks healthy. Past this, the run fails with a
+     * message naming the usual causes instead.
+     */
+    readyTimeoutMs?: number;
+    /**
+     * Watch a run as it happens, rather than reading its transcript
+     * afterwards.
+     *
+     * Called with each console line a running script writes, batched in the
+     * worker so narration inside a loop does not become the slowest thing the
+     * script does. `runId` matches the id in `/.env/history.jsonl`.
+     *
+     * ```ts
+     * execution: { onProgress: (e) => sse.send({ type: "progress", ...e }) }
+     * ```
+     *
+     * The same lines still arrive in full with the run's result, so a host
+     * that ignores this loses nothing — and the worker only streams when a
+     * callback is present.
+     */
+    onProgress?: (event: { runId: string; script: string; stream: "stdout" | "stderr"; text: string }) => void;
     /**
      * Where to report a misconfigured host. Defaults to `console.warn`; point
      * it at your logger. Called at most once per environment.

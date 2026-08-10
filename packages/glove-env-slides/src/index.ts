@@ -19,11 +19,13 @@
  */
 import PptxGenJSImport from "pptxgenjs";
 import { defineAdapter, defineBuilder, methodsOf, type EnvFsHandle, type FileSummary } from "glove-working-environment";
-import { readDeck, looksZip, type SlideText } from "./pptx";
+import { readDeck, looksZip, notesPartFor, readPart, readZip, rewriteZip, slidePartsOf, type SlideText } from "./pptx";
+import { normalizeRules, parseSlides, replaceInPart, type ReplaceRule } from "./edit";
 import { SLIDES_DOCS, SLIDES_TYPES } from "./docs";
 import { SLIDES_SKILLS } from "./skills";
 
 export type { SlideText };
+export type { ReplaceRule } from "./edit";
 /**
  * The independent reader, exported for hosts that need to verify a deck from
  * outside the environment — a test asserting on what an agent produced, for
@@ -65,6 +67,41 @@ export interface DeckSummary extends FileSummary {
   titles: string[];
   words: number;
   media: number;
+}
+
+export interface ReplaceTextOptions {
+  /** 1-based slide numbers, as `extract`/`describe` number them. Default: every slide. */
+  slides?: number | number[];
+  /** Also edit speaker notes. Default false — a typo on a slide is rarely in its notes. */
+  notes?: boolean;
+  /** Where to write. Default: back over the input path. */
+  output?: string;
+}
+
+export interface DeckEdit {
+  /** The file written. */
+  path: string;
+  /** Total occurrences replaced. */
+  replacements: number;
+  /** Which slides changed, and by how much. */
+  slides: Array<{ slide: number; replacements: number }>;
+  /** Search strings that matched nothing. Empty when every rule landed. */
+  unmatched: string[];
+}
+
+/**
+ * The shape pptxgenjs records a pending media read in, on every slide, layout
+ * and master. Not in the library's published types — but it is where a `path`
+ * lands whichever API named it, and the only thing `write()` consults before
+ * opening the file itself, so it is the one place worth watching.
+ */
+interface MediaRel {
+  path?: string;
+  type?: string;
+  data?: string | null;
+}
+interface MediaSurface {
+  _relsMedia?: MediaRel[];
 }
 
 // A restrained palette, fixed rather than configurable. An agent choosing
@@ -146,32 +183,91 @@ export const slides = () =>
       const probeSlide = probe.addSlide();
       const enums = ["AlignH", "AlignV", "ChartType", "OutputType", "SchemeColor", "ShapeType"] as const;
 
+      /** Bytes from the tree, base64, or a sentence about why the path is not readable. */
+      const base64Of = async (path: string): Promise<string> => {
+        try {
+          return Buffer.from(await vfs.readBytes(path)).toString("base64");
+        } catch (e) {
+          throw new Error(
+            `${path} is not in this environment's filesystem — a deck's images, media and backgrounds are read ` +
+              `from the tree, never from the host disk: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        }
+      };
+
+      /**
+       * `{ path }` → `{ data }`, resolved through the guarded VFS handle.
+       *
+       * pptxgenjs opens a `path` itself — off the HOST filesystem — which
+       * would let a script pull any host file it can name into a deck. The
+       * path is resolved here instead and handed on as inline bytes.
+       *
+       * It also puts the failure where it belongs: the library defers reading
+       * until write time, so a missing image otherwise surfaced against
+       * `writeFile()` instead of the call that named it.
+       */
+      const inlinePath = async (value: unknown, mime: string): Promise<Record<string, unknown>> => {
+        const opts = { ...((value ?? {}) as Record<string, unknown>) };
+        const path = opts.path;
+        if (typeof path !== "string") return opts;
+        const ext = (path.split(".").pop() ?? "png").toLowerCase();
+        delete opts.path;
+        opts.data = `${mime}/${ext === "jpg" ? "jpeg" : ext};base64,${await base64Of(path)}`;
+        return opts;
+      };
+
+      /**
+       * Anything pptxgenjs still means to open on the host, resolved before it
+       * can — the same defence as `rewrite` below, one step later.
+       *
+       * A background is *assigned* (`slide.background = { path }`), not
+       * called, and a builder only rewrites the arguments of calls, so the map
+       * cannot reach that route at all. Every path does end up here though,
+       * because this list is exactly what the writer walks when it decides
+       * what to read, so covering it closes the assignment and anything else
+       * carrying a path that the named rewrites miss.
+       */
+      const resolveMedia = async (pptx: InstanceType<typeof PptxGenJS>): Promise<void> => {
+        const deck = pptx as unknown as {
+          masterSlide?: MediaSurface;
+          slides?: MediaSurface[];
+          slideLayouts?: MediaSurface[];
+        };
+        for (const surface of [deck.masterSlide, ...(deck.slides ?? []), ...(deck.slideLayouts ?? [])]) {
+          for (const rel of surface?._relsMedia ?? []) {
+            // `preencoded` is the library's own marker for a rel that already
+            // carries its bytes; an `online` rel is a link, not a file.
+            if (rel.data || !rel.path || rel.type === "online" || rel.path.includes("preencoded")) continue;
+            rel.data = await base64Of(rel.path);
+          }
+        }
+      };
+
       const Pptx = defineBuilder<InstanceType<typeof PptxGenJS>>({
         name: "PptxGenJS",
         construct: () => new PptxGenJS(),
         allow: [...new Set([...methodsOf(probe), ...methodsOf(probeSlide)])],
         data: Object.fromEntries(enums.map((k) => [k, probe[k]])),
         rewrite: {
-          /**
-           * `addImage({ path })` makes pptxgenjs open the file itself — off
-           * the HOST filesystem, which would let a script pull any host file
-           * it can name into a deck. The path is resolved here instead,
-           * through the guarded VFS handle, and handed on as inline bytes.
-           *
-           * It also puts the failure where it belongs: the library defers
-           * reading until write time, so a missing image otherwise surfaced
-           * against `writeFile()` instead of the `addImage()` that named it.
-           */
           async addImage(args) {
-            const opts = { ...((args[0] ?? {}) as Record<string, unknown>) };
-            const path = opts.path;
-            if (typeof path === "string") {
-              const bytes = await vfs.readBytes(path);
-              const ext = (path.split(".").pop() ?? "png").toLowerCase();
-              delete opts.path;
-              opts.data = `image/${ext === "jpg" ? "jpeg" : ext};base64,${Buffer.from(bytes).toString("base64")}`;
-            }
-            return [opts, ...args.slice(1)];
+            return [await inlinePath(args[0], "image"), ...args.slice(1)];
+          },
+          /**
+           * Audio and video land in the same place: `addMediaDefinition`
+           * stores `opt.path` and the writer opens it with the same
+           * `readFileSync` that reads an image. The mime prefix has to be the
+           * media's own type, because with no path left the library takes the
+           * part's extension from the data URI instead.
+           */
+          async addMedia(args) {
+            const type = (args[0] as { type?: unknown } | undefined)?.type;
+            return [await inlinePath(args[0], typeof type === "string" ? type : "audio"), ...args.slice(1)];
+          },
+          /** A master's background arrives as an argument, so it is reachable here. */
+          async defineSlideMaster(args) {
+            const props = { ...((args[0] ?? {}) as Record<string, unknown>) };
+            if (props.background) props.background = await inlinePath(props.background, "image");
+            return [props, ...args.slice(1)];
           },
         },
         finish: {
@@ -187,19 +283,29 @@ export const slides = () =>
             if (!path) {
               throw new Error("writeFile needs a path: writeFile({ fileName: '/out/deck.pptx' })");
             }
+            await resolveMedia(pptx);
             const buffer = (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
             await vfs.writeFile(path, new Uint8Array(buffer));
             return path;
           },
           /** `write()` hands the bytes back instead of storing them. */
           async write(pptx) {
+            await resolveMedia(pptx);
             return new Uint8Array((await pptx.write({ outputType: "nodebuffer" })) as Buffer);
           },
         },
       });
 
-      /** Read, verify it really is a deck, and hand back parsed content. */
-      const open = async (path: string) => {
+      /**
+       * The inflation cap comes from the environment rather than a constant of
+       * our own: a budget this adapter invented would either be uselessly
+       * small or exactly the hole that lets a crafted deck exhaust the heap.
+       * Every part this adapter inflates — reading or editing — passes it.
+       */
+      const budget = () => Math.max(1, vfs.limits.maxVfsBytes);
+
+      /** Bytes through the guarded handle, refusing anything that is not a deck. */
+      const openBytes = async (path: string): Promise<Uint8Array> => {
         const bytes = await vfs.readBytes(path);
         if (!looksZip(bytes)) {
           throw new Error(
@@ -207,7 +313,13 @@ export const slides = () =>
               `A .pptx is a ZIP container; this file is something else.`,
           );
         }
-        return { bytes, deck: readDeck(bytes) };
+        return bytes;
+      };
+
+      /** Read, verify it really is a deck, and hand back parsed content. */
+      const open = async (path: string) => {
+        const bytes = await openBytes(path);
+        return { bytes, deck: readDeck(bytes, budget()) };
       };
 
       return {
@@ -244,6 +356,79 @@ export const slides = () =>
               return parts.join("\n");
             })
             .join("\n\n");
+        },
+
+        /**
+         * Find and replace text in an existing deck, in place.
+         *
+         * This is an **edit**, not a regeneration. Only the slide parts that
+         * contain the matched text are rewritten; the master, the layouts, the
+         * theme, the images, the animations and every slide you did not scope
+         * to are copied across byte for byte. A replacement lands in the run
+         * the match started in, so it keeps that run's font, size and colour.
+         *
+         * Matching is literal, case-sensitive, and within a paragraph.
+         */
+        async replaceText(
+          path: string,
+          replacements: Record<string, string> | ReplaceRule[],
+          options: ReplaceTextOptions = {},
+        ): Promise<DeckEdit> {
+          const rules = normalizeRules(replacements);
+          const bytes = await openBytes(path);
+          const max = budget();
+          const entries = readZip(bytes);
+          const parts = slidePartsOf(entries);
+          if (parts.length === 0) {
+            throw new Error(
+              "this is a ZIP but not a PowerPoint deck (no ppt/slides/) — .docx and .xlsx are also ZIPs, check the file",
+            );
+          }
+
+          const edited = new Map<string, Uint8Array>();
+          const touched: Array<{ slide: number; replacements: number }> = [];
+          const perRule = rules.map(() => 0);
+
+          for (const index of parseSlides(options.slides, parts.length)) {
+            const slidePart = parts[index];
+            const targets = [slidePart];
+            if (options.notes) {
+              const notes = notesPartFor(bytes, entries, slidePart, max);
+              if (notes) targets.push(notes);
+            }
+
+            let onThisSlide = 0;
+            for (const name of targets) {
+              const result = replaceInPart(readPart(bytes, entries.get(name)!, max), rules);
+              if (result.count === 0) continue;
+              edited.set(name, Buffer.from(result.xml, "utf8"));
+              onThisSlide += result.count;
+              result.perRule.forEach((n, i) => (perRule[i] += n));
+            }
+            if (onThisSlide > 0) touched.push({ slide: index + 1, replacements: onThisSlide });
+          }
+
+          const total = perRule.reduce((a, b) => a + b, 0);
+          if (total === 0) {
+            // Writing a byte-identical deck and reporting success is the
+            // failure that costs a run: the model believes the fix landed. The
+            // text is right there to be checked, so say what was looked for.
+            const where = options.slides === undefined ? "" : ` on slide ${JSON.stringify(options.slides)}`;
+            throw new Error(
+              `nothing to replace in ${path}${where}: none of ` +
+                `${rules.map((r) => JSON.stringify(r.find)).join(", ")} appears there. ` +
+                `Matching is literal and case-sensitive — read outline('${path}') and copy the text exactly as it is written.`,
+            );
+          }
+
+          const out = options.output ?? path;
+          await vfs.writeFile(out, rewriteZip(bytes, edited));
+          return {
+            path: out,
+            replacements: total,
+            slides: touched,
+            unmatched: rules.filter((_, i) => perRule[i] === 0).map((r) => r.find),
+          };
         },
 
         async create(spec: DeckSpec, output: string): Promise<string> {

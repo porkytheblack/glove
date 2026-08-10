@@ -1,7 +1,7 @@
 {
   "name": "glove-env-images",
   "version": "0.1.0",
-  "description": "Image stdlib adapter for glove-working-environment. Bridges sharp into the agent's virtual filesystem as env:images — describe an image without reading its bytes, resize, convert, crop, rotate, composite and contact-sheet. Paths in, paths out.",
+  "description": "Image stdlib adapter for glove-working-environment. Bridges sharp into the agent's virtual filesystem as env:images — describe an image without reading its bytes, resize, convert, crop, rotate, composite, draw text and contact-sheet. Animated GIF/WebP keep their frames and SVG rasterizes at a scale you choose. Paths in, paths out.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -33,11 +33,11 @@
     "sharp": "^0.35.3"
   },
   "peerDependencies": {
-    "glove-working-environment": "workspace:*"
+    "glove-working-environment": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
-    "glove-working-environment": "workspace:*",
+    "glove-working-environment": "workspace:^",
     "tsx": "^4.19.0",
     "typescript": "^5.9.3"
   }

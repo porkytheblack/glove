@@ -301,6 +301,49 @@ parser.
 };
 
 /**
+ * Only mounted when the host wired `onAsk`.
+ *
+ * Conditional for the same reason `delivering` is: an agent told "ask when
+ * you are unsure" and given no `ask_user` reports a blocker it cannot act on,
+ * or invents the call.
+ */
+export const ASKING: Skill = {
+  name: "asking",
+  summary: "When to ask the person a question, and when not to.",
+  body: `# Asking
+
+\`ask_user\` puts a question in front of the person and waits for their reply.
+
+\`\`\`
+ask_user({ question: 'Two sheets are named "Revenue" — the one from Q1 has 480 rows, the one from Q2 has 512. Which should the report use?',
+           options: ['Q1 (480 rows)', 'Q2 (512 rows)', 'Both, as separate sections'] })
+\`\`\`
+
+**Ask only what the tree cannot answer.** Sheet names, row counts, file
+formats, which columns exist — read the file, \`describe\` it, or \`grep\` for
+it. A question whose answer is sitting in \`/inbox\` spends the person's
+attention on work you were given the tools to do.
+
+**Ask before the expensive step, not after.** "Should this be a deck or a
+PDF?" is worth one question at the start. The same question after you have
+built the wrong one costs both of you.
+
+**Include the context in the question.** The person is not reading your
+scrollback. Say what you found, what the choice is between, and what each
+option means — the example above is answerable on its own; "which revenue
+sheet?" is not.
+
+**\`options\` when the answer is a choice you can name**, so they can pick
+rather than compose. Leave it out for a genuinely open question ("what
+should the report conclude?").
+
+**One question, once.** If no answer comes back, the verb tells you so:
+carry on with the most reasonable assumption and say in your final message
+which one you made. Do not ask again.
+`,
+};
+
+/**
  * Only mounted when the host wired `onPresent`.
  *
  * Conditional for the same reason the verb is: an agent that reads "call

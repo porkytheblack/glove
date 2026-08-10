@@ -20,15 +20,16 @@ REGISTRY="${REGISTRY:-ghcr.io/porkytheblack}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 
 declare -A IMAGES=(
-  [base]=1.0
-  [media]=1.4
-  [docs]=1.2
-  [python]=1.3
-  [browser]=1.1
+  [base]=1.1
+  [media]=1.5
+  [docs]=1.3
+  [python]=1.4
+  [browser]=1.2
+  [studio]=1.1
 )
 
-# base must build first since the others FROM it.
-ORDER=(base media docs python browser)
+# base must build first since the others FROM it, and studio FROM docs.
+ORDER=(base media docs python browser studio)
 
 push=0
 tag_override=""
@@ -80,6 +81,13 @@ if [[ " ${selected[*]} " == *" base "* ]]; then
 else
   if ! docker image inspect "${REGISTRY}/glovebox/base:${IMAGES[base]}" >/dev/null 2>&1; then
     selected=(base "${selected[@]}")
+  fi
+fi
+
+# studio extends docs, so docs has to exist before it can build.
+if [[ " ${selected[*]} " == *" studio "* && " ${selected[*]} " != *" docs "* ]]; then
+  if ! docker image inspect "${REGISTRY}/glovebox/docs:${IMAGES[docs]}" >/dev/null 2>&1; then
+    selected=(docs "${selected[@]}")
   fi
 fi
 

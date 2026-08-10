@@ -298,8 +298,10 @@ if (kind !== 'text') return { blocked: note };   // note names the pages and the
 \`\`\`
 
 A scan has no text layer, so no extractor will do better — the pages have to
-be rasterised and read as images (a vision model, or OCR host-side). \`empty\`
-means the pages really are blank, which is a different problem.
+be rasterised and read as images. \`env:ocr\`'s \`recognize(path, { pages })\`
+does both in one call and reports per-page confidence; \`view_image\` is the
+cheaper answer for a page or two. \`empty\` means the pages really are blank,
+which is a different problem.
 
 ## Rearranging PDFs
 
@@ -319,7 +321,11 @@ Page selections are **1-based**, as a string range (\`'1-3,7'\`) or an array
 ## Notes
 
 - Images in a spec are VFS paths to PNG or JPEG files. Convert other formats
-  with \`env:images\` first.
+  with \`env:images\` first — it transforms pixels, it does not draw them.
+- To make a chart (or any diagram, title card or drawn image), render one with
+  \`env:motion\`'s \`still(scene, '/tmp/chart.png', { width, height })\`: a
+  one-frame render of a React component, with the whole browser as the drawing
+  surface. That is where a \`/tmp/chart.png\` in these examples comes from.
 - PDFs use the standard Helvetica family, which covers Latin-1. Characters
   outside it are transliterated where there is an obvious equivalent (curly
   quotes, dashes, ellipsis) and otherwise become \`?\`. For full Unicode, emit

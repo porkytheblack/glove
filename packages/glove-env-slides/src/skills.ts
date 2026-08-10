@@ -115,4 +115,54 @@ titles, \`outline()\` gives the text of every slide.
 `,
 };
 
-export const SLIDES_SKILLS: Skill[] = [QUICK, CUSTOM];
+const EDITING: Skill = {
+  name: "slides-editing",
+  summary: "Fix text in a deck you were given, without rebuilding it: replaceText.",
+  body: `# Editing a deck instead of regenerating it
+
+'Fix the typo on slide 4' is an **edit**. Do not \`extract()\` the text and
+\`create()\` a new deck — that rebuilds the file out of the only things
+\`DeckSpec\` can express, and everything else is gone. Measured on a deck this
+adapter wrote, the rebuild lost the chart image and the footer's slide layout.
+On a deck a designer made, it would lose the design.
+
+\`\`\`js
+import { outline, replaceText } from 'env:slides';
+
+export default async function main() {
+  // Read it first — matching is literal, so copy the text exactly as written.
+  const text = await outline('/inbox/q3.pptx');
+
+  const edit = await replaceText('/inbox/q3.pptx', {
+    'Nortwind Traders': 'Northwind Traders',
+  }, { slides: 4, output: '/out/q3.pptx' });
+
+  // → { path, replacements: 1, slides: [{ slide: 4, replacements: 1 }], unmatched: [] }
+  if (edit.unmatched.length > 0) throw new Error('never found: ' + edit.unmatched.join(', '));
+  return edit;
+}
+\`\`\`
+
+Only the slide parts that matched are rewritten. Masters, layouts, themes,
+\`ppt/media/*\` and animations are copied byte for byte.
+
+## What it will and will not do
+
+- **Will** find text split across formatting runs — PowerPoint starts a new run
+  wherever formatting changes, so one visible line is often three runs.
+- **Will** keep the replacement in the run its match started in, so a bold word
+  stays bold.
+- **Will** scope to a slide (\`{ slides: 4 }\`) or several (\`{ slides: [2, 4] }\`),
+  numbered exactly as \`describe\` and \`extract\` number them. Omit it for the
+  whole deck.
+- **Will** leave speaker notes alone unless you pass \`{ notes: true }\`.
+- **Will not** match across a paragraph break, and it is case-sensitive.
+- **Will not** add slides, move them, or change a layout. For that, build a new
+  deck with \`PptxGenJS\` — nothing can open an existing one.
+
+If nothing matches, it throws rather than writing an identical deck, so a fix
+that did not happen cannot be reported as one.
+`,
+};
+
+export const SLIDES_SKILLS: Skill[] = [QUICK, CUSTOM, EDITING];

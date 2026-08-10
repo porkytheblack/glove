@@ -1,12 +1,26 @@
 # glovebox/base — runtime base image for Glovebox apps.
 #
-# Provides Node 20, the standard filesystem layout (/work writable,
+# Provides Node 22, the standard filesystem layout (/work writable,
 # /input read-only, /output writable), a non-root `glovebox` user, and
 # pre-built native modules (better-sqlite3) so per-app images don't
 # pay rebuild cost.
 #
-# Per-app images extend this with `FROM ghcr.io/porkytheblack/glovebox/base:1.0`.
-FROM node:20-bookworm-slim
+# Per-app images extend this with `FROM ghcr.io/porkytheblack/glovebox/base:1.1`.
+#
+# Node 22, not 20, and the reason is worth keeping: pdf.js (pdfjs-dist v5+,
+# which `env:render` rasterizes through) calls
+# `ArrayBuffer.prototype.transferToFixedLength`, added in Node 21. On Node 20
+# it throws — and pdf.js swallows the throw per operator, logging
+#
+#     getOperatorList - ignoring errors during "GetOperatorList: page 0" task:
+#     "TypeError: buffer.transferToFixedLength is not a function"
+#
+# then finishing the page anyway. Measured in-container on the 20 base: a
+# rasterized Word document returned a path, 893x1263 dimensions and 7224
+# bytes, the caller reported success, and the PNG was blank. A silent blank
+# page is worse than a crash, and nothing above this line can detect it.
+# Node 20 also left maintenance in April 2026.
+FROM node:22-bookworm-slim
 
 # Locale + tini for proper signal handling.
 RUN apt-get update \

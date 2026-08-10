@@ -204,6 +204,7 @@ Two processes, in two terminals.
 ```bash
 cp .env.example .env.local     # provider keys + STATION_USERNAME / STATION_PASSWORD
 pnpm install
+pnpm rebuild onnxruntime-node  # the neural VAD's native binary — see below
 
 pnpm start                     # 1. the backend → `station`
 pnpm key "web app" trigger read cancel      # 2. mint the app's only credential
@@ -213,6 +214,20 @@ pnpm --filter glove-server-voice-web dev    # 3. the app you test in
 
 That one `.env.local` serves everything — station, the scripts, the Next.js app,
 and every room and research run (child processes inherit station's environment).
+
+### Why the extra `pnpm rebuild`
+
+`onnxruntime-node`'s postinstall downloads a large native bundle from a
+third-party host and unpacks it. It is the only dependency in this repo that
+does, and it is the least reliable thing in the install: across a handful of
+recent CI runs it failed twice — once on a connection timeout, once on an
+archive that extracted incompletely — taking down installs for every package,
+none of which need it.
+
+So it is listed under `pnpm.ignoredBuiltDependencies` in the root
+`package.json`: the workspace installs without it, and this example — the only
+thing that uses it — asks for it explicitly. If you skip the rebuild, the
+neural VAD fails at import with a missing native binding.
 station's CLI does not read dotfiles by itself, so `lib/load-env.ts` loads it
 from `station.config.ts` and the scripts, and `web/next.config.ts` loads it for
 the app. Anything exported in your shell still wins.

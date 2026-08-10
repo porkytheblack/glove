@@ -1,0 +1,47 @@
+{
+  "name": "glove-env-email",
+  "version": "0.1.0",
+  "description": "Email stdlib adapter for glove-working-environment. Opens .eml and Outlook .msg messages inside the agent's virtual filesystem as env:email — headers, body, and attachments written into the tree so they flow into the document, image and archive adapters.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-env-email"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "dependencies": {
+    "@kenjiuno/msgreader": "^1.28.0",
+    "mailparser": "^3.9.15"
+  },
+  "peerDependencies": {
+    "glove-working-environment": "workspace:*"
+  },
+  "devDependencies": {
+    "@tutao/oxmsg": "^0.2.3",
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^25.2.3",
+    "glove-working-environment": "workspace:*",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -269,3 +269,46 @@ test("undo/redo and size accounting behave the same on this backend", async () =
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("a write that lands during commit() survives it", async () => {
+  // The audit's probe. `commit()` is a sequence of awaited disk operations
+  // and the environment keeps accepting writes throughout — a Save button
+  // pressed while `run_script` is still writing `/out`. Clearing the whole
+  // overlay at the end erased those writes from disk AND from the VFS view,
+  // after the model had been told they succeeded.
+  const dir = await corpus();
+  try {
+    const disk = hostDirectory(dir);
+    const env = await createWorkingEnvironment({ filesystem: disk });
+
+    // Enough staged entries that the commit is still walking them when the
+    // late write arrives; each one costs a realpath and a disk write.
+    for (let i = 0; i < 60; i++) await env.fs.writeFile(`/out/staged-${i}.txt`, `body ${i}`);
+    await env.fs.writeFile("/out/doomed.txt", "will be deleted mid-commit");
+    await disk.commit();
+    await env.fs.rm("/out/doomed.txt");
+    for (let i = 0; i < 60; i++) await env.fs.writeFile(`/out/staged-${i}.txt`, `second pass ${i}`);
+
+    const committing = disk.commit();
+    await env.fs.writeFile("/out/late.txt", "landed mid-commit");
+    await env.fs.rm("/out/staged-7.txt");
+    await committing;
+
+    // The environment reported both as successful, so both must be true of
+    // the tree — and of the disk once the next commit runs.
+    assert.equal(await env.fs.readFile("/out/late.txt"), "landed mid-commit", "the VFS view lost a write it had accepted");
+    assert.equal(await env.fs.exists("/out/staged-7.txt"), false, "the VFS view lost a delete it had accepted");
+
+    await disk.commit();
+    assert.equal(await readFile(join(dir, "out", "late.txt"), "utf8"), "landed mid-commit", "disk never got the write");
+    assert.deepEqual(
+      (await readdir(join(dir, "out"))).filter((n) => n === "staged-7.txt" || n === "doomed.txt"),
+      [],
+      "disk kept a file the environment had removed",
+    );
+    // The rest of the commit still landed.
+    assert.equal(await readFile(join(dir, "out", "staged-8.txt"), "utf8"), "second pass 8");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

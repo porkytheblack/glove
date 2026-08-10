@@ -190,8 +190,38 @@ const bytes = {
   },
 };
 
+/**
+ * Wait, without a timer.
+ *
+ * The sandbox has no `setTimeout` — nothing in the vm context does — so the
+ * only way a script could wait was `while (Date.now() < until) await null`,
+ * which spins the CPU, starves the macrotask queue (breaking anything on the
+ * host that depends on one, progress batching included), and reads as a bug.
+ * The wait matters now that `defineTools` points scripts at real services:
+ * retrying a rate-limited call is the ordinary case.
+ *
+ * The run's own deadline still applies — this is host-side like any other
+ * capability, so a sleep past the budget ends the run rather than outliving
+ * it. Capped so a mistyped `sleep(60000000)` fails fast instead of burning
+ * the whole budget on one call.
+ */
+const MAX_SLEEP_MS = 60_000;
+
+async function sleep(ms: number): Promise<void> {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) {
+    throw new TypeError(`sleep(ms) needs a non-negative number of milliseconds, got ${JSON.stringify(ms)}`);
+  }
+  if (ms > MAX_SLEEP_MS) {
+    throw new RangeError(
+      `sleep(${ms}) exceeds the ${MAX_SLEEP_MS}ms per-call cap. ` +
+        `Loop shorter sleeps if you really mean to wait longer — and remember the run's own deadline applies.`,
+    );
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
 export function createStdBindings(): Record<string, unknown> {
-  return { json, csv, text, bytes };
+  return { json, csv, text, bytes, sleep };
 }
 
 export const STD_TYPES = `/** env:std — small zero-dep battery. */
@@ -222,4 +252,10 @@ export const bytes: {
   toBase64(data: Uint8Array): string;
   fromBase64(b64: string): Uint8Array;
 };
+/**
+ * Wait. There are no timers in the sandbox, so this is how a script pauses —
+ * between retries of a rate-limited call, for instance. Max 60000 per call,
+ * and the run's own deadline still applies.
+ */
+export function sleep(ms: number): Promise<void>;
 `;

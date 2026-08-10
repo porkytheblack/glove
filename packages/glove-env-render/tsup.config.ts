@@ -6,7 +6,10 @@ export default defineConfig({
   // with those names exist. The prefix is what makes that shadowing
   // impossible.
   removeNodeProtocol: false,
-  entry: ["src/index.ts"],
+  // `src/raster.ts` is a second entry, not an accident: env:ocr rasterizes PDF
+  // pages through the SAME pdfjs+canvas path this adapter uses, rather than
+  // standing up a second one that would drift from it.
+  entry: ["src/index.ts", "src/raster.ts"],
   format: ["esm"],
   dts: true,
   target: "es2022",

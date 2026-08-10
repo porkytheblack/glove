@@ -1,0 +1,26 @@
+{
+  "name": "glovebox-env-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "glovebox build ./glovebox.ts",
+    "image": "docker build -t glovebox-env:local ./dist",
+    "selfcheck": "docker run --rm -e GLOVEBOX_KEY=selfcheck -e GLOVEBOX_SELFCHECK=1 glovebox-env:local",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "glove-core": "workspace:*",
+    "glove-env-documents": "workspace:*",
+    "glove-env-motion": "workspace:*",
+    "glove-env-render": "workspace:*",
+    "glove-working-environment": "workspace:*",
+    "glovebox-core": "workspace:*",
+    "pdfjs-dist": "^5.4.149"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}

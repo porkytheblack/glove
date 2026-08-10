@@ -1,15 +1,20 @@
 /**
  * Bundle → PNG frames, in a headless browser we drive one frame at a time.
  *
- * The browser is a renderer here, not a runtime: it is opened, stepped through
- * a fixed number of frames, screenshotted, and closed. Nothing in the page
- * decides when a frame happens — see {@link ./clock!CLOCK_SHIM}.
+ * The browser is a renderer here, not a runtime: a page is opened, stepped
+ * through a fixed number of frames, screenshotted, and thrown away. Nothing in
+ * the page decides when a frame happens — see {@link ./clock!CLOCK_SHIM}.
+ *
+ * The browser *process* outlives the render and is borrowed from
+ * {@link ./browser-pool}; what gets thrown away is a fresh context, which is
+ * where the per-render isolation lives.
  */
 import { accessSync, constants as fsConstants, readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { chromium, type Browser, type Page } from "playwright-core";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
+import { acquireBrowser } from "./browser-pool";
 import { CLOCK_SHIM, FRAME_GLOBALS } from "./clock";
 
 export class CaptureError extends Error {}
@@ -43,6 +48,17 @@ export interface CaptureOptions {
   still?: number;
   /** Absolute path to a Chromium binary. Auto-detected when absent. */
   browserPath?: string;
+  /**
+   * Who is borrowing the browser. One key, one Chromium, reused across
+   * renders; distinct keys never share a process. The adapter passes a value
+   * unique to its own instance, so one environment gets one browser and two
+   * tenants in the same host never get the same one.
+   */
+  browserKey: string;
+  /** Idle time before this key's browser closes itself. */
+  browserIdleMs?: number;
+  /** How long to wait for a fleet permit before giving up. */
+  browserWaitMs?: number;
   /** Per-frame screenshot budget. */
   timeoutMs: number;
   signal?: AbortSignal;
@@ -218,34 +234,39 @@ export async function captureFrames(options: CaptureOptions): Promise<CaptureRes
 
   await mkdir(options.outDir, { recursive: true });
 
-  let browser: Browser | undefined;
+  // Borrowed, not launched. The lease is given back in the `finally` whatever
+  // happens inside — a render that throws must not hold a fleet permit, or one
+  // broken scene stops every other environment in the process.
+  const lease = await acquireBrowser({
+    key: options.browserKey,
+    executablePath,
+    idleMs: options.browserIdleMs,
+    waitMs: options.browserWaitMs,
+  });
   try {
-    browser = await chromium.launch({
-      executablePath,
-      args: [
-        "--no-sandbox",
-        "--disable-dev-shm-usage",
-        "--force-device-scale-factor=1",
-        "--hide-scrollbars",
-        // Subpixel antialiasing samples the background, so the same glyph
-        // renders differently over different pixels. Off, text is stable and
-        // frames stay comparable.
-        "--disable-lcd-text",
-        "--font-render-hinting=none",
-        "--disable-skia-runtime-opts",
-      ],
-    });
-    return await renderWith(browser, options);
+    return await renderWith(lease.browser, options);
   } finally {
-    await browser?.close().catch(() => {});
+    lease.release();
   }
 }
 
 async function renderWith(browser: Browser, options: CaptureOptions): Promise<CaptureResult> {
-  const page: Page = await browser.newPage({
+  // A fresh context per render, not a fresh browser. This is where the
+  // isolation actually lives: empty storage, no cookies, no leftover page
+  // state, nothing carried over from whatever rendered here before.
+  const context: BrowserContext = await browser.newContext({
     viewport: { width: options.width, height: options.height },
     deviceScaleFactor: 1,
   });
+  try {
+    return await renderInContext(context, options);
+  } finally {
+    await context.close().catch(() => {});
+  }
+}
+
+async function renderInContext(context: BrowserContext, options: CaptureOptions): Promise<CaptureResult> {
+  const page: Page = await context.newPage();
 
   const pageErrors: string[] = [];
   /**

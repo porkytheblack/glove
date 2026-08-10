@@ -16,11 +16,14 @@
  *    executing the module's top level, so it runs with a READ-ONLY
  *    filesystem handle. Otherwise a rejected `write_file` could still delete
  *    files, and a script could plant state that breaks the environment.
- * 3. **Serialize mutations.** Version recording is read-modify-write; two
+ * 3. **Serialize access.** Version recording is read-modify-write; two
  *    concurrent writers that both capture the same "prior" silently destroy
- *    undo history. All mutations run through one queue.
+ *    undo history. Every mutation runs through one queue — and so does every
+ *    whole-tree *read* (snapshot, export, checkpoint), because a walk that
+ *    interleaves with a half-finished mutation captures a tree the
+ *    environment was never in. See {@link EnvCore.exclusive}.
  */
-import type { EnvLimits, FileVersionInfo, VfsEntry, VfsStat, Vfs } from "../types";
+import type { EnvCounters, EnvLimits, FileVersionInfo, VfsEntry, VfsStat, Vfs } from "../types";
 import { EnvLimitError, looksBinary, toBytes, toText } from "../types";
 import { basename, dirname, globToRegExp, isUnder, normalizePath } from "../paths";
 import { defaultExportError } from "../pipeline/contract";
@@ -30,8 +33,12 @@ import type { WorkerPool } from "../executor/pool";
 import { HandlerRegistry, HEAD_BYTES, type Claim } from "../adapters/handles";
 import { envImportsOf } from "../pipeline/imports";
 import { buildOrientation, ORIENTATION_PATH } from "../tools/orientation";
+import { readBranchSnapshot } from "../tools/branches";
+import { base64ToBytes } from "../vfs/memory";
 import type { VersionStore } from "../history/versions";
 import type { RunLog } from "../history/runlog";
+import { runContext } from "./run-context";
+export { runContext, type RunContext } from "./run-context";
 
 /** Only `tail` is needed here; see tools/orientation. */
 type RunLogLike = Pick<RunLog, "tail">;
@@ -51,6 +58,36 @@ export const JSDOC_NUDGE =
   "/** What it does. @param {{ x: string }} args @returns {Promise<...>} */";
 
 type DerivedAction = { write: string; content: string } | { remove: string };
+
+/**
+ * A path the model wrote as a wildcard.
+ *
+ * `rm('/tmp/*.png')` is a natural thing to reach for and produces a literal
+ * "no such file or directory: /tmp/*.png", which reads as a filesystem
+ * problem rather than an unsupported shape. The verbs take one path each on
+ * purpose — a batch delete is a script, where the model can see and check
+ * the list first — so the fix is to say that, with the recipe.
+ */
+function globHint(path: string, op: "remove" | "move" | "copy"): string | null {
+  if (!/[*?[\]]/.test(path)) return null;
+  const recipe =
+    op === "remove"
+      ? `const fs = await import('env:fs');\nfor (const p of await fs.glob('${path}')) await fs.rm(p);`
+      : `const fs = await import('env:fs');\nfor (const p of await fs.glob('${path}')) await fs.${op === "move" ? "mv" : "cp"}(p, '/out/' + p.split('/').pop());`;
+  return (
+    `cannot ${op} ${path}: this verb takes one path, not a pattern — nothing on disk is named "${path}". ` +
+    `Do it in a script, where you can see the list before acting on it:\n${recipe}\n` +
+    `(\`ls\` and \`grep\` do take patterns; the mutating verbs deliberately do not.)`
+  );
+}
+
+/** Byte-for-byte equality, treating "absent" as distinct from empty. */
+function sameBytes(a: Uint8Array | null, b: Uint8Array | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.byteLength !== b.byteLength) return false;
+  for (let i = 0; i < a.byteLength; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
 
 interface ScriptEffects {
   derived: DerivedAction[];
@@ -77,10 +114,30 @@ export interface LsEntry {
 export class EnvCore {
   /** `env:*` namespaces (builtins + adapters), populated during construction. */
   readonly envModules = new Map<string, Record<string, unknown>>();
-  /** The same namespaces bound to a read-only filesystem, used for validation. */
+  /**
+   * The same namespaces bound to a read-only filesystem, used for validation.
+   *
+   * **Filled lazily**, on the first thing that needs them — building an
+   * adapter's second instance is ~4 ms of a 15.6 ms create and a host that
+   * never runs a script never touches it (#129). So this map is EMPTY until
+   * `createWorkingEnvironment`'s `readOnlyModules()` has run; read it through
+   * the pool's `envModules(true)`, never directly.
+   */
   readonly envModulesReadOnly = new Map<string, Record<string, unknown>>();
   /** name → one-liner, for `ls /std` and the tool description. */
   readonly moduleDescriptions = new Map<string, string>();
+  /** name → `StdlibAdapter.version`, for the modules that declare one. */
+  readonly moduleVersions = new Map<string, string>();
+  /**
+   * Adapter contract versions that changed since this tree was last used.
+   *
+   * Filled at startup by `createWorkingEnvironment` and rendered into the
+   * orientation file. It reaches the MODEL because that is who pays for the
+   * skew: `WorkingEnvironment.warnings` is host-only, and a host that logs it
+   * and carries on leaves the agent running stored scripts against bindings
+   * whose signatures moved under them.
+   */
+  readonly adapterSkew: string[] = [];
   /** Which adapter understands which file — shared by `describe` and `ls`. */
   readonly handlers = new HandlerRegistry();
   private executor!: WorkerPool;
@@ -120,12 +177,34 @@ export class EnvCore {
   }
 
   /**
-   * Run a mutation with exclusive access. Validation uses a read-only
-   * filesystem, so a script executing inside a held lock can never take the
-   * lock again — this cannot deadlock.
+   * Run a body with exclusive access to the tree.
+   *
+   * Public because the mutation queue is not only for mutations: a host door
+   * that *walks* the tree (`snapshot`, `export`) has to see a state no
+   * half-finished mutation is inside, or it captures a version index that
+   * records a write the tree does not have, or reads a version blob the ring
+   * rotated out between `list()` and `read()`. Every in-band verb, every
+   * host door and every whole-tree operation goes through here, so "the tree
+   * is consistent" has exactly one meaning.
+   *
+   * **Not reentrant.** A body that calls back into a serialized method
+   * deadlocks. Internal callers follow one convention to make that
+   * impossible to write by accident: the public method takes the lock and an
+   * `…Inner` private does the work, and nothing an `…Inner` calls is public.
+   * Validation is safe for the same reason — it runs against a read-only
+   * filesystem handle, which has no path back to this lock.
+   *
+   * Waiting for the lock is also the moment a caller can become obsolete, so
+   * {@link runContext} is checked here rather than at the call site: a write
+   * whose run was killed while it queued must not commit.
    */
-  private serialize<T>(fn: () => Promise<T>): Promise<T> {
-    const result = this.queue.then(fn, fn);
+  exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const guarded = (): Promise<T> => {
+      const reason = runContext.getStore()?.abandoned();
+      if (reason) return Promise.reject(new Error(reason));
+      return fn();
+    };
+    const result = this.queue.then(guarded, guarded);
     this.queue = result.then(
       () => undefined,
       () => undefined,
@@ -180,7 +259,49 @@ export class EnvCore {
     return p.split("/").some((seg) => seg.endsWith(".d.ts"));
   }
 
+  /**
+   * How many times the tree has changed.
+   *
+   * A counter rather than an event because the question a host actually has
+   * is "did that verb change anything" — it compares the number either side
+   * of a call. The alternative in the wild is a hand-maintained list of which
+   * verb names mutate, which silently goes wrong the moment a verb is added
+   * and cannot see that a `run_script` did nothing.
+   */
+  mutations = 0;
+
+  /** Counters a host can scrape. See {@link EnvCounters}. */
+  readonly counters: EnvCounters = { limitHits: 0, spillovers: 0, mutations: 0 };
+
+  private isClosed = false;
+
+  /** Called by every path that actually changed the tree. */
+  markMutated(): void {
+    this.mutations += 1;
+    this.counters.mutations += 1;
+  }
+
+  /**
+   * Refuse further mutations. Called by `env.close()`.
+   *
+   * Reads stay open on purpose: `export()` and `snapshot()` after `close()`
+   * are how a host drains an environment it has just shut down, and taking
+   * that away to catch a mistake would break the correct flow. Mutations are
+   * different — nothing will run them, nothing will persist them, and
+   * accepting one silently leaves the host believing work landed that did
+   * not.
+   */
+  close(): void {
+    this.isClosed = true;
+  }
+
   private assertMutable(path: string, op: string): void {
+    if (this.isClosed) {
+      throw new Error(
+        `cannot ${op} ${normalizePath(path)}: this working environment has been closed. ` +
+          `Reads, export() and snapshot() still work; create a new environment (or fromSnapshot) to keep working.`,
+      );
+    }
     const p = normalizePath(path);
     if (p === "/") throw new Error(`cannot ${op} the root directory`);
     if (isUnder(p, "/.env")) {
@@ -213,6 +334,7 @@ export class EnvCore {
 
   private checkFileSize(path: string, bytes: number): void {
     if (bytes > this.limits.maxFileBytes) {
+      this.counters.limitHits += 1;
       throw new EnvLimitError(
         `file size limit exceeded: ${path} would be ${bytes} bytes, over the ${this.limits.maxFileBytes}-byte cap (limits.maxFileBytes)`,
       );
@@ -223,6 +345,7 @@ export class EnvCore {
     if (deltaBytes <= 0) return;
     const total = await this.vfs.totalSize();
     if (total + deltaBytes > this.limits.maxVfsBytes) {
+      this.counters.limitHits += 1;
       throw new EnvLimitError(
         `environment size limit exceeded: this mutation would grow the tree past ${this.limits.maxVfsBytes} bytes (limits.maxVfsBytes)`,
       );
@@ -420,21 +543,51 @@ export class EnvCore {
 
   // ---------------------------------------------------------------- writes
 
-  write(
-    path: string,
-    content: string | Uint8Array,
-    opts?: { append?: boolean },
-  ): Promise<{ bytes: number; nudge?: string; created: boolean }> {
-    return this.serialize(() => this.writeInner(path, content, opts));
-  }
-
-  private async writeInner(
+  /**
+   * ## Why validation happens outside the lock
+   *
+   * Validating a script means executing its top level in a worker, with a
+   * budget of `runTimeoutMs` — up to 30 seconds by default. Done inside the
+   * mutation queue, every other mutation waits behind it, including the
+   * `env:fs` writes RPC'd from scripts that are running *right now* and whose
+   * own deadlines keep ticking. Measured shape of the failure: a 20-second
+   * top level in a script the model is saving kills an unrelated run with a
+   * timeout that reads as that run's fault.
+   *
+   * So validation runs first, against an overlay, holding nothing; the lock
+   * is taken only for the commit. Nothing is lost by this — the validated
+   * bytes are the caller's, not the tree's, and the derived `.d.ts` is
+   * derived from those same bytes. Only the two paths whose *content*
+   * depends on the current file — `append`, and `edit` — need the base to
+   * still be what they read, and both re-check it under the lock.
+   */
+  async write(
     path: string,
     content: string | Uint8Array,
     opts?: { append?: boolean },
   ): Promise<{ bytes: number; nudge?: string; created: boolean }> {
     const p = normalizePath(path);
     this.assertMutable(p, "write");
+
+    // An append's bytes are a function of the file, so it is prepared and
+    // committed as one locked step. It is also the rare case: appending to a
+    // script is unusual, and appending to anything else validates nothing.
+    if (opts?.append || !this.inPipelineScope(p)) {
+      return this.exclusive(() => this.writeInner(p, content, opts));
+    }
+
+    if ((await this.vfs.stat(p))?.kind === "dir") throw new Error(`cannot write ${p}: it is a directory`);
+    const bytes = toBytes(content);
+    this.checkFileSize(p, bytes.byteLength);
+    const effects = await this.scriptEffects(p, toText(bytes));
+    return this.exclusive(() => this.commitWrite(p, bytes, effects, "write"));
+  }
+
+  private async writeInner(
+    p: string,
+    content: string | Uint8Array,
+    opts?: { append?: boolean },
+  ): Promise<{ bytes: number; nudge?: string; created: boolean }> {
     if ((await this.vfs.stat(p))?.kind === "dir") throw new Error(`cannot write ${p}: it is a directory`);
 
     const prior = await this.currentContent(p);
@@ -446,70 +599,104 @@ export class EnvCore {
       bytes = joined;
     }
     this.checkFileSize(p, bytes.byteLength);
-
-    // Everything that can fail happens before the first write.
     const effects = await this.scriptEffects(p, toText(bytes));
+    return this.commitWrite(p, bytes, effects, opts?.append ? "append" : "write");
+  }
+
+  /**
+   * The locked half of a write: everything that can fail is checked before
+   * the first byte lands, so a rejected write leaves no trace.
+   *
+   * `prior` is read here rather than passed in. Its only uses — the undo
+   * record and the size delta — want whatever the file holds at commit time,
+   * not what it held when validation started.
+   */
+  private async commitWrite(
+    p: string,
+    bytes: Uint8Array,
+    effects: ScriptEffects,
+    op: string,
+  ): Promise<{ bytes: number; nudge?: string; created: boolean }> {
+    if ((await this.vfs.stat(p))?.kind === "dir") throw new Error(`cannot write ${p}: it is a directory`);
+    const prior = await this.currentContent(p);
     const derivedDelta = await this.prepareDerived(effects.derived);
     await this.checkTotalSize(
       bytes.byteLength - (prior?.byteLength ?? 0) + derivedDelta + this.versions.versionOverhead(prior),
     );
 
-    await this.versions.recordMutation(p, prior, opts?.append ? "append" : "write");
+    await this.versions.recordMutation(p, prior, op);
     await this.vfs.write(p, bytes);
     await this.applyDerived(effects.derived);
+    this.markMutated();
     return { bytes: bytes.byteLength, nudge: effects.nudge, created: prior === null };
   }
 
-  edit(path: string, oldStr: string, newStr: string): Promise<{ nudge?: string; bytes: number }> {
-    return this.serialize(() => this.editInner(path, oldStr, newStr));
-  }
+  /** How many times an edit re-reads and re-validates before giving up. */
+  private static readonly EDIT_ATTEMPTS = 3;
 
-  private async editInner(path: string, oldStr: string, newStr: string): Promise<{ nudge?: string; bytes: number }> {
+  async edit(path: string, oldStr: string, newStr: string): Promise<{ nudge?: string; bytes: number }> {
     const p = normalizePath(path);
     this.assertMutable(p, "edit");
-    const stat = await this.vfs.stat(p);
-    if (!stat) throw new Error(`no such file: ${p}`);
-    if (stat.kind === "dir") throw new Error(`cannot edit ${p}: it is a directory`);
     if (oldStr === "") throw new Error(`old_str must be non-empty`);
-    const text = await this.readText(p);
 
-    let count = 0;
-    for (let idx = text.indexOf(oldStr); idx !== -1; idx = text.indexOf(oldStr, idx + oldStr.length)) count += 1;
-    if (count === 0) throw new Error(`old_str not found in ${p} (0 matches). Read the file and copy the exact text to replace.`);
-    if (count > 1) {
-      throw new Error(`old_str matches ${count} times in ${p}; it must match exactly once. Include more surrounding context to disambiguate.`);
+    // Optimistic: read and validate outside the lock, then commit only if the
+    // file is still what was read. A concurrent write to the same file makes
+    // the prepared bytes wrong, so it starts over rather than committing a
+    // replacement of text that is no longer there.
+    for (let attempt = 1; ; attempt++) {
+      const stat = await this.vfs.stat(p);
+      if (!stat) throw new Error(`no such file: ${p}`);
+      if (stat.kind === "dir") throw new Error(`cannot edit ${p}: it is a directory`);
+      const text = await this.readText(p);
+
+      let count = 0;
+      for (let idx = text.indexOf(oldStr); idx !== -1; idx = text.indexOf(oldStr, idx + oldStr.length)) count += 1;
+      if (count === 0) throw new Error(`old_str not found in ${p} (0 matches). Read the file and copy the exact text to replace.`);
+      if (count > 1) {
+        throw new Error(`old_str matches ${count} times in ${p}; it must match exactly once. Include more surrounding context to disambiguate.`);
+      }
+
+      const next = text.replace(oldStr, () => newStr);
+      const bytes = toBytes(next);
+      this.checkFileSize(p, bytes.byteLength);
+      const base = toBytes(text);
+      const effects = await this.scriptEffects(p, next);
+
+      const committed = await this.exclusive(async () => {
+        const current = await this.currentContent(p);
+        if (!sameBytes(current, base)) return null; // changed under us — prepare again
+        return this.commitWrite(p, bytes, effects, "edit");
+      });
+      if (committed) return { nudge: committed.nudge, bytes: committed.bytes };
+
+      if (attempt >= EnvCore.EDIT_ATTEMPTS) {
+        throw new Error(
+          `could not edit ${p}: it was rewritten by something else ${attempt} times while this edit was being prepared. ` +
+            `Read it again and reapply the change against its current contents.`,
+        );
+      }
     }
-
-    const next = text.replace(oldStr, () => newStr);
-    const bytes = toBytes(next);
-    this.checkFileSize(p, bytes.byteLength);
-    const prior = toBytes(text);
-
-    const effects = await this.scriptEffects(p, next);
-    const derivedDelta = await this.prepareDerived(effects.derived);
-    await this.checkTotalSize(bytes.byteLength - prior.byteLength + derivedDelta + this.versions.versionOverhead(prior));
-
-    await this.versions.recordMutation(p, prior, "edit");
-    await this.vfs.write(p, bytes);
-    await this.applyDerived(effects.derived);
-    return { nudge: effects.nudge, bytes: bytes.byteLength };
   }
 
   rm(path: string): Promise<{ removed: string[] }> {
-    return this.serialize(() => this.rmInner(path));
+    return this.exclusive(() => this.rmInner(path));
   }
 
   private async rmInner(path: string): Promise<{ removed: string[] }> {
     const p = normalizePath(path);
     this.assertMutable(p, "remove");
     const stat = await this.vfs.stat(p);
-    if (!stat) throw new Error(`no such file or directory: ${p}`);
+    if (!stat) {
+      const hint = globHint(p, "remove");
+      throw new Error(hint ?? `no such file or directory: ${p}`);
+    }
 
     if (stat.kind === "file") {
       const prior = await this.vfs.read(p);
       await this.versions.recordMutation(p, prior, "rm");
       await this.vfs.rm(p);
       if (this.producesDts(p)) await this.applyDerived([{ remove: this.dtsPathFor(p) }]);
+      this.markMutated();
       return { removed: [p] };
     }
 
@@ -524,23 +711,25 @@ export class EnvCore {
       removed.push(f);
     }
     await this.vfs.rm(p);
+    this.markMutated();
     return { removed };
   }
 
   mkdir(path: string): Promise<void> {
-    return this.serialize(async () => {
+    return this.exclusive(async () => {
       const p = normalizePath(path);
       this.assertMutable(p, "mkdir");
       await this.vfs.mkdir(p);
+      this.markMutated();
     });
   }
 
   mv(from: string, to: string): Promise<{ moved: Array<[string, string]>; nudge?: string }> {
-    return this.serialize(() => this.transfer(from, to, "mv"));
+    return this.exclusive(() => this.transfer(from, to, "mv"));
   }
 
   cp(from: string, to: string): Promise<{ moved: Array<[string, string]>; nudge?: string }> {
-    return this.serialize(() => this.transfer(from, to, "cp"));
+    return this.exclusive(() => this.transfer(from, to, "cp"));
   }
 
   private async transfer(fromRaw: string, toRaw: string, op: "mv" | "cp"): Promise<{ moved: Array<[string, string]>; nudge?: string }> {
@@ -549,7 +738,10 @@ export class EnvCore {
     if (op === "mv") this.assertMutable(from, "move");
     this.assertMutable(to, op === "mv" ? "move to" : "copy to");
     const stat = await this.vfs.stat(from);
-    if (!stat) throw new Error(`no such file or directory: ${from}`);
+    if (!stat) {
+      const hint = globHint(from, op === "mv" ? "move" : "copy");
+      throw new Error(hint ?? `no such file or directory: ${from}`);
+    }
     if (from === to) throw new Error(`source and destination are the same path: ${from}`);
     if (isUnder(to, from) && stat.kind === "dir") throw new Error(`cannot ${op} ${from} into itself`);
 
@@ -634,17 +826,18 @@ export class EnvCore {
       }
     }
     await this.applyDerived(allEffects);
+    this.markMutated();
     return { moved: pairs, nudge };
   }
 
   // ---------------------------------------------------------------- undo/redo
 
   undo(path: string): Promise<{ restoredOp: string; ts: number; present: boolean }> {
-    return this.serialize(() => this.timeTravel(path, "undo"));
+    return this.exclusive(() => this.timeTravel(path, "undo"));
   }
 
   redo(path: string): Promise<{ restoredOp: string; ts: number; present: boolean }> {
-    return this.serialize(() => this.timeTravel(path, "redo"));
+    return this.exclusive(() => this.timeTravel(path, "redo"));
   }
 
   private async timeTravel(pathRaw: string, dir: "undo" | "redo"): Promise<{ restoredOp: string; ts: number; present: boolean }> {
@@ -676,15 +869,57 @@ export class EnvCore {
     if (v.content === null) {
       if (await this.vfs.exists(p)) await this.vfs.rm(p);
       await this.applyDerived(effects.derived);
+      this.markMutated();
       return { restoredOp: v.op, ts: v.ts, present: false };
     }
     await this.vfs.write(p, v.content);
     await this.applyDerived(effects.derived);
+    this.markMutated();
     return { restoredOp: v.op, ts: v.ts, present: true };
   }
 
   async historyFor(path: string): Promise<{ undo: FileVersionInfo[]; redo: FileVersionInfo[] }> {
     return this.versions.history(normalizePath(path));
+  }
+
+  /**
+   * A file as it is now, and as some earlier state had it.
+   *
+   * `against` is the version `undo` would restore, or a named checkpoint.
+   * Either may be absent — the file might not have existed then, or might not
+   * exist now — which the caller reports rather than treating as an error.
+   */
+  async compare(
+    pathRaw: string,
+    against: { checkpoint?: string } = {},
+  ): Promise<{ path: string; label: string; before: string | null; after: string | null }> {
+    const p = normalizePath(pathRaw);
+    const current = await this.currentContent(p);
+    const decode = (data: Uint8Array | null): string | null => {
+      if (data === null) return null;
+      if (looksBinary(data)) throw new Error(`${p} is a binary file — diff only handles text`);
+      return toText(data);
+    };
+
+    if (against.checkpoint) {
+      const stored = await readBranchSnapshot(this.vfs, against.checkpoint);
+      const file = stored.files.find((f) => normalizePath(f.path) === p);
+      return {
+        path: p,
+        label: `checkpoint "${against.checkpoint}"`,
+        before: file ? decode(base64ToBytes(file.data)) : null,
+        after: decode(current),
+      };
+    }
+
+    const peek = await this.versions.peekUndo(p);
+    if (!peek) throw new Error(`no earlier version of ${p} is recorded — nothing to compare against`);
+    return {
+      path: p,
+      label: `the version before "${peek.op}" (${new Date(peek.ts).toISOString()})`,
+      before: decode(peek.content),
+      after: decode(current),
+    };
   }
 
   // ---------------------------------------------------------------- discovery
@@ -850,17 +1085,24 @@ export class EnvCore {
    * "you are out of space" is exactly when orientation is most worth having.
    */
   async refreshOrientation(): Promise<string> {
+    // Built outside the lock on purpose. It is a summary, it says so at the
+    // top ("if it disagrees with `ls`, trust `ls`"), and holding the one
+    // mutation queue for a whole-tree walk plus a stat per file would stall
+    // every concurrently running script to produce a nicety.
     const text = await buildOrientation(this, this.runlog);
     const bytes = toBytes(text);
-    // Written directly: /.env is environment-maintained and `assertMutable`
-    // exists precisely to stop anyone else writing here — which also means
-    // the usual size accounting has to be done by hand.
+    // The persist is a different matter: /.env is environment-maintained and
+    // `assertMutable` exists precisely to stop anyone else writing here,
+    // which means the size accounting is done by hand — and by hand outside
+    // the lock it is a check against a total another writer is changing.
     try {
-      const prior = (await this.vfs.stat(ORIENTATION_PATH))?.size ?? 0;
-      const delta = bytes.byteLength - prior;
-      if (delta <= 0 || (await this.vfs.totalSize()) + delta <= this.limits.maxVfsBytes) {
-        await this.vfs.write(ORIENTATION_PATH, bytes);
-      }
+      await this.exclusive(async () => {
+        const prior = (await this.vfs.stat(ORIENTATION_PATH))?.size ?? 0;
+        const delta = bytes.byteLength - prior;
+        if (delta <= 0 || (await this.vfs.totalSize()) + delta <= this.limits.maxVfsBytes) {
+          await this.vfs.write(ORIENTATION_PATH, bytes);
+        }
+      });
     } catch {
       // Orientation is a convenience; a filesystem that refuses the write
       // must not turn a read into a failure.

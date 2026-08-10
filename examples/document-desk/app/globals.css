@@ -123,6 +123,53 @@ input, textarea { font: inherit; color: inherit; }
   background: var(--bg-surface-2); border-radius: 4px; padding: 0.06em 0.32em;
 }
 
+/* --- ask_user ------------------------------------------------------------
+   The turn is genuinely blocked while one of these is on screen — the verb's
+   promise is still pending on the server — so it is the loudest thing in the
+   transcript rather than another quiet row. Answered, it dims to a record of
+   what was asked, because that exchange is part of why the result came out
+   the way it did. */
+.msg-ask .msg-body {
+  background: var(--accent-dim); border: 1px solid var(--accent-line);
+  border-left: 2px solid var(--accent-soft);
+  border-radius: var(--radius); padding: 0.7rem 0.9rem;
+  white-space: pre-wrap; word-break: break-word;
+}
+.msg-ask .msg-role { color: var(--accent-soft); }
+.msg-ask-done { opacity: 0.62; }
+.msg-ask-done .msg-body { border-left-color: var(--border-strong); background: var(--bg-surface); }
+
+.ask-controls { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.55rem; }
+.ask-options { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.ask-option {
+  font: inherit; font-size: 0.82rem; cursor: pointer;
+  background: var(--bg-surface-2); color: var(--text-primary);
+  border: 1px solid var(--border-strong); border-radius: 999px;
+  padding: 0.32rem 0.8rem; transition: border-color 0.15s, color 0.15s;
+}
+.ask-option:hover { border-color: var(--accent-soft); color: var(--accent-strong); }
+
+.ask-free { display: flex; gap: 0.4rem; }
+.ask-free input {
+  flex: 1; font: inherit; font-size: 0.85rem;
+  background: var(--bg-surface); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 0.42rem 0.65rem;
+}
+.ask-free input:focus { outline: none; border-color: var(--accent-soft); }
+.ask-free button {
+  font: inherit; font-size: 0.82rem; cursor: pointer;
+  background: var(--accent-dim); color: var(--accent-strong);
+  border: 1px solid var(--accent-line); border-radius: var(--radius);
+  padding: 0.42rem 0.9rem;
+}
+.ask-free button:disabled { opacity: 0.45; cursor: default; }
+
+.ask-answer {
+  display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.5rem;
+  font-size: 0.88rem; color: var(--text-secondary);
+}
+
 .attachments { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.15rem; }
 .chip {
   display: inline-flex; align-items: center; gap: 0.35rem;

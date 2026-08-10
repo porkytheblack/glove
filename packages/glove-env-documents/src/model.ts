@@ -37,6 +37,13 @@ export interface PageBreakBlock {
 
 export type Block = HeadingBlock | TextBlock | BulletsBlock | TableBlock | ImageBlock | PageBreakBlock;
 
+/** A font to embed, as VFS paths to .ttf/.otf/.woff files. PDF only. */
+export interface FontSpec {
+  regular: string;
+  /** Bold face. Without one, headings and table headers use the regular face. */
+  bold?: string;
+}
+
 export interface DocumentSpec {
   title?: string;
   author?: string;
@@ -45,6 +52,15 @@ export interface DocumentSpec {
   pageSize?: PageSize;
   /** Points of margin on every side. Default 56 (≈2 cm). */
   margin?: number;
+  /**
+   * A font to embed, so the text can be written in the script it is written
+   * in. PDF only — a DOCX names fonts rather than carrying them, and Word
+   * resolves the name on the machine that opens it.
+   *
+   * Without this, `pdf.create` draws in Helvetica, which stops at Latin-1 and
+   * turns everything past it into `?`.
+   */
+  font?: string | FontSpec;
   content: Block[];
 }
 

@@ -22,6 +22,8 @@ export type Entry =
       input: Record<string, unknown>;
       status: "running" | "ok" | "error";
       output?: string;
+      /** The last line the running script printed, while it is still running. */
+      progress?: string;
     }
   /**
    * A deliverable the agent handed over with `present`.
@@ -38,6 +40,21 @@ export type Entry =
       mediaType: string;
       size: number;
       caption: string;
+    }
+  /**
+   * A question the agent asked, and the answer once it is given.
+   *
+   * Its own kind, like `gift`, because the turn is genuinely blocked on it:
+   * rendering it as another tool row would bury the one thing on screen that
+   * the person has to act on.
+   */
+  | {
+      kind: "question";
+      id: string;
+      questionId: string;
+      question: string;
+      options?: string[];
+      answer?: string;
     };
 
 /**
@@ -154,7 +171,7 @@ export function useDesk() {
           setEntries((es) =>
             es.map((e) =>
               e.kind === "act" && e.callId === event.id
-                ? { ...e, status: event.status === "error" ? "error" : "ok", output: event.output }
+                ? { ...e, status: event.status === "error" ? "error" : "ok", output: event.output, progress: undefined }
                 : e,
             ),
           );
@@ -165,6 +182,38 @@ export function useDesk() {
                 : c,
             ),
           );
+          break;
+
+        case "progress":
+          // Attached to the running call rather than appended to the
+          // transcript: a render prints hundreds of lines, and the useful
+          // signal is "where is it now", not the whole log — which arrives
+          // with the result anyway.
+          setEntries((es) => {
+            for (let i = es.length - 1; i >= 0; i--) {
+              const e = es[i];
+              if (e.kind === "act" && e.status === "running") {
+                const next = [...es];
+                next[i] = { ...e, progress: event.text };
+                return next;
+              }
+            }
+            return es;
+          });
+          setCards((cs) => cs.map((c) => (c.status === "running" ? { ...c, output: event.text } : c)));
+          break;
+
+        case "ask":
+          setEntries((es) => [
+            ...es,
+            {
+              kind: "question",
+              id: nextId(),
+              questionId: event.id,
+              question: event.question,
+              options: event.options,
+            },
+          ]);
           break;
 
         case "tree_changed":
@@ -363,6 +412,42 @@ export function useDesk() {
     [sessionId, busy, apply],
   );
 
+  /**
+   * Answer a question the agent is waiting on.
+   *
+   * The agent's turn is blocked on the server until this lands, which is why
+   * the SSE stream from `send` is still open while this happens — the answer
+   * goes out on a second request and the turn continues on the first.
+   */
+  const answer = useCallback(
+    async (questionId: string, text: string) => {
+      if (!sessionId || text.trim() === "") return;
+      setEntries((es) =>
+        es.map((e) => (e.kind === "question" && e.questionId === questionId ? { ...e, answer: text } : e)),
+      );
+      try {
+        const res = await fetch("/api/answer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, id: questionId, answer: text }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? `answer failed (${res.status})`);
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        // Put it back in front of them rather than pretending it was sent.
+        setEntries((es) =>
+          es.map((el) =>
+            el.kind === "question" && el.questionId === questionId ? { ...el, answer: undefined } : el,
+          ),
+        );
+      }
+    },
+    [sessionId],
+  );
+
   const reset = useCallback(async () => {
     if (!sessionId) return;
     await fetch("/api/reset", {
@@ -391,6 +476,7 @@ export function useDesk() {
     upload,
     clearUpload,
     send,
+    answer,
     reset,
     setError,
   };

@@ -39,25 +39,33 @@ export interface RestoredVersion {
 export class VersionStore {
   private index = new Map<string, PathVersions>();
   private counter = 0;
-  private loaded = false;
+  /**
+   * The in-flight load, so two concurrent callers share one.
+   *
+   * A `loaded` boolean set before the first await lets a second caller
+   * through against an index that is still empty, and its `recordMutation`
+   * then writes a version ring the real load is about to overwrite.
+   */
+  private loading: Promise<void> | null = null;
 
   constructor(
     private vfs: Vfs,
     private limits: EnvLimits,
   ) {}
 
-  private async load(): Promise<void> {
-    if (this.loaded) return;
-    this.loaded = true;
-    if (await this.vfs.exists(INDEX_PATH)) {
-      try {
-        const parsed = JSON.parse(new TextDecoder().decode(await this.vfs.read(INDEX_PATH))) as IndexFile;
-        this.counter = parsed.counter ?? 0;
-        for (const [p, v] of Object.entries(parsed.paths ?? {})) this.index.set(p, v);
-      } catch {
-        // A corrupt index means version history is lost, not the environment.
+  private load(): Promise<void> {
+    this.loading ??= (async () => {
+      if (await this.vfs.exists(INDEX_PATH)) {
+        try {
+          const parsed = JSON.parse(new TextDecoder().decode(await this.vfs.read(INDEX_PATH))) as IndexFile;
+          this.counter = parsed.counter ?? 0;
+          for (const [p, v] of Object.entries(parsed.paths ?? {})) this.index.set(p, v);
+        } catch {
+          // A corrupt index means version history is lost, not the environment.
+        }
       }
-    }
+    })();
+    return this.loading;
   }
 
   private async persist(): Promise<void> {
@@ -109,6 +117,31 @@ export class VersionStore {
       await this.dropBlob(s.undo.shift()!);
     }
     await this.persist();
+  }
+
+  /**
+   * Drop the undo/redo history for these paths, freeing their blobs.
+   *
+   * For whole-tree operations that replace a file's content without going
+   * through `recordMutation` — today, `checkpoint restore`. Leaving the ring
+   * in place is worse than losing it: the entries describe an era the tree is
+   * no longer in, so the next `undo` on a restored file silently reinstates
+   * content from before the restore, and `history` reports steps that mean
+   * nothing. Returns the number of paths that had history.
+   */
+  async forget(paths: Iterable<string>): Promise<number> {
+    await this.load();
+    let cleared = 0;
+    for (const raw of paths) {
+      const p = normalizePath(raw);
+      const s = this.index.get(p);
+      if (!s) continue;
+      for (const e of [...s.undo, ...s.redo]) await this.dropBlob(e);
+      this.index.delete(p);
+      cleared += 1;
+    }
+    if (cleared > 0) await this.persist();
+    return cleared;
   }
 
   async canUndo(path: string): Promise<boolean> {

@@ -11,17 +11,26 @@
  * than a red one.
  */
 import { strict as assert } from "node:assert";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import { createAdapterTestEnv } from "glove-working-environment/testing";
 import {
+  browserFleetCap,
+  browserFleetStats,
+  closeMotionBrowsers,
   doctor,
+  limitBrowserFleet,
   motion,
   MOTION_LIMITS,
   resolveBrowser,
   resolveFfmpegSync,
   systemBrowserCandidates,
+  BrowserFleetError,
   PW_BROWSER_SUBPATHS,
 } from "../src/index";
+
+// Browsers now outlive a single render on purpose, so the suite hands them
+// back at the end rather than sitting out the idle timer.
+after(closeMotionBrowsers);
 
 const HAVE_BROWSER = (await resolveBrowser()) !== null;
 const skip = HAVE_BROWSER ? false : "no Chromium available — set GLOVE_CHROMIUM_PATH or run `npx playwright install chromium`";
@@ -515,7 +524,7 @@ test("a still of a clock-driven scene captures the moment, not the initial state
   }
 });
 
-test("a render that cannot fit the script budget is refused with the exact fix", async () => {
+test("a render that cannot fit the time it can be granted is refused with the exact fix", async () => {
   // Deliberately the DEFAULT environment limits — the misconfiguration every
   // new host starts with.
   const { runScript, env } = await createAdapterTestEnv(motion());
@@ -528,12 +537,140 @@ test("a render that cannot fit the script budget is refused with the exact fix",
        }`,
     );
     assert.equal(r.ok, false);
-    assert.match(String(r.error), /script budget/);
-    assert.match(String(r.error), /limits: \{ runTimeoutMs: \d+ \}/, "the error must contain the exact line that fixes it");
+    // A script asks for time per run; the environment limit is the ceiling
+    // that bounds the ask. Both have to be in the message, because with the
+    // default limits both are in the way.
+    assert.match(String(r.error), /timeout_ms: \d+/, "the error must name the per-run timeout to ask for");
+    assert.match(String(r.error), /run_script/);
+    assert.match(String(r.error), /limits\.runTimeoutMs/, "and the ceiling that clamps it");
+    assert.match(String(r.error), /limits: \{ runTimeoutMs: \d+ \}/, "including the exact line that raises the ceiling");
     assert.match(String(r.error), /MOTION_LIMITS/);
   } finally {
     await env.close();
   }
+});
+
+// ------------------------------------------------------------- browser fleet
+//
+// A render used to launch and close a Chromium around every call, and N
+// environments in one process meant N Chromiums with nothing counting them.
+// Measured on this host: a warm still went 770ms → 437ms once the browser is
+// kept, and four environments rendering at once went from a peak of 4-6
+// Chromium processes to exactly the cap.
+//
+// The property that must not move is determinism. Everything else in this
+// package is built on the same scene producing the same bytes, so the first
+// test here renders one frame on a browser that has just launched and on one
+// that has already rendered, and compares them.
+
+test("a second render reuses the browser, and the pixels do not change", { skip }, async () => {
+  const { script, env } = await envWith();
+  try {
+    await env.fs.writeFile("/scenes/a.jsx", FRAME_SCENE);
+    const shoot = (n: number) =>
+      script(
+        `import { still } from 'env:motion';
+         export default async function main(args) {
+           return still('/scenes/a.jsx', '/out/r' + args.n + '.png', { frame: 12, width: 320, height: 180 });
+         }`,
+        { n },
+      );
+
+    // Cold: this environment has no browser yet.
+    await closeMotionBrowsers();
+    const before = browserFleetStats().launches;
+    await shoot(1);
+    const afterFirst = browserFleetStats().launches;
+    assert.equal(afterFirst, before + 1, "the first render in an environment launches one browser");
+
+    // Warm: the same environment, the same browser.
+    await shoot(2);
+    await shoot(3);
+    assert.equal(
+      browserFleetStats().launches,
+      afterFirst,
+      "renders 2 and 3 must reuse the browser render 1 launched, not launch their own",
+    );
+
+    const cold = Buffer.from(await env.fs.readBytes("/out/r1.png"));
+    const warm = Buffer.from(await env.fs.readBytes("/out/r2.png"));
+    const warmer = Buffer.from(await env.fs.readBytes("/out/r3.png"));
+    assert.ok(cold.equals(warm), "a reused browser must produce the same bytes as a freshly launched one");
+    assert.ok(warm.equals(warmer), "and keep producing them");
+  } finally {
+    await env.close();
+  }
+});
+
+test("concurrent renders across environments are bounded by the fleet cap", { skip }, async () => {
+  const cap = browserFleetCap();
+  const envs = await Promise.all([envWith(), envWith(), envWith(), envWith()]);
+  try {
+    for (const t of envs) await t.env.fs.writeFile("/scenes/a.jsx", FRAME_SCENE);
+    // Start from a known floor: peakOpen is process-wide and earlier tests
+    // have been using it.
+    await closeMotionBrowsers();
+    const { resetBrowserFleetCounters } = await import("../src/browser-pool");
+    resetBrowserFleetCounters();
+
+    const outs = await Promise.all(
+      envs.map((t, i) =>
+        t.script<{ frames: number }>(
+          `import { still } from 'env:motion';
+           export default async function main(args) {
+             return still('/scenes/a.jsx', '/out/c' + args.i + '.png', { frame: 4, width: 320, height: 180 });
+           }`,
+          { i },
+        ),
+      ),
+    );
+
+    for (const out of outs) assert.equal(out.frames, 1, "every environment must still get its render");
+    assert.ok(
+      browserFleetStats().peakOpen <= cap,
+      `four environments rendering at once opened ${browserFleetStats().peakOpen} browsers, over the cap of ${cap}`,
+    );
+    assert.ok(browserFleetStats().launches >= cap, "and it did use the whole cap rather than serialising on one");
+  } finally {
+    for (const t of envs) await t.env.close();
+  }
+});
+
+test("a render that fails gives its permit back", { skip }, async () => {
+  // The deadlock this guards against: a permit held by a render that threw is
+  // never returned, and every other environment in the process waits forever.
+  // A short timeout keeps the failure cheap — the scene never mounts, so the
+  // render can only end by running out of time.
+  const { runScript, env } = await createAdapterTestEnv(
+    motion({ resolveFrom: new URL("..", import.meta.url).pathname, timeoutMs: 2500 }),
+    { limits: MOTION_LIMITS },
+  );
+  try {
+    await env.fs.writeFile(
+      "/scenes/throws.jsx",
+      `export default function Scene() { throw new Error('scene exploded'); }`,
+    );
+    const r = await runScript(
+      `import { still } from 'env:motion';
+       export default async function main() { return still('/scenes/throws.jsx', '/out/x.png'); }`,
+    );
+    assert.equal(r.ok, false, "a scene that throws on render must fail the render");
+    assert.equal(browserFleetStats().inUse, 0, "the failed render must not still be holding a browser");
+  } finally {
+    await env.close();
+  }
+});
+
+test("the fleet cap only ever goes down, and refuses a nonsense value", () => {
+  // The cap is one number shared by every environment in the process. When two
+  // adapters disagree the smaller has to win, or one careless mount raises the
+  // ceiling for everybody else on the box.
+  const cap = browserFleetCap();
+  limitBrowserFleet(cap + 5);
+  assert.equal(browserFleetCap(), cap, "a larger value must not raise the cap");
+  assert.throws(() => limitBrowserFleet(0), BrowserFleetError);
+  assert.throws(() => limitBrowserFleet(1.5), BrowserFleetError);
+  assert.equal(browserFleetCap(), cap, "a rejected value must not have changed anything");
 });
 
 

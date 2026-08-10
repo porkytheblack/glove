@@ -100,21 +100,33 @@ async function ensureExecutable(path: string): Promise<void> {
 export interface RunOptions extends BinaryOverrides {
   /** Wall-clock budget for one ffmpeg invocation. */
   timeoutMs: number;
+  /**
+   * Working directory for the process. Only the filter-graph callers need it:
+   * a filename inside a filter graph is parsed, not passed through, so `:` and
+   * `\` in a path change its meaning. Running from the workspace lets the graph
+   * name a bare file we already sanitised, with no escaping to get wrong.
+   */
+  cwd?: string;
 }
 
-function run(binary: string, args: string[], timeoutMs: number): Promise<string> {
+interface Output {
+  stdout: string;
+  stderr: string;
+}
+
+function run(binary: string, args: string[], opts: RunOptions): Promise<Output> {
   return new Promise((resolve, reject) => {
     execFile(
       binary,
       args,
       // maxBuffer covers ffprobe's JSON; ffmpeg's own output goes to files.
-      { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, windowsHide: true },
+      { timeout: opts.timeoutMs, maxBuffer: 16 * 1024 * 1024, windowsHide: true, ...(opts.cwd ? { cwd: opts.cwd } : {}) },
       (error, stdout, stderr) => {
-        if (!error) return resolve(stdout);
+        if (!error) return resolve({ stdout, stderr });
         if ((error as NodeJS.ErrnoException).code === "ETIMEDOUT" || (error as { killed?: boolean }).killed) {
           return reject(
             new Error(
-              `ffmpeg exceeded its ${timeoutMs}ms budget. Media work is slow — raise limits.runTimeoutMs on the ` +
+              `ffmpeg exceeded its ${opts.timeoutMs}ms budget. Media work is slow — raise limits.runTimeoutMs on the ` +
                 `environment, or work on a shorter clip.`,
             ),
           );
@@ -135,6 +147,18 @@ function run(binary: string, args: string[], timeoutMs: number): Promise<string>
  * runs in a `finally` — a failed transcode must not leave a gigabyte in
  * /tmp any more than a successful one.
  */
+/**
+ * The name a caller's path gets inside the workspace.
+ *
+ * The name only ever contributes an extension and an identity; ffmpeg infers
+ * format from content and from explicit flags, not from a name we could get
+ * wrong. Reducing it to `[\w.-]` also means the result is safe to write into a
+ * filter graph, where a path is parsed rather than passed through.
+ */
+export function safeName(name: string, fallback = "input"): string {
+  return basename(name).replace(/[^\w.-]/g, "_") || fallback;
+}
+
 export class Workspace {
   private constructor(readonly dir: string) {}
 
@@ -144,11 +168,7 @@ export class Workspace {
 
   /** Write bytes into the workspace under a safe name; returns the host path. */
   async stage(name: string, data: Uint8Array): Promise<string> {
-    // The name only ever contributes an extension and an identity; ffmpeg
-    // infers format from content and from explicit flags, not from a name we
-    // could get wrong.
-    const safe = basename(name).replace(/[^\w.-]/g, "_") || "input";
-    const path = join(this.dir, safe);
+    const path = join(this.dir, safeName(name));
     await writeFile(path, data);
     return path;
   }
@@ -157,14 +177,14 @@ export class Workspace {
   async stageInto(sub: string, name: string, data: Uint8Array): Promise<string> {
     const dir = join(this.dir, basename(sub));
     await mkdir(dir, { recursive: true });
-    const path = join(dir, basename(name).replace(/[^\w.-]/g, "_"));
+    const path = join(dir, safeName(name));
     await writeFile(path, data);
     return path;
   }
 
   /** A host path inside the workspace for something ffmpeg will produce. */
   hostPath(name: string): string {
-    return join(this.dir, basename(name).replace(/[^\w.-]/g, "_") || "output");
+    return join(this.dir, safeName(name, "output"));
   }
 
   /** Create (and return) a subdirectory for ffmpeg to write into. */
@@ -199,12 +219,26 @@ export async function ffmpeg(args: string[], opts: RunOptions): Promise<void> {
   const { ffmpeg: bin } = await resolveBinaries(opts);
   // -nostdin: ffmpeg otherwise waits on stdin for an overwrite prompt and
   // hangs until the timeout. -y: overwrite, since we always control the path.
-  await run(bin, ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", ...args], opts.timeoutMs);
+  await run(bin, ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", ...args], opts);
+}
+
+/**
+ * Run ffmpeg for what it PRINTS rather than for the file it writes.
+ *
+ * The measuring filters put their numbers on stderr and nowhere else —
+ * loudnorm's JSON report, ebur128's summary — so this is the one caller that
+ * wants ffmpeg talkative. `-nostats` still goes: the per-frame progress line is
+ * the noisy half of `info` and none of it is a measurement.
+ */
+export async function ffmpegReport(args: string[], opts: RunOptions): Promise<string> {
+  const { ffmpeg: bin } = await resolveBinaries(opts);
+  const { stderr } = await run(bin, ["-hide_banner", "-loglevel", "info", "-nostats", "-nostdin", "-y", ...args], opts);
+  return stderr;
 }
 
 export async function ffprobe(args: string[], opts: RunOptions): Promise<unknown> {
   const { ffprobe: bin } = await resolveBinaries(opts);
-  const stdout = await run(bin, ["-hide_banner", "-loglevel", "error", ...args], opts.timeoutMs);
+  const { stdout } = await run(bin, ["-hide_banner", "-loglevel", "error", ...args], opts);
   try {
     return JSON.parse(stdout);
   } catch {

@@ -7,6 +7,7 @@ import type { EnvCore } from "../core/env";
 import type { RunLog } from "../history/runlog";
 import type { WorkerPool } from "../executor/pool";
 import { serializeResult, withSpillover } from "./format";
+import { argMismatch, declaredArgs } from "../pipeline/args";
 import { normalizePath } from "../paths";
 
 export interface RunDeps {
@@ -92,7 +93,7 @@ export async function executeRun(
   deps: RunDeps & { executor?: WorkerPool },
   pathRaw: string,
   args: unknown,
-  opts?: { spill?: boolean; kind?: "test" },
+  opts?: { spill?: boolean; kind?: "test"; timeoutMs?: number; signal?: AbortSignal },
 ): Promise<RunOutcome> {
   const { core, runlog, limits } = deps;
   const path = normalizePath(pathRaw);
@@ -100,11 +101,24 @@ export async function executeRun(
   const runId = runlog.nextRunId();
 
   const unrunnable = await explainUnrunnable(core, path);
+
+  // Advisory, before the run and never blocking it. A stale JSDoc block must
+  // not make a working script unrunnable — but the mismatch it describes is
+  // very often the reason the result is about to be wrong, and saying so here
+  // is far cheaper than the deep `Cannot read properties of undefined` that
+  // otherwise arrives instead.
+  let argNote: string | null = null;
+  if (!unrunnable) {
+    const src = await core.readSource(path);
+    const declared = src ? declaredArgs(src) : null;
+    if (declared) argNote = argMismatch(declared, args);
+  }
+
   const startedAt = Date.now();
   const run = unrunnable
     ? { ok: false, result: undefined, stdout: "", stderr: "", durationMs: 0, error: unrunnable }
     : await executor
-        .execute({ mode: "run", path, args, readOnly: false })
+        .execute({ mode: "run", path, args, readOnly: false, timeoutMs: opts?.timeoutMs, runId, signal: opts?.signal })
         .then((r) => ({
           ok: r.ok,
           result: r.result,
@@ -117,6 +131,7 @@ export async function executeRun(
   const spillWanted = opts?.spill !== false;
 
   const sections: string[] = [];
+  if (argNote) sections.push(argNote);
   let spill: string | null = null;
 
   if (run.ok) {

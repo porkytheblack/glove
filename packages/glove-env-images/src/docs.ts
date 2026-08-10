@@ -39,7 +39,17 @@ export interface ImageStats {
   meanBrightness: number;
 }
 
-export interface ResizeOptions {
+/** Shared by everything that reads a file. */
+export interface SourceOptions {
+  /** Rasterization multiplier for SVG input: 2 renders a 100×50 SVG at 200×100. Ignored for raster input. */
+  scale?: number;
+  /** Rasterization DPI for SVG input; 72 is natural size. Overrides scale. */
+  density?: number;
+  /** Keep every frame of an animated GIF/WebP. On by default when the output can hold frames; false writes frame 1. */
+  animated?: boolean;
+}
+
+export interface ResizeOptions extends SourceOptions {
   width?: number;
   height?: number;
   /** Default "cover". */
@@ -53,12 +63,35 @@ export interface ResizeOptions {
   quality?: number;
 }
 
-export interface ConvertOptions { format?: Format; quality?: number }
+export interface ConvertOptions extends SourceOptions { format?: Format; quality?: number }
 export interface CropOptions { left: number; top: number; width: number; height: number }
-export interface RotateOptions {
+export interface RotateOptions extends SourceOptions {
   /** Degrees clockwise. Omit to auto-orient from EXIF instead. */
   angle?: number;
   background?: string;
+}
+export interface TextOptions {
+  /** The words to draw. Newlines start a new line; XML is escaped, not parsed. */
+  text: string;
+  /** Pixels. Default: 6% of the frame height, never below 12. */
+  size?: number;
+  /** Fill colour. Default white. */
+  colour?: string;
+  /** Halo behind the fill, so light text survives a light image. null removes it. Default black. */
+  outline?: string | null;
+  /** Font family. Default "sans-serif". */
+  font?: string;
+  /** Default "bold". */
+  weight?: "normal" | "bold";
+  /** Used when left/top are omitted: "southeast" (default), "centre", "north", … */
+  gravity?: string;
+  /** Top-left of the text block, in pixels. Overrides gravity. */
+  left?: number;
+  top?: number;
+  /** Gap from the edge when positioned by gravity. Default 16. */
+  padding?: number;
+  /** 0–1. Default 1. */
+  opacity?: number;
 }
 export interface CompositeLayer {
   input: string;
@@ -77,26 +110,36 @@ export interface ContactSheetOptions {
   background?: string;
 }
 
-/** Dimensions, format and colour space without decoding pixels. Start here. */
+/**
+ * Dimensions, format and colour space without decoding pixels. Start here.
+ * \`pages > 1\` means an animation; width/height are ONE frame's.
+ */
 export function describe(path: string): Promise<ImageSummary>;
 
-/** Channel statistics: means, spread, dominant colour, opacity. */
+/** Channel statistics: means, spread, dominant colour, opacity. First frame only. */
 export function stats(path: string): Promise<ImageStats>;
 
 /** Resize into a box. Returns the output path. */
 export function resize(input: string, output: string, opts?: ResizeOptions): Promise<string>;
 
-/** Re-encode to another format. Returns the output path. */
+/** Re-encode to another format — including rasterizing an .svg. Returns the output path. */
 export function convert(input: string, output: string, opts?: ConvertOptions): Promise<string>;
 
-/** Cut out a rectangle. Returns the output path. */
+/** Cut out a rectangle. On an animation the box is measured against ONE frame. */
 export function crop(input: string, output: string, box: CropOptions): Promise<string>;
 
-/** Rotate by an angle, or auto-orient from EXIF when no angle is given. */
+/**
+ * Rotate by an angle, or auto-orient from EXIF when no angle is given.
+ * The one verb an animation cannot survive: it refuses a multi-frame source
+ * unless you pass \`{ animated: false }\` to rotate frame 1 on its own.
+ */
 export function rotate(input: string, output: string, opts?: RotateOptions): Promise<string>;
 
 /** Lay images over a base image. Returns the output path. */
 export function composite(input: string, output: string, layers: CompositeLayer[]): Promise<string>;
+
+/** Draw text onto an image — watermark, date, caption. Returns the output path. */
+export function text(input: string, output: string, opts: TextOptions): Promise<string>;
 
 /** Square thumbnail, cropped to fill. Returns the output path. */
 export function thumbnail(input: string, output: string, size?: number): Promise<string>;
@@ -107,9 +150,9 @@ export function contactSheet(inputs: string[], output: string, opts?: ContactShe
 
 export const IMAGES_DOCS = `# env:images
 
-Inspect and transform raster images in the tree. Paths in, paths out —
-image bytes never travel through your script, and never through the context
-window.
+Inspect and transform images in the tree — raster, animated and SVG. Paths in,
+paths out: image bytes never travel through your script, and never through the
+context window.
 
 ## describe first, always
 
@@ -183,17 +226,65 @@ export default async function main() {
 }
 \`\`\`
 
-## Composing and reviewing
+## Composing, captioning and reviewing
 
 \`\`\`js
-import { composite, contactSheet } from 'env:images';
+import { composite, text, contactSheet } from 'env:images';
 
 await composite('/inbox/photo.jpg', '/out/branded.jpg', [
   { input: '/inbox/logo.png', gravity: 'southeast', opacity: 0.6 },
 ]);
 
+// A watermark, without a logo file to composite
+await text('/inbox/photo.jpg', '/out/dated.jpg', {
+  text: 'DRAFT\\n2026-03-04', gravity: 'southeast', opacity: 0.8,
+});
+
 // One artifact that shows all of them at once
 await contactSheet(await glob('/out/*.webp'), '/out/review.png', { cell: 160, columns: 5 });
+\`\`\`
+
+\`text\` draws with a dark halo behind a white fill by default, because a
+watermark lands on images you have not looked at and plain white disappears
+on a pale one. \`outline: null\` turns the halo off.
+
+## Animations keep their frames
+
+An animated GIF or WebP survives \`resize\`, \`convert\`, \`crop\`, \`thumbnail\`,
+\`composite\` and \`text\` — as long as the output can hold frames, which means
+\`.gif\` or \`.webp\`. Ask for \`.png\` and you get frame one, because that is
+what a PNG is.
+
+\`\`\`js
+import { describe, resize } from 'env:images';
+
+export default async function main() {
+  const before = await describe('/inbox/loop.gif');   // { pages: 30, width: 480, ... }
+  await resize('/inbox/loop.gif', '/out/small.gif', { width: 240 });
+  return { was: before.pages, now: (await describe('/out/small.gif')).pages };  // 30 → 30
+}
+\`\`\`
+
+Two exceptions worth knowing before you hit them:
+
+- **\`rotate\` refuses an animation.** libvips stores the frames as one tall
+  strip, so a quarter turn is not supported at all and a half turn reverses
+  the frame order. Pass \`{ animated: false }\` to rotate frame one deliberately.
+- **\`stats\` and \`contactSheet\` read frame one**, on purpose — one is a
+  question about a picture, the other is a grid of pictures.
+
+## SVG in, raster out
+
+SVG is read-only: sharp rasterizes it and has no SVG encoder, so
+\`convert('/a.png', '/out/b.svg')\` is refused rather than quietly writing PNG
+bytes under an \`.svg\` name. Resolution is yours to pick:
+
+\`\`\`js
+import { convert, resize } from 'env:images';
+
+await convert('/inbox/logo.svg', '/out/logo@2x.png', { scale: 2 });   // 2× natural size
+await convert('/inbox/logo.svg', '/out/print.png', { density: 300 }); // or in DPI
+await resize('/inbox/logo.svg', '/out/wide.png', { width: 1200 });    // renders AT 1200, not upscaled to it
 \`\`\`
 
 ## Notes
@@ -201,6 +292,7 @@ await contactSheet(await glob('/out/*.webp'), '/out/review.png', { cell: 160, co
 - \`fit\`: \`cover\` crops to fill (default), \`inside\` shrinks to fit without
   cropping, \`contain\` pads with \`background\`.
 - \`withoutEnlargement: true\` stops a small image being blown up.
-- Coordinates for \`crop\` are pixels from the top-left of the *stored* image.
+- Coordinates for \`crop\` are pixels from the top-left of the *stored* image —
+  of one frame, when it is animated.
 - Failures name the file that caused them.
 `;

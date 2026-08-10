@@ -37,12 +37,31 @@ export async function POST(req: Request): Promise<Response> {
       };
 
       desk.listeners.add(send);
+      // One controller per turn, so cancelling this turn cannot affect the
+      // next. It is handed to `processRequest`, which passes it to every tool
+      // it calls — and `run_script` forwards it into the run, so the browser
+      // hanging up terminates the script instead of leaving it writing into a
+      // stream nobody is reading. The alternative was `env.close()`: throwing
+      // away the whole session, warm worker and all, to stop one run.
+      desk.turn = new AbortController();
+      const hangUp = () => {
+        closed = true;
+        desk.turn.abort();
+        // A question waiting on a person who has closed the tab will never be
+        // answered. Failing it lets the turn end instead of holding a worker
+        // until the session is reaped.
+        for (const [, pending] of desk.questions) pending.reject(new Error("the person closed the page"));
+        desk.questions.clear();
+      };
+      req.signal.addEventListener("abort", hangUp, { once: true });
+
       try {
-        await desk.agent.processRequest(message);
+        await desk.agent.processRequest(message, desk.turn.signal);
         send({ type: "done" });
       } catch (e) {
         send({ type: "error", message: e instanceof Error ? e.message : String(e) });
       } finally {
+        req.signal.removeEventListener("abort", hangUp);
         desk.listeners.delete(send);
         closed = true;
         try {

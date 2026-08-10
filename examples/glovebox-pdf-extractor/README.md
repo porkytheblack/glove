@@ -38,7 +38,7 @@ invoking the `/output <path>` hook (registered automatically by `glovebox-kit`).
   you don't want to run in your host process.
 * File **inputs** (PDFs uploaded by the client) and file **outputs** (txt, JSON,
   optionally split PDFs).
-* The `glovebox/docs:1.2` base image (already ships `qpdf` and `pdftk-java`).
+* The `glovebox/docs:1.3` base image (already ships `qpdf` and `pdftk-java`).
   We add `poppler-utils` for `pdftotext` to demonstrate `packages.apt`.
 * Composite output storage policy: small files inline, larger files served via
   the local-server adapter with a 1h TTL.

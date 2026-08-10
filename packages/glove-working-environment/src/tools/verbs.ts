@@ -15,7 +15,7 @@ import type { EnvLimits, EnvTool, EnvToolResult, PresentedFile, VisionAdapter } 
 import type { EnvCore } from "../core/env";
 import type { RunLog } from "../history/runlog";
 import { executeRun } from "./run";
-import { capResponse, fmtBytes, fmtCount, numberLines, truncateText } from "./format";
+import { capResponse, fmtBytes, fmtCount, numberLines, truncateText, unifiedDiff } from "./format";
 import { RepeatTracker, escalate } from "./repeat";
 import { dropBranch, forkBranch, listBranches, restoreBranch } from "./branches";
 
@@ -28,6 +28,10 @@ interface ToolDeps {
   vision?: VisionAdapter;
   /** When the host wired one, `present` joins the verb set. */
   onPresent?: (item: PresentedFile) => Promise<void> | void;
+  /** When the host wired one, `ask_user` joins the verb set. */
+  onAsk?: (question: { question: string; options?: string[] }) => Promise<string>;
+  /** Per-verb telemetry, if the host asked for it. */
+  onVerb?: (event: { name: string; ok: boolean; durationMs: number; mutated: boolean }) => void;
 }
 
 /**
@@ -80,18 +84,37 @@ function guarded(
   verb: string,
   limits: EnvLimits,
   repeats: RepeatTracker,
-  fn: (input: any) => Promise<EnvToolResult>,
-): (input: any) => Promise<EnvToolResult> {
-  return async (input) => {
+  fn: (input: any, signal?: AbortSignal) => Promise<EnvToolResult>,
+  telemetry?: { core: EnvCore; onVerb?: ToolDeps["onVerb"] },
+): (input: any, display?: unknown, agent?: unknown, signal?: AbortSignal) => Promise<EnvToolResult> {
+  return async (input, _display, _agent, signal) => {
+    const startedAt = Date.now();
+    const mutationsBefore = telemetry?.core.mutations ?? 0;
     let result: EnvToolResult;
     try {
-      result = await fn(input ?? {});
+      result = await fn(input ?? {}, signal);
     } catch (e) {
       result = err(e instanceof Error ? e.message : String(e));
     }
     if (result.status === "error" && typeof result.message === "string") {
       const n = repeats.note(verb, input ?? {}, result.message);
       result = { ...result, message: escalate(result.message, n) };
+    }
+    if (telemetry?.onVerb) {
+      // An observer must never be able to fail the verb it is watching.
+      try {
+        telemetry.onVerb({
+          name: verb,
+          ok: result.status === "success",
+          durationMs: Date.now() - startedAt,
+          // Measured, not inferred from the verb's name: a `run_script` that
+          // only read something reports false, and a UI does not refresh its
+          // file tree for nothing.
+          mutated: (telemetry.core.mutations ?? 0) > mutationsBefore,
+        });
+      } catch {
+        // ignored on purpose
+      }
     }
     return bounded(result, limits);
   };
@@ -105,16 +128,18 @@ function schema(props: Record<string, unknown>, required: string[]): Record<stri
 }
 
 export function buildTools(deps: ToolDeps): EnvTool[] {
-  const { core, limits, prefix, vision, onPresent } = deps;
+  const { core, limits, prefix, vision, onPresent, onAsk } = deps;
   const name = (n: string) => `${prefix}${n}`;
   // One tracker per environment: the loop being detected is a model repeating
   // itself within a session, so the counts must outlive individual calls and
   // must not be shared between environments.
   const repeats = new RepeatTracker();
-  const guard = (verb: string, fn: (input: any) => Promise<EnvToolResult>) => guarded(verb, limits, repeats, fn);
+  const guard = (verb: string, fn: (input: any, signal?: AbortSignal) => Promise<EnvToolResult>) =>
+    guarded(verb, limits, repeats, fn, { core, onVerb: deps.onVerb });
 
   const writeFile: EnvTool = {
     name: name("write_file"),
+    mutates: true,
     description:
       "Write a file in the working environment (parent directories are auto-created). " +
       "Scripts (.js under /scripts) are validated on write: they must `export default async function (args) { ... }`, and a sibling .d.ts is generated from the signature + JSDoc. " +
@@ -124,11 +149,21 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
         path: str("Absolute VFS path, e.g. /scripts/parse_invoice.js or /tmp/notes.md"),
         content: str("Full file content (or the chunk to append)"),
         append: { type: "boolean", description: "Append instead of overwrite. Default false." },
+        encoding: {
+          type: "string",
+          enum: ["utf8", "base64"],
+          description:
+            "How to read `content`. Default utf8. Use base64 to write BINARY bytes — a PNG you built, " +
+            "a file you decoded — without going through a script.",
+        },
       },
       ["path", "content"],
     ),
-    do: guard("write_file", async (input: { path: string; content: string; append?: boolean }) => {
+    do: guard("write_file", async (input: { path: string; content: string; append?: boolean; encoding?: string }) => {
       if (typeof input.path !== "string") return err("write_file needs { path } as a string");
+      if (input.encoding !== undefined && input.encoding !== "utf8" && input.encoding !== "base64") {
+        return err(`write_file encoding must be "utf8" or "base64", got ${JSON.stringify(input.encoding)}`);
+      }
       if (typeof input.content !== "string") {
         // Observed: a model passing the object it wanted to save. The intent
         // is obvious and the fix is one call away, so say which one rather
@@ -142,7 +177,22 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       // Model-facing only, and once per session: a host or an adapter writing
       // a script is not the party that needs pointing at the docs.
       if (core.inScriptZone(input.path)) core.nudgeToDocsOnce();
-      const r = await core.write(input.path, input.content, { append: input.append });
+
+      let content: string | Uint8Array = input.content;
+      if (input.encoding === "base64") {
+        // Strict, because a silent partial decode writes a corrupt file that
+        // only fails later, in whatever tries to read it.
+        const cleaned = input.content.replace(/\s+/g, "");
+        if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleaned) || cleaned.length % 4 !== 0) {
+          return err(
+            `write_file: content is not valid base64. Node decodes malformed base64 to whatever it can, ` +
+              `which writes a corrupt file that only fails later — so this is refused instead.`,
+          );
+        }
+        const buf = Buffer.from(cleaned, "base64");
+        content = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+      }
+      const r = await core.write(input.path, content, { append: input.append });
       const verb = input.append ? "appended to" : r.created ? "created" : "wrote";
       let msg = `${verb} ${input.path} (${fmtBytes(r.bytes)})`;
       if (core.producesDts(input.path)) msg += ` — .d.ts regenerated`;
@@ -154,6 +204,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
 
   const editFile: EnvTool = {
     name: name("edit_file"),
+    mutates: true,
     description:
       "Replace text in a file: old_str must match the current content exactly once (fails on zero or multiple matches, reporting the count). " +
       "Much cheaper than resending a whole file to change one line. Script edits re-run validation and regenerate the sibling .d.ts.",
@@ -178,6 +229,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
 
   const rm: EnvTool = {
     name: name("rm"),
+    mutates: true,
     description: "Remove a file (or a directory recursively). Removes a script's sibling .d.ts with it. Undoable per file via undo.",
     jsonSchema: schema({ path: str("Absolute VFS path to remove") }, ["path"]),
     do: guard("rm", async (input: { path: string }) => {
@@ -188,6 +240,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
 
   const mv: EnvTool = {
     name: name("mv"),
+    mutates: true,
     description:
       "Move/rename a file or directory. Moves a script's sibling .d.ts along with it; scripts arriving under /scripts are validated at the destination (relative imports must still resolve).",
     jsonSchema: schema({ from: str("Source VFS path"), to: str("Destination VFS path") }, ["from", "to"]),
@@ -204,6 +257,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
 
   const cp: EnvTool = {
     name: name("cp"),
+    mutates: true,
     description: "Copy a file or directory. Copied scripts are re-validated at the destination and get a freshly generated .d.ts.",
     jsonSchema: schema({ from: str("Source VFS path"), to: str("Destination VFS path") }, ["from", "to"]),
     do: guard("cp", async (input: { from: string; to: string }) => {
@@ -219,6 +273,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
 
   const readFile: EnvTool = {
     name: name("read_file"),
+    mutates: false,
     description:
       `Read a text file with line numbers. Shows at most ${limits.maxToolResponseLines} lines per call — use start_line/end_line to slice large files instead of paging blindly. Binary files are refused (inspect those from a script via an adapter's describe()).`,
     jsonSchema: schema(
@@ -250,6 +305,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
 
   const ls: EnvTool = {
     name: name("ls"),
+    mutates: false,
     description:
       "List a directory. For /scripts each script shows its one-line JSDoc description — the listing is your capability catalog. For /std it shows each stdlib module's description. depth > 1 recurses.",
     jsonSchema: schema(
@@ -277,6 +333,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
 
   const grep: EnvTool = {
     name: name("grep"),
+    mutates: false,
     description:
       "Search file contents with a JS regular expression. Scope with path (file or directory) and glob (e.g. **/*.js). Returns path:line: matches, capped by max_matches. Also works on /.env/history.jsonl for past runs.",
     jsonSchema: schema(
@@ -314,6 +371,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
 
   const runScript: EnvTool = {
     name: name("run_script"),
+    mutates: true,
     description:
       "Run a script's default export with JSON args: `await defaultExport(args)`. Returns the result plus captured stdout/stderr and duration. " +
       "Oversized output is truncated here and written in full to a /tmp/run-<id>.* file — read slices of that file instead of re-running. Every run is appended to /.env/history.jsonl. " +
@@ -326,18 +384,29 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
       {
         path: str("Script path, e.g. /scripts/csv_to_report.js"),
         args: { type: "object", description: "Plain-JSON arguments object passed to the default export. Default {}.", additionalProperties: true },
+        timeout_ms: {
+          type: "number",
+          description:
+            `Budget for THIS run in milliseconds. Default and maximum ${limits.runTimeoutMs}. ` +
+            `Raise it only for work that is genuinely slow — a video render, a large batch — so an accidental ` +
+            `infinite loop in an ordinary script still fails fast instead of holding the worker.`,
+        },
       },
       ["path"],
     ),
-    do: guard("run_script", async (input: { path: string; args?: unknown }) => {
+    do: guard("run_script", async (input: { path: string; args?: unknown; timeout_ms?: number }, signal?: AbortSignal) => {
       if (typeof input.path !== "string") return err("run_script needs { path }");
-      const outcome = await executeRun(deps, input.path, input.args ?? {});
+      const outcome = await executeRun(deps, input.path, input.args ?? {}, {
+        timeoutMs: input.timeout_ms,
+        signal,
+      });
       return outcome.run.ok ? ok(outcome.text) : err(outcome.shortError ?? "script failed", outcome.text);
     }),
   };
 
   const describe: EnvTool = {
     name: name("describe"),
+    mutates: false,
     description:
       "Summarise any file without reading it: dispatches to whichever stdlib module understands the format (by magic bytes, not extension) " +
       "and falls back to a generic summary — size, text-or-binary, line count, first lines. " +
@@ -352,6 +421,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
 
   const runTests: EnvTool = {
     name: name("run_tests"),
+    mutates: true,
     description:
       "Run every *.test.js under a path (default /scripts) and report pass/fail. A test is an ordinary script whose job is to throw: " +
       "`import * as assert from 'env:assert'` and assert against your library modules. " +
@@ -399,6 +469,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
 
   const checkpoint: EnvTool = {
     name: name("checkpoint"),
+    mutates: true,
     description:
       "Save or restore the WHOLE tree by name — the thing undo cannot do. " +
       "fork: save everything as it is now. restore: put it all back, removing files created since. list: what is saved. drop: delete a save. " +
@@ -417,30 +488,44 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     ),
     do: guard("checkpoint", async (input: { action?: string; name?: string }) => {
       const action = input.action ?? "list";
+      // Every branch of this verb walks or rewrites the whole tree, so all of
+      // them take the environment's exclusive lock. Without it a `fork`
+      // concurrent with a running script captures a tree that never existed,
+      // and a `restore` leaves one behind.
       if (action === "list") {
-        const branches = await listBranches(core.vfs);
+        const branches = await core.exclusive(() => listBranches(core.vfs));
         if (branches.length === 0) return ok("no checkpoints yet — checkpoint({action:'fork', name:'before-refactor'}) saves the tree as it is now");
         return ok(branches.map((b) => `${b.name}  ${b.files} file(s), ${fmtBytes(b.bytes)}, saved ${b.created}`).join("\n"));
       }
       if (typeof input.name !== "string") return err(`checkpoint ${action} needs { name }`);
+      const branchName = input.name;
 
       if (action === "fork") {
-        const info = await forkBranch(core.vfs, input.name);
+        const info = await core.exclusive(() => forkBranch(core.vfs, branchName));
         return ok(
           `saved checkpoint "${info.name}": ${info.files} file(s), ${fmtBytes(info.bytes)}. ` +
             `checkpoint({action:'restore', name:'${info.name}'}) puts the tree back exactly here.`,
         );
       }
       if (action === "restore") {
-        const r = await restoreBranch(core.vfs, input.name);
+        const r = await core.exclusive(async () => {
+          const result = await restoreBranch(core.vfs, branchName);
+          // The restore replaced content without going through the mutation
+          // gateway, so the per-file undo rings for the files it touched now
+          // describe an era the tree has left. Keeping them would let a later
+          // `undo` quietly reinstate post-checkpoint content.
+          const forgotten = await core.versions.forget(result.touched);
+          return { ...result, forgotten };
+        });
         return ok(
-          `restored "${input.name}": ${r.restored} file(s) put back, ${r.removed} created since then removed. ` +
+          `restored "${branchName}": ${r.restored} file(s) put back, ${r.removed} created since then removed. ` +
+            (r.forgotten > 0 ? `Per-file undo history was cleared for the ${r.forgotten} file(s) this changed. ` : "") +
             `Run history is unchanged — it records what actually ran.`,
         );
       }
       if (action === "drop") {
-        await dropBranch(core.vfs, input.name);
-        return ok(`dropped checkpoint "${input.name}"`);
+        await core.exclusive(() => dropBranch(core.vfs, branchName));
+        return ok(`dropped checkpoint "${branchName}"`);
       }
       return err(`unknown checkpoint action ${JSON.stringify(action)} — use fork, restore, list or drop`);
     }),
@@ -448,6 +533,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
 
   const undo: EnvTool = {
     name: name("undo"),
+    mutates: true,
     description: "Revert a file to its previous version (per-file linear undo; rm and overwrites are both undoable). Scripts re-run the pipeline so the .d.ts stays in sync.",
     jsonSchema: schema({ path: str("File whose last mutation should be reverted") }, ["path"]),
     do: guard("undo", async (input: { path: string }) => {
@@ -463,6 +549,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
 
   const redo: EnvTool = {
     name: name("redo"),
+    mutates: true,
     description: "Walk forward again after an undo (a fresh mutation clears the redo branch).",
     jsonSchema: schema({ path: str("File to redo") }, ["path"]),
     do: guard("redo", async (input: { path: string }) => {
@@ -478,6 +565,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
 
   const history: EnvTool = {
     name: name("history"),
+    mutates: false,
     description:
       "Without a path: recent run_script invocations (from /.env/history.jsonl). With a path: that file's saved versions — what undo/redo would restore.",
     jsonSchema: schema(
@@ -529,6 +617,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
    */
   const viewImage: EnvTool = {
     name: name("view_image"),
+    mutates: false,
     description:
       "Look at a file and answer a question about how it LOOKS. Pass a specific question, not 'describe this': " +
       "the answer is only as useful as the question, and 'is the revenue table complete with four regions, and does any text run off the page?' " +
@@ -582,6 +671,7 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
    */
   const present: EnvTool = {
     name: name("present"),
+    mutates: false,
     description:
       "Hand a finished file to the person, with a one-line caption saying what it is. " +
       "Use it when a deliverable in /out is ready — writing the file is not the same as delivering it, " +
@@ -610,8 +700,84 @@ export function buildTools(deps: ToolDeps): EnvTool[] {
     }),
   };
 
-  const verbs = [writeFile, editFile, rm, mv, cp, readFile, ls, grep, describe, runScript, runTests, undo, redo, checkpoint, history];
+  const diff: EnvTool = {
+    name: name("diff"),
+    mutates: false,
+    description:
+      "Show what changed in a file: current content against the version undo would restore, or against a named checkpoint. " +
+      "Use it before undo or checkpoint restore, to see what you are about to throw away — those verbs are otherwise " +
+      "the only way to find out, and they find out by doing it.",
+    jsonSchema: schema(
+      {
+        path: str("File to compare"),
+        checkpoint: str("Compare against this checkpoint instead of the previous version"),
+      },
+      ["path"],
+    ),
+    do: guard("diff", async (input: { path: string; checkpoint?: string }) => {
+      if (typeof input.path !== "string") return err("diff needs { path }");
+      const cmp = await core.compare(input.path, { checkpoint: input.checkpoint });
+      if (cmp.before === null && cmp.after === null) {
+        return err(`${cmp.path} does not exist now and did not exist in ${cmp.label}`);
+      }
+      if (cmp.before === null) {
+        return ok(`${cmp.path} did not exist in ${cmp.label} — it is new (${cmp.after!.split("\n").length} lines).`);
+      }
+      if (cmp.after === null) {
+        return ok(`${cmp.path} exists in ${cmp.label} but not now — it was removed (${cmp.before.split("\n").length} lines then).`);
+      }
+      const body = unifiedDiff(cmp.before, cmp.after);
+      if (body === "") return ok(`${cmp.path} is unchanged since ${cmp.label}`);
+      return ok(`${cmp.path} vs ${cmp.label} (- was, + is now):\n${body}`);
+    }),
+  };
+
+  const askUser: EnvTool = {
+    name: name("ask_user"),
+    mutates: false,
+    description:
+      "Ask the person a question and wait for their answer. " +
+      "For a decision only they can make: which of two plausible inputs to use, whether to overwrite a file, " +
+      "what a business term means in their data. " +
+      "Not for anything the tree can answer — read the file, describe it, or grep for it first. " +
+      "Asking costs the person's attention, so ask once, specifically, and include options when the answer is a choice between things you can name.",
+    jsonSchema: schema(
+      {
+        question: str("The question, in one or two sentences. Include the context that makes it answerable without scrollback."),
+        options: {
+          type: "array",
+          items: { type: "string" },
+          description: "The choices, when the answer is one of a known set. Omit for an open question.",
+        },
+      },
+      ["question"],
+    ),
+    do: guard("ask_user", async (input: { question?: string; options?: unknown }) => {
+      const question = typeof input.question === "string" ? input.question.trim() : "";
+      if (question === "") return err("ask_user needs { question } as a non-empty string");
+      let options: string[] | undefined;
+      if (input.options !== undefined) {
+        if (!Array.isArray(input.options) || input.options.some((o) => typeof o !== "string")) {
+          return err("ask_user options must be an array of strings, or omitted");
+        }
+        options = (input.options as string[]).map((o) => o.trim()).filter((o) => o !== "");
+        if (options.length === 0) options = undefined;
+      }
+      const answer = await onAsk!({ question, options });
+      // A host that answers with nothing has answered nothing, and the model
+      // must not read an empty string as consent.
+      if (typeof answer !== "string" || answer.trim() === "") {
+        return err(
+          "no answer came back — the person did not respond. Carry on with the most reasonable assumption and say in your final message which one you made and why.",
+        );
+      }
+      return ok(answer.trim());
+    }),
+  };
+
+  const verbs = [writeFile, editFile, rm, mv, cp, readFile, ls, grep, describe, runScript, runTests, undo, redo, checkpoint, diff, history];
   if (vision) verbs.push(viewImage);
   if (onPresent) verbs.push(present);
+  if (onAsk) verbs.push(askUser);
   return verbs;
 }

@@ -38,6 +38,7 @@ export function ChatPane({
   onUpload,
   onClearUpload,
   onSend,
+  onAnswer,
   onDismissError,
 }: {
   sessionId: string;
@@ -48,6 +49,7 @@ export function ChatPane({
   onUpload: (files: File[]) => void;
   onClearUpload: (id: string) => void;
   onSend: (message: string, attached: string[]) => void;
+  onAnswer: (questionId: string, answer: string) => void;
   onDismissError: () => void;
 }) {
   const [draft, setDraft] = useState("");
@@ -87,7 +89,7 @@ export function ChatPane({
   };
 
   // Group consecutive tool calls so a ten-verb turn reads as one block.
-  type Group = Extract<Entry, { kind: "act" }>[] | Extract<Entry, { kind: "user" | "text" | "gift" }>;
+  type Group = Extract<Entry, { kind: "act" }>[] | Extract<Entry, { kind: "user" | "text" | "gift" | "question" }>;
   const groups: Group[] = [];
   for (const entry of entries) {
     if (entry.kind !== "act") {
@@ -140,6 +142,8 @@ export function ChatPane({
                 </div>
               ) : group.kind === "gift" ? (
                 <Deliverable key={group.id} sessionId={sessionId} gift={group} />
+              ) : group.kind === "question" ? (
+                <Question key={group.id} entry={group} onAnswer={onAnswer} />
               ) : (
                 <div key={group.id} className="msg msg-agent">
                   <span className="msg-role">Agent</span>
@@ -279,5 +283,74 @@ function Deliverable({ sessionId, gift }: { sessionId: string; gift: Extract<Ent
       </div>
       {row}
     </figure>
+  );
+}
+
+/**
+ * A question the agent is waiting on.
+ *
+ * The turn is genuinely blocked while this is on screen — the `ask_user`
+ * verb's promise is still pending on the server — so it is deliberately the
+ * loudest thing in the transcript rather than another tool row. Once answered
+ * it collapses to a record of what was asked and what was said, because that
+ * exchange is part of how the result came out the way it did.
+ */
+function Question({
+  entry,
+  onAnswer,
+}: {
+  entry: Extract<Entry, { kind: "question" }>;
+  onAnswer: (questionId: string, answer: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const answered = entry.answer !== undefined;
+
+  return (
+    <div className={`msg msg-ask${answered ? " msg-ask-done" : ""}`}>
+      <span className="msg-role">Agent asks</span>
+      <div className="msg-body">{entry.question}</div>
+
+      {answered ? (
+        <div className="ask-answer">
+          <span className="msg-role">You</span>
+          {entry.answer}
+        </div>
+      ) : (
+        <div className="ask-controls">
+          {entry.options && entry.options.length > 0 && (
+            <div className="ask-options">
+              {entry.options.map((option) => (
+                <button key={option} className="ask-option" onClick={() => onAnswer(entry.questionId, option)}>
+                  {option}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* Always available, even with options: the right answer is often
+              "neither, use the one from March", and forcing a choice between
+              two wrong ones is how a wrong deliverable gets built. */}
+          <form
+            className="ask-free"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (draft.trim() === "") return;
+              onAnswer(entry.questionId, draft.trim());
+              setDraft("");
+            }}
+          >
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder={entry.options?.length ? "…or say something else" : "Your answer"}
+              aria-label="Your answer"
+              autoFocus
+            />
+            <button type="submit" disabled={draft.trim() === ""}>
+              Answer
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
   );
 }

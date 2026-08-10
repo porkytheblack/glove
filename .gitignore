@@ -15,3 +15,7 @@ out
 *met*.jsonl
 *.wasm
 *.onnx
+# Transient git worktrees created for parallel agent runs. Each is a full
+# checkout of another branch with its own node_modules; committing one would
+# vendor a second copy of the repo into the repo.
+.claude/worktrees/

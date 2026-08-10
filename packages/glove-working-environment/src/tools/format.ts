@@ -99,12 +99,24 @@ export async function withSpillover(
   let spilled: string | null = null;
   try {
     let content = full;
-    if (content.length > SPILL_CAP_BYTES || content.length > limits.maxFileBytes) {
-      const cap = Math.min(SPILL_CAP_BYTES, limits.maxFileBytes);
-      content = content.slice(0, cap) + "\n… [spill truncated]\n";
+    // Budgeted in BYTES, which is what the cap is measured in. Two ways this
+    // went wrong before, and each ended the same way — the spill refusing its
+    // own write, so the model was told its output was too big to show AND too
+    // big to save, which is the one outcome this mechanism exists to prevent.
+    // The marker was appended after truncating to exactly the cap; and both
+    // sides were counted in characters, though `…` alone is three bytes.
+    const budget = Math.min(SPILL_CAP_BYTES, limits.maxFileBytes);
+    if (Buffer.byteLength(content, "utf8") > budget) {
+      const marker = "\n… [spill truncated]\n";
+      const room = Math.max(0, budget - Buffer.byteLength(marker, "utf8"));
+      // Slicing bytes can cut a multi-byte character in half; the decoder
+      // turns the remnant into U+FFFD, which is dropped rather than written.
+      const head = new TextDecoder("utf-8").decode(Buffer.from(content, "utf8").subarray(0, room)).replace(/\uFFFD$/, "");
+      content = head + marker;
     }
     await core.write(spillPath, content);
     spilled = spillPath;
+    core.counters.spillovers += 1;
     spillNote = `… [${fmtCount(t.totalLines - t.shownLines)} more lines — written to ${spillPath}]`;
   } catch (e) {
     const msg = e instanceof EnvLimitError ? e.message : e instanceof Error ? e.message : String(e);
@@ -117,4 +129,77 @@ export async function withSpillover(
 export function numberLines(lines: string[], startLine: number): string {
   const width = String(startLine + lines.length - 1).length;
   return lines.map((l, i) => `${String(startLine + i).padStart(width)}\t${clipLine(l)}`).join("\n");
+}
+
+/**
+ * A unified diff of two texts.
+ *
+ * Hand-rolled because this package has no dependencies and the alternative —
+ * showing both versions in full — is exactly what a diff exists to avoid: a
+ * 400-line script edited in one place would cost 800 lines of context to
+ * inspect. Plain LCS over lines, which is right for the sizes involved
+ * (scripts and reports, not repositories).
+ */
+export function unifiedDiff(before: string, after: string, context = 3): string {
+  const a = before === "" ? [] : before.split("\n");
+  const b = after === "" ? [] : after.split("\n");
+
+  // LCS table. Bounded deliberately: past this the diff is not the useful
+  // answer anyway, and an O(n·m) table on two 50k-line files is not something
+  // to build inside a tool call.
+  const LIMIT = 4000;
+  if (a.length > LIMIT || b.length > LIMIT) {
+    return `(files too large to diff line by line: ${a.length} vs ${b.length} lines — read the ranges you care about instead)`;
+  }
+
+  const lcs: number[][] = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+
+  type Op = { kind: " " | "-" | "+"; text: string };
+  const ops: Op[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      ops.push({ kind: " ", text: a[i] });
+      i += 1;
+      j += 1;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+      ops.push({ kind: "-", text: a[i++] });
+    } else {
+      ops.push({ kind: "+", text: b[j++] });
+    }
+  }
+  while (i < a.length) ops.push({ kind: "-", text: a[i++] });
+  while (j < b.length) ops.push({ kind: "+", text: b[j++] });
+
+  if (ops.every((o) => o.kind === " ")) return "";
+
+  // Keep `context` unchanged lines either side of every change; elide the rest.
+  const keep = new Array<boolean>(ops.length).fill(false);
+  ops.forEach((op, idx) => {
+    if (op.kind === " ") return;
+    for (let k = Math.max(0, idx - context); k <= Math.min(ops.length - 1, idx + context); k++) keep[k] = true;
+  });
+
+  const out: string[] = [];
+  let elided = 0;
+  const flushElision = () => {
+    if (elided > 0) out.push(`@@ ${elided} unchanged line${elided === 1 ? "" : "s"} @@`);
+    elided = 0;
+  };
+  ops.forEach((op, idx) => {
+    if (!keep[idx]) {
+      elided += 1;
+      return;
+    }
+    flushElision();
+    out.push(`${op.kind}${op.text}`);
+  });
+  flushElision();
+  return out.join("\n");
 }

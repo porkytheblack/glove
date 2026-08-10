@@ -243,6 +243,10 @@ export interface RunMessage {
   overlay?: Array<[string, string]>;
   /** Absolute deadline, so the worker's own checks agree with the host's. */
   deadline: number;
+  /** What `deadline` was derived from, so the worker can name it on failure. */
+  budgetMs: number;
+  /** Tee console output to the host as it is written. Off unless a host listens. */
+  progress?: boolean;
 }
 
 /** A reply to a `need` the worker raised. */
@@ -275,6 +279,11 @@ export interface ReadyMessage {
 export interface NeedMessage {
   type: "need";
   id: string;
+  /**
+   * The run this call belongs to, so the host can refuse work from a run it
+   * has already reported dead. Absent for calls made outside a run.
+   */
+  run?: string;
   what: "readSource" | "isEnforcedScript" | "capability" | "builder";
   /** For readSource / isEnforcedScript. */
   path?: string;
@@ -304,4 +313,18 @@ export interface ResultMessage {
   contract?: ModuleContract;
 }
 
-export type WorkerToHost = ReadyMessage | NeedMessage | ResultMessage;
+/**
+ * Console output from a run in flight, batched.
+ *
+ * The final `ResultMessage` already carries the whole transcript; this exists
+ * because a four-minute render is otherwise silent between `tool_use` and
+ * `tool_result`, and a host cannot tell frame 900 of 1800 from a hang.
+ */
+export interface ProgressMessage {
+  type: "progress";
+  /** The run this belongs to. */
+  id: string;
+  lines: Array<{ stream: "stdout" | "stderr"; text: string }>;
+}
+
+export type WorkerToHost = ReadyMessage | NeedMessage | ResultMessage | ProgressMessage;

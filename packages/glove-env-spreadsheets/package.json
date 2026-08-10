@@ -27,17 +27,18 @@
     "build": "tsup",
     "prepublishOnly": "pnpm build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --import tsx tests/*.test.ts"
+    "test": "node --test --import tsx tests/*.test.ts",
+    "bench": "node --import tsx bench/paging.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0"
   },
   "peerDependencies": {
-    "glove-working-environment": "workspace:*"
+    "glove-working-environment": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
-    "glove-working-environment": "workspace:*",
+    "glove-working-environment": "workspace:^",
     "tsx": "^4.19.0",
     "typescript": "^5.9.3"
   }

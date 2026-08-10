@@ -6,7 +6,22 @@
  * different problem — decoding glyphs back to characters needs font and CMap
  * handling — and is delegated to pdfjs-dist, an optional peer.
  */
-import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import {
+  PDFCheckBox,
+  PDFDocument,
+  PDFDropdown,
+  PDFOptionList,
+  PDFRadioGroup,
+  PDFSignature,
+  PDFTextField,
+  StandardFonts,
+  degrees,
+  rgb,
+  type PDFField,
+  type PDFFont,
+  type PDFPage,
+} from "pdf-lib";
+import fontkit from "@pdf-lib/fontkit";
 import type { EnvFsHandle } from "glove-working-environment";
 import {
   cellText,
@@ -19,7 +34,10 @@ import {
   resolvePageSize,
   validateSpec,
   type DocumentSpec,
+  type FontSpec,
 } from "./model";
+
+export type { FontSpec };
 
 export interface PdfSummary {
   path: string;
@@ -56,11 +74,54 @@ export interface StampOptions {
   rotate?: number;
   /** 1-based page numbers, or a range like "1-3,7". Default: every page. */
   pages?: string | number[];
+  /** A font to embed — needed for any stamp text outside Latin-1. */
+  font?: string | FontSpec;
 }
 
 export interface ExtractTextOptions {
   /** 1-based page numbers, or a range like "1-3,7". Default: every page. */
   pages?: string | number[];
+}
+
+export interface PdfFormField {
+  name: string;
+  type: "text" | "checkbox" | "radio" | "dropdown" | "optionlist" | "button" | "signature";
+  /** Current value: a string, a list for multi-select, a boolean for a checkbox, null when unset. */
+  value: string | string[] | boolean | null;
+  /** The permitted values, for the field kinds that have a fixed set. */
+  options?: string[];
+  readOnly: boolean;
+  required: boolean;
+}
+
+export interface PdfFormContents {
+  path: string;
+  fields: PdfFormField[];
+  /**
+   * True for an XFA form, where the AcroForm fields this lists may be a stale
+   * shadow of what a reader actually displays.
+   */
+  xfa: boolean;
+  /** Present when something about the form needs saying before you trust it. */
+  note?: string;
+}
+
+export interface FillFormOptions {
+  /** Where to write. Default: back over the input path. */
+  output?: string;
+  /** A font to render the filled values with — required for non-Latin values. */
+  font?: string | FontSpec;
+  /** Bake the values into the page and remove the fields, so they cannot be edited. */
+  flatten?: boolean;
+  /** Fill an XFA form's AcroForm layer anyway. Off by default; see `fillForm`. */
+  allowXfa?: boolean;
+}
+
+export interface FilledForm {
+  path: string;
+  /** Field names that were set, in the order given. */
+  filled: string[];
+  flattened: boolean;
 }
 
 /**
@@ -103,6 +164,12 @@ const TEXT_LAYER_FLOOR = 100;
 const HEADING_SIZES: Record<number, number> = { 1: 20, 2: 15, 3: 12.5 };
 const BODY_SIZE = 11;
 const LINE_RATIO = 1.35;
+/**
+ * What a bullet is drawn with. A hyphen rather than "•", because the marker is
+ * a glyph the embedded font has to carry too, and every font has a hyphen
+ * while plenty of single-script faces have no bullet.
+ */
+const BULLET_MARKER = "-";
 
 /** Parse `"1-3,7"` or `[1,3]` into 0-based indices, validated against a page count. */
 export function parsePages(spec: string | number[] | undefined, pageCount: number, label = "pages"): number[] {
@@ -254,6 +321,212 @@ export function toWinAnsi(text: string): string {
   return out;
 }
 
+// ------------------------------------------------------------ font embedding
+
+/**
+ * The pair of faces a render draws with, and the one function that decides
+ * what a string becomes on the way to the page.
+ *
+ * `prepare` is where the two worlds differ and the only place they need to.
+ * With a standard font it transliterates, because refusing a document over one
+ * em dash would be worse than drawing a hyphen. With an embedded font it
+ * refuses instead — a missing glyph in a real font is drawn as a blank box,
+ * which looks like a rendering bug to whoever opens the file and like success
+ * to whoever produced it.
+ */
+interface Faces {
+  body: PDFFont;
+  bold: PDFFont;
+  prepare(text: string): string;
+  /** True when a supplied font was embedded rather than a standard one used. */
+  embedded: boolean;
+}
+
+function normalizeFontSpec(font: string | FontSpec | undefined): FontSpec | undefined {
+  if (font === undefined) return undefined;
+  // An empty string reads as "no font" but arrives as a request for one, so it
+  // is refused rather than resolved to a path that cannot exist.
+  if (typeof font === "string") {
+    if (font === "") throw new TypeError("font is an empty string — give a path to a .ttf/.otf, or omit it");
+    return { regular: font };
+  }
+  if (!font || typeof font !== "object" || typeof font.regular !== "string" || font.regular === "") {
+    throw new TypeError(
+      `font must be a path to a .ttf/.otf, or { regular, bold? } of such paths, got ${JSON.stringify(font)}`,
+    );
+  }
+  if (font.bold !== undefined && typeof font.bold !== "string") {
+    throw new TypeError(`font.bold must be a path to a .ttf/.otf, got ${JSON.stringify(font.bold)}`);
+  }
+  return font;
+}
+
+/**
+ * Read a font file through the guarded handle and parse it once, so a bad
+ * path, a non-font and a font collection each fail by their own name.
+ *
+ * The collection case is worth its own branch: a `.ttc` parses fine and then
+ * has no `hasGlyphForCodePoint`, because it is several fonts in a trench coat.
+ * pdf-lib cannot embed one either — its embedder calls `fontkit.create` with
+ * no face to pick — so it is refused here, where the message can name the
+ * faces inside rather than surfacing as a TypeError from library internals.
+ */
+async function loadFont(vfs: EnvFsHandle, path: string): Promise<{ bytes: Uint8Array; font: FontkitFont }> {
+  let bytes: Uint8Array;
+  try {
+    bytes = await vfs.readBytes(path);
+  } catch (e) {
+    throw new Error(
+      `could not read the font ${path} from this environment's filesystem: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = fontkit.create(bytes);
+  } catch (e) {
+    throw new Error(
+      `${path} is not a font fontkit can read (.ttf, .otf and .woff are): ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
+  const font = parsed as FontkitFont & { fonts?: Array<{ postscriptName?: string | null }> };
+  if (typeof font.hasGlyphForCodePoint !== "function") {
+    const faces = (font.fonts ?? []).map((f) => f.postscriptName).filter(Boolean);
+    throw new Error(
+      `${path} is a font collection (.ttc/.otc), not a single font, and neither pdf-lib nor this adapter can embed one. ` +
+        (faces.length > 0
+          ? `It contains ${faces.length} face(s): ${faces.slice(0, 8).join(", ")}${faces.length > 8 ? ", …" : ""}. `
+          : "") +
+        `Supply one face as a .ttf or .otf instead.`,
+    );
+  }
+  return { bytes, font };
+}
+
+/** The slice of fontkit's Font this file uses. */
+interface FontkitFont {
+  hasGlyphForCodePoint(codePoint: number): boolean;
+}
+
+/**
+ * Refuse a document the font cannot actually draw.
+ *
+ * pdf-lib does not fail on an unmapped code point — it emits glyph 0, which
+ * every viewer renders as an empty box or nothing at all. So the text is
+ * checked against the font's own character set first, and the whole document
+ * is checked at once rather than failing at the first bad character, because
+ * "your font is missing these 4 characters" is one fix and four errors is
+ * four runs.
+ */
+function assertCoverage(font: FontkitFont, path: string, texts: string[]): void {
+  const missing = new Set<string>();
+  for (const text of texts) {
+    for (const ch of text) {
+      const code = ch.codePointAt(0)!;
+      // Line breaks and tabs are layout, not glyphs — they never reach a
+      // showText operator.
+      if (code === 9 || code === 10 || code === 13) continue;
+      if (!font.hasGlyphForCodePoint(code)) missing.add(ch);
+    }
+  }
+  if (missing.size === 0) return;
+  const shown = [...missing]
+    .slice(0, 12)
+    .map((ch) => `${JSON.stringify(ch)} (U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")})`)
+    .join(", ");
+  throw new Error(
+    `${path} has no glyph for ${missing.size} character${missing.size === 1 ? "" : "s"} in this document: ${shown}` +
+      `${missing.size > 12 ? ", …" : ""}. ` +
+      `They would be drawn as blank boxes, so the render is refused instead. ` +
+      `Supply a font that covers this script — for CJK that means a CJK font, not a Latin one with a few extra glyphs.`,
+  );
+}
+
+/**
+ * Embed the supplied font, or fall back to the standard Helvetica pair.
+ *
+ * `subset: true` writes only the glyphs the document uses. A full CJK face is
+ * megabytes and the environment has a per-file limit; subsetting is what keeps
+ * a two-page Japanese memo the size of a two-page memo.
+ */
+async function embedFaces(
+  vfs: EnvFsHandle,
+  doc: PDFDocument,
+  font: string | FontSpec | undefined,
+  texts: string[],
+  /**
+   * `"bold"` for a caller that draws with one weight. pdf-lib writes every
+   * font it was handed, referenced or not, so embedding the regular face for a
+   * stamp would leave a dead font dictionary in each stamped file.
+   */
+  need: "both" | "bold" = "both",
+): Promise<Faces> {
+  const spec = normalizeFontSpec(font);
+  if (!spec) {
+    const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+    return {
+      body: need === "bold" ? bold : await doc.embedFont(StandardFonts.Helvetica),
+      bold,
+      prepare: toWinAnsi,
+      embedded: false,
+    };
+  }
+
+  doc.registerFontkit(fontkit);
+  const body = await embedOne(vfs, doc, spec.regular, texts);
+  const bold = spec.bold ? await embedOne(vfs, doc, spec.bold, texts) : body;
+  // No transliteration: coverage is already proven, so the text goes to the
+  // page exactly as it was written.
+  return { body, bold, prepare: (t) => String(t), embedded: true };
+}
+
+/**
+ * Read, check and embed one face, translating an embedder failure into a
+ * sentence about the font.
+ *
+ * Some fonts fontkit can *read* it cannot *embed* — the OTTO-flavoured Unifont
+ * faces on a Debian box fail with "Not a CFF Font", which names an internal
+ * table and not the file the caller chose. Measured: four of the 47 fonts on
+ * this host parse, report full CJK coverage, and then fail inside the
+ * embedder. Saying which font and suggesting another is the difference between
+ * a fixable error and a mysterious one.
+ */
+async function embedOne(vfs: EnvFsHandle, doc: PDFDocument, path: string, texts: string[]): Promise<PDFFont> {
+  const { bytes, font } = await loadFont(vfs, path);
+  assertCoverage(font, path, texts);
+  try {
+    // Only the glyphs this document uses travel with it. A CJK face is
+    // megabytes and the environment caps single files; measured, a 6.2 MB
+    // Japanese font became a 4 KB PDF.
+    return await doc.embedFont(bytes, { subset: true });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `${path} could not be embedded: ${message}. The file parses as a font but pdf-lib's embedder will not take it ` +
+        `— this happens with some OpenType/CFF variants. Try a TrueType (.ttf) build of the same face.`,
+    );
+  }
+}
+
+/** Every string a spec will draw, so coverage can be checked before anything is. */
+function drawnText(spec: DocumentSpec): string[] {
+  const out: string[] = [];
+  if (spec.title) out.push(spec.title);
+  for (const block of spec.content ?? []) {
+    if (isHeading(block)) out.push(block.heading);
+    else if (isText(block)) out.push(block.text);
+    else if (isBullets(block)) {
+      // The renderer draws its own marker, which is a glyph like any other.
+      out.push(BULLET_MARKER, ...block.bullets.map(String));
+    } else if (isTable(block)) {
+      for (const cell of block.table.headers ?? []) out.push(cellText(cell));
+      for (const row of block.table.rows) for (const cell of row) out.push(cellText(cell));
+    }
+  }
+  return out;
+}
+
 interface Cursor {
   page: PDFPage;
   y: number;
@@ -302,12 +575,14 @@ export function createPdfBindings(vfs: EnvFsHandle) {
       const contentWidth = pageWidth - margin * 2;
       if (contentWidth <= 0) throw new Error(`margin ${margin} leaves no room on a ${pageWidth}pt-wide page`);
 
-      const body = await doc.embedFont(StandardFonts.Helvetica);
-      const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+      const { body, bold, prepare } = await embedFaces(vfs, doc, spec.font, drawnText(spec));
 
-      if (spec.title) doc.setTitle(toWinAnsi(spec.title));
-      if (spec.author) doc.setAuthor(toWinAnsi(spec.author));
-      if (spec.subject) doc.setSubject(toWinAnsi(spec.subject));
+      // Metadata is not drawn, so it needs no font: pdf-lib writes these as
+      // UTF-16 hex strings, which carry any script. Transliterating them was
+      // costing a Japanese title its characters for nothing.
+      if (spec.title) doc.setTitle(spec.title);
+      if (spec.author) doc.setAuthor(spec.author);
+      if (spec.subject) doc.setSubject(spec.subject);
 
       const cursor: Cursor = { page: doc.addPage([pageWidth, pageHeight]), y: pageHeight - margin };
       const newPage = () => {
@@ -318,7 +593,7 @@ export function createPdfBindings(vfs: EnvFsHandle) {
         if (cursor.y - height < margin) newPage();
       };
       const draw = (text: string, font: PDFFont, size: number, indent = 0) => {
-        const lines = wrap(toWinAnsi(text), font, size, contentWidth - indent);
+        const lines = wrap(prepare(text), font, size, contentWidth - indent);
         const lineHeight = size * LINE_RATIO;
         for (const line of lines) {
           need(lineHeight);
@@ -353,7 +628,7 @@ export function createPdfBindings(vfs: EnvFsHandle) {
           for (const item of block.bullets) {
             const lineHeight = BODY_SIZE * LINE_RATIO;
             need(lineHeight);
-            cursor.page.drawText("-", { x: margin, y: cursor.y - BODY_SIZE, size: BODY_SIZE, font: body });
+            cursor.page.drawText(BULLET_MARKER, { x: margin, y: cursor.y - BODY_SIZE, size: BODY_SIZE, font: body });
             draw(String(item), body, BODY_SIZE, 14);
           }
           cursor.y -= BODY_SIZE * 0.5;
@@ -368,7 +643,7 @@ export function createPdfBindings(vfs: EnvFsHandle) {
 
           const drawRow = (cells: Array<string | number | boolean | null>, font: PDFFont) => {
             const wrapped = Array.from({ length: columns }, (_, c) =>
-              wrap(toWinAnsi(cellText(cells[c])), font, size, colWidth - 6),
+              wrap(prepare(cellText(cells[c])), font, size, colWidth - 6),
             );
             const height = Math.max(...wrapped.map((w) => w.length)) * lineHeight;
             need(height);
@@ -468,12 +743,14 @@ export function createPdfBindings(vfs: EnvFsHandle) {
     /** Rewrite document metadata in place (or to a new path). */
     async setMetadata(input: string, meta: PdfMetadata, output?: string): Promise<string> {
       const doc = await loadPdf(vfs, input);
-      if (meta?.title !== undefined) doc.setTitle(toWinAnsi(meta.title));
-      if (meta?.author !== undefined) doc.setAuthor(toWinAnsi(meta.author));
-      if (meta?.subject !== undefined) doc.setSubject(toWinAnsi(meta.subject));
-      if (meta?.creator !== undefined) doc.setCreator(toWinAnsi(meta.creator));
-      if (meta?.producer !== undefined) doc.setProducer(toWinAnsi(meta.producer));
-      if (meta?.keywords !== undefined) doc.setKeywords(meta.keywords.map(toWinAnsi));
+      // Not drawn, so not font-bound: pdf-lib writes these as UTF-16 hex
+      // strings, which carry any script without an embedded face.
+      if (meta?.title !== undefined) doc.setTitle(meta.title);
+      if (meta?.author !== undefined) doc.setAuthor(meta.author);
+      if (meta?.subject !== undefined) doc.setSubject(meta.subject);
+      if (meta?.creator !== undefined) doc.setCreator(meta.creator);
+      if (meta?.producer !== undefined) doc.setProducer(meta.producer);
+      if (meta?.keywords !== undefined) doc.setKeywords(meta.keywords);
       return savePdf(vfs, doc, output ?? input);
     },
 
@@ -481,11 +758,15 @@ export function createPdfBindings(vfs: EnvFsHandle) {
     async stamp(input: string, output: string, opts: StampOptions): Promise<string> {
       if (!opts || typeof opts.text !== "string" || opts.text === "") throw new Error("stamp needs { text }");
       const doc = await loadPdf(vfs, input);
-      const font = await doc.embedFont(StandardFonts.HelveticaBold);
+      // A stamp is a few words, so the bold face carries it: with a supplied
+      // font, `bold` is the bold file when there is one and the regular file
+      // otherwise, which is the right answer for a font with no bold cut.
+      const faces = await embedFaces(vfs, doc, opts.font, [opts.text], "bold");
+      const font = faces.bold;
       const size = opts.size ?? 24;
       const position = opts.position ?? "bottom-right";
       const rotation = opts.rotate ?? (position === "center" ? 45 : 0);
-      const text = toWinAnsi(opts.text);
+      const text = faces.prepare(opts.text);
       const textWidth = font.widthOfTextAtSize(text, size);
       const pad = 24;
 
@@ -511,6 +792,91 @@ export function createPdfBindings(vfs: EnvFsHandle) {
         });
       }
       return savePdf(vfs, doc, output);
+    },
+
+    /**
+     * The fields of a fillable PDF: what they are called, what kind they are,
+     * and what is in them.
+     *
+     * This is the call that has to come first. A form's field names are not
+     * the labels printed next to the boxes — they are whatever the form's
+     * author typed, often `topmostSubform[0].Page1[0].f1_04[0]` — so filling
+     * one without reading it is guessing.
+     */
+    async readForm(path: string): Promise<PdfFormContents> {
+      const doc = await loadPdf(vfs, path);
+      const form = doc.getForm();
+      const fields = form.getFields().map(describeField);
+      const xfa = form.hasXFA();
+      const note = xfa
+        ? `This is an XFA form. The ${fields.length} field(s) above are its AcroForm layer, which Acrobat ignores in ` +
+          `favour of the XFA definition — so what you read here may not be what a person sees, and filling it may ` +
+          `not show up. fillForm refuses this by default; pass { allowXfa: true } if you know the form is a hybrid.`
+        : fields.length === 0
+          ? `This PDF has no form fields — it is a flat document, not a fillable form. If it looks like a form, the ` +
+            `boxes are printed on the page rather than being fields, and there is nothing to fill.`
+          : undefined;
+      return { path, fields, xfa, ...(note ? { note } : {}) };
+    },
+
+    /**
+     * Fill fields by name and save. Returns the path written.
+     *
+     * An unknown field name is an error, not a no-op: the whole failure mode
+     * of form filling is a name that is nearly right, and a call that reports
+     * success while setting nothing is indistinguishable from one that worked.
+     * The message lists the names the form does have.
+     */
+    async fillForm(
+      path: string,
+      values: Record<string, string | number | boolean | string[]>,
+      options: FillFormOptions = {},
+    ): Promise<FilledForm> {
+      if (!values || typeof values !== "object" || Array.isArray(values)) {
+        throw new TypeError(`fillForm needs { fieldName: value }, got ${values === null ? "null" : typeof values}`);
+      }
+      const entries = Object.entries(values);
+      if (entries.length === 0) throw new Error("fillForm was given no values — nothing to fill");
+
+      const doc = await loadPdf(vfs, path);
+      const form = doc.getForm();
+
+      if (form.hasXFA() && options.allowXfa !== true) {
+        throw new Error(
+          `${path} is an XFA form. Setting its AcroForm fields produces a file that looks filled to this code and ` +
+            `blank in Acrobat, which is worse than not filling it — so it is refused. Read it with pdf.readForm to ` +
+            `see the fields, and pass { allowXfa: true } only if you know this is a hybrid form that renders them.`,
+        );
+      }
+
+      const known = form.getFields().map((f) => f.getName());
+      const filled: string[] = [];
+      for (const [name, value] of entries) {
+        const field = form.getFieldMaybe(name);
+        if (!field) {
+          throw new Error(
+            `${path} has no form field named ${JSON.stringify(name)}. It has ${known.length}: ` +
+              `${known.slice(0, 20).map((n) => JSON.stringify(n)).join(", ")}${known.length > 20 ? ", …" : ""}. ` +
+              `Field names are the form author's, not the printed labels — read pdf.readForm('${path}') first.`,
+          );
+        }
+        setField(field, value, name);
+        filled.push(name);
+      }
+
+      // Appearance streams are what a viewer actually draws, and they are
+      // regenerated from the value using a font. Without an embedded one that
+      // font is Helvetica, so a Japanese answer would fail here rather than
+      // reaching the page — which is the honest place for it to fail.
+      const faces = options.font
+        ? await embedFaces(vfs, doc, options.font, entries.map(([, v]) => textOf(v)))
+        : undefined;
+      form.updateFieldAppearances(faces?.body);
+
+      if (options.flatten) form.flatten();
+      const output = options.output ?? path;
+      await savePdf(vfs, doc, output);
+      return { path: output, filled, flattened: options.flatten === true };
     },
 
     /**
@@ -567,7 +933,8 @@ export function createPdfBindings(vfs: EnvFsHandle) {
           scanned.length > 0
             ? `${scanned.length} page(s) are images of text, not text: ${summarizePages(scanned)}. ` +
               `No extractor will get more out of them — the document has no text layer there. ` +
-              `Rasterise those pages outside the environment and read them with a vision model, or run OCR host-side.`
+              `Read them with env:ocr: recognize(path, { pages: [...] }) rasterises those pages and OCRs them ` +
+              `in-environment, reporting per-page confidence. A vision model through view_image also works for a page or two.`
             : kind === "empty"
               ? `This PDF draws no text and no images on the pages requested — it is blank, not unreadable.`
               : undefined;
@@ -577,6 +944,104 @@ export function createPdfBindings(vfs: EnvFsHandle) {
       }
     },
   };
+}
+
+// -------------------------------------------------------------- form fields
+
+/**
+ * One field, flattened into something a script can read without knowing
+ * pdf-lib's class hierarchy.
+ *
+ * The `type` is derived from the class rather than from the field's `/FT`
+ * entry, because pdf-lib has already done the work of telling a radio group
+ * from a checkbox and a dropdown from an option list — distinctions `/FT` runs
+ * together under `/Btn` and `/Ch`.
+ */
+function describeField(field: PDFField): PdfFormField {
+  const base = {
+    name: field.getName(),
+    readOnly: field.isReadOnly(),
+    required: field.isRequired(),
+  };
+  if (field instanceof PDFTextField) return { ...base, type: "text", value: field.getText() ?? null };
+  if (field instanceof PDFCheckBox) return { ...base, type: "checkbox", value: field.isChecked() };
+  if (field instanceof PDFRadioGroup) {
+    return { ...base, type: "radio", value: field.getSelected() ?? null, options: field.getOptions() };
+  }
+  if (field instanceof PDFDropdown) {
+    return { ...base, type: "dropdown", value: field.getSelected()[0] ?? null, options: field.getOptions() };
+  }
+  if (field instanceof PDFOptionList) {
+    return { ...base, type: "optionlist", value: field.getSelected(), options: field.getOptions() };
+  }
+  if (field instanceof PDFSignature) return { ...base, type: "signature", value: null };
+  return { ...base, type: "button", value: null };
+}
+
+/** What a value looks like as text — used for font coverage, before anything is set. */
+function textOf(value: unknown): string {
+  if (Array.isArray(value)) return value.map(String).join(" ");
+  return typeof value === "boolean" ? "" : String(value);
+}
+
+/**
+ * Set one field, refusing a value its kind cannot hold.
+ *
+ * Every refusal names the field, its kind and — for the fields with a fixed
+ * set — the values it will accept. A dropdown quietly left unset because the
+ * option string was off by a space is the failure this exists to make loud.
+ */
+function setField(field: PDFField, value: unknown, name: string): void {
+  const kind = (what: string): string => `field ${JSON.stringify(name)} is a ${what}`;
+
+  if (field instanceof PDFTextField) {
+    if (Array.isArray(value) || value === null || typeof value === "object") {
+      throw new TypeError(`${kind("text field")} — give it a string, got ${JSON.stringify(value)}`);
+    }
+    field.setText(String(value));
+    return;
+  }
+  if (field instanceof PDFCheckBox) {
+    if (typeof value !== "boolean") {
+      throw new TypeError(`${kind("checkbox")} — give it true or false, got ${JSON.stringify(value)}`);
+    }
+    if (value) field.check();
+    else field.uncheck();
+    return;
+  }
+  if (field instanceof PDFRadioGroup || field instanceof PDFDropdown) {
+    if (typeof value !== "string") {
+      const what = field instanceof PDFRadioGroup ? "radio group" : "dropdown";
+      throw new TypeError(
+        `${kind(what)} — give it one of ${JSON.stringify(field.getOptions())}, got ${JSON.stringify(value)}`,
+      );
+    }
+    const options = field.getOptions();
+    if (!options.includes(value)) {
+      throw new Error(
+        `${JSON.stringify(value)} is not one of the choices for ${JSON.stringify(name)}: ${JSON.stringify(options)}`,
+      );
+    }
+    field.select(value);
+    return;
+  }
+  if (field instanceof PDFOptionList) {
+    const wanted = Array.isArray(value) ? value : [value];
+    const options = field.getOptions();
+    for (const item of wanted) {
+      if (typeof item !== "string" || !options.includes(item)) {
+        throw new Error(
+          `${JSON.stringify(item)} is not one of the choices for ${JSON.stringify(name)}: ${JSON.stringify(options)}`,
+        );
+      }
+    }
+    field.select(wanted as string[]);
+    return;
+  }
+  throw new Error(
+    `${kind(field instanceof PDFSignature ? "signature field" : "button")}, which cannot be filled with a value. ` +
+      `Signatures need a signing tool, and a button is an action rather than an answer.`,
+  );
 }
 
 // -------------------------------------------------------- optional pdfjs

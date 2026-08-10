@@ -4,7 +4,11 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import ExcelJS from "exceljs";
+import { inMemoryFs, type Vfs } from "glove-working-environment";
 import { assertAdapterOk, createAdapterTestEnv, type AdapterTestEnv } from "glove-working-environment/testing";
 import { spreadsheets } from "../src/index";
 import type { CellValue, ReadResult, WorkbookSummary } from "../src/index";
@@ -93,8 +97,20 @@ test("read returns plain JSON records keyed by the header row", async () => {
   ]);
 });
 
-test("library cell objects are flattened before the model ever sees them", async () => {
-  const t = await env();
+test("library cell objects are flattened before the model ever sees them", { concurrency: false }, async (t0) => {
+  // Both read paths, because they are different parsers reading the same file:
+  // the full loader below 32 KB, the streaming reader above it. A date is the
+  // one that actually diverges — the streaming reader needs the style table to
+  // tell a date from the number it is stored as.
+  for (const streamBytes of [undefined, 0]) {
+    await t0.test(streamBytes === 0 ? "streaming" : "full loader", async () => {
+      await flattenedCells(streamBytes);
+    });
+  }
+});
+
+async function flattenedCells(streamBytes: number | undefined): Promise<void> {
+  const t = await createAdapterTestEnv(spreadsheets(streamBytes === undefined ? {} : { streamBytes }));
   await seed(t, "/inbox/rich.xlsx", (wb) => {
     const ws = wb.addWorksheet("S");
     ws.addRow(["formula", "rich", "when", "bad", "link", "blank"]);
@@ -119,7 +135,7 @@ test("library cell objects are flattened before the model ever sees them", async
     link: "Site",
     blank: null,
   });
-});
+}
 
 test("read({ formulas: true }) exposes formula text alongside computed values", async () => {
   const t = await env();
@@ -195,6 +211,220 @@ test("offset and limit page a sheet while totalRows reports the whole", async ()
   assert.equal(out.total, 25);
   assert.deepEqual(out.pages.map((p) => p.length), [10, 10, 5]);
   assert.deepEqual(out.pages.flat(), Array.from({ length: 25 }, (_, i) => i + 1));
+});
+
+// ------------------------------------------------------------------ paging
+//
+// The docs tell a model to walk a big sheet with offset/limit. Every page used
+// to re-read and re-parse the whole workbook, so the loop the docs recommend
+// cost O(rows²/limit) — measured at 93.6s for 20 pages over 100k rows, against
+// 3.0s once the parse is shared. These pin the mechanism that makes it linear,
+// and the two ways sharing a parse could go wrong: staleness, and leakage.
+
+/** An in-memory VFS that counts how often each path's bytes are fetched. */
+function countingFs(reads: Map<string, number>): Vfs {
+  const inner = inMemoryFs();
+  return {
+    read: async (p: string) => {
+      reads.set(p, (reads.get(p) ?? 0) + 1);
+      return inner.read(p);
+    },
+    write: (p, d) => inner.write(p, d),
+    rm: (p) => inner.rm(p),
+    mkdir: (p) => inner.mkdir(p),
+    exists: (p) => inner.exists(p),
+    stat: (p) => inner.stat(p),
+    list: (p) => inner.list(p),
+    files: () => inner.files(),
+    totalSize: () => inner.totalSize(),
+  };
+}
+
+test("a paged loop parses the workbook once, not once per page", async () => {
+  const reads = new Map<string, number>();
+  const t = await createAdapterTestEnv(spreadsheets(), { filesystem: countingFs(reads) });
+  await seed(t, "/inbox/big.xlsx", (wb) => {
+    const ws = wb.addWorksheet("S");
+    ws.addRow(["n"]);
+    for (let i = 1; i <= 100; i++) ws.addRow([i]);
+  });
+  reads.clear();
+
+  const out = await t.script<{ pages: number; total: number; sum: number }>(
+    `import { read } from 'env:spreadsheets';
+     export default async function main() {
+       let offset = 0, total = 0, pages = 0, sum = 0;
+       do {
+         const page = await read('/inbox/big.xlsx', { offset, limit: 10 });
+         total = page.totalRows;
+         for (const r of page.rows) sum += Number(r.n);
+         offset += page.rows.length;
+         pages++;
+         if (page.rows.length === 0) break;
+       } while (offset < total);
+       return { pages, total, sum };
+     }`,
+  );
+
+  assert.equal(out.total, 100);
+  assert.equal(out.pages, 10);
+  assert.equal(out.sum, 5050, "every row must still come back exactly once");
+  assert.equal(
+    reads.get("/inbox/big.xlsx"),
+    1,
+    `ten pages should fetch the workbook once, not ten times (got ${reads.get("/inbox/big.xlsx")})`,
+  );
+});
+
+test("a rewrite between pages is read again, not served from the last parse", async () => {
+  const t = await env();
+  const out = await t.script<{ before: CellValue; after: CellValue; rows: number }>(
+    `import { write, read, append } from 'env:spreadsheets';
+     export default async function main() {
+       await write('/out/log.xlsx', [{ v: 1 }]);
+       const before = (await read('/out/log.xlsx')).rows[0].v;
+       await append('/out/log.xlsx', [{ v: 2 }]);
+       const page = await read('/out/log.xlsx');
+       return { before, after: page.rows[1].v, rows: page.totalRows };
+     }`,
+  );
+  assert.equal(out.before, 1);
+  assert.equal(out.rows, 2, "the appended row must be visible to the next read");
+  assert.equal(out.after, 2);
+});
+
+test("a workbook written through the library is re-read, not served stale", async () => {
+  const t = await env();
+  const out = await t.script<{ first: number; second: number }>(
+    `import { Workbook, read } from 'env:spreadsheets';
+     export default async function main() {
+       const one = new Workbook();
+       const first_ws = one.addWorksheet('S');
+       first_ws.addRow(['v']);
+       first_ws.addRow([1]);
+       await one.xlsx.writeFile('/out/built.xlsx');
+       const first = (await read('/out/built.xlsx')).totalRows;
+
+       const two = new Workbook();
+       const ws = two.addWorksheet('S');
+       ws.addRow(['v']); ws.addRow([1]); ws.addRow([2]);
+       await two.xlsx.writeFile('/out/built.xlsx');
+       return { first, second: (await read('/out/built.xlsx')).totalRows };
+     }`,
+  );
+  assert.equal(out.second, 2, "the rebuilt workbook has two data rows; the cached one had fewer");
+});
+
+test("one environment's parsed sheets are not visible to another", async () => {
+  // Same path, different content, two environments. A cache keyed by path and
+  // shared across the process would hand the second env the first env's rows.
+  const who = (name: string) => (wb: ExcelJS.Workbook) => {
+    const ws = wb.addWorksheet("S");
+    ws.addRow(["who"]);
+    ws.addRow([name]);
+  };
+  const a = await env();
+  const b = await env();
+  await seed(a, "/inbox/same.xlsx", who("alice"));
+  await seed(b, "/inbox/same.xlsx", who("bob"));
+
+  const readIt = (t: AdapterTestEnv) =>
+    t.script<ReadResult>(
+      `import { read } from 'env:spreadsheets';
+       export default async function main() { return read('/inbox/same.xlsx'); }`,
+    );
+
+  assert.deepEqual((await readIt(a)).rows, [{ who: "alice" }]);
+  assert.deepEqual((await readIt(b)).rows, [{ who: "bob" }]);
+  // And again, now that both are warm.
+  assert.deepEqual((await readIt(a)).rows, [{ who: "alice" }]);
+});
+
+test("a workbook too big for the cache budget still reads correctly", async () => {
+  // cacheCells: 1 makes every workbook unholdable, so this is the "parse every
+  // call" path — slower, and it must not be wrong.
+  const t = await createAdapterTestEnv(spreadsheets({ cacheCells: 1 }));
+  await seed(t, "/inbox/q3.xlsx", SALES);
+  const out = await t.script<{ first: ReadResult; second: ReadResult }>(
+    `import { read } from 'env:spreadsheets';
+     export default async function main() {
+       return {
+         first: await read('/inbox/q3.xlsx', { limit: 2 }),
+         second: await read('/inbox/q3.xlsx', { offset: 2 }),
+       };
+     }`,
+  );
+  assert.deepEqual(out.first.rows.map((r) => r.rep), ["Ada", "Bob"]);
+  assert.deepEqual(out.second.rows.map((r) => r.rep), ["Cy"]);
+  assert.equal(out.second.totalRows, 3);
+});
+
+test("shared formulas keep their anchor — the streaming reader alone drops it", async () => {
+  // A streamed shared-formula follower cell carries no formula text at all
+  // (`<f t="shared" si="0"/>`), so reporting formulas has to fall back to the
+  // full loader. Values come from the streamed parse either way.
+  //
+  // `streamBytes: 0` forces the streaming path: this fixture is a few KB, and
+  // a workbook that small is read with the full loader by default, which would
+  // quietly never exercise the fallback this test exists for.
+  const t = await createAdapterTestEnv(spreadsheets({ streamBytes: 0 }));
+  await seed(t, "/inbox/shared.xlsx", (wb) => {
+    const ws = wb.addWorksheet("S");
+    ws.addRow(["a", "total"]);
+    for (let i = 2; i <= 5; i++) {
+      ws.getCell(`A${i}`).value = i;
+      ws.getCell(`B${i}`).value =
+        i === 2
+          ? ({ formula: "A2*3", result: 6 } as ExcelJS.CellFormulaValue)
+          : ({ sharedFormula: "B2", result: i * 3 } as ExcelJS.CellSharedFormulaValue);
+    }
+  });
+
+  const out = await t.script<{ plain: ReadResult; withFormulas: ReadResult }>(
+    `import { read } from 'env:spreadsheets';
+     export default async function main() {
+       return {
+         plain: await read('/inbox/shared.xlsx'),
+         withFormulas: await read('/inbox/shared.xlsx', { formulas: true }),
+       };
+     }`,
+  );
+
+  assert.deepEqual(
+    out.plain.rows,
+    [
+      { a: 2, total: 6 },
+      { a: 3, total: 9 },
+      { a: 4, total: 12 },
+      { a: 5, total: 15 },
+    ],
+    "computed values must be right on the streamed path",
+  );
+  assert.deepEqual(out.withFormulas.formulas, [
+    { total: "=A2*3" },
+    { total: "=B2" },
+    { total: "=B2" },
+    { total: "=B2" },
+  ]);
+});
+
+test("formula text is reported against the right rows when paging", async () => {
+  const t = await env();
+  await seed(t, "/inbox/f.xlsx", (wb) => {
+    const ws = wb.addWorksheet("S");
+    ws.addRow(["n", "double"]);
+    for (let i = 2; i <= 7; i++) {
+      ws.getCell(`A${i}`).value = i - 1;
+      ws.getCell(`B${i}`).value = { formula: `A${i}*2`, result: (i - 1) * 2 } as ExcelJS.CellFormulaValue;
+    }
+  });
+  const out = await t.script<ReadResult>(
+    `import { read } from 'env:spreadsheets';
+     export default async function main() { return read('/inbox/f.xlsx', { offset: 3, limit: 2, formulas: true }); }`,
+  );
+  assert.deepEqual(out.rows, [{ n: 4, double: 8 }, { n: 5, double: 10 }]);
+  // Offset 3 lands on sheet row 5, so the formulas must be A5's and A6's.
+  assert.deepEqual(out.formulas, [{ double: "=A5*2" }, { double: "=A6*2" }]);
 });
 
 test("headerRow addresses sheets with banner rows above the headers", async () => {
@@ -567,4 +797,50 @@ test("a write outside the writable zone is refused by the same gateway as any ot
   );
   assert.equal(run.ok, false);
   assert.match(run.error ?? "", /read-only|not writable/i);
+});
+
+test("an image is read from the VFS, and a host path cannot reach the workbook", async () => {
+  // exceljs opens `filename` itself, off the real disk, at write time — so
+  // without the rewrite a script could name any host file it liked and have
+  // its bytes shipped inside a workbook it then exports. The host file here
+  // genuinely exists, so a failure to read it is the guard and not a typo.
+  const t = await env();
+  const dir = mkdtempSync(join(tmpdir(), "glove-spreadsheets-escape-"));
+  const host = join(dir, "secret.png");
+  writeFileSync(host, "HOST-ONLY-fdc41a2e");
+
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  await t.fs.writeFile("/tmp/logo.png", new Uint8Array(png));
+
+  // The VFS path works and the bytes land in the workbook's media part.
+  await t.script(
+    `import { Workbook } from 'env:spreadsheets';
+     export default async function main() {
+       const wb = new Workbook();
+       const ws = wb.addWorksheet('Cover');
+       const id = wb.addImage({ filename: '/tmp/logo.png' });
+       ws.addImage(id, 'B2:D6');
+       return wb.xlsx.writeFile('/out/with-image.xlsx');
+     }`,
+  );
+  const back = new ExcelJS.Workbook();
+  await back.xlsx.load((await t.fs.readBytes("/out/with-image.xlsx")).slice().buffer as ArrayBuffer);
+  assert.equal(back.model.media.length, 1, "the VFS image should be embedded");
+
+  const run = await t.runScript(
+    `import { Workbook } from 'env:spreadsheets';
+     export default async function main() {
+       const wb = new Workbook();
+       const ws = wb.addWorksheet('Leak');
+       ws.addImage(wb.addImage({ filename: ${JSON.stringify(host)} }), 'A1:B2');
+       return wb.xlsx.writeFile('/out/leak.xlsx');
+     }`,
+  );
+  assert.equal(run.ok, false, "a host path must not be readable through addImage");
+  assert.match(run.error ?? "", /no such file|not found|outside/i);
+  assert.equal(await t.fs.exists("/out/leak.xlsx"), false, "host bytes must not reach a deliverable");
+  assert.equal(readFileSync(host, "utf8"), "HOST-ONLY-fdc41a2e", "the host file was there to be read all along");
 });

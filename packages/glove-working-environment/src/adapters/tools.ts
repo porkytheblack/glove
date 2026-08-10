@@ -38,12 +38,30 @@
  * keeps its zero dependencies and anything matching the shape qualifies.
  */
 import { defineAdapter } from "./define";
+import { runContext } from "../core/run-context";
 import type { EnvFsHandle, StdlibAdapter } from "../types";
 
 /** Context handed to a capability on each call. */
 export interface ToolFnContext {
   signal?: AbortSignal;
   actor?: string;
+  /**
+   * The tree, guarded exactly as `env:fs` is.
+   *
+   * A capability that needs the tree is not exotic — "answer a question about
+   * this image", "post this file", "index everything under /out" all start by
+   * reading a path. Without it the host has to hand `defineTools` a mutable
+   * `{ current?: env }` holder and fill it after `createWorkingEnvironment`
+   * resolves, because the module has to appear in `stdlib` before the
+   * environment it reads from exists. That indirection was in this repo's own
+   * example (#127) and every host would have rewritten it.
+   *
+   * Same handle the adapter's `create(vfs)` was given, so the guarantees are
+   * the same ones: read-only zones, size limits, version recording, and the
+   * script pipeline all apply. Bytes read here never cross the worker
+   * boundary — the capability runs host-side.
+   */
+  fs: EnvFsHandle;
 }
 
 /**
@@ -136,7 +154,12 @@ export function defineTools(spec: DefineToolsSpec): StdlibAdapter {
     types: generateTypes(spec),
     docs: generateDocs(spec),
     ...(spec.skills ? { skills: spec.skills } : {}),
-    create(_vfs: EnvFsHandle, ctx?: { readOnly: boolean }) {
+    // `create` is called twice per environment — once with the read-WRITE
+    // handle and once with the read-only one that backs write-time script
+    // validation. Closing over whichever `vfs` this instance was built with is
+    // what keeps `ctx.fs` matched to the call context, with no branch to get
+    // wrong.
+    create(vfs: EnvFsHandle, ctx?: { readOnly: boolean }) {
       const bindings: Record<string, unknown> = {};
       for (const fn of spec.fns) {
         bindings[fn.name] = async (args?: Record<string, unknown>) => {
@@ -144,13 +167,27 @@ export function defineTools(spec: DefineToolsSpec): StdlibAdapter {
           // read-only environment. A capability is not a filesystem write,
           // but it is usually a network call with a real effect on the other
           // side, and validating a script must never send an email.
+          //
+          // Handing capabilities `fs` does not soften this. The reason for the
+          // refusal was never the filesystem — the read-only handle already
+          // makes the tree safe — it is the effect on the OTHER side, which
+          // this layer cannot see and cannot undo. So the guard stands, and
+          // the read-only instance's `fs` is a handle nothing ever reaches
+          // through: passed anyway, because it costs nothing and the day the
+          // guard is relaxed it must already be the right one.
           if (ctx?.readOnly) {
             throw new Error(
               `env:${spec.name}.${fn.name} is not callable while a script is being validated — ` +
                 `move the call inside the default export instead of running it at module top level.`,
             );
           }
-          return await fn.call(args ?? {});
+          // The context was part of the contract from the start and was never
+          // actually passed, so a capability that wanted to honour
+          // cancellation could not. The signal belongs to the RUN, not to the
+          // adapter instance (which is created once per environment), so it
+          // comes from the ambient run context the pool enters around every
+          // call it serves.
+          return await fn.call(args ?? {}, { fs: vfs, signal: runContext.getStore()?.signal });
         };
       }
       return bindings;

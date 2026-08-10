@@ -188,6 +188,11 @@ export default async function main() {
 }
 \`\`\`
 
+The loop above costs one parse of the file, not one per page: the sheet is
+parsed the first time you touch it and every later page is served from that.
+Writing to the workbook (\`write\`, \`append\`, \`writeSheets\`, or the \`Workbook\`
+builder) drops it, so a read after a write always sees the new file.
+
 ## Multiple sheets, appending, CSV
 
 \`\`\`js
