@@ -1,6 +1,6 @@
 {
   "name": "glove-env-documents",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "description": "Document stdlib adapter for glove-working-environment. Bridges pdf-lib and docx into the agent's virtual filesystem as env:documents — describe, compose, merge, split and stamp PDFs, build DOCX files, and extract text from both. Paths in, paths out.",
   "type": "module",
   "license": "MIT",

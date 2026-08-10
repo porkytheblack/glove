@@ -1,6 +1,6 @@
 {
   "name": "glove-env-ocr",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "description": "OCR stdlib adapter for glove-working-environment. Turns a scanned PDF or a photo of a document into text inside the agent's virtual filesystem as env:ocr — bundled Tesseract WASM plus bundled English training data, so it works with no host wiring and no network.",
   "type": "module",
   "license": "MIT",
