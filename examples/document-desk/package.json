@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "glove-core": "workspace:*",
-    "glove-env-archives": "workspace:*",
+    "glove-env-zip": "workspace:*",
     "glove-env-documents": "workspace:*",
     "glove-env-images": "workspace:*",
     "glove-env-motion": "workspace:*",

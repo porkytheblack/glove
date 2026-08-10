@@ -3,7 +3,7 @@
 "glove-env-spreadsheets": patch
 "glove-env-images": patch
 "glove-env-slides": patch
-"glove-env-archives": patch
+"glove-env-zip": patch
 "glove-env-media": patch
 "glove-env-render": patch
 "glove-env-motion": patch

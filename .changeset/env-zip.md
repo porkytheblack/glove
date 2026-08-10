@@ -1,9 +1,9 @@
 ---
-"glove-env-archives": minor
+"glove-env-zip": minor
 "glove-working-environment": patch
 ---
 
-New adapter: `glove-env-archives` — zip, tar and tar.gz inside the VFS.
+New adapter: `glove-env-zip` — zip, tar and tar.gz inside the VFS.
 
 Archives are how batches of files actually arrive: an export from another system, a bundle of scans, a customer's data dump. An agent handed `/inbox/records.zip` was simply stuck — nothing in the environment could open it. They are also the natural way to hand a multi-file deliverable back, as one file rather than an array the host has to write out itself.
 

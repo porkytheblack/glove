@@ -1,16 +1,23 @@
-# glove-env-archives
+# glove-env-zip
 
 Archive stdlib adapter for [`glove-working-environment`](../glove-working-environment). Bridges zip, tar and tar.gz into the agent's virtual filesystem as **`env:archives`** — list and describe without extracting, extract selectively, and package a directory back up as one file.
 
 ```bash
-pnpm add glove-env-archives
+pnpm add glove-env-zip
 ```
+
+> **The package is `glove-env-zip`; the module it registers is `env:archives`.**
+> The mismatch is deliberate. `env:archives` is the name agents write in their
+> scripts, and it is recorded in snapshots and in the adapter-version file, so
+> renaming it would break restore for anyone holding one — and it is the more
+> accurate name besides, since this reads tar and tar.gz as well as zip. The
+> npm name is only how you install it.
 
 Dependency-free: `node:zlib` and the container formats themselves.
 
 ```ts
 import { createWorkingEnvironment } from "glove-working-environment";
-import { archives } from "glove-env-archives";
+import { archives } from "glove-env-zip";
 
 const env = await createWorkingEnvironment({ stdlib: [archives()] });
 ```

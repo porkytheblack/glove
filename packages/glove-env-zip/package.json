@@ -1,5 +1,5 @@
 {
-  "name": "glove-env-archives",
+  "name": "glove-env-zip",
   "version": "0.1.0",
   "description": "Archive stdlib adapter for glove-working-environment. Reads and writes zip, tar and tar.gz inside the agent's virtual filesystem as env:archives — list, describe, extract selectively, package a directory back up. Dependency-free: node:zlib and nothing else.",
   "type": "module",
@@ -7,7 +7,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/porkytheblack/glove.git",
-    "directory": "packages/glove-env-archives"
+    "directory": "packages/glove-env-zip"
   },
   "homepage": "https://github.com/porkytheblack/glove",
   "bugs": "https://github.com/porkytheblack/glove/issues",

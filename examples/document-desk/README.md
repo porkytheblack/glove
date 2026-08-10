@@ -124,7 +124,7 @@ in one conversation:
 | `env:spreadsheets` | `glove-env-spreadsheets` | `.xlsx` as records, CSV both ways, styled workbooks |
 | `env:images` | `glove-env-images` | resize, crop, convert, composite, contact sheets |
 | `env:slides` | `glove-env-slides` | `.pptx` generation and read-back |
-| `env:archives` | `glove-env-archives` | zip and tar, in and out |
+| `env:archives` | `glove-env-zip` | zip and tar, in and out |
 | `env:render` | `glove-env-render` | rasterize a PDF, deck or Word file to page PNGs — what `view_image` looks at |
 | `env:motion` | `glove-env-motion` | a React scene to an mp4, GIF, PNG frames or a still |
 | `env:vision` | — (`defineTools`) | the vision model as a function, so a script can check every page in a loop |

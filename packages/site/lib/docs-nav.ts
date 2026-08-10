@@ -218,7 +218,7 @@ export const docsSections: DocsNavSection[] = [
           "glove-env-spreadsheets",
           "glove-env-images",
           "glove-env-slides",
-          "glove-env-archives",
+          "glove-env-zip",
           "glove-env-media",
         ],
       },

@@ -405,7 +405,7 @@ These ship separately:
 | [`glove-env-documents`](../glove-env-documents) | `env:documents` | One document spec → PDF *and* DOCX; describe/merge/split/stamp; text extraction. Plus `docx`'s own `Document`/`Packer`/`Paragraph` for anything the spec cannot express |
 | [`glove-env-spreadsheets`](../glove-env-spreadsheets) | `env:spreadsheets` | `.xlsx` as plain-JSON records; describe, page, write, append, CSV bridging. Plus exceljs's own `Workbook` for styling, formats and formulas |
 | [`glove-env-images`](../glove-env-images) | `env:images` | Describe without decoding; resize/convert/crop/rotate/composite/contact-sheet |
-| [`glove-env-archives`](../glove-env-archives) | `env:archives` | zip/tar/tar.gz in and out; traversal- and bomb-safe extraction. No dependencies |
+| [`glove-env-zip`](../glove-env-zip) | `env:archives` | zip/tar/tar.gz in and out; traversal- and bomb-safe extraction. No dependencies |
 | [`glove-env-media`](../glove-env-media) | `env:media` | Video and audio via ffmpeg: describe, thumbnail, frames, clip, concat, transcode, slideshow |
 | [`glove-env-slides`](../glove-env-slides) | `env:slides` | PowerPoint decks from a spec, read back independently — outline, slide text, notes. Plus pptxgenjs's own `PptxGenJS` for custom layouts |
 | [`glove-env-render`](../glove-env-render) | `env:render` | Rasterize a PDF, deck or Word file to page PNGs — so the agent can *look* at what it made. PDFs and images need nothing installed |
