@@ -1,6 +1,6 @@
 {
   "name": "glove-core",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "description": "Core agent framework",
   "type": "module",
   "license": "MIT",
@@ -82,7 +82,8 @@
   "scripts": {
     "build": "tsup",
     "prepublishOnly": "pnpm build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
@@ -94,6 +95,7 @@
   "devDependencies": {
     "@types/node": "^25.2.3",
     "@types/ora": "^3.2.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.9.3"
   }
 }

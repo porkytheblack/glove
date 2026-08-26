@@ -68,7 +68,13 @@ export type SubscriberEvent =
    */
   | { type: "tool_use_result"; tool_name: string; call_id?: string; result: ToolResultData; id?: string; name?: string; duration_ms?: number }
   | { type: "compaction_start"; current_token_consumption: number }
-  | { type: "compaction_end"; current_token_consumption: number; summary_message: Message }
+  | {
+      type: "compaction_end";
+      current_token_consumption: number;
+      summary_message: Message;
+      /** Exact provider usage for the compaction model request. */
+      consumption: TokenConsumptionCounter;
+    }
   | { type: "token_consumption"; consumption: TokenConsumptionCounter }
   | { type: "hook_invoked"; name: string }
   | { type: "skill_invoked"; name: string; source: "user" | "agent"; args?: string }
@@ -1041,7 +1047,21 @@ export class Observer {
     
     await this.notifySubscribers("compaction_end", {
       current_token_consumption: result.tokens_out,
-      summary_message: summaryMessage
+      summary_message: summaryMessage,
+      // Compaction is its own model request. Report that request's exact usage
+      // rather than making hosts infer it from the cumulative context counter
+      // sent with compaction_start. The latter contains usage from earlier
+      // requests and billing it again double-counts an entire session.
+      consumption: {
+        tokens_in: result.tokens_in,
+        tokens_out: result.tokens_out,
+        ...(result.cache_creation_input_tokens !== undefined
+          ? { cache_creation_input_tokens: result.cache_creation_input_tokens }
+          : {}),
+        ...(result.cache_read_input_tokens !== undefined
+          ? { cache_read_input_tokens: result.cache_read_input_tokens }
+          : {}),
+      }
     })
     
   }

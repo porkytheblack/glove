@@ -1,9 +1,9 @@
 {
   "name": "glove-analyst-desk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
-  "description": "An agent reviewing and producing real documents: an 80-page PDF searched rather than read, messy CSVs, a deck. Graded twice \u2014 deterministically on facts, and by a stronger model on fidelity.",
+  "description": "An agent reviewing and producing real documents: an 80-page PDF searched rather than read, messy CSVs, a deck. Graded twice — deterministically on facts, and by a stronger model on fidelity.",
   "scripts": {
     "selfcheck": "tsx src/selfcheck.ts",
     "eval": "tsx --env-file-if-exists=../../.env src/run.ts",

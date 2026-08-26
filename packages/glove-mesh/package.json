@@ -1,6 +1,6 @@
 {
   "name": "glove-mesh",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Inter-agent mesh networking for the Glove agent framework — peer messaging on top of the inbox primitive, bring-your-own transport.",
   "type": "module",
   "license": "MIT",

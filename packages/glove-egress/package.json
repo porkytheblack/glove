@@ -1,6 +1,6 @@
 {
   "name": "glove-egress",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The sandbox→context boundary as an exfiltration boundary — Quantitative-Information-Flow metering (Shannon / min-entropy / g-leakage + empirical canary extraction), an enforced egress gate (a return-whitelist of assert/count/choose/bucket/report decisions, a min-entropy bit budget, an outbound effect allowlist, and free-text redaction), and an adaptive-extraction red-team simulation. Built on the glove-scratchpad fns catalog; the egress combinators are ordinary ToolFns that mount on any REPL surface.",
   "type": "module",
   "license": "MIT",

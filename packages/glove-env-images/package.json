@@ -1,6 +1,6 @@
 {
   "name": "glove-env-images",
-  "version": "0.5.0",
+  "version": "1.0.0",
   "description": "Image stdlib adapter for glove-working-environment. Bridges sharp into the agent's virtual filesystem as env:images — describe an image without reading its bytes, resize, convert, crop, rotate, composite, draw text and contact-sheet. Animated GIF/WebP keep their frames and SVG rasterizes at a scale you choose. Paths in, paths out.",
   "type": "module",
   "license": "MIT",

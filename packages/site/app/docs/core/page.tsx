@@ -1133,7 +1133,7 @@ try {
       result: ToolResultData }
   | { type: "compaction_start"; current_token_consumption: number }
   | { type: "compaction_end"; current_token_consumption: number;
-      summary_message: Message }
+      summary_message: Message; consumption: TokenConsumptionCounter }
   | { type: "token_consumption"; consumption: TokenConsumptionCounter }
   | { type: "hook_invoked"; name: string }
   | { type: "skill_invoked"; name: string; source: "user" | "agent"; args?: string }
@@ -1180,7 +1180,7 @@ try {
           [
             "compaction_end",
             "Observer",
-            "Compaction finished. Contains the new token count and the summary message.",
+            "Compaction finished. Contains the new context token count, summary message, and exact per-request TokenConsumptionCounter for accounting.",
           ],
           [
             "token_consumption",
