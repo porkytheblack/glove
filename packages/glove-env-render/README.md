@@ -57,11 +57,14 @@ Measured against a report with two deliberate defects — a row pushed off the r
 | Input | Needs |
 |---|---|
 | `.pdf` | nothing |
-| `.png .jpg .webp .gif .bmp .tiff` | nothing |
+| `.png .jpg .webp .gif .bmp .tiff .avif` | nothing |
 | `.pptx` | nothing — falls back to a layout schematic |
 | `.docx .xlsx .odp .odt .ods` | headless LibreOffice on the host |
+| `.doc .xls .ppt .rtf` | the same LibreOffice — the legacy formats an inbox is full of |
 
 PDFs go through `pdfjs-dist` onto `@napi-rs/canvas` — both are ordinary dependencies with prebuilt binaries, no system packages.
+
+The legacy formats are here because attachments are where they still turn up. Nothing in the environment *parses* a `.doc` or a `.rtf`, so rasterizing it and reading the page — with `env:ocr`, or a vision model through `view_image` — is the whole route from those bytes to text. `describe` says so on a file nothing else claims.
 
 Office formats go through LibreOffice, because no npm package renders `.pptx` faithfully. **`libreoffice-core` alone is not enough**: it ships no import filters, and every conversion fails with `source file could not be loaded` while exiting 0. Install `libreoffice-impress` for decks and `libreoffice-writer` for Word. The adapter detects exactly that case and says so.
 

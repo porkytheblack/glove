@@ -10,9 +10,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertAdapterOk, createAdapterTestEnv, type AdapterTestEnv } from "glove-working-environment/testing";
 import { documents } from "../src/index";
-import type { DocxSummary, DocxText, ExtractedText, PdfSummary } from "../src/index";
+import type { DocxSummary, DocxText, ExtractedImages, ExtractedText, PdfSummary } from "../src/index";
 import { parsePages, toWinAnsi } from "../src/pdf";
-import { parseDocumentXml } from "../src/docx";
+import { mediaFormat, parseDocumentXml } from "../src/docx";
 import { readZip } from "../src/zip";
 import { makeFakeWebp, makePng } from "./png";
 
@@ -399,6 +399,197 @@ test("a .docx with an embedded image is still readable", async () => {
   );
   assert.ok(out.preview.includes("see below"));
   assert.ok(out.bytes > 1000);
+});
+
+test("a .docx that is only a scan is called a scan, not an empty file", async () => {
+  // The DOCX counterpart to the scanned-PDF case, and the more dangerous one:
+  // Word keeps no text beside a pasted picture, so `characters: 0` is what a
+  // genuinely blank document returns too. Reported bare, an agent concludes
+  // the file is empty and tells the user so.
+  const t = await env();
+  await t.fs.writeFile("/tmp/scan.png", png(400, 520));
+
+  const out = await t.script<DocxText>(
+    `import { docx } from 'env:documents';
+     export default async function main() {
+       await docx.create('/out/scan.docx', { content: [{ image: '/tmp/scan.png', width: 400, height: 520 }] });
+       return docx.extractText('/out/scan.docx');
+     }`,
+  );
+  assert.equal(out.kind, "scanned");
+  assert.equal(out.characters, 0);
+  // The note has to carry the way out, not just the diagnosis.
+  assert.match(String(out.note), /no text to read/);
+  // The note names the call that gets the pixels, not a general suggestion.
+  assert.match(String(out.note), /docx\.extractImages/);
+  assert.match(String(out.note), /env:ocr/);
+});
+
+test("describe counts the images the word count cannot see", async () => {
+  const t = await env();
+  await t.fs.writeFile("/tmp/chart.png", png());
+
+  const out = await t.script<DocxSummary>(
+    `import { docx } from 'env:documents';
+     export default async function main() {
+       await docx.create('/out/report.docx', { content: [
+         { text: 'The chart below carries the figures.' },
+         { image: '/tmp/chart.png', width: 200, height: 130 },
+       ]});
+       return docx.describe('/out/report.docx');
+     }`,
+  );
+  assert.equal(out.images, 1);
+  assert.ok(out.words > 3);
+});
+
+test("a text document with a chart says the chart is not in the text", async () => {
+  const t = await env();
+  await t.fs.writeFile("/tmp/chart.png", png());
+
+  const out = await t.script<DocxText>(
+    `import { docx } from 'env:documents';
+     export default async function main() {
+       await docx.create('/out/report.docx', { content: [
+         { text: 'Revenue grew through the year, as the chart shows.' },
+         { image: '/tmp/chart.png', width: 200, height: 130 },
+       ]});
+       return docx.extractText('/out/report.docx');
+     }`,
+  );
+  // Still a text document — the note is the addition, not a downgrade.
+  assert.equal(out.kind, "text");
+  assert.match(out.text, /Revenue grew/);
+  assert.match(String(out.note), /not represented in the text/);
+});
+
+test("a plain text document gets no note at all", async () => {
+  // A note on every document is a note nobody reads.
+  const t = await env();
+  const out = await t.script<DocxText>(
+    `import { docx } from 'env:documents';
+     export default async function main() {
+       await docx.create('/out/plain.docx', { content: [{ text: 'Just words, nothing else.' }] });
+       return docx.extractText('/out/plain.docx');
+     }`,
+  );
+  assert.equal(out.kind, "text");
+  assert.equal(out.note, undefined);
+});
+
+test("an empty .docx is called blank rather than scanned", async () => {
+  const t = await env();
+  const out = await t.script<DocxText>(
+    `import { docx } from 'env:documents';
+     export default async function main() {
+       await docx.create('/out/blank.docx', { content: [{ text: '' }] });
+       return docx.extractText('/out/blank.docx');
+     }`,
+  );
+  assert.equal(out.kind, "empty");
+  assert.match(String(out.note), /blank, not unreadable/);
+});
+
+test("parseDocumentXml counts VML images as well as DrawingML ones", async () => {
+  // Word emits <v:imagedata> for documents saved by older releases; counting
+  // only <a:blip> would report a scanned contract as blank.
+  const vml = `<w:body><w:p><w:r><w:pict><v:shape><v:imagedata r:id="rId4"/></v:shape></w:r></w:p></w:body>`;
+  assert.equal(parseDocumentXml(vml).images, 1);
+
+  const drawing = `<w:body><w:p><w:r><w:drawing><a:blip r:embed="rId5"/></w:drawing></w:r></w:p></w:body>`;
+  assert.equal(parseDocumentXml(drawing).images, 1);
+
+  assert.equal(parseDocumentXml(`<w:body><w:p><w:r><w:t>words</w:t></w:r></w:p></w:body>`).images, 0);
+});
+
+test("extractImages writes the package's own bytes, unchanged", async () => {
+  // Re-encoding would cost OCR accuracy on exactly the scans this exists to
+  // reach, so the test is byte equality rather than "an image came out".
+  const t = await env();
+  const source = png(120, 90);
+  await t.fs.writeFile("/tmp/chart.png", source);
+
+  const out = await t.script<ExtractedImages>(
+    `import { docx } from 'env:documents';
+     export default async function main() {
+       await docx.create('/out/report.docx', { content: [
+         { text: 'See the chart.' },
+         { image: '/tmp/chart.png', width: 200, height: 150 },
+       ]});
+       return docx.extractImages('/out/report.docx', '/tmp/media');
+     }`,
+  );
+
+  assert.equal(out.images.length, 1);
+  assert.equal(out.images[0].format, "png");
+  assert.equal(out.images[0].vector, false);
+  assert.match(out.images[0].part, /^word\/media\//);
+  assert.equal(out.note, undefined);
+
+  const written = await t.fs.readBytes(out.images[0].path);
+  assert.deepEqual(Buffer.from(written), Buffer.from(source), "the bytes should survive the round trip");
+});
+
+test("a document with no images says so rather than returning an empty list", async () => {
+  const t = await env();
+  const out = await t.script<ExtractedImages>(
+    `import { docx } from 'env:documents';
+     export default async function main() {
+       await docx.create('/out/plain.docx', { content: [{ text: 'Only words here.' }] });
+       return docx.extractImages('/out/plain.docx', '/tmp/media');
+     }`,
+  );
+  assert.equal(out.images.length, 0);
+  assert.match(String(out.note), /embeds no images/);
+  assert.match(String(out.note), /extractText/);
+});
+
+test("the scanned note names extractImages, and following it works", async () => {
+  // The note is advice. If the call it names does not do what it says, the
+  // note is worse than nothing — so the test executes it.
+  const t = await env();
+  await t.fs.writeFile("/tmp/scan.png", png(300, 400));
+
+  const out = await t.script<{ note: string; images: ExtractedImages }>(
+    `import { docx } from 'env:documents';
+     export default async function main() {
+       await docx.create('/inbox/scan.docx', { content: [{ image: '/tmp/scan.png', width: 300, height: 400 }] });
+       const text = await docx.extractText('/inbox/scan.docx');
+       return { note: text.note, images: await docx.extractImages('/inbox/scan.docx', '/tmp/media') };
+     }`,
+  );
+  assert.match(out.note, /docx\.extractImages/);
+  assert.equal(out.images.images.length, 1);
+});
+
+test("extractImages needs somewhere to write, and says where", async () => {
+  const t = await env();
+  const run = await t.runScript(
+    `import { docx } from 'env:documents';
+     export default async function main() {
+       await docx.create('/out/a.docx', { content: [{ text: 'x' }] });
+       return docx.extractImages('/out/a.docx', '');
+     }`,
+  );
+  assert.equal(run.ok, false);
+  assert.match(String(run.error), /needs a directory/);
+});
+
+test("mediaFormat separates rasters, vectors and things that are not images", () => {
+  // EMF is the one that matters: Word stores a chart pasted from Excel as EMF,
+  // and neither env:images nor env:ocr can read it. Extracting it silently
+  // would send the caller to sharp for an error.
+  assert.deepEqual(mediaFormat("word/media/image1.emf"), { format: "emf", vector: true });
+  assert.deepEqual(mediaFormat("word/media/image2.wmf"), { format: "wmf", vector: true });
+  assert.deepEqual(mediaFormat("word/media/image3.png"), { format: "png", vector: false });
+  // .jpg and .jpeg are one format, and reporting two names for it invites a
+  // caller to branch on the wrong one.
+  assert.deepEqual(mediaFormat("word/media/image4.jpg"), { format: "jpeg", vector: false });
+  assert.deepEqual(mediaFormat("word/media/image5.JPEG"), { format: "jpeg", vector: false });
+  // Audio and video live under word/media/ too.
+  assert.equal(mediaFormat("word/media/audio1.wav"), null);
+  assert.equal(mediaFormat("word/media/media1.mp4"), null);
+  assert.equal(mediaFormat("word/media/oleObject1.bin"), null);
 });
 
 test("a ZIP that is not a Word document says so", async () => {

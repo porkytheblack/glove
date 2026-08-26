@@ -1237,7 +1237,7 @@ export class EnvCore {
         // reporting, not a reason to fail: the generic summary below still
         // answers "what am I holding", and the reason it failed to parse is
         // often the actual answer (truncated download, wrong format, DRM).
-        const generic = await this.genericSummary(path, stat.size);
+        const generic = await this.genericSummary(path, stat.size, claim.handler.module);
         return {
           ...generic,
           module: `env:${claim.handler.module}`,
@@ -1246,14 +1246,34 @@ export class EnvCore {
       }
     }
 
-    const generic = await this.genericSummary(path, stat.size);
+    const generic = await this.genericSummary(path, stat.size, claim?.handler.module);
     return claim ? { ...generic, module: `env:${claim.handler.module}` } : generic;
   }
 
-  private async genericSummary(path: string, size: number): Promise<Record<string, unknown>> {
+  /**
+   * The fallback summary: what a file is when no adapter could say.
+   *
+   * `claimedBy` is the module that claimed the file and then could not read
+   * it. It has to be reported differently from "nothing claims this", because
+   * the two call for opposite next steps — and saying "no registered module
+   * claims this file" beside a `module` and a `moduleError` naming one is a
+   * contradiction the reader has to resolve on their own.
+   */
+  private async genericSummary(path: string, size: number, claimedBy?: string): Promise<Record<string, unknown>> {
     const data = await this.vfs.read(path);
     const binary = looksBinary(data);
     const base: Record<string, unknown> = { path, kind: "file", bytes: size, binary };
+
+    // No adapter summarises this file — but one may still be able to turn it
+    // into something readable, and a dead end that had an exit is the worst
+    // answer to give. A legacy .doc or .rtf off an email is the usual case:
+    // nothing parses it, LibreOffice opens it fine.
+    const renderer = this.handlers.renderer(path, data.subarray(0, HEAD_BYTES));
+    const viaRender = renderer
+      ? `env:${renderer.module} can rasterize it — render(path, dir) writes page PNGs, ` +
+        `and view_image(path, prompt) looks at one. From there env:ocr can read the text off the page.`
+      : null;
+
     if (binary) {
       const head = data.subarray(0, 8);
       base.head = [...head].map((b) => b.toString(16).padStart(2, "0")).join(" ");
@@ -1261,15 +1281,22 @@ export class EnvCore {
         .list()
         .map((h) => `env:${h.module}`)
         .join(", ");
-      base.note = modules
-        ? `no registered module claims this file — registered handlers: ${modules}`
-        : `no registered module claims this file`;
+      const claim = claimedBy
+        ? `env:${claimedBy} claimed this file and could not read it — see moduleError, which is often the ` +
+          `actual answer (a truncated download, the wrong format behind the extension, DRM)`
+        : modules
+          ? `no registered module claims this file — registered handlers: ${modules}`
+          : `no registered module claims this file`;
+      base.note = viaRender ? `${claim}. ${viaRender}` : claim;
       return base;
     }
     const text = toText(data);
     const lines = text.split("\n");
     base.lines = lines.length;
     base.preview = lines.slice(0, 5).join("\n").slice(0, 500);
+    // A .rtf reads as text, so `preview` is markup rather than prose — a
+    // caller quoting it would quote control words. Say what it really is.
+    if (viaRender) base.note = `The preview is this file's raw markup, not its content. ${viaRender}`;
     return base;
   }
 }

@@ -897,7 +897,7 @@ export function createPdfBindings(vfs: EnvFsHandle) {
         // 0 = errors only. pdfjs otherwise narrates font substitution to
         // stderr for practically every document ("Ensure that the
         // `standardFontDataUrl` API parameter is provided", then one line per
-        // substituted face). None of it is actionable — pdfjs 5 ships Foxit
+        // substituted face). None of it is actionable — pdfjs ships Foxit
         // faces rather than the Liberation ones it asks for — and real
         // failures still throw.
         verbosity: 0,
@@ -940,7 +940,7 @@ export function createPdfBindings(vfs: EnvFsHandle) {
               : undefined;
         return { path, pages, text: joined, characters: joined.length, kind, ...(note ? { note } : {}) };
       } finally {
-        await doc.destroy();
+        await task.destroy();
       }
     },
   };
@@ -1046,6 +1046,23 @@ function setField(field: PDFField, value: unknown, name: string): void {
 
 // -------------------------------------------------------- optional pdfjs
 
+/**
+ * **The peer range must stay in step with `glove-env-render` and
+ * `glove-env-ocr`.**
+ *
+ * pdfjs resolves its main-thread worker through `globalThis.pdfjsWorker`, a
+ * process-global. Two copies of pdfjs in one host — this adapter on one major,
+ * the rasterizer on another — therefore share whichever worker registered
+ * first, and the loser fails every call with
+ *
+ *     The API version "6.2.108" does not match the Worker version "5.7.284"
+ *
+ * It is order-dependent, so it presents as "OCR broke" or "extractText broke"
+ * depending on which ran first, and neither package's own tests can see it:
+ * each one is the only pdfjs in its own test process. Scanned-document work
+ * wires all three together, which is exactly when it bites.
+ */
+
 interface PdfjsTextItem {
   str?: string;
   hasEOL?: boolean;
@@ -1058,10 +1075,14 @@ interface PdfjsPage {
 interface PdfjsDocument {
   numPages: number;
   getPage(n: number): Promise<PdfjsPage>;
+}
+/** The loading task owns teardown in pdfjs 6; `doc.destroy` is gone. */
+interface PdfjsLoadingTask {
+  promise: Promise<PdfjsDocument>;
   destroy(): Promise<void>;
 }
 interface PdfjsModule {
-  getDocument(options: Record<string, unknown>): { promise: Promise<PdfjsDocument> };
+  getDocument(options: Record<string, unknown>): PdfjsLoadingTask;
   OPS?: Record<string, number>;
 }
 

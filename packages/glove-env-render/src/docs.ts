@@ -96,9 +96,14 @@ costs several times as much and answers no better.
 | Input | Needs |
 |---|---|
 | \`.pdf\` | nothing |
-| \`.png .jpg .webp .gif .bmp .tiff\` | nothing |
+| \`.png .jpg .webp .gif .bmp .tiff .avif\` | nothing |
 | \`.pptx\` | nothing — falls back to a layout schematic |
 | \`.docx .xlsx .odp .odt .ods\` | headless LibreOffice on the host |
+| \`.doc .xls .ppt .rtf\` | the same LibreOffice — the legacy formats attachments arrive in |
+
+Nothing in the environment *parses* a legacy \`.doc\` or \`.rtf\`, so rendering
+it and reading the page — \`env:ocr\` on the PNG, or \`view_image\` — is the
+whole route from those bytes to text.
 
 \`libreoffice-core\` alone is not enough — it has no import filters, and
 converting anything with it fails with "source file could not be loaded".

@@ -16,7 +16,7 @@
     "glove-env-render": "workspace:*",
     "glove-working-environment": "workspace:*",
     "glovebox-core": "workspace:*",
-    "pdfjs-dist": "^5.4.149"
+    "pdfjs-dist": "^6.2.0"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",

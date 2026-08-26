@@ -160,10 +160,18 @@ export function render(options: RenderAdapterOptions = {}) {
     // Deliberately NOT `handles`: the module that best describes a PDF is
     // env:documents, and claiming the same files for `describe` would steal
     // that dispatch. Renderers live in their own registry.
+    // Must stay in step with `classify` below. When this list was narrower
+    // than what `classify` accepts, the two disagreed about the same file:
+    // `render('/inbox/old.doc', …)` ran and reached LibreOffice, while
+    // `view_image('/inbox/old.doc')` — which goes through this declaration —
+    // answered "none of env:render claims this format". Legacy Office files
+    // are what an inbox is full of, so that gap was load-bearing.
     renders: {
       extensions: [
-        ".pdf", ".pptx", ".docx", ".xlsx", ".odp", ".odt", ".ods",
-        ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".tif",
+        ".pdf",
+        ".pptx", ".docx", ".xlsx", ".odp", ".odt", ".ods",
+        ".ppt", ".doc", ".xls", ".rtf",
+        ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".tif", ".avif",
       ],
       magic: [{ bytes: PDF_MAGIC }],
     },
@@ -182,7 +190,8 @@ export function render(options: RenderAdapterOptions = {}) {
           if (!kind) {
             throw new Error(
               `cannot render ${input}: not a PDF, an Office document or an image. ` +
-                `Supported: .pdf, .pptx, .docx, .xlsx, .odp, .odt, and common image formats.`,
+                `Supported: .pdf, .pptx, .docx, .xlsx, .odp, .odt, .ods, the legacy .ppt/.doc/.xls, .rtf, ` +
+                `and common image formats. Office and legacy formats need LibreOffice on the host.`,
             );
           }
 

@@ -55,15 +55,61 @@ export interface DocxSummary {
   /** Headings in document order — an outline to navigate by. */
   headings: Array<{ level: number; text: string }>;
   tables: number;
+  /**
+   * Embedded images in the body — the content `paragraphs` and `words` cannot
+   * see. A chart pasted in as a picture carries its figures in pixels.
+   */
+  images: number;
   /** First few paragraphs, so the shape is visible without extracting. */
   preview: string[];
 }
+
+export interface ExtractedImage {
+  /** Where it now lives in the tree. */
+  path: string;
+  /** The entry it came from, e.g. `word/media/image1.png`. */
+  part: string;
+  bytes: number;
+  /** Lowercase extension: `png`, `jpeg`, `emf`, … */
+  format: string;
+  /**
+   * True when this is a vector format Word writes for pasted charts and
+   * drawings (EMF/WMF). `env:images` and `env:ocr` cannot read either.
+   */
+  vector: boolean;
+}
+
+export interface ExtractedImages {
+  path: string;
+  /** Where the images were written. */
+  dir: string;
+  images: ExtractedImage[];
+  /** Present when the result needs explaining — none found, or none readable. */
+  note?: string;
+}
+
+/**
+ * `"text"` = real paragraph text; `"scanned"` = images and nothing to read;
+ * `"empty"` = neither.
+ *
+ * The DOCX counterpart to `PageKind`. A .docx has no pages until it is laid
+ * out, so this is a property of the document rather than of each page.
+ */
+export type DocxKind = "text" | "scanned" | "empty";
 
 export interface DocxText {
   path: string;
   paragraphs: string[];
   text: string;
   characters: number;
+  /**
+   * What this document turned out to be. Check it before concluding from
+   * `characters: 0` that the file is blank — a scan pasted into Word reads
+   * exactly like an empty document otherwise.
+   */
+  kind: DocxKind;
+  /** Present when the text alone misleads: what is missing and how to get it. */
+  note?: string;
 }
 
 export interface DocxReplaceOptions {
@@ -89,6 +135,46 @@ export interface DocxEdit {
 }
 
 const DOCUMENT_PART = "word/document.xml";
+
+/** Every embedded file in a Word package lives here, whichever part uses it. */
+const MEDIA_PREFIX = "word/media/";
+
+/**
+ * Raster formats `env:images` and `env:ocr` can actually read, and the two
+ * vector ones neither can.
+ *
+ * EMF/WMF matter more than their obscurity suggests: a chart pasted from
+ * Excel into Word is stored as EMF, so the figure a caller most wants is the
+ * one that arrives in a format sharp cannot decode. Extracting it and saying
+ * nothing would send them to `env:images` for an error.
+ */
+const RASTER_FORMATS = new Set(["png", "jpeg", "jpg", "gif", "bmp", "tif", "tiff", "webp"]);
+const VECTOR_FORMATS = new Set(["emf", "wmf", "svg"]);
+
+function extensionOf(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot < 0 ? "" : name.slice(dot + 1).toLowerCase();
+}
+
+/**
+ * What a `word/media/` entry is, or `null` when it is not an image at all —
+ * the directory also holds embedded audio and video.
+ *
+ * By extension rather than magic bytes: the package names its own entries, so
+ * unlike a user-supplied file the extension here was written by Word and is
+ * its own statement of what it put there.
+ */
+export function mediaFormat(name: string): { format: string; vector: boolean } | null {
+  const ext = extensionOf(name);
+  if (VECTOR_FORMATS.has(ext)) return { format: ext, vector: true };
+  if (RASTER_FORMATS.has(ext)) return { format: ext === "jpg" ? "jpeg" : ext, vector: false };
+  return null;
+}
+
+function baseName(name: string): string {
+  const slash = name.lastIndexOf("/");
+  return slash < 0 ? name : name.slice(slash + 1);
+}
 
 /**
  * The parts that carry document text.
@@ -122,8 +208,27 @@ interface ParsedParagraph {
   headingLevel: number;
 }
 
-/** Pull paragraphs, their text and their heading level out of word/document.xml. */
-export function parseDocumentXml(xml: string): { paragraphs: ParsedParagraph[]; tables: number } {
+/**
+ * Embedded images in a body, counted by the two elements that actually
+ * reference image data: DrawingML's `<a:blip r:embed>` and legacy VML's
+ * `<v:imagedata r:id>`.
+ *
+ * Counting `<w:drawing>` instead would also catch native charts and shapes,
+ * which have no pixels to extract — and the count exists to tell a caller
+ * there is something in `word/media/` worth pulling out.
+ */
+function countImages(body: string): number {
+  const blips = body.match(/<a:blip[\s>]/g)?.length ?? 0;
+  const vml = body.match(/<v:imagedata[\s>]/g)?.length ?? 0;
+  return blips + vml;
+}
+
+/** Pull paragraphs, their text, their heading level and image count out of word/document.xml. */
+export function parseDocumentXml(xml: string): {
+  paragraphs: ParsedParagraph[];
+  tables: number;
+  images: number;
+} {
   const paragraphs: ParsedParagraph[] = [];
   const body = /<w:body[\s>][\s\S]*?<\/w:body>/.exec(xml)?.[0] ?? xml;
 
@@ -142,7 +247,7 @@ export function parseDocumentXml(xml: string): { paragraphs: ParsedParagraph[]; 
   }
 
   const tables = [...body.matchAll(/<w:tbl(?:\s[^>]*)?>/g)].length;
-  return { paragraphs, tables };
+  return { paragraphs, tables, images: countImages(body) };
 }
 
 /**
@@ -183,11 +288,16 @@ function words(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
 }
 
+/** "1 image" / "3 images" — a note that says "1 images" reads as a bug. */
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
 export function createDocxBindings(vfs: EnvFsHandle) {
   return {
     /** Outline and size of a .docx, without pulling its full text into context. */
     async describe(path: string): Promise<DocxSummary> {
-      const { paragraphs, tables } = parseDocumentXml(await readDocumentXml(vfs, path));
+      const { paragraphs, tables, images } = parseDocumentXml(await readDocumentXml(vfs, path));
       const nonEmpty = paragraphs.filter((p) => p.text.trim() !== "");
       const text = nonEmpty.map((p) => p.text).join("\n");
       return {
@@ -201,16 +311,101 @@ export function createDocxBindings(vfs: EnvFsHandle) {
           .filter((p) => p.headingLevel > 0)
           .map((p) => ({ level: p.headingLevel, text: p.text })),
         tables,
+        images,
         preview: nonEmpty.slice(0, 5).map((p) => (p.text.length > 120 ? `${p.text.slice(0, 119)}…` : p.text)),
       };
     },
 
-    /** Full text, paragraph by paragraph. */
+    /**
+     * Full text, paragraph by paragraph — and what the text leaves out.
+     *
+     * A .docx carries no text layer for a picture, so a scan pasted into Word
+     * extracts as the empty string. Reported bare, that is indistinguishable
+     * from a genuinely blank document, and the caller concludes the file is
+     * empty and says so. `kind` and `note` are here to make that case
+     * impossible to miss, the way `pdf.extractText` reports `"scanned"`.
+     */
     async extractText(path: string): Promise<DocxText> {
-      const { paragraphs } = parseDocumentXml(await readDocumentXml(vfs, path));
+      const { paragraphs, images } = parseDocumentXml(await readDocumentXml(vfs, path));
       const kept = paragraphs.map((p) => p.text).filter((t) => t.trim() !== "");
       const text = kept.join("\n");
-      return { path, paragraphs: kept, text, characters: text.length };
+      const kind: DocxKind = text.trim() !== "" ? "text" : images > 0 ? "scanned" : "empty";
+      const note =
+        kind === "scanned"
+          ? `This document has no text to read — its ${count(images, "image")} ${
+              images === 1 ? "is" : "are"
+            } the content. Word stores a pasted picture as an image, so no extractor will get more out of it. ` +
+            `Get the pixels with docx.extractImages('${path}', '/tmp/media'), then read them with env:ocr's ` +
+            `recognize(), or look at one with view_image.`
+          : kind === "empty"
+            ? `This .docx has no text and no images — it is blank, not unreadable.`
+            : images > 0
+              ? `${count(images, "image")} in this document ${
+                  images === 1 ? "is" : "are"
+                } not represented in the text above — a chart or a screenshot carries its figures in pixels. ` +
+                `docx.extractImages('${path}', '/tmp/media') writes them out for env:ocr or view_image.`
+              : undefined;
+      return { path, paragraphs: kept, text, characters: text.length, kind, ...(note ? { note } : {}) };
+    },
+
+    /**
+     * Write every embedded image out of the package into `dir`.
+     *
+     * A .docx is a ZIP and its images are already files inside it — nothing
+     * is decoded or re-encoded, so what lands in the tree is the bytes Word
+     * stored, unchanged. That matters for OCR: a re-encode would cost
+     * accuracy on exactly the scans this exists to reach.
+     *
+     * Everything under `word/media/` is covered, so an image in a header or
+     * footer comes out alongside one in the body. Names are the package's own
+     * (`image1.png`), which are unique within it.
+     */
+    async extractImages(path: string, dir: string): Promise<ExtractedImages> {
+      if (typeof dir !== "string" || dir.trim() === "") {
+        throw new Error(`extractImages needs a directory to write into, e.g. extractImages('${path}', '/tmp/media')`);
+      }
+      const { bytes, entries } = await openDocx(vfs, path);
+      const budget = inflationBudget(vfs);
+      const out = dir.endsWith("/") ? dir.slice(0, -1) : dir;
+
+      const media = [...entries.keys()].filter((name) => name.startsWith(MEDIA_PREFIX) && !name.endsWith("/")).sort();
+
+      const images: ExtractedImage[] = [];
+      const skipped: string[] = [];
+      for (const name of media) {
+        // word/media/ also holds embedded audio and video. Writing those out
+        // under a name like `extractImages` would be a lie about what they are.
+        const kind = mediaFormat(name);
+        if (kind === null) {
+          skipped.push(baseName(name));
+          continue;
+        }
+        const data = readZipEntry(bytes, entries.get(name)!, budget);
+        const target = `${out}/${baseName(name)}`;
+        await vfs.writeFile(target, data);
+        images.push({ path: target, part: name, bytes: data.byteLength, ...kind });
+      }
+
+      const vectors = images.filter((i) => i.vector);
+      const note =
+        images.length === 0
+          ? skipped.length > 0
+            ? `No images in ${path}. ${count(skipped.length, "embedded file")} under word/media/ ` +
+              `${skipped.length === 1 ? "is" : "are"} not an image (${skipped.slice(0, 5).join(", ")}) — ` +
+              `read the package directly with env:archives if you need ${skipped.length === 1 ? "it" : "them"}.`
+            : `${path} embeds no images. Its content is text; read it with docx.extractText.`
+          : vectors.length === images.length
+            ? `Every image here is ${vectors.length === 1 ? "a vector drawing" : "vector drawings"} ` +
+              `(${[...new Set(vectors.map((v) => v.format))].join(", ")}), which is how Word stores a chart pasted ` +
+              `from Excel. env:images and env:ocr read neither — render the document with env:render (LibreOffice) ` +
+              `to see ${vectors.length === 1 ? "it" : "them"}.`
+            : vectors.length > 0
+              ? `${count(vectors.length, "image")} ${vectors.length === 1 ? "is a vector drawing" : "are vector drawings"} ` +
+                `(${[...new Set(vectors.map((v) => v.format))].join(", ")}) that env:images and env:ocr cannot read; ` +
+                `the rest are ordinary rasters. Check \`vector\` before handing a path on.`
+              : undefined;
+
+      return { path, dir: out, images, ...(note ? { note } : {}) };
     },
 
     /**
