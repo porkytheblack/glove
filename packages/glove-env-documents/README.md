@@ -56,6 +56,7 @@ export default async function main() {
 | `docx.describe` | Heading outline, counts, embedded image count, short preview |
 | `docx.create` | Render the same spec |
 | `docx.extractText` | Full text, paragraph by paragraph — plus `kind`, so a scan is not mistaken for a blank file |
+| `docx.extractImages` | Write every embedded image into a directory, bytes unchanged |
 | `docx.replaceText` | **Edit** an existing .docx in place, preserving everything unmatched |
 
 ## A document that has no text to give you
@@ -87,6 +88,32 @@ const { kind, note } = await docx.extractText('/inbox/contract.docx');
 and a `note` appears on a document that *does* have text but carries images
 beside it, because a chart pasted into a report keeps its figures in pixels.
 A plain text document with no images gets no note at all.
+
+### Getting the pixels
+
+`docx.extractImages` writes them out, including images in headers and footers:
+
+```js
+import { docx } from 'env:documents';
+import { recognize } from 'env:ocr';
+
+const { images, note } = await docx.extractImages('/inbox/contract.docx', '/tmp/media');
+for (const image of images) {
+  if (image.vector) continue;                 // see below
+  const { text, confidence } = await recognize(image.path);
+}
+```
+
+The package's own bytes are copied rather than re-encoded — a re-encode would
+cost accuracy on exactly the scans this exists to reach.
+
+**Check `vector` before handing a path on.** Word stores a chart pasted from
+Excel as EMF, so the figure you most want is the one that arrives in a format
+neither `env:images` nor `env:ocr` can decode. EMF, WMF and SVG are marked,
+`note` says so when it happens, and `env:render` is the way to see them.
+Embedded audio and video live under `word/media/` too; those are skipped and
+named in `note` rather than written out under a function called
+`extractImages`.
 
 ## Editing, not regenerating
 
