@@ -17,3 +17,5 @@ It is order-dependent, so it presented as "OCR is broken" or "extractText is bro
 Moving the range surfaced a real v5-ism this package had: `doc.destroy()`, which pdfjs 6 removed in favour of teardown through the loading task. Every `extractText` call against pdfjs 6 was throwing `doc.destroy is not a function` — so the old peer range was load-bearing, and anyone who had already installed pdfjs 6 for the rasterizer was getting that instead.
 
 **Upgrading:** if you install `pdfjs-dist` to satisfy this peer, move to `^6.2.0`. The extraction API is unchanged.
+
+The repo's own consumers — `examples/analyst-desk`, `examples/document-desk` and `examples/glovebox-env` — moved with it. The analyst-desk selfcheck is what caught them: it is the only thing that exercises documents, spreadsheets, images and slides together, and it failed with the mismatch the other way round (`API "5.7.284"` against `Worker "6.2.108"`) because those examples were still pinning pdfjs 5 while the adapters had moved to 6.

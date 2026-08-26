@@ -19,7 +19,7 @@
     "glove-env-spreadsheets": "workspace:*",
     "glove-working-environment": "workspace:*",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^5.0.0"
+    "pdfjs-dist": "^6.2.0"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
