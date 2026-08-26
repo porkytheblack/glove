@@ -848,6 +848,57 @@ test("an adapter that throws on a file it claimed degrades to the generic summar
   assert.equal(out.module, "env:brittle");
   assert.match(out.moduleError, /env:brittle\.describe: truncated file/);
   assert.equal(out.bytes, 12, "and the generic facts still arrive");
+  // The note used to read "no registered module claims this file" beside a
+  // `module` and a `moduleError` naming one — a contradiction the reader had
+  // to resolve alone, and the wrong next step besides.
+  assert.match(out.note, /env:brittle claimed this file and could not read it/);
+  assert.doesNotMatch(out.note, /no registered module claims/);
+});
+
+test("an unclaimed file names a module that could still render it", async () => {
+  // The dead end worth avoiding: nothing parses a legacy .doc off an email,
+  // but LibreOffice opens it fine. describe knew that and did not say it.
+  const drawer = defineAdapter({
+    name: "drawer",
+    description: "Rasterizes office files.",
+    types: "export function render(input: string, dir: string): Promise<unknown>;",
+    renders: { extensions: [".doc", ".rtf"] },
+    create: () => ({ async render() { return { pages: [] }; } }),
+  });
+  const env = await makeEnv({ stdlib: [drawer] });
+  await env.mount(new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0x00, 0x00, 0x00, 0x00]), "/inbox/legacy.doc");
+
+  const out = JSON.parse(await callOk(env, "describe", { path: "/inbox/legacy.doc" }));
+  assert.match(out.note, /no registered module claims this file/);
+  assert.match(out.note, /env:drawer can rasterize it/, "the way out has to be named");
+  assert.match(out.note, /view_image/);
+});
+
+test("a text file that is really markup says the preview is not its content", async () => {
+  // .rtf reads as text, so `preview` is control words. A caller quoting it
+  // would quote markup at the user as if it were the document.
+  const drawer = defineAdapter({
+    name: "drawer",
+    description: "Rasterizes office files.",
+    types: "export function render(input: string, dir: string): Promise<unknown>;",
+    renders: { extensions: [".rtf"] },
+    create: () => ({ async render() { return { pages: [] }; } }),
+  });
+  const env = await makeEnv({ stdlib: [drawer] });
+  await env.fs.writeFile("/inbox/note.rtf", "{\\rtf1\\ansi Hello.}");
+
+  const out = JSON.parse(await callOk(env, "describe", { path: "/inbox/note.rtf" }));
+  assert.equal(out.binary, false);
+  assert.match(out.note, /raw markup, not its content/);
+  assert.match(out.note, /env:drawer can rasterize it/);
+});
+
+test("a plain text file gets no rendering advice", async () => {
+  // Advice on every file is advice nobody reads.
+  const env = await makeEnv();
+  await env.fs.writeFile("/inbox/notes.txt", "just words\n");
+  const out = JSON.parse(await callOk(env, "describe", { path: "/inbox/notes.txt" }));
+  assert.equal(out.note, undefined);
 });
 
 test("describe summarises a directory and refuses a path that is not there", async () => {

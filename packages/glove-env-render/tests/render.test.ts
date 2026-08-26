@@ -343,3 +343,24 @@ test(
     }
   },
 );
+
+test("what it declares it renders matches what it actually accepts", async () => {
+  // These two lists lived apart and drifted: `classify` accepted the legacy
+  // .doc/.xls/.ppt/.rtf and .avif, while `renders.extensions` named none of
+  // them. Nothing failed loudly — `render()` took a .doc and ran, but
+  // `view_image()`, which dispatches through this declaration, answered
+  // "none of env:render claims this format" for the same file. Legacy Office
+  // files are most of what arrives by email, so the gap was load-bearing.
+  const declared = new Set((render() as { renders?: { extensions?: string[] } }).renders?.extensions ?? []);
+  assert.ok(declared.size > 0, "the adapter must declare what it renders");
+
+  const accepted = [
+    // Office, current and legacy.
+    ".pptx", ".docx", ".xlsx", ".odp", ".odt", ".ods", ".ppt", ".doc", ".xls", ".rtf",
+    // Images.
+    ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".tif", ".avif",
+    ".pdf",
+  ];
+  const missing = accepted.filter((ext) => !declared.has(ext));
+  assert.deepEqual(missing, [], `classify() accepts these but renders does not declare them: ${missing.join(", ")}`);
+});
