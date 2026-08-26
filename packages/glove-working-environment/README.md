@@ -162,7 +162,7 @@ The complete, closed set — everything the model does goes through these:
 | `ls(path?, depth?)` | `/scripts` inlines JSDoc one-liners — the listing is the capability catalog |
 | `grep(pattern, path?, glob?, context?, max_matches?)` | Capped; also covers `/.env/history.jsonl` |
 | `run_tests(path?)` | Runs every `*.test.js` under a path; `import * as assert from 'env:assert'` |
-| `describe(path)` | Routes to whichever adapter understands the format (magic bytes, not extension); generic summary otherwise |
+| `describe(path)` | Routes to whichever adapter understands the format (magic bytes, not extension); generic summary otherwise, naming a registered renderer when one could still turn the file into something readable |
 | `run_script(path, args, timeout_ms?)` | `await defaultExport(args)`; result + stdout/stderr; oversized output spills to `/tmp/run-<id>.*`. `timeout_ms` budgets this run alone, clamped to `limits.runTimeoutMs` |
 | `undo(path)` / `redo(path)` | Per-file linear undo (rm included); re-runs the pipeline for scripts |
 | `checkpoint(action, name?)` | fork/restore/list/drop the WHOLE tree — the multi-file recovery undo cannot do |
