@@ -10,9 +10,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertAdapterOk, createAdapterTestEnv, type AdapterTestEnv } from "glove-working-environment/testing";
 import { documents } from "../src/index";
-import type { DocxSummary, DocxText, ExtractedText, PdfSummary } from "../src/index";
+import type { DocxSummary, DocxText, ExtractedImages, ExtractedText, PdfSummary } from "../src/index";
 import { parsePages, toWinAnsi } from "../src/pdf";
-import { parseDocumentXml } from "../src/docx";
+import { mediaFormat, parseDocumentXml } from "../src/docx";
 import { readZip } from "../src/zip";
 import { makeFakeWebp, makePng } from "./png";
 
@@ -420,8 +420,9 @@ test("a .docx that is only a scan is called a scan, not an empty file", async ()
   assert.equal(out.characters, 0);
   // The note has to carry the way out, not just the diagnosis.
   assert.match(String(out.note), /no text to read/);
-  assert.match(String(out.note), /env:archives/);
-  assert.match(String(out.note), /word\/media/);
+  // The note names the call that gets the pixels, not a general suggestion.
+  assert.match(String(out.note), /docx\.extractImages/);
+  assert.match(String(out.note), /env:ocr/);
 });
 
 test("describe counts the images the word count cannot see", async () => {
@@ -499,6 +500,96 @@ test("parseDocumentXml counts VML images as well as DrawingML ones", async () =>
   assert.equal(parseDocumentXml(drawing).images, 1);
 
   assert.equal(parseDocumentXml(`<w:body><w:p><w:r><w:t>words</w:t></w:r></w:p></w:body>`).images, 0);
+});
+
+test("extractImages writes the package's own bytes, unchanged", async () => {
+  // Re-encoding would cost OCR accuracy on exactly the scans this exists to
+  // reach, so the test is byte equality rather than "an image came out".
+  const t = await env();
+  const source = png(120, 90);
+  await t.fs.writeFile("/tmp/chart.png", source);
+
+  const out = await t.script<ExtractedImages>(
+    `import { docx } from 'env:documents';
+     export default async function main() {
+       await docx.create('/out/report.docx', { content: [
+         { text: 'See the chart.' },
+         { image: '/tmp/chart.png', width: 200, height: 150 },
+       ]});
+       return docx.extractImages('/out/report.docx', '/tmp/media');
+     }`,
+  );
+
+  assert.equal(out.images.length, 1);
+  assert.equal(out.images[0].format, "png");
+  assert.equal(out.images[0].vector, false);
+  assert.match(out.images[0].part, /^word\/media\//);
+  assert.equal(out.note, undefined);
+
+  const written = await t.fs.readBytes(out.images[0].path);
+  assert.deepEqual(Buffer.from(written), Buffer.from(source), "the bytes should survive the round trip");
+});
+
+test("a document with no images says so rather than returning an empty list", async () => {
+  const t = await env();
+  const out = await t.script<ExtractedImages>(
+    `import { docx } from 'env:documents';
+     export default async function main() {
+       await docx.create('/out/plain.docx', { content: [{ text: 'Only words here.' }] });
+       return docx.extractImages('/out/plain.docx', '/tmp/media');
+     }`,
+  );
+  assert.equal(out.images.length, 0);
+  assert.match(String(out.note), /embeds no images/);
+  assert.match(String(out.note), /extractText/);
+});
+
+test("the scanned note names extractImages, and following it works", async () => {
+  // The note is advice. If the call it names does not do what it says, the
+  // note is worse than nothing — so the test executes it.
+  const t = await env();
+  await t.fs.writeFile("/tmp/scan.png", png(300, 400));
+
+  const out = await t.script<{ note: string; images: ExtractedImages }>(
+    `import { docx } from 'env:documents';
+     export default async function main() {
+       await docx.create('/inbox/scan.docx', { content: [{ image: '/tmp/scan.png', width: 300, height: 400 }] });
+       const text = await docx.extractText('/inbox/scan.docx');
+       return { note: text.note, images: await docx.extractImages('/inbox/scan.docx', '/tmp/media') };
+     }`,
+  );
+  assert.match(out.note, /docx\.extractImages/);
+  assert.equal(out.images.images.length, 1);
+});
+
+test("extractImages needs somewhere to write, and says where", async () => {
+  const t = await env();
+  const run = await t.runScript(
+    `import { docx } from 'env:documents';
+     export default async function main() {
+       await docx.create('/out/a.docx', { content: [{ text: 'x' }] });
+       return docx.extractImages('/out/a.docx', '');
+     }`,
+  );
+  assert.equal(run.ok, false);
+  assert.match(String(run.error), /needs a directory/);
+});
+
+test("mediaFormat separates rasters, vectors and things that are not images", () => {
+  // EMF is the one that matters: Word stores a chart pasted from Excel as EMF,
+  // and neither env:images nor env:ocr can read it. Extracting it silently
+  // would send the caller to sharp for an error.
+  assert.deepEqual(mediaFormat("word/media/image1.emf"), { format: "emf", vector: true });
+  assert.deepEqual(mediaFormat("word/media/image2.wmf"), { format: "wmf", vector: true });
+  assert.deepEqual(mediaFormat("word/media/image3.png"), { format: "png", vector: false });
+  // .jpg and .jpeg are one format, and reporting two names for it invites a
+  // caller to branch on the wrong one.
+  assert.deepEqual(mediaFormat("word/media/image4.jpg"), { format: "jpeg", vector: false });
+  assert.deepEqual(mediaFormat("word/media/image5.JPEG"), { format: "jpeg", vector: false });
+  // Audio and video live under word/media/ too.
+  assert.equal(mediaFormat("word/media/audio1.wav"), null);
+  assert.equal(mediaFormat("word/media/media1.mp4"), null);
+  assert.equal(mediaFormat("word/media/oleObject1.bin"), null);
 });
 
 test("a ZIP that is not a Word document says so", async () => {

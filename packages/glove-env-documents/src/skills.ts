@@ -203,6 +203,75 @@ edits available are structural — \`merge\`, \`extractPages\`, \`split\`, \`sta
 `,
 };
 
+const SCANNED: Skill = {
+  name: "documents-scanned",
+  summary: "A PDF or .docx that is images of words: how to tell, and how to read it anyway.",
+  body: `# When a document has no text to give you
+
+**Check \`kind\` before you believe \`characters\`.** Both extractors report it,
+and a scan returns almost nothing without anything being broken.
+
+\`\`\`js
+import { pdf } from 'env:documents';
+import { recognize } from 'env:ocr';
+
+export default async function main() {
+  const doc = await pdf.extractText('/inbox/contract.pdf');
+  if (doc.kind === 'text') return { text: doc.text };
+
+  // 'scanned' — the pages are pictures of words. OCR rasterises and reads them.
+  const read = await recognize('/inbox/contract.pdf', { pages: [1, 2] });
+  return { text: read.text, confidence: read.confidence, note: read.note };
+}
+\`\`\`
+
+\`kind\` is \`'text'\`, \`'scanned'\` or \`'empty'\` (PDFs add \`'mixed'\`, per page).
+\`'empty'\` means the page really is blank — a different problem, and OCR will
+not help.
+
+## A .docx is the one that looks blank
+
+Word keeps no text beside a pasted picture, so a scanned contract someone
+dropped into Word extracts as \`''\` — the same as an empty file. \`kind\` is
+what tells them apart, and the images come out of the package directly:
+
+\`\`\`js
+import { docx } from 'env:documents';
+import { recognize } from 'env:ocr';
+
+export default async function main() {
+  const doc = await docx.extractText('/inbox/contract.docx');
+  if (doc.kind === 'text') return { text: doc.text, alsoImages: doc.note };
+
+  const { images } = await docx.extractImages('/inbox/contract.docx', '/tmp/media');
+  const pages = [];
+  for (const image of images) {
+    if (image.vector) continue;                    // EMF/WMF — nothing reads them
+    pages.push((await recognize(image.path)).text);
+  }
+  return { text: pages.join('\\n\\n') };
+}
+\`\`\`
+
+\`describe\` counts them too, so \`images\` tells you there is something to get
+before you extract anything.
+
+## Two things that will bite
+
+- **Check \`image.vector\`.** A chart pasted from Excel is stored as EMF, and
+  neither \`env:images\` nor \`env:ocr\` reads EMF or WMF. Render the document
+  with \`env:render\` to see those.
+- **A note on a \`'text'\` document is not noise.** It means images sit beside
+  the text carrying figures the words do not — usually a chart in a report.
+
+## Reading the OCR result honestly
+
+\`confidence\` is 0–100. Above 90 is a clean scan; below 65, \`note\` says the
+text is likely wrong in places and digits are unverified. Do not quote a
+figure off a low-confidence page without checking it with \`view_image\`.
+`,
+};
+
 const INTERNATIONAL: Skill = {
   name: "documents-fonts-and-forms",
   summary: "Non-Latin PDF text needs an embedded font; filling a PDF form starts with readForm.",
@@ -275,4 +344,4 @@ export default async function main() {
 `,
 };
 
-export const DOCUMENTS_SKILLS: Skill[] = [QUICK, STYLING, EDITING, INTERNATIONAL];
+export const DOCUMENTS_SKILLS: Skill[] = [QUICK, STYLING, EDITING, SCANNED, INTERNATIONAL];

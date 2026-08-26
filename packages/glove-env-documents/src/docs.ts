@@ -80,6 +80,27 @@ export interface ExtractedText {
 /** "text" = real paragraph text; "scanned" = images and nothing to read; "empty" = neither. */
 export type DocxKind = "text" | "scanned" | "empty";
 
+export interface ExtractedImage {
+  /** Where it now lives in the tree. */
+  path: string;
+  /** The entry it came from, e.g. word/media/image1.png */
+  part: string;
+  bytes: number;
+  /** Lowercase: png, jpeg, emf, ... */
+  format: string;
+  /** EMF/WMF/SVG — how Word stores a pasted chart. env:images and env:ocr read none of them. */
+  vector: boolean;
+}
+
+export interface ExtractedImages {
+  path: string;
+  /** Where the images were written. */
+  dir: string;
+  images: ExtractedImage[];
+  /** Present when the result needs explaining — none found, or none readable. */
+  note?: string;
+}
+
 export interface DocxText {
   path: string;
   paragraphs: string[];
@@ -144,6 +165,8 @@ export const docx: {
   create(path: string, spec: DocumentSpec): Promise<string>;
   /** Full text, paragraph by paragraph. */
   extractText(path: string): Promise<DocxText>;
+  /** Write every embedded image into a directory. Bytes are copied, never re-encoded. */
+  extractImages(path: string, dir: string): Promise<ExtractedImages>;
 };
 
 // ---------------------------------------------------------------------------
@@ -326,15 +349,25 @@ if (kind === 'scanned') return { blocked: note };   // note says how to reach th
 \`note\` appears on extraction whenever images carry meaning the text does not
 (a chart pasted into a report is the usual one).
 
-A .docx is a ZIP, so the images come out with \`env:archives\`:
+\`docx.extractImages\` writes them out — every one, including images in
+headers and footers, with the package's bytes copied rather than re-encoded:
 
 \`\`\`js
-import { extract } from 'env:archives';
+import { docx } from 'env:documents';
 import { recognize } from 'env:ocr';
 
-const media = await extract('/inbox/contract.docx', '/tmp/media', { include: 'word/media/*' });
-const { text, confidence } = await recognize(media[0]);
+const { images, note } = await docx.extractImages('/inbox/contract.docx', '/tmp/media');
+for (const image of images) {
+  if (image.vector) continue;              // EMF/WMF — see below
+  const { text, confidence } = await recognize(image.path);
+}
 \`\`\`
+
+**Check \`vector\` before handing a path on.** Word stores a chart pasted from
+Excel as EMF, and neither \`env:images\` nor \`env:ocr\` reads EMF or WMF — so
+the figure you most want is the one that arrives in the format that cannot be
+decoded. \`note\` says so when it happens; rendering the document with
+\`env:render\` is the way to see those.
 
 \`env:render\` can rasterize the document itself instead, but only where the
 host has LibreOffice **with the writer import filter** — \`libreoffice-core\`
