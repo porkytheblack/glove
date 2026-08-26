@@ -41,6 +41,7 @@
   "devDependencies": {
     "@napi-rs/canvas": "^1.0.3",
     "@types/node": "^25.2.3",
+    "glove-env-documents": "workspace:*",
     "glove-working-environment": "workspace:*",
     "pdf-lib": "^1.17.1",
     "tsx": "^4.19.0",

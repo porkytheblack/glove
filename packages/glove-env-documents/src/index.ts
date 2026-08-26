@@ -24,7 +24,7 @@ export type {
   FillFormOptions,
   FilledForm,
 } from "./pdf";
-export type { DocxSummary, DocxText, DocxEdit, DocxReplaceOptions } from "./docx";
+export type { DocxSummary, DocxText, DocxKind, DocxEdit, DocxReplaceOptions } from "./docx";
 
 export type DocumentSummary = PdfSummary | DocxSummary;
 

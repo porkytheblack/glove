@@ -55,15 +55,37 @@ export interface DocxSummary {
   /** Headings in document order — an outline to navigate by. */
   headings: Array<{ level: number; text: string }>;
   tables: number;
+  /**
+   * Embedded images in the body — the content `paragraphs` and `words` cannot
+   * see. A chart pasted in as a picture carries its figures in pixels.
+   */
+  images: number;
   /** First few paragraphs, so the shape is visible without extracting. */
   preview: string[];
 }
+
+/**
+ * `"text"` = real paragraph text; `"scanned"` = images and nothing to read;
+ * `"empty"` = neither.
+ *
+ * The DOCX counterpart to `PageKind`. A .docx has no pages until it is laid
+ * out, so this is a property of the document rather than of each page.
+ */
+export type DocxKind = "text" | "scanned" | "empty";
 
 export interface DocxText {
   path: string;
   paragraphs: string[];
   text: string;
   characters: number;
+  /**
+   * What this document turned out to be. Check it before concluding from
+   * `characters: 0` that the file is blank — a scan pasted into Word reads
+   * exactly like an empty document otherwise.
+   */
+  kind: DocxKind;
+  /** Present when the text alone misleads: what is missing and how to get it. */
+  note?: string;
 }
 
 export interface DocxReplaceOptions {
@@ -122,8 +144,27 @@ interface ParsedParagraph {
   headingLevel: number;
 }
 
-/** Pull paragraphs, their text and their heading level out of word/document.xml. */
-export function parseDocumentXml(xml: string): { paragraphs: ParsedParagraph[]; tables: number } {
+/**
+ * Embedded images in a body, counted by the two elements that actually
+ * reference image data: DrawingML's `<a:blip r:embed>` and legacy VML's
+ * `<v:imagedata r:id>`.
+ *
+ * Counting `<w:drawing>` instead would also catch native charts and shapes,
+ * which have no pixels to extract — and the count exists to tell a caller
+ * there is something in `word/media/` worth pulling out.
+ */
+function countImages(body: string): number {
+  const blips = body.match(/<a:blip[\s>]/g)?.length ?? 0;
+  const vml = body.match(/<v:imagedata[\s>]/g)?.length ?? 0;
+  return blips + vml;
+}
+
+/** Pull paragraphs, their text, their heading level and image count out of word/document.xml. */
+export function parseDocumentXml(xml: string): {
+  paragraphs: ParsedParagraph[];
+  tables: number;
+  images: number;
+} {
   const paragraphs: ParsedParagraph[] = [];
   const body = /<w:body[\s>][\s\S]*?<\/w:body>/.exec(xml)?.[0] ?? xml;
 
@@ -142,7 +183,7 @@ export function parseDocumentXml(xml: string): { paragraphs: ParsedParagraph[]; 
   }
 
   const tables = [...body.matchAll(/<w:tbl(?:\s[^>]*)?>/g)].length;
-  return { paragraphs, tables };
+  return { paragraphs, tables, images: countImages(body) };
 }
 
 /**
@@ -183,11 +224,16 @@ function words(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
 }
 
+/** "1 image" / "3 images" — a note that says "1 images" reads as a bug. */
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
 export function createDocxBindings(vfs: EnvFsHandle) {
   return {
     /** Outline and size of a .docx, without pulling its full text into context. */
     async describe(path: string): Promise<DocxSummary> {
-      const { paragraphs, tables } = parseDocumentXml(await readDocumentXml(vfs, path));
+      const { paragraphs, tables, images } = parseDocumentXml(await readDocumentXml(vfs, path));
       const nonEmpty = paragraphs.filter((p) => p.text.trim() !== "");
       const text = nonEmpty.map((p) => p.text).join("\n");
       return {
@@ -201,16 +247,43 @@ export function createDocxBindings(vfs: EnvFsHandle) {
           .filter((p) => p.headingLevel > 0)
           .map((p) => ({ level: p.headingLevel, text: p.text })),
         tables,
+        images,
         preview: nonEmpty.slice(0, 5).map((p) => (p.text.length > 120 ? `${p.text.slice(0, 119)}…` : p.text)),
       };
     },
 
-    /** Full text, paragraph by paragraph. */
+    /**
+     * Full text, paragraph by paragraph — and what the text leaves out.
+     *
+     * A .docx carries no text layer for a picture, so a scan pasted into Word
+     * extracts as the empty string. Reported bare, that is indistinguishable
+     * from a genuinely blank document, and the caller concludes the file is
+     * empty and says so. `kind` and `note` are here to make that case
+     * impossible to miss, the way `pdf.extractText` reports `"scanned"`.
+     */
     async extractText(path: string): Promise<DocxText> {
-      const { paragraphs } = parseDocumentXml(await readDocumentXml(vfs, path));
+      const { paragraphs, images } = parseDocumentXml(await readDocumentXml(vfs, path));
       const kept = paragraphs.map((p) => p.text).filter((t) => t.trim() !== "");
       const text = kept.join("\n");
-      return { path, paragraphs: kept, text, characters: text.length };
+      const kind: DocxKind = text.trim() !== "" ? "text" : images > 0 ? "scanned" : "empty";
+      const note =
+        kind === "scanned"
+          ? `This document has no text to read — its ${count(images, "image")} ${
+              images === 1 ? "is" : "are"
+            } the content. Word stores a pasted picture as an image, so no extractor will get more out of it. ` +
+            `Get the pixels with env:archives — a .docx is a ZIP: ` +
+            `extract('${path}', '/tmp/media', { include: 'word/media/*' }) — then read them with env:ocr's ` +
+            `recognize(), or look at one with view_image.`
+          : kind === "empty"
+            ? `This .docx has no text and no images — it is blank, not unreadable.`
+            : images > 0
+              ? `${count(images, "image")} in this document ${
+                  images === 1 ? "is" : "are"
+                } not represented in the text above — a chart or a screenshot carries its figures in pixels. ` +
+                `Extract them with env:archives: extract('${path}', '/tmp/media', { include: 'word/media/*' }), ` +
+                `then read them with env:ocr or view_image.`
+              : undefined;
+      return { path, paragraphs: kept, text, characters: text.length, kind, ...(note ? { note } : {}) };
     },
 
     /**

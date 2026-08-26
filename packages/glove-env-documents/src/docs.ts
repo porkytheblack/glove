@@ -56,6 +56,8 @@ export interface DocxSummary {
   /** Headings in document order — an outline to navigate by. */
   headings: Array<{ level: number; text: string }>;
   tables: number;
+  /** Embedded images in the body — content the word count cannot see. */
+  images: number;
   /** First few paragraphs, so the shape is visible without extracting. */
   preview: string[];
 }
@@ -75,11 +77,18 @@ export interface ExtractedText {
   note?: string;
 }
 
+/** "text" = real paragraph text; "scanned" = images and nothing to read; "empty" = neither. */
+export type DocxKind = "text" | "scanned" | "empty";
+
 export interface DocxText {
   path: string;
   paragraphs: string[];
   text: string;
   characters: number;
+  /** Check this before concluding from characters: 0 that the file is blank. */
+  kind: DocxKind;
+  /** Present when the text alone misleads: what is missing and how to get it. */
+  note?: string;
 }
 
 export interface PdfMetadata {
@@ -302,6 +311,34 @@ be rasterised and read as images. \`env:ocr\`'s \`recognize(path, { pages })\`
 does both in one call and reports per-page confidence; \`view_image\` is the
 cheaper answer for a page or two. \`empty\` means the pages really are blank,
 which is a different problem.
+
+**\`docx.extractText\` reports the same three kinds**, because a .docx hides the
+problem better than a PDF does: Word stores a pasted picture as an image with
+no text beside it, so a scanned contract someone dropped into Word extracts as
+the empty string. Taken at face value that reads as a blank file.
+
+\`\`\`js
+const { kind, text, note } = await docx.extractText('/inbox/contract.docx');
+if (kind === 'scanned') return { blocked: note };   // note says how to reach the pixels
+\`\`\`
+
+\`describe\` counts them too — \`images\` is the content \`words\` cannot see, and a
+\`note\` appears on extraction whenever images carry meaning the text does not
+(a chart pasted into a report is the usual one).
+
+A .docx is a ZIP, so the images come out with \`env:archives\`:
+
+\`\`\`js
+import { extract } from 'env:archives';
+import { recognize } from 'env:ocr';
+
+const media = await extract('/inbox/contract.docx', '/tmp/media', { include: 'word/media/*' });
+const { text, confidence } = await recognize(media[0]);
+\`\`\`
+
+\`env:render\` can rasterize the document itself instead, but only where the
+host has LibreOffice **with the writer import filter** — \`libreoffice-core\`
+alone cannot open a .docx.
 
 ## Rearranging PDFs
 

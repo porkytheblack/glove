@@ -395,9 +395,6 @@ importers:
       glove-core:
         specifier: workspace:*
         version: link:../../packages/glove
-      glove-env-zip:
-        specifier: workspace:*
-        version: link:../../packages/glove-env-zip
       glove-env-documents:
         specifier: workspace:*
         version: link:../../packages/glove-env-documents
@@ -416,6 +413,9 @@ importers:
       glove-env-spreadsheets:
         specifier: workspace:*
         version: link:../../packages/glove-env-spreadsheets
+      glove-env-zip:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-zip
       glove-working-environment:
         specifier: workspace:*
         version: link:../../packages/glove-working-environment
@@ -1195,21 +1195,6 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  packages/glove-env-zip:
-    devDependencies:
-      '@types/node':
-        specifier: ^25.2.3
-        version: 25.2.3
-      glove-working-environment:
-        specifier: workspace:^
-        version: link:../glove-working-environment
-      tsx:
-        specifier: ^4.19.0
-        version: 4.21.0
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-
   packages/glove-env-documents:
     dependencies:
       '@pdf-lib/fontkit':
@@ -1229,8 +1214,8 @@ importers:
         specifier: workspace:^
         version: link:../glove-working-environment
       pdfjs-dist:
-        specifier: ^5.4.149
-        version: 5.7.284
+        specifier: ^6.2.108
+        version: 6.2.108
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
@@ -1374,6 +1359,9 @@ importers:
       '@types/node':
         specifier: ^25.2.3
         version: 25.2.3
+      glove-env-documents:
+        specifier: workspace:*
+        version: link:../glove-env-documents
       glove-working-environment:
         specifier: workspace:*
         version: link:../glove-working-environment
@@ -1439,6 +1427,21 @@ importers:
       exceljs:
         specifier: ^4.4.0
         version: 4.4.0
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      glove-working-environment:
+        specifier: workspace:^
+        version: link:../glove-working-environment
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/glove-env-zip:
     devDependencies:
       '@types/node':
         specifier: ^25.2.3
@@ -4454,10 +4457,12 @@ packages:
   '@xmldom/xmldom@0.8.13':
     resolution: {integrity: sha512-KRYzxepc14G/CEpEGc3Yn+JKaAeT63smlDr+vjB8jRfgTBBI9wRj/nkQEO+ucV8p8I9bfKLWp37uHgFrbntPvw==}
     engines: {node: '>=10.0.0'}
+    deprecated: this version has critical issues, please update to the latest version
 
   '@xmldom/xmldom@0.9.10':
     resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
     engines: {node: '>=14.6'}
+    deprecated: this version has critical issues, please update to the latest version
 
   '@zone-eu/mailsplit@5.4.15':
     resolution: {integrity: sha512-c7ZpxauvF4AEkDJlKDYO7iMUtMuqJMBnDWNff1cyx+d7zaBVR3iFEmXhNHOVoMmVyVF3pTZLsLIJsEFKDldOAA==}
