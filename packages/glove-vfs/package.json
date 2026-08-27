@@ -1,0 +1,57 @@
+{
+  "name": "glove-vfs",
+  "version": "0.0.0",
+  "description": "One virtual filesystem for a whole agent. A zero-dependency Vfs contract plus backends (in-memory, host directory copy-on-write, object storage), a mount table that composes them into a single tree, path-scoped access policies, an optional metadata/provenance layer, and grep/glob search. Working environments, memory resource stores and sandboxed REPLs all plug into the same tree instead of each keeping a private one.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-vfs"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./fns": {
+      "types": "./dist/fns.d.ts",
+      "import": "./dist/fns.js"
+    },
+    "./resources": {
+      "types": "./dist/resources.d.ts",
+      "import": "./dist/resources.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "keywords": [
+    "glove",
+    "vfs",
+    "virtual-filesystem",
+    "agent",
+    "llm",
+    "sandbox"
+  ],
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -2,7 +2,7 @@
  * The default in-memory filesystem backend. The whole environment is a data
  * structure, so snapshot / restore are near-free.
  */
-import type { EnvSnapshot, Vfs, VfsEntry, VfsStat } from "../types";
+import type { SnapshotableVfs, Vfs, VfsEntry, VfsSnapshot, VfsStat } from "../types";
 import { PathError, ancestors, normalizePath } from "../paths";
 
 interface FileNode {
@@ -10,7 +10,7 @@ interface FileNode {
   mtime: number;
 }
 
-export class InMemoryFs implements Vfs {
+export class InMemoryFs implements SnapshotableVfs {
   private filesMap = new Map<string, FileNode>();
   private dirs = new Set<string>(["/"]);
   private totalBytes = 0;
@@ -116,7 +116,7 @@ export class InMemoryFs implements Vfs {
   }
 
   /** Serialize the whole tree (used by the environment's snapshot door). */
-  toSnapshot(): EnvSnapshot {
+  toSnapshot(): VfsSnapshot {
     const files = [...this.filesMap.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([path, node]) => ({
@@ -127,7 +127,7 @@ export class InMemoryFs implements Vfs {
     return { version: 1, dirs: [...this.dirs].sort(), files };
   }
 
-  static fromSnapshot(snap: EnvSnapshot): InMemoryFs {
+  static fromSnapshot(snap: VfsSnapshot): InMemoryFs {
     if (!snap || snap.version !== 1) throw new PathError(`unsupported snapshot version: ${(snap as { version?: unknown })?.version}`);
     const fs = new InMemoryFs();
     for (const d of snap.dirs) fs.dirs.add(normalizePath(d));
@@ -142,12 +142,12 @@ export class InMemoryFs implements Vfs {
 }
 
 /** Create the default in-memory filesystem, optionally preloaded from a snapshot. */
-export function inMemoryFs(options?: { snapshot?: EnvSnapshot }): Vfs {
+export function inMemoryFs(options?: { snapshot?: VfsSnapshot }): Vfs {
   return options?.snapshot ? InMemoryFs.fromSnapshot(options.snapshot) : new InMemoryFs();
 }
 
 /** Rehydrate a filesystem from a snapshot produced by `env.snapshot()`. */
-export function fromSnapshot(snap: EnvSnapshot): Vfs {
+export function fromSnapshot(snap: VfsSnapshot): Vfs {
   return InMemoryFs.fromSnapshot(snap);
 }
 

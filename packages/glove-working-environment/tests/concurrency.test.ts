@@ -38,7 +38,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { call, callOk } from "./helpers";
 import { createWorkingEnvironment, type EnvLimits, type Vfs, type WorkingEnvironment } from "../src/index";
-import { inMemoryFs } from "../src/vfs/memory";
+import { inMemoryFs } from "glove-vfs";
 
 const tick = () => new Promise<void>((r) => setImmediate(r));
 /** Long enough for an unserialized mutation to run start to finish. */

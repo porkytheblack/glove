@@ -24,8 +24,8 @@ import {
   type StdlibAdapter,
   type Vfs,
 } from "./types";
-import { isUnder, normalizePath } from "./paths";
-import { InMemoryFs, bytesToBase64, inMemoryFs } from "./vfs/memory";
+import { isUnder, normalizePath } from "glove-vfs";
+import { inMemoryFs, snapshot as vfsSnapshot } from "glove-vfs";
 import { EnvCore } from "./core/env";
 import { deepFreeze } from "./executor/executor";
 import { WorkerPool } from "./executor/pool";
@@ -712,31 +712,38 @@ function stdIndex(
   return lines.join("\n");
 }
 
+/**
+ * Serialize the tree.
+ *
+ * Delegates to `glove-vfs`, which unwraps any layers first — a metadata layer
+ * hides its own sidecar from `list()`, so a walk through it would produce a
+ * snapshot whose restore silently drops every summary, tag and link while the
+ * file bytes come back intact enough to look correct.
+ */
 async function snapshotVfs(vfs: Vfs): Promise<EnvSnapshot> {
-  if (vfs instanceof InMemoryFs) return vfs.toSnapshot();
-  const dirs: string[] = [];
-  const files: EnvSnapshot["files"] = [];
-  const walk = async (dir: string): Promise<void> => {
-    dirs.push(dir);
-    for (const e of await vfs.list(dir)) {
-      const p = dir === "/" ? `/${e.name}` : `${dir}/${e.name}`;
-      if (e.kind === "dir") {
-        await walk(p);
-      } else {
-        const stat = await vfs.stat(p);
-        files.push({ path: p, data: bytesToBase64(await vfs.read(p)), mtime: stat?.mtime ?? 0 });
-      }
-    }
-  };
-  await walk("/");
-  files.sort((a, b) => a.path.localeCompare(b.path));
-  return { version: 1, dirs: dirs.sort(), files };
+  return vfsSnapshot(vfs);
 }
 
 // ---------------------------------------------------------------- exports
 
-export { inMemoryFs, fromSnapshot, InMemoryFs } from "./vfs/memory";
-export { hostDirectory, HostDirectoryFs, type HostDirectoryOptions } from "./vfs/hostdir";
+// The filesystem now comes from `glove-vfs`, which is what lets this
+// environment share ONE tree with the memory resource store and the
+// sandboxed REPLs instead of keeping a private one. Re-exported here so the
+// surface is unchanged for anyone already importing it from this package —
+// and so the composition helpers are discoverable from the same import.
+export { inMemoryFs, fromSnapshot, InMemoryFs } from "glove-vfs";
+export { hostDirectory, HostDirectoryFs, type HostDirectoryOptions } from "glove-vfs";
+export {
+  mountFs,
+  withAccess,
+  withMeta,
+  hasMeta,
+  hasSearch,
+  type Access,
+  type AccessPolicy,
+  type Mount,
+  type MetaVfs,
+} from "glove-vfs";
 export { defineTools, type DefineToolsSpec, type ToolFn, type ToolFnContext } from "./adapters/tools";
 export { createSessionManager, type SessionManager, type SessionManagerOptions } from "./hosting";
 export {
@@ -745,7 +752,7 @@ export {
   type CachedRemoteOptions,
   type ObjectStore,
   type RemoteObject,
-} from "./vfs/remote";
+} from "glove-vfs";
 export {
   defineAdapter,
   type AdapterBindings,
@@ -769,7 +776,7 @@ export { BUILTIN_SKILLS, DELIVERING, skillsIndex, type Skill } from "./skills";
 export { mountWorkingEnvironment, buildPreamble, type MountWorkingEnvironmentConfig } from "./tools/mount";
 export { defaultExportError, ScriptContractError } from "./pipeline/contract";
 export { deepFreeze } from "./executor/executor";
-export { normalizePath, globToRegExp } from "./paths";
+export { normalizePath, globToRegExp } from "glove-vfs";
 export {
   DEFAULT_LIMITS,
   EnvLimitError,

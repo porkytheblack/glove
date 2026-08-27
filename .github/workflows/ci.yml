@@ -90,6 +90,7 @@ jobs:
           --filter glove-python
           --filter glove-js
           --filter glove-lisp
+          --filter glove-vfs
           --filter glove-working-environment
           --filter glove-env-documents
           --filter glove-env-spreadsheets
@@ -128,6 +129,7 @@ jobs:
           --filter glove-python
           --filter glove-js
           --filter glove-lisp
+          --filter glove-vfs
           --filter glove-working-environment
           --filter glove-env-documents
           --filter glove-env-spreadsheets
