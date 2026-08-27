@@ -1675,6 +1675,18 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  packages/glove-vfs:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/glove-voice:
     dependencies:
       '@ricky0123/vad-web':
@@ -1798,6 +1810,10 @@ importers:
         version: 4.3.6
 
   packages/glove-working-environment:
+    dependencies:
+      glove-vfs:
+        specifier: workspace:*
+        version: link:../glove-vfs
     devDependencies:
       '@types/node':
         specifier: ^25.2.3

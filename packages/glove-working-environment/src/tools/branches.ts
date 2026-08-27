@@ -27,8 +27,8 @@
  * only reading that lets an agent see what it just undid.
  */
 import type { EnvSnapshot, Vfs } from "../types";
-import { base64ToBytes, bytesToBase64 } from "../vfs/memory";
-import { isUnder, normalizePath } from "../paths";
+import { base64ToBytes, bytesToBase64 } from "glove-vfs";
+import { isUnder, normalizePath } from "glove-vfs";
 
 export const BRANCH_DIR = "/.env/branches";
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;

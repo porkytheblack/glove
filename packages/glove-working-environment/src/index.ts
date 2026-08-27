@@ -24,8 +24,8 @@ import {
   type StdlibAdapter,
   type Vfs,
 } from "./types";
-import { isUnder, normalizePath } from "./paths";
-import { InMemoryFs, bytesToBase64, inMemoryFs } from "./vfs/memory";
+import { isUnder, normalizePath } from "glove-vfs";
+import { InMemoryFs, bytesToBase64, inMemoryFs } from "glove-vfs";
 import { EnvCore } from "./core/env";
 import { deepFreeze } from "./executor/executor";
 import { WorkerPool } from "./executor/pool";
@@ -735,8 +735,24 @@ async function snapshotVfs(vfs: Vfs): Promise<EnvSnapshot> {
 
 // ---------------------------------------------------------------- exports
 
-export { inMemoryFs, fromSnapshot, InMemoryFs } from "./vfs/memory";
-export { hostDirectory, HostDirectoryFs, type HostDirectoryOptions } from "./vfs/hostdir";
+// The filesystem now comes from `glove-vfs`, which is what lets this
+// environment share ONE tree with the memory resource store and the
+// sandboxed REPLs instead of keeping a private one. Re-exported here so the
+// surface is unchanged for anyone already importing it from this package —
+// and so the composition helpers are discoverable from the same import.
+export { inMemoryFs, fromSnapshot, InMemoryFs } from "glove-vfs";
+export { hostDirectory, HostDirectoryFs, type HostDirectoryOptions } from "glove-vfs";
+export {
+  mountFs,
+  withAccess,
+  withMeta,
+  hasMeta,
+  hasSearch,
+  type Access,
+  type AccessPolicy,
+  type Mount,
+  type MetaVfs,
+} from "glove-vfs";
 export { defineTools, type DefineToolsSpec, type ToolFn, type ToolFnContext } from "./adapters/tools";
 export { createSessionManager, type SessionManager, type SessionManagerOptions } from "./hosting";
 export {
@@ -745,7 +761,7 @@ export {
   type CachedRemoteOptions,
   type ObjectStore,
   type RemoteObject,
-} from "./vfs/remote";
+} from "glove-vfs";
 export {
   defineAdapter,
   type AdapterBindings,
@@ -769,7 +785,7 @@ export { BUILTIN_SKILLS, DELIVERING, skillsIndex, type Skill } from "./skills";
 export { mountWorkingEnvironment, buildPreamble, type MountWorkingEnvironmentConfig } from "./tools/mount";
 export { defaultExportError, ScriptContractError } from "./pipeline/contract";
 export { deepFreeze } from "./executor/executor";
-export { normalizePath, globToRegExp } from "./paths";
+export { normalizePath, globToRegExp } from "glove-vfs";
 export {
   DEFAULT_LIMITS,
   EnvLimitError,

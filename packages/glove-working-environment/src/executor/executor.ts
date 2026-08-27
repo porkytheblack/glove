@@ -14,7 +14,7 @@
  */
 import vm from "node:vm";
 import { format } from "node:util";
-import { normalizePath, resolveRelative } from "../paths";
+import { normalizePath, resolveRelative } from "glove-vfs";
 import { EnvLimitError, type EnvLimits, type RunResult } from "../types";
 import { ScriptContractError, contractOf, defaultExportError } from "../pipeline/contract";
 import { transformModule } from "./transform";
