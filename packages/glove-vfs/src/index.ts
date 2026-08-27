@@ -41,7 +41,10 @@ export {
 export {
   hasMeta,
   hasSearch,
+  invalidateChain,
   isSnapshotable,
+  isWrapping,
+  unwrap,
   looksBinary,
   toBytes,
   toText,
@@ -62,6 +65,7 @@ export {
   type VfsSearch,
   type VfsSnapshot,
   type VfsStat,
+  type WrappingVfs,
 } from "./types";
 
 export { InMemoryFs, base64ToBytes, bytesToBase64, fromSnapshot, inMemoryFs } from "./backends/memory";

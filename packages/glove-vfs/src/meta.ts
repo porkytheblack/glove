@@ -103,7 +103,7 @@ class MetaFs implements MetaVfs, VfsSearch {
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(
-    private readonly inner: Vfs,
+    readonly inner: Vfs,
     private readonly options: WithMetaOptions,
   ) {
     this.indexPath = normalizePath(options.indexPath ?? META_INDEX_PATH);
@@ -147,6 +147,14 @@ class MetaFs implements MetaVfs, VfsSearch {
 
   private hidden(path: string): boolean {
     return normalizePath(path) === this.indexPath;
+  }
+
+  /**
+   * Drop the cached index. Called when something writes the sidecar by a
+   * route this layer did not see — a `restore`, which writes to the base.
+   */
+  invalidate(): void {
+    this.index = null;
   }
 
   // -- Vfs ------------------------------------------------------------------

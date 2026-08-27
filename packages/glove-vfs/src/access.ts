@@ -104,7 +104,7 @@ class GuardedFs implements Vfs {
   private readonly compiled: { fallback: Access; rules: CompiledRule[] };
 
   constructor(
-    private readonly inner: Vfs,
+    readonly inner: Vfs,
     policy: AccessPolicy,
   ) {
     this.compiled = compile(policy);

@@ -25,7 +25,7 @@ import {
   type Vfs,
 } from "./types";
 import { isUnder, normalizePath } from "glove-vfs";
-import { InMemoryFs, bytesToBase64, inMemoryFs } from "glove-vfs";
+import { inMemoryFs, snapshot as vfsSnapshot } from "glove-vfs";
 import { EnvCore } from "./core/env";
 import { deepFreeze } from "./executor/executor";
 import { WorkerPool } from "./executor/pool";
@@ -712,25 +712,16 @@ function stdIndex(
   return lines.join("\n");
 }
 
+/**
+ * Serialize the tree.
+ *
+ * Delegates to `glove-vfs`, which unwraps any layers first — a metadata layer
+ * hides its own sidecar from `list()`, so a walk through it would produce a
+ * snapshot whose restore silently drops every summary, tag and link while the
+ * file bytes come back intact enough to look correct.
+ */
 async function snapshotVfs(vfs: Vfs): Promise<EnvSnapshot> {
-  if (vfs instanceof InMemoryFs) return vfs.toSnapshot();
-  const dirs: string[] = [];
-  const files: EnvSnapshot["files"] = [];
-  const walk = async (dir: string): Promise<void> => {
-    dirs.push(dir);
-    for (const e of await vfs.list(dir)) {
-      const p = dir === "/" ? `/${e.name}` : `${dir}/${e.name}`;
-      if (e.kind === "dir") {
-        await walk(p);
-      } else {
-        const stat = await vfs.stat(p);
-        files.push({ path: p, data: bytesToBase64(await vfs.read(p)), mtime: stat?.mtime ?? 0 });
-      }
-    }
-  };
-  await walk("/");
-  files.sort((a, b) => a.path.localeCompare(b.path));
-  return { version: 1, dirs: dirs.sort(), files };
+  return vfsSnapshot(vfs);
 }
 
 // ---------------------------------------------------------------- exports

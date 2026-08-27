@@ -129,3 +129,52 @@ test("a raw byte write outside the environment is picked up by its verbs", async
     await env.close();
   }
 });
+
+test("the environment's snapshot carries the metadata layer's index", async () => {
+  // env.snapshot() walks the tree; a metadata layer hides its sidecar from
+  // that walk, so without unwrapping the documented "close on idle, resume
+  // from a snapshot" lifecycle silently drops every summary, tag and link
+  // while the files themselves come back looking fine.
+  const shared = withMeta(mountFs([{ at: "/", fs: inMemoryFs() }]), { lexical: true });
+  const env = await createWorkingEnvironment({ filesystem: shared, execution: { size: 1 } });
+  let snap;
+  try {
+    await callOk(env, "write_file", { path: "/out/note.md", content: "Revenue is up." });
+    await shared.setMeta("/out/note.md", { summary: "the finding", tags: ["q3"], links: [] });
+    snap = await env.snapshot();
+  } finally {
+    await env.close();
+  }
+
+  const resumed = withMeta(fromSnapshot(snap), { lexical: true });
+  const env2 = await createWorkingEnvironment({ filesystem: resumed, execution: { size: 1 } });
+  try {
+    assert.match(await callOk(env2, "read_file", { path: "/out/note.md" }), /Revenue is up/);
+    assert.equal((await resumed.getMeta("/out/note.md"))?.metadata.summary, "the finding");
+    assert.deepEqual(
+      (await vfsResources(resumed, { schema: {} }).list("/out")).map((e) => e.summary),
+      ["the finding"],
+    );
+  } finally {
+    await env2.close();
+  }
+});
+
+test("a checkpoint fork keeps metadata across undo", async () => {
+  const shared = withMeta(mountFs([{ at: "/", fs: inMemoryFs() }]), { lexical: true });
+  const env = await createWorkingEnvironment({ filesystem: shared, execution: { size: 1 } });
+  try {
+    await callOk(env, "write_file", { path: "/out/a.md", content: "first" });
+    await shared.setMeta("/out/a.md", { summary: "original", tags: [], links: [] });
+    await callOk(env, "checkpoint", { action: "fork", name: "before" });
+
+    await callOk(env, "write_file", { path: "/out/a.md", content: "second" });
+    await shared.setMeta("/out/a.md", { summary: "edited", tags: [], links: [] });
+
+    await callOk(env, "checkpoint", { action: "restore", name: "before" });
+    assert.match(await callOk(env, "read_file", { path: "/out/a.md" }), /first/);
+    assert.equal((await shared.getMeta("/out/a.md"))?.metadata.summary, "original");
+  } finally {
+    await env.close();
+  }
+});

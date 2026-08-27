@@ -90,6 +90,52 @@ export function isSnapshotable(vfs: Vfs): vfs is SnapshotableVfs {
   return typeof (vfs as Partial<SnapshotableVfs>).toSnapshot === "function";
 }
 
+/**
+ * A layer wrapping another tree — {@link withAccess}, {@link withMeta}.
+ *
+ * The layers exist to narrow what a caller sees: a policy hides fenced paths,
+ * the metadata layer hides its own sidecar. That is right for every read an
+ * agent makes and wrong for exactly one operation — serializing the tree,
+ * which must capture what is *stored*, not what is *visible*, or a restore
+ * silently reconstructs a different tree. `inner` is the seam that lets
+ * {@link snapshot} see past the narrowing.
+ */
+export interface WrappingVfs extends Vfs {
+  readonly inner: Vfs;
+  /**
+   * Drop any cached derived state, because the bytes underneath changed by a
+   * route this layer did not see. {@link restore} is that route: it writes to
+   * the base, so a metadata layer that had already read the old sidecar would
+   * otherwise keep serving it.
+   */
+  invalidate?(): void;
+}
+
+export function isWrapping(vfs: Vfs): vfs is WrappingVfs {
+  const candidate = (vfs as Partial<WrappingVfs>).inner;
+  return typeof candidate === "object" && candidate !== null && typeof candidate.read === "function";
+}
+
+/**
+ * Strip every wrapping layer, returning the tree that actually holds the
+ * bytes. Host-side serialization uses this; nothing on an agent's path should.
+ */
+export function unwrap(vfs: Vfs): Vfs {
+  let current = vfs;
+  // Bounded so a self-referential `inner` cannot hang the process.
+  for (let i = 0; i < 32 && isWrapping(current); i++) current = current.inner;
+  return current;
+}
+
+/** Tell every layer over a tree that its bytes changed out from under it. */
+export function invalidateChain(vfs: Vfs): void {
+  let current = vfs;
+  for (let i = 0; i < 32 && isWrapping(current); i++) {
+    current.invalidate?.();
+    current = current.inner;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Metadata capability
 // ---------------------------------------------------------------------------

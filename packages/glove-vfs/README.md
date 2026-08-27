@@ -84,6 +84,17 @@ For plain "persist across restarts", prefer `snapshot()` to one object over a
 per-file backend — one round trip per session instead of one per file, and
 atomic.
 
+`snapshot()`, `restore()` and `copyTree()` operate on what the backend
+**stores**, not on what the outermost layer **shows** — they call `unwrap()`
+first, so they capture the metadata sidecar and any access-fenced paths. That
+is the only correct answer: a snapshot exists to be restored, so anything it
+omits is data the restore destroys. Take one through a metadata layer without
+unwrapping and every summary, tag, link and provenance entry is silently gone
+on the way back, with the file bytes intact enough to make it look like it
+worked. These are host doors — the host holds the handle and is serializing
+its own storage — not a surface an agent reaches, which is where the narrowing
+belongs and stays.
+
 ## Layers
 
 Each returns a `Vfs`, so they compose and anything downstream is unaffected.
