@@ -1,0 +1,36 @@
+{
+  "name": "glove-foundry-drag-racers",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:foundry": "glove foundry dev",
+    "dev:web": "next dev -p 3002",
+    "build": "next build",
+    "start": "next start -p 3002",
+    "typecheck": "tsc --noEmit",
+    "verify": "node --import tsx scripts/verify.ts",
+    "verify:live": "node --import tsx scripts/verify-live.ts"
+  },
+  "dependencies": {
+    "effect": "^3.22.1",
+    "glove-core": "workspace:*",
+    "glove-foundry": "workspace:*",
+    "glove-voice-s2s": "workspace:*",
+    "next": "^15.3.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "server-only": "^0.0.1",
+    "ws": "^8.18.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -20,6 +20,15 @@ export interface BlogPost {
 
 export const posts: BlogPost[] = [
   {
+    slug: "introducing-glove-foundry",
+    title: "The workflow is no longer the product",
+    summary:
+      "Introducing Glove Foundry: a file-routed, Effect-native application framework where agent systems are assembled from definitions and live instance data—and the work can be imagined at runtime.",
+    date: "2026-08-29",
+    readingTime: 14,
+    tags: ["foundry", "release", "agents", "architecture"],
+  },
+  {
     slug: "silent-failures",
     title: "Every failure in this one was silent",
     summary:

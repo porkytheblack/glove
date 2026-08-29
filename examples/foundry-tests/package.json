@@ -1,0 +1,23 @@
+{
+  "name": "foundry-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.28.2",
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "effect": "^3.22.1",
+    "glove-core": "workspace:*",
+    "glove-foundry": "workspace:*"
+  }
+}

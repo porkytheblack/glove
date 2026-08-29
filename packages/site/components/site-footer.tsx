@@ -6,6 +6,8 @@ const columns: { title: string; links: { label: string; href: string; external?:
   {
     title: "Learn",
     links: [
+      { label: "Glove Foundry", href: "/foundry" },
+      { label: "Foundry handbook", href: "/foundry/docs" },
       { label: "What is Glove?", href: "/docs/intro" },
       { label: "Installation", href: "/docs/installation" },
       { label: "Quickstart", href: "/docs/getting-started" },
@@ -31,7 +33,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
     links: [
       { label: "Server-Side Agents", href: "/docs/server-side" },
       { label: "MCP", href: "/docs/mcp" },
-      { label: "Glovebox", href: "/docs/glovebox" },
+      { label: "Glovebox (legacy)", href: "/docs/glovebox" },
       { label: "Showcase", href: "/docs/showcase/travel-planner" },
     ],
   },
@@ -41,6 +43,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
       // Plain text routes, not pages — let the browser fetch them directly.
       { label: "llms.txt", href: "/llms.txt", external: true },
       { label: "llms-full.txt", href: "/llms-full.txt", external: true },
+      { label: "Foundry llms.txt", href: "/foundry/llms.txt", external: true },
       { label: "Agent Skill", href: "/docs/agent-skill" },
     ],
   },
@@ -64,8 +67,7 @@ export function SiteFooter() {
             <span className="footer-brand-name">Glove</span>
           </div>
           <span className="footer-tagline">
-            Your open-source TypeScript toolkit for multi-agent orchestration
-            systems.
+            The open-source TypeScript stack for complete agent systems.
           </span>
         </div>
         <div className="footer-cols">

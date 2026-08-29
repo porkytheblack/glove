@@ -1,5 +1,8 @@
 # glovebox-core
 
+> [!WARNING]
+> Glovebox is deprecated in favor of [Glove Foundry](../glove-foundry/README.md). Existing deployments remain supported for compatibility, but new agent runtimes and deployment architectures should be built with Foundry.
+
 Authoring kit and `glovebox` build CLI for shipping a [Glove](https://github.com/porkytheblack/glove) agent as a sandboxed, network-addressable service. Wrap a built `Glove` runnable, run `glovebox build`, ship the resulting Dockerfile (or nixpacks bundle) to any container host.
 
 > The package is named `glovebox-core` on npm because the unscoped `glovebox` slot is taken by another project. The CLI binary it installs is still called `glovebox`, and the value you import from it is still called `glovebox` — only the install name differs.

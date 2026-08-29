@@ -13,7 +13,7 @@
 //   S2S_PROVIDER         openai | openai-webrtc | gemini. Unset: whichever of
 //                        OPENAI_API_KEY / GEMINI_API_KEY exists (OpenAI first).
 //   S2S_MODEL            provider-specific model id; unset = provider default
-//                        ("gpt-realtime" / "models/gemini-live-2.5-flash-preview")
+//                        ("gpt-realtime" / "models/gemini-3.1-flash-live-preview")
 //   OPENAI_API_KEY /     the credential, when `getToken` isn't supplied.
 //   GEMINI_API_KEY       Server-side only — env keys never belong in a browser.
 //   S2S_TURN_DETECTION   OpenAI only: semantic_vad (default) | server_vad.

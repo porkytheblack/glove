@@ -38,6 +38,10 @@
     "./openrouter": {
       "types": "./dist/openrouter/index.d.ts",
       "import": "./dist/openrouter/index.js"
+    },
+    "./gemini": {
+      "types": "./dist/gemini/index.d.ts",
+      "import": "./dist/gemini/index.js"
     }
   },
   "files": [

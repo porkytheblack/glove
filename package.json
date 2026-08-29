@@ -8,7 +8,7 @@
     "typecheck": "pnpm -r --filter './packages/*' typecheck",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "node scripts/check-release-versions.mjs && pnpm --filter \"glove-python...\" --filter \"glove-js...\" --filter \"glove-lisp...\" --filter \"glove-working-environment...\" --filter \"glove-env-documents...\" --filter \"glove-env-spreadsheets...\" --filter \"glove-env-images...\" --filter \"glove-env-slides...\" --filter \"glove-env-zip...\" --filter \"glove-env-media...\" --filter \"glove-env-render...\" --filter \"glove-env-motion...\" build && changeset publish",
+    "release": "node scripts/check-release-versions.mjs && pnpm --filter glovebox-core build && pnpm -r --filter './packages/*' --filter '!glove-site' --filter '!glovebox-core' build && changeset publish",
     "scratchpad:db": "tsx examples/scratchpad-agent/database.ts",
     "weather:agent": "tsx examples/weather-agent/index.tsx",
     "coding:agent": "tsx examples/coding-agent/index.tsx",
@@ -38,6 +38,7 @@
     ]
   },
   "devDependencies": {
+    "@glove/release": "workspace:*",
     "@changesets/changelog-github": "^0.7.0",
     "@changesets/cli": "^2.31.0",
     "tsup": "^8.5.1",

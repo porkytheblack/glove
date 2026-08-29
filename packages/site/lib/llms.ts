@@ -6,6 +6,7 @@
 // to write correct Glove code without fetching anything else.
 
 import { docsSections } from "./docs-nav";
+import { FOUNDRY_LLMS_FULL } from "./foundry-llms";
 
 export const SITE_URL = "https://glove.dterminal.net";
 
@@ -21,7 +22,8 @@ export function buildLlmsTxt(): string {
       "Beyond the agent loop it ships a display stack (tools render UI mid-conversation), " +
       "a persistent inbox, a memory layer, sandboxes the model can compute in, " +
       "a mesh for agents to coordinate over, voice (cascade and realtime speech-to-speech), " +
-      "MCP integration, and container packaging.",
+      "MCP integration, container packaging, and Glove Foundry: a file-routed application " +
+      "framework for complete, observable agent systems.",
   );
   out.push("");
   out.push(
@@ -32,6 +34,7 @@ export function buildLlmsTxt(): string {
   out.push("");
   out.push("- Repository: https://github.com/porkytheblack/glove");
   out.push(`- Full condensed reference: ${SITE_URL}/llms-full.txt`);
+  out.push(`- Foundry agent-system reference: ${SITE_URL}/foundry/llms-full.txt`);
   out.push("");
 
   for (const section of docsSections) {
@@ -53,7 +56,7 @@ export function buildLlmsTxt(): string {
 }
 
 /** llms-full.txt — the condensed reference a coding model can work from. */
-export const LLMS_FULL = `# Glove — condensed reference for language models
+const CORE_LLMS_FULL = `# Glove — condensed reference for language models
 
 Glove is an open-source TypeScript framework for building applications driven by
 an AI agent. You define capabilities as **tools**; the agent decides which to
@@ -211,6 +214,7 @@ provider prompt caching. Cache usage is reported on every response as
 | package | purpose |
 | --- | --- |
 | glove-core | runtime: agent loop, tools, models, display manager, stores, hooks/skills/subagents |
+| glove-foundry | file-routed application framework: definitions, instances, apps, transmissions, playbooks, schedules, conversations, runtime and inspector |
 | glove-react | GloveClient, GloveProvider, useGlove, <Render>, defineTool, createRemoteStore |
 | glove-next | createChatHandler — SSE streaming route handler |
 | glove-voice | cascade voice: VAD → STT → agent → TTS, barge-in, push-to-talk |
@@ -229,7 +233,7 @@ provider prompt caching. Cache usage is reported on every response as
 | glove-mesh | direct/broadcast/ack messaging between agents |
 | glove-continuum-signal | subprocess runtime: triggered (cold) and concurrent (warm) agents |
 | glove-mcp | bridge Model Context Protocol servers in as tools |
-| glovebox-core / -kit / -client | package an agent as a sandboxed container service |
+| glovebox-core / -kit / -client | DEPRECATED legacy container service; use glove-foundry for new runtimes |
 | glove-sqlite | DEPRECATED SQLite store; bring your own StoreAdapter instead |
 
 ## 8. Capability packages — minimal correct usage
@@ -621,7 +625,10 @@ Avatars: \`attachAvatar(rt, avatar)\` with \`TavusEchoAdapter\` or
 set \`publishAgentAudio: false\` and \`{ agentAudio: false }\` so the voice is not
 published twice.
 
-## 10. Deployment (Glovebox)
+## 10. Legacy deployment (Glovebox — deprecated)
+
+Glovebox is retained for existing deployments. Build new agent runtimes,
+working environments, and deployment systems with Glove Foundry.
 
 \`\`\`ts
 import { glovebox, rule, composite } from "glovebox-core";
@@ -665,3 +672,5 @@ The deployed server exposes one authenticated WebSocket endpoint per session;
 - Core API: ${SITE_URL}/docs/core
 - Machine index: ${SITE_URL}/llms.txt
 `;
+
+export const LLMS_FULL = `${CORE_LLMS_FULL}\n\n${FOUNDRY_LLMS_FULL}`;

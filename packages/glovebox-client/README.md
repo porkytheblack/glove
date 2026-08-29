@@ -1,5 +1,8 @@
 # glovebox-client
 
+> [!WARNING]
+> Glovebox is deprecated in favor of [Glove Foundry](../glove-foundry/README.md). Keep this client for existing Glovebox deployments; use Foundry's runtime and client surfaces for new systems.
+
 Client SDK for talking to a deployed [Glovebox](https://github.com/porkytheblack/glove) server. One WebSocket per session, multiple prompts multiplexed. Streams subscriber events and display slot pushes; resolves with the final assistant message and an outputs map of `FileRef`s the client can read back through the configured storage.
 
 ## Install
