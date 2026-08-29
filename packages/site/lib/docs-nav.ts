@@ -36,6 +36,14 @@ export const docsSections: DocsNavSection[] = [
           "The idea behind Glove: define capabilities as tools, let an agent orchestrate them.",
       },
       {
+        label: "Glove Foundry",
+        href: "/foundry",
+        badge: "new",
+        summary:
+          "The file-routed, Effect-native framework for assembling, running, and inspecting complete agent systems.",
+        packages: ["glove-foundry"],
+      },
+      {
         label: "Installation",
         href: "/docs/installation",
         summary:
@@ -323,7 +331,7 @@ export const docsOrder: DocsOrderEntry[] = docsSections.flatMap((section) =>
     href: item.href,
     label: item.label,
     section: section.title,
-  })),
+  })).filter((item) => item.href.startsWith("/docs/")),
 );
 
 /** Look up the section a page belongs to. */

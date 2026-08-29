@@ -428,10 +428,10 @@ export default function LandingPage() {
     <main>
       {/* ── Hero ────────────────────────────────────────────────── */}
       <section className="hero">
-        <a className="hero-badge" href="/docs/packages">
+        <a className="hero-badge" href="/foundry">
           <span className="dot" />
           <span>
-            <strong>New</strong> — sandboxes, code execution & realtime voice
+            <strong>New</strong> — Glove Foundry, the framework for agent systems
           </span>
         </a>
         <GloveLogo className="hero-icon" />
@@ -439,13 +439,14 @@ export default function LandingPage() {
           Build agents that do <strong>cool things.</strong>
         </h1>
         <p className="hero-sub">
-          Glove is an open-source TypeScript framework for{" "}
+          Glove is an open-source TypeScript stack for{" "}
           <strong>AI-powered applications</strong>. You define tools; the agent
           decides when to use them — then renders UI, speaks, remembers,
           computes in a sandbox, and coordinates with other agents.
         </p>
         <div className="hero-pills">
           {[
+            "Foundry",
             "Display Stack",
             "Memory",
             "Inbox",
@@ -465,8 +466,8 @@ export default function LandingPage() {
           ))}
         </div>
         <div className="hero-actions">
-          <a href="/docs/getting-started" className="btn-primary">
-            Get Started
+          <a href="/foundry/docs/getting-started" className="btn-primary">
+            Start with Foundry
             <svg
               width="16"
               height="16"
@@ -483,6 +484,29 @@ export default function LandingPage() {
           <a href="#platform" className="btn-secondary">
             Explore the platform
           </a>
+        </div>
+      </section>
+
+      <section className="home-foundry-release">
+        <div className="home-foundry-copy">
+          <span className="section-label">Big release / Glove Foundry</span>
+          <h2>Your agents have a framework now.</h2>
+          <p>
+            File-routed definitions. Mutable instances. Dynamic applications and
+            playbooks. Conversations, schedules, workspaces, working environments,
+            multi-agent calls, and the runtime that makes every step visible.
+          </p>
+          <div className="home-foundry-actions">
+            <a href="/foundry" className="btn-primary">Meet Foundry →</a>
+            <a href="/blog/introducing-glove-foundry" className="btn-secondary">Read the release story</a>
+          </div>
+        </div>
+        <div className="home-foundry-rail" aria-label="Foundry architecture">
+          <div><span>CODE</span><strong>definition</strong><i>file-routed</i></div>
+          <b>+</b>
+          <div><span>DATA</span><strong>instance</strong><i>live choices</i></div>
+          <b>→</b>
+          <div className="active"><span>RUN</span><strong>assembly</strong><i>observable</i></div>
         </div>
       </section>
 

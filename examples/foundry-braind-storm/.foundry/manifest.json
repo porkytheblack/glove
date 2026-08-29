@@ -1,0 +1,221 @@
+{
+  "version": 1,
+  "generatedAt": "2026-08-22T10:12:16.073Z",
+  "agents": [
+    {
+      "id": "briefing-line",
+      "description": "Mara Vale's live Gemini speech-to-speech briefing line for a Braind Storm workspace.",
+      "mode": "signal",
+      "file": "briefing-line/agent.ts",
+      "tags": [
+        "braind-storm",
+        "lead",
+        "briefing",
+        "voice",
+        "s2s",
+        "gemini-live"
+      ],
+      "invocationContract": "foundry/request-v1",
+      "resultContract": "foundry/result-v1",
+      "assembly": "foundry",
+      "handler": "custom",
+      "layers": [],
+      "subscribers": [],
+      "tools": [],
+      "hooks": [],
+      "skills": [],
+      "subagents": [],
+      "memory": [],
+      "inboxLoader": false,
+      "calls": [],
+      "mesh": false,
+      "lazy": [
+        "model",
+        "systemPrompt",
+        "tools"
+      ]
+    },
+    {
+      "id": "campaign-orchestrator",
+      "description": "Durable campaign-batch coordinator for Braind Storm workforce runs.",
+      "mode": "signal",
+      "file": "campaign-orchestrator/agent.ts",
+      "tags": [
+        "braind-storm",
+        "campaigns",
+        "orchestration",
+        "parallel",
+        "sequential"
+      ],
+      "invocationContract": "foundry/request-v1",
+      "resultContract": "foundry/result-v1",
+      "assembly": "foundry",
+      "handler": "custom",
+      "layers": [],
+      "subscribers": [],
+      "tools": [],
+      "hooks": [],
+      "skills": [],
+      "subagents": [],
+      "memory": [],
+      "inboxLoader": false,
+      "calls": [],
+      "mesh": false,
+      "lazy": [
+        "model"
+      ]
+    },
+    {
+      "id": "critic",
+      "description": "Vera Proof, Braind Storm's Brand critic.",
+      "mode": "signal",
+      "file": "critic/agent.ts",
+      "tags": [
+        "braind-storm",
+        "brand-workforce",
+        "mesh-peer",
+        "critic"
+      ],
+      "invocationContract": "foundry/request-v1",
+      "resultContract": "foundry/result-v1",
+      "assembly": "foundry",
+      "handler": "glove",
+      "layers": [],
+      "subscribers": [],
+      "tools": [],
+      "hooks": [],
+      "skills": [],
+      "subagents": [],
+      "memory": [],
+      "inboxLoader": false,
+      "calls": [],
+      "mesh": false,
+      "lazy": [
+        "model",
+        "systemPrompt"
+      ]
+    },
+    {
+      "id": "lead",
+      "description": "Mara Vale, the public lead for the Braind Storm agentic brand workforce.",
+      "mode": "signal",
+      "file": "lead/agent.ts",
+      "tags": [
+        "braind-storm",
+        "lead",
+        "brand",
+        "go-to-market",
+        "working-environment"
+      ],
+      "invocationContract": "foundry/request-v1",
+      "resultContract": "foundry/result-v1",
+      "assembly": "foundry",
+      "handler": "custom",
+      "layers": [],
+      "subscribers": [],
+      "tools": [],
+      "hooks": [],
+      "skills": [],
+      "subagents": [],
+      "memory": [],
+      "inboxLoader": false,
+      "calls": [],
+      "mesh": false,
+      "lazy": [
+        "model",
+        "systemPrompt",
+        "compactionLimit"
+      ]
+    },
+    {
+      "id": "maker",
+      "description": "Noor Static, Braind Storm's Creative director.",
+      "mode": "signal",
+      "file": "maker/agent.ts",
+      "tags": [
+        "braind-storm",
+        "brand-workforce",
+        "mesh-peer",
+        "maker"
+      ],
+      "invocationContract": "foundry/request-v1",
+      "resultContract": "foundry/result-v1",
+      "assembly": "foundry",
+      "handler": "glove",
+      "layers": [],
+      "subscribers": [],
+      "tools": [],
+      "hooks": [],
+      "skills": [],
+      "subagents": [],
+      "memory": [],
+      "inboxLoader": false,
+      "calls": [],
+      "mesh": false,
+      "lazy": [
+        "model",
+        "systemPrompt"
+      ]
+    },
+    {
+      "id": "scout",
+      "description": "Iris Signal, Braind Storm's Culture & market scout.",
+      "mode": "signal",
+      "file": "scout/agent.ts",
+      "tags": [
+        "braind-storm",
+        "brand-workforce",
+        "mesh-peer",
+        "scout"
+      ],
+      "invocationContract": "foundry/request-v1",
+      "resultContract": "foundry/result-v1",
+      "assembly": "foundry",
+      "handler": "glove",
+      "layers": [],
+      "subscribers": [],
+      "tools": [],
+      "hooks": [],
+      "skills": [],
+      "subagents": [],
+      "memory": [],
+      "inboxLoader": false,
+      "calls": [],
+      "mesh": false,
+      "lazy": [
+        "model",
+        "systemPrompt"
+      ]
+    },
+    {
+      "id": "strategist",
+      "description": "Theo North, Braind Storm's Positioning & go-to-market strategist.",
+      "mode": "signal",
+      "file": "strategist/agent.ts",
+      "tags": [
+        "braind-storm",
+        "brand-workforce",
+        "mesh-peer",
+        "strategist"
+      ],
+      "invocationContract": "foundry/request-v1",
+      "resultContract": "foundry/result-v1",
+      "assembly": "foundry",
+      "handler": "glove",
+      "layers": [],
+      "subscribers": [],
+      "tools": [],
+      "hooks": [],
+      "skills": [],
+      "subagents": [],
+      "memory": [],
+      "inboxLoader": false,
+      "calls": [],
+      "mesh": false,
+      "lazy": [
+        "model",
+        "systemPrompt"
+      ]
+    }
+  ]
+}

@@ -67,6 +67,11 @@ export default function PackagesPage() {
         </thead>
         <tbody>
           <tr>
+            <td>Application framework</td>
+            <td><code>glove-foundry</code></td>
+            <td>Definitions, persisted instances, apps, events, schedules, conversations, runtime, and inspection need one coherent system.</td>
+          </tr>
+          <tr>
             <td>Runtime</td>
             <td>
               <code>glove-core</code>, <code>glove-react</code>,{" "}
@@ -149,6 +154,23 @@ export default function PackagesPage() {
       </table>
 
       {/* ============================================================ */}
+      <h2 id="application-framework">Application framework</h2>
+
+      <Pkg name="glove-foundry" tag="agent application framework">
+        <p>
+          The Effect-native, file-routed framework for complete Glove agent systems:
+          typed definitions, mutable instances, lazy composition, dynamically installed
+          applications, inbound and outbound transmissions, runtime playbooks,
+          schedules, conversations, shared workspaces, core orchestration tools, and a
+          correlated inspection workbench.
+        </p>
+        <CodeBlock filename="terminal" language="bash" code={`npx glove-foundry init my-agent-system
+cd my-agent-system
+pnpm install
+pnpm dev`} />
+        <p>→ <a href="/foundry">Foundry</a> · <a href="/foundry/docs">Framework handbook</a></p>
+      </Pkg>
+
       <h2 id="runtime">Runtime</h2>
 
       <Pkg name="glove-core" tag="the runtime">

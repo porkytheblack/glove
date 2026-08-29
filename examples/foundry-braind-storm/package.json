@@ -1,0 +1,43 @@
+{
+  "name": "glove-foundry-braind-storm",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:foundry": "glove foundry dev",
+    "dev:web": "next dev -p 3003",
+    "build": "next build",
+    "start": "next start -p 3003",
+    "typecheck": "tsc --noEmit",
+    "verify": "node --env-file-if-exists=.env --import tsx scripts/verify.ts",
+    "verify:call": "node --env-file-if-exists=.env --import tsx scripts/verify-call-live.ts",
+    "verify:room": "node --env-file-if-exists=.env --import tsx scripts/verify-room-live.ts",
+    "verify:campaign-call": "node --env-file-if-exists=.env --import tsx scripts/verify-campaign-call-live.ts",
+    "verify:live": "node --env-file-if-exists=.env --import tsx scripts/verify-live.ts"
+  },
+  "dependencies": {
+    "effect": "^3.22.1",
+    "glove-core": "workspace:*",
+    "glove-env-documents": "workspace:*",
+    "glove-env-images": "workspace:*",
+    "glove-foundry": "workspace:*",
+    "glove-image": "workspace:*",
+    "glove-mesh": "workspace:*",
+    "glove-voice-s2s": "workspace:*",
+    "glove-working-environment": "workspace:*",
+    "next": "^15.3.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "ws": "^8.18.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -68,7 +68,7 @@ const adapter = createS2SAdapter({ provider: "openai-webrtc", getToken: fetchEph
 | env | meaning |
 | --- | --- |
 | `S2S_PROVIDER` | `openai` (WS transport) \| `openai-webrtc` (browser device) \| `gemini`. Unset: whichever key exists, OpenAI first |
-| `S2S_MODEL` | model id; unset = provider default (`gpt-realtime` / `models/gemini-live-2.5-flash-preview`) |
+| `S2S_MODEL` | model id; unset = provider default (`gpt-realtime` / `models/gemini-3.1-flash-live-preview`) |
 | `OPENAI_API_KEY` / `GEMINI_API_KEY` | the credential when no `getToken`/`apiKey` is passed (server-side only) |
 | `S2S_TURN_DETECTION` | OpenAI: `semantic_vad` (default) \| `server_vad` (snappier barge-in) |
 

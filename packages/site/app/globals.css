@@ -709,3 +709,128 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
   .blog-figure-grid.cols-4,
   .blog-figure-grid.cols-5 { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ── Glove Foundry release ─────────────────────────────────────────────── */
+.nav-foundry { color: var(--accent) !important; }
+
+.home-foundry-release {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
+  gap: clamp(2.5rem, 6vw, 5rem);
+  align-items: center;
+  max-width: none;
+  width: min(100%, 1280px);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: clamp(2.5rem, 6vw, 5rem);
+  background:
+    linear-gradient(115deg, rgba(158, 212, 184, 0.07), transparent 48%),
+    var(--bg-elevated);
+  overflow: hidden;
+}
+.home-foundry-copy h2 { font-size: clamp(2rem, 4vw, 3.4rem); font-weight: 400; line-height: 1.05; letter-spacing: -0.045em; margin-bottom: 1.2rem; }
+.home-foundry-copy p { max-width: 58ch; color: var(--text-secondary); line-height: 1.75; }
+.home-foundry-actions { display: flex; gap: 0.75rem; margin-top: 1.8rem; flex-wrap: wrap; }
+.home-foundry-rail { display: flex; align-items: center; justify-content: center; gap: 0.7rem; min-height: 260px; position: relative; }
+.home-foundry-rail::before { content: ''; position: absolute; inset: -4rem; background-image: linear-gradient(var(--border-subtle) 1px, transparent 1px), linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px); background-size: 28px 28px; mask-image: radial-gradient(circle, #000, transparent 72%); opacity: .65; }
+.home-foundry-rail > * { position: relative; }
+.home-foundry-rail > div { width: 116px; min-height: 130px; display: flex; flex-direction: column; justify-content: space-between; padding: 1rem; border: 1px solid var(--border); border-radius: 10px; background: rgba(8, 11, 10, .88); }
+.home-foundry-rail > div.active { border-color: var(--accent-soft); box-shadow: 0 0 32px rgba(158, 212, 184, .09); }
+.home-foundry-rail span, .home-foundry-rail i { font-family: var(--mono); font-style: normal; text-transform: uppercase; letter-spacing: .09em; font-size: .59rem; color: var(--text-tertiary); }
+.home-foundry-rail strong { font-size: .9rem; font-weight: 500; }
+.home-foundry-rail > b { color: var(--text-tertiary); font-family: var(--mono); font-weight: 400; }
+
+.foundry-page { padding-top: var(--nav-h); }
+.foundry-page section { max-width: 1240px; }
+.foundry-hero { min-height: calc(100vh - var(--nav-h)); display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(420px, .95fr); gap: clamp(3rem, 8vw, 7rem); align-items: center; }
+.foundry-hero::before { content: ''; position: absolute; inset: 0; background-image: linear-gradient(var(--border-subtle) 1px, transparent 1px), linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px); background-size: 44px 44px; mask-image: linear-gradient(90deg, transparent, #000 70%, transparent); opacity: .48; pointer-events: none; }
+.foundry-hero > * { position: relative; }
+.foundry-eyebrow { display: flex; align-items: center; gap: .65rem; font-family: var(--mono); font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--accent); margin-bottom: 1.75rem; }
+.foundry-eyebrow svg { width: 24px; height: 24px; }
+.foundry-eyebrow span { color: var(--text-tertiary); border-left: 1px solid var(--border); padding-left: .65rem; }
+.foundry-hero h1 { font-size: clamp(3rem, 6vw, 5.8rem); max-width: 800px; font-weight: 300; line-height: .98; letter-spacing: -.055em; }
+.foundry-hero h1 em { display: block; color: var(--accent); font-style: normal; font-weight: 500; }
+.foundry-hero-copy > p { max-width: 620px; margin: 1.8rem 0 2rem; font-size: 1.12rem; line-height: 1.75; color: var(--text-secondary); font-weight: 300; }
+.foundry-hero-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
+.foundry-install { display: inline-flex; gap: .75rem; margin-top: 1.6rem; font-family: var(--mono); font-size: .75rem; color: var(--text-secondary); padding: .7rem .9rem; border: 1px solid var(--border-subtle); background: var(--bg-elevated); border-radius: 7px; }
+.foundry-install span { color: var(--accent); }
+
+.foundry-assembly { border: 1px solid var(--border); border-radius: 14px; background: rgba(15, 22, 19, .9); box-shadow: 0 30px 90px rgba(0,0,0,.28); overflow: hidden; }
+.assembly-topline { display: flex; justify-content: space-between; align-items: center; padding: .8rem 1rem; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: .6rem; color: var(--text-tertiary); letter-spacing: .12em; }
+.assembly-topline i, .assembly-node.run i { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+.assembly-column { padding: 2rem; }
+.assembly-node { display: grid; grid-template-columns: 38px 1fr auto; align-items: center; gap: 1rem; min-height: 74px; padding: 1rem; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); }
+.assembly-node b { font-family: var(--mono); font-size: .7rem; color: var(--text-tertiary); font-weight: 400; }
+.assembly-node span { font-size: .92rem; }
+.assembly-node small { display: block; font-family: var(--mono); color: var(--accent-soft); font-size: .56rem; letter-spacing: .13em; margin-bottom: .15rem; }
+.assembly-node.run { border-color: var(--accent-line); background: linear-gradient(90deg, rgba(158,212,184,.08), var(--bg)); }
+.assembly-connector { height: 48px; margin-left: 36px; border-left: 1px solid var(--accent-line); display: flex; align-items: center; }
+.assembly-connector span { margin-left: .75rem; font-family: var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--text-tertiary); font-size: .55rem; }
+.assembly-readout { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--border); }
+.assembly-readout span { padding: .75rem .4rem; text-align: center; font-family: var(--mono); font-size: .55rem; color: var(--text-tertiary); text-transform: uppercase; border-right: 1px solid var(--border-subtle); }
+
+.foundry-statement { display: grid; grid-template-columns: 160px 1fr; gap: 1rem 3rem; border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle); }
+.foundry-statement > span { font-family: var(--mono); font-size: .65rem; color: var(--accent); letter-spacing: .13em; }
+.foundry-statement h2 { font-size: clamp(2.1rem, 4.5vw, 4rem); font-weight: 300; line-height: 1.05; letter-spacing: -.045em; }
+.foundry-statement p { grid-column: 2; max-width: 800px; color: var(--text-secondary); line-height: 1.8; font-size: 1.05rem; }
+.foundry-cap-grid { display: grid; grid-template-columns: repeat(4, 1fr); padding-top: 0 !important; padding-bottom: 0 !important; border-left: 1px solid var(--border-subtle); }
+.foundry-cap-grid article { min-height: 280px; padding: 2rem; border-right: 1px solid var(--border-subtle); display: flex; flex-direction: column; }
+.foundry-cap-grid article > span { font-family: var(--mono); font-size: .63rem; color: var(--text-tertiary); }
+.foundry-cap-grid h3 { margin-top: auto; font-size: 1.3rem; font-weight: 500; }
+.foundry-cap-grid p { margin-top: .75rem; color: var(--text-secondary); line-height: 1.65; font-size: .9rem; }
+.foundry-code-section { display: grid; grid-template-columns: .8fr 1.2fr; gap: clamp(2rem, 6vw, 5rem); align-items: center; }
+.foundry-code-section h2 { font-size: clamp(2rem, 4vw, 3.4rem); line-height: 1.08; letter-spacing: -.04em; font-weight: 400; }
+.foundry-code-section p { color: var(--text-secondary); line-height: 1.75; margin: 1rem 0; }
+.foundry-code-section a { color: var(--accent); text-decoration: none; }
+.foundry-spectrum { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; padding: 1px !important; background: var(--border); }
+.foundry-spectrum div { background: var(--bg-elevated); padding: 2rem; }
+.foundry-spectrum span { display: block; font-family: var(--mono); font-size: .62rem; color: var(--accent); text-transform: uppercase; letter-spacing: .12em; margin-bottom: 1rem; }
+.foundry-spectrum strong { font-size: .9rem; line-height: 1.7; color: var(--text-secondary); font-weight: 400; }
+.foundry-final-cta { display: flex; align-items: flex-end; justify-content: space-between; gap: 2rem; }
+.foundry-final-cta span { font-family: var(--mono); font-size: .62rem; color: var(--text-tertiary); }
+.foundry-final-cta h2 { max-width: 760px; margin-top: .5rem; font-size: clamp(2.2rem, 5vw, 4.6rem); line-height: 1; letter-spacing: -.05em; font-weight: 300; }
+
+.foundry-sidebar { padding-top: 1.4rem; }
+.foundry-sidebar-brand { display: flex; align-items: center; gap: .7rem; padding: .75rem; margin-bottom: 1.5rem; color: var(--text-primary); text-decoration: none; border: 1px solid var(--border-subtle); border-radius: 9px; background: var(--bg-elevated); }
+.foundry-mark { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; background: var(--accent); color: var(--bg); font-family: var(--mono); font-weight: 600; }
+.foundry-sidebar-brand strong, .foundry-sidebar-brand small { display: block; }
+.foundry-sidebar-brand strong { font-size: .8rem; }
+.foundry-sidebar-brand small { font-family: var(--mono); color: var(--text-tertiary); font-size: .55rem; text-transform: uppercase; letter-spacing: .08em; }
+.foundry-sidebar-label { cursor: default; }
+.foundry-sidebar-machine { margin: 2rem .5rem 0; padding-top: 1rem; border-top: 1px solid var(--border-subtle); display: grid; gap: .4rem; }
+.foundry-sidebar-machine span { font-family: var(--mono); text-transform: uppercase; letter-spacing: .1em; font-size: .55rem; color: var(--text-tertiary); }
+.foundry-sidebar-machine a { color: var(--accent-soft); text-decoration: none; font-family: var(--mono); font-size: .7rem; }
+.foundry-doc-kicker { display: inline-block; margin-bottom: 1rem; font-family: var(--mono); font-size: .66rem; letter-spacing: .12em; text-transform: uppercase; color: var(--accent-soft); }
+.foundry-model-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); margin: 1.5rem 0; }
+.foundry-model-grid > div { background: var(--bg-elevated); padding: 1.5rem; }
+.foundry-model-grid span { font-family: var(--mono); font-size: .6rem; letter-spacing: .1em; color: var(--accent); }
+.foundry-model-grid h3 { margin-top: .8rem; }
+.foundry-model-grid p { margin: .4rem 0 0; font-size: .9rem; }
+.foundry-handbook-grid .doc-card { min-height: 180px; }
+.foundry-handbook-grid .doc-card > span { margin-top: auto; font-family: var(--mono); color: var(--accent); font-size: .7rem; }
+
+@media (max-width: 1024px) {
+  .foundry-hero { grid-template-columns: 1fr; min-height: auto; padding-top: 7rem; }
+  .foundry-assembly { max-width: 650px; width: 100%; }
+  .foundry-cap-grid { grid-template-columns: repeat(2, 1fr); }
+  .foundry-code-section { grid-template-columns: 1fr; }
+  .home-foundry-release { grid-template-columns: 1fr; margin-left: auto; margin-right: auto; width: calc(100% - 2rem); }
+}
+
+@media (max-width: 768px) {
+  .home-foundry-release { padding: 2rem 1.5rem; }
+  .home-foundry-rail { min-height: 220px; overflow-x: auto; justify-content: flex-start; }
+  .home-foundry-rail > div { min-width: 105px; }
+  .foundry-hero { padding-top: 5rem; }
+  .foundry-hero h1 { font-size: clamp(2.7rem, 14vw, 4.4rem); }
+  .foundry-hero-actions { flex-direction: column; }
+  .foundry-hero-actions a { justify-content: center; }
+  .assembly-column { padding: 1.25rem; }
+  .assembly-readout { grid-template-columns: repeat(2, 1fr); }
+  .foundry-statement { grid-template-columns: 1fr; }
+  .foundry-statement p { grid-column: 1; }
+  .foundry-cap-grid, .foundry-spectrum, .foundry-model-grid { grid-template-columns: 1fr; }
+  .foundry-cap-grid article { min-height: 220px; }
+  .foundry-final-cta { align-items: flex-start; flex-direction: column; }
+  .foundry-docs-layout .docs-sidebar { padding-top: 4.5rem; }
+}

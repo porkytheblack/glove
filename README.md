@@ -11,6 +11,7 @@
 
 <p align="center">
   <a href="https://glove.dterminal.net/docs/getting-started">Docs</a> &middot;
+  <a href="https://glove.dterminal.net/foundry">Foundry</a> &middot;
   <a href="https://glove.dterminal.net">Website</a> &middot;
   <a href="#examples">Examples</a>
 </p>
@@ -30,6 +31,19 @@ User: "Add the Nike ones to my cart and check out"
 
 Works with OpenAI, Anthropic, Google Gemini, OpenRouter, and more. Bridge external tool servers (Notion, Linear, Gmail, ...) via [MCP](#mcp-integration), or add real-time voice with [glove-voice](#voice).
 
+## Glove Foundry
+
+Glove Foundry is the file-routed, Effect-native application framework for complete agent systems. Definitions live in TypeScript; persisted instances select applications, playbooks, schedules, conversations, workspaces, and context at runtime. Every major surface can assemble lazily from the current message, and the built-in workbench correlates runs, model passes, tools, transmissions, handoffs, and artifacts.
+
+```bash
+npx glove-foundry init my-agent-system
+cd my-agent-system
+pnpm install
+pnpm dev
+```
+
+Read the [Foundry handbook](https://glove.dterminal.net/foundry/docs) or run the [`foundry-agent`](examples/foundry-agent) reference application.
+
 ## Packages
 
 | Package | Description | npm |
@@ -46,6 +60,7 @@ Works with OpenAI, Anthropic, Google Gemini, OpenRouter, and more. Bridge extern
 | [`glove-image`](packages/glove-image) | Agentic image generation — prompt pipelines with enhancer inbetweens, durable characters and scenes, reference images, editing, deterministic assembly, vision review, per-call cost tracking; BYO image-model adapter | [![npm](https://img.shields.io/npm/v/glove-image)](https://www.npmjs.com/package/glove-image) |
 | [`glove-memory`](packages/glove-memory) | Memory layer — entity / episodic / resources / context primitives, schema-first, BYO storage | [![npm](https://img.shields.io/npm/v/glove-memory)](https://www.npmjs.com/package/glove-memory) |
 | [`glove-mesh`](packages/glove-mesh) | Inter-agent mesh networking — direct/broadcast/ack messaging on top of the inbox primitive, BYO transport | [![npm](https://img.shields.io/npm/v/glove-mesh)](https://www.npmjs.com/package/glove-mesh) |
+| [`glove-foundry`](packages/glove-foundry) | Effect-native agent application framework — filename-owned, agent-colocated headless composition; separate runtime identities and multi-conversation state; message-aware lazy Glove assembly; application-owned transmissions and instance-owned playbooks/installations; installable tools, applications, and MCP plus definition-owned lazy memory and inboxes; native mesh; shared workspace/inbox/tasks/environment primitives; schedules, ingress connections, core orchestration tools, ESLint guardrails, and a correlated observability workbench | — |
 | [`glove-scratchpad`](packages/glove-scratchpad) | A database emulator for LLM tool use — expose an agent's capabilities as a relational database it queries with one `execute_sql` tool. Resources become tables, `WHERE` pushes arguments down, `information_schema` is discovery, transactions stage outbound effects, and every statement is parsed before any tool runs; default backend is `glove-sql` | [![npm](https://img.shields.io/npm/v/glove-scratchpad)](https://www.npmjs.com/package/glove-scratchpad) |
 | [`glove-sql`](packages/glove-sql) | Zero-dependency, pure-JS Postgres-subset SQL engine — runtime-built tables, joins/CTEs/set-ops/subqueries/window functions, serialises to bytes; the default backend for `glove-scratchpad` | [![npm](https://img.shields.io/npm/v/glove-sql)](https://www.npmjs.com/package/glove-sql) |
 | [`glove-working-environment`](packages/glove-working-environment) | A persistent, sandboxed working environment for LLM agents — a virtual filesystem where state accumulates across tool calls: write and persist scripts, run them, inspect intermediates, iterate. Scripts see only injected capabilities (`env:fs`, `env:std`, stdlib adapters) — no network, no host fs, no process. Zero-dep core | [![npm](https://img.shields.io/npm/v/glove-working-environment)](https://www.npmjs.com/package/glove-working-environment) |
@@ -524,7 +539,46 @@ For language models:
 
 ## Examples
 
-The repo includes six example agents:
+The repo includes runnable example agents for the core framework and its application runtimes:
+
+### Foundry Agent
+
+A fully typed, file-routed agent application with an Effect architecture verifier, Station topology, correlated traces, a deterministic local model, and an automatic OpenRouter path when `OPENROUTER_API_KEY` is set.
+
+[Build guide](packages/glove-foundry/docs/building-with-foundry.md) ·
+[Architecture](packages/glove-foundry/docs/architecture.md) ·
+[Evaluation checklist](packages/glove-foundry/docs/evaluation-checklist.md) ·
+[Reference project](examples/foundry-agent/README.md)
+
+```bash
+pnpm --filter glove-foundry-example verify       # offline, deterministic
+pnpm --filter glove-foundry-example verify:architecture
+pnpm --filter glove-foundry-example verify:live  # OpenRouter
+pnpm --filter glove-foundry-example dev          # runtime + DevTools
+```
+
+### Foundry Gemini Live Drag Racers
+
+A complete speech-to-speech Foundry product example with three file-routed, message-aware agents, persistent instances and conversations, native Glove tools exposed through Gemini Live, authenticated per-call rooms, correlated observability, and original generated racer portraits.
+
+```bash
+cd examples/foundry-drag-racers
+cp .env.example .env             # add GEMINI_API_KEY
+pnpm verify                      # offline architecture/assets check
+pnpm dev                         # Foundry + web app at localhost:3002
+pnpm verify:live                 # key/model/WebSocket smoke check
+```
+
+### Braind Storm
+
+An agentic brand workforce with one public lead, four Glove Mesh peers, context-lazy skill packs, shared working environments, path-based document handoffs, Gemini-backed Glove Image generation and visual review, and a responsive “weather room” UI.
+
+```bash
+export GEMINI_API_KEY=your_key
+pnpm --filter glove-foundry-braind-storm verify
+pnpm --filter glove-foundry-braind-storm dev      # Foundry + web app at localhost:3003
+pnpm --filter glove-foundry-braind-storm verify:live
+```
 
 ### Weather Agent
 

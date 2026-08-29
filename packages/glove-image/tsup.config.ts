@@ -9,6 +9,7 @@ export default defineConfig({
     "src/tools/index.ts",
     "src/in-memory/index.ts",
     "src/openrouter/index.ts",
+    "src/gemini/index.ts",
   ],
   format: ["esm"],
   dts: true,

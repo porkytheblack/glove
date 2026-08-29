@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "agents",
+    "applications",
+    "inboxes",
+    "layers",
+    "lib",
+    "mcp",
+    "memory",
+    "scripts",
+    "subscribers",
+    "tools",
+    "foundry.application.ts",
+    "foundry.config.ts",
+    ".foundry/routes.d.ts"
+  ]
+}

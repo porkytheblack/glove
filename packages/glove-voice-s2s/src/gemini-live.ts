@@ -61,7 +61,7 @@ export interface GeminiRealtimeInputConfig {
 export interface GeminiLiveConfig {
   /** Called to fetch an ephemeral token or API key from YOUR server. */
   getToken: () => Promise<string> | string;
-  /** Default: "models/gemini-live-2.5-flash-preview". */
+  /** Default: "models/gemini-3.1-flash-live-preview". */
   model?: string;
   /** Default prebuilt voice, used when the session config doesn't name one.
    *  Gemini takes the voice in the first frame only — per-session, not
@@ -304,7 +304,7 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
   private buildSetup(config?: S2SSessionConfig): Record<string, unknown> {
     const voice = config?.voice ?? this.cfg.voice;
     const setup: Record<string, unknown> = {
-      model: this.cfg.model ?? "models/gemini-live-2.5-flash-preview",
+      model: this.cfg.model ?? "models/gemini-3.1-flash-live-preview",
       generationConfig: {
         responseModalities: ["AUDIO"],
         ...(voice
@@ -360,16 +360,23 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
 
   injectText(text: string, opts?: { respond?: boolean }): void {
     if (!this.ws) return;
-    this.ws.send(
-      JSON.stringify({
-        clientContent: {
-          turns: [{ role: "user", parts: [{ text }] }],
-          // turnComplete is what asks for a reply. False leaves the text as
-          // context the model will use on the next turn without speaking now.
-          turnComplete: opts?.respond !== false,
-        },
-      }),
-    );
+    if (opts?.respond !== false) {
+      // Gemini 3.1 Live accepts clientContent only for INITIAL history
+      // seeding. Runtime text turns use realtimeInput.text; sending them as
+      // clientContent is accepted by the socket but silently produces no
+      // model turn. See the current Live API capabilities guide.
+      this.ws.send(JSON.stringify({ realtimeInput: { text } }));
+      return;
+    }
+    // Silent context remains client content with an incomplete turn. This is
+    // primarily useful while seeding a just-opened session; Gemini does not
+    // offer a mid-session silent realtime-text primitive.
+    this.ws.send(JSON.stringify({
+      clientContent: {
+        turns: [{ role: "user", parts: [{ text }] }],
+        turnComplete: false,
+      },
+    }));
   }
 
   sendToolResult(callId: string, output: unknown): void {
@@ -503,4 +510,3 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
   }
 
 }
-

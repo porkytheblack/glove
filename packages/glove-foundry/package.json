@@ -1,0 +1,92 @@
+{
+  "name": "glove-foundry",
+  "version": "0.1.0",
+  "description": "An Effect-native, file-routed framework for typed, observable Glove agent applications",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-foundry"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "glove": "./dist/cli.js",
+    "glove-foundry": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    },
+    "./eslint": {
+      "types": "./dist/eslint.d.ts",
+      "import": "./dist/eslint.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-concurrency=1 --import tsx tests/*.test.ts"
+  },
+  "keywords": [
+    "glove",
+    "agents",
+    "framework",
+    "runtime",
+    "observability",
+    "file-routing",
+    "effect",
+    "agent-applications"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "effect": "^3.22.1",
+    "glove-core": "workspace:*",
+    "glove-js": "workspace:*",
+    "glove-lisp": "workspace:*",
+    "glove-mcp": "workspace:*",
+    "glove-memory": "workspace:*",
+    "glove-mesh": "workspace:*",
+    "glove-python": "workspace:*",
+    "glove-working-environment": "workspace:*",
+    "station-env": "^2.2.0",
+    "station-signal": "^2.2.0",
+    "station-schedules": "^2.2.0",
+    "tsx": "^4.21.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "eslint": ">=9"
+  },
+  "peerDependenciesMeta": {
+    "eslint": {
+      "optional": true
+    }
+  }
+}
