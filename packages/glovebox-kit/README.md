@@ -1,5 +1,8 @@
 # glovebox-kit
 
+> [!WARNING]
+> Glovebox is deprecated in favor of [Glove Foundry](../glove-foundry/README.md). Keep this package for existing Glovebox containers; use Foundry for new runtimes.
+
 In-container runtime for [Glovebox](https://github.com/porkytheblack/glove). Hosts a wrapped Glove agent behind a single authenticated WebSocket endpoint, plus an HTTP `/files` route for server-parked outputs.
 
 > **Most users do not import this package directly.** `glovebox build` generates a server entry that already calls `startGlovebox()`, links the manifest, and registers the bundled adapters. You only reach for `glovebox-kit` when you need to register an extra `StorageAdapter` (S3, your own URL signer, ...) or hand-roll the server entry for an unusual deployment.

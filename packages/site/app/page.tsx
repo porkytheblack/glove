@@ -126,7 +126,7 @@ type Cap = {
   kicker: string;
   name: string;
   href: string;
-  badge?: "beta" | "new";
+  badge?: "beta" | "new" | "deprecated";
   desc: ReactNode;
   meta?: string;
 };
@@ -393,12 +393,12 @@ const capabilityGroups: CapGroup[] = [
         kicker: "Ship it",
         name: "Glovebox",
         href: "/docs/glovebox",
-        badge: "beta",
+        badge: "deprecated",
         desc: (
           <>
-            Package an agent as a sandboxed container with one authenticated
-            WebSocket endpoint per session. Five base images, a storage policy
-            for payloads, and a client SDK.
+            Legacy compatibility surface for existing sandboxed container
+            deployments. Build new agent runtimes and deployment systems with
+            Foundry.
           </>
         ),
       },
@@ -458,7 +458,7 @@ export default function LandingPage() {
             "Voice",
             "Avatars",
             "MCP",
-            "Glovebox",
+            "Foundry",
           ].map((p) => (
             <span key={p} className="hero-pill">
               {p}

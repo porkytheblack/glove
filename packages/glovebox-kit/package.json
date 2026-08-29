@@ -2,6 +2,7 @@
   "name": "glovebox-kit",
   "version": "0.5.1",
   "description": "Sandboxed runtime that hosts a Glovebox app inside a container",
+  "deprecated": "Glovebox is deprecated. Use glove-foundry for new agent runtimes and deployments.",
   "type": "module",
   "license": "MIT",
   "repository": {

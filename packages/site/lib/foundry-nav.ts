@@ -85,7 +85,7 @@ export const foundrySections: FoundryNavSection[] = [
       {
         label: "Deploy",
         href: "/foundry/docs/deploy",
-        summary: "Production adapters, durable state, Glovebox packaging, and the path from local Foundry to cloud agents.",
+        summary: "Production adapters, durable state, Foundry workers, and the path from local Foundry to cloud agents.",
       },
     ],
   },

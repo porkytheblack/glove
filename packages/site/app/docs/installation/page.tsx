@@ -229,13 +229,13 @@ npm install glove-react glove-next zod`}
             </td>
           </tr>
           <tr>
-            <td>Ship the agent as a container</td>
+            <td>Maintain a legacy Glovebox container</td>
             <td>
               <code>glovebox-core</code>, <code>glovebox-kit</code>,{" "}
               <code>glovebox-client</code>
             </td>
             <td>
-              <a href="/docs/glovebox">Glovebox</a>
+              <a href="/docs/glovebox">Glovebox (deprecated)</a>
             </td>
           </tr>
         </tbody>

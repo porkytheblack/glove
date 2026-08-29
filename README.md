@@ -74,9 +74,9 @@ Read the [Foundry handbook](https://glove.dterminal.net/foundry/docs) or run the
 | [`glove-env-motion`](packages/glove-env-motion) | Motion stdlib adapter for `glove-working-environment` — `env:motion`: the agent writes a React component and gets an mp4, an animated GIF, PNG frames or a still. Time is replaced rather than measured, so two runs of the same scene are byte-identical; React Native Reanimated scenes render unchanged | [![npm](https://img.shields.io/npm/v/glove-env-motion)](https://www.npmjs.com/package/glove-env-motion) |
 | [`glove-lisp`](packages/glove-lisp) | A Lisp REPL for LLM tool use — the same resource catalog as `glove-scratchpad`, exposed as functions in a tiny sandboxed Clojure-flavored Lisp behind one `execute_lisp` tool. Branch (decide-and-act) in one call, `def` keeps intermediates out of context, effects are exactly-once by construction (exploration) | [![npm](https://img.shields.io/npm/v/glove-lisp)](https://www.npmjs.com/package/glove-lisp) |
 | [`glove-continuum-signal`](packages/glove-continuum-signal) | Subprocess-based runtime for triggered (async) and concurrent (warm) agents — discovery, supervision, observability, IPC | [![npm](https://img.shields.io/npm/v/glove-continuum-signal)](https://www.npmjs.com/package/glove-continuum-signal) |
-| [`glovebox-core`](packages/glovebox) | Authoring kit + `glovebox build` CLI for shipping a Glove agent as a sandboxed container | [![npm](https://img.shields.io/npm/v/glovebox-core)](https://www.npmjs.com/package/glovebox-core) |
-| [`glovebox-kit`](packages/glovebox-kit) | In-container runtime — WebSocket server, storage adapters, auto-injected skills/hooks | [![npm](https://img.shields.io/npm/v/glovebox-kit)](https://www.npmjs.com/package/glovebox-kit) |
-| [`glovebox-client`](packages/glovebox-client) | Client SDK for talking to a deployed Glovebox server | [![npm](https://img.shields.io/npm/v/glovebox-client)](https://www.npmjs.com/package/glovebox-client) |
+| [`glovebox-core`](packages/glovebox) | **Deprecated:** legacy container authoring kit; use `glove-foundry` for new runtimes | [![npm](https://img.shields.io/npm/v/glovebox-core)](https://www.npmjs.com/package/glovebox-core) |
+| [`glovebox-kit`](packages/glovebox-kit) | **Deprecated:** legacy Glovebox container runtime | [![npm](https://img.shields.io/npm/v/glovebox-kit)](https://www.npmjs.com/package/glovebox-kit) |
+| [`glovebox-client`](packages/glovebox-client) | **Deprecated:** compatibility client for existing Glovebox deployments | [![npm](https://img.shields.io/npm/v/glovebox-client)](https://www.npmjs.com/package/glovebox-client) |
 
 ## Quick Start
 
@@ -469,6 +469,8 @@ See the [glove-mcp README](packages/glove-mcp/README.md) and [`examples/mcp-cli`
 
 ## Glovebox
 
+> **Deprecated:** Glovebox is retained for existing container deployments, but Glove Foundry is now the supported path for new agent runtimes, working environments, observability, and deployment composition. Start with the [Foundry documentation](https://glove.dterminal.net/foundry/docs).
+
 Glovebox packages a Glove agent as an isolated, network-addressable service. Wrap a built runnable with `glovebox.wrap(runnable, config)`, run `glovebox build`, ship the generated `dist/` (Dockerfile + nixpacks alternative + esbuild server bundle + manifest + bearer key) to any container host. The deployed server exposes one authenticated WebSocket endpoint per session; `glovebox-client` speaks to it. Files cross the wire as `FileRef` (`inline | url | server | s3 | gcs`), never raw bytes.
 
 Five base images cover the common toolsets (`glovebox/base`, `glovebox/media`, `glovebox/docs`, `glovebox/python`, `glovebox/browser`). A storage policy DSL routes inputs and outputs by size — small payloads go inline, larger ones park on the server (or S3) and the client pulls them through the same SDK call. The kit auto-injects an `environment` skill, `workspace` skill, `/output` hook, and `/clear-workspace` hook, and prepends an environment preamble to the agent's system prompt at boot.
@@ -529,7 +531,7 @@ Reference:
 - [Core API](https://glove.dterminal.net/docs/core) · [React](https://glove.dterminal.net/docs/react) · [Next.js](https://glove.dterminal.net/docs/next)
 - [Display Stack](https://glove.dterminal.net/docs/display-stack) · [Server-Side Agents](https://glove.dterminal.net/docs/server-side) · [Memory](https://glove.dterminal.net/docs/memory)
 - [Working Environment](https://glove.dterminal.net/docs/working-environment) · [Code Execution](https://glove.dterminal.net/docs/code-execution) · [Egress Control](https://glove.dterminal.net/docs/egress)
-- [Voice](https://glove.dterminal.net/docs/voice) · [Realtime Voice & Avatars](https://glove.dterminal.net/docs/realtime-voice) · [MCP](https://glove.dterminal.net/docs/mcp) · [Glovebox](https://glove.dterminal.net/docs/glovebox)
+- [Voice](https://glove.dterminal.net/docs/voice) · [Realtime Voice & Avatars](https://glove.dterminal.net/docs/realtime-voice) · [MCP](https://glove.dterminal.net/docs/mcp) · [Glovebox (deprecated)](https://glove.dterminal.net/docs/glovebox)
 
 For language models:
 
@@ -701,13 +703,13 @@ Versioning is automated with [Changesets](https://github.com/changesets/changese
 
 2. On merge to `main`, CI opens (or updates) a **"Version Packages"** PR that applies the bumps and writes each package's `CHANGELOG.md`. Review and merge it — the new versions land on `main`. Dependents of a bumped package are re-versioned for you.
 
-3. **A maintainer publishes manually** from a clean `main`, logged in to npm with 2FA:
+3. **A maintainer publishes manually** from the repository root on a clean `main`, logged in to npm with 2FA:
 
    ```bash
-   pnpm release
+   npx release
    ```
 
-   This builds the packages and `changeset publish`es everything whose version isn't yet on npm (`workspace:*` deps are resolved to concrete versions automatically). CI does not publish — npm is deprecating the 2FA-bypassing tokens that automated publishing would require.
+   `release` is a repository-local executable, not the similarly named public npm package. It runs the registry preflight, rebuilds every publishable package, and `changeset publish`es everything whose version isn't yet on npm (`workspace:*` deps are resolved to concrete versions automatically). `pnpm release` remains an equivalent maintainer command. CI does not publish — npm is deprecating the 2FA-bypassing tokens that automated publishing would require.
 
 No changeset? Then the change ships nothing — pure refactors, docs, and tests don't need a release. Versioning runs in `.github/workflows/release.yml`.
 

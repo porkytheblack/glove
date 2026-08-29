@@ -21,7 +21,7 @@ export default async function GloveboxPage() {
             verticalAlign: "middle",
           }}
         >
-          beta
+          deprecated
         </span>
       </h1>
 
@@ -35,10 +35,9 @@ export default async function GloveboxPage() {
           color: "#5e9cd3",
         }}
       >
-        Glovebox is in beta. The wire protocol and authoring API are stable
-        for v1, but several pieces — JWT auth, multiplex prompt execution,
-        hot reload, GCS/Azure storage adapters — are deferred to v2. Expect
-        the surface to grow, not break.
+        Glovebox is deprecated in favor of <a href="/foundry/docs">Glove Foundry</a>.
+        This reference remains available for existing deployments, but new agent
+        runtimes, working environments, and deployment systems should use Foundry.
       </p>
 
       <p>

@@ -1045,6 +1045,12 @@ await mountMcp(runnable, {
       <h2 id="deployment">Deployment</h2>
 
       <p>
+        <strong>Deprecated:</strong> Glovebox is retained for existing
+        deployments. Use <a href="/foundry/docs">Glove Foundry</a> for new
+        agent runtimes, working environments, and deployment composition.
+      </p>
+
+      <p>
         <code>glovebox-core</code> (authoring kit + <code>glovebox build</code>{" "}
         CLI), <code>glovebox-kit</code> (the in-container runtime) and{" "}
         <code>glovebox-client</code> (the client SDK) package an agent as an

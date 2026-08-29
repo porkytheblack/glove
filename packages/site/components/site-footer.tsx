@@ -33,7 +33,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
     links: [
       { label: "Server-Side Agents", href: "/docs/server-side" },
       { label: "MCP", href: "/docs/mcp" },
-      { label: "Glovebox", href: "/docs/glovebox" },
+      { label: "Glovebox (legacy)", href: "/docs/glovebox" },
       { label: "Showcase", href: "/docs/showcase/travel-planner" },
     ],
   },

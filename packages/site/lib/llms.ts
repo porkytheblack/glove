@@ -233,7 +233,7 @@ provider prompt caching. Cache usage is reported on every response as
 | glove-mesh | direct/broadcast/ack messaging between agents |
 | glove-continuum-signal | subprocess runtime: triggered (cold) and concurrent (warm) agents |
 | glove-mcp | bridge Model Context Protocol servers in as tools |
-| glovebox-core / -kit / -client | package an agent as a sandboxed container service |
+| glovebox-core / -kit / -client | DEPRECATED legacy container service; use glove-foundry for new runtimes |
 | glove-sqlite | DEPRECATED SQLite store; bring your own StoreAdapter instead |
 
 ## 8. Capability packages — minimal correct usage
@@ -625,7 +625,10 @@ Avatars: \`attachAvatar(rt, avatar)\` with \`TavusEchoAdapter\` or
 set \`publishAgentAudio: false\` and \`{ agentAudio: false }\` so the voice is not
 published twice.
 
-## 10. Deployment (Glovebox)
+## 10. Legacy deployment (Glovebox — deprecated)
+
+Glovebox is retained for existing deployments. Build new agent runtimes,
+working environments, and deployment systems with Glove Foundry.
 
 \`\`\`ts
 import { glovebox, rule, composite } from "glovebox-core";

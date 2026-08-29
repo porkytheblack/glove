@@ -241,7 +241,7 @@ export const docsSections: DocsNavSection[] = [
       {
         label: "Egress Control",
         href: "/docs/egress",
-        badge: "beta",
+        badge: "deprecated",
         summary:
           "Make the sandbox boundary a measured, enforced privacy boundary.",
         packages: ["glove-egress"],

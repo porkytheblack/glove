@@ -30,12 +30,13 @@ pnpm start
 # or explicitly
 glove foundry start --host 0.0.0.0 --port 4141`} />
 
-      <h2 id="glovebox">Package the worker with Glovebox</h2>
+      <h2 id="workers">Package Foundry workers</h2>
       <p>
-        Glovebox packages Glove agents as sandboxed container services. Use it for
-        isolated working-environment workers or an execution tier behind your Foundry
-        control service. File payloads cross boundaries as typed references rather than
-        unbounded raw bytes.
+        Build the Foundry package and deploy its start command in your ordinary Node
+        container or process runtime. Mount working environments through Foundry adapters,
+        keep file payloads behind typed artifact references, and give each worker only the
+        capabilities its operational role needs. Glovebox is deprecated and should only
+        remain in existing deployments while they migrate to this model.
       </p>
 
       <h2 id="scale">Scale by operational role</h2>
