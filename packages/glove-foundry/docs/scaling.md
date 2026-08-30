@@ -151,7 +151,7 @@ SELECT * FROM runs
 
 Three properties matter at fleet scale:
 
-1. **No `FOR UPDATE SKIP LOCKED`.** Every station reads the same head of the
+1. **The claim is read-then-race.** Every station reads the same head of the
    queue and then races on `claimRun`, whose `WHERE status='pending'` guard
    makes the race *correct* but not *cheap*: with N stations, roughly
    `(N-1)/N` of claim attempts lose and retry.
@@ -173,13 +173,32 @@ by needing far fewer stations in the first place.
 
 **Fixes, in order of value:**
 
-- `FOR UPDATE SKIP LOCKED` in `getRunsDue` — removes the claim race outright.
-- Push placement labels into the `WHERE` clause (an optional filter argument on
-  `getRunsDue`) so a partitioned fleet reads only its own work.
-- Bound `getRunsRunning()`.
+- Narrow both queries server-side — an optional filter argument on
+  `getRunsDue` (eligible signal names) and on `getRunsRunning` (this station's
+  id), so a partitioned fleet reads only its own work instead of fetching and
+  discarding its peers'. **Done** in
+  [station#16](https://github.com/porkytheblack/station/pull/16).
+- Remove the read-then-race with a one-statement select-and-claim. Harder than
+  it looks, see below.
 
-All three are `station-adapter-postgres` / `station-signal` changes, invisible
-to Foundry.
+A correction to an earlier draft of this note: adding `FOR UPDATE SKIP LOCKED`
+to `getRunsDue` **would not help.** It is a read on a pooled autocommit
+connection, so its row locks release before the claim is attempted — the race
+is unchanged. The real fix is a single statement that selects and claims
+together:
+
+```sql
+UPDATE runs SET status = 'running', … 
+ WHERE id = (SELECT id FROM runs WHERE … ORDER BY created_at
+             FOR UPDATE SKIP LOCKED LIMIT 1)
+ RETURNING *
+```
+
+That collides with retry backoff, which the runner computes client-side from
+`attempts`, `lastRunAt` and its own `retryBackoffMs` rather than storing in
+`nextRunAt`. A one-statement claim cannot apply it, so this needs either
+backoff encoded in SQL or moved into `nextRunAt` at failure time — a behaviour
+change worth deciding on its own.
 
 ## A Foundry-specific hazard at this scale
 
@@ -239,8 +258,9 @@ first:
 1. **Process-per-run.** The dominant cost, ~100× more memory than the work
    needs. Wants per-definition warm execution, which Glove already has in
    `glove-continuum-signal` but Foundry does not use.
-2. **Queue contention.** Fixable in the Postgres adapter with `SKIP LOCKED`
-   and server-side placement filtering. Cheap, high value.
+2. **Queue contention.** Server-side query narrowing is done
+   ([station#16](https://github.com/porkytheblack/station/pull/16)); the
+   read-then-race remains, and needs the backoff question settled first.
 3. **Boot-time activation reconstruction.** Needs shard-scoped listing before a
    deploy at this size is safe.
 4. **Everything else** — connection pooling, unbounded running-run sweeps —
@@ -249,7 +269,8 @@ first:
 **The recommendation:** do not try to reach 100k users by adding stations to
 one network. Shard into workspace-partitioned networks first, because it caps
 every other limit; then make execution warm per definition, because it is where
-the money is; then fix the claim query, because it is nearly free.
+the money is; then settle the claim query, which is less nearly-free than this
+note originally claimed.
 
 **Before any of it, measure.** The two numbers that decide everything here are
 mean run duration and resident memory per run process. Both are properties of
