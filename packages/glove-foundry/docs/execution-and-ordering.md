@@ -1,9 +1,9 @@
 # Execution ownership and conversation ordering
 
-> Status: **decided and implemented.** Execution storage is now an application
-> choice (`defineApplication({ execution })`). Conversation ordering is
-> deliberately **not** a framework concern — see "Ordering is the application's
-> call" below.
+> Status: **decided and implemented.** Execution storage and fleet role are now
+> application choices (`defineApplication({ execution })`). Conversation
+> ordering is deliberately **not** a framework concern — see "Ordering is the
+> application's call" below.
 
 ## Why this note exists
 
@@ -176,6 +176,59 @@ the private-backend boundary exists to prevent.
 
 That is a future option, not a plan.
 
+## Roles: Headquarters and stations
+
+Storage alone lets several processes share a queue. It does not make them a
+fleet — every process would still reconcile every schedule and arm every
+pending activation. The role split fixes that:
+
+```ts
+// Headquarters — serves the API, reconciles schedules, claims nothing.
+defineApplication({
+  name: "my-app",
+  execution: {
+    runs, schedules, role: "headquarters", stationId: "hq-1",
+    network: { id: "prod", adapter: networkAdapter },
+  },
+})
+
+// Station — claims and executes; reconciles nothing.
+defineApplication({
+  name: "my-app",
+  execution: {
+    runs, schedules, role: "station", stationId: process.env.REPLICA_ID,
+    network: { id: "prod", adapter: networkAdapter, labels: { region: "ke" } },
+    canClaim: () => Promise.resolve(!draining),
+  },
+})
+```
+
+`standalone` remains the default and still does both, so nothing changes for
+an existing project or for `pnpm dev`.
+
+The planes follow Station's own derivation:
+
+| | control plane | execution plane |
+| --- | --- | --- |
+| `headquarters` | yes | no |
+| `station` | no | yes |
+| `standalone` | yes | yes |
+
+Headquarters still runs the poll loop — the schedule reconciler rides its
+cadence — but advertises `maxConcurrent: 0`, so it reconciles without claiming.
+
+**This is what makes boot safe at size.** `reconstructActivations()` reads
+every pending activation and arms it locally. Run that on twenty stations and
+a deploy re-arms the whole system twenty times; `claimDue` keeps it *correct*,
+but the cost is multiplied exactly when it hurts. Only the control plane arms,
+so adding stations no longer adds boot-time work.
+
+With a `network.adapter` a process registers itself, heartbeats its capacity
+and labels, and announces departure on stop rather than waiting out its lease.
+Labels are what `SignalPlacement` matches, and the adapter is what network-wide
+concurrency coordinates through. Without one, a non-standalone role warns and
+runs blind — correct alone, invisible to peers.
+
 ## Where this leaves things
 
 Done:
@@ -183,11 +236,14 @@ Done:
 1. Execution storage is injectable via `defineApplication({ execution })`.
 2. `stationId` defaults to a real per-process identity.
 3. Supplied adapters are borrowed, never closed by the runtime.
+4. Roles split the control and execution planes, so only Headquarters
+   reconciles schedules and arms activations.
+5. Fleet membership: registration, heartbeat, labels, capacity, drain gate,
+   and a clean departure on stop.
 
 Not done, by decision: conversation ordering. An application that needs it
 implements it, and the prior art above says how.
 
-One caveat for whoever touches this next — `glove-foundry` is not in
-`.github/workflows/ci.yml`. Its typecheck and its 52 tests run locally but
-nothing in CI covers them, so a change here is only as validated as the person
-making it. Adding it to the workflow is worth doing on its own.
+Still open, and measured rather than guessed in
+[`scaling.md`](./scaling.md): execution is one OS process per run, which is the
+limit that binds first well before the queue does.

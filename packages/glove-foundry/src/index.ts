@@ -202,6 +202,7 @@ export {
   type FoundryApplication,
   type FoundryApplicationOptions,
   type FoundryExecutionAdapters,
+  type FoundryNetworkMembership,
 } from "./application.js";
 export {
   createManifest,

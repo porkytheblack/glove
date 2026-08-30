@@ -71,8 +71,9 @@
     "glove-python": "workspace:*",
     "glove-working-environment": "workspace:*",
     "station-env": "^2.2.0",
-    "station-signal": "^2.2.0",
+    "station-network": "^2.2.0",
     "station-schedules": "^2.2.0",
+    "station-signal": "^2.2.0",
     "tsx": "^4.21.0",
     "zod": "^4.3.6"
   },

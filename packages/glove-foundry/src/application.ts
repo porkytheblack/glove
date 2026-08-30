@@ -1,5 +1,6 @@
 import type { Layer } from "effect";
 import type { StoreAdapter } from "glove-core";
+import type { StationNetworkAdapter, StationRole } from "station-network";
 import type { ScheduleAdapter } from "station-schedules";
 import type { SignalQueueAdapter } from "station-signal";
 import type { AccountReference, AgentBinding, Route } from "./domain.js";
@@ -51,6 +52,65 @@ export interface FoundryExecutionAdapters {
    * not the length of a run.
    */
   readonly leaseDurationMs?: number;
+  /**
+   * What this process is for.
+   *
+   * `standalone` (the default) serves the API, reconciles schedules and
+   * executes runs — one process doing everything, which is what development
+   * and a single deployment want.
+   *
+   * Splitting the planes gives `headquarters` (serves the API and reconciles
+   * schedules, claims nothing) and `station` (claims and executes, reconciles
+   * nothing). Exactly one process should be Headquarters; stations scale
+   * horizontally beneath it.
+   *
+   * The split is what makes schedule reconstruction safe at size: a station
+   * never arms an activation, so adding stations does not multiply the work
+   * done at boot.
+   */
+  readonly role?: StationRole;
+  /** Fleet membership. Required for the roles to see each other across processes. */
+  readonly network?: FoundryNetworkMembership;
+  /**
+   * Run the execution loop at all. Defaults to `false` for `headquarters` and
+   * `true` otherwise. Setting it false on a station is how you drain one
+   * permanently; for a rolling drain prefer `canClaim`.
+   */
+  readonly runRunners?: boolean;
+  /**
+   * Admission gate consulted before each claim attempt. Return false to stop
+   * taking new work while letting in-flight runs finish — the shape a graceful
+   * deploy wants.
+   */
+  readonly canClaim?: () => Promise<boolean>;
+}
+
+/**
+ * Where this process announces itself and how peers find it.
+ *
+ * Foundry stores nothing here itself; the adapter owns membership, controller
+ * leases and liveness. Without one, a non-standalone role runs blind: it will
+ * behave correctly on its own but no peer can see it, so placement and
+ * network-wide concurrency have nothing to coordinate through.
+ */
+export interface FoundryNetworkMembership {
+  /** Logical fleet name. Processes only coordinate within one id. */
+  readonly id?: string;
+  /** Human-readable name for this process in fleet views. Defaults to its station id. */
+  readonly name?: string;
+  /** Durable membership storage. Omit and the fleet is invisible across processes. */
+  readonly adapter?: StationNetworkAdapter;
+  /**
+   * Facts about this process that work can be routed by — region, hardware,
+   * tenancy. A definition's placement requirements are matched against these.
+   */
+  readonly labels?: Record<string, string>;
+  /** Address peers and dashboards can reach this process on. */
+  readonly endpoint?: string;
+  /** How often this process reports liveness and capacity. */
+  readonly heartbeatIntervalMs?: number;
+  /** How long its membership survives without a heartbeat. */
+  readonly membershipLeaseMs?: number;
 }
 
 /** Process infrastructure only; agent files own runtime capabilities. */
