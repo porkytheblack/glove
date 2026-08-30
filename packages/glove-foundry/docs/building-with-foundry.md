@@ -5,14 +5,51 @@ Foundry uses the filesystem for code identity and imported values for code relat
 ## Create and run
 
 ```bash
-npx glove foundry support-workforce
+npx glove foundry init support-workforce
 cd support-workforce
-pnpm install
 cp .env.example .env.local
+pnpm install
 pnpm dev
 ```
 
 `glove foundry dev` discovers the source graph, derives identities, checks types and conventions, generates `.foundry/routes.d.ts`, and starts the runtime and inspector.
+
+The generated project depends on the exact Glove versions the `glove-foundry` that created it was built against. That is not tidiness: a narrower range makes the package manager install a second copy of `glove-js`, and the two `JsSession` classes then fail to type-match.
+
+### Templates
+
+| `--template` | What you get |
+| --- | --- |
+| `travel-concierge` (default) | A travel agent that searches flights, installs a calendar application, replies over a chat transmission, remembers the traveller, wakes on a schedule, and owns a sandboxed VFS and REPL. One example per convention. |
+| `minimal` | One agent and one tool. |
+
+The travel concierge runs before you configure a provider — `lib/demo-model.ts` answers deterministically until `OPENROUTER_API_KEY` is set, so the first run produces a real trace with real tool calls.
+
+### Adding Foundry to an existing Next.js app
+
+```bash
+cd my-next-app
+npx glove foundry init . --target nextjs   # or just: npx glove foundry init .
+```
+
+A directory holding a Next.js app is detected, so `--target` is usually unnecessary. Foundry then joins the project rather than taking it over:
+
+| Path | What lands there |
+| --- | --- |
+| `foundry/agents/**` | The agents |
+| `foundry/foundry.application.ts` | Data adapter, accounts, routes |
+| `foundry/package.json` | `{"type":"module"}`, scoping ESM to the agents |
+| `foundry.config.mts` | Points the runtime at `foundry/agents` |
+| `lib/foundry.ts` | A typed client your app imports |
+| `app/api/<agent>/route.ts` | An example route handler |
+
+Your `package.json` keeps its name, scripts, and dependencies; it gains `foundry:dev`, `foundry:start`, and the Glove packages. Nothing it already owns is overwritten.
+
+The runtime is a separate process from `next dev`, deliberately — it holds durable state and should not restart when a component changes. The app reaches it over HTTP through `lib/foundry.ts`, so no part of the agent graph is bundled into your app, and `FoundryRoutes` stays a type-only import.
+
+Two details make this work in a Next.js project specifically. A Next.js app is not `"type": "module"`, so Node would load the agents through the CommonJS resolver and fail on Foundry's ESM-only export map; the nested `foundry/package.json` scopes ESM to the agent tree, and `.mts` makes the config unambiguous whatever the root declares.
+
+In production, set `FOUNDRY_URL` to wherever the runtime is deployed and keep it private to your network — the inspector is a development surface.
 
 ## The filesystem is the static registry
 

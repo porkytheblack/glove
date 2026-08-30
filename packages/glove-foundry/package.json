@@ -40,6 +40,7 @@
   "files": [
     "dist",
     "docs",
+    "templates",
     "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
