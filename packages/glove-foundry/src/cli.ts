@@ -18,7 +18,14 @@ import {
 import { writeGeneratedTypes } from "./codegen.js";
 import { loadEnvFile } from "./env.js";
 import { FoundryRuntime } from "./runtime.js";
-import { scaffoldFoundryProject } from "./scaffold.js";
+import {
+  FOUNDRY_TEMPLATES,
+  displayPath,
+  scaffoldFoundryProject,
+  type FoundryPackageManager,
+  type FoundryScaffoldTarget,
+  type FoundryTemplateName,
+} from "./scaffold.js";
 import { FoundryServer } from "./server.js";
 
 interface ParsedArgs {
@@ -31,18 +38,34 @@ interface ParsedArgs {
 const HELP = `Glove Foundry — a file-routed runtime for agents
 
 Usage:
-  glove foundry [directory]       Create a Foundry application
-  glove foundry dev [options]     Run the development runtime and DevTools
+  glove foundry init [directory]  Create a Foundry application
+  glove foundry dev [options]     Run the development runtime and inspector
   glove foundry start [options]   Run without file watching
-  glove-foundry init [directory]  Create a Foundry application
-  glove-foundry dev [options]     Run the development runtime and DevTools
-  glove-foundry start [options]   Run without file watching
 
-Options:
+  The bare form still works: glove foundry my-app
+
+Create options:
+  --template <name>               travel-concierge (default) or minimal
+                                    travel-concierge  a worked example: flights, a
+                                                      calendar app, chat transport,
+                                                      memory, a schedule, a REPL
+                                    minimal           one agent and one tool
+  --target <name>                 standalone (default) or nextjs
+                                    Detected automatically: a directory holding a
+                                    Next.js app gets the nextjs target, which adds
+                                    agents under foundry/ and leaves the app alone.
+  --package-manager <name>        pnpm, npm, yarn, or bun (detected by lockfile)
+
+Run options:
   --root <directory>              Project root (default: current directory)
   --port <number>                 Override the configured port
   --host <address>                Override the configured host
   --no-watch                      Disable agent/config hot restart
+
+Examples:
+  glove foundry init my-agents
+  glove foundry init my-agents --template minimal
+  glove foundry init . --target nextjs     Add agents to the app in this directory
 `;
 
 function parseArgs(raw: string[]): ParsedArgs {
@@ -170,14 +193,18 @@ async function runWorker(parsed: ParsedArgs): Promise<void> {
   process.once("SIGINT", () => void close());
 }
 
-function shouldRestart(rootDir: string, changed: string | null): boolean {
+function shouldRestart(
+  rootDir: string,
+  changed: string | null,
+  agentsDir: string,
+): boolean {
   if (!changed) return false;
   const normalized = relative(rootDir, resolve(rootDir, changed)).split(sep).join("/");
   return (
-    normalized.startsWith("agents/") ||
+    normalized.startsWith(`${agentsDir}/`) ||
     normalized === ".env" ||
     normalized === ".env.local" ||
-    /^foundry\.application\.(?:ts|mts|js|mjs)$/.test(normalized) ||
+    /^(?:[\w.-]+\/)*foundry\.application\.(?:ts|mts|js|mjs)$/.test(normalized) ||
     /^foundry\.config\.(?:ts|mts|js|mjs)$/.test(normalized)
   );
 }
@@ -186,6 +213,10 @@ async function superviseDev(parsed: ParsedArgs): Promise<void> {
   const rootDir = resolve(
     typeof parsed.flags.root === "string" ? parsed.flags.root : process.cwd(),
   );
+  // Hot restart has to follow the configured layout, not assume agents/ at the
+  // root -- a Next.js project keeps them under foundry/agents.
+  const agentsDir = (await loadConfig(rootDir)).agentsDir
+    ?? DEFAULT_FOUNDRY_CONFIG.agentsDir;
   const cliPath = fileURLToPath(import.meta.url);
   const tsxImport = import.meta.resolve("tsx");
   let child: ChildProcess | null = null;
@@ -238,7 +269,7 @@ async function superviseDev(parsed: ParsedArgs): Promise<void> {
   if (!parsed.flags["no-watch"]) {
     try {
       const onChange = (filename: string | null): void => {
-        if (!shouldRestart(rootDir, filename?.toString() ?? null)) return;
+        if (!shouldRestart(rootDir, filename?.toString() ?? null, agentsDir)) return;
         if (debounce) clearTimeout(debounce);
         debounce = setTimeout(restart, 120);
       };
@@ -247,12 +278,12 @@ async function superviseDev(parsed: ParsedArgs): Promise<void> {
           onChange(filename?.toString() ?? null),
         ),
       );
-      const defaultAgentsDir = resolve(rootDir, "agents");
-      if (await pathExists(defaultAgentsDir)) {
+      const watchedAgentsDir = resolve(rootDir, agentsDir);
+      if (await pathExists(watchedAgentsDir)) {
         watchers.push(
-          watch(defaultAgentsDir, { recursive: true }, (_event, filename) =>
+          watch(watchedAgentsDir, { recursive: true }, (_event, filename) =>
             onChange(
-              filename ? `agents/${filename.toString()}` : "agents",
+              filename ? `${agentsDir}/${filename.toString()}` : agentsDir,
             ),
           ),
         );
@@ -335,6 +366,88 @@ async function superviseStart(parsed: ParsedArgs): Promise<void> {
   }
 }
 
+/** A mistake in how the command was typed, reported without a stack trace. */
+class UsageError extends Error {}
+
+function flagValue<T extends string>(
+  parsed: ParsedArgs,
+  name: string,
+  allowed: ReadonlyArray<T>,
+): T | undefined {
+  const raw = parsed.flags[name];
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string" || !allowed.includes(raw as T)) {
+    throw new UsageError(
+      `--${name} must be one of: ${allowed.join(", ")}.` +
+        (typeof raw === "string" ? ` Received "${raw}".` : ""),
+    );
+  }
+  return raw as T;
+}
+
+async function create(directory: string, parsed: ParsedArgs): Promise<void> {
+  const template = flagValue<FoundryTemplateName>(parsed, "template", FOUNDRY_TEMPLATES);
+  const target = flagValue<FoundryScaffoldTarget>(parsed, "target", ["standalone", "nextjs"]);
+  const packageManager = flagValue<FoundryPackageManager>(
+    parsed,
+    "package-manager",
+    ["pnpm", "npm", "yarn", "bun"],
+  );
+  const result = await scaffoldFoundryProject({
+    directory,
+    ...(template ? { template } : {}),
+    ...(target ? { target } : {}),
+    ...(packageManager ? { packageManager } : {}),
+  });
+
+  const where = displayPath(result.rootDir);
+  const pm = result.packageManager;
+  const run = (script: string): string =>
+    pm === "npm" ? `npm run ${script}` : `${pm} ${script}`;
+  const install = pm === "yarn" ? "yarn" : `${pm} install`;
+
+  const lines: string[] = [""];
+  if (result.target === "nextjs") {
+    lines.push(`  Added Glove Foundry to the app in ${result.rootDir}`);
+    lines.push("");
+    lines.push(`  Agents:   ${result.agentsDir}/${result.agentRoute}/agent.ts`);
+    lines.push(`  Client:   lib/foundry.ts`);
+    lines.push(`  Route:    app/api/${result.agentRoute}/route.ts`);
+    lines.push(`  Guide:    foundry/README.md`);
+    lines.push("");
+    lines.push("  Next:");
+    if (where !== ".") lines.push(`    cd ${where}`);
+    lines.push(`    ${install}`);
+    lines.push(`    ${run("foundry:dev")}      # runtime + inspector on :4141`);
+    lines.push(`    ${run("dev")}              # your Next.js app`);
+  } else {
+    lines.push(`  Created a Glove Foundry app in ${result.rootDir}`);
+    lines.push("");
+    lines.push(`  Template: ${result.template}`);
+    lines.push(`  Agent:    ${result.agentsDir}/${result.agentRoute}/agent.ts`);
+    lines.push(`  Guide:    README.md`);
+    lines.push("");
+    lines.push("  Next:");
+    if (where !== ".") lines.push(`    cd ${where}`);
+    lines.push("    cp .env.example .env.local");
+    lines.push(`    ${install}`);
+    lines.push(`    ${run("dev")}`);
+    lines.push("");
+    lines.push("  Then open http://127.0.0.1:4141 and press Start a run.");
+    if (result.template === "travel-concierge") {
+      lines.push("  It works without an API key — a demo model answers until you set one.");
+    }
+  }
+  if (!result.versions.resolved) {
+    lines.push("");
+    lines.push("  Note: some Glove versions came from built-in defaults rather than");
+    lines.push("  this install's own manifest. Check before installing:");
+    lines.push(`    ${result.versions.fellBack.join(", ")}`);
+  }
+  lines.push("");
+  process.stdout.write(lines.join("\n"));
+}
+
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
   if (
@@ -356,12 +469,7 @@ async function main(): Promise<void> {
       parsed.command === "init"
         ? parsed.positional[0] ?? "glove-foundry-app"
         : parsed.command ?? "glove-foundry-app";
-    const result = await scaffoldFoundryProject({ directory });
-    process.stdout.write(`Created Glove Foundry in ${result.rootDir}\n\n`);
-    process.stdout.write(`  cd ${relative(process.cwd(), result.rootDir) || "."}\n`);
-    process.stdout.write(`  cp .env.example .env.local\n`);
-    process.stdout.write(`  pnpm install\n`);
-    process.stdout.write(`  pnpm dev\n`);
+    await create(directory, parsed);
     return;
   }
   if (parsed.command === "dev") {
@@ -375,7 +483,13 @@ async function main(): Promise<void> {
   process.stdout.write(HELP);
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+main().catch((error: unknown) => {
+  if (error instanceof UsageError) {
+    process.stderr.write(`\n  ${error.message}\n\n  Run "glove foundry help" for usage.\n\n`);
+  } else {
+    process.stderr.write(
+      `${error instanceof Error ? error.stack ?? error.message : String(error)}\n`,
+    );
+  }
   process.exitCode = 1;
 });

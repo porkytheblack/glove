@@ -47,12 +47,12 @@ export function renderDashboard(): string {
         <button class="button icon-button mobile-toggle" id="mobile-toggle" aria-label="Open navigation">${renderPhosphorIcon("menu")}</button>
         <div class="breadcrumbs" id="breadcrumbs"></div>
         <div class="top-actions">
-          <span class="live-chip"><i></i><span id="event-state">Live updates</span></span>
+          <span class="live-chip" title="The inspector streams runtime events and reconciles on a low-frequency timer."><i></i><span id="event-state">Connecting…</span></span>
           <button class="button primary" id="new-run">${renderPhosphorIcon("plus")} <span>New run</span></button>
         </div>
       </header>
       <main class="content" id="content">
-        <div class="empty"><strong>Opening the Foundry…</strong>Reading definitions, instances, and runtime activity.</div>
+        <div class="boot-skeleton"><div class="skeleton" aria-busy="true" aria-label="Opening the Foundry"><div class="skeleton-row"><span style="width:38%"></span><span style="width:14%"></span></div><div class="skeleton-row"><span style="width:62%"></span><span style="width:18%"></span></div><div class="skeleton-row"><span style="width:51%"></span><span style="width:11%"></span></div><div class="skeleton-row"><span style="width:70%"></span><span style="width:16%"></span></div></div><p class="muted">Reading definitions, instances, and runtime activity…</p></div>
       </main>
     </section>
   </div>
@@ -68,7 +68,7 @@ export function renderDashboard(): string {
         <div class="field"><label for="run-definition">Agent definition</label><select id="run-definition"></select></div>
         <div class="field"><label for="run-instance">Runtime instance</label><select id="run-instance"></select><small class="muted">Choose “Create a new instance” to provision one.</small></div>
         <div class="field"><label for="run-message">Message</label><textarea id="run-message" required placeholder="What should this agent work on?"></textarea></div>
-        <div class="drawer-actions"><button type="button" class="button" id="cancel-run">Cancel</button><button type="submit" class="button primary">Start run</button></div>
+        <div class="drawer-actions"><span class="drawer-hint mono">⌘ + Enter</span><button type="button" class="button" id="cancel-run">Cancel</button><button type="submit" class="button primary" id="run-submit">Start run</button></div>
       </form>
     </section>
   </div>
