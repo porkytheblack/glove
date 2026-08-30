@@ -126,6 +126,18 @@ test("Foundry serves a typed run and a complete observable trace", async () => {
     assert.match(dashboard, /data-phosphor="search"/);
     assert.match(dashboard, /Definitions and instances are intentionally separate/);
     assert.match(dashboard, /Run spine/);
+    // Every truncated id ships with a copy affordance.
+    assert.match(dashboard, /function copyButton\(value,label\)/);
+    assert.match(dashboard, /function idCell\(value,extraClass\)/);
+    // Run filters are URL state, so a filtered view stays shareable.
+    assert.match(dashboard, /function runQuery\(\)/);
+    assert.match(dashboard, /params\.get\("status"\)/);
+    // Live events are coalesced, and a repaint restores what the operator was doing.
+    assert.match(dashboard, /function scheduleRefresh\(\)/);
+    assert.match(dashboard, /function captureView\(\)/);
+    assert.match(dashboard, /function restoreView\(view\)/);
+    // The inspector is self-contained: no stylesheet the server's own CSP would block.
+    assert.doesNotMatch(dashboard, /fonts\.googleapis\.com/);
 
     const nestedInspector = await fetch(`${listening.url}/runs/${accepted.id}`);
     assert.equal(nestedInspector.status, 200);
