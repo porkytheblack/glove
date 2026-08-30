@@ -118,7 +118,11 @@ test("Foundry serves a typed run and a complete observable trace", async () => {
     await streamReader?.cancel();
     streamAbort.abort();
 
-    const dashboard = await fetch(listening.url).then((result) => result.text());
+    const dashboardResponse = await fetch(listening.url);
+    const policy = dashboardResponse.headers.get("content-security-policy") ?? "";
+    assert.match(policy, /style-src[^;]*https:\/\/fonts\.googleapis\.com/);
+    assert.match(policy, /font-src[^;]*https:\/\/fonts\.gstatic\.com/);
+    const dashboard = await dashboardResponse.text();
     assert.match(dashboard, /Runtime inspector/);
     assert.match(dashboard, /data-brand="glove"/);
     assert.match(dashboard, /viewBox="0 0 1024 1024"/);
@@ -136,8 +140,11 @@ test("Foundry serves a typed run and a complete observable trace", async () => {
     assert.match(dashboard, /function scheduleRefresh\(\)/);
     assert.match(dashboard, /function captureView\(\)/);
     assert.match(dashboard, /function restoreView\(view\)/);
-    // The inspector is self-contained: no stylesheet the server's own CSP would block.
-    assert.doesNotMatch(dashboard, /fonts\.googleapis\.com/);
+    // The Glove brand typefaces load, which means the CSP has to name their
+    // origins -- the stylesheet import alone is not enough.
+    assert.match(dashboard, /fonts\.googleapis\.com/);
+    assert.match(dashboard, /DM Sans/);
+    assert.match(dashboard, /JetBrains Mono/);
 
     const nestedInspector = await fetch(`${listening.url}/runs/${accepted.id}`);
     assert.equal(nestedInspector.status, 200);

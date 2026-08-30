@@ -246,7 +246,17 @@ export class FoundryServer {
         response.writeHead(200, {
           "content-type": "text/html; charset=utf-8",
           "cache-control": "no-store",
-          "content-security-policy": "default-src 'self'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline' 'self'; connect-src 'self'",
+          // The inspector's stylesheet pulls the Glove brand typefaces from
+          // Google Fonts, so style-src and font-src name those two origins and
+          // nothing else. Everything executable stays same-origin.
+          "content-security-policy": [
+            "default-src 'self'",
+            "script-src 'unsafe-inline' 'self'",
+            "style-src 'unsafe-inline' 'self' https://fonts.googleapis.com",
+            "font-src 'self' https://fonts.gstatic.com",
+            "img-src 'self' data:",
+            "connect-src 'self'",
+          ].join("; "),
           "x-content-type-options": "nosniff",
           "x-frame-options": "DENY",
         });

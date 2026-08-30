@@ -1,4 +1,5 @@
 export const DASHBOARD_STYLES = String.raw`
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
 :root{
   --bg:#080B0A;--bg-elevated:#0F1613;--bg-surface:#141D18;--bg-surface-2:#19241F;
   --border:#243029;--border-subtle:#18211C;--border-strong:#32453B;
@@ -7,8 +8,7 @@ export const DASHBOARD_STYLES = String.raw`
   --accent-dim:rgba(158,212,184,.08);--accent-glow:rgba(158,212,184,.045);--accent-line:rgba(158,212,184,.16);
   --interface:#E4B879;--network:#83B3E2;--deploy:#B8A7E8;--media:#E29BA8;
   --success:#8CC494;--warn:#E4B879;--danger:#E29BA8;
-  --sans:'DM Sans','Inter',-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;
-  --mono:'JetBrains Mono','SF Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;
+  --sans:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif;--mono:'JetBrains Mono',monospace;
   --sidebar:248px;--radius:10px;--radius-lg:14px;--shadow:0 24px 64px rgba(0,0,0,.34);
   font-family:var(--sans);color:var(--text-primary);background:var(--bg);color-scheme:dark;
 }
