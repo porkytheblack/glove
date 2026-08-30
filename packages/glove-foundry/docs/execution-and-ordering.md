@@ -1,9 +1,9 @@
 # Execution ownership and conversation ordering
 
-> Status: **design exploration.** No code changes yet. This note records what
-> Foundry's execution layer does today, what the Station packages underneath it
-> already provide, and the one gap that has no owner — plus what the industry
-> does about it.
+> Status: **decided and implemented.** Execution storage is now an application
+> choice (`defineApplication({ execution })`). Conversation ordering is
+> deliberately **not** a framework concern — see "Ordering is the application's
+> call" below.
 
 ## Why this note exists
 
@@ -12,14 +12,14 @@ replaceable," and its production checklist asks deployments for "execution
 leases, bounded concurrency, cancellation." A reader reasonably concludes that
 Foundry runs multi-replica once you supply durable adapters.
 
-It does not, today — but the reason is much smaller than it looks. Almost
-everything needed already exists one layer down and is simply not reachable
-from `defineApplication`.
+It did not, and the reason was much smaller than it looked: almost everything
+needed already existed one layer down and was simply not reachable from
+`defineApplication`. This note records what was there, what changed, and the
+one thing deliberately left to applications.
 
-## What is actually there
+## What was already there
 
-`FoundryRuntime`'s constructor (`src/runtime.ts`) wires the execution layer like
-this:
+`FoundryRuntime`'s constructor used to wire the execution layer like this:
 
 ```ts
 this.scheduleAdapter = new ScheduleMemoryAdapter();
@@ -32,8 +32,8 @@ this.signalRunner = new SignalRunner({
 });
 ```
 
-Both adapters are hardcoded and neither is derived from the application's
-`FoundryDataAdapter`. `stationId` is a constant string. Nothing about this is
+Both adapters were hardcoded, neither was derived from the application's
+`FoundryDataAdapter`, and `stationId` was a constant. None of it was
 configurable.
 
 Underneath, `station-signal@2.2` is already a distributed queue:
@@ -54,14 +54,14 @@ And `station-adapter-postgres@2.2` implements every one of those methods. Its
 `SchedulePostgresAdapter.claimDue()` carries the comment: *"Multiple runners
 against the same database will not double-fire."*
 
-So the schedule double-firing problem and the missing run leases are not
-missing features. They are **features Foundry hides**.
+So the schedule double-firing problem and the missing run leases were never
+missing features. They were **features Foundry hid**.
 
-## Gap 1 — the execution backend is not injectable
+## Execution storage is now an application choice
 
-The fix is a seam on `defineApplication`, which already exists to "define
-infrastructure" and is the one file in a Foundry project that is allowed to know
-about deployment:
+The seam lives on `defineApplication`, which already exists to define
+infrastructure and is the one file in a Foundry project allowed to know about
+deployment:
 
 ```ts
 export default defineApplication({
@@ -75,10 +75,26 @@ export default defineApplication({
 })
 ```
 
-Defaults stay exactly as they are, so `pnpm dev` is unchanged and no existing
-project breaks. What it buys: shared run queues across replicas, crash recovery
-through `requeueExpiredRuns`, and schedules that fire once no matter how many
-processes are running.
+Every field is optional and the defaults are unchanged, so `pnpm dev` behaves
+as before and no existing project breaks. What supplying them buys: a run queue
+several processes can claim from, crash recovery through `requeueExpiredRuns`,
+and a due schedule that fires once however many processes are running.
+
+Two details are load-bearing.
+
+**Ownership follows construction.** `SignalRunner.stop()` closes its adapter
+unconditionally — right for one Foundry built, wrong for one the application
+did, since that adapter may share a connection pool with the data adapter and
+closing it would take the application's storage down with the runtime. A
+supplied run queue is therefore borrowed: Foundry uses it and never closes it.
+The schedule store follows the same rule.
+
+**`stationId` is per-process, not a constant.** It used to be the literal
+`"foundry-local"`, which is fine while runs never leave the process that made
+them and wrong the moment they do — two processes claiming under one identity
+cannot tell each other's abandoned work apart. The default is now
+`foundry-<host>-<pid>-<random>`. A deployment that can name its replicas should
+set it explicitly, so a lost run is traceable to the process that lost it.
 
 There is a vocabulary tension worth naming. Foundry's boundary rule says
 "backend worker/network terminology must not leak into definitions." Typing this
@@ -91,9 +107,11 @@ Station adapters that no longer plug in directly. **Recommendation: accept the
 Station types in the infrastructure file, and keep the lint rule that forbids
 them in agent files.**
 
-## Gap 2 — nothing orders runs within a conversation
+## Ordering is the application's call
 
-This one is real, and it has no owner today.
+There is a second thing the stack does not do, and after discussion it is
+staying that way — recorded here so the absence reads as a decision rather than
+an oversight.
 
 `SignalConcurrency` is `{ station?: number; network?: number }` — a *count*, not
 a *key*. Nothing anywhere in the stack expresses "at most one run in flight for
@@ -101,15 +119,26 @@ this conversation." Two messages arriving on the same conversation can execute
 concurrently against the same Glove store, and the second may compact or append
 over the first.
 
-Station cannot fix this alone: it has no concept of a conversation, and it
-should not acquire one. Foundry has the concept but enqueues through
-`triggerSignal` and never sees the claim decision. So the capability falls
-between the two packages.
+**Foundry does not serialize runs within a conversation, and will not.**
+Whether two messages on one conversation may run at once is a product decision,
+not a runtime invariant: a support agent wants strict ordering, a batch
+classifier wants maximum parallelism, and a note-taker is happy with
+last-write-wins. A framework that picks one imposes latency on the apps that
+wanted another, and picks wrongly for a good fraction of them.
 
-### How the industry solves it
+The application already holds every seam it needs to decide for itself. It owns
+the `FoundryDataAdapter`, so it can keep a per-conversation lease beside its own
+tables; it owns the store behind each conversation; and it owns the ingress that
+calls `request`, so it can queue, coalesce, or drop at the door. Concretely, an
+application that wants strict ordering takes an expiring lease keyed by
+conversation before calling `request` and releases it when the run settles —
+roughly twenty lines against storage it already runs.
+
+### Prior art, for whoever builds it
 
 Every mature system reduces this to the same primitive: **a partition key that
-the queue itself serializes on.**
+the queue itself serializes on.** An application implementing its own policy
+should borrow the shape rather than invent one.
 
 - **SQS FIFO** — `MessageGroupId`. Messages in one group are delivered strictly
   in order and a second is not delivered until the first is deleted or its
@@ -124,47 +153,41 @@ the queue itself serializes on.**
 - **Cadence/Temporal "sticky execution"** and **Akka/Orleans virtual actors** —
   the strongest form: route every message for an entity id to one owner.
 
-Two properties are load-bearing in all of them, and any design here needs both:
+Two properties are load-bearing in all of them, and any implementation needs
+both:
 
-1. The gate is **at claim time, in the queue**, not in application code after
-   dispatch. Gating later means a worker is already burned and can starve.
-2. The lock **expires**. A replica that dies mid-run must not wedge its
+1. The gate is **as early as possible** — ideally at claim time, and at worst
+   before dispatch. Gating after a worker has started means the worker is
+   already burned and can starve.
+2. The lock **expires**. A process that dies mid-run must not wedge its
    conversation forever, which is why every implementation pairs the key with a
    visibility timeout or lease.
 
-### Three ways to land it
+### If it ever does belong in the stack
 
-**A. Partition key in `station-signal` (recommended).** Add an optional
-`partitionKey` to `Run`, and have the claim query refuse a run whose key already
-has a running attempt. In Postgres this is one predicate on the existing
-`claimRun` statement — the same shape as SQS message groups. Foundry then maps
-`conversationId` onto it and gets ordering for free, as would every other
-Station user. Cost: a change in a second package and a new adapter method for
-adapters that want it (optional, with the current behaviour as the fallback).
+Should the same policy show up in enough applications to look like a default,
+the place for it is a partition key in `station-signal`, not a queue inside
+Foundry: an optional key on `Run`, with the claim query refusing a run whose key
+already has a running attempt. In Postgres that is one predicate on the existing
+`claimRun` — the same shape as SQS message groups — and every Station user would
+get it, not just Foundry. Building it inside Foundry instead would mean Foundry
+maintaining a second pending queue beside Station's, which is the duplication
+the private-backend boundary exists to prevent.
 
-**B. Conversation slot on `FoundryDataAdapter`.** Foundry acquires a durable,
-expiring slot keyed by conversation before `triggerSignal`, releases it on
-completion, and holds back queued work. Keeps the change inside one package, but
-Foundry ends up maintaining a second pending queue beside Station's — the exact
-duplication the private-backend boundary exists to avoid.
+That is a future option, not a plan.
 
-**C. Cooperative deferral.** The run acquires the slot as its first act and
-re-enqueues itself with backoff if it cannot. Smallest change, no new
-interfaces, but it spends a child process per contended attempt and turns a
-hot conversation into a retry storm.
+## Where this leaves things
 
-A is the only one that puts the gate where the industry puts it. B is a
-reasonable stopgap that can be deleted when A lands. C is not worth building.
+Done:
 
-## Suggested order
+1. Execution storage is injectable via `defineApplication({ execution })`.
+2. `stationId` defaults to a real per-process identity.
+3. Supplied adapters are borrowed, never closed by the runtime.
 
-1. Make the execution backend injectable (Gap 1). Small, no design risk,
-   unblocks durable multi-replica execution and fixes schedule double-firing
-   using adapters that already ship.
-2. Give `stationId` a real per-process default instead of the constant
-   `"foundry-local"`, so two replicas are distinguishable in run ownership.
-3. Decide A vs. B for conversation ordering (Gap 2) and implement it.
-4. Document the multi-replica deployment shape, including that until step 3
-   lands, conversation ordering is not guaranteed.
+Not done, by decision: conversation ordering. An application that needs it
+implements it, and the prior art above says how.
 
-Steps 1 and 2 are worth doing regardless of how step 3 is decided.
+One caveat for whoever touches this next — `glove-foundry` is not in
+`.github/workflows/ci.yml`. Its typecheck and its 52 tests run locally but
+nothing in CI covers them, so a change here is only as validated as the person
+making it. Adding it to the workflow is worth doing on its own.
