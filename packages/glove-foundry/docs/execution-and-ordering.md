@@ -229,6 +229,30 @@ Labels are what `SignalPlacement` matches, and the adapter is what network-wide
 concurrency coordinates through. Without one, a non-standalone role warns and
 runs blind — correct alone, invisible to peers.
 
+## Distribution is strictly opt-in
+
+Foundry never makes a project distributed, and never refuses to start because a
+deployment could be safer.
+
+Out of the box a runtime is `standalone` with in-process storage: one process
+doing everything, which is what development and a single deployment want, and
+what every existing project keeps getting. Distribution begins only when the
+application file says so — a shared `runs` queue, a `role`, a `network`. Each
+of those is a sentence someone had to write.
+
+Where Foundry knows a deployment is heading somewhere it cannot follow, it says
+so and continues. A non-standalone role without a network adapter warns that it
+will run correctly but stay invisible to peers. A heartbeat that cannot reach
+the fleet is recorded as an event, not thrown. Nothing here is a precondition.
+
+This is a deliberate line rather than an omission. Foundry cannot tell whether
+one process is a deployment or a laptop, and the failure mode of guessing wrong
+is a framework that refuses to boot for the majority case in order to protect a
+minority one. What it can do is make the unsafe combination legible: Station
+2.2's `inspectAdapter` and `multiStationRisks` report exactly which
+distributed-safety guarantees a supplied queue provides, and surfacing that at
+assembly time is a natural follow-up once those helpers ship.
+
 ## Where this leaves things
 
 Done:
@@ -241,8 +265,9 @@ Done:
 5. Fleet membership: registration, heartbeat, labels, capacity, drain gate,
    and a clean departure on stop.
 
-Not done, by decision: conversation ordering. An application that needs it
-implements it, and the prior art above says how.
+Not done, by decision: conversation ordering, and any form of
+distribution-by-default. An application that needs either implements it; the
+prior art above says how for the first, and the seams above are the second.
 
 Still open, and measured rather than guessed in
 [`scaling.md`](./scaling.md): execution is one OS process per run, which is the
