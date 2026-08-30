@@ -1,9 +1,74 @@
-import { access, mkdir, readdir, writeFile } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  resolveTemplateVersions,
+  type FoundryTemplateVersions,
+  type TemplateDependency,
+} from "./scaffold-versions.js";
+
+export type FoundryTemplateName = "travel-concierge" | "minimal";
+
+/**
+ * `standalone` owns its package.json. `nextjs` joins one that already exists,
+ * so the agents sit beside the app that calls them instead of in a sibling
+ * repository nobody remembers to deploy.
+ */
+export type FoundryScaffoldTarget = "standalone" | "nextjs";
+
+export type FoundryPackageManager = "pnpm" | "npm" | "yarn" | "bun";
 
 export interface ScaffoldOptions {
-  directory: string;
+  readonly directory: string;
+  /** Defaults to the travel concierge, which exercises every convention. */
+  readonly template?: FoundryTemplateName;
+  /** Omit to detect: a directory holding a Next.js app gets the nextjs target. */
+  readonly target?: FoundryScaffoldTarget;
+  readonly packageManager?: FoundryPackageManager;
 }
+
+export interface ScaffoldResult {
+  readonly rootDir: string;
+  readonly files: string[];
+  readonly template: FoundryTemplateName;
+  readonly target: FoundryScaffoldTarget;
+  readonly packageManager: FoundryPackageManager;
+  /** Where agents were written, relative to rootDir. */
+  readonly agentsDir: string;
+  readonly versions: FoundryTemplateVersions;
+  /** The example agent's route, for the "what next" hints. */
+  readonly agentRoute: string;
+}
+
+export const FOUNDRY_TEMPLATES: ReadonlyArray<FoundryTemplateName> = [
+  "travel-concierge",
+  "minimal",
+];
+
+/** Every package a template imports, so an unused one is never installed. */
+const TEMPLATE_IMPORTS: Readonly<Record<FoundryTemplateName, ReadonlyArray<TemplateDependency>>> =
+  Object.freeze({
+    "travel-concierge": [
+      "effect",
+      "glove-core",
+      "glove-js",
+      "glove-memory",
+      "glove-working-environment",
+      "zod",
+    ],
+    minimal: ["effect", "glove-core", "zod"],
+  });
+
+const TEMPLATE_AGENT_ROUTE: Readonly<Record<FoundryTemplateName, string>> = Object.freeze({
+  "travel-concierge": "concierge",
+  minimal: "assistant",
+});
+
+/** Files whose names cannot live in the published package under their real name. */
+const RENAMED_ON_COPY: Readonly<Record<string, string>> = Object.freeze({
+  gitignore: ".gitignore",
+  "env.example": ".env.example",
+});
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -14,24 +79,229 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+function templatesRoot(): string {
+  // dist/scaffold.js and src/scaffold.ts both sit one level below the package
+  // root, so one relative path serves the built and the source tree.
+  return resolve(dirname(fileURLToPath(import.meta.url)), "../templates");
+}
+
+async function walk(root: string, prefix = ""): Promise<string[]> {
+  const entries = await readdir(resolve(root, prefix), { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) files.push(...(await walk(root, relativePath)));
+    else files.push(relativePath);
+  }
+  return files.sort();
+}
+
+function projectNameFrom(rootDir: string): string {
+  return (
+    basename(rootDir)
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/^-|-$/g, "") || "glove-foundry-app"
+  );
+}
+
+function runner(packageManager: FoundryPackageManager, script: string): string {
+  if (packageManager === "npm") return `npm run ${script}`;
+  return `${packageManager} ${script}`;
+}
+
+function installCommand(packageManager: FoundryPackageManager): string {
+  return packageManager === "yarn" ? "yarn" : `${packageManager} install`;
+}
+
+/**
+ * Detect the surrounding project. A Next.js app is the case worth special
+ * handling: its author wants the agents in the same repository as the routes
+ * that call them.
+ */
+export async function detectScaffoldTarget(
+  rootDir: string,
+): Promise<FoundryScaffoldTarget> {
+  for (const config of [
+    "next.config.js",
+    "next.config.mjs",
+    "next.config.ts",
+    "next.config.cjs",
+  ]) {
+    if (await exists(resolve(rootDir, config))) return "nextjs";
+  }
+  try {
+    const manifest = JSON.parse(
+      await readFile(resolve(rootDir, "package.json"), "utf8"),
+    ) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+    if (manifest.dependencies?.next ?? manifest.devDependencies?.next) return "nextjs";
+  } catch {
+    // No manifest, or an unreadable one: treat it as a fresh project.
+  }
+  return "standalone";
+}
+
+export async function detectPackageManager(
+  rootDir: string,
+): Promise<FoundryPackageManager> {
+  if (await exists(resolve(rootDir, "pnpm-lock.yaml"))) return "pnpm";
+  if (await exists(resolve(rootDir, "yarn.lock"))) return "yarn";
+  if (await exists(resolve(rootDir, "bun.lockb"))) return "bun";
+  if (await exists(resolve(rootDir, "package-lock.json"))) return "npm";
+  const agent = process.env.npm_config_user_agent ?? "";
+  if (agent.startsWith("yarn")) return "yarn";
+  if (agent.startsWith("bun")) return "bun";
+  if (agent.startsWith("npm")) return "npm";
+  return "pnpm";
+}
+
+function fill(content: string, values: Readonly<Record<string, string>>): string {
+  return content.replace(/\{\{(\w+)\}\}/g, (match, key: string) =>
+    Object.hasOwn(values, key) ? values[key]! : match,
+  );
+}
+
+function dependenciesFor(
+  template: FoundryTemplateName,
+  versions: FoundryTemplateVersions,
+): Record<string, string> {
+  const dependencies: Record<string, string> = { "glove-foundry": versions.foundry };
+  for (const name of TEMPLATE_IMPORTS[template]) {
+    dependencies[name] = versions.dependencies[name];
+  }
+  return Object.fromEntries(
+    Object.entries(dependencies).sort(([a], [b]) => a.localeCompare(b)),
+  );
+}
+
+const DEV_DEPENDENCIES = Object.freeze({
+  "@types/node": "^25.2.3",
+  eslint: "^9.39.2",
+  typescript: "^5.9.3",
+  "typescript-eslint": "^8.54.0",
+});
+
+function routesDeclaration(agentsDir: string, route: string): string {
+  // This file is written to .foundry/, so the project root is one level up.
+  return (
+    "// Generated by Glove Foundry. Do not edit.\n" +
+    "export type FoundryRoutes = {\n" +
+    `  readonly "${route}": typeof import("../${agentsDir}/${route}/agent.js").default;\n` +
+    "};\n"
+  );
+}
+
 export async function scaffoldFoundryProject(
   options: ScaffoldOptions,
-): Promise<{ rootDir: string; files: string[] }> {
+): Promise<ScaffoldResult> {
   const rootDir = resolve(options.directory);
-  if (await exists(rootDir)) {
+  const template = options.template ?? "travel-concierge";
+  if (!FOUNDRY_TEMPLATES.includes(template)) {
+    throw new Error(
+      `Unknown Foundry template "${template}". Available: ${FOUNDRY_TEMPLATES.join(", ")}.`,
+    );
+  }
+  const templateDir = resolve(templatesRoot(), template);
+  if (!(await exists(templateDir))) {
+    throw new Error(`Foundry template "${template}" is missing from this install.`);
+  }
+
+  const target = options.target ?? (await detectScaffoldTarget(rootDir));
+  const packageManager =
+    options.packageManager ?? (await detectPackageManager(rootDir));
+
+  // A standalone project owns the directory; joining a Next.js app does not.
+  if (target === "standalone" && (await exists(rootDir))) {
     const entries = await readdir(rootDir);
     if (entries.length > 0) {
-      throw new Error(`Cannot scaffold into non-empty directory ${rootDir}.`);
+      throw new Error(
+        `Cannot scaffold into non-empty directory ${rootDir}. ` +
+          "Pass --target nextjs to add Foundry to an existing project.",
+      );
     }
   }
   await mkdir(rootDir, { recursive: true });
 
-  const projectName = basename(rootDir)
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-|-$/g, "") || "glove-foundry-app";
-  const files = new Map<string, string>([
-    [
+  const versions = await resolveTemplateVersions();
+  const projectName = projectNameFrom(rootDir);
+  const agentRoute = TEMPLATE_AGENT_ROUTE[template];
+  // Next.js apps keep their root tidy: everything Foundry owns lives under foundry/.
+  const foundryDir = target === "nextjs" ? "foundry" : "";
+  const agentsDir = foundryDir ? `${foundryDir}/agents` : "agents";
+
+  const devScript = target === "nextjs" ? "foundry:dev" : "dev";
+  const startScript = target === "nextjs" ? "foundry:start" : "start";
+  const placeholders = {
+    projectName,
+    installCommand: installCommand(packageManager),
+    devCommand: runner(packageManager, devScript),
+    startCommand: runner(packageManager, startScript),
+    lintCommand: runner(packageManager, "lint"),
+    typecheckCommand: runner(packageManager, "typecheck"),
+  };
+
+  const files = new Map<string, string>();
+
+  // 1. Copy the template, relocating what the target moves.
+  for (const relativePath of await walk(templateDir)) {
+    const source = await readFile(resolve(templateDir, relativePath), "utf8");
+    const name = basename(relativePath);
+    const renamed = RENAMED_ON_COPY[name];
+    let destination = renamed
+      ? join(dirname(relativePath), renamed).split(sep).join("/")
+      : relativePath;
+
+    if (target === "nextjs") {
+      // The app already has a README and a .gitignore; do not fight it. The
+      // standalone client example is replaced by lib/foundry.ts.
+      if (destination === "README.md" || destination === ".gitignore") continue;
+      if (destination.startsWith("src/")) continue;
+      // The standalone config is replaced by the .mts one written below.
+      if (destination === "foundry.config.ts") continue;
+      if (destination === ".env.example") destination = "foundry.env.example";
+      else destination = `${foundryDir}/${destination}`;
+    }
+    files.set(destination, fill(source, placeholders));
+  }
+
+  // 2. Config names where the agents went, and the module system has to be
+  //    stated explicitly. A Next.js app is not `"type": "module"`, so Node
+  //    would load these through the CJS resolver and fail on Foundry's
+  //    ESM-only export map. `.mts` is unambiguous whatever the root says, and
+  //    a nested manifest makes the agent subtree ESM without touching the app.
+  if (target === "nextjs") {
+    files.set(
+      "foundry.config.mts",
+      'import { defineConfig } from "glove-foundry/config";\n\n' +
+        "export default defineConfig({\n" +
+        `  agentsDir: "${agentsDir}",\n` +
+        `  applicationFile: "${foundryDir}/foundry.application.ts",\n` +
+        "  server: { port: 4141 },\n" +
+        "  execution: { pollIntervalMs: 100, maxConcurrent: 4 },\n" +
+        "});\n",
+    );
+    files.set(
+      `${foundryDir}/package.json`,
+      `${JSON.stringify(
+        {
+          name: `${projectName}-foundry`,
+          private: true,
+          // Foundry and the Glove packages are ESM. This scopes that to the
+          // agents, so the surrounding app keeps its own module system.
+          type: "module",
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  }
+
+  files.set(".foundry/routes.d.ts", routesDeclaration(agentsDir, agentRoute));
+
+  // 3. Manifest, tsconfig, and lint config differ by target.
+  const dependencies = dependenciesFor(template, versions);
+  if (target === "standalone") {
+    files.set(
       "package.json",
       `${JSON.stringify(
         {
@@ -45,28 +315,14 @@ export async function scaffoldFoundryProject(
             lint: "eslint .",
             typecheck: "tsc --noEmit",
           },
-          dependencies: {
-            effect: "^3.22.1",
-            "glove-core": "^3.5.0",
-            "glove-foundry": "^0.1.0",
-            "glove-js": "^0.3.0",
-            "glove-mcp": "^1.0.1",
-            "glove-memory": "^1.0.2",
-            "glove-working-environment": "^0.5.0",
-            zod: "^4.3.6",
-          },
-          devDependencies: {
-            "@types/node": "^25.2.3",
-            eslint: "^9.39.2",
-            "typescript-eslint": "^8.54.0",
-            typescript: "^5.9.3",
-          },
+          dependencies,
+          devDependencies: DEV_DEPENDENCIES,
         },
         null,
         2,
       )}\n`,
-    ],
-    [
+    );
+    files.set(
       "tsconfig.json",
       `${JSON.stringify(
         {
@@ -79,256 +335,187 @@ export async function scaffoldFoundryProject(
             noEmit: true,
             skipLibCheck: true,
           },
-          include: ["agents", "src", "foundry.application.ts", "foundry.config.ts", ".foundry/routes.d.ts"],
+          include: [
+            "agents",
+            "lib",
+            "src",
+            "foundry.application.ts",
+            "foundry.config.ts",
+            ".foundry/routes.d.ts",
+          ],
         },
         null,
         2,
       )}\n`,
-    ],
-    [
-      "foundry.config.ts",
-      `import { defineConfig } from "glove-foundry/config";\n\n` +
-        `export default defineConfig({\n` +
-        `  server: { port: 4141 },\n` +
-        `  execution: {\n` +
-        `    pollIntervalMs: 100,\n` +
-        `    maxConcurrent: 4,\n` +
-        `  },\n` +
-        `});\n`,
-    ],
-    [
-      "agents/assistant/composition.ts",
-      `import { composeAgent } from "glove-foundry";\n` +
-        `import notes from "./apps/notes.app.js";\n` +
-        `import requestContext from "./layers/request-context.layer.js";\n` +
-        `import notion from "./mcp/notion.mcp.js";\n` +
-        `import personalMemory from "./memory/personal.memory.js";\n` +
-        `import usage from "./subscribers/usage.subscriber.js";\n` +
-        `import currentTime from "./tools/current-time.tool.js";\n\n` +
-        `export const components = composeAgent(\n` +
-        `  notes,\n` +
-        `  requestContext,\n` +
-        `  notion,\n` +
-        `  personalMemory,\n` +
-        `  usage,\n` +
-        `  currentTime,\n` +
-        `);\n`,
-    ],
-    [
-      "agents/assistant/agent.ts",
-      `import { MemoryStore } from "glove-core";\n` +
-        `import { createAdapter } from "glove-core/models/providers";\n` +
-      `import { defineAgent } from "glove-foundry";\n` +
-        `import { components } from "./composition.js";\n` +
-        `import { loadDefaultInbox } from "./inboxes/default.inbox.js";\n` +
-        `import requestContext from "./layers/request-context.layer.js";\n` +
-        `import personalMemory from "./memory/personal.memory.js";\n` +
-        `import usage from "./subscribers/usage.subscriber.js";\n` +
-        `import { assistantRepl, assistantWorkspace } from "./workbench.js";\n` +
-        `\n` +
-        `export default defineAgent({\n` +
-        `  description: "A general-purpose Glove assistant",\n` +
-        `  components,\n` +
-        `  memory: [personalMemory],\n` +
-        `  inboxes: (_agent, context) => loadDefaultInbox(context),\n` +
-        `  workingEnvironment: assistantWorkspace,\n` +
-        `  repl: (_agent, context) => assistantRepl(context.agentId, context.messageText),\n` +
-        `  store: ({ conversationId }) => new MemoryStore(\`foundry:\${conversationId}\`),\n` +
-        `  model: createAdapter({\n` +
-        `    provider: "openrouter",\n` +
-        `    model: process.env.OPENROUTER_MODEL ?? "openai/gpt-4.1-mini",\n` +
-        `    stream: true,\n` +
-        `  }),\n` +
-        `  systemPrompt: (_agent, { message, history }) =>\n` +
-        `    [\n` +
-        `      "You are a precise, practical assistant.",\n` +
-        `      \`Current request: \${message.text}\`,\n` +
-        `      \`Prior messages: \${history.length}\`,\n` +
-        `    ].join("\\n"),\n` +
-        `  compactionInstructions: () =>\n` +
-        `    "Preserve decisions, open work, and important context.",\n` +
-        `  compactionLimit: (_agent, { messageText }) =>\n` +
-        `    messageText.length > 2_000 ? 80_000 : 40_000,\n` +
-        `  layers: [requestContext],\n` +
-        `  subscribers: [usage],\n` +
-        `});\n`,
-    ],
-    [
-      "agents/assistant/workbench.ts",
-      `import { JsSession, defineFn } from "glove-js";\n` +
-        `import { defineRepl, defineWorkingEnvironment } from "glove-foundry";\n` +
-        `import { z } from "zod";\n\n` +
-        `export const assistantWorkspace = defineWorkingEnvironment({\n` +
-        `  options: { limits: { maxVfsBytes: 32 * 1024 * 1024 } },\n` +
-        `});\n\n` +
-        `export function assistantRepl(actor: string, message: string) {\n` +
-        `  const session = JsSession.create({ actor });\n` +
-        `  session.register(defineFn({\n` +
-        `    name: "request__current",\n` +
-        `    description: "Read the current request inside the REPL",\n` +
-        `    input: z.object({}),\n` +
-        `    readOnlyHint: true,\n` +
-        `    handler: () => ({ text: message, length: message.length }),\n` +
-        `  }));\n` +
-        `  return defineRepl({ language: "javascript", session });\n` +
-        `}\n`,
-    ],
-    [
-      "agents/assistant/layers/request-context.layer.ts",
-      `import { Effect } from "effect";\n` +
-        `import { defineLayer } from "glove-foundry";\n\n` +
-        `const requestContext = defineLayer({\n` +
-        `  description: "Expose Foundry request identity as a native Glove skill",\n` +
-        `  setup: ({ glove, agentId, runId, message, history }) => Effect.sync(() => {\n` +
-        `    glove.defineSkill({\n` +
-        `      name: "request-context",\n` +
-        `      description: "Read the current Foundry agent and run ids",\n` +
-        `      exposeToAgent: true,\n` +
-        `      async handler() { return \`agent=\${agentId} run=\${runId} message=\${message.text} prior=\${history.length}\`; },\n` +
-        `    });\n` +
-        `  }),\n` +
-        `});\n\nexport default requestContext;\n`,
-    ],
-    [
-      "agents/assistant/subscribers/usage.subscriber.ts",
-      `import { defineSubscriber } from "glove-foundry";\n\n` +
-        `const usage = defineSubscriber({\n` +
-        `  description: "Observe token consumption without changing the agent",\n` +
-        `  create: {\n` +
-        `    async record(type, data) {\n` +
-        `      if (type === "token_consumption") console.log("[tokens]", data);\n` +
-        `    },\n` +
-        `  },\n` +
-        `});\n\nexport default usage;\n`,
-    ],
-    [
-      "foundry.application.ts",
-      `import { MemoryFoundryDataAdapter, defineApplication } from "glove-foundry";\n\n` +
-      `export const data = new MemoryFoundryDataAdapter();\n\n` +
-      `export default defineApplication({\n` +
-      `  name: "${projectName}",\n` +
-      `  data,\n` +
-      `  accounts: [],\n` +
-      `  routes: [],\n` +
-      `  bindings: [],\n` +
-      `});\n`,
-    ],
-    [
-      "agents/assistant/tools/current-time.tool.ts",
-      `import { defineSharedTool } from "glove-foundry";\n` +
-        `import { z } from "zod";\n\n` +
-        `const currentTime = defineSharedTool({\n` +
-        `  description: "Return the current ISO timestamp",\n` +
-        `  tool: {\n` +
-        `    name: "current_time",\n` +
-        `  description: "Return the current ISO timestamp",\n` +
-        `  inputSchema: z.object({}),\n` +
-        `  async do() {\n` +
-        `    return { status: "success", data: new Date().toISOString() };\n` +
-        `  },\n` +
-        `  },\n` +
-        `});\n\nexport default currentTime;\n`,
-    ],
-    [
-      "agents/assistant/apps/notes.app.ts",
-      `import { Effect } from "effect";\n` +
-        `import { defineApp } from "glove-foundry";\n` +
-        `import { z } from "zod";\n\n` +
-        `const notes = defineApp({\n` +
-        `  description: "An example application installed only when selected",\n` +
-        `  config: z.object({ namespace: z.string().default("default") }),\n` +
-        `  inbound: [],\n` +
-        `  outbound: [],\n` +
-        `  install: ({ config }) => Effect.sync(() => {\n` +
-        `    return { tools: [{\n` +
-        `      name: "notes_namespace",\n` +
-        `      description: "Return the installed notes namespace",\n` +
-        `      inputSchema: z.object({}),\n` +
-        `      async do() { return { status: "success", data: config.namespace }; },\n` +
-        `    }] };\n` +
-        `  }),\n` +
-        `});\n\nexport default notes;\n`,
-    ],
-    [
-      "agents/assistant/inboxes/default.inbox.ts",
-      `import type { InboxItem } from "glove-core";\n` +
-        `import type { AgentAssemblyContext } from "glove-foundry";\n\n` +
-        `export async function loadDefaultInbox(\n` +
-        `  context: AgentAssemblyContext,\n` +
-        `): Promise<ReadonlyArray<InboxItem>> {\n` +
-        `  // Load this conversation's inbox from your own adapter or service.\n` +
-        `  void \`\${context.agentId}:\${context.conversationId}\`;\n` +
-        `  return [];\n` +
-        `}\n`,
-    ],
-    [
-      "agents/assistant/mcp/notion.mcp.ts",
-      `import { defineMcp } from "glove-foundry";\n\n` +
-        `// This remains disconnected until an agent instance installs it.\n` +
-        `const notion = defineMcp({\n` +
-        `  entry: {\n` +
-        `    name: "Notion",\n` +
-        `    description: "Search and update a Notion workspace",\n` +
-        `    url: "https://mcp.notion.com/mcp",\n` +
-        `    tags: ["notes", "workspace"],\n` +
-        `  },\n` +
-        `});\n\nexport default notion;\n`,
-    ],
-    [
-      "agents/assistant/memory/personal.memory.ts",
-      `import { Effect } from "effect";\n` +
-        `import { defineMemory } from "glove-foundry";\n` +
-        `import { MemorySchema } from "glove-memory/core";\n` +
-        `import { InMemoryContextAdapter } from "glove-memory/in-memory";\n\n` +
-        `const schema = new MemorySchema();\n` +
-        `const context = new InMemoryContextAdapter({ schema });\n\n` +
-        `const personalMemory = defineMemory({\n` +
-        `  description: "Ambient user context backed by a replaceable memory adapter",\n` +
-        `  context: { adapter: () => Effect.succeed(context) },\n` +
-        `});\n\nexport default personalMemory;\n`,
-    ],
-    [
-      "src/client.ts",
-      `import { createFoundryClient } from "glove-foundry/client";\n` +
-        `import type { FoundryRoutes } from "../.foundry/routes.js";\n\n` +
-        `export const foundry = createFoundryClient<FoundryRoutes>();\n\n` +
-        `const agent = await foundry.agent("assistant").create({ workspaceId: "default" });\n` +
-        `const conversation = await foundry.createConversation(agent.id);\n` +
-        `const run = await foundry.send(agent.id, conversation.id, "Hello");\n` +
-        `const completed = await run.wait();\n` +
-        `console.log(completed.output);\n`,
-    ],
-    [
-      ".foundry/routes.d.ts",
-      `// Generated by Glove Foundry. Do not edit.\n` +
-        `export type FoundryRoutes = {\n` +
-        `  readonly "assistant": typeof import("../agents/assistant/agent.js").default;\n` +
-        `};\n`,
-    ],
-    [".env.example", "OPENROUTER_API_KEY=\nOPENROUTER_MODEL=openai/gpt-4.1-mini\n"],
-    [
+    );
+    files.set(
       "eslint.config.js",
-      `import tseslint from "typescript-eslint";\n` +
-        `import foundry from "glove-foundry/eslint";\n\n` +
-        `export default [...tseslint.configs.recommended, foundry];\n`,
-    ],
-    [".gitignore", "node_modules\n.env.local\n.foundry/manifest.json\n"],
-    [
-      "README.md",
-      `# ${projectName}\n\n` +
-        `A file-routed Glove Foundry application.\n\n` +
-        `1. Copy \`.env.example\` to \`.env.local\` and add your API key.\n` +
-        `2. Install dependencies with \`pnpm install\`.\n` +
-        `3. Run \`pnpm dev\`.\n` +
-        `4. Open http://127.0.0.1:4141.\n\n` +
-        `Add agents under \`agents/<route>/agent.ts\`; the file path is the route. Keep that agent's applications, transmissions, tools, MCPs, memory, inboxes, layers, subscribers, and workbench beside it, then combine reusable capabilities with \`composeAgent\`. Code-authored references use imported definition values; Foundry normalizes them to ids only when instance data is persisted. Applications and MCPs remain inert until an agent instance installs them. The scaffold mounts a sandboxed VFS/script environment and a request-aware JavaScript REPL; change or remove them in \`workbench.ts\`. Agents create future and recurring work only through Foundry's scheduling and sleep tools.\n`,
-    ],
-  ]);
+      'import tseslint from "typescript-eslint";\n' +
+        'import foundry from "glove-foundry/eslint";\n\n' +
+        "export default [...tseslint.configs.recommended, foundry];\n",
+    );
+  } else {
+    const [clientPath, clientSource] = nextClientModule(agentRoute, foundryDir);
+    files.set(clientPath, clientSource);
+    const [handlerPath, handlerSource] = nextRouteHandler(agentRoute);
+    files.set(handlerPath, handlerSource);
+    files.set(`${foundryDir}/README.md`, nextReadme(projectName, agentRoute, placeholders));
+  }
 
   for (const [relativePath, content] of files) {
     const path = resolve(rootDir, relativePath);
     await mkdir(dirname(path), { recursive: true });
+    // Never clobber a file an existing project already owns.
+    if (target === "nextjs" && (await exists(path))) continue;
     await writeFile(path, content, { encoding: "utf8", flag: "wx" });
   }
-  return { rootDir, files: [...files.keys()] };
+
+  if (target === "nextjs") {
+    await mergeNextManifest(rootDir, dependencies, files);
+  }
+
+  return {
+    rootDir,
+    files: [...files.keys()].sort(),
+    template,
+    target,
+    packageManager,
+    agentsDir,
+    versions,
+    agentRoute,
+  };
+}
+
+function nextClientModule(route: string, foundryDir: string): [string, string] {
+  return [
+    "lib/foundry.ts",
+    "/**\n" +
+      " * The Next.js app talks to the Foundry runtime over HTTP, so nothing from\n" +
+      " * the agent graph is bundled into your app. `FoundryRoutes` is a type-only\n" +
+      " * import, erased at build time, and it is regenerated on every dev run — so\n" +
+      ` * agent("${route}") is checked against the files that actually exist.\n` +
+      " */\n" +
+      'import { createFoundryClient } from "glove-foundry/client";\n' +
+      'import type { FoundryRoutes } from "../.foundry/routes.js";\n\n' +
+      "export const foundry = createFoundryClient<FoundryRoutes>({\n" +
+      '  baseUrl: process.env.FOUNDRY_URL ?? "http://127.0.0.1:4141",\n' +
+      "});\n\n" +
+      `\n// The agents live in ${foundryDir}/agents. Start the runtime with\n` +
+      "// `foundry:dev`; it serves the inspector at http://127.0.0.1:4141.\n",
+  ];
+}
+
+function nextRouteHandler(route: string): [string, string] {
+  return [
+    `app/api/${route}/route.ts`,
+    "/**\n" +
+      ` * POST /api/${route} — send a message to the agent and wait for its result.\n` +
+      " *\n" +
+      " * This runs on the server, so the Foundry runtime never has to be public.\n" +
+      " * For a streaming UI, subscribe to the runtime's /api/events instead of\n" +
+      " * awaiting run.wait().\n" +
+      " */\n" +
+      'import { foundry } from "../../../lib/foundry.js";\n\n' +
+      "export async function POST(request: Request) {\n" +
+      "  const { message, workspaceId = \"default\" } = (await request.json()) as {\n" +
+      "    message: string;\n" +
+      "    workspaceId?: string;\n" +
+      "  };\n\n" +
+      "  // A real app reuses one instance per user rather than creating one per call.\n" +
+      `  const agent = await foundry.agent("${route}").create({ workspaceId });\n` +
+      "  const conversation = await foundry.createConversation(agent.id);\n" +
+      "  const run = await foundry.send(agent.id, conversation.id, message);\n" +
+      "  const completed = await run.wait();\n\n" +
+      "  return Response.json({ runId: run.id, output: completed.output });\n" +
+      "}\n",
+  ];
+}
+
+function nextReadme(
+  projectName: string,
+  route: string,
+  placeholders: Readonly<Record<string, string>>,
+): string {
+  return [
+    `# Foundry agents for ${projectName}`,
+    "",
+    "The agents live here; the Next.js app calls them over HTTP through",
+    "`lib/foundry.ts`. Nothing in this folder is bundled into your app.",
+    "",
+    "## Running",
+    "",
+    "Two processes, because they have different lifecycles — the runtime keeps",
+    "durable state and should not restart when a React component changes:",
+    "",
+    "```bash",
+    placeholders.devCommand + "      # Foundry runtime + inspector on :4141",
+    placeholders.installCommand.split(" ")[0] + " dev              # Next.js on :3000",
+    "```",
+    "",
+    "Then POST to your own route:",
+    "",
+    "```bash",
+    `curl -X POST http://localhost:3000/api/${route} \\`,
+    "  -H 'content-type: application/json' \\",
+    `  -d '{"message":"I want to fly from Lisbon to Nairobi in April."}'`,
+    "```",
+    "",
+    "## Layout",
+    "",
+    "| Path | What it is |",
+    "| --- | --- |",
+    `| \`foundry/agents/${route}/agent.ts\` | The agent. The file path is its id. |`,
+    "| `foundry/foundry.application.ts` | Data adapter, accounts, routes |",
+    "| `foundry.config.ts` | Points the runtime at `foundry/agents` |",
+    "| `lib/foundry.ts` | Typed HTTP client for your app to import |",
+    `| \`app/api/${route}/route.ts\` | An example Next.js route handler |`,
+    "| `.foundry/routes.d.ts` | Generated. Do not edit |",
+    "",
+    "## Deploying",
+    "",
+    "The runtime is a normal Node process. Deploy it wherever you run servers,",
+    "set `FOUNDRY_URL` in your Next.js environment to point at it, and keep it",
+    "private to your network — the inspector is a development surface.",
+    "",
+    "See the [full Foundry guide](https://github.com/porkytheblack/glove/blob/main/packages/glove-foundry/docs/building-with-foundry.md).",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Add what Foundry needs to an existing manifest without disturbing what is
+ * already there. Glove package versions are set rather than merged: they must
+ * match the versions this Foundry was built against, or npm installs a second
+ * copy of every shared class and the project stops typechecking.
+ */
+async function mergeNextManifest(
+  rootDir: string,
+  dependencies: Readonly<Record<string, string>>,
+  files: Map<string, string>,
+): Promise<void> {
+  const path = resolve(rootDir, "package.json");
+  let manifest: Record<string, unknown> = {};
+  if (await exists(path)) {
+    manifest = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+  }
+  const scripts = { ...(manifest.scripts as Record<string, string> | undefined) };
+  scripts["foundry:dev"] ??= "glove foundry dev";
+  scripts["foundry:start"] ??= "glove foundry start";
+  const merged = {
+    ...manifest,
+    scripts,
+    dependencies: Object.fromEntries(
+      Object.entries({
+        ...(manifest.dependencies as Record<string, string> | undefined),
+        ...dependencies,
+      }).sort(([a], [b]) => a.localeCompare(b)),
+    ),
+  };
+  await writeFile(path, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
+  files.set("package.json", "(merged)");
+}
+
+/** Relative path for the CLI's "cd here" hint. */
+export function displayPath(rootDir: string): string {
+  return relative(process.cwd(), rootDir) || ".";
 }
