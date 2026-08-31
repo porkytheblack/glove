@@ -255,7 +255,7 @@ npm install glove-react glove-next zod`}
 
 export const model = createAdapter({
   provider: "anthropic",              // see the table below
-  model: "claude-sonnet-4-20250514",
+  model: "claude-sonnet-5",
   stream: true,
 });`}
       />
@@ -288,7 +288,7 @@ export const model = createAdapter({
               <code>ANTHROPIC_API_KEY</code>
             </td>
             <td>
-              <code>claude-sonnet-4-20250514</code>
+              <code>claude-sonnet-5</code>
             </td>
           </tr>
           <tr>

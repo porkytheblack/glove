@@ -21,7 +21,7 @@ import { z } from "zod";
 
 const model = createAdapter({
   provider: "anthropic",
-  model: "claude-sonnet-4-20250514",
+  model: "claude-sonnet-5",
   stream: true, // default
 });
 
@@ -98,7 +98,7 @@ const model = createAdapter({
 | Provider | Env Variable | Default Model |
 |----------|-------------|---------------|
 | `openai` | `OPENAI_API_KEY` | `gpt-4.1` |
-| `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-5` |
 | `openrouter` | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4` |
 | `gemini` | `GEMINI_API_KEY` | `gemini-2.5-flash` |
 | `minimax` | `MINIMAX_API_KEY` | `MiniMax-M2.5` |

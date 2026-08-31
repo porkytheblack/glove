@@ -99,7 +99,7 @@ import { z } from "zod";
 
 const agent = new Glove({
   store: new MemoryStore("session-1"),
-  model: createAdapter({ provider: "anthropic", model: "claude-sonnet-4-20250514", stream: true }),
+  model: createAdapter({ provider: "anthropic", model: "claude-sonnet-5", stream: true }),
   displayManager: new Displaymanager(),
   systemPrompt: "You are a helpful assistant.",
   compaction_config: { compaction_instructions: "Summarize the conversation so far." },
@@ -136,7 +136,7 @@ agent.addSubscriber({
 import { createChatHandler } from "glove-next";
 export const POST = createChatHandler({
   provider: "anthropic",
-  model: "claude-sonnet-4-20250514",
+  model: "claude-sonnet-5",
   cache: true,
 });
 \`\`\`
@@ -193,7 +193,7 @@ async do(input, display) {
 | provider | env var | default model |
 | --- | --- | --- |
 | openai | OPENAI_API_KEY | gpt-4.1 |
-| anthropic | ANTHROPIC_API_KEY | claude-sonnet-4-20250514 |
+| anthropic | ANTHROPIC_API_KEY | claude-sonnet-5 |
 | openrouter | OPENROUTER_API_KEY | anthropic/claude-sonnet-4 |
 | gemini | GEMINI_API_KEY | gemini-2.5-flash |
 | minimax | MINIMAX_API_KEY | MiniMax-M2.5 |
