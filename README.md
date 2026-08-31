@@ -96,7 +96,7 @@ import { z } from "zod";
 // 1. Pick a model
 const model = createAdapter({
   provider: "anthropic",    // or "openai", "openrouter", "gemini", etc.
-  model: "claude-sonnet-4-20250514",
+  model: "claude-sonnet-5",
   stream: true,
 });
 
@@ -141,7 +141,7 @@ import { createChatHandler } from "glove-next";
 
 export const POST = createChatHandler({
   provider: "anthropic",
-  model: "claude-sonnet-4-20250514",
+  model: "claude-sonnet-5",
 });
 ```
 
@@ -249,7 +249,7 @@ Glove supports multiple providers through a unified adapter interface:
 | Provider | Env Variable | Default Model |
 |----------|-------------|---------------|
 | `openai` | `OPENAI_API_KEY` | `gpt-4.1` |
-| `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-5` |
 | `openrouter` | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4` |
 | `gemini` | `GEMINI_API_KEY` | `gemini-2.5-flash` |
 | `minimax` | `MINIMAX_API_KEY` | `MiniMax-M2.5` |

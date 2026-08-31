@@ -18,7 +18,7 @@ import { createChatHandler } from "glove-next";
 
 export const POST = createChatHandler({
   provider: "anthropic",           // openai | anthropic | openrouter | gemini | minimax | kimi | glm
-  model: "claude-sonnet-4-20250514", // optional — uses provider default
+  model: "claude-sonnet-5", // optional — uses provider default
   apiKey: process.env.ANTHROPIC_API_KEY, // optional — defaults to env var
   maxTokens: 4096,
 });
@@ -51,7 +51,7 @@ type RemoteStreamEvent =
 | Provider | Env Variable | Default Model |
 |----------|-------------|---------------|
 | `openai` | `OPENAI_API_KEY` | `gpt-4.1` |
-| `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-5` |
 | `openrouter` | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4` |
 | `gemini` | `GEMINI_API_KEY` | `gemini-2.5-flash` |
 | `minimax` | `MINIMAX_API_KEY` | `MiniMax-M2.5` |

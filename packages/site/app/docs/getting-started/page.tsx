@@ -141,7 +141,7 @@ export default function GettingStartedPage() {
 
 export const POST = createChatHandler({
   provider: "anthropic",              // "openai", "gemini", "ollama", …
-  model: "claude-sonnet-4-20250514",
+  model: "claude-sonnet-5",
 });`}
       />
 
@@ -359,7 +359,7 @@ import { z } from "zod";
 
 const agent = new Glove({
   store: new MemoryStore("local-session"),
-  model: createAdapter({ provider: "anthropic", model: "claude-sonnet-4-20250514" }),
+  model: createAdapter({ provider: "anthropic", model: "claude-sonnet-5" }),
   displayManager: new Displaymanager(),
   systemPrompt: "You are a helpful weather assistant.",
   compaction_config: {
