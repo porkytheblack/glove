@@ -50,7 +50,7 @@ jobs:
           --filter "glove-env-render..."
           --filter "glove-env-ocr..."
           --filter "glove-env-email..."
-          --filter "glove-env-notion..."
+          --filter "glove-env-base..."
           --filter "glove-env-motion..."
           --filter "glove-image..."
           --filter "glove-analyst-desk..."
@@ -104,7 +104,7 @@ jobs:
           --filter glove-env-render
           --filter glove-env-ocr
           --filter glove-env-email
-          --filter glove-env-notion
+          --filter glove-env-base
           --filter glove-env-motion
           --filter glove-image
           --filter glove-analyst-desk
@@ -140,7 +140,7 @@ jobs:
           --filter glove-env-render
           --filter glove-env-ocr
           --filter glove-env-email
-          --filter glove-env-notion
+          --filter glove-env-base
           --filter glove-env-motion
           --filter glove-image
           test

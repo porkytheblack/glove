@@ -1,13 +1,13 @@
 {
-  "name": "glove-env-notion",
+  "name": "glove-env-base",
   "version": "0.1.0",
-  "description": "Notion stdlib adapter for glove-working-environment. Mounts a workspace as env:notion — pages read as markdown, database rows as flat records, files pulled into the tree. Speaks API version 2025-09-03, so databases and data sources are separate objects.",
+  "description": "Knowledge-base stdlib adapter for glove-working-environment. Mounts pages, blocks and collections as env:base \u2014 pages read as markdown, rows as flat records, files pulled into the tree. Bring a provider: two methods are required, the rest are capabilities.",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/porkytheblack/glove.git",
-    "directory": "packages/glove-env-notion"
+    "directory": "packages/glove-env-base"
   },
   "homepage": "https://github.com/porkytheblack/glove",
   "bugs": "https://github.com/porkytheblack/glove/issues",
