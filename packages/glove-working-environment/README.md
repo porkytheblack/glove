@@ -410,6 +410,7 @@ These ship separately:
 | [`glove-env-slides`](../glove-env-slides) | `env:slides` | PowerPoint decks from a spec, read back independently — outline, slide text, notes. Plus pptxgenjs's own `PptxGenJS` for custom layouts |
 | [`glove-env-render`](../glove-env-render) | `env:render` | Rasterize a PDF, deck or Word file to page PNGs — so the agent can *look* at what it made. PDFs and images need nothing installed |
 | [`glove-env-motion`](../glove-env-motion) | `env:motion` | A React scene — Reanimated included — to video, GIF, PNG frames or a still. Deterministic: same scene, same bytes. Mount with `limits: MOTION_LIMITS`. Draft v0.1 |
+| [`glove-env-notion`](../glove-env-notion) | `env:notion` | A Notion workspace: pages as markdown, database rows as flat records, files pulled into the tree. Databases and data sources kept distinct, as API version 2025-09-03 has them |
 
 ```ts
 const env = await createWorkingEnvironment({ stdlib: [documents(), spreadsheets(), images()] });
