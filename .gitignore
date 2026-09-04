@@ -21,3 +21,4 @@ out
 # vendor a second copy of the repo into the repo.
 .claude/worktrees/
 .braind-storm/
+examples/foundry-hermes-agent/.data/

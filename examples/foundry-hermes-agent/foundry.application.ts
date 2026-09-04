@@ -1,9 +1,13 @@
 import {
-  MemoryFoundryDataAdapter,
+  FileFoundryDataAdapter,
   defineApplication,
   defineBinding,
 } from "glove-foundry";
-import { hermesConversation, hermesInstance } from "./agents/hermes/instances.js";
+import { join } from "node:path";
+import {
+  hermesConversation,
+  hermesInstance,
+} from "./agents/hermes/instances.js";
 import messaging from "./agents/hermes/apps/messaging.app.js";
 import chat, { sendMessage } from "./agents/hermes/apps/messaging/transmissions/chat.transmission.js";
 import notification, { sendNotification } from "./agents/hermes/apps/messaging/transmissions/notification.transmission.js";
@@ -15,11 +19,15 @@ import {
   operatorAccount,
 } from "./agents/hermes/topology.js";
 import { hermesConversationStore } from "./lib/stores.js";
+import { hermesDataDirectory } from "./lib/paths.js";
+import messengerSubscription from "./agents/hermes/subscriptions/operator-messages.subscription.js";
 
-export const data = new MemoryFoundryDataAdapter({
+export const data = new FileFoundryDataAdapter({
   identifier: "foundry-hermes-data",
+  file: join(hermesDataDirectory(), "foundry.json"),
   agents: [hermesInstance],
   conversations: [hermesConversation],
+  subscriptions: [messengerSubscription],
 });
 
 const chatBinding = defineBinding({

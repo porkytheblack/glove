@@ -51,6 +51,28 @@ Two details make this work in a Next.js project specifically. A Next.js app is n
 
 In production, set `FOUNDRY_URL` to wherever the runtime is deployed and keep it private to your network — the inspector is a development surface.
 
+For a single-host deployment, persist Foundry's mutable data with the bundled atomic file adapter:
+
+```ts
+import { FileFoundryDataAdapter, defineApplication } from "glove-foundry"
+import { join } from "node:path"
+
+const data = new FileFoundryDataAdapter({
+  file: join(process.env.AGENT_DATA_DIR ?? ".data", "foundry.json"),
+  agents: [primaryInstance],
+  conversations: [primaryConversation],
+  subscriptions: [inboundSubscription],
+})
+
+export default defineApplication({
+  name: "Support workforce",
+  data,
+  conversationStore: createConversationStore,
+})
+```
+
+`FileFoundryDataAdapter` coordinates sibling execution processes with an advisory lock and commits by atomic rename. It persists instances, subscriptions, delivery claims, activations, conversations, workspace data, VFS snapshots, inbox items, tasks, and non-secret environment data. Use a transactional database adapter when several hosts need to share the same state.
+
 ## The filesystem is the static registry
 
 ```text
@@ -277,6 +299,19 @@ export default defineApp({
 ```
 
 The application can own multiple inbound and outbound transmissions. Installing it mounts outbound transmissions as validated tools. Connections remain dormant until an active instance or subscription needs the installed app and playbook.
+
+Outbound adapters that select an account receive `context.withAccountSession`. Use it to enter the same user-owned, operation-scoped credential boundary used by application installers and inbound connections:
+
+```ts
+adapter: {
+  deliver: (input, context) => context.withAccountSession!(
+    "tickets:reply",
+    session => sendTicketReply(session, input),
+  ),
+}
+```
+
+The session value is never added to Foundry data or observability. Credential acquisition, refresh, SDK construction, and cleanup remain responsibilities of the adapter supplied on the agent definition.
 
 ## Config is inferred from its definition
 

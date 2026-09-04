@@ -6,15 +6,18 @@ import {
 import chat from "./apps/messaging/transmissions/chat.transmission.js";
 import fileDrop from "./apps/messaging/transmissions/file-drop.transmission.js";
 import notification from "./apps/messaging/transmissions/notification.transmission.js";
+import { hermesMessengerProvider } from "../../lib/account-sessions.js";
+
+const messengerProvider = hermesMessengerProvider();
 
 /** Runtime topology is editable deployment data; code references the values directly. */
 export const operatorAccount = defineAccount({
   id: "hermes-operator",
   transmission: chat,
-  externalAccountId: "local-operator",
-  label: "Local operator",
-  accessRef: "adapter://hermes/local-operator",
-  metadata: { provider: "local", address: "operator" },
+  externalAccountId: messengerProvider === "telegram" ? "telegram-bot" : "local-operator",
+  label: messengerProvider === "telegram" ? "Telegram operator" : "Local operator",
+  accessRef: `adapter://hermes/${messengerProvider}/operator`,
+  metadata: { provider: messengerProvider, address: "operator" },
 });
 
 export const chatInbound = defineInboundRoute({
@@ -23,7 +26,7 @@ export const chatInbound = defineInboundRoute({
   account: operatorAccount,
   visibility: "private",
   enabled: true,
-  config: { provider: "local", channel: "operator" },
+  config: { provider: messengerProvider, channel: "operator" },
 });
 
 export const chatOutbound = defineOutboundRoute({
@@ -32,7 +35,7 @@ export const chatOutbound = defineOutboundRoute({
   account: operatorAccount,
   visibility: "private",
   enabled: true,
-  config: { provider: "local", channel: "operator" },
+  config: { provider: messengerProvider, channel: "operator" },
 });
 
 export const fileInbound = defineInboundRoute({

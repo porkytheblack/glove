@@ -1,14 +1,14 @@
 import type { IGloveRunnable, InboxItem, ToolResultData } from "glove-core";
 import { Effect } from "effect";
 import {
-  composePlaybook,
   defineAgent,
   defineCall,
   defineSubagent,
+  installedApplicationTransmissionToolName,
 } from "glove-foundry";
 import { mountImage } from "glove-image";
 import { z } from "zod";
-import { hermesAccountSessions } from "../../lib/account-sessions.js";
+import { createHermesAccountSessions } from "../../lib/account-sessions.js";
 import { hermesContext, VerificationPayloadSchema } from "../../lib/context.js";
 import {
   hermesImageAssets,
@@ -18,21 +18,15 @@ import {
 import { HermesWorkerModel, hermesTextModel } from "../../lib/model.js";
 import mediaStudio, { mediaStudioConfigSchema } from "./apps/media-studio.app.js";
 import messaging from "./apps/messaging.app.js";
-import ingestFile from "./apps/messaging/actions/ingest-file.action.js";
-import respond from "./apps/messaging/actions/respond.action.js";
-import fileReceived from "./apps/messaging/events/file-received.event.js";
-import messageReceived from "./apps/messaging/events/message-received.event.js";
-import messageSent from "./apps/messaging/events/message-sent.event.js";
-import addressed from "./apps/messaging/predicates/addressed.predicate.js";
+import { messagingPlaybooks } from "./apps/messaging/policy.js";
 import chat from "./apps/messaging/transmissions/chat.transmission.js";
-import fileDrop from "./apps/messaging/transmissions/file-drop.transmission.js";
 import { hermesComponents } from "./composition.js";
 import executionContext from "./layers/execution-context.layer.js";
 import personal from "./memory/personal.memory.js";
 import dailyReview from "./schedules/daily-review.js";
 import { planningSkill, researchSkill } from "./skills.js";
 import trace from "./subscribers/trace.subscriber.js";
-import { chatInbound, chatOutbound, fileInbound, operatorAccount } from "./topology.js";
+import { chatInbound, chatOutbound, operatorAccount } from "./topology.js";
 import { hermesRepl, hermesWorkspace } from "./workbench.js";
 
 function hasInstallation(context: Parameters<typeof hermesContext>[0], capability: { readonly id: string }) {
@@ -54,11 +48,47 @@ async function invokeTool(
   return findTool(agent, name).run(input, undefined, signal);
 }
 
+function outboundText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && "text" in value && typeof value.text === "string") {
+    return value.text;
+  }
+  return JSON.stringify(value);
+}
+
+async function deliverInboundReply(
+  agent: IGloveRunnable,
+  context: Parameters<NonNullable<Parameters<typeof defineAgent>[0]["run"]>>[1],
+  value: unknown,
+): Promise<void> {
+  if (
+    context.request.source?.kind !== "transmission" ||
+    context.request.source.id !== chatInbound.id ||
+    !context.request.source.threadKey
+  ) return;
+  const toolName = installedApplicationTransmissionToolName(messaging, chat);
+  const messages = await agent.store.getMessages();
+  const alreadySent = messages
+    .slice(context.history.length)
+    .some((message) => message.tool_calls?.some((call) => call.tool_name === toolName));
+  if (alreadySent) return;
+  const delivered = await invokeTool(agent, toolName, {
+    routeId: chatOutbound.id,
+    payload: {
+      thread: context.request.source.threadKey,
+      text: outboundText(value),
+    },
+  }, context.signal);
+  if (delivered.status === "error") {
+    throw new Error(delivered.message ?? "Hermes could not deliver its inbound reply.");
+  }
+}
+
 const hermes = defineAgent({
   description: "A self-improving personal agent assembled end to end with Glove Foundry",
   tags: ["hermes", "personal-agent", "memory", "workspace", "media", "delegation"],
   components: hermesComponents,
-  accountSessions: hermesAccountSessions,
+  accountSessions: createHermesAccountSessions(operatorAccount),
   model: () => hermesTextModel(),
   systemPrompt: (_agent, context) => {
     const config = hermesContext(context);
@@ -132,44 +162,7 @@ const hermes = defineAgent({
   schedules: (_agent, context) => hermesContext(context).enableDailyReview ? [dailyReview] : [],
   playbooks: (_agent, context) => {
     if (!hasInstallation(context, messaging)) return [];
-    const name = hermesContext(context).displayName;
-    return [
-      composePlaybook({
-        name: "answer-addressed-messages",
-        transmission: chat,
-        match: {
-          event: messageReceived,
-          routes: [chatInbound],
-          predicate: { definition: addressed, parameters: { name } },
-        },
-        directives: [{
-          action: respond,
-          instruction: "Understand the inbound message, complete useful work, and answer on its originating thread.",
-          parameters: { preserveThread: true },
-        }],
-        applications: [messaging],
-        outbound: [{
-          route: chatOutbound,
-          application: messaging,
-          account: operatorAccount,
-          applicationAccount: operatorAccount,
-          event: messageSent,
-          instruction: "Return the completed response to the source thread.",
-        }],
-        serialization: { envelope: "xml", payload: "json" },
-      }),
-      composePlaybook({
-        name: "ingest-delivered-files",
-        transmission: fileDrop,
-        match: { event: fileReceived, routes: [fileInbound] },
-        directives: [{
-          action: ingestFile,
-          instruction: "Place the delivered content in /inbox, inspect it, and create any requested derived artefacts in /out.",
-        }],
-        applications: [messaging],
-        serialization: { envelope: "xml", payload: "json" },
-      }),
-    ];
+    return messagingPlaybooks(hermesContext(context).displayName);
   },
   workingEnvironment: hermesWorkspace,
   repl: (_agent, context) => hermesRepl(context.agentId, context.workspaceId, context.messageText),
@@ -217,10 +210,14 @@ const hermes = defineAgent({
       data: { provider: media.provider, adapter: imageModel.name },
     });
   },
-  run: (agent, context) => {
+  run: async (agent, context) => {
     const parsed = VerificationPayloadSchema.safeParse(context.request.payload);
-    if (!parsed.success) return context.defaultRun();
-    return Effect.tryPromise({
+    if (!parsed.success) {
+      const value = await context.defaultRun();
+      await deliverInboundReply(agent, context, value);
+      return value;
+    }
+    return Effect.runPromise(Effect.tryPromise({
       try: async () => {
         if (parsed.data.mode === "verify-workspace") {
           if (!context.vfs) throw new Error("Hermes working environment was not mounted.");
@@ -253,12 +250,12 @@ const hermes = defineAgent({
         }
         return invokeTool(agent, "glove_foundry_sleep", {
           kind: "for",
-          duration: "1d",
+          duration: "500ms",
           message: "Wake and finish the suspended Foundry Hermes check.",
         }, context.signal);
       },
       catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
-    });
+    }));
   },
 });
 

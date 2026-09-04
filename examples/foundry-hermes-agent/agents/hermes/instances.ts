@@ -5,6 +5,13 @@ import mediaStudio from "./apps/media-studio.app.js";
 import knowledge from "./tools/knowledge.tool.js";
 import { status } from "./composition.js";
 import { operatorAccount } from "./topology.js";
+import { hermesMessengerProvider } from "../../lib/account-sessions.js";
+
+export const hermesMessagingInstallation = install(
+  messaging,
+  { provider: hermesMessengerProvider(), homeChannel: "operator" },
+  { account: operatorAccount },
+);
 
 export const hermesInstance = defineAgentInstance(hermes, {
   id: "hermes-primary",
@@ -31,7 +38,7 @@ export const hermesInstance = defineAgentInstance(hermes, {
         },
       ],
     }),
-    install(messaging, { provider: "local", homeChannel: "operator" }, { account: operatorAccount }),
+    hermesMessagingInstallation,
     install(mediaStudio, { provider: "auto", candidates: 1 }),
   ],
   playbooks: [],

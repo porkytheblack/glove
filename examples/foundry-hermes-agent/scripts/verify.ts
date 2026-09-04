@@ -1,19 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createFoundryClient } from "glove-foundry/client";
 import { FoundryRuntime, FoundryServer } from "glove-foundry";
-import application from "../foundry.application.js";
 import config from "../foundry.config.js";
-import mediaStudio from "../agents/hermes/apps/media-studio.app.js";
-import externalTools from "../agents/hermes/mcp/external-tools.mcp.js";
-import { hermesInstance } from "../agents/hermes/instances.js";
-import {
-  chatInbound,
-  chatOutbound,
-  fileInbound,
-  notificationOutbound,
-} from "../agents/hermes/topology.js";
 import { listDeliveries } from "../lib/deliveries.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -34,15 +26,52 @@ async function waitForSettledRun(
   throw new Error(`Timed out waiting for Foundry run ${runId}.`);
 }
 
+async function waitForActivationRun(
+  foundry: ReturnType<typeof createFoundryClient>,
+  activationId: string,
+  timeoutMs = 120_000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const run = (await foundry.runs()).find((candidate) => {
+      const input = candidate.input as { source?: { id?: string } } | undefined;
+      return input?.source?.id === activationId;
+    });
+    if (run) return run;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+  }
+  throw new Error(`Timed out waiting for activation ${activationId}.`);
+}
+
 if (live && !process.env.GEMINI_API_KEY && !process.env.OPENROUTER_API_KEY) {
   throw new Error("verify:live requires GEMINI_API_KEY or OPENROUTER_API_KEY.");
 }
+const dataDirectory = await mkdtemp(resolve(tmpdir(), "foundry-hermes-verify-"));
 if (!live) process.env.HERMES_FORCE_DEMO = "1";
+process.env.HERMES_DATA_DIR = dataDirectory;
+process.env.HERMES_MESSENGER_PROVIDER = "local";
+
+const [
+  { default: application },
+  { default: mediaStudio },
+  { default: externalTools },
+  { hermesInstance },
+  { chatInbound, chatOutbound, fileInbound, notificationOutbound },
+  { hermesConversationStore },
+] = await Promise.all([
+  import("../foundry.application.js"),
+  import("../agents/hermes/apps/media-studio.app.js"),
+  import("../agents/hermes/mcp/external-tools.mcp.js"),
+  import("../agents/hermes/instances.js"),
+  import("../agents/hermes/topology.js"),
+  import("../lib/stores.js"),
+]);
 
 const runtime = await FoundryRuntime.discover({
   rootDir,
   agentsDir: resolve(rootDir, "agents"),
   application,
+  applicationFilePath: resolve(rootDir, "foundry.application.ts"),
   config,
 });
 const server = new FoundryServer(runtime, { host: "127.0.0.1", port: 0 });
@@ -85,6 +114,19 @@ try {
   const first = await firstHandle.wait({ timeoutMs: 120_000 });
   assert.equal(first.status, "completed", first.error);
   assert.match(String(first.output?.value ?? ""), /Hermes completed/i);
+  const reopenedStore = hermesConversationStore({
+    agentId: initial.id,
+    conversationId: "hermes-main",
+  });
+  let persistedMessages = await reopenedStore.getMessages();
+  for (let attempt = 0; attempt < 50 && persistedMessages.length < 2; attempt++) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+    persistedMessages = await reopenedStore.getMessages();
+  }
+  assert.ok(
+    persistedMessages.length >= 2,
+    `Expected durable conversation messages, found ${persistedMessages.length}.`,
+  );
 
   let loaded = (await runtime.listAgentInstances("hermes")).find((agent) => agent.id === initial.id)!;
   for (let attempt = 0; attempt < 50 && loaded.playbooks.length < 2; attempt++) {
@@ -161,7 +203,19 @@ try {
   const slept = await waitForSettledRun(foundry, sleepHandle.id);
   assert.equal(slept.status, "completed", slept.error);
   assert.equal((slept.output as { status?: string } | undefined)?.status, "suspended");
-  assert.ok((await runtime.listActivations("hermes-home")).some((activation) => activation.kind === "sleep"));
+  const sleepActivation = (await runtime.listActivations("hermes-home"))
+    .find((activation) => activation.kind === "sleep");
+  assert.ok(sleepActivation);
+  const wakeRun = await waitForActivationRun(foundry, sleepActivation.id);
+  assert.equal((await runtime.waitForRun(wakeRun.id, { timeoutMs: 120_000 }))?.status, "completed");
+  let restoredSleep = (await runtime.listActivations("hermes-home"))
+    .find((activation) => activation.id === sleepActivation.id);
+  for (let attempt = 0; attempt < 50 && restoredSleep?.status !== "completed"; attempt++) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+    restoredSleep = (await runtime.listActivations("hermes-home"))
+      .find((activation) => activation.id === sleepActivation.id);
+  }
+  assert.equal(restoredSleep?.status, "completed");
 
   const inbound = await runtime.dispatchInbound({
     routeId: chatInbound.id,
@@ -170,7 +224,8 @@ try {
     raw: { sender: "operator", thread: "operator-thread", text: "Hermes, summarize the current project." },
   });
   assert.equal(inbound.length, 1);
-  assert.equal((await runtime.waitForRun(inbound[0]!.id, { timeoutMs: 120_000 }))?.status, "completed");
+  const inboundResult = await runtime.waitForRun(inbound[0]!.id, { timeoutMs: 120_000 });
+  assert.equal(inboundResult?.status, "completed", inboundResult?.error);
   assert.deepEqual(await runtime.dispatchInbound({
     routeId: chatInbound.id,
     eventId: "hermes-message-ignored",
@@ -200,7 +255,8 @@ try {
     runId: first.id,
     payload: { subject: "Verification", text: "Foundry Hermes passed." },
   });
-  assert.equal(listDeliveries().length, 2);
+  assert.equal(listDeliveries().length, 3);
+  assert.ok(listDeliveries().some((delivery) => /Hermes completed/i.test(delivery.text)));
 
   const secondConversation = await foundry.createConversation(initial.id, {
     title: "A separate project",
@@ -221,18 +277,36 @@ try {
   assert.ok(types.includes("agent.foundry.definition.inboxes.loaded"));
   assert.ok(types.includes("agent.foundry.definition.playbooks.composed"));
   assert.ok(types.includes("agent.foundry.definition.schedules.loaded"));
+  const scheduleSync = firstEvents.find((event) => event.type === "agent.foundry.core.command");
+  assert.notEqual(
+    (scheduleSync?.data as { id?: string } | undefined)?.id,
+    "schedule_sync_unknown",
+    "Execution child must receive its run identity.",
+  );
 
+  const recordedRuns = await foundry.runs();
+  assert.equal(
+    recordedRuns.some((run) => run.status === "pending" || run.status === "running"),
+    false,
+    "Verification must not leave unfinished execution work behind.",
+  );
   process.stdout.write(JSON.stringify({
     status: "ok",
     mode: live ? "live" : "deterministic",
     url: listening.url,
-    runs: (await foundry.runs()).length,
+    runs: recordedRuns.length,
+    runStatuses: recordedRuns.reduce<Record<string, number>>((counts, run) => {
+      counts[run.status] = (counts[run.status] ?? 0) + 1;
+      return counts;
+    }, {}),
     playbooks: loaded.playbooks.length,
     installations: (await runtime.listInstallations(initial.id)).length,
     activations: (await runtime.listActivations("hermes-home")).length,
     deliveries: listDeliveries().length,
+    durableState: true,
   }, null, 2) + "\n");
 } finally {
   await server.close();
   await runtime.stop();
+  await rm(dataDirectory, { recursive: true, force: true });
 }

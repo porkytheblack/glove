@@ -7,7 +7,9 @@
     "dev": "glove foundry dev",
     "start": "glove foundry start",
     "lint": "eslint .",
+    "test": "pnpm verify && pnpm verify:messenger",
     "verify": "tsx scripts/verify.ts",
+    "verify:messenger": "tsx scripts/verify-messenger.ts",
     "verify:live": "tsx scripts/verify.ts --live",
     "typecheck": "tsc --noEmit"
   },
