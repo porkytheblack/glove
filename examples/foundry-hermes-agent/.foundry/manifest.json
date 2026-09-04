@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-04T08:52:50.963Z",
+  "agents": [
+    {
+      "id": "hermes",
+      "description": "A self-improving personal agent assembled end to end with Glove Foundry",
+      "mode": "agent",
+      "file": "hermes/agent.ts",
+      "tags": [
+        "hermes",
+        "personal-agent",
+        "memory",
+        "workspace",
+        "media",
+        "delegation"
+      ],
+      "invocationContract": "foundry/request-v1",
+      "resultContract": "foundry/result-v1",
+      "assembly": "foundry",
+      "handler": "custom",
+      "layers": [
+        "execution-context"
+      ],
+      "subscribers": [
+        "trace"
+      ],
+      "tools": [],
+      "hooks": [],
+      "skills": [],
+      "subagents": [],
+      "memory": [],
+      "inboxLoader": true,
+      "calls": [],
+      "schedules": [],
+      "playbooks": [],
+      "mesh": false,
+      "workingEnvironment": true,
+      "repl": "dynamic",
+      "lazy": [
+        "model",
+        "systemPrompt",
+        "compactionLimit",
+        "compactionInstructions",
+        "maxTurns",
+        "skills",
+        "subagents",
+        "memory",
+        "inboxes",
+        "calls",
+        "schedules",
+        "playbooks",
+        "repl"
+      ]
+    }
+  ]
+}

@@ -4,6 +4,7 @@ export {
   type FoundryAgentComponent,
   type FoundryAgentComposition,
   type FoundryCompositionSource,
+  type FoundryToolBody,
 } from "./composition.js";
 export {
   FOUNDRY_REPL_BRAND,

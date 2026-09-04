@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "noEmit": true },
+  "include": [
+    "agents",
+    "lib",
+    "scripts",
+    "foundry.application.ts",
+    "foundry.config.ts",
+    ".foundry/routes.d.ts"
+  ]
+}

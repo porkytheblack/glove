@@ -1,0 +1,33 @@
+{
+  "name": "glove-foundry-hermes-example",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "glove foundry dev",
+    "start": "glove foundry start",
+    "lint": "eslint .",
+    "verify": "tsx scripts/verify.ts",
+    "verify:live": "tsx scripts/verify.ts --live",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "effect": "^3.22.1",
+    "glove-core": "workspace:*",
+    "glove-env-documents": "workspace:*",
+    "glove-env-spreadsheets": "workspace:*",
+    "glove-foundry": "workspace:*",
+    "glove-image": "workspace:*",
+    "glove-js": "workspace:*",
+    "glove-memory": "workspace:*",
+    "glove-working-environment": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "eslint": "^9.39.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.54.0"
+  }
+}
