@@ -1401,6 +1401,21 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  packages/glove-env-base:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      glove-working-environment:
+        specifier: workspace:*
+        version: link:../glove-working-environment
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/glove-env-documents:
     dependencies:
       '@pdf-lib/fontkit':
@@ -1537,6 +1552,21 @@ importers:
       react-native-web:
         specifier: ^0.21.0
         version: 0.21.2(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/glove-env-notion:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      glove-working-environment:
+        specifier: workspace:*
+        version: link:../glove-working-environment
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
@@ -5728,6 +5758,7 @@ packages:
   eslint@9.39.5:
     resolution: {integrity: sha512-DgZS62aPLXKlnxILS/AYCoRvHaZeXceIzlXPkkGGzJWSow1aEk0lbTlxUSlyjC8jcaKxAdOnTDz+o1JFSBsyjw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'

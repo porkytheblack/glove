@@ -1,0 +1,41 @@
+{
+  "name": "glove-env-base",
+  "version": "0.1.0",
+  "description": "Knowledge-base stdlib adapter for glove-working-environment. Mounts pages, blocks and collections as env:base \u2014 pages read as markdown, rows as flat records, files pulled into the tree. Bring a provider: two methods are required, the rest are capabilities.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-env-base"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "peerDependencies": {
+    "glove-working-environment": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "glove-working-environment": "workspace:*",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}
