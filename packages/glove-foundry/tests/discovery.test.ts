@@ -39,6 +39,14 @@ test("colocated definitions derive nested identities from convention files", asy
     agent?.definition.components?.capabilities.tools[0]?.id,
     "time/clock",
   );
+  assert.equal(
+    agent?.definition.components?.capabilities.tools[1]?.id,
+    "diagnostics/status",
+  );
+  assert.equal(
+    agent?.definition.components?.capabilities.tools[1]?.tool?.name,
+    "diagnostics__status",
+  );
   assert.equal(respond.id, "respond");
   assert.equal(messageReceived.id, "message-received");
 });

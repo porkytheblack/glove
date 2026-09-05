@@ -9,7 +9,9 @@ import {
   type FoundryMcp,
   type FoundryMemoryProfile,
   type FoundrySharedTool,
+  defineSharedTool,
 } from "./capabilities.js";
+import type { GloveFoldArgs } from "glove-core";
 import {
   EMPTY_NATIVE_REGISTRY,
   FOUNDRY_LAYER_BRAND,
@@ -28,6 +30,13 @@ export type FoundryAgentComponent =
   | FoundryLayer<any>
   | FoundrySubscriber;
 
+/**
+ * A colocated `*.tool.ts` may export the Glove tool body directly. Foundry
+ * supplies the runtime tool name from the file route, so the authored module
+ * never has to repeat its identity as a string.
+ */
+export type FoundryToolBody = Omit<GloveFoldArgs<any>, "name">;
+
 export interface FoundryAgentComposition {
   readonly capabilities: FoundryCapabilityRegistry;
   readonly native: FoundryNativeRegistry;
@@ -35,12 +44,48 @@ export interface FoundryAgentComposition {
 
 export type FoundryCompositionSource =
   | FoundryAgentComponent
+  | FoundryToolBody
   | FoundryAgentComposition
   | ReadonlyArray<FoundryCompositionSource>
   | (() => FoundryCompositionSource)
   | false
   | null
   | undefined;
+
+const composedToolBodies = new WeakMap<object, FoundrySharedTool<any>>();
+
+function isToolBody(value: unknown): value is FoundryToolBody {
+  if (!value || typeof value !== "object") return false;
+  const body = value as Record<string, unknown>;
+  return typeof body.description === "string" && typeof body.do === "function" &&
+    (body.inputSchema !== undefined || body.jsonSchema !== undefined);
+}
+
+function toolFromBody(body: FoundryToolBody): FoundrySharedTool<any> {
+  const existing = composedToolBodies.get(body as object);
+  if (existing) return existing;
+
+  let definition!: FoundrySharedTool<any>;
+  const tool = { ...body } as GloveFoldArgs<any>;
+  Object.defineProperty(tool, "name", {
+    enumerable: true,
+    get: () => definition.id.replaceAll("/", "__").replaceAll("-", "_"),
+  });
+  definition = defineSharedTool({
+    description: body.description,
+    tool,
+  });
+  composedToolBodies.set(body as object, definition);
+  return definition;
+}
+
+/** @internal Resolve the wrapper created when composeAgent saw a bare tool module. */
+export function composedToolDefinition(
+  body: unknown,
+): FoundrySharedTool<any> | undefined {
+  if (!isToolBody(body)) return undefined;
+  return composedToolBodies.get(body as object) ?? toolFromBody(body);
+}
 
 function addUnique<T extends { readonly id: string }>(
   values: T[],
@@ -116,6 +161,8 @@ export function composeAgent(
       addUnique(native.layers, branded as FoundryLayer<any>, "layer");
     } else if (branded[FOUNDRY_SUBSCRIBER_BRAND] === true) {
       addUnique(native.subscribers, branded as FoundrySubscriber, "subscriber");
+    } else if (isToolBody(source)) {
+      addUnique(capabilities.tools, toolFromBody(source), "tool");
     } else {
       throw new Error("composeAgent received an unrecognized Foundry definition.");
     }

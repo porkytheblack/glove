@@ -1,0 +1,26 @@
+services:
+  hermes:
+    build:
+      context: ../..
+      dockerfile: examples/foundry-hermes-agent/Dockerfile
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4244:4244"
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      HERMES_TEXT_PROVIDER: ${HERMES_TEXT_PROVIDER:-auto}
+      HERMES_TEXT_MODEL: ${HERMES_TEXT_MODEL:-gemini-3.5-flash-lite}
+      HERMES_OPENROUTER_MODEL: ${HERMES_OPENROUTER_MODEL:-google/gemini-2.5-flash}
+      HERMES_IMAGE_MODEL: ${HERMES_IMAGE_MODEL:-gemini-3.1-flash-image}
+      HERMES_MESSENGER_PROVIDER: ${HERMES_MESSENGER_PROVIDER:-local}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL:-}
+      TELEGRAM_LONG_POLL_SECONDS: ${TELEGRAM_LONG_POLL_SECONDS:-25}
+      HERMES_FORCE_DEMO: ${HERMES_FORCE_DEMO:-0}
+    volumes:
+      - hermes-data:/data
+
+volumes:
+  hermes-data:
