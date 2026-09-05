@@ -230,6 +230,7 @@ provider prompt caching. Cache usage is reported on every response as
 | glove-js / glove-python / glove-lisp | one eval tool over a shared ToolFn catalog |
 | glove-egress | measured, enforced egress boundary over that catalog |
 | glove-image | agentic image generation: prompt pipeline, characters/scenes, refs, edit, assemble, cost |
+| glove-video | agentic video production: temporal prompts, continuity, refs, review gate, resumable flows, cost |
 | glove-mesh | direct/broadcast/ack messaging between agents |
 | glove-continuum-signal | subprocess runtime: triggered (cold) and concurrent (warm) agents |
 | glove-mcp | bridge Model Context Protocol servers in as tools |
@@ -526,6 +527,22 @@ Key facts:
   reports real USD.
 - Vision is OPT-IN via \`review\` — without it \`describe\` returns metadata only
   and generations are not critiqued.
+
+### glove-video
+
+\`mountVideo(agent, config)\` adds provider-neutral video generation, extension,
+transformation, review, delivery, libraries, usage, and resumable-flow tools. A
+\`VideoModelAdapter\` declares modes, reference roles, durations, aspect ratios,
+resolutions, audio, and candidate limits; \`fitVideoToModel\` records every
+provider-driven adjustment in the asset recipe.
+
+With \`review\` configured, every generated video is an internal draft.
+\`glove_video_review\` sends the stored video bytes to a separate video-capable
+model and stores a score, evidence, issues, and revision prompt.
+\`glove_video_deliver\` refuses any asset without a passing latest review. Multi-
+shot flows checkpoint completed nodes and resume without regenerating them.
+
+See \`/docs/video\` and the recorded run at \`/docs/video/gallery\`.
 
 ### glove-mesh
 

@@ -1,0 +1,32 @@
+{
+  "name": "glove-video-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --import tsx index.ts",
+    "selfcheck": "node --import tsx selfcheck.ts",
+    "selfcheck:live": "node --import tsx selfcheck.ts --live",
+    "audit": "node --import tsx audit.ts",
+    "gallery": "node --import tsx gallery.ts",
+    "brand-gallery": "node --import tsx brand-gallery.ts",
+    "brand-recover": "node --import tsx brand-recover.ts",
+    "brand-veo": "node --import tsx brand-veo.ts",
+    "brand-finish": "node --import tsx brand-finish.ts",
+    "recover": "node --import tsx recover.ts",
+    "showcase": "node --import tsx showcase.ts",
+    "test": "node --test --import tsx tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.4",
+    "glove-core": "workspace:*",
+    "glove-image": "workspace:*",
+    "glove-video": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}
