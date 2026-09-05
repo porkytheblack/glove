@@ -201,6 +201,7 @@ export {
   isFoundryApplication,
   type FoundryApplication,
   type FoundryApplicationOptions,
+  type FoundryExecutionAdapters,
 } from "./application.js";
 export {
   createManifest,
