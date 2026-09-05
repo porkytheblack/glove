@@ -1,6 +1,6 @@
 {
   "name": "glove-forms-bench",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "description": "Agentic evaluation: real models via OpenRouter driving glove-memory/forms through a scripted multi-turn intake, measuring context cost and instruction following.",

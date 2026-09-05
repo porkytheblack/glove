@@ -1,6 +1,6 @@
 {
   "name": "glovebox-core",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Authoring kit and build CLI for sandboxed Glove agents",
   "deprecated": "Glovebox is deprecated. Use glove-foundry for new agent runtimes and deployments.",
   "type": "module",

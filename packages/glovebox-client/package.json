@@ -1,6 +1,6 @@
 {
   "name": "glovebox-client",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Client SDK for talking to a deployed Glovebox server",
   "deprecated": "Glovebox is deprecated. Use glove-foundry for new agent runtimes and deployments.",
   "type": "module",

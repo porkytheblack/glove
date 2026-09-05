@@ -1,6 +1,6 @@
 {
   "name": "glove-voice-avatar",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Live avatar adapters for the Glove agent framework — a face over the speech-to-speech voice stack",
   "type": "module",
   "license": "MIT",

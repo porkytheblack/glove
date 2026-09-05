@@ -1,5 +1,12 @@
 # glove-s2s-rooms-web
 
+## 1.0.2
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-voice@3.6.1
+
 ## 1.0.1
 
 ### Patch Changes

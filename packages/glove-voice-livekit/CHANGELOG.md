@@ -1,5 +1,13 @@
 # glove-voice-livekit
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [[`3dad3ab`](https://github.com/porkytheblack/glove/commit/3dad3ab965ef4dff1973fa7339a60ae8f24b90e8)]:
+  - glove-voice-s2s@0.2.1
+  - glove-voice-avatar@0.1.2
+
 ## 0.1.1
 
 ### Patch Changes
