@@ -1697,6 +1697,9 @@ importers:
       station-env:
         specifier: ^2.2.0
         version: 2.2.0
+      station-network:
+        specifier: ^2.2.0
+        version: 2.2.0
       station-schedules:
         specifier: ^2.2.0
         version: 2.2.0
@@ -8083,6 +8086,10 @@ packages:
       station-broadcast: 2.0.0
       station-signal: 2.0.0
 
+  station-network@2.2.0:
+    resolution: {integrity: sha512-smWRqWEYtQVUFq345/udD7GmW1BEyO6Zbl6WwtLmf85aTZMbksBfmbK6LYTrz2dLGPdC3pWxhbiqgTAfVhQytg==}
+    engines: {node: '>=18'}
+
   station-schedules@2.0.0:
     resolution: {integrity: sha512-CGGDFb9TpeGU9BvGdjTUjPgUP8gyRIUsZKD5OXEMFUk837fizd1ds2ZPd7gMbLaELQOj0qzBcduXztQXkowqUA==}
     engines: {node: '>=18'}
@@ -11140,9 +11147,7 @@ snapshots:
       metro-runtime: 0.84.4
     transitivePeerDependencies:
       - '@babel/core'
-      - bufferutil
       - supports-color
-      - utf-8-validate
 
   '@react-native/normalize-colors@0.74.89': {}
 
@@ -15734,6 +15739,8 @@ snapshots:
       - bufferutil
       - sass
       - utf-8-validate
+
+  station-network@2.2.0: {}
 
   station-schedules@2.0.0: {}
 
