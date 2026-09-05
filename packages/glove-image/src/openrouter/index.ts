@@ -28,6 +28,8 @@ export interface OpenRouterImagesOptions {
   /** Optional attribution headers. */
   referer?: string;
   title?: string;
+  /** Fetch injection for non-network tests and custom runtimes. */
+  fetch?: typeof globalThis.fetch;
 }
 
 interface ChatContentPart {
@@ -51,24 +53,43 @@ function refLabel(ref: ResolvedRef, index: number): string {
   }
 }
 
+function aspectRatioFromSize(size?: string): string | undefined {
+  const match = size?.match(/^(\d+)x(\d+)$/);
+  if (!match) return undefined;
+  let width = Number.parseInt(match[1]!, 10);
+  let height = Number.parseInt(match[2]!, 10);
+  const originalWidth = width;
+  const originalHeight = height;
+  while (height !== 0) [width, height] = [height, width % height];
+  return `${originalWidth / width}:${originalHeight / width}`;
+}
+
 export function openrouterImages(
   options: OpenRouterImagesOptions = {},
 ): ImageModelAdapter {
   const apiKey = options.apiKey ?? process.env.OPENROUTER_API_KEY;
   const model = options.model ?? "google/gemini-2.5-flash-image";
   const baseUrl = options.baseUrl ?? "https://openrouter.ai/api/v1";
+  const fetchImpl = options.fetch ?? globalThis.fetch;
 
   async function callOnce(
     parts: ChatContentPart[],
     extra: Record<string, unknown> | undefined,
     signal?: AbortSignal,
+    size?: string,
   ): Promise<{ images: { bytes: Uint8Array; mime: string }[]; usage: ImageUsage }> {
     if (!apiKey) {
       throw new ImageError(
         "OpenRouter API key missing — pass apiKey or set OPENROUTER_API_KEY.",
       );
     }
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const { image_config: extraImageConfig, ...extraBody } = extra ?? {};
+    const imageConfig =
+      extraImageConfig && typeof extraImageConfig === "object" && !Array.isArray(extraImageConfig)
+        ? extraImageConfig as Record<string, unknown>
+        : {};
+    const requestedAspectRatio = aspectRatioFromSize(size);
+    const res = await fetchImpl(`${baseUrl}/chat/completions`, {
       method: "POST",
       signal: signal ?? null,
       headers: {
@@ -84,7 +105,18 @@ export function openrouterImages(
         // Ask OpenRouter to report token counts AND the actual USD cost
         // of the request in the response body.
         usage: { include: true },
-        ...extra,
+        ...extraBody,
+        ...(size || Object.keys(imageConfig).length
+          ? {
+              image_config: {
+                ...imageConfig,
+                ...(requestedAspectRatio && imageConfig.aspect_ratio === undefined
+                  ? { aspect_ratio: requestedAspectRatio }
+                  : {}),
+                ...(size ? { size } : {}),
+              },
+            }
+          : {}),
       }),
     });
     if (!res.ok) {
@@ -155,7 +187,7 @@ export function openrouterImages(
       const n = Math.max(1, req.candidates ?? 1);
       // The chat endpoint returns one image per request — fan out for candidates.
       const batches = await Promise.all(
-        Array.from({ length: n }, () => callOnce(parts, req.extra, signal)),
+        Array.from({ length: n }, () => callOnce(parts, req.extra, signal, req.size)),
       );
       const usage = emptyUsage();
       for (const batch of batches) addUsage(usage, batch.usage);
