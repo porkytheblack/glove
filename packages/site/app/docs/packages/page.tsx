@@ -122,11 +122,11 @@ export default function PackagesPage() {
           <tr>
             <td>Generative media</td>
             <td>
-              <code>glove-image</code>
+              <code>glove-image</code>, <code>glove-video</code>
             </td>
             <td>
-              The agent generates and refines images — recurring characters,
-              scenes, references.
+              The agent generates, reviews, and refines visual media — with
+              recurring subjects, scenes, references, timing, and lineage.
             </td>
           </tr>
           <tr>
@@ -923,6 +923,54 @@ await mountImage(glove, {
         />
         <p>
           → <a href="/docs/image">Image workflows guide</a>
+        </p>
+      </Pkg>
+
+      <Pkg name="glove-video" tag="agentic video production">
+        <p>
+          Video generation as a directed production loop rather than a prompt
+          wrapper: temporal recipes, reusable subjects and scenes, first-frame
+          references from <code>glove-image</code>, provider job progress,
+          evidence-backed review, a delivery gate, resumable multi-shot flows,
+          and per-asset spend. The video model is an adapter you bring.
+        </p>
+        <CodeBlock
+          filename="terminal"
+          language="bash"
+          code={`pnpm add glove-video`}
+        />
+        <CodeBlock
+          filename="video.ts"
+          language="typescript"
+          code={`import {
+  mountVideo,
+  openrouterVideo,
+  defaultVideoPipeline,
+  InMemoryVideoAssetStore,
+  InMemoryVideoLibrary,
+  InMemoryVideoFlowStore,
+  InMemoryVideoReviewStore,
+} from "glove-video";
+
+await mountVideo(glove, {
+  adapter: openrouterVideo(),
+  assets: new InMemoryVideoAssetStore(),
+  library: new InMemoryVideoLibrary(),
+  flows: new InMemoryVideoFlowStore(),
+  pipeline: defaultVideoPipeline(),
+  review: {
+    model: videoCapableReviewer,
+    store: new InMemoryVideoReviewStore(),
+    passingScore: 84,
+  },
+});
+
+// The agent directs with glove_video_generate, watches with _review,
+// revises weak drafts, and _deliver refuses anything without a pass.`}
+        />
+        <p>
+          → <a href="/docs/video">Video workflows guide</a> ·{" "}
+          <a href="/docs/video/gallery">agent-directed case study</a>
         </p>
       </Pkg>
 

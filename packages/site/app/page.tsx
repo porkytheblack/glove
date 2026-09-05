@@ -63,6 +63,19 @@ const icons: Record<string, ReactNode> = {
       <rect x="13.5" y="13" width="7.5" height="7.5" rx="1.4" />
     </svg>
   ),
+  video: (
+    <svg {...iconProps}>
+      <rect x="3" y="5" width="14" height="14" rx="2" />
+      <path d="m17 10 4-2.5v9L17 14" />
+      <path d="M7 9.5h5M7 13h3.5" opacity=".65" />
+    </svg>
+  ),
+  play: (
+    <svg {...iconProps}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m10 8.5 5.5 3.5-5.5 3.5z" />
+    </svg>
+  ),
   memory: (
     <svg {...iconProps}>
       <circle cx="6" cy="7" r="2.2" />
@@ -260,7 +273,7 @@ const capabilityGroups: CapGroup[] = [
   {
     cat: "var(--c-media)",
     name: "Generative Media",
-    line: "Images as a workflow, not a one-off call",
+    line: "Images and video as directed, inspectable workflows",
     caps: [
       {
         icon: "image",
@@ -293,6 +306,36 @@ const capabilityGroups: CapGroup[] = [
           </>
         ),
         meta: "19 images · $0.78 · one run, no retries",
+      },
+      {
+        icon: "video",
+        kicker: "Agentic video direction",
+        name: "Video Workflows",
+        href: "/docs/video",
+        badge: "new",
+        desc: (
+          <>
+            Give the agent continuity libraries, timed beats, first-frame
+            references, provider-neutral jobs, resumable multi-shot flows, and
+            a reviewer that watches the actual result before anything ships.
+          </>
+        ),
+        meta: "Generate → watch → revise → gated delivery",
+      },
+      {
+        icon: "play",
+        kicker: "Recorded production run",
+        name: "Video Gallery",
+        href: "/docs/video/gallery",
+        badge: "new",
+        desc: (
+          <>
+            One brief becomes a keyframe, continuity definitions, a timed
+            recipe, provider jobs, review evidence, and one approved cut. See
+            the rejected work and the gate that keeps it off the page.
+          </>
+        ),
+        meta: "Every take, verdict, trace, and dollar accounted for",
       },
     ],
   },

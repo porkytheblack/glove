@@ -121,20 +121,32 @@ function safeJsonParse(str: string): unknown {
 function formatContentParts(
   parts: ContentPart[],
 ): OpenAI.Chat.ChatCompletionContentPart[] {
-  const result: OpenAI.Chat.ChatCompletionContentPart[] = [];
+  type OpenRouterVideoPart = {
+    type: "video_url";
+    video_url: { url: string };
+  };
+  const result: Array<OpenAI.Chat.ChatCompletionContentPart | OpenRouterVideoPart> = [];
   for (const part of parts) {
     switch (part.type) {
       case "text":
         if (part.text) result.push({ type: "text", text: part.text });
         break;
       case "image":
-      case "video":
         if (part.source) {
           const url =
             part.source.type === "url"
               ? part.source.url!
               : `data:${part.source.media_type};base64,${part.source.data}`;
           result.push({ type: "image_url", image_url: { url } });
+        }
+        break;
+      case "video":
+        if (part.source) {
+          const url =
+            part.source.type === "url"
+              ? part.source.url!
+              : `data:${part.source.media_type};base64,${part.source.data}`;
+          result.push({ type: "video_url", video_url: { url } });
         }
         break;
       case "document":
@@ -146,7 +158,7 @@ function formatContentParts(
         break;
     }
   }
-  return result;
+  return result as OpenAI.Chat.ChatCompletionContentPart[];
 }
 
 // A single Glove Message may expand to multiple OpenAI messages because

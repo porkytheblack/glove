@@ -25,6 +25,8 @@ const columns: { title: string; links: { label: string; href: string; external?:
       { label: "Code Execution", href: "/docs/code-execution" },
       { label: "Realtime Voice", href: "/docs/realtime-voice" },
       { label: "Image Workflows", href: "/docs/image" },
+      { label: "Video Workflows", href: "/docs/video" },
+      { label: "Video Gallery", href: "/docs/video/gallery" },
       { label: "Mesh", href: "/docs/mesh" },
     ],
   },

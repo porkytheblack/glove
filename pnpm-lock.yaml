@@ -1264,6 +1264,31 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  examples/video-studio:
+    dependencies:
+      dotenv:
+        specifier: ^17.2.4
+        version: 17.3.1
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-image:
+        specifier: workspace:*
+        version: link:../../packages/glove-image
+      glove-video:
+        specifier: workspace:*
+        version: link:../../packages/glove-video
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   examples/weather-agent:
     dependencies:
       chalk:
@@ -1939,6 +1964,25 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/glove-video:
+    dependencies:
+      glove-core:
+        specifier: workspace:*
+        version: link:../glove
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

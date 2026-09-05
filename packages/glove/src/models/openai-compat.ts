@@ -268,21 +268,42 @@ function safeJsonParse(str: string): unknown {
 
 function formatContentParts(
   parts: ContentPart[],
+  provider: string,
 ): OpenAI.Chat.ChatCompletionContentPart[] {
-  const result: OpenAI.Chat.ChatCompletionContentPart[] = [];
+  type OpenRouterVideoPart = {
+    type: "video_url";
+    video_url: { url: string };
+  };
+  const result: Array<OpenAI.Chat.ChatCompletionContentPart | OpenRouterVideoPart> = [];
   for (const part of parts) {
     switch (part.type) {
       case "text":
         if (part.text) result.push({ type: "text", text: part.text });
         break;
       case "image":
-      case "video":
         if (part.source) {
           const url =
             part.source.type === "url"
               ? part.source.url!
               : `data:${part.source.media_type};base64,${part.source.data}`;
           result.push({ type: "image_url", image_url: { url } });
+        }
+        break;
+      case "video":
+        if (part.source) {
+          const url =
+            part.source.type === "url"
+              ? part.source.url!
+              : `data:${part.source.media_type};base64,${part.source.data}`;
+          if (provider === "openrouter") {
+            // OpenRouter's multimodal chat format distinguishes video from
+            // images. The OpenAI SDK does not declare this extension yet.
+            result.push({ type: "video_url", video_url: { url } });
+          } else {
+            // Preserve the pre-existing compatibility behavior for generic
+            // OpenAI-compatible endpoints whose video conventions vary.
+            result.push({ type: "image_url", image_url: { url } });
+          }
         }
         break;
       case "document":
@@ -293,10 +314,14 @@ function formatContentParts(
         break;
     }
   }
-  return result;
+  return result as OpenAI.Chat.ChatCompletionContentPart[];
 }
 
-function formatMessage(msg: Message, echoReasoning: boolean): OpenAIMessage[] {
+function formatMessage(
+  msg: Message,
+  echoReasoning: boolean,
+  provider: string,
+): OpenAIMessage[] {
   const role: "user" | "assistant" =
     msg.sender === "agent" ? "assistant" : "user";
 
@@ -343,7 +368,7 @@ function formatMessage(msg: Message, echoReasoning: boolean): OpenAIMessage[] {
   }
 
   if (msg.content?.length && role === "user") {
-    return [{ role: "user" as const, content: formatContentParts(msg.content) }];
+    return [{ role: "user" as const, content: formatContentParts(msg.content, provider) }];
   }
 
   return [{ role, content: msg.text }];
@@ -352,10 +377,11 @@ function formatMessage(msg: Message, echoReasoning: boolean): OpenAIMessage[] {
 export function formatMessages(
   messages: Array<Message>,
   echoReasoning: boolean = false,
+  provider: string = "openai-compat",
 ): OpenAIMessage[] {
   const flat: OpenAIMessage[] = [];
   for (const msg of messages) {
-    flat.push(...formatMessage(msg, echoReasoning));
+    flat.push(...formatMessage(msg, echoReasoning, provider));
   }
 
   const merged: OpenAIMessage[] = [];
@@ -532,7 +558,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
     if (this.systemPrompt) {
       messages.push({ role: "system", content: this.systemPrompt });
     }
-    messages.push(...formatMessages(request.messages, this.reasoning.echo));
+    messages.push(...formatMessages(request.messages, this.reasoning.echo, this.provider));
     messages = applyOpenAICacheControl(messages, this.cache, this.provider);
 
     const tools =

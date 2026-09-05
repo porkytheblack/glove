@@ -149,7 +149,7 @@ export const docsSections: DocsNavSection[] = [
   },
   {
     title: "Generative Media",
-    blurb: "Agentic generation of images — workflows, not one-off calls.",
+    blurb: "Agentic image and video generation — workflows, not one-off calls.",
     items: [
       {
         label: "Image Workflows",
@@ -166,6 +166,22 @@ export const docsSections: DocsNavSection[] = [
         summary:
           "A worked SS26 campaign — every image with its real prompt, pipeline trace and cost, plus a provenance canvas showing how one was made.",
         packages: ["glove-image"],
+      },
+      {
+        label: "Video Workflows",
+        href: "/docs/video",
+        badge: "new",
+        summary:
+          "Temporal prompt pipelines, continuity libraries, image references, actual-video review, delivery gates, resumable flows and spend tracking.",
+        packages: ["glove-video", "glove-image"],
+      },
+      {
+        label: "Video Gallery",
+        href: "/docs/video/gallery",
+        badge: "new",
+        summary:
+          "An agent-directed case study exposing the keyframe, timed recipe, every reviewed take, revision evidence, delivery decision and real spend.",
+        packages: ["glove-video", "glove-image"],
       },
     ],
   },
