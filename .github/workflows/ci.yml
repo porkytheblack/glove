@@ -53,6 +53,7 @@ jobs:
           --filter "glove-env-motion..."
           --filter "glove-image..."
           --filter "glove-analyst-desk..."
+          --filter "glove-foundry..."
           build
 
       # glovebox-core and glovebox-kit each declare the other as a dependency:
@@ -108,6 +109,7 @@ jobs:
           --filter glove-analyst-desk
           --filter glove-document-desk
           --filter glovebox-env-example
+          --filter glove-foundry
           typecheck
 
       # env:motion renders in a real browser. Without this step its render
@@ -140,6 +142,7 @@ jobs:
           --filter glove-env-email
           --filter glove-env-motion
           --filter glove-image
+          --filter glove-foundry
           test
 
       # The analyst-desk selfcheck solves every eval scenario with a reference
