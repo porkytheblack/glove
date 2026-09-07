@@ -411,6 +411,8 @@ These ship separately:
 | [`glove-env-render`](../glove-env-render) | `env:render` | Rasterize a PDF, deck or Word file to page PNGs — so the agent can *look* at what it made. PDFs and images need nothing installed |
 | [`glove-env-motion`](../glove-env-motion) | `env:motion` | A React scene — Reanimated included — to video, GIF, PNG frames or a still. Deterministic: same scene, same bytes. Mount with `limits: MOTION_LIMITS`. Draft v0.1 |
 | [`glove-env-base`](../glove-env-base) | `env:base` | Pages, blocks and collections from any backend: markdown in and out, rows as flat records, schema-checked writes, files into the tree. You supply the provider |
+| [`glove-env-fetch`](../glove-env-fetch) | `env:fetch` | HTTP requests, file downloads/uploads, domain/origin policy and host credential aliases |
+| [`glove-env-secret`](../glove-env-secret) | `env:secret` | Host-backed keystore with scoped key references, optional reveal/writes and pluggable persistence |
 
 ```ts
 const env = await createWorkingEnvironment({ stdlib: [documents(), spreadsheets(), images()] });

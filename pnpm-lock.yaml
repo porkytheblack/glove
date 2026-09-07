@@ -1472,6 +1472,25 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  packages/glove-env-fetch:
+    dependencies:
+      glove-env-secret:
+        specifier: workspace:^
+        version: link:../glove-env-secret
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      glove-working-environment:
+        specifier: workspace:*
+        version: link:../glove-working-environment
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/glove-env-images:
     dependencies:
       sharp:
@@ -1632,6 +1651,21 @@ importers:
       pptxgenjs:
         specifier: ^4.0.1
         version: 4.0.1
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/glove-env-secret:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      glove-working-environment:
+        specifier: workspace:*
+        version: link:../glove-working-environment
       tsx:
         specifier: ^4.19.0
         version: 4.21.0

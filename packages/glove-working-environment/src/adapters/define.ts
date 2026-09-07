@@ -79,11 +79,10 @@ export interface AdapterSpec<T extends AdapterBindings> {
    */
   close?: StdlibAdapter["close"];
   /**
-   * Produce the bindings. ALL I/O must go through the given handle — it is
-   * the capability boundary, routing through the same guarded gateway as the
-   * model verbs (zones, limits, script pipeline, version recording). An
-   * adapter that reaches for the network or the host filesystem breaks the
-   * contract; the environment cannot detect it, so don't.
+   * Produce the bindings. Workspace file I/O must use the given guarded handle
+   * (zones, limits, script pipeline, version recording). External adapters may
+   * use explicitly host-authorized network/storage capabilities with their own
+   * access policy. Refuse external operations when ctx.readOnly is true.
    */
   create(vfs: EnvFsHandle, ctx: AdapterContext): T;
 }
