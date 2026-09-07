@@ -21,7 +21,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "SECURITY.md"
   ],
   "scripts": {
     "build": "tsup",
@@ -39,6 +40,11 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "glove-env-secret": "workspace:^"
+    "glove-env-secret": "workspace:^",
+    "ipaddr.js": "^2.5.0",
+    "undici": "^7.29.1"
+  },
+  "engines": {
+    "node": ">=20.18.1"
   }
 }

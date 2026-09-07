@@ -76,12 +76,20 @@ The host controls allowedDomains, blockedDomains, allowedOrigins and an optional
 authorize callback. Deny wins. Redirect targets are checked individually;
 cross-origin redirects drop all supplied headers, and request bodies are never
 replayed across origins. Host credentials are selected by alias, resolved from
-the keystore when needed and sent only to configured exact origins.
+the keystore when needed and sent only to configured exact origins. HTTPS-to-HTTP
+redirects are refused. The native transport blocks private, loopback, link-local,
+metadata and reserved IPs, including DNS answers, unless the host explicitly
+configures an exact privateNetworkOrigins grant. Domain allow rules cannot bypass
+these IP checks. Replacement transports are trusted host code and own DNS/IP safety.
 
 Host-configured limits bound uploads, streamed responses, redirects and deadlines
 (including policy and credential resolution). Per-request timeoutMs can shorten
 but never extend the host limit. redirect chooses follow (default), manual
-(return the 3xx response), or error. The host may supply a cancellation signal. All file I/O uses the guarded VFS. Requests are forbidden during
+(return the 3xx response), or error. Run cancellation, timeout and environment
+shutdown abort HTTP work; the host may supply an additional cancellation signal.
+Concurrency defaults to four requests per adapter instance. Request headers are
+capped at 64 KiB; native response headers at 16 KiB. All file I/O uses the guarded
+VFS. Requests are forbidden during
 script validation. Already-sent external effects cannot be undone by cancelling
 a script; host timeout and signal bound preparation and HTTP work. Filesystem commits
 are awaited rather than raced against the HTTP deadline. Requests are not retried

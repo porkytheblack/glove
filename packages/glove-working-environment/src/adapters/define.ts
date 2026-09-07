@@ -13,6 +13,7 @@
  */
 import type { EnvFsHandle, StdlibAdapter } from "../types";
 import { validateHandles, type HandlesSpec } from "./handles";
+import { runContext } from "../core/run-context";
 
 /** The shape an adapter's `create` returns: a module namespace. */
 export type AdapterBindings = Record<string, unknown>;
@@ -31,6 +32,8 @@ export interface AdapterContext {
    * side effects outside the handle it is given.
    */
   readOnly: boolean;
+  /** Current call's run lifetime. Read inside a binding, never capture during create(). */
+  readonly signal?: AbortSignal;
 }
 
 export interface AdapterSpec<T extends AdapterBindings> {
@@ -163,7 +166,10 @@ export function defineAdapter<T extends AdapterBindings>(spec: AdapterSpec<T>): 
   if (spec.renders !== undefined) validateHandles(spec.renders, where);
 
   const create = (vfs: EnvFsHandle, ctx?: Partial<AdapterContext>): T => {
-    const bindings = spec.create(vfs, { name: spec.name, readOnly: false, ...ctx });
+    const bindings = spec.create(vfs, {
+      name: spec.name, readOnly: false, ...ctx,
+      get signal() { return ctx?.signal ?? runContext.getStore()?.signal; },
+    });
     if (!bindings || typeof bindings !== "object") {
       throw new TypeError(`${where}: create() must return an object of bindings, got ${bindings === null ? "null" : typeof bindings}`);
     }

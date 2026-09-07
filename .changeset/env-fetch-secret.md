@@ -14,3 +14,9 @@ with per-environment in-memory defaults, a pluggable persistent-store contract,
 scoped key names, references, and explicit opt-in for revealing or writing
 secret values. Keep stored secrets out of VFS snapshots and permit fetch to
 resolve credentials directly from the host keystore.
+
+Block non-public IP destinations by default, validate every DNS answer at socket
+lookup time, and require exact private-network origin opt-ins. Refuse HTTPS
+downgrades and insecure credential configuration, bound headers/concurrency,
+and expose a live AdapterContext.signal that aborts host capabilities when a
+run ends, including timeout, worker failure and environment shutdown.

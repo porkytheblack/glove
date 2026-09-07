@@ -283,7 +283,7 @@ Batched in the worker, so narration inside a loop does not become the slowest th
 await env.runScript('/scripts/render.js', args, { signal: controller.signal });
 ```
 
-`EnvTool.do` matches glove-core's fold signature — `(input, display, glove, signal)` — so an agent built with `mountWorkingEnvironment` gets this for nothing: glove already passes the active request's signal to every tool, and `run_script` now forwards it into the run. A cancelled run resolves with a cancellation error, the environment stays usable, and anything it had already handed to the host is refused rather than committed. `defineTools` capabilities receive the same signal, so a cancelled run stops the call it is sitting on.
+`EnvTool.do` matches glove-core's fold signature — `(input, display, glove, signal)` — so an agent built with `mountWorkingEnvironment` gets this for nothing: glove already passes the active request's signal to every tool, and `run_script` now forwards it into the run. A cancelled run resolves with a cancellation error, the environment stays usable, and anything it had already handed to the host is refused rather than committed. `defineTools` capabilities receive a run-lifetime signal. `defineAdapter` bindings can read `ctx.signal` inside each call (do not capture it during `create`). It aborts when the run ends, including cancellation, timeout, worker failure and environment shutdown, so a stopped run can stop the external call it is sitting on.
 
 ### Telemetry
 

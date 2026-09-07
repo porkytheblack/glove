@@ -82,29 +82,44 @@ after successful consumption. No partial file is written on HTTP/read failures.
 | `allowedDomains` | Exact hostnames or `*.example.com` for subdomains only. Omitted allows all; `[]` denies all. |
 | `blockedDomains` | Same pattern syntax; takes precedence over allow rules. |
 | `allowedOrigins` | Additional exact scheme/host/port restrictions. |
+| `privateNetworkOrigins` | Exact origins explicitly permitted to reach private/reserved IPs. Default none; other allow/deny rules still apply. |
 | `authorize(url, method)` | Additional async host policy; false or rejection denies the request. |
-| `fetch` | Inject a proxy-aware or IP/DNS-filtering transport; must honor `redirect: 'manual'` and the abort signal. |
+| `fetch` | Trusted replacement transport for proxies/tests. Replaces native DNS/IP enforcement; must enforce that policy and TLS itself and honor manual redirects and abort. |
 
 Per-call `redirect` can be `follow` (default), `manual` (save and return the
 redirect response), or `error`. Use `request` for manual redirects because
 `download` and `upload` require 2xx status. All redirect targets are rechecked. Hostnames are normalized for case,
 international domain names and trailing dots. Cross-origin redirects drop
 all request headers. A request body is never replayed to another origin;
-303 and POST 301/302 redirects become GET before following.
+303 and POST 301/302 redirects become GET before following. HTTPS-to-HTTP
+redirects are always refused.
 
-Mounting this adapter grants HTTP(S) access. Domain policy checks URL names,
-not DNS results or IP ranges; deployments needing private-address/DNS-rebinding
-protection should enforce it in their network/proxy or injected transport.
-No process-wide fetch changes are made.
+Mounting this adapter grants HTTP(S) access to public destinations under the
+configured policy. The native transport blocks loopback, private, link-local,
+metadata, mapped/transition and reserved addresses. It validates every DNS
+answer at socket lookup time and connects using those exact answers, preventing
+a second DNS lookup from bypassing the check. Redirect connections use the same
+checks. TLS certificate verification stays enabled; ambient global fetch/proxy
+dispatchers are not inherited. No process-wide settings are changed.
 
-Credential aliases are host-defined and restricted to exact origins. Secret
+An internal service requires an exact host opt-in such as
+`privateNetworkOrigins: ['http://127.0.0.1:8080']`. A domain allowlist alone never
+grants private-network access. Prefer narrow `allowedOrigins` and use `authorize`
+for path/method restrictions. See [SECURITY.md](./SECURITY.md) for the threat model,
+custom-transport responsibilities, and remaining application-level boundaries.
+
+Credential aliases are host-defined and restricted to exact origins. HTTP
+credential origins require `allowInsecureHttp: true` on that credential; HTTPS is
+the default requirement. Secret
 references are resolved on each initial request, so rotated tokens take effect
 without recreating the adapter. Credentials are not returned by the adapter;
 the authorized remote service can still return sensitive data in its response.
 The default response header selection excludes Set-Cookie. Set `responseHeaders`
 to an explicit list to expose other headers such as `link`, `etag` or cookies.
 
-Defaults: 30-second deadline, 32 MiB request/response caps, five redirects.
+Defaults: 30-second deadline, 32 MiB request/response caps, five redirects,
+four concurrent requests per adapter instance (`maxConcurrentRequests`).
+Request headers are capped at 64 KiB; native response headers at 16 KiB.
 Configure `timeoutMs`, `maxUploadBytes`, `maxResponseBytes` and `maxRedirects`;
 VFS file limits also apply. Response limits count decoded bytes, including gzip
 expansion; multipart limits include encoding overhead. `bytes` may differ from
@@ -112,8 +127,10 @@ the server's Content-Length. Uploads and responses use bounded memory.
 
 The deadline covers policy callbacks, credential resolution, transport and
 response reading. Per-call `timeoutMs` may shorten it, but cannot extend the
-host limit. A host `signal` cancels outstanding requests, including when an
-injected transport ignores abort. Late results cannot write files. Filesystem
+host limit. Requests automatically observe the active run: cancellation, run
+timeout, worker exit and environment close abort HTTP work. An additional host
+`signal` can bound adapter lifetime. Even when a replacement transport ignores
+abort, late results cannot write files or follow redirects. Filesystem
 commits are awaited once started, so their latency is outside the HTTP deadline.
 Already-sent requests cannot be undone by cancelling an environment script.
 HTTP is unavailable during script validation. There are no automatic retries;

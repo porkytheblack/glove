@@ -238,7 +238,7 @@ test("native HTTP transport uploads VFS bytes and saves response bytes end to en
   const address = server.address();
   assert.ok(address && typeof address === "object");
   const url = `http://127.0.0.1:${address.port}`;
-  const t = await createAdapterTestEnv(fetchFiles({ allowedOrigins: [url], responseHeaders: ["x-request-method"], maxResponseBytes: 64 }));
+  const t = await createAdapterTestEnv(fetchFiles({ allowedOrigins: [url], privateNetworkOrigins: [url], responseHeaders: ["x-request-method"], maxResponseBytes: 64 }));
   try {
     const bytes = new Uint8Array([0, 128, 255, 10]);
     await t.fs.writeFile("/out/upload.bin", bytes);

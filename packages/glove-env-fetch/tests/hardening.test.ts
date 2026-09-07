@@ -9,7 +9,7 @@ test("invalid domain rules fail closed; IDNA and IPv6 are normalized", async () 
   for (const rule of ["example.com/path", "example.com?x", "example.com#x", "user@example.com", "example.com:443", "example.com..", "*.127.0.0.1", "*", "example.com\\evil"]) {
     assert.throws(() => createPolicy({ blockedDomains: [rule] }), /rule|hostname/);
   }
-  const policy = createPolicy({ allowedDomains: ["bücher.example", "[::1]"] });
+  const policy = createPolicy({ allowedDomains: ["bücher.example", "[::1]"], privateNetworkOrigins: ["http://[::1]"] });
   await policy("https://xn--bcher-kva.example", "GET");
   await policy("http://[0:0:0:0:0:0:0:1]", "GET");
   await assert.rejects(createPolicy({ authorize: async () => { throw new Error("private-provider-detail"); } })("https://example.com", "GET"), /blocked/);

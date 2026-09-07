@@ -5,6 +5,7 @@ import { createPolicy, origin, type NetworkPolicy } from "./policy";
 import { FETCH_DOCS, FETCH_TYPES } from "./docs";
 import { prepareBody, type BodyOptions } from "./body";
 import { withDeadline } from "./deadline";
+import { createTransport } from "./network";
 export type { MultipartPart } from "./body";
 
 export type { NetworkPolicy } from "./policy";
@@ -42,10 +43,12 @@ export interface Credential {
   /** Exact origins allowed to receive these headers. */
   origins: string[];
   headers: Record<string, string | { ref: SecretRef; prefix?: string }>;
+  /** Explicit opt-in for plaintext HTTP credentials. Default false. Prefer HTTPS. */
+  allowInsecureHttp?: boolean;
 }
 
 export interface FetchOptions extends NetworkPolicy {
-  /** Inject a transport for proxies, DNS/IP egress enforcement, tests, etc. */
+  /** Trusted replacement transport. It must enforce DNS/IP safety and TLS itself. */
   fetch?: (url: string, init: RequestInit) => Promise<Response>;
   timeoutMs?: number;
   /** Host lifetime/run cancellation, also enforced for injected transports. */
@@ -53,6 +56,8 @@ export interface FetchOptions extends NetworkPolicy {
   maxResponseBytes?: number;
   maxUploadBytes?: number;
   maxRedirects?: number;
+  /** Simultaneous requests per adapter instance. Default 4. */
+  maxConcurrentRequests?: number;
   /** Response header names returned to scripts. Defaults to content metadata and retry-after. */
   responseHeaders?: string[];
   credentials?: Record<string, Credential>;
@@ -79,6 +84,15 @@ async function cancel(response: Response) {
   try { await response.body?.cancel(); } catch { /* best-effort cleanup */ }
 }
 
+function checkHeaders(headers: Headers) {
+  for (const name of ["host", "content-length", "connection", "transfer-encoding", "proxy-authorization", "proxy-connection", "upgrade", "te", "trailer", "expect"]) {
+    if (headers.has(name)) throw new Error("Request contains a transport-controlled header");
+  }
+  let bytes = 0;
+  for (const [name, value] of headers) bytes += Buffer.byteLength(name) + Buffer.byteLength(value) + 4;
+  if (bytes > 64 * 1024) throw new Error("Request headers exceed the size limit");
+}
+
 /** Mounting this adapter explicitly grants network access under the supplied policy. */
 export function fetchFiles(options: FetchOptions = {}) {
   const authorize = createPolicy(options);
@@ -87,15 +101,28 @@ export function fetchFiles(options: FetchOptions = {}) {
   const responseLimit = positive(options.maxResponseBytes ?? 32 * 1024 * 1024, "maxResponseBytes");
   const uploadLimit = positive(options.maxUploadBytes ?? 32 * 1024 * 1024, "maxUploadBytes");
   const redirects = positive(options.maxRedirects ?? 5, "maxRedirects", true);
+  const concurrency = positive(options.maxConcurrentRequests ?? 4, "maxConcurrentRequests");
+  const privateOrigins = new Set(options.privateNetworkOrigins?.map(origin));
   const responseHeaders = [...(options.responseHeaders ?? ["content-type", "content-length", "content-encoding", "last-modified", "retry-after"])];
   for (const header of responseHeaders) {
     if (typeof header !== "string") throw new TypeError("responseHeaders must contain header names");
     try { new Headers().set(header, "test"); } catch { throw new TypeError("Invalid response header name"); }
   }
-  const transport = options.fetch ?? globalThis.fetch.bind(globalThis);
-  const credentials = new Map(Object.entries(options.credentials ?? {}).map(([name, c]) => [name, {
-    origins: c.origins.map(origin), headers: { ...c.headers },
-  }]));
+  const injectedTransport = options.fetch;
+  if (injectedTransport !== undefined && typeof injectedTransport !== "function") throw new TypeError("fetch must be a function");
+  const credentials = new Map(Object.entries(options.credentials ?? {}).map(([name, c]) => {
+    if (!c || !Array.isArray(c.origins) || !c.origins.length || !c.headers || typeof c.headers !== "object" || Array.isArray(c.headers) ||
+      (c.allowInsecureHttp !== undefined && typeof c.allowInsecureHttp !== "boolean")) throw new TypeError("Invalid credential configuration");
+    const origins = c.origins.map(origin);
+    if (!c.allowInsecureHttp && origins.some(url => url.startsWith("http:"))) throw new TypeError("HTTP credential origins require allowInsecureHttp; prefer HTTPS");
+    const headers = Object.fromEntries(Object.entries(c.headers).map(([header, value]) => {
+      if (typeof value === "string") return [header, value];
+      if (!value || value.ref?.kind !== "env:secret" || typeof value.ref.name !== "string" ||
+        (value.prefix !== undefined && typeof value.prefix !== "string")) throw new TypeError("Invalid credential header reference");
+      return [header, { ref: { ...value.ref }, prefix: value.prefix }];
+    })) as Credential["headers"];
+    return [name, { origins, headers }];
+  }));
 
   return defineAdapter({
     name: "fetch",
@@ -113,9 +140,14 @@ export function fetchFiles(options: FetchOptions = {}) {
         const method = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"].includes(upper) ? upper : rawMethod;
         const output = normalizePath(opts.output ?? `/tmp/fetch/${randomUUID()}.bin`);
         if (pendingOutputs.has(output)) throw new Error("Another request is already writing this output path");
+        if (pendingOutputs.size >= concurrency) throw new Error("HTTP concurrent request limit exceeded");
         pendingOutputs.add(output);
+        const native = injectedTransport ? undefined : createTransport(privateOrigins);
+        const transport = injectedTransport ?? native!.fetch;
         try {
-          return await withDeadline(Math.min(timeoutMs, opts.timeoutMs ?? timeoutMs), options.signal, async (signal, commit) => {
+          const runSignal = ctx.signal;
+          const lifetime = runSignal && options.signal ? AbortSignal.any([runSignal, options.signal]) : runSignal ?? options.signal;
+          return await withDeadline(Math.min(timeoutMs, opts.timeoutMs ?? timeoutMs), lifetime, async (signal, commit) => {
             let url = await authorize(input, method);
             if (signal.aborted) throw new Error("HTTP request aborted");
             const initialOrigin = url.origin;
@@ -128,10 +160,7 @@ export function fetchFiles(options: FetchOptions = {}) {
                 headers.set(name, value);
               }
             } catch { throw new Error("Invalid request headers"); }
-            // Transport-owned headers cannot redirect a request or lie about its size.
-            for (const name of ["host", "content-length", "connection", "transfer-encoding", "proxy-authorization"]) {
-              if (headers.has(name)) throw new Error("Request contains a transport-controlled header");
-            }
+            checkHeaders(headers);
             const body = await prepareBody(opts, vfs, headers, Math.min(uploadLimit, vfs.limits.maxFileBytes));
             if ((method === "GET" || method === "HEAD") && body !== undefined) throw new Error("GET and HEAD cannot have a request body");
             if (signal.aborted) throw new Error("HTTP request aborted");
@@ -152,6 +181,7 @@ export function fetchFiles(options: FetchOptions = {}) {
                 }
               } catch { throw new Error("Could not resolve configured request credentials"); }
             }
+            checkHeaders(headers);
 
             let currentMethod = method;
             let currentBody = body;
@@ -183,6 +213,7 @@ export function fetchFiles(options: FetchOptions = {}) {
                 let target: string;
                 try { target = new URL(location, url).href; } catch { throw new Error("Invalid HTTP redirect"); }
                 const next = await authorize(target, currentMethod);
+                if (url.protocol === "https:" && next.protocol === "http:") throw new Error("Refusing HTTPS to HTTP redirect downgrade");
                 if (next.origin !== url.origin) {
                   if (currentBody !== undefined) throw new Error("Refusing to forward a request body across origins on redirect");
                   currentHeaders = new Headers();
@@ -226,7 +257,7 @@ export function fetchFiles(options: FetchOptions = {}) {
               if (signal.aborted) throw new Error("HTTP request timed out");
               commit();
               await vfs.writeFile(output, data);
-              const returnedHeaders: Record<string, string> = {};
+              const returnedHeaders: Record<string, string> = Object.create(null);
               for (const name of responseHeaders) {
                 const value = response.headers.get(name);
                 if (value !== null) returnedHeaders[name] = value;
@@ -235,7 +266,10 @@ export function fetchFiles(options: FetchOptions = {}) {
                 contentType: response.headers.get("content-type"), headers: returnedHeaders };
             }
           });
-        } finally { pendingOutputs.delete(output); }
+        } finally {
+          try { await native?.close(); }
+          finally { pendingOutputs.delete(output); }
+        }
       };
       return {
         request,

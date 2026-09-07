@@ -1,5 +1,6 @@
 import { domainToASCII } from "node:url";
 import { isIP } from "node:net";
+import { isPublicAddress } from "./network";
 
 export interface NetworkPolicy {
   /** Exact hostnames or *.example.com for subdomains only. Omit to allow all. Empty denies all. */
@@ -8,6 +9,8 @@ export interface NetworkPolicy {
   blockedDomains?: string[];
   /** Optional additional origin restriction, including scheme and port. */
   allowedOrigins?: string[];
+  /** Explicit exact origins allowed to reach private/reserved IPs. Default none. */
+  privateNetworkOrigins?: string[];
   /** Additional host-owned policy, called on every redirect as well as the initial request. */
   authorize?: (url: URL, method: string) => boolean | Promise<boolean>;
 }
@@ -43,9 +46,17 @@ export function origin(value: string): string {
 }
 
 export function createPolicy(policy: NetworkPolicy) {
+  for (const key of ["allowedDomains", "blockedDomains", "allowedOrigins", "privateNetworkOrigins"] as const) {
+    if (policy[key] !== undefined && (!Array.isArray(policy[key]) || policy[key]!.some(value => typeof value !== "string"))) {
+      throw new TypeError(`${key} must be an array of strings`);
+    }
+  }
+  if (policy.authorize !== undefined && typeof policy.authorize !== "function") throw new TypeError("authorize must be a function");
   const allowed = policy.allowedDomains?.map(pattern);
   const blocked = policy.blockedDomains?.map(pattern) ?? [];
   const origins = policy.allowedOrigins?.map(origin);
+  const privateOrigins = new Set(policy.privateNetworkOrigins?.map(origin));
+  const customAuthorize = policy.authorize;
   return async (input: string, method: string): Promise<URL> => {
     let url: URL;
     try { url = new URL(input); } catch { throw new Error("Request URL must be an absolute HTTP(S) URL"); }
@@ -56,13 +67,17 @@ export function createPolicy(policy: NetworkPolicy) {
     url.hostname = url.hostname.toLowerCase().replace(/\.$/, "");
     url.hash = "";
     const host = hostname(url.hostname);
+    const address = url.hostname.replace(/^\[|\]$/g, "");
+    if (isIP(address) && !privateOrigins.has(url.origin) && !isPublicAddress(address)) {
+      throw new Error("Request IP destination is blocked by the host network policy");
+    }
     if (blocked.some(matches => matches(host)) || (allowed && !allowed.some(matches => matches(host))) ||
         (origins && !origins.includes(url.origin))) {
       throw new Error("Request destination is blocked by the host network policy");
     }
-    if (policy.authorize) {
+    if (customAuthorize) {
       let permitted = false;
-      try { permitted = (await policy.authorize(new URL(url), method)) === true; } catch { /* do not leak provider errors */ }
+      try { permitted = (await customAuthorize(new URL(url), method)) === true; } catch { /* do not leak provider errors */ }
       if (!permitted) throw new Error("Request destination is blocked by the host network policy");
     }
     return url;
