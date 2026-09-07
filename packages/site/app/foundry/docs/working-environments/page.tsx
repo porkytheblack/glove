@@ -38,6 +38,22 @@ export default function WorkingEnvironmentsPage() {
         correlation, persistence boundaries, and inspection.
       </p>
 
+      <h2 id="http-secrets">HTTP and credentials</h2>
+      <p>
+        Put <code>fetchFiles()</code> and <code>secret()</code> in the working
+        environment options&apos; <code>stdlib</code>. Supply the owning instance&apos;s
+        host store and narrow origin/credential grants. The native transport blocks
+        non-public DNS/IP destinations unless the host grants an exact private origin;
+        custom transports must implement equivalent protections.
+      </p>
+      <p>
+        Foundry closes its environment after each run. Re-supply the same scoped
+        persistent store on the next run: VFS snapshots contain neither secret
+        values nor network policy. Default memory stores are ephemeral. See the
+        {" "}<a href="https://github.com/porkytheblack/glove/blob/main/packages/glove-working-environment/HTTP-AND-SECRETS.md">HTTP and secrets guide</a>
+        {" "}for setup, script recipes and cancellation behavior.
+      </p>
+
       <h2 id="repl">Build the REPL for this request</h2>
       <CodeBlock filename="agents/maker/workbench.ts" language="typescript" code={`export function makerRepl(actor: string, brief: Brief) {
   const session = JsSession.create({ actor });
@@ -65,6 +81,8 @@ export default function WorkingEnvironmentsPage() {
         <tbody>
           <tr><td><code>glove-env-documents</code></td><td>Read and create PDFs and Word documents, extract DOCX images, and handle scanned documents through render and OCR.</td></tr>
           <tr><td><code>glove-env-spreadsheets</code></td><td>Build and inspect workbooks with paged, structured access.</td></tr>
+          <tr><td><code>glove-env-fetch</code></td><td>HTTP calls and VFS downloads/uploads with host policy, DNS/IP checks and scoped credentials.</td></tr>
+          <tr><td><code>glove-env-secret</code></td><td>Host-backed key metadata and references; explicit reveal/write opt-ins and pluggable persistence.</td></tr>
           <tr><td><code>glove-env-slides</code></td><td>Create and read presentation decks.</td></tr>
           <tr><td><code>glove-env-images</code> + <code>glove-image</code></td><td>Inspect, generate, edit, assemble, and review images with recorded lineage.</td></tr>
           <tr><td><code>glove-env-media</code> + <code>glove-env-motion</code></td><td>Inspect and transform audio/video or render deterministic motion scenes.</td></tr>

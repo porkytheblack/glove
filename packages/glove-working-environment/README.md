@@ -1,6 +1,6 @@
 # glove-working-environment
 
-A small, fast, in-memory, sandboxed **persistent working environment** for LLM agents. It gives a model a virtual filesystem it can act on across many tool calls: create files, write and persist scripts, run them, capture outputs, generate intermediates, inspect them, and iterate — the way a developer works in a regular environment — **without** networking, host filesystem access, or process spawning.
+A small, fast, in-memory, sandboxed **persistent working environment** for LLM agents. It gives a model a virtual filesystem it can act on across many tool calls: create files, write and persist scripts, run them, capture outputs, generate intermediates, inspect them, and iterate — the way a developer works in a regular environment — **without ambient** network, host filesystem, or process access. Hosts can explicitly mount network and storage capabilities through adapters.
 
 ```bash
 pnpm add glove-working-environment
@@ -18,7 +18,7 @@ Zero-dependency core (Node builtins only). Heavy format libraries (pdf, xlsx, im
 
 Design goals: **context-window discipline** (big data lives in files; tool outputs truncate with spillover to `/tmp`), **security by construction** (scripts run in a scope containing *only* injected capabilities — there is no `fetch` to block, it simply does not exist), **one tree** (inputs, scripts, intermediates, outputs, docs, history), and a **compounding library** (scripts persist and compose; an agent accumulates a discoverable, documented toolkit of its own).
 
-Non-goals, equally load-bearing: no networking (not configurable), no shell emulation, no bare `exec`/REPL tool (all execution goes through named, persistent scripts), no background execution or watchers.
+Non-goals, equally load-bearing: no ambient network API (HTTP access requires a host-mounted adapter), no shell emulation, no bare `exec`/REPL tool (all execution goes through named, persistent scripts), no background execution or watchers.
 
 **And no agent loop.** This package makes the work possible and keeps it safe; it does not decide whether the work is *good*. Measured over 90 agent runs, 92% produced the artifact they were asked for and 54% were fully correct — the gap is judgment (a buried fact missed, a settled claim mistaken for an outstanding one), not tooling. Closing it needs generate-and-evaluate with a critic, and that belongs in the host, which is why everything it needs is public: `snapshot()`/`fromSnapshot()` to checkpoint and rewind, `export()` to pull artifacts for judging, `fs` to read what the agent actually did, `mount()` to feed a critique back in. [`examples/analyst-desk`](../../examples/analyst-desk) is a working reference for the evaluate half.
 
@@ -283,7 +283,7 @@ Batched in the worker, so narration inside a loop does not become the slowest th
 await env.runScript('/scripts/render.js', args, { signal: controller.signal });
 ```
 
-`EnvTool.do` matches glove-core's fold signature — `(input, display, glove, signal)` — so an agent built with `mountWorkingEnvironment` gets this for nothing: glove already passes the active request's signal to every tool, and `run_script` now forwards it into the run. A cancelled run resolves with a cancellation error, the environment stays usable, and anything it had already handed to the host is refused rather than committed. `defineTools` capabilities receive the same signal, so a cancelled run stops the call it is sitting on.
+`EnvTool.do` matches glove-core's fold signature — `(input, display, glove, signal)` — so an agent built with `mountWorkingEnvironment` gets this for nothing: glove already passes the active request's signal to every tool, and `run_script` now forwards it into the run. A cancelled run resolves with a cancellation error, the environment stays usable, and anything it had already handed to the host is refused rather than committed. `defineTools` capabilities receive a run-lifetime signal. `defineAdapter` bindings can read `ctx.signal` inside each call (do not capture it during `create`). It aborts when the run ends, including cancellation, timeout, worker failure and environment shutdown, so a stopped run can stop the external call it is sitting on.
 
 ### Telemetry
 
@@ -411,6 +411,10 @@ These ship separately:
 | [`glove-env-render`](../glove-env-render) | `env:render` | Rasterize a PDF, deck or Word file to page PNGs — so the agent can *look* at what it made. PDFs and images need nothing installed |
 | [`glove-env-motion`](../glove-env-motion) | `env:motion` | A React scene — Reanimated included — to video, GIF, PNG frames or a still. Deterministic: same scene, same bytes. Mount with `limits: MOTION_LIMITS`. Draft v0.1 |
 | [`glove-env-base`](../glove-env-base) | `env:base` | Pages, blocks and collections from any backend: markdown in and out, rows as flat records, schema-checked writes, files into the tree. You supply the provider |
+| [`glove-env-fetch`](../glove-env-fetch) | `env:fetch` | HTTP requests, file downloads/uploads, domain/origin policy and host credential aliases |
+| [`glove-env-secret`](../glove-env-secret) | `env:secret` | Host-backed keystore with scoped key references, optional reveal/writes and pluggable persistence |
+
+For HTTP calls, downloads/uploads and scoped credentials, follow [HTTP files and host secrets](./HTTP-AND-SECRETS.md). It covers host setup, script recipes, network safety, cancellation, persistence and Foundry mounting.
 
 ```ts
 const env = await createWorkingEnvironment({ stdlib: [documents(), spreadsheets(), images()] });

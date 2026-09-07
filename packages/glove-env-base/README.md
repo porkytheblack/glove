@@ -185,8 +185,9 @@ stdlib: [base({ provider: wiki, name: "wiki" }), base({ provider: crm, name: "cr
 | `collections.get / query` | Schema, and rows as records |
 | `blocks.children / append / update / remove` | Structure, when markdown is not enough |
 
-`download` is not a general fetch. This environment has no network by construction, and base does
-not invent one — the fetching is the provider's, restricted to whatever it decided to allow.
+`base.download` fetches through the provider and its access policy. For general HTTP calls and
+VFS downloads/uploads, mount [`glove-env-fetch`](../glove-env-fetch) explicitly with host network
+policy; scripts have no ambient network API.
 
 ## Testing
 

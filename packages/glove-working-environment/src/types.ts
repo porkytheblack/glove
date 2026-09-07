@@ -64,9 +64,10 @@ export interface EnvSnapshot {
  * under `/std/<name>/`.
  *
  * `create(vfs)` is the capability boundary: every function the adapter
- * exposes must do its I/O exclusively through the given VFS handle. An
- * adapter that reaches for the network or the host filesystem is breaking
- * the contract — the environment cannot detect it, so don't do it.
+ * exposes must do workspace file I/O through the given VFS handle. External
+ * adapters may use explicitly host-authorized network or storage capabilities;
+ * their host configuration owns access policy. Refuse external operations when
+ * ctx.readOnly is true, because script validation must not trigger side effects.
  *
  * Prefer `defineAdapter` over writing this shape by hand: it checks the spec
  * eagerly and keeps the binding types.
@@ -134,8 +135,8 @@ export interface StdlibAdapter {
    */
   close?(): Promise<void> | void;
   /**
-   * Factory producing the actual bindings. ALL I/O goes through the given VFS
-   * handle.
+   * Factory producing the actual bindings. Workspace file I/O goes through the
+   * given VFS handle; external capabilities must be explicitly host-authorized.
    *
    * Called twice per environment — once for normal execution and once for the
    * read-only instance backing write-time script validation — so it must be

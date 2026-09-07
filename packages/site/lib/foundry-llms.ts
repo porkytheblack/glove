@@ -135,7 +135,12 @@ references between agents instead of copying whole documents into prompts.
 \`defineWorkingEnvironment\` mounts \`glove-working-environment\`: a bounded VFS,
 script execution, artifact export, progress callbacks, and model-facing verbs. Add
 Glove environment adapters for documents, spreadsheets, slides, images, render/OCR,
-archives, media, motion, and email. \`defineRepl\` mounts JavaScript, Python, or Lisp
+archives, media, motion, email, HTTP files (\`glove-env-fetch\`) and host keystores
+(\`glove-env-secret\`). Configure fetch origins and credential aliases in host
+options. Native fetch blocks non-public DNS/IPs unless an exact private origin
+is granted; custom transports own equivalent safety. Keep each SecretStore scoped
+to its owning instance and re-supply it on every run; VFS snapshots exclude its
+values. References reveal no plaintext and grant no access by themselves. \`defineRepl\` mounts JavaScript, Python, or Lisp
 sessions whose available functions may depend on the current message.
 
 ## Multi-agent

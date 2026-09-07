@@ -171,9 +171,9 @@ const files = await env.export("/out/**");              // door out`}
 
       <p>
         One sandboxed, in-memory virtual filesystem holds inputs, scripts,
-        intermediates, outputs, docs and history. Nothing in a script can reach
-        the network, the host filesystem, or a process — not by policy, but by
-        construction: scripts execute in a{" "}
+        intermediates, outputs, docs and history. Scripts have no ambient network,
+        host filesystem, or process access. External capabilities require an
+        explicit host-mounted adapter: scripts execute in a{" "}
         <code>vm</code> context whose scope contains only what the host injected.
       </p>
 
@@ -526,6 +526,8 @@ export default async function () {
           ["glove-env-media", "env:media", "audio/video via bundled ffmpeg — describe, thumbnail, frames, clip, transcode."],
           ["glove-env-render", "env:render", "rasterize a PDF, deck or Word file to page PNGs — so the agent can look at what it made. A .pptx works with nothing installed, via a layout schematic."],
           ["glove-env-motion", "env:motion", "a React scene to an mp4, GIF, PNG frames or a still — deterministically. React Native Reanimated scenes render unchanged."],
+          ["glove-env-fetch", "env:fetch", "HTTP calls, downloads/uploads, forms and multipart with host policy, DNS/IP protection and credential aliases."],
+          ["glove-env-secret", "env:secret", "Host keystore with scoped names/references, optional reveal/writes and persistence outside the VFS."],
         ]}
       />
 
@@ -811,6 +813,8 @@ const EXTERNAL = [
   "glove-env-zip",
   "glove-env-render",
   "glove-env-motion",
+  "glove-env-fetch",
+  "glove-env-secret",
   "sharp",        // native
   "pdfjs-dist",   // ships its own worker and dislikes being rewritten
   "playwright-core",
@@ -901,11 +905,35 @@ const nextConfig: NextConfig = {
       {/* ================================================================== */}
       {/* LIMITS                                                             */}
       {/* ================================================================== */}
+      <h2 id="http-secrets">HTTP files and host secrets</h2>
+      <p>
+        Mount <code>fetchFiles()</code> from <code>glove-env-fetch</code> for
+        <code> env:fetch.request/download/upload</code>. Responses land in VFS files;
+        requests support text, JSON, file bytes, forms and multipart uploads.
+        Host domain/origin policy applies to every redirect. Native transport
+        blocks non-public DNS/IP destinations, requires exact private-network
+        opt-ins, and refuses HTTPS downgrades. A custom transport must enforce
+        equivalent DNS/IP and TLS safety itself.
+      </p>
+      <p>
+        Mount <code>secret()</code> from <code>glove-env-secret</code> for scoped
+        key metadata and references. Configure fetch credential aliases against
+        the same tenant-scoped host store; scripts do not need plaintext tokens.
+        Reveal and writes default off. Snapshots exclude store values and host
+        network grants, so re-supply them on restore. Run cancellation, timeout
+        and shutdown abort pending HTTP work.
+      </p>
+      <p>
+        Follow the <a href="https://github.com/porkytheblack/glove/blob/main/packages/glove-working-environment/HTTP-AND-SECRETS.md">HTTP and secrets guide</a>
+        {" "}for host setup and scripts. Mounted environments also include
+        <code> /skills/http-files.md</code> and <code>/skills/secret-references.md</code>.
+      </p>
+
       <h2 id="limits">What this is not</h2>
 
       <p>
-        It is not a container. Scripts cannot reach the network, the host
-        filesystem or a process, but a picked pure-module function runs in the
+        It is not a container. Scripts have no ambient network, host filesystem
+        or process access; adapters explicitly grant external capabilities. A picked pure-module function runs in the
         worker&apos;s realm — the <code>pick</code> allowlist is doing real
         security work, and a string-to-code member defeats it.
       </p>

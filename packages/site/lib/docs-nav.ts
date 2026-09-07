@@ -244,6 +244,8 @@ export const docsSections: DocsNavSection[] = [
           "glove-env-slides",
           "glove-env-zip",
           "glove-env-media",
+          "glove-env-fetch",
+          "glove-env-secret",
         ],
       },
       {

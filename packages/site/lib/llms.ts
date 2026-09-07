@@ -226,7 +226,9 @@ provider prompt caching. Cache usage is reported on every response as
 | glove-scratchpad | expose tools as a relational database driven by one execute_sql tool |
 | glove-sql | zero-dependency Postgres-subset SQL engine (scratchpad's default backend) |
 | glove-working-environment | persistent sandboxed VFS: scripts, runs, artifacts |
-| glove-env-documents/-spreadsheets/-images/-slides/-archives/-media/-render/-motion | stdlib adapters for the working environment |
+| glove-env-fetch | HTTP requests, VFS downloads/uploads, host network policy and credential aliases |
+| glove-env-secret | host keystore, scoped references and pluggable persistence outside VFS snapshots |
+| glove-env-documents/-spreadsheets/-images/-slides/-zip/-media/-render/-motion | stdlib adapters for the working environment |
 | glove-js / glove-python / glove-lisp | one eval tool over a shared ToolFn catalog |
 | glove-egress | measured, enforced egress boundary over that catalog |
 | glove-image | agentic image generation: prompt pipeline, characters/scenes, refs, edit, assemble, cost |
@@ -430,7 +432,27 @@ Tree: \`/inbox\` inputs, \`/scripts\` the agent's script library (+ generated .d
 \`/skills\` worked recipes, \`/std\` adapter types and docs, \`/tmp\` intermediates,
 \`/out\` deliverables, \`/.env\` history. Every script under \`/scripts\` MUST
 default-export a function; validation happens at write time. Scripts may import
-relative VFS paths and \`env:*\` modules only — no network, no host fs, no process.
+relative VFS paths and \`env:*\` modules only — no ambient network, host fs or process access.
+Hosts explicitly mount external capabilities.
+
+HTTP: mount \`fetchFiles({ allowedOrigins, secretStore, credentials })\` from
+\`glove-env-fetch\`. Scripts import \`request/download/upload\` from \`env:fetch\`;
+responses are VFS paths plus status/metadata. Bodies support text, JSON, VFS files,
+URL-encoded forms and multipart. Native transport blocks non-public DNS/IPs;
+private services need exact \`privateNetworkOrigins\` host grants. Redirects are
+rechecked, HTTPS downgrades refused, and run termination aborts pending HTTP work.
+Custom transports must enforce equivalent DNS/IP/TLS protection themselves.
+
+Secrets: mount \`secret({ store, names })\` from \`glove-env-secret\`. \`env:secret\`
+exposes list/has/ref without plaintext; get requires allowReveal and writes require
+allowWrite. A reference is not an access grant. Host credential aliases resolve
+values directly from the store. Scope stores per tenant and re-supply them on
+restore: snapshots exclude keystore values and host policy. Default stores are
+ephemeral. Never embed credentials in saved source, URLs or run arguments.
+Read the mounted \`/std/fetch/\`, \`/std/secret/\` docs and \`/skills/http-files.md\`
+and \`/skills/secret-references.md\` recipes. Call external APIs only inside the
+default export, not during module validation. Adapter authors read \`ctx.signal\`
+inside each binding rather than capturing it during create().
 
 Backing the tree: \`inMemoryFs()\` (default), \`hostDirectory(dir)\` (copy-on-write
 over a real directory; \`commit()\` / \`discard()\`), \`fromSnapshot(snap)\`, or

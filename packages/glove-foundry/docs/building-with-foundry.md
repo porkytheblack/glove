@@ -194,6 +194,8 @@ export default defineAgent({
 
 The working environment is closed after every Foundry run. Add a persistence adapter to restore its VFS on the next run. `foundryDataEnvironmentPersistence` uses the data adapter's private snapshot seam, derives ownership from the definition and instance or conversation, and never exposes VFS contents as workspace entries. It requires a durable `FoundryDataAdapter` shared by execution workers. For high-concurrency or large trees, provide a native persistent `Vfs` such as `cachedRemote` in the environment options and let that adapter own locking and storage credentials.
 
+For HTTP requests and file transfers, put `fetchFiles()` from `glove-env-fetch` in the environment options’ `stdlib`. Mount `secret()` from `glove-env-secret` when scripts need scoped key metadata or references, and supply the same instance-scoped host store to fetch credential aliases. Neither credentials nor the store are included in the VFS snapshot; re-supply them each run. The [HTTP and secrets guide](../../glove-working-environment/HTTP-AND-SECRETS.md) covers the complete setup, private-network opt-ins, cancellation, and persistent store boundaries.
+
 REPL bindings persist for the duration of the assembled run. Glove's native REPL packages intentionally do not define a cross-process snapshot format, so durable artifacts belong in the working environment VFS rather than hidden interpreter variables.
 
 ## Definitions reference definitions
