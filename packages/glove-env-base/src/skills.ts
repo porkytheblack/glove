@@ -207,10 +207,10 @@ Those are ordinary paths, so everything else in the environment applies:
 \`env:documents\` turns them into a PDF, \`env:fs\` greps them, \`env:ocr\` reads
 the scans that came down with them.
 
-\`download\` is not a general fetch. This environment has no network of its own,
-and base does not invent one — the fetching is the provider's, restricted to
-whatever it decided to allow. A backend whose provider has no \`fetchFile\` has
-no \`download\`, and says so.
+Base's \`download\` uses the provider's fetching and access policy. A backend
+whose provider has no \`fetchFile\` has no \`download\`, and says so. For general
+HTTP calls or VFS downloads/uploads, the host can explicitly mount
+\`glove-env-fetch\` as \`env:fetch\`; inspect /std/fetch if it is available.
 `,
 };
 
