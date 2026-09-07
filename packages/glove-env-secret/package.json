@@ -1,6 +1,6 @@
 {
   "name": "glove-env-secret",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Host-backed keystore and secret references for Glove working environments.",
   "type": "module",
   "license": "MIT",

@@ -1,6 +1,6 @@
 {
   "name": "glove-voice-s2s",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Speech-to-speech (realtime voice model) adapters for the Glove agent framework",
   "type": "module",
   "license": "MIT",

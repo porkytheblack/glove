@@ -1,6 +1,6 @@
 {
   "name": "glove-foundry",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "An Effect-native, file-routed framework for typed, observable Glove agent applications",
   "type": "module",
   "license": "MIT",

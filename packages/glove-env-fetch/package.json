@@ -1,6 +1,6 @@
 {
   "name": "glove-env-fetch",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "HTTP requests, downloads and uploads for the Glove virtual filesystem, with host-owned network policy.",
   "type": "module",
   "license": "MIT",

@@ -1,6 +1,6 @@
 {
   "name": "glove-voice-livekit",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "LiveKit adapters for the Glove voice stack — room transport for realtime agents, and avatars that join the room as participants",
   "type": "module",
   "license": "MIT",

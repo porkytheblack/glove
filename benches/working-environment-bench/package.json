@@ -1,6 +1,6 @@
 {
   "name": "glove-working-environment-bench",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "description": "Agentic evaluation: real models via OpenRouter driving glove-working-environment through end-to-end deliverable tasks.",
