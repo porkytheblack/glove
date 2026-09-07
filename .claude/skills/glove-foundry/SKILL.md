@@ -105,6 +105,8 @@ Foundry mounts native Glove surfaces instead of reimplementing them.
 - Use `defineRepl(...)` with `glove-js`, `glove-python`, or `glove-lisp` for computation over explicitly registered functions.
 - Use `glove-image` and the working-environment format adapters for image, document, slide, spreadsheet, archive, audio, or video work.
 - Pass artifacts between agents by durable workspace/VFS references rather than copying large document bodies into prompts.
+- For HTTP calls/downloads/uploads and host keystores, read [HTTP files and host secrets](../../../packages/glove-working-environment/HTTP-AND-SECRETS.md). Mount `fetchFiles()` and `secret()` in the environment options; scope the host store to the owning instance and re-supply it after restore. Snapshots do not persist secrets or network grants.
+- Native fetch blocks non-public DNS/IP destinations; private services require exact host opt-ins. Keep credentials in host aliases, not scripts or manifests. Custom transports own equivalent network/TLS safety. In adapter bindings, read `ctx.signal` at call time so run termination aborts host I/O.
 
 ## Multi-agent systems
 

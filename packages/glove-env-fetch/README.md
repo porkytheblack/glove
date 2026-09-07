@@ -1,6 +1,8 @@
 # glove-env-fetch
 
 HTTP requests, downloads and uploads for `glove-working-environment`.
+For setup and persistence, see the [HTTP and secrets guide](../glove-working-environment/HTTP-AND-SECRETS.md).
+Mounting the adapter also installs `/skills/http-files.md` in the environment.
 Scripts import `request`, `download` and `upload` from `env:fetch`. Bodies
 come from strings, JSON, forms, multipart fields/files or VFS bytes; response bodies land in the VFS.
 

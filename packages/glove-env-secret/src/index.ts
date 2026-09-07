@@ -91,6 +91,33 @@ export function secret(options: SecretOptions = {}) {
     description: "Host-backed keystore: list keys and use references; plaintext reads and writes require host opt-in.",
     types: SECRET_TYPES,
     docs: SECRET_DOCS,
+    skills: [{
+      name: "secret-references",
+      summary: "Inspect scoped keystore metadata without revealing values or treating references as credentials.",
+      body: `# Discover secret references
+
+Read /std/secret/README.md and /std/secret/index.d.ts for the host's mounted API.
+
+\`\`\`ts
+import { list, has, ref } from 'env:secret';
+
+export default async function main({ name }) {
+  return { keys: await list(), reference: await has(name) ? await ref(name) : null };
+}
+\`\`\`
+
+Key names and references contain no secret value and grant no access by
+themselves. A consuming adapter needs its own host policy. For env:fetch, use a
+host-provided credential alias; do not call get() just to construct an auth header.
+Plaintext get requires allowReveal, and set/remove require allowWrite. Both default
+off. Even with permission, embedding values in source or arguments, or returning
+them, can put them in history. Prefer provisioning sensitive values on the host.
+
+Snapshots do not back up the keystore. If a key disappears after restore, the host
+must reattach the correct scoped store; a default memory store is ephemeral.
+Calls belong inside the default export because validation cannot access the store.
+`,
+    }],
     create(_vfs, ctx) {
       const store = options.store ?? createMemorySecretStore();
       function check(name?: string) {

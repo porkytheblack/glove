@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { defineAdapter, normalizePath } from "glove-working-environment";
 import type { SecretRef, SecretStore } from "glove-env-secret";
 import { createPolicy, origin, type NetworkPolicy } from "./policy";
-import { FETCH_DOCS, FETCH_TYPES } from "./docs";
+import { FETCH_DOCS, FETCH_TYPES, FETCH_SKILLS } from "./docs";
 import { prepareBody, type BodyOptions } from "./body";
 import { withDeadline } from "./deadline";
 import { createTransport } from "./network";
@@ -129,6 +129,7 @@ export function fetchFiles(options: FetchOptions = {}) {
     description: "HTTP requests, downloads and uploads using VFS paths and host-controlled network policy.",
     types: FETCH_TYPES,
     docs: FETCH_DOCS,
+    skills: FETCH_SKILLS,
     create(vfs, ctx) {
       const pendingOutputs = new Set<string>();
       const request = async (input: string, opts: RequestOptions = {}): Promise<FetchResult> => {

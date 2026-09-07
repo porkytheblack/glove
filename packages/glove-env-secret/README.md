@@ -2,6 +2,8 @@
 
 A host-backed keystore for `glove-working-environment`, exposed as `env:secret`.
 Values live in the host store, outside VFS snapshots and filesystem tools.
+Mounting the adapter installs `/skills/secret-references.md` in the environment.
+For fetch integration and restore behavior, see the [HTTP and secrets guide](../glove-working-environment/HTTP-AND-SECRETS.md).
 
 ```ts
 import { createWorkingEnvironment } from 'glove-working-environment';

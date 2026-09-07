@@ -20,3 +20,8 @@ lookup time, and require exact private-network origin opt-ins. Refuse HTTPS
 downgrades and insecure credential configuration, bound headers/concurrency,
 and expose a live AdapterContext.signal that aborts host capabilities when a
 run ends, including timeout, worker failure and environment shutdown.
+
+Ship HTTP and keystore recipes in the environment's /skills directory and a
+host setup/persistence guide with the core package. Update repository skills,
+Foundry documentation, website guides and LLM reference text to describe explicit
+network capabilities, credential grants and cancellation consistently.

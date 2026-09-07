@@ -505,6 +505,14 @@ function createSession(sessionId: string, cwd: string) {
 
 ## Pattern: Server-Side Working Environment in Next.js (document-desk)
 
+For HTTP calls, downloads/uploads or a keystore, follow the
+[HTTP files and host secrets recipe](../../../packages/glove-working-environment/HTTP-AND-SECRETS.md).
+Keep its `SecretStore` and credential aliases on the server, scoped to the owning
+tenant. Add `glove-env-fetch` and `glove-env-secret` to `serverExternalPackages`
+when mounting them, and re-supply the host store and policy on restore. Mounted
+environments include runnable `/skills/http-files.md` and
+`/skills/secret-references.md` recipes.
+
 When the agent has a `glove-working-environment`, it **cannot** run in the
 browser: scripts execute in worker threads with a real Node heap, and the
 format adapters wrap server-only libraries. So `createChatHandler` is the wrong

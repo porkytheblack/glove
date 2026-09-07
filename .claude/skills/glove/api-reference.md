@@ -1,5 +1,21 @@
 # Glove API Reference
 
+## HTTP files and host keystore
+
+Mount `fetchFiles(options)` from `glove-env-fetch` and `secret(options)` from
+`glove-env-secret` in a working environment's `stdlib`. Scripts import
+`request`, `download`, `upload` from `env:fetch`, and `list`, `has`, `ref`,
+`get`, `set`, `remove` from `env:secret`. Request bodies support text, JSON,
+VFS files, forms and multipart; responses are VFS paths plus status/metadata.
+
+Read the [host setup and lifecycle guide](../../../packages/glove-working-environment/HTTP-AND-SECRETS.md)
+and the [fetch options/security reference](../../../packages/glove-env-fetch/README.md)
+before configuring network grants or credential aliases. Read the
+[keystore contract](../../../packages/glove-env-secret/README.md) before implementing
+persistence. Reveal/writes default off; references grant no access. Full script
+signatures are mounted at `/std/fetch/index.d.ts` and `/std/secret/index.d.ts`,
+with executable examples in `/skills/http-files.md` and `/skills/secret-references.md`.
+
 ## glove-core
 
 ### Glove Class (Builder)
