@@ -36,7 +36,8 @@
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.3",
-    "pdfjs-dist": "^6.2.0"
+    "pdfjs-dist": "^6.2.0",
+    "glove-env-unlock": "workspace:^"
   },
   "peerDependencies": {
     "glove-working-environment": "workspace:^"

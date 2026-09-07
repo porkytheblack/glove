@@ -93,6 +93,7 @@ jobs:
           --filter glove-lisp
           --filter glove-working-environment
           --filter glove-env-documents
+          --filter glove-env-unlock
           --filter glove-env-spreadsheets
           --filter glove-env-images
           --filter glove-env-zip
@@ -132,6 +133,7 @@ jobs:
           --filter glove-lisp
           --filter glove-working-environment
           --filter glove-env-documents
+          --filter glove-env-unlock
           --filter glove-env-spreadsheets
           --filter glove-env-images
           --filter glove-env-zip

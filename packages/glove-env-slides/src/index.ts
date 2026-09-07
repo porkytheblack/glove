@@ -17,6 +17,7 @@
  *   independently is what makes `extract()` worth trusting, and it is the
  *   only way to read a deck this environment did not write.
  */
+import { createUnlockBinding, UNLOCK_TYPES, UNLOCK_DOCS } from "glove-env-unlock";
 import PptxGenJSImport from "pptxgenjs";
 import { defineAdapter, defineBuilder, methodsOf, type EnvFsHandle, type FileSummary } from "glove-working-environment";
 import { readDeck, looksZip, notesPartFor, readPart, readZip, rewriteZip, slidePartsOf, type SlideText } from "./pptx";
@@ -155,8 +156,8 @@ export const slides = () =>
   defineAdapter({
     name: "slides",
     description: "Build PowerPoint decks and read them back: create, describe, extract text and speaker notes, outline.",
-    types: SLIDES_TYPES,
-    docs: SLIDES_DOCS,
+    types: SLIDES_TYPES + UNLOCK_TYPES,
+    docs: SLIDES_DOCS + UNLOCK_DOCS,
     skills: SLIDES_SKILLS,
     handles: {
       extensions: [".pptx"],
@@ -310,7 +311,7 @@ export const slides = () =>
         if (!looksZip(bytes)) {
           throw new Error(
             `${path} is not a PowerPoint deck — it does not start with a ZIP signature. ` +
-              `A .pptx is a ZIP container; this file is something else.`,
+              `A .pptx is a ZIP container; if password-protected, call unlock(input, output, { password }) first.`,
           );
         }
         return bytes;
@@ -323,6 +324,7 @@ export const slides = () =>
       };
 
       return {
+        unlock: createUnlockBinding(vfs),
         PptxGenJS: Pptx,
 
         async describe(path: string): Promise<DeckSummary> {

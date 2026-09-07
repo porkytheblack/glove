@@ -1424,6 +1424,9 @@ importers:
       docx:
         specifier: ^9.7.1
         version: 9.7.1
+      glove-env-unlock:
+        specifier: workspace:^
+        version: link:../glove-env-unlock
       pdf-lib:
         specifier: ^1.17.1
         version: 1.17.1
@@ -1582,6 +1585,9 @@ importers:
       glove-env-render:
         specifier: workspace:*
         version: link:../glove-env-render
+      glove-env-unlock:
+        specifier: workspace:^
+        version: link:../glove-env-unlock
       pdfjs-dist:
         specifier: ^6.2.0
         version: 6.2.108
@@ -1616,6 +1622,9 @@ importers:
       '@napi-rs/canvas':
         specifier: ^1.0.3
         version: 1.0.3
+      glove-env-unlock:
+        specifier: workspace:^
+        version: link:../glove-env-unlock
       pdfjs-dist:
         specifier: ^6.2.0
         version: 6.2.108
@@ -1641,6 +1650,9 @@ importers:
 
   packages/glove-env-slides:
     dependencies:
+      glove-env-unlock:
+        specifier: workspace:^
+        version: link:../glove-env-unlock
       pptxgenjs:
         specifier: ^4.0.1
         version: 4.0.1
@@ -1663,6 +1675,34 @@ importers:
       exceljs:
         specifier: ^4.4.0
         version: 4.4.0
+      glove-env-unlock:
+        specifier: workspace:^
+        version: link:../glove-env-unlock
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      glove-working-environment:
+        specifier: workspace:^
+        version: link:../glove-working-environment
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/glove-env-unlock:
+    dependencies:
+      '@cantoo/pdf-lib':
+        specifier: ^2.9.1
+        version: 2.9.1(html-entities@2.6.0)
+      '@zip.js/zip.js':
+        specifier: ^2.11.4
+        version: 2.11.4
+      officecrypto-tool:
+        specifier: ^0.0.19
+        version: 0.0.19
     devDependencies:
       '@types/node':
         specifier: ^25.2.3
@@ -1678,6 +1718,10 @@ importers:
         version: 5.9.3
 
   packages/glove-env-zip:
+    dependencies:
+      glove-env-unlock:
+        specifier: workspace:^
+        version: link:../glove-env-unlock
     devDependencies:
       '@types/node':
         specifier: ^25.2.3
@@ -2837,6 +2881,11 @@ packages:
 
   '@bufbuild/protobuf@1.10.1':
     resolution: {integrity: sha512-wJ8ReQbHxsAfXhrf9ixl0aYbZorRuOWpBNzm8pL8ftmSxQx/wnJD5Eg861NwJU/czy2VXFIebCeZnZrI9rktIQ==}
+
+  '@cantoo/pdf-lib@2.9.1':
+    resolution: {integrity: sha512-wAKXXDjp5lO0wS6d+k0FRpmWsULb95WhHKYx2fonTbv4zIfuIdCBz2nyTVVDGJpNDLl6o4w9aSTxQisBvvd60A==}
+    peerDependencies:
+      html-entities: ^2.3.2
 
   '@changesets/apply-release-plan@7.1.1':
     resolution: {integrity: sha512-9qPCm/rLx/xoOFXIHGB229+4GOL76S4MC+7tyOuTsR6+1jYlfFDQORdvwR5hDA6y4FL2BPt3qpbcQIS+dW85LA==}
@@ -4947,6 +4996,10 @@ packages:
     engines: {node: '>=14.6'}
     deprecated: this version has critical issues, please update to the latest version
 
+  '@zip.js/zip.js@2.11.4':
+    resolution: {integrity: sha512-tk/wizom8aUTkVRNDUhgbXaVI2aYi+XZ07sym/gRb71FVfwYRVufi8dJM2HEeRvfyk0uqghmGCX155OWU3Oy/w==}
+    engines: {bun: '>=0.7.0', deno: '>=1.0.0', node: '>=18.0.0'}
+
   '@zone-eu/mailsplit@5.4.15':
     resolution: {integrity: sha512-c7ZpxauvF4AEkDJlKDYO7iMUtMuqJMBnDWNff1cyx+d7zaBVR3iFEmXhNHOVoMmVyVF3pTZLsLIJsEFKDldOAA==}
 
@@ -5399,6 +5452,13 @@ packages:
   color-name@1.1.4:
     resolution: {integrity: sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA==}
 
+  color-string@1.9.1:
+    resolution: {integrity: sha512-shrVawQFojnZv6xM40anx4CkoDP+fZsw/ZerEMsW/pyzsRbElpsL/DBVW7q3ExxwusdNXI3lXpuhEZkzs8p5Eg==}
+
+  color@4.2.3:
+    resolution: {integrity: sha512-1rXeuUUiGGrykh+CeBdu5Ie7OJwinCgQY0bc7GCRxy5xVHy+moaqkpL/jqQq0MtQOeYcrqEz4abc5f0KtU7W4A==}
+    engines: {node: '>=12.5.0'}
+
   colorette@2.0.20:
     resolution: {integrity: sha512-IfEDxwoWIjkeXL1eXcDiow4UbKjhLdq6/EuSVR9GMN7KVH3r9gQ83e73hsz1Nd1T3ijd5xv1wcWRYO+D6kCI2w==}
 
@@ -5494,6 +5554,10 @@ packages:
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
+
+  crypto-js@4.2.0:
+    resolution: {integrity: sha512-KALDyEYgpY+Rlob/iriUtjV6d5Eq+Y191A5g4UqLAi8CyGP9N1+FdVbkc1SxKc2r4YAYqG8JzO2KGL+AizD70Q==}
+    deprecated: Active development of CryptoJS has been discontinued. This library is no longer maintained.
 
   css-in-js-utils@3.1.0:
     resolution: {integrity: sha512-fJAcud6B3rRu+KHYk+Bwf+WFL2MDCJJ1XG9x137tJQ0xYxor7XziQtuGFbWNdqrvF4Tk26O3H73nfVqXt/fW1A==}
@@ -6240,6 +6304,9 @@ packages:
     resolution: {integrity: sha512-puUZAUKT5m8Zzvs72XWy3HtvVbTWljRE66cP60bxJzAqf2DgICo7lYTY2IHUmLnNpjYvw5bvmoHvPc0QO2a62w==}
     engines: {node: ^16.14.0 || >=18.0.0}
 
+  html-entities@2.6.0:
+    resolution: {integrity: sha512-kig+rMn/QOVRvr7c86gQ8lWXq+Hkv6CbAH1hLu+RG338StTpE8Z0b44SDVaqVu7HGKf27frdmUYEs9hTUX/cLQ==}
+
   html-to-text@10.0.0:
     resolution: {integrity: sha512-2OH59Gtprdczel+7Rxgpz9hGVJREaf8Lt1H4kZwWHpEn70VQKRuMNGsb2eDbwaTzrYzb0hheiOG1P7Dim0B4dQ==}
     engines: {node: '>=20.19.0'}
@@ -6376,6 +6443,9 @@ packages:
 
   is-alphanumerical@2.0.1:
     resolution: {integrity: sha512-hmbYhX/9MUMF5uh7tOXyK/n0ZvWpad5caBA17GsC6vyuCqaWliRG5K1qS9inmUhEMaOBIW7/whAnSwveW/LtZw==}
+
+  is-arrayish@0.3.4:
+    resolution: {integrity: sha512-m6UrgzFVUYawGBh1dUsWR5M2Clqic9RVXC/9f8ceNlv2IcO9j9J/z8UoCLPqtsPBFNzEpfR3xftohbfqDx8EQA==}
 
   is-core-module@2.16.2:
     resolution: {integrity: sha512-evOr8xfXKxE6qSR0hSXL2r3sd7ALj8+7jQEUvPYcm5sgZFdJ+AYzT6yNmJenvIYQBgIGwfwz08sL8zoL7yq2BA==}
@@ -7171,6 +7241,9 @@ packages:
     resolution: {integrity: sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ==}
     engines: {node: '>= 6.13.0'}
 
+  node-html-better-parser@1.5.9:
+    resolution: {integrity: sha512-z1I5UINMezJXYL9cH3h0a9KBth2G978gSLlfkpQ+CQzzVHVQy9gpARgm9eDsz1O4gn1HtgUqjdAIYxKFZm6uHQ==}
+
   node-int64@0.4.0:
     resolution: {integrity: sha512-O5lz91xSOeoXP6DulyHfllpq+Eg00MWitZIbtPfoSEvqIHdl5gfcY6hYzDWnj0qD5tz52PI08u9qUvSVeUBeHw==}
 
@@ -7207,6 +7280,9 @@ packages:
   object-keys@1.1.1:
     resolution: {integrity: sha512-NuAESUOUMrlIXOfHKzD6bpPu3tYt3xvjNdRIQ+FeT0lNb4K8WR70CaDxhuNguS2XG+GjkyMwOzsN5ZktImfhLA==}
     engines: {node: '>= 0.4'}
+
+  officecrypto-tool@0.0.19:
+    resolution: {integrity: sha512-nb/HkY025+qgNo2yYIivmAe/7B0UhejJXIzsWMIKB7fSDB317J1WDQvnpKqL+q+A0DCPzFYvK/iAFfWk+3Ygtw==}
 
   on-exit-leak-free@2.1.2:
     resolution: {integrity: sha512-0eJJY6hXLGf1udHwfNftBqH+g73EU4B504nZeKpz1sYRKafAghwxEJunB2O7rDZkL4PGfsMVnTXZ2EjibbqcsA==}
@@ -7346,6 +7422,9 @@ packages:
 
   pako@1.0.11:
     resolution: {integrity: sha512-4hLB8Py4zZce5s4yd9XzopqwVv/yGNhV1Bl8NTmCq1763HeK2+EwVTv+leGeL13Dnh2wfbqowVPXCIO0z4taYw==}
+
+  pako@2.2.0:
+    resolution: {integrity: sha512-zJq6RP/5q+TO2OpFV3FHzlPnFjmkb7Nc99a5SNjJE+uu/PkpChs+NIZSSzbBoD+6kjiISXjfYdwj1ZRQ81dz/w==}
 
   parent-module@1.0.1:
     resolution: {integrity: sha512-GQ2EWRpQV8/o+Aw8YqtfZZPfNRWZYkbidE9k5rpl/hC3vtHHBfGm2Ifi6qWV+coDGkrUKZAxE3Lot5kcsRlh+g==}
@@ -7989,6 +8068,9 @@ packages:
 
   simple-plist@1.3.1:
     resolution: {integrity: sha512-iMSw5i0XseMnrhtIzRb7XpQEXepa9xhWxGUojHBL43SIpQuDQkh3Wpy67ZbDzZVr6EKxvwVChnVpdl8hEVLDiw==}
+
+  simple-swizzle@0.2.4:
+    resolution: {integrity: sha512-nAu1WFPQSMNr2Zn9PGSZK9AGn4t/y97lEm+MXTtUDwfP0ksAIX4nO+6ruD9Jwut4C49SB1Ws+fbXsm/yScWOHw==}
 
   sisteransi@1.0.5:
     resolution: {integrity: sha512-bLGGlR1QxBcynn2d5YmDX4MGjlZvy2MRBDRNHLJ8VI6l6+9FUiyTFNJ0IveOSP0bcXgVDPRcfGqA0pjaqUpfVg==}
@@ -9729,6 +9811,16 @@ snapshots:
       '@babel/helper-validator-identifier': 7.29.7
 
   '@bufbuild/protobuf@1.10.1': {}
+
+  '@cantoo/pdf-lib@2.9.1(html-entities@2.6.0)':
+    dependencies:
+      '@pdf-lib/standard-fonts': 1.0.0
+      '@pdf-lib/upng': 1.0.1
+      color: 4.2.3
+      html-entities: 2.6.0
+      node-html-better-parser: 1.5.9
+      pako: 2.2.0
+      tslib: 2.8.1
 
   '@changesets/apply-release-plan@7.1.1':
     dependencies:
@@ -11943,6 +12035,8 @@ snapshots:
 
   '@xmldom/xmldom@0.9.10': {}
 
+  '@zip.js/zip.js@2.11.4': {}
+
   '@zone-eu/mailsplit@5.4.15':
     dependencies:
       libbase64: 1.3.0
@@ -12444,6 +12538,16 @@ snapshots:
 
   color-name@1.1.4: {}
 
+  color-string@1.9.1:
+    dependencies:
+      color-name: 1.1.4
+      simple-swizzle: 0.2.4
+
+  color@4.2.3:
+    dependencies:
+      color-convert: 2.0.1
+      color-string: 1.9.1
+
   colorette@2.0.20: {}
 
   comma-separated-tokens@2.0.3: {}
@@ -12535,6 +12639,8 @@ snapshots:
       path-key: 3.1.1
       shebang-command: 2.0.0
       which: 2.0.2
+
+  crypto-js@4.2.0: {}
 
   css-in-js-utils@3.1.0:
     dependencies:
@@ -13397,6 +13503,8 @@ snapshots:
     dependencies:
       lru-cache: 10.4.3
 
+  html-entities@2.6.0: {}
+
   html-to-text@10.0.0:
     dependencies:
       '@selderee/plugin-htmlparser2': 0.12.0(selderee@0.12.0)
@@ -13549,6 +13657,8 @@ snapshots:
     dependencies:
       is-alphabetical: 2.0.1
       is-decimal: 2.0.1
+
+  is-arrayish@0.3.4: {}
 
   is-core-module@2.16.2:
     dependencies:
@@ -14568,6 +14678,10 @@ snapshots:
 
   node-forge@1.4.0: {}
 
+  node-html-better-parser@1.5.9:
+    dependencies:
+      html-entities: 2.6.0
+
   node-int64@0.4.0: {}
 
   node-releases@2.0.27: {}
@@ -14594,6 +14708,12 @@ snapshots:
   object-inspect@1.13.4: {}
 
   object-keys@1.1.1: {}
+
+  officecrypto-tool@0.0.19:
+    dependencies:
+      cfb: 1.2.2
+      crypto-js: 4.2.0
+      xml2js: 0.6.0
 
   on-exit-leak-free@2.1.2: {}
 
@@ -14747,6 +14867,8 @@ snapshots:
       quansync: 0.2.11
 
   pako@1.0.11: {}
+
+  pako@2.2.0: {}
 
   parent-module@1.0.1:
     dependencies:
@@ -15621,6 +15743,10 @@ snapshots:
       bplist-creator: 0.1.0
       bplist-parser: 0.3.1
       plist: 3.1.1
+
+  simple-swizzle@0.2.4:
+    dependencies:
+      is-arrayish: 0.3.4
 
   sisteransi@1.0.5: {}
 

@@ -1,13 +1,13 @@
 {
-  "name": "glove-env-documents",
+  "name": "glove-env-unlock",
   "version": "1.0.0",
-  "description": "Document stdlib adapter for glove-working-environment. Bridges pdf-lib and docx into the agent's virtual filesystem as env:documents — describe, compose, merge, split and stamp PDFs, build DOCX files, and extract text from both. Paths in, paths out.",
+  "description": "Shared password-based PDF, Office and ZIP unlocking for Glove working-environment adapters.",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/porkytheblack/glove.git",
-    "directory": "packages/glove-env-documents"
+    "directory": "packages/glove-env-unlock"
   },
   "homepage": "https://github.com/porkytheblack/glove",
   "bugs": "https://github.com/porkytheblack/glove/issues",
@@ -30,25 +30,17 @@
     "test": "node --test --import tsx tests/*.test.ts"
   },
   "dependencies": {
-    "@pdf-lib/fontkit": "^1.1.1",
-    "docx": "^9.7.1",
-    "pdf-lib": "^1.17.1",
-    "glove-env-unlock": "workspace:^"
+    "@cantoo/pdf-lib": "^2.9.1",
+    "officecrypto-tool": "^0.0.19",
+    "@zip.js/zip.js": "^2.11.4"
   },
   "peerDependencies": {
-    "glove-working-environment": "workspace:^",
-    "pdfjs-dist": "^6.2.0"
+    "glove-working-environment": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
     "glove-working-environment": "workspace:^",
-    "pdfjs-dist": "^6.2.108",
     "tsx": "^4.19.0",
     "typescript": "^5.9.3"
-  },
-  "peerDependenciesMeta": {
-    "pdfjs-dist": {
-      "optional": true
-    }
   }
 }

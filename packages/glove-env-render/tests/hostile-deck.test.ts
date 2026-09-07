@@ -62,7 +62,7 @@ test("an encrypted deck is refused by name rather than drawn as an empty schemat
     );
     assert.equal(result.ok, false);
     assert.match(String(result.error), /encrypted ZIP entries are not supported/);
-    assert.match(String(result.error), /without a password/);
+    assert.match(String(result.error), /call unlock\(input, output, \{ password \}\) first/);
   } finally {
     await t.env.close();
   }

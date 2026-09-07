@@ -13,7 +13,7 @@ pnpm add glove-env-zip
 > accurate name besides, since this reads tar and tar.gz as well as zip. The
 > npm name is only how you install it.
 
-Dependency-free: `node:zlib` and the container formats themselves.
+Archive reading and writing use `node:zlib`; password-based unlocking loads the shared `glove-env-unlock` libraries on demand.
 
 ```ts
 import { createWorkingEnvironment } from "glove-working-environment";
@@ -79,3 +79,15 @@ What cannot be read honestly is refused rather than half-read: encrypted entries
 Format is detected from the **bytes**, not the extension — a zip named `.tar` is still read as a zip. Output format follows the extension of `output` unless `format` overrides it.
 
 Archives are also claimed by the `describe` verb, so `describe('/inbox/records.zip')` from the tool surface routes here without writing a script.
+
+
+## Password-protected inputs
+
+This adapter exports `unlock(input, output, { password })` for PDF,
+encrypted DOCX/XLSX/PPTX and ZIP (AES/ZipCrypto). Call it with the known password
+and a new output path, then use the returned path with the usual reader,
+editor, renderer or OCR operation. The original remains unchanged; the copy
+is unencrypted and subject to normal VFS limits and persistence.
+
+See [glove-env-unlock](../glove-env-unlock/README.md) for examples, supported
+formats, and the host-side API for keeping passwords out of script history.

@@ -118,3 +118,15 @@ Claims `.pptx` by extension only. A pptx is a ZIP and so are `.docx` and `.xlsx`
 - Charts are not generated. Render one with `env:images` and place it via `image`.
 - Reading recovers text, notes and media counts — not layout, animation or theming. It is built for review, not for round-tripping someone else's design.
 - Editing replaces text, and only text. It preserves layout, animation and theming by never touching them, which is a different guarantee from understanding them: `replaceText` cannot add a slide, resize a shape or restyle a run, and matching is literal, case-sensitive and confined to one paragraph.
+
+
+## Password-protected inputs
+
+This adapter exports `unlock(input, output, { password })` for PDF,
+encrypted DOCX/XLSX/PPTX and ZIP (AES/ZipCrypto). Call it with the known password
+and a new output path, then use the returned path with the usual reader,
+editor, renderer or OCR operation. The original remains unchanged; the copy
+is unencrypted and subject to normal VFS limits and persistence.
+
+See [glove-env-unlock](../glove-env-unlock/README.md) for examples, supported
+formats, and the host-side API for keeping passwords out of script history.
