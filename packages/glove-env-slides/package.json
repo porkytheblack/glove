@@ -30,7 +30,8 @@
     "test": "node --test --import tsx tests/*.test.ts"
   },
   "dependencies": {
-    "pptxgenjs": "^4.0.1"
+    "pptxgenjs": "^4.0.1",
+    "glove-env-unlock": "workspace:^"
   },
   "peerDependencies": {
     "glove-working-environment": "workspace:^"

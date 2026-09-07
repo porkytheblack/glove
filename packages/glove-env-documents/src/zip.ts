@@ -95,7 +95,7 @@ export function readZip(bytes: Uint8Array): Map<string, ZipEntry> {
       // Nothing downstream can read this, and inflating the ciphertext yields
       // garbage rather than an error — so it is refused by name here instead
       // of surfacing later as "not a Word document".
-      throw new Error(`encrypted ZIP entries are not supported: ${name} — save the .docx without a password`);
+      throw new Error(`encrypted ZIP entries are not supported: ${name} — call unlock(input, output, { password }) first`);
     }
     entries.set(name, { name, compression, compressedSize, uncompressedSize, localHeaderOffset, flags, crc });
     offset += 46 + nameLength + extraLength + commentLength;

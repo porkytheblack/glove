@@ -33,7 +33,8 @@
     "@tesseract.js-data/eng": "^1.0.0",
     "glove-env-render": "workspace:*",
     "pdfjs-dist": "^6.2.0",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "glove-env-unlock": "workspace:^"
   },
   "peerDependencies": {
     "glove-working-environment": "workspace:*"

@@ -29,7 +29,7 @@ import { cellFormula, normalizeCell, type CellValue } from "./cells";
 import type { EnvFsHandle } from "glove-working-environment";
 
 export const XLSX_HINT =
-  "expected an .xlsx workbook — .xls (the old binary format) and Numbers/ODS files are not supported; convert first or use a CSV";
+  "expected an .xlsx workbook — .xls (the old binary format) and Numbers/ODS files are not supported; convert first or use a CSV. For a password-protected .xlsx, call unlock(input, output, { password }) first";
 
 /** One sheet, flattened to plain JSON scalars. */
 export interface ParsedSheet {

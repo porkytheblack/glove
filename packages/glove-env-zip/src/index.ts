@@ -7,8 +7,8 @@
  * also the natural way to hand a multi-file deliverable back, as one file
  * instead of an array the host has to write out itself.
  *
- * Dependency-free: ZIP and tar are stable, well-documented container formats,
- * and `node:zlib` supplies the only hard part.
+ * ZIP and tar reading/writing use `node:zlib`. Password-based unlocking
+ * loads the shared `glove-env-unlock` libraries on demand.
  *
  * **Extraction is the security-sensitive operation** and gets the attention:
  *
@@ -27,6 +27,7 @@
  * Nested archives are not extracted recursively. An extracted `.zip` is just
  * a file; extracting it is a second, separately budgeted call.
  */
+import { createUnlockBinding, UNLOCK_TYPES, UNLOCK_DOCS } from "glove-env-unlock";
 import { defineAdapter, globToRegExp, type EnvFsHandle } from "glove-working-environment";
 import { readZip, readZipEntry, writeZip, type ZipInput } from "./zip";
 import { gzip, isGzip, readTar, readTarEntry, ungzip, writeTar, type TarInput } from "./tar";
@@ -135,8 +136,8 @@ export const archives = () =>
   defineAdapter({
     name: "archives",
     description: "Read and write zip/tar/tar.gz: list, describe, extract selectively, package a directory back up.",
-    types: ARCHIVES_TYPES,
-    docs: ARCHIVES_DOCS,
+    types: ARCHIVES_TYPES + UNLOCK_TYPES,
+    docs: ARCHIVES_DOCS + UNLOCK_DOCS,
     handles: {
       extensions: [".zip", ".tar", ".tgz", ".gz"],
       magic: [
@@ -181,6 +182,7 @@ export const archives = () =>
       };
 
       return {
+        unlock: createUnlockBinding(vfs),
         /** Structure of an archive: how many entries, how big once extracted. */
         async describe(path: string): Promise<ArchiveSummary> {
           const { format, raw, body } = await load(path);

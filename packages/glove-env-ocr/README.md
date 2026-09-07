@@ -100,3 +100,15 @@ It deliberately does **not** register `handles`: `env:documents` describes a PDF
 | `scale` | 3 | Rasterisation scale for PDF pages (~216 dpi) |
 | `maxWidth` | 3000 | Long-edge cap in pixels for a rasterised page |
 | `languages` | common set | Which languages `describe()` and `languages()` check for |
+
+
+## Password-protected inputs
+
+This adapter exports `unlock(input, output, { password })` for PDF,
+encrypted DOCX/XLSX/PPTX and ZIP (AES/ZipCrypto). Call it with the known password
+and a new output path, then use the returned path with the usual reader,
+editor, renderer or OCR operation. The original remains unchanged; the copy
+is unencrypted and subject to normal VFS limits and persistence.
+
+See [glove-env-unlock](../glove-env-unlock/README.md) for examples, supported
+formats, and the host-side API for keeping passwords out of script history.

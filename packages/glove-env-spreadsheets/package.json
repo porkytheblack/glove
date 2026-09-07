@@ -31,7 +31,8 @@
     "bench": "node --import tsx bench/paging.ts"
   },
   "dependencies": {
-    "exceljs": "^4.4.0"
+    "exceljs": "^4.4.0",
+    "glove-env-unlock": "workspace:^"
   },
   "peerDependencies": {
     "glove-working-environment": "workspace:^"
