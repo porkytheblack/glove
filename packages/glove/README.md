@@ -133,6 +133,24 @@ The main `glove-core` barrel includes native dependencies (better-sqlite3). For 
 - **`createTaskTool`** — Auto-registered task management tool when the store supports tasks.
 - **`AbortError`** — Error class thrown when a request is cancelled via AbortSignal.
 
+## Built-in tasks
+
+`Glove` automatically exposes `glove_update_tasks` to the model and through
+`glove.tools`. The default `MemoryStore` supports it out of the box; custom
+stores must implement both `getTasks()` and `addTasks(tasks)` (which replaces
+the full task list). Stores without both methods do not expose the tool.
+The tool also binds to a store supplied through `.build(store)`.
+
+Agents call it with `{ todos: [{ content: "Run tests", activeForm: "Running tests",
+status: "in_progress" }] }`, sending the full updated list each time. Status is
+`pending`, `in_progress`, or `completed`; an empty list clears the tasks.
+Applications can read the saved list with `await glove.store.getTasks?.()`.
+
+For integrations that use `Context` and `Executor` directly, import
+`createTaskTool` from `glove-core` or `glove-core/tools/task-tool` and register
+`createTaskTool(context)` with the executor. Regular `Glove` agents need no
+manual registration.
+
 ## Adapter interfaces
 
 The core defines four pluggable adapter interfaces:

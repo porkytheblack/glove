@@ -7,6 +7,7 @@
 import z from "zod";
 import { Agent, ContentPart, Context, Executor, HandOverFunction, Message, ModelAdapter, ModelPromptResult, NotifySubscribersFunction, Observer, PromptMachine, StoreAdapter, SubscriberAdapter, Tool, ToolResultData } from "./core";
 import { MemoryStore } from "./utils";
+import { createTaskTool } from "./tools/task-tool";
 import { DisplayManagerAdapter } from "./display-manager";
 import {
   AgentControls,
@@ -160,6 +161,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   private subAgents = new Map<string, RegisteredSubAgent>()
   private subAgentInvokeTool: Tool<unknown> | null = null
   private skillInvokeTool: Tool<unknown> | null = null
+  private taskTool: Tool<unknown> | null = null
 
   private subscribers: Array<SubscriberAdapter> = []
   private compactionConfig: CompactionConfig
@@ -182,6 +184,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     this.context = new Context(this.store)
     this.promptMachine = new PromptMachine(config.model, this.context,config.systemPrompt, config.enableToolResultSummary)
     this.executor = new Executor(config.maxRetries, this.store)
+    this.registerTaskTool()
 
     this.observer = new Observer(this.store, this.context, this.promptMachine, this.compactionConfig?.compaction_instructions, this.compactionConfig?.max_turns, this.compactionConfig?.compaction_context_limit)
 
@@ -200,6 +203,14 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       this.subscribers.map((s) => s.record(event_name, event_data)),
     );
   };
+
+  private registerTaskTool() {
+    this.taskTool = null
+    if (typeof this.store.getTasks === "function" && typeof this.store.addTasks === "function") {
+      this.taskTool = createTaskTool(this.context) as Tool<unknown>
+      this.executor.registerTool(this.taskTool)
+    }
+  }
 
   fold<I>(args: GloveFoldArgs<I>) {
     if (!args.inputSchema && !args.jsonSchema) {
@@ -353,7 +364,9 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       // Preserve tools registered before build — recreating Executor would
       // otherwise drop them silently (including the auto-registered
       // skill/subagent dispatch tools).
-      const previousTools = this.executor.tools;
+      // The built-in task tool closes over Context, so recreate it for the
+      // new store instead of retaining the constructor's temporary store.
+      const previousTools = this.executor.tools.filter((tool) => tool !== this.taskTool);
       const maxRetries = this.executor.MAX_RETRIES;
       const model = this.promptMachine.model;
       const systemPrompt = this.promptMachine.systemPrompt;
@@ -363,6 +376,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       this.context = new Context(this.store)
       this.promptMachine = new PromptMachine(model, this.context, systemPrompt, enableToolResultSummary)
       this.executor = new Executor(maxRetries, this.store)
+      this.registerTaskTool()
 
       this.observer = new Observer(
         this.store,
@@ -545,7 +559,6 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   
   
 }
-
 
 
 
