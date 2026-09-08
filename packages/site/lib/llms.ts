@@ -222,7 +222,7 @@ provider prompt caching. Cache usage is reported on every response as
 | glove-voice-s2s | run an agent on realtime speech-to-speech models (OpenAI Realtime, Gemini Live) |
 | glove-voice-avatar | live avatars over the S2S audio (Tavus echo, Anam passthrough) |
 | glove-voice-livekit | LiveKit room transport + LiveKit-native avatars |
-| glove-memory | entity graph, episodic timeline, resource filesystem, standing context, forms |
+| glove-memory | entity graph, episodic timeline, resource filesystem, standing context, forms, dynamic goals |
 | glove-scratchpad | expose tools as a relational database driven by one execute_sql tool |
 | glove-sql | zero-dependency Postgres-subset SQL engine (scratchpad's default backend) |
 | glove-working-environment | persistent sandboxed VFS: scripts, runs, artifacts |
@@ -365,6 +365,57 @@ Rules that decide whether generated code is correct:
   \`FormConflictError\`), a commit is all-or-nothing, reads return snapshots.
 - Instances pin \`defVersion\`; drift defaults to \`status: "stale"\` unless the
   def supplies \`migrate(old, fromVersion)\`.
+
+### glove-memory goals — context-sensitive structured progress
+
+Import defineGoalProgram, GoalRunner, GoalAdapter, renderGoalStatus and types
+from "glove-memory/goals" (also exported at the root). InMemoryGoalAdapter is
+available from "glove-memory/in-memory" and the root. Import useGoalRunner and
+buildGoalRunnerTools from "glove-memory/tools" or the root.
+
+useGoalRunner(glove, adapter, { scope: { subject, key, agent? }, actor?, source?,
+  tools?: { allow?, deny? }, injectStatus?, validateChange?, onChange? }) returns
+{ glove, runner, refresh }. The exact scope tuple isolates goal sets; qualify
+subject with tenant/conversation/matter identity. Scope can be a thunk, stable
+through each request. Tools cannot choose a different scope.
+
+A GoalProgram is { key, goals: [{ key, title, objective, items: [{ key, label,
+locked?, retired? }], locked?, retired? }] }. defineGoalProgram validates keys
+and definitions. runner.start(program, reason?) creates it idempotently only
+when the existing definition is identical. Definitions are persisted JSON;
+restarting requires no code registry. No implicit program replacement/reset.
+
+runner.status() returns version, goals, activeGoal and deferred follow-ups;
+runner.inspect() returns the saved aggregate; runner.history() returns complete
+snapshots with reasons and provenance. runner.update({ goalKey, completed?,
+deferred?, declined?, reopened?, reason, ifVersion? }) works on any goal.
+Done means completed; deferred/declined settle progression but done stays false.
+Deferred work survives whole-program completion and retirement, and can later
+be completed or declined. Reopen live items to pending. Unknown/duplicate keys
+reject the entire call; repeated dispositions are no-ops.
+
+runner.revise(fullProgram, { ifVersion, reason }) changes remaining goals,
+wording, order or items. Same keys preserve progress, even after removal and
+reintroduction; new obligations need new keys. A new pending item reopens a
+completed goal. Omit or retire obsolete definitions; historical work is retained.
+Locked definitions cannot be edited, removed, retired or unlocked. Locks do
+not restrict dispositions; enforce domain policy in validateChange (pure,
+called before each commit attempt; throw to reject).
+
+GoalAdapter.get(scope) returns a detached snapshot or null. commit(scope, next,
+{ ifVersion }) MUST atomically compare-and-set definitions, progress and history;
+null means absent, conflicts throw GoalConflictError. Revisions and model updates
+require versions. Direct host updates can omit ifVersion for bounded retries
+of disjoint progress changes; same-item and definition conflicts are surfaced.
+InMemoryGoalAdapter is process-local; production supplies durable storage.
+
+Tools: glove_goal_status, glove_goal_start, glove_goal_update, glove_goal_revise,
+glove_goal_history. tools allow/deny only narrows model access, not the host API.
+Goal status refreshes before each request and after runner writes in an owned
+prompt section that composes with forms and context. External writes appear
+next turn or on refresh(). injectStatus:false permits a custom renderer.
+onChange runs post-commit; GoalPostCommitError means state WAS persisted.
+Forms-to-goals mappings, practice policy and client/matter lookup are host-owned.
 
 ### glove-scratchpad (+ glove-sql)
 

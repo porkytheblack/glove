@@ -205,6 +205,13 @@ export const docsSections: DocsNavSection[] = [
         packages: ["glove-memory"],
       },
       {
+        label: "Dynamic goals",
+        href: "/docs/goals",
+        badge: "new",
+        summary: "Context-sensitive goal programs, checklist progress, revision history, and deferred follow-ups — BYO storage.",
+        packages: ["glove-memory"],
+      },
+      {
         label: "Why Memory",
         href: "/docs/memory/why",
         summary: "The design story behind the four-primitive split.",

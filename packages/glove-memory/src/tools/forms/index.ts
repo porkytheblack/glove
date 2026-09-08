@@ -1,4 +1,5 @@
 import type { ContentPart, GloveFoldArgs, Message, ModelPromptResult } from "glove-core";
+import { attachPromptSection } from "../prompt-section";
 import type { DisplayManagerAdapter } from "glove-core";
 import type { FormAdapter } from "../../forms/adapter";
 import type { FormMemoryAdapters } from "../../forms/bridge";
@@ -121,25 +122,10 @@ export function useFormRunner<G extends FormEnableTarget>(
   }
 
   if (config.injectStatus !== false) {
-    // Snapshot the developer prompt once — `setSystemPrompt` overwrites the
-    // live one, so re-deriving from it would compound last turn's injection.
-    const basePrompt = glove.getSystemPrompt();
-    const original = glove.processRequest.bind(glove);
-
-    glove.processRequest = async function wrappedProcessRequest(
-      request: string | ContentPart[],
-      signal?: AbortSignal,
-    ): Promise<ModelPromptResult | Message> {
-      let line = "";
-      try {
-        line = await runner.tier0();
-      } catch {
-        // A form that can't be read must not take the turn down with it.
-        line = "";
-      }
-      glove.setSystemPrompt(line ? `${basePrompt}\n\n${line}` : basePrompt);
-      return original(request, signal);
-    };
+    attachPromptSection(glove, async () => {
+      try { return await runner.tier0(); }
+      catch { return ""; }
+    });
   }
 
   return { glove, runner };
