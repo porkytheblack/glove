@@ -1,5 +1,11 @@
 # glovebox-client
 
+## 0.5.3
+
+### Patch Changes
+
+- glovebox-core@0.6.2
+
 ## 0.5.2
 
 ### Patch Changes

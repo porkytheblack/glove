@@ -1,5 +1,16 @@
 # glove-foundry-example
 
+## 1.0.2
+
+### Patch Changes
+
+- Updated dependencies [e6210d0]
+  - glove-core@3.7.1
+  - glove-foundry@0.3.1
+  - glove-js@0.4.2
+  - glove-memory@1.1.2
+  - glove-working-environment@0.6.1
+
 ## 1.0.1
 
 ### Patch Changes

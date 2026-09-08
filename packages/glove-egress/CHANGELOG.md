@@ -1,5 +1,11 @@
 # glove-egress
 
+## 0.2.2
+
+### Patch Changes
+
+- glove-scratchpad@2.0.2
+
 ## 0.2.1
 
 ### Patch Changes

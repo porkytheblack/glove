@@ -1,5 +1,17 @@
 # glove-foundry-braind-storm
 
+## 1.0.2
+
+### Patch Changes
+
+- Updated dependencies [e6210d0]
+  - glove-core@3.7.1
+  - glove-foundry@0.3.1
+  - glove-image@0.2.1
+  - glove-mesh@0.1.3
+  - glove-voice-s2s@0.2.2
+  - glove-working-environment@0.6.1
+
 ## 1.0.1
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # glove-lisp
 
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies [e6210d0]
+  - glove-core@3.7.1
+  - glove-scratchpad@2.0.2
+
 ## 0.4.1
 
 ### Patch Changes

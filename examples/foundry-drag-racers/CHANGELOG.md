@@ -1,5 +1,14 @@
 # glove-foundry-drag-racers
 
+## 1.0.2
+
+### Patch Changes
+
+- Updated dependencies [e6210d0]
+  - glove-core@3.7.1
+  - glove-foundry@0.3.1
+  - glove-voice-s2s@0.2.2
+
 ## 1.0.1
 
 ### Patch Changes

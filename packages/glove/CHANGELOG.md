@@ -1,5 +1,11 @@
 # glove-core
 
+## 3.7.1
+
+### Patch Changes
+
+- e6210d0: Automatically register glove_update_tasks for task-capable stores so downstream agents can use built-in task management. Rebind the tool when build supplies a store and document automatic and low-level usage.
+
 ## 3.7.0
 
 ### Minor Changes
