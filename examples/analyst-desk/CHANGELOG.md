@@ -1,5 +1,15 @@
 # glove-analyst-desk
 
+## 1.0.2
+
+### Patch Changes
+
+- Updated dependencies [[`6a2980c`](https://github.com/porkytheblack/glove/commit/6a2980c368b2d6351310444d676c50553e148553), [`bc184e9`](https://github.com/porkytheblack/glove/commit/bc184e95fb3c5f01978fa4520d825e4e1abc070c)]:
+  - glove-working-environment@0.6.1
+  - glove-env-documents@1.1.0
+  - glove-env-spreadsheets@1.1.0
+  - glove-env-slides@1.1.0
+
 ## 1.0.1
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "glove-env-unlock",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Shared password-based PDF, Office and ZIP unlocking for Glove working-environment adapters.",
   "type": "module",
   "license": "MIT",
