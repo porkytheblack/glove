@@ -1,5 +1,14 @@
 # glove-s2s-rooms
 
+## 1.0.3
+
+### Patch Changes
+
+- Updated dependencies [e6210d0]
+  - glove-core@3.7.1
+  - glove-mesh@0.1.3
+  - glove-voice-s2s@0.2.2
+
 ## 1.0.2
 
 ### Patch Changes

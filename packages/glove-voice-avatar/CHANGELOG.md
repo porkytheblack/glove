@@ -1,5 +1,11 @@
 # glove-voice-avatar
 
+## 0.1.3
+
+### Patch Changes
+
+- glove-voice-s2s@0.2.2
+
 ## 0.1.2
 
 ### Patch Changes

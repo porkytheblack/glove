@@ -1,5 +1,12 @@
 # glove-continuum-signal
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [e6210d0]
+  - glove-core@3.7.1
+
 ## 0.1.2
 
 ### Patch Changes

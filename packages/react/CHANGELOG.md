@@ -1,5 +1,13 @@
 # glove-react
 
+## 4.0.2
+
+### Patch Changes
+
+- Updated dependencies [e6210d0]
+  - glove-core@3.7.1
+  - glove-voice@3.6.2
+
 ## 4.0.1
 
 ### Patch Changes

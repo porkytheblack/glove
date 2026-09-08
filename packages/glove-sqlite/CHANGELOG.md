@@ -1,5 +1,12 @@
 # glove-sqlite
 
+## 3.0.4
+
+### Patch Changes
+
+- Updated dependencies [e6210d0]
+  - glove-core@3.7.1
+
 ## 3.0.3
 
 ### Patch Changes

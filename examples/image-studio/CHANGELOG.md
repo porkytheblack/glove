@@ -1,5 +1,13 @@
 # glove-image-studio
 
+## 1.0.3
+
+### Patch Changes
+
+- Updated dependencies [e6210d0]
+  - glove-core@3.7.1
+  - glove-image@0.2.1
+
 ## 1.0.2
 
 ### Patch Changes

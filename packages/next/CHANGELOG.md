@@ -1,5 +1,12 @@
 # glove-next
 
+## 3.1.3
+
+### Patch Changes
+
+- Updated dependencies [e6210d0]
+  - glove-core@3.7.1
+
 ## 3.1.2
 
 ### Patch Changes

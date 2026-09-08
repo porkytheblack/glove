@@ -1,5 +1,11 @@
 # glove-voice-native
 
+## 0.3.2
+
+### Patch Changes
+
+- glove-voice@3.6.2
+
 ## 0.3.1
 
 ### Patch Changes

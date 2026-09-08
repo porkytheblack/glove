@@ -1,5 +1,11 @@
 # glove-server-voice-web
 
+## 1.0.3
+
+### Patch Changes
+
+- glove-voice@3.6.2
+
 ## 1.0.2
 
 ### Patch Changes
