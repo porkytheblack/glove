@@ -39,6 +39,7 @@ jobs:
       - name: Build shared deps
         run: >-
           pnpm
+          --filter "glove-memory..."
           --filter "glove-voice-livekit..."
           --filter "glove-scratchpad..."
           --filter "glove-env-documents..."
