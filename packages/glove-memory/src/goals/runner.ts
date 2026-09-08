@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { goalTransitions, instanceAtRevision, transitionHookName, GoalHookError,
+  type GoalLifecycleHooks, type GoalHookResumeResult } from "./lifecycle";
 import { equalGoalData as equal } from "./equal";
 import type { Provenance } from "../core/provenance";
 import { GoalConflictError, GoalValidationError, type GoalAdapter } from "./adapter";
@@ -14,6 +16,10 @@ const versionSchema = z.number().int().positive();
 
 
 export interface GoalRunnerConfig {
+  /** Host code only. Never stored in or accepted from model-authored definitions. */
+  hooks?: GoalLifecycleHooks;
+  /** Claim expiry for crash recovery. Effects must deduplicate by idempotencyKey. Default 60s. */
+  hookLeaseMs?: number;
   scope: GoalScope | (() => GoalScope);
   actor?: string;
   source?: string;
@@ -70,7 +76,9 @@ function checkLocks(before: GoalProgram, after: GoalProgram) {
 }
 
 export class GoalRunner {
-  constructor(readonly adapter: GoalAdapter, private readonly config: GoalRunnerConfig) {}
+  constructor(readonly adapter: GoalAdapter, private readonly config: GoalRunnerConfig) {
+    if (config.hookLeaseMs !== undefined) z.number().int().positive().parse(config.hookLeaseMs);
+  }
   private scope(): GoalScope {
     return GoalScopeSchema.parse(typeof this.config.scope === "function" ? this.config.scope() : this.config.scope);
   }
@@ -80,6 +88,47 @@ export class GoalRunner {
     return instance ? projectGoalStatus(instance) : null;
   }
   async history(): Promise<GoalRevision[]> { return (await this.inspect())?.history ?? []; }
+
+  /** Resume saved transition effects after a failure/restart. Completed effects are not replayed. */
+  async resumeHooks(): Promise<GoalHookResumeResult> { return this.resumeHooksForScope(this.scope()); }
+  async hookDispatches() { return this.adapter.getTransitionDispatches(this.scope()); }
+
+  private async resumeHooksForScope(scope: GoalScope): Promise<GoalHookResumeResult> {
+    const result: GoalHookResumeResult = { completed: [] };
+    if (!this.config.hooks) return result;
+    // Unique per drain, not per runner: a reclaimed lease must fence off the
+    // original invocation even when both invocations use the same runner.
+    const owner = crypto.randomUUID();
+    while (true) {
+      const instance = await this.adapter.get(scope);
+      if (!instance) return result;
+      for (let index = 0; index < instance.history.length; index++) {
+        const revision = instance.history[index];
+        for (const transition of revision.transitions ?? []) {
+          const handler = this.config.hooks[transitionHookName(transition.kind)];
+          if (!handler) continue;
+          const claim = await this.adapter.claimTransition(scope, transition.id, { owner, leaseMs: this.config.hookLeaseMs ?? 60_000 });
+          if (claim === "completed") continue;
+          if (claim === "busy") return { ...result, blockedBy: transition.id };
+          try {
+            const status = projectGoalStatus(instanceAtRevision(instance, index));
+            await handler({ idempotencyKey: transition.id, transition: structuredClone(transition),
+              scope: structuredClone(scope), status, reason: revision.reason,
+              goal: status.goals.find((goal) => goal.definition.key === transition.goalKey)! });
+            const settled = await this.adapter.settleTransition(scope, transition.id, { owner, state: "completed" });
+            if (!settled) return { ...result, blockedBy: transition.id };
+            result.completed.push(transition.id);
+          } catch (error) {
+            await this.adapter.settleTransition(scope, transition.id, { owner, state: "failed", error: (error instanceof Error ? error.message : String(error)).slice(0, 4000) });
+            throw new GoalHookError(transition, error);
+          }
+        }
+      }
+      // Hooks can themselves advance goals, and another worker may commit
+      // while we run. Drain those transitions too, in saved revision order.
+      if ((await this.adapter.get(scope))?.version === instance.version) return result;
+    }
+  }
 
   /** Idempotent only for an identical program. Never resets existing progress. */
   async start(program: GoalProgram, reason = "Start goal program"): Promise<GoalStatus> {
@@ -179,9 +228,13 @@ export class GoalRunner {
       ...structuredClone(snapshot), scope, version, createdAt: before?.createdAt ?? now, updatedAt: now,
       history: [...(before?.history ?? []), { ...structuredClone(snapshot), version, kind, reason, provenance }],
     };
+    next.history[next.history.length - 1].transitions = goalTransitions(before ? projectGoalStatus(before) : null, projectGoalStatus(next));
     const saved = await this.adapter.commit(scope, next, { ifVersion: before?.version ?? null });
     const status = projectGoalStatus(saved);
-    try { await this.config.onChange?.(structuredClone(status)); }
+    try {
+      await this.config.onChange?.(structuredClone(status));
+      await this.resumeHooksForScope(scope);
+    }
     catch (error) { throw new GoalPostCommitError(status, error); }
     return status;
   }
@@ -190,7 +243,7 @@ export class GoalRunner {
 /** The write succeeded; consumers must not blindly retry as if it rolled back. */
 export class GoalPostCommitError extends Error {
   constructor(readonly status: GoalStatus, cause: unknown) {
-    super(`Goal version ${status.version} was committed, but onChange failed`, { cause });
+    super(`Goal version ${status.version} was committed, but a post-commit callback or lifecycle hook failed`, { cause });
     this.name = "GoalPostCommitError";
   }
 }

@@ -417,6 +417,30 @@ next turn or on refresh(). injectStatus:false permits a custom renderer.
 onChange runs post-commit; GoalPostCommitError means state WAS persisted.
 Forms-to-goals mappings, practice policy and client/matter lookup are host-owned.
 
+Goal lifecycle: configure hooks { onEnter, onComplete, onReopen } in host code.
+Each receives { transition, idempotencyKey, goal, status, scope, reason }; mounted
+hooks also receive glove and may fold tools or setModel during a turn. Definitions
+cannot supply hook code. Transitions are stored atomically in history revisions.
+Completion/reopening precede entry; retirement is not completion. A completed
+goal may include deferred/declined work, so inspect dispositions for real effects.
+
+GoalAdapter also implements claimTransition(scope,id,{owner,leaseMs}) returning
+claimed/completed/busy, settleTransition(scope,id,{owner,state,error?}) with owner
+fencing, and getTransitionDispatches(scope). Receipts persist separately from
+progress versions. runner.resumeHooks() replays pending effects; hookDispatches()
+reads receipts. Mounted runners resume before requests/refresh. Completed effects
+stay completed; expired/failed claims can retry, with the SAME idempotencyKey.
+Delivery is at least once; hosts deduplicate effects. hookLeaseMs defaults to 60s.
+All dispatchers for a scope use the same hooks; adding handlers later replays
+unacknowledged historical transitions. A live lease blocks later effects.
+
+Use useGoalRunner(...,{configure({glove,status}) {...}}) for an idempotent projection
+of CURRENT progress onto each new runnable, independent of durable effects.
+It runs after writes and before every request/refresh, even if injectStatus:false.
+Async configure calls serialize; do not mutate goals or call refresh from configure.
+fold is additive: guard duplicates. To remove tools or choose constructor options,
+read runner.status() and build a fresh Glove for the next request using that state.
+
 ### glove-scratchpad (+ glove-sql)
 
 \`\`\`ts

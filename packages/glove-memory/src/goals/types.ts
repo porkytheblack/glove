@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { GoalTransition } from "./lifecycle";
 import type { Provenance } from "../core/provenance";
 
 // Keys are durable identities, not labels. Exclude prototype keys because
@@ -67,6 +68,8 @@ export interface GoalSnapshot {
   progress: GoalProgress;
 }
 export interface GoalRevision extends GoalSnapshot {
+  /** Persisted atomically with progress. Absent on pre-lifecycle records. */
+  transitions?: GoalTransition[];
   version: number;
   kind: "start" | "revise" | "update";
   reason: string;

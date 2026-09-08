@@ -1,3 +1,4 @@
+import type { GoalTransitionDispatch } from "./lifecycle";
 import type { GoalInstance, GoalScope } from "./types";
 
 export class GoalConflictError extends Error {
@@ -29,4 +30,16 @@ export interface GoalAdapter {
   identifier: string;
   get(scope: GoalScope): Promise<GoalInstance | null>;
   commit(scope: GoalScope, next: GoalInstance, options: { ifVersion: number | null }): Promise<GoalInstance>;
+  /**
+   * Atomically claim a persisted transition. Completed receipts never reset;
+   * live leases return busy; expired/failed leases can be reclaimed. Increment
+   * attempts on each claim, use the storage clock, and reject unknown IDs.
+   * Store receipts separately from progress commits so stale aggregate writes
+   * cannot erase acknowledgements. All dispatchers for a scope use the same hooks.
+   */
+  claimTransition(scope: GoalScope, id: string, options: { owner: string; leaseMs: number }): Promise<"claimed" | "completed" | "busy">;
+  /** Owner-fenced acknowledgement; false if the lease was reclaimed. */
+  settleTransition(scope: GoalScope, id: string, options: { owner: string; state: "completed" | "failed"; error?: string }): Promise<boolean>;
+  getTransitionDispatches(scope: GoalScope): Promise<GoalTransitionDispatch[]>;
+
 }

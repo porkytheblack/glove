@@ -1044,3 +1044,103 @@ policy. This keeps goals reusable outside client intake.
 See [`examples/dynamic-goals.ts`](./examples/dynamic-goals.ts) for an executable
 returning-client follow-up that retires full intake, adds an updates goal,
 preserves verified identity, and resolves a deferred document request.
+
+### Configure agents from goal progression
+
+Host-defined lifecycle hooks can change the running Glove, or perform an effect
+when a goal changes state. Hooks are code in runner configuration; the model
+cannot add executable hooks to its goal definitions.
+
+```ts
+const { runner, refresh } = useGoalRunner(glove, adapter, {
+  scope: { subject: "matter:123", key: "intake" },
+  hooks: {
+    onEnter({ glove, goal, idempotencyKey }) {
+      if (goal.definition.key === "evidence") {
+        // fold is additive: guard against duplicates when replaying an effect.
+        if (!glove.tools.some((tool) => tool.name === evidenceTool.name)) {
+          glove.fold(evidenceTool);
+        }
+        glove.setModel(evidenceModel);
+      }
+      // External effects must deduplicate using idempotencyKey.
+    },
+    onComplete({ goal, status, idempotencyKey }) {
+      // Host effect, e.g. persist a phase handoff under idempotencyKey.
+      // "complete" means progression settled; inspect dispositions if actual
+      // completion matters, because deferred/declined items also settle it.
+    },
+    onReopen({ goal }) {
+      // A completed goal now has unresolved work again.
+    },
+  },
+  configure({ glove, status }) {
+    // A state projection, reapplied to NEW runnables after process restart.
+    // Completed transition effects are not replayed just to rebuild an agent.
+    glove.setModel(status?.activeGoal === "evidence" ? evidenceModel : intakeModel);
+    if (status?.activeGoal === "evidence" &&
+        !glove.tools.some((tool) => tool.name === evidenceTool.name)) {
+      glove.fold(evidenceTool);
+    }
+  },
+});
+await refresh(); // recover pending effects and configure before using the runnable
+```
+
+`onEnter` fires when a goal becomes the active goal, including re-entry after
+reordering or reopening. `onComplete` fires when a non-completed goal becomes
+completed. `onReopen` fires when a completed goal becomes active or pending.
+Completion and reopening events are ordered before entry to the active goal.
+Repeated identical updates and wording-only revisions produce no new edges.
+Retiring a goal does not count as completing it. Each hook receives the
+historical goal/status snapshot, transition, scope, reason, and a stable
+`idempotencyKey`; mounted hooks also receive the typed `glove` runnable.
+Standalone `GoalRunner` hooks can capture application objects through closures.
+
+`configure` is a separate, idempotent projection of **current** status onto the
+runnable. It runs after committed changes, before every request, and on
+`refresh()`, including when `injectStatus: false`. Async calls are serialized
+so old configuration cannot finish after new configuration. It should only
+configure the target; do not call goal mutations or `refresh()` from it.
+`fold` adds capabilities; to remove tools or change constructor-only options,
+construct a new runnable from saved status before the next request:
+
+```ts
+const goals = new GoalRunner(adapter, { scope });
+const status = await goals.status();
+const builder = new Glove({ ...baseConfig, model: chooseModel(status) });
+for (const tool of chooseTools(status)) builder.fold(tool);
+const runnable = builder.build();
+useGoalRunner(runnable, adapter, { scope, configure: configureFromGoals });
+```
+
+### Durable lifecycle effects
+
+Every progress commit saves its transitions in the same history revision.
+Effects run only after that write succeeds. Lifecycle receipts are separate
+from progress, so dispatch does not change the version the model reviewed and
+a later aggregate commit cannot erase acknowledgements.
+
+Adapters additionally implement:
+
+- `claimTransition(scope, id, { owner, leaseMs })`: atomically return `claimed`,
+  `completed`, or `busy`, with a durable claim/attempt count for a saved event.
+- `settleTransition(scope, id, { owner, state, error? })`: acknowledge completion
+  or failure only if the caller still owns the claim.
+- `getTransitionDispatches(scope)`: read detached dispatch diagnostics.
+
+Claims expire after `hookLeaseMs` (60 seconds by default), allowing recovery
+after a worker crashes. A live claim blocks later effects in that scope.
+Failed effects remain retryable via `runner.resumeHooks()`; completed effects
+are skipped. `useGoalRunner` resumes pending hooks before a request or explicit
+refresh. If another worker still owns a hook, the request fails before calling
+the model and the host can retry later. `runner.hookDispatches()` exposes
+attempts and failures. All workers for one scope must use the same hook policy.
+Adding a handler later will process matching historical transitions without
+completed receipts; pre-lifecycle history without transitions is not replayed.
+
+Delivery is **at least once**, not exactly once: a process can crash after an
+external effect but before its acknowledgement, or a long-running effect can
+outlive its lease. Set an appropriate lease and deduplicate effects by the
+stable idempotency key. Failed hooks surface as `GoalPostCommitError` after a
+write, or `GoalHookError` from explicit replay. Progress remains committed.

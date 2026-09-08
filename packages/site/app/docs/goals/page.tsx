@@ -125,6 +125,50 @@ await runner.update({
         <code> GoalRunner</code> and <code>buildGoalRunnerTools</code> directly.
       </p>
 
+      <h2 id="lifecycle">Configure the agent as goals progress</h2>
+      <p>
+        Host-defined <code>onEnter</code>, <code>onComplete</code>, and
+        <code> onReopen</code> hooks receive the goal, historical status,
+        transition, reason, and a stable idempotency key. Mounted hooks also
+        receive the typed <code>glove</code> runnable, so they can fold tools
+        or switch its model during a turn. Hook code stays in the host;
+        editable goal definitions cannot contain executable callbacks.
+      </p>
+      <CodeBlock language="typescript" code={`useGoalRunner(glove, adapter, {
+  scope,
+  hooks: {
+    onEnter({ glove, goal }) {
+      if (goal.definition.key === "evidence") glove.setModel(evidenceModel);
+    },
+  },
+  configure({ glove, status }) {
+    // Reapply current state to a fresh runnable after a restart.
+    glove.setModel(status?.activeGoal === "evidence" ? evidenceModel : intakeModel);
+  },
+});`} />
+      <p>
+        Transitions are saved atomically with progress. Separate dispatch
+        receipts use leases and owner-fenced acknowledgements. Completed
+        effects are skipped on restart; failed effects can resume with
+        <code> runner.resumeHooks()</code> using the same idempotency key.
+        Delivery is at least once: external effects must deduplicate that key.
+        Configure an appropriate <code>hookLeaseMs</code> for long effects.
+      </p>
+      <p>
+        <code>configure</code> reapplies current state after writes and before
+        requests, including with prompt injection disabled. It must be
+        idempotent and must not mutate goal state or call refresh. Async calls
+        are serialized. To select constructor options or remove tools, read
+        saved status before building a new runnable for the next request.
+        The existing <code>fold</code> method adds tools; check for duplicates.
+      </p>
+      <p>
+        Entry means a goal became active; completion means all live items were
+        settled, including deferrals and declines; reopening means a completed
+        goal has unresolved work. Retirement is not completion. Hooks receive
+        the historical transition state, while configure receives current state.
+      </p>
+
       <h2 id="storage">Storage and conflicts</h2>
       <p>
         A <code>GoalAdapter</code> implements <code>get(scope)</code> and
@@ -148,6 +192,13 @@ await runner.update({
         state has not rolled back.
       </p>
 
+      <p>
+        Lifecycle-enabled adapters also implement <code>claimTransition</code>,
+        <code> settleTransition</code>, and <code>getTransitionDispatches</code>.
+        These receipts must survive aggregate commits. A busy lease blocks
+        later effects and a mounted request waits to be retried before running
+        the model. All workers sharing a scope use the same hooks.
+      </p>
       <h2 id="forms">Compose with forms and context</h2>
       <p>
         Goals own an independent prompt section, refreshed before each request

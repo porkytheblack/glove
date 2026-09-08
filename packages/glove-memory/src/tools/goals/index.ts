@@ -6,12 +6,15 @@ import { selectFoldArgs, type ToolSelection } from "../selection";
 import { attachPromptSection } from "../prompt-section";
 import {
   GoalRunner, GoalPostCommitError, GoalProgramSchema, GoalUpdateSchema, GoalScopeSchema, renderGoalStatus,
-  type GoalAdapter, type GoalRunnerConfig, type GoalScope, type GoalStatus,
+  type GoalAdapter, type GoalRunnerConfig, type GoalScope, type GoalStatus, type GoalLifecycleHooks, type GoalHookContext,
 } from "../../goals";
 
 /** Compatible with the same runnable/proxy seam as useFormRunner. */
 export type GoalEnableTarget = FormEnableTarget;
-export interface UseGoalRunnerConfig extends GoalRunnerConfig {
+export interface UseGoalRunnerConfig<G extends GoalEnableTarget = GoalEnableTarget> extends Omit<GoalRunnerConfig, "hooks"> {
+  hooks?: GoalLifecycleHooks<GoalHookContext & { glove: G }>;
+  /** Reapply current state to each runnable, including after a restart. Must be idempotent. */
+  configure?: (context: { glove: G; status: GoalStatus | null }) => void | Promise<void>;
   tools?: ToolSelection;
   injectStatus?: boolean;
 }
@@ -53,7 +56,7 @@ export function buildGoalRunnerTools(runner: GoalRunner): Array<GloveFoldArgs<an
  * Other processes' writes appear next turn (or call refresh explicitly).
  * Like Glove itself, a mounted runnable is for one conversation at a time.
  */
-export function useGoalRunner<G extends GoalEnableTarget>(glove: G, adapter: GoalAdapter, config: UseGoalRunnerConfig): { glove: G; runner: GoalRunner; refresh: () => Promise<void> } {
+export function useGoalRunner<G extends GoalEnableTarget>(glove: G, adapter: GoalAdapter, config: UseGoalRunnerConfig<G>): { glove: G; runner: GoalRunner; refresh: () => Promise<void> } {
   let section: ReturnType<typeof attachPromptSection> | undefined;
   let latest: { scope: GoalScope; status: GoalStatus | null } | undefined;
   const currentScope = () => GoalScopeSchema.parse(typeof config.scope === "function" ? config.scope() : config.scope);
@@ -70,16 +73,48 @@ export function useGoalRunner<G extends GoalEnableTarget>(glove: G, adapter: Goa
     if (status) latest.status = status;
     return status;
   };
+  let configuration = Promise.resolve();
+  const applyConfiguration = (status: GoalStatus | null): Promise<void> => {
+    if (!config.configure) return Promise.resolve();
+    const scope = currentScope();
+    const next = configuration.catch(() => {}).then(async () => {
+      if (!equalGoalData(scope, currentScope())) return;
+      // Serialize asynchronous configuration so an older completion cannot
+      // overwrite the model/tools selected by a newer progress update.
+      const current = status && latest?.status && equalGoalData(latest.scope, scope) && latest.status.version > status.version ? latest.status : status;
+      await config.configure!({ glove, status: structuredClone(current) });
+    });
+    configuration = next;
+    return next;
+  };
+  const hooks: GoalLifecycleHooks | undefined = config.hooks ? {
+    onEnter: config.hooks.onEnter ? (context) => config.hooks!.onEnter!({ ...context, glove }) : undefined,
+    onComplete: config.hooks.onComplete ? (context) => config.hooks!.onComplete!({ ...context, glove }) : undefined,
+    onReopen: config.hooks.onReopen ? (context) => config.hooks!.onReopen!({ ...context, glove }) : undefined,
+  } : undefined;
   const runner = new GoalRunner(adapter, {
-    ...config,
+    ...config, hooks,
     async onChange(status) {
-      section?.set(renderGoalStatus(selectStatus(status)));
+      const current = selectStatus(status);
+      section?.set(renderGoalStatus(current));
+      await applyConfiguration(current);
       await config.onChange?.(status);
     },
   });
   // Validate tool selection before mutating either the registry or the prompt.
   const tools = selectFoldArgs(buildGoalRunnerTools(runner), config.tools);
   for (const entry of tools) glove.fold(entry);
-  if (config.injectStatus !== false) section = attachPromptSection(glove, async () => renderGoalStatus(selectStatus(await runner.status())));
-  return { glove, runner, refresh: async () => { await section?.refresh(); } };
+  const synchronize = async () => {
+    const resumed = await runner.resumeHooks();
+    if (resumed.blockedBy) throw new Error(`Goal transition is still being handled: ${resumed.blockedBy}. Retry before starting the model.`);
+    const status = selectStatus(await runner.status());
+    await applyConfiguration(status);
+    return renderGoalStatus(status);
+  };
+  if (config.injectStatus !== false) section = attachPromptSection(glove, synchronize);
+  else {
+    const original = glove.processRequest.bind(glove);
+    glove.processRequest = async (request, signal) => { await synchronize(); return original(request, signal); };
+  }
+  return { glove, runner, refresh: async () => { if (section) await section.refresh(); else await synchronize(); } };
 }

@@ -17,3 +17,20 @@ void runner.revise(program, { reason: "Changed context" });
 void runner.update({ goalKey: "identity", completed: ["client"] });
 // @ts-expect-error A scope needs an independent set key as well as a subject.
 new GoalRunner(adapter, { scope: { subject: "conversation" } });
+
+useGoalRunner(glove, adapter, {
+  scope: { subject: "conversation", key: "intake" },
+  hooks: {
+    onEnter({ glove: running, idempotencyKey, goal }) {
+      const key: string = idempotencyKey;
+      const model = running.model;
+      running.setModel(model);
+      void key; void goal;
+    },
+  },
+  configure({ glove: running, status }) {
+    running.setModel(running.model);
+    const current: GoalStatus | null = status;
+    void current;
+  },
+});

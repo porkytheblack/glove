@@ -17,12 +17,21 @@ export function attachPromptSection(target: PromptTarget, render: () => Promise<
   const id = ++sequence;
   let previous = "";
   let revision = 0;
+  const originalSetter = target.setSystemPrompt.bind(target);
+  // Host lifecycle/configuration code may replace the base instructions.
+  // Each mounted subsystem keeps ownership of its live block, including
+  // when setters are stacked through a runnable proxy.
+  target.setSystemPrompt = (prompt) => {
+    originalSetter(previous && !prompt.includes(previous) ? prompt + previous : prompt);
+  };
   const set = (text: string) => {
     revision++;
     const current = target.getSystemPrompt();
     const base = previous ? current.replace(previous, "") : current;
     previous = text ? `\n\n<glove-memory-section id="${id}">\n${text}\n</glove-memory-section>` : "";
-    target.setSystemPrompt(base + previous);
+    // Bypass our own preserving setter so an empty render really removes
+    // this section. Earlier subsystems still preserve their own blocks.
+    originalSetter(base + previous);
   };
   const refresh = async () => {
     const startedAt = revision;
