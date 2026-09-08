@@ -64,6 +64,6 @@ export function goalTransitions(before: GoalStatus | null, after: GoalStatus): G
 /** Reconstruct the state a hook observed without relying on current code definitions. */
 export function instanceAtRevision(instance: GoalInstance, index: number): GoalInstance {
   const revision = instance.history[index];
-  return { ...instance, program: revision.program, progress: revision.progress, version: revision.version,
+  return { ...instance, program: revision.program, progress: revision.progress, preparation: revision.preparation, version: revision.version,
     updatedAt: revision.provenance.timestamp, history: instance.history.slice(0, index + 1) };
 }

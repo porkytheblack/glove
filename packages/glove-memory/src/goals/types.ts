@@ -1,3 +1,4 @@
+import type { PreparationReport } from "glove-facts";
 import { z } from "zod";
 import type { GoalTransition } from "./lifecycle";
 import type { Provenance } from "../core/provenance";
@@ -55,6 +56,8 @@ export const GoalScopeSchema = z.object({
 export type GoalScope = z.infer<typeof GoalScopeSchema>;
 export type GoalItemDisposition = "pending" | "done" | "deferred" | "declined";
 export interface GoalItemState {
+  /** Exact shared evidence claim committed with this state. */
+  claimId?: string;
   disposition: GoalItemDisposition;
   /** Deferred/declined settles progression, but does not mean work was done. */
   done: boolean;
@@ -63,6 +66,7 @@ export interface GoalItemState {
 }
 export type GoalProgress = Record<string, Record<string, GoalItemState>>;
 export interface GoalSnapshot {
+  preparation?: PreparationReport;
   program: GoalProgram;
   /** Retained even for removed/retired definitions; keys must not be repurposed. */
   progress: GoalProgress;
@@ -90,6 +94,7 @@ export interface GoalView {
   items: Array<{ definition: GoalItemDefinition; state: GoalItemState | null }>;
 }
 export interface GoalStatus {
+  preparation?: PreparationReport;
   scope: GoalScope;
   version: number;
   programKey: string;

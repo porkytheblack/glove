@@ -212,6 +212,13 @@ export const docsSections: DocsNavSection[] = [
         packages: ["glove-memory"],
       },
       {
+        label: "Shared facts",
+        href: "/docs/facts",
+        badge: "new",
+        summary: "Scoped evidence and model preparation shared by goals and forms.",
+        packages: ["glove-facts", "glove-memory"],
+      },
+      {
         label: "Why Memory",
         href: "/docs/memory/why",
         summary: "The design story behind the four-primitive split.",

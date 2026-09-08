@@ -441,6 +441,55 @@ Async configure calls serialize; do not mutate goals or call refresh from config
 fold is additive: guard duplicates. To remove tools or choose constructor options,
 read runner.status() and build a fresh Glove for the next request using that state.
 
+### glove-facts — shared evidence and preparation
+
+Import FactStore, InMemoryFactAdapter, FactPreparation, createModelPreparation,
+and useFacts from "glove-facts". Scope is an exact subject/context tuple, qualified
+by tenant and client/matter. Bind provenance in host code. useFacts registers
+record_fact({ fact, urgent? }); model capture stays unverified. FactStore.record
+requires source and an operationId; repeated identical operations are idempotent.
+Corrections use supersedes: { id, revision }, append a revision and retain history.
+Urgent facts surface at capture through onUrgent and remain available afterwards.
+
+Preparation is opt-in (enabled defaults false, or provide a per-operation thunk).
+createModelPreparation(ModelAdapter) invokes a dedicated model with structured
+proposals and exact source references; no additional user turn is required.
+Disabled skips automatic inference/claims/prefill without removing captured facts,
+accepted links, answers or goal progress. Use runner.prepare() to reconcile now.
+
+Pass preparation: { preparer, rule, eligible? } to either useGoalRunner or
+useFormRunner; share one FactStore across both. Goal rule(goal,item) and form
+rule(field,compiled) are host-owned allowlists; undefined means manual. A rule
+specifies kind information/action/approval/outcome, criteria, optional evidenceKey,
+authorizedActors and allowUnverified. Forms validate with the actual field schema;
+goal completion proposals must be true. Actions/outcomes require host-attested
+verified success for the exact evidenceKey; approval also requires an authorized
+actor. Intention is not execution, and preference is not approval.
+
+Preparation retrieves scoped candidates, infers/synthesizes, validates references,
+revisions and values, then commits through the runner's authoritative state path.
+Conditional eligibility settles before progression and effects; unrelated gates
+and checkpoints cannot be skipped by evidence. Prepared status, prompt sections,
+and tool replies include source-linked synthesis, gaps, urgency and conflicts.
+Corrections, changed criteria and contrary values explicitly flag existing work
+for review; they do not automatically replace answers or reopen completed actions.
+Use ordinary revise/retract/update operations to resolve the review. A fact may
+support many requirements: links reference exact revisions, never consume evidence.
+
+Form action/outcome rules may use fulfills: ["field", "step"] only when the
+verified outcome covers that field/step effect. This records an evidence receipt
+instead of repeating onFill/onComplete. It never suppresses checkpoints or the
+form's overall completion hook. Other hooks execute normally.
+
+Production uses a durable FactAdapter.withScope: serialize all writes and consumer
+commits across workers, detached reads, durable version + 1 saves, no rollback of
+earlier saves on later failure. Do not re-enter the fact store from inference or
+commit validation. Proposed claims precede the consumer CAS; accepted claims are
+recovered from receipts in goal/form history. FormAdapter must preserve preparation,
+claimId, fulfilledHooks, effectId, pendingHooks batches and dispatch effects.
+Prepared hooks resume via resumeHooks()/prepare(). External effects are at least
+once: deduplicate their stable idempotencyKey. InMemoryFactAdapter is process-local.
+
 ### glove-scratchpad (+ glove-sql)
 
 \`\`\`ts

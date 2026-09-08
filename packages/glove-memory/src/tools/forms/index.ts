@@ -5,6 +5,7 @@ import type { FormAdapter } from "../../forms/adapter";
 import type { FormMemoryAdapters } from "../../forms/bridge";
 import type { FormRegistry } from "../../forms/registry";
 import { selectFoldArgs, type ToolSelection } from "../selection";
+import type { FormPreparationConfig } from "../../forms/preparation";
 import { FormRunner } from "../../forms/runner";
 import { buildFormAbandonTool } from "./abandon";
 import { buildFormFillTool } from "./fill";
@@ -63,6 +64,7 @@ export interface FormEnableTarget {
 }
 
 export interface UseFormRunnerConfig {
+  preparation?: FormPreparationConfig;
   registry: FormRegistry;
   /** Conversation id / user id / matter id. A thunk when it varies per turn. */
   subject: string | (() => string);
@@ -109,6 +111,7 @@ export function useFormRunner<G extends FormEnableTarget>(
   config: UseFormRunnerConfig,
 ): { glove: G; runner: FormRunner } {
   const runner = new FormRunner(adapter, {
+    preparation: config.preparation,
     registry: config.registry,
     subject: config.subject,
     memory: config.memory,
@@ -121,11 +124,15 @@ export function useFormRunner<G extends FormEnableTarget>(
     glove.fold(tool);
   }
 
-  if (config.injectStatus !== false) {
-    attachPromptSection(glove, async () => {
-      try { return await runner.tier0(); }
-      catch { return ""; }
-    });
+  const synchronize = async () => {
+    const instance = await runner.activeInstance();
+    if (instance && config.preparation) await runner.prepare({ instanceId: instance.id });
+    return runner.tier0();
+  };
+  if (config.injectStatus !== false) attachPromptSection(glove, synchronize);
+  else if (config.preparation) {
+    const original = glove.processRequest.bind(glove);
+    glove.processRequest = async (request, signal) => { await synchronize(); return original(request, signal); };
   }
 
   return { glove, runner };

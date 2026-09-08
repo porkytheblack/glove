@@ -35,6 +35,7 @@ export function projectView<V extends Record<string, unknown>>(
   const asking = instance.status !== "abandoned";
 
   const base: FormView = {
+    ...(instance.preparation ? { preparation: structuredClone(instance.preparation) } : {}),
     instanceId: instance.id,
     defId: compiled.id,
     defVersion: instance.defVersion,

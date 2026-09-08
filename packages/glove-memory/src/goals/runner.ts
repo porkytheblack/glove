@@ -1,3 +1,4 @@
+import { prepareGoalCommit, type GoalPreparationConfig } from "./preparation";
 import { z } from "zod";
 import { goalTransitions, instanceAtRevision, transitionHookName, GoalHookError,
   type GoalLifecycleHooks, type GoalHookResumeResult } from "./lifecycle";
@@ -16,6 +17,7 @@ const versionSchema = z.number().int().positive();
 
 
 export interface GoalRunnerConfig {
+  preparation?: GoalPreparationConfig;
   /** Host code only. Never stored in or accepted from model-authored definitions. */
   hooks?: GoalLifecycleHooks;
   /** Claim expiry for crash recovery. Effects must deduplicate by idempotencyKey. Default 60s. */
@@ -51,7 +53,7 @@ export function projectGoalStatus(instance: GoalInstance): GoalStatus {
     }
   }
   return { scope: structuredClone(instance.scope), version: instance.version, programKey: instance.program.key,
-    status: activeGoal === null ? "completed" : "active", activeGoal, goals, deferred };
+    status: activeGoal === null ? "completed" : "active", activeGoal, goals, deferred, ...(instance.preparation ? { preparation: structuredClone(instance.preparation) } : {}) };
 }
 
 function findItem(instance: GoalInstance, goalKey: string, itemKey: string): { goal: GoalDefinition; item: GoalItemDefinition } | undefined {
@@ -86,6 +88,18 @@ export class GoalRunner {
   async status(): Promise<GoalStatus | null> {
     const instance = await this.inspect();
     return instance ? projectGoalStatus(instance) : null;
+  }
+  /** Reconcile new evidence before the next turn, including completed goals needing review. */
+  async prepare(): Promise<GoalStatus | null> {
+    for (let attempt = 0; ; attempt++) {
+      const before = await this.inspect();
+      if (!before || !this.config.preparation?.preparer.enabled()) return before ? projectGoalStatus(before) : null;
+      try {
+        return await this.commit(before.scope, before, { program: before.program, progress: before.progress, preparation: before.preparation }, "update", "Prepare goals from shared evidence");
+      } catch (error) {
+        if (!(error instanceof GoalConflictError) || attempt >= 4) throw error;
+      }
+    }
   }
   async history(): Promise<GoalRevision[]> { return (await this.inspect())?.history ?? []; }
 
@@ -220,16 +234,22 @@ export class GoalRunner {
     return instance;
   }
   private async commit(scope: GoalScope, before: GoalInstance | null, snapshot: GoalSnapshot, kind: GoalRevision["kind"], reason: string): Promise<GoalStatus> {
-    await this.config.validateChange?.({ before: structuredClone(before), after: structuredClone(snapshot), kind, reason });
-    const now = new Date().toISOString();
-    const version = (before?.version ?? 0) + 1;
-    const provenance: Provenance = { actor: this.config.actor ?? "agent", source: this.config.source ?? `goals:${scope.subject}`, timestamp: now, note: reason };
-    const next: GoalInstance = {
-      ...structuredClone(snapshot), scope, version, createdAt: before?.createdAt ?? now, updatedAt: now,
-      history: [...(before?.history ?? []), { ...structuredClone(snapshot), version, kind, reason, provenance }],
-    };
-    next.history[next.history.length - 1].transitions = goalTransitions(before ? projectGoalStatus(before) : null, projectGoalStatus(next));
-    const saved = await this.adapter.commit(scope, next, { ifVersion: before?.version ?? null });
+    const saved = await prepareGoalCommit(this.config.preparation, scope, before,
+      { ...snapshot, preparation: snapshot.preparation ?? before?.preparation }, async prepared => {
+        snapshot = prepared;
+        if (before && equal({ program: before.program, progress: before.progress, preparation: before.preparation }, snapshot)) return before;
+        await this.config.validateChange?.({ before: structuredClone(before), after: structuredClone(snapshot), kind, reason });
+        const now = new Date().toISOString();
+        const version = (before?.version ?? 0) + 1;
+        const provenance: Provenance = { actor: this.config.actor ?? "agent", source: this.config.source ?? `goals:${scope.subject}`, timestamp: now, note: reason };
+        const next: GoalInstance = {
+          ...structuredClone(snapshot), scope, version, createdAt: before?.createdAt ?? now, updatedAt: now,
+          history: [...(before?.history ?? []), { ...structuredClone(snapshot), version, kind, reason, provenance }],
+        };
+        next.history[next.history.length - 1].transitions = goalTransitions(before ? projectGoalStatus(before) : null, projectGoalStatus(next));
+        return this.adapter.commit(scope, next, { ifVersion: before?.version ?? null });
+    });
+    if (before && saved.version === before.version) return projectGoalStatus(saved);
     const status = projectGoalStatus(saved);
     try {
       await this.config.onChange?.(structuredClone(status));

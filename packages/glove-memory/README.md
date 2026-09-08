@@ -1144,3 +1144,28 @@ external effect but before its acknowledgement, or a long-running effect can
 outlive its lease. Set an appropriate lease and deduplicate effects by the
 stable idempotency key. Failed hooks surface as `GoalPostCommitError` after a
 write, or `GoalHookError` from explicit replay. Progress remains committed.
+
+## Shared evidence and automatic preparation
+
+Goals and forms can share a single `FactStore` from **[glove-facts](../glove-facts)**.
+Capture early information with `record_fact` or host-verified `facts.record(...)`,
+then pass `preparation: { preparer, rule, eligible? }` to either runner or mount.
+`FactPreparation` is opt-in and `createModelPreparation(model)` performs a dedicated
+inference call. Host rules explicitly allow each field/item and define the evidence
+needed; actions and approvals require verified success and appropriate authority.
+
+Prepared proposals pass source/revision checks and authoritative form schemas or
+goal policy before the normal CAS commit. Answers retain exact claim receipts;
+progression hooks and tool replies see the prepared context. Conditional steps are
+prepared before activation. Shared evidence is reusable across separate consumers.
+Corrections produce explicit review, preserving completed actions and existing
+answers until an ordinary runner operation resolves them. Disabled preparation
+preserves capture, links, answers and progress. Both mounted runners reconcile
+before turns; hosts can call `runner.prepare()` directly.
+
+Prepared form commits also persist pending hooks and returned effects. Update BYO
+FormAdapters to preserve `preparation`, `pendingHooks`, entry `claimId`, `effectId`
+and `fulfilledHooks`, and dispatch `effects`. `resumeHooks()` recovers interrupted
+work under stable idempotency keys; external effects must deduplicate those keys.
+See the [package guide](../glove-facts/README.md) for examples and the full persistence
+contract, including optional host acknowledgement of already-achieved form effects.

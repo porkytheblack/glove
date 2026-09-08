@@ -105,6 +105,7 @@ export function useGoalRunner<G extends GoalEnableTarget>(glove: G, adapter: Goa
   const tools = selectFoldArgs(buildGoalRunnerTools(runner), config.tools);
   for (const entry of tools) glove.fold(entry);
   const synchronize = async () => {
+    await runner.prepare();
     const resumed = await runner.resumeHooks();
     if (resumed.blockedBy) throw new Error(`Goal transition is still being handled: ${resumed.blockedBy}. Retry before starting the model.`);
     const status = selectStatus(await runner.status());

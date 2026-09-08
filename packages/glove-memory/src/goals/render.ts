@@ -1,3 +1,4 @@
+import { renderPreparation } from "glove-facts";
 import type { GoalStatus } from "./types";
 
 /** A standalone section, including deferred follow-ups after progression ends. */
@@ -19,5 +20,6 @@ export function renderGoalStatus(status: GoalStatus | null): string {
     lines.push("Deferred follow-ups (remain visible after completion):");
     for (const item of status.deferred) lines.push(`- ${item.goalKey}/${item.itemKey}: ${item.label}${item.retired ? " (retired definition)" : ""}${item.note ? ` — ${item.note}` : ""}`);
   }
+  if (status.preparation) lines.push(renderPreparation(status.preparation));
   return lines.join("\n");
 }
