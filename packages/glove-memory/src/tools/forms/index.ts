@@ -125,9 +125,12 @@ export function useFormRunner<G extends FormEnableTarget>(
   }
 
   const synchronize = async () => {
-    const instance = await runner.activeInstance();
-    if (instance && config.preparation) await runner.prepare({ instanceId: instance.id });
-    return runner.tier0();
+    if (config.preparation) {
+      const instance = await runner.activeInstance();
+      if (instance) await runner.prepare({ instanceId: instance.id });
+      return runner.tier0();
+    }
+    try { return await runner.tier0(); } catch { return ""; }
   };
   if (config.injectStatus !== false) attachPromptSection(glove, synchronize);
   else if (config.preparation) {

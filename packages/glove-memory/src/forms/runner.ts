@@ -654,8 +654,13 @@ export class FormRunner {
       }
     }
 
-    return this.settlePreparedCommit(compiled, committed!, hooks, after!, beforeOccurrences!, provenance,
-      Object.keys(newEntries), opts.signal, round, batchId);
+    try {
+      return await this.settlePreparedCommit(compiled, committed!, hooks, after!, beforeOccurrences!, provenance,
+        Object.keys(newEntries), opts.signal, round, batchId);
+    } catch (error) {
+      if (error instanceof FormPostCommitError) throw error;
+      throw new FormPostCommitError(committed!, error);
+    }
   }
 
   private async settlePreparedCommit(compiled: CompiledForm<any>, committed: FormInstance, hooks: Hook[],
@@ -1252,4 +1257,12 @@ function toEntryCommits(
     out[field] = { ...(out[field] ?? {}), cursor };
   }
   return out;
+}
+
+/** Answers are durable; continue this instance instead of starting a duplicate. */
+export class FormPostCommitError extends Error {
+  constructor(readonly instance: FormInstance, cause: unknown) {
+    super(`Form ${instance.id} was committed, but effect settlement failed: ${cause instanceof Error ? cause.message : String(cause)}. Resume the existing instance.`, { cause });
+    this.name = "FormPostCommitError";
+  }
 }

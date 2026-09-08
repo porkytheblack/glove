@@ -37,7 +37,7 @@ const preparer = new FactPreparation(facts, {
 
 `createModelPreparation` makes a separate `ModelAdapter.prompt` call with a structured output tool. It does not request another user conversation turn or change the adapter's system prompt. Pass a dedicated model instance and optionally a subscriber callback for usage/observability. A custom `PreparationInference` must implement actual inference, not substitute a lookup table for semantic synthesis.
 
-When disabled, automatic inference, claims and prefill are skipped. Captured facts, existing links, answers, progress and ordinary manual operations remain available. Already committed form effects can still be resumed. Re-enabling reconciles on the next runner operation or mounted turn; host code can call `runner.prepare()` immediately.
+When disabled, automatic inference, claims and prefill are skipped. The enabled thunk must be pure; changing it affects subsequent operations, while an in-flight preparation may finish. Captured facts, existing links, answers, progress and ordinary manual operations remain available. Already committed form effects can still be resumed. Re-enabling reconciles on the next runner operation or mounted turn; host code can call `runner.prepare()` immediately.
 
 ## Host-verified evidence and corrections
 
@@ -137,6 +137,8 @@ An action/outcome rule may explicitly declare `fulfills: ["field", "step"]` to a
 The adapter's `withScope` must serialize capture, correction and preparation/consumer commits across workers. `read()` returns detached snapshots. Each `save()` persists a version + 1 aggregate independently; a later exception does not roll back earlier saves. Use a cross-process lock released on process death (or genuinely fenced transactions); a best-effort TTL lock is insufficient. Do not re-enter this FactStore from an inference callback, eligibility rule, goal validator or adapter commit. External hooks run after the scope lock is released.
 
 The commit protocol is a recoverable outbox across the two stores: persist proposed links, atomically save values/progress and claim-id receipts in the consumer, then acknowledge accepted links. A process interrupted between the two writes leaves proposed links, never a false accepted completion. Subsequent preparation reconciles acceptance from consumer history. `FactClaimCommitError.value` exposes the already committed result if acknowledgement fails. Deterministic link ids exclude model rationale wording, so retries do not multiply equivalent links.
+
+Form tool replies include prepared context. If settlement or link acknowledgement fails after a write, their error data contains `committed: true` and the existing `instance_id`; resume that instance instead of starting another. Direct runner calls expose `FormPostCommitError` or `FactClaimCommitError`.
 
 A FormAdapter used with preparation must also persist `preparation`, entry `claimId`/`fulfilledHooks`, `pendingHooks` batches and dispatch `effects`. Batches are saved atomically with answers and rising edges. `runner.resumeHooks()` (also called by `prepare()` and mounted turns) finishes interrupted effects and returned patches. Completed effects with durable receipts are not invoked again. Definition drift with pending effects must be resolved explicitly. The adapter must preserve the new fields, not silently discard them.
 

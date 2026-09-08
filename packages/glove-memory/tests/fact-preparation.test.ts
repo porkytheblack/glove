@@ -204,3 +204,15 @@ test("changing goal evidence asks for review without reopening or repeating achi
   await facts.record({ text: "Correction", value: { key: "name", value: "Ada Lovelace" }, source: { kind: "person", id: "Ada" }, verification: "verified" }, { operationId: "name-corrected", supersedes: old });
   const status = await runner.prepare(); assert.equal(status!.goals[0].status, "completed"); assert.equal(status!.preparation!.decisions[0].status, "review"); assert.equal(completes, 1);
 });
+
+test("form tool replies include prepared context and identify already-committed failures", async () => {
+  const { preparer, add } = await setup(); await add("name", "Ada"); await add("email", "ada@example.com");
+  const { adapter, config } = forms(preparer, { onEmail: () => {} }); const glove = target();
+  useFormRunner(glove, adapter, config);
+  const tool = glove.tools.find(t => t.name === "glove_form_start");
+  const result = await tool.do({ form: "intake" });
+  assert.equal(result.status, "success"); assert.equal(result.data.preparation.decisions[0].status, "sufficient");
+  adapter.recordDispatch = async () => { throw new Error("storage interrupted"); };
+  const failed = await tool.do({ form: "intake" });
+  assert.equal(failed.status, "error"); assert.equal(failed.data.committed, true); assert.ok(failed.data.instance_id);
+});

@@ -1,3 +1,4 @@
+import { FactClaimCommitError } from "glove-facts";
 import { prepareGoalCommit, type GoalPreparationConfig } from "./preparation";
 import { z } from "zod";
 import { goalTransitions, instanceAtRevision, transitionHookName, GoalHookError,
@@ -248,6 +249,9 @@ export class GoalRunner {
         };
         next.history[next.history.length - 1].transitions = goalTransitions(before ? projectGoalStatus(before) : null, projectGoalStatus(next));
         return this.adapter.commit(scope, next, { ifVersion: before?.version ?? null });
+    }).catch((error: unknown) => {
+      if (error instanceof FactClaimCommitError) throw new GoalPostCommitError(projectGoalStatus(error.value as GoalInstance), error);
+      throw error;
     });
     if (before && saved.version === before.version) return projectGoalStatus(saved);
     const status = projectGoalStatus(saved);

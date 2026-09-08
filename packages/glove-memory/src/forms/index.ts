@@ -48,6 +48,7 @@ export {
 } from "./bridge";
 export {
   FormRunner,
+  FormPostCommitError,
   type FormRunnerOptions,
   type FormCallOpts,
   type FormFillResult,

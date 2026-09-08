@@ -12,7 +12,7 @@ export class FactClaimCommitError<T = unknown> extends Error {
 
 export class FactPreparation {
   constructor(readonly facts: FactStore, readonly config: {
-    /** Default off. Evaluated once for each operation, including transitions. */
+    /** Default off. A pure predicate consulted before automatic preparation. */
     enabled?: boolean | (() => boolean);
     inference: PreparationInference;
   }) {}
