@@ -34,6 +34,12 @@ getRuntimeContext: agent.getRuntimeContext.bind(agent),
 
 Do not implement these as no-ops merely to satisfy the interface. Default memory mounting throws when `addContextProvider` is missing. Forms and goals support `injectStatus: false` if the host explicitly provides its own renderer; pinned context requires the provider API.
 
+## Framework provenance and user-turn boundaries
+
+Runtime snapshots carry optional `Message.framework_context: "runtime"`; synthetic inbox messages carry `"inbox"`. Preserve this metadata through custom processing and tracing. It records origin, not a new provider role or a higher instruction priority. No custom store schema change is required for transient snapshots.
+
+Tool-result summarization uses the last actual user turn, ignoring framework context and existing skill/compaction markers. Pending inbox reminders are placed after complete tool-result bundles; their contents are still read once per request. Custom adapter code that merges adjacent user messages must concatenate structured content blocks without converting media arrays into strings.
+
 ## Reading and tracing memory state
 
 `getSystemPrompt()` now returns host instructions without dynamic goals/forms/context. Read current snapshots with:

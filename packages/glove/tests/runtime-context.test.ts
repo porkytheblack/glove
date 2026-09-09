@@ -26,6 +26,7 @@ test("runtime context refreshes after tools at the input tail without changing t
   builder.addSubscriber({ async record(type, data) {
     if (type === "runtime_context") {
       const event = data as { messages: Message[] };
+      assert.equal(event.messages[0].framework_context, "runtime");
       traces.push(structuredClone(event.messages));
       event.messages[0].text = "Subscriber mutation must not affect the model input";
     }

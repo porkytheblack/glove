@@ -1,3 +1,4 @@
+import { mergeUserContent } from "./merge-user-content";
 import OpenAI from "openai";
 import type {
   Message,
@@ -388,11 +389,7 @@ export function formatMessages(
   for (const msg of flat) {
     const prev = merged[merged.length - 1];
     if (prev && prev.role === "user" && msg.role === "user") {
-      const prevText =
-        typeof prev.content === "string" ? prev.content : String(prev.content);
-      const newText =
-        typeof msg.content === "string" ? msg.content : String(msg.content);
-      (prev as any).content = prevText + "\n" + newText;
+      prev.content = mergeUserContent(prev.content, msg.content);
     } else {
       merged.push(msg);
     }

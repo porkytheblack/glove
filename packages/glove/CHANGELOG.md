@@ -8,6 +8,10 @@
 
 - Keep changing memory state out of system prompts. Core now resolves live context providers at the model-input tail before each iteration and exposes their snapshots to tracing. Goals, forms, and pinned context use these transient snapshots without changing saved conversation history. Realtime voice injects changed snapshots silently at startup and after tools, with explicit refresh for external changes.
 
+### Patch Changes
+
+- Preserve real user-turn boundaries when runtime context, inbox reminders, skills, or compaction markers are present. Keep current-turn tool results full, append pending reminders after complete tool-result bundles, and preserve structured image/video content when adjacent user messages are merged by OpenAI-compatible, OpenRouter, and MiMo adapters.
+
 ## 3.7.1
 
 ### Patch Changes

@@ -422,7 +422,11 @@ prompt or saved history. External writes appear next iteration. refresh() runs
 preparation, transition recovery, and host configuration. injectStatus:false
 permits a custom renderer. Requires glove-core >=4.0.0; runnable proxies forward
 addContextProvider and getRuntimeContext. Subscribers receive runtime_context
-snapshots. Realtime voice refreshes silently at start and after tools; call
+snapshots. Message.framework_context marks runtime/inbox provenance without a new
+provider role. These entries and skill/compaction markers do not count as real
+user turns for tool-result summarization. Inbox reminders follow complete tool
+results; adjacent-user merging preserves structured media. Realtime voice
+refreshes silently at start and after tools; call
 await realtime.refreshContext() after external changes.
 onChange runs post-commit; GoalPostCommitError means state WAS persisted.
 Forms-to-goals mappings, practice policy and client/matter lookup are host-owned.
