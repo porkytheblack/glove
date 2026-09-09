@@ -2455,7 +2455,7 @@ interface ContextAdapter {
   // Read
   list(section?: string): Promise<ContextEntry[]>;
   get(id: string): Promise<ContextEntry | null>;
-  /** Markdown block to inject into the system prompt. Pinned entries by default; expired entries silently filtered. */
+  /** Markdown block to append as transient runtime context. Pinned entries by default; expired entries silently filtered. */
   render(opts?: ContextRenderOpts): Promise<string>;
 
   // Write
@@ -2658,7 +2658,7 @@ class FormRunner {
 
 ### `use*` helpers
 
-The first six take `(glove, adapter)` and return the same `glove` for chaining, using the bare `FoldTarget` signature. `useContext` and `useFormRunner` need the richer `ContextEnableTarget` / `FormEnableTarget` shape because they also wrap `processRequest` for system-prompt injection — and `useFormRunner` returns `{ glove, runner }` rather than the glove alone, so a host can drive the form without going through the model.
+The first six take `(glove, adapter)` and return the same `glove` for chaining, using the bare `FoldTarget` signature. `useContext` and `useFormRunner` need the richer `ContextEnableTarget` / `FormEnableTarget` shape because they register live runtime-context providers — and `useFormRunner` returns `{ glove, runner }` rather than the glove alone, so a host can drive the form without going through the model.
 
 ```ts
 import {
@@ -2828,9 +2828,9 @@ class ResourceAccessControl {
 
 Behaviour: `"read"` refuses every mutation with `ResourceAccessError` (`ResourceFsError` subclass, `code: "access_denied"`, carries `path` / `required` / `granted`). `"none"` refuses reads and is filtered out of `ls` / `grep` / `glob` / `searchSemantic` / `linksFor` results; `exists` returns `false` rather than throwing. A recursive `remove` or a directory `move` is refused when any protected path intersects the subtree. `replaceLinkTarget` is refused under any restrictive policy (run reconciliation unwrapped). `findFilesNeedingEmbedding` / `setEmbedding` pass through unfiltered — the embedding loop is the host's, not the agent's. Wrappers compose: wrapping a wrapped adapter narrows further.
 
-`useContext` snapshots the developer-supplied system prompt at registration time, then on every subsequent `processRequest` it calls `adapter.render()` and composes `<base>\n\n<rendered>` (rendered context goes **after** developer guardrails). Multiple `useContext` calls stack — each captures the then-current base prompt.
+`useContext` registers `adapter.render()` through `addContextProvider`. Glove appends its output as a transient user-role message after persisted history before each model iteration, including after tools. Multiple providers compose in registration order. The system prompt and saved history remain unchanged.
 
-`useFormRunner` does the same snapshot-and-compose with `runner.tier0()`, so the open step, its pending field labels and a one-line preview per remaining step ride in the system prompt every turn. A completed instance renders nothing — it stays reachable for corrections but doesn't occupy the prompt.
+`useFormRunner` registers `runner.tier0()` through the same provider API. Completed forms render nothing. Both require glove-core >=3.8.0; runnable proxies must forward `addContextProvider`. External runtimes can resolve snapshots with `getRuntimeContext(signal?)`; subscribers receive `runtime_context` events.
 
 ### Lower-level tool factories
 

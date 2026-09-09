@@ -1,5 +1,13 @@
 # glove-coding-agent
 
+## 1.0.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-core@3.8.0
+  - glove-sqlite@3.0.5
+
 ## 1.0.3
 
 ### Patch Changes

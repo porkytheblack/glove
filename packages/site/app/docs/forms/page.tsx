@@ -414,7 +414,7 @@ await runner.history("mileage");         // every answer ever given`}
       <p>
         Modelled on <a href="/docs/inbox">the inbox</a> — a cheap standing
         notification, detail pulled on demand. <strong>Tier 0</strong> is one
-        line appended to the system prompt each turn, the way{" "}
+        transient line appended at the model-input tail before each iteration, the way{" "}
         <code>useContext</code> injects:
       </p>
 

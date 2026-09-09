@@ -68,7 +68,14 @@ export interface GloveFoldArgs<I> {
   generateToolSummary?: (summaryArgs?: unknown) => Promise<string>
 }
 
+/** Read current external state before each model iteration. Not persisted as chat history. */
+export type RuntimeContextProvider = (signal?: AbortSignal) => string | null | undefined | Promise<string | null | undefined>;
+
 export interface IGloveRunnable {
+  /** Append transient context at the model-input tail; returns an unregister function. */
+  addContextProvider: (provider: RuntimeContextProvider) => () => void
+  /** Resolve live snapshots for external runtimes such as realtime voice. */
+  getRuntimeContext: (signal?: AbortSignal) => Promise<Array<Message>>
   processRequest: (request: string | ContentPart[], signal?: AbortSignal) => Promise<ModelPromptResult | Message>
   setModel: (model: ModelAdapter) => void
   setSystemPrompt: (prompt: string) => void
@@ -111,6 +118,7 @@ export interface IGloveRunnable {
 
 
 export interface IGloveBuilder {
+  addContextProvider: (provider: RuntimeContextProvider) => () => void,
   fold: <I>(args: GloveFoldArgs<I>) => IGloveBuilder,
   defineHook: (name: string, handler: HookHandler) => IGloveBuilder,
   defineSkill: (args: DefineSkillArgs) => IGloveBuilder,
@@ -164,6 +172,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   private taskTool: Tool<unknown> | null = null
 
   private subscribers: Array<SubscriberAdapter> = []
+  private contextProviders = new Set<RuntimeContextProvider>()
   private compactionConfig: CompactionConfig
 
   private store_defined = false
@@ -193,7 +202,8 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       this.executor,
       this.context,
       this.observer,
-      this.promptMachine
+      this.promptMachine,
+      (signal) => this.getRuntimeContext(signal)
     )
 
   }
@@ -203,6 +213,25 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       this.subscribers.map((s) => s.record(event_name, event_data)),
     );
   };
+
+  addContextProvider(provider: RuntimeContextProvider): () => void {
+    this.contextProviders.add(provider)
+    return () => { this.contextProviders.delete(provider) }
+  }
+
+  async getRuntimeContext(signal?: AbortSignal): Promise<Array<Message>> {
+    const messages: Array<Message> = []
+    for (const provider of this.contextProviders) {
+      signal?.throwIfAborted()
+      const text = await provider(signal)
+      signal?.throwIfAborted()
+      if (text) messages.push({ sender: "user", text })
+    }
+    if (this.contextProviders.size) {
+      await this.notifyExtensionEvent("runtime_context", { messages: structuredClone(messages) })
+    }
+    return messages
+  }
 
   private registerTaskTool() {
     this.taskTool = null
@@ -392,7 +421,8 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
         this.executor,
         this.context,
         this.observer,
-        this.promptMachine
+        this.promptMachine,
+        (signal) => this.getRuntimeContext(signal)
       )
 
       for (const tool of previousTools) this.executor.registerTool(tool)
@@ -559,7 +589,6 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   
   
 }
-
 
 
 

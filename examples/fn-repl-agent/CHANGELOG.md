@@ -1,5 +1,15 @@
 # glove-fn-repl-example
 
+## 1.0.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-core@3.8.0
+  - glove-js@0.4.3
+  - glove-lisp@0.4.3
+  - glove-scratchpad@2.0.3
+
 ## 1.0.3
 
 ### Patch Changes

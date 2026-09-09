@@ -193,7 +193,7 @@ export function stepSummary(
 }
 
 /**
- * Tier 0 — the standing line appended to the system prompt each turn.
+ * Tier 0 — the transient standing line appended at the model-input tail each iteration.
  *
  * Two things are in it, both deliberate. Pending *labels* for the open step,
  * because "5 fields pending" would force a tool call every turn just to learn

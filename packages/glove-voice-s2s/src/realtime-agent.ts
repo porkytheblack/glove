@@ -218,11 +218,19 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
       voice: this.cfg.voice,
       tools: this.exposedTools,
     };
-    await this.adapter.connect(config);
+    try {
+      await this.adapter.connect(config);
+      await this.refreshContext();
+    } catch (error) {
+      // A failed initial snapshot must not leave a half-started session.
+      await this.stop().catch(() => {});
+      throw error;
+    }
   }
 
   async stop(): Promise<void> {
     this.started = false;
+    this.lastRuntimeContext = undefined;
     for (const [event, fn] of this.bound) this.adapter.off(event, fn as never);
     this.bound.length = 0;
     await this.adapter.disconnect();
@@ -254,11 +262,26 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
   }
 
   /** Re-send prompt and tools mid-call — after folding a new tool, say. */
-  refreshSession(): void {
+  async refreshSession(): Promise<void> {
     this.adapter.updateSession({
       instructions: this.cfg.instructions ?? this.agent.getSystemPrompt(),
       tools: this.exposedTools,
     });
+    await this.refreshContext();
+  }
+
+  private lastRuntimeContext: string | undefined;
+
+  /** Refresh silent state without rewriting session instructions or triggering speech. */
+  async refreshContext(): Promise<void> {
+    if (!this.agent.getRuntimeContext) return;
+    const messages = await this.agent.getRuntimeContext();
+    const text = messages.map(message => message.text ?? "").filter(Boolean).join("\n\n");
+    if (text === this.lastRuntimeContext) return;
+    if (text || this.lastRuntimeContext) {
+      this.adapter.injectText(`Current runtime context (supersedes earlier runtime snapshots):\n${text || "No active runtime context."}`, { respond: false });
+    }
+    this.lastRuntimeContext = text;
   }
 
   // ── tool execution ─────────────────────────────────────────────────────────
@@ -325,6 +348,10 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
       // that to keep sensitive UI data out of the provider.
       const { renderData: _rd, summary: _s, generateSummaryArgs: _gsa, ...wire } =
         result as ToolResultData;
+      // Refresh before the result can trigger the next spoken turn. A context
+      // read failure must not relabel an already successful tool as failed.
+      try { await this.refreshContext(); }
+      catch (error) { this.emit("error", error instanceof Error ? error : new Error(String(error))); }
       this.adapter.sendToolResult(call.callId, wire);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));

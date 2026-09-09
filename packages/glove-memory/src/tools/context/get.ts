@@ -18,7 +18,7 @@ export function buildContextGetTool(adapter: ContextAdapter): GloveFoldArgs<GetC
   return {
     name: "glove_context_get",
     description:
-      `List user context entries — identity, preferences, glossary, current task scope, etc. Pinned entries are already injected into the system prompt every turn; use this tool to fetch unpinned entries on demand or to inspect what is currently stored.`,
+      `List user context entries — identity, preferences, glossary, current task scope, etc. Pinned entries are already appended as runtime context before each model iteration; use this tool to fetch unpinned entries on demand or to inspect what is currently stored.`,
     inputSchema: GetInputSchema,
     async do(input) {
       try {

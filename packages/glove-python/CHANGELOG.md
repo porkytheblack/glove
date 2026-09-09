@@ -1,5 +1,13 @@
 # glove-python
 
+## 0.3.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-core@3.8.0
+  - glove-scratchpad@2.0.3
+
 ## 0.3.2
 
 ### Patch Changes

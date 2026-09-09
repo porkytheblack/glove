@@ -1,5 +1,19 @@
 # glove-foundry
 
+## 0.3.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-core@3.8.0
+  - glove-memory@1.2.1
+  - glove-js@0.4.3
+  - glove-lisp@0.4.3
+  - glove-mcp@1.1.3
+  - glove-mesh@0.1.4
+  - glove-python@0.3.3
+  - glove-working-environment@0.6.1
+
 ## 0.3.2
 
 ### Patch Changes

@@ -34,6 +34,7 @@ export function buildLlmsTxt(): string {
   out.push("");
   out.push("Goals are exported by glove-memory/goals (glove-memory 1.2.0+), not a standalone glove-goals package. Shared evidence is glove-facts (0.1.0+). Supplying a dedicated Glove preparation agent enables traced preparation for goals and forms.");
   out.push("");
+  out.push("With glove-core 3.8+, goals, forms, and pinned context use live runtime snapshots at the model-input tail, preserving system instructions and saved history. Runnable proxies forward addContextProvider and getRuntimeContext.");
   out.push("- Workflow agent skill: https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/workflows.md");
   out.push("- Repository: https://github.com/porkytheblack/glove");
   out.push(`- Full condensed reference: ${SITE_URL}/llms-full.txt`);
@@ -255,7 +256,7 @@ import {
 
 useMemoryReader(agent, new InMemoryEntityAdapter({ schema: ontology }));
 useEpisodicReader(agent, new InMemoryEpisodicAdapter());
-useContext(agent, new InMemoryContextAdapter());  // injected into the prompt each turn
+useContext(agent, new InMemoryContextAdapter());  // transient runtime snapshot before each model iteration
 // Writes go to a SEPARATE curator instance: useMemoryCurator(curator, entities)
 \`\`\`
 
@@ -357,7 +358,7 @@ Rules that decide whether generated code is correct:
   \`{ patch } | { fail } | { jump } | { complete } | { terminate }\`, or an array.
   A throwing executor does NOT roll back the write; a recorded failure is not
   retried.
-- **Tiers.** Tier 0 is one system-prompt line per turn (open step + pending
+- **Tiers.** Tier 0 is one transient model-input-tail line per iteration (open step + pending
   labels + later-step previews). Tier 1 = \`glove_form_status\` (open step in
   full). Tier 2 = \`glove_form_inspect\` (any step / field / outline).
 - **Tools:** \`glove_form_list\` / \`_start\` / \`_status\` / \`_inspect\` / \`_fill\` /
@@ -415,9 +416,14 @@ InMemoryGoalAdapter is process-local; production supplies durable storage.
 
 Tools: glove_goal_status, glove_goal_start, glove_goal_update, glove_goal_revise,
 glove_goal_history. tools allow/deny only narrows model access, not the host API.
-Goal status refreshes before each request and after runner writes in an owned
-prompt section that composes with forms and context. External writes appear
-next turn or on refresh(). injectStatus:false permits a custom renderer.
+Goals, forms, and context append transient user-role snapshots at the model-input
+tail before each iteration, including after tools, without rewriting the system
+prompt or saved history. External writes appear next iteration. refresh() runs
+preparation, transition recovery, and host configuration. injectStatus:false
+permits a custom renderer. Requires glove-core >=3.8.0; runnable proxies forward
+addContextProvider and getRuntimeContext. Subscribers receive runtime_context
+snapshots. Realtime voice refreshes silently at start and after tools; call
+await realtime.refreshContext() after external changes.
 onChange runs post-commit; GoalPostCommitError means state WAS persisted.
 Forms-to-goals mappings, practice policy and client/matter lookup are host-owned.
 
@@ -483,7 +489,7 @@ actor. Intention is not execution, and preference is not approval.
 Preparation retrieves scoped candidates, infers/synthesizes, validates references,
 revisions and values, then commits through the runner's authoritative state path.
 Conditional eligibility settles before progression and effects; unrelated gates
-and checkpoints cannot be skipped by evidence. Prepared status, prompt sections,
+and checkpoints cannot be skipped by evidence. Prepared status, runtime snapshots,
 and tool replies include source-linked synthesis, gaps, urgency and conflicts.
 Corrections, changed criteria and contrary values explicitly flag existing work
 for review; they do not automatically replace answers or reopen completed actions.

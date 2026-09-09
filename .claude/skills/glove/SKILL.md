@@ -975,7 +975,7 @@ Schema-first memory layer with five sibling subsystems. Storage-agnostic adapter
 | Entity | `EntityMemoryAdapter` | Graph-shaped, schema-first, deterministic identity resolution. Nodes (people, organizations, projects) and typed edges between them. Curator-written, agent-read. |
 | Episodic | `EpisodicMemoryAdapter` | Timeline-bound, append-only events. Meetings, decisions, observations. Time is a first-class field; semantic search is opt-in (advertised by `supportsSemanticSearch`). |
 | Resources | `ResourceFsAdapter` | POSIX-style virtual filesystem the agent navigates with `ls` / `read` / `grep` / `glob` / `edit`. Holds research notes, transcripts, link collections. Text-only; absolute paths only (no `.` / `..`). |
-| Context | `ContextAdapter` | User-configured ambient context, auto-injected into the system prompt every turn. Different shape: not curator-extracted, no reader/curator split — one registration gives the agent both read and write tools. |
+| Context | `ContextAdapter` | User-configured ambient context, appended as transient runtime context before each model iteration. Different shape: not curator-extracted, no reader/curator split — one registration gives the agent both read and write tools. |
 | Forms | `FormAdapter` | Structured collection over a conversation. Definitions are code (Zod + closures), loaded a tier at a time so a 60-field form costs the same standing prompt line as a 6-field one. |
 
 ### Architectural recommendation: don't dump memory tools on the main Glove
@@ -991,7 +991,7 @@ Why:
 
 Same advice on the curator side: a parent curator that routes to specialised write-side subagents (entity-linker, episode-recorder, resource-filer) beats a single curator with every write tool attached.
 
-The exception is `useContext`. Context is small (4 tools), user-driven ("remember that…"), and ships with the system-prompt-injection wrapper that has to live on the agent the user actually talks to. **Keep `useContext` on the main agent.**
+The exception is `useContext`. Context is small (4 tools), user-driven ("remember that…"), and ships with the runtime-context provider that has to live on the agent the user actually talks to. **Keep `useContext` on the main agent.**
 
 See [examples.md — Memory: subagent-delegated reader / curator composition / context flow](examples.md) for worked-out patterns.
 
@@ -1007,7 +1007,7 @@ Each helper folds the relevant tool surface onto a Glove. All return the same `G
 | `useEpisodicCurator(glove, adapter)` | reader tools + `_record`, `_update`, `_delete` | |
 | `useResourcesReader(glove, adapter)` | `glove_resources_ls`, `_read`, `_stat`, `_grep`, `_glob`, `_search`, `_links_for` | `_search` only when `supportsSemanticSearch`. |
 | `useResourcesCurator(glove, adapter)` | reader tools + `_write`, `_edit`, `_mkdir`, `_move`, `_remove`, `_set_metadata` | |
-| `useContext(glove, adapter)` | `glove_context_get`, `_set`, `_update`, `_unset` | **Also wraps `processRequest`** to call `adapter.render()` and prepend the rendered markdown block to the system prompt every turn. |
+| `useContext(glove, adapter)` | `glove_context_get`, `_set`, `_update`, `_unset` | Calls `adapter.render()` before each model iteration and appends a transient user-role snapshot at the input tail; system prompt and saved history stay unchanged. |
 
 Every helper takes an optional trailing `{ tools?: { allow?, deny? } }` (on `useFormRunner`, a field on its config) narrowing which tools actually get folded — see below.
 
@@ -1354,7 +1354,7 @@ An executor may return one effect or an array, so a router can stamp a value *an
 
 **Terminating collection.** `{ terminate: reason }` stops the form — for ineligible / duplicate / withdrawn, where carrying on is wrong rather than merely unfinished. Distinct from the two that already existed: `fail` records a rejection and continues; `complete` claims success. `terminate` closes the instance with `closedReason`, stops every field asking, refuses further writes, drops it out of tier 0, and beats a completion landing on the same commit.
 
-**Lazy loading, three tiers.** Tier 0 is one line injected into the system prompt each turn — open step, its pending field *labels*, and a one-line `preview` per remaining step. Tier 1 (`glove_form_status`) is the open step in full. Tier 2 (`glove_form_inspect`) is any other step, a field, or the whole outline. Form modules aren't imported until started, so `glove_form_list` costs a name and a description.
+**Lazy loading, three tiers.** Tier 0 is one transient line appended at the model-input tail before each iteration — open step, its pending field *labels*, and a one-line `preview` per remaining step. Tier 1 (`glove_form_status`) is the open step in full. Tier 2 (`glove_form_inspect`) is any other step, a field, or the whole outline. Form modules aren't imported until started, so `glove_form_list` costs a name and a description.
 
 ```
 [form: travel-claim] step 2/4 "Trip" · pending: Destination, Departure date

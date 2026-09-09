@@ -170,3 +170,9 @@ The core defines four pluggable adapter interfaces:
 ## License
 
 MIT
+
+## Live runtime context
+
+Register changing external state with `glove.addContextProvider(async signal => renderCurrentState(signal))`. The method returns an unregister function and works before or after `build()`. Before each model iteration (including after tools), Glove appends nonempty provider output as transient user-role messages after saved history. Providers compose in registration order; failures stop the model call. System instructions and stored conversation messages remain unchanged, preserving the stable prefix for provider caching.
+
+`await glove.getRuntimeContext(signal?)` resolves the same snapshots for external runtimes. Subscribers receive a `runtime_context` event containing detached `messages`. Runnable wrappers must forward both APIs. Registration remains local to the runnable; adapters own durable state. This API requires glove-core 3.8 or newer.

@@ -18,7 +18,7 @@ export default async function MemoryPage() {
         orchestrator-driven extractors. Context is different: it&apos;s
         user-configured rather than curator-extracted, so it uses a single
         registration that gives the agent both read and write tools plus
-        system-prompt injection.
+        runtime-context injection.
       </p>
 
       {/* ------------------------------------------------------------------ */}
@@ -53,9 +53,9 @@ export default async function MemoryPage() {
 
       <p>
         <strong>Context.</strong> User-configured ambient context, auto-injected
-        into the system prompt every turn. Small surface (4 tools), the
+        as transient runtime context before each model iteration. Small surface (4 tools), the
         agent both reads and writes, and a wrapper composes pinned entries
-        after the developer&apos;s system prompt before each model call.
+        at the model-input tail before each model call.
       </p>
 
       <p>
@@ -230,7 +230,7 @@ const schema = new MemorySchema()
       <p>
         The exception is <code>useContext</code>. Context is small (4 tools),
         user-driven (&quot;remember that…&quot;), and ships with the
-        system-prompt-injection wrapper that has to live on the agent the user
+        runtime-context provider that has to live on the agent the user
         actually talks to. Keep <code>useContext</code> on the main agent.
       </p>
 
@@ -314,7 +314,7 @@ const findNotesFactory = ({ parentStore, parentControls }) => {
   return glove;
 };
 
-// Main agent — keeps useContext for the system-prompt injection and the
+// Main agent — keeps useContext for the runtime-context injection and the
 // small "remember that..." tool surface, but offloads every other memory
 // task to a subagent.
 const main = useContext(new Glove({ /* ... */ }), context)
@@ -411,7 +411,7 @@ const curator = new Glove({ /* ... */ })
         tools attach via <code>use*Reader</code>; write tools attach via{" "}
         <code>use*Curator</code>. Context is the exception — it has a single
         registration that attaches read and write tools and the
-        system-prompt-injection wrapper.
+        runtime-context provider.
       </p>
 
       <h3>Entity reader / curator</h3>
@@ -498,15 +498,14 @@ const curator = new Glove({ /* ... */ })
       </table>
 
       <p>
-        <code>useContext</code> wraps <code>Glove.processRequest</code>. On
-        every turn it calls <code>adapter.render()</code> to materialise pinned
-        entries as a markdown block, composes <code>&lt;base systemPrompt&gt;</code>{" "}
-        + <code>\n\n</code> + <code>&lt;rendered context&gt;</code>, and calls{" "}
-        <code>setSystemPrompt</code>. Pinned context goes <strong>after</strong>{" "}
-        the developer&apos;s system prompt — developer prompt sets agent
-        character and guardrails; user context modifies engagement for this
-        specific user. Re-rendering happens every turn, so external updates the
-        user made between turns are reflected immediately.
+        <code>useContext</code> registers a live context provider. Before each
+        model iteration, including after tool results, Glove calls
+        <code>adapter.render()</code> and appends a transient user-role message
+        at the model-input tail. Forms and goals use the same mechanism.
+        The system prompt and saved history remain unchanged, preserving the
+        stable prefix for caching. Subscribers receive <code>runtime_context</code>
+        events. Requires glove-core 3.8 or newer; proxies forward
+        <code>addContextProvider</code> and <code>getRuntimeContext</code>.
       </p>
 
       {/* ------------------------------------------------------------------ */}

@@ -1,6 +1,6 @@
 {
   "name": "glove-video",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Video-generation workflows for Glove — OpenRouter and custom adapters, traceable prompt pipelines, reusable continuity libraries, and resumable multi-shot flows.",
   "type": "module",
   "license": "MIT",

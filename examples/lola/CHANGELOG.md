@@ -1,5 +1,16 @@
 # glove-lola
 
+## 1.0.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-core@3.8.0
+  - glove-sqlite@3.0.5
+  - glove-voice@3.6.3
+  - glove-next@3.1.4
+  - glove-react@4.0.3
+
 ## 1.0.3
 
 ### Patch Changes

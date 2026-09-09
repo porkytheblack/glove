@@ -1,5 +1,13 @@
 # glove-mcp-cli
 
+## 1.0.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-core@3.8.0
+  - glove-mcp@1.1.3
+
 ## 1.0.3
 
 ### Patch Changes

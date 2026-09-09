@@ -7,7 +7,7 @@ import type { Provenance } from "../core/provenance";
  * strings — context is genuinely user-shaped and varies per consumer; trying
  * to enforce a vocabulary schema-side defeats the point.
  *
- * Pinned entries are auto-injected into the system prompt at every turn.
+ * Pinned entries are appended as transient runtime context before each model iteration.
  * Non-pinned entries are read on demand via the `glove_context_get` tool.
  */
 export interface ContextEntry {

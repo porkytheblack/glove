@@ -1,5 +1,13 @@
 # glovebox-kit
 
+## 0.5.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-core@3.8.0
+  - glovebox-core@0.6.3
+
 ## 0.5.3
 
 ### Patch Changes

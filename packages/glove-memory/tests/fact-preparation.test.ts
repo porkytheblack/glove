@@ -1,3 +1,4 @@
+import { runtimeContextSupport } from "./runtime-target";
 import { preparationAgent } from "../../glove-facts/tests/agent";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -46,7 +47,7 @@ function forms(preparer: FactPreparation, options: { rule?: any; onEmail?: () =>
   const config = { registry, subject: scope.subject, preparation: { preparer, rule: options.rule ?? (() => rule) } };
   return { runner: new FormRunner(adapter, config), adapter, config };
 }
-function target() { let prompt = "Host instructions"; const tools: any[] = []; return { tools, fold: (t: any) => { tools.push(t); }, getSystemPrompt: () => prompt, setSystemPrompt: (p: string) => { prompt = p; }, processRequest: async () => ({ sender: "agent" as const, text: prompt }) }; }
+function target() { const context = runtimeContextSupport(); let prompt = "Host instructions"; const tools: any[] = []; return { ...context, tools, fold: (t: any) => { tools.push(t); }, getSystemPrompt: () => prompt, setSystemPrompt: (p: string) => { prompt = p; }, processRequest: async () => ({ sender: "agent" as const, text: prompt + await context.getRuntimeContext() }) }; }
 
 test("early facts complete goals atomically before onEnter and expose full prepared context", async () => {
   const { preparer, add, calls } = await setup(); await add("name", "Ada"); await add("email", "ada@example.com");
@@ -142,7 +143,7 @@ test("goal progression and voice tool replies carry prepared context in the same
   const update = glove.tools.find(t => t.name === "glove_goal_update");
   const result = await update.do({ goalKey: "identity", completed: ["name"], reason: "Name received", ifVersion: before!.version });
   assert.equal(result.status, "success"); assert.equal(result.data.activeGoal, "contact");
-  assert.ok(result.data.preparation); assert.match(glove.getSystemPrompt(), /sources=/); assert.match(glove.getSystemPrompt(), /Phone/);
+  assert.ok(result.data.preparation); assert.match(await glove.getRuntimeContext(), /sources=/); assert.match(await glove.getRuntimeContext(), /Phone/);
 });
 test("mounted forms reconcile before model invocation even with prompt injection disabled", async () => {
   const { preparer, add } = await setup(); const { adapter, config } = forms(preparer); const glove = target();

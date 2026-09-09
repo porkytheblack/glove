@@ -1,5 +1,14 @@
 # glove-voice-s2s
 
+## 0.2.3
+
+### Patch Changes
+
+- Keep changing memory state out of system prompts. Core now resolves live context providers at the model-input tail before each iteration and exposes their snapshots to tracing. Goals, forms, and pinned context use these transient snapshots without changing saved conversation history. Realtime voice injects changed snapshots silently at startup and after tools, with explicit refresh for external changes.
+
+- Updated dependencies []:
+  - glove-core@3.8.0
+
 ## 0.2.2
 
 ### Patch Changes

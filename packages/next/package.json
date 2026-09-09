@@ -1,6 +1,6 @@
 {
   "name": "glove-next",
-  "version": "3.1.3",
+  "version": "3.1.4",
   "description": "Next.js handlers for Glove agent framework",
   "type": "module",
   "license": "MIT",
