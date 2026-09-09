@@ -1,5 +1,12 @@
 # glovebox-client
 
+## 0.5.5
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glovebox-core@0.6.4
+
 ## 0.5.4
 
 ### Patch Changes

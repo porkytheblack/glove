@@ -1,5 +1,13 @@
 # glove-scratchpad
 
+## 3.0.0
+
+### Patch Changes
+
+- Updated dependencies [[`8c36feb`](https://github.com/porkytheblack/glove/commit/8c36feb1139966bcdac8525e79db1714c13c5b6b)]:
+  - glove-core@4.1.0
+  - glove-mcp@1.2.0
+
 ## 2.0.3
 
 ### Patch Changes
