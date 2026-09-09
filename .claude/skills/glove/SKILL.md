@@ -1,6 +1,6 @@
 ---
 name: glove
-description: Expert guide for Glove primitives and packages such as glove-core, glove-react, glove-next, tools, display, models, stores, memory, voice, image, and working environments. For full agent applications, runtime orchestration, or migration from deprecated Glovebox, use the glove-foundry skill.
+description: Expert guide for Glove primitives and packages such as glove-core, glove-facts, dynamic goals, form preparation, glove-react, glove-next, tools, display, models, stores, memory, voice, image, and working environments. For full agent applications, runtime orchestration, or migration from deprecated Glovebox, use the glove-foundry skill.
 ---
 
 # Glove Framework — Development Guide
@@ -17,6 +17,10 @@ Glove Foundry is the preferred application framework and agent runtime built on 
 **Docs site**: https://glove.dterminal.net
 **License**: MIT (dterminal)
 
+## Goals, facts, and form preparation
+
+Read [workflows.md](workflows.md) when adding dynamic goals, recording reusable evidence, or preparing forms from existing facts. Goals ship in `glove-memory/goals`; shared evidence ships in `glove-facts`. The reference covers public imports, tool mounting, lifecycle/recovery rules, and preparation through a supplied Glove agent with tracing preserved. Supplying that agent enables preparation.
+
 ## Package Overview
 
 | Package | Purpose | Install |
@@ -27,7 +31,8 @@ Glove Foundry is the preferred application framework and agent runtime built on 
 | `glove-next` | One-line Next.js API route handler (`createChatHandler`) for streaming SSE | `pnpm add glove-next` |
 | `glove-foundry` | **Preferred agent application framework and runtime.** Effect-native file routing, typed definitions, durable instances and conversations, dynamic installations and playbooks, schedules, working environments, multi-agent composition, and correlated inspection. | `pnpm add glove-foundry` |
 | `glove-mcp` | Bridge MCP servers into a Glove agent: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter`, `discovermcp` discovery subagent. Opt-in OAuth helpers at `glove-mcp/oauth`. | `pnpm add glove-mcp` |
-| `glove-memory` | Schema-first memory layer with five sibling subsystems: entity graph, episodic timeline, resource filesystem, ambient context, and conversational forms. BYO storage via the adapter contracts; reference in-memory adapters ship for dev/test. Storage backends (`glove-memory-sqlite`, `glove-memory-postgres`) are companion packages — not yet released. Draft v0.1. | `pnpm add glove-memory` |
+| `glove-memory` | Entity, episodic, resource and context memory, conversational forms, and dynamic goals (`glove-memory/goals`). BYO storage; reference adapters are process-local. | `pnpm add glove-memory` |
+| `glove-facts` | Shared scoped evidence, corrections and reusable links; optional preparation through a caller-supplied Glove agent for goals and forms. | `pnpm add glove-facts` |
 | `glove-image` | **Agentic image generation.** Image work as a *workflow*, not one `generate_image` tool: a `PromptEnhancer[]` pipeline of "inbetweens" builds every prompt (characters/scenes expanded verbatim, style, LLM rewrite, then a mandatory `fitToModel()` that clamps to adapter capabilities and traces each degradation), durable **characters** and **scenes** in a BYO library, reference images with roles (identity/style/composition/content/mask), `Recipe` lineage on every derived asset (so `regenerate` replays it), deterministic `assemble` via optional `sharp`, opt-in vision review/describe, and `ImageUsage` cost tracking at four scopes. `mountImage(glove, { adapter, assets, library, ... })`. Draft v0.1. | `pnpm add glove-image` |
 | `glove-mesh` | Inter-agent communication on top of the inbox primitive: `mountMesh`, `MeshAdapter` (BYO transport), `MeshNetwork` + `InMemoryMeshAdapter` reference impl. Four tools — `glove_mesh_send_message`, `glove_mesh_broadcast`, `glove_mesh_list_agents`, `glove_mesh_acknowledge`. No auth (consumer's job). | `pnpm add glove-mesh` |
 | `glove-continuum-signal` | Subprocess-based runtime substrate for agent collaboration across time. Two modes: **triggered** (cold, spawn-per-wakeup) and **concurrent** (warm, long-lived subprocess notified inline). `agent()` builder, `ContinuumRunner` (discovery + supervision + IPC), `ContinuumAdapter` (BYO persistence; `MemoryAdapter` default), `ContinuumSubscriber` (lifecycle + forwarded Glove events). Pairs with `glove-mesh` for inter-agent talk — substrate provides the supervised subprocesses, mesh provides the messaging. | `pnpm add glove-continuum-signal` |

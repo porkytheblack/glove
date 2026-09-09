@@ -1,5 +1,7 @@
 # Glove API Reference
 
+For dynamic goals, shared facts and agent-backed form preparation, read [workflows.md](workflows.md). Goals are in `glove-memory/goals`; evidence is in `glove-facts`.
+
 ## HTTP files and host keystore
 
 Mount `fetchFiles(options)` from `glove-env-fetch` and `secret(options)` from

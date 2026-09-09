@@ -215,7 +215,7 @@ export const docsSections: DocsNavSection[] = [
         label: "Shared facts",
         href: "/docs/facts",
         badge: "new",
-        summary: "Scoped evidence and model preparation shared by goals and forms.",
+        summary: "Scoped evidence and preparation through a supplied Glove agent, shared by goals and forms.",
         packages: ["glove-facts", "glove-memory"],
       },
       {

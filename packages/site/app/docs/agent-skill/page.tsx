@@ -115,10 +115,17 @@ export default async function AgentSkillPage() {
 
       <ul>
         <li>
-          <strong>All three packages</strong> &mdash;{" "}
+          <strong>Core packages</strong> &mdash;{" "}
           <code>glove-core</code>, <code>glove-react</code>, and{" "}
           <code>glove-next</code>. Correct import paths, class names, method
           signatures.
+        </li>
+        <li>
+          <strong>Goals, facts, and forms</strong> &mdash; dynamic goals in{" "}
+          <code>glove-memory/goals</code>, reusable evidence in{" "}
+          <code>glove-facts</code>, tool mounting, and preparation through a
+          supplied Glove agent with tracing preserved. The bundled{" "}
+          <code>workflows.md</code> reference includes a shared-workflow example.
         </li>
         <li>
           <strong>The display stack</strong> &mdash; when to use{" "}
@@ -296,6 +303,7 @@ Skill handler receives:
       <h2>Updating the skill</h2>
 
       <p>
+        Installing or releasing npm packages does not update installed skill copies.
         To update to the latest version of the skill, re-run the install
         command:
       </p>

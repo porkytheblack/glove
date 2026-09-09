@@ -11,6 +11,8 @@ export function buildFoundryLlmsTxt(): string {
     `- Product: ${SITE_URL}/foundry`,
     `- Condensed reference: ${SITE_URL}/foundry/llms-full.txt`,
     "- Package: glove-foundry",
+    `- Dynamic goals (glove-memory/goals): ${SITE_URL}/docs/goals`,
+    `- Shared facts and traced preparation (glove-facts): ${SITE_URL}/docs/facts`,
     "- Source: https://github.com/porkytheblack/glove/tree/main/packages/glove-foundry",
     "",
   ];
@@ -190,4 +192,33 @@ provisioning and inbound claims, durable conversations and schedules, execution 
 bounded concurrency, cancellation, VFS/artifact persistence, redaction, and health
 checks. Foundry's public vocabulary stays deployment-neutral; backend worker/network
 terminology must not leak into definitions.
+
+
+## Goals, facts, and form preparation
+
+Dynamic goals are exported by glove-memory/goals (glove-memory 1.2.0+), not a
+standalone glove-goals package. Shared evidence is glove-facts 0.1.0+.
+Use useGoalRunner/useFormRunner from glove-memory/tools to mount workflow tools
+on a conversational Glove runnable. useFacts from glove-facts mounts record_fact;
+imports alone do not mount tools. Scope fact storage by subject and context.
+
+new FactPreparation(facts, { agent: preparationAgent }) enables preparation.
+Supply a dedicated built IGloveRunnable with its own scoped conversation store
+and the application's tracing subscribers. The library appends submit_preparation
+once at first use and runs processRequest, preserving tool execution, model
+usage and persisted history. Do not use a direct ModelAdapter call or the
+conversational agent itself. Without a preparation agent, capture and ordinary
+workflow operations remain available and automatic preparation is disabled.
+
+Pass preparation: { preparer, rule, eligible? } to the goals/forms runner.
+Host rules allowlist requirements, schemas/evidence policies validate proposals,
+and ordinary goal/form commits remain authoritative. One fact can support both
+consumers. Corrections flag existing work for review. Capturing a fact alone
+does not trigger all workflows; preparation runs on starts/relevant commits,
+before mounted turns, or explicit runner.prepare(). Production adapters must
+preserve evidence receipts and prepared-form recovery state.
+
+Use existing build/assembly extension points; these packages do not introduce
+new Foundry goals/facts definition fields. Detailed workflow skill:
+https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/workflows.md
 `;

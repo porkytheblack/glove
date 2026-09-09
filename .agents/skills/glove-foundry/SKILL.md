@@ -108,6 +108,14 @@ Foundry mounts native Glove surfaces instead of reimplementing them.
 - For HTTP calls/downloads/uploads and host keystores, read [HTTP files and host secrets](../../../packages/glove-working-environment/HTTP-AND-SECRETS.md). Mount `fetchFiles()` and `secret()` in the environment options; scope the host store to the owning instance and re-supply it after restore. Snapshots do not persist secrets or network grants.
 - Native fetch blocks non-public DNS/IP destinations; private services require exact host opt-ins. Keep credentials in host aliases, not scripts or manifests. Custom transports own equivalent network/TLS safety. In adapter bindings, read `ctx.signal` at call time so run termination aborts host I/O.
 
+## Goals, facts, and prepared workflows
+
+Use `glove-memory/goals` for dynamic goals and `glove-facts` for reusable scoped evidence; there is no standalone `glove-goals` package. Mount `useGoalRunner` or `useFormRunner` from `glove-memory/tools` on the conversational runnable, and `useFacts` from `glove-facts` for capture.
+
+Enable shared preparation with `new FactPreparation(facts, { agent: preparationAgent })`. Supply a dedicated, built Glove runnable and separate store per fact scope, with the application's tracing subscribers attached. The library mounts `submit_preparation` and calls `processRequest`; do not bypass Glove with a direct model invocation or substitute the conversational agent. No agent means automatic preparation is off while capture/manual progression remain available. Host rules allowlist fields/items; workflow commits retain authority over values, progress and effects.
+
+Use existing Foundry build/assembly extension points; do not invent a Foundry `goals` or `facts` definition field. Read the [shared workflow guide](https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/workflows.md) and [facts adapter contracts](../../../packages/glove-facts/README.md) for scope, correction, tracing and recovery requirements.
+
 ## Multi-agent systems
 
 Choose the smallest correct composition surface:
