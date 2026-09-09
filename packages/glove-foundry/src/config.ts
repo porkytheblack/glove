@@ -7,17 +7,31 @@ export interface FoundryExecutionConfig {
   readonly retryBackoffMs?: number;
 }
 
+export interface FoundryBrandingConfig {
+  /** Product name shown in the inspector shell. Defaults to Glove Foundry. */
+  readonly name?: string;
+  /** Compact product relationship shown beneath the name. */
+  readonly label?: string;
+  /** Browser-title suffix. Defaults to Inspector. */
+  readonly descriptor?: string;
+  /** Six-digit hexadecimal accent colour. */
+  readonly accent?: string;
+}
+
 export interface FoundryConfig {
   readonly agentsDir?: string;
   readonly applicationFile?: string;
   readonly server?: {
     readonly host?: string;
     readonly port?: number;
+    /** JSON request limit for message-bearing multimodal endpoints. */
+    readonly messageBodyBytes?: number;
   };
   readonly execution?: FoundryExecutionConfig;
   readonly observability?: {
     readonly maxEvents?: number;
   };
+  readonly branding?: FoundryBrandingConfig;
   readonly strictFileRoutes?: boolean;
 }
 
@@ -33,6 +47,9 @@ type ExactFoundryConfig<T extends FoundryConfig> = NoUnknownKeys<T, FoundryConfi
   readonly observability?: T["observability"] extends object
     ? NoUnknownKeys<T["observability"], NonNullable<FoundryConfig["observability"]>>
     : T["observability"];
+  readonly branding?: T["branding"] extends object
+    ? NoUnknownKeys<T["branding"], FoundryBrandingConfig>
+    : T["branding"];
 };
 
 export function defineConfig<const TConfig extends FoundryConfig>(

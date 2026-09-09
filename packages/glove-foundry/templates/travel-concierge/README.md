@@ -4,6 +4,12 @@ A [Glove Foundry](https://github.com/porkytheblack/glove/tree/main/packages/glov
 
 It runs before you configure anything — there is a built-in demo model, so you get real runs and a real event trace with no API key.
 
+## First run, step by step
+
+Use Node.js 22.13+ (recommended); the CLI requires Node 20.12 or newer. Open a
+terminal in this project's directory. If the setup wizard already installed
+dependencies, you can skip the install command below.
+
 ```bash
 cp .env.example .env.local     # optional: add OPENROUTER_API_KEY for real answers
 {{installCommand}}
@@ -11,6 +17,23 @@ cp .env.example .env.local     # optional: add OPENROUTER_API_KEY for real answe
 ```
 
 Then open **http://127.0.0.1:4141** and press **Start a run**.
+
+Choose **concierge** and send “Find a flight to Nairobi.” Open the resulting run
+to follow its model calls, tool calls and result. This is a deterministic demo:
+flights, calendar and messaging are examples, not live provider integrations.
+Change `agents/concierge/agent.ts`, save, and try another run to see the reload.
+
+To get live model answers, put your own `OPENROUTER_API_KEY` in `.env.local`, then
+restart the dev server. Never commit that file. The wizard does not collect keys.
+Setting a model key does not connect a real calendar or messenger by itself.
+
+## If something goes wrong
+
+- Check `node --version` if you get an engine or SQLite error.
+- Run `{{installCommand}}` again if installation was interrupted; project files are retained.
+- If port 4141 is occupied, run the local `glove foundry dev --port 4142` command and open that address.
+- If a run fails, open its event trace; a provider rate limit is different from a typecheck failure.
+- In-memory demo state resets across workers/restarts. Read **Going to production** before storing real user work.
 
 ---
 
@@ -163,11 +186,12 @@ Filters live in the URL, so `/runs?status=failed` is a link you can send. Press 
 
 ## Going to production
 
-1. **Replace the data adapter.** `MemoryFoundryDataAdapter` in `foundry.application.ts` loses everything on restart. Implement `FoundryDataAdapter` against your database.
+1. **Persist each store.** `MemoryFoundryDataAdapter` in `foundry.application.ts` is disposable. Use `FileFoundryDataAdapter` for single-host runtime data or a transactional database adapter for multiple hosts. Also replace the agent's `MemoryStore` with a durable conversation store, provide durable native memory adapters (such as `glove-memory/sqlite` on Node 22.13+), and persist the working-environment VFS. Persisting one does not persist the others.
 2. **Delete `lib/demo-model.ts`** and the fallback in `agent.ts` once `OPENROUTER_API_KEY` is set.
 3. **Own your credentials.** Foundry stores account *references*, never secrets. Keep tokens in your own adapter or secret manager.
 4. **Run `{{startCommand}}`** rather than `dev` — no file watching, no restart-on-change.
 5. **Keep the ESLint preset.** `glove-foundry/eslint` rejects patterns that break file routing, such as a hand-written `id` on a file-routed definition.
+6. **Protect the control plane.** A non-loopback bind requires an application-owned `requestAuthorization` adapter. Put TLS and network/rate policy in front of it.
 
 ---
 

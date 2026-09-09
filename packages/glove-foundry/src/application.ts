@@ -1,4 +1,4 @@
-import type { Layer } from "effect";
+import type { Effect, Layer } from "effect";
 import type { StoreAdapter } from "glove-core";
 import type { AccountReference, AgentBinding, Route } from "./domain.js";
 import type { FoundryDataAdapter } from "./primitives.js";
@@ -8,6 +8,35 @@ import type { FoundryInstanceProvisioner } from "./subscription.js";
 export const FOUNDRY_APPLICATION_BRAND = Symbol.for(
   "glove-foundry-application",
 );
+
+/**
+ * Secret-bearing HTTP request data passed only to the consumer-owned
+ * authorization adapter. Foundry does not persist or observe this value.
+ */
+export interface FoundryRequestAuthorizationInput {
+  readonly method: string;
+  readonly path: string;
+  readonly query: string;
+  readonly authorization?: string;
+  readonly cookie?: string;
+  readonly remoteAddress?: string;
+}
+
+/**
+ * Gate the Foundry HTTP surface without making credential acquisition or
+ * refresh a framework concern. The adapter may validate a basic/bearer
+ * credential, a session cookie, or an identity asserted by a trusted proxy.
+ */
+export interface FoundryRequestAuthorizationAdapter<
+  TError = never,
+> {
+  readonly identifier: string;
+  /** Value for WWW-Authenticate when access is denied. */
+  readonly challenge?: string;
+  readonly authorize: (
+    input: FoundryRequestAuthorizationInput,
+  ) => Effect.Effect<boolean, TError, never>;
+}
 
 /** Process infrastructure only; agent files own runtime capabilities. */
 export interface FoundryApplicationOptions {
@@ -22,6 +51,11 @@ export interface FoundryApplicationOptions {
     readonly conversationId: string;
     readonly workspaceId: string;
   }) => Promise<StoreAdapter> | StoreAdapter;
+  /**
+   * User-owned HTTP authorization boundary. Required for non-loopback binds;
+   * credential values never enter Foundry data, manifests, or observability.
+   */
+  readonly requestAuthorization?: FoundryRequestAuthorizationAdapter<unknown>;
   /** User-owned strategy for subscriptions using `provisioning.mode = "custom"`. */
   readonly provisioner?: FoundryInstanceProvisioner;
   readonly services?: Layer.Layer<

@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { Effect, Schema } from "effect";
+import { MemoryStore } from "glove-core";
 import {
   AccountReference,
   AgentBinding,
@@ -16,11 +17,77 @@ import { composeAgent } from "../src/composition.js";
 import { discoverAgents } from "../src/discovery.js";
 import { FoundryRuntime } from "../src/runtime.js";
 import { FoundryServer } from "../src/server.js";
-import { MemoryFoundryDataAdapter, createAgentInstance } from "../src/primitives.js";
+import {
+  MemoryFoundryDataAdapter,
+  createAgentInstance,
+  createConversation,
+} from "../src/primitives.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(here, "fixtures");
 const agentsDir = resolve(rootDir, "agents");
+
+test("Foundry refuses an unauthenticated non-loopback control surface", async () => {
+  const runtime = await FoundryRuntime.discover({ rootDir, agentsDir });
+  const server = new FoundryServer(runtime, { host: "0.0.0.0", port: 0 });
+  await assert.rejects(
+    server.listen(),
+    /refuses to bind 0\.0\.0\.0 without application\.requestAuthorization/,
+  );
+  assert.equal(server.address(), null);
+});
+
+test("Foundry delegates HTTP authorization without retaining credentials", async () => {
+  const inspected: Array<{ method: string; path: string; credentialPresent: boolean }> = [];
+  const application = defineApplication({
+    name: "Authorized control plane",
+    requestAuthorization: {
+      identifier: "test-control-authorization",
+      challenge: 'Bearer realm="Foundry test"',
+      authorize: (request) => Effect.sync(() => {
+        inspected.push({
+          method: request.method,
+          path: request.path,
+          credentialPresent: Boolean(request.authorization),
+        });
+        return request.authorization === "Bearer private-test-control-token";
+      }),
+    },
+  });
+  const runtime = await FoundryRuntime.discover({ rootDir, agentsDir, application });
+  const server = new FoundryServer(runtime, { host: "127.0.0.1", port: 0 });
+  await runtime.start();
+  try {
+    const listening = await server.listen();
+    const denied = await fetch(`${listening.url}/health`);
+    assert.equal(denied.status, 401);
+    assert.equal(denied.headers.get("www-authenticate"), 'Bearer realm="Foundry test"');
+
+    const control = createFoundryClient({
+      baseUrl: listening.url,
+      authorization: {
+        identifier: "test-client-authorization",
+        headers: () => ({ authorization: "Bearer private-test-control-token" }),
+      },
+    });
+    assert.equal((await control.health()).ok, true);
+    const dashboard = await fetch(listening.url, {
+      headers: { authorization: "Bearer private-test-control-token" },
+    });
+    assert.equal(dashboard.status, 200);
+    assert.match(await dashboard.text(), /Glove Foundry/);
+
+    assert.deepEqual(inspected, [
+      { method: "GET", path: "/health", credentialPresent: false },
+      { method: "GET", path: "/health", credentialPresent: true },
+      { method: "GET", path: "/", credentialPresent: true },
+    ]);
+    assert.equal(JSON.stringify(runtime.observability.list()).includes("private-test-control-token"), false);
+  } finally {
+    await server.close();
+    await runtime.stop();
+  }
+});
 
 test("Foundry serves a typed run and a complete observable trace", async () => {
   const runtime = await FoundryRuntime.discover({
@@ -78,11 +145,199 @@ test("Foundry serves a typed run and a complete observable trace", async () => {
     });
     assert.equal(completed?.status, "completed");
     assert.match(completed?.output?.value ?? "", /hello/);
+    const transcript = await control.conversationTranscript(agent.id, conversation.id);
+    assert.equal(transcript.persisted, true);
+    assert.ok(Array.isArray(transcript.messages));
 
     const runResponse = await fetch(`${listening.url}/api/runs/${accepted.id}`);
     assert.equal(runResponse.status, 200);
     const run = (await runResponse.json()) as { output: { value: string } };
     assert.match(run.output.value, /foundry-echo/);
+
+    const modelsResponse = await fetch(`${listening.url}/v1/models`);
+    assert.equal(modelsResponse.status, 200);
+    const models = (await modelsResponse.json()) as { data: Array<{ id: string }> };
+    assert.ok(models.data.some((model) => model.id === agent.id));
+
+    const completionResponse = await fetch(`${listening.url}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: agent.id,
+        user: "integration-client",
+        messages: [{ role: "user", content: "hello over the OpenAI protocol" }],
+      }),
+    });
+    assert.equal(completionResponse.status, 200);
+    assert.match(completionResponse.headers.get("x-foundry-conversation-id") ?? "", /^openai-/);
+    const completion = (await completionResponse.json()) as {
+      object: string;
+      choices: Array<{ message: { content: string } }>;
+    };
+    assert.equal(completion.object, "chat.completion");
+    assert.match(completion.choices[0]?.message.content ?? "", /hello over the OpenAI protocol/);
+
+    const streamingResponse = await fetch(`${listening.url}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: agent.id,
+        stream: true,
+        messages: [{ role: "user", content: "stream this reply" }],
+      }),
+    });
+    assert.equal(streamingResponse.status, 200);
+    assert.match(streamingResponse.headers.get("content-type") ?? "", /text\/event-stream/);
+    const streamingBody = await streamingResponse.text();
+    assert.match(streamingBody, /chat\.completion\.chunk/);
+    assert.match(streamingBody, /\[DONE\]/);
+
+    const capabilitiesResponse = await fetch(`${listening.url}/v1/capabilities`);
+    assert.equal(capabilitiesResponse.status, 200);
+    const capabilities = (await capabilitiesResponse.json()) as {
+      protocols: {
+        openaiResponses: { streaming: boolean };
+        runControl: { steer: boolean; steeringMode: string };
+        approvals: { list: boolean; resolve: boolean; default: string };
+      };
+    };
+    assert.equal(capabilities.protocols.openaiResponses.streaming, true);
+    assert.equal(capabilities.protocols.runControl.steer, true);
+    assert.equal(capabilities.protocols.runControl.steeringMode, "interrupt-and-restart");
+    assert.deepEqual(capabilities.protocols.approvals, {
+      list: true,
+      resolve: true,
+      default: "deny",
+    });
+    assert.deepEqual(await control.approvals({ status: "pending" }), []);
+
+    const responseResponse = await fetch(`${listening.url}/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: agent.id,
+        instructions: "Answer as the integration fixture.",
+        input: "hello over the Responses protocol",
+      }),
+    });
+    assert.equal(responseResponse.status, 200);
+    assert.match(responseResponse.headers.get("x-foundry-conversation-id") ?? "", /^responses-/);
+    const openAiResponse = (await responseResponse.json()) as {
+      object: string;
+      status: string;
+      output: Array<{ content: Array<{ text: string }> }>;
+      metadata: Record<string, string>;
+    };
+    assert.equal(openAiResponse.object, "response");
+    assert.equal(openAiResponse.status, "completed");
+    assert.match(openAiResponse.output[0]?.content[0]?.text ?? "", /Responses protocol/);
+    assert.match(openAiResponse.metadata["glove.foundry.run_id"] ?? "", /.+/);
+
+    const streamingResponsesResponse = await fetch(`${listening.url}/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: agent.id,
+        stream: true,
+        input: [{
+          role: "user",
+          content: [{ type: "input_text", text: "stream a Responses reply" }],
+        }],
+      }),
+    });
+    assert.equal(streamingResponsesResponse.status, 200);
+    assert.match(streamingResponsesResponse.headers.get("content-type") ?? "", /text\/event-stream/);
+    const streamingResponsesBody = await streamingResponsesResponse.text();
+    assert.match(streamingResponsesBody, /event: response\.created/);
+    assert.match(streamingResponsesBody, /event: response\.in_progress/);
+    assert.match(streamingResponsesBody, /event: response\.output_text\.delta/);
+    assert.match(streamingResponsesBody, /event: response\.content_part\.done/);
+    assert.match(streamingResponsesBody, /event: response\.completed/);
+
+    const controlRunResponse = await fetch(`${listening.url}/v1/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        agent_id: agent.id,
+        conversation_id: "control-integration",
+        message: "hello through asynchronous run control",
+        context: { caller: "integration-test" },
+      }),
+    });
+    assert.equal(controlRunResponse.status, 202);
+    assert.match(controlRunResponse.headers.get("x-foundry-conversation-id") ?? "", /^control-/);
+    const controlRun = (await controlRunResponse.json()) as { id: string; status: string };
+    assert.equal(controlRun.status, "pending");
+    const completedControlRun = await runtime.waitForRun<{ value: string }>(controlRun.id, {
+      pollMs: 25,
+      timeoutMs: 20_000,
+    });
+    assert.equal(completedControlRun?.status, "completed");
+
+    const controlStatusResponse = await fetch(`${listening.url}/v1/runs/${controlRun.id}`);
+    assert.equal(controlStatusResponse.status, 200);
+    const controlStatus = (await controlStatusResponse.json()) as { output?: { value?: string } };
+    assert.match(controlStatus.output?.value ?? "", /asynchronous run control/);
+
+    const controlEventsResponse = await fetch(`${listening.url}/v1/runs/${controlRun.id}/events`);
+    assert.equal(controlEventsResponse.status, 200);
+    const controlEvents = (await controlEventsResponse.json()) as Array<{ type: string }>;
+    assert.ok(controlEvents.some((event) => event.type === "run.completed"));
+
+    const controlEventStreamResponse = await fetch(`${listening.url}/v1/runs/${controlRun.id}/events`, {
+      headers: { accept: "text/event-stream" },
+    });
+    assert.equal(controlEventStreamResponse.status, 200);
+    const controlEventStream = await controlEventStreamResponse.text();
+    assert.match(controlEventStream, /data: \{"id"/);
+    assert.match(controlEventStream, /"type":"run\.completed"/);
+
+    const stopResponse = await fetch(`${listening.url}/v1/runs/${controlRun.id}/stop`, {
+      method: "POST",
+    });
+    assert.equal(stopResponse.status, 200);
+    const stopped = (await stopResponse.json()) as { id: string; stopped: boolean };
+    assert.equal(stopped.id, controlRun.id);
+    assert.equal(typeof stopped.stopped, "boolean");
+
+    const steerResponse = await fetch(`${listening.url}/v1/runs/${controlRun.id}/steer`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ guidance: "continue with the revised direction" }),
+    });
+    assert.equal(steerResponse.status, 202);
+    const steered = (await steerResponse.json()) as {
+      fromRunId: string;
+      interrupted: boolean;
+      run: { id: string; conversationId: string };
+    };
+    assert.equal(steered.fromRunId, controlRun.id);
+    assert.equal(steered.interrupted, false, "a completed run becomes a follow-up without cancellation");
+    assert.notEqual(steered.run.id, controlRun.id);
+    assert.equal(steered.run.conversationId, completedControlRun?.conversationId);
+    const completedSteer = await runtime.waitForRun<{ value: string }>(steered.run.id, {
+      pollMs: 25,
+      timeoutMs: 20_000,
+    });
+    assert.equal(completedSteer?.status, "completed");
+    assert.match(completedSteer?.output?.value ?? "", /revised direction/);
+    assert.ok(runtime.observability.list({ runId: steered.run.id }).some((event) => event.type === "run.steered"));
+
+    const typedSteer = await handle.steer("follow the typed client direction");
+    assert.equal(typedSteer.fromRunId, handle.id);
+    assert.equal(typedSteer.interrupted, false);
+    const completedTypedSteer = await typedSteer.run.wait({
+      pollMs: 25,
+      timeoutMs: 20_000,
+    });
+    assert.equal(completedTypedSteer.status, "completed");
+    assert.match(String(completedTypedSteer.output?.value ?? ""), /typed client direction/);
+
+    const detailedHealthResponse = await fetch(`${listening.url}/health/detailed`);
+    assert.equal(detailedHealthResponse.status, 200);
+    const detailedHealth = (await detailedHealthResponse.json()) as { runs: unknown[]; connections: unknown[] };
+    assert.ok(detailedHealth.runs.length >= 6);
+    assert.ok(Array.isArray(detailedHealth.connections));
 
     const eventsResponse = await fetch(
       `${listening.url}/api/runs/${accepted.id}/events`,
@@ -128,8 +383,22 @@ test("Foundry serves a typed run and a complete observable trace", async () => {
     assert.match(dashboard, /viewBox="0 0 1024 1024"/);
     assert.match(dashboard, /data-phosphor="agent"/);
     assert.match(dashboard, /data-phosphor="search"/);
+    assert.match(dashboard, /data-phosphor="chat"/);
+    assert.match(dashboard, /href="\/chat"/);
+    assert.match(dashboard, /function renderChat\(\)/);
+    assert.match(dashboard, /function liveAssistantMessage\(run\)/);
+    assert.match(dashboard, /agent\.text_delta/);
+    assert.match(dashboard, /function sendChat\(event,agent,conversation,activeRun\)/);
+    assert.match(dashboard, /History comes from the agent's StoreAdapter/);
+    assert.match(dashboard, /\/api\/conversations\//);
+    assert.match(dashboard, /\/steer/);
+    assert.match(dashboard, /\.chat-shell/);
     assert.match(dashboard, /Definitions and instances are intentionally separate/);
     assert.match(dashboard, /Run spine/);
+    assert.match(dashboard, /Decision required/);
+    assert.match(dashboard, /Approve this input/);
+    assert.match(dashboard, /\/api\/approvals/);
+    assert.match(dashboard, /\.approval-rail/);
     // Every truncated id ships with a copy affordance.
     assert.match(dashboard, /function copyButton\(value,label\)/);
     assert.match(dashboard, /function idCell\(value,extraClass\)/);
@@ -152,6 +421,90 @@ test("Foundry serves a typed run and a complete observable trace", async () => {
 
     const activations = await control.activations();
     assert.deepEqual(activations, []);
+  } finally {
+    await server.close();
+    await runtime.stop();
+  }
+});
+
+test("Foundry exposes exact adapter-backed conversation history", async () => {
+  const [discovered] = await discoverAgents({ agentsDir });
+  assert.ok(discovered);
+  const store = new MemoryStore("foundry-transcript-test");
+  await store.appendMessages([
+    { sender: "user", text: "Persist this exact question." },
+    { sender: "agent", text: "This exact answer is stored." },
+  ]);
+  await store.incrementTurn();
+  await store.addTokens({ tokens_in: 7, tokens_out: 5 });
+  const instance = createAgentInstance(discovered.route, {
+    id: "transcript-agent",
+    workspaceId: "transcript-workspace",
+  });
+  const conversation = createConversation(instance, {
+    id: "transcript-conversation",
+    title: "Durable transcript",
+  });
+  const data = new MemoryFoundryDataAdapter({
+    agents: [instance],
+    conversations: [conversation],
+  });
+  const runtime = new FoundryRuntime({
+    rootDir,
+    agents: [{
+      ...discovered,
+      definition: Object.freeze({ ...discovered.definition, store: () => store }),
+    }],
+    application: defineApplication({ name: "Transcript test", data }),
+    config: { execution: { pollIntervalMs: 25, idlePollIntervalMs: 25 } },
+  });
+  const server = new FoundryServer(runtime, { port: 0 });
+  await runtime.start();
+  try {
+    const listening = await server.listen();
+    const client = createFoundryClient({ baseUrl: listening.url });
+    const transcript = await client.conversationTranscript(instance.id, conversation.id);
+    assert.equal(transcript.persisted, true);
+    assert.deepEqual(transcript.messages.map((message) => message.text), [
+      "Persist this exact question.",
+      "This exact answer is stored.",
+    ]);
+    assert.equal(transcript.turnCount, 1);
+    assert.equal(transcript.tokenCount, 12);
+    assert.deepEqual(transcript.tokenConsumption, { tokens_in: 7, tokens_out: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 });
+    const latest = await client.conversationTranscript(instance.id, conversation.id, { limit: 1 });
+    assert.deepEqual(latest.messages.map((message) => message.text), [
+      "This exact answer is stored.",
+    ]);
+    assert.deepEqual(latest.page, {
+      offset: 1,
+      limit: 1,
+      total: 2,
+      hasEarlier: true,
+      hasLater: false,
+    });
+    const earlier = await client.conversationTranscript(instance.id, conversation.id, { offset: 0, limit: 1 });
+    assert.deepEqual(earlier.messages.map((message) => message.text), [
+      "Persist this exact question.",
+    ]);
+    assert.equal(earlier.page.hasLater, true);
+    const renamed = await client.updateConversation(instance.id, conversation.id, {
+      title: "Renamed durable transcript",
+    });
+    assert.equal(renamed.title, "Renamed durable transcript");
+    assert.equal(
+      (await client.conversationTranscript(instance.id, conversation.id)).conversation.title,
+      "Renamed durable transcript",
+    );
+
+    const missingAgent = await fetch(
+      `${listening.url}/api/conversations/${conversation.id}/messages`,
+    );
+    assert.equal(missingAgent.status, 400);
+    const invalidLimit = await fetch(
+      `${listening.url}/api/conversations/${conversation.id}/messages?agent=${instance.id}&limit=0`,
+    );
+    assert.equal(invalidLimit.status, 400);
   } finally {
     await server.close();
     await runtime.stop();
@@ -187,6 +540,7 @@ test("Foundry rejects malformed framework requests before creating a run", async
 });
 
 test("Foundry serves validated topology without exposing account access references", async () => {
+  const sessionRequests: Array<{ accountId: string; operation: string }> = [];
   const transport = defineTransmission({
     id: "transport",
     name: "Transport",
@@ -207,6 +561,16 @@ test("Foundry serves validated topology without exposing account access referenc
       config: Schema.Struct({ channel: Schema.String }),
       input: Schema.Struct({ message: Schema.String }),
       output: Schema.Struct({ id: Schema.String }),
+      adapter: {
+        deliver: (input, context) => {
+          if (!context.withAccountSession) {
+            return Effect.die(new Error("Expected an account session."));
+          }
+          return context.withAccountSession("transport:send", (session) => Effect.sync(() => ({
+            id: `${(session as { prefix: string }).prefix}:${input.message}`,
+          }))).pipe(Effect.orDie);
+        },
+      },
     },
   });
   const account = Schema.decodeUnknownSync(AccountReference)({
@@ -225,7 +589,17 @@ test("Foundry serves validated topology without exposing account access referenc
     enabled: true,
     config: { channel: "test" },
   });
-  const assistantInstance = createAgentInstance("assistant", { id: "assistant-control" });
+  const [discovered] = await discoverAgents({ agentsDir });
+  const transportApp = defineAgentApplication({
+    id: "transport-app",
+    description: "Test transport application",
+    transmissions: [transport],
+    install: () => Effect.succeed({ tools: [] }),
+  });
+  const assistantInstance = createAgentInstance("assistant", {
+    id: "assistant-control",
+    installations: [{ kind: "application", id: transportApp.id }],
+  });
   const binding = Schema.decodeUnknownSync(AgentBinding)({
     id: "assistant-transport",
     agentId: assistantInstance.id,
@@ -236,13 +610,6 @@ test("Foundry serves validated topology without exposing account access referenc
     reply: { mode: "route", routeId: route.id },
     enabled: true,
   });
-  const [discovered] = await discoverAgents({ agentsDir });
-  const transportApp = defineAgentApplication({
-    id: "transport-app",
-    description: "Test transport application",
-    transmissions: [transport],
-    install: () => Effect.succeed({ tools: [] }),
-  });
   const runtime = new FoundryRuntime({
     rootDir,
     agents: [{
@@ -250,6 +617,16 @@ test("Foundry serves validated topology without exposing account access referenc
       definition: Object.freeze({
         ...discovered!.definition,
         components: composeAgent(transportApp),
+        accountSessions: {
+          identifier: "test-account-sessions",
+          withSession(request, use) {
+            sessionRequests.push({
+              accountId: request.accountId,
+              operation: request.operation,
+            });
+            return use({ prefix: "delivered" });
+          },
+        },
       }),
     }],
     application: defineApplication({
@@ -271,7 +648,10 @@ test("Foundry serves validated topology without exposing account access referenc
     assert.equal("accessRef" in accounts[0]!, false);
     assert.equal((await client.routes()).length, 1);
     assert.equal((await client.bindings()).length, 1);
-    assert.equal((await client.health()).agents, 1);
+    const health = await client.health();
+    assert.equal(health.agents, 1);
+    assert.equal(health.capabilities, 1);
+    assert.equal(health.surfaces, 0);
 
     const grant = await client.resolveGrant({
       runId: Schema.decodeUnknownSync(
@@ -280,6 +660,20 @@ test("Foundry serves validated topology without exposing account access referenc
       agentId: binding.agentId,
     });
     assert.deepEqual(grant.capabilities, ["transport:send"]);
+
+    const delivered = await runtime.dispatchOutbound({
+      routeId: route.id,
+      agentId: assistantInstance.id,
+      runId: "run-control-plane",
+      payload: { message: "hello" },
+      applicationId: transportApp.id,
+      transmissionId: transport.id,
+    });
+    assert.deepEqual(delivered, { id: "delivered:hello" });
+    assert.deepEqual(sessionRequests, [{
+      accountId: account.id,
+      operation: "transport:send",
+    }]);
 
     const invalidRoute = await fetch(`${listening.url}/api/routes`, {
       method: "PUT",

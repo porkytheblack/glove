@@ -7,6 +7,7 @@ import type { McpCallToolResult, McpServerConnection, McpToolDef } from "../src/
 function fakeConn(result: Partial<McpCallToolResult>): McpServerConnection {
   return {
     namespace: "srv",
+    capabilities: { resources: false, prompts: false },
     async listTools() {
       return [];
     },
@@ -16,9 +17,14 @@ function fakeConn(result: Partial<McpCallToolResult>): McpServerConnection {
         ...(result.structuredContent !== undefined
           ? { structuredContent: result.structuredContent }
           : {}),
+        ...(result.metadata ? { metadata: result.metadata } : {}),
         isError: result.isError,
       } as McpCallToolResult;
     },
+    async listResources() { return { resources: [] }; },
+    async readResource() { return { contents: [] }; },
+    async listPrompts() { return { prompts: [] }; },
+    async getPrompt() { return { messages: [] }; },
     async close() {},
     raw: {} as never,
   };
@@ -109,6 +115,20 @@ test("bridged do() falls back to joined text without structuredContent", async (
   const bridged = bridgeMcpTool(fakeConn({ content: [{ type: "text", text: "hello" }] }), tool, true);
   const res = await bridged.do({}, undefined as never, undefined as never);
   assert.equal(res.data, "hello");
+});
+
+test("bridged do() surfaces sanitized vendor metadata to the model", async () => {
+  const tool: McpToolDef = { name: "t", inputSchema: { type: "object" } };
+  const bridged = bridgeMcpTool(
+    fakeConn({
+      content: [{ type: "text", text: "hello" }],
+      metadata: { "vendor.example/request-id": "req-1" },
+    }),
+    tool,
+    true,
+  );
+  const res = await bridged.do({}, undefined as never, undefined as never);
+  assert.equal(res.data, 'hello\n\nMCP vendor metadata: {"vendor.example/request-id":"req-1"}');
 });
 
 test("bridged do() surfaces an error result unchanged", async () => {

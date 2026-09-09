@@ -47,6 +47,7 @@ The package tests include an inbound subscription with zero initial instances, t
 
 - [ ] An app owns multiple inbound and outbound transmissions.
 - [ ] Installing an app mounts outbound transmission tools.
+- [ ] An outbound transmission tool receives the adapter's validated result and propagates cancellation without moving credentials into the agent process.
 - [ ] Transmissions own authentication, normalization, classification, predicates, serialization, and delivery.
 - [ ] Playbooks contain serializable match parameters and directives only.
 - [ ] Credential acquisition and refresh remain in user adapters.
@@ -73,7 +74,7 @@ The package tests include an inbound subscription with zero initial instances, t
 
 - [ ] Conversations, workspace entries, shared inbox items, tasks, and scoped environment values are first-class adapter data.
 - [ ] Agent-local schedules reconcile into adapter data; agents can also create triggers dynamically.
-- [ ] Core tools can list, update, cancel, recur, sleep, run in background, and reconvene within agent identity.
+- [ ] Core tools can list, update, pause, resume, cancel, recur, sleep, run in background, and reconvene within agent identity.
 - [ ] Layered agents, S2S/S2V calls, mesh, custom subscribers, custom build, and custom run/handler functions remain available.
 - [ ] A native working environment mounts its guarded VFS and script tools with lifecycle cleanup and telemetry.
 - [ ] JavaScript, Python, and Lisp REPLs mount through one typed, lazy agent field.
@@ -87,3 +88,11 @@ The package tests include an inbound subscription with zero initial instances, t
 - [ ] The inspector makes arrival → policy → workforce → work visible.
 - [ ] Raw trace data is available without making it the default interface.
 - [ ] The runnable example uses the same public API described in the docs.
+
+## Control-plane security
+
+- [ ] Loopback is the default listener boundary.
+- [ ] A non-loopback bind fails before listening unless the application supplies `requestAuthorization`.
+- [ ] Inspector HTML, health, APIs, and event streams all cross the same authorization adapter.
+- [ ] Remote typed clients resolve authorization headers per request through their own adapter.
+- [ ] Control credentials never enter Foundry config, manifests, data, prompts, or observability.

@@ -50,3 +50,59 @@ test("observer decodes batched and split Glove child events without loss", () =>
     ["agent.text_delta", "agent.tool_use", "run.completed"],
   );
 });
+
+test("observer executes transmission commands without retaining their payload", () => {
+  const adapter = new MemoryObservabilityAdapter();
+  const forwarded: unknown[] = [];
+  const observer = new FoundryObserver(adapter, () => "assistant", (event) => forwarded.push(event.data));
+  const run = { id: "run-private-egress", signalName: "foundry_assistant" } as Run;
+  const command = {
+    id: "command-1",
+    type: "transmit",
+    definitionId: "assistant",
+    agentId: "assistant-1",
+    conversationId: "conversation-1",
+    workspaceId: "workspace-1",
+    routeId: "messages-outbound",
+    payload: { text: "private", artifact: { data: "base64-file-bytes" } },
+  };
+
+  observer.onLogOutput({
+    run,
+    level: "stdout",
+    message: `${FOUNDRY_EVENT_PREFIX}${JSON.stringify({ type: "foundry.core.command", data: command })}\n`,
+  });
+  const projected = {
+    ...command,
+    id: "command-2",
+    observability: { text: "safe summary", artifacts: [{ name: "report.pdf", bytes: 42 }] },
+  };
+  observer.onLogOutput({
+    run,
+    level: "stdout",
+    message: `${FOUNDRY_EVENT_PREFIX}${JSON.stringify({ type: "foundry.core.command", data: projected })}\n`,
+  });
+
+  assert.deepEqual(forwarded, [command, projected], "The parent runtime must receive complete commands.");
+  assert.deepEqual(adapter.list()[0]?.data, {
+    id: "command-1",
+    type: "transmit",
+    definitionId: "assistant",
+    agentId: "assistant-1",
+    conversationId: "conversation-1",
+    workspaceId: "workspace-1",
+    routeId: "messages-outbound",
+    payload: { redacted: true },
+  });
+  assert.deepEqual(adapter.list()[1]?.data, {
+    id: "command-2",
+    type: "transmit",
+    definitionId: "assistant",
+    agentId: "assistant-1",
+    conversationId: "conversation-1",
+    workspaceId: "workspace-1",
+    routeId: "messages-outbound",
+    payload: { text: "safe summary", artifacts: [{ name: "report.pdf", bytes: 42 }] },
+  });
+  assert.equal(JSON.stringify(adapter.list()).includes("base64-file-bytes"), false);
+});

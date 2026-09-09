@@ -145,6 +145,18 @@ interface EncodedAgentEvent {
   readonly timestamp?: string;
 }
 
+function observableAgentEventData(type: string, data: unknown): unknown {
+  if (type !== "foundry.core.command" || !data || typeof data !== "object") return data;
+  const command = data as Readonly<Record<string, unknown>>;
+  if (command.type !== "transmit" || !("payload" in command)) return data;
+  const { payload: _payload, observability, ...metadata } = command;
+  void _payload;
+  return {
+    ...metadata,
+    payload: observability ?? { redacted: true },
+  };
+}
+
 function encodedAgentEvent(message: string): EncodedAgentEvent | null {
   const start = message.indexOf(FOUNDRY_EVENT_PREFIX);
   if (start < 0) return null;
@@ -285,7 +297,7 @@ export class FoundryObserver implements SignalSubscriber {
         agent: this.route(run.signalName),
         runId: run.id,
         ...(encoded.timestamp ? { timestamp: encoded.timestamp } : {}),
-        data: encoded.data,
+        data: observableAgentEventData(encoded.type, encoded.data),
       });
       return;
     }

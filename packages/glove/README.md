@@ -100,7 +100,7 @@ const model = createAdapter({
 | `openai` | `OPENAI_API_KEY` | `gpt-4.1` |
 | `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
 | `openrouter` | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4` |
-| `gemini` | `GEMINI_API_KEY` | `gemini-2.5-flash` |
+| `gemini` | `GEMINI_API_KEY` | `gemini-3.6-flash` |
 | `minimax` | `MINIMAX_API_KEY` | `MiniMax-M2.5` |
 | `kimi` | `MOONSHOT_API_KEY` | `kimi-k2.5` |
 | `glm` | `ZHIPUAI_API_KEY` | `glm-4-plus` |
@@ -122,6 +122,12 @@ The main `glove-core` barrel includes native dependencies (better-sqlite3). For 
 | `glove-core/models/anthropic` | AnthropicAdapter | No |
 | `glove-core/models/openai-compat` | OpenAICompatAdapter | No |
 | `glove-core/models/providers` | Provider factory | No |
+
+OpenAI-compatible adapters persist opaque `provider_options` on messages and
+tool calls and return them only to the provider that produced them. This makes
+Gemini 3 multi-step function calling work automatically: encrypted thought
+signatures survive durable conversation storage without being interpreted or
+sent to fallback providers.
 
 ## Key exports
 

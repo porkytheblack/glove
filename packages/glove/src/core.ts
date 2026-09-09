@@ -259,12 +259,20 @@ export interface ToolCall {
   tool_name: string;
   input_args: unknown;
   id?: string;
+  /**
+   * Opaque, provider-scoped state that an adapter must return unchanged on a
+   * later turn. This is transport metadata, not model-visible reasoning.
+   * Adapters only read their own key so fallback providers never receive it.
+   */
+  provider_options?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 }
 
 export interface ContentPart {
   type: "text" | "image" | "video" | "document";
   /** For text parts */
   text?: string;
+  /** Optional human-facing file name. Model adapters may ignore it. */
+  name?: string;
   /** For media parts (image, video, document) */
   source?: {
     type: "base64" | "url";
@@ -309,6 +317,11 @@ export interface Message {
    * made tool calls. Adapters that don't recognise the field ignore it.
    */
   reasoning_content?: string
+  /**
+   * Opaque, provider-scoped response state that must survive conversation
+   * persistence and be echoed only by the adapter that produced it.
+   */
+  provider_options?: Readonly<Record<string, Readonly<Record<string, unknown>>>>
 }
 
 export interface PromptRequest {
@@ -650,6 +663,43 @@ export class Executor {
 
   registerTool(tool: Tool<any>) {
     this.tools.push(tool);
+  }
+
+  /**
+   * Atomically replace a caller-owned set of tools.
+   *
+   * The array reference is swapped instead of mutated so a model request that
+   * already captured the previous registry can finish against a stable tool
+   * surface while the next request sees the refreshed one.
+   */
+  replaceTools(previousNames: Iterable<string>, nextTools: ReadonlyArray<Tool<any>>) {
+    const removed = new Set([...previousNames].map((name) => name.toLowerCase()));
+    const nextNames = new Set<string>();
+    for (const tool of nextTools) {
+      const name = tool.name.toLowerCase();
+      if (nextNames.has(name)) {
+        throw new Error(`Cannot register duplicate tool "${tool.name}".`);
+      }
+      nextNames.add(name);
+    }
+
+    const firstRemoved = this.tools.findIndex((tool) => removed.has(tool.name.toLowerCase()));
+    const retained = this.tools.filter((tool) => !removed.has(tool.name.toLowerCase()));
+    const collision = retained.find((tool) => nextNames.has(tool.name.toLowerCase()));
+    if (collision) {
+      throw new Error(`Cannot replace tool "${collision.name}" because it is owned by another registry.`);
+    }
+
+    const insertionIndex = firstRemoved < 0
+      ? retained.length
+      : this.tools
+          .slice(0, firstRemoved)
+          .filter((tool) => !removed.has(tool.name.toLowerCase())).length;
+    this.tools = [
+      ...retained.slice(0, insertionIndex),
+      ...nextTools,
+      ...retained.slice(insertionIndex),
+    ];
   }
 
   addSubscriber(subscriber: SubscriberAdapter) {

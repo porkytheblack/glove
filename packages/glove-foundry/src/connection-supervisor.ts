@@ -28,6 +28,10 @@ export interface ApplicationConnectionSupervisorOptions {
     readonly routeId: string;
     readonly eventId: string;
     readonly threadKey: string;
+    readonly conversationKey?: string;
+    readonly conversationScope?: "route" | "agent";
+    readonly awaitCompletion?: boolean;
+    readonly signal?: AbortSignal;
     readonly raw: unknown;
   }) => Promise<void>;
   readonly emit: (event: {
@@ -158,6 +162,9 @@ export class ApplicationConnectionSupervisor {
                 routeId: input.route.id,
                 eventId: input.eventId,
                 threadKey: input.threadKey,
+                ...(input.conversationKey ? { conversationKey: input.conversationKey } : {}),
+                ...(input.conversationScope ? { conversationScope: input.conversationScope } : {}),
+                ...(input.awaitCompletion ? { awaitCompletion: true, signal } : {}),
                 raw: input.raw,
               });
             },

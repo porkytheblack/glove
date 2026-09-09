@@ -137,6 +137,31 @@ test("an inbound playbook lazily provisions one or many subscribed agents", asyn
     assert.deepEqual(repeated.map((run) => run.id), runs.map((run) => run.id));
     assert.equal((await runtime.listAgentInstances()).length, 2);
 
+    await runtime.deletePlaybookSubscription(subscription.id);
+    const firstPrincipalRuns = await runtime.dispatchInbound({
+      routeId: route.id,
+      eventId: "event-principal-1",
+      threadKey: "provider-thread-a",
+      conversationKey: "principal:owner",
+      conversationScope: "agent",
+      raw: { type: "ticket.created", text: "Continue from the first channel." },
+    });
+    const secondPrincipalRuns = await runtime.dispatchInbound({
+      routeId: route.id,
+      eventId: "event-principal-2",
+      threadKey: "provider-thread-b",
+      conversationKey: "principal:owner",
+      conversationScope: "agent",
+      raw: { type: "ticket.created", text: "Continue from another channel." },
+    });
+    assert.equal(firstPrincipalRuns.length, 2);
+    assert.deepEqual(
+      firstPrincipalRuns.map((run) => run.conversationId).sort(),
+      secondPrincipalRuns.map((run) => run.conversationId).sort(),
+      "An explicit agent-scoped conversation key must join provider threads without merging agents.",
+    );
+    assert.ok(firstPrincipalRuns.every((run) => run.conversationId?.includes("principal%3Aowner")));
+
     await new Promise((resolveWait) => setTimeout(resolveWait, 25));
     assert.equal(runtime.listApplicationConnections()[0]?.status, "connected");
   } finally {

@@ -9,7 +9,7 @@ import type {
   SubscriberEvent,
   SubscriberEventDataMap,
 } from "glove-core";
-import { Displaymanager, Glove } from "glove-core";
+import { Glove } from "glove-core";
 import { mountMesh } from "glove-mesh";
 import { Effect } from "effect";
 import { signal, type AnySignal } from "station-signal";
@@ -86,6 +86,11 @@ import {
   type FoundryReplDefinition,
   type FoundryWorkingEnvironmentDefinition,
 } from "./workbench.js";
+import {
+  FOUNDRY_APPROVAL_DIRECTORY_ENV,
+  FoundryApprovalDisplayManager,
+  withFoundryPermissions,
+} from "./approval.js";
 
 const INBOX_ITEMS_SCHEMA = z.array(z.object({
   id: z.string().min(1),
@@ -298,8 +303,9 @@ async function runDefinition(
         workspaceId: request.workspaceId,
       })
     : null;
+  const runtimeStore = store ? withFoundryPermissions(store) : null;
   const history = Object.freeze(
-    (store ? await store.getMessages() : []).map(freezeGloveMessage),
+    (runtimeStore ? await runtimeStore.getMessages() : []).map(freezeGloveMessage),
   );
   const message = toGloveMessage(request.message);
   const messages = Object.freeze([...history, message]);
@@ -342,7 +348,7 @@ async function runDefinition(
       history,
       messages,
       installations,
-      store,
+      store: runtimeStore,
       subscriber,
       controls,
     };
@@ -365,13 +371,26 @@ async function runDefinition(
       await Promise.all([
         resolveOptional("model", definition.model, HANDLER_ONLY_MODEL),
         resolveOptional("systemPrompt", definition.systemPrompt, ""),
-        resolveOptional("displayManager", definition.displayManager, new Displaymanager()),
+        resolveOptional(
+          "displayManager",
+          definition.displayManager,
+          new FoundryApprovalDisplayManager({
+            directory: process.env[FOUNDRY_APPROVAL_DIRECTORY_ENV],
+            runId,
+            definitionId: id,
+            agentId: request.agentId,
+            conversationId: request.conversationId,
+            workspaceId: request.workspaceId,
+            signal: abortController.signal,
+            emit: controls.emit,
+          }),
+        ),
         resolveOptional<number | undefined>("compactionLimit", definition.compactionLimit, undefined),
         resolveOptional("compactionInstructions", definition.compactionInstructions, "Preserve goals, decisions, unresolved work, tool results, and pending inbox items."),
         resolveOptional<number | undefined>("maxTurns", definition.maxTurns, undefined),
       ]);
     const base = new Glove({
-      ...(store ? { store } : {}),
+      ...(runtimeStore ? { store: runtimeStore } : {}),
       model,
       displayManager,
       systemPrompt,
@@ -509,6 +528,7 @@ async function runDefinition(
       context: assemblyContext,
       ...(workingEnvironment ? { workingEnvironment } : {}),
       ...(repl ? { repl } : {}),
+      deferRepl: Boolean(repl?.programmaticTools),
     });
     cleanups.push(workbench.dispose);
 
@@ -647,14 +667,20 @@ async function runDefinition(
     if (definition.configure) {
       await resolveResolvable(definition.configure(base, callContext));
     }
+    // Programmatic tool selection must see the complete live assembly: calls,
+    // dynamic installations, memory, mesh, and configure-mounted surfaces.
+    // Priming only after that selection also makes its capability catalog exact.
+    await workbench.mountRepl();
     const glove = definition.build
       ? (await resolveResolvable(definition.build(base, assemblyContext))) ?? base
       : base;
     const runtimeContext = { ...callContext, glove };
-    const defaultRun = async () =>
+    const defaultRun = async (
+      messageInput: FoundryMessageInput = assemblyContext.messageInput,
+    ) =>
       extractOutput(
         await glove.processRequest(
-          toGloveRequestInput(assemblyContext.messageInput),
+          toGloveRequestInput(messageInput),
           abortController.signal,
         ),
       );
@@ -667,7 +693,7 @@ async function runDefinition(
             messageInput,
             abortController.signal,
           )
-        : defaultRun();
+        : defaultRun(messageInput);
     const handlerContext = {
       ...runtimeContext,
       defaultRun,
@@ -713,6 +739,7 @@ export function compileAgentDefinition(
   const contentPartSchema = z.object({
     type: z.enum(["text", "image", "video", "document"]),
     text: z.string().optional(),
+    name: z.string().optional(),
     source: z.object({
       type: z.enum(["base64", "url"]),
       media_type: z.string(),
@@ -786,7 +813,7 @@ export function compileAgentDefinition(
       ]),
       origin: z.enum(["agent-definition", "agent-tool"]), scheduleName: z.string().optional(),
       definitionRevision: z.string().optional(),
-      status: z.enum(["pending", "active", "completed", "cancelled"]),
+      status: z.enum(["pending", "active", "paused", "completed", "cancelled"]),
       createdByRunId: z.string(), lastRunId: z.string().optional(),
       createdAt: z.string(), updatedAt: z.string(),
     })).default([]),

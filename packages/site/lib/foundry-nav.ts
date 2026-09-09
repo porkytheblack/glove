@@ -18,9 +18,9 @@ export const foundrySections: FoundryNavSection[] = [
         summary: "The framework, its boundaries, and the definition → instance → run model.",
       },
       {
-        label: "Installation",
+        label: "Setup wizard & CLI",
         href: "/foundry/docs/getting-started",
-        summary: "Scaffold, configure, run, inspect, and call your first file-routed agent.",
+        summary: "Interactive setup, templates, command and flag reference, and your first agent run.",
       },
     ],
   },

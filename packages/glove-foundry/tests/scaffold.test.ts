@@ -92,6 +92,11 @@ test("scaffolded dependencies match the versions this Foundry was built against"
     // A range narrower than what glove-foundry itself requires makes npm nest a
     // second copy of the package, and every shared class stops type-matching.
     const versions = await resolveTemplateVersions();
+    assert.equal(versions.resolved, true, "workspace dependencies must resolve from linked manifests, not stale fallbacks");
+    for (const [name, directory] of [["glove-core", "glove"], ["glove-memory", "glove-memory"]] as const) {
+      const linked = JSON.parse(await readFile(new URL(`../../${directory}/package.json`, import.meta.url), "utf8"));
+      assert.equal(versions.dependencies[name], `^${linked.version}`);
+    }
     assert.equal(manifest.dependencies["glove-foundry"], versions.foundry);
     for (const name of ["glove-core", "glove-js", "glove-memory", "glove-working-environment"]) {
       assert.equal(

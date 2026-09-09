@@ -4,6 +4,16 @@ Foundry uses the filesystem for code identity and imported values for code relat
 
 ## Create and run
 
+Use Node 20.12 or newer; Node 22.13+ is recommended and required by optional SQLite memory adapters. In a terminal, `init` opens a guided wizard: choose a directory, standalone or Next.js integration, guided or minimal starter, package manager, and dependency installation. Review the plan before any files are written. Arrow keys select, Enter confirms, and Ctrl+C cancels without creating the project. The wizard never requests credentials.
+
+For CI or repeatable setup, use explicit choices:
+
+```bash
+npx glove-foundry init support-workforce --yes --target standalone --template travel-concierge --package-manager pnpm --no-install
+```
+
+`--no-interactive` also skips prompts; piped input never opens them. `--interactive` requires a terminal. `--install` opts into installation in scripts; otherwise install dependencies yourself. Existing project files are preserved; installation failures leave the generated project available for retry. Use `glove foundry init --help` for all setup and runtime flags. The [setup wizard and CLI reference](https://glove.dterminal.net/foundry/docs/getting-started) walks through the entire first run.
+
 ```bash
 npx glove foundry init support-workforce
 cd support-workforce
@@ -13,6 +23,20 @@ pnpm dev
 ```
 
 `glove foundry dev` discovers the source graph, derives identities, checks types and conventions, generates `.foundry/routes.d.ts`, and starts the runtime and inspector.
+
+The HTTP server keeps JSON requests at 1 MB by default. For a trusted multimodal
+client that sends base64 images or documents, raise the explicit typed bound rather
+than removing it:
+
+```ts
+export default defineConfig({
+  server: { port: 4141, messageBodyBytes: 40 * 1024 * 1024 },
+})
+```
+
+Native Glove media parts may include a human-facing `name`. A custom `run` handler can
+persist or normalize those parts and then call `context.defaultRun(enrichedMessage)`
+to keep the standard Glove loop and conversation semantics.
 
 The generated project depends on the exact Glove versions the `glove-foundry` that created it was built against. That is not tidiness: a narrower range makes the package manager install a second copy of `glove-js`, and the two `JsSession` classes then fail to type-match.
 
@@ -49,7 +73,71 @@ The runtime is a separate process from `next dev`, deliberately — it holds dur
 
 Two details make this work in a Next.js project specifically. A Next.js app is not `"type": "module"`, so Node would load the agents through the CommonJS resolver and fail on Foundry's ESM-only export map; the nested `foundry/package.json` scopes ESM to the agent tree, and `.mts` makes the config unambiguous whatever the root declares.
 
-In production, set `FOUNDRY_URL` to wherever the runtime is deployed and keep it private to your network — the inspector is a development surface.
+In production, set `FOUNDRY_URL` to wherever the runtime is deployed and keep it
+inside a deliberate trust boundary. Loopback is the default. Foundry refuses to bind
+another interface unless `foundry.application.ts` supplies an Effect-native request
+authorization adapter:
+
+```ts
+import { Effect } from "effect"
+import { defineApplication } from "glove-foundry"
+
+export default defineApplication({
+  name: "Support workforce",
+  requestAuthorization: {
+    identifier: "company-control-auth",
+    challenge: 'Bearer realm="Support Foundry"',
+    authorize: request => Effect.tryPromise({
+      try: () => companyIdentityAdapter.authorize({
+        authorization: request.authorization,
+        cookie: request.cookie,
+        path: request.path,
+      }),
+      catch: cause => new Error("Control authorization unavailable", { cause }),
+    }),
+  },
+})
+```
+
+This is verification, not credential acquisition: your adapter owns tokens, cookies,
+OIDC/trusted-proxy identity, refresh, revocation, and rate policy. The result is only
+a boolean; credential material does not enter Foundry state, manifests, prompts, or
+events. Put TLS and a restrictive firewall/proxy in front of any network-visible
+listener.
+
+A remote typed client resolves its own headers at request time:
+
+```ts
+const foundry = createFoundryClient({
+  baseUrl: process.env.FOUNDRY_URL,
+  authorization: {
+    identifier: "company-control-client",
+    headers: () => companyIdentityAdapter.requestHeaders(),
+  },
+})
+```
+
+For a single-host deployment, persist Foundry's mutable data with the bundled atomic file adapter:
+
+```ts
+import { FileFoundryDataAdapter, defineApplication } from "glove-foundry"
+import { join } from "node:path"
+
+const data = new FileFoundryDataAdapter({
+  file: join(process.env.AGENT_DATA_DIR ?? ".data", "foundry.json"),
+  agents: [primaryInstance],
+  conversations: [primaryConversation],
+  subscriptions: [inboundSubscription],
+})
+
+export default defineApplication({
+  name: "Support workforce",
+  data,
+  conversationStore: createConversationStore,
+})
+```
+
+`FileFoundryDataAdapter` coordinates sibling execution processes with an advisory lock and commits by atomic rename. It persists instances, subscriptions, delivery claims, activations, conversations, workspace data, VFS snapshots, inbox items, tasks, and non-secret environment data. Use a transactional database adapter when several hosts need to share the same state.
 
 ## The filesystem is the static registry
 
@@ -129,6 +217,50 @@ export const components = composeAgent(helpdesk, customerLookup, customerMemory)
 
 `composeAgent` builds the agent-local catalogue. It does not install applications, MCPs, or shared tools. An instance selects those dynamically.
 
+### HTTP and stdio MCP definitions
+
+An MCP definition is a typed catalogue entry, not a global connection. Its instance
+installation decides whether it is present for an agent. HTTP remains concise; stdio
+uses an explicit transport:
+
+```ts
+const projectTools = defineMcp({
+  description: "Approved project operations",
+  entry: {
+    name: "Project tools",
+    description: "Search and update the mounted project",
+    transport: {
+      kind: "stdio",
+      command: "/opt/agents/project-mcp",
+      args: ["--stdio"],
+    },
+    includeTools: ["search_*", "read_*", "create_issue"],
+    excludeTools: ["delete_repository"],
+    resources: true,
+    prompts: false,
+    connectTimeoutMs: 15_000,
+    requestTimeoutMs: 60_000,
+    idleTimeoutMs: 15 * 60_000,
+    maxLifetimeMs: 24 * 60 * 60_000,
+  },
+})
+```
+
+For HTTP, return `{ url: "https://mcp.example.com/mcp", ... }` or an explicit
+`{ transport: { kind: "http", url }, ... }`. Authentication and stdio environment
+values are connection-time adapter concerns: implement `getAuthHeaders` /
+`getAccessToken` for HTTP and `getStdioEnvironment` for stdio. Never place their
+resolved values in definition config, installation data, manifests, or events.
+
+`includeTools` and `excludeTools` accept exact un-namespaced names or globs. A
+non-empty allowlist is authoritative. `resources` and `prompts` independently control
+capability-aware list/read and list/get utility tools. Selection and defensive result sanitization happen at the shared MCP
+connection boundary, so boot reload, lazy activation, and scratchpad bridges see
+the same safe capability set. Finite connection and request timeouts keep broken
+servers from stalling a run indefinitely.
+Stdio-only idle and lifetime limits can recycle memory-heavy children without
+interrupting in-flight calls; adapter environment values are resolved again on reopen.
+
 ## Mount a working environment, VFS, and REPL
 
 Foundry mounts the native Glove packages; it does not reimplement their sandboxes. A working environment supplies a persistent virtual filesystem, named scripts, checkpoints, history, artifact export, and a closed model-facing verb set. A REPL is a separate computation surface over registered functions.
@@ -172,6 +304,18 @@ export function createRepl(actor: string) {
     language: "javascript",
     session,
     mount: { discovery: "auto" },
+    programmaticTools: {
+      maxCalls: 50,
+      select: ({ tools }) => tools
+        .filter((tool) => tool.name.startsWith("workspace_"))
+        .map((tool) => ({
+          tool,
+          name: `workspace__${tool.name.slice("workspace_".length)}`,
+          server: "workspace",
+          readOnly: ["workspace_read_file", "workspace_ls", "workspace_grep"]
+            .includes(tool.name),
+        })),
+    },
   })
 }
 ```
@@ -191,6 +335,23 @@ export default defineAgent({
 ```
 
 `workingEnvironment` and `repl` accept the same direct-value-or-lazy-resolver shape as the other assembly fields. JavaScript, Python, and Lisp sessions are supported through one discriminated `defineRepl` API. Foundry exposes the mounted `workingEnvironment`, its guarded `vfs` handle, and the native `repl` session to layers, `configure`, calls, and `run` handlers.
+
+`programmaticTools` turns an explicit least-privilege projection of the live
+agent tool registry into functions inside that sandbox. The selector runs after
+application transmissions, instance-installed tools and MCPs, calls, memory,
+mesh, and `configure`, so it sees the actual message-specific assembly. It must
+return those exact tool objects (or `{ tool, ...discoveryMetadata }` wrappers),
+not copied names. Nothing is projected by default.
+
+This is the programmatic tool-calling path for workflows with several reads,
+loops, filters, or branches: the model writes one complete program and only its
+last, structurally bounded value returns to conversation context. A shared
+`maxCalls` budget defaults to 50 for the assembled run. Foundry validates Zod
+inputs again, forwards cancellation, records safe started/completed/failed
+events for each underlying call, and refuses to execute a tool whose current
+input requires interactive approval. The agent must call that tool normally so
+the approval surface remains visible. Do not select outbound or destructive
+tools merely because a sandbox can call them.
 
 The working environment is closed after every Foundry run. Add a persistence adapter to restore its VFS on the next run. `foundryDataEnvironmentPersistence` uses the data adapter's private snapshot seam, derives ownership from the definition and instance or conversation, and never exposes VFS contents as workspace entries. It requires a durable `FoundryDataAdapter` shared by execution workers. For high-concurrency or large trees, provide a native persistent `Vfs` such as `cachedRemote` in the environment options and let that adapter own locking and storage credentials.
 
@@ -257,6 +418,7 @@ const tickets = defineTransmission({
     config: Schema.Struct({ queue: Schema.String }),
     input: Schema.Struct({ threadId: Schema.String, body: Schema.String }),
     output: Schema.Struct({ messageId: Schema.String }),
+    observe: ({ threadId, body }) => ({ threadId, characters: body.length }),
     adapter: { deliver: (input) => userTicketAdapter.deliver(input) },
   },
 })
@@ -278,7 +440,52 @@ export default defineApp({
 })
 ```
 
-The application can own multiple inbound and outbound transmissions. Installing it mounts outbound transmissions as validated tools. Connections remain dormant until an active instance or subscription needs the installed app and playbook.
+The application can own multiple inbound and outbound transmissions. Installing it mounts outbound transmissions as validated tools. Each generated tool awaits the parent-owned delivery adapter and returns its output after the transmission's output schema validates it. The agent subprocess never receives provider credentials or an account session. Cancellation propagates back to adapters through `context.signal`. Connections remain dormant until an active instance or subscription needs the installed app and playbook.
+
+Outbound inputs cross the worker boundary through a private, mode-0600 command record rather than the event stream or child stdout. Foundry deletes a settled exchange. Retained observability is redacted by default; define `outbound.observe(input)` when the transmission can expose a deliberate, secret-safe projection such as a route, byte count, or digest. Never return credentials or file bodies from that projection.
+
+Outbound adapters that select an account receive `context.withAccountSession`. Use it to enter the same user-owned, operation-scoped credential boundary used by application installers and inbound connections:
+
+```ts
+adapter: {
+  deliver: (input, context) => context.withAccountSession!(
+    "tickets:reply",
+    session => sendTicketReply(session, input, context.signal),
+  ),
+}
+```
+
+The session value is never added to Foundry data or observability. Credential acquisition, refresh, SDK construction, and cleanup remain responsibilities of the adapter supplied on the agent definition.
+
+Inbound connections normally isolate conversations by route and `threadKey`. A
+trusted identity adapter can additionally provide an agent-scoped
+`conversationKey` when two authenticated external identities represent the same
+principal:
+
+```ts
+yield* context.receive({
+  route,
+  eventId: event.id,
+  threadKey: providerThread.id,
+  conversationKey: `principal:${resolvedIdentity.id}`,
+  conversationScope: "agent",
+  awaitCompletion: true,
+  raw: event,
+})
+```
+
+Foundry reuses an existing conversation whose data context has that key, or creates
+a deterministic conversation for the agent. The transport thread remains on the
+event and outbound route, so joining private history never changes where a reply is
+delivered. Only use this after an adapter authenticates and explicitly links the
+identities; route-scoped isolation remains the default.
+
+`receive()` normally resolves once matching runs have been durably dispatched. Set
+`awaitCompletion: true` for a stateful chat or voice transport that must not accept
+the next turn until every subscribed run reaches a terminal state. This keeps a
+conversation transcript ordered without changing direct requests or unrelated
+connections. A high-throughput adapter can instead keep the default and implement
+its own per-conversation queue.
 
 ## Config is inferred from its definition
 
@@ -423,10 +630,130 @@ glove_foundry_sleep({
 
 glove_foundry_schedules({ action: "list" })
 glove_foundry_schedules({ action: "update", activationId, timing: { kind: "every", interval: "2h" } })
+glove_foundry_schedules({ action: "pause", activationId })
+glove_foundry_schedules({ action: "resume", activationId })
 glove_foundry_schedules({ action: "cancel", activationId })
 ```
 
-Schedules are agent-local composable values; Foundry has no root schedule registry or automatically discovered schedule files. Immediate spawning, future activation, recurrence, management, and suspension are separate runtime operations. Foundry stores activation state through `FoundryDataAdapter` before arming its private execution backend, so a durable adapter can reconstruct pending work on startup. Sleep preserves the instance and conversation so the wake-up resumes with the same stored context.
+Schedules are agent-local composable values; Foundry has no root schedule registry or automatically discovered schedule files. Immediate spawning, future activation, recurrence, management, and suspension are separate runtime operations. Pausing disarms a trigger without losing its message, timing, payload, ownership, or definition provenance; edits made while paused remain paused until an explicit resume. Foundry stores activation state through `FoundryDataAdapter` before arming its private execution backend, so a durable adapter can reconstruct active work—and keep paused work disarmed—on startup. Sleep preserves the instance and conversation so the wake-up resumes with the same stored context.
+
+Schedule management reloads the owning instance's persisted activations on each
+tool call and overlays the current run's pending commands. A recurring run can
+therefore inspect and cancel its own trigger even when it was inserted after the
+assembly snapshot. Another instance's schedules do not appear in that tool view.
+
+For an application-specific loop or goal controller, reuse these tools and store
+the policy in `FoundryDataAdapter`; do not create another timer service. Mount native
+`glove-memory/goals` for goal tracking. Durable coordination can use the optional
+`compareAndSetWorkspaceEntry(entry, expectedUpdatedAt)` adapter method: `null`
+means the key must be absent, an update compares the previously read timestamp,
+and every accepted replacement must advance that timestamp. Validate the value
+with the consumer's schema and retry conflicts against fresh state. Both bundled
+adapters support it; database adapters should implement it transactionally. Every
+writer to that coordinated key must use the same contract.
+
+## Client and control protocols
+
+Foundry exposes one runtime through three HTTP shapes. The native `/api` routes are
+the typed control plane used by `createFoundryClient`. OpenAI-compatible clients can
+use streaming or non-streaming `/v1/chat/completions` and `/v1/responses`. Automation
+hosts can create an asynchronous run, inspect it, follow its events, and stop it:
+
+```text
+POST /v1/runs
+GET  /v1/runs/:runId
+GET  /v1/runs/:runId/events
+POST /v1/runs/:runId/stop
+POST /v1/runs/:runId/steer
+GET  /v1/capabilities
+GET  /health/detailed
+```
+
+All three paths resolve the supplied model to a persisted agent instance and write
+into a durable conversation. Reuse `conversation_id`, `user`, or the returned
+`x-foundry-conversation-id` header to continue the same conversation. Run-event
+requests return JSON by default and become live server-sent events when the client
+sends `Accept: text/event-stream`.
+
+`/v1/capabilities` is authoritative: a client must inspect it instead of assuming a
+control feature exists. Steering is explicitly `interrupt-and-restart`: Foundry
+cooperatively cancels active work, waits for a terminal boundary, then starts the
+guidance as a replacement run in the same durable conversation with lineage back to
+the source. It never injects arbitrary text halfway through a tool side effect.
+The typed client exposes the same boundary as `handle.steer(message)`, returning a
+new run handle plus the source id and whether active work was interrupted.
+
+Build chat hosts with `createFoundryClient`: resume durable conversations, read
+`conversationTranscript`, follow correlated run events, and route new guidance
+during active work through the typed steering operation.
+
+## Effect approvals
+
+A Glove tool can set `requiresPermission: true` or return a boolean from
+`requiresPermission(input)`. In Foundry, an unset decision becomes a public,
+expiring approval record rather than an unresolved in-process display promise.
+The worker pauses; a trusted host lists and resolves the exact request:
+
+```ts
+const [approval] = await client.approvals({
+  runId: handle.id,
+  status: "pending",
+});
+
+if (approval) {
+  await client.resolveApproval(approval.id, "approve"); // or "deny"
+}
+```
+
+Approval identity includes the agent instance, conversation, run, tool name, and
+serialized tool input. Decisions are fail-closed when the channel is unavailable,
+the run is cancelled, or the request expires. A custom conversation store that
+omits permission methods receives a per-run exact-input overlay; stores that
+implement Glove permissions may persist the decision under their own policy.
+The inspector shows pending decisions on its overview and on the blocked run, with
+the exact payload and direct approve/deny controls.
+
+## Voice hosts
+
+Voice is a host adapter, not a second agent-definition vocabulary. Keep realtime
+audio, provider turn detection, interruption, telephony, and device access in the
+host. Delegate substantive work to a persisted Foundry instance and conversation
+through the native client or `/v1/responses`; the resulting run stays durable and
+observable.
+
+Use `glove-voice-s2s` for Gemini Live or OpenAI Realtime and `glove-voice` for a
+speech-to-text / Glove / text-to-speech pipeline. A realtime host can expose a
+delegation tool backed by the typed Foundry client, or mount `RealtimeAgent` against
+the assembled Glove in a scoped layer. Stop the voice session in the layer's
+cleanup. Keep provider credentials and audio device access in the host adapter.
+
+`examples/foundry-braind-storm` demonstrates a voice lead delegating durable work
+to Foundry agents. Phone bridges, LiveKit rooms and native audio hosts can use the
+same instance/conversation boundary. Messenger-specific voice gateways and codecs
+are consumer adapters, not built-in Foundry telephony services.
+
+Core 4 runtime context is transient: goals, forms and pinned memory reach the model
+without rewriting system instructions or persisted user turns. Native realtime
+agents refresh that context silently at startup and after tool calls. Call
+`await realtime.refreshContext()` after externally changing it, and forward
+`addContextProvider` and `getRuntimeContext` from any custom runnable wrapper.
+
+### Durable knowledge and documents
+
+Persist conversation history, structured memory and VFS files separately. A durable
+Foundry data adapter alone does not make an in-memory Glove store durable. For
+single-host Node 22.13+ deployments, `glove-memory/sqlite` provides
+`createSqliteMemoryAdapters({ file, namespace, schema })` for entity, episodic,
+resource and pinned-context memory. Select namespaces from trusted instance
+identity, not incoming tool input. See the [memory persistence guide](../../glove-memory/README.md).
+
+Mount `documents()` from `glove-env-documents` through
+`defineWorkingEnvironment({ options: { stdlib: [documents()] }, persistence })`.
+It supplies native PDF and DOCX creation, inspection, editing and extraction within
+the guarded VFS. Add the optional PDF extraction and rendering dependencies where
+needed. Pass documents between agents as authorized durable artifact references;
+do not copy entire file bodies into orchestration events. Persist the VFS before
+run cleanup. See the [document adapter](../../glove-env-documents/README.md).
 
 ## Boundary checklist
 
@@ -440,3 +767,4 @@ Schedules are agent-local composable values; Foundry has no root schedule regist
 - VFS persistence, remote storage, and locking remain adapter-owned.
 - Transmissions own executable integration logic; playbooks remain serializable policy.
 - Provider adapters own credential acquisition and refresh.
+- Voice and device hosts own audio transport while Foundry owns the durable agent run.

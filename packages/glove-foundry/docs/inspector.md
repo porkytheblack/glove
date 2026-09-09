@@ -10,13 +10,43 @@ The development server includes a read-oriented runtime inspector. It is organiz
 | Agents | Which definitions exist, which instances were provisioned, and how do they differ? |
 | Agent definition | What can this code route assemble, including lazy fields, capabilities, native surfaces, schedules, and playbooks? |
 | Agent instance | Which context, installations, playbooks, conversations, and runs belong to this persisted identity? |
+| Chat | What has this exact instance/conversation said, and how can I continue, stop, or redirect it? |
 | Runs | Which invocations occurred and what status, source, and attempt count did each have? |
 | Run detail | What observable phases and events produced this outcome? |
 | Automations | Which schedules, sleeping runs, playbook listeners, and inbound application workers exist? |
 | Integrations | Which transmissions, safe account references, routes, and agent bindings form the external topology? |
 | Workspaces | Which shared entries, inbox items, tasks, and non-secret environment values are available? |
 
-Every detail view has a real URL. For example, `/agents/support-lead`, `/instances/<agent-id>`, and `/runs/<run-id>` can be bookmarked or opened directly; the Foundry server returns the inspector shell for non-API paths.
+Every detail view has a real URL. For example, `/agents/support-lead`, `/instances/<agent-id>`, `/chat/<conversation-id>?agent=<agent-id>`, and `/runs/<run-id>` can be bookmarked or opened directly; the Foundry server returns the inspector shell for non-API paths.
+
+The inspector and APIs share one authorization boundary. Loopback remains the
+development default. Foundry refuses a non-loopback bind without the application's
+`requestAuthorization` adapter; when configured, every HTML, API, health, and event
+stream request must pass it. The adapter owns credential/session validation and the
+browser challenge, while Foundry keeps credential values out of state and traces.
+
+## Talking to an agent
+
+**Chat** is a browser conversation client, not a second transcript system. Select a
+runtime instance in the left rail, create or reopen any of its conversations, and
+send text, images, video, or documents. The page reads native Glove `Message`
+records from the definition or root `conversationStore`, including tool calls and
+results. Recent history loads first; **Earlier** and **Newer** page through long
+sessions without putting an unbounded transcript into the browser. It also displays
+the store's turn and token counters. When no store is
+configured the page says that history is unavailable instead of inventing history
+from run output or observability events.
+
+During an active turn the conversation shows safe runtime progress and links to the
+complete run trace. Provider-approved `text_delta` events form a transient assistant
+bubble while work is active; when the run settles, the exact stored message replaces
+that projection. Buffered output from failed provider attempts never reaches the page.
+**Stop** cooperatively cancels it. Sending another message while
+it is active becomes **Redirect**: Foundry interrupts at a run boundary and creates
+a replacement run in the same conversation with steering lineage. Session routing
+is explicit in the URL, and every refresh reloads history from the server. New
+conversations take the first text turn as their initial title and can be renamed
+later without changing their stable conversation identity.
 
 ## Following a run
 
@@ -80,6 +110,9 @@ Every truncated identifier in the inspector has a copy button, so the full run, 
 The inspector is an API client and adds no hidden runtime state. Its primary read surfaces are:
 
 - `/api/manifest`, `/api/agent-instances`, and `/api/conversations`
+- `/api/conversations/:id/messages?agent=<agent-id>` for exact adapter-backed history
+- `POST /api/conversations/:id/messages` and `/api/runs/:id/cancel|steer`
+- `PATCH /api/conversations/:id` for an instance-owned title or context update
 - `/api/runs`, `/api/runs/:id`, and `/api/events`
 - `/api/activations` and `/api/playbook-subscriptions`
 - `/api/application-connections`

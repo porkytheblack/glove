@@ -22,7 +22,9 @@ export const ResourceBodySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text"), text: z.string() }),
   z.object({ type: z.literal("markdown"), text: z.string() }),
   z.object({ type: z.literal("url"), url: z.string(), cachedText: z.string().optional() }),
-]);
+]).meta({ type: "object" }).describe(
+  'A JSON object, never a string: {"type":"text","text":"..."}, {"type":"markdown","text":"..."}, or {"type":"url","url":"...","cachedText":"..."}.',
+);
 
 export const ResourceMetadataSchema = z
   .object({

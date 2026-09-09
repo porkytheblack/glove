@@ -7,6 +7,8 @@
     "src",
     "tests/forms-types.ts",
     "tests/goals-types.ts",
+    "tests/sqlite.test.ts",
+    "tests/fixtures/sqlite-worker.ts",
     "examples/shared-facts.ts"
   ]
 }

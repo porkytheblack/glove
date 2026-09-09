@@ -163,9 +163,10 @@ export interface FoundryExecutionContext<TInput = unknown>
 }
 export interface AgentHandlerContext<TInput = unknown>
   extends FoundryExecutionContext<TInput> {
-  readonly defaultRun: () => Promise<unknown>;
+  /** Run the standard Glove loop, optionally with a handler-enriched message. */
+  readonly defaultRun: (message?: FoundryMessageInput) => Promise<unknown>;
   /** @deprecated Use defaultRun. */
-  readonly defaultHandler: () => Promise<unknown>;
+  readonly defaultHandler: (message?: FoundryMessageInput) => Promise<unknown>;
   readonly spawn: (message?: FoundryMessageInput) => Promise<unknown>;
 }
 
@@ -436,13 +437,24 @@ export interface DefineFoundrySubagentOptions {
   readonly compactionInstructions?: string;
   readonly maxTurns?: number;
   readonly enableToolResultSummary?: boolean;
-  readonly tools?: ReadonlyArray<GloveFoldArgs<any>>;
+  /**
+   * A fixed tool set, or an invocation-time projection of the fully assembled
+   * parent. The resolver makes least-privilege delegation possible without
+   * copying application/MCP tools into static agent code.
+   */
+  readonly tools?: ReadonlyArray<GloveFoldArgs<any>> | ((context: FoundrySubagentToolContext) => Resolvable<ReadonlyArray<GloveFoldArgs<any>>>);
   readonly hooks?: ReadonlyArray<FoundryHookDefinition>;
   readonly skills?: ReadonlyArray<DefineSkillArgs>;
   readonly subagents?: ReadonlyArray<DefineSubAgentArgs>;
   readonly layers?: ReadonlyArray<FoundryLayer<any>>;
   readonly subscribers?: ReadonlyArray<FoundrySubscriber | SubscriberAdapter>;
   readonly configure?: (context: FoundrySurfaceContext<string>) => Resolvable<void>;
+}
+
+export interface FoundrySubagentToolContext {
+  readonly name: string;
+  readonly prompt: string;
+  readonly parent: IGloveRunnable;
 }
 
 export function defineSubagent(options: DefineFoundrySubagentOptions): DefineSubAgentArgs {
@@ -452,6 +464,13 @@ export function defineSubagent(options: DefineFoundrySubagentOptions): DefineSub
     description: options.description,
     factory: async ({ parentStore, parentControls, prompt }: SubAgentFactoryContext) => {
       const store = (await parentStore.createSubAgentStore?.(options.name, options.durable ?? false)) ?? undefined;
+      const tools = typeof options.tools === "function"
+        ? await resolveResolvable(options.tools({
+            name: options.name,
+            prompt,
+            parent: parentControls.glove,
+          }))
+        : options.tools ?? [];
       const glove = new Glove({
         ...(store ? { store } : {}),
         model: options.model ?? parentControls.glove.model,
@@ -467,7 +486,7 @@ export function defineSubagent(options: DefineFoundrySubagentOptions): DefineSub
         },
         ...(options.enableToolResultSummary !== undefined ? { enableToolResultSummary: options.enableToolResultSummary } : {}),
       }).build();
-      for (const tool of options.tools ?? []) glove.fold(tool);
+      for (const tool of tools) glove.fold(tool);
       for (const hook of options.hooks ?? []) glove.defineHook(hook.name, hook.handler);
       for (const skill of options.skills ?? []) glove.defineSkill(skill);
       for (const subagent of options.subagents ?? []) glove.defineSubAgent(subagent);

@@ -27,6 +27,7 @@ import {
   type FoundryTemplateName,
 } from "./scaffold.js";
 import { FoundryServer } from "./server.js";
+import { InitCancelled, installProject, promptInit, useInteractiveInit } from "./init.js";
 
 interface ParsedArgs {
   command?: string;
@@ -55,6 +56,10 @@ Create options:
                                     Next.js app gets the nextjs target, which adds
                                     agents under foundry/ and leaves the app alone.
   --package-manager <name>        pnpm, npm, yarn, or bun (detected by lockfile)
+  --yes                          Use defaults without interactive prompts
+  --no-interactive               Same non-interactive behavior, suitable for CI
+  --interactive                  Require an interactive terminal
+  --install / --no-install       Install dependencies now / leave installation to you
 
 Run options:
   --root <directory>              Project root (default: current directory)
@@ -72,13 +77,17 @@ function parseArgs(raw: string[]): ParsedArgs {
   const args = [...raw];
   const gloveSyntax = args[0] === "foundry";
   if (gloveSyntax) args.shift();
-  const command = args[0];
+  const command = args[0]?.startsWith("--") ? undefined : args[0];
   const positional: string[] = [];
   const flags: Record<string, string | boolean> = {};
-  for (let index = 1; index < args.length; index++) {
+  for (let index = command ? 1 : 0; index < args.length; index++) {
     const value = args[index]!;
     if (value.startsWith("--")) {
       const name = value.slice(2);
+      if (["yes", "no-interactive", "interactive", "install", "no-install", "help", "no-watch"].includes(name)) {
+        flags[name] = true;
+        continue;
+      }
       const next = args[index + 1];
       if (next && !next.startsWith("--")) {
         flags[name] = next;
@@ -173,6 +182,8 @@ async function runWorker(parsed: ParsedArgs): Promise<void> {
       typeof parsed.flags.port === "string"
         ? Number(parsed.flags.port)
         : config.server?.port ?? DEFAULT_FOUNDRY_CONFIG.server.port,
+    branding: config.branding,
+    messageBodyBytes: config.server?.messageBodyBytes,
   });
   const listening = await server.listen();
   await runtime.health();
@@ -385,7 +396,11 @@ function flagValue<T extends string>(
   return raw as T;
 }
 
-async function create(directory: string, parsed: ParsedArgs): Promise<void> {
+async function create(directory: string | undefined, parsed: ParsedArgs): Promise<void> {
+  const supported = new Set(["template", "target", "package-manager", "yes", "no-interactive", "interactive", "install", "no-install"]);
+  for (const flag of Object.keys(parsed.flags)) if (!supported.has(flag)) throw new UsageError(`Unknown create option --${flag}.`);
+  if (parsed.positional.length > 1) throw new UsageError("Provide only one project directory.");
+  if (parsed.flags.install && parsed.flags["no-install"]) throw new UsageError("Choose either --install or --no-install.");
   const template = flagValue<FoundryTemplateName>(parsed, "template", FOUNDRY_TEMPLATES);
   const target = flagValue<FoundryScaffoldTarget>(parsed, "target", ["standalone", "nextjs"]);
   const packageManager = flagValue<FoundryPackageManager>(
@@ -393,12 +408,34 @@ async function create(directory: string, parsed: ParsedArgs): Promise<void> {
     "package-manager",
     ["pnpm", "npm", "yarn", "bun"],
   );
-  const result = await scaffoldFoundryProject({
-    directory,
+  let interactive: boolean;
+  try { interactive = useInteractiveInit(parsed.flags, Boolean(process.stdin.isTTY && process.stdout.isTTY)); }
+  catch (error) { throw new UsageError(error instanceof Error ? error.message : String(error)); }
+  const selected = {
+    ...(directory ? { directory } : {}),
     ...(template ? { template } : {}),
     ...(target ? { target } : {}),
     ...(packageManager ? { packageManager } : {}),
-  });
+    ...(parsed.flags.install ? { install: true } : parsed.flags["no-install"] ? { install: false } : {}),
+  };
+  const options = interactive ? await promptInit(selected) : { ...selected, directory: directory ?? "glove-foundry-app", install: selected.install ?? false };
+  const ui = interactive ? await import("@clack/prompts") : undefined;
+  const progress = ui?.spinner();
+  progress?.start("Creating your agent application");
+  let result;
+  try { result = await scaffoldFoundryProject(options); }
+  catch (error) { progress?.stop("Project was not created"); throw error; }
+  progress?.stop("Project files are ready");
+  let installed = false;
+  if (options.install) {
+    ui?.log.step(`Installing dependencies with ${result.packageManager}`);
+    try { await installProject(result.rootDir, result.packageManager); installed = true; }
+    catch (error) {
+      process.exitCode = 1;
+      const message = `Project files are safe. Installation failed: ${error instanceof Error ? error.message : String(error)} Run ${result.packageManager} install in the project to retry.`;
+      if (ui) ui.log.warn(message); else process.stderr.write(`${message}\n`);
+    }
+  }
 
   const where = displayPath(result.rootDir);
   const pm = result.packageManager;
@@ -417,7 +454,7 @@ async function create(directory: string, parsed: ParsedArgs): Promise<void> {
     lines.push("");
     lines.push("  Next:");
     if (where !== ".") lines.push(`    cd ${where}`);
-    lines.push(`    ${install}`);
+    if (!installed) lines.push(`    ${install}`);
     lines.push(`    ${run("foundry:dev")}      # runtime + inspector on :4141`);
     lines.push(`    ${run("dev")}              # your Next.js app`);
   } else {
@@ -430,7 +467,7 @@ async function create(directory: string, parsed: ParsedArgs): Promise<void> {
     lines.push("  Next:");
     if (where !== ".") lines.push(`    cd ${where}`);
     lines.push("    cp .env.example .env.local");
-    lines.push(`    ${install}`);
+    if (!installed) lines.push(`    ${install}`);
     lines.push(`    ${run("dev")}`);
     lines.push("");
     lines.push("  Then open http://127.0.0.1:4141 and press Start a run.");
@@ -445,7 +482,8 @@ async function create(directory: string, parsed: ParsedArgs): Promise<void> {
     lines.push(`    ${result.versions.fellBack.join(", ")}`);
   }
   lines.push("");
-  process.stdout.write(lines.join("\n"));
+  if (ui) { ui.note(lines.join("\n").trim(), "Next steps"); ui.outro(process.exitCode ? "Project created. Retry dependency installation before starting." : "Your agent application is ready to explore. Open the README to begin."); }
+  else process.stdout.write(lines.join("\n"));
 }
 
 async function main(): Promise<void> {
@@ -457,18 +495,18 @@ async function main(): Promise<void> {
     await runWorker(parsed);
     return;
   }
-  if (["help", "--help", "-h"].includes(parsed.command ?? "")) {
+  if (parsed.flags.help || ["help", "--help", "-h"].includes(parsed.command ?? "")) {
     process.stdout.write(HELP);
     return;
   }
   const createByGloveSyntax = parsed.gloveSyntax &&
     parsed.command !== "dev" &&
     parsed.command !== "start";
-  if (parsed.command === "init" || createByGloveSyntax || (parsed.gloveSyntax && !parsed.command)) {
+  if (parsed.command === "init" || createByGloveSyntax || (!parsed.command && (process.stdin.isTTY || parsed.flags.yes))) {
     const directory =
       parsed.command === "init"
-        ? parsed.positional[0] ?? "glove-foundry-app"
-        : parsed.command ?? "glove-foundry-app";
+        ? parsed.positional[0]
+        : parsed.command ?? parsed.positional[0];
     await create(directory, parsed);
     return;
   }
@@ -484,6 +522,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
+  if (error instanceof InitCancelled) { process.exitCode = 130; return; }
   if (error instanceof UsageError) {
     process.stderr.write(`\n  ${error.message}\n\n  Run "glove foundry help" for usage.\n\n`);
   } else {

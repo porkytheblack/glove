@@ -27,6 +27,7 @@ import {
   bindFileIdentity,
   type FoundryFileDefinitionKind,
 } from "./identity.js";
+import { composedToolDefinition } from "./composition.js";
 
 const AGENT_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".js", ".mjs"]);
 
@@ -130,15 +131,22 @@ export async function bindAgentLocalDefinitions(
     if (!matched) continue;
     const filePath = resolve(agentDirectory, entry);
     const url = pathToFileURL(filePath);
-    const imported = (await import(url.href)) as { default?: unknown };
-    const value = imported.default;
+    const imported = (await import(url.href)) as Record<string, unknown>;
+    const value = matched.kind === "tool"
+      ? (
+          (imported.default && typeof imported.default === "object" &&
+              (imported.default as Record<PropertyKey, unknown>)[matched.brand] === true)
+            ? imported.default
+            : composedToolDefinition(imported.default ?? imported)
+        )
+      : imported.default;
     if (
       !value ||
       typeof value !== "object" ||
       (value as Record<PropertyKey, unknown>)[matched.brand] !== true
     ) {
       throw new Error(
-        `${normalizePath(relative(agentDirectory, filePath))} must default-export its Foundry ${matched.kind} definition so the file can own its identity.`,
+        `${normalizePath(relative(agentDirectory, filePath))} must ${matched.kind === "tool" ? "export a Glove tool body or default-export" : "default-export"} its Foundry ${matched.kind} definition so the file can own its identity.`,
       );
     }
     const route = localDefinitionRoute(agentDirectory, filePath, matched.suffix);

@@ -48,9 +48,27 @@ pnpm dev
 \`\`\`
 
 After the package is installed, \`glove foundry dev\` and
-\`glove foundry start\` are available. Node.js 20+ is required. Development mode
+\`glove foundry start\` are available. Node.js 20.12+ is required; 22.13+ is recommended for SQLite memory. Development mode
 generates \`.foundry/routes.d.ts\`, starts the runtime and inspector, and watches
 definitions. Configuration is typed with \`defineConfig\`.
+
+## Setup wizard and CLI
+
+Run \`npx glove-foundry init\` in a terminal for Clack's guided setup: directory,
+standalone or Next.js integration, guided travel-concierge or minimal starter,
+package manager, optional dependency installation, and confirmation before writes.
+Arrow keys select, Enter confirms, Ctrl+C cancels. No API keys are collected.
+Use \`--yes\` or \`--no-interactive\` for scripts. Non-TTY input never waits for a
+prompt. \`--interactive\` requires a terminal. \`--install\` / \`--no-install\`
+controls installation; non-interactive setup does not install by default.
+Supported flags: \`--template travel-concierge|minimal\`,
+\`--target standalone|nextjs\`, \`--package-manager pnpm|npm|yarn|bun\`, \`--help\`.
+Runtime commands: \`glove foundry dev\`, \`glove foundry start\` and
+\`glove foundry help\`; options include \`--root\`, \`--port\`, \`--host\`, \`--no-watch\`.
+The guided starter runs without a key; minimal needs OPENROUTER_API_KEY in
+consumer-managed .env.local. Restart after editing environment values. Demo
+storage is disposable: configure separate runtime, conversation, native memory
+and VFS persistence adapters before production.
 
 ## Identity and references
 
