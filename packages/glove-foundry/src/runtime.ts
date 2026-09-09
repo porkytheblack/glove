@@ -7,6 +7,8 @@ import {
   Schema,
 } from "effect";
 import { EnvStore, MemoryEnvStorage } from "station-env";
+import { hostname } from "node:os";
+import { randomUUID } from "node:crypto";
 import {
   MemoryAdapter,
   parseInterval,
@@ -14,6 +16,7 @@ import {
   type AnySignal,
   type EnvProvider,
   type Run,
+  type SignalQueueAdapter,
 } from "station-signal";
 import {
   ScheduleMemoryAdapter,
@@ -172,6 +175,39 @@ interface ResolvedExecutionConfig {
   readonly idlePollIntervalMs: number;
 }
 
+/**
+ * Identity this process records on every run it claims. Two processes sharing
+ * a queue must differ, so the generated form carries host, pid and a random
+ * suffix — a restart is a new station, which is what makes its abandoned runs
+ * recoverable rather than silently re-owned.
+ */
+function generateStationId(): string {
+  return `foundry-${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
+}
+
+/**
+ * Borrow an adapter without taking responsibility for its lifetime.
+ *
+ * `SignalRunner.stop()` closes its adapter unconditionally, which is right for
+ * one Foundry owns and wrong for one the application built — that adapter may
+ * share a connection pool with the data adapter, and closing it would take the
+ * application's storage down with the runtime. Hiding `close` leaves the
+ * runner's other calls untouched and keeps the ownership rule structural.
+ */
+function borrowSignalAdapter(adapter: SignalQueueAdapter): SignalQueueAdapter {
+  return new Proxy(adapter, {
+    get(target, property, receiver) {
+      if (property === "close") return undefined;
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+    has(target, property) {
+      if (property === "close") return false;
+      return Reflect.has(target, property);
+    },
+  });
+}
+
 function parseJson(value: string | undefined): unknown {
   if (value === undefined) return undefined;
   try {
@@ -231,6 +267,8 @@ export class FoundryRuntime {
   private readonly envStore: EnvStore;
   private readonly envProvider: EnvProvider;
   private readonly scheduleAdapter: ScheduleAdapter;
+  /** False when the application supplied the schedule store and owns closing it. */
+  private readonly ownsScheduleAdapter: boolean;
   private readonly services: EffectManagedRuntime.ManagedRuntime<
     AccountDirectory | TopologyStore | EventStore | GrantResolver,
     unknown
@@ -369,8 +407,16 @@ export class FoundryRuntime {
         return resolvedEnvironment;
       },
     };
-    this.scheduleAdapter = new ScheduleMemoryAdapter();
-    const signalAdapter = new MemoryAdapter();
+    // Storage is the application's call; the engine above it is not. An
+    // adapter supplied here is borrowed, so its lifetime stays with whoever
+    // constructed it.
+    const executionAdapters = this.application.execution;
+    this.ownsScheduleAdapter = executionAdapters?.schedules === undefined;
+    this.scheduleAdapter =
+      executionAdapters?.schedules ?? new ScheduleMemoryAdapter();
+    const signalAdapter = executionAdapters?.runs
+      ? borrowSignalAdapter(executionAdapters.runs)
+      : new MemoryAdapter();
     const signalScheduleReconciler = new ScheduleReconciler({
       adapter: this.scheduleAdapter,
       kinds: ["signal"],
@@ -400,7 +446,10 @@ export class FoundryRuntime {
       subscribers: [this.observer],
       scheduleReconciler: signalScheduleReconciler,
       envProvider: this.envProvider,
-      stationId: "foundry-local",
+      stationId: executionAdapters?.stationId ?? generateStationId(),
+      ...(executionAdapters?.leaseDurationMs === undefined
+        ? {}
+        : { leaseDurationMs: executionAdapters.leaseDurationMs }),
       failUnknownSignals: true,
     });
     for (const discovered of this.agents) {
@@ -520,7 +569,7 @@ export class FoundryRuntime {
       await this.settleRunnerLoops(1_000);
       this.runnerLoops.length = 0;
       await this.envStore.close();
-      await this.scheduleAdapter.close?.();
+      if (this.ownsScheduleAdapter) await this.scheduleAdapter.close?.();
       await this.services.dispose();
       this.started = false;
       this.disposed = true;
