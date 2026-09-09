@@ -1,8 +1,10 @@
 # glove-core
 
-## 3.8.0
+## 4.0.0
 
-### Minor Changes
+### Major Changes
+
+- **Breaking:** custom `IGloveRunnable` implementations must provide `addContextProvider` and `getRuntimeContext`; custom `IGloveBuilder` implementations must provide `addContextProvider`. Standard `Glove` implements these methods. Exhaustive subscriber-event handlers must account for the new `runtime_context` event.
 
 - Keep changing memory state out of system prompts. Core now resolves live context providers at the model-input tail before each iteration and exposes their snapshots to tracing. Goals, forms, and pinned context use these transient snapshots without changing saved conversation history. Realtime voice injects changed snapshots silently at startup and after tools, with explicit refresh for external changes.
 

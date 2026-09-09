@@ -504,7 +504,7 @@ const curator = new Glove({ /* ... */ })
         at the model-input tail. Forms and goals use the same mechanism.
         The system prompt and saved history remain unchanged, preserving the
         stable prefix for caching. Subscribers receive <code>runtime_context</code>
-        events. Requires glove-core 3.8 or newer; proxies forward
+        events. Requires glove-core 4.0 or newer; proxies forward
         <code>addContextProvider</code> and <code>getRuntimeContext</code>.
       </p>
 

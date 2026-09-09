@@ -2390,7 +2390,7 @@ await context.update(
 // Next agent turn picks up the updated render automatically.
 ```
 
-`useContext` keeps the developer-supplied system prompt unchanged. Runtime snapshots are transient user-role messages after saved history, refreshed before each model iteration. External changes appear on the next iteration. Multiple providers compose in registration order. Requires glove-core >=3.8.0.
+`useContext` keeps the developer-supplied system prompt unchanged. Runtime snapshots are transient user-role messages after saved history, refreshed before each model iteration. External changes appear on the next iteration. Multiple providers compose in registration order. Requires glove-core >=4.0.0.
 
 ---
 

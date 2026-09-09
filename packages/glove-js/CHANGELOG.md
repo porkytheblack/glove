@@ -5,7 +5,7 @@
 ### Patch Changes
 
 - Updated dependencies []:
-  - glove-core@3.8.0
+  - glove-core@4.0.0
   - glove-scratchpad@2.0.3
 
 ## 0.4.2
