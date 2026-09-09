@@ -83,6 +83,16 @@ export interface EgressContext {
   readonly route: OutboundRoute;
   readonly account?: AccountReference;
   readonly grant: RunGrant;
+  /** Cancels provider work when an awaiting agent call is stopped or expires. */
+  readonly signal: AbortSignal;
+  /**
+   * Enter the agent definition's user-owned credential/session boundary for
+   * this delivery. Foundry never receives the credential value itself.
+   */
+  readonly withAccountSession?: <A>(
+    operation: string,
+    use: (session: unknown) => Effect.Effect<A, unknown, never>,
+  ) => Effect.Effect<A, unknown, never>;
 }
 
 /** Provider ingress remains adapter-owned and returns typed Effects. */
@@ -158,6 +168,21 @@ export interface OutboundContract<
   readonly config: TConfig;
   readonly input: TInput;
   readonly output: TOutput;
+  /** Require Glove's exact-input approval before this outbound effect is dispatched. */
+  readonly requiresPermission?: boolean | ((input: Schema.Schema.Type<TInput>) => boolean);
+  /**
+   * Project provider output into the model-visible tool result. Use this to
+   * omit large or sensitive presentation-only bytes without weakening the
+   * adapter's typed output contract.
+   */
+  readonly project?: (output: Schema.Schema.Type<TOutput>) => unknown;
+  /** Project provider output into UI-only render data retained with tool history. */
+  readonly render?: (output: Schema.Schema.Type<TOutput>) => unknown;
+  /**
+   * Project the validated outbound input into secret-safe observability data.
+   * The execution payload still reaches the adapter but is never retained.
+   */
+  readonly observe?: (input: Schema.Schema.Type<TInput>) => unknown;
   readonly adapter?: EgressAdapter<
     Schema.Schema.Type<TInput>,
     Schema.Schema.Type<TOutput>,
@@ -414,6 +439,9 @@ export function defineTransmission<const TOptions extends TransmissionOptions>(
             predicates: Object.freeze([...(options.inbound.predicates ?? [])]),
           }),
         }
+      : {}),
+    ...(options.outbound
+      ? { outbound: Object.freeze({ ...options.outbound }) }
       : {}),
     [FOUNDRY_TRANSMISSION_BRAND]: true as const,
   }, "transmission", id)) as FoundryTransmission<TOptions>;

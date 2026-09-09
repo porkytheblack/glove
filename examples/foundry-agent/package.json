@@ -8,6 +8,7 @@
     "start": "glove foundry start",
     "lint": "eslint .",
     "verify:architecture": "node --import tsx scripts/verify-architecture.ts",
+    "verify:guidance": "tsx scripts/verify-guidance.ts",
     "verify:all": "pnpm verify:architecture && pnpm verify",
     "verify": "tsx scripts/verify.ts",
     "verify:live": "tsx scripts/verify.ts --live",

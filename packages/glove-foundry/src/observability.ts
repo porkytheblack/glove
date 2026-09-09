@@ -109,6 +109,7 @@ export class MemoryObservabilityAdapter
 }
 
 function categoryForAgentEvent(type: string): FoundryEventCategory {
+  if (type === "foundry.guidance.state") return "memory";
   if (type.startsWith("tool_")) return "tool";
   if (type.startsWith("foundry.installation")) return "application";
   if (
@@ -143,6 +144,18 @@ interface EncodedAgentEvent {
   readonly type: string;
   readonly data: unknown;
   readonly timestamp?: string;
+}
+
+function observableAgentEventData(type: string, data: unknown): unknown {
+  if (type !== "foundry.core.command" || !data || typeof data !== "object") return data;
+  const command = data as Readonly<Record<string, unknown>>;
+  if (command.type !== "transmit" || !("payload" in command)) return data;
+  const { payload: _payload, observability, ...metadata } = command;
+  void _payload;
+  return {
+    ...metadata,
+    payload: observability ?? { redacted: true },
+  };
 }
 
 function encodedAgentEvent(message: string): EncodedAgentEvent | null {
@@ -285,7 +298,7 @@ export class FoundryObserver implements SignalSubscriber {
         agent: this.route(run.signalName),
         runId: run.id,
         ...(encoded.timestamp ? { timestamp: encoded.timestamp } : {}),
-        data: encoded.data,
+        data: observableAgentEventData(encoded.type, encoded.data),
       });
       return;
     }

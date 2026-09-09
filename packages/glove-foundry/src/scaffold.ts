@@ -147,6 +147,7 @@ export async function detectPackageManager(
   if (await exists(resolve(rootDir, "pnpm-lock.yaml"))) return "pnpm";
   if (await exists(resolve(rootDir, "yarn.lock"))) return "yarn";
   if (await exists(resolve(rootDir, "bun.lockb"))) return "bun";
+  if (await exists(resolve(rootDir, "bun.lock"))) return "bun";
   if (await exists(resolve(rootDir, "package-lock.json"))) return "npm";
   const agent = process.env.npm_config_user_agent ?? "";
   if (agent.startsWith("yarn")) return "yarn";

@@ -12,7 +12,11 @@ import type {
 import type { ResolveGrantRequest } from "./grants.js";
 import type { FoundryApplicationManifest } from "./manifest.js";
 import type { FoundryEvent } from "./observability.js";
-import type { FoundryRun } from "./runtime.js";
+import type {
+  FoundryConversationTranscript,
+  FoundryRun,
+  FoundrySteerResult,
+} from "./runtime.js";
 import type {
   AgentInstallation,
   FoundryCapabilityManifest,
@@ -24,6 +28,7 @@ import type {
   CreateAgentInstanceOptions,
   UpdateAgentInstanceOptions,
   CreateConversationOptions,
+  UpdateConversationOptions,
   FoundryRequest,
   FoundryMessageInput,
   FoundryResult,
@@ -36,16 +41,37 @@ import type {
 import type { AgentPlaybook } from "./playbook.js";
 import type { PlaybookSubscription } from "./subscription.js";
 import type { ApplicationConnectionState } from "./connection.js";
+import type {
+  FoundryApproval,
+  FoundryApprovalDecision,
+  FoundryApprovalStatus,
+} from "./approval.js";
 
 export interface FoundryClientOptions {
   baseUrl?: string;
   fetch?: typeof globalThis.fetch;
+  /** Resolve secret-bearing request headers outside Foundry data and state. */
+  authorization?: FoundryClientAuthorizationAdapter;
+}
+
+export interface FoundryClientAuthorizationAdapter {
+  readonly identifier: string;
+  readonly headers: (request: {
+    readonly url: string;
+    readonly method: string;
+  }) => HeadersInit | Promise<HeadersInit>;
 }
 
 export interface WaitOptions {
   pollMs?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
+}
+
+export interface FoundrySteerHandleResult<TOutput = unknown> {
+  readonly fromRunId: string;
+  readonly interrupted: boolean;
+  readonly run: FoundryRunHandle<TOutput>;
 }
 
 export interface FoundryHealth {
@@ -93,6 +119,17 @@ export class FoundryRunHandle<TOutput> {
     return this.client.cancelRun(this.id);
   }
 
+  async steer(
+    message: FoundryMessageInput,
+  ): Promise<FoundrySteerHandleResult<TOutput>> {
+    const result = await this.client.steerRun<TOutput>(this.id, message);
+    return {
+      fromRunId: result.fromRunId,
+      interrupted: result.interrupted,
+      run: new FoundryRunHandle(result.run.id, result.run, this.client),
+    };
+  }
+
   events(): Promise<FoundryEvent[]> {
     return this.client.getEvents({ runId: this.id });
   }
@@ -138,7 +175,22 @@ export class FoundryClient<TRoutes extends FoundryRouteMap> {
       /\/$/,
       "",
     );
-    this.fetcher = options.fetch ?? globalThis.fetch;
+    const fetcher = options.fetch ?? globalThis.fetch;
+    this.fetcher = options.authorization
+      ? async (input, init = {}) => {
+          const url = typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input.url;
+          const method = init.method ?? (input instanceof Request ? input.method : "GET");
+          const headers = new Headers(input instanceof Request ? input.headers : undefined);
+          new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+          const authorized = new Headers(await options.authorization!.headers({ url, method }));
+          authorized.forEach((value, key) => headers.set(key, value));
+          return fetcher(input, { ...init, headers });
+        }
+      : fetcher;
   }
 
   async health(): Promise<FoundryHealth> {
@@ -209,6 +261,34 @@ export class FoundryClient<TRoutes extends FoundryRouteMap> {
     return readResponse(await this.fetcher(`${this.baseUrl}/api/conversations?agent=${encodeURIComponent(agentId)}`));
   }
 
+  async updateConversation(
+    agentId: string,
+    conversationId: string,
+    options: UpdateConversationOptions,
+  ): Promise<Conversation> {
+    return readResponse(await this.fetcher(
+      `${this.baseUrl}/api/conversations/${encodeURIComponent(conversationId)}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentId, ...options }),
+      },
+    ));
+  }
+
+  async conversationTranscript(
+    agentId: string,
+    conversationId: string,
+    options: { readonly offset?: number; readonly limit?: number } = {},
+  ): Promise<FoundryConversationTranscript> {
+    const query = new URLSearchParams({ agent: agentId });
+    if (options.offset !== undefined) query.set("offset", String(options.offset));
+    if (options.limit !== undefined) query.set("limit", String(options.limit));
+    return readResponse(await this.fetcher(
+      `${this.baseUrl}/api/conversations/${encodeURIComponent(conversationId)}/messages?${query}`,
+    ));
+  }
+
   async workspaceEntries(workspaceId: string): Promise<ReadonlyArray<WorkspaceEntry>> {
     return readResponse(await this.fetcher(`${this.baseUrl}/api/workspaces/${encodeURIComponent(workspaceId)}/entries`));
   }
@@ -262,6 +342,8 @@ export class FoundryClient<TRoutes extends FoundryRouteMap> {
     readonly routeId: string;
     readonly eventId: string;
     readonly threadKey: string;
+    readonly conversationKey?: string;
+    readonly conversationScope?: "route" | "agent";
     readonly raw: unknown;
   }): Promise<ReadonlyArray<FoundryRun>> {
     return readResponse(await this.fetcher(`${this.baseUrl}/api/transmissions/${encodeURIComponent(input.routeId)}/fire`, {
@@ -374,6 +456,22 @@ export class FoundryClient<TRoutes extends FoundryRouteMap> {
     return payload.cancelled;
   }
 
+  async steerRun<TOutput = FoundryResult>(
+    runId: string,
+    message: FoundryMessageInput,
+  ): Promise<FoundrySteerResult<TOutput>> {
+    return readResponse(
+      await this.fetcher(
+        `${this.baseUrl}/api/runs/${encodeURIComponent(runId)}/steer`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message }),
+        },
+      ),
+    );
+  }
+
   async getEvents(filter?: {
     runId?: string;
     agent?: string;
@@ -390,6 +488,31 @@ export class FoundryClient<TRoutes extends FoundryRouteMap> {
       { headers: { accept: "application/json" } },
     );
     return readResponse<FoundryEvent[]>(response);
+  }
+
+  async approvals(filter: {
+    readonly runId?: string;
+    readonly status?: FoundryApprovalStatus;
+  } = {}): Promise<ReadonlyArray<FoundryApproval>> {
+    const query = new URLSearchParams();
+    if (filter.runId) query.set("runId", filter.runId);
+    if (filter.status) query.set("status", filter.status);
+    const suffix = query.size ? `?${query}` : "";
+    return readResponse(await this.fetcher(`${this.baseUrl}/api/approvals${suffix}`));
+  }
+
+  async resolveApproval(
+    approvalId: string,
+    decision: FoundryApprovalDecision,
+  ): Promise<FoundryApproval> {
+    return readResponse(await this.fetcher(
+      `${this.baseUrl}/api/approvals/${encodeURIComponent(approvalId)}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decision }),
+      },
+    ));
   }
 
   async manifest(): Promise<{

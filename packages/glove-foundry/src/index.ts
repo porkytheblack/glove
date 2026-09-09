@@ -1,9 +1,13 @@
+export { defineFacts, defineGoals, defineForms, foundryGuidanceSubject,
+  type FoundryFactsOptions, type FoundryGoalsOptions, type FoundryFormsOptions,
+  type FoundryGuidanceHandles, type FoundryGuidanceScope } from "./guidance.js";
 export {
   EMPTY_AGENT_COMPOSITION,
   composeAgent,
   type FoundryAgentComponent,
   type FoundryAgentComposition,
   type FoundryCompositionSource,
+  type FoundryToolBody,
 } from "./composition.js";
 export {
   FOUNDRY_REPL_BRAND,
@@ -16,6 +20,9 @@ export {
   type FoundryJavaScriptReplDefinition,
   type FoundryLispReplDefinition,
   type FoundryMountedRepl,
+  type FoundryProgrammaticToolContext,
+  type FoundryProgrammaticToolSelection,
+  type FoundryProgrammaticTools,
   type FoundryPythonReplDefinition,
   type FoundryReplDefinition,
   type FoundryVfs,
@@ -52,6 +59,7 @@ export {
   type FoundryAgent,
   type FoundryAgentDefinition,
   type DefineFoundrySubagentOptions,
+  type FoundrySubagentToolContext,
   type FoundryHookDefinition,
   type FoundryCall,
   type FoundryCallContext,
@@ -77,6 +85,7 @@ export {
   type CreateAgentInstanceOptions,
   type UpdateAgentInstanceOptions,
   type CreateConversationOptions,
+  type UpdateConversationOptions,
   type EnvironmentValue,
   type FoundryDataAdapter,
   type FoundryActivationRecord,
@@ -92,6 +101,10 @@ export {
   toGloveMessage,
   toGloveRequestInput,
 } from "./primitives.js";
+export {
+  FileFoundryDataAdapter,
+  type FileFoundryDataAdapterOptions,
+} from "./file-data.js";
 export {
   FOUNDRY_PLAYBOOK_ACTION_BRAND,
   FOUNDRY_COMPOSED_PLAYBOOK_BRAND,
@@ -116,6 +129,7 @@ export {
   FOUNDRY_CORE_COMMAND_EVENT,
   createFoundryCoreTools,
   createInstalledApplicationTransmissionTools,
+  installedApplicationTransmissionToolName,
   type FoundryCoreCommand,
 } from "./core-tools.js";
 export {
@@ -184,6 +198,7 @@ export {
   type FoundryCapabilityManifestEntry,
   type FoundryMcp,
   type FoundryMcpOptions,
+  type FoundryResolvedMcp,
   type FoundryMemoryProfile,
   type FoundryMemoryReference,
   type DefinitionConfigInput,
@@ -201,6 +216,8 @@ export {
   isFoundryApplication,
   type FoundryApplication,
   type FoundryApplicationOptions,
+  type FoundryRequestAuthorizationAdapter,
+  type FoundryRequestAuthorizationInput,
 } from "./application.js";
 export {
   createManifest,
@@ -214,9 +231,22 @@ export {
 export {
   FoundryRuntime,
   FoundryRuntimeError,
+  type FoundryConversationTranscript,
   type FoundryRun,
+  type FoundrySteerResult,
   type FoundryRuntimeOptions,
 } from "./runtime.js";
+export {
+  FOUNDRY_APPROVAL_DIRECTORY_ENV,
+  FoundryApprovalDisplayManager,
+  createFoundryApproval,
+  listFoundryApprovals,
+  resolveFoundryApproval,
+  withFoundryPermissions,
+  type FoundryApproval,
+  type FoundryApprovalDecision,
+  type FoundryApprovalStatus,
+} from "./approval.js";
 export {
   FoundryServer,
   type FoundryServerOptions,
@@ -233,11 +263,14 @@ export {
   FoundryClient,
   FoundryRunHandle,
   type FoundryClientOptions,
+  type FoundryClientAuthorizationAdapter,
   type FoundryHealth,
+  type FoundrySteerHandleResult,
   type WaitOptions,
 } from "./client.js";
 export {
   defineConfig,
+  type FoundryBrandingConfig,
   type FoundryConfig,
   type FoundryExecutionConfig,
 } from "./config.js";

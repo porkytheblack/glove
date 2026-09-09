@@ -36,18 +36,18 @@ export type TemplateDependency = (typeof TEMPLATE_DEPENDENCIES)[number];
  */
 const FALLBACK_RANGES: Readonly<Record<TemplateDependency, string>> = Object.freeze({
   effect: "^3.22.1",
-  "glove-core": "^3.6.0",
-  "glove-js": "^0.4.0",
-  "glove-lisp": "^0.4.0",
-  "glove-mcp": "^1.1.0",
-  "glove-memory": "^1.1.0",
-  "glove-python": "^0.3.0",
-  "glove-working-environment": "^0.6.0",
+  "glove-core": "^4.0.0",
+  "glove-js": "^0.4.3",
+  "glove-lisp": "^0.4.3",
+  "glove-mcp": "^1.1.3",
+  "glove-memory": "^2.0.0",
+  "glove-python": "^0.3.3",
+  "glove-working-environment": "^0.6.1",
   zod: "^4.3.6",
 });
 
 /** The version to request when our own manifest has none worth quoting. */
-const FALLBACK_FOUNDRY_RANGE = "^0.1.0";
+const FALLBACK_FOUNDRY_RANGE = "^0.3.3";
 
 interface Manifest {
   readonly version?: unknown;
@@ -96,9 +96,18 @@ export async function resolveTemplateVersions(): Promise<FoundryTemplateVersions
   const dependencies: Record<TemplateDependency, string> = { ...FALLBACK_RANGES };
   const fellBack: TemplateDependency[] = [];
   for (const name of TEMPLATE_DEPENDENCIES) {
-    const range = toRange(declared[name]);
+    let range = toRange(declared[name]);
+    // Workspace manifests are not published ranges. Resolve the actual linked
+    // package instead of silently generating a project on an older core major.
+    if (!range && typeof declared[name] === "string" && declared[name].startsWith("workspace:")) {
+      try {
+        const dependency = JSON.parse(await readFile(resolve(
+          dirname(fileURLToPath(import.meta.url)), "../node_modules", name, "package.json",
+        ), "utf8")) as Manifest;
+        range = toRange(dependency.version);
+      } catch { /* The explicit fallback remains observable through fellBack. */ }
+    }
     if (range) dependencies[name] = range;
-    // A monorepo checkout carries workspace:* here, so the table stands in.
     else fellBack.push(name);
   }
   // A checkout carries the placeholder 0.0.0 that the release process replaces.

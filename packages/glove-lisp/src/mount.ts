@@ -41,19 +41,24 @@ export interface LispToolOptions {
   allowWrites?: boolean;
   /** Which framing to mount. Default `"repl"`. */
   frame?: Frame;
+  /** Whether this is the agent's exclusive tool surface. Default true. */
+  exclusive?: boolean;
 }
 
 const unitWord = (frame: Frame): string => (frame === "workflow" ? "workflow" : "program");
 
 /** The head paragraph — the mental model the framing hands the model. */
-function head(frame: Frame, tool: string): string {
+function head(frame: Frame, tool: string, exclusive: boolean): string {
+  const door = exclusive
+    ? `You have ONE tool, ${tool}.`
+    : `${tool} is the programmatic entrypoint to this Lisp capability catalogue; normal direct tools may also be available outside it.`;
   if (frame === "workflow") {
-    return `You accomplish tasks by authoring WORKFLOWS in Lisp (Clojure-flavored). You have ONE tool, ${tool}. A workflow is ONE complete Lisp program that carries a task from start to finish — discover, read, compute, branch, and act — in a SINGLE call. This is NOT an interactive prompt: do not run one form and wait to see the result. Compose the WHOLE task as one program and let only the final form's value return. Think "write the script", not "type at a REPL".`;
+    return `You accomplish multi-step tasks by authoring WORKFLOWS in Lisp (Clojure-flavored). ${door} A workflow is ONE complete Lisp program that carries a task from start to finish — discover, read, compute, branch, and act — in a SINGLE call. This is NOT an interactive prompt: do not run one form and wait to see the result. Compose the WHOLE task as one program and let only the final form's value return. Think "write the script", not "type at a REPL".`;
   }
   if (frame === "program") {
-    return `You accomplish tasks by writing COMPLETE Lisp programs (Clojure-flavored). You have ONE tool, ${tool}. Each call runs one self-contained program and returns the value of its last form. Compose a whole step — discover, read, compute, and act — as ONE program rather than a form at a time.`;
+    return `You accomplish multi-step tasks by writing COMPLETE Lisp programs (Clojure-flavored). ${door} Each call runs one self-contained program and returns the value of its last form. Compose a whole step — discover, read, compute, and act — as ONE program rather than a form at a time.`;
   }
-  return `Your capabilities are exposed as functions in a LISP REPL (Clojure-flavored). You have ONE tool, ${tool}, and you work entirely in Lisp. The REPL is PERSISTENT: anything you (def name …) stays available in later calls.`;
+  return `This capability catalogue is exposed as functions in a LISP REPL (Clojure-flavored). ${door} Use Lisp inside that entrypoint. The REPL is PERSISTENT: anything you (def name …) stays available in later calls.`;
 }
 
 /** How cross-call persistence reads — "split freely" (repl) vs "retry only". */
@@ -95,11 +100,11 @@ const LISP_FN_LANG_CARD = `Language card (this is the WHOLE language — nothing
  * Resource-mode preamble (ResourceTable). Capabilities are functions over tables;
  * arguments push down, writes stage. Frame-parameterized.
  */
-export function buildLispResourcePreamble(frame: Frame = "repl"): string {
+export function buildLispResourcePreamble(frame: Frame = "repl", exclusive = true): string {
   const tool = lispToolName(frame);
   const explain = lispExplainName(frame);
   const unit = unitWord(frame);
-  return `${head(frame, tool)}${persistence(frame)}
+  return `${head(frame, tool, exclusive)}${persistence(frame)}
 
 ${LISP_LANG_CARD}
 
@@ -123,10 +128,10 @@ The only data that enters your context is the value of the LAST form — so retu
  * Function-mode preamble (no ResourceTable). Capabilities are plain functions;
  * a call fires when its form evaluates. Frame-parameterized.
  */
-export function buildLispFnPreamble(frame: Frame = "repl"): string {
+export function buildLispFnPreamble(frame: Frame = "repl", exclusive = true): string {
   const tool = lispToolName(frame);
   const unit = unitWord(frame);
-  return `${head(frame, tool)}${persistence(frame)}
+  return `${head(frame, tool, exclusive)}${persistence(frame)}
 
 ${LISP_FN_LANG_CARD}
 
@@ -216,12 +221,13 @@ export function buildLispPreamble(
   session: LispSession,
   mode: "progressive" | "full" = "progressive",
   frame: Frame = "repl",
+  exclusive = true,
 ): string {
   const hasResources = session.list().length > 0;
   const hasFns = session.listFns().length > 0;
-  let base = buildLispResourcePreamble(frame);
-  if (hasFns && !hasResources) base = buildLispFnPreamble(frame);
-  else if (hasFns) base = `${buildLispResourcePreamble(frame)}\n\n${LISP_FN_SECTION}`;
+  let base = buildLispResourcePreamble(frame, exclusive);
+  if (hasFns && !hasResources) base = buildLispFnPreamble(frame, exclusive);
+  else if (hasFns) base = `${buildLispResourcePreamble(frame, exclusive)}\n\n${LISP_FN_SECTION}`;
   return base + catalogHint(session, mode);
 }
 
@@ -237,7 +243,7 @@ function errResult(err: unknown): ToolResultData {
   return { status: "error", message: err instanceof Error ? err.message : String(err), data: null };
 }
 
-function toolDescription(frame: Frame): string {
+function toolDescription(frame: Frame, exclusive: boolean): string {
   const unit = unitWord(frame);
   const lead =
     frame === "workflow"
@@ -247,7 +253,7 @@ function toolDescription(frame: Frame): string {
         : `Run a Lisp program against your capability REPL (Clojure-flavored, persistent). `;
   return (
     lead +
-    "Your tools ARE functions. " +
+    `${exclusive ? "Your tools ARE functions." : "Capabilities in this programmatic catalogue are functions."} ` +
     "DISCOVER: (tables), then (describe :name). " +
     "READ a capability by calling it — (github_pull_requests {:state \"open\"}) — arguments push down as a {:col value} map. " +
     `COMPUTE in the ${unit} (count/filter/group-by/max-key) and return only the final value; ` +
@@ -259,10 +265,11 @@ function toolDescription(frame: Frame): string {
 
 export function buildExecuteLispTool(session: LispSession, opts: LispToolOptions = {}): GloveFoldArgs<{ code: string }> {
   const frame = opts.frame ?? "repl";
+  const exclusive = opts.exclusive ?? true;
   const tool = lispToolName(frame);
   return {
     name: tool,
-    description: toolDescription(frame),
+    description: toolDescription(frame, exclusive),
     inputSchema,
     async do(input, _display, _glove, signal): Promise<ToolResultData> {
       try {
@@ -408,7 +415,7 @@ export function mountLisp(glove: IGloveRunnable, config: MountLispConfig): IGlov
   if (prime !== false) {
     const mode = resolveMode(discovery, session);
     const existing = glove.getSystemPrompt();
-    const preamble = buildLispPreamble(session, mode, frame);
+    const preamble = buildLispPreamble(session, mode, frame, toolOpts.exclusive ?? true);
     glove.setSystemPrompt(existing ? `${preamble}\n\n${existing}` : preamble);
   }
   return glove;

@@ -48,9 +48,27 @@ pnpm dev
 \`\`\`
 
 After the package is installed, \`glove foundry dev\` and
-\`glove foundry start\` are available. Node.js 20+ is required. Development mode
+\`glove foundry start\` are available. Node.js 20.12+ is required; 22.13+ is recommended for SQLite memory. Development mode
 generates \`.foundry/routes.d.ts\`, starts the runtime and inspector, and watches
 definitions. Configuration is typed with \`defineConfig\`.
+
+## Setup wizard and CLI
+
+Run \`npx glove-foundry init\` in a terminal for Clack's guided setup: directory,
+standalone or Next.js integration, guided travel-concierge or minimal starter,
+package manager, optional dependency installation, and confirmation before writes.
+Arrow keys select, Enter confirms, Ctrl+C cancels. No API keys are collected.
+Use \`--yes\` or \`--no-interactive\` for scripts. Non-TTY input never waits for a
+prompt. \`--interactive\` requires a terminal. \`--install\` / \`--no-install\`
+controls installation; non-interactive setup does not install by default.
+Supported flags: \`--template travel-concierge|minimal\`,
+\`--target standalone|nextjs\`, \`--package-manager pnpm|npm|yarn|bun\`, \`--help\`.
+Runtime commands: \`glove foundry dev\`, \`glove foundry start\` and
+\`glove foundry help\`; options include \`--root\`, \`--port\`, \`--host\`, \`--no-watch\`.
+The guided starter runs without a key; minimal needs OPENROUTER_API_KEY in
+consumer-managed .env.local. Restart after editing environment values. Demo
+storage is disposable: configure separate runtime, conversation, native memory
+and VFS persistence adapters before production.
 
 ## Identity and references
 
@@ -196,6 +214,23 @@ terminology must not leak into definitions.
 
 
 ## Goals, facts, and form preparation
+
+Foundry exposes typed lazy goals, facts, forms and contextProviders fields, either
+in defineAgent or as agent.ts named exports. defineGoals/defineFacts/defineForms
+are pure configuration helpers; native runners own behavior. Execution hooks get
+ctx.goals/ctx.facts/ctx.forms handles. Conversation scope is default; scope:
+"instance" shares explicitly. foundryGuidanceSubject derives the same ownership
+key outside assembly. A goal program seeds only absent state; later revision is
+native CAS with a reason. Registries expose forms without starting all of them.
+facts.preparationAgent is a separate built runnable with its own scoped store;
+goals/forms preparation supplies rule and eligible callbacks. Foundry constructs
+the native shared preparer and rejects subject mismatches or missing agents.
+contextProviders resolves a list of native read-only providers, re-read each model
+iteration and removed on cleanup. glove-memory/sqlite now includes durable goals,
+facts and forms. Facts serialize per database through a separate OS-owned SQLite
+lock while saves commit independently. Use local volumes, not network filesystems.
+The inspector guidance card shows metadata from the latest observed run, not a
+live database view. See /foundry/docs/guidance and the guided-intake example.
 
 Dynamic goals are exported by glove-memory/goals (glove-memory 1.2.0+), not a
 standalone glove-goals package. Shared evidence is glove-facts 0.1.0+.

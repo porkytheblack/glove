@@ -86,6 +86,11 @@ export interface IGloveRunnable {
   removeSubscriber: (subscriber: SubscriberAdapter) => void
   /** Fold a tool. Legal at any time, including after build. */
   fold: <I>(args: GloveFoldArgs<I>) => IGloveRunnable
+  /** Atomically replace a caller-owned set of tools. Legal after build. */
+  replaceTools: (
+    previousNames: Iterable<string>,
+    nextTools: ReadonlyArray<GloveFoldArgs<unknown>>,
+  ) => IGloveRunnable
   /** Register a `/name` hook that can mutate agent state or short-circuit a turn. */
   defineHook: (name: string, handler: HookHandler) => IGloveRunnable
   /** Register a `/name` skill that injects context as a synthetic user message. */
@@ -120,6 +125,10 @@ export interface IGloveRunnable {
 export interface IGloveBuilder {
   addContextProvider: (provider: RuntimeContextProvider) => () => void,
   fold: <I>(args: GloveFoldArgs<I>) => IGloveBuilder,
+  replaceTools: (
+    previousNames: Iterable<string>,
+    nextTools: ReadonlyArray<GloveFoldArgs<unknown>>,
+  ) => IGloveBuilder,
   defineHook: (name: string, handler: HookHandler) => IGloveBuilder,
   defineSkill: (args: DefineSkillArgs) => IGloveBuilder,
   defineSubAgent: (args: DefineSubAgentArgs) => IGloveBuilder,
@@ -241,7 +250,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     }
   }
 
-  fold<I>(args: GloveFoldArgs<I>) {
+  private buildTool<I>(args: GloveFoldArgs<I>): Tool<I> {
     if (!args.inputSchema && !args.jsonSchema) {
       throw new Error(`Tool "${args.name}" must provide inputSchema or jsonSchema`);
     }
@@ -249,7 +258,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     const displayManager = this.displayManager;
     const self = this;
 
-    const tool: Tool<I> = {
+    return {
       name: args.name,
       description: args.description,
       input_schema: args.inputSchema,
@@ -263,8 +272,22 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       },
       generateSummary: args.generateToolSummary
     }
+  }
 
-    this.executor.registerTool(tool)
+  fold<I>(args: GloveFoldArgs<I>) {
+    this.executor.registerTool(this.buildTool(args))
+    return this
+  }
+
+  replaceTools(
+    previousNames: Iterable<string>,
+    nextTools: ReadonlyArray<GloveFoldArgs<unknown>>,
+  ) {
+    // Build and validate the entire next set before touching the live
+    // registry. A wrapper/schema failure therefore leaves the old surface in
+    // place rather than exposing a partially refreshed agent.
+    const built = nextTools.map((tool) => this.buildTool(tool))
+    this.executor.replaceTools(previousNames, built)
     return this
   }
 
@@ -589,7 +612,6 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   
   
 }
-
 
 
 

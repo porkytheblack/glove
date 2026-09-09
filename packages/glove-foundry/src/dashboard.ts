@@ -1,37 +1,49 @@
 import { DASHBOARD_SCRIPT } from "./dashboard-script.js";
 import { renderGloveMark, renderPhosphorIcon } from "./dashboard-icons.js";
 import { DASHBOARD_STYLES } from "./dashboard-styles.js";
+import type { FoundryBrandingConfig } from "./config.js";
 
 const NAV_ICONS = {
   overview: renderPhosphorIcon("overview"),
   agents: renderPhosphorIcon("agent"),
+  chat: renderPhosphorIcon("chat"),
   runs: renderPhosphorIcon("runs"),
   automations: renderPhosphorIcon("automations"),
   integrations: renderPhosphorIcon("integrations"),
   workspaces: renderPhosphorIcon("workspaces"),
 } as const;
 
-export function renderDashboard(): string {
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+export function renderDashboard(branding: FoundryBrandingConfig = {}): string {
+  const name = escapeHtml(branding.name?.trim() || "Glove Foundry");
+  const label = escapeHtml(branding.label?.trim() || "Runtime inspector");
+  const descriptor = escapeHtml(branding.descriptor?.trim() || "Inspector");
+  const accent = /^#[0-9a-f]{6}$/i.test(branding.accent ?? "") ? branding.accent : undefined;
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="color-scheme" content="dark" />
-  <title>Glove Foundry · Inspector</title>
+  <title>${name} · ${descriptor}</title>
   <style>${DASHBOARD_STYLES}</style>
+  ${accent ? `<style>:root{--accent:${accent};--accent-soft:${accent};--accent-strong:${accent}}</style>` : ""}
 </head>
 <body>
   <div class="app">
     <aside class="sidebar" id="sidebar">
       <a class="brand" href="/" data-link>
         ${renderGloveMark()}
-        <span><strong>Glove Foundry</strong><small>Runtime inspector</small></span>
+        <span><strong>${name}</strong><small>${label}</small></span>
       </a>
       <nav class="nav">
         <div class="nav-label">Inspect</div>
         <a href="/" data-link data-nav="overview"><span class="nav-icon">${NAV_ICONS.overview}</span>Overview</a>
         <a href="/agents" data-link data-nav="agents"><span class="nav-icon">${NAV_ICONS.agents}</span>Agents</a>
+        <a href="/chat" data-link data-nav="chat"><span class="nav-icon">${NAV_ICONS.chat}</span>Chat</a>
         <a href="/runs" data-link data-nav="runs"><span class="nav-icon">${NAV_ICONS.runs}</span>Runs</a>
         <a href="/automations" data-link data-nav="automations"><span class="nav-icon">${NAV_ICONS.automations}</span>Automations</a>
         <a href="/integrations" data-link data-nav="integrations"><span class="nav-icon">${NAV_ICONS.integrations}</span>Integrations</a>
@@ -39,7 +51,7 @@ export function renderDashboard(): string {
       </nav>
       <div class="sidebar-foot">
         <div class="runtime-state" id="runtime-state"><i></i><span>Connecting to runtime…</span></div>
-        <button class="shortcut" id="open-search"><span class="shortcut-label">${renderPhosphorIcon("search")}Search Foundry</span><kbd>⌘K</kbd></button>
+        <button class="shortcut" id="open-search"><span class="shortcut-label">${renderPhosphorIcon("search")}Search ${name}</span><kbd>⌘K</kbd></button>
       </div>
     </aside>
     <section class="main">
@@ -75,7 +87,7 @@ export function renderDashboard(): string {
 
   <div class="search-modal" id="search-modal">
     <div class="search-box" role="dialog" aria-modal="true">
-      <div class="search-input-wrap">${renderPhosphorIcon("search")}<input id="search-input" aria-label="Search Foundry" placeholder="Search pages, agents, instances, and runs…" autocomplete="off" /></div>
+      <div class="search-input-wrap">${renderPhosphorIcon("search")}<input id="search-input" aria-label="Search ${name}" placeholder="Search pages, agents, instances, and runs…" autocomplete="off" /></div>
       <div class="search-results" id="search-results"></div>
     </div>
   </div>

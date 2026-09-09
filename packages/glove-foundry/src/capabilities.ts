@@ -327,7 +327,32 @@ export interface FoundryMcpOptions<
   readonly id?: string;
   readonly description?: string;
   readonly config?: TConfigSchema;
-  readonly entry: Omit<McpCatalogueEntry, "id">;
+  /**
+   * Static catalogue metadata or a lazy, instance-configured resolver.
+   *
+   * The resolver receives decoded installation data but never credentials.
+   * Auth remains the responsibility of the agent-owned `mcpAdapter` and is
+   * resolved only when glove-mcp opens a connection.
+   */
+  readonly entry:
+    | McpCatalogueEntryWithoutId
+    | ((
+        context: AgentApplicationInstallContext<
+          TConfigSchema extends z.ZodType ? z.output<TConfigSchema> : unknown
+        >,
+      ) =>
+        | McpCatalogueEntryWithoutId
+        | Promise<McpCatalogueEntryWithoutId>
+        | Effect.Effect<McpCatalogueEntryWithoutId, unknown, never>);
+}
+
+type McpCatalogueEntryWithoutId = McpCatalogueEntry extends infer Entry
+  ? Entry extends unknown ? Omit<Entry, "id"> : never
+  : never;
+
+function identifyMcpEntry(entry: McpCatalogueEntryWithoutId, id: string): McpCatalogueEntry {
+  if (entry.transport) return { ...entry, id };
+  return { ...entry, id, url: entry.url };
 }
 
 export type FoundryMcp<
@@ -443,8 +468,17 @@ export interface McpAdapterFactory {
   (
     context: Omit<AgentInstallContext, "installation" | "config"> & {
       readonly installed: ReadonlyArray<FoundryMcp>;
+      /** Fully decoded, per-instance MCP selections for this assembly. */
+      readonly resolved: ReadonlyArray<FoundryResolvedMcp>;
     },
   ): Effect.Effect<McpAdapter, unknown, never>;
+}
+
+export interface FoundryResolvedMcp {
+  readonly definition: FoundryMcp;
+  readonly installation: AgentInstallation;
+  readonly config: unknown;
+  readonly entry: McpCatalogueEntry;
 }
 
 function inboxMethods(store: StoreAdapter): boolean {
@@ -634,7 +668,7 @@ export function installRegistry(
     );
     const mcp = indexRegistry(options.registry.mcp, "MCP");
     const seen = new Set<string>();
-    const installedMcp: FoundryMcp[] = [];
+    const installedMcp: FoundryResolvedMcp[] = [];
     const installed: AgentInstallation[] = [];
 
     for (const installation of options.installations) {
@@ -702,7 +736,25 @@ export function installRegistry(
           : undefined;
         for (const tool of contribution?.tools ?? []) options.context.glove.fold(tool);
       } else {
-        installedMcp.push(definition as FoundryMcp);
+        const mcpDefinition = definition as FoundryMcp;
+        const headlessContext: AgentApplicationInstallContext = (() => {
+          const { glove: _glove, store: _store, ...headless } = context;
+          return headless;
+        })();
+        const source = typeof mcpDefinition.entry === "function"
+          ? mcpDefinition.entry(headlessContext)
+          : mcpDefinition.entry;
+        const entry = Effect.isEffect(source)
+          ? yield* source
+          : source instanceof Promise
+            ? yield* Effect.tryPromise({ try: () => source, catch: (cause) => cause })
+            : source;
+        installedMcp.push({
+          definition: mcpDefinition,
+          installation,
+          config,
+          entry: identifyMcpEntry(entry, mcpDefinition.id),
+        });
       }
       installed.push(installation);
       options.context.emit({
@@ -719,9 +771,10 @@ export function installRegistry(
       }
       const adapter = yield* options.mcpAdapter({
         ...options.context,
-        installed: installedMcp,
+        installed: installedMcp.map(({ definition }) => definition),
+        resolved: installedMcp,
       });
-      const selectedIds = new Set(installedMcp.map((entry) => entry.id));
+      const selectedIds = new Set(installedMcp.map(({ definition }) => definition.id));
       const scopedAdapter: McpAdapter = {
         identifier: adapter.identifier,
         getActive: async () => [...selectedIds],
@@ -733,15 +786,15 @@ export function installRegistry(
         ...(adapter.getAuthHeaders
           ? { getAuthHeaders: (id: string) => adapter.getAuthHeaders!(id) }
           : {}),
+        ...(adapter.getStdioEnvironment
+          ? { getStdioEnvironment: (id: string) => adapter.getStdioEnvironment!(id) }
+          : {}),
       };
       yield* Effect.tryPromise({
         try: () =>
           mountMcp(options.context.glove, {
             adapter: scopedAdapter,
-            entries: installedMcp.map((definition) => ({
-              ...definition.entry,
-              id: definition.id,
-            })),
+            entries: installedMcp.map(({ entry }) => entry),
             ambiguityPolicy: { type: "auto-pick-best" },
           }),
         catch: (cause) => cause,

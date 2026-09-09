@@ -4,19 +4,29 @@
  * Authored at the application level (in code or config). Identical across
  * users; passed to `mountMcp` alongside the per-conversation `McpAdapter`.
  */
-export interface McpCatalogueEntry {
+export type McpCatalogueTransport =
+  | {
+      readonly kind: "http";
+      readonly url: string;
+    }
+  | {
+      readonly kind: "stdio";
+      readonly command: string;
+      readonly args?: ReadonlyArray<string>;
+      readonly cwd?: string;
+    };
+
+interface McpCatalogueEntryBase {
   /** Stable id, also used as the tool namespace prefix and the activation key. */
   id: string;
   /** Display name used by the discovery subagent. */
   name: string;
   /** Short description used by the subagent for matching. */
   description: string;
-  /** MCP server URL (HTTP transport only in v1). */
-  url: string;
   /** Optional — discovery uses these for matching. */
   tags?: string[];
   /**
-   * Tool names NOT to mount from this server — exact, un-namespaced names as the
+   * Tool names NOT to mount from this server — exact or glob, un-namespaced names as the
    * server knows them (e.g. `"delete_repository"`, not `"github__delete_repository"`).
    * Applied at the connection, so an excluded tool never reaches the model:
    * neither the boot-time reload (`mountMcp`) nor the discovery subagent's
@@ -25,9 +35,33 @@ export interface McpCatalogueEntry {
    * tools a server exposes.
    */
   excludeTools?: string[];
+  /** Optional exact names or glob patterns. When non-empty, only matches are exposed. */
+  includeTools?: string[];
+  /** Bound initialize/transport setup. Default 30 seconds. */
+  connectTimeoutMs?: number;
+  /** Bound every MCP operation. Default 60 seconds. */
+  requestTimeoutMs?: number;
+  /** Stdio only: close after inactivity and reopen on demand. 0 disables. */
+  idleTimeoutMs?: number;
+  /** Stdio only: cap total child-process lifetime and reopen on demand. 0 disables. */
+  maxLifetimeMs?: number;
+  /** Mount list/read resource utility tools when the server supports resources. Default true. */
+  resources?: boolean;
+  /** Mount list/get prompt utility tools when the server supports prompts. Default true. */
+  prompts?: boolean;
   /** Optional — extra arbitrary metadata. */
   metadata?: Record<string, unknown>;
 }
+
+/**
+ * One discoverable MCP server. `url` remains the concise HTTP form; `transport`
+ * makes HTTP or a host process explicit without putting process environment
+ * values in catalogue data.
+ */
+export type McpCatalogueEntry = McpCatalogueEntryBase & (
+  | { readonly url: string; readonly transport?: never }
+  | { readonly url?: never; readonly transport: McpCatalogueTransport }
+);
 
 /**
  * Per-conversation MCP adapter — the consumer implements this, scoped to a
@@ -47,9 +81,6 @@ export interface McpAdapter {
   /**
    * Mark an entry inactive. Available for the consumer's own UI ("disconnect")
    * and called by the subagent if a deactivate request comes through.
-   *
-   * IMPORTANT: deactivate does NOT remove tools from the running Glove —
-   * consumers who rely on this should refresh the session. v1 limitation.
    */
   deactivate(id: string): Promise<void>;
 
@@ -77,4 +108,10 @@ export interface McpAdapter {
    * timing and error semantics as `getAccessToken`.
    */
   getAuthHeaders?(id: string): Promise<Record<string, string>>;
+
+  /**
+   * Resolve environment values only when a stdio server is spawned. Definition
+   * and instance data should hold environment-variable names, never secrets.
+   */
+  getStdioEnvironment?(id: string): Promise<Record<string, string>>;
 }

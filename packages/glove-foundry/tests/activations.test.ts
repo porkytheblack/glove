@@ -53,12 +53,21 @@ test("sleep wakes the same instance and conversation after a duration-derived ti
       agentId: agent.id,
       conversationId: conversation.id,
       workspaceId: agent.workspaceId,
-      wakeAt: new Date(Date.now() + 75).toISOString(),
+      wakeAt: new Date(Date.now() + 400).toISOString(),
       message: "Resolve the work after sleeping.",
     };
     await (runtime as unknown as {
       executeCoreCommand(command: FoundryCoreCommand, parentRunId: string): Promise<void>;
     }).executeCoreCommand(command, "parent-sleep");
+
+    assert.equal(
+      (await runtime.listRuns("assistant")).some((candidate) => {
+        const input = candidate.input as { source?: { id?: string } } | undefined;
+        return input?.source?.id === command.id;
+      }),
+      false,
+      "A future sleep must not enter the execution queue before its wake time.",
+    );
 
     const queued = await waitForActivation(runtime, command.id);
     const completed = await runtime.waitForRun(queued.id, { pollMs: 25, timeoutMs: 15_000 });
@@ -71,6 +80,126 @@ test("sleep wakes the same instance and conversation after a duration-derived ti
     assert.equal(request.conversationId, conversation.id);
     assert.equal(request.source.kind, "activation");
     assert.equal(completed?.status, "completed");
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("one-shot schedules can move and cancel without leaking an old timer", async () => {
+  const runtime = await FoundryRuntime.discover({
+    rootDir,
+    agentsDir,
+    config: { execution: { pollIntervalMs: 10, idlePollIntervalMs: 10 } },
+  });
+  await runtime.start();
+  try {
+    const agent = await runtime.createAgent("assistant", {
+      id: "one-shot-agent",
+      workspaceId: "activation-test",
+    });
+    const conversation = await runtime.createConversation(agent.id, {
+      id: "one-shot-conversation",
+    });
+    const created: FoundryCoreCommand = {
+      id: "command_one_shot_test",
+      type: "schedule",
+      definitionId: "assistant",
+      agentId: agent.id,
+      conversationId: conversation.id,
+      workspaceId: agent.workspaceId,
+      message: "This should be cancelled before dispatch.",
+      timing: { kind: "at", at: new Date(Date.now() + 500).toISOString() },
+    };
+    const execute = (command: FoundryCoreCommand) =>
+      (runtime as unknown as {
+        executeCoreCommand(command: FoundryCoreCommand, parentRunId: string): Promise<void>;
+      }).executeCoreCommand(command, "parent-one-shot");
+    await execute(created);
+    await execute({
+      id: "command_move_one_shot",
+      type: "schedule.update",
+      definitionId: "assistant",
+      agentId: agent.id,
+      conversationId: conversation.id,
+      workspaceId: agent.workspaceId,
+      activationId: created.id,
+      patch: { timing: { kind: "at", at: new Date(Date.now() + 1_000).toISOString() } },
+    });
+    await new Promise((resolveWait) => setTimeout(resolveWait, 650));
+    assert.equal(
+      (await runtime.listRuns("assistant")).some((run) =>
+        (run.input as { source?: { id?: string } }).source?.id === created.id),
+      false,
+    );
+    await execute({
+      id: "command_cancel_one_shot",
+      type: "schedule.cancel",
+      definitionId: "assistant",
+      agentId: agent.id,
+      conversationId: conversation.id,
+      workspaceId: agent.workspaceId,
+      activationId: created.id,
+    });
+    await new Promise((resolveWait) => setTimeout(resolveWait, 450));
+    assert.equal(
+      (await runtime.listRuns("assistant")).some((run) =>
+        (run.input as { source?: { id?: string } }).source?.id === created.id),
+      false,
+    );
+    assert.equal(
+      (await Effect.runPromise(runtime.data.getActivation(created.id)))?.status,
+      "cancelled",
+    );
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("pausing a dispatched one-shot cannot be overwritten by its cancelled run", async () => {
+  const runtime = await FoundryRuntime.discover({
+    rootDir,
+    agentsDir,
+    config: { execution: { pollIntervalMs: 10, idlePollIntervalMs: 10 } },
+  });
+  await runtime.start();
+  try {
+    const agent = await runtime.createAgent("assistant", {
+      id: "in-flight-pause-agent",
+      workspaceId: "activation-test",
+    });
+    const conversation = await runtime.createConversation(agent.id, {
+      id: "in-flight-pause-conversation",
+    });
+    const scheduled: FoundryCoreCommand = {
+      id: "command_in_flight_pause",
+      type: "schedule",
+      definitionId: "assistant",
+      agentId: agent.id,
+      conversationId: conversation.id,
+      workspaceId: agent.workspaceId,
+      message: "This run should be interrupted without unpausing its trigger.",
+      timing: { kind: "at", at: new Date(Date.now() + 50).toISOString() },
+    };
+    const execute = (command: FoundryCoreCommand) =>
+      (runtime as unknown as {
+        executeCoreCommand(command: FoundryCoreCommand, parentRunId: string): Promise<void>;
+      }).executeCoreCommand(command, "parent-in-flight-pause");
+    await execute(scheduled);
+    const dispatched = await waitForActivation(runtime, scheduled.id);
+    await execute({
+      id: "pause_in_flight",
+      type: "schedule.pause",
+      definitionId: "assistant",
+      agentId: agent.id,
+      conversationId: conversation.id,
+      workspaceId: agent.workspaceId,
+      activationId: scheduled.id,
+    });
+    await runtime.waitForRun(dispatched.id, { pollMs: 10, timeoutMs: 15_000 });
+    assert.equal(
+      (await Effect.runPromise(runtime.data.getActivation(scheduled.id)))?.status,
+      "paused",
+    );
   } finally {
     await runtime.stop();
   }
@@ -177,7 +306,7 @@ test("agent schedule definitions derive runtime identity without authored ids", 
   assert.equal(agentScheduleRevision(schedule).length, 64);
 });
 
-test("scheduled activations can be updated and cancelled by their owning agent", async () => {
+test("scheduled activations can be updated, paused, resumed, and cancelled by their owning agent", async () => {
   const runtime = await FoundryRuntime.discover({
     rootDir,
     agentsDir,
@@ -223,6 +352,48 @@ test("scheduled activations can be updated and cancelled by their owning agent",
     assert.equal(updated?.status, "active");
 
     await execute({
+      id: "command_pause_schedule",
+      type: "schedule.pause",
+      definitionId: "assistant",
+      agentId: agent.id,
+      conversationId: conversation.id,
+      workspaceId: agent.workspaceId,
+      activationId: created.id,
+    });
+    assert.equal(
+      (await Effect.runPromise(runtime.data.getActivation(created.id)))?.status,
+      "paused",
+    );
+
+    await execute({
+      id: "command_update_paused_schedule",
+      type: "schedule.update",
+      definitionId: "assistant",
+      agentId: agent.id,
+      conversationId: conversation.id,
+      workspaceId: agent.workspaceId,
+      activationId: created.id,
+      patch: { message: "Review after the pause." },
+    });
+    const updatedWhilePaused = await Effect.runPromise(runtime.data.getActivation(created.id));
+    assert.equal(updatedWhilePaused?.message, "Review after the pause.");
+    assert.equal(updatedWhilePaused?.status, "paused");
+
+    await execute({
+      id: "command_resume_schedule",
+      type: "schedule.resume",
+      definitionId: "assistant",
+      agentId: agent.id,
+      conversationId: conversation.id,
+      workspaceId: agent.workspaceId,
+      activationId: created.id,
+    });
+    assert.equal(
+      (await Effect.runPromise(runtime.data.getActivation(created.id)))?.status,
+      "active",
+    );
+
+    await execute({
       id: "command_cancel_schedule",
       type: "schedule.cancel",
       definitionId: "assistant",
@@ -234,6 +405,59 @@ test("scheduled activations can be updated and cancelled by their owning agent",
     assert.equal(
       (await Effect.runPromise(runtime.data.getActivation(created.id)))?.status,
       "cancelled",
+    );
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("paused activations remain disarmed when a runtime restarts", async () => {
+  const agent = createAgentInstance("assistant", {
+    id: "paused-agent",
+    workspaceId: "paused-workspace",
+  });
+  const conversation = createConversation(agent, {
+    id: "paused-conversation",
+    workspaceId: agent.workspaceId,
+  });
+  const now = new Date();
+  const activation: FoundryActivationRecord = {
+    id: "command_paused_schedule",
+    kind: "scheduled",
+    definitionId: "assistant",
+    agentId: agent.id,
+    conversationId: conversation.id,
+    workspaceId: agent.workspaceId,
+    message: "Do not run until explicitly resumed.",
+    timing: { kind: "at", at: new Date(now.getTime() + 75).toISOString() },
+    origin: "agent-tool",
+    status: "paused",
+    createdByRunId: "parent-before-restart",
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+  const data = new MemoryFoundryDataAdapter({
+    agents: [agent],
+    conversations: [conversation],
+    activations: [activation],
+  });
+  const runtime = await FoundryRuntime.discover({
+    rootDir,
+    agentsDir,
+    application: defineApplication({ name: "paused-activation-reconstruction", data }),
+    config: { execution: { pollIntervalMs: 10, idlePollIntervalMs: 10 } },
+  });
+  await runtime.start();
+  try {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 200));
+    assert.equal(
+      (await runtime.listRuns("assistant")).some((run) =>
+        (run.input as { source?: { id?: string } }).source?.id === activation.id),
+      false,
+    );
+    assert.equal(
+      (await Effect.runPromise(runtime.data.getActivation(activation.id)))?.status,
+      "paused",
     );
   } finally {
     await runtime.stop();

@@ -11,6 +11,16 @@ export interface ConnectionReceiveInput {
   readonly route: InboundRoute;
   readonly eventId: string;
   readonly threadKey: string;
+  /** Optional durable conversation key, independent of the provider thread. */
+  readonly conversationKey?: string;
+  /** Route is the safe default; agent lets a trusted identity adapter join routes. */
+  readonly conversationScope?: "route" | "agent";
+  /**
+   * Keep this connection's receive effect open until every dispatched agent
+   * run reaches a terminal state. Stateful transports can use this to
+   * serialize turns that share a durable conversation.
+   */
+  readonly awaitCompletion?: boolean;
   readonly raw: unknown;
 }
 

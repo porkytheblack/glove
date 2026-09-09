@@ -116,7 +116,7 @@ Use `glove-memory/goals` for dynamic goals and `glove-facts` for reusable scoped
 
 Enable shared preparation with `new FactPreparation(facts, { agent: preparationAgent })`. Supply a dedicated, built Glove runnable and separate store per fact scope, with the application's tracing subscribers attached. The library mounts `submit_preparation` and calls `processRequest`; do not bypass Glove with a direct model invocation or substitute the conversational agent. No agent means automatic preparation is off while capture/manual progression remain available. Host rules allowlist fields/items; workflow commits retain authority over values, progress and effects.
 
-Use existing Foundry build/assembly extension points; do not invent a Foundry `goals` or `facts` definition field. Read the [shared workflow guide](https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/workflows.md) and [facts adapter contracts](../../../packages/glove-facts/README.md) for scope, correction, tracing and recovery requirements.
+Use the first-class lazy `goals`, `facts`, `forms`, and `contextProviders` fields. Read [Foundry guidance](../../../packages/glove-foundry/docs/guidance.md) for mounting, typed execution handles, conversation-default scope, instance sharing, native preparation, and durable SQLite adapters. A definition-provided program seeds absent goals; later revisions require native CAS and a reason. Context providers are read-only transient snapshots, never a second inference loop. Keep the [shared workflow guide](https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/workflows.md) and [facts adapter contracts](../../../packages/glove-facts/README.md) authoritative for evidence, correction, tracing and recovery.
 
 ## Multi-agent systems
 

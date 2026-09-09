@@ -253,3 +253,37 @@ test("application sessions use instance-selected account ids without credential 
   assert.equal(opened, "account-42:resolve-tools");
   assert.equal(seen, "account-42:opaque-session");
 });
+
+test("MCP catalogue entries resolve lazily from typed instance data", async () => {
+  const glove = runnable();
+  let received: unknown;
+  const dynamicMcp = defineMcp({
+    id: "dynamic-mcp",
+    description: "Configured at installation time",
+    config: z.object({ serverUrl: z.string().url(), label: z.string() }),
+    entry: ({ config, conversationId }) => {
+      received = { config, conversationId };
+      throw new Error("resolved-before-connect");
+    },
+  });
+  await assert.rejects(
+    Effect.runPromise(installRegistry({
+      registry: { ...registry, mcp: [...registry.mcp, dynamicMcp] },
+      installations: [{
+        kind: "mcp",
+        id: "dynamic-mcp",
+        config: { serverUrl: "https://mcp.example.test", label: "Project tools" },
+      }],
+      context: {
+        ...messageContext,
+        definitionId: "assistant", agentId: "agent-1", conversationId: "conversation-42", workspaceId: "test",
+        runId: "mcp-run", input: {}, glove, store: glove.store, emit: () => undefined,
+      },
+    })),
+    /resolved-before-connect/,
+  );
+  assert.deepEqual(received, {
+    config: { serverUrl: "https://mcp.example.test", label: "Project tools" },
+    conversationId: "conversation-42",
+  });
+});

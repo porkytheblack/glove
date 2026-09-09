@@ -303,6 +303,7 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
       model,
       maxTokens,
       stream,
+      ...(opts.baseURL != null && { baseURL: opts.baseURL }),
       ...(opts.timeout != null && { timeout: opts.timeout }),
       ...(opts.cache != null && { cache: opts.cache }),
     });

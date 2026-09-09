@@ -40,6 +40,7 @@ jobs:
         run: >-
           pnpm
           --filter "glove-memory..."
+          --filter "glove-foundry..."
           --filter "glove-voice-livekit..."
           --filter "glove-scratchpad..."
           --filter "glove-env-documents..."
@@ -85,6 +86,8 @@ jobs:
         run: >-
           pnpm
           --filter glove-core
+          --filter glove-foundry
+          --filter glove-foundry-example
           --filter glove-voice-s2s
           --filter glove-voice-avatar
           --filter glove-voice-livekit
@@ -129,6 +132,8 @@ jobs:
         run: >-
           pnpm
           --filter glove-core
+          --filter glove-foundry
+          --filter glove-mcp
           --filter glove-voice-s2s
           --filter glove-voice-avatar
           --filter glove-voice-livekit
@@ -156,6 +161,12 @@ jobs:
           --filter glove-env-motion
           --filter glove-image
           test
+
+      - name: Integration — Foundry architecture and runtime
+        run: |
+          pnpm --filter glove-foundry-example verify:architecture
+          pnpm --filter glove-foundry-example verify
+          pnpm --filter glove-foundry-example verify:guidance
 
       # The analyst-desk selfcheck solves every eval scenario with a reference
       # script and runs the real graders over the result. No API key, no cost,

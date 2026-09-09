@@ -1,4 +1,8 @@
 import { existsSync } from "node:fs";
+import { mkdir, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   Effect,
@@ -6,6 +10,7 @@ import {
   ManagedRuntime as EffectManagedRuntime,
   Schema,
 } from "effect";
+import type { Message, TokenConsumptionCounter } from "glove-core";
 import { EnvStore, MemoryEnvStorage } from "station-env";
 import {
   MemoryAdapter,
@@ -107,6 +112,21 @@ import {
 import type { FoundryNativeManifest, FoundryNativeRegistry } from "./surfaces.js";
 import { FOUNDRY_CORE_COMMAND_EVENT, type FoundryCoreCommand } from "./core-tools.js";
 import {
+  FOUNDRY_CORE_COMMAND_DIRECTORY_ENV,
+  claimFoundryCoreCommandRequest,
+  getFoundryCoreCommandRequest,
+  monitorFoundryCoreCommandRequest,
+  settleFoundryCoreCommandRequest,
+} from "./core-command-result.js";
+import {
+  FOUNDRY_APPROVAL_DIRECTORY_ENV,
+  listFoundryApprovals,
+  resolveFoundryApproval,
+  type FoundryApproval,
+  type FoundryApprovalDecision,
+  type FoundryApprovalStatus,
+} from "./approval.js";
+import {
   MemoryFoundryDataAdapter,
   createAgentInstance,
   createConversation,
@@ -116,6 +136,7 @@ import {
   type Conversation,
   type CreateAgentInstanceOptions,
   type CreateConversationOptions,
+  type UpdateConversationOptions,
   type UpdateAgentInstanceOptions,
   type FoundryDataAdapter,
   type FoundryActivationRecord,
@@ -126,6 +147,7 @@ import {
   type EnvironmentValue,
   type SharedInboxItem,
   type WorkspaceEntry,
+  freezeGloveMessage,
 } from "./primitives.js";
 
 export interface FoundryRun<TOutput = unknown> {
@@ -145,6 +167,33 @@ export interface FoundryRun<TOutput = unknown> {
   readonly createdAt: string;
   readonly startedAt?: string;
   readonly completedAt?: string;
+}
+
+export interface FoundrySteerResult<TOutput = unknown> {
+  /** The run whose direction was changed. */
+  readonly fromRunId: string;
+  /** True when an active source run accepted cooperative cancellation. */
+  readonly interrupted: boolean;
+  /** The replacement run in the same instance and conversation. */
+  readonly run: FoundryRun<TOutput>;
+}
+
+/** Exact native Glove history and counters for one persisted conversation. */
+export interface FoundryConversationTranscript {
+  readonly conversation: Conversation;
+  readonly messages: ReadonlyArray<Message>;
+  readonly turnCount: number;
+  readonly tokenCount: number;
+  readonly tokenConsumption?: TokenConsumptionCounter;
+  readonly page: {
+    readonly offset: number;
+    readonly limit: number;
+    readonly total: number;
+    readonly hasEarlier: boolean;
+    readonly hasLater: boolean;
+  };
+  /** False means the definition did not configure a durable conversation store. */
+  readonly persisted: boolean;
 }
 
 export class FoundryRuntimeError extends Schema.TaggedError<FoundryRuntimeError>(
@@ -237,6 +286,17 @@ export class FoundryRuntime {
   >;
   private readonly runnerLoops: Promise<void>[] = [];
   private readonly materializedActivations = new Set<string>();
+  private readonly activationTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly approvalDirectory = join(
+    tmpdir(),
+    "glove-foundry-approvals",
+    randomUUID(),
+  );
+  private readonly coreCommandDirectory = join(
+    tmpdir(),
+    "glove-foundry-core-commands",
+    randomUUID(),
+  );
   private started = false;
   private disposed = false;
 
@@ -327,7 +387,27 @@ export class FoundryRuntime {
     );
     this.connectionSupervisor = new ApplicationConnectionSupervisor({
       receive: async (input) => {
-        await this.dispatchInbound(input);
+        const runs = await this.dispatchInbound(input);
+        if (!input.awaitCompletion || runs.length === 0) return;
+        if (input.signal?.aborted) return;
+        const completion = Promise.all(runs.map((run) =>
+          this.waitForRun(run.id, { timeoutMs: Math.max(1_000, run.timeoutMs + 1_000) })
+        ));
+        await new Promise<void>((resolveWait) => {
+          let settled = false;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            input.signal?.removeEventListener("abort", finish);
+            resolveWait();
+          };
+          if (input.signal?.aborted) {
+            finish();
+            return;
+          }
+          input.signal?.addEventListener("abort", finish, { once: true });
+          void completion.then(finish, finish);
+        });
       },
       emit: (event) => {
         this.observability.append({
@@ -361,6 +441,10 @@ export class FoundryRuntime {
           if (discovered) {
             resolvedEnvironment[FOUNDRY_AGENT_FILE_ENV] = discovered.filePath;
           }
+          resolvedEnvironment[FOUNDRY_APPROVAL_DIRECTORY_ENV] =
+            this.approvalDirectory;
+          resolvedEnvironment[FOUNDRY_CORE_COMMAND_DIRECTORY_ENV] =
+            this.coreCommandDirectory;
         }
         if (this.applicationFilePath) {
           resolvedEnvironment[FOUNDRY_APPLICATION_ENV] =
@@ -467,6 +551,10 @@ export class FoundryRuntime {
       }
       this.started = true;
       try {
+        await Promise.all([
+          mkdir(this.approvalDirectory, { recursive: true, mode: 0o700 }),
+          mkdir(this.coreCommandDirectory, { recursive: true, mode: 0o700 }),
+        ]);
         await this.seedTopology();
         for (const instance of await this.listAgentInstances()) {
           if (!this.byRoute.has(instance.definitionId)) {
@@ -510,9 +598,15 @@ export class FoundryRuntime {
       if (this.disposed) return;
       if (!this.started) {
         await this.services.dispose();
+        await Promise.all([
+          rm(this.approvalDirectory, { recursive: true, force: true }),
+          rm(this.coreCommandDirectory, { recursive: true, force: true }),
+        ]);
         this.disposed = true;
         return;
       }
+      for (const timer of this.activationTimers.values()) clearTimeout(timer);
+      this.activationTimers.clear();
       await this.connectionSupervisor.stopAll();
       this.observability.append({ type: "runtime.stop.signals", category: "system", data: {} });
       await this.signalRunner.stop({ graceful: true, timeoutMs: 10_000 });
@@ -522,6 +616,10 @@ export class FoundryRuntime {
       await this.envStore.close();
       await this.scheduleAdapter.close?.();
       await this.services.dispose();
+      await Promise.all([
+        rm(this.approvalDirectory, { recursive: true, force: true }),
+        rm(this.coreCommandDirectory, { recursive: true, force: true }),
+      ]);
       this.started = false;
       this.disposed = true;
       this.observability.append({ type: "runtime.stopped", category: "system", data: {} });
@@ -552,6 +650,10 @@ export class FoundryRuntime {
       if (request.workspaceId !== agent.workspaceId || request.workspaceId !== conversation.workspaceId) {
         throw new Error("The request, agent instance, and conversation must share a workspace.");
       }
+      await Effect.runPromise(this.data.putConversation(Object.freeze({
+        ...conversation,
+        updatedAt: new Date().toISOString(),
+      })));
       const runId = await this.signalRunner.triggerSignal(
         discovered.executionName,
         await this.executionEnvelope(request),
@@ -725,6 +827,107 @@ export class FoundryRuntime {
     return Effect.runPromise(this.data.listConversations(agentId));
   }
 
+  async updateConversation(
+    agentId: string,
+    conversationId: string,
+    options: UpdateConversationOptions,
+  ): Promise<Conversation> {
+    const agent = await Effect.runPromise(this.data.getAgent(agentId));
+    if (!agent) throw new Error(`Foundry agent instance "${agentId}" was not found.`);
+    const current = await Effect.runPromise(this.data.getConversation(conversationId));
+    if (!current || current.agentId !== agent.id) {
+      throw new Error(`Conversation "${conversationId}" does not belong to agent instance "${agent.id}".`);
+    }
+    const title = options.title?.trim();
+    if (options.title !== undefined && (!title || title.length > 120)) {
+      throw new Error("A conversation title must contain 1 to 120 characters.");
+    }
+    const conversation = Object.freeze({
+      ...current,
+      ...(title ? { title } : {}),
+      ...(options.context ? { context: Object.freeze(structuredClone(options.context)) } : {}),
+      updatedAt: new Date().toISOString(),
+    });
+    await Effect.runPromise(this.data.putConversation(conversation));
+    this.observability.append({
+      type: "conversation.updated",
+      category: "agent",
+      agent: agent.definitionId,
+      data: { agentId, conversationId, titleChanged: options.title !== undefined },
+    });
+    return conversation;
+  }
+
+  /**
+   * Read the same StoreAdapter the child agent process uses. Foundry never
+   * reconstructs chat history from runs or observability events: adapters stay
+   * the single source of truth for durable conversations.
+   */
+  async conversationTranscript(
+    agentId: string,
+    conversationId: string,
+    options: { readonly offset?: number; readonly limit?: number } = {},
+  ): Promise<FoundryConversationTranscript> {
+    const agent = await Effect.runPromise(this.data.getAgent(agentId));
+    if (!agent) throw new Error(`Foundry agent instance "${agentId}" was not found.`);
+    const conversation = await Effect.runPromise(this.data.getConversation(conversationId));
+    if (!conversation || conversation.agentId !== agent.id) {
+      throw new Error(`Conversation "${conversationId}" does not belong to agent instance "${agent.id}".`);
+    }
+    if (conversation.workspaceId !== agent.workspaceId) {
+      throw new Error("The agent instance and conversation must share a workspace.");
+    }
+    const discovered = this.byRoute.get(agent.definitionId);
+    if (!discovered) {
+      throw new Error(`Foundry agent definition "${agent.definitionId}" was not found.`);
+    }
+    const storeFactory = discovered.definition.store ?? this.application.conversationStore;
+    const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 100)));
+    if (!storeFactory) {
+      return Object.freeze({
+        conversation,
+        messages: Object.freeze([]),
+        turnCount: 0,
+        tokenCount: 0,
+        page: Object.freeze({ offset: 0, limit, total: 0, hasEarlier: false, hasLater: false }),
+        persisted: false,
+      });
+    }
+    const store = await storeFactory({
+      definitionId: agent.definitionId,
+      agentId: agent.id,
+      conversationId: conversation.id,
+      workspaceId: conversation.workspaceId,
+    });
+    const [messages, turnCount, tokenCount, tokenConsumption] = await Promise.all([
+      store.getMessages(),
+      store.getTurnCount(),
+      store.getTokenCount(),
+      store.getTokenConsumption?.(),
+    ]);
+    const total = messages.length;
+    const offset = Math.max(0, Math.min(
+      total,
+      Math.floor(options.offset ?? Math.max(0, total - limit)),
+    ));
+    const visibleMessages = messages.slice(offset, offset + limit);
+    return Object.freeze({
+      conversation,
+      messages: Object.freeze(visibleMessages.map(freezeGloveMessage)),
+      turnCount,
+      tokenCount,
+      ...(tokenConsumption ? { tokenConsumption: Object.freeze({ ...tokenConsumption }) } : {}),
+      page: Object.freeze({
+        offset,
+        limit,
+        total,
+        hasEarlier: offset > 0,
+        hasLater: offset + visibleMessages.length < total,
+      }),
+      persisted: true,
+    });
+  }
+
   listWorkspaceEntries(workspaceId: string): Promise<ReadonlyArray<WorkspaceEntry>> {
     return Effect.runPromise(this.data.listWorkspaceEntries(workspaceId));
   }
@@ -832,6 +1035,89 @@ export class FoundryRuntime {
 
   cancel(runId: string): Promise<boolean> {
     return this.signalRunner.cancel(runId);
+  }
+
+  /**
+   * Change course at a run boundary.
+   *
+   * Foundry does not inject text into an arbitrary in-flight tool. If the
+   * source is active, steering cooperatively cancels it first, waits for that
+   * terminal boundary, then starts a replacement turn in the same durable
+   * conversation with explicit lineage in the request context.
+   */
+  async steer(
+    runId: string,
+    message: FoundryMessageInput,
+  ): Promise<FoundrySteerResult<FoundryResult>> {
+    const source = await this.getRun(runId);
+    if (!source) throw new Error(`Foundry run "${runId}" was not found.`);
+    if (!source.agentId || !source.conversationId) {
+      throw new Error(`Foundry run "${runId}" does not expose an agent conversation to steer.`);
+    }
+    const active = source.status === "pending" || source.status === "running";
+    const interrupted = active ? await this.cancel(runId) : false;
+    if (interrupted) {
+      const terminal = await this.waitForRun(runId, {
+        pollMs: 25,
+        timeoutMs: Math.min(Math.max(source.timeoutMs, 1_000), 30_000),
+      });
+      if (!terminal || (terminal.status === "pending" || terminal.status === "running")) {
+        throw new Error(`Foundry could not reach a safe steering boundary for run "${runId}".`);
+      }
+    }
+    const run = await this.send(source.agentId, source.conversationId, message, {
+      context: {
+        protocol: "foundry-control",
+        steeredFromRunId: runId,
+        steeringMode: "interrupt-and-restart",
+      },
+    });
+    this.observability.append({
+      type: "run.steered",
+      category: "system",
+      agent: source.agent,
+      runId: run.id,
+      data: {
+        fromRunId: runId,
+        toRunId: run.id,
+        agentId: source.agentId,
+        conversationId: source.conversationId,
+        interrupted,
+        mode: "interrupt-and-restart",
+      },
+    });
+    return { fromRunId: runId, interrupted, run };
+  }
+
+  listApprovals(filter: {
+    readonly runId?: string;
+    readonly status?: FoundryApprovalStatus;
+  } = {}): Promise<ReadonlyArray<FoundryApproval>> {
+    return listFoundryApprovals(this.approvalDirectory, filter);
+  }
+
+  async resolveApproval(
+    approvalId: string,
+    decision: FoundryApprovalDecision,
+  ): Promise<FoundryApproval> {
+    const approval = await resolveFoundryApproval(
+      this.approvalDirectory,
+      approvalId,
+      decision,
+    );
+    this.observability.append({
+      type: "approval.resolved",
+      category: "system",
+      agent: approval.definitionId,
+      runId: approval.runId,
+      data: {
+        approvalId: approval.id,
+        toolName: approval.toolName,
+        decision,
+        status: approval.status,
+      },
+    });
+    return approval;
   }
 
   capabilityManifest(definitionId: string): FoundryCapabilityManifest {
@@ -1044,6 +1330,8 @@ export class FoundryRuntime {
     readonly routeId: string;
     readonly eventId: string;
     readonly threadKey: string;
+    readonly conversationKey?: string;
+    readonly conversationScope?: "route" | "agent";
     readonly raw: unknown;
   }): Promise<ReadonlyArray<FoundryRun>> {
     const route = (await this.listRoutes()).find((item) => item.id === input.routeId);
@@ -1163,12 +1451,32 @@ export class FoundryRuntime {
     }
 
     for (const { agent, playbooks: matched } of matchedByAgent.values()) {
-      const conversationId = `transmission:${route.id}:${agent.id}:${input.threadKey}`;
-      let conversation = await Effect.runPromise(this.data.getConversation(conversationId));
+      const conversationScope = input.conversationScope ?? "route";
+      const conversationKey = input.conversationKey?.trim() || input.threadKey;
+      const conversationId = conversationScope === "agent"
+        ? `transmission:agent:${agent.id}:${encodeURIComponent(conversationKey)}`
+        : `transmission:${route.id}:${agent.id}:${encodeURIComponent(conversationKey)}`;
+      const keyedConversations = conversationScope === "agent"
+        ? (await Effect.runPromise(this.data.listConversations(agent.id))).filter(
+            (candidate) => candidate.context.conversationKey === conversationKey,
+          )
+        : [];
+      if (keyedConversations.length > 1) {
+        throw new Error(
+          `Agent "${agent.id}" has multiple conversations for key "${conversationKey}".`,
+        );
+      }
+      let conversation = keyedConversations[0]
+        ?? await Effect.runPromise(this.data.getConversation(conversationId));
       if (!conversation) {
         conversation = await this.createConversation(agent.id, {
           id: conversationId,
-          context: { routeId: route.id, threadKey: input.threadKey },
+          context: {
+            routeId: route.id,
+            threadKey: input.threadKey,
+            conversationKey,
+            conversationScope,
+          },
         });
       }
       const serializationContext = {
@@ -1237,6 +1545,7 @@ export class FoundryRuntime {
     readonly commandId?: string;
     readonly applicationId?: string;
     readonly transmissionId?: string;
+    readonly signal?: AbortSignal;
   }): Promise<unknown> {
     const route = (await this.listRoutes()).find((item) => item.id === input.routeId);
     if (!route || route.direction !== "outbound" || !route.enabled) {
@@ -1247,14 +1556,17 @@ export class FoundryRuntime {
         `Outbound route "${route.id}" does not belong to transmission "${input.transmissionId}".`,
       );
     }
+    const agent = await Effect.runPromise(this.data.getAgent(input.agentId));
+    if (!agent) {
+      throw new Error(`Agent instance "${input.agentId}" does not exist.`);
+    }
     if (input.applicationId) {
-      const agent = await Effect.runPromise(this.data.getAgent(input.agentId));
       const application = agent
         ? this.compositionByDefinition
-            .get(agent.definitionId)
-            ?.capabilities.applications.find(
-              (candidate) => candidate.id === input.applicationId,
-            )
+          .get(agent.definitionId)
+          ?.capabilities.applications.find(
+            (candidate) => candidate.id === input.applicationId,
+          )
         : undefined;
       if (
         !application ||
@@ -1289,10 +1601,27 @@ export class FoundryRuntime {
         }))
       : undefined;
     const payload = await Schema.decodeUnknownPromise(transmission.outbound.input)(input.payload);
+    const accountSessions = this.byRoute.get(agent.definitionId)?.definition.accountSessions;
+    const sourceRun = account && accountSessions ? await this.getRun(input.runId) : null;
     const output = await Effect.runPromise(transmission.outbound.adapter.deliver(payload, {
       route,
       ...(account ? { account } : {}),
       grant,
+      signal: input.signal ?? new AbortController().signal,
+      ...(account && accountSessions
+        ? {
+            withAccountSession: <A>(
+              operation: string,
+              use: (session: unknown) => Effect.Effect<A, unknown, never>,
+            ) => accountSessions.withSession({
+              accountId: account.id,
+              operation,
+              agentId: agent.id,
+              conversationId: sourceRun?.conversationId ?? `egress:${input.runId}`,
+              workspaceId: agent.workspaceId,
+            }, use),
+          }
+        : {}),
     }));
     const validated = await Schema.decodeUnknownPromise(transmission.outbound.output)(output);
     this.observability.append({
@@ -1322,8 +1651,14 @@ export class FoundryRuntime {
       environment,
       activations,
       agents: this.agents.length,
-      capabilities: this.registry.files.length,
-      surfaces: this.registry.nativeFiles.length,
+      capabilities:
+        this.registry.capabilities.tools.length +
+        this.registry.capabilities.applications.length +
+        this.registry.capabilities.mcp.length +
+        this.registry.capabilities.memory.length,
+      surfaces:
+        this.registry.native.layers.length +
+        this.registry.native.subscribers.length,
     };
   }
 
@@ -1884,28 +2219,91 @@ export class FoundryRuntime {
   private async enqueueCoreRequest(
     definitionId: string,
     request: FoundryRequest,
-    runAt?: string,
   ): Promise<string> {
     const discovered = this.byRoute.get(definitionId);
     if (!discovered) throw new Error(`Foundry agent definition "${definitionId}" was not found.`);
     const agent = await Effect.runPromise(this.data.getAgent(request.agentId));
     const conversation = await Effect.runPromise(this.data.getConversation(request.conversationId));
     if (!agent || !conversation) throw new Error("Core command references an unknown agent instance or conversation.");
-    const runId = await this.signalRunner.triggerSignal(
+    return this.signalRunner.triggerSignal(
       discovered.executionName,
       await this.executionEnvelope(request),
     );
-    if (runAt) {
-      const date = new Date(runAt);
-      if (Number.isNaN(date.getTime())) throw new Error(`Invalid future run date "${runAt}".`);
-      await this.signalRunner.getAdapter().updateRun(runId, { nextRunAt: date });
-    }
-    return runId;
   }
 
   private async executeCoreCommand(command: FoundryCoreCommand, parentRunId: string): Promise<void> {
     if (command.type === "transmit") {
-      await this.deliverOutbound(command, parentRunId);
+      const request = await getFoundryCoreCommandRequest(
+        this.coreCommandDirectory,
+        command.id,
+      );
+      if (!request) {
+        if (
+          command.payload && typeof command.payload === "object"
+          && (command.payload as { readonly privateRequest?: unknown }).privateRequest === true
+        ) {
+          throw new Error("Foundry transmission private request is missing or invalid.");
+        }
+        await this.deliverOutbound(command, parentRunId);
+        return;
+      }
+      const executable = request.command ?? command;
+      const claimed = await claimFoundryCoreCommandRequest(
+        this.coreCommandDirectory,
+        command.id,
+      );
+      if (!claimed) return;
+      const delivery = new AbortController();
+      const monitoring = new AbortController();
+      const monitor = monitorFoundryCoreCommandRequest(
+        this.coreCommandDirectory,
+        request,
+        delivery,
+        monitoring.signal,
+      );
+      try {
+        if (request.runId !== parentRunId) {
+          throw new Error("Foundry transmission call does not belong to this run.");
+        }
+        if (
+          executable.id !== command.id
+          || executable.definitionId !== command.definitionId
+          || executable.agentId !== command.agentId
+          || executable.conversationId !== command.conversationId
+          || executable.workspaceId !== command.workspaceId
+          || executable.routeId !== command.routeId
+          || executable.applicationId !== command.applicationId
+          || executable.transmissionId !== command.transmissionId
+        ) {
+          throw new Error("Foundry transmission command metadata does not match its private request.");
+        }
+        if (Date.parse(request.expiresAt) <= Date.now()) {
+          throw new Error("Foundry transmission call expired before delivery.");
+        }
+        const output = await this.deliverOutbound(
+          executable,
+          parentRunId,
+          delivery.signal,
+        );
+        await settleFoundryCoreCommandRequest(
+          this.coreCommandDirectory,
+          command.id,
+          { status: "success", output },
+        );
+      } catch (cause) {
+        await settleFoundryCoreCommandRequest(
+          this.coreCommandDirectory,
+          command.id,
+          {
+            status: "error",
+            error: cause instanceof Error ? cause.message : String(cause),
+          },
+        );
+        throw cause;
+      } finally {
+        monitoring.abort();
+        await monitor;
+      }
       return;
     }
     if (command.type === "playbook.sync") {
@@ -1918,6 +2316,14 @@ export class FoundryRuntime {
     }
     if (command.type === "schedule.update") {
       await this.updateScheduledActivation(command, parentRunId);
+      return;
+    }
+    if (command.type === "schedule.pause") {
+      await this.pauseScheduledActivation(command, parentRunId);
+      return;
+    }
+    if (command.type === "schedule.resume") {
+      await this.resumeScheduledActivation(command, parentRunId);
       return;
     }
     if (command.type === "schedule.cancel") {
@@ -1984,7 +2390,6 @@ export class FoundryRuntime {
     const runId = await this.enqueueCoreRequest(
       command.definitionId,
       request,
-      undefined,
     );
     this.observability.append({
       type: "core.command.accepted",
@@ -2072,6 +2477,11 @@ export class FoundryRuntime {
   }
 
   private async disarmActivation(activation: FoundryActivationRecord): Promise<void> {
+    const timer = this.activationTimers.get(activation.id);
+    if (timer) {
+      clearTimeout(timer);
+      this.activationTimers.delete(activation.id);
+    }
     if (activation.timing.kind === "every" || activation.timing.kind === "cron") {
       await this.scheduleAdapter.delete(this.backendScheduleId(activation.id));
     } else if (activation.lastRunId) {
@@ -2151,19 +2561,74 @@ export class FoundryRuntime {
     const updated: FoundryActivationRecord = {
       ...existing,
       ...command.patch,
-      status: "pending",
+      status: existing.status === "paused" ? "paused" : "pending",
       createdByRunId: parentRunId,
       lastRunId: undefined,
       updatedAt: new Date().toISOString(),
     };
     await Effect.runPromise(this.data.putActivation(updated));
-    await this.materializeActivation(updated);
+    if (updated.status !== "paused") await this.materializeActivation(updated);
     this.observability.append({
       type: "scheduled-action.updated",
       category: "activation",
       agent: command.definitionId,
       runId: parentRunId,
       data: { commandId: command.id, activationId: updated.id },
+    });
+  }
+
+  private async pauseScheduledActivation(
+    command: Extract<FoundryCoreCommand, { readonly type: "schedule.pause" }>,
+    parentRunId: string,
+  ): Promise<void> {
+    const existing = await Effect.runPromise(this.data.getActivation(command.activationId));
+    if (!existing) throw new Error(`Scheduled activation "${command.activationId}" was not found.`);
+    this.assertActivationOwnership(existing, command);
+    if (existing.status === "completed" || existing.status === "cancelled") {
+      throw new Error(`Scheduled activation "${command.activationId}" cannot be paused from status "${existing.status}".`);
+    }
+    if (existing.status !== "paused") {
+      await this.disarmActivation(existing);
+      await Effect.runPromise(this.data.putActivation({
+        ...existing,
+        status: "paused",
+        updatedAt: new Date().toISOString(),
+      }));
+    }
+    this.observability.append({
+      type: "scheduled-action.paused",
+      category: "activation",
+      agent: command.definitionId,
+      runId: parentRunId,
+      data: { commandId: command.id, activationId: existing.id },
+    });
+  }
+
+  private async resumeScheduledActivation(
+    command: Extract<FoundryCoreCommand, { readonly type: "schedule.resume" }>,
+    parentRunId: string,
+  ): Promise<void> {
+    const existing = await Effect.runPromise(this.data.getActivation(command.activationId));
+    if (!existing) throw new Error(`Scheduled activation "${command.activationId}" was not found.`);
+    this.assertActivationOwnership(existing, command);
+    if (existing.status !== "paused") {
+      throw new Error(`Scheduled activation "${command.activationId}" is not paused.`);
+    }
+    const resumed: FoundryActivationRecord = {
+      ...existing,
+      status: "pending",
+      createdByRunId: parentRunId,
+      lastRunId: undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    await Effect.runPromise(this.data.putActivation(resumed));
+    await this.materializeActivation(resumed);
+    this.observability.append({
+      type: "scheduled-action.resumed",
+      category: "activation",
+      agent: command.definitionId,
+      runId: parentRunId,
+      data: { commandId: command.id, activationId: existing.id },
     });
   }
 
@@ -2191,7 +2656,7 @@ export class FoundryRuntime {
 
   private async reconstructActivations(): Promise<void> {
     for (const activation of await Effect.runPromise(this.data.listActivations())) {
-      if (activation.status === "completed" || activation.status === "cancelled") continue;
+      if (activation.status === "paused" || activation.status === "completed" || activation.status === "cancelled") continue;
       await this.materializeActivation(activation);
     }
   }
@@ -2276,18 +2741,42 @@ export class FoundryRuntime {
         });
         return;
       }
-      const runId = await this.enqueueCoreRequest(
-        activation.definitionId,
-        request,
-        activation.timing.at,
-      );
-      const active: FoundryActivationRecord = {
-        ...activation,
+      await this.armOneShotActivation(activation, request);
+    } catch (cause) {
+      this.materializedActivations.delete(activation.id);
+      throw cause;
+    }
+  }
+
+  private async armOneShotActivation(
+    activation: FoundryActivationRecord,
+    request: FoundryRequest,
+  ): Promise<void> {
+    if (activation.timing.kind !== "at") {
+      throw new Error(`Activation "${activation.id}" is not a one-shot activation.`);
+    }
+    const target = new Date(activation.timing.at).getTime();
+    const active: FoundryActivationRecord = {
+      ...activation,
+      status: "active",
+      lastRunId: undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    await Effect.runPromise(this.data.putActivation(active));
+
+    const dispatch = async (): Promise<void> => {
+      this.activationTimers.delete(activation.id);
+      if (this.disposed || !this.started) return;
+      const current = await Effect.runPromise(this.data.getActivation(activation.id));
+      if (!current || current.status === "paused" || current.status === "cancelled" || current.status === "completed") return;
+      const runId = await this.enqueueCoreRequest(activation.definitionId, request);
+      const running: FoundryActivationRecord = {
+        ...current,
         status: "active",
         lastRunId: runId,
         updatedAt: new Date().toISOString(),
       };
-      await Effect.runPromise(this.data.putActivation(active));
+      await Effect.runPromise(this.data.putActivation(running));
       this.observability.append({
         type: "core.command.accepted",
         category: "system",
@@ -2297,8 +2786,10 @@ export class FoundryRuntime {
       });
       void this.waitForRun(runId).then(async (run) => {
         if (!run || (run.status !== "completed" && run.status !== "failed" && run.status !== "cancelled")) return;
+        const latest = await Effect.runPromise(this.data.getActivation(activation.id));
+        if (!latest || latest.status !== "active" || latest.lastRunId !== runId) return;
         await Effect.runPromise(this.data.putActivation({
-          ...active,
+          ...latest,
           status: run.status === "cancelled" ? "cancelled" : "completed",
           updatedAt: new Date().toISOString(),
         }));
@@ -2311,17 +2802,44 @@ export class FoundryRuntime {
           data: { error: cause instanceof Error ? cause.message : String(cause) },
         });
       });
-    } catch (cause) {
-      this.materializedActivations.delete(activation.id);
-      throw cause;
-    }
+    };
+
+    const arm = (): void => {
+      const remaining = target - Date.now();
+      if (remaining <= 0) {
+        void dispatch().catch((cause) => {
+          this.materializedActivations.delete(activation.id);
+          this.observability.append({
+            type: "activation.dispatch.error",
+            category: "activation",
+            agent: activation.definitionId,
+            runId: activation.createdByRunId,
+            data: { error: cause instanceof Error ? cause.message : String(cause) },
+          });
+        });
+        return;
+      }
+      const timer = setTimeout(arm, Math.min(remaining, 2_147_483_647));
+      this.activationTimers.set(activation.id, timer);
+    };
+
+    this.observability.append({
+      type: "scheduled-action.created",
+      category: "activation",
+      agent: activation.definitionId,
+      runId: activation.createdByRunId,
+      data: { commandId: activation.id, recurring: false, nextRunAt: activation.timing.at },
+    });
+    if (target <= Date.now()) await dispatch();
+    else arm();
   }
 
   private async deliverOutbound(
     command: Extract<FoundryCoreCommand, { readonly type: "transmit" }>,
     parentRunId: string,
-  ): Promise<void> {
-    await this.dispatchOutbound({
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return this.dispatchOutbound({
       routeId: command.routeId,
       agentId: command.agentId,
       runId: parentRunId,
@@ -2331,6 +2849,7 @@ export class FoundryRuntime {
       ...(command.transmissionId
         ? { transmissionId: command.transmissionId }
         : {}),
+      ...(signal ? { signal } : {}),
     });
   }
 

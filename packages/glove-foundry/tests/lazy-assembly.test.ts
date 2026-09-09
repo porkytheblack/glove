@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Effect } from "effect";
-import { MemoryStore } from "glove-core";
+import { MemoryStore, type ModelAdapter } from "glove-core";
 import { z } from "zod";
 import { compileAgentDefinition } from "../src/agent-runtime.js";
 import { defineMemory } from "../src/capabilities.js";
@@ -219,4 +219,64 @@ test("every lazy resolver receives the native current Message and conversation h
     },
     { field: "tools", hasImage: true },
   ]);
+});
+
+test("a run handler preserves multimodal input and transient runtime context through the standard Glove loop", async () => {
+  const store = new MemoryStore("handler-enriched-message");
+  let modelSawImage = false;
+  const model: ModelAdapter = {
+    name: "enriched-message-model",
+    setSystemPrompt: () => undefined,
+    async prompt(request) {
+      modelSawImage = request.messages.some(message => message.content?.some(part => part.type === "image"));
+      assert.equal(request.messages.at(-1)?.framework_context, "runtime");
+      assert.equal(request.messages.at(-1)?.text, "Current goal: inspect the reference");
+      return {
+        messages: [{ sender: "agent", text: modelSawImage ? "vision-ready" : "missing-image" }],
+        tokens_in: 1,
+        tokens_out: 1,
+      };
+    },
+  };
+  const definition = defineAgent({
+    description: "Handler-enriched multimodal fixture",
+    store: () => store,
+    model,
+    systemPrompt: "Inspect the user's message and any attached image.",
+    configure: agent => {
+      agent.addContextProvider(() => "Current goal: inspect the reference");
+    },
+    run: (_agent, context) => context.defaultRun([
+      { type: "text", text: `${context.messageText}\n[mounted:/inbox/reference.png]` },
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "AQID" },
+      },
+    ]),
+  });
+  const compiled = compileAgentDefinition(definition, "handler-enriched");
+  const result = await compiled.handler!({
+    [FOUNDRY_EXECUTION_MARKER]: true,
+    request: {
+      agentId: "agent-enriched",
+      conversationId: "conversation-enriched",
+      workspaceId: "test",
+      message: "Inspect the delivered reference.",
+      source: { kind: "direct" },
+    },
+    agent: {
+      id: "agent-enriched", definitionId: "handler-enriched", workspaceId: "test",
+      context: {}, installations: [], playbooks: [], createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    conversation: {
+      id: "conversation-enriched", agentId: "agent-enriched", workspaceId: "test",
+      context: {}, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+  });
+  assert.equal(result.value, "vision-ready");
+  assert.equal(modelSawImage, true);
+  const persisted = await store.getMessages();
+  assert.ok(persisted.every(message => message.framework_context !== "runtime"));
+  assert.equal(persisted[0]?.text, "Inspect the delivered reference.\n[mounted:/inbox/reference.png]");
+  assert.equal(persisted[0]?.content?.[1]?.source?.data, "AQID");
 });

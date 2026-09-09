@@ -2,6 +2,13 @@
 
 A [Glove Foundry](https://github.com/porkytheblack/glove/tree/main/packages/glove-foundry) application.
 
+## First run
+
+Use Node.js 22.13+ (recommended; minimum 20.12). This minimal starter needs an
+OpenRouter key. For a keyless first look, choose the guided travel-concierge
+template instead. Run these commands from this project's directory; skip
+installation if you already accepted it in the setup wizard.
+
 ```bash
 cp .env.example .env.local     # add your OPENROUTER_API_KEY
 {{installCommand}}
@@ -9,6 +16,24 @@ cp .env.example .env.local     # add your OPENROUTER_API_KEY
 ```
 
 Then open **http://127.0.0.1:4141** and press **Start a run**.
+
+Choose **assistant**, send a short request, and open the run to inspect its events.
+Edit `agents/assistant/agent.ts`, save, and run again. The dev server reloads your
+definition. Run `{{typecheckCommand}}` and `{{lintCommand}}` after changes.
+
+The initializer never asks for secrets. Add `OPENROUTER_API_KEY` to `.env.local`
+yourself and restart the dev server. Do not commit the key. If a run fails, check
+the trace for authentication or rate-limit errors. If port 4141 is occupied, use
+the local `glove foundry dev --port 4142` command.
+
+## Before using real data
+
+The starter uses disposable in-memory storage. Configure durable Foundry runtime
+data, a durable Glove conversation store, native memory adapters, and VFS
+persistence independently. For a single host, Foundry includes
+`FileFoundryDataAdapter`; `glove-memory/sqlite` supports Node 22.13+. Use your own
+transactional adapters across hosts. A non-loopback listener requires an
+application-owned `requestAuthorization` adapter and a deliberate network boundary.
 
 ## The one idea to understand first
 
@@ -32,9 +57,12 @@ Any file matching these names under an agent folder is discovered automatically.
 | `memory/*.memory.ts` | A memory profile | `defineMemory` |
 | `layers/*.layer.ts` | Native Glove setup | `defineLayer` |
 | `subscribers/*.subscriber.ts` | An observer | `defineSubscriber` |
-| `schedules/*.ts` | Recurring or future work | `defineSchedule` |
 
 Create the file, add it to `composeAgent(...)`, and the dev server picks it up and regenerates types.
+
+Schedules are data, not auto-discovered file routes. You may keep a `defineSchedule`
+value in an ordinary colocated module and import it into the agent's lazy
+`schedules` field, or create future work dynamically with Foundry's scheduling tools.
 
 Want a worked example with a calendar application, a chat transport, memory, a schedule, and a sandboxed REPL? Scaffold the travel concierge:
 
@@ -46,7 +74,7 @@ npx glove-foundry init my-concierge --template travel-concierge
 
 | Command | What it does |
 | --- | --- |
-| `{{devCommand}}` | Discover agents, typecheck, generate routes, serve the runtime and inspector |
+| `{{devCommand}}` | Discover agents, generate routes, serve the runtime and inspector |
 | `{{startCommand}}` | Run without file watching |
 | `{{lintCommand}}` | Lint, including the Foundry file-routing rules |
 | `{{typecheckCommand}}` | `tsc --noEmit` |

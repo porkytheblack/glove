@@ -68,6 +68,12 @@ test("repl fn framing is the exported preamble; workflow framing de-REPLs it", (
   assert.match(wf, /ONE workflow per task/);
 });
 
+test("mixed-surface framing does not claim the workflow is the agent's only tool", () => {
+  const wf = buildLispFnPreamble("workflow", false);
+  assert.match(wf, /normal direct tools may also be available/);
+  assert.doesNotMatch(wf, /You have ONE tool/);
+});
+
 test("mounting a frame folds exactly those tool names and primes with its framing", () => {
   const { g, folded } = fakeRunnable();
   mountLisp(g as never, { session: session(), frame: "workflow", allowWrites: true, discovery: "full" });

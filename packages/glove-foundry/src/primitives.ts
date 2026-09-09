@@ -113,7 +113,7 @@ export interface FoundryActivationRecord {
   readonly scheduleName?: string;
   /** Hash of the last reconciled definition value; runtime edits remain overrides. */
   readonly definitionRevision?: string;
-  readonly status: "pending" | "active" | "completed" | "cancelled";
+  readonly status: "pending" | "active" | "paused" | "completed" | "cancelled";
   readonly createdByRunId: string;
   readonly lastRunId?: string;
   readonly createdAt: string;
@@ -142,6 +142,8 @@ export interface FoundryDataAdapter {
   listConversations(agentId: string): Effect.Effect<ReadonlyArray<Conversation>, unknown, never>;
   getWorkspaceEntry(workspaceId: string, key: string): Effect.Effect<WorkspaceEntry | null, unknown, never>;
   putWorkspaceEntry(entry: WorkspaceEntry): Effect.Effect<void, unknown, never>;
+  /** Atomic optimistic update. null requires absence; updates must advance updatedAt. */
+  compareAndSetWorkspaceEntry?(entry: WorkspaceEntry, expectedUpdatedAt: string | null): Effect.Effect<boolean, unknown, never>;
   listWorkspaceEntries(workspaceId: string): Effect.Effect<ReadonlyArray<WorkspaceEntry>, unknown, never>;
   /** Private VFS persistence; snapshots are never exposed as workspace entries. */
   getWorkingEnvironmentSnapshot(owner: FoundryWorkingEnvironmentSnapshotOwner): Effect.Effect<EnvSnapshot | null, unknown, never>;
@@ -257,6 +259,11 @@ export interface UpdateAgentInstanceOptions {
 export interface CreateConversationOptions {
   readonly id?: string;
   readonly workspaceId?: string;
+  readonly title?: string;
+  readonly context?: Readonly<Record<string, unknown>>;
+}
+
+export interface UpdateConversationOptions {
   readonly title?: string;
   readonly context?: Readonly<Record<string, unknown>>;
 }
@@ -397,6 +404,18 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
   listConversations(agentId: string) { return Effect.succeed([...this.conversations.values()].filter((item) => item.agentId === agentId)); }
   getWorkspaceEntry(workspaceId: string, key: string) { return Effect.succeed(this.workspace.get(`${workspaceId}:${key}`) ?? null); }
   putWorkspaceEntry(entry: WorkspaceEntry) { return Effect.sync(() => { this.workspace.set(`${entry.workspaceId}:${entry.key}`, Object.freeze({ ...entry })); }); }
+  compareAndSetWorkspaceEntry(entry: WorkspaceEntry, expectedUpdatedAt: string | null) {
+    return Effect.sync(() => {
+      const key = `${entry.workspaceId}:${entry.key}`;
+      const current = this.workspace.get(key);
+      if ((current?.updatedAt ?? null) !== expectedUpdatedAt) return false;
+      if (!Number.isFinite(Date.parse(entry.updatedAt)) || (current && Date.parse(entry.updatedAt) <= Date.parse(current.updatedAt))) {
+        throw new Error("An atomic workspace update must advance updatedAt.");
+      }
+      this.workspace.set(key, freezeInstanceData(structuredClone(entry)));
+      return true;
+    });
+  }
   listWorkspaceEntries(workspaceId: string) { return Effect.succeed([...this.workspace.values()].filter((item) => item.workspaceId === workspaceId)); }
   getWorkingEnvironmentSnapshot(owner: FoundryWorkingEnvironmentSnapshotOwner) {
     return Effect.sync(() => {

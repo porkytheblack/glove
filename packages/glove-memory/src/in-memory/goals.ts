@@ -9,12 +9,24 @@ function scopeKey(scope: GoalScope): string {
 }
 
 /** Reference CAS adapter. No await between version check and Map replacement. */
+export interface GoalMemoryState {
+  instances: Array<[string, GoalInstance]>;
+  dispatches: Array<[string, Array<[string, GoalTransitionDispatch]>]>;
+}
 export class InMemoryGoalAdapter implements GoalAdapter {
   readonly identifier: string;
   private readonly dispatches = new Map<string, Map<string, GoalTransitionDispatch>>();
   private readonly instances = new Map<string, GoalInstance>();
-  constructor(options: { identifier?: string } = {}) {
+  constructor(options: { identifier?: string; state?: GoalMemoryState } = {}) {
     this.identifier = options.identifier ?? "in-memory-goals";
+    if (options.state) {
+      const state = structuredClone(options.state);
+      for (const [key, instance] of state.instances) this.instances.set(key, instance);
+      for (const [key, receipts] of state.dispatches) this.dispatches.set(key, new Map(receipts));
+    }
+  }
+  snapshot(): GoalMemoryState {
+    return structuredClone({ instances: [...this.instances], dispatches: [...this.dispatches].map(([key, receipts]) => [key, [...receipts]] as [string, Array<[string, GoalTransitionDispatch]>]) });
   }
   async get(scope: GoalScope): Promise<GoalInstance | null> {
     const instance = this.instances.get(scopeKey(scope));

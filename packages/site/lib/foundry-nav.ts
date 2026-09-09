@@ -18,9 +18,9 @@ export const foundrySections: FoundryNavSection[] = [
         summary: "The framework, its boundaries, and the definition → instance → run model.",
       },
       {
-        label: "Installation",
+        label: "Setup wizard & CLI",
         href: "/foundry/docs/getting-started",
-        summary: "Scaffold, configure, run, inspect, and call your first file-routed agent.",
+        summary: "Interactive setup, templates, command and flag reference, and your first agent run.",
       },
     ],
   },
@@ -36,6 +36,11 @@ export const foundrySections: FoundryNavSection[] = [
         label: "Agent composition",
         href: "/foundry/docs/composition",
         summary: "Message-aware lazy assembly, shared tools, models, memory, inboxes, layers, MCP, and mesh calls.",
+      },
+      {
+        label: "Goals, facts & forms",
+        href: "/foundry/docs/guidance",
+        summary: "Guided conversations, durable evidence and answers, native preparation, and live context providers.",
       },
       {
         label: "Apps & transmissions",

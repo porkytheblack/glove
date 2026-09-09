@@ -119,16 +119,28 @@ test("framework core tools emit identity-scoped orchestration commands", async (
   assert.equal(commands[2].type, "schedule.update");
   assert.deepEqual(commands[2].patch.timing, { kind: "every", intervalMs: 14_400_000 });
   await (schedules.do as (input: unknown) => Promise<any>)({
+    action: "pause", activationId: commands[1].id,
+  });
+  assert.equal(commands[3].type, "schedule.pause");
+  const paused = await (schedules.do as (input: unknown) => Promise<any>)({
+    action: "list", status: "paused",
+  });
+  assert.equal(paused.data.length, 1);
+  await (schedules.do as (input: unknown) => Promise<any>)({
+    action: "resume", activationId: commands[1].id,
+  });
+  assert.equal(commands[4].type, "schedule.resume");
+  await (schedules.do as (input: unknown) => Promise<any>)({
     action: "cancel", activationId: commands[1].id,
   });
-  assert.equal(commands[3].type, "schedule.cancel");
+  assert.equal(commands[5].type, "schedule.cancel");
 
   const transmit = tools.find((tool) => tool.name === "glove_foundry_transmit")!;
   await (transmit.do as (input: unknown) => Promise<any>)({
     routeId: "support-replies", payload: { message: "done" },
   });
-  assert.equal(commands[4].type, "transmit");
-  assert.equal(commands[4].routeId, "support-replies");
+  assert.equal(commands[6].type, "transmit");
+  assert.equal(commands[6].routeId, "support-replies");
 
   const inbox = tools.find((tool) => tool.name === "glove_foundry_shared_inbox")!;
   const posted = await (inbox.do as (input: unknown) => Promise<any>)({
@@ -147,4 +159,21 @@ test("framework core tools emit identity-scoped orchestration commands", async (
     action: "update", taskId: created.data.id, status: "completed",
   });
   assert.equal(completed.data.status, "completed");
+
+  // A trigger can be inserted after the run's activation snapshot was captured.
+  const now = new Date().toISOString();
+  const activation = {
+    id: "late-schedule", kind: "scheduled" as const, definitionId: "assistant", agentId: agent.id,
+    conversationId: conversation.id, workspaceId: agent.workspaceId, message: "fresh work",
+    timing: { kind: "every" as const, intervalMs: 60_000 }, status: "active" as const,
+    origin: "agent-tool" as const, createdByRunId: "run-1", createdAt: now, updatedAt: now,
+  };
+  await Effect.runPromise(data.putActivation(activation));
+  await Effect.runPromise(data.putActivation({ ...activation, id: "other-agent-schedule", agentId: "agent-2" }));
+  const fresh = await (schedules.do as (input: unknown) => Promise<any>)({ action: "list" });
+  assert.deepEqual(fresh.data.map((record: { id: string }) => record.id), [activation.id]);
+  const foreign = await (schedules.do as (input: unknown) => Promise<any>)({ action: "cancel", activationId: "other-agent-schedule" });
+  assert.equal(foreign.status, "error");
+  const owned = await (schedules.do as (input: unknown) => Promise<any>)({ action: "cancel", activationId: activation.id });
+  assert.equal(owned.status, "success");
 });

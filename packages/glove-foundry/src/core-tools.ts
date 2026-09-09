@@ -17,6 +17,11 @@ import {
   type FoundryScheduleTiming,
   type FoundryScheduleTimingInput,
 } from "./schedule.js";
+import {
+  FOUNDRY_CORE_COMMAND_DIRECTORY_ENV,
+  createFoundryCoreCommandRequest,
+  waitForFoundryCoreCommandResult,
+} from "./core-command-result.js";
 
 export const FOUNDRY_CORE_COMMAND_EVENT = "foundry.core.command";
 
@@ -87,6 +92,24 @@ export type FoundryCoreCommand =
     }
   | {
       readonly id: string;
+      readonly type: "schedule.pause";
+      readonly definitionId: string;
+      readonly agentId: string;
+      readonly conversationId: string;
+      readonly workspaceId: string;
+      readonly activationId: string;
+    }
+  | {
+      readonly id: string;
+      readonly type: "schedule.resume";
+      readonly definitionId: string;
+      readonly agentId: string;
+      readonly conversationId: string;
+      readonly workspaceId: string;
+      readonly activationId: string;
+    }
+  | {
+      readonly id: string;
       readonly type: "schedule.cancel";
       readonly definitionId: string;
       readonly agentId: string;
@@ -124,12 +147,19 @@ export type FoundryCoreCommand =
       readonly workspaceId: string;
       readonly routeId: string;
       readonly payload: unknown;
+      readonly observability?: unknown;
       readonly applicationId?: string;
       readonly transmissionId?: string;
     };
 
 function commandId(): string {
   return `command_${randomUUID()}`;
+}
+
+function privateTransmitEvent(
+  command: Extract<FoundryCoreCommand, { readonly type: "transmit" }>,
+): Extract<FoundryCoreCommand, { readonly type: "transmit" }> {
+  return Object.freeze({ ...command, payload: { privateRequest: true } });
 }
 
 function durationSchema(description: string) {
@@ -158,6 +188,14 @@ function toolSegment(value: string): string {
   return value.replaceAll("/", "__").replaceAll("-", "_");
 }
 
+/** Resolve an installed app's generated outbound tool without duplicating ids. */
+export function installedApplicationTransmissionToolName(
+  application: { readonly id: string },
+  transmission: { readonly id: string },
+): string {
+  return `glove_app_${toolSegment(application.id)}__${toolSegment(transmission.id)}_send`;
+}
+
 function outboundToolSchema(
   transmission: AnyFoundryTransmission,
   routeIds: ReadonlyArray<string>,
@@ -183,8 +221,10 @@ function outboundToolSchema(
 
 /**
  * Installed apps expose one namespaced Glove tool per outbound transmission.
- * The tool only queues a parent-runtime command; grants and delivery adapters
- * remain authoritative outside the agent subprocess.
+ * The parent runtime remains authoritative for grants, credentials, and the
+ * delivery adapter. A private request/result bridge returns the adapter's
+ * validated output to the calling tool without moving those concerns into the
+ * agent subprocess.
  */
 export function createInstalledApplicationTransmissionTools(
   context: AgentAssemblyContext,
@@ -197,10 +237,9 @@ export function createInstalledApplicationTransmissionTools(
       .filter((item) => item.kind === "application")
       .map((item) => item.id),
   );
-  const emit = (command: FoundryCoreCommand) => {
+  const emit = (command: FoundryCoreCommand, eventCommand: FoundryCoreCommand = command) => {
     context.controls.commands.push(command);
-    context.controls.emit({ type: FOUNDRY_CORE_COMMAND_EVENT, data: command });
-    return success(command);
+    context.controls.emit({ type: FOUNDRY_CORE_COMMAND_EVENT, data: eventCommand });
   };
   const tools: GloveFoldArgs<any>[] = [];
   for (const application of applications) {
@@ -224,8 +263,9 @@ export function createInstalledApplicationTransmissionTools(
               .map((outbound) => outbound.routeId),
           ),
       )].sort();
+      const requiresPermission = transmission.outbound.requiresPermission;
       tools.push({
-        name: `glove_app_${toolSegment(application.id)}__${toolSegment(transmission.id)}_send`,
+        name: installedApplicationTransmissionToolName(application, transmission),
         description: [
           `Send through the ${transmission.name} outbound transmission installed by the ${application.id} application.`,
           routeIds.length > 0
@@ -233,6 +273,22 @@ export function createInstalledApplicationTransmissionTools(
             : "Supply a route authorized for this agent run.",
         ].join(" "),
         jsonSchema: outboundToolSchema(transmission, routeIds),
+        ...(requiresPermission !== undefined
+          ? {
+              requiresPermission: (input: { readonly routeId: string; readonly payload: unknown }) => {
+                if (routeIds.length > 0 && !routeIds.includes(input.routeId)) return false;
+                try {
+                  const payload = Schema.decodeUnknownSync(transmission.outbound!.input)(input.payload);
+                  return typeof requiresPermission === "function"
+                    ? requiresPermission(payload)
+                    : requiresPermission;
+                } catch {
+                  // Malformed input is rejected by do(); it must not create an approval request first.
+                  return false;
+                }
+              },
+            }
+          : {}),
         async do(input: { readonly routeId: string; readonly payload: unknown }) {
           if (routeIds.length > 0 && !routeIds.includes(input.routeId)) {
             return {
@@ -245,7 +301,13 @@ export function createInstalledApplicationTransmissionTools(
             const payload = await Schema.decodeUnknownPromise(
               transmission.outbound!.input,
             )(input.payload);
-            return emit({
+            const directory = process.env[FOUNDRY_CORE_COMMAND_DIRECTORY_ENV];
+            if (!directory) {
+              throw new Error(
+                "Foundry cannot call an application transmission without its parent runtime.",
+              );
+            }
+            const command: Extract<FoundryCoreCommand, { readonly type: "transmit" }> = {
               id: commandId(),
               type: "transmit",
               definitionId: context.definitionId,
@@ -254,9 +316,37 @@ export function createInstalledApplicationTransmissionTools(
               workspaceId: context.workspaceId,
               routeId: input.routeId,
               payload,
+              ...(transmission.outbound!.observe
+                ? { observability: transmission.outbound!.observe(payload) }
+                : {}),
               applicationId: application.id,
               transmissionId: transmission.id,
+            };
+            const request = await createFoundryCoreCommandRequest(directory, {
+              id: command.id,
+              runId: context.runId,
+              type: command.type,
+              command,
             });
+            emit(command, privateTransmitEvent(command));
+            const output = await waitForFoundryCoreCommandResult(
+              directory,
+              request,
+              context.controls.signal,
+              { cleanup: true },
+            );
+            const decoded = await Schema.decodeUnknownPromise(
+              transmission.outbound!.output,
+            )(output);
+            return {
+              status: "success" as const,
+              data: transmission.outbound!.project
+                ? transmission.outbound!.project(decoded)
+                : decoded,
+              ...(transmission.outbound!.render
+                ? { renderData: transmission.outbound!.render(decoded) }
+                : {}),
+            };
           } catch (cause) {
             return {
               status: "error" as const,
@@ -295,10 +385,10 @@ export function createFoundryCoreTools(
     context.controls.emit({ type: FOUNDRY_CORE_COMMAND_EVENT, data: command });
     return success(command);
   };
-  const scheduleView = (): ReadonlyArray<FoundryActivationRecord> => {
+  const scheduleView = async (): Promise<ReadonlyArray<FoundryActivationRecord>> => {
     const records = new Map(
-      context.activations
-        .filter((item) => item.kind === "scheduled")
+      [...context.activations, ...await Effect.runPromise(context.data.listActivations(context.workspaceId))]
+        .filter((item) => item.kind === "scheduled" && item.agentId === context.agentId)
         .map((item) => [item.id, item]),
     );
     const now = new Date().toISOString();
@@ -347,6 +437,20 @@ export function createFoundryCoreTools(
         if (current) records.set(command.activationId, {
           ...current,
           ...command.patch,
+          status: current.status === "paused" ? "paused" : "pending",
+          updatedAt: new Date().toISOString(),
+        });
+      } else if (command.type === "schedule.pause") {
+        const current = records.get(command.activationId);
+        if (current) records.set(command.activationId, {
+          ...current,
+          status: "paused",
+          updatedAt: new Date().toISOString(),
+        });
+      } else if (command.type === "schedule.resume") {
+        const current = records.get(command.activationId);
+        if (current) records.set(command.activationId, {
+          ...current,
           status: "pending",
           updatedAt: new Date().toISOString(),
         });
@@ -419,11 +523,11 @@ export function createFoundryCoreTools(
     {
       name: "glove_foundry_schedules",
       description:
-        "List, update, or cancel scheduled triggers owned by this agent instance. Use the activation id returned by list.",
+        "List, update, pause, resume, or cancel scheduled triggers owned by this agent instance. Use the activation id returned by list.",
       inputSchema: z.discriminatedUnion("action", [
         z.object({
           action: z.literal("list"),
-          status: z.enum(["active", "completed", "cancelled", "all"]).default("active"),
+          status: z.enum(["active", "paused", "completed", "cancelled", "all"]).default("active"),
         }),
         z.object({
           action: z.literal("update"),
@@ -432,11 +536,13 @@ export function createFoundryCoreTools(
           payload: z.unknown().optional(),
           timing: timingInputSchema.optional(),
         }),
+        z.object({ action: z.literal("pause"), activationId: z.string().min(1) }),
+        z.object({ action: z.literal("resume"), activationId: z.string().min(1) }),
         z.object({ action: z.literal("cancel"), activationId: z.string().min(1) }),
       ]),
       async do(input) {
+        const scheduled = await scheduleView();
         if (input.action === "list") {
-          const scheduled = scheduleView();
           const filter = input.status ?? "active";
           const filtered = filter === "all"
             ? scheduled
@@ -445,7 +551,7 @@ export function createFoundryCoreTools(
               : scheduled.filter((item) => item.status === filter);
           return { status: "success" as const, data: filtered };
         }
-        if (!scheduleView().some((item) =>
+        if (!scheduled.some((item) =>
           item.id === input.activationId && item.agentId === context.agentId && item.kind === "scheduled")) {
           return { status: "error" as const, data: null, message: `Schedule "${input.activationId}" is not owned by this agent instance.` };
         }
@@ -454,6 +560,32 @@ export function createFoundryCoreTools(
             id: commandId(), type: "schedule.cancel", activationId: input.activationId,
             definitionId: context.definitionId, agentId: context.agentId,
             conversationId: context.conversationId, workspaceId: context.workspaceId,
+          });
+        }
+        if (input.action === "pause" || input.action === "resume") {
+          const current = scheduled.find((item) => item.id === input.activationId)!;
+          if (input.action === "pause" && current.status === "paused") {
+            return { status: "success" as const, data: current };
+          }
+          if (input.action === "resume" && current.status !== "paused") {
+            return {
+              status: "error" as const,
+              data: null,
+              message: `Schedule "${input.activationId}" is not paused.`,
+            };
+          }
+          if (input.action === "pause" && (current.status === "completed" || current.status === "cancelled")) {
+            return {
+              status: "error" as const,
+              data: null,
+              message: `Schedule "${input.activationId}" cannot be paused from status "${current.status}".`,
+            };
+          }
+          return emit({
+            id: commandId(), type: input.action === "pause" ? "schedule.pause" : "schedule.resume",
+            activationId: input.activationId, definitionId: context.definitionId,
+            agentId: context.agentId, conversationId: context.conversationId,
+            workspaceId: context.workspaceId,
           });
         }
         const patch: { message?: string; payload?: unknown; timing?: FoundryScheduleTiming } = {};
@@ -532,7 +664,7 @@ export function createFoundryCoreTools(
         payload: z.unknown(),
       }),
       async do(input) {
-        return emit({
+        const command: Extract<FoundryCoreCommand, { readonly type: "transmit" }> = {
           id: commandId(),
           type: "transmit",
           definitionId: context.definitionId,
@@ -541,7 +673,36 @@ export function createFoundryCoreTools(
           workspaceId: context.workspaceId,
           routeId: input.routeId,
           payload: input.payload,
+        };
+        const directory = process.env[FOUNDRY_CORE_COMMAND_DIRECTORY_ENV];
+        if (!directory) {
+          return emit(command);
+        }
+        const request = await createFoundryCoreCommandRequest(directory, {
+          id: command.id,
+          runId: context.runId,
+          type: command.type,
+          command,
         });
+        context.controls.commands.push(command);
+        context.controls.emit({ type: FOUNDRY_CORE_COMMAND_EVENT, data: privateTransmitEvent(command) });
+        try {
+          return {
+            status: "success" as const,
+            data: await waitForFoundryCoreCommandResult(
+              directory,
+              request,
+              context.controls.signal,
+              { cleanup: true },
+            ),
+          };
+        } catch (cause) {
+          return {
+            status: "error" as const,
+            data: null,
+            message: cause instanceof Error ? cause.message : String(cause),
+          };
+        }
       },
     },
     {

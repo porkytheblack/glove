@@ -16,6 +16,7 @@ import { applyEntryCommit, cloneHistory } from "../forms/history";
  * whole record is cloned on the way out so callers can't mutate storage by
  * holding on to what they read.
  */
+export interface FormMemoryState { nextId: number; instances: FormInstance[] }
 export class InMemoryFormAdapter implements FormAdapter {
   identifier: string;
   schema: MemorySchema;
@@ -23,9 +24,16 @@ export class InMemoryFormAdapter implements FormAdapter {
   private readonly instances = new Map<string, FormInstance>();
   private nextId = 1;
 
-  constructor(opts: { schema: MemorySchema; identifier?: string }) {
+  constructor(opts: { schema: MemorySchema; identifier?: string; state?: FormMemoryState }) {
     this.schema = opts.schema;
     this.identifier = opts.identifier ?? `in-memory-forms-${Date.now()}`;
+    if (opts.state) {
+      this.nextId = opts.state.nextId;
+      for (const instance of opts.state.instances) this.instances.set(instance.id, clone(instance));
+    }
+  }
+  snapshot(): FormMemoryState {
+    return { nextId: this.nextId, instances: [...this.instances.values()].map(clone) };
   }
 
   async createInstance(

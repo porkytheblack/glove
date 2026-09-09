@@ -165,6 +165,12 @@ mountPy(agent, { session, frame: "program" });   // frame: "program"  → execut
 mountPy(agent, { session, frame: "workflow" });  // frame: "workflow" → execute_python_workflow
 ```
 
+Standalone mounts default to `exclusive: true`, which teaches the model that the
+workflow entrypoint is its only tool surface. Set `exclusive: false` when the
+agent also exposes ordinary direct tools; the prompt then distinguishes those
+direct tools from functions that are callable only inside the Python catalogue.
+Foundry does this automatically.
+
 The `workflow` framing never says "REPL"; it frames the call as ONE complete
 program that carries the task start to finish and demotes cross-call persistence
 to a retry-only recovery aid — countering the tendency of models to degrade the

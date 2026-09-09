@@ -1797,6 +1797,9 @@ importers:
 
   packages/glove-foundry:
     dependencies:
+      '@clack/prompts':
+        specifier: ^1.8.0
+        version: 1.8.0
       effect:
         specifier: ^3.22.1
         version: 3.22.1
@@ -1806,6 +1809,9 @@ importers:
       glove-core:
         specifier: workspace:*
         version: link:../glove
+      glove-facts:
+        specifier: workspace:*
+        version: link:../glove-facts
       glove-js:
         specifier: workspace:*
         version: link:../glove-js
@@ -1828,14 +1834,14 @@ importers:
         specifier: workspace:*
         version: link:../glove-working-environment
       station-env:
-        specifier: ^2.2.0
-        version: 2.2.0
+        specifier: ^2.3.0
+        version: 2.3.0
       station-schedules:
-        specifier: ^2.2.0
-        version: 2.2.0
+        specifier: ^2.3.0
+        version: 2.3.0
       station-signal:
-        specifier: ^2.2.0
-        version: 2.2.0
+        specifier: ^2.3.0
+        version: 2.3.0
       tsx:
         specifier: ^4.21.0
         version: 4.21.0
@@ -2384,6 +2390,21 @@ importers:
         version: 5.9.3
 
 packages:
+  fast-string-truncated-width@3.0.2:
+    resolution: {integrity: sha512-zvCUvwL+gbq0DcV7IG9YzKIemRUuebAjt/aLjl33jmrbpA1kiy36txXLNEaXGJiljxQPZnwQqDqNuLZJuac7LA==}
+  '@clack/prompts@1.8.0':
+    resolution: {integrity: sha512-PXzLZ8N34rxmuo4dJg3xtOXhcBse94qGjDqsteoEYrFrrZ5FSjIGwMAuOcv64ln8rHVBBD06XeVGr+/JX+plcA==}
+    engines: {node: '>=20.12.0'}
+
+  '@clack/core@1.5.0':
+    resolution: {integrity: sha512-zNikCcd8BbcEvzzG1sbXFrRHFk5kHPrpwZwksPvf9qyQO1Teb7JaXaOAxXZei9nZLDW0gaZawiuTCji88bTBhw==}
+    engines: {node: '>=20.12.0'}
+
+  fast-wrap-ansi@0.2.0:
+    resolution: {integrity: sha512-rLV8JHxTyhVmFYhBJuMujcrHqOT2cnO5Zxj37qROj23CP39GXubJRBUFF0z8KFK77Uc0SukZUf7JZhsVEQ6n8w==}
+
+  fast-string-width@3.0.2:
+    resolution: {integrity: sha512-gX8LrtNEI5hq8DVUfRQMbr5lpaS4nMIWV+7XEbXk2b8kiQIizgnlr12B4dA3ZEx3308ze0O4Q1R+cHts8kyUJg==}
 
   '@alcalzone/ansi-tokenize@0.2.5':
     resolution: {integrity: sha512-3NX/MpTdroi0aKz134A6RC2Gb2iXVECN4QaAXnvCIxxIm3C3AVB1mkUe8NaaiyvOpDfsrqWhYtj+Q6a62RrTsw==}
@@ -8237,6 +8258,10 @@ packages:
     peerDependencies:
       station-signal: 2.2.0
 
+  station-env@2.3.0:
+    resolution: {integrity: sha512-8pm1zHhrz6qgZG6spQbqhHOpTgJrm9yuGDBdw9kPuM/UlZFQhcZkpmtNKdRqfhRc4FSzGEBwI8ZZn4IJ/d+meg==}
+    engines: {node: '>=18'}
+
   station-env@2.0.0:
     resolution: {integrity: sha512-PfIwyJ+V3fMg5HQOB70mSfyWREV9/UdCytD0fV5hAr4LDuuUrXn2Mn28NuGSonLD+w0VCYAYAMvK1aCA7jlGVg==}
     engines: {node: '>=18'}
@@ -8262,12 +8287,20 @@ packages:
       station-broadcast: 2.0.0
       station-signal: 2.0.0
 
+  station-schedules@2.3.0:
+    resolution: {integrity: sha512-VsOlAA2daGP9lHNOtkoaCtgR7eaxwQMW++DY8wJvCNgYmpTnvpI2sBcB+yf/ZHzN4y7XFjL0bReADB5tR6cxtw==}
+    engines: {node: '>=18'}
+
   station-schedules@2.0.0:
     resolution: {integrity: sha512-CGGDFb9TpeGU9BvGdjTUjPgUP8gyRIUsZKD5OXEMFUk837fizd1ds2ZPd7gMbLaELQOj0qzBcduXztQXkowqUA==}
     engines: {node: '>=18'}
 
   station-schedules@2.2.0:
     resolution: {integrity: sha512-5eLw/56GsvO3cG5ucPX0NtcZpCr/Z6Th125mX7MEvwY5YhuECgNF1sT+CcYKyH3DFQOfFylUij8yE4n4JQbqdQ==}
+    engines: {node: '>=18'}
+
+  station-signal@2.3.0:
+    resolution: {integrity: sha512-jr8w465WlzBJBno4aoZGS5bxQEDB8gAUL52vKw8T4VUBcspcgxmrGDqFV4tZQ8qU+IKQNy/dXrH2B+SVeU3G4g==}
     engines: {node: '>=18'}
 
   station-signal@2.0.0:
@@ -8888,6 +8921,26 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+  fast-string-truncated-width@3.0.2: {}
+  '@clack/prompts@1.8.0':
+    dependencies:
+      '@clack/core': 1.5.0
+      fast-string-width: 3.0.2
+      fast-wrap-ansi: 0.2.0
+      sisteransi: 1.0.5
+
+  '@clack/core@1.5.0':
+    dependencies:
+      fast-wrap-ansi: 0.2.0
+      sisteransi: 1.0.5
+
+  fast-wrap-ansi@0.2.0:
+    dependencies:
+      fast-string-width: 3.0.2
+
+  fast-string-width@3.0.2:
+    dependencies:
+      fast-string-truncated-width: 3.0.2
 
   '@alcalzone/ansi-tokenize@0.2.5':
     dependencies:
@@ -15906,6 +15959,8 @@ snapshots:
 
   station-env@2.0.0: {}
 
+  station-env@2.3.0: {}
+
   station-env@2.2.0: {}
 
   station-expressions@2.0.0: {}
@@ -15966,7 +16021,13 @@ snapshots:
 
   station-schedules@2.0.0: {}
 
+  station-schedules@2.3.0: {}
+
   station-schedules@2.2.0: {}
+
+  station-signal@2.3.0:
+    dependencies:
+      zod: 4.3.6
 
   station-signal@2.0.0:
     dependencies:

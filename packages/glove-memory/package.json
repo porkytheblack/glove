@@ -51,6 +51,10 @@
       "types": "./dist/layered/index.d.ts",
       "import": "./dist/layered/index.js"
     },
+    "./sqlite": {
+      "types": "./dist/sqlite/index.d.ts",
+      "import": "./dist/sqlite/index.js"
+    },
     "./in-memory": {
       "types": "./dist/in-memory/index.d.ts",
       "import": "./dist/in-memory/index.js"

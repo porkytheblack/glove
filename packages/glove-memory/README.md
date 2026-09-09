@@ -13,7 +13,7 @@ Entity, episodic, and resources use a reader / curator split — readers attach 
 
 ## Status
 
-Draft v0.1. Pre-implementation scope from the spec is complete; storage backends ship as separate companion packages (`glove-memory-sqlite`, `glove-memory-postgres`) — not part of this release.
+Storage remains adapter-based. `glove-memory/sqlite` supplies durable single-host adapters for entity, episodic, resource, context, goals, forms, and native `glove-facts` evidence. In-memory adapters remain available for tests; distributed deployments supply their own storage adapters.
 
 ## Subpath exports
 
@@ -30,6 +30,76 @@ Draft v0.1. Pre-implementation scope from the spec is complete; storage backends
 | `glove-memory/tools` | Auto-registered read/write tool factories and `useMemory*` / `useEpisodic*` / `useResources*` / `useContext` / `useFormRunner` helpers |
 | `glove-memory/layered` | `layerEntity` / `layerEpisodic` / `layerResources` / `layerContext` — several adapters per subsystem presented to the agent as one |
 | `glove-memory/in-memory` | Reference in-process adapters for dev/test |
+| `glove-memory/sqlite` | Node-only `createSqliteMemoryAdapters`, `SqliteMemoryOptions`, `MemoryStorageError` |
+
+## Durable memory on a single host
+
+```ts
+import { createSqliteMemoryAdapters } from "glove-memory/sqlite";
+
+const memory = createSqliteMemoryAdapters({
+  file: "/data/private-memory.sqlite",
+  namespace: JSON.stringify([workspaceId, agentInstanceId]),
+  schema,
+  fuzzySearch: true,
+});
+
+useMemoryCurator(agent, memory.entity);
+useEpisodicCurator(agent, memory.episodic);
+useResourcesCurator(agent, memory.resources);
+useContext(agent, memory.context);
+```
+
+The returned values implement the existing native adapter contracts. This is an
+opt-in subpath; importing `glove-memory` does not load Node built-ins. The SQLite
+subpath requires Node 22.13+ with built-in `node:sqlite` (experimental in Node 22;
+see the [Node SQLite documentation](https://nodejs.org/download/release/v22.13.1/docs/api/sqlite.html)).
+No separate database service or native npm addon is required.
+
+The same bundle exposes `memory.goals`, `memory.forms`, and `memory.facts` for
+native `GoalRunner`, `FormRunner`, and `FactStore`. Goals retain versioned progress,
+history and separately fenced hook receipts. Forms retain answer revisions,
+pending hook batches, checkpoint state and effect receipts. Fact scope callbacks
+hold a separate SQLite lock across asynchronous work while **each save commits
+independently**, even when the callback later throws. Process death releases the
+OS-owned lock. All fact scopes in a database serialize; do not nest fact callbacks.
+Use a dedicated database per workload or a distributed adapter for greater scale.
+Never replace/delete a database or its `.facts-lock` file while workers run.
+Network filesystems are unsupported. The lock file contains no application data;
+back up a coherent SQLite data snapshot with its WAL accounted for.
+
+Foundry mounts these through typed `goals`, `facts` and `forms` fields. See the
+[guided conversation handbook](../glove-foundry/docs/guidance.md) for scopes,
+evidence preparation, live context providers and typed runtime handles.
+
+SQLite is the source of truth, not a cache flushed at shutdown. Each operation
+reads the latest committed state. A write uses `BEGIN IMMEDIATE`, validates its
+new state, and commits before resolving; a failed method rolls back, including
+bulk section replacement and entity merges. WAL and `synchronous=FULL` preserve
+acknowledged writes across worker exits. Native IDs, provenance, full resource
+bodies, empty directories, context expiry/pinning, and embedding state survive
+reconstruction. Existing readers see subsequent writes without being recreated.
+
+The backend reuses the native in-process query/mutation implementation on detached
+snapshots; it does not duplicate the query DSL. Queries are linear scans and each
+subsystem snapshot is limited to 16 MiB by default (`maxSnapshotBytes`). Lock waits
+are bounded by `busyTimeoutMs` (default 5000). Exceeding limits or reading a corrupt
+or unsupported snapshot fails visibly; it never resets data or falls back to RAM.
+Schema definitions still live in code. Structural snapshots are versioned; changing
+your ontology may require a consumer-managed migration.
+
+Namespaces are trusted host-selected ownership keys, not tool parameters. Include
+workspace/tenant and instance identity; use the same namespace to share memory
+deliberately across that instance's conversations. Different namespaces cannot be
+read through each other's adapters. This is logical isolation, not a filesystem
+security boundary against other processes with access to the same database. Files
+are created with owner-only permissions, not encrypted; credentials belong elsewhere.
+
+Use a dedicated database file on a **local persistent volume**, not a network
+filesystem shared between hosts. Stop all writers before copying the database and
+its sidecars, or use SQLite's online backup facilities. For large indexed datasets
+or multiple hosts, provide another implementation of the same adapters. Form state
+is not included in this factory; use a durable `FormAdapter` when forms need it.
 
 ## Architecture
 
