@@ -20,9 +20,10 @@ The Glove Foundry and Glove skills guided integration against native primitives 
 | --- | --- |
 | Entire publish build graph | Passed, including ordered legacy Glovebox dependencies; no publishing command run |
 | Foundry runtime suite | 80 passed, including real completed/cancelled worker process cleanup |
-| New initializer and existing scaffold tests | 10 passed; terminal policy, flags, piped setup, invalid options, Next.js preservation, versions |
+| New initializer and existing scaffold tests | 11 passed; terminal policy, flags, piped setup, invalid options, Next.js preservation, versions, and all four package-manager dispatch paths |
 | Interactive terminal | Selected minimal starter and npm; confirmed generation; separately cancelled with Ctrl+C and verified no output directory |
 | Packaged CLI | Packed tarball scaffolds a project; generated project type-checks against the tested workspace dependency closure |
+| Real dependency installation | Initializer ran `pnpm install` to completion in a fresh minimal project; registry-installed project type-check passed and next steps correctly omitted reinstalling |
 | Core / JS / Python / Lisp | 24 / 83 / 87 / 99 tests passed |
 | Structured memory | 198 passed, including 10 SQLite durability/isolation/concurrency/corruption tests |
 | MCP | 50 passed with deterministic recycling clock and serialized stdio integration tests |

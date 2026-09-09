@@ -23,14 +23,13 @@ export default function FoundryGettingStartedPage() {
         <li><strong>Project:</strong> standalone runtime and inspector, or colocated Next.js integration.</li>
         <li><strong>Starter:</strong> guided travel concierge (keyless demo) or a minimal agent and tool.</li>
         <li><strong>Package manager:</strong> existing lockfiles are detected; choose pnpm, npm, yarn, or bun.</li>
-        <li><strong>Installation:</strong> install dependencies now or receive commands for later.</li>
+        <li><strong>Installation:</strong> enabled by default. After confirmation, Foundry runs the selected package manager&apos;s install command in your new project. Opt out to install later.</li>
         <li><strong>Review:</strong> confirm the plan before project files are written.</li>
       </ol>
       <p>Cancellation before confirmation creates no files. Existing app files are never silently overwritten. If dependency installation fails, the generated project remains available and the CLI prints retry steps. No secrets are requested by the wizard.</p>
       <h3>Repeatable setup without prompts</h3>
-      <CodeBlock filename="terminal" language="bash" code={`npx glove-foundry init my-agent-system --template travel-concierge --package-manager pnpm --yes
-cd my-agent-system
-pnpm install`} />
+      <CodeBlock filename="terminal" language="bash" code={`npx glove-foundry init my-agent-system --template travel-concierge --package-manager pnpm --yes --install
+cd my-agent-system`} />
       <p>
         Once <code>glove-foundry</code> is installed in a project, the equivalent
         framework command is <code>glove foundry</code>. The explicit package form

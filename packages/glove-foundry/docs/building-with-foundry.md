@@ -22,7 +22,7 @@ pnpm install
 pnpm dev
 ```
 
-`glove foundry dev` discovers the source graph, derives identities, checks types and conventions, generates `.foundry/routes.d.ts`, and starts the runtime and inspector.
+`glove foundry dev` discovers the source graph, derives identities, generates `.foundry/routes.d.ts`, and starts the runtime and inspector. Run the generated `typecheck` and `lint` scripts separately to validate types and authoring conventions.
 
 The HTTP server keeps JSON requests at 1 MB by default. For a trusted multimodal
 client that sends base64 images or documents, raise the explicit typed bound rather

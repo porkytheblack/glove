@@ -94,11 +94,10 @@ Any file matching these names under an agent folder is discovered automatically.
 | `memory/*.memory.ts` | A memory profile | `defineMemory` |
 | `layers/*.layer.ts` | Native Glove setup | `defineLayer` |
 | `subscribers/*.subscriber.ts` | An observer | `defineSubscriber` |
-| `schedules/*.ts` | Recurring or future work | `defineSchedule` |
 | `connections/*.connection.ts` | A long-lived inbound worker | `defineConnection` |
 | `actions/*.action.ts` | A playbook action | `definePlaybookAction` |
 
-Every field of `defineAgent` accepts **a value or a function**. A function runs per request with the full context — message, history, instance, installations — which is how one definition adapts without branching inside a prompt.
+Assembly fields such as tools, memory, and schedules accept **a value or a function**. A resolver receives the current assembly context, including the message and instance, so one definition can adapt its capabilities to the request.
 
 ---
 
@@ -147,7 +146,12 @@ For inbound, point the provider's webhook at your own HTTP handler and call `dis
 
 ### Schedule work
 
-Agents never call `setTimeout`. Add a `schedules/*.ts` definition, or let the agent create one at runtime through Foundry's scheduling tools. Either way it becomes a persisted activation you can see under **Automations**.
+Use Foundry's scheduling tools for durable future work instead of `setTimeout`.
+Schedules are data, not auto-discovered file routes. This example imports an
+ordinary `schedules/trip-countdown.ts` module and returns its value from the agent's
+lazy `schedules` field. You can also let the agent create schedules at runtime.
+Foundry persists the activation so it can wake the instance later; inspect these
+under **Automations**.
 
 ### Call agents from your own code
 
@@ -215,7 +219,7 @@ Add an environment package when you need it — `glove-env-documents`, `glove-en
 
 | Command | What it does |
 | --- | --- |
-| `{{devCommand}}` | Discover agents, typecheck, generate routes, serve the runtime and inspector |
+| `{{devCommand}}` | Discover agents, generate routes, serve the runtime and inspector |
 | `{{startCommand}}` | Run without file watching |
 | `{{lintCommand}}` | Lint, including the Foundry file-routing rules |
 | `{{typecheckCommand}}` | `tsc --noEmit` |

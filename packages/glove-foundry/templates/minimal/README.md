@@ -57,9 +57,12 @@ Any file matching these names under an agent folder is discovered automatically.
 | `memory/*.memory.ts` | A memory profile | `defineMemory` |
 | `layers/*.layer.ts` | Native Glove setup | `defineLayer` |
 | `subscribers/*.subscriber.ts` | An observer | `defineSubscriber` |
-| `schedules/*.ts` | Recurring or future work | `defineSchedule` |
 
 Create the file, add it to `composeAgent(...)`, and the dev server picks it up and regenerates types.
+
+Schedules are data, not auto-discovered file routes. You may keep a `defineSchedule`
+value in an ordinary colocated module and import it into the agent's lazy
+`schedules` field, or create future work dynamically with Foundry's scheduling tools.
 
 Want a worked example with a calendar application, a chat transport, memory, a schedule, and a sandboxed REPL? Scaffold the travel concierge:
 
@@ -71,7 +74,7 @@ npx glove-foundry init my-concierge --template travel-concierge
 
 | Command | What it does |
 | --- | --- |
-| `{{devCommand}}` | Discover agents, typecheck, generate routes, serve the runtime and inspector |
+| `{{devCommand}}` | Discover agents, generate routes, serve the runtime and inspector |
 | `{{startCommand}}` | Run without file watching |
 | `{{lintCommand}}` | Lint, including the Foundry file-routing rules |
 | `{{typecheckCommand}}` | `tsc --noEmit` |

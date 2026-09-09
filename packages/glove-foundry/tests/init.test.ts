@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { test } from "node:test";
-import { useInteractiveInit } from "../src/init.js";
+import { installProject, useInteractiveInit } from "../src/init.js";
 
 const execute = promisify(execFile);
 const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -21,6 +21,27 @@ test("wizard policy is explicit and never prompts on piped input", () => {
   assert.throws(() => useInteractiveInit({ interactive: true }, false), /needs a terminal/);
   assert.throws(() => useInteractiveInit({ interactive: true, yes: true }, true), /cannot be combined/);
   assert.throws(() => useInteractiveInit({ interactive: true, "no-interactive": true }, true), /cannot be combined/);
+});
+
+test("installation invokes the selected package manager in the project directory", { skip: process.platform === "win32" }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "foundry-install-command-"));
+  const previousPath = process.env.PATH;
+  try {
+    process.env.PATH = directory;
+    for (const manager of ["pnpm", "npm", "yarn", "bun"] as const) {
+      await writeFile(join(directory, manager), `#!${process.execPath}\nimport { writeFileSync } from 'node:fs';\nwriteFileSync('receipt.json', JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd(), manager: ${JSON.stringify(manager)} }));\n`, { mode: 0o755 });
+      await installProject(directory, manager);
+      const receipt = JSON.parse(await readFile(join(directory, "receipt.json"), "utf8"));
+      assert.deepEqual(receipt.args, ["install"]);
+      assert.equal(receipt.manager, manager);
+      assert.equal(receipt.cwd, await realpath(directory));
+    }
+    await writeFile(join(directory, "pnpm"), `#!${process.execPath}\nprocess.exit(23);\n`, { mode: 0o755 });
+    await assert.rejects(installProject(directory, "pnpm"), /code 23/);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("non-interactive CLI creates selected starter without installing or prompting", async () => {

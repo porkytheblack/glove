@@ -8,6 +8,11 @@ The development server includes a hierarchical inspector for definitions, instan
 
 ## Your first agent application
 
+Dependency installation is selected by default in the setup wizard. Foundry runs
+your chosen package manager's `install` command in the generated project and waits
+for it to finish before showing next steps. In non-interactive commands, add
+`--install` to install automatically; use `--no-install` to defer it explicitly.
+
 Use Node.js 22.13+ (recommended, including SQLite memory support); the CLI requires
 at least Node 20.12. Run this in a terminal:
 
