@@ -1,5 +1,7 @@
 # Glove Example Patterns
 
+For dynamic goals, shared facts and agent-backed form preparation, read [workflows.md](workflows.md). Goals are in `glove-memory/goals`; evidence is in `glove-facts`.
+
 Real patterns drawn from the example implementations in `examples/`.
 
 ## Example Overview

@@ -675,6 +675,8 @@ Or install globally (available in all projects):
 npx skills add porkytheblack/glove -a claude-code -g
 ```
 
+The skill includes dynamic goals (`glove-memory/goals`), shared evidence (`glove-facts`), and form preparation through a supplied Glove agent. Updating npm packages does not update installed skill copies; re-run the skill installation to refresh them.
+
 Once installed, Claude Code automatically uses the skill when you work with Glove code. You can also invoke it directly with `/glove`.
 
 ### Manual install

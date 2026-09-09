@@ -32,6 +32,9 @@ export function buildLlmsTxt(): string {
       "(model, store, display, subscriber, voice) is an adapter interface you can replace.",
   );
   out.push("");
+  out.push("Goals are exported by glove-memory/goals (glove-memory 1.2.0+), not a standalone glove-goals package. Shared evidence is glove-facts (0.1.0+). Supplying a dedicated Glove preparation agent enables traced preparation for goals and forms.");
+  out.push("");
+  out.push("- Workflow agent skill: https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/workflows.md");
   out.push("- Repository: https://github.com/porkytheblack/glove");
   out.push(`- Full condensed reference: ${SITE_URL}/llms-full.txt`);
   out.push(`- Foundry agent-system reference: ${SITE_URL}/foundry/llms-full.txt`);
@@ -222,7 +225,8 @@ provider prompt caching. Cache usage is reported on every response as
 | glove-voice-s2s | run an agent on realtime speech-to-speech models (OpenAI Realtime, Gemini Live) |
 | glove-voice-avatar | live avatars over the S2S audio (Tavus echo, Anam passthrough) |
 | glove-voice-livekit | LiveKit room transport + LiveKit-native avatars |
-| glove-memory | entity graph, episodic timeline, resource filesystem, standing context, forms, dynamic goals |
+| glove-memory | entity graph, episodic timeline, resource filesystem, standing context, forms, dynamic goals (glove-memory/goals; no separate glove-goals package) |
+| glove-facts | scoped evidence, revisions and reusable links; preparation through a supplied Glove agent |
 | glove-scratchpad | expose tools as a relational database driven by one execute_sql tool |
 | glove-sql | zero-dependency Postgres-subset SQL engine (scratchpad's default backend) |
 | glove-working-environment | persistent sandboxed VFS: scripts, runs, artifacts |
@@ -452,12 +456,18 @@ Urgent facts surface at capture through onUrgent and remain available afterwards
 
 Preparation is enabled by supplying a dedicated built IGloveRunnable:
 new FactPreparation(facts, { agent: preparationAgent }). No agent means disabled.
-The library mounts submit_preparation and runs agent.processRequest, preserving
+Requires glove-facts 0.1.0+ and glove-memory 1.2.0+ for runner integration.
+The library appends submit_preparation once on the first run, preserving existing
+tools and the system prompt, then runs agent.processRequest, preserving
 Glove message persistence, tool traces, usage accounting and subscribers.
 There is no raw ModelAdapter/custom inference path or separate enabled flag.
 Use a separate preparation agent and store per fact scope, shared by goals/forms
 in that scope; never use the workflow agent as its own preparation agent.
-No additional user-facing conversation turn is required.
+No additional user-facing conversation turn is required. Capture alone does not
+fan out reconciliation. Starts, relevant commits, mounted turns, or an explicit
+runner.prepare() trigger preparation; status/inspect reads do not.
+Updating npm packages does not refresh installed coding-agent skills; reinstall
+the skill to pick up its workflows.md reference.
 Disabled skips automatic inference/claims/prefill without removing captured facts,
 accepted links, answers or goal progress. Use runner.prepare() to reconcile now.
 
