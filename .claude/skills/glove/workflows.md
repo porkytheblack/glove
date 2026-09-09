@@ -10,6 +10,12 @@ Use this reference when building goal-driven agents, retaining early evidence, o
 - Shared evidence ships separately as `glove-facts@0.1.0`: `FactStore`, `InMemoryFactAdapter`, `FactPreparation`, `useFacts`, and `buildRecordFactTool` are root exports.
 - `useGoalRunner` mounts the `glove_goal_*` tools; `useFormRunner` mounts `glove_form_*`; `useFacts` mounts `record_fact`. Merely importing the classes does not expose tools to an agent.
 
+## Runtime visibility and caching
+
+Use glove-core >=3.8.0 with current glove-memory. Goals, forms, and pinned context register live providers through `addContextProvider`. Glove appends current state as transient user-role messages after saved history before each model iteration, including after tool results. State stays in its scoped adapter; snapshots never rewrite the system prompt or become saved conversation messages. `runtime_context` subscriber events expose resolved snapshots for tracing. Prefix stability does not guarantee provider cache hits.
+
+Runnable proxies must forward `addContextProvider` and `getRuntimeContext`. Forms/goals can opt out with `injectStatus: false` and a custom renderer. Preparation and lifecycle synchronization still run before mounted requests; reading a snapshot does not run inference. Realtime voice silently injects changed snapshots at start and after tools; call `await realtime.refreshContext()` after external changes. Voice providers retain earlier injected snapshots in their session, superseded by the latest one.
+
 ## Agent-backed preparation
 
 The caller supplies a dedicated, built `IGloveRunnable` with its model, store and tracing subscribers already configured. The library manages preparation through that agent's normal `processRequest` path. It appends `submit_preparation` once, on the first preparation run, preserving existing tools and the system prompt. Model events, usage, tool execution/results and conversation history remain observable through the supplied agent.

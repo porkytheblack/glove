@@ -110,6 +110,8 @@ Foundry mounts native Glove surfaces instead of reimplementing them.
 
 ## Goals, facts, and prepared workflows
 
+Goals, forms, and pinned context require glove-core >=3.8.0 for live runtime snapshots. They append transient user-role messages at the model-input tail before each model iteration without rewriting system instructions or saved history. Runnable proxies forward `addContextProvider` and `getRuntimeContext`; subscribers receive `runtime_context` snapshots. Realtime voice refreshes silently at start and after tools; call `await realtime.refreshContext()` after external changes.
+
 Use `glove-memory/goals` for dynamic goals and `glove-facts` for reusable scoped evidence; there is no standalone `glove-goals` package. Mount `useGoalRunner` or `useFormRunner` from `glove-memory/tools` on the conversational runnable, and `useFacts` from `glove-facts` for capture.
 
 Enable shared preparation with `new FactPreparation(facts, { agent: preparationAgent })`. Supply a dedicated, built Glove runnable and separate store per fact scope, with the application's tracing subscribers attached. The library mounts `submit_preparation` and calls `processRequest`; do not bypass Glove with a direct model invocation or substitute the conversational agent. No agent means automatic preparation is off while capture/manual progression remain available. Host rules allowlist fields/items; workflow commits retain authority over values, progress and effects.

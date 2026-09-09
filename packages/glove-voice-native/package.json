@@ -1,6 +1,6 @@
 {
   "name": "glove-voice-native",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "React Native / Expo audio backends for the Glove voice pipeline — on-device mic capture, PCM playback, and Silero VAD",
   "type": "module",
   "license": "MIT",

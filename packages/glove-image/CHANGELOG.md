@@ -1,5 +1,12 @@
 # glove-image
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-core@3.8.0
+
 ## 0.2.1
 
 ### Patch Changes

@@ -148,8 +148,8 @@ export function useResourcesCurator<G extends FoldTarget>(
 // ─── Context ─────────────────────────────────────────────────────────────
 
 // `useContext` is exported above (re-exported from ./context) — it lives in
-// the context-specific module because it also wraps `processRequest` for
-// system-prompt injection, so it needs the richer `ContextEnableTarget`
+// the context-specific module because it also registers a provider for
+// runtime-context injection, so it needs the richer `ContextEnableTarget`
 // rather than the bare `FoldTarget`.
 
 void useContext;
@@ -158,7 +158,7 @@ void ({} as ContextEnableTarget);
 // ─── Forms ───────────────────────────────────────────────────────────────
 
 // `useFormRunner` is exported above (re-exported from ./forms) — like
-// `useContext` it wraps `processRequest` for system-prompt injection, so it
+// `useContext` it registers a provider for runtime-context injection, so it
 // needs the richer `FormEnableTarget` rather than the bare `FoldTarget`. It
 // also returns the runner, because hosts start instances and resolve
 // checkpoints without going through the model.

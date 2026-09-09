@@ -201,10 +201,13 @@ await runner.update({
       </p>
       <h2 id="forms">Compose with forms and context</h2>
       <p>
-        Goals own an independent prompt section, refreshed before each request
-        and after runner writes. Forms, context, and goals replace only their
-        own marked sections and preserve host prompt edits. External changes
-        appear next turn or when the host calls <code>refresh()</code>.
+        Goals, forms, and context append independent transient user-role snapshots
+        at the model-input tail before each iteration, including after tools.
+        The system prompt and saved conversation stay unchanged. External changes
+        appear on the next iteration. <code>refresh()</code> explicitly runs
+        preparation, transition recovery, and host configuration.
+        Requires glove-core 3.8 or newer; runnable proxies forward
+        <code>addContextProvider</code>.
         Use <code>injectStatus: false</code> and <code>renderGoalStatus</code>
         to supply a custom renderer.
       </p>

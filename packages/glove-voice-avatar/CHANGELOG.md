@@ -1,5 +1,12 @@
 # glove-voice-avatar
 
+## 0.1.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-voice-s2s@0.2.3
+
 ## 0.1.3
 
 ### Patch Changes

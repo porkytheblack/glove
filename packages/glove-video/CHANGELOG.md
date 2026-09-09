@@ -1,5 +1,12 @@
 # glove-video
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-core@3.8.0
+
 ## 0.1.2
 
 ### Patch Changes

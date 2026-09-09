@@ -43,6 +43,8 @@ import { splitAtLastCompaction, abortablePromise } from "./utils";
  * of the run).
  */
 export type SubscriberEvent =
+  /** Resolved runtime snapshots, outside persisted history (also used by external runtimes). */
+  | { type: "runtime_context"; messages: Array<Message> }
   | { type: "text_delta"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "model_response"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
@@ -1080,6 +1082,7 @@ export class Agent {
     context: Context,
     observer: Observer,
     prompt_machine: PromptMachine,
+    private runtimeContext?: (signal?: AbortSignal) => Promise<Array<Message>>,
   ) {
     this.store = store;
     this.executor = executor;
@@ -1120,6 +1123,11 @@ export class Agent {
         await this.context.appendMessages([errorMsg]);
         return { messages: [errorMsg], tokens_in: 0, tokens_out: 0 } as ModelPromptResult;
       }
+
+      // Dynamic state belongs at the tail, leaving the system prompt and
+      // persisted conversation prefix unchanged. Refresh between tool steps.
+      if (this.runtimeContext) messages.push(...await this.runtimeContext(signal));
+      if (signal?.aborted) throw new AbortError();
 
       let results = await this.prompt_machine.run(
         messages,

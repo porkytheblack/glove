@@ -28,7 +28,7 @@ export interface LayeredContextAdapter extends ContextAdapter {
  *
  * The shape that motivates it: standing instructions the org publishes and
  * the agent must not rewrite, alongside the entries this user set for
- * themselves. Both render into the system prompt every turn, and the agent
+ * themselves. Both render as transient runtime context before each model iteration, and the agent
  * reads one list.
  *
  * Reads merge across strata in order (earlier layers win an id collision).

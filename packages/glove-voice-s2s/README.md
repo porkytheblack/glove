@@ -246,3 +246,9 @@ with true voice-to-voice measurement.
   join your room as participants.
 - Runnable progression: `examples/s2s-rooms` → `avatar-rooms` →
   `livekit-rooms` (layered front agent + mesh worker + station rooms).
+
+## Live memory context
+
+`RealtimeAgent` reads the supplied runnable's `getRuntimeContext()` after connecting and after successful tool calls. Changed snapshots are injected silently (`respond: false`) without changing session instructions. The latest snapshot supersedes earlier snapshots in the provider session; voice session history can still contain older snapshots. State remains authoritative in the memory adapters.
+
+Call `await realtime.refreshContext()` after external goal, form, or context changes. `await realtime.refreshSession()` updates instructions/tools and also refreshes context. These methods are asynchronous. The bridge does not automatically poll external storage before every audio turn. Initial context failures reject startup and disconnect; failures after a successful tool emit an error while preserving the committed tool's result.

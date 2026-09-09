@@ -146,8 +146,8 @@ export default async function WhyMemoryPage() {
       <p>
         Context is structurally different from the other three. It&apos;s not
         curator-extracted — it&apos;s user-configured. It&apos;s not lazily
-        browsed — it&apos;s auto-injected into the system prompt at every
-        turn so the agent always has it. It&apos;s not reader/curator-split —
+        browsed — it&apos;s appended as transient runtime context at every
+        model iteration so the agent always has it. It&apos;s not reader/curator-split —
         there&apos;s just one builder method, <code>useContext(adapter)</code>,
         and the conversational agent gets both read and write tools because
         users naturally tell agents &quot;remember that I prefer X.&quot;
@@ -158,9 +158,9 @@ export default async function WhyMemoryPage() {
         exposes <code>set</code> / <code>update</code> / <code>unset</code>{" "}
         and however your settings UI or API talks to it is up to you. The
         package&apos;s job is just to provide the contract and to handle the
-        system-prompt composition cleanly: developer prompt first (character,
-        guardrails), user context after (preferences, glossary), regenerated
-        every turn so external updates are reflected immediately.
+        runtime context: append current state at the model-input tail before
+        each iteration while leaving the system prompt and stored history
+        unchanged. External updates appear on the next iteration.
       </p>
 
       {/* ------------------------------------------------------------------ */}

@@ -5,11 +5,11 @@ Memory layer for the Glove agent framework. Storage-agnostic adapter contracts, 
 - **Entity memory** — graph-shaped, schema-first, deterministic identity resolution.
 - **Episodic memory** — timeline-bound, append-only, semantically searchable.
 - **Resources** — POSIX-style virtual filesystem the agent navigates with `ls` / `read` / `grep` / `glob` / `edit`.
-- **Context** — user-configured ambient context, auto-injected into the system prompt every turn.
+- **Context** — user-configured ambient context, appended as transient runtime context before each model iteration.
 - **Forms** — structured collection over a conversation: zod-authored definitions, lazily loaded, with colocated executors.
 - **Goals** — editable, persisted goal programs and checklist progress, with revision history and optimistic concurrency.
 
-Entity, episodic, and resources use a reader / curator split — readers attach to the conversational agent, curators run as orchestrator-driven extractors. Context is different: it's user-configured rather than curator-extracted, so it uses a single registration that gives the agent both read and write tools plus system-prompt injection.
+Entity, episodic, and resources use a reader / curator split — readers attach to the conversational agent, curators run as orchestrator-driven extractors. Context is different: it's user-configured rather than curator-extracted, so it uses a single registration that gives the agent both read and write tools plus runtime-context injection.
 
 ## Status
 
@@ -46,7 +46,7 @@ Why:
 - **Mutation scope is explicit.** A retrieval subagent attached with `useMemoryReader` *cannot* write — the affordance isn't there. The main agent never has to be told "don't accidentally create entities mid-conversation"; it structurally can't. For anything finer than the reader / curator line — one folder readable but not writable, a curator that files but never deletes — see [Narrowing what the agent may do](#narrowing-what-the-agent-may-do).
 - **Adapters are still shared.** All subagents read and write to the same underlying graph, timeline, and filesystem. Splitting **memory** across subagents would defeat the point; splitting **tools** does not.
 
-The exception is `useContext`. Context is small (4 tools), user-driven ("remember that…"), and ships with the system-prompt-injection wrapper that has to live on the agent the user actually talks to. Keep `useContext` on the main agent.
+The exception is `useContext`. Context is small (4 tools), user-driven ("remember that…"), and ships with the runtime-context provider that has to live on the agent the user actually talks to. Keep `useContext` on the main agent.
 
 ```ts
 import { Glove } from "glove-core";
@@ -147,7 +147,7 @@ const findNotesFactory = ({ parentStore, parentControls }) => {
   return glove;
 };
 
-// Main agent — keeps useContext for the system-prompt injection and the
+// Main agent — keeps useContext for the runtime-context injection and the
 // small "remember that..." tool surface, but offloads every other memory
 // task to a subagent.
 const main = useContext(new Glove({ /* ... */ }), context)
@@ -513,9 +513,11 @@ Details worth knowing:
 
 `getResourceAccessControl(adapter)` returns the compiled policy (or `undefined` for an unwrapped adapter); `ResourceAccessControl` is exported directly if you want to resolve modes yourself.
 
-## System-prompt injection (context)
+## Runtime context (context, forms, and goals)
 
-`useContext` wraps `Glove.processRequest`. On every turn it calls `adapter.render()` to materialise pinned entries as a markdown block, then composes `<base systemPrompt>` + `\n\n` + `<rendered context>` and calls `setSystemPrompt`. Pinned context goes **after** the developer's system prompt — developer prompt sets agent character and guardrails; user context modifies engagement for this specific user. Re-rendering happens every turn, so external updates the user made between turns are reflected immediately.
+`useContext` registers a live provider through `addContextProvider`. Before each model iteration, including after tool results, Glove calls `adapter.render()` and appends the rendered block as a transient user-role message at the model-input tail. Forms and goals register independent providers. Snapshots never rewrite the system prompt or enter persisted chat history; the adapters remain authoritative. This preserves the stable system/history prefix for caching, although actual cache hits depend on the provider.
+
+Requires `glove-core` 3.8 or newer. Runnable proxies must forward `addContextProvider` and, for external runtimes, `getRuntimeContext`. Forms/goals may use `injectStatus: false` with a custom renderer. Subscribers receive `runtime_context` snapshots for tracing. Realtime voice injects changed snapshots silently at session start and after tools; call `await realtime.refreshContext()` after external changes.
 
 ## Embedding lifecycle
 
@@ -760,7 +762,7 @@ derived. A jump naming a step that doesn't exist is ignored.
 
 Modelled on the inbox: a cheap standing notification, detail pulled on demand.
 
-**Tier 0** — one line appended to the system prompt each turn, the way `useContext` injects:
+**Tier 0** — one transient line appended at the model-input tail before each iteration, the way `useContext` injects:
 
 ```
 [form: pi-intake] step 2/4 "Incident" · pending: incidentDate, incidentType, description
@@ -1016,24 +1018,14 @@ not a rollback. Model tools return `committed: true` for this case.
 
 Concurrent storage acknowledgements can arrive out of order. Callbacks describe
 their committed version; consumers maintaining a latest-state view should use
-the version to ignore older notifications. The mounted goal prompt does this
+the version to ignore older notifications. The mounted goal runtime snapshot does this
 automatically, including for stale status reads.
 
 ### Prompt and forms integration
 
-`useGoalRunner` owns a standalone prompt section, refreshes it before every
-request, and refreshes immediately after writes through its returned runner.
-It includes the active objective, remaining checklists, current version, and
-carried deferrals after completion. External writes appear on the next turn;
-call `refresh()` to reflect them sooner. Set `injectStatus: false` and use
-`renderGoalStatus(await runner.status())` for a custom text or voice renderer.
-A missing goal set removes the previous section instead of leaving stale goals.
+`useGoalRunner` registers a live runtime-context provider. Before each model iteration it reads the active objective, remaining checklists, current version, and carried deferrals. External writes appear on the next iteration. `refresh()` runs preparation, transition recovery, and host configuration explicitly; it does not rewrite the system prompt. Set `injectStatus: false` and use `renderGoalStatus(await runner.status())` for a custom renderer. Missing goal sets render nothing.
 
-Goals, forms, and context replace only their own marked prompt sections, so
-mounting them in either order preserves the other sections and host prompt
-edits. Forms still refresh their tier-0 status on the next request. A runnable
-is for one conversation at a time; a scope thunk may select a different scope
-between requests, but must remain stable during an operation/request.
+Goals, forms, and context compose as separate transient user-role messages after persisted history. A runnable is for one conversation at a time; a scope thunk may select a different scope between requests, but must remain stable during an operation/request. Host `configure` callbacks can deliberately change the runnable; avoid dynamic system-prompt edits there if prefix stability is required.
 
 Forms do not automatically settle goals. The application owns that mapping:
 after a form answer is validated, call `runner.update` for the corresponding

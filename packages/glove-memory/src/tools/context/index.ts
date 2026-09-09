@@ -1,5 +1,5 @@
 import type { ContentPart, GloveFoldArgs, Message, ModelPromptResult } from "glove-core";
-import { attachPromptSection } from "../prompt-section";
+import { assertRuntimeContext, attachRuntimeContext, type RuntimeContextTarget } from "../runtime-context";
 import type { ContextAdapter } from "../../context/adapter";
 import { selectFoldArgs, type MemoryToolOptions } from "../selection";
 import { buildContextGetTool } from "./get";
@@ -28,12 +28,8 @@ export function buildContextTools(adapter: ContextAdapter): Array<GloveFoldArgs<
   ];
 }
 
-/**
- * Minimal interface the `useContext` helper relies on — `fold` for tool
- * registration plus the system-prompt accessors so we can wrap
- * `processRequest` to inject the rendered context block on every turn.
- */
-export interface ContextEnableTarget {
+/** Tool mounting and runtime-context support, forwarded by runnable proxies. */
+export interface ContextEnableTarget extends RuntimeContextTarget {
   fold: <I>(args: GloveFoldArgs<I>) => unknown;
   getSystemPrompt(): string;
   setSystemPrompt(prompt: string): void;
@@ -44,48 +40,22 @@ export interface ContextEnableTarget {
 }
 
 /**
- * Attach the context tool surface to a Glove and wire system-prompt injection.
- *
- * 1. Folds `glove_context_get`, `glove_context_set`, `glove_context_update`,
- *    `glove_context_unset` so the agent can read and modify context on user
- *    instruction.
- *
- * 2. Wraps `processRequest` so each turn:
- *    - calls `adapter.render()` to materialise pinned entries as a markdown
- *      block,
- *    - composes `<base systemPrompt>` + `\n\n` + `<rendered context>`,
- *    - calls `setSystemPrompt(...)` with the composed string before the
- *      agent loop runs,
- *    - then delegates to the original `processRequest`.
- *
- *    The injection ordering matters: pinned context goes **after** the
- *    developer's system prompt — developer prompt sets agent character and
- *    guardrails; user context modifies engagement for this specific user.
- *    Putting user context first would let user preferences shadow developer
- *    guardrails — wrong precedence.
- *
- *    Re-rendering happens every turn, so external updates the user made
- *    between turns are reflected immediately.
- *
- * Multiple `useContext` calls on the same Glove will stack — each call
- * owns its own prompt section, so calling it twice with different
- * adapters will inject both blocks. Most consumers call it once.
- *
- * `options.tools` narrows the folded surface without touching the injection
- * wrapper — `{ tools: { deny: ["unset"] } }` gives an agent that can add to
- * and revise context but never clear it; `{ tools: { allow: ["get"] } }`
- * makes context read-only while the user's own UI does the writing.
+ * Mount context tools and resolve pinned state before each model iteration.
+ * Each mount appends a transient user-role snapshot at the input tail, leaving
+ * the system prompt and persisted conversation unchanged. Multiple adapters
+ * compose in registration order. Tool selection does not disable injection.
  */
 export function useContext<G extends ContextEnableTarget>(
   glove: G,
   adapter: ContextAdapter,
   options?: MemoryToolOptions,
 ): G {
+  assertRuntimeContext(glove);
   for (const tool of selectFoldArgs(buildContextTools(adapter), options?.tools)) {
     glove.fold(tool);
   }
 
-  attachPromptSection(glove, () => adapter.render());
+  attachRuntimeContext(glove, () => adapter.render());
 
   return glove;
 }

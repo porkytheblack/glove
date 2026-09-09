@@ -1,5 +1,13 @@
 # foundry-tests
 
+## 1.0.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-core@3.8.0
+  - glove-foundry@0.3.3
+
 ## 1.0.3
 
 ### Patch Changes

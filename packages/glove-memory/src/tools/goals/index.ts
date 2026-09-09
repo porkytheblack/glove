@@ -2,8 +2,8 @@ import { z } from "zod";
 import { equalGoalData } from "../../goals/equal";
 import type { GloveFoldArgs } from "glove-core";
 import type { FormEnableTarget } from "../forms";
+import { assertRuntimeContext, attachRuntimeContext } from "../runtime-context";
 import { selectFoldArgs, type ToolSelection } from "../selection";
-import { attachPromptSection } from "../prompt-section";
 import {
   GoalRunner, GoalPostCommitError, GoalProgramSchema, GoalUpdateSchema, GoalScopeSchema, renderGoalStatus,
   type GoalAdapter, type GoalRunnerConfig, type GoalScope, type GoalStatus, type GoalLifecycleHooks, type GoalHookContext,
@@ -16,6 +16,7 @@ export interface UseGoalRunnerConfig<G extends GoalEnableTarget = GoalEnableTarg
   /** Reapply current state to each runnable, including after a restart. Must be idempotent. */
   configure?: (context: { glove: G; status: GoalStatus | null }) => void | Promise<void>;
   tools?: ToolSelection;
+  /** Default true: append a current goal snapshot as transient runtime context. */
   injectStatus?: boolean;
 }
 
@@ -61,7 +62,7 @@ export function useGoalRunner<G extends GoalEnableTarget>(glove: G, adapter: Goa
     if (Object.is(config.preparation?.preparer.config.agent, glove)) throw new Error("Preparation requires a dedicated Glove agent, separate from the workflow agent");
   };
   assertPreparationAgent();
-  let section: ReturnType<typeof attachPromptSection> | undefined;
+  if (config.injectStatus !== false) assertRuntimeContext(glove);
   let latest: { scope: GoalScope; status: GoalStatus | null } | undefined;
   const currentScope = () => GoalScopeSchema.parse(typeof config.scope === "function" ? config.scope() : config.scope);
   const selectStatus = (status: GoalStatus | null): GoalStatus | null => {
@@ -100,7 +101,6 @@ export function useGoalRunner<G extends GoalEnableTarget>(glove: G, adapter: Goa
     ...config, hooks,
     async onChange(status) {
       const current = selectStatus(status);
-      section?.set(renderGoalStatus(current));
       await applyConfiguration(current);
       await config.onChange?.(status);
     },
@@ -117,10 +117,12 @@ export function useGoalRunner<G extends GoalEnableTarget>(glove: G, adapter: Goa
     await applyConfiguration(status);
     return renderGoalStatus(status);
   };
-  if (config.injectStatus !== false) section = attachPromptSection(glove, synchronize);
-  else {
-    const original = glove.processRequest.bind(glove);
-    glove.processRequest = async (request, signal) => { await synchronize(); return original(request, signal); };
-  }
-  return { glove, runner, refresh: async () => { if (section) await section.refresh(); else await synchronize(); } };
+  // Resolve from storage at every model iteration, including after a tool write.
+  // No system-prompt mutation and no copied snapshots in conversation history.
+  if (config.injectStatus !== false) attachRuntimeContext(glove, async () => {
+    return renderGoalStatus(selectStatus(await runner.status()));
+  });
+  const original = glove.processRequest.bind(glove);
+  glove.processRequest = async (request, signal) => { await synchronize(); return original(request, signal); };
+  return { glove, runner, refresh: async () => { await synchronize(); } };
 }

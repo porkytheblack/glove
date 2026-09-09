@@ -1,5 +1,14 @@
 # glovebox-env-example
 
+## 0.0.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-core@3.8.0
+  - glove-working-environment@0.6.1
+  - glovebox-core@0.6.3
+
 ## 0.0.3
 
 ### Patch Changes

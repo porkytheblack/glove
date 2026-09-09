@@ -182,28 +182,23 @@ test("asynchronous configure calls finish in progression order", async () => {
   assert.deepEqual(applied, [1, 2, 3]);
 });
 
-test("runtime instruction changes preserve every mounted subsystem section", async () => {
-  const { attachPromptSection } = await import("../src/tools/prompt-section");
+test("host instruction changes remain independent of all runtime context providers", async () => {
   const glove = makeGlove();
-  // Mount before/after goals to exercise both directions of the setter chain.
-  const forms = attachPromptSection(glove, async () => "FORM: pending answer");
-  await forms.refresh();
+  const removeForms = glove.addContextProvider(() => "FORM: pending answer");
   const { runner } = useGoalRunner(glove, new InMemoryGoalAdapter(), {
     scope,
     configure({ glove, status }) { glove.setSystemPrompt(`Phase: ${status?.activeGoal ?? "none"}`); },
     hooks: { onEnter({ glove, goal }) { glove.setSystemPrompt(`Entered: ${goal.definition.key}`); } },
   });
-  const context = attachPromptSection(glove, async () => "CONTEXT: returning client");
-  await context.refresh();
-  await runner.start(program());
-  await runner.update(completeIdentity);
-  const prompt = glove.getSystemPrompt();
-  assert.match(prompt, /^Entered: work/);
-  assert.match(prompt, /GOALS — intake \(version 2/);
-  assert.match(prompt, /FORM: pending answer/);
-  assert.match(prompt, /CONTEXT: returning client/);
-  assert.equal(prompt.match(/GOALS —/g)?.length, 1);
-  forms.set("");
-  assert.doesNotMatch(glove.getSystemPrompt(), /FORM: pending answer/);
-  assert.match(glove.getSystemPrompt(), /GOALS —/);
+  glove.addContextProvider(() => "CONTEXT: returning client");
+  await runner.start(program()); await runner.update(completeIdentity);
+  assert.equal(glove.getSystemPrompt(), "Entered: work");
+  const context = (await glove.getRuntimeContext()).map(m => m.text).join("\n");
+  assert.match(context, /GOALS — intake \(version 2/);
+  assert.match(context, /FORM: pending answer/);
+  assert.match(context, /CONTEXT: returning client/);
+  assert.equal(context.match(/GOALS —/g)?.length, 1);
+  removeForms();
+  assert.doesNotMatch((await glove.getRuntimeContext()).map(m => m.text).join("\n"), /FORM: pending answer/);
+  assert.equal(glove.getSystemPrompt(), "Entered: work");
 });

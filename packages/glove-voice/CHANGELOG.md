@@ -1,5 +1,12 @@
 # glove-voice
 
+## 3.6.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-core@3.8.0
+
 ## 3.6.2
 
 ### Patch Changes

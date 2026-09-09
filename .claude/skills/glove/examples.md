@@ -1219,7 +1219,7 @@ const { runner } = useFormRunner(glove, new InMemoryFormAdapter({ schema }), {
 await runner.start("travel-claim", { seed: { fullName: "Ada Okafor" } });
 ```
 
-**What the agent sees each turn** — one line appended to the system prompt:
+**What the agent sees each turn** — one transient line appended at the model-input tail:
 
 ```
 [form: travel-claim] step 2/3 "Travel" · pending: Mode, Total (GBP)
@@ -2218,7 +2218,7 @@ const findNotesFactory = ({ parentStore, parentControls }) => {
   return glove;
 };
 
-// Main agent — keeps useContext for system-prompt injection and the small
+// Main agent — keeps useContext for runtime-context injection and the small
 // "remember that…" tool surface. Every other memory task is delegated.
 const main = useContext(
   new Glove({
@@ -2344,7 +2344,7 @@ Adapters are still shared. The linker's `addNode` becomes immediately visible to
 
 ## Pattern: Context flow ("remember that…")
 
-`useContext` does two things: folds four context tools onto the agent and wraps `processRequest` so each turn calls `adapter.render()` and prepends the rendered markdown block to the system prompt. The user instructs the agent in plain English; the agent calls `glove_context_set`; on the *next* turn the rendered context block shows up in the system prompt automatically.
+`useContext` folds four context tools onto the agent and registers a live context provider. Before every model iteration, Glove calls `adapter.render()` and appends the result at the model-input tail. A `glove_context_set` write appears on the next iteration of the same turn, without changing the system prompt or persisted history.
 
 ```ts
 import { Glove, Displaymanager, MemoryStore, createAdapter } from "glove-core";
@@ -2361,7 +2361,7 @@ const main = useContext(
     systemPrompt:
       "You are a helpful assistant. When the user says 'remember that…' or " +
       "tells you a preference, call glove_context_set with section: \"preferences\" " +
-      "and pinned: true so it lands in your system prompt next turn.",
+      "and pinned: true so it appears in runtime context on the next model iteration.",
     compaction_config: { compaction_instructions: "Summarise the conversation." },
   }),
   context,
@@ -2377,7 +2377,7 @@ await main.processRequest(
 );
 
 // Turn 2 — useContext re-renders and the rendered block is now part of the
-// system prompt the model sees. No extra wiring; render happens every turn.
+// runtime context the model sees. Render happens before each model iteration.
 await main.processRequest("Suggest a snack to go with my drink.");
 
 // You can also list / mutate from outside the agent — useful for a settings UI.
@@ -2390,7 +2390,7 @@ await context.update(
 // Next agent turn picks up the updated render automatically.
 ```
 
-`useContext` snapshots the developer-supplied system prompt at registration time, then composes `<base>\n\n<rendered>` every turn — pinned context goes **after** developer guardrails so user preferences don't shadow them. Re-rendering happens every turn, so external updates between turns are reflected immediately. Multiple `useContext` calls stack (each captures its then-current base), but most consumers call it once.
+`useContext` keeps the developer-supplied system prompt unchanged. Runtime snapshots are transient user-role messages after saved history, refreshed before each model iteration. External changes appear on the next iteration. Multiple providers compose in registration order. Requires glove-core >=3.8.0.
 
 ---
 
