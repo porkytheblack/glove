@@ -1,5 +1,12 @@
 # glove-weather-agent
 
+## 1.0.5
+
+### Patch Changes
+
+- Updated dependencies [[`8c36feb`](https://github.com/porkytheblack/glove/commit/8c36feb1139966bcdac8525e79db1714c13c5b6b)]:
+  - glove-core@4.1.0
+
 ## 1.0.4
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "glove-image",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Image workflows for the Glove agent framework — prompt pipelines with enhancer inbetweens, first-class characters and scenes, reference images and assembly, behind a BYO image-model adapter.",
   "type": "module",
   "license": "MIT",
