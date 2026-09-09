@@ -65,6 +65,7 @@
     "@clack/prompts": "^1.8.0",
     "effect": "^3.22.1",
     "glove-core": "workspace:*",
+    "glove-facts": "workspace:*",
     "glove-js": "workspace:*",
     "glove-lisp": "workspace:*",
     "glove-mcp": "workspace:*",

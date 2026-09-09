@@ -10,6 +10,12 @@ import { InMemoryResourcesAdapter } from "../in-memory/resources";
 import { InMemoryContextAdapter } from "../in-memory/context";
 import { entityState, episodicState, resourceState, contextState } from "./state";
 import { SqliteMemoryStorage, type SqliteMemoryStorageOptions } from "./storage";
+import { FactScopeSchema, type FactAdapter, type FactState } from "glove-facts";
+import type { GoalAdapter } from "../goals/adapter";
+import type { FormAdapter } from "../forms/adapter";
+import { InMemoryGoalAdapter } from "../in-memory/goals";
+import { InMemoryFormAdapter } from "../in-memory/forms";
+import { goalState, formState, factState } from "./workflow-state";
 
 export { MemoryStorageError } from "./storage";
 export type { SqliteMemoryStorageOptions } from "./storage";
@@ -27,6 +33,9 @@ export interface SqliteMemoryAdapters {
   episodic: EpisodicMemoryAdapter;
   resources: ResourceFsAdapter;
   context: ContextAdapter;
+  goals: GoalAdapter;
+  forms: FormAdapter;
+  facts: FactAdapter;
 }
 
 /**
@@ -51,7 +60,61 @@ export function createSqliteMemoryAdapters(options: SqliteMemoryOptions): Sqlite
     storage.run("resources", resourceState, state => new InMemoryResourcesAdapter({ schema, identifier: resourcesId, state, embedder }), write, use);
   const context = <R>(write: boolean, use: (adapter: InMemoryContextAdapter) => Promise<R>) =>
     storage.run("context", contextState, state => new InMemoryContextAdapter({ schema, identifier: contextId, state }), write, use);
+  const goals = <R>(write: boolean, use: (adapter: InMemoryGoalAdapter) => Promise<R>) =>
+    storage.run("goals", goalState, state => new InMemoryGoalAdapter({ state }), write, use);
+  const forms = <R>(write: boolean, use: (adapter: InMemoryFormAdapter) => Promise<R>) =>
+    storage.run("forms", formState, state => new InMemoryFormAdapter({ schema, state }), write, use);
   return {
+    goals: {
+      identifier: `sqlite:${namespace}:goals`,
+      get: (...args) => goals(false, a => a.get(...args)),
+      commit: (...args) => goals(true, a => a.commit(...args)),
+      claimTransition: (...args) => goals(true, a => a.claimTransition(...args)),
+      settleTransition: (...args) => goals(true, a => a.settleTransition(...args)),
+      getTransitionDispatches: (...args) => goals(false, a => a.getTransitionDispatches(...args)),
+    },
+    forms: {
+      identifier: `sqlite:${namespace}:forms`, schema,
+      createInstance: (...args) => forms(true, a => a.createInstance(...args)),
+      getInstance: (...args) => forms(false, a => a.getInstance(...args)),
+      findInstances: (...args) => forms(false, a => a.findInstances(...args)),
+      commitInstance: (...args) => forms(true, a => a.commitInstance(...args)),
+      recordDispatch: (...args) => forms(true, a => a.recordDispatch(...args)),
+      resolveCheckpoint: (...args) => forms(true, a => a.resolveCheckpoint(...args)),
+    },
+    facts: {
+      identifier: `sqlite:${namespace}:facts`,
+      async withScope(scope, run) {
+        const valid = FactScopeSchema.parse(scope);
+        const subsystem = `facts:${JSON.stringify([valid.subject, valid.context])}`;
+        return storage.withFactLock(async () => {
+          let active = true;
+          const access = <R>(write: boolean, operation: (holder: { state: FactState; snapshot(): FactState }) => Promise<R>) => {
+            if (!active) throw new Error("Expired fact transaction");
+            return storage.run(subsystem, factState, state => {
+              const holder = {
+                state: state ?? { version: 0, facts: [], claims: [], operations: {} },
+                snapshot: (): FactState => holder.state,
+              };
+              return holder;
+            }, write, async holder => {
+              if (!active) throw new Error("Expired fact transaction");
+              return operation(holder);
+            });
+          };
+          try {
+            return await run({
+              read: () => access(false, async holder => structuredClone(holder.state)),
+              save: next => access(true, async holder => {
+                if (next.version !== holder.state.version + 1) throw new Error("Fact version conflict");
+                if (next.facts.some(f => f.scope.subject !== valid.subject || f.scope.context !== valid.context)) throw new Error("Fact scope mismatch");
+                holder.state = structuredClone(next);
+              }),
+            });
+          } finally { active = false; }
+        });
+      },
+    },
     entity: {
       identifier: entityId, schema,
       addNode: (...args) => entity(true, a => a.addNode(...args)),

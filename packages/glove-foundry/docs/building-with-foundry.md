@@ -715,6 +715,10 @@ the exact payload and direct approve/deny controls.
 
 ## Voice hosts
 
+For typed `goals`, `facts`, `forms`, and `contextProviders` fields, see
+[Guided conversations](./guidance.md). They mount native runners and providers
+and expose typed execution handles; no custom layer is required.
+
 Voice is a host adapter, not a second agent-definition vocabulary. Keep realtime
 audio, provider turn detection, interruption, telephony, and device access in the
 host. Delegate substantive work to a persisted Foundry instance and conversation

@@ -190,6 +190,12 @@ The durable boundary is the VFS. Native REPL interpreter bindings are run-scoped
 
 ## Lazy assembly
 
+Goals, facts, forms, and custom context providers are first-class lazy fields too.
+Foundry mounts native runners with conversation-local scopes by default. Adapters
+retain authoritative workflow state. A definition-provided goal program initializes
+only absent state; later changes require an explicit native versioned revision.
+See [guidance](./guidance.md) for preparation and persistence boundaries.
+
 Every run resolves model, system prompt, tools, memory, inboxes, subscribers, layers, calls, playbooks, schedules, mesh, working environment, REPL, and custom build/run functions against `AgentAssemblyContext`. Resolvers can use both the instance and the current message, which makes message-dependent provisioning a first-class behavior rather than an environment switch.
 
 Installable applications, shared tools, and MCPs are filtered by the current instance desired state. Memory belongs to the definition but can be selected lazily. Inboxes must always be lazy functions.

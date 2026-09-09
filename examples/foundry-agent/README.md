@@ -1,5 +1,15 @@
 # Glove Foundry reference application
 
+## Guided conversations
+
+`agents/guided-intake` demonstrates first-class goals, facts, forms and custom
+context providers, using native Glove runners and durable SQLite adapters.
+Run `pnpm verify:guidance` (Node 22.13+) for a no-key end-to-end worker test that
+stops and reconstructs Foundry and verifies progress, evidence and answers survive.
+The agent also supports OpenRouter when a key is configured. Its example transcript
+store remains transient: replace that separately for durable chat history.
+See [the guidance handbook](../../packages/glove-foundry/docs/guidance.md).
+
 This is the executable companion to the [building guide](../../packages/glove-foundry/docs/building-with-foundry.md) and [architecture reference](../../packages/glove-foundry/docs/architecture.md).
 
 It demonstrates:

@@ -11,6 +11,7 @@ import type {
   StoreAdapter,
   SubscriberAdapter,
   SubAgentFactoryContext,
+  RuntimeContextProvider,
 } from "glove-core";
 import { Displaymanager, Glove } from "glove-core";
 import { Effect } from "effect";
@@ -40,6 +41,7 @@ import type {
   FoundryWorkingEnvironmentDefinition,
 } from "./workbench.js";
 import type { WorkingEnvironment } from "glove-working-environment";
+import type { FoundryFactsOptions, FoundryGoalsOptions, FoundryFormsOptions, FoundryGuidanceHandles } from "./guidance.js";
 import type {
   AgentInstance,
   Conversation,
@@ -151,7 +153,7 @@ export function defineCall<
 }
 
 export interface FoundryExecutionContext<TInput = unknown>
-  extends FoundrySurfaceContext<TInput> {
+  extends FoundrySurfaceContext<TInput>, FoundryGuidanceHandles {
   readonly installations: ReadonlyArray<AgentInstallation>;
   /** Native persistent environment mounted for this run, when configured. */
   readonly workingEnvironment?: WorkingEnvironment;
@@ -196,6 +198,11 @@ export interface AgentAssemblyOptions<TInput = unknown> {
   readonly subagents?: FoundryListResolver<DefineSubAgentArgs, TInput>;
   /** Definition-owned Glove memory surfaces; may resolve lazily from run context. */
   readonly memory?: FoundryListResolver<FoundryMemorySelection, TInput>;
+  readonly goals?: FoundryResolver<FoundryGoalsOptions | undefined, TInput>;
+  readonly facts?: FoundryResolver<FoundryFactsOptions | undefined, TInput>;
+  readonly forms?: FoundryResolver<FoundryFormsOptions | undefined, TInput>;
+  /** Native providers re-read transient context before each model iteration. */
+  readonly contextProviders?: FoundryListResolver<RuntimeContextProvider, TInput>;
   /** Lazily load native Glove inbox items into this run's conversation store. */
   readonly inboxes?: (
     agent: FoundryAgentDefinition,
@@ -303,6 +310,10 @@ export interface FoundryAgentConventionModule {
   readonly skills?: AgentAssemblyOptions["skills"];
   readonly subagents?: AgentAssemblyOptions["subagents"];
   readonly memory?: AgentAssemblyOptions["memory"];
+  readonly goals?: AgentAssemblyOptions["goals"];
+  readonly facts?: AgentAssemblyOptions["facts"];
+  readonly forms?: AgentAssemblyOptions["forms"];
+  readonly contextProviders?: AgentAssemblyOptions["contextProviders"];
   readonly inboxes?: AgentAssemblyOptions["inboxes"];
   readonly subscribers?: AgentAssemblyOptions["subscribers"];
   readonly layers?: AgentAssemblyOptions["layers"];
@@ -395,7 +406,7 @@ const CONVENTION_EXPORTS = [
   "displayManager", "serverMode", "maxRetries", "maxConsecutiveErrors",
   "compactionLimit", "compactionInstructions", "maxTurns",
   "enableToolResultSummary", "tools", "hooks", "skills", "subagents",
-  "memory", "inboxes", "subscribers", "layers", "calls", "schedules", "playbooks", "mesh",
+  "memory", "goals", "facts", "forms", "contextProviders", "inboxes", "subscribers", "layers", "calls", "schedules", "playbooks", "mesh",
   "workingEnvironment", "repl", "configure", "build",
   "spawn", "run", "handler",
 ] as const;

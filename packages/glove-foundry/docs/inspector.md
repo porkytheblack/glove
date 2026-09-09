@@ -1,5 +1,10 @@
 # Foundry inspector
 
+Run detail includes a **Conversation guidance** card when goals, facts, forms or
+custom context providers are mounted. It shows the latest observed progress,
+fact/claim counts and pending form effects, not a live database query. Answer
+values and fact bodies are excluded from this summary. See [guidance](./guidance.md).
+
 The development server includes a read-oriented runtime inspector. It is organized around Foundry's actual ownership boundaries rather than presenting every event on one screen.
 
 ## Navigation

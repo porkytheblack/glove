@@ -6,6 +6,11 @@ Glove Foundry is an Effect-native application framework for typed, observable Gl
 
 The development server includes a hierarchical inspector for definitions, instances, runs, automations, integrations, and shared workspaces. See the [inspector guide](./docs/inspector.md).
 
+Build guided conversations with first-class, lazy `goals`, `facts`, `forms`, and
+`contextProviders`. Native runners own behavior; adapters own saved progress,
+evidence and answers. See [the guidance handbook](./docs/guidance.md) for scope,
+durable SQLite setup, preparation, and a runnable example.
+
 ## Your first agent application
 
 Dependency installation is selected by default in the setup wizard. Foundry runs

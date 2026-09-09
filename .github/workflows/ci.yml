@@ -166,6 +166,7 @@ jobs:
         run: |
           pnpm --filter glove-foundry-example verify:architecture
           pnpm --filter glove-foundry-example verify
+          pnpm --filter glove-foundry-example verify:guidance
 
       # The analyst-desk selfcheck solves every eval scenario with a reference
       # script and runs the real graders over the result. No API key, no cost,

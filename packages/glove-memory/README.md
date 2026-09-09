@@ -13,7 +13,7 @@ Entity, episodic, and resources use a reader / curator split — readers attach 
 
 ## Status
 
-Storage remains adapter-based. `glove-memory/sqlite` now supplies a durable single-host backend for entity, episodic, resource, and context memory. In-memory adapters remain available for tests; forms and distributed deployments still supply their own storage adapters.
+Storage remains adapter-based. `glove-memory/sqlite` supplies durable single-host adapters for entity, episodic, resource, context, goals, forms, and native `glove-facts` evidence. In-memory adapters remain available for tests; distributed deployments supply their own storage adapters.
 
 ## Subpath exports
 
@@ -55,6 +55,22 @@ opt-in subpath; importing `glove-memory` does not load Node built-ins. The SQLit
 subpath requires Node 22.13+ with built-in `node:sqlite` (experimental in Node 22;
 see the [Node SQLite documentation](https://nodejs.org/download/release/v22.13.1/docs/api/sqlite.html)).
 No separate database service or native npm addon is required.
+
+The same bundle exposes `memory.goals`, `memory.forms`, and `memory.facts` for
+native `GoalRunner`, `FormRunner`, and `FactStore`. Goals retain versioned progress,
+history and separately fenced hook receipts. Forms retain answer revisions,
+pending hook batches, checkpoint state and effect receipts. Fact scope callbacks
+hold a separate SQLite lock across asynchronous work while **each save commits
+independently**, even when the callback later throws. Process death releases the
+OS-owned lock. All fact scopes in a database serialize; do not nest fact callbacks.
+Use a dedicated database per workload or a distributed adapter for greater scale.
+Never replace/delete a database or its `.facts-lock` file while workers run.
+Network filesystems are unsupported. The lock file contains no application data;
+back up a coherent SQLite data snapshot with its WAL accounted for.
+
+Foundry mounts these through typed `goals`, `facts` and `forms` fields. See the
+[guided conversation handbook](../glove-foundry/docs/guidance.md) for scopes,
+evidence preparation, live context providers and typed runtime handles.
 
 SQLite is the source of truth, not a cache flushed at shutdown. Each operation
 reads the latest committed state. A write uses `BEGIN IMMEDIATE`, validates its

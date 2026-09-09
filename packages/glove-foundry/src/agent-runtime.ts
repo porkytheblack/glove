@@ -10,6 +10,7 @@ import type {
   SubscriberEventDataMap,
 } from "glove-core";
 import { Glove } from "glove-core";
+import { mountFoundryGuidance } from "./guidance.js";
 import { mountMesh } from "glove-mesh";
 import { Effect } from "effect";
 import { signal, type AnySignal } from "station-signal";
@@ -561,8 +562,16 @@ async function runDefinition(
       signal: abortController.signal,
       emit: controls.emit,
     };
+    const guidance = await mountFoundryGuidance(base, assemblyContext, {
+      facts: await resolveOptional("facts", definition.facts, undefined),
+      goals: await resolveOptional("goals", definition.goals, undefined),
+      forms: await resolveOptional("forms", definition.forms, undefined),
+      contextProviders: await resolveOptional("contextProviders", definition.contextProviders, []),
+    });
+    cleanups.push(async () => { try { await guidance.snapshot(); } finally { guidance.dispose(); } });
     const callContext: FoundryExecutionContext<FoundryRequest> = {
       ...surfaceContext,
+      ...guidance.handles,
       installations: effectiveInstallations,
       invoke,
     };
@@ -707,6 +716,7 @@ async function runDefinition(
         : definition.spawn
           ? await spawn()
           : await defaultRun();
+    await guidance.snapshot();
     const sleep = [...controls.commands].reverse().find(
       (command: FoundryCoreCommand) => command.type === "sleep",
     );

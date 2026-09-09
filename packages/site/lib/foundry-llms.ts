@@ -215,6 +215,23 @@ terminology must not leak into definitions.
 
 ## Goals, facts, and form preparation
 
+Foundry exposes typed lazy goals, facts, forms and contextProviders fields, either
+in defineAgent or as agent.ts named exports. defineGoals/defineFacts/defineForms
+are pure configuration helpers; native runners own behavior. Execution hooks get
+ctx.goals/ctx.facts/ctx.forms handles. Conversation scope is default; scope:
+"instance" shares explicitly. foundryGuidanceSubject derives the same ownership
+key outside assembly. A goal program seeds only absent state; later revision is
+native CAS with a reason. Registries expose forms without starting all of them.
+facts.preparationAgent is a separate built runnable with its own scoped store;
+goals/forms preparation supplies rule and eligible callbacks. Foundry constructs
+the native shared preparer and rejects subject mismatches or missing agents.
+contextProviders resolves a list of native read-only providers, re-read each model
+iteration and removed on cleanup. glove-memory/sqlite now includes durable goals,
+facts and forms. Facts serialize per database through a separate OS-owned SQLite
+lock while saves commit independently. Use local volumes, not network filesystems.
+The inspector guidance card shows metadata from the latest observed run, not a
+live database view. See /foundry/docs/guidance and the guided-intake example.
+
 Dynamic goals are exported by glove-memory/goals (glove-memory 1.2.0+), not a
 standalone glove-goals package. Shared evidence is glove-facts 0.1.0+.
 Use useGoalRunner/useFormRunner from glove-memory/tools to mount workflow tools

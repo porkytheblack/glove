@@ -1809,6 +1809,9 @@ importers:
       glove-core:
         specifier: workspace:*
         version: link:../glove
+      glove-facts:
+        specifier: workspace:*
+        version: link:../glove-facts
       glove-js:
         specifier: workspace:*
         version: link:../glove-js

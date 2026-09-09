@@ -38,6 +38,11 @@ export const foundrySections: FoundryNavSection[] = [
         summary: "Message-aware lazy assembly, shared tools, models, memory, inboxes, layers, MCP, and mesh calls.",
       },
       {
+        label: "Goals, facts & forms",
+        href: "/foundry/docs/guidance",
+        summary: "Guided conversations, durable evidence and answers, native preparation, and live context providers.",
+      },
+      {
         label: "Apps & transmissions",
         href: "/foundry/docs/applications",
         summary: "Dynamically installed capabilities, inbound and outbound routes, accounts, and credential adapters.",

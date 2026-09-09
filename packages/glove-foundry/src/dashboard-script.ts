@@ -12,7 +12,7 @@ const fmtDate=iso=>iso?new Date(iso).toLocaleString([],{month:"short",day:"numer
 const fmtTime=iso=>iso?new Date(iso).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"}):"—";
 const short=value=>{const text=String(value??"");return text.length>22?text.slice(0,10)+"…"+text.slice(-7):text};
 const jsonText=value=>JSON.stringify(value,null,2);
-const count=(n,word)=>n+" "+word+(n===1?"":"s");
+const count=(n,word,plural=word+"s")=>n+" "+(n===1?word:plural);
 const fmtBytes=value=>{const n=Number(value)||0;if(n<1024)return n+" B";if(n<1048576)return(n/1024).toFixed(1)+" KB";return(n/1048576).toFixed(1)+" MB"};
 const icon=(name,className)=>'<svg class="'+(className||"icon")+'" data-phosphor="'+name+'" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="'+ICON_PATHS[name]+'"/></svg>';
 
@@ -165,6 +165,7 @@ function definition(id){return state.manifest?.agents?.agents?.find(x=>x.id===id
 function eventsFor(runId){return state.events.filter(event=>event.runId===runId)}
 function isKeyRunEvent(event){
   const type=event.type;
+  if(/(?:^|\.)foundry\.guidance\.state$/.test(type))return true;
   if(/^run\./.test(type)||/^scheduled-action\./.test(type)||/^(?:agent\.)?foundry\.approval\./.test(type)||/^approval\./.test(type))return true;
   return /(?:playbooks\.composed|definition\.schedules\.loaded|application\.transmission-tools\.mounted|working-environment\.(?:mounted|snapshot\.saved)|repl\.mounted|subscriber\.mounted|layer\.mounted|installation\.(?:started|completed|failed)|definition\.memory\.mounted|definition\.inboxes\.loaded|tool_use(?:_result)?|model_response_complete)$/.test(type);
 }
@@ -488,6 +489,18 @@ function runErrorText(run){
   if(run.error&&typeof run.error==="object")return run.error.message||jsonText(run.error);
   return"The runtime recorded a failure without a message.";
 }
+function guidanceCard(events){
+  const event=[...events].reverse().find(e=>/(?:^|\.)foundry\.guidance\.state$/.test(e.type));
+  if(!event||!event.data)return "";
+  const data=event.data;
+  const goals=data.goals;
+  const goalBody=goals?'<p><strong>'+esc(goals.status)+'</strong> · revision '+esc(goals.version)+'</p>'+goals.items.map(g=>'<p>'+esc(g.title||g.key)+' · '+esc(g.status)+' · '+esc(g.completed)+' / '+esc(g.total)+' done</p>').join(""):'<p class="muted">No goal set started.</p>';
+  const facts=data.facts;
+  const factBody=facts?'<p><strong>'+count(facts.revisions,"recorded revision")+'</strong></p><p>'+count(facts.claims,"evidence claim")+' · '+count(facts.urgent,"urgent revision")+'</p>':'<p class="muted">Facts not mounted.</p>';
+  const forms=data.forms;
+  const formBody=forms?.length?forms.map(f=>'<p><strong>'+esc(f.definitionId)+'</strong> · '+esc(f.status)+'</p><p>'+count(f.answered,"answered field")+' · '+count(f.pendingHooks,"pending effect batch","pending effect batches")+(f.blockedOn?' · waiting on '+esc(f.blockedOn):'')+'</p>').join(""):'<p class="muted">No form instances started.</p>';
+  return '<section class="card"><div class="card-head"><h2>Conversation guidance</h2><span class="meta">Observed '+esc(fmtTime(event.timestamp))+'</span></div><div class="card-body"><div class="grid cols-3"><div><h3>Goals</h3>'+goalBody+'</div><div><h3>Facts</h3>'+factBody+'</div><div><h3>Forms</h3>'+formBody+'</div></div><p class="muted">Latest state observed by this run, not a live database view. '+count(data.contextProviders||0,"custom context provider")+'. Answer values and fact bodies are not included in this summary.</p></div></section>';
+}
 function renderRun(id){
   const run=state.runs.find(x=>x.id===id);if(!run)return renderNotFound("Run");
   const events=eventsFor(id);
@@ -503,6 +516,7 @@ function renderRun(id){
   if(failure)html+='<div class="alert danger"><span class="symbol">'+icon("warning")+'</span><div><b>This run failed'+(run.attempts>1?" after "+count(run.attempts,"attempt"):"")+'.</b><p>'+esc(failure)+'</p></div></div>';
   if(isLiveRun(run))html+='<div class="alert live"><span class="symbol"><i class="pulse-dot"></i></span><div><b>This run is still '+esc(run.status)+'.</b><p>New events stream in below as the runtime records them.</p></div></div>';
   html+=approvalRail(pendingApprovals(run.id),"This run is waiting for a decision");
+  html+=guidanceCard(events);
   html+='<div class="detail-strip">'
     +'<div><label>Status</label><strong>'+status(run.status)+'</strong></div>'
     +'<div><label>Duration</label><strong>'+durCell(run)+'</strong></div>'

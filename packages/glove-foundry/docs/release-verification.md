@@ -4,6 +4,24 @@ Verified on 9 September 2026 with Node 22.18. This is a **tested release candida
 
 ## Source and scope
 
+The goals/facts/forms follow-up is included in this candidate. Merge and publication
+remain paused for review. It adds typed lazy fields, native custom context
+providers, execution handles, scoped preparation, durable goal/form/fact adapters,
+the inspector guidance summary, and the guided-intake example. Both repository
+agent skills now describe these first-class fields instead of requiring custom hooks.
+
+Follow-up validation: Foundry **89 tests passed**; memory **202 tests passed**;
+the new preparation tests reuse one verified fact for both a goal and a form.
+The real-worker guided-intake verifier passes before and after stopping and
+reconstructing Foundry, preserving progress, facts and form answers without
+duplicates. Concurrent fact writers and process-death lock recovery pass.
+The canonical architecture/runtime verifiers, package/example typechecks,
+documentation production build, and a freshly generated starter typecheck pass.
+The fresh starter uses the tested workspace dependency closure, not unpublished
+registry versions. The inspector was exercised in the browser; its completed
+progress and corrected final reply were verified. No new live-provider or
+telephony acceptance test is claimed for this follow-up.
+
 - Candidate branch: `codex/foundry-production-release`, built on upstream `main` at `7f6b97b8`.
 - The original `codex/glove-foundry-release` checkout and its dirty Hercules work were preserved. Do not publish that older checkout by mistake.
 - Reconciles reusable Foundry work with upstream `glove-core` 4 and `glove-memory` 2, retaining native runtime context, tasks, facts/forms, voice and document surfaces.

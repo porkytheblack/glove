@@ -292,7 +292,7 @@ export function createManifest(
       lazy: [
         "model", "systemPrompt", "displayManager", "compactionLimit",
         "compactionInstructions", "maxTurns", "tools", "hooks", "skills",
-        "subagents", "memory", "inboxes", "subscribers", "layers", "calls", "schedules", "playbooks", "mesh",
+        "subagents", "memory", "goals", "facts", "forms", "contextProviders", "inboxes", "subscribers", "layers", "calls", "schedules", "playbooks", "mesh",
         "workingEnvironment", "repl",
       ].filter((field) => typeof definition[field as keyof typeof definition] === "function"),
     })),

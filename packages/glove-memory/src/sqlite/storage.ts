@@ -36,6 +36,35 @@ export class SqliteMemoryStorage {
   private readonly timeout: number;
   private readonly maximum: number;
 
+  /**
+   * Facts hold a cross-process lock through asynchronous consumer commits, but
+   * each fact save must commit independently. Use a separate SQLite lock file:
+   * process death releases its OS lock, and consumer writes to this data file
+   * cannot deadlock against it. Deliberately serializes all fact scopes per file.
+   */
+  async withFactLock<T>(operation: () => Promise<T>): Promise<T> {
+    const lock = new SqliteMemoryStorage({ file: `${this.file}.facts-lock`, namespace: "lock", busyTimeoutMs: this.timeout });
+    return exclusive(lock.file, async () => {
+      const db = new DatabaseSync(lock.file, { allowExtension: false });
+      let held = false;
+      try {
+        db.exec("PRAGMA busy_timeout = 0");
+        const deadline = Date.now() + this.timeout;
+        while (!held) {
+          try { db.exec("BEGIN IMMEDIATE"); held = true; }
+          catch (error) {
+            const code = (error as { errcode?: number }).errcode;
+            if (code === undefined || ![5, 6].includes(code & 255) || Date.now() >= deadline) throw error;
+            await new Promise(resolve => setTimeout(resolve, 10));
+          }
+        }
+        return await operation();
+      } finally {
+        try { if (held) db.exec("ROLLBACK"); } finally { db.close(); }
+      }
+    });
+  }
+
   constructor(options: SqliteMemoryStorageOptions) {
     if (!options.file.trim() || options.file === ":memory:" || options.file.startsWith("file:")) {
       throw new MemoryStorageError("Memory requires a durable local database path.");
