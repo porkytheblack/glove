@@ -7,6 +7,8 @@ import {
   Schema,
 } from "effect";
 import { EnvStore, MemoryEnvStorage } from "station-env";
+import { hostname } from "node:os";
+import { randomUUID } from "node:crypto";
 import {
   MemoryAdapter,
   parseInterval,
@@ -14,6 +16,7 @@ import {
   type AnySignal,
   type EnvProvider,
   type Run,
+  type SignalQueueAdapter,
 } from "station-signal";
 import {
   ScheduleMemoryAdapter,
@@ -22,9 +25,11 @@ import {
   type Schedule,
   type ScheduleAdapter,
 } from "station-schedules";
+import type { StationNetworkAdapter, StationNode } from "station-network";
 import {
   EMPTY_FOUNDRY_APPLICATION,
   type FoundryApplication,
+  type FoundryExecutionAdapters,
 } from "./application.js";
 import type { FoundryConfig } from "./config.js";
 import { DEFAULT_FOUNDRY_CONFIG } from "./config.js";
@@ -164,12 +169,100 @@ export interface FoundryRuntimeOptions {
   readonly observability?: FoundryObservabilityAdapter;
 }
 
+/**
+ * How this process participates in a fleet. Derived once so every later
+ * decision reads a boolean instead of re-deriving role semantics.
+ */
+interface ResolvedFleet {
+  readonly role: "headquarters" | "station" | "standalone";
+  readonly stationId: string;
+  readonly networkId: string;
+  readonly name: string;
+  readonly labels: Record<string, string>;
+  readonly endpoint?: string;
+  readonly adapter?: StationNetworkAdapter;
+  readonly heartbeatIntervalMs: number;
+  readonly membershipLeaseMs: number;
+  /** Reconciles schedules and arms activations. Exactly one process should. */
+  readonly runsControlPlane: boolean;
+  /** Claims and executes runs. */
+  readonly runsExecutionPlane: boolean;
+}
+
 interface ResolvedExecutionConfig {
   readonly maxConcurrent: number;
   readonly maxAttempts: number;
   readonly retryBackoffMs: number;
   readonly pollIntervalMs: number;
   readonly idlePollIntervalMs: number;
+}
+
+/**
+ * Identity this process records on every run it claims. Two processes sharing
+ * a queue must differ, so the generated form carries host, pid and a random
+ * suffix — a restart is a new station, which is what makes its abandoned runs
+ * recoverable rather than silently re-owned.
+ */
+function generateStationId(): string {
+  return `foundry-${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
+}
+
+/**
+ * Borrow an adapter without taking responsibility for its lifetime.
+ *
+ * `SignalRunner.stop()` closes its adapter unconditionally, which is right for
+ * one Foundry owns and wrong for one the application built — that adapter may
+ * share a connection pool with the data adapter, and closing it would take the
+ * application's storage down with the runtime. Hiding `close` leaves the
+ * runner's other calls untouched and keeps the ownership rule structural.
+ */
+function borrowSignalAdapter(adapter: SignalQueueAdapter): SignalQueueAdapter {
+  return new Proxy(adapter, {
+    get(target, property, receiver) {
+      if (property === "close") return undefined;
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+    has(target, property) {
+      if (property === "close") return false;
+      return Reflect.has(target, property);
+    },
+  });
+}
+
+/**
+ * Derive fleet participation once.
+ *
+ * The plane split follows Station's: Headquarters reconciles and serves,
+ * stations execute, standalone does both. `runRunners` defaults to false for
+ * Headquarters so the common case needs no extra configuration.
+ */
+function resolveFleet(
+  execution: FoundryExecutionAdapters | undefined,
+): ResolvedFleet {
+  const role = execution?.role ?? "standalone";
+  const runRunners = execution?.runRunners ?? role !== "headquarters";
+  const stationId = execution?.stationId ?? generateStationId();
+  const heartbeatIntervalMs = execution?.network?.heartbeatIntervalMs ?? 15_000;
+
+  return {
+    role,
+    stationId,
+    networkId: execution?.network?.id ?? "default",
+    name: execution?.network?.name ?? stationId,
+    labels: { ...(execution?.network?.labels ?? {}) },
+    ...(execution?.network?.endpoint ? { endpoint: execution.network.endpoint } : {}),
+    ...(execution?.network?.adapter ? { adapter: execution.network.adapter } : {}),
+    heartbeatIntervalMs,
+    // Membership must outlive a missed beat or ordinary jitter evicts a
+    // healthy process from the fleet.
+    membershipLeaseMs: Math.max(
+      execution?.network?.membershipLeaseMs ?? 45_000,
+      heartbeatIntervalMs * 2,
+    ),
+    runsControlPlane: role === "headquarters" || (role === "standalone" && runRunners),
+    runsExecutionPlane: role !== "headquarters" && runRunners,
+  };
 }
 
 function parseJson(value: string | undefined): unknown {
@@ -231,6 +324,12 @@ export class FoundryRuntime {
   private readonly envStore: EnvStore;
   private readonly envProvider: EnvProvider;
   private readonly scheduleAdapter: ScheduleAdapter;
+  /** False when the application supplied the schedule store and owns closing it. */
+  private readonly ownsScheduleAdapter: boolean;
+  private readonly fleet: ResolvedFleet;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private heartbeatInFlight = false;
+  private readonly startedAt = new Date();
   private readonly services: EffectManagedRuntime.ManagedRuntime<
     AccountDirectory | TopologyStore | EventStore | GrantResolver,
     unknown
@@ -369,9 +468,23 @@ export class FoundryRuntime {
         return resolvedEnvironment;
       },
     };
-    this.scheduleAdapter = new ScheduleMemoryAdapter();
-    const signalAdapter = new MemoryAdapter();
-    const signalScheduleReconciler = new ScheduleReconciler({
+    // Storage is the application's call; the engine above it is not. An
+    // adapter supplied here is borrowed, so its lifetime stays with whoever
+    // constructed it.
+    const executionAdapters = this.application.execution;
+    this.fleet = resolveFleet(executionAdapters);
+    this.ownsScheduleAdapter = executionAdapters?.schedules === undefined;
+    this.scheduleAdapter =
+      executionAdapters?.schedules ?? new ScheduleMemoryAdapter();
+    const signalAdapter = executionAdapters?.runs
+      ? borrowSignalAdapter(executionAdapters.runs)
+      : new MemoryAdapter();
+    // Only the control plane reconciles. A station that also armed schedules
+    // would race every peer for the same occurrence and, worse, arm every
+    // pending activation in the system at boot.
+    const signalScheduleReconciler = !this.fleet.runsControlPlane
+      ? undefined
+      : new ScheduleReconciler({
       adapter: this.scheduleAdapter,
       kinds: ["signal"],
       triggerFn: (schedule, scheduledFor) =>
@@ -394,13 +507,24 @@ export class FoundryRuntime {
       adapter: signalAdapter,
       pollIntervalMs: this.execution.pollIntervalMs,
       idlePollIntervalMs: this.execution.idlePollIntervalMs,
-      maxConcurrent: this.execution.maxConcurrent,
+      // Headquarters ticks the same loop but claims nothing: the reconciler
+      // rides the poll cadence, and a zero ceiling keeps execution off it.
+      maxConcurrent: this.fleet.runsExecutionPlane ? this.execution.maxConcurrent : 0,
       maxAttempts: this.execution.maxAttempts,
       retryBackoffMs: this.execution.retryBackoffMs,
       subscribers: [this.observer],
-      scheduleReconciler: signalScheduleReconciler,
+      ...(signalScheduleReconciler
+        ? { scheduleReconciler: signalScheduleReconciler }
+        : {}),
       envProvider: this.envProvider,
-      stationId: "foundry-local",
+      stationId: this.fleet.stationId,
+      networkId: this.fleet.networkId,
+      stationLabels: this.fleet.labels,
+      ...(this.fleet.adapter ? { networkCoordinator: this.fleet.adapter } : {}),
+      ...(executionAdapters?.canClaim ? { canClaim: executionAdapters.canClaim } : {}),
+      ...(executionAdapters?.leaseDurationMs === undefined
+        ? {}
+        : { leaseDurationMs: executionAdapters.leaseDurationMs }),
       failUnknownSignals: true,
     });
     for (const discovered of this.agents) {
@@ -487,7 +611,25 @@ export class FoundryRuntime {
           await this.validatePlaybookSubscription(subscription);
         }
         await this.signalRunner.initialize();
-        await this.reconstructActivations();
+        // Arming pending activations is control-plane work. A station that did
+        // it would re-arm every schedule and sleeping run in the system on
+        // every deploy — correct, because claimDue still picks one winner, but
+        // multiplied by the station count exactly when that hurts most.
+        if (this.fleet.runsControlPlane) await this.reconstructActivations();
+        if (this.fleet.adapter) {
+          await this.fleet.adapter.upsertStation(this.stationSnapshot());
+          this.heartbeatTimer = setInterval(
+            () => void this.sendHeartbeat(),
+            this.fleet.heartbeatIntervalMs,
+          );
+          this.heartbeatTimer.unref?.();
+        } else if (this.fleet.role !== "standalone") {
+          console.warn(
+            `[foundry] role "${this.fleet.role}" has no network adapter — this process ` +
+              "will run correctly but stays invisible to its peers, so placement and " +
+              "network-wide concurrency have nothing to coordinate through.",
+          );
+        }
         this.runInBackground("signal", this.signalRunner.start());
         await this.reconcileApplicationConnections();
       } catch (cause) {
@@ -505,6 +647,66 @@ export class FoundryRuntime {
     return Effect.runPromise(this.startEffect());
   }
 
+  /**
+   * What this process advertises to the fleet: what it can run, how loaded it
+   * is, and how long peers should believe it without another beat.
+   */
+  private stationSnapshot(status: StationNode["status"] = "online"): StationNode {
+    const now = new Date();
+    return {
+      id: this.fleet.stationId,
+      networkId: this.fleet.networkId,
+      name: this.fleet.name,
+      role: this.fleet.role,
+      status,
+      labels: { ...this.fleet.labels },
+      capacity: {
+        maxConcurrent: this.fleet.runsExecutionPlane ? this.execution.maxConcurrent : 0,
+        activeRuns: this.signalRunner.getActiveCount(),
+      },
+      definitions: {
+        // A station only claims what it can actually run, so the fleet needs
+        // to know which definitions this process was deployed with.
+        signals: this.agents.map((agent) => agent.executionName).sort(),
+        broadcasts: [],
+        beacons: [],
+      },
+      ...(this.fleet.endpoint ? { endpoint: this.fleet.endpoint } : {}),
+      startedAt: this.startedAt,
+      lastHeartbeatAt: now,
+      leaseExpiresAt: new Date(now.getTime() + this.fleet.membershipLeaseMs),
+    };
+  }
+
+  /**
+   * Report liveness. A drained station keeps beating so operators can watch it
+   * empty; it just stops claiming. Heartbeat failure is logged, never fatal —
+   * losing sight of the fleet must not take a working process down with it.
+   */
+  private async sendHeartbeat(): Promise<void> {
+    const adapter = this.fleet.adapter;
+    if (!adapter || this.heartbeatInFlight) return;
+    this.heartbeatInFlight = true;
+    try {
+      const existing = await adapter.getStation(this.fleet.stationId);
+      const snapshot = this.stationSnapshot(
+        existing?.status === "draining" ? "draining" : "online",
+      );
+      if (!(await adapter.heartbeat(snapshot.id, snapshot))) {
+        await adapter.upsertStation(snapshot);
+      }
+      await adapter.markOfflineBefore(new Date(), this.fleet.networkId);
+    } catch (cause) {
+      this.observability.append({
+        type: "fleet.heartbeat.failed",
+        category: "system",
+        data: { error: cause instanceof Error ? cause.message : String(cause) },
+      });
+    } finally {
+      this.heartbeatInFlight = false;
+    }
+  }
+
   stopEffect(): Effect.Effect<void, FoundryRuntimeError> {
     return promiseEffect("runtime.stop", async () => {
       if (this.disposed) return;
@@ -513,6 +715,24 @@ export class FoundryRuntime {
         this.disposed = true;
         return;
       }
+      if (this.heartbeatTimer) {
+        clearInterval(this.heartbeatTimer);
+        this.heartbeatTimer = null;
+      }
+      if (this.fleet.adapter) {
+        // Leave the fleet deliberately rather than waiting for the membership
+        // lease to lapse, so a rolling deploy reads as a departure and not a
+        // failure.
+        try {
+          await this.fleet.adapter.heartbeat(
+            this.fleet.stationId,
+            this.stationSnapshot("offline"),
+          );
+        } catch {
+          // A process that cannot announce its exit still exits; the lease
+          // expiry is the backstop.
+        }
+      }
       await this.connectionSupervisor.stopAll();
       this.observability.append({ type: "runtime.stop.signals", category: "system", data: {} });
       await this.signalRunner.stop({ graceful: true, timeoutMs: 10_000 });
@@ -520,7 +740,7 @@ export class FoundryRuntime {
       await this.settleRunnerLoops(1_000);
       this.runnerLoops.length = 0;
       await this.envStore.close();
-      await this.scheduleAdapter.close?.();
+      if (this.ownsScheduleAdapter) await this.scheduleAdapter.close?.();
       await this.services.dispose();
       this.started = false;
       this.disposed = true;
