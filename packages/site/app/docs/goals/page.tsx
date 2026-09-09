@@ -206,7 +206,7 @@ await runner.update({
         The system prompt and saved conversation stay unchanged. External changes
         appear on the next iteration. <code>refresh()</code> explicitly runs
         preparation, transition recovery, and host configuration.
-        Requires glove-core 3.8 or newer; runnable proxies forward
+        Requires glove-core 4.0 or newer; runnable proxies forward
         <code>addContextProvider</code>.
         Use <code>injectStatus: false</code> and <code>renderGoalStatus</code>
         to supply a custom renderer.

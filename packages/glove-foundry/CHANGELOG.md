@@ -5,8 +5,8 @@
 ### Patch Changes
 
 - Updated dependencies []:
-  - glove-core@3.8.0
-  - glove-memory@1.2.1
+  - glove-core@4.0.0
+  - glove-memory@2.0.0
   - glove-js@0.4.3
   - glove-lisp@0.4.3
   - glove-mcp@1.1.3

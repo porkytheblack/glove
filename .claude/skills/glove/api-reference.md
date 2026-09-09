@@ -2830,7 +2830,7 @@ Behaviour: `"read"` refuses every mutation with `ResourceAccessError` (`Resource
 
 `useContext` registers `adapter.render()` through `addContextProvider`. Glove appends its output as a transient user-role message after persisted history before each model iteration, including after tools. Multiple providers compose in registration order. The system prompt and saved history remain unchanged.
 
-`useFormRunner` registers `runner.tier0()` through the same provider API. Completed forms render nothing. Both require glove-core >=3.8.0; runnable proxies must forward `addContextProvider`. External runtimes can resolve snapshots with `getRuntimeContext(signal?)`; subscribers receive `runtime_context` events.
+`useFormRunner` registers `runner.tier0()` through the same provider API. Completed forms render nothing. Both require glove-core >=4.0.0; runnable proxies must forward `addContextProvider`. External runtimes can resolve snapshots with `getRuntimeContext(signal?)`; subscribers receive `runtime_context` events.
 
 ### Lower-level tool factories
 

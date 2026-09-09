@@ -1,13 +1,15 @@
 # glove-memory
 
-## 1.2.1
+## 2.0.0
 
-### Patch Changes
+### Major Changes
+
+- **Breaking:** default goals, forms, and pinned-context mounting requires the native runtime-context API from glove-core 4. Upgrade core and memory together. Runnable proxies must forward `addContextProvider` (and `getRuntimeContext` for external runtimes). Forms/goals can use `injectStatus: false` with a custom renderer. Stored adapter data needs no migration; dynamic snapshots no longer appear in `getSystemPrompt()`.
 
 - Keep changing memory state out of system prompts. Core now resolves live context providers at the model-input tail before each iteration and exposes their snapshots to tracing. Goals, forms, and pinned context use these transient snapshots without changing saved conversation history. Realtime voice injects changed snapshots silently at startup and after tools, with explicit refresh for external changes.
 
 - Updated dependencies []:
-  - glove-core@3.8.0
+  - glove-core@4.0.0
   - glove-facts@0.1.1
 
 ## 1.2.0

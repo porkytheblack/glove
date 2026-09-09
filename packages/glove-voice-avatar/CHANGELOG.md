@@ -5,7 +5,7 @@
 ### Patch Changes
 
 - Updated dependencies []:
-  - glove-voice-s2s@0.2.3
+  - glove-voice-s2s@0.3.0
 
 ## 0.1.3
 

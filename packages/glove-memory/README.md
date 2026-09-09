@@ -517,7 +517,7 @@ Details worth knowing:
 
 `useContext` registers a live provider through `addContextProvider`. Before each model iteration, including after tool results, Glove calls `adapter.render()` and appends the rendered block as a transient user-role message at the model-input tail. Forms and goals register independent providers. Snapshots never rewrite the system prompt or enter persisted chat history; the adapters remain authoritative. This preserves the stable system/history prefix for caching, although actual cache hits depend on the provider.
 
-Requires `glove-core` 3.8 or newer. Runnable proxies must forward `addContextProvider` and, for external runtimes, `getRuntimeContext`. Forms/goals may use `injectStatus: false` with a custom renderer. Subscribers receive `runtime_context` snapshots for tracing. Realtime voice injects changed snapshots silently at session start and after tools; call `await realtime.refreshContext()` after external changes.
+Requires `glove-core` 4.0 or newer. Runnable proxies must forward `addContextProvider` and, for external runtimes, `getRuntimeContext`. Forms/goals may use `injectStatus: false` with a custom renderer. Subscribers receive `runtime_context` snapshots for tracing. Realtime voice injects changed snapshots silently at session start and after tools; call `await realtime.refreshContext()` after external changes.
 
 ## Embedding lifecycle
 
@@ -1163,3 +1163,7 @@ and `fulfilledHooks`, and dispatch `effects`. `resumeHooks()` recovers interrupt
 work under stable idempotency keys; external effects must deduplicate those keys.
 See the [package guide](../glove-facts/README.md) for examples and the full persistence
 contract, including optional host acknowledgement of already-achieved form effects.
+
+## Migrating to memory 2
+
+Upgrade glove-core to 4 together with glove-memory to 2. Standard Glove mounting calls and storage adapters are unchanged. Custom runnable proxies must forward `addContextProvider` and, for external runtimes, `getRuntimeContext`. Default mounting throws if the context API is missing; forms/goals can opt out with `injectStatus: false` and provide their own renderer. Dynamic memory now appears in runtime snapshots rather than `getSystemPrompt()`. Existing stored facts, forms, and goals need no migration.

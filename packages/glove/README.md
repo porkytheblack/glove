@@ -175,4 +175,12 @@ MIT
 
 Register changing external state with `glove.addContextProvider(async signal => renderCurrentState(signal))`. The method returns an unregister function and works before or after `build()`. Before each model iteration (including after tools), Glove appends nonempty provider output as transient user-role messages after saved history. Providers compose in registration order; failures stop the model call. System instructions and stored conversation messages remain unchanged, preserving the stable prefix for provider caching.
 
-`await glove.getRuntimeContext(signal?)` resolves the same snapshots for external runtimes. Subscribers receive a `runtime_context` event containing detached `messages`. Runnable wrappers must forward both APIs. Registration remains local to the runnable; adapters own durable state. This API requires glove-core 3.8 or newer.
+`await glove.getRuntimeContext(signal?)` resolves the same snapshots for external runtimes. Subscribers receive a `runtime_context` event containing detached `messages`. Runnable wrappers must forward both APIs. Registration remains local to the runnable; adapters own durable state. This API requires glove-core 4.0 or newer.
+
+### Migrating to core 4
+
+See the [copyable runtime migration guide](MIGRATION-4.md) for wrappers, custom loops, tracing, and realtime voice.
+
+Standard `Glove` users keep the same mounting calls and upgrade core together with glove-memory 2. Custom runnable implementations must implement `addContextProvider` and `getRuntimeContext`; custom builders must implement `addContextProvider`. Transparent wrappers forward these methods to the underlying Glove instance. Custom execution loops resolve and append runtime context before each model iteration. Exhaustive subscriber-event handlers must accept `runtime_context`.
+
+No model/storage adapter or saved-data migration is required. Code that previously read dynamic goals/forms/context from `getSystemPrompt()` must use `getRuntimeContext()` instead. Voice users upgrading to glove-voice-s2s 0.3 must await `refreshSession()` and handle its errors.

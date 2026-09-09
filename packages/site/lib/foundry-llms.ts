@@ -11,7 +11,7 @@ export function buildFoundryLlmsTxt(): string {
     `- Product: ${SITE_URL}/foundry`,
     `- Condensed reference: ${SITE_URL}/foundry/llms-full.txt`,
     "- Package: glove-foundry",
-    "- Live memory: glove-core 3.8+ appends goals/forms/context as runtime snapshots at the model-input tail; system instructions and saved history remain unchanged.",
+    "- Live memory: glove-core 4.0+ appends goals/forms/context as runtime snapshots at the model-input tail; system instructions and saved history remain unchanged.",
     `- Dynamic goals (glove-memory/goals): ${SITE_URL}/docs/goals`,
     `- Shared facts and traced preparation (glove-facts): ${SITE_URL}/docs/facts`,
     "- Source: https://github.com/porkytheblack/glove/tree/main/packages/glove-foundry",
@@ -202,7 +202,7 @@ standalone glove-goals package. Shared evidence is glove-facts 0.1.0+.
 Use useGoalRunner/useFormRunner from glove-memory/tools to mount workflow tools
 on a conversational Glove runnable. useFacts from glove-facts mounts record_fact;
 imports alone do not mount tools. Scope fact storage by subject and context.
-With glove-core >=3.8.0, goals/forms/pinned context append live transient user-role
+With glove-core >=4.0.0, goals/forms/pinned context append live transient user-role
 snapshots at the model-input tail before each iteration, leaving system prompt
 and saved history unchanged. Runnable proxies forward addContextProvider and
 getRuntimeContext; runtime_context subscriber events expose resolved snapshots.

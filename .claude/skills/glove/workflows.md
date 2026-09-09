@@ -12,7 +12,7 @@ Use this reference when building goal-driven agents, retaining early evidence, o
 
 ## Runtime visibility and caching
 
-Use glove-core >=3.8.0 with current glove-memory. Goals, forms, and pinned context register live providers through `addContextProvider`. Glove appends current state as transient user-role messages after saved history before each model iteration, including after tool results. State stays in its scoped adapter; snapshots never rewrite the system prompt or become saved conversation messages. `runtime_context` subscriber events expose resolved snapshots for tracing. Prefix stability does not guarantee provider cache hits.
+Use glove-core >=4.0.0 with glove-memory >=2.0.0. Goals, forms, and pinned context register live providers through `addContextProvider`. Glove appends current state as transient user-role messages after saved history before each model iteration, including after tool results. State stays in its scoped adapter; snapshots never rewrite the system prompt or become saved conversation messages. `runtime_context` subscriber events expose resolved snapshots for tracing. Prefix stability does not guarantee provider cache hits.
 
 Runnable proxies must forward `addContextProvider` and `getRuntimeContext`. Forms/goals can opt out with `injectStatus: false` and a custom renderer. Preparation and lifecycle synchronization still run before mounted requests; reading a snapshot does not run inference. Realtime voice silently injects changed snapshots at start and after tools; call `await realtime.refreshContext()` after external changes. Voice providers retain earlier injected snapshots in their session, superseded by the latest one.
 

@@ -34,7 +34,7 @@ export function buildLlmsTxt(): string {
   out.push("");
   out.push("Goals are exported by glove-memory/goals (glove-memory 1.2.0+), not a standalone glove-goals package. Shared evidence is glove-facts (0.1.0+). Supplying a dedicated Glove preparation agent enables traced preparation for goals and forms.");
   out.push("");
-  out.push("With glove-core 3.8+, goals, forms, and pinned context use live runtime snapshots at the model-input tail, preserving system instructions and saved history. Runnable proxies forward addContextProvider and getRuntimeContext.");
+  out.push("With glove-core 4.0+, goals, forms, and pinned context use live runtime snapshots at the model-input tail, preserving system instructions and saved history. Runnable proxies forward addContextProvider and getRuntimeContext.");
   out.push("- Workflow agent skill: https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/workflows.md");
   out.push("- Repository: https://github.com/porkytheblack/glove");
   out.push(`- Full condensed reference: ${SITE_URL}/llms-full.txt`);
@@ -420,7 +420,7 @@ Goals, forms, and context append transient user-role snapshots at the model-inpu
 tail before each iteration, including after tools, without rewriting the system
 prompt or saved history. External writes appear next iteration. refresh() runs
 preparation, transition recovery, and host configuration. injectStatus:false
-permits a custom renderer. Requires glove-core >=3.8.0; runnable proxies forward
+permits a custom renderer. Requires glove-core >=4.0.0; runnable proxies forward
 addContextProvider and getRuntimeContext. Subscribers receive runtime_context
 snapshots. Realtime voice refreshes silently at start and after tools; call
 await realtime.refreshContext() after external changes.

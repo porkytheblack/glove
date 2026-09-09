@@ -5,7 +5,7 @@
 ### Patch Changes
 
 - Updated dependencies []:
-  - glove-core@3.8.0
+  - glove-core@4.0.0
   - glovebox-core@0.6.3
 
 ## 0.5.3
