@@ -1,4 +1,5 @@
 import type { ContentPart, GloveFoldArgs, Message, ModelPromptResult } from "glove-core";
+import { attachPromptSection } from "../prompt-section";
 import type { ContextAdapter } from "../../context/adapter";
 import { selectFoldArgs, type MemoryToolOptions } from "../selection";
 import { buildContextGetTool } from "./get";
@@ -67,7 +68,7 @@ export interface ContextEnableTarget {
  *    between turns are reflected immediately.
  *
  * Multiple `useContext` calls on the same Glove will stack — each call
- * captures the current base prompt, so calling it twice with different
+ * owns its own prompt section, so calling it twice with different
  * adapters will inject both blocks. Most consumers call it once.
  *
  * `options.tools` narrows the folded surface without touching the injection
@@ -84,25 +85,7 @@ export function useContext<G extends ContextEnableTarget>(
     glove.fold(tool);
   }
 
-  // Snapshot the developer-supplied system prompt at registration time. The
-  // agent's `setSystemPrompt` overwrites the live prompt, so we re-derive
-  // the base on each turn from this snapshot rather than reading the
-  // current prompt (which would include the previous turn's injection).
-  const basePrompt = glove.getSystemPrompt();
-  const originalProcessRequest = glove.processRequest.bind(glove);
-
-  glove.processRequest = async function wrappedProcessRequest(
-    request: string | ContentPart[],
-    signal?: AbortSignal,
-  ): Promise<ModelPromptResult | Message> {
-    const rendered = await adapter.render();
-    const composed =
-      rendered && rendered.length > 0
-        ? `${basePrompt}\n\n${rendered}`
-        : basePrompt;
-    glove.setSystemPrompt(composed);
-    return originalProcessRequest(request, signal);
-  };
+  attachPromptSection(glove, () => adapter.render());
 
   return glove;
 }

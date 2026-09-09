@@ -3,5 +3,10 @@
   "compilerOptions": {
     "noEmit": true
   },
-  "include": ["src", "tests/forms-types.ts"]
+  "include": [
+    "src",
+    "tests/forms-types.ts",
+    "tests/goals-types.ts",
+    "examples/shared-facts.ts"
+  ]
 }

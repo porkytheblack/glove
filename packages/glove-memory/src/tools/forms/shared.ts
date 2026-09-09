@@ -1,3 +1,5 @@
+import { FactClaimCommitError } from "glove-facts";
+import { FormPostCommitError } from "../../forms/runner";
 import type { ToolResultData } from "glove-core";
 import { MemoryError } from "../../core/errors";
 import { ProvenanceSchema } from "../../core/provenance";
@@ -7,6 +9,11 @@ import type { FormView } from "../../forms/types";
 export const ProvenanceArgSchema = ProvenanceSchema;
 
 export function errorResult(e: unknown): ToolResultData {
+  if (e instanceof FactClaimCommitError || e instanceof FormPostCommitError) {
+    const instance = e instanceof FormPostCommitError ? e.instance : e.value;
+    return { status: "error", message: e.message, data: { committed: true, instance_id: instance.id,
+      status: instance.status, preparation: instance.preparation } };
+  }
   if (e instanceof MemoryError) {
     return { status: "error", message: e.message, data: { code: e.code } };
   }
@@ -41,6 +48,7 @@ export function renderView(view: FormView): Record<string, unknown> {
       return row;
     }),
   };
+  if (view.preparation) out.preparation = structuredClone(view.preparation);
   if (view.step) {
     out.step = {
       id: view.step.id,

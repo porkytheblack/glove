@@ -1,5 +1,12 @@
 # glove-forms-bench
 
+## 1.0.4
+
+### Patch Changes
+
+- Updated dependencies [[`13c6385`](https://github.com/porkytheblack/glove/commit/13c6385497322e1c1f3d504ff7ef95b1c5eced79), [`5e7a590`](https://github.com/porkytheblack/glove/commit/5e7a590a2efca6de39f876c57535e075e813e132)]:
+  - glove-memory@1.2.0
+
 ## 1.0.3
 
 ### Patch Changes

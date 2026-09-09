@@ -14,6 +14,7 @@ export default defineConfig({
     "src/resources/index.ts",
     "src/context/index.ts",
     "src/forms/index.ts",
+    "src/goals/index.ts",
     "src/tools/index.ts",
     "src/layered/index.ts",
     "src/in-memory/index.ts",

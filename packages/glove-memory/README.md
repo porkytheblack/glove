@@ -1,12 +1,13 @@
 # glove-memory
 
-Memory layer for the Glove agent framework. Storage-agnostic adapter contracts, schema-first ontology, and auto-registered tool surfaces. Five complementary, independently-usable subsystems with bring-your-own storage:
+Memory layer for the Glove agent framework. Storage-agnostic adapter contracts, schema-first ontology, and auto-registered tool surfaces. Six complementary, independently-usable subsystems with bring-your-own storage:
 
 - **Entity memory** — graph-shaped, schema-first, deterministic identity resolution.
 - **Episodic memory** — timeline-bound, append-only, semantically searchable.
 - **Resources** — POSIX-style virtual filesystem the agent navigates with `ls` / `read` / `grep` / `glob` / `edit`.
 - **Context** — user-configured ambient context, auto-injected into the system prompt every turn.
 - **Forms** — structured collection over a conversation: zod-authored definitions, lazily loaded, with colocated executors.
+- **Goals** — editable, persisted goal programs and checklist progress, with revision history and optimistic concurrency.
 
 Entity, episodic, and resources use a reader / curator split — readers attach to the conversational agent, curators run as orchestrator-driven extractors. Context is different: it's user-configured rather than curator-extracted, so it uses a single registration that gives the agent both read and write tools plus system-prompt injection.
 
@@ -24,6 +25,7 @@ Draft v0.1. Pre-implementation scope from the spec is complete; storage backends
 | `glove-memory/episodic` | `EpisodicMemoryAdapter` contract, `Episode` types, semantic-search opts |
 | `glove-memory/resources` | `ResourceFsAdapter` contract, file types, POSIX path helpers |
 | `glove-memory/context` | `ContextAdapter` contract, `ContextEntry` type, default markdown rendering |
+| `glove-memory/goals` | `defineGoalProgram`, `GoalRunner`, `GoalAdapter`, persisted state types, status renderer |
 | `glove-memory/forms` | `defineForm` builder, `FormAdapter` contract, compiler, engine, projection |
 | `glove-memory/tools` | Auto-registered read/write tool factories and `useMemory*` / `useEpisodic*` / `useResources*` / `useContext` / `useFormRunner` helpers |
 | `glove-memory/layered` | `layerEntity` / `layerEpisodic` / `layerResources` / `layerContext` — several adapters per subsystem presented to the agent as one |
@@ -870,3 +872,302 @@ The package's contract is deliberately narrow: store, query, write, search. It d
 - Compensating a re-fired form executor. Hooks fire on every rising edge with a per-occurrence idempotency key; whether a repeat is real work is the executor's decision.
 - Binary resources. Resources is text-only.
 - `.` and `..` path resolution. All paths are absolute.
+
+## Dynamic goals
+
+Goals track what an agent is working toward as context changes. They are an
+independent subsystem alongside forms, exported from `glove-memory/goals` and
+from the package root. They do not replace `glove-core`'s session todo tool:
+that tool manages a flat task list; goals persist structured definitions,
+checklist dispositions, revisions, and reasons for changing direction.
+
+A **program** is an ordered list of goals, each with a stable key, title,
+completion objective, and keyed checklist items. A **scope** identifies one
+persisted goal set by the exact tuple `(subject, key, agent?)`. Use a tenant-qualified
+subject such as `firm:1/matter:2`, a set key such as `intake`, and an agent ID
+when agents should have independent sets. Omit the agent to intentionally share
+one set. Authorization and tenancy are enforced by the application/adapter;
+the model tools cannot choose a different scope.
+
+```ts
+import { defineGoalProgram, InMemoryGoalAdapter } from "glove-memory";
+import { useGoalRunner } from "glove-memory/tools";
+
+// Supply a durable GoalAdapter in production. This adapter lasts one process.
+const adapter = new InMemoryGoalAdapter();
+const { runner, refresh } = useGoalRunner(glove, adapter, {
+  scope: { subject: "firm:1/matter:2", key: "intake", agent: "assistant" },
+  actor: "intake-agent",
+  source: "conversation:3",
+  // Let the host choose the initial program; the agent can update/revise it.
+  tools: { deny: ["start"] },
+});
+
+await runner.start(defineGoalProgram({
+  key: "client-intake",
+  goals: [{
+    key: "identity",
+    title: "Identify the client",
+    objective: "Know who is speaking and whether their contact details changed",
+    items: [
+      { key: "client", label: "Verify client identity", locked: true },
+      { key: "contact", label: "Current contact details" },
+    ],
+  }],
+}));
+
+// Known facts can be supplied by the host, a form integration, or a model tool.
+const status = await runner.update({
+  goalKey: "identity",
+  completed: ["client"],
+  reason: "Returning client verified from stored records",
+});
+
+// Newly learned context introduces a goal; existing progress survives.
+const current = await runner.inspect();
+await runner.revise({
+  ...current!.program,
+  goals: [...current!.program.goals, {
+    key: "updates", title: "Matter updates",
+    objective: "Collect changes since the previous conversation",
+    items: [{ key: "changes", label: "New developments" }],
+  }],
+}, { ifVersion: current!.version, reason: "This is an existing-matter follow-up" });
+```
+
+`useGoalRunner` returns `{ glove, runner, refresh }`. It folds these tools:
+
+| Tool | Operation |
+| --- | --- |
+| `glove_goal_status` | Current definitions, dispositions, active goal, deferrals, and version |
+| `glove_goal_start` | Start a program; an identical existing definition is an idempotent read |
+| `glove_goal_update` | Record completed, deferred, declined, or reopened item keys in a named goal |
+| `glove_goal_revise` | Replace the ordered definition set with an explicit reason and expected version |
+| `glove_goal_history` | Read persisted definition/progress snapshots, reasons, and provenance |
+
+`buildGoalRunnerTools(runner)` exposes the same factories for custom hosts.
+`new GoalRunner(adapter, config)` works without Glove, a model, or forms; text
+and voice integrations can call the same operations. Tools use the existing
+`ToolSelection` allow/deny convention. Tool selection limits model access;
+the returned runner still supports host operations.
+
+### Progress and revision rules
+
+- Untouched items are pending. `completed` records disposition `done` and
+  `done: true`. `deferred` and `declined` settle an item for progression while
+  retaining `done: false`. A goal is completed when all non-retired items are
+  settled; the first unresolved non-retired goal is active. Later goals can
+  also receive updates, so already-known facts need not be collected again.
+- Deferred items remain visible even after the whole program completes, or
+  their definitions are retired/removed. Complete or decline them later, or
+  use `reopened` to return a live item to pending. Declines are not carried as
+  unresolved follow-ups. Restore a retired definition before reopening it.
+- `revise` accepts the full program, not a merge patch. Labels, objectives,
+  items, order, and the goal set can change. Omit obsolete definitions or mark
+  them `retired: true`; history and their progress remain. Reintroducing the
+  **same key restores its progress**. Use a new key for a different obligation.
+  Adding a pending item to a completed goal reopens it automatically.
+- Program identity cannot change within a scope; create another scoped set
+  for a genuinely different program. There is no implicit program switch or
+  reset. Application-owned templates are plain `GoalProgram` values; there
+  is no mandatory registry or domain-specific intake policy.
+- `locked: true` makes a goal's entire definition immutable, or an item's
+  definition immutable when set on the item. A containing goal with a locked
+  item cannot be removed or retired. Locks cannot be unset through revisions.
+  They protect definitions, not dispositions: applications needing stricter
+  completion rules can reject deferral/decline in `validateChange`.
+- Unknown keys or keys repeated across disposition lists reject the entire
+  update. Repeating an existing disposition is a no-op, preserving its original
+  note/timestamp. Use a real state transition to reopen or revisit an item.
+
+### Persistence and concurrency
+
+Implement [`GoalAdapter`](./src/goals/adapter.ts): `get(scope)` returns a detached
+snapshot or null, and `commit(scope, next, { ifVersion })` atomically stores a
+complete aggregate only if the stored version matches. `ifVersion: null`
+means create-if-absent. Definitions, progress, and append-only history must
+commit together. Throw `GoalConflictError` on a mismatch. The reference
+`InMemoryGoalAdapter` implements this contract and clones on both reads and
+writes. It needs no memory ontology because goals do not depend on entity data.
+
+Database JSON object property order may change; comparisons ignore it. Array
+order must be preserved because it determines progression and history. Ensure
+your scope uniqueness constraint treats an absent agent as one shared bucket.
+
+The runner increments versions and records full snapshots with reasons,
+timestamps, actor, and source. Reconstructing a runner against the same durable
+adapter requires no original definition code. Full snapshots favor a simple,
+auditable first implementation; hosts should plan storage capacity for growing
+history. The runner never silently prunes it.
+
+Definition revisions always require `ifVersion`. The model's update tool also
+requires it: after a conflict, read status and reconsider the update. Direct
+host `runner.update` calls may omit it; the runner retries up to five commit
+attempts for disjoint progress changes. A changed definition or a concurrent
+change to the same item surfaces a conflict instead of overwriting it. Two
+concurrent identical starts converge on the same saved instance.
+
+Optional `validateChange({ before, after, kind, reason })` runs before each
+commit attempt. It can enforce practice rules, permitted templates, or required
+obligations; throw to reject. It must be side-effect-free because retries can
+invoke it more than once. Optional `onChange(status)` runs **after** a durable
+write. If it fails, `GoalPostCommitError` includes the committed status; this is
+not a rollback. Model tools return `committed: true` for this case.
+
+Concurrent storage acknowledgements can arrive out of order. Callbacks describe
+their committed version; consumers maintaining a latest-state view should use
+the version to ignore older notifications. The mounted goal prompt does this
+automatically, including for stale status reads.
+
+### Prompt and forms integration
+
+`useGoalRunner` owns a standalone prompt section, refreshes it before every
+request, and refreshes immediately after writes through its returned runner.
+It includes the active objective, remaining checklists, current version, and
+carried deferrals after completion. External writes appear on the next turn;
+call `refresh()` to reflect them sooner. Set `injectStatus: false` and use
+`renderGoalStatus(await runner.status())` for a custom text or voice renderer.
+A missing goal set removes the previous section instead of leaving stale goals.
+
+Goals, forms, and context replace only their own marked prompt sections, so
+mounting them in either order preserves the other sections and host prompt
+edits. Forms still refresh their tier-0 status on the next request. A runnable
+is for one conversation at a time; a scope thunk may select a different scope
+between requests, but must remain stable during an operation/request.
+
+Forms do not automatically settle goals. The application owns that mapping:
+after a form answer is validated, call `runner.update` for the corresponding
+item with an explicit reason. Likewise, practice selection, returning-client
+lookup, matter identity, and deciding which goal template applies remain host
+policy. This keeps goals reusable outside client intake.
+
+See [`examples/dynamic-goals.ts`](./examples/dynamic-goals.ts) for an executable
+returning-client follow-up that retires full intake, adds an updates goal,
+preserves verified identity, and resolves a deferred document request.
+
+### Configure agents from goal progression
+
+Host-defined lifecycle hooks can change the running Glove, or perform an effect
+when a goal changes state. Hooks are code in runner configuration; the model
+cannot add executable hooks to its goal definitions.
+
+```ts
+const { runner, refresh } = useGoalRunner(glove, adapter, {
+  scope: { subject: "matter:123", key: "intake" },
+  hooks: {
+    onEnter({ glove, goal, idempotencyKey }) {
+      if (goal.definition.key === "evidence") {
+        // fold is additive: guard against duplicates when replaying an effect.
+        if (!glove.tools.some((tool) => tool.name === evidenceTool.name)) {
+          glove.fold(evidenceTool);
+        }
+        glove.setModel(evidenceModel);
+      }
+      // External effects must deduplicate using idempotencyKey.
+    },
+    onComplete({ goal, status, idempotencyKey }) {
+      // Host effect, e.g. persist a phase handoff under idempotencyKey.
+      // "complete" means progression settled; inspect dispositions if actual
+      // completion matters, because deferred/declined items also settle it.
+    },
+    onReopen({ goal }) {
+      // A completed goal now has unresolved work again.
+    },
+  },
+  configure({ glove, status }) {
+    // A state projection, reapplied to NEW runnables after process restart.
+    // Completed transition effects are not replayed just to rebuild an agent.
+    glove.setModel(status?.activeGoal === "evidence" ? evidenceModel : intakeModel);
+    if (status?.activeGoal === "evidence" &&
+        !glove.tools.some((tool) => tool.name === evidenceTool.name)) {
+      glove.fold(evidenceTool);
+    }
+  },
+});
+await refresh(); // recover pending effects and configure before using the runnable
+```
+
+`onEnter` fires when a goal becomes the active goal, including re-entry after
+reordering or reopening. `onComplete` fires when a non-completed goal becomes
+completed. `onReopen` fires when a completed goal becomes active or pending.
+Completion and reopening events are ordered before entry to the active goal.
+Repeated identical updates and wording-only revisions produce no new edges.
+Retiring a goal does not count as completing it. Each hook receives the
+historical goal/status snapshot, transition, scope, reason, and a stable
+`idempotencyKey`; mounted hooks also receive the typed `glove` runnable.
+Standalone `GoalRunner` hooks can capture application objects through closures.
+
+`configure` is a separate, idempotent projection of **current** status onto the
+runnable. It runs after committed changes, before every request, and on
+`refresh()`, including when `injectStatus: false`. Async calls are serialized
+so old configuration cannot finish after new configuration. It should only
+configure the target; do not call goal mutations or `refresh()` from it.
+`fold` adds capabilities; to remove tools or change constructor-only options,
+construct a new runnable from saved status before the next request:
+
+```ts
+const goals = new GoalRunner(adapter, { scope });
+const status = await goals.status();
+const builder = new Glove({ ...baseConfig, model: chooseModel(status) });
+for (const tool of chooseTools(status)) builder.fold(tool);
+const runnable = builder.build();
+useGoalRunner(runnable, adapter, { scope, configure: configureFromGoals });
+```
+
+### Durable lifecycle effects
+
+Every progress commit saves its transitions in the same history revision.
+Effects run only after that write succeeds. Lifecycle receipts are separate
+from progress, so dispatch does not change the version the model reviewed and
+a later aggregate commit cannot erase acknowledgements.
+
+Adapters additionally implement:
+
+- `claimTransition(scope, id, { owner, leaseMs })`: atomically return `claimed`,
+  `completed`, or `busy`, with a durable claim/attempt count for a saved event.
+- `settleTransition(scope, id, { owner, state, error? })`: acknowledge completion
+  or failure only if the caller still owns the claim.
+- `getTransitionDispatches(scope)`: read detached dispatch diagnostics.
+
+Claims expire after `hookLeaseMs` (60 seconds by default), allowing recovery
+after a worker crashes. A live claim blocks later effects in that scope.
+Failed effects remain retryable via `runner.resumeHooks()`; completed effects
+are skipped. `useGoalRunner` resumes pending hooks before a request or explicit
+refresh. If another worker still owns a hook, the request fails before calling
+the model and the host can retry later. `runner.hookDispatches()` exposes
+attempts and failures. All workers for one scope must use the same hook policy.
+Adding a handler later will process matching historical transitions without
+completed receipts; pre-lifecycle history without transitions is not replayed.
+
+Delivery is **at least once**, not exactly once: a process can crash after an
+external effect but before its acknowledgement, or a long-running effect can
+outlive its lease. Set an appropriate lease and deduplicate effects by the
+stable idempotency key. Failed hooks surface as `GoalPostCommitError` after a
+write, or `GoalHookError` from explicit replay. Progress remains committed.
+
+## Shared evidence and automatic preparation
+
+Goals and forms can share a single `FactStore` from **[glove-facts](../glove-facts)**.
+Capture early information with `record_fact` or host-verified `facts.record(...)`,
+then pass `preparation: { preparer, rule, eligible? }` to either runner or mount.
+`new FactPreparation(facts, { agent: preparationAgent })` opts in with a dedicated,
+built Glove runnable. The library runs it through `processRequest`, preserving its
+store, subscribers, usage accounting and tool traces. Without an agent, automatic
+preparation is disabled. Host rules explicitly allow each field/item and define the evidence
+needed; actions and approvals require verified success and appropriate authority.
+
+Prepared proposals pass source/revision checks and authoritative form schemas or
+goal policy before the normal CAS commit. Answers retain exact claim receipts;
+progression hooks and tool replies see the prepared context. Conditional steps are
+prepared before activation. Shared evidence is reusable across separate consumers.
+Corrections produce explicit review, preserving completed actions and existing
+answers until an ordinary runner operation resolves them. Disabled preparation
+preserves capture, links, answers and progress. Both mounted runners reconcile
+before turns; hosts can call `runner.prepare()` directly.
+
+Prepared form commits also persist pending hooks and returned effects. Update BYO
+FormAdapters to preserve `preparation`, `pendingHooks`, entry `claimId`, `effectId`
+and `fulfilledHooks`, and dispatch `effects`. `resumeHooks()` recovers interrupted
+work under stable idempotency keys; external effects must deduplicate those keys.
+See the [package guide](../glove-facts/README.md) for examples and the full persistence
+contract, including optional host acknowledgement of already-achieved form effects.

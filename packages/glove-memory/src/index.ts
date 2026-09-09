@@ -124,3 +124,7 @@ export {
   InMemoryContextAdapter,
   InMemoryFormAdapter,
 } from "./in-memory";
+
+export * from "./goals";
+export * from "./tools/goals";
+export { InMemoryGoalAdapter } from "./in-memory/goals";

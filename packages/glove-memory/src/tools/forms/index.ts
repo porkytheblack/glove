@@ -1,9 +1,11 @@
 import type { ContentPart, GloveFoldArgs, Message, ModelPromptResult } from "glove-core";
+import { attachPromptSection } from "../prompt-section";
 import type { DisplayManagerAdapter } from "glove-core";
 import type { FormAdapter } from "../../forms/adapter";
 import type { FormMemoryAdapters } from "../../forms/bridge";
 import type { FormRegistry } from "../../forms/registry";
 import { selectFoldArgs, type ToolSelection } from "../selection";
+import type { FormPreparationConfig } from "../../forms/preparation";
 import { FormRunner } from "../../forms/runner";
 import { buildFormAbandonTool } from "./abandon";
 import { buildFormFillTool } from "./fill";
@@ -62,6 +64,7 @@ export interface FormEnableTarget {
 }
 
 export interface UseFormRunnerConfig {
+  preparation?: FormPreparationConfig;
   registry: FormRegistry;
   /** Conversation id / user id / matter id. A thunk when it varies per turn. */
   subject: string | (() => string);
@@ -107,7 +110,12 @@ export function useFormRunner<G extends FormEnableTarget>(
   adapter: FormAdapter,
   config: UseFormRunnerConfig,
 ): { glove: G; runner: FormRunner } {
+  const assertPreparationAgent = () => {
+    if (Object.is(config.preparation?.preparer.config.agent, glove)) throw new Error("Preparation requires a dedicated Glove agent, separate from the workflow agent");
+  };
+  assertPreparationAgent();
   const runner = new FormRunner(adapter, {
+    preparation: config.preparation,
     registry: config.registry,
     subject: config.subject,
     memory: config.memory,
@@ -120,26 +128,19 @@ export function useFormRunner<G extends FormEnableTarget>(
     glove.fold(tool);
   }
 
-  if (config.injectStatus !== false) {
-    // Snapshot the developer prompt once — `setSystemPrompt` overwrites the
-    // live one, so re-deriving from it would compound last turn's injection.
-    const basePrompt = glove.getSystemPrompt();
+  const synchronize = async () => {
+    assertPreparationAgent();
+    if (config.preparation) {
+      const instance = await runner.activeInstance();
+      if (instance) await runner.prepare({ instanceId: instance.id });
+      return runner.tier0();
+    }
+    try { return await runner.tier0(); } catch { return ""; }
+  };
+  if (config.injectStatus !== false) attachPromptSection(glove, synchronize);
+  else if (config.preparation) {
     const original = glove.processRequest.bind(glove);
-
-    glove.processRequest = async function wrappedProcessRequest(
-      request: string | ContentPart[],
-      signal?: AbortSignal,
-    ): Promise<ModelPromptResult | Message> {
-      let line = "";
-      try {
-        line = await runner.tier0();
-      } catch {
-        // A form that can't be read must not take the turn down with it.
-        line = "";
-      }
-      glove.setSystemPrompt(line ? `${basePrompt}\n\n${line}` : basePrompt);
-      return original(request, signal);
-    };
+    glove.processRequest = async (request, signal) => { await synchronize(); return original(request, signal); };
   }
 
   return { glove, runner };

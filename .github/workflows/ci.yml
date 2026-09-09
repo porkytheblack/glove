@@ -39,6 +39,7 @@ jobs:
       - name: Build shared deps
         run: >-
           pnpm
+          --filter "glove-memory..."
           --filter "glove-voice-livekit..."
           --filter "glove-scratchpad..."
           --filter "glove-env-documents..."
@@ -87,6 +88,7 @@ jobs:
           --filter glove-voice-s2s
           --filter glove-voice-avatar
           --filter glove-voice-livekit
+          --filter glove-facts
           --filter glove-memory
           --filter glove-scratchpad
           --filter glove-egress
@@ -130,6 +132,7 @@ jobs:
           --filter glove-voice-s2s
           --filter glove-voice-avatar
           --filter glove-voice-livekit
+          --filter glove-facts
           --filter glove-memory
           --filter glove-scratchpad
           --filter glove-egress
