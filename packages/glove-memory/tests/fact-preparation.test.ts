@@ -1,7 +1,8 @@
+import { preparationAgent } from "../../glove-facts/tests/agent";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
-import { FactStore, FactPreparation, InMemoryFactAdapter, createModelPreparation, type Fact, type FactRequirement } from "glove-facts";
+import { FactStore, FactPreparation, InMemoryFactAdapter, type Fact, type FactRequirement } from "glove-facts";
 import { GoalRunner, defineGoalProgram, renderGoalStatus } from "../src/goals";
 import { InMemoryGoalAdapter } from "../src/in-memory/goals";
 import { FormRunner, FormRegistry, defineForm, inForce } from "../src/forms";
@@ -21,17 +22,17 @@ async function setup() {
   const facts = new FactStore(new InMemoryFactAdapter(), { scope });
   const add = (key: string, value: unknown, extras: any = {}) => facts.record({ text: `${key}: ${value}`, value: { key, value }, source: { kind: "message", id: key }, verification: "verified", ...extras }, { operationId: `${key}-${JSON.stringify(value)}-${JSON.stringify(extras)}` });
   let calls = 0;
-  const model = { name: "preparer", setSystemPrompt() {}, async prompt(request: any) {
+  const events: Array<{ type: string; data: any }> = [];
+  const agent = preparationAgent((data: any) => {
     calls++;
-    const data = JSON.parse(request.messages[0].text.split("\n\nDATA:\n")[1]);
-    return { messages: [{ sender: "agent" as const, text: "", tool_calls: [{ tool_name: "submit_preparation", input_args: { proposals: data.requirements.flatMap((r: FactRequirement) => {
+    return { proposals: data.requirements.flatMap((r: FactRequirement) => {
       const key = r.id.split("/").at(-1)!;
       const fact = data.facts.findLast((f: Fact) => (f.value as any)?.key === key);
       return fact ? [{ requirement: r.id, value: r.id.includes("/") ? true : fact.value.value, refs: [{ id: fact.id, revision: fact.revision }], strength: "sufficient", derivation: "explicit", explanation: `Supplied ${key}` }] : [];
-    }) } }] }], tokens_in: 1, tokens_out: 1 };
-  } };
-  const preparer = new FactPreparation(facts, { enabled: true, inference: createModelPreparation(model) });
-  return { facts, add, preparer, calls: () => calls };
+    }) };
+  }, { record: async (type, data) => { events.push({ type, data }); } });
+  const preparer = new FactPreparation(facts, { agent });
+  return { facts, add, preparer, agent, events, calls: () => calls };
 }
 function forms(preparer: FactPreparation, options: { rule?: any; onEmail?: () => void; onStep?: () => void; checkpoint?: () => void; conditional?: boolean } = {}) {
   const def = defineForm({ id: "intake", version: 1, name: "Intake", description: "Contact details" })
@@ -59,7 +60,7 @@ test("early facts complete goals atomically before onEnter and expose full prepa
   assert.equal(calls(), 1);
 });
 test("goals and forms use the same fact records with separate links and validated commits", async () => {
-  const { preparer, add, facts } = await setup(); await add("name", "Ada"); await add("email", "ada@example.com");
+  const { preparer, add, facts, events, agent } = await setup(); await add("name", "Ada"); await add("email", "ada@example.com");
   const goals = new GoalRunner(new InMemoryGoalAdapter(), { scope: goalScope, preparation: { preparer, rule: () => rule } });
   await goals.start(program);
   let hooks = 0; const { runner } = forms(preparer, { onEmail: () => { hooks++; } });
@@ -70,6 +71,12 @@ test("goals and forms use the same fact records with separate links and validate
   const state = await facts.inspect(); const email = state.facts.find(f => (f.value as any).key === "email")!;
   const claims = state.claims.filter(c => c.refs.some(r => r.id === email.id) && c.state === "accepted");
   assert.equal(claims.length, 2); assert.notEqual(claims[0].consumer, claims[1].consumer);
+  assert.equal(events.filter(e => e.type === "tool_use_result" && e.data.tool_name === "submit_preparation").length, 2);
+  assert.equal(events.filter(e => e.type === "token_consumption").length, 4);
+  const requests = (await agent.store.getMessages()).filter(m => m.text?.startsWith("Glove fact preparation"));
+  assert.equal(requests.length, 2);
+  assert.ok(requests.some(m => m.text!.includes('\\"goals\\"')));
+  assert.ok(requests.some(m => m.text!.includes('\\"forms\\"')));
 });
 test("unverified facts yield clarification and invalid synthesized values never enter form history", async () => {
   const { preparer, add } = await setup(); await add("name", "Ada"); await add("email", "bad email");
@@ -96,12 +103,12 @@ test("repeated and concurrent preparation after restart does not duplicate histo
   assert.equal((await facts.inspect()).claims.filter(c => c.requirement === "email").length, 1);
 });
 test("disabled auto preparation leaves capture and manual operations available", async () => {
-  const { preparer, add, calls, facts } = await setup(); preparer.config.enabled = false; await add("email", "ada@example.com");
+  const { preparer, add, calls, facts } = await setup(); const agent = preparer.config.agent; preparer.config.agent = undefined; await add("email", "ada@example.com");
   const { runner } = forms(preparer); await runner.start("intake"); await runner.fill({ name: "Ada" });
   assert.equal(calls(), 0); assert.equal((await facts.inspect()).claims.length, 0);
   assert.equal((await runner.resolve()).instance.entries.email, undefined);
-  preparer.config.enabled = true; await runner.prepare(); assert.equal(calls(), 1);
-  preparer.config.enabled = false; const before = await runner.resolve(); await runner.prepare(); assert.deepEqual((await runner.resolve()).instance, before.instance);
+  preparer.config.agent = agent; await runner.prepare(); assert.equal(calls(), 1);
+  preparer.config.agent = undefined; const before = await runner.resolve(); await runner.prepare(); assert.deepEqual((await runner.resolve()).instance, before.instance);
 });
 test("upcoming gated steps are prepared without activation or committing their answers", async () => {
   const { preparer, add } = await setup(); await add("email", "ada@example.com");
@@ -144,7 +151,7 @@ test("mounted forms reconcile before model invocation even with prompt injection
   assert.equal((await runner.status()).complete, true);
 });
 test("inference failure leaves goals actionable without false completion", async () => {
-  const { preparer } = await setup(); preparer.config.inference.infer = async () => { throw new Error("model unavailable"); };
+  const { preparer } = await setup(); preparer.config.agent = preparationAgent(async () => { throw new Error("model unavailable"); });
   const runner = new GoalRunner(new InMemoryGoalAdapter(), { scope: goalScope, preparation: { preparer, rule: () => rule } });
   const status = await runner.start(program); assert.equal(status.activeGoal, "identity"); assert.match(renderGoalStatus(status), /model unavailable/);
 });
@@ -215,4 +222,16 @@ test("form tool replies include prepared context and identify already-committed 
   adapter.recordDispatch = async () => { throw new Error("storage interrupted"); };
   const failed = await tool.do({ form: "intake" });
   assert.equal(failed.status, "error"); assert.equal(failed.data.committed, true); assert.ok(failed.data.instance_id);
+});
+
+
+test("mounted workflows reject their own agent as preparation agent, including later configuration changes", async () => {
+  const { preparer, agent } = await setup();
+  assert.throws(() => useGoalRunner(agent, new InMemoryGoalAdapter(), { scope: goalScope, preparation: { preparer, rule: () => rule } }), /dedicated Glove agent/);
+  const { adapter, config } = forms(preparer);
+  assert.throws(() => useFormRunner(agent, adapter, config), /dedicated Glove agent/);
+  const host = preparationAgent(() => ({ proposals: [] }));
+  useFormRunner(host, adapter, config);
+  preparer.config.agent = host;
+  await assert.rejects(host.processRequest("Continue"), /dedicated Glove agent/);
 });

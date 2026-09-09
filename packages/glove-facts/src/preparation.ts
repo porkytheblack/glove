@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { PreparationOutputSchema, type PreparationInference } from "./model";
+import type { IGloveRunnable } from "glove-core";
+import { PreparationOutputSchema, runPreparationAgent } from "./model";
 import { currentFacts, type FactStore } from "./store";
 import { canonical, claimId, scopeKey, type EvidenceClaim, type Fact, type FactRequirement, type PreparationDecision, type PreparationReport, type PreparationRequest } from "./types";
 
@@ -12,11 +13,10 @@ export class FactClaimCommitError<T = unknown> extends Error {
 
 export class FactPreparation {
   constructor(readonly facts: FactStore, readonly config: {
-    /** Default off. A pure predicate consulted before automatic preparation. */
-    enabled?: boolean | (() => boolean);
-    inference: PreparationInference;
-  }) {}
-  enabled(): boolean { return typeof this.config.enabled === "function" ? this.config.enabled() : this.config.enabled === true; }
+    /** A dedicated, built Glove agent. Omit to disable automatic preparation. */
+    agent?: IGloveRunnable;
+  } = {}) {}
+  enabled(): boolean { return this.config.agent !== undefined; }
   /**
    * Inference and validation precede the consumer's authoritative CAS commit.
    * Store claim ids with that commit. Only return ids actually committed.
@@ -25,7 +25,8 @@ export class FactPreparation {
    * the next request repair them without repeating effects or consuming facts.
    */
   async run<T>(request: PreparationRequest, commit: (report: PreparationReport | undefined) => Promise<{ value: T; acceptedClaimIds: string[] }>): Promise<T> {
-    if (!this.enabled()) return (await commit(undefined)).value;
+    const agent = this.config.agent;
+    if (!agent) return (await commit(undefined)).value;
     const scope = this.facts.scope();
     return this.facts.adapter.withScope(scope, async tx => {
       let state = await tx.read();
@@ -45,7 +46,7 @@ export class FactPreparation {
         report.urgent = facts.filter(f => f.urgent);
         const requirements = new Map(request.requirements.map(r => [r.id, r]));
         if (requirements.size !== request.requirements.length) throw new Error("Duplicate preparation requirement");
-        const output = PreparationOutputSchema.parse(await this.config.inference.infer(structuredClone({
+        const output = PreparationOutputSchema.parse(await runPreparationAgent(agent, scope, structuredClone({
           scope, consumer: request.consumer, context: request.context,
           requirements: request.requirements.map(({ schema, ...r }) => ({ ...r, ...(schema ? { schema: safeSchema(schema) } : {}) })),
           facts, claims: state.claims.filter(c => c.consumer === request.consumer),

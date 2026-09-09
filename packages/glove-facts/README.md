@@ -11,7 +11,7 @@ pnpm add glove-facts glove-memory
 ```ts
 import {
   FactStore, FactPreparation, InMemoryFactAdapter,
-  createModelPreparation, useFacts,
+  useFacts,
 } from "glove-facts";
 
 const facts = new FactStore(new InMemoryFactAdapter(), {
@@ -28,16 +28,55 @@ useFacts(glove, facts, () => ({
 // Registers record_fact({ fact: string, urgent?: boolean }). Model capture is
 // unverified. The model cannot select another scope, attest success or approve.
 
-let automaticPreparation = true;
-const preparer = new FactPreparation(facts, {
-  enabled: () => automaticPreparation, // Default false; evaluated per operation.
-  inference: createModelPreparation(preparationModel), // Dedicated ModelAdapter.
-});
+// A dedicated, built IGloveRunnable, with your model, store and subscribers.
+// The library mounts its submission tool and manages preparation requests.
+const preparer = new FactPreparation(facts, { agent: preparationAgent });
 ```
 
-`createModelPreparation` makes a separate `ModelAdapter.prompt` call with a structured output tool. It does not request another user conversation turn or change the adapter's system prompt. Pass a dedicated model instance and optionally a subscriber callback for usage/observability. A custom `PreparationInference` must implement actual inference, not substitute a lookup table for semantic synthesis.
+The caller supplies a built Glove agent. The library runs `agent.processRequest`,
+so model events, token accounting, tool execution and persisted conversation history
+use the agent's normal store and subscribers. There is no direct model invocation
+or custom inference callback that bypasses Glove. Preparation does not create an
+extra user-facing conversational turn or replace the agent's system prompt.
 
-When disabled, automatic inference, claims and prefill are skipped. The enabled thunk must be pure; changing it affects subsequent operations, while an in-flight preparation may finish. Captured facts, existing links, answers, progress and ordinary manual operations remain available. Already committed form effects can still be resumed. Re-enabling reconciles on the next runner operation or mounted turn; host code can call `runner.prepare()` immediately.
+For example, build a dedicated agent with the same tracing subscriber your
+application uses (and a separate conversation store):
+
+```ts
+import { Glove, Displaymanager } from "glove-core";
+
+const preparationAgent = new Glove({
+  model: preparationModel,
+  store: preparationStore,
+  displayManager: new Displaymanager(),
+  systemPrompt: "Evaluate workflow requirements using supplied evidence.",
+  serverMode: true,
+  compaction_config: { compaction_instructions: "Summarize preparation history.", max_turns: 6 },
+}).addSubscriber(tracingSubscriber).build();
+```
+
+**Agent presence is the opt-in.** `new FactPreparation(facts)` disables automatic
+preparation. Set `preparer.config.agent = preparationAgent` to enable it, or set it
+to `undefined` to disable it for subsequent operations. An in-flight preparation
+retains the agent it started with. Capture, accepted links, answers, progress and
+manual operations remain available without an agent. Already committed form
+effects can still be resumed. Re-enabling reconciles on the next runner operation
+or mounted turn; host code can call `runner.prepare()` immediately.
+
+Use a dedicated agent and store per exact fact scope. Forms and goals in that
+scope may share it; preparation requests on the same agent serialize. The library
+rejects another scope, including when reopening persisted preparation history.
+Do not use the workflow's conversational agent as its own preparation agent, run
+unrelated requests concurrently on the preparation agent, or mount preparation
+recursively on it. The reserved `submit_preparation` tool binds each submission
+to a fresh request identity. Its results, errors, and usage follow ordinary Glove
+tracing. Missing, duplicate, aborted or failed submissions never authorize values.
+Evidence text is encoded to prevent it from activating Glove slash hooks/skills.
+
+Migration from the unreleased preview: replace
+`{ enabled: true, inference: createModelPreparation(model) }` with
+`{ agent: preparationAgent }`. The model-only helper and inference callback API
+have been removed; disabled preparation is represented by the absence of an agent.
 
 ## Host-verified evidence and corrections
 
@@ -134,7 +173,7 @@ An action/outcome rule may explicitly declare `fulfills: ["field", "step"]` to a
 
 `InMemoryFactAdapter` is a development/reference adapter; it is not durable across process restart. Supply a durable `FactAdapter` for production. A scope is the exact `(subject, context)` tuple. Qualify both with tenancy/matter identities and enforce access in host code. Goal and form subjects must match the FactStore subject; their independent consumer ids prevent cross-workflow link acceptance.
 
-The adapter's `withScope` must serialize capture, correction and preparation/consumer commits across workers. `read()` returns detached snapshots. Each `save()` persists a version + 1 aggregate independently; a later exception does not roll back earlier saves. Use a cross-process lock released on process death (or genuinely fenced transactions); a best-effort TTL lock is insufficient. Do not re-enter this FactStore from an inference callback, eligibility rule, goal validator or adapter commit. External hooks run after the scope lock is released.
+The adapter's `withScope` must serialize capture, correction and preparation/consumer commits across workers. `read()` returns detached snapshots. Each `save()` persists a version + 1 aggregate independently; a later exception does not roll back earlier saves. Use a cross-process lock released on process death (or genuinely fenced transactions); a best-effort TTL lock is insufficient. Do not re-enter this FactStore from a preparation-agent tool or hook, eligibility rule, goal validator or adapter commit. External hooks run after the scope lock is released.
 
 The commit protocol is a recoverable outbox across the two stores: persist proposed links, atomically save values/progress and claim-id receipts in the consumer, then acknowledge accepted links. A process interrupted between the two writes leaves proposed links, never a false accepted completion. Subsequent preparation reconciles acceptance from consumer history. `FactClaimCommitError.value` exposes the already committed result if acknowledgement fails. Deterministic link ids exclude model rationale wording, so retries do not multiply equivalent links.
 

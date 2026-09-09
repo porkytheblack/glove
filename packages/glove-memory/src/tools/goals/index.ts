@@ -57,6 +57,10 @@ export function buildGoalRunnerTools(runner: GoalRunner): Array<GloveFoldArgs<an
  * Like Glove itself, a mounted runnable is for one conversation at a time.
  */
 export function useGoalRunner<G extends GoalEnableTarget>(glove: G, adapter: GoalAdapter, config: UseGoalRunnerConfig<G>): { glove: G; runner: GoalRunner; refresh: () => Promise<void> } {
+  const assertPreparationAgent = () => {
+    if (Object.is(config.preparation?.preparer.config.agent, glove)) throw new Error("Preparation requires a dedicated Glove agent, separate from the workflow agent");
+  };
+  assertPreparationAgent();
   let section: ReturnType<typeof attachPromptSection> | undefined;
   let latest: { scope: GoalScope; status: GoalStatus | null } | undefined;
   const currentScope = () => GoalScopeSchema.parse(typeof config.scope === "function" ? config.scope() : config.scope);
@@ -105,6 +109,7 @@ export function useGoalRunner<G extends GoalEnableTarget>(glove: G, adapter: Goa
   const tools = selectFoldArgs(buildGoalRunnerTools(runner), config.tools);
   for (const entry of tools) glove.fold(entry);
   const synchronize = async () => {
+    assertPreparationAgent();
     if (config.preparation) await runner.prepare();
     const resumed = await runner.resumeHooks();
     if (resumed.blockedBy) throw new Error(`Goal transition is still being handled: ${resumed.blockedBy}. Retry before starting the model.`);

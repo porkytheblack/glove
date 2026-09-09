@@ -11,7 +11,7 @@ export default function FactsPage() {
     <p><code>glove-facts</code> retains information, document observations and completed outcomes before their consuming step is active. Goals and forms share the evidence, keep separate links, and use their own validation and commit rules.</p>
     <CodeBlock language="typescript" code={`import {
   FactStore, InMemoryFactAdapter, FactPreparation,
-  createModelPreparation, useFacts,
+  useFacts,
 } from "glove-facts";
 
 const facts = new FactStore(new InMemoryFactAdapter(), {
@@ -25,11 +25,11 @@ useFacts(glove, facts, () => ({
 }));
 
 const preparer = new FactPreparation(facts, {
-  enabled: true, // Default false; also accepts a per-operation thunk.
-  inference: createModelPreparation(preparationModel), // ModelAdapter
+  agent: preparationAgent, // Dedicated, built IGloveRunnable with your store/subscribers.
 });`} />
+    <p>Supplying a preparation agent enables automatic preparation; omit it to disable preparation. The library mounts a structured submission tool and calls <code>agent.processRequest</code>, preserving message history, tool results, token accounting and subscriber events. Use a dedicated agent and store per fact scope, separate from the conversational agent. Both workflows may share it within that scope.</p>
     <h2>Prepare before progression</h2>
-    <p>Pass the same preparer to <code>useGoalRunner</code> and <code>useFormRunner</code>. A host-owned rule opts each requirement in. Omitted rules stay manual. Preparation makes a dedicated model invocation, synthesizes candidate answers with exact evidence revisions, validates them, and commits through the runner before returning actionable context. Conditional gates still decide eligibility.</p>
+    <p>Pass the same preparer to <code>useGoalRunner</code> and <code>useFormRunner</code>. A host-owned rule opts each requirement in. Omitted rules stay manual. Preparation runs the supplied Glove agent through its normal execution loop and tracing, synthesizes candidate answers with exact evidence revisions, validates them, and commits through the runner before returning actionable context. Conditional gates still decide eligibility.</p>
     <CodeBlock language="typescript" code={`import { useGoalRunner, useFormRunner } from "glove-memory/tools";
 
 useGoalRunner(glove, goalAdapter, {

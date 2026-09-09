@@ -1,19 +1,19 @@
-/** Use one evidence store for both workflows. Supply your own runnable, model
+/** Use one evidence store for both workflows. Supply your own conversational and preparation agents
  * and durable adapters in production; the reference adapters are process-local. */
-import type { ModelAdapter } from "glove-core";
+import type { IGloveRunnable } from "glove-core";
 import { z } from "zod";
-import { FactStore, FactPreparation, InMemoryFactAdapter, createModelPreparation, useFacts } from "glove-facts";
+import { FactStore, FactPreparation, InMemoryFactAdapter, useFacts } from "glove-facts";
 import { defineForm, defineGoalProgram, FormRegistry, MemorySchema, InMemoryFormAdapter, InMemoryGoalAdapter } from "glove-memory";
 import { useFormRunner, useGoalRunner, type FormEnableTarget } from "glove-memory/tools";
 
-export async function sharedEvidence(glove: FormEnableTarget, preparationModel: ModelAdapter, currentMessageId: () => string) {
+export async function sharedEvidence(glove: FormEnableTarget, preparationAgent: IGloveRunnable, currentMessageId: () => string) {
   const subject = "tenant:1/client:2";
   const facts = new FactStore(new InMemoryFactAdapter(), { scope: { subject, context: "matter:3" } });
   useFacts(glove, facts, () => {
     const id = currentMessageId();
     return { source: { kind: "message", id }, operationId: id };
   });
-  const preparer = new FactPreparation(facts, { enabled: true, inference: createModelPreparation(preparationModel) });
+  const preparer = new FactPreparation(facts, { agent: preparationAgent });
   const rule = { kind: "information" as const, criteria: "Client's preferred contact email" };
   const registry = new FormRegistry().register("contact", {
     name: "Contact", description: "Client contact details",

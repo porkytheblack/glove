@@ -1150,8 +1150,10 @@ write, or `GoalHookError` from explicit replay. Progress remains committed.
 Goals and forms can share a single `FactStore` from **[glove-facts](../glove-facts)**.
 Capture early information with `record_fact` or host-verified `facts.record(...)`,
 then pass `preparation: { preparer, rule, eligible? }` to either runner or mount.
-`FactPreparation` is opt-in and `createModelPreparation(model)` performs a dedicated
-inference call. Host rules explicitly allow each field/item and define the evidence
+`new FactPreparation(facts, { agent: preparationAgent })` opts in with a dedicated,
+built Glove runnable. The library runs it through `processRequest`, preserving its
+store, subscribers, usage accounting and tool traces. Without an agent, automatic
+preparation is disabled. Host rules explicitly allow each field/item and define the evidence
 needed; actions and approvals require verified success and appropriate authority.
 
 Prepared proposals pass source/revision checks and authoritative form schemas or

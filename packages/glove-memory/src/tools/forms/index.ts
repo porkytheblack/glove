@@ -110,6 +110,10 @@ export function useFormRunner<G extends FormEnableTarget>(
   adapter: FormAdapter,
   config: UseFormRunnerConfig,
 ): { glove: G; runner: FormRunner } {
+  const assertPreparationAgent = () => {
+    if (Object.is(config.preparation?.preparer.config.agent, glove)) throw new Error("Preparation requires a dedicated Glove agent, separate from the workflow agent");
+  };
+  assertPreparationAgent();
   const runner = new FormRunner(adapter, {
     preparation: config.preparation,
     registry: config.registry,
@@ -125,6 +129,7 @@ export function useFormRunner<G extends FormEnableTarget>(
   }
 
   const synchronize = async () => {
+    assertPreparationAgent();
     if (config.preparation) {
       const instance = await runner.activeInstance();
       if (instance) await runner.prepare({ instanceId: instance.id });

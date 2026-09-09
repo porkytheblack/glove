@@ -4,6 +4,8 @@
 
 ### Minor Changes
 
+- Run shared fact preparation through a caller-supplied Glove agent with normal message persistence, tool execution, usage accounting and subscriber tracing. Agent presence enables preparation; remove the direct model helper and separate enable flag.
+
 - [#171](https://github.com/porkytheblack/glove/pull/171) [`13c6385`](https://github.com/porkytheblack/glove/commit/13c6385497322e1c1f3d504ff7ef95b1c5eced79) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Add a standalone dynamic goals subsystem with persisted definitions and checklist progress, versioned revisions, protected obligations, deferred follow-ups, a CAS storage contract and in-memory adapter, and model tools through useGoalRunner. Compose goal, form, and context prompt sections without overwriting each other. Include durable progression hooks with leased replay and idempotency keys, plus per-runnable configuration from current goal state.
 
 - [#171](https://github.com/porkytheblack/glove/pull/171) [`5e7a590`](https://github.com/porkytheblack/glove/commit/5e7a590a2efca6de39f876c57535e075e813e132) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Add glove-facts as a shared, scoped and revisioned evidence layer with explicit capture, reusable consumer links, urgency delivery and model-backed preparation. Integrate opt-in preparation into goal and form commits with authoritative validation, source revision checks, action/approval policies and explicit correction review. Persist prepared form effects for restart recovery and expose full prepared context in status and tool responses.

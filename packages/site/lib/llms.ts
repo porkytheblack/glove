@@ -443,17 +443,21 @@ read runner.status() and build a fresh Glove for the next request using that sta
 
 ### glove-facts — shared evidence and preparation
 
-Import FactStore, InMemoryFactAdapter, FactPreparation, createModelPreparation,
-and useFacts from "glove-facts". Scope is an exact subject/context tuple, qualified
+Import FactStore, InMemoryFactAdapter, FactPreparation, and useFacts from "glove-facts". Scope is an exact subject/context tuple, qualified
 by tenant and client/matter. Bind provenance in host code. useFacts registers
 record_fact({ fact, urgent? }); model capture stays unverified. FactStore.record
 requires source and an operationId; repeated identical operations are idempotent.
 Corrections use supersedes: { id, revision }, append a revision and retain history.
 Urgent facts surface at capture through onUrgent and remain available afterwards.
 
-Preparation is opt-in (enabled defaults false, or provide a per-operation thunk).
-createModelPreparation(ModelAdapter) invokes a dedicated model with structured
-proposals and exact source references; no additional user turn is required.
+Preparation is enabled by supplying a dedicated built IGloveRunnable:
+new FactPreparation(facts, { agent: preparationAgent }). No agent means disabled.
+The library mounts submit_preparation and runs agent.processRequest, preserving
+Glove message persistence, tool traces, usage accounting and subscribers.
+There is no raw ModelAdapter/custom inference path or separate enabled flag.
+Use a separate preparation agent and store per fact scope, shared by goals/forms
+in that scope; never use the workflow agent as its own preparation agent.
+No additional user-facing conversation turn is required.
 Disabled skips automatic inference/claims/prefill without removing captured facts,
 accepted links, answers or goal progress. Use runner.prepare() to reconcile now.
 
