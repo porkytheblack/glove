@@ -83,6 +83,14 @@ export interface EgressContext {
   readonly route: OutboundRoute;
   readonly account?: AccountReference;
   readonly grant: RunGrant;
+  /**
+   * Enter the agent definition's user-owned credential/session boundary for
+   * this delivery. Foundry never receives the credential value itself.
+   */
+  readonly withAccountSession?: <A>(
+    operation: string,
+    use: (session: unknown) => Effect.Effect<A, unknown, never>,
+  ) => Effect.Effect<A, unknown, never>;
 }
 
 /** Provider ingress remains adapter-owned and returns typed Effects. */

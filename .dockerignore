@@ -1,0 +1,15 @@
+.git
+.codex
+.claude
+.changeset
+**/node_modules
+**/dist
+**/.data
+**/.env
+**/.env.local
+**/.next
+**/coverage
+**/*.db
+**/*.db-*
+**/*.log
+.DS_Store

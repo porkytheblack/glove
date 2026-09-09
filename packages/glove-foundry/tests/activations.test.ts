@@ -53,12 +53,21 @@ test("sleep wakes the same instance and conversation after a duration-derived ti
       agentId: agent.id,
       conversationId: conversation.id,
       workspaceId: agent.workspaceId,
-      wakeAt: new Date(Date.now() + 75).toISOString(),
+      wakeAt: new Date(Date.now() + 400).toISOString(),
       message: "Resolve the work after sleeping.",
     };
     await (runtime as unknown as {
       executeCoreCommand(command: FoundryCoreCommand, parentRunId: string): Promise<void>;
     }).executeCoreCommand(command, "parent-sleep");
+
+    assert.equal(
+      (await runtime.listRuns("assistant")).some((candidate) => {
+        const input = candidate.input as { source?: { id?: string } } | undefined;
+        return input?.source?.id === command.id;
+      }),
+      false,
+      "A future sleep must not enter the execution queue before its wake time.",
+    );
 
     const queued = await waitForActivation(runtime, command.id);
     const completed = await runtime.waitForRun(queued.id, { pollMs: 25, timeoutMs: 15_000 });
@@ -71,6 +80,76 @@ test("sleep wakes the same instance and conversation after a duration-derived ti
     assert.equal(request.conversationId, conversation.id);
     assert.equal(request.source.kind, "activation");
     assert.equal(completed?.status, "completed");
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("one-shot schedules can move and cancel without leaking an old timer", async () => {
+  const runtime = await FoundryRuntime.discover({
+    rootDir,
+    agentsDir,
+    config: { execution: { pollIntervalMs: 10, idlePollIntervalMs: 10 } },
+  });
+  await runtime.start();
+  try {
+    const agent = await runtime.createAgent("assistant", {
+      id: "one-shot-agent",
+      workspaceId: "activation-test",
+    });
+    const conversation = await runtime.createConversation(agent.id, {
+      id: "one-shot-conversation",
+    });
+    const created: FoundryCoreCommand = {
+      id: "command_one_shot_test",
+      type: "schedule",
+      definitionId: "assistant",
+      agentId: agent.id,
+      conversationId: conversation.id,
+      workspaceId: agent.workspaceId,
+      message: "This should be cancelled before dispatch.",
+      timing: { kind: "at", at: new Date(Date.now() + 500).toISOString() },
+    };
+    const execute = (command: FoundryCoreCommand) =>
+      (runtime as unknown as {
+        executeCoreCommand(command: FoundryCoreCommand, parentRunId: string): Promise<void>;
+      }).executeCoreCommand(command, "parent-one-shot");
+    await execute(created);
+    await execute({
+      id: "command_move_one_shot",
+      type: "schedule.update",
+      definitionId: "assistant",
+      agentId: agent.id,
+      conversationId: conversation.id,
+      workspaceId: agent.workspaceId,
+      activationId: created.id,
+      patch: { timing: { kind: "at", at: new Date(Date.now() + 1_000).toISOString() } },
+    });
+    await new Promise((resolveWait) => setTimeout(resolveWait, 650));
+    assert.equal(
+      (await runtime.listRuns("assistant")).some((run) =>
+        (run.input as { source?: { id?: string } }).source?.id === created.id),
+      false,
+    );
+    await execute({
+      id: "command_cancel_one_shot",
+      type: "schedule.cancel",
+      definitionId: "assistant",
+      agentId: agent.id,
+      conversationId: conversation.id,
+      workspaceId: agent.workspaceId,
+      activationId: created.id,
+    });
+    await new Promise((resolveWait) => setTimeout(resolveWait, 450));
+    assert.equal(
+      (await runtime.listRuns("assistant")).some((run) =>
+        (run.input as { source?: { id?: string } }).source?.id === created.id),
+      false,
+    );
+    assert.equal(
+      (await Effect.runPromise(runtime.data.getActivation(created.id)))?.status,
+      "cancelled",
+    );
   } finally {
     await runtime.stop();
   }

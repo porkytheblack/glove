@@ -158,6 +158,14 @@ function toolSegment(value: string): string {
   return value.replaceAll("/", "__").replaceAll("-", "_");
 }
 
+/** Resolve an installed app's generated outbound tool without duplicating ids. */
+export function installedApplicationTransmissionToolName(
+  application: { readonly id: string },
+  transmission: { readonly id: string },
+): string {
+  return `glove_app_${toolSegment(application.id)}__${toolSegment(transmission.id)}_send`;
+}
+
 function outboundToolSchema(
   transmission: AnyFoundryTransmission,
   routeIds: ReadonlyArray<string>,
@@ -225,7 +233,7 @@ export function createInstalledApplicationTransmissionTools(
           ),
       )].sort();
       tools.push({
-        name: `glove_app_${toolSegment(application.id)}__${toolSegment(transmission.id)}_send`,
+        name: installedApplicationTransmissionToolName(application, transmission),
         description: [
           `Send through the ${transmission.name} outbound transmission installed by the ${application.id} application.`,
           routeIds.length > 0

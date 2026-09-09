@@ -125,8 +125,17 @@ export function definePlaybookSubscription(
 export function reconstructPlaybookSubscription(
   subscription: PlaybookSubscription,
 ): PlaybookSubscription {
+  // Code-authored playbooks may still contain direct definition references
+  // until reconstructPlaybook resolves them. Do not structuredClone those
+  // Effect Schema/function-bearing objects first.
+  const { playbook, ...data } = subscription;
   return freezeData({
-    ...structuredClone(subscription),
-    playbook: reconstructPlaybook(subscription.playbook),
+    ...structuredClone(data),
+    // A file-routed subscription owns exactly one playbook, so its route is
+    // also the stable persisted playbook identity when the author supplied a
+    // composed policy without a runtime id.
+    playbook: reconstructPlaybook(
+      playbook.id ? playbook : { ...playbook, id: subscription.id },
+    ),
   });
 }

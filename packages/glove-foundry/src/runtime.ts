@@ -237,6 +237,7 @@ export class FoundryRuntime {
   >;
   private readonly runnerLoops: Promise<void>[] = [];
   private readonly materializedActivations = new Set<string>();
+  private readonly activationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private started = false;
   private disposed = false;
 
@@ -513,6 +514,8 @@ export class FoundryRuntime {
         this.disposed = true;
         return;
       }
+      for (const timer of this.activationTimers.values()) clearTimeout(timer);
+      this.activationTimers.clear();
       await this.connectionSupervisor.stopAll();
       this.observability.append({ type: "runtime.stop.signals", category: "system", data: {} });
       await this.signalRunner.stop({ graceful: true, timeoutMs: 10_000 });
@@ -1247,14 +1250,17 @@ export class FoundryRuntime {
         `Outbound route "${route.id}" does not belong to transmission "${input.transmissionId}".`,
       );
     }
+    const agent = await Effect.runPromise(this.data.getAgent(input.agentId));
+    if (!agent) {
+      throw new Error(`Agent instance "${input.agentId}" does not exist.`);
+    }
     if (input.applicationId) {
-      const agent = await Effect.runPromise(this.data.getAgent(input.agentId));
       const application = agent
         ? this.compositionByDefinition
-            .get(agent.definitionId)
-            ?.capabilities.applications.find(
-              (candidate) => candidate.id === input.applicationId,
-            )
+          .get(agent.definitionId)
+          ?.capabilities.applications.find(
+            (candidate) => candidate.id === input.applicationId,
+          )
         : undefined;
       if (
         !application ||
@@ -1289,10 +1295,26 @@ export class FoundryRuntime {
         }))
       : undefined;
     const payload = await Schema.decodeUnknownPromise(transmission.outbound.input)(input.payload);
+    const accountSessions = this.byRoute.get(agent.definitionId)?.definition.accountSessions;
+    const sourceRun = account && accountSessions ? await this.getRun(input.runId) : null;
     const output = await Effect.runPromise(transmission.outbound.adapter.deliver(payload, {
       route,
       ...(account ? { account } : {}),
       grant,
+      ...(account && accountSessions
+        ? {
+            withAccountSession: <A>(
+              operation: string,
+              use: (session: unknown) => Effect.Effect<A, unknown, never>,
+            ) => accountSessions.withSession({
+              accountId: account.id,
+              operation,
+              agentId: agent.id,
+              conversationId: sourceRun?.conversationId ?? `egress:${input.runId}`,
+              workspaceId: agent.workspaceId,
+            }, use),
+          }
+        : {}),
     }));
     const validated = await Schema.decodeUnknownPromise(transmission.outbound.output)(output);
     this.observability.append({
@@ -1884,23 +1906,16 @@ export class FoundryRuntime {
   private async enqueueCoreRequest(
     definitionId: string,
     request: FoundryRequest,
-    runAt?: string,
   ): Promise<string> {
     const discovered = this.byRoute.get(definitionId);
     if (!discovered) throw new Error(`Foundry agent definition "${definitionId}" was not found.`);
     const agent = await Effect.runPromise(this.data.getAgent(request.agentId));
     const conversation = await Effect.runPromise(this.data.getConversation(request.conversationId));
     if (!agent || !conversation) throw new Error("Core command references an unknown agent instance or conversation.");
-    const runId = await this.signalRunner.triggerSignal(
+    return this.signalRunner.triggerSignal(
       discovered.executionName,
       await this.executionEnvelope(request),
     );
-    if (runAt) {
-      const date = new Date(runAt);
-      if (Number.isNaN(date.getTime())) throw new Error(`Invalid future run date "${runAt}".`);
-      await this.signalRunner.getAdapter().updateRun(runId, { nextRunAt: date });
-    }
-    return runId;
   }
 
   private async executeCoreCommand(command: FoundryCoreCommand, parentRunId: string): Promise<void> {
@@ -1984,7 +1999,6 @@ export class FoundryRuntime {
     const runId = await this.enqueueCoreRequest(
       command.definitionId,
       request,
-      undefined,
     );
     this.observability.append({
       type: "core.command.accepted",
@@ -2072,6 +2086,11 @@ export class FoundryRuntime {
   }
 
   private async disarmActivation(activation: FoundryActivationRecord): Promise<void> {
+    const timer = this.activationTimers.get(activation.id);
+    if (timer) {
+      clearTimeout(timer);
+      this.activationTimers.delete(activation.id);
+    }
     if (activation.timing.kind === "every" || activation.timing.kind === "cron") {
       await this.scheduleAdapter.delete(this.backendScheduleId(activation.id));
     } else if (activation.lastRunId) {
@@ -2276,18 +2295,42 @@ export class FoundryRuntime {
         });
         return;
       }
-      const runId = await this.enqueueCoreRequest(
-        activation.definitionId,
-        request,
-        activation.timing.at,
-      );
-      const active: FoundryActivationRecord = {
-        ...activation,
+      await this.armOneShotActivation(activation, request);
+    } catch (cause) {
+      this.materializedActivations.delete(activation.id);
+      throw cause;
+    }
+  }
+
+  private async armOneShotActivation(
+    activation: FoundryActivationRecord,
+    request: FoundryRequest,
+  ): Promise<void> {
+    if (activation.timing.kind !== "at") {
+      throw new Error(`Activation "${activation.id}" is not a one-shot activation.`);
+    }
+    const target = new Date(activation.timing.at).getTime();
+    const active: FoundryActivationRecord = {
+      ...activation,
+      status: "active",
+      lastRunId: undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    await Effect.runPromise(this.data.putActivation(active));
+
+    const dispatch = async (): Promise<void> => {
+      this.activationTimers.delete(activation.id);
+      if (this.disposed || !this.started) return;
+      const current = await Effect.runPromise(this.data.getActivation(activation.id));
+      if (!current || current.status === "cancelled" || current.status === "completed") return;
+      const runId = await this.enqueueCoreRequest(activation.definitionId, request);
+      const running: FoundryActivationRecord = {
+        ...current,
         status: "active",
         lastRunId: runId,
         updatedAt: new Date().toISOString(),
       };
-      await Effect.runPromise(this.data.putActivation(active));
+      await Effect.runPromise(this.data.putActivation(running));
       this.observability.append({
         type: "core.command.accepted",
         category: "system",
@@ -2298,7 +2341,7 @@ export class FoundryRuntime {
       void this.waitForRun(runId).then(async (run) => {
         if (!run || (run.status !== "completed" && run.status !== "failed" && run.status !== "cancelled")) return;
         await Effect.runPromise(this.data.putActivation({
-          ...active,
+          ...running,
           status: run.status === "cancelled" ? "cancelled" : "completed",
           updatedAt: new Date().toISOString(),
         }));
@@ -2311,10 +2354,36 @@ export class FoundryRuntime {
           data: { error: cause instanceof Error ? cause.message : String(cause) },
         });
       });
-    } catch (cause) {
-      this.materializedActivations.delete(activation.id);
-      throw cause;
-    }
+    };
+
+    const arm = (): void => {
+      const remaining = target - Date.now();
+      if (remaining <= 0) {
+        void dispatch().catch((cause) => {
+          this.materializedActivations.delete(activation.id);
+          this.observability.append({
+            type: "activation.dispatch.error",
+            category: "activation",
+            agent: activation.definitionId,
+            runId: activation.createdByRunId,
+            data: { error: cause instanceof Error ? cause.message : String(cause) },
+          });
+        });
+        return;
+      }
+      const timer = setTimeout(arm, Math.min(remaining, 2_147_483_647));
+      this.activationTimers.set(activation.id, timer);
+    };
+
+    this.observability.append({
+      type: "scheduled-action.created",
+      category: "activation",
+      agent: activation.definitionId,
+      runId: activation.createdByRunId,
+      data: { commandId: activation.id, recurring: false, nextRunAt: activation.timing.at },
+    });
+    if (target <= Date.now()) await dispatch();
+    else arm();
   }
 
   private async deliverOutbound(

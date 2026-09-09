@@ -40,6 +40,8 @@ interface AgentInstance {
 
 `FoundryDataAdapter` is the source of truth. Every run reloads the instance and conversation, then assembles a fresh Glove from the referenced definition and current message. Lazy `playbooks` and `schedules` resolvers reconcile desired runtime data before Foundry executes subsequent activations. `configureAgent` atomically replaces frontend-editable context, installations, and playbooks.
 
+Foundry ships an in-memory adapter for tests and a dependency-free `FileFoundryDataAdapter` for durable single-host deployments. The file adapter coordinates local worker processes with an advisory lock and commits state through atomic rename. Multi-host deployments provide a database-backed implementation of the same interface so the application model does not change.
+
 Definitions never accept an invocation input or output schema. Foundry owns those contracts.
 
 ## Reference normalization

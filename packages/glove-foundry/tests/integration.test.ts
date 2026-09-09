@@ -187,6 +187,7 @@ test("Foundry rejects malformed framework requests before creating a run", async
 });
 
 test("Foundry serves validated topology without exposing account access references", async () => {
+  const sessionRequests: Array<{ accountId: string; operation: string }> = [];
   const transport = defineTransmission({
     id: "transport",
     name: "Transport",
@@ -207,6 +208,16 @@ test("Foundry serves validated topology without exposing account access referenc
       config: Schema.Struct({ channel: Schema.String }),
       input: Schema.Struct({ message: Schema.String }),
       output: Schema.Struct({ id: Schema.String }),
+      adapter: {
+        deliver: (input, context) => {
+          if (!context.withAccountSession) {
+            return Effect.die(new Error("Expected an account session."));
+          }
+          return context.withAccountSession("transport:send", (session) => Effect.sync(() => ({
+            id: `${(session as { prefix: string }).prefix}:${input.message}`,
+          }))).pipe(Effect.orDie);
+        },
+      },
     },
   });
   const account = Schema.decodeUnknownSync(AccountReference)({
@@ -225,7 +236,17 @@ test("Foundry serves validated topology without exposing account access referenc
     enabled: true,
     config: { channel: "test" },
   });
-  const assistantInstance = createAgentInstance("assistant", { id: "assistant-control" });
+  const [discovered] = await discoverAgents({ agentsDir });
+  const transportApp = defineAgentApplication({
+    id: "transport-app",
+    description: "Test transport application",
+    transmissions: [transport],
+    install: () => Effect.succeed({ tools: [] }),
+  });
+  const assistantInstance = createAgentInstance("assistant", {
+    id: "assistant-control",
+    installations: [{ kind: "application", id: transportApp.id }],
+  });
   const binding = Schema.decodeUnknownSync(AgentBinding)({
     id: "assistant-transport",
     agentId: assistantInstance.id,
@@ -236,13 +257,6 @@ test("Foundry serves validated topology without exposing account access referenc
     reply: { mode: "route", routeId: route.id },
     enabled: true,
   });
-  const [discovered] = await discoverAgents({ agentsDir });
-  const transportApp = defineAgentApplication({
-    id: "transport-app",
-    description: "Test transport application",
-    transmissions: [transport],
-    install: () => Effect.succeed({ tools: [] }),
-  });
   const runtime = new FoundryRuntime({
     rootDir,
     agents: [{
@@ -250,6 +264,16 @@ test("Foundry serves validated topology without exposing account access referenc
       definition: Object.freeze({
         ...discovered!.definition,
         components: composeAgent(transportApp),
+        accountSessions: {
+          identifier: "test-account-sessions",
+          withSession(request, use) {
+            sessionRequests.push({
+              accountId: request.accountId,
+              operation: request.operation,
+            });
+            return use({ prefix: "delivered" });
+          },
+        },
       }),
     }],
     application: defineApplication({
@@ -280,6 +304,20 @@ test("Foundry serves validated topology without exposing account access referenc
       agentId: binding.agentId,
     });
     assert.deepEqual(grant.capabilities, ["transport:send"]);
+
+    const delivered = await runtime.dispatchOutbound({
+      routeId: route.id,
+      agentId: assistantInstance.id,
+      runId: "run-control-plane",
+      payload: { message: "hello" },
+      applicationId: transportApp.id,
+      transmissionId: transport.id,
+    });
+    assert.deepEqual(delivered, { id: "delivered:hello" });
+    assert.deepEqual(sessionRequests, [{
+      accountId: account.id,
+      operation: "transport:send",
+    }]);
 
     const invalidRoute = await fetch(`${listening.url}/api/routes`, {
       method: "PUT",

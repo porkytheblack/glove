@@ -4,6 +4,7 @@ export {
   type FoundryAgentComponent,
   type FoundryAgentComposition,
   type FoundryCompositionSource,
+  type FoundryToolBody,
 } from "./composition.js";
 export {
   FOUNDRY_REPL_BRAND,
@@ -93,6 +94,10 @@ export {
   toGloveRequestInput,
 } from "./primitives.js";
 export {
+  FileFoundryDataAdapter,
+  type FileFoundryDataAdapterOptions,
+} from "./file-data.js";
+export {
   FOUNDRY_PLAYBOOK_ACTION_BRAND,
   FOUNDRY_COMPOSED_PLAYBOOK_BRAND,
   composePlaybook,
@@ -116,6 +121,7 @@ export {
   FOUNDRY_CORE_COMMAND_EVENT,
   createFoundryCoreTools,
   createInstalledApplicationTransmissionTools,
+  installedApplicationTransmissionToolName,
   type FoundryCoreCommand,
 } from "./core-tools.js";
 export {

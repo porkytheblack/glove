@@ -221,9 +221,13 @@ export class FoundryServer {
     if (!this.server.listening) return;
     for (const stream of this.eventStreams) stream.end();
     this.eventStreams.clear();
-    await new Promise<void>((resolve, reject) =>
-      this.server.close((error) => (error ? reject(error) : resolve())),
-    );
+    await new Promise<void>((resolve, reject) => {
+      this.server.close((error) => (error ? reject(error) : resolve()));
+      // A Foundry process must be able to stop even when an inspector or API
+      // client retains a keep-alive socket. The server is already closed to
+      // new work before existing connections are drained here.
+      this.server.closeAllConnections();
+    });
     this.addressInfo = null;
   }
 

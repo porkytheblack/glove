@@ -5,6 +5,7 @@ import { defineApp } from "../src/capabilities.js";
 import {
   FOUNDRY_CORE_COMMAND_EVENT,
   createInstalledApplicationTransmissionTools,
+  installedApplicationTransmissionToolName,
   type FoundryCoreCommand,
 } from "../src/core-tools.js";
 import type { AgentAssemblyContext } from "../src/definition.js";
@@ -98,6 +99,10 @@ test("installing an app mounts one validated tool per outbound transmission", as
     context,
     [chat],
     [{ kind: "application", id: "chat" }],
+  );
+  assert.equal(
+    installedApplicationTransmissionToolName(chat, outboundMessage),
+    "glove_app_chat__message_outbound_send",
   );
   assert.deepEqual(tools.map((tool) => tool.name), [
     "glove_app_chat__message_outbound_send",

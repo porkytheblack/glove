@@ -217,4 +217,4 @@ GET  /api/runs
 GET  /api/events
 ```
 
-See [Building with Foundry](./docs/building-with-foundry.md), [Architecture](./docs/architecture.md), and the runnable [`examples/foundry-agent`](../../examples/foundry-agent).
+See [Building with Foundry](./docs/building-with-foundry.md), [Architecture](./docs/architecture.md), the compact [`examples/foundry-agent`](../../examples/foundry-agent), and the end-to-end [Hermes reference agent](../../examples/foundry-hermes-agent).

@@ -85,6 +85,25 @@ const result = await run.wait();`} />
       <CodeBlock filename="terminal" language="bash" code={`pnpm --filter glove-foundry-example typecheck
 pnpm --filter glove-foundry-example verify:architecture
 pnpm --filter glove-foundry-example verify`} />
+
+      <h2 id="hermes">Build beyond the starter</h2>
+      <p>
+        The repository also includes <code>examples/foundry-hermes-agent</code>,
+        an end-to-end personal-agent reference with mutable installations,
+        multiple conversations, curated memory, a persistent VFS, document and
+        spreadsheet modules, a JavaScript REPL, lazy skills and subagents,
+        messaging and media applications, inbound playbooks, schedules, sleep,
+        and correlated observability.
+      </p>
+      <CodeBlock filename="terminal" language="bash" code={`pnpm --filter glove-foundry build
+pnpm --filter glove-foundry-hermes-example verify
+pnpm --filter glove-foundry-hermes-example dev
+# Inspector: http://127.0.0.1:4244`} />
+      <p>
+        It runs deterministically without a provider key, or uses Gemini and
+        OpenRouter when their keys are supplied by the host. Foundry never owns
+        credential acquisition or refresh.
+      </p>
     </article>
   );
 }
