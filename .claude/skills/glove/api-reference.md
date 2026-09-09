@@ -3686,3 +3686,7 @@ interface DefaultClientStorageOptions { inlineMaxBytes?: number }
 `DefaultClientStorage`:
 - `put(...)` → `{ kind: "inline", data: base64(bytes) }`. Throws if `bytes.length > inlineMaxBytes`.
 - `get(ref)` handles `inline` (decode), `url` (fetch + optional `headers`), and `server` (fetch with `Authorization: Bearer <opts.bearer>`). Other kinds throw — replace with a custom `ClientStorage` to support `s3` / `gcs` on the client side.
+
+### Framework context and turn boundaries
+
+Runtime snapshots carry `Message.framework_context: "runtime"`; synthetic inbox entries use `"inbox"`. This optional provenance field does not change provider roles. Tool-result summarization ignores these entries and existing skill/compaction markers when locating the last real user turn. Pending inbox reminders follow complete tool-result bundles. Preserve the marker in custom message processing and preserve structured media when merging adjacent user content.

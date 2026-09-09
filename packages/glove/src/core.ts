@@ -289,6 +289,8 @@ export interface InboxItem {
 
 export interface Message {
   sender: "user" | "agent";
+  /** Framework-supplied state, not a human turn. Wire roles remain adapter-compatible. */
+  framework_context?: "runtime" | "inbox";
   id?: string;
   text: string;
   // in cases where a user is using a hook that will rewrite the existing text, we wanna be able to still know the original message, especially in instances where we need to display it to the user
@@ -552,7 +554,9 @@ export class PromptMachine {
 
     for (let i = messages.length - 1; i >= 0; i--){
       const message = messages[i]
-      if (message.sender == "user" && !message.tool_results) {
+      if (message.sender == "user" && !message.tool_results &&
+          !message.framework_context && !message.is_skill_injection &&
+          !message.is_compaction && !message.is_compaction_request) {
         lastUserMessageIdx = i
         break;
       }
@@ -1109,10 +1113,10 @@ export class Agent {
       let messages = await this.context.getMessages();
       messages = [...messages]
 
-      // Append transient blocking reminder (not persisted) so the model
-      // is aware of pending items without bloating conversation history.
+      // Keep framework reminders after complete tool call/result bundles.
+      // They do not establish a conversational turn boundary or enter history.
       if (pendingBlockingMessage) {
-        messages.splice(messages.length - 1, 0, pendingBlockingMessage)
+        messages.push(pendingBlockingMessage)
       }
 
       if (requestTurns >= this.observer.MAX_TURNS) {
@@ -1201,6 +1205,7 @@ export class Agent {
 
     const inboxMessage: Message = {
       sender: "user",
+      framework_context: "inbox",
       text: `[Inbox: ${resolved.length} item(s) resolved]\n` +
         resolved.map((item) =>
           `- [${item.tag}] Request: "${item.request}" -> Response: "${item.response}" (resolved ${item.resolved_at})`
@@ -1224,6 +1229,7 @@ export class Agent {
 
     return {
       sender: "user",
+      framework_context: "inbox",
       text: `[Inbox: ${pendingBlocking.length} blocking item(s) still pending — ` +
         `you cannot proceed with actions that depend on these results]\n` +
         pendingBlocking.map((item) =>

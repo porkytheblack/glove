@@ -225,7 +225,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       signal?.throwIfAborted()
       const text = await provider(signal)
       signal?.throwIfAborted()
-      if (text) messages.push({ sender: "user", text })
+      if (text) messages.push({ sender: "user", text, framework_context: "runtime" })
     }
     if (this.contextProviders.size) {
       await this.notifyExtensionEvent("runtime_context", { messages: structuredClone(messages) })

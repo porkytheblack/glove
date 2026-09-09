@@ -95,3 +95,7 @@ Goal lifecycle hooks and `useGoalRunner`'s `configure` callback can project prog
 - Persist consumer claim receipts with answer/progress history. BYO fact adapters must serialize each scope across workers. Prepared form adapters must retain pending hooks/effects and receipts for recovery. External effects are at least once and need idempotency; do not promise exactly-once delivery.
 
 For full contracts, consult the [facts guide](https://github.com/porkytheblack/glove/blob/main/packages/glove-facts/README.md) and [memory guide](https://github.com/porkytheblack/glove/blob/main/packages/glove-memory/README.md). The [shared-workflow example](https://github.com/porkytheblack/glove/blob/main/packages/glove-memory/examples/shared-facts.ts) is compiled against public package exports.
+
+### Framework context and turn boundaries
+
+Runtime snapshots carry `Message.framework_context: "runtime"`; synthetic inbox entries use `"inbox"`. This optional provenance field does not change provider roles. Tool-result summarization ignores these entries and existing skill/compaction markers when locating the last real user turn. Pending inbox reminders follow complete tool-result bundles. Preserve the marker in custom message processing and preserve structured media when merging adjacent user content.

@@ -184,3 +184,7 @@ See the [copyable runtime migration guide](MIGRATION-4.md) for wrappers, custom 
 Standard `Glove` users keep the same mounting calls and upgrade core together with glove-memory 2. Custom runnable implementations must implement `addContextProvider` and `getRuntimeContext`; custom builders must implement `addContextProvider`. Transparent wrappers forward these methods to the underlying Glove instance. Custom execution loops resolve and append runtime context before each model iteration. Exhaustive subscriber-event handlers must accept `runtime_context`.
 
 No model/storage adapter or saved-data migration is required. Code that previously read dynamic goals/forms/context from `getSystemPrompt()` must use `getRuntimeContext()` instead. Voice users upgrading to glove-voice-s2s 0.3 must await `refreshSession()` and handle its errors.
+
+### Framework context and turn boundaries
+
+Runtime snapshots carry `Message.framework_context: "runtime"`; synthetic inbox entries use `"inbox"`. This optional provenance field does not change provider roles. Tool-result summarization ignores these entries and existing skill/compaction markers when locating the last real user turn. Pending inbox reminders follow complete tool-result bundles. Preserve the marker in custom message processing and preserve structured media when merging adjacent user content.

@@ -36,3 +36,12 @@ test("non-OpenRouter compatibility formatting remains unchanged", () => {
     image_url: { url: "data:video/mp4;base64,AAEC" },
   });
 });
+
+test("OpenRouter video blocks survive adjacent runtime context without changing the input", () => {
+  const original = structuredClone(multimodalMessage);
+  const [message] = formatMessages([multimodalMessage, { sender: "user", text: "Goals: inspect clip", framework_context: "runtime" }], false, "openrouter");
+  const content = (message as { content: Array<Record<string, unknown>> }).content;
+  assert.deepEqual(content[1], { type: "video_url", video_url: { url: "data:video/mp4;base64,AAEC" } });
+  assert.deepEqual(content[2], { type: "text", text: "Goals: inspect clip" });
+  assert.deepEqual(multimodalMessage, original);
+});
