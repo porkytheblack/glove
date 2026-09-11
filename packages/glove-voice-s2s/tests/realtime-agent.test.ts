@@ -33,6 +33,49 @@ class FakeAdapter extends EventEmitter<S2SEvents> implements S2SAdapter {
   interrupt() {}
 }
 
+test("a tool finishing after restart cannot inject context or results into the new session", async () => {
+  const adapter = new FakeAdapter();
+  let finish!: (value: unknown) => void;
+  const toolResult = new Promise(resolve => { finish = resolve; });
+  const agent = fakeAgent([{ ...okTool, run: () => toolResult }]);
+  agent.getRuntimeContext = async () => [{ text: "Current context" }];
+  const rt = new RealtimeAgent({ agent, adapter });
+  await rt.start();
+  adapter.emit("tool_call", { callId: "old", name: "check_warranty", arguments: '{"hull":"x"}' });
+  await rt.stop();
+  await rt.start();
+  const injections = adapter.injected.length;
+  finish({ status: "success", data: "old session result" });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(adapter.results, []);
+  assert.equal(adapter.injected.length, injections);
+  await rt.stop();
+});
+
+test("failed finalization cleans listeners and permits a later start", async () => {
+  const adapter = new FakeAdapter();
+  let finish!: () => void;
+  adapter.disconnect = async () => {
+    await new Promise<void>(resolve => { finish = resolve; });
+    adapter.connected = false;
+    throw new Error("finalization failed");
+  };
+  const rt = new RealtimeAgent({ agent: fakeAgent([]), adapter });
+  await rt.start();
+  const stop = rt.stop();
+  assert.equal(rt.stop(), stop);
+  const failure = assert.rejects(stop, /finalization failed/);
+  await new Promise(resolve => setImmediate(resolve));
+  finish();
+  await failure;
+  assert.equal(adapter.listenerCount("usage"), 0);
+  assert.equal(adapter.listenerCount("error"), 0);
+  adapter.disconnect = async () => { adapter.connected = false; };
+  await rt.start();
+  assert.equal(adapter.listenerCount("tool_call"), 1);
+  await rt.stop();
+});
+
 /** Minimal IGloveRunnable — only what RealtimeAgent actually reads. */
 function fakeAgent(tools: any[], systemPrompt = "You are Nova.") {
   return {

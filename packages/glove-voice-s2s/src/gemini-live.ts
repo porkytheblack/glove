@@ -12,7 +12,7 @@
 // declared on the adapter so a host resamples rather than guesses.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import EventEmitter from "eventemitter3";
+import { EventEmitter } from "eventemitter3";
 import type { S2SAdapter, S2SAudioFormat, S2SEvents, S2SSessionConfig } from "./types";
 import { base64ToInt16, int16ToBase64 } from "./pcm";
 

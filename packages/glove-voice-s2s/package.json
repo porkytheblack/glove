@@ -23,7 +23,8 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --import tsx tests/*.test.ts"
+    "test": "node --test --import tsx tests/*.test.ts",
+    "test:types": "tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext tests/package-consumer.mts"
   },
   "keywords": [
     "voice",
@@ -34,12 +35,14 @@
   ],
   "dependencies": {
     "eventemitter3": "^5.0.4",
-    "glove-core": "workspace:*"
+    "glove-core": "workspace:*",
+    "ws": "8.19.0"
   },
   "devDependencies": {
+    "@types/ws": "8.18.1",
     "tsup": "^8.0.0",
-    "typescript": "^5.9.3",
     "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
     "zod": "^4.3.6"
   }
 }
