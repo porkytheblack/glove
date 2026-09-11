@@ -343,7 +343,7 @@ const voice = useGloveVoice({
       <Pkg name="glove-voice-s2s" tag="speech-to-speech">
         <p>
           Run a built Glove agent directly on a realtime speech-to-speech model
-          (OpenAI Realtime, Gemini Live). The cascade&apos;s ~1.3–1.6s
+          (OpenAI Realtime, Gemini Live, GPT-Live). The cascade&apos;s ~1.3–1.6s
           voice-to-voice collapses to ~500–800ms, turn-taking is decided by the
           model listening, and your tools run unchanged through the same{" "}
           <code>Tool.run</code>.

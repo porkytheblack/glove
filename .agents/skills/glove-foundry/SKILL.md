@@ -118,6 +118,21 @@ Enable shared preparation with `new FactPreparation(facts, { agent: preparationA
 
 Use the first-class lazy `goals`, `facts`, `forms`, and `contextProviders` fields. Read [Foundry guidance](../../../packages/glove-foundry/docs/guidance.md) for mounting, typed execution handles, conversation-default scope, instance sharing, native preparation, and durable SQLite adapters. A definition-provided program seeds absent goals; later revisions require native CAS and a reason. Context providers are read-only transient snapshots, never a second inference loop. Keep the [shared workflow guide](https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/workflows.md) and [facts adapter contracts](../../../packages/glove-facts/README.md) authoritative for evidence, correction, tracing and recovery.
 
+## Realtime voice hosts
+
+Use `glove-voice-s2s` with `RealtimeAgent` for OpenAI Realtime, Gemini Live, or
+GPT-Live (`provider: "openai-live"`, available in 0.4.0). A voice session does not
+run Foundry's durable lifecycle: expose a delegation tool backed by the native
+client and an instance/conversation when work needs persistence and observability.
+GPT-Live uses a Responses backend for the same Glove tools; Live client delegation
+is not implemented. The host owns server credentials, continuous PCM pacing
+including silence, timestamped transcript fragments, and playback/avatar utterance
+boundaries. Do not reuse Realtime VAD or final-turn assumptions. Await `stop()`
+in scoped cleanup so final usage can arrive. Read the
+[voice host guide](../../../packages/glove-foundry/docs/building-with-foundry.md#voice-hosts)
+and [GPT-Live contract](../../../packages/glove-voice-s2s/README.md#gpt-live) before
+adapting an existing room example.
+
 ## Multi-agent systems
 
 Choose the smallest correct composition surface:

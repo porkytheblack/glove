@@ -725,11 +725,22 @@ host. Delegate substantive work to a persisted Foundry instance and conversation
 through the native client or `/v1/responses`; the resulting run stays durable and
 observable.
 
-Use `glove-voice-s2s` for Gemini Live or OpenAI Realtime and `glove-voice` for a
+Use `glove-voice-s2s` for Gemini Live, OpenAI Realtime, or GPT-Live and `glove-voice` for a
 speech-to-text / Glove / text-to-speech pipeline. A realtime host can expose a
 delegation tool backed by the typed Foundry client, or mount `RealtimeAgent` against
 the assembled Glove in a scoped layer. Stop the voice session in the layer's
 cleanup. Keep provider credentials and audio device access in the host adapter.
+
+GPT-Live selects `provider: "openai-live"` in `s2sDrivenModel` or
+`createS2SAdapter`. Its Responses backend chooses the exposed Glove tools; this
+does not turn a voice session into a durable Foundry run. For durable work, expose
+a delegation tool that calls the target instance/conversation through the Foundry
+client. The host owns continuous PCM pacing (including silence), timestamped
+transcript fragments, playback and avatar utterance boundaries, and awaited
+shutdown for final usage. The adapter does not implement Live client delegation
+or browser WebRTC. Read the [GPT-Live guide](../../glove-voice-s2s/README.md#gpt-live)
+before adapting an existing room example; Realtime VAD and final-turn assumptions
+do not apply.
 
 `examples/foundry-braind-storm` demonstrates a voice lead delegating durable work
 to Foundry agents. Phone bridges, LiveKit rooms and native audio hosts can use the

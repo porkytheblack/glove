@@ -1291,7 +1291,7 @@ interface VoiceStatusRenderProps { mode: VoiceMode; recording?: boolean; }
 
 ## glove-voice-s2s
 
-Run a Glove agent directly on a realtime speech-to-speech model — no STT/TTS; the model is the voice. Server-side.
+Run a Glove agent on a speech-to-speech provider. `RealtimeAgent` hosts the agent's tools; device adapters own browser audio, transport adapters exchange PCM. GPT-Live support starts in 0.4.0.
 
 ### s2sDrivenModel
 
@@ -1303,11 +1303,11 @@ import { s2sDrivenModel, type CreateS2SAdapterArgs } from "glove-voice-s2s";
 s2sDrivenModel(label?: string): ModelAdapter                                   // bare slot (adapter passed explicitly)
 s2sDrivenModel(config: CreateS2SAdapterArgs & { label?: string }): S2SDrivenModel
 
-// CreateS2SAdapterArgs (every field falls back to S2S_* env: S2S_PROVIDER, S2S_MODEL, S2S_VOICE, S2S_TURN_DETECTION):
+// Common factory fields (provider-specific options form a discriminated union):
 {
-  provider?: "openai" | "gemini",     // default: whichever of OPENAI_API_KEY / GEMINI_API_KEY is set (OpenAI wins)
+  provider?: "openai" | "openai-webrtc" | "openai-live" | "gemini",
   apiKey?: string,
-  model?: string,                     // defaults: "gpt-realtime" / "gemini-live-2.5-flash-preview"
+  model?: string,                     // defaults: gpt-realtime / gpt-live-1 / models/gemini-3.1-flash-live-preview
   voice?: string,                     // defaults: "marin" / "Puck"
   // Typed turn-taking knobs, per provider:
   turnDetection?: OpenAITurnDetection,          // { type: "semantic_vad", eagerness? } | { type: "server_vad", threshold?, silence_duration_ms?, prefix_padding_ms? }
@@ -1315,6 +1315,38 @@ s2sDrivenModel(config: CreateS2SAdapterArgs & { label?: string }): S2SDrivenMode
 }
 // Responsive preset used by the room examples: server_vad, silence_duration_ms 450, prefix_padding_ms 300.
 ```
+
+`createS2SAdapter(args): S2SAdapter` accepts the same configuration. Explicit args win over `S2S_PROVIDER`, `S2S_MODEL`, and `S2S_VOICE`; without a provider, an OpenAI key selects `openai`, then a Gemini key selects `gemini`. Auth precedence is `getToken` → `apiKey` → provider environment key. `S2S_TURN_DETECTION` applies to `openai`; `S2S_BACKEND_MODEL` applies to `openai-live`; `S2S_API_VERSION` selects the Gemini API version. Other fields require typed options, not invented environment variables.
+
+### OpenAILiveAdapter — GPT-Live server transport
+
+```typescript
+import { OpenAILiveAdapter, createS2SAdapter } from "glove-voice-s2s";
+
+const adapter = createS2SAdapter({
+  provider: "openai-live",            // required to select the Live protocol
+  model: "gpt-live-1",                // default voice model
+  backendModel: "gpt-5.6-luna",        // default Responses model for tools/reasoning
+  voice: "marin",                     // default; fixed at startup
+  sampleRate: 24000,                   // 16000 | 24000, both input and output
+  instructions: "Speak briefly; delegate lookups before answering.",
+  // backendInstructions: overrides the agent prompt on the backend
+  // parallelToolCalls: false by default; true waits for all results before continuation
+  // apiKey or getToken: otherwise OPENAI_API_KEY (server only)
+});
+// Direct construction requires getToken:
+const direct = new OpenAILiveAdapter({ getToken: () => process.env.OPENAI_API_KEY! });
+```
+
+`OpenAILiveConfig` also accepts `url`, `connectTimeoutMs`, `closeTimeoutMs` (both default 15000), and `socketFactory(url, headers)` returning a `WebSocketLike` or promise. The default transport lazily loads `ws` and authenticates with an Authorization header at `/v1/live/sessions`. It is not browser WebRTC and cannot use `createOpenAIRealtimeToken` as a Live handshake.
+
+Responses delegation maps function calls to the usual `tool_call`/`sendToolResult` contract. Voice `instructions` and `backendInstructions` are independent; both fall back to the Glove session instructions when no override is supplied. `refreshSession()` updates backend tools/instructions; voice instruction refreshes append, and a voice change requires a new session. Client delegation and the Glove text execution loop are not implemented by this adapter.
+
+`capabilities` is `{ transcripts: "continuous", speechLifecycle: "host" }`. Supply continuous, paced mono PCM including silence. Transcript fragments preserve `{ role: "user" | "assistant", delta, startMs, endMs }`; there are no final turns or provider speech-stop events. Hosts call `notifyPlaybackState(speaking)` from actual playback and own avatar utterance segmentation. Missing packets do not establish a semantic turn boundary.
+
+`interrupt()` emits `interrupted`, drops subsequent audio, and appends a stop-speaking instruction. The host explicitly calls `resumeOutput()` to flush stale audio and unmute; tool work continues. Do not send Realtime audio commits or `response.cancel`.
+
+`injectText`/`rt.inject` maps `respond: false` to thinking and `respond: true` to commentary; system-role adapter injections append instructions. Appends are split at Unicode boundaries into at most 500 UTF-8 bytes, so long updates are non-atomic. `disconnect()`/`rt.stop()` waits for `session.closed`; timeout or transport loss rejects with final usage unconfirmed. Usage is cumulative `{ seconds, final }`, never a sum of snapshots; Live voice duration and the Responses backend are billed separately.
 
 ### RealtimeAgent
 
@@ -1334,14 +1366,17 @@ rt.exposedTools;            // names surfaced to the voice model
 
 // Events (rt.on):
 //   user_said(text) · agent_said(text) · agent_delta(text) · tool_started(name, input) · tool_finished(name, output) · error(err)
+//   transcript({ role, delta, startMs, endMs }) · usage({ seconds, final }) — continuous providers
 // Provider session events (rt.adapter.on):
-//   audio(pcm: Int16Array, format: S2SAudioFormat)  — agent speech out (24 kHz)
-//   interrupted()                                    — barge-in: flush playback NOW (unconditional; truncation sync tells the model what was heard)
+//   audio(pcm: Int16Array, format: S2SAudioFormat)  — use the emitted rate, including Live's 16/24 kHz
+//   interrupted()                                    — flush playback; cancellation/truncation semantics are provider-specific
 //   agent_speech_started() / agent_speech_stopped()
 // rt.adapter.interrupt() — make a client-detected barge-in official.
 ```
 
-Adapters: `OpenAIRealtimeSocketAdapter` (gpt-realtime over WS), `GeminiLiveAdapter`, or `createS2SAdapter(args)`. Conformance: `runConformance` / `CONFORMANCE_CASES` (same posture as every adapter family).
+Adapters: `OpenAIRealtimeSocketAdapter` (`openai`, WS), `OpenAIRealtimeAdapter` (`openai-webrtc`, browser device), `OpenAILiveAdapter` (`openai-live`, server WS), `GeminiLiveAdapter` (`gemini`, WS), or `createS2SAdapter(args)`. Conformance: `runConformance` / `CONFORMANCE_CASES`; continuous providers use fragment checks instead of final-turn checks. Conformance does not prove live provider access or audible behavior.
+
+`RealtimeAgent` executes tools through `Tool.run`, outside the Glove Executor: exclude permission-gated and blocking display tools. Forward its events explicitly for persistence/observability. Await `stop()` for final usage; tool results from a stopped session are not injected into a restarted session. Foundry work requiring durable execution must delegate through the Foundry client and instance/conversation boundary.
 
 ---
 
