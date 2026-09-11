@@ -20,6 +20,33 @@ export interface BlogPost {
 
 export const posts: BlogPost[] = [
   {
+    slug: "conversations-that-keep-their-purpose",
+    title: "Conversations that keep their purpose",
+    summary:
+      "Goals, forms, and shared facts help conversational agents keep their objectives while people interrupt, answer early, and change their minds.",
+    date: "2026-09-11",
+    readingTime: 5,
+    tags: ["memory", "goals", "forms", "realtime"],
+  },
+  {
+    slug: "fresh-context-in-the-agent-loop",
+    title: "Fresh context belongs inside the agent loop",
+    summary:
+      "How reusable context providers inject current application state before each model iteration, and why moving memory out of system prompts matters for caching.",
+    date: "2026-09-11",
+    readingTime: 4,
+    tags: ["core", "context", "architecture"],
+  },
+  {
+    slug: "building-video-workflows-with-glove",
+    title: "Building video workflows with Glove",
+    summary:
+      "Use glove-video for reusable creative direction, resumable shot flows, actual-video review, and gated delivery.",
+    date: "2026-09-11",
+    readingTime: 5,
+    tags: ["video", "glove-video", "workflows"],
+  },
+  {
     slug: "introducing-glove-foundry",
     title: "The workflow is no longer the product",
     summary:
