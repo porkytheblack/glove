@@ -34,12 +34,14 @@
   ],
   "dependencies": {
     "eventemitter3": "^5.0.4",
-    "glove-core": "workspace:*"
+    "glove-core": "workspace:*",
+    "ws": "8.19.0"
   },
   "devDependencies": {
+    "@types/ws": "8.18.1",
     "tsup": "^8.0.0",
-    "typescript": "^5.9.3",
     "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
     "zod": "^4.3.6"
   }
 }

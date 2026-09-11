@@ -10,13 +10,14 @@
 // key) and everything else stays declarative.
 //
 // Environment:
-//   S2S_PROVIDER         openai | openai-webrtc | gemini. Unset: whichever of
+//   S2S_PROVIDER         openai | openai-webrtc | openai-live | gemini. Unset: whichever of
 //                        OPENAI_API_KEY / GEMINI_API_KEY exists (OpenAI first).
 //   S2S_MODEL            provider-specific model id; unset = provider default
 //                        ("gpt-realtime" / "models/gemini-3.1-flash-live-preview")
 //   OPENAI_API_KEY /     the credential, when `getToken` isn't supplied.
 //   GEMINI_API_KEY       Server-side only — env keys never belong in a browser.
 //   S2S_TURN_DETECTION   OpenAI only: semantic_vad (default) | server_vad.
+//   S2S_BACKEND_MODEL    GPT-Live Responses backend (default gpt-5.6-luna).
 //   S2S_API_VERSION      Gemini only: v1beta (default) | v1alpha. Which one
 //                        serves a Live model is model-dependent; the wrong
 //                        one closes the session with "not found for API
@@ -32,8 +33,9 @@ import {
   type OpenAITurnDetection,
 } from "./openai-realtime-socket";
 import type { S2SAdapter } from "./types";
+import { OpenAILiveAdapter, type OpenAILiveConfig } from "./openai-live";
 
-export type S2SProvider = "openai" | "openai-webrtc" | "gemini";
+export type S2SProvider = "openai" | "openai-webrtc" | "openai-live" | "gemini";
 
 interface CommonArgs {
   /** Which realtime provider. Default: S2S_PROVIDER, else key-presence. */
@@ -50,6 +52,7 @@ interface CommonArgs {
 /** Discriminated on `provider`, carrying that adapter's own options minus
  *  auth (which the factory resolves). */
 export type CreateS2SAdapterArgs =
+  | (CommonArgs & { provider: "openai-live" } & Partial<OpenAILiveConfig>)
   | (CommonArgs & { provider?: "openai" } & Partial<Omit<OpenAIRealtimeSocketConfig, "getToken">>)
   | (CommonArgs & { provider: "openai-webrtc" } & Partial<Omit<OpenAIRealtimeConfig, "getToken">> & {
       getToken?: () => Promise<string>;
@@ -64,6 +67,7 @@ type ArgsWithToken = CreateS2SAdapterArgs & {
 };
 
 const ENV_KEY: Record<S2SProvider, string> = {
+  "openai-live": "OPENAI_API_KEY",
   openai: "OPENAI_API_KEY",
   "openai-webrtc": "OPENAI_API_KEY",
   gemini: "GEMINI_API_KEY",
@@ -89,7 +93,7 @@ export function createS2SAdapter(args: CreateS2SAdapterArgs = {}): S2SAdapter {
   if (!ENV_KEY[provider]) {
     throw new Error(
       `createS2SAdapter: unknown provider "${provider}". ` +
-        `Use "openai" (WebSocket transport), "openai-webrtc" (browser device), or "gemini".`,
+        `Use "openai", "openai-live" (server WebSocket), "openai-webrtc" (browser device), or "gemini".`,
     );
   }
 
@@ -110,6 +114,17 @@ export function createS2SAdapter(args: CreateS2SAdapterArgs = {}): S2SAdapter {
   const voice = a.voice ?? (env("S2S_VOICE") || undefined);
 
   switch (provider) {
+    case "openai-live": {
+      const { provider: _p, apiKey: _k, getToken: _t, model: _m, voice: _v, ...rest } =
+        a as CommonArgs & OpenAILiveConfig;
+      return new OpenAILiveAdapter({
+        ...rest,
+        backendModel: rest.backendModel ?? (env("S2S_BACKEND_MODEL") || undefined),
+        ...(model ? { model } : {}),
+        ...(voice ? { voice } : {}),
+        getToken,
+      });
+    }
     case "openai": {
       const { provider: _p, apiKey: _k, getToken: _t, model: _m, voice: _v, ...rest } =
         a as CommonArgs & OpenAIRealtimeSocketConfig;

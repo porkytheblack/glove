@@ -29,6 +29,7 @@ Production S2S APIs run **500–800ms** voice-to-voice.
 | `S2SAdapter` | the provider contract: one live session — audio in/out, tool calls as events, a text side-channel (`types.ts`) |
 | `OpenAIRealtimeAdapter` | **device**-mode adapter (WebRTC, browser-only): owns the mic and plays the reply itself |
 | `OpenAIRealtimeSocketAdapter` | **transport**-mode OpenAI adapter (plain WebSocket, Node + browser): 24 kHz PCM both ways — gpt-realtime in a server room |
+| `OpenAILiveAdapter` | **server transport** for GPT-Live: continuous PCM with Responses delegation mapped to the same Glove tools |
 | `GeminiLiveAdapter` | **transport**-mode adapter (plain WebSocket, Node + browser): moves PCM only — the mode a server-hosted room needs |
 | `RealtimeAgent` | run a built Glove on an S2S model: its prompt + tools configure the session, tool calls execute through the same `Tool.run` |
 | `createS2SAdapter` | provider/model/credential factory, same shape as glove-core's `createAdapter` — args first, `S2S_*` env second |
@@ -67,14 +68,98 @@ const adapter = createS2SAdapter({ provider: "openai-webrtc", getToken: fetchEph
 
 | env | meaning |
 | --- | --- |
-| `S2S_PROVIDER` | `openai` (WS transport) \| `openai-webrtc` (browser device) \| `gemini`. Unset: whichever key exists, OpenAI first |
+| `S2S_PROVIDER` | `openai` (WS transport) \| `openai-live` (server WS) \| `openai-webrtc` (browser device) \| `gemini`. Unset: whichever key exists, OpenAI first |
 | `S2S_MODEL` | model id; unset = provider default (`gpt-realtime` / `models/gemini-3.1-flash-live-preview`) |
 | `OPENAI_API_KEY` / `GEMINI_API_KEY` | the credential when no `getToken`/`apiKey` is passed (server-side only) |
 | `S2S_TURN_DETECTION` | OpenAI: `semantic_vad` (default) \| `server_vad` (snappier barge-in) |
+| `S2S_BACKEND_MODEL` | GPT-Live's Responses backend; default `gpt-5.6-luna` |
 
 A missing credential fails at **construction** with the env-var name, not at
 `connect()` with a 401. Constructing adapters directly still works — the
 factory is sugar over the same classes.
+
+### GPT-Live
+
+Select `openai-live` through the same factory or `s2sDrivenModel`. The
+adapter connects to `/v1/live/sessions`, waits for `session.started`, and
+uses Responses delegation internally. The configured backend selects the
+agent's existing tools; `RealtimeAgent` validates and executes them as usual.
+MCP tools, mesh delegation, and working-environment tools use the existing
+execution path. This does not run Glove's text-model loop or Foundry's run
+lifecycle; the existing `RealtimeAgent` permission/display limitations below
+still apply. OpenAI's **client delegation** mode is not implemented here.
+
+```ts
+import { RealtimeAgent, s2sDrivenModel } from "glove-voice-s2s";
+
+// Use this in the existing Glove agent definition's model slot:
+const model = s2sDrivenModel({
+  provider: "openai-live",
+  model: "gpt-live-1",
+  backendModel: "gpt-5.6-luna", // independent of the voice model
+  voice: "marin",
+  sampleRate: 24000,          // or 16000, in both directions
+  instructions: "You are Nova. Speak briefly and naturally. Delegate tool lookups to the backend before answering. Never invent results.",
+});
+// Build your agent with this model and its existing tools/system prompt.
+// const agent = new Glove({ ...existingOptions, model }).build();
+// const rt = new RealtimeAgent({ agent });
+```
+
+`OPENAI_API_KEY` supplies server authentication. This adapter uses a lazily
+loaded `ws` connection with authorization headers. Browser applications can
+relay audio through their server or `glove-voice-livekit`; this is not a
+replacement for the browser-only `openai-webrtc` adapter or its token helper.
+`socketFactory(url, headers)` supports a custom server transport and tests.
+
+The Glove system prompt configures the backend by default. `instructions`
+sets a separate short voice prompt; `backendInstructions` can override the
+backend prompt. If no voice override is supplied, the agent prompt also
+configures the voice. Review prompts that instruct the frontend to call named
+tools directly: Live delegates that decision to its backend. Tool updates from
+`refreshSession()` update `delegation.responses.tools`. Parallel tool calls
+are off by default; when enabled, the adapter waits for every result before
+continuing the backend once.
+
+Live's continuous stream has explicit differences from turn-based providers:
+
+- **Audio:** send continuous, ordered PCM at realtime speed, including silence.
+  `inputFormat` and `audio(pcm, format)` keep the usual contract. No VAD,
+  input commits, or voice `response.create` commands are needed.
+- **Captions:** `rt.on("transcript", fragment => ...)` receives `{ role,
+  delta, startMs, endMs }`. Preserve fragments and allow overlapping speakers.
+  The adapter also emits partial `user_transcript` and `agent_transcript_delta`,
+  but never invents final turns. Hosts using only `user_said`/`agent_said`
+  need to consume fragments instead. `capabilities.transcripts` is `continuous`.
+- **Playback:** `capabilities.speechLifecycle` is `host`. There is no provider
+  audio-done event. Feed actual playback state into
+  `rt.adapter.notifyPlaybackState?.(speaking)` for speaking indicators. Existing
+  avatar bridges need an application-owned segmentation/utterance boundary;
+  receiving no packet is not a semantic turn ending. PCM compatibility alone
+  does not make the existing avatar examples ready for Live.
+- **Interruptions:** natural overlapping speech stays provider-controlled.
+  Manual `interrupt()` clears the host queue through `interrupted`, drops
+  subsequent output, and sends a stop-speaking instruction. The host calls
+  `resumeOutput?.()` explicitly when ready to play again. Tool work continues.
+- **Context:** `inject(text, { respond: false })` uses thinking appends;
+  `respond: true` uses commentary appends, which Live may paraphrase. Context
+  is split at Unicode boundaries into at most 500 UTF-8 bytes per append,
+  conservatively staying within the 500-token limit. Keep spoken summaries
+  short: a sequence of appends is not an atomic context replacement or a
+  guarantee the model has heard the full update. Voice changes require a new
+  session; instruction refreshes append rather than replace startup rules.
+- **Shutdown and usage:** await `rt.stop()`. The adapter waits for
+  `session.closed` before closing the socket. A timeout or transport loss
+  rejects with finalization unconfirmed. `usage` events contain cumulative
+  `{ seconds, final }`; do not sum the snapshots. Voice duration and the
+  Responses backend incur separate provider charges.
+
+Protocol fixtures cover startup, tools, failure handling, captions, PCM,
+interruption, and finalization. A live session is still needed to validate
+account access and audible behavior. Protocol references:
+[Live WebSockets](https://developers.openai.com/api/docs/guides/voice-websockets?api=live),
+[delegation](https://developers.openai.com/api/docs/guides/live-delegation),
+[session lifecycle](https://developers.openai.com/api/docs/guides/live-conversations).
 
 ### Turn-taking knobs
 

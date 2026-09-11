@@ -30,7 +30,7 @@ import {
   type ToolResultData,
 } from "glove-core";
 import { createS2SAdapter, type CreateS2SAdapterArgs } from "./create-adapter";
-import type { S2SAdapter, S2SEvents, S2SSessionConfig, S2STool } from "./types";
+import type { S2SAdapter, S2SEvents, S2SSessionConfig, S2STool, S2STranscriptFragment } from "./types";
 
 /**
  * A `ModelAdapter` that CARRIES its S2S configuration, so the agent
@@ -137,6 +137,9 @@ export interface RealtimeAgentConfig {
 }
 
 export type RealtimeAgentEvents = {
+  /** Continuous providers expose original fragments instead of inventing final turns. */
+  transcript: [fragment: S2STranscriptFragment];
+  usage: [usage: { seconds: number; final: boolean }];
   /** Final transcript of a user utterance. */
   user_said: [text: string];
   /** Final transcript of an agent utterance. */
@@ -155,6 +158,8 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
   readonly adapter: S2SAdapter;
   private readonly excluded: Set<string>;
   private started = false;
+  private stopping: Promise<void> | null = null;
+  private sessionGeneration = 0;
   /** Listeners THIS class attached, so stop() removes only its own — a host's
    *  `audio` / `interrupted` listeners on the adapter must survive a stop. */
   private readonly bound: Array<[keyof S2SEvents, (...args: never[]) => void]> = [];
@@ -200,10 +205,14 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
   }
 
   async start(): Promise<void> {
+    if (this.stopping) await this.stopping;
     if (this.started) return;
     this.started = true;
+    ++this.sessionGeneration;
 
     this.listen("tool_call", (call) => void this.runTool(call));
+    this.listen("transcript", (fragment) => this.emit("transcript", fragment));
+    this.listen("usage", (usage) => this.emit("usage", usage));
     this.listen("user_transcript", (text, isFinal) => {
       if (isFinal && text) this.emit("user_said", text);
     });
@@ -228,12 +237,23 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
     }
   }
 
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
+    if (this.stopping) return this.stopping;
     this.started = false;
+    ++this.sessionGeneration;
     this.lastRuntimeContext = undefined;
-    for (const [event, fn] of this.bound) this.adapter.off(event, fn as never);
-    this.bound.length = 0;
-    await this.adapter.disconnect();
+    // Keep final usage/error forwarding alive while a continuous session drains.
+    // Remove tool/transcript listeners immediately so shutdown cannot start work.
+    const draining = this.bound.splice(0);
+    for (const [event, fn] of draining) {
+      if (event !== "usage" && event !== "error") this.adapter.off(event, fn as never);
+    }
+    const completion = Promise.resolve().then(() => this.adapter.disconnect()).finally(() => {
+      for (const [event, fn] of draining) this.adapter.off(event, fn as never);
+      this.stopping = null;
+    });
+    this.stopping = completion;
+    return completion;
   }
 
   private listen<E extends keyof S2SEvents>(
@@ -275,7 +295,9 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
   /** Refresh silent state without rewriting session instructions or triggering speech. */
   async refreshContext(): Promise<void> {
     if (!this.agent.getRuntimeContext) return;
+    const generation = this.sessionGeneration;
     const messages = await this.agent.getRuntimeContext();
+    if (generation !== this.sessionGeneration) return;
     const text = messages.map(message => message.text ?? "").filter(Boolean).join("\n\n");
     if (text === this.lastRuntimeContext) return;
     if (text || this.lastRuntimeContext) {
@@ -297,6 +319,9 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
    * error it can speak ("I couldn't pull that up") instead of nothing.
    */
   private async runTool(call: { callId: string; name: string; arguments: string }): Promise<void> {
+    const generation = this.sessionGeneration;
+    const currentSession = () => this.started && generation === this.sessionGeneration;
+    if (!currentSession()) return;
     const tool = this.agent.tools.find((t) => t.name === call.name) as Tool<unknown> | undefined;
 
     if (!tool || this.excluded.has(call.name)) {
@@ -343,6 +368,7 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
       const result = await tool.run(input, undefined, undefined);
       this.cfg.onToolCall?.(call.name, "done", result);
       this.emit("tool_finished", call.name, result);
+      if (!currentSession()) return;
       // Same contract as the model adapters: `renderData` (and the summary
       // plumbing) is client-only and never reaches a model — tools rely on
       // that to keep sensitive UI data out of the provider.
@@ -352,12 +378,12 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
       // read failure must not relabel an already successful tool as failed.
       try { await this.refreshContext(); }
       catch (error) { this.emit("error", error instanceof Error ? error : new Error(String(error))); }
-      this.adapter.sendToolResult(call.callId, wire);
+      if (currentSession()) this.adapter.sendToolResult(call.callId, wire);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.cfg.onToolCall?.(call.name, "error", error);
       this.emit("error", error);
-      this.adapter.sendToolResult(call.callId, {
+      if (currentSession()) this.adapter.sendToolResult(call.callId, {
         status: "error",
         data: null,
         message: error.message,

@@ -48,6 +48,10 @@ export interface S2SAudioFormat {
 }
 
 export type S2SEvents = {
+  /** Timestamped fragments from continuous providers. Never a semantic turn boundary. */
+  transcript: [fragment: S2STranscriptFragment];
+  /** Cumulative session duration; final is true only after provider finalization. */
+  usage: [usage: { seconds: number; final: boolean }];
   connected: [];
   disconnected: [];
   /**
@@ -77,12 +81,26 @@ export type S2SEvents = {
   error: [err: Error];
 };
 
+export interface S2STranscriptFragment {
+  role: "user" | "assistant";
+  delta: string;
+  startMs: number;
+  endMs: number;
+}
+
+/** Omitted capabilities retain the original turn-based adapter contract. */
+export interface S2SCapabilities {
+  transcripts: "turns" | "continuous";
+  speechLifecycle: "provider" | "host";
+}
+
 /**
  * A live speech-to-speech session: microphone in, agent audio out, tool
  * calls surfacing as events, and a text side-channel for injecting
  * out-of-band context (async worker results, typed messages, corrections).
  */
 export interface S2SAdapter extends EventEmitter<S2SEvents> {
+  readonly capabilities?: S2SCapabilities;
   /**
    * Which half of the audio path this adapter owns.
    *
@@ -137,6 +155,11 @@ export interface S2SAdapter extends EventEmitter<S2SEvents> {
    * breaks. (Enforced by the conformance suite.)
    */
   interrupt(): void;
+
+  /** Optional host-controlled recovery after a hard output mute. */
+  resumeOutput?(): void;
+  /** Continuous providers cannot report playback completion themselves. */
+  notifyPlaybackState?(speaking: boolean): void;
 
   readonly isConnected: boolean;
 }
