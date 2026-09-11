@@ -60,6 +60,9 @@ jobs:
           --filter "glove-analyst-desk..."
           build
 
+      - name: Voice package consumer types (Node ESM)
+        run: pnpm --filter glove-voice-s2s test:types
+
       # glovebox-core and glovebox-kit each declare the other as a dependency:
       # the `glovebox build` CLI resolves and bundles the in-container runtime,
       # and that runtime imports the wire protocol's types. pnpm reports the

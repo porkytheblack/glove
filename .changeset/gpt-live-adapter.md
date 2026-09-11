@@ -10,3 +10,4 @@ and host-controlled playback recovery without changing existing providers.
 
 Keep final usage events observable during `RealtimeAgent.stop()` and prevent
 tools from a stopped session from injecting results into a restarted session.
+Fix the published event emitter declarations for NodeNext TypeScript consumers.

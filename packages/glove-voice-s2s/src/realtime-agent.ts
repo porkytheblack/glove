@@ -21,7 +21,7 @@
 // drift from the real tools.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import EventEmitter from "eventemitter3";
+import { EventEmitter } from "eventemitter3";
 import {
   getToolJsonSchema,
   type IGloveRunnable,

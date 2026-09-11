@@ -19,7 +19,7 @@
 //   - Barge-in, endpointing, and echo handling move INTO the provider.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type EventEmitter from "eventemitter3";
+import type { EventEmitter } from "eventemitter3";
 
 /** A function tool exposed to the S2S model (JSON-Schema parameters). */
 export interface S2STool {

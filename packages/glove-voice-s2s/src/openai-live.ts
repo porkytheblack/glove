@@ -1,4 +1,4 @@
-import EventEmitter from "eventemitter3";
+import { EventEmitter } from "eventemitter3";
 import type { WebSocketLike } from "./gemini-live";
 import { base64ToInt16, int16ToBase64 } from "./pcm";
 import type { S2SAdapter, S2SAudioFormat, S2SEvents, S2SSessionConfig, S2STool } from "./types";
