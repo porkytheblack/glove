@@ -1,5 +1,12 @@
 # glove-voice-avatar
 
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [[`d9c745a`](https://github.com/porkytheblack/glove/commit/d9c745afe08cbc01a9f136d26c6ca07a335d6fd6)]:
+  - glove-voice-s2s@0.4.0
+
 ## 0.1.5
 
 ### Patch Changes
