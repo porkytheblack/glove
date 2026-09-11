@@ -1,5 +1,14 @@
 # glove-livekit-rooms
 
+## 1.0.6
+
+### Patch Changes
+
+- Updated dependencies [[`d9c745a`](https://github.com/porkytheblack/glove/commit/d9c745afe08cbc01a9f136d26c6ca07a335d6fd6)]:
+  - glove-voice-s2s@0.4.0
+  - glove-voice-avatar@0.1.6
+  - glove-voice-livekit@0.1.6
+
 ## 1.0.5
 
 ### Patch Changes
