@@ -223,7 +223,7 @@ provider prompt caching. Cache usage is reported on every response as
 | glove-next | createChatHandler — SSE streaming route handler |
 | glove-voice | cascade voice: VAD → STT → agent → TTS, barge-in, push-to-talk |
 | glove-voice-native | React Native / Expo mic capture, PCM playback, Silero VAD |
-| glove-voice-s2s | run an agent on realtime speech-to-speech models (OpenAI Realtime, Gemini Live) |
+| glove-voice-s2s | run an agent on realtime speech-to-speech models (OpenAI Realtime, Gemini Live, GPT-Live) |
 | glove-voice-avatar | live avatars over the S2S audio (Tavus echo, Anam passthrough) |
 | glove-voice-livekit | LiveKit room transport + LiveKit-native avatars |
 | glove-memory | entity graph, episodic timeline, resource filesystem, standing context, forms, dynamic goals (glove-memory/goals; no separate glove-goals package) |
@@ -805,6 +805,23 @@ needs). On the voice path the provider owns the loop, so: \`requiresPermission\`
 is NOT enforced, \`pushAndWait\` tools throw (exclude both via \`excludeTools\`), and
 tool calls/transcripts are not persisted — use \`RealtimeAgent\` events
 (\`user_said\`, \`agent_said\`, \`tool_started\`, \`tool_finished\`).
+
+GPT-Live (glove-voice-s2s >=0.4.0): select provider "openai-live" in
+createS2SAdapter or s2sDrivenModel, with model "gpt-live-1" and backendModel
+"gpt-5.6-luna" by default. OPENAI_API_KEY is server-only. The voice model uses
+Responses delegation for the same Glove tools; it does not run Foundry's durable
+lifecycle. Delegate durable work through a Foundry client tool. Live client
+delegation and browser WebRTC are not implemented.
+
+Supply continuous paced mono PCM including silence at 16 or 24 kHz. Listen to
+rt.on("transcript", fragment => ...) for { role, delta, startMs, endMs }; there
+are no final user_said/agent_said turns. capabilities.transcripts is "continuous"
+and speechLifecycle is "host": call notifyPlaybackState(speaking) from real
+playback and own avatar utterance boundaries. Neither attachRealtime nor
+attachAvatar supplies those boundaries or fills silence gaps. interrupt() mutes
+until resumeOutput(); no Realtime VAD, audio commits, or response.cancel. Await
+rt.stop() for cumulative usage { seconds, final }; failed finalization rejects.
+See /docs/realtime-voice#gpt-live for configuration and compatibility limits.
 
 Avatars: \`attachAvatar(rt, avatar)\` with \`TavusEchoAdapter\` or
 \`AnamPassthroughAdapter\` (\`glove-voice-avatar\`). LiveKit: \`LiveKitTransport\` +

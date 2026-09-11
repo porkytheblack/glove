@@ -65,7 +65,7 @@ Read [workflows.md](workflows.md) when adding dynamic goals, recording reusable 
 - **`glove-foundry`** — preferred Effect-native application framework and runtime for file-routed, typed, observable agent systems. See the dedicated `glove-foundry` skill.
 - **`glove-sqlite`** — deprecated; `SqliteStore` for persistence (server-side only).
 - **`glove-voice`** — full-duplex voice pipeline: STT/TTS/VAD adapters, `GloveVoice`, `useGloveVoice`, `useGlovePTT`, `<VoicePTTButton>`.
-- **`glove-voice-s2s`** — run a Glove agent directly on realtime speech-to-speech models (OpenAI Realtime `gpt-realtime`, Gemini Live): `RealtimeAgent` (server-side; derives its adapter from the agent's model slot), `s2sDrivenModel` (config-carrying model slot: provider/model/voice/turn-taking knobs), `createS2SAdapter` (args → `S2S_*` env fallbacks), typed `OpenAITurnDetection` / `GeminiRealtimeInputConfig`, unconditional barge-in with truncation sync (the model learns what the caller actually heard).
+- **`glove-voice-s2s`** — run a Glove agent on OpenAI Realtime, Gemini Live, or GPT-Live: `RealtimeAgent` derives its adapter from `s2sDrivenModel`; `createS2SAdapter` resolves args and `S2S_*` env fallbacks. GPT-Live uses `provider: "openai-live"` with server PCM transport and Responses delegation. Its transcripts are continuous and playback boundaries are host-owned; do not apply Realtime VAD, truncation, or final-turn assumptions to it. See "Speech-to-Speech, Avatars & LiveKit" and [api-reference.md](api-reference.md#glove-voice-s2s).
 - **`glove-voice-avatar`** — live avatars as a rendering layer over the S2S stack: `AvatarAdapter` contract (connect → `view` clients attach to; `sendAudio`/`endUtterance`/`interrupt`, conformance-enforced) + `runAvatarConformance`, `TavusEchoAdapter` (echo PAL, Daily room, `sendInteraction` courier — interactions are data-channel-only), `AnamPassthroughAdapter` (audio-passthrough persona, browser SDK owns audio input → `sendCommand` courier; Anam's plan cap force-ends sessions every few minutes below Growth tier — renew via `disconnect()`+`connect()`), `attachAvatar(rt, avatar)` one-call bridge.
 - **`glove-voice-livekit`** — LiveKit as an adapter: `LiveKitTransport` (join room, publish paced agent audio track, remote mics out as PCM events, JSON data channel, `clear()` = server-authoritative barge-in flush) + `attachRealtime(rt, transport)`; LiveKit avatars `TavusLiveKitAvatar`/`AnamLiveKitAvatar` implement the same `AvatarAdapter` contract — the provider's worker joins YOUR room (token kind `agent`, `lk.publish_on_behalf`) and is driven over the `lk.audio_stream` byte stream + `lk.clear_buffer` RPC; token minting via `mintParticipantToken`/`mintAvatarToken`.
 - **`glove-mcp`** — MCP servers as first-class tools: `mountMcp`, `connectMcp`, `bridgeMcpTool`, `McpAdapter` (consumer-supplied per-conversation seam). `discovermcp` discovery subagent (registered via `glove.defineSubAgent(discoverySubAgent({...}))`). Opt-in OAuth helpers at `glove-mcp/oauth` (`runMcpOAuth`, `FsOAuthStore`, `MemoryOAuthStore`, `McpOAuthProvider`).
@@ -2903,7 +2903,7 @@ const agent = new Glove({
     label: "s2s-front",
     provider: "openai",              // or "gemini"
     apiKey: process.env.OPENAI_API_KEY!,
-    // model/voice optional — defaults: gpt-realtime + marin / gemini-live-2.5-flash-preview + Puck
+    // model/voice optional — defaults: gpt-realtime + marin / models/gemini-3.1-flash-live-preview + Puck
     turnDetection: { type: "server_vad", silence_duration_ms: 450, prefix_padding_ms: 300 }, // snappy barge-in
   }),
   displayManager: new Displaymanager(),
@@ -2925,7 +2925,21 @@ The proven layering (examples/s2s-rooms onward): the S2S model is a THIN front a
 
 **LiveKit** (`glove-voice-livekit`) replaces the hand-rolled audio duct with WebRTC both ways: `LiveKitTransport` + `attachRealtime(rt, transport)` for the voice leg (browser shrinks to `Room.connect` + `setMicrophoneEnabled`; barge-in is server-side `clear()`), and `TavusLiveKitAvatar`/`AnamLiveKitAvatar` for faces — the provider's worker joins YOUR room as a participant (mint its token with `mintAvatarToken`, identity `TAVUS_AVATAR_IDENTITY`/`ANAM_AVATAR_IDENTITY`, `onBehalfOf` the agent) and is fed over the `lk.audio_stream` byte stream; with an avatar attached set `publishAgentAudio: false` (the worker publishes the voice on the agent's behalf — don't double it).
 
-Full API in api-reference.md ("glove-voice-s2s", "glove-voice-avatar", "glove-voice-livekit"); runnable progression in `examples/layered-voice` → `server-voice` → `s2s-rooms` → `avatar-rooms` → `livekit-rooms` (each preserved, ports side-by-side).
+### GPT-Live (`glove-voice-s2s` >=0.4.0)
+
+Use `s2sDrivenModel({ provider: "openai-live", model: "gpt-live-1", backendModel: "gpt-5.6-luna", voice: "marin" })` in the same agent model slot, or pass `createS2SAdapter({ provider: "openai-live" })` to `RealtimeAgent`. Set `OPENAI_API_KEY` on the server. Selecting `gpt-live-1` on the `openai` adapter uses the wrong protocol.
+
+The Live voice model delegates tool selection to a Responses backend; existing Glove tools execute through `RealtimeAgent`. Set `instructions` for the voice persona and optionally `backendInstructions` for reasoning/tool policy; the backend otherwise uses the agent prompt. Foundry work that needs durable runs must still delegate through its client/instance/conversation boundary. Live client delegation is not implemented, and the existing voice path still bypasses the Glove Executor's permission/display handling.
+
+- Feed continuous, paced mono PCM, including silence, at the selected 16 or 24 kHz. This adapter is server-only; browsers need a server relay or LiveKit, not the Realtime token helper.
+- Consume `rt.on("transcript", fragment => ...)` with `{ role, delta, startMs, endMs }`. Preserve overlapping speakers. Live never emits final `user_said`/`agent_said` turns.
+- Check `capabilities.transcripts === "continuous"` and `capabilities.speechLifecycle === "host"`. Supply actual playback state through `notifyPlaybackState?.(speaking)` and application-owned utterance boundaries for avatars. `attachAvatar` or `attachRealtime` alone does not supply these boundaries or fill input silence gaps.
+- Manual `interrupt()` flushes and mutes output until the host calls `resumeOutput?.()`. Do not add Realtime `response.cancel`, audio commits, or VAD-based cancellation.
+- Await `rt.stop()` to receive final cumulative `usage` (`{ seconds, final }`); timeout/transport loss rejects finalization. Context refresh appends are bounded and non-atomic, not replacements for prior voice instructions. Keep them concise.
+
+Read [the S2S API reference](api-reference.md#glove-voice-s2s) and the [package guide](https://github.com/porkytheblack/glove/blob/main/packages/glove-voice-s2s/README.md#gpt-live) for configuration and host responsibilities. Protocol tests do not establish live account access or audible behavior; use a live session when validating those.
+
+Full API in api-reference.md ("glove-voice-s2s", "glove-voice-avatar", "glove-voice-livekit"); runnable progression in `examples/layered-voice` → `server-voice` → `s2s-rooms` → `avatar-rooms` → `livekit-rooms` (each preserved, ports side-by-side). These examples retain their existing providers and are not GPT-Live-ready without the host changes above.
 
 ## Working Environment (`glove-working-environment`)
 
