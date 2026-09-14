@@ -149,7 +149,7 @@ export default async function CodingAgentPage() {
 // It sends tool schemas to the AI and streams back responses.
 export const POST = createChatHandler({
   provider: "anthropic",
-  model: "claude-sonnet-4-20250514",
+  model: "claude-sonnet-5",
 });`}
       />
 

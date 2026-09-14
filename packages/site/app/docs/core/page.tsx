@@ -2243,7 +2243,7 @@ const taskTool = createTaskTool(context);
 
 const model = createAdapter({
   provider: "anthropic",
-  model: "claude-sonnet-4-20250514",
+  model: "claude-sonnet-5",
   maxTokens: 4096,
   stream: true,
 });
@@ -2538,7 +2538,7 @@ const total = await store.getTokenConsumption?.();`}
         headers={["ID", "Env Variable", "Default Model"]}
         rows={[
           ["openai", "OPENAI_API_KEY", "gpt-4.1"],
-          ["anthropic", "ANTHROPIC_API_KEY", "claude-sonnet-4-20250514"],
+          ["anthropic", "ANTHROPIC_API_KEY", "claude-sonnet-5"],
           ["openrouter", "OPENROUTER_API_KEY", "anthropic/claude-sonnet-4"],
           ["gemini", "GEMINI_API_KEY", "gemini-2.5-flash"],
           ["minimax", "MINIMAX_API_KEY", "MiniMax-M2.5"],

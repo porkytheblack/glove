@@ -479,7 +479,7 @@ const store = new MemoryStore("main");
 // ─── 2. Model ────────────────────────────────────────────────────────────────
 
 const model = new AnthropicAdapter({
-  model: "claude-sonnet-4-20250514",
+  model: "claude-sonnet-5",
   stream: true,
   // Uses ANTHROPIC_API_KEY env var by default
 });
@@ -750,7 +750,7 @@ const model = new OpenAICompatAdapter({
         language="typescript"
         code={`// Switch model between requests
 agent.setModel(new AnthropicAdapter({
-  model: "claude-opus-4-20250514",
+  model: "claude-opus-5",
   stream: true,
 }));`}
       />

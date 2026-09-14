@@ -121,7 +121,7 @@ const store = new MemoryStore("my-session");
 // 2. Model adapter from the provider registry
 const model = createAdapter({
   provider: "anthropic",
-  model: "claude-sonnet-4-20250514",
+  model: "claude-sonnet-5",
   stream: true,
 });
 

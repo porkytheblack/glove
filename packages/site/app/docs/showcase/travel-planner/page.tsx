@@ -89,7 +89,7 @@ export default async function TravelPlannerPage() {
 
 export const POST = createChatHandler({
   provider: "openai",    // or "anthropic"
-  model: "gpt-4o-mini",  // or "claude-sonnet-4-20250514"
+  model: "gpt-4o-mini",  // or "claude-sonnet-5"
 });`}
       />
 
