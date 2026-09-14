@@ -130,8 +130,9 @@ test("the policy governs the metadata surface rather than being bypassed by it",
   assert.deepEqual((await fs.linksFor("entity", "e1")).map((l) => l.path), ["/work/ok.md"]);
   assert.deepEqual((await fs.searchSemantic("acquisition")).map((m) => m.path), ["/work/ok.md"]);
   assert.ok(!(await fs.findNeedingEmbedding()).includes("/corpus/secret.md"));
-  // Refused whole rather than partially applied, like a recursive rm.
-  await assert.rejects(() => fs.replaceLinkTarget("entity", "e1", "e2"), /access policy/);
+  // Refused whole rather than partially applied, like a recursive rm — and
+  // without naming the fenced holder (see the leak test below).
+  await assert.rejects(() => fs.replaceLinkTarget("entity", "e1", "e2"), /outside this filesystem's readable scope/);
   assert.equal((await base.getMeta("/work/ok.md"))?.metadata.links[0].id, "e1", "nothing was rewritten");
 });
 
@@ -139,4 +140,43 @@ test("a plain guarded tree still advertises no capabilities it lacks", async () 
   const fs = withAccess(inMemoryFs(), { rules: [] });
   assert.equal(hasMeta(fs), false);
   assert.equal(hasSearch(fs), false);
+});
+
+test("a refusal does not become the leak the filtering prevents", async () => {
+  // `replaceLinkTarget` takes an ID, not a path. Naming an unreadable holder
+  // in the refusal would hand the caller a filename that `files()`, `list()`
+  // and `linksFor()` all deliberately hide from them.
+  const base = withMeta(inMemoryFs(), { lexical: true });
+  await base.write("/corpus/secret-acquisition-memo.md", toBytes("x"));
+  await base.setMeta("/corpus/secret-acquisition-memo.md", { links: [{ kind: "entity", id: "e1" }] });
+  await base.write("/work/mine.md", toBytes("y"));
+  await base.setMeta("/work/mine.md", { links: [{ kind: "entity", id: "e1" }] });
+
+  const hidden = withAccess(base, {
+    default: "none",
+    rules: [{ path: "/work", access: "write" }],
+  }) as MetaVfs;
+  await assert.rejects(
+    () => hidden.replaceLinkTarget("entity", "e1", "e2"),
+    (err: Error) => {
+      assert.ok(!err.message.includes("secret-acquisition-memo"), "must not name an invisible holder");
+      assert.ok(!err.message.includes("/corpus"), "must not name an invisible subtree");
+      assert.match(err.message, /outside this filesystem's readable scope/);
+      return true;
+    },
+  );
+  assert.equal((await base.getMeta("/work/mine.md"))?.metadata.links[0].id, "e1", "refused whole");
+
+  // A read-only holder is already visible, so naming it is the useful answer.
+  const visible = withAccess(base, {
+    rules: [{ path: "/corpus", access: "read", note: "curated upstream" }],
+  }) as MetaVfs;
+  await assert.rejects(
+    () => visible.replaceLinkTarget("entity", "e1", "e2"),
+    /secret-acquisition-memo\.md is read-only/,
+  );
+
+  // Nothing fenced: it proceeds.
+  const open = withAccess(base, {}) as MetaVfs;
+  assert.equal(await open.replaceLinkTarget("entity", "e1", "e2"), 2);
 });

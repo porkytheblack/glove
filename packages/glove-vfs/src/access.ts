@@ -317,11 +317,25 @@ export function withAccess(vfs: Vfs, policy: AccessPolicy): Vfs {
         // Rewriting a link is a write to the file that holds it, so a fenced
         // subtree must not be edited on a caller's behalf. Refuse whole rather
         // than partially applying, as the recursive `rm` does.
+        //
+        // The refusal must not become the leak the filtering above prevents:
+        // the caller named an id, not a path, so naming an unreadable holder
+        // would hand them a filename they cannot otherwise see. A read-only
+        // holder is already visible, so naming it is the useful answer; an
+        // invisible one is refused without being identified. That a refusal
+        // happened at all is inherent to refusing whole.
         const holders = await inner.linksFor(kind, from);
+        let hidden = false;
         for (const h of holders) {
-          if (guarded.accessOf(h.path) !== "write") {
-            guarded.refuseWrite(h.path, "replaceLinkTarget");
-          }
+          const access = guarded.accessOf(h.path);
+          if (access === "write") continue;
+          if (access === "read") guarded.refuseWrite(h.path, "replaceLinkTarget");
+          hidden = true;
+        }
+        if (hidden) {
+          throw new AccessError(
+            `cannot replaceLinkTarget ${kind}:${from}: a file outside this filesystem's readable scope holds this link, and rewriting it whole is not permitted`,
+          );
         }
         return inner.replaceLinkTarget(kind, from, to, provenance);
       },

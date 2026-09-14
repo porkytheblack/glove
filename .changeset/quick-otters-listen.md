@@ -22,6 +22,11 @@ and `replaceLinkTarget` is refused whole if any holder is fenced, the way a
 recursive `rm` already was. A tree without the capabilities still reports
 `false`, so detection stays honest.
 
+The `replaceLinkTarget` refusal is careful not to become the leak the filtering
+prevents: the caller names an id, not a path, so an unreadable holder is refused
+without being identified, while a read-only one — already visible — is named,
+because there the filename is the useful answer.
+
 **`describeFsFns` threw for every tree.** It ran `basename()` over a bare
 function name (`"read"`), which has no leading `/`, so the helper a host pastes
 into a system prompt raised `PathError: path must be absolute` on every call.
