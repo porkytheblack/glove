@@ -1,5 +1,13 @@
 # glove-env-slides
 
+## 2.0.0
+
+### Patch Changes
+
+- Updated dependencies [[`653c3f5`](https://github.com/porkytheblack/glove/commit/653c3f54c231675da30afe62725d53e2855261a9), [`331ce80`](https://github.com/porkytheblack/glove/commit/331ce80da3eb0a4b313311d6628a87299b209cc4)]:
+  - glove-working-environment@0.7.0
+  - glove-env-unlock@2.0.0
+
 ## 1.1.0
 
 ### Minor Changes

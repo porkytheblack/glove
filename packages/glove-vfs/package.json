@@ -1,6 +1,6 @@
 {
   "name": "glove-vfs",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "One virtual filesystem for a whole agent. A zero-dependency Vfs contract plus backends (in-memory, host directory copy-on-write, object storage), a mount table that composes them into a single tree, path-scoped access policies, an optional metadata/provenance layer, and grep/glob search. Working environments, memory resource stores and sandboxed REPLs all plug into the same tree instead of each keeping a private one.",
   "type": "module",
   "license": "MIT",

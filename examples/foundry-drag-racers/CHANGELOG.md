@@ -1,5 +1,12 @@
 # glove-foundry-drag-racers
 
+## 1.0.7
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-foundry@0.4.1
+
 ## 1.0.6
 
 ### Patch Changes
