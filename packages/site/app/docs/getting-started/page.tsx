@@ -28,6 +28,11 @@ export default function GettingStartedPage() {
         </thead>
         <tbody>
           <tr>
+            <td><a href="/foundry/docs/getting-started">Foundry</a></td>
+            <td>A complete server-side agent system with instances, apps, events, schedules, workspaces, and inspection</td>
+            <td><code>glove-foundry</code></td>
+          </tr>
+          <tr>
             <td>
               <a href="#full-stack">Full-stack</a>
             </td>
@@ -47,6 +52,15 @@ export default function GettingStartedPage() {
           </tr>
         </tbody>
       </table>
+
+      <div className="docs-note">
+        <span className="docs-note-icon">◆</span>
+        <p>
+          This page teaches the lower-level Glove loop. For the opinionated application
+          framework—the route tree, runtime data model, development server, and
+          inspector—start with the <a href="/foundry/docs/getting-started">Foundry quickstart</a>.
+        </p>
+      </div>
 
       <div className="docs-note">
         <span className="docs-note-icon">›</span>

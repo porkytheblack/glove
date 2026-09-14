@@ -28,3 +28,4 @@ export {
 } from "./tools/index";
 export { InMemoryImageAssetStore, InMemoryImageLibrary } from "./in-memory/index";
 export { openrouterImages, type OpenRouterImagesOptions } from "./openrouter/index";
+export { geminiImages, type GeminiImagesOptions } from "./gemini/index";

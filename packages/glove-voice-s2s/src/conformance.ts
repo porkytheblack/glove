@@ -97,6 +97,23 @@ export const CONFORMANCE_CASES: ConformanceCase[] = [
   },
 
   {
+    name: "preserves continuous transcript fragments",
+    why: "Continuous speech has no authoritative final turn; preserve its timestamps without inventing one.",
+    async run({ adapter, inbound, settle }) {
+      if (adapter.capabilities?.transcripts !== "continuous") return;
+      await adapter.connect(SESSION);
+      const fragments: unknown[] = [];
+      let finals = 0;
+      adapter.on("transcript", fragment => fragments.push(fragment));
+      adapter.on("user_transcript", (_text, final) => { if (final) finals++; });
+      inbound({ __conformance: "user_transcript", text: "hello there", isFinal: false });
+      await settle();
+      assert(fragments.length === 1, "continuous transcript was lost");
+      assert(finals === 0, "invented a final turn from a transcript fragment");
+    },
+  },
+
+  {
     name: "maps a provider tool call onto the tool_call event",
     why:
       "The bridge executes tools off this event. If the mapping is wrong the model " +
@@ -119,8 +136,10 @@ export const CONFORMANCE_CASES: ConformanceCase[] = [
     why:
       "Providers correlate results to calls by id. A dropped or renamed id strands " +
       "the turn — the model never learns the answer it asked for.",
-    async run({ adapter, outbound, settle }) {
+    async run({ adapter, outbound, inbound, settle }) {
       await adapter.connect(SESSION);
+      inbound({ __conformance: "tool_call", callId: "c1", name: "lookup", arguments: '{"q":"x"}' });
+      await settle();
       adapter.sendToolResult("c1", { status: "success", data: { answer: 42 } });
       await settle();
       const wire = JSON.stringify(outbound());
@@ -136,6 +155,7 @@ export const CONFORMANCE_CASES: ConformanceCase[] = [
       "a finished utterance from a partial one. Marking every partial final " +
       "duplicates the transcript; never marking one final empties it.",
     async run({ adapter, inbound, settle }) {
+      if (adapter.capabilities?.transcripts === "continuous") return;
       await adapter.connect(SESSION);
       const finals: string[] = [];
       adapter.on("user_transcript", (t, isFinal) => {

@@ -365,6 +365,21 @@ test("Gemini audio in is tagged 16 kHz while output is declared 24 kHz", async (
   assert.deepEqual(formats, [24_000]);
 });
 
+test("Gemini runtime text uses realtimeInput while silent seed context stays incomplete clientContent", async () => {
+  const ctx = geminiContext();
+  await ctx.adapter.connect({});
+  await ctx.settle();
+
+  ctx.adapter.injectText("brief me", { respond: true });
+  ctx.adapter.injectText("silent context", { respond: false });
+
+  const frames = ctx.outbound() as any[];
+  assert.deepEqual(frames.find((frame) => frame.realtimeInput?.text)?.realtimeInput, { text: "brief me" });
+  const silent = frames.find((frame) => frame.clientContent);
+  assert.equal(silent.clientContent.turnComplete, false);
+  assert.equal(silent.clientContent.turns[0].parts[0].text, "silent context");
+});
+
 test("base64 audio round-trips without corrupting samples", async () => {
   const ctx = geminiContext();
   await ctx.adapter.connect({});

@@ -132,6 +132,21 @@ test("Gemini voice from the factory reaches the setup frame", async () => {
   assert.equal(setup.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, "Charon");
 });
 
+test("Gemini uses the current Live model when no model is configured", async () => {
+  process.env.GEMINI_API_KEY = "ai-test";
+  const sent: unknown[] = [];
+  const adapter = createS2SAdapter({
+    provider: "gemini",
+    socketFactory: (url: string) => {
+      const socket = new NullSocket(url);
+      socket.send = (data: string | ArrayBufferLike) => void sent.push(JSON.parse(String(data)));
+      return socket;
+    },
+  });
+  await adapter.connect({});
+  assert.equal((sent[0] as any).setup.model, "models/gemini-3.1-flash-live-preview");
+});
+
 test("Gemini setup enables context compression by default; false opts out", async () => {
   process.env.GEMINI_API_KEY = "ai-test";
   const sent: unknown[] = [];

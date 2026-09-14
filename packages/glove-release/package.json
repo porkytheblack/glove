@@ -1,0 +1,13 @@
+{
+  "name": "@glove/release",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Repository-local release command for the Glove monorepo",
+  "type": "module",
+  "bin": {
+    "release": "./release.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

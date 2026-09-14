@@ -27,6 +27,16 @@ export default function IntroPage() {
         is a separate package you can adopt on its own.
       </p>
 
+      <div className="docs-note">
+        <span className="docs-note-icon">◆</span>
+        <p>
+          Building a complete agent system? <a href="/foundry">Glove Foundry</a>{" "}
+          adds file routing, typed composition, mutable agent instances,
+          dynamically installed apps, transmissions, playbooks, schedules,
+          conversations, workspaces, and a live inspector over these capabilities.
+        </p>
+      </div>
+
       <h2 id="the-core-idea">The core idea</h2>
 
       <p>
@@ -171,6 +181,12 @@ User: "Add the Nike ones to my cart and check out"
 
       <DocCards
         cards={[
+          {
+            href: "/foundry/docs/getting-started",
+            kicker: "Application framework",
+            title: "Start with Foundry",
+            desc: "Scaffold a complete, typed agent system with a runtime and inspection workbench.",
+          },
           {
             href: "/docs/installation",
             kicker: "Step 1",

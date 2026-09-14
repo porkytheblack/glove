@@ -160,6 +160,12 @@ mountJs(agent, { session, frame: "program" });   // frame: "program"  → execut
 mountJs(agent, { session, frame: "workflow" });  // frame: "workflow" → execute_js_workflow
 ```
 
+Standalone mounts default to `exclusive: true`, which teaches the model that the
+workflow entrypoint is its only tool surface. Set `exclusive: false` when the
+agent also exposes ordinary direct tools; the prompt then distinguishes those
+direct tools from functions that are callable only inside the JavaScript
+catalogue. Foundry does this automatically.
+
 The bet (see
 [`benches/scratchpad-bench/FRAME-PAPER.md`](../../benches/scratchpad-bench/FRAME-PAPER.md)):
 the token "REPL" pattern-matches to an interactive, line-by-line *session*, so

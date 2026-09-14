@@ -16,6 +16,7 @@ import { applyEntryCommit, cloneHistory } from "../forms/history";
  * whole record is cloned on the way out so callers can't mutate storage by
  * holding on to what they read.
  */
+export interface FormMemoryState { nextId: number; instances: FormInstance[] }
 export class InMemoryFormAdapter implements FormAdapter {
   identifier: string;
   schema: MemorySchema;
@@ -23,9 +24,16 @@ export class InMemoryFormAdapter implements FormAdapter {
   private readonly instances = new Map<string, FormInstance>();
   private nextId = 1;
 
-  constructor(opts: { schema: MemorySchema; identifier?: string }) {
+  constructor(opts: { schema: MemorySchema; identifier?: string; state?: FormMemoryState }) {
     this.schema = opts.schema;
     this.identifier = opts.identifier ?? `in-memory-forms-${Date.now()}`;
+    if (opts.state) {
+      this.nextId = opts.state.nextId;
+      for (const instance of opts.state.instances) this.instances.set(instance.id, clone(instance));
+    }
+  }
+  snapshot(): FormMemoryState {
+    return { nextId: this.nextId, instances: [...this.instances.values()].map(clone) };
   }
 
   async createInstance(
@@ -49,7 +57,7 @@ export class InMemoryFormAdapter implements FormAdapter {
       createdAt: now,
       updatedAt: now,
     };
-    this.instances.set(id, instance);
+    this.instances.set(id, clone(instance));
     return clone(instance);
   }
 
@@ -105,6 +113,14 @@ export class InMemoryFormAdapter implements FormAdapter {
       version: instance.version + 1,
       updatedAt: new Date().toISOString(),
     };
+    if (commit.pendingHooks) {
+      next.pendingHooks = { ...instance.pendingHooks };
+      for (const [id, batch] of Object.entries(commit.pendingHooks)) {
+        if (batch === null) delete next.pendingHooks[id];
+        else next.pendingHooks[id] = structuredClone(batch);
+      }
+    }
+    if (commit.preparation !== undefined) next.preparation = structuredClone(commit.preparation);
     if (commit.status !== undefined) next.status = commit.status;
     if (commit.defVersion !== undefined) next.defVersion = commit.defVersion;
     if (commit.closedReason !== undefined) next.closedReason = commit.closedReason;
@@ -118,7 +134,7 @@ export class InMemoryFormAdapter implements FormAdapter {
       else next.openStepOverride = commit.openStepOverride;
     }
 
-    this.instances.set(id, next);
+    this.instances.set(id, clone(next));
     return clone(next);
   }
 
@@ -134,7 +150,7 @@ export class InMemoryFormAdapter implements FormAdapter {
     // Deliberately outside the CAS envelope: the dispatch log is an
     // at-least-once bookkeeping trail, and a lost update on it would cost a
     // duplicate executor run — the exact thing idempotency keys exist for.
-    instance.dispatches = { ...instance.dispatches, [idempotencyKey]: { ...state } };
+    instance.dispatches = { ...instance.dispatches, [idempotencyKey]: structuredClone(state) };
     instance.updatedAt = new Date().toISOString();
   }
 
@@ -168,7 +184,7 @@ export class InMemoryFormAdapter implements FormAdapter {
       },
     };
 
-    this.instances.set(id, next);
+    this.instances.set(id, clone(next));
     return clone(next);
   }
 
@@ -190,11 +206,13 @@ function seedSeq(entries: Record<string, FieldHistory> | undefined): number {
 function clone(instance: FormInstance): FormInstance {
   return {
     ...instance,
+    ...(instance.pendingHooks ? { pendingHooks: structuredClone(instance.pendingHooks) } : {}),
+    ...(instance.preparation ? { preparation: structuredClone(instance.preparation) } : {}),
     entries: Object.fromEntries(
       Object.entries(instance.entries).map(([k, v]) => [k, cloneHistory(v)]),
     ),
     occurrences: { ...instance.occurrences },
-    dispatches: { ...instance.dispatches },
+    dispatches: structuredClone(instance.dispatches),
   };
 }
 

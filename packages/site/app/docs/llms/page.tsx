@@ -56,6 +56,16 @@ export default function LlmsPage() {
             </td>
             <td>Loaded on demand</td>
           </tr>
+          <tr>
+            <td><a href="/foundry/llms.txt">/foundry/llms.txt</a></td>
+            <td>The Foundry-only handbook index: definitions, instances, apps, playbooks, schedules, workspaces, runtime, and deployment</td>
+            <td>Small; Foundry-specific</td>
+          </tr>
+          <tr>
+            <td><a href="/foundry/llms-full.txt">/foundry/llms-full.txt</a></td>
+            <td>A self-contained coding reference for building and operating a Foundry project</td>
+            <td>One focused file</td>
+          </tr>
         </tbody>
       </table>
 
@@ -117,6 +127,18 @@ What Glove is, how to install it, and a tour of every package.
         code={`# Claude Code, Cursor, or anything that reads a file into context
 curl -o glove.md https://glove.dterminal.net/llms-full.txt`}
       />
+
+      <h2 id="foundry-for-llms">Foundry for LLMs</h2>
+
+      <p>
+        Foundry has a separate pair of machine surfaces because its definition/instance
+        boundary and runtime data model must not be collapsed into the lower-level Glove
+        builder API. Give a coding agent the focused reference when it is editing a
+        Foundry project:
+      </p>
+
+      <CodeBlock filename="terminal" language="bash" code={`curl -o glove-foundry.md \\
+  https://glove.dterminal.net/foundry/llms-full.txt`} />
 
       <h2 id="agent-skill">The agent skill</h2>
 

@@ -97,7 +97,7 @@ function readZip(bytes: Uint8Array): Map<string, ZipEntry> {
       // Inflating ciphertext yields garbage, not an error, so the deck would
       // come back as "not a PowerPoint deck" and the schematic would be drawn
       // from nothing. Refusing by name says what to do about it.
-      throw new Error(`encrypted ZIP entries are not supported: ${name} — save the deck without a password`);
+      throw new Error(`encrypted ZIP entries are not supported: ${name} — call unlock(input, output, { password }) first`);
     }
     entries.set(name, {
       name,

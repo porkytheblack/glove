@@ -1,3 +1,5 @@
+import { canonical, renderPreparation, committedPreparation } from "glove-facts";
+import { prepareFormCommit, samePreparation, type FormPreparationConfig } from "./preparation";
 import type { DisplayManagerAdapter } from "glove-core";
 import {
   FormBlockedError,
@@ -51,6 +53,7 @@ const MAX_DISPATCH_ROUNDS = 8;
 const MAX_COMMIT_RETRIES = 3;
 
 export interface FormRunnerOptions {
+  preparation?: FormPreparationConfig;
   registry: FormRegistry;
   /** Conversation id / user id / matter id. A thunk when it varies per turn. */
   subject: string | (() => string);
@@ -157,6 +160,38 @@ export class FormRunner {
     return open[0] ?? null;
   }
 
+  /** Reconcile captured evidence without introducing a user conversation turn. */
+  async prepare(opts: FormCallOpts = {}): Promise<FormView> {
+    await this.resumeHooks(opts);
+    const { compiled, instance } = await this.resolve(opts);
+    if (!this.options.preparation?.preparer.enabled() || instance.status === "abandoned" || instance.status === "stale" || instance.status === "awaiting") return projectView(compiled, instance);
+    const settled = await this.applyEntries(compiled, instance, {}, this.provenance(opts.provenance), { signal: opts.signal });
+    return projectView(compiled, settled.instance);
+  }
+
+  /** Finish prepared commits whose effects were interrupted. Effects use the
+   * original idempotency key; external services must deduplicate that key. */
+  async resumeHooks(opts: FormCallOpts = {}): Promise<void> {
+    const { compiled } = await this.resolve(opts);
+    for (;;) {
+      const { instance } = await this.resolve(opts);
+      const batch = Object.values(instance.pendingHooks ?? {})[0];
+      if (!batch) return;
+      if (batch.defVersion !== compiled.version) throw new FormStaleError(batch.defVersion, compiled.version);
+      const hooks: Hook[] = batch.hooks.map(hook => {
+        const run = hook.kind === "field" ? compiled.fieldById.get(hook.id)?.onFill
+          : hook.kind === "step" ? compiled.stepById.get(hook.id)?.onComplete
+          : hook.kind === "checkpoint" ? compiled.checkpointById.get(hook.id)?.run : compiled.onComplete;
+        if (!run) throw new FormDefinitionError(`Cannot resume missing effect ${hook.hookId}`);
+        return { ...hook, run };
+      });
+      const evaluation = { ...evaluateForm(compiled, instance), values: batch.values,
+        live: new Set(batch.live), stepComplete: batch.stepComplete, complete: batch.complete };
+      await this.settlePreparedCommit(compiled, instance, hooks, evaluation, batch.priorOccurrences,
+        batch.provenance, batch.newFields, opts.signal, 0, batch.id);
+    }
+  }
+
   async status(opts: FormCallOpts = {}): Promise<FormView> {
     const { compiled, instance } = await this.resolve(opts);
     return projectView(compiled, instance, { scope: "step" });
@@ -180,7 +215,7 @@ export class FormRunner {
     if (instance.defVersion !== compiled.version && !compiled.migrate) {
       return renderTier0(compiled, { ...instance, status: "stale" });
     }
-    return renderTier0(compiled, instance);
+    return [renderTier0(compiled, instance), renderPreparation(instance.preparation)].filter(Boolean).join("\n");
   }
 
   // ─── Write ──────────────────────────────────────────────────────────────
@@ -542,48 +577,74 @@ export class FormRunner {
     let hooks: Hook[] = [];
     let after: FormEvaluation<any> | undefined;
     let beforeOccurrences: Record<string, number> | undefined;
+    const suppliedEntries = newEntries;
+    const suppliedNextSeq = opts.nextSeq;
+    let batchId: string | undefined;
 
     for (let attempt = 0; ; attempt++) {
-      const before = opts.fromScratch
-        ? emptyEvaluation()
-        : evaluateForm(compiled, current);
-      const projected: FormInstance = {
-        ...current,
-        entries: projectEntries(current, newEntries, opts.cursors),
-      };
-      after = evaluateForm(compiled, projected);
-      assertNoDefects(compiled, after);
-
-      beforeOccurrences = { ...current.occurrences };
-      const edges = risingEdges(compiled, before, after, current.occurrences);
-      hooks = edges.hooks;
-
-      const blocking = hooks.find((h) => h.kind === "checkpoint" && h.blocking);
-      const commit: FormInstanceCommit = {
-        entries: toEntryCommits(newEntries, opts.cursors),
-        occurrences: edges.occurrences,
-        revisionSeq: opts.nextSeq ?? current.revisionSeq,
-      };
-      if (blocking) {
-        commit.status = "awaiting";
-        commit.blockedOn = blocking.id;
-      } else if (after.complete && current.status !== "complete") {
-        commit.status = "complete";
-        commit.completedAt = provenance.timestamp;
-      } else if (current.status === "awaiting" && !current.blockedOn) {
-        commit.status = "active";
-      } else if (current.status === "complete" && !after.complete) {
-        // A revision that reopened the form.
-        commit.status = "active";
-      }
-
+      newEntries = Object.fromEntries(Object.entries(suppliedEntries).filter(([id, entry]) =>
+        !entry.effectId || !current.entries[id]?.revisions.some(r => r.effectId === entry.effectId)));
+      opts.nextSeq = suppliedNextSeq;
       try {
-        committed = await this.adapter.commitInstance(
-          current.id,
-          commit,
-          { ifVersion: current.version },
-          provenance,
-        );
+        committed = await prepareFormCommit(this.options.preparation, compiled, {
+          ...current, entries: projectEntries(current, newEntries, opts.cursors),
+          revisionSeq: Math.max(current.revisionSeq, opts.nextSeq ?? 0),
+        }, provenance, opts.signal, async (preparedEntries, report) => {
+          newEntries = { ...newEntries, ...preparedEntries };
+          opts.nextSeq = Math.max(current.revisionSeq, opts.nextSeq ?? 0, ...Object.values(newEntries).map(e => e.seq));
+          const preparation = committedPreparation(report) ?? current.preparation;
+          if (!opts.fromScratch && !Object.keys(newEntries).length && !opts.cursors && samePreparation(current.preparation, preparation)) {
+            after = evaluateForm(compiled, current);
+            beforeOccurrences = current.occurrences;
+            hooks = [];
+            return current;
+          }
+          const before = opts.fromScratch
+            ? emptyEvaluation()
+            : evaluateForm(compiled, current);
+          const projected: FormInstance = {
+            ...current,
+            entries: projectEntries(current, newEntries, opts.cursors),
+          };
+          after = evaluateForm(compiled, projected);
+          assertNoDefects(compiled, after);
+
+          beforeOccurrences = { ...current.occurrences };
+          const edges = risingEdges(compiled, before, after, current.occurrences);
+          hooks = edges.hooks;
+
+          batchId = this.options.preparation && hooks.length ? crypto.randomUUID() : undefined;
+          const blocking = hooks.find((h) => h.kind === "checkpoint" && h.blocking);
+          const commit: FormInstanceCommit = {
+            ...(batchId ? { pendingHooks: { [batchId]: { id: batchId, defVersion: compiled.version,
+              hooks: hooks.map(({ run: _run, ...hook }) => hook), values: after.values, live: [...after.live],
+              stepComplete: after.stepComplete, complete: after.complete, priorOccurrences: beforeOccurrences,
+              newFields: Object.keys(newEntries), provenance } } } : {}),
+            preparation,
+            entries: toEntryCommits(newEntries, opts.cursors),
+            occurrences: edges.occurrences,
+            revisionSeq: opts.nextSeq ?? current.revisionSeq,
+          };
+          if (blocking) {
+            commit.status = "awaiting";
+            commit.blockedOn = blocking.id;
+          } else if (after.complete && current.status !== "complete") {
+            commit.status = "complete";
+            commit.completedAt = provenance.timestamp;
+          } else if (current.status === "awaiting" && !current.blockedOn) {
+            commit.status = "active";
+          } else if (current.status === "complete" && !after.complete) {
+            // A revision that reopened the form.
+            commit.status = "active";
+          }
+
+          return this.adapter.commitInstance(
+            current.id,
+            commit,
+            { ifVersion: current.version },
+            provenance,
+          );
+        });
         break;
       } catch (e) {
         if (!(e instanceof FormConflictError) || attempt >= MAX_COMMIT_RETRIES) throw e;
@@ -593,17 +654,32 @@ export class FormRunner {
       }
     }
 
+    try {
+      return await this.settlePreparedCommit(compiled, committed!, hooks, after!, beforeOccurrences!, provenance,
+        Object.keys(newEntries), opts.signal, round, batchId);
+    } catch (error) {
+      if (error instanceof FormPostCommitError) throw error;
+      throw new FormPostCommitError(committed!, error);
+    }
+  }
+
+  private async settlePreparedCommit(compiled: CompiledForm<any>, committed: FormInstance, hooks: Hook[],
+    after: FormEvaluation<any>, beforeOccurrences: Record<string, number>, provenance: Provenance,
+    newFields: string[], signal: AbortSignal | undefined, round: number, batchId?: string,
+  ): Promise<{ instance: FormInstance; failures: FormFailure[] }> {
+    const finish = async (instance: FormInstance) => batchId
+      ? this.commitTolerant(instance, { pendingHooks: { [batchId]: null } }, provenance) : instance;
     const outcome = await this.runHooks(
-      committed!,
+      committed,
       hooks,
-      after!,
+      after,
       // The occurrence counters as they stood when the gates ran. Passing the
       // post-commit ones would have `checkpointFired("me")` return true inside
       // that checkpoint's own executor, so `when` and `run` would disagree
       // about the same predicate on the same firing.
-      beforeOccurrences!,
+      beforeOccurrences,
       provenance,
-      opts.signal,
+      signal,
     );
 
     let settled = outcome.instance;
@@ -618,7 +694,7 @@ export class FormRunner {
       closing.openStepOverride = outcome.jump;
     } else if (
       settled.openStepOverride &&
-      Object.keys(newEntries).some(
+      newFields.some(
         (id) => compiled.fieldById.get(id)?.stepId === settled.openStepOverride,
       )
     ) {
@@ -653,8 +729,10 @@ export class FormRunner {
     const patchEntries: Record<string, FormEntry> = {};
     let patchSeq = settled.revisionSeq;
     for (const [id, value] of Object.entries(outcome.patch)) {
-      if (!compiled.fieldById.has(id)) continue;
-      patchEntries[id] = this.entry(compiled, id, value, provenance, ++patchSeq);
+      if (!compiled.fieldById.has(id) || canonical(inForce(settled.entries[id])?.value) === canonical(value)) continue;
+      const effectId = batchId ? `${batchId}:patch:${id}` : undefined;
+      if (effectId && settled.entries[id]?.revisions.some(entry => entry.effectId === effectId)) continue;
+      patchEntries[id] = { ...this.entry(compiled, id, value, provenance, ++patchSeq), ...(effectId ? { effectId } : {}) };
     }
     if (
       outcome.terminate === undefined &&
@@ -662,14 +740,14 @@ export class FormRunner {
       round < MAX_DISPATCH_ROUNDS
     ) {
       const next = await this.applyEntries(compiled, settled, patchEntries, provenance, {
-        signal: opts.signal,
+        signal,
         round: round + 1,
         nextSeq: patchSeq,
       });
-      return { instance: next.instance, failures: [...failures, ...next.failures] };
+      return { instance: await finish(next.instance), failures: [...failures, ...next.failures] };
     }
 
-    return { instance: settled, failures };
+    return { instance: await finish(settled), failures };
   }
 
   private async runHooks(
@@ -706,11 +784,20 @@ export class FormRunner {
 
     for (const hook of hooks) {
       const idempotencyKey = `${instance.id}:${hook.hookId}:${hook.occurrence}`;
-      if (current.dispatches?.[idempotencyKey]?.status === "ok") continue;
+      const previous = current.dispatches?.[idempotencyKey];
+      if (previous?.status === "ok" && !previous.effects?.length) continue;
 
+      const fulfilled = hook.kind === "field" || hook.kind === "step"
+        ? Object.values(current.entries).map(inForce).find(entry => entry?.claimId && entry.fulfilledHooks?.includes(hook.hookId)) : undefined;
+      if (fulfilled) {
+        await this.adapter.recordDispatch(current.id, idempotencyKey,
+          { hookId: hook.hookId, status: "ok", attempts: 0, at: new Date().toISOString(), claimId: fulfilled.claimId }, provenance);
+        current = (await this.adapter.getInstance(current.id)) ?? current;
+        continue;
+      }
       const attempts = (current.dispatches?.[idempotencyKey]?.attempts ?? 0) + 1;
       const at = new Date().toISOString();
-      await this.adapter.recordDispatch(
+      if (previous?.status !== "ok") await this.adapter.recordDispatch(
         current.id,
         idempotencyKey,
         { hookId: hook.hookId, status: "running", attempts, at },
@@ -720,7 +807,7 @@ export class FormRunner {
       let returned: FormExecutorResult<any> = undefined;
       let error: string | undefined;
       try {
-        returned = await hook.run({
+        returned = previous?.status === "ok" ? previous.effects : await hook.run({
           values: evaluation.values,
           state,
           instance: current,
@@ -764,6 +851,7 @@ export class FormRunner {
         {
           hookId: hook.hookId,
           status: error ? "failed" : "ok",
+          effects: error ? undefined : effects,
           attempts,
           at: new Date().toISOString(),
           error,
@@ -1169,4 +1257,12 @@ function toEntryCommits(
     out[field] = { ...(out[field] ?? {}), cursor };
   }
   return out;
+}
+
+/** Answers are durable; continue this instance instead of starting a duplicate. */
+export class FormPostCommitError extends Error {
+  constructor(readonly instance: FormInstance, cause: unknown) {
+    super(`Form ${instance.id} was committed, but effect settlement failed: ${cause instanceof Error ? cause.message : String(cause)}. Resume the existing instance.`, { cause });
+    this.name = "FormPostCommitError";
+  }
 }

@@ -119,6 +119,9 @@ export interface FormAdapter {
    *   the cursor, then clamp it to `[-1, revisions.length - 1]`. A field
    *   absent from the commit is untouched.
    * - `occurrences`, `dispatches` — merge key-by-key over what's stored.
+   * - `pendingHooks` — merge by batch id; null removes only that batch.
+   *   Persist these batches atomically with entries for prepared-commit recovery.
+   * - `preparation` — replace when present, retaining exact evidence claims.
    * - `revisionSeq` — replaces. The engine has already allocated the `seq`
    *   values on the appended revisions; this is the high-water mark.
    * - `status`, `defVersion`, `closedReason`, `completedAt` — replace when

@@ -2,11 +2,12 @@ import type { IGloveRunnable } from "glove-core/glove";
 import type { ModelAdapter } from "glove-core/core";
 
 import type { McpAdapter, McpCatalogueEntry } from "./adapter";
-import { connectMcp, type McpToolDef } from "./connect";
-import { bridgeMcpTool, type McpToolWrapper } from "./bridge";
-import { adapterAuth } from "./auth";
+import type { McpToolDef } from "./connect";
+import { connectMcpEntry } from "./connect-entry";
+import type { McpToolWrapper } from "./bridge";
 import { discoverySubAgent } from "./discovery";
 import type { DiscoveryAmbiguityPolicy } from "./discovery/policy";
+import { mountMcpToolSet, type MountedMcpToolSet } from "./mounted-tools";
 
 export interface MountMcpConfig {
   /** Per-conversation adapter. Implements active-state persistence + token resolution. */
@@ -23,7 +24,7 @@ export interface MountMcpConfig {
   clientInfo?: { name: string; version: string };
   /**
    * Cross-server tool filter — return `false` to hide a tool from EVERY server
-   * in the catalogue (applied on top of each entry's own `excludeTools`).
+   * in the catalogue (applied after each entry's own include/exclude policy).
    * Applied both to the boot-time reload and to tools the discovery subagent
    * activates later. Use for catalogue-wide rules, e.g. drop every destructive
    * tool: `filterTools: (t) => !t.annotations?.destructiveHint`.
@@ -61,29 +62,29 @@ export async function mountMcp(
     (glove.serverMode ? { type: "auto-pick-best" } : { type: "interactive" });
 
   // 1. Reload active servers
+  const mounted = new Map<string, MountedMcpToolSet>();
   const activeIds = await adapter.getActive();
   for (const id of activeIds) {
     const entry = entries.find((e) => e.id === id);
     if (!entry) continue; // entry removed since last session — drop silently
 
+    let conn: Awaited<ReturnType<typeof connectMcpEntry>> | undefined;
     try {
-      const conn = await connectMcp({
-        namespace: id,
-        url: entry.url,
-        auth: adapterAuth(adapter, id),
+      conn = await connectMcpEntry({
+        adapter,
+        entry,
         clientInfo,
-        ...(entry.excludeTools ? { excludeTools: entry.excludeTools } : {}),
         ...(filterTools ? { filterTools: (tool) => filterTools(tool, entry) } : {}),
       });
-      const tools = await conn.listTools();
-      // Build the full wrapped set first; fold only after every wrapTool call
-      // succeeds, so a throwing wrapper can't leave a half-rehydrated provider.
-      const wrapped = tools.map((tool) => {
-        const bridged = bridgeMcpTool(conn, tool, glove.serverMode);
-        return wrapTool ? wrapTool(bridged, entry) : bridged;
+      const toolSet = await mountMcpToolSet({
+        glove,
+        connection: conn,
+        entry,
+        wrapTool,
       });
-      for (const t of wrapped) glove.fold(t);
+      mounted.set(entry.id, toolSet);
     } catch (err) {
+      await conn?.close().catch(() => undefined);
       // eslint-disable-next-line no-console
       console.warn(`[glove-mcp] failed to reload ${id}:`, err);
     }
@@ -100,6 +101,7 @@ export async function mountMcp(
       clientInfo,
       wrapTool,
       filterTools,
+      mounted,
     }),
   );
 }

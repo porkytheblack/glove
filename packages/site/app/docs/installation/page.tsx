@@ -41,7 +41,7 @@ export default function InstallationPage() {
       <h2 id="pick-your-shape">Pick your shape</h2>
 
       <p>
-        Four common shapes. Pick the row that matches what you are building —
+        Five common shapes. Pick the row that matches what you are building —
         the rest of the docs assume one of them.
       </p>
 
@@ -53,6 +53,10 @@ export default function InstallationPage() {
           </tr>
         </thead>
         <tbody>
+          <tr>
+            <td>Complete agent system with instances, apps, events, schedules, and inspection</td>
+            <td><code>glove-foundry</code> or scaffold with <code>npx glove-foundry init</code></td>
+          </tr>
           <tr>
             <td>Next.js app (App Router)</td>
             <td>
@@ -95,6 +99,16 @@ pnpm add glove-core zod
 npm install glove-react glove-next zod`}
       />
 
+      <div className="docs-note">
+        <span className="docs-note-icon">◆</span>
+        <p>
+          Foundry projects require Node 20+. The scaffold installs the compatible Glove
+          capability packages and creates a typed config, file-routed agent, lazy inbox,
+          application, MCP definition, working environment, and ESLint setup. See the{" "}
+          <a href="/foundry/docs/getting-started">Foundry installation guide</a>.
+        </p>
+      </div>
+
       <p>
         <code>glove-core</code> is a dependency of <code>glove-react</code>, so
         a full-stack install already has the runtime. Install it explicitly when
@@ -117,6 +131,11 @@ npm install glove-react glove-next zod`}
           </tr>
         </thead>
         <tbody>
+          <tr>
+            <td>A full agent application framework</td>
+            <td><code>glove-foundry</code></td>
+            <td><a href="/foundry/docs">Foundry handbook</a></td>
+          </tr>
           <tr>
             <td>Long-term memory across sessions</td>
             <td>
@@ -210,13 +229,13 @@ npm install glove-react glove-next zod`}
             </td>
           </tr>
           <tr>
-            <td>Ship the agent as a container</td>
+            <td>Maintain a legacy Glovebox container</td>
             <td>
               <code>glovebox-core</code>, <code>glovebox-kit</code>,{" "}
               <code>glovebox-client</code>
             </td>
             <td>
-              <a href="/docs/glovebox">Glovebox</a>
+              <a href="/docs/glovebox">Glovebox (deprecated)</a>
             </td>
           </tr>
         </tbody>

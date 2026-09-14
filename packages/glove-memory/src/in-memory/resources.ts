@@ -29,10 +29,17 @@ import {
 } from "../resources/paths";
 
 interface InMemoryResourcesOpts {
+  state?: ResourceMemoryState;
   schema: MemorySchema;
   identifier?: string;
   /** Optional embedder. When provided, semantic search is enabled. */
   embedder?: EmbeddingAdapter;
+}
+
+export interface ResourceMemoryState {
+  files: ResourceFile[];
+  emptyDirs: string[];
+  embeddings: Array<[string, number[]]>;
 }
 
 /**
@@ -56,6 +63,17 @@ export class InMemoryResourcesAdapter implements ResourceFsAdapter {
     this.identifier = opts.identifier ?? `in-memory-resources-${Date.now()}`;
     this.embedder = opts.embedder;
     this.supportsSemanticSearch = Boolean(opts.embedder);
+    if (opts.state) {
+      const state = structuredClone(opts.state);
+      for (const file of state.files) this.files.set(file.path, file);
+      for (const directory of state.emptyDirs) this.emptyDirs.add(directory);
+      for (const [path, vector] of state.embeddings) this.embeddings.set(path, vector);
+    }
+  }
+
+  /** Detached data for storage adapters; retains full bodies and empty directories. */
+  snapshot(): ResourceMemoryState {
+    return structuredClone({ files: [...this.files.values()], emptyDirs: [...this.emptyDirs], embeddings: [...this.embeddings] });
   }
 
   // ─── Read ───────────────────────────────────────────────────────────────

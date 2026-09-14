@@ -41,17 +41,22 @@ export interface JsToolOptions {
   actor?: string;
   /** Which framing to mount. Default `"repl"`. */
   frame?: Frame;
+  /** Whether this is the agent's exclusive tool surface. Default true. */
+  exclusive?: boolean;
 }
 
 /** The head paragraph — the mental model the framing hands the model. */
-function head(frame: Frame, tool: string): string {
+function head(frame: Frame, tool: string, exclusive: boolean): string {
+  const door = exclusive
+    ? `You have EXACTLY ONE tool: ${tool}.`
+    : `${tool} is the single entrypoint to this programmatic function catalogue; normal direct tools may also be available outside it.`;
   if (frame === "workflow") {
-    return `You accomplish tasks by authoring WORKFLOWS. You have EXACTLY ONE tool: ${tool}. A workflow is ONE complete JavaScript program (the "code" string) that carries a task from start to finish — discover, read, filter, compute, branch, and act — in a SINGLE call. This is NOT an interactive prompt: do not run one line and wait to see the result, then run another. Write the WHOLE task as one program and let only the final value return. Think "write the script", not "type at a REPL".`;
+    return `You accomplish multi-step tasks by authoring WORKFLOWS. ${door} A workflow is ONE complete JavaScript program (the "code" string) that carries a task from start to finish — discover, read, filter, compute, branch, and act — in a SINGLE call. This is NOT an interactive prompt: do not run one line and wait to see the result, then run another. Write the WHOLE task as one program and let only the final value return. Think "write the script", not "type at a REPL".`;
   }
   if (frame === "program") {
-    return `You accomplish tasks by writing COMPLETE JavaScript programs. You have EXACTLY ONE tool: ${tool}. Each call runs one self-contained program (the "code" string) and returns the value of its last expression. Compose a whole step — discover, read, compute, and act — as ONE program rather than a line at a time.`;
+    return `You accomplish multi-step tasks by writing COMPLETE JavaScript programs. ${door} Each call runs one self-contained program (the "code" string) and returns the value of its last expression. Compose a whole step — discover, read, compute, and act — as ONE program rather than a line at a time.`;
   }
-  return `Your capabilities are functions inside a persistent JavaScript REPL. You have EXACTLY ONE tool: ${tool}. Everything you do is a JavaScript program you pass to ${tool} as a "code" string. The REPL is PERSISTENT: any top-level const/let you declare stays available in later calls.`;
+  return `This capability catalogue is exposed as functions inside a persistent JavaScript REPL. ${door} Use a JavaScript program passed to ${tool} as a "code" string. The REPL is PERSISTENT: any top-level const/let you declare stays available in later calls.`;
 }
 
 /** How cross-call persistence is presented — the substrate is identical, but the
@@ -96,15 +101,18 @@ const JS_LANG_CARD = `Language card (this is the WHOLE language — nothing else
 
 /** Build the language-card + operating-discipline preamble body for a framing.
  *  (The catalog hint is appended separately by {@link buildJsPreamble}.) */
-export function buildJsPreambleBody(frame: Frame = "repl"): string {
+export function buildJsPreambleBody(frame: Frame = "repl", exclusive = true): string {
   const tool = jsToolName(frame);
   const unit = frame === "workflow" ? "workflow" : "program";
-  return `${head(frame, tool)}${persistence(frame)}
+  const access = exclusive
+    ? `The functions listed below are NOT tools. They cannot be called directly; they exist ONLY inside a ${tool} ${unit}. There is no \`github__list_pull_requests\` tool, no \`sentry__list_issues\` tool — the ONLY tool is ${tool}.`
+    : `The function names listed below belong to this programmatic catalogue. Do not assume a function is also a direct tool merely because it appears here; invoke it inside a ${tool} ${unit}. Other tools listed separately by the agent remain directly callable.`;
+  return `${head(frame, tool, exclusive)}${persistence(frame)}
 
-READ THIS FIRST — the functions listed below are NOT tools. They cannot be called directly; they exist ONLY inside a ${tool} ${unit}. There is no \`github__list_pull_requests\` tool, no \`sentry__list_issues\` tool — the ONLY tool is ${tool}. To use a capability you MUST wrap it:
+READ THIS FIRST — ${access} To use a catalogue capability you MUST wrap it:
   ✗ WRONG: call the tool github__list_pull_requests  → it does not exist, nothing happens
   ✓ RIGHT: ${tool}({ code: 'github.list_pull_requests({ state: "open" }).length' })
-If you ever find yourself with no data, it is almost always because you tried to call a capability as a tool instead of inside ${tool}. Always call ${tool}.
+If a catalogue function produces no data, first check that you called it inside ${tool}.
 
 ${JS_LANG_CARD}
 
@@ -162,8 +170,9 @@ export function buildJsPreamble(
   session: JsSession,
   mode: "progressive" | "full" = "progressive",
   frame: Frame = "repl",
+  exclusive = true,
 ): string {
-  return buildJsPreambleBody(frame) + catalogHint(session, mode, jsToolName(frame));
+  return buildJsPreambleBody(frame, exclusive) + catalogHint(session, mode, jsToolName(frame));
 }
 
 const inputSchema = z.object({
@@ -179,14 +188,14 @@ function errResult(err: unknown): ToolResultData {
 }
 
 /** The eval tool's description, tuned to the framing (one-shot emphasis). */
-function toolDescription(frame: Frame): string {
+function toolDescription(frame: Frame, exclusive: boolean): string {
   const unit = frame === "workflow" ? "workflow" : "program";
   const lead =
     frame === "workflow"
-      ? `The ONLY tool: author a WORKFLOW — one complete JavaScript program (the \`code\` string) that carries the whole task from discovery to answer in a single call, run against your persistent capability session. `
+      ? `${exclusive ? "The ONLY tool" : "Programmatic workflow entrypoint"}: author one complete JavaScript program (the \`code\` string) that carries a multi-step task from discovery to answer in a single call, run against your persistent capability session. `
       : frame === "program"
-        ? `The ONLY tool: run a complete JavaScript program (the \`code\` string) against your capability session (persistent). `
-        : `The ONLY tool: run a JavaScript program (the \`code\` string) against your capability REPL (persistent). `;
+        ? `${exclusive ? "The ONLY tool" : "Programmatic entrypoint"}: run a complete JavaScript program (the \`code\` string) against your capability session (persistent). `
+        : `${exclusive ? "The ONLY tool" : "Programmatic entrypoint"}: run a JavaScript program (the \`code\` string) against your capability REPL (persistent). `;
   return (
     lead +
     `Your capabilities are FUNCTIONS you call INSIDE this ${unit} — they are NOT tools you can call directly. ` +
@@ -201,10 +210,11 @@ function toolDescription(frame: Frame): string {
 
 export function buildExecuteJsTool(session: JsSession, opts: JsToolOptions = {}): GloveFoldArgs<{ code: string }> {
   const frame = opts.frame ?? "repl";
+  const exclusive = opts.exclusive ?? true;
   const tool = jsToolName(frame);
   return {
     name: tool,
-    description: toolDescription(frame),
+    description: toolDescription(frame, exclusive),
     inputSchema,
     async do(input, _display, _glove, signal): Promise<ToolResultData> {
       try {
@@ -298,7 +308,7 @@ export function mountJs(glove: IGloveRunnable, config: MountJsConfig): IGloveRun
   if (prime !== false) {
     const mode = resolveMode(discovery, session);
     const existing = glove.getSystemPrompt();
-    const preamble = buildJsPreamble(session, mode, frame);
+    const preamble = buildJsPreamble(session, mode, frame, toolOpts.exclusive ?? true);
     glove.setSystemPrompt(existing ? `${preamble}\n\n${existing}` : preamble);
   }
   return glove;

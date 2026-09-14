@@ -1,9 +1,10 @@
 export { OpenAIRealtimeAdapter, type OpenAIRealtimeConfig } from "./openai-realtime";
+export { OpenAILiveAdapter, type OpenAILiveConfig } from "./openai-live";
 export {
   OpenAIRealtimeSocketAdapter,
   type OpenAIRealtimeSocketConfig,
 } from "./openai-realtime-socket";
-export type { S2SAdapter, S2SAudioFormat, S2SEvents, S2SSessionConfig, S2STool } from "./types";
+export type { S2SAdapter, S2SAudioFormat, S2SEvents, S2SSessionConfig, S2STool, S2SCapabilities, S2STranscriptFragment } from "./types";
 export { createS2SAdapter, type CreateS2SAdapterArgs, type S2SProvider } from "./create-adapter";
 export type {
   OpenAITurnDetection,

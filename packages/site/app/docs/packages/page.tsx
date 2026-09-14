@@ -67,6 +67,11 @@ export default function PackagesPage() {
         </thead>
         <tbody>
           <tr>
+            <td>Application framework</td>
+            <td><code>glove-foundry</code></td>
+            <td>Definitions, persisted instances, apps, events, schedules, conversations, runtime, and inspection need one coherent system.</td>
+          </tr>
+          <tr>
             <td>Runtime</td>
             <td>
               <code>glove-core</code>, <code>glove-react</code>,{" "}
@@ -117,11 +122,11 @@ export default function PackagesPage() {
           <tr>
             <td>Generative media</td>
             <td>
-              <code>glove-image</code>
+              <code>glove-image</code>, <code>glove-video</code>
             </td>
             <td>
-              The agent generates and refines images — recurring characters,
-              scenes, references.
+              The agent generates, reviews, and refines visual media — with
+              recurring subjects, scenes, references, timing, and lineage.
             </td>
           </tr>
           <tr>
@@ -149,6 +154,23 @@ export default function PackagesPage() {
       </table>
 
       {/* ============================================================ */}
+      <h2 id="application-framework">Application framework</h2>
+
+      <Pkg name="glove-foundry" tag="agent application framework">
+        <p>
+          The Effect-native, file-routed framework for complete Glove agent systems:
+          typed definitions, mutable instances, lazy composition, dynamically installed
+          applications, inbound and outbound transmissions, runtime playbooks,
+          schedules, conversations, shared workspaces, core orchestration tools, and a
+          correlated inspection workbench.
+        </p>
+        <CodeBlock filename="terminal" language="bash" code={`npx glove-foundry init my-agent-system
+cd my-agent-system
+pnpm install
+pnpm dev`} />
+        <p>→ <a href="/foundry">Foundry</a> · <a href="/foundry/docs">Framework handbook</a></p>
+      </Pkg>
+
       <h2 id="runtime">Runtime</h2>
 
       <Pkg name="glove-core" tag="the runtime">
@@ -321,7 +343,7 @@ const voice = useGloveVoice({
       <Pkg name="glove-voice-s2s" tag="speech-to-speech">
         <p>
           Run a built Glove agent directly on a realtime speech-to-speech model
-          (OpenAI Realtime, Gemini Live). The cascade&apos;s ~1.3–1.6s
+          (OpenAI Realtime, Gemini Live, GPT-Live). The cascade&apos;s ~1.3–1.6s
           voice-to-voice collapses to ~500–800ms, turn-taking is decided by the
           model listening, and your tools run unchanged through the same{" "}
           <code>Tool.run</code>.
@@ -904,6 +926,54 @@ await mountImage(glove, {
         </p>
       </Pkg>
 
+      <Pkg name="glove-video" tag="agentic video production">
+        <p>
+          Video generation as a directed production loop rather than a prompt
+          wrapper: temporal recipes, reusable subjects and scenes, first-frame
+          references from <code>glove-image</code>, provider job progress,
+          evidence-backed review, a delivery gate, resumable multi-shot flows,
+          and per-asset spend. The video model is an adapter you bring.
+        </p>
+        <CodeBlock
+          filename="terminal"
+          language="bash"
+          code={`pnpm add glove-video`}
+        />
+        <CodeBlock
+          filename="video.ts"
+          language="typescript"
+          code={`import {
+  mountVideo,
+  openrouterVideo,
+  defaultVideoPipeline,
+  InMemoryVideoAssetStore,
+  InMemoryVideoLibrary,
+  InMemoryVideoFlowStore,
+  InMemoryVideoReviewStore,
+} from "glove-video";
+
+await mountVideo(glove, {
+  adapter: openrouterVideo(),
+  assets: new InMemoryVideoAssetStore(),
+  library: new InMemoryVideoLibrary(),
+  flows: new InMemoryVideoFlowStore(),
+  pipeline: defaultVideoPipeline(),
+  review: {
+    model: videoCapableReviewer,
+    store: new InMemoryVideoReviewStore(),
+    passingScore: 84,
+  },
+});
+
+// The agent directs with glove_video_generate, watches with _review,
+// revises weak drafts, and _deliver refuses anything without a pass.`}
+        />
+        <p>
+          → <a href="/docs/video">Video workflows guide</a> ·{" "}
+          <a href="/docs/video/gallery">agent-directed case study</a>
+        </p>
+      </Pkg>
+
       {/* ============================================================ */}
       <h2 id="coordination">Coordination</h2>
 
@@ -1021,6 +1091,12 @@ await mountMcp(runnable, {
 
       {/* ============================================================ */}
       <h2 id="deployment">Deployment</h2>
+
+      <p>
+        <strong>Deprecated:</strong> Glovebox is retained for existing
+        deployments. Use <a href="/foundry/docs">Glove Foundry</a> for new
+        agent runtimes, working environments, and deployment composition.
+      </p>
 
       <p>
         <code>glovebox-core</code> (authoring kit + <code>glovebox build</code>{" "}

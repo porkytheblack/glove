@@ -1,5 +1,55 @@
 # glove-core
 
+## 4.1.0
+
+### Minor Changes
+
+- [#176](https://github.com/porkytheblack/glove/pull/176) [`8c36feb`](https://github.com/porkytheblack/glove/commit/8c36feb1139966bcdac8525e79db1714c13c5b6b) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Integrate Foundry's production application controls with the current core runtime-context and multimodal contracts. Add durable single-host Foundry data, authoritative conversation transcripts, adapter-owned HTTP authorization, expiring tool approvals, interrupt-and-restart steering, and bounded programmatic tool composition. Preserve message-aware assembly, schedules, sleep, native working environments, and voice host boundaries.
+
+  Add first-class lazy goals, facts, forms and native context-provider fields with typed execution handles, conversation/instance scoping, opt-in shared preparation, and metadata-only inspector progress. Extend the SQLite bundle with durable native goal/form adapters and independently committed fact saves protected by process-death-safe SQLite locks. Add guided-intake documentation and restart/concurrency tests.
+
+  Require Station 2.3.0 or newer for completed-worker drain and cancellation escalation fixes. Add a real-process regression for leaked handles and cancellation.
+
+  Add a Clack-based interactive project initializer with target, starter and package-manager choices, a review before writing files, cancellation and optional dependency installation. Preserve non-interactive automation with explicit flags. Require Node 20.12+ for the initializer (Node 22.13+ recommended for SQLite memory). Resolve scaffold versions against the installed workspace instead of obsolete fallback majors. Expand the package and starter READMEs and the documentation site's setup wizard and CLI reference.
+
+  Add opt-in `glove-memory/sqlite` durable entity, episodic, resource and pinned-context adapters for Node 22.13+ with isolated namespaces, transactional writes, cross-process reads and corruption checks. Existing browser-safe entry points remain unchanged.
+
+  Add MCP stdio transport, tool allowlists, sanitized resources and prompts, bounded timeouts, lease-safe child recycling, live tool refresh and deactivation cleanup. Core tool-registry updates are atomic; Gemini compatibility retains provider thought signatures across tool turns. REPL workflow frames remain bounded and capability-selected.
+
+## 4.0.0
+
+### Major Changes
+
+- **Breaking:** custom `IGloveRunnable` implementations must provide `addContextProvider` and `getRuntimeContext`; custom `IGloveBuilder` implementations must provide `addContextProvider`. Standard `Glove` implements these methods. Exhaustive subscriber-event handlers must account for the new `runtime_context` event.
+
+- Keep changing memory state out of system prompts. Core now resolves live context providers at the model-input tail before each iteration and exposes their snapshots to tracing. Goals, forms, and pinned context use these transient snapshots without changing saved conversation history. Realtime voice injects changed snapshots silently at startup and after tools, with explicit refresh for external changes.
+
+### Patch Changes
+
+- Preserve real user-turn boundaries when runtime context, inbox reminders, skills, or compaction markers are present. Keep current-turn tool results full, append pending reminders after complete tool-result bundles, and preserve structured image/video content when adjacent user messages are merged by OpenAI-compatible, OpenRouter, and MiMo adapters.
+
+## 3.7.1
+
+### Patch Changes
+
+- e6210d0: Automatically register glove_update_tasks for task-capable stores so downstream agents can use built-in task management. Rebind the tool when build supplies a store and document automatic and low-level usage.
+
+## 3.7.0
+
+### Minor Changes
+
+- [#157](https://github.com/porkytheblack/glove/pull/157) [`3dad3ab`](https://github.com/porkytheblack/glove/commit/3dad3ab965ef4dff1973fa7339a60ae8f24b90e8) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Introduce Glove Foundry, the Effect-native, file-routed framework for typed and observable agent applications.
+
+  - Publish the first `glove-foundry` release with composable code definitions, persisted instances, context-aware lazy assembly, applications and transmissions, dynamic playbooks and schedules, conversations, agent working environments, multi-agent composition, and the Foundry inspection workbench.
+  - Add Gemini native image generation and editing to `glove-image`.
+  - Refresh the Gemini model catalogue in `glove-core`.
+  - Move Gemini Live runtime text onto the realtime input protocol and update its default live model.
+  - Deprecate the Glovebox package family in favor of Glove Foundry. Existing Glovebox deployments remain supported as a legacy compatibility surface, while new agent runtimes should use Foundry.
+
+### Patch Changes
+
+- [#166](https://github.com/porkytheblack/glove/pull/166) [`ee591da`](https://github.com/porkytheblack/glove/commit/ee591da42305661339913bca8f967a9f8c0fecbf) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Support OpenRouter-native video content in model requests and preserve fitted image dimensions in OpenRouter image generation, enabling identity-aware video generation and review workflows.
+
 ## 3.6.0
 
 ### Minor Changes

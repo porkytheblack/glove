@@ -5,9 +5,10 @@ import type { DefineSubAgentArgs } from "glove-core/extensions";
 import type { ModelAdapter, StoreAdapter, ToolResultData } from "glove-core/core";
 
 import type { McpAdapter, McpCatalogueEntry } from "../adapter";
-import { connectMcp, type McpToolDef } from "../connect";
-import { bridgeMcpTool, type McpToolWrapper } from "../bridge";
-import { adapterAuth } from "../auth";
+import type { McpToolDef } from "../connect";
+import { connectMcpEntry } from "../connect-entry";
+import type { McpToolWrapper } from "../bridge";
+import { mountMcpToolSet, type MountedMcpToolSet } from "../mounted-tools";
 
 import type { DiscoveryAmbiguityPolicy } from "./policy";
 import { defaultPromptFor } from "./prompt";
@@ -29,10 +30,12 @@ export interface DiscoverySubAgentConfig {
   /** Forwarded to connectMcp during activation. */
   clientInfo?: { name: string; version: string };
   /** Cross-server tool filter — return `false` to hide a tool from activation
-   *  (applied on top of each entry's own `excludeTools`). */
+   *  (applied after each entry's own include/exclude policy). */
   filterTools?: (tool: McpToolDef, entry: McpCatalogueEntry) => boolean;
   /** Transform each bridged tool before it's folded onto the main agent (e.g. containment). */
   wrapTool?: McpToolWrapper;
+  /** @internal Live mounts shared across discovery invocations. */
+  mounted?: Map<string, MountedMcpToolSet>;
 }
 
 // ─── Subagent-only tools ─────────────────────────────────────────────────────
@@ -77,6 +80,7 @@ function activateTool(
   clientInfo?: { name: string; version: string },
   wrapTool?: McpToolWrapper,
   filterTools?: (tool: McpToolDef, entry: McpCatalogueEntry) => boolean,
+  mounted?: Map<string, MountedMcpToolSet>,
 ): GloveFoldArgs<{ id: string }> {
   return {
     name: "activate",
@@ -96,36 +100,42 @@ function activateTool(
         };
       }
 
+      const existing = mounted?.get(entry.id);
+      if (existing) {
+        return {
+          status: "success",
+          data: `Activated ${entry.name}. Tools already mounted: ${existing.toolNames.join(", ") || "(none)"}`,
+        };
+      }
+
+      let conn: Awaited<ReturnType<typeof connectMcpEntry>> | undefined;
+      let toolSet: MountedMcpToolSet | undefined;
       try {
-        const conn = await connectMcp({
-          namespace: entry.id,
-          url: entry.url,
-          auth: adapterAuth(adapter, entry.id),
+        conn = await connectMcpEntry({
+          adapter,
+          entry,
           clientInfo,
-          ...(entry.excludeTools ? { excludeTools: entry.excludeTools } : {}),
           ...(filterTools ? { filterTools: (tool) => filterTools(tool, entry) } : {}),
         });
 
-        const tools = await conn.listTools();
-        // Build the full wrapped set first; fold only after every wrapTool call
-        // succeeds, so a throwing wrapper can't leave the session with a
-        // half-activated provider the adapter doesn't know about.
-        const wrapped = tools.map((tool) => {
-          const bridged = bridgeMcpTool(conn, tool, mainGlove.serverMode);
-          return wrapTool ? wrapTool(bridged, entry) : bridged;
+        toolSet = await mountMcpToolSet({
+          glove: mainGlove,
+          connection: conn,
+          entry,
+          wrapTool,
         });
-        for (const t of wrapped) mainGlove.fold(t);
-        const toolNames = tools.map((tool) => tool.name);
-
         await adapter.activate(entry.id);
+        mounted?.set(entry.id, toolSet);
 
         return {
           status: "success",
           data:
             `Activated ${entry.name}. New tools: ` +
-            (toolNames.length ? toolNames.map((n) => `${entry.id}__${n}`).join(", ") : "(none)"),
+            (toolSet.toolNames.length ? toolSet.toolNames.join(", ") : "(none)"),
         };
       } catch (err) {
+        if (toolSet) await toolSet.dispose().catch(() => undefined);
+        else if (conn) await conn.close().catch(() => undefined);
         const message = err instanceof Error ? err.message : String(err);
         return {
           status: "error",
@@ -139,21 +149,25 @@ function activateTool(
 
 function deactivateTool(
   adapter: McpAdapter,
+  mounted?: Map<string, MountedMcpToolSet>,
 ): GloveFoldArgs<{ id: string }> {
   return {
     name: "deactivate",
     description:
-      "Mark a capability inactive in the persisted state. Note: tools remain loaded on the " +
-      "running assistant until the session is refreshed (v1 limitation).",
+      "Deactivate a capability, remove its tools from the running assistant, and close its connection.",
     inputSchema: z.object({
       id: z.string().describe("Catalogue entry id."),
     }),
     async do(input): Promise<ToolResultData> {
       await adapter.deactivate(input.id);
+      const toolSet = mounted?.get(input.id);
+      if (toolSet) {
+        await toolSet.dispose();
+        mounted?.delete(input.id);
+      }
       return {
         status: "success",
-        data:
-          `Deactivated ${input.id}. (Tools remain loaded until next session.)`,
+        data: `Deactivated ${input.id}. Its tools were removed from this session.`,
       };
     },
   };
@@ -227,6 +241,7 @@ function askUserTool(): GloveFoldArgs<{ question: string; options: AskUserOption
 export function discoverySubAgent(
   config: DiscoverySubAgentConfig,
 ): DefineSubAgentArgs {
+  const mounted = config.mounted ?? new Map<string, MountedMcpToolSet>();
   return {
     name: "discovermcp",
     description:
@@ -255,9 +270,17 @@ export function discoverySubAgent(
 
       subagent.fold(listCapabilitiesTool(config.adapter, config.entries));
       subagent.fold(
-        activateTool(config.adapter, config.entries, parentGlove, config.clientInfo, config.wrapTool, config.filterTools),
+        activateTool(
+          config.adapter,
+          config.entries,
+          parentGlove,
+          config.clientInfo,
+          config.wrapTool,
+          config.filterTools,
+          mounted,
+        ),
       );
-      subagent.fold(deactivateTool(config.adapter));
+      subagent.fold(deactivateTool(config.adapter, mounted));
       if (config.ambiguityPolicy.type === "interactive") {
         subagent.fold(askUserTool());
       }

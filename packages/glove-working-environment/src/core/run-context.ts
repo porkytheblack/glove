@@ -21,7 +21,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export interface RunContext {
   /** A refusal reason once the run is dead, null while it is alive. */
   abandoned(): string | null;
-  /** Aborts when this run is cancelled. Absent when nothing can cancel it. */
+  /** Aborts when the run ends for any reason. Absent outside a worker run. */
   signal?: AbortSignal;
 }
 

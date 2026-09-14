@@ -9,6 +9,7 @@ dist
 .env.local
 .next
 out
+*.tsbuildinfo
 *.db
 .DS_Store
 *.db-*
@@ -19,3 +20,4 @@ out
 # checkout of another branch with its own node_modules; committing one would
 # vendor a second copy of the repo into the repo.
 .claude/worktrees/
+.braind-storm/

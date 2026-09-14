@@ -27,6 +27,12 @@ function joinTextContent(content: McpCallToolResult["content"]): string {
     .join("\n");
 }
 
+function appendMetadata(data: string, metadata?: Record<string, unknown>): string {
+  return metadata
+    ? `${data}\n\nMCP vendor metadata: ${JSON.stringify(metadata)}`
+    : data;
+}
+
 function isAuthError(err: unknown): boolean {
   if (err instanceof UnauthorizedError) return true;
   if (err && typeof err === "object") {
@@ -59,7 +65,9 @@ function isAuthError(err: unknown): boolean {
  *   detect token expiry from the conversation log.
  * - The model sees the server's `structuredContent` when present (MCP
  *   2025-06-18+), else the joined text, in `data`. Full MCP `content[]` is
- *   always passed through as `renderData` for React renderers to use.
+ *   always passed through as `renderData` for React renderers to use. Safe
+ *   vendor metadata is appended to model-visible data; MCP-reserved keys are
+ *   removed at the connection boundary.
  */
 export function bridgeMcpTool(
   connection: McpServerConnection,
@@ -98,10 +106,12 @@ export function bridgeMcpTool(
         // Prefer the server's structured result when present: the model sees
         // typed data matching the tool's outputSchema instead of re-parsing
         // joined text. Fall back to text (then raw content) otherwise.
-        const data =
+        const data = appendMetadata(
           result.structuredContent !== undefined
             ? JSON.stringify(result.structuredContent)
-            : text || JSON.stringify(result.content);
+            : text || JSON.stringify(result.content),
+          result.metadata,
+        );
 
         return {
           status: "success",

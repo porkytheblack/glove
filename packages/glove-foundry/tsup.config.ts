@@ -1,0 +1,35 @@
+import { defineConfig } from "tsup";
+
+export default defineConfig({
+  removeNodeProtocol: false,
+  entry: [
+    "src/index.ts",
+    "src/client.ts",
+    "src/config.ts",
+    "src/eslint.ts",
+    "src/cli.ts",
+    "src/execution-agent.ts",
+  ],
+  format: ["esm"],
+  dts: true,
+  target: "es2022",
+  clean: true,
+  splitting: true,
+  outDir: "dist",
+  external: [
+    "effect",
+    "glove-core",
+    "glove-js",
+    "glove-lisp",
+    "glove-mcp",
+    "glove-memory",
+    "glove-mesh",
+    "glove-python",
+    "glove-working-environment",
+    "station-env",
+    "station-signal",
+    "station-schedules",
+    "tsx",
+    "zod",
+  ],
+});

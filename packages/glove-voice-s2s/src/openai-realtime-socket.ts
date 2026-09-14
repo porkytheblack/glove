@@ -18,7 +18,7 @@
 // or the real API key only in a server process that already holds it.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import EventEmitter from "eventemitter3";
+import { EventEmitter } from "eventemitter3";
 import type { S2SAdapter, S2SAudioFormat, S2SEvents, S2SSessionConfig } from "./types";
 import type { WebSocketLike } from "./gemini-live";
 import { base64ToInt16, int16ToBase64 } from "./pcm";

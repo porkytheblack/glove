@@ -1,3 +1,4 @@
+import type { PreparationReport } from "glove-facts";
 import type { z } from "zod";
 import type { DisplayManagerAdapter } from "glove-core";
 import type { Provenance } from "../core/provenance";
@@ -194,6 +195,11 @@ export type FormValues<B> = B extends { __values?: infer V } ? V : never;
  * and undo/redo need only move a cursor.
  */
 export interface FormEntry {
+  /** Stable prepared-effect patch receipt; prevents replay from appending twice. */
+  effectId?: string;
+  claimId?: string;
+  /** Host-authorized effects already achieved by this entry’s evidence. */
+  fulfilledHooks?: string[];
   /** As supplied. Parsing happens on read so a def change re-judges old answers. */
   value: unknown;
   at: string;
@@ -227,6 +233,9 @@ export interface FieldHistory {
 }
 
 export interface DispatchState {
+  /** Durable returned effects, used to finish a prepared commit after a restart. */
+  effects?: FormEffect<any>[];
+  claimId?: string;
   hookId: string;
   status: "running" | "ok" | "failed";
   attempts: number;
@@ -241,7 +250,23 @@ export type FormInstanceStatus =
   | "abandoned"
   | "stale";
 
+/** Outbox for effects of a prepared commit. Persist alongside answer history. */
+export interface FormHookBatch {
+  id: string;
+  defVersion: number;
+  hooks: Array<{ hookId: string; kind: "field" | "step" | "checkpoint" | "form"; id: string; blocking: boolean; occurrence: number }>;
+  values: Record<string, unknown>;
+  live: string[];
+  stepComplete: Record<string, boolean>;
+  complete: boolean;
+  priorOccurrences: Record<string, number>;
+  newFields: string[];
+  provenance: Provenance;
+}
+
 export interface FormInstance {
+  pendingHooks?: Record<string, FormHookBatch>;
+  preparation?: PreparationReport;
   id: string;
   defId: string;
   /** Pinned at start. A mismatch against the registered def triggers §5.2. */
@@ -304,6 +329,9 @@ export interface FormEntryCommit {
  * `null` on `blockedOn` / `openStepOverride` clears them.
  */
 export interface FormInstanceCommit {
+  /** Merge batches by id; null acknowledges a settled batch. */
+  pendingHooks?: Record<string, FormHookBatch | null>;
+  preparation?: PreparationReport;
   entries?: Record<string, FormEntryCommit>;
   /** Replaces the instance counter after `entries` appends have taken their seqs. */
   revisionSeq?: number;
@@ -365,6 +393,7 @@ export type FormViewScope =
 
 /** Flat field rows plus just enough framing to place them. */
 export interface FormView {
+  preparation?: PreparationReport;
   instanceId: string;
   defId: string;
   defVersion: number;

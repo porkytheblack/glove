@@ -249,8 +249,8 @@ export class WorkerPool {
    * Runs in flight, so a capability call can be given its run's abort signal.
    *
    * Keyed by the same id the worker stamps onto every `need`. Entries are
-   * removed the moment the run settles — a run that has finished cannot have
-   * a call outstanding worth cancelling.
+   * removed the moment the run settles, after aborting any host work it left
+   * outstanding.
    */
   private readonly liveRuns = new Map<string, { signal?: AbortSignal }>();
   /**
@@ -841,7 +841,10 @@ export class WorkerPool {
     const id = `r${++this.seq}`;
     const budgetMs = clampBudget(request.timeoutMs, this.deps.limits.runTimeoutMs);
     const deadline = Date.now() + budgetMs;
-    this.liveRuns.set(id, { signal: request.signal });
+    // Host capabilities must stop on every end-of-run path, including a
+    // deadline, worker failure or environment close without a caller signal.
+    const lifetime = new AbortController();
+    this.liveRuns.set(id, { signal: lifetime.signal });
 
     try {
       return await new Promise((resolve) => {
@@ -855,6 +858,7 @@ export class WorkerPool {
           // what the model believes. Terminating the worker does not stop
           // work already in flight over here.
           if (!value.ok) this.abandon(id);
+          lifetime.abort();
           this.liveRuns.delete(id);
           clearTimeout(killer);
           request.signal?.removeEventListener("abort", cancel);

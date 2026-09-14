@@ -1,6 +1,6 @@
 {
   "name": "glove-memory",
-  "version": "1.1.0",
+  "version": "2.1.0",
   "description": "Memory layer for the Glove agent framework — entity, episodic, resources, and context primitives with bring-your-own storage.",
   "type": "module",
   "license": "MIT",
@@ -51,9 +51,17 @@
       "types": "./dist/layered/index.d.ts",
       "import": "./dist/layered/index.js"
     },
+    "./sqlite": {
+      "types": "./dist/sqlite/index.d.ts",
+      "import": "./dist/sqlite/index.js"
+    },
     "./in-memory": {
       "types": "./dist/in-memory/index.d.ts",
       "import": "./dist/in-memory/index.js"
+    },
+    "./goals": {
+      "types": "./dist/goals/index.d.ts",
+      "import": "./dist/goals/index.js"
     }
   },
   "files": [
@@ -66,7 +74,8 @@
   },
   "dependencies": {
     "glove-core": "workspace:*",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "glove-facts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",

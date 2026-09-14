@@ -72,7 +72,7 @@ export function readZip(bytes: Uint8Array): ZipEntry[] {
     const localHeaderOffset = buf.readUInt32LE(offset + 42);
     const name = buf.toString("utf8", offset + 46, offset + 46 + nameLength);
     if (flags & FLAG_ENCRYPTED) {
-      throw new Error(`encrypted ZIP entries are not supported: ${name}`);
+      throw new Error(`encrypted ZIP entries are not supported: ${name} — call unlock(input, output, { password }) first`);
     }
     entries.push({
       name,

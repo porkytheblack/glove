@@ -82,7 +82,7 @@ export const s2sRoom = signal("s2s-room")
             (process.env.OPENAI_API_KEY ? "openai" : "gemini"),
         ),
       /** Realtime model — provider-specific; empty picks the provider default
-       *  ("gpt-realtime" / "models/gemini-live-2.5-flash-preview"). */
+       *  ("gpt-realtime" / "models/gemini-3.1-flash-live-preview"). */
       model: z.string().default(process.env.S2S_MODEL ?? ""),
       /** Voice name — provider-specific; empty picks "marin" / "Puck". */
       voice: z.string().default(process.env.S2S_VOICE ?? ""),

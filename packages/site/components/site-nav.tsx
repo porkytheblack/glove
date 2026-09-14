@@ -12,6 +12,7 @@ export function SiteNav() {
         <span className="nav-pill">v3</span>
       </Link>
       <div className="nav-links">
+        <Link href="/foundry" className="nav-foundry">Foundry</Link>
         <Link href="/docs/intro">Docs</Link>
         <Link href="/docs/showcase/travel-planner">Showcase</Link>
         <Link href="/blog">Blog</Link>

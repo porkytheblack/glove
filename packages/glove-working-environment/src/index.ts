@@ -4,8 +4,8 @@
  *
  * One tree: inputs, scripts, intermediates, outputs, docs, and history all
  * live in a persistent, snapshottable virtual filesystem. Scripts execute
- * in a scope containing only injected capabilities — no networking, no
- * host filesystem access, no process spawning, by construction.
+ * in a scope containing only injected capabilities — no ambient network,
+ * host filesystem or process access. External capabilities require host adapters.
  */
 import { ASKING, BUILTIN_SKILLS, DELIVERING, skillsIndex } from "./skills";
 import { readFile as hostReadFile } from "node:fs/promises";

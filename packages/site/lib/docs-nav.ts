@@ -36,6 +36,14 @@ export const docsSections: DocsNavSection[] = [
           "The idea behind Glove: define capabilities as tools, let an agent orchestrate them.",
       },
       {
+        label: "Glove Foundry",
+        href: "/foundry",
+        badge: "new",
+        summary:
+          "The file-routed, Effect-native framework for assembling, running, and inspecting complete agent systems.",
+        packages: ["glove-foundry"],
+      },
+      {
         label: "Installation",
         href: "/docs/installation",
         summary:
@@ -141,7 +149,7 @@ export const docsSections: DocsNavSection[] = [
   },
   {
     title: "Generative Media",
-    blurb: "Agentic generation of images — workflows, not one-off calls.",
+    blurb: "Agentic image and video generation — workflows, not one-off calls.",
     items: [
       {
         label: "Image Workflows",
@@ -158,6 +166,22 @@ export const docsSections: DocsNavSection[] = [
         summary:
           "A worked SS26 campaign — every image with its real prompt, pipeline trace and cost, plus a provenance canvas showing how one was made.",
         packages: ["glove-image"],
+      },
+      {
+        label: "Video Workflows",
+        href: "/docs/video",
+        badge: "new",
+        summary:
+          "Temporal prompt pipelines, continuity libraries, image references, actual-video review, delivery gates, resumable flows and spend tracking.",
+        packages: ["glove-video", "glove-image"],
+      },
+      {
+        label: "Video Gallery",
+        href: "/docs/video/gallery",
+        badge: "new",
+        summary:
+          "An agent-directed case study exposing the keyframe, timed recipe, every reviewed take, revision evidence, delivery decision and real spend.",
+        packages: ["glove-video", "glove-image"],
       },
     ],
   },
@@ -179,6 +203,20 @@ export const docsSections: DocsNavSection[] = [
         summary:
           "Structured collection over a conversation — Zod-authored definitions, lazily loaded, with colocated executors.",
         packages: ["glove-memory"],
+      },
+      {
+        label: "Dynamic goals",
+        href: "/docs/goals",
+        badge: "new",
+        summary: "Context-sensitive goal programs, checklist progress, revision history, and deferred follow-ups — BYO storage.",
+        packages: ["glove-memory"],
+      },
+      {
+        label: "Shared facts",
+        href: "/docs/facts",
+        badge: "new",
+        summary: "Scoped evidence and preparation through a supplied Glove agent, shared by goals and forms.",
+        packages: ["glove-facts", "glove-memory"],
       },
       {
         label: "Why Memory",
@@ -220,6 +258,8 @@ export const docsSections: DocsNavSection[] = [
           "glove-env-slides",
           "glove-env-zip",
           "glove-env-media",
+          "glove-env-fetch",
+          "glove-env-secret",
         ],
       },
       {
@@ -233,7 +273,7 @@ export const docsSections: DocsNavSection[] = [
       {
         label: "Egress Control",
         href: "/docs/egress",
-        badge: "beta",
+        badge: "deprecated",
         summary:
           "Make the sandbox boundary a measured, enforced privacy boundary.",
         packages: ["glove-egress"],
@@ -323,7 +363,7 @@ export const docsOrder: DocsOrderEntry[] = docsSections.flatMap((section) =>
     href: item.href,
     label: item.label,
     section: section.title,
-  })),
+  })).filter((item) => item.href.startsWith("/docs/")),
 );
 
 /** Look up the section a page belongs to. */

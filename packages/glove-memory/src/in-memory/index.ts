@@ -3,3 +3,5 @@ export { InMemoryEpisodicAdapter } from "./episodic";
 export { InMemoryResourcesAdapter } from "./resources";
 export { InMemoryContextAdapter } from "./context";
 export { InMemoryFormAdapter } from "./forms";
+
+export { InMemoryGoalAdapter } from "./goals";

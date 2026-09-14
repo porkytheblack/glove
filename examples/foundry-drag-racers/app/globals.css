@@ -1,0 +1,95 @@
+:root { color-scheme: dark; --ink: #f4f0e8; --muted: #99968f; --panel: #111211; --line: #30312e; }
+* { box-sizing: border-box; }
+html { background: #090a09; }
+body { margin: 0; color: var(--ink); background: #090a09; font-family: Arial, Helvetica, sans-serif; }
+button, input { font: inherit; }
+button { color: inherit; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+main { min-height: 100vh; overflow: hidden; background-image: linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px); background-size: 56px 56px; }
+.topbar { height: 66px; padding: 0 4vw; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); font-size: 11px; letter-spacing: .16em; }
+.brand { display: flex; align-items: center; gap: 14px; font-weight: 800; }
+.brandMark { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--ink); font-size: 10px; letter-spacing: 0; transform: skew(-7deg); }
+.liveMeta { color: #b7b3aa; display: flex; align-items: center; gap: 10px; }
+.liveMeta i { width: 6px; height: 6px; border-radius: 50%; background: #46db7a; box-shadow: 0 0 12px #46db7a; }
+.hero { padding: 70px 4vw 44px; display: grid; grid-template-columns: 1.2fr .8fr; align-items: end; position: relative; }
+.eyebrow { position: absolute; top: 40px; left: 4vw; color: var(--accent); font: 700 10px/1 monospace; letter-spacing: .22em; }
+h1 { margin: 0; font-size: clamp(62px, 9vw, 146px); line-height: .75; letter-spacing: -.075em; text-transform: uppercase; font-stretch: condensed; }
+h1 em { color: transparent; -webkit-text-stroke: 1px #777872; font-style: normal; }
+.hero p { justify-self: end; max-width: 470px; margin: 0 0 4px 30px; color: #aaa79f; font-size: clamp(15px, 1.3vw, 20px); line-height: 1.5; }
+.racerGrid { padding: 0 4vw; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.racerCard { border: 1px solid #2b2c29; padding: 0; height: min(52vw, 660px); min-height: 430px; background: #161716; position: relative; overflow: hidden; text-align: left; cursor: pointer; transition: border-color .25s, transform .25s, opacity .25s; }
+.racerCard:disabled { cursor: default; opacity: .38; }
+.racerCard:not(:disabled):hover { transform: translateY(-4px); }
+.racerCard.selected { border-color: var(--card-accent); box-shadow: inset 0 -3px 0 var(--card-accent); }
+.racerCard img { object-fit: cover; transition: transform .5s; }
+.racerCard:not(:disabled):hover img { transform: scale(1.018); }
+.cardShade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.04) 30%, rgba(0,0,0,.92) 100%); }
+.cardNumber { position: absolute; top: 18px; left: 18px; display: grid; place-items: center; width: 35px; height: 35px; color: var(--card-accent); border: 1px solid currentColor; font: 700 11px monospace; }
+.cardCopy { position: absolute; left: 24px; bottom: 26px; display: flex; flex-direction: column; max-width: 70%; }
+.cardCopy small { color: var(--card-accent); font: 700 9px monospace; letter-spacing: .14em; text-transform: uppercase; }
+.cardCopy strong { margin: 6px 0 3px; font-size: clamp(28px, 3.1vw, 54px); letter-spacing: -.06em; line-height: 1; text-transform: uppercase; }
+.cardCopy span { color: #bbb8b0; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.cardStat { position: absolute; right: 22px; bottom: 27px; text-align: right; }
+.cardStat b { display: block; font: 700 16px monospace; }
+.cardStat small { color: #777; font: 8px monospace; letter-spacing: .15em; }
+.console { margin: 12px 4vw 64px; border: 1px solid var(--line); background: rgba(15,16,15,.96); }
+.console.open { border-color: color-mix(in srgb, var(--accent) 60%, #30312e); }
+.consoleRail { min-height: 92px; display: grid; grid-template-columns: 260px 1fr auto; align-items: stretch; }
+.statusBlock { padding: 21px 24px; border-right: 1px solid var(--line); display: flex; align-items: center; gap: 14px; }
+.statusBlock small, .carFacts small, .telemetry small { display: block; color: #777; font: 8px monospace; letter-spacing: .16em; margin-bottom: 7px; }
+.statusBlock b { font-size: 13px; text-transform: uppercase; }
+.pulse { width: 11px; height: 11px; border: 1px solid #777; border-radius: 50%; }
+.pulse.hot { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 18px var(--accent); animation: pulse 1.3s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+.carFacts { display: grid; grid-template-columns: minmax(140px, .45fr) 1fr; align-items: center; }
+.carFacts span { padding: 0 28px; }
+.carFacts b { font-size: 11px; line-height: 1.4; font-weight: 500; }
+.callButton, .hangButton { border: 0; min-width: 255px; padding: 0 28px; font-size: 12px; font-weight: 800; letter-spacing: .1em; cursor: pointer; }
+.callButton { background: var(--accent); color: #080908; }
+.callButton:hover { filter: brightness(1.12); }
+.phoneIcon { margin-right: 12px; font-size: 23px; }
+.hangButton { background: #2b1312; color: #ff7770; }
+.callPanel { display: grid; grid-template-columns: 1fr 285px; border-top: 1px solid var(--line); min-height: 430px; }
+.transcript { display: flex; flex-direction: column; min-width: 0; }
+.panelHead { height: 47px; padding: 0 22px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; color: #777; font: 8px monospace; letter-spacing: .15em; }
+.lines { padding: 20px 24px; height: 320px; overflow: auto; }
+.lines p { display: grid; grid-template-columns: 72px 1fr; margin: 0 0 16px; font-size: 14px; line-height: 1.48; }
+.lines b { color: #74736e; font: 8px monospace; letter-spacing: .1em; text-transform: uppercase; padding-top: 5px; }
+.lines .racer b { color: var(--accent); }
+.lines .system span { color: #777; font-style: italic; }
+.lines .empty { display: block; color: #666; }
+.typedInput { margin-top: auto; height: 62px; border-top: 1px solid var(--line); display: flex; }
+.typedInput input { flex: 1; border: 0; outline: 0; background: transparent; color: var(--ink); padding: 0 22px; }
+.typedInput button { width: 96px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--accent); font: 700 9px monospace; letter-spacing: .15em; cursor: pointer; }
+.telemetry { padding: 22px; border-left: 1px solid var(--line); }
+.wave { height: 72px; display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 24px; }
+.wave i { display: block; width: 3px; height: calc(8px + (var(--n, 1) * 2px)); max-height: 42px; background: var(--accent); animation: meter .8s ease-in-out infinite alternate; }
+.wave i:nth-child(3n) { height: 34px; animation-delay: -.2s; }.wave i:nth-child(4n) { height: 20px; animation-delay: -.5s; }.wave i:nth-child(5n) { height: 42px; }
+@keyframes meter { to { transform: scaleY(.3); opacity: .45; } }
+.telemetry ul { margin: 0 0 30px; padding: 0; list-style: none; }
+.telemetry li, .telemetry p { color: #aaa79f; font: 10px/1.6 monospace; overflow-wrap: anywhere; }
+.telemetry li::before { content: "↳ "; color: var(--accent); }
+.telemetry p { margin: 8px 0; }
+.errorBox { border-top: 1px solid #532420; padding: 16px 22px; color: #ff8e86; background: #1e100f; font-size: 13px; }
+footer { margin: 0 4vw; padding: 26px 0 38px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; color: #5e5e5a; font: 8px monospace; letter-spacing: .15em; }
+@media (max-width: 900px) {
+  .hero { grid-template-columns: 1fr; gap: 35px; }
+  .hero p { justify-self: start; margin-left: 0; }
+  .racerGrid { grid-template-columns: 1fr; }
+  .racerCard { height: 620px; }
+  .consoleRail { grid-template-columns: 1fr; }
+  .statusBlock { border-right: 0; border-bottom: 1px solid var(--line); }
+  .carFacts { min-height: 90px; }
+  .callButton, .hangButton { min-height: 72px; }
+  .callPanel { grid-template-columns: 1fr; }
+  .telemetry { border-left: 0; border-top: 1px solid var(--line); }
+}
+@media (max-width: 560px) {
+  .topbar { padding: 0 18px; }.liveMeta { font-size: 0; }.hero { padding-left: 18px; padding-right: 18px; }.eyebrow { left: 18px; }
+  .racerGrid, .console { margin-left: 18px; margin-right: 18px; }.racerGrid { padding: 0; }.racerCard { min-height: 460px; height: 135vw; }
+  .carFacts { grid-template-columns: 1fr; padding: 15px 0; }.carFacts span { padding: 10px 22px; }
+  footer { margin: 0 18px; gap: 15px; flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

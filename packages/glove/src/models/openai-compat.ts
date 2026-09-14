@@ -1,3 +1,4 @@
+import { mergeUserContent } from "./merge-user-content";
 import OpenAI from "openai";
 import type {
   Message,
@@ -234,8 +235,33 @@ function readCachedTokens(usage: unknown): number | undefined {
 
 type OpenAIMessage = OpenAI.Chat.ChatCompletionMessageParam & {
   reasoning_content?: string;
+  extra_content?: Record<string, unknown>;
 };
 type OpenAITool = OpenAI.Chat.ChatCompletionTool;
+type OpenAIToolCall = OpenAI.Chat.ChatCompletionMessageToolCall & {
+  extra_content?: Record<string, unknown>;
+};
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function providerExtraContent(
+  options: Message["provider_options"] | ToolCall["provider_options"],
+  provider: string,
+): Record<string, unknown> | undefined {
+  return recordValue(options?.[provider]?.extra_content);
+}
+
+function providerOptions(
+  provider: string,
+  extraContent: unknown,
+): Message["provider_options"] | undefined {
+  const value = recordValue(extraContent);
+  return value ? { [provider]: { extra_content: value } } : undefined;
+}
 
 function formatTools(tools: Array<Tool<unknown>>): Array<OpenAITool> {
   return tools.map((tool) => ({
@@ -268,21 +294,42 @@ function safeJsonParse(str: string): unknown {
 
 function formatContentParts(
   parts: ContentPart[],
+  provider: string,
 ): OpenAI.Chat.ChatCompletionContentPart[] {
-  const result: OpenAI.Chat.ChatCompletionContentPart[] = [];
+  type OpenRouterVideoPart = {
+    type: "video_url";
+    video_url: { url: string };
+  };
+  const result: Array<OpenAI.Chat.ChatCompletionContentPart | OpenRouterVideoPart> = [];
   for (const part of parts) {
     switch (part.type) {
       case "text":
         if (part.text) result.push({ type: "text", text: part.text });
         break;
       case "image":
-      case "video":
         if (part.source) {
           const url =
             part.source.type === "url"
               ? part.source.url!
               : `data:${part.source.media_type};base64,${part.source.data}`;
           result.push({ type: "image_url", image_url: { url } });
+        }
+        break;
+      case "video":
+        if (part.source) {
+          const url =
+            part.source.type === "url"
+              ? part.source.url!
+              : `data:${part.source.media_type};base64,${part.source.data}`;
+          if (provider === "openrouter") {
+            // OpenRouter's multimodal chat format distinguishes video from
+            // images. The OpenAI SDK does not declare this extension yet.
+            result.push({ type: "video_url", video_url: { url } });
+          } else {
+            // Preserve the pre-existing compatibility behavior for generic
+            // OpenAI-compatible endpoints whose video conventions vary.
+            result.push({ type: "image_url", image_url: { url } });
+          }
         }
         break;
       case "document":
@@ -293,10 +340,14 @@ function formatContentParts(
         break;
     }
   }
-  return result;
+  return result as OpenAI.Chat.ChatCompletionContentPart[];
 }
 
-function formatMessage(msg: Message, echoReasoning: boolean): OpenAIMessage[] {
+function formatMessage(
+  msg: Message,
+  echoReasoning: boolean,
+  provider: string,
+): OpenAIMessage[] {
   const role: "user" | "assistant" =
     msg.sender === "agent" ? "assistant" : "user";
 
@@ -316,34 +367,50 @@ function formatMessage(msg: Message, echoReasoning: boolean): OpenAIMessage[] {
     const out: OpenAIMessage = {
       role: "assistant" as const,
       content: msg.text || null,
-      tool_calls: msg.tool_calls.map((tc) => ({
-        id: tc.id ?? `call_${crypto.randomUUID()}`,
-        type: "function" as const,
-        function: {
-          name: tc.tool_name,
-          arguments:
-            typeof tc.input_args === "string"
-              ? tc.input_args
-              : JSON.stringify(tc.input_args ?? {}),
-        },
-      })),
+      tool_calls: msg.tool_calls.map((tc) => {
+        const extraContent = provider
+          ? providerExtraContent(tc.provider_options, provider)
+          : undefined;
+        return {
+          id: tc.id ?? `call_${crypto.randomUUID()}`,
+          type: "function" as const,
+          function: {
+            name: tc.tool_name,
+            arguments:
+              typeof tc.input_args === "string"
+                ? tc.input_args
+                : JSON.stringify(tc.input_args ?? {}),
+          },
+          ...(extraContent ? { extra_content: extraContent } : {}),
+        } as OpenAIToolCall;
+      }),
     };
+    const extraContent = provider
+      ? providerExtraContent(msg.provider_options, provider)
+      : undefined;
+    if (extraContent) out.extra_content = extraContent;
     if (echoReasoning && msg.reasoning_content) {
       out.reasoning_content = msg.reasoning_content;
     }
     return [out];
   }
 
-  if (role === "assistant" && echoReasoning && msg.reasoning_content) {
-    return [{
+  if (role === "assistant") {
+    const extraContent = provider
+      ? providerExtraContent(msg.provider_options, provider)
+      : undefined;
+    if ((echoReasoning && msg.reasoning_content) || extraContent) return [{
       role: "assistant" as const,
       content: msg.text,
-      reasoning_content: msg.reasoning_content,
+      ...(echoReasoning && msg.reasoning_content
+        ? { reasoning_content: msg.reasoning_content }
+        : {}),
+      ...(extraContent ? { extra_content: extraContent } : {}),
     }];
   }
 
   if (msg.content?.length && role === "user") {
-    return [{ role: "user" as const, content: formatContentParts(msg.content) }];
+    return [{ role: "user" as const, content: formatContentParts(msg.content, provider) }];
   }
 
   return [{ role, content: msg.text }];
@@ -352,21 +419,18 @@ function formatMessage(msg: Message, echoReasoning: boolean): OpenAIMessage[] {
 export function formatMessages(
   messages: Array<Message>,
   echoReasoning: boolean = false,
+  provider: string = "openai-compat",
 ): OpenAIMessage[] {
   const flat: OpenAIMessage[] = [];
   for (const msg of messages) {
-    flat.push(...formatMessage(msg, echoReasoning));
+    flat.push(...formatMessage(msg, echoReasoning, provider));
   }
 
   const merged: OpenAIMessage[] = [];
   for (const msg of flat) {
     const prev = merged[merged.length - 1];
     if (prev && prev.role === "user" && msg.role === "user") {
-      const prevText =
-        typeof prev.content === "string" ? prev.content : String(prev.content);
-      const newText =
-        typeof msg.content === "string" ? msg.content : String(msg.content);
-      (prev as any).content = prevText + "\n" + newText;
+      prev.content = mergeUserContent(prev.content, msg.content);
     } else {
       merged.push(msg);
     }
@@ -457,6 +521,7 @@ function readReasoningFromDelta(delta: unknown): string | undefined {
 function parseResponse(
   choice: OpenAI.Chat.ChatCompletion.Choice,
   reasoning: ResolvedReasoning,
+  provider: string,
 ): Message {
   const msg = choice.message;
   const toolCalls: ToolCall[] = [];
@@ -472,19 +537,28 @@ function parseResponse(
   if (msg.tool_calls?.length) {
     for (const tc of msg.tool_calls) {
       if (tc.type !== "function") continue;
+      const extraContent = recordValue((tc as OpenAIToolCall).extra_content);
       toolCalls.push({
         tool_name: tc.function.name,
         input_args: safeJsonParse(tc.function.arguments),
         id: tc.id,
+        ...(extraContent
+          ? { provider_options: providerOptions(provider, extraContent) }
+          : {}),
       });
     }
   }
+
+  const extraContent = recordValue((msg as OpenAIMessage).extra_content);
 
   return {
     sender: "agent",
     text,
     ...(toolCalls.length > 0 && { tool_calls: toolCalls }),
     ...(reasoningText && { reasoning_content: reasoningText }),
+    ...(extraContent
+      ? { provider_options: providerOptions(provider, extraContent) }
+      : {}),
   };
 }
 
@@ -532,7 +606,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
     if (this.systemPrompt) {
       messages.push({ role: "system", content: this.systemPrompt });
     }
-    messages.push(...formatMessages(request.messages, this.reasoning.echo));
+    messages.push(...formatMessages(request.messages, this.reasoning.echo, this.provider));
     messages = applyOpenAICacheControl(messages, this.cache, this.provider);
 
     const tools =
@@ -588,7 +662,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
       return { messages: [], tokens_in: 0, tokens_out: 0 };
     }
 
-    const message = parseResponse(choice, this.reasoning);
+    const message = parseResponse(choice, this.reasoning, this.provider);
 
     const cacheRead = readCachedTokens(response.usage);
 
@@ -622,8 +696,9 @@ export class OpenAICompatAdapter implements ModelAdapter {
     let reasoningText = "";
     const toolCallAccumulator = new Map<
       number,
-      { id: string; name: string; arguments: string }
+      { id: string; name: string; arguments: string; extraContent?: Record<string, unknown> }
     >();
+    let messageExtraContent: Record<string, unknown> | undefined;
 
     let tokensIn = 0;
     let tokensOut = 0;
@@ -645,6 +720,8 @@ export class OpenAICompatAdapter implements ModelAdapter {
       }
 
       const delta = choice.delta;
+      const deltaExtraContent = recordValue((delta as OpenAIMessage | undefined)?.extra_content);
+      if (deltaExtraContent) messageExtraContent = deltaExtraContent;
 
       if (this.reasoning.enabled) {
         const reasoningDelta = readReasoningFromDelta(delta);
@@ -677,6 +754,8 @@ export class OpenAICompatAdapter implements ModelAdapter {
           if (tcDelta.function?.arguments) {
             acc.arguments += tcDelta.function.arguments;
           }
+          const extraContent = recordValue((tcDelta as OpenAIToolCall).extra_content);
+          if (extraContent) acc.extraContent = extraContent;
         }
       }
     }
@@ -688,6 +767,9 @@ export class OpenAICompatAdapter implements ModelAdapter {
         tool_name: acc.name,
         input_args: parsedArgs,
         id: acc.id,
+        ...(acc.extraContent
+          ? { provider_options: providerOptions(this.provider, acc.extraContent) }
+          : {}),
       });
 
       await notify("tool_use", {
@@ -706,6 +788,9 @@ export class OpenAICompatAdapter implements ModelAdapter {
       text,
       ...(toolCalls.length > 0 && { tool_calls: toolCalls }),
       ...(reasoningText && { reasoning_content: reasoningText }),
+      ...(messageExtraContent
+        ? { provider_options: providerOptions(this.provider, messageExtraContent) }
+        : {}),
     };
 
     await notify("model_response_complete", {

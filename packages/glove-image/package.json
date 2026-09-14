@@ -1,6 +1,6 @@
 {
   "name": "glove-image",
-  "version": "0.1.1",
+  "version": "0.2.3",
   "description": "Image workflows for the Glove agent framework — prompt pipelines with enhancer inbetweens, first-class characters and scenes, reference images and assembly, behind a BYO image-model adapter.",
   "type": "module",
   "license": "MIT",
@@ -38,6 +38,10 @@
     "./openrouter": {
       "types": "./dist/openrouter/index.d.ts",
       "import": "./dist/openrouter/index.js"
+    },
+    "./gemini": {
+      "types": "./dist/gemini/index.d.ts",
+      "import": "./dist/gemini/index.js"
     }
   },
   "files": [

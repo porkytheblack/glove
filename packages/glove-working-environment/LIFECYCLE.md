@@ -127,6 +127,7 @@ passed again on restore:
 | Re-supply on restore | Why it is not stored |
 |---|---|
 | `stdlib` | Adapters are host objects, not data. A tree restored without one it used reports it on `env.warnings` rather than breaking mid-task; `strictAdapters: true` makes it throw. |
+| Fetch policy, credential aliases and `SecretStore` | Host grants and keystore values are outside the snapshot. Restore the same tenant-scoped store; default memory stores are ephemeral. See [HTTP files and host secrets](./HTTP-AND-SECRETS.md). |
 | `readOnlyPaths` | A zone is a policy, not a fact about the tree. |
 | `vision`, `onPresent`, `onAsk`, `onVerb`, `execution.onProgress` | Callbacks into the live host. |
 | `limits` | Sized for the host, which may have changed. |

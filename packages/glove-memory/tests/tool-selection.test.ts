@@ -1,3 +1,4 @@
+import { runtimeContextSupport } from "./runtime-target";
 /** Allowlisting / denylisting the folded memory tool surface. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -28,6 +29,7 @@ function recorder() {
   return {
     names,
     glove: {
+      ...runtimeContextSupport(),
       fold(args: { name: string }) {
         names.push(args.name);
         return this;

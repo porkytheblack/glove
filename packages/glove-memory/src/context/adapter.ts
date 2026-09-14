@@ -12,8 +12,8 @@ import type {
  *
  * **Different shape from the other three subsystems.** Not curator-extracted
  * — users write context directly via whatever UI / form / API the consumer
- * builds. Not lazily browsed — pinned entries are auto-injected into the
- * system prompt at every turn. Not reader/curator-split — one registration
+ * builds. Not lazily browsed — pinned entries are appended as transient
+ * runtime context before each model iteration. Not reader/curator-split — one registration
  * (`useContext`) gives the conversational agent both read and write tools.
  *
  * **User-side write path is consumer territory.** This adapter exposes
@@ -30,7 +30,7 @@ export interface ContextAdapter {
   get(id: string): Promise<ContextEntry | null>;
 
   /**
-   * Render the markdown block to inject into the system prompt. Pinned
+   * Render the markdown block to append as transient runtime context. Pinned
    * entries by default. Expired entries are filtered out silently.
    */
   render(opts?: ContextRenderOpts): Promise<string>;

@@ -6,6 +6,7 @@
  * path. `describe()` summarises a workbook without pulling a single row into
  * the context window.
  */
+import { createUnlockBinding, UNLOCK_TYPES, UNLOCK_DOCS } from "glove-env-unlock";
 import ExcelJS from "exceljs";
 import { defineAdapter, defineBuilder, methodsOf, type EnvFsHandle, type FileSummary } from "glove-working-environment";
 import { columnLetter, headerKeys, normalizeCell, trimRow, type CellValue } from "./cells";
@@ -272,8 +273,8 @@ export const spreadsheets = (options: SpreadsheetsOptions = {}) =>
   defineAdapter({
     name: "spreadsheets",
     description: "Read, write and summarise .xlsx workbooks; bridge sheets to and from CSV.",
-    types: SPREADSHEETS_TYPES,
-    docs: SPREADSHEETS_DOCS,
+    types: SPREADSHEETS_TYPES + UNLOCK_TYPES,
+    docs: SPREADSHEETS_DOCS + UNLOCK_DOCS,
     skills: SPREADSHEETS_SKILLS,
     // No magic claim: XLSX is a ZIP and indistinguishable from DOCX by
     // signature. And no `.csv` claim either — a CSV is text, and the generic
@@ -296,6 +297,7 @@ export const spreadsheets = (options: SpreadsheetsOptions = {}) =>
       };
 
       return {
+      unlock: createUnlockBinding(vfs),
       /**
        * exceljs's `Workbook`. Use it when the verbs below are not enough —
        * styling, number formats, merged cells, column widths, formulas.

@@ -6,6 +6,7 @@
 // to write correct Glove code without fetching anything else.
 
 import { docsSections } from "./docs-nav";
+import { FOUNDRY_LLMS_FULL } from "./foundry-llms";
 
 export const SITE_URL = "https://glove.dterminal.net";
 
@@ -21,7 +22,8 @@ export function buildLlmsTxt(): string {
       "Beyond the agent loop it ships a display stack (tools render UI mid-conversation), " +
       "a persistent inbox, a memory layer, sandboxes the model can compute in, " +
       "a mesh for agents to coordinate over, voice (cascade and realtime speech-to-speech), " +
-      "MCP integration, and container packaging.",
+      "MCP integration, container packaging, and Glove Foundry: a file-routed application " +
+      "framework for complete, observable agent systems.",
   );
   out.push("");
   out.push(
@@ -30,8 +32,13 @@ export function buildLlmsTxt(): string {
       "(model, store, display, subscriber, voice) is an adapter interface you can replace.",
   );
   out.push("");
+  out.push("Goals are exported by glove-memory/goals (glove-memory 1.2.0+), not a standalone glove-goals package. Shared evidence is glove-facts (0.1.0+). Supplying a dedicated Glove preparation agent enables traced preparation for goals and forms.");
+  out.push("");
+  out.push("With glove-core 4.0+, goals, forms, and pinned context use live runtime snapshots at the model-input tail, preserving system instructions and saved history. Runnable proxies forward addContextProvider and getRuntimeContext.");
+  out.push("- Workflow agent skill: https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/workflows.md");
   out.push("- Repository: https://github.com/porkytheblack/glove");
   out.push(`- Full condensed reference: ${SITE_URL}/llms-full.txt`);
+  out.push(`- Foundry agent-system reference: ${SITE_URL}/foundry/llms-full.txt`);
   out.push("");
 
   for (const section of docsSections) {
@@ -53,7 +60,7 @@ export function buildLlmsTxt(): string {
 }
 
 /** llms-full.txt — the condensed reference a coding model can work from. */
-export const LLMS_FULL = `# Glove — condensed reference for language models
+const CORE_LLMS_FULL = `# Glove — condensed reference for language models
 
 Glove is an open-source TypeScript framework for building applications driven by
 an AI agent. You define capabilities as **tools**; the agent decides which to
@@ -211,25 +218,30 @@ provider prompt caching. Cache usage is reported on every response as
 | package | purpose |
 | --- | --- |
 | glove-core | runtime: agent loop, tools, models, display manager, stores, hooks/skills/subagents |
+| glove-foundry | file-routed application framework: definitions, instances, apps, transmissions, playbooks, schedules, conversations, runtime and inspector |
 | glove-react | GloveClient, GloveProvider, useGlove, <Render>, defineTool, createRemoteStore |
 | glove-next | createChatHandler — SSE streaming route handler |
 | glove-voice | cascade voice: VAD → STT → agent → TTS, barge-in, push-to-talk |
 | glove-voice-native | React Native / Expo mic capture, PCM playback, Silero VAD |
-| glove-voice-s2s | run an agent on realtime speech-to-speech models (OpenAI Realtime, Gemini Live) |
+| glove-voice-s2s | run an agent on realtime speech-to-speech models (OpenAI Realtime, Gemini Live, GPT-Live) |
 | glove-voice-avatar | live avatars over the S2S audio (Tavus echo, Anam passthrough) |
 | glove-voice-livekit | LiveKit room transport + LiveKit-native avatars |
-| glove-memory | entity graph, episodic timeline, resource filesystem, standing context, forms |
+| glove-memory | entity graph, episodic timeline, resource filesystem, standing context, forms, dynamic goals (glove-memory/goals; no separate glove-goals package) |
+| glove-facts | scoped evidence, revisions and reusable links; preparation through a supplied Glove agent |
 | glove-scratchpad | expose tools as a relational database driven by one execute_sql tool |
 | glove-sql | zero-dependency Postgres-subset SQL engine (scratchpad's default backend) |
 | glove-working-environment | persistent sandboxed VFS: scripts, runs, artifacts |
-| glove-env-documents/-spreadsheets/-images/-slides/-archives/-media/-render/-motion | stdlib adapters for the working environment |
+| glove-env-fetch | HTTP requests, VFS downloads/uploads, host network policy and credential aliases |
+| glove-env-secret | host keystore, scoped references and pluggable persistence outside VFS snapshots |
+| glove-env-documents/-spreadsheets/-images/-slides/-zip/-media/-render/-motion | stdlib adapters for the working environment |
 | glove-js / glove-python / glove-lisp | one eval tool over a shared ToolFn catalog |
 | glove-egress | measured, enforced egress boundary over that catalog |
 | glove-image | agentic image generation: prompt pipeline, characters/scenes, refs, edit, assemble, cost |
+| glove-video | agentic video production: temporal prompts, continuity, refs, review gate, resumable flows, cost |
 | glove-mesh | direct/broadcast/ack messaging between agents |
 | glove-continuum-signal | subprocess runtime: triggered (cold) and concurrent (warm) agents |
 | glove-mcp | bridge Model Context Protocol servers in as tools |
-| glovebox-core / -kit / -client | package an agent as a sandboxed container service |
+| glovebox-core / -kit / -client | DEPRECATED legacy container service; use glove-foundry for new runtimes |
 | glove-sqlite | DEPRECATED SQLite store; bring your own StoreAdapter instead |
 
 ## 8. Capability packages — minimal correct usage
@@ -244,7 +256,7 @@ import {
 
 useMemoryReader(agent, new InMemoryEntityAdapter({ schema: ontology }));
 useEpisodicReader(agent, new InMemoryEpisodicAdapter());
-useContext(agent, new InMemoryContextAdapter());  // injected into the prompt each turn
+useContext(agent, new InMemoryContextAdapter());  // transient runtime snapshot before each model iteration
 // Writes go to a SEPARATE curator instance: useMemoryCurator(curator, entities)
 \`\`\`
 
@@ -346,7 +358,7 @@ Rules that decide whether generated code is correct:
   \`{ patch } | { fail } | { jump } | { complete } | { terminate }\`, or an array.
   A throwing executor does NOT roll back the write; a recorded failure is not
   retried.
-- **Tiers.** Tier 0 is one system-prompt line per turn (open step + pending
+- **Tiers.** Tier 0 is one transient model-input-tail line per iteration (open step + pending
   labels + later-step previews). Tier 1 = \`glove_form_status\` (open step in
   full). Tier 2 = \`glove_form_inspect\` (any step / field / outline).
 - **Tools:** \`glove_form_list\` / \`_start\` / \`_status\` / \`_inspect\` / \`_fill\` /
@@ -358,6 +370,149 @@ Rules that decide whether generated code is correct:
   \`FormConflictError\`), a commit is all-or-nothing, reads return snapshots.
 - Instances pin \`defVersion\`; drift defaults to \`status: "stale"\` unless the
   def supplies \`migrate(old, fromVersion)\`.
+
+### glove-memory goals — context-sensitive structured progress
+
+Import defineGoalProgram, GoalRunner, GoalAdapter, renderGoalStatus and types
+from "glove-memory/goals" (also exported at the root). InMemoryGoalAdapter is
+available from "glove-memory/in-memory" and the root. Import useGoalRunner and
+buildGoalRunnerTools from "glove-memory/tools" or the root.
+
+useGoalRunner(glove, adapter, { scope: { subject, key, agent? }, actor?, source?,
+  tools?: { allow?, deny? }, injectStatus?, validateChange?, onChange? }) returns
+{ glove, runner, refresh }. The exact scope tuple isolates goal sets; qualify
+subject with tenant/conversation/matter identity. Scope can be a thunk, stable
+through each request. Tools cannot choose a different scope.
+
+A GoalProgram is { key, goals: [{ key, title, objective, items: [{ key, label,
+locked?, retired? }], locked?, retired? }] }. defineGoalProgram validates keys
+and definitions. runner.start(program, reason?) creates it idempotently only
+when the existing definition is identical. Definitions are persisted JSON;
+restarting requires no code registry. No implicit program replacement/reset.
+
+runner.status() returns version, goals, activeGoal and deferred follow-ups;
+runner.inspect() returns the saved aggregate; runner.history() returns complete
+snapshots with reasons and provenance. runner.update({ goalKey, completed?,
+deferred?, declined?, reopened?, reason, ifVersion? }) works on any goal.
+Done means completed; deferred/declined settle progression but done stays false.
+Deferred work survives whole-program completion and retirement, and can later
+be completed or declined. Reopen live items to pending. Unknown/duplicate keys
+reject the entire call; repeated dispositions are no-ops.
+
+runner.revise(fullProgram, { ifVersion, reason }) changes remaining goals,
+wording, order or items. Same keys preserve progress, even after removal and
+reintroduction; new obligations need new keys. A new pending item reopens a
+completed goal. Omit or retire obsolete definitions; historical work is retained.
+Locked definitions cannot be edited, removed, retired or unlocked. Locks do
+not restrict dispositions; enforce domain policy in validateChange (pure,
+called before each commit attempt; throw to reject).
+
+GoalAdapter.get(scope) returns a detached snapshot or null. commit(scope, next,
+{ ifVersion }) MUST atomically compare-and-set definitions, progress and history;
+null means absent, conflicts throw GoalConflictError. Revisions and model updates
+require versions. Direct host updates can omit ifVersion for bounded retries
+of disjoint progress changes; same-item and definition conflicts are surfaced.
+InMemoryGoalAdapter is process-local; production supplies durable storage.
+
+Tools: glove_goal_status, glove_goal_start, glove_goal_update, glove_goal_revise,
+glove_goal_history. tools allow/deny only narrows model access, not the host API.
+Goals, forms, and context append transient user-role snapshots at the model-input
+tail before each iteration, including after tools, without rewriting the system
+prompt or saved history. External writes appear next iteration. refresh() runs
+preparation, transition recovery, and host configuration. injectStatus:false
+permits a custom renderer. Requires glove-core >=4.0.0; runnable proxies forward
+addContextProvider and getRuntimeContext. Subscribers receive runtime_context
+snapshots. Message.framework_context marks runtime/inbox provenance without a new
+provider role. These entries and skill/compaction markers do not count as real
+user turns for tool-result summarization. Inbox reminders follow complete tool
+results; adjacent-user merging preserves structured media. Realtime voice
+refreshes silently at start and after tools; call
+await realtime.refreshContext() after external changes.
+onChange runs post-commit; GoalPostCommitError means state WAS persisted.
+Forms-to-goals mappings, practice policy and client/matter lookup are host-owned.
+
+Goal lifecycle: configure hooks { onEnter, onComplete, onReopen } in host code.
+Each receives { transition, idempotencyKey, goal, status, scope, reason }; mounted
+hooks also receive glove and may fold tools or setModel during a turn. Definitions
+cannot supply hook code. Transitions are stored atomically in history revisions.
+Completion/reopening precede entry; retirement is not completion. A completed
+goal may include deferred/declined work, so inspect dispositions for real effects.
+
+GoalAdapter also implements claimTransition(scope,id,{owner,leaseMs}) returning
+claimed/completed/busy, settleTransition(scope,id,{owner,state,error?}) with owner
+fencing, and getTransitionDispatches(scope). Receipts persist separately from
+progress versions. runner.resumeHooks() replays pending effects; hookDispatches()
+reads receipts. Mounted runners resume before requests/refresh. Completed effects
+stay completed; expired/failed claims can retry, with the SAME idempotencyKey.
+Delivery is at least once; hosts deduplicate effects. hookLeaseMs defaults to 60s.
+All dispatchers for a scope use the same hooks; adding handlers later replays
+unacknowledged historical transitions. A live lease blocks later effects.
+
+Use useGoalRunner(...,{configure({glove,status}) {...}}) for an idempotent projection
+of CURRENT progress onto each new runnable, independent of durable effects.
+It runs after writes and before every request/refresh, even if injectStatus:false.
+Async configure calls serialize; do not mutate goals or call refresh from configure.
+fold is additive: guard duplicates. To remove tools or choose constructor options,
+read runner.status() and build a fresh Glove for the next request using that state.
+
+### glove-facts — shared evidence and preparation
+
+Import FactStore, InMemoryFactAdapter, FactPreparation, and useFacts from "glove-facts". Scope is an exact subject/context tuple, qualified
+by tenant and client/matter. Bind provenance in host code. useFacts registers
+record_fact({ fact, urgent? }); model capture stays unverified. FactStore.record
+requires source and an operationId; repeated identical operations are idempotent.
+Corrections use supersedes: { id, revision }, append a revision and retain history.
+Urgent facts surface at capture through onUrgent and remain available afterwards.
+
+Preparation is enabled by supplying a dedicated built IGloveRunnable:
+new FactPreparation(facts, { agent: preparationAgent }). No agent means disabled.
+Requires glove-facts 0.1.0+ and glove-memory 1.2.0+ for runner integration.
+The library appends submit_preparation once on the first run, preserving existing
+tools and the system prompt, then runs agent.processRequest, preserving
+Glove message persistence, tool traces, usage accounting and subscribers.
+There is no raw ModelAdapter/custom inference path or separate enabled flag.
+Use a separate preparation agent and store per fact scope, shared by goals/forms
+in that scope; never use the workflow agent as its own preparation agent.
+No additional user-facing conversation turn is required. Capture alone does not
+fan out reconciliation. Starts, relevant commits, mounted turns, or an explicit
+runner.prepare() trigger preparation; status/inspect reads do not.
+Updating npm packages does not refresh installed coding-agent skills; reinstall
+the skill to pick up its workflows.md reference.
+Disabled skips automatic inference/claims/prefill without removing captured facts,
+accepted links, answers or goal progress. Use runner.prepare() to reconcile now.
+
+Pass preparation: { preparer, rule, eligible? } to either useGoalRunner or
+useFormRunner; share one FactStore across both. Goal rule(goal,item) and form
+rule(field,compiled) are host-owned allowlists; undefined means manual. A rule
+specifies kind information/action/approval/outcome, criteria, optional evidenceKey,
+authorizedActors and allowUnverified. Forms validate with the actual field schema;
+goal completion proposals must be true. Actions/outcomes require host-attested
+verified success for the exact evidenceKey; approval also requires an authorized
+actor. Intention is not execution, and preference is not approval.
+
+Preparation retrieves scoped candidates, infers/synthesizes, validates references,
+revisions and values, then commits through the runner's authoritative state path.
+Conditional eligibility settles before progression and effects; unrelated gates
+and checkpoints cannot be skipped by evidence. Prepared status, runtime snapshots,
+and tool replies include source-linked synthesis, gaps, urgency and conflicts.
+Corrections, changed criteria and contrary values explicitly flag existing work
+for review; they do not automatically replace answers or reopen completed actions.
+Use ordinary revise/retract/update operations to resolve the review. A fact may
+support many requirements: links reference exact revisions, never consume evidence.
+
+Form action/outcome rules may use fulfills: ["field", "step"] only when the
+verified outcome covers that field/step effect. This records an evidence receipt
+instead of repeating onFill/onComplete. It never suppresses checkpoints or the
+form's overall completion hook. Other hooks execute normally.
+
+Production uses a durable FactAdapter.withScope: serialize all writes and consumer
+commits across workers, detached reads, durable version + 1 saves, no rollback of
+earlier saves on later failure. Do not re-enter the fact store from inference or
+commit validation. Proposed claims precede the consumer CAS; accepted claims are
+recovered from receipts in goal/form history. FormAdapter must preserve preparation,
+claimId, fulfilledHooks, effectId, pendingHooks batches and dispatch effects.
+Prepared hooks resume via resumeHooks()/prepare(). External effects are at least
+once: deduplicate their stable idempotencyKey. InMemoryFactAdapter is process-local.
 
 ### glove-scratchpad (+ glove-sql)
 
@@ -425,7 +580,27 @@ Tree: \`/inbox\` inputs, \`/scripts\` the agent's script library (+ generated .d
 \`/skills\` worked recipes, \`/std\` adapter types and docs, \`/tmp\` intermediates,
 \`/out\` deliverables, \`/.env\` history. Every script under \`/scripts\` MUST
 default-export a function; validation happens at write time. Scripts may import
-relative VFS paths and \`env:*\` modules only — no network, no host fs, no process.
+relative VFS paths and \`env:*\` modules only — no ambient network, host fs or process access.
+Hosts explicitly mount external capabilities.
+
+HTTP: mount \`fetchFiles({ allowedOrigins, secretStore, credentials })\` from
+\`glove-env-fetch\`. Scripts import \`request/download/upload\` from \`env:fetch\`;
+responses are VFS paths plus status/metadata. Bodies support text, JSON, VFS files,
+URL-encoded forms and multipart. Native transport blocks non-public DNS/IPs;
+private services need exact \`privateNetworkOrigins\` host grants. Redirects are
+rechecked, HTTPS downgrades refused, and run termination aborts pending HTTP work.
+Custom transports must enforce equivalent DNS/IP/TLS protection themselves.
+
+Secrets: mount \`secret({ store, names })\` from \`glove-env-secret\`. \`env:secret\`
+exposes list/has/ref without plaintext; get requires allowReveal and writes require
+allowWrite. A reference is not an access grant. Host credential aliases resolve
+values directly from the store. Scope stores per tenant and re-supply them on
+restore: snapshots exclude keystore values and host policy. Default stores are
+ephemeral. Never embed credentials in saved source, URLs or run arguments.
+Read the mounted \`/std/fetch/\`, \`/std/secret/\` docs and \`/skills/http-files.md\`
+and \`/skills/secret-references.md\` recipes. Call external APIs only inside the
+default export, not during module validation. Adapter authors read \`ctx.signal\`
+inside each binding rather than capturing it during create().
 
 Backing the tree: \`inMemoryFs()\` (default), \`hostDirectory(dir)\` (copy-on-write
 over a real directory; \`commit()\` / \`discard()\`), \`fromSnapshot(snap)\`, or
@@ -523,6 +698,22 @@ Key facts:
 - Vision is OPT-IN via \`review\` — without it \`describe\` returns metadata only
   and generations are not critiqued.
 
+### glove-video
+
+\`mountVideo(agent, config)\` adds provider-neutral video generation, extension,
+transformation, review, delivery, libraries, usage, and resumable-flow tools. A
+\`VideoModelAdapter\` declares modes, reference roles, durations, aspect ratios,
+resolutions, audio, and candidate limits; \`fitVideoToModel\` records every
+provider-driven adjustment in the asset recipe.
+
+With \`review\` configured, every generated video is an internal draft.
+\`glove_video_review\` sends the stored video bytes to a separate video-capable
+model and stores a score, evidence, issues, and revision prompt.
+\`glove_video_deliver\` refuses any asset without a passing latest review. Multi-
+shot flows checkpoint completed nodes and resume without regenerating them.
+
+See \`/docs/video\` and the recorded run at \`/docs/video/gallery\`.
+
 ### glove-mesh
 
 \`\`\`ts
@@ -615,13 +806,33 @@ is NOT enforced, \`pushAndWait\` tools throw (exclude both via \`excludeTools\`)
 tool calls/transcripts are not persisted — use \`RealtimeAgent\` events
 (\`user_said\`, \`agent_said\`, \`tool_started\`, \`tool_finished\`).
 
+GPT-Live (glove-voice-s2s >=0.4.0): select provider "openai-live" in
+createS2SAdapter or s2sDrivenModel, with model "gpt-live-1" and backendModel
+"gpt-5.6-luna" by default. OPENAI_API_KEY is server-only. The voice model uses
+Responses delegation for the same Glove tools; it does not run Foundry's durable
+lifecycle. Delegate durable work through a Foundry client tool. Live client
+delegation and browser WebRTC are not implemented.
+
+Supply continuous paced mono PCM including silence at 16 or 24 kHz. Listen to
+rt.on("transcript", fragment => ...) for { role, delta, startMs, endMs }; there
+are no final user_said/agent_said turns. capabilities.transcripts is "continuous"
+and speechLifecycle is "host": call notifyPlaybackState(speaking) from real
+playback and own avatar utterance boundaries. Neither attachRealtime nor
+attachAvatar supplies those boundaries or fills silence gaps. interrupt() mutes
+until resumeOutput(); no Realtime VAD, audio commits, or response.cancel. Await
+rt.stop() for cumulative usage { seconds, final }; failed finalization rejects.
+See /docs/realtime-voice#gpt-live for configuration and compatibility limits.
+
 Avatars: \`attachAvatar(rt, avatar)\` with \`TavusEchoAdapter\` or
 \`AnamPassthroughAdapter\` (\`glove-voice-avatar\`). LiveKit: \`LiveKitTransport\` +
 \`attachRealtime(rt, transport)\` (\`glove-voice-livekit\`); with a LiveKit avatar,
 set \`publishAgentAudio: false\` and \`{ agentAudio: false }\` so the voice is not
 published twice.
 
-## 10. Deployment (Glovebox)
+## 10. Legacy deployment (Glovebox — deprecated)
+
+Glovebox is retained for existing deployments. Build new agent runtimes,
+working environments, and deployment systems with Glove Foundry.
 
 \`\`\`ts
 import { glovebox, rule, composite } from "glovebox-core";
@@ -665,3 +876,5 @@ The deployed server exposes one authenticated WebSocket endpoint per session;
 - Core API: ${SITE_URL}/docs/core
 - Machine index: ${SITE_URL}/llms.txt
 `;
+
+export const LLMS_FULL = `${CORE_LLMS_FULL}\n\n${FOUNDRY_LLMS_FULL}`;

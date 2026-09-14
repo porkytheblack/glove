@@ -30,15 +30,21 @@ import {
   type QuerySpec,
 } from "../entity/query";
 
+export interface EntityMemoryState {
+  nodes: MemoryNode[];
+  edges: MemoryEdge[];
+  nextId: number;
+}
+
 /**
  * Reference in-process adapter. Holds nodes and edges in JS Maps; supports
  * the full query DSL using simple linear scans. Intended for development,
  * tests, and short-lived sessions — production deployments should use the
- * SQLite or Postgres companion packages.
+ * SQLite backend or a consumer-provided durable adapter.
  *
  * Single-writer-many-reader by virtue of JavaScript's single-threaded event
  * loop. Writes are not transactional: a multi-step operation that throws
- * partway through (e.g. `mergeNodes`) leaves intermediate state on disk.
+ * partway through (e.g. `mergeNodes`) leaves intermediate state in memory.
  * Acceptable for a reference impl; companion adapters running on real
  * databases handle this with their own transaction primitives.
  */
@@ -52,9 +58,25 @@ export class InMemoryEntityAdapter implements EntityMemoryAdapter {
   private readonly nodesByClass = new Map<string, Set<string>>();
   private nextId = 1;
 
-  constructor(opts: { schema: MemorySchema; identifier?: string }) {
+  constructor(opts: { schema: MemorySchema; identifier?: string; state?: EntityMemoryState }) {
     this.schema = opts.schema;
     this.identifier = opts.identifier ?? `in-memory-entity-${Date.now()}`;
+    if (opts.state) {
+      const state = structuredClone(opts.state);
+      this.nextId = state.nextId;
+      for (const node of state.nodes) {
+        this.nodes.set(node.id, node);
+        const ids = this.nodesByClass.get(node.className) ?? new Set<string>();
+        ids.add(node.id);
+        this.nodesByClass.set(node.className, ids);
+      }
+      for (const edge of state.edges) this.edges.set(edge.id, edge);
+    }
+  }
+
+  /** Detached data for storage adapters; does not persist by itself. */
+  snapshot(): EntityMemoryState {
+    return structuredClone({ nodes: [...this.nodes.values()], edges: [...this.edges.values()], nextId: this.nextId });
   }
 
   // ─── ID generation ──────────────────────────────────────────────────────

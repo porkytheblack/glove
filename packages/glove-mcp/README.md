@@ -8,7 +8,7 @@ Model Context Protocol integration for the [Glove](https://github.com/porkythebl
 pnpm add glove-mcp
 ```
 
-Requires `glove-core` as a peer; HTTP transport only in v1.
+Requires `glove-core` as a peer. Streamable HTTP and stdio transports are supported.
 
 ## Minimal usage
 
@@ -56,9 +56,74 @@ await mountMcp(runnable, {
 
 `mountMcp` reloads any servers the adapter reports as already active (so an existing conversation rehydrates its tools on session boot) and folds in `discovermcp` — a discovery subagent the model uses to activate new MCPs from the catalogue mid-conversation.
 
-## Excluding tools
+### stdio servers
 
-A server often exposes tools you don't want the model to have — dangerous writes, noisy duplicates, things your app handles itself. Drop them per-server with `excludeTools` on the catalogue entry (exact, **un-namespaced** names — as the server knows them):
+Use an explicit transport for a local MCP process. Keep credential values out of
+the catalogue; the adapter resolves them only when that server is spawned:
+
+```ts
+const ENTRIES: McpCatalogueEntry[] = [{
+  id: "project",
+  name: "Project tools",
+  description: "Approved local project operations.",
+  transport: {
+    kind: "stdio",
+    command: "/opt/agents/project-mcp",
+    args: ["--stdio"],
+    cwd: "/srv/project",
+  },
+  connectTimeoutMs: 15_000,
+  requestTimeoutMs: 60_000,
+  idleTimeoutMs: 15 * 60_000,
+  maxLifetimeMs: 24 * 60 * 60_000,
+}];
+
+class MyAdapter implements McpAdapter {
+  // getActive / activate / deactivate …
+  async getStdioEnvironment(id: string) {
+    if (id !== "project") return {};
+    return { PROJECT_TOKEN: await vault.read("project-mcp") };
+  }
+}
+```
+
+`getStdioEnvironment` is not called for HTTP entries, and HTTP auth methods are
+not called for stdio entries. In a data-driven host, map installation data to an
+allowlisted command profile rather than accepting arbitrary executables or shell
+arguments from users.
+
+Every transport initialize/handshake is bounded by `connectTimeoutMs` (30 seconds
+by default), and every tools/resources/prompts operation by `requestTimeoutMs`
+(60 seconds by default). Invalid, fractional, or timer-overflowing values fail
+before a connection is attempted.
+
+For memory-heavy stdio servers, `idleTimeoutMs` and `maxLifetimeMs` proactively
+close the child after inactivity or total age (`0`, the default, disables each
+limit). The next operation reopens it transparently and asks
+`getStdioEnvironment` for fresh values. Recycling never closes a connection with
+an operation in flight; concurrent operations hold independent leases.
+
+## Live tool registries
+
+If an MCP server advertises `tools.listChanged`, every tool set mounted through
+`mountMcp` stays live. Glove debounces the server notification, re-lists through
+the same sanitizer and include/exclude filters, rebuilds wrappers and utility
+collision checks, then atomically swaps only that server's tools. A failed
+refresh leaves the previous working surface in place. This subscription also
+survives transparent stdio recycling.
+
+The discovery subagent's `deactivate(id)` now performs the inverse operation in
+the running session: it updates adapter state, removes the provider-owned tools,
+unsubscribes from changes, and closes the connection. Other agent tools are not
+touched.
+
+## Selecting tools
+
+A server often exposes more tools than one agent should receive. Use `includeTools`
+as a least-privilege allowlist and `excludeTools` for explicit denials. Both accept
+exact, **un-namespaced** names and shell-style globs (`*`, `?`, `[0-9]`) as the
+server knows them. A non-empty allowlist is authoritative, which permits narrow
+exceptions to broad deny globs:
 
 ```ts
 const ENTRIES: McpCatalogueEntry[] = [
@@ -67,14 +132,15 @@ const ENTRIES: McpCatalogueEntry[] = [
     name: "GitHub",
     description: "Issues, PRs, repos.",
     url: "https://mcp.github.com/mcp",
-    excludeTools: ["delete_repository", "transfer_repository"], // never mounted
+    includeTools: ["list_*", "get_*", "create_issue"],
+    excludeTools: ["*_secret", "delete_*", "transfer_*"], // never mounted
   },
 ];
 ```
 
-Exclusion is applied at the **connection**, so it bubbles through every mount path from one place — the boot-time reload, the `discovermcp` subagent's `activate`, and any `glove-scratchpad` bridge (`mcpResources` / `fnsFromMcp`) built from the same connection all bridge exactly the filtered listing. An excluded tool never reaches the model, whichever surface it would have arrived on.
+Selection is applied at the **connection**, so it bubbles through every mount path from one place — the boot-time reload, the `discovermcp` subagent's `activate`, and any `glove-scratchpad` bridge (`mcpResources` / `fnsFromMcp`) built from the same connection all bridge exactly the filtered listing. A hidden tool never reaches the model, whichever surface it would have arrived on.
 
-For catalogue-wide rules, pass `filterTools` to `mountMcp` — it runs on top of each entry's `excludeTools`:
+For catalogue-wide rules, pass `filterTools` to `mountMcp` — it runs after each entry's allow/deny rules:
 
 ```ts
 await mountMcp(runnable, {
@@ -91,17 +157,40 @@ Connecting directly (e.g. to feed a `glove-scratchpad` surface)? Set the same op
 const conn = await connectMcp({
   namespace: "github",
   url: "https://mcp.github.com/mcp",
-  excludeTools: ["delete_repository"],
+  includeTools: ["list_*", "get_*"],
+  excludeTools: ["get_secret_*"],
   filterTools: (t) => !t.annotations?.destructiveHint,
 });
-// mcpResources(conn) / fnsFromMcp(conn) never see the excluded tools.
+// mcpResources(conn) / fnsFromMcp(conn) see only the selected tools.
 ```
 
-Only the listing is filtered — `conn.raw` and a direct `conn.callTool(name, …)` are left untouched as an advanced escape hatch.
+Only the listing is filtered — `conn.raw` and a direct `conn.callTool(name, …)` can still address an unlisted server tool as advanced escape hatches. The typed `callTool` path continues to sanitize arguments and results; `conn.raw` does not.
 
-## Auth model
+All normal bridged results cross one defensive boundary before reaching the model:
+invisible Unicode TAG characters are removed from names, descriptions, schemas,
+arguments, and results while complete emoji tag flags remain intact. Safe vendor
+`_meta` values are surfaced with the result; MCP-reserved metadata namespaces are
+dropped. Use `conn.raw` only when you intentionally accept responsibility for those
+advanced, unsanitized protocol surfaces.
 
-Two optional seams on the adapter. The common case is `getAccessToken` — the framework wraps the returned string in `Authorization: Bearer ...` and never touches refresh logic. When a server wants something other than a bearer token (e.g. Composio's `x-api-key`), implement `getAuthHeaders` and return the full header map yourself; it takes precedence over `getAccessToken` when both are defined. With neither, connections are made without auth headers.
+## Resources and prompts
+
+When a server advertises MCP resource or prompt capabilities, `mountMcp` adds four
+read-only, namespaced utility tools alongside its callable tools:
+
+- `<server>__list_resources` and `<server>__read_resource`
+- `<server>__list_prompts` and `<server>__get_prompt`
+
+The utilities are capability-aware, so a tools-only server gets no empty wrappers.
+Disable either family per catalogue entry with `resources: false` or
+`prompts: false`. Resource content and prompt messages cross the same text and
+metadata sanitizer as ordinary tool results. If a server already exposes a callable
+tool with one of those utility names, the server's tool wins and the wrapper is not
+added.
+
+## Connection credential model
+
+Three optional seams live on the adapter. For HTTP, `getAccessToken` returns a bearer value and `getAuthHeaders` returns a complete custom header map; custom headers take precedence. For stdio, `getStdioEnvironment` returns the child process environment values. Glove never acquires, refreshes, or persists any of them.
 
 ```ts
 interface McpAdapter {
@@ -111,6 +200,7 @@ interface McpAdapter {
   deactivate(id: string): Promise<void>;
   getAccessToken?(id: string): Promise<string>;
   getAuthHeaders?(id: string): Promise<Record<string, string>>;
+  getStdioEnvironment?(id: string): Promise<Record<string, string>>;
 }
 ```
 
@@ -210,15 +300,19 @@ Use it for headless agents — cron jobs, server-side automation, evals.
 
 ## Production lift-and-shift
 
-The reference CLIs in `examples/mcp-cli/` are a single-user shape: `FsOAuthStore`, one bearer token, the OAuth dance run from a terminal. For a multi-user app, swap `FsOAuthStore` for a per-user `OAuthStore` against your DB, move the OAuth flow from a CLI into route handlers (`GET /oauth/<id>/start` calls `runMcpOAuth`, `GET /oauth/<id>/callback` finishes it), and refresh expired tokens however your stack does it. The agent code doesn't change — `McpAdapter.getAccessToken` is the only seam.
+The reference CLIs in `examples/mcp-cli/` are a single-user shape: `FsOAuthStore`, one bearer token, the OAuth dance run from a terminal. For a multi-user app, swap `FsOAuthStore` for a per-user `OAuthStore` against your DB, move the OAuth flow from a CLI into route handlers (`GET /oauth/<id>/start` calls `runMcpOAuth`, `GET /oauth/<id>/callback` finishes it), and refresh expired tokens however your stack does it. The agent code doesn't change — the relevant `McpAdapter` connection method remains the seam.
 
 ## Key exports
 
 - **`mountMcp(runnable, config)`** — the canonical wiring point. Reloads active servers and folds `discovermcp`.
 - **`McpAdapter`** — the per-conversation interface consumers implement.
-- **`McpCatalogueEntry`** — static description of an MCP server the app supports (incl. per-server `excludeTools`).
-- **`connectMcp`** / **`bridgeMcpTool`** — lower-level building blocks if you need to bypass `mountMcp`. `connectMcp` takes `excludeTools` / `filterTools`.
-- **`includeTool(tool, { excludeTools, filterTools })`** — the pure drop predicate `connectMcp` applies; exported for reuse/testing.
+- **`McpCatalogueEntry`** — static description of an HTTP or stdio MCP server the app supports (including per-server timeout/recycling, tool-selection, and resource/prompt utility policy).
+- **`connectMcp`** / **`connectMcpEntry`** / **`bridgeMcpTool`** — lower-level building blocks if you need to bypass `mountMcp`. `connectMcpEntry` applies the adapter-owned HTTP auth or stdio environment seam.
+- **`includeTool(tool, { includeTools, excludeTools, filterTools })`** — the pure selection predicate `connectMcp` applies; exported for reuse/testing.
+- **`sanitizeMcpText` / `sanitizeMcpValue` / `sanitizeMcpMetadata`** — the same result-boundary sanitizers, exported for custom bridges.
+- **`mcpUtilityTools(connection, policy)`** — capability-aware resource and prompt wrappers used by both boot reload and lazy activation.
+- **`mountMcpToolSet(options)`** — lower-level owned live mount with atomic refresh and disposal.
+- **`recyclableMcpConnection(options)`** — lease-safe stdio lifecycle wrapper used by `connectMcpEntry` when recycling is enabled.
 - **`bearer(getter)`** — helper that wraps a token (or `() => Promise<string>` getter) into a `ConnectMcpAuth` emitting `Authorization: Bearer ...`.
 - **`headers(mapOrGetter)`** — helper that wraps a header map (or getter) into a `ConnectMcpAuth`, for non-bearer servers (e.g. `x-api-key`).
 - **`adapterAuth(adapter, id)`** — resolves an entry's `ConnectMcpAuth` from the adapter's seams (`getAuthHeaders` first, then `getAccessToken`).

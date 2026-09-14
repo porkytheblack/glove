@@ -2,7 +2,8 @@ name: Version
 
 # Auto-bumps versions via Changesets. It does NOT publish to npm — publishing is
 # a manual step (npm is deprecating the 2FA-bypassing tokens that CI would need,
-# so releases are cut by a maintainer running `pnpm release` locally, logged in
+# so releases are cut by a maintainer running `npx release` from the repository
+# root, logged in
 # with 2FA).
 #
 # Declare intent in your PR with `pnpm changeset` (pick patch/minor/major + a

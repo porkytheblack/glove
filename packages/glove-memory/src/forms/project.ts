@@ -35,6 +35,7 @@ export function projectView<V extends Record<string, unknown>>(
   const asking = instance.status !== "abandoned";
 
   const base: FormView = {
+    ...(instance.preparation ? { preparation: structuredClone(instance.preparation) } : {}),
     instanceId: instance.id,
     defId: compiled.id,
     defVersion: instance.defVersion,
@@ -192,7 +193,7 @@ export function stepSummary(
 }
 
 /**
- * Tier 0 — the standing line appended to the system prompt each turn.
+ * Tier 0 — the transient standing line appended at the model-input tail each iteration.
  *
  * Two things are in it, both deliberate. Pending *labels* for the open step,
  * because "5 fields pending" would force a tool call every turn just to learn

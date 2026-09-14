@@ -14,6 +14,28 @@ const iconProps = {
 };
 
 const icons: Record<string, ReactNode> = {
+  foundry: (
+    <svg {...iconProps}>
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="8.5" y="14" width="7" height="6.5" rx="1.5" />
+      <path d="M7 10.5v1.7h10v-1.7M12 12.2V14" opacity=".65" />
+    </svg>
+  ),
+  instances: (
+    <svg {...iconProps}>
+      <rect x="3.5" y="5" width="12" height="14" rx="2" />
+      <path d="M8.5 5V3.5h12v14H15.5" opacity=".6" />
+      <path d="M7 9h5M7 13h5" />
+    </svg>
+  ),
+  observe: (
+    <svg {...iconProps}>
+      <path d="M4 7h4l2.2 5 3.2-8 2.2 6H20" />
+      <path d="M4 16.5h16" opacity=".55" />
+      <circle cx="16" cy="16.5" r="1.5" fill="currentColor" stroke="none" />
+    </svg>
+  ),
   display: (
     <svg {...iconProps}>
       <rect x="4" y="3.5" width="16" height="5" rx="1.5" />
@@ -39,6 +61,19 @@ const icons: Record<string, ReactNode> = {
       <rect x="13.5" y="3.5" width="7.5" height="7.5" rx="1.4" />
       <rect x="3" y="13" width="7.5" height="7.5" rx="1.4" />
       <rect x="13.5" y="13" width="7.5" height="7.5" rx="1.4" />
+    </svg>
+  ),
+  video: (
+    <svg {...iconProps}>
+      <rect x="3" y="5" width="14" height="14" rx="2" />
+      <path d="m17 10 4-2.5v9L17 14" />
+      <path d="M7 9.5h5M7 13h3.5" opacity=".65" />
+    </svg>
+  ),
+  play: (
+    <svg {...iconProps}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m10 8.5 5.5 3.5-5.5 3.5z" />
     </svg>
   ),
   memory: (
@@ -126,7 +161,7 @@ type Cap = {
   kicker: string;
   name: string;
   href: string;
-  badge?: "beta" | "new";
+  badge?: "beta" | "new" | "deprecated";
   desc: ReactNode;
   meta?: string;
 };
@@ -139,6 +174,54 @@ type CapGroup = {
 };
 
 const capabilityGroups: CapGroup[] = [
+  {
+    cat: "var(--accent)",
+    name: "Application framework",
+    line: "How capabilities become a running agent system",
+    caps: [
+      {
+        icon: "foundry",
+        kicker: "Framework for agent systems",
+        name: "Glove Foundry",
+        href: "/foundry",
+        badge: "new",
+        desc: (
+          <>
+            Define what an agent can be in file-routed TypeScript. Foundry
+            persists what each live agent has installed, assembles it for the
+            current message, and runs the whole system with end-to-end types.
+          </>
+        ),
+        meta: "Definitions in code · instances as data",
+      },
+      {
+        icon: "instances",
+        kicker: "Durable runtime data",
+        name: "Instances & Conversations",
+        href: "/foundry/docs/definitions-and-instances",
+        desc: (
+          <>
+            Create many live agents from one definition. Each instance can have
+            its own applications, playbooks, schedules, workspace, context, and
+            multiple conversations—and be reconstructed after a restart.
+          </>
+        ),
+      },
+      {
+        icon: "observe",
+        kicker: "Causal observability",
+        name: "Foundry Workbench",
+        href: "/foundry/docs/observability",
+        desc: (
+          <>
+            Follow an inbound event through its matching playbook, provisioned
+            agents, conversations, handoffs, tool calls, artifacts, and final
+            outcomes without exposing private chain-of-thought.
+          </>
+        ),
+      },
+    ],
+  },
   {
     cat: "var(--c-interface)",
     name: "Interfaces",
@@ -190,7 +273,7 @@ const capabilityGroups: CapGroup[] = [
   {
     cat: "var(--c-media)",
     name: "Generative Media",
-    line: "Images as a workflow, not a one-off call",
+    line: "Images and video as directed, inspectable workflows",
     caps: [
       {
         icon: "image",
@@ -224,6 +307,36 @@ const capabilityGroups: CapGroup[] = [
         ),
         meta: "19 images · $0.78 · one run, no retries",
       },
+      {
+        icon: "video",
+        kicker: "Agentic video direction",
+        name: "Video Workflows",
+        href: "/docs/video",
+        badge: "new",
+        desc: (
+          <>
+            Give the agent continuity libraries, timed beats, first-frame
+            references, provider-neutral jobs, resumable multi-shot flows, and
+            a reviewer that watches the actual result before anything ships.
+          </>
+        ),
+        meta: "Generate → watch → revise → gated delivery",
+      },
+      {
+        icon: "play",
+        kicker: "Recorded production run",
+        name: "Video Gallery",
+        href: "/docs/video/gallery",
+        badge: "new",
+        desc: (
+          <>
+            One brief becomes a keyframe, continuity definitions, a timed
+            recipe, provider jobs, review evidence, and one approved cut. See
+            the rejected work and the gate that keeps it off the page.
+          </>
+        ),
+        meta: "Every take, verdict, trace, and dollar accounted for",
+      },
     ],
   },
   {
@@ -238,9 +351,9 @@ const capabilityGroups: CapGroup[] = [
         href: "/docs/memory",
         desc: (
           <>
-            Four sibling subsystems — an entity graph, an episodic timeline, a
-            resource filesystem, and ambient context — each an independent,
-            bring-your-own-storage adapter with its own tool surface.
+            Five sibling subsystems — an entity graph, episodic timeline,
+            resource filesystem, ambient context, and conversational forms —
+            each with a focused tool surface and bring-your-own storage.
           </>
         ),
       },
@@ -390,15 +503,15 @@ const capabilityGroups: CapGroup[] = [
       },
       {
         icon: "ship",
-        kicker: "Ship it",
+        kicker: "Legacy deployment runtime",
         name: "Glovebox",
         href: "/docs/glovebox",
-        badge: "beta",
+        badge: "deprecated",
         desc: (
           <>
-            Package an agent as a sandboxed container with one authenticated
-            WebSocket endpoint per session. Five base images, a storage policy
-            for payloads, and a client SDK.
+            Maintain an existing sandboxed container deployment while you
+            migrate. Glovebox is deprecated; build new agent applications,
+            working environments, and deployment systems with Foundry.
           </>
         ),
       },
@@ -428,24 +541,26 @@ export default function LandingPage() {
     <main>
       {/* ── Hero ────────────────────────────────────────────────── */}
       <section className="hero">
-        <a className="hero-badge" href="/docs/packages">
+        <a className="hero-badge" href="/foundry">
           <span className="dot" />
           <span>
-            <strong>New</strong> — sandboxes, code execution & realtime voice
+            <strong>Introducing Glove Foundry</strong> — the application framework for agent systems
           </span>
         </a>
         <GloveLogo className="hero-icon" />
         <h1>
-          Build agents that do <strong>cool things.</strong>
+          Build agent systems that <strong>do the work.</strong>
         </h1>
         <p className="hero-sub">
-          Glove is an open-source TypeScript framework for{" "}
-          <strong>AI-powered applications</strong>. You define tools; the agent
-          decides when to use them — then renders UI, speaks, remembers,
-          computes in a sandbox, and coordinates with other agents.
+          Glove is the open-source TypeScript stack for{" "}
+          <strong>AI-powered applications</strong>: models, tools, memory, voice,
+          media, UI, and working environments. Foundry composes those
+          capabilities into typed, observable systems that respond to events,
+          work together, and keep going.
         </p>
         <div className="hero-pills">
           {[
+            "Foundry",
             "Display Stack",
             "Memory",
             "Inbox",
@@ -453,11 +568,10 @@ export default function LandingPage() {
             "Sandboxes",
             "Code Execution",
             "Mesh",
-            "Continuum",
             "Voice",
             "Avatars",
+            "Images",
             "MCP",
-            "Glovebox",
           ].map((p) => (
             <span key={p} className="hero-pill">
               {p}
@@ -465,8 +579,8 @@ export default function LandingPage() {
           ))}
         </div>
         <div className="hero-actions">
-          <a href="/docs/getting-started" className="btn-primary">
-            Get Started
+          <a href="/foundry/docs/getting-started" className="btn-primary">
+            Start with Foundry
             <svg
               width="16"
               height="16"
@@ -483,6 +597,30 @@ export default function LandingPage() {
           <a href="#platform" className="btn-secondary">
             Explore the platform
           </a>
+        </div>
+      </section>
+
+      <section className="home-foundry-release">
+        <div className="home-foundry-copy">
+          <span className="section-label">Introducing / Glove Foundry</span>
+          <h2>The application framework for agents.</h2>
+          <p>
+            Define what an agent can be in code. Configure what each live agent
+            can use as data. Foundry assembles the right model, tools,
+            applications, memory, workspace, and collaborators for every
+            message—then shows you how the work happened.
+          </p>
+          <div className="home-foundry-actions">
+            <a href="/foundry" className="btn-primary">Explore Foundry →</a>
+            <a href="/blog/introducing-glove-foundry" className="btn-secondary">Why we built it</a>
+          </div>
+        </div>
+        <div className="home-foundry-rail" aria-label="Foundry architecture">
+          <div><span>CODE</span><strong>definition</strong><i>file-routed</i></div>
+          <b>+</b>
+          <div><span>DATA</span><strong>instance</strong><i>live choices</i></div>
+          <b>→</b>
+          <div className="active"><span>RUN</span><strong>assembly</strong><i>observable</i></div>
         </div>
       </section>
 
@@ -535,13 +673,13 @@ export default function LandingPage() {
           <path d="M40 40 100 90M150 30 100 90M100 90 30 140M100 90 160 150M30 140 70 175M160 150 70 175M40 40 150 30" opacity=".45" />
         </svg>
         <h2 className="section-title">
-          Agents outgrew the chatbox, and <strong>need more.</strong>
+          An agent is more than <strong>a model with tools.</strong>
         </h2>
         <p className="section-desc">
-          An agent that only calls tools and prints text hits a wall fast. Glove
-          gives it the rest — a way to render UI and speak, memory and a
-          mailbox, a sandbox to compute in, peers to coordinate with, and a way
-          to ship. Every one is a separate package you can adopt on its own.
+          Glove provides the capabilities agents need to do real work: interfaces,
+          memory, media, computation, integrations, and coordination. Adopt any
+          package on its own, or use Foundry to compose them into a complete,
+          persistent application.
         </p>
 
         {capabilityGroups.map((group) => (

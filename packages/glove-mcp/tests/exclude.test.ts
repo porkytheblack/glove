@@ -25,6 +25,27 @@ test("excludeTools accepts a Set and drops several", () => {
   assert.deepEqual(kept.map((t) => t.name), ["list_pull_requests"]);
 });
 
+test("includeTools accepts exact names and glob patterns", () => {
+  const kept = catalog.filter((t) =>
+    includeTool(t, { includeTools: ["list_*", "create_issu?"] }),
+  );
+  assert.deepEqual(kept.map((t) => t.name), ["list_pull_requests", "create_issue"]);
+});
+
+test("an explicit includeTools allowlist takes precedence over a broad exclusion", () => {
+  const kept = catalog.filter((t) =>
+    includeTool(t, { includeTools: ["*_issue", "delete_repository"], excludeTools: ["delete_*"] }),
+  );
+  assert.deepEqual(kept.map((t) => t.name), ["create_issue", "delete_repository"]);
+});
+
+test("glob character classes are supported and malformed classes stay literal", () => {
+  assert.equal(includeTool(tool("read_1"), { includeTools: ["read_[0-9]"] }), true);
+  assert.equal(includeTool(tool("read_a"), { includeTools: ["read_[!0-9]"] }), true);
+  assert.equal(includeTool(tool("read_1"), { includeTools: ["read_[!0-9]"] }), false);
+  assert.equal(includeTool(tool("read_["), { includeTools: ["read_["] }), true);
+});
+
 test("filterTools drops by predicate (e.g. destructive) on top of excludeTools", () => {
   const kept = catalog.filter((t) =>
     includeTool(t, { filterTools: (x) => !x.annotations?.destructiveHint }),
@@ -32,7 +53,7 @@ test("filterTools drops by predicate (e.g. destructive) on top of excludeTools",
   assert.deepEqual(kept.map((t) => t.name), ["list_pull_requests", "create_issue"]);
 });
 
-test("excludeTools and filterTools compose (a name in excludeTools is dropped regardless)", () => {
+test("excludeTools and filterTools compose when there is no explicit allowlist", () => {
   const kept = catalog.filter((t) =>
     includeTool(t, {
       excludeTools: ["create_issue"],

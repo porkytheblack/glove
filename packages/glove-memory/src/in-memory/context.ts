@@ -14,6 +14,11 @@ import {
   MemoryWriteError,
 } from "../core/errors";
 
+export interface ContextMemoryState {
+  entries: ContextEntry[];
+  nextId: number;
+}
+
 /**
  * Reference in-process context adapter. Stores entries in a Map keyed by id.
  */
@@ -24,9 +29,19 @@ export class InMemoryContextAdapter implements ContextAdapter {
   private readonly entries = new Map<string, ContextEntry>();
   private nextId = 1;
 
-  constructor(opts: { schema: MemorySchema; identifier?: string }) {
+  constructor(opts: { schema: MemorySchema; identifier?: string; state?: ContextMemoryState }) {
     this.schema = opts.schema;
     this.identifier = opts.identifier ?? `in-memory-context-${Date.now()}`;
+    if (opts.state) {
+      const state = structuredClone(opts.state);
+      this.nextId = state.nextId;
+      for (const entry of state.entries) this.entries.set(entry.id, entry);
+    }
+  }
+
+  /** Detached data for storage adapters; retains expired entries until explicitly removed. */
+  snapshot(): ContextMemoryState {
+    return structuredClone({ entries: [...this.entries.values()], nextId: this.nextId });
   }
 
   // ─── Read ───────────────────────────────────────────────────────────────

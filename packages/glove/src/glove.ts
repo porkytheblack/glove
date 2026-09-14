@@ -7,6 +7,7 @@
 import z from "zod";
 import { Agent, ContentPart, Context, Executor, HandOverFunction, Message, ModelAdapter, ModelPromptResult, NotifySubscribersFunction, Observer, PromptMachine, StoreAdapter, SubscriberAdapter, Tool, ToolResultData } from "./core";
 import { MemoryStore } from "./utils";
+import { createTaskTool } from "./tools/task-tool";
 import { DisplayManagerAdapter } from "./display-manager";
 import {
   AgentControls,
@@ -67,7 +68,14 @@ export interface GloveFoldArgs<I> {
   generateToolSummary?: (summaryArgs?: unknown) => Promise<string>
 }
 
+/** Read current external state before each model iteration. Not persisted as chat history. */
+export type RuntimeContextProvider = (signal?: AbortSignal) => string | null | undefined | Promise<string | null | undefined>;
+
 export interface IGloveRunnable {
+  /** Append transient context at the model-input tail; returns an unregister function. */
+  addContextProvider: (provider: RuntimeContextProvider) => () => void
+  /** Resolve live snapshots for external runtimes such as realtime voice. */
+  getRuntimeContext: (signal?: AbortSignal) => Promise<Array<Message>>
   processRequest: (request: string | ContentPart[], signal?: AbortSignal) => Promise<ModelPromptResult | Message>
   setModel: (model: ModelAdapter) => void
   setSystemPrompt: (prompt: string) => void
@@ -78,6 +86,11 @@ export interface IGloveRunnable {
   removeSubscriber: (subscriber: SubscriberAdapter) => void
   /** Fold a tool. Legal at any time, including after build. */
   fold: <I>(args: GloveFoldArgs<I>) => IGloveRunnable
+  /** Atomically replace a caller-owned set of tools. Legal after build. */
+  replaceTools: (
+    previousNames: Iterable<string>,
+    nextTools: ReadonlyArray<GloveFoldArgs<unknown>>,
+  ) => IGloveRunnable
   /** Register a `/name` hook that can mutate agent state or short-circuit a turn. */
   defineHook: (name: string, handler: HookHandler) => IGloveRunnable
   /** Register a `/name` skill that injects context as a synthetic user message. */
@@ -110,7 +123,12 @@ export interface IGloveRunnable {
 
 
 export interface IGloveBuilder {
+  addContextProvider: (provider: RuntimeContextProvider) => () => void,
   fold: <I>(args: GloveFoldArgs<I>) => IGloveBuilder,
+  replaceTools: (
+    previousNames: Iterable<string>,
+    nextTools: ReadonlyArray<GloveFoldArgs<unknown>>,
+  ) => IGloveBuilder,
   defineHook: (name: string, handler: HookHandler) => IGloveBuilder,
   defineSkill: (args: DefineSkillArgs) => IGloveBuilder,
   defineSubAgent: (args: DefineSubAgentArgs) => IGloveBuilder,
@@ -160,8 +178,10 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   private subAgents = new Map<string, RegisteredSubAgent>()
   private subAgentInvokeTool: Tool<unknown> | null = null
   private skillInvokeTool: Tool<unknown> | null = null
+  private taskTool: Tool<unknown> | null = null
 
   private subscribers: Array<SubscriberAdapter> = []
+  private contextProviders = new Set<RuntimeContextProvider>()
   private compactionConfig: CompactionConfig
 
   private store_defined = false
@@ -182,6 +202,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     this.context = new Context(this.store)
     this.promptMachine = new PromptMachine(config.model, this.context,config.systemPrompt, config.enableToolResultSummary)
     this.executor = new Executor(config.maxRetries, this.store)
+    this.registerTaskTool()
 
     this.observer = new Observer(this.store, this.context, this.promptMachine, this.compactionConfig?.compaction_instructions, this.compactionConfig?.max_turns, this.compactionConfig?.compaction_context_limit)
 
@@ -190,7 +211,8 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       this.executor,
       this.context,
       this.observer,
-      this.promptMachine
+      this.promptMachine,
+      (signal) => this.getRuntimeContext(signal)
     )
 
   }
@@ -201,7 +223,34 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     );
   };
 
-  fold<I>(args: GloveFoldArgs<I>) {
+  addContextProvider(provider: RuntimeContextProvider): () => void {
+    this.contextProviders.add(provider)
+    return () => { this.contextProviders.delete(provider) }
+  }
+
+  async getRuntimeContext(signal?: AbortSignal): Promise<Array<Message>> {
+    const messages: Array<Message> = []
+    for (const provider of this.contextProviders) {
+      signal?.throwIfAborted()
+      const text = await provider(signal)
+      signal?.throwIfAborted()
+      if (text) messages.push({ sender: "user", text, framework_context: "runtime" })
+    }
+    if (this.contextProviders.size) {
+      await this.notifyExtensionEvent("runtime_context", { messages: structuredClone(messages) })
+    }
+    return messages
+  }
+
+  private registerTaskTool() {
+    this.taskTool = null
+    if (typeof this.store.getTasks === "function" && typeof this.store.addTasks === "function") {
+      this.taskTool = createTaskTool(this.context) as Tool<unknown>
+      this.executor.registerTool(this.taskTool)
+    }
+  }
+
+  private buildTool<I>(args: GloveFoldArgs<I>): Tool<I> {
     if (!args.inputSchema && !args.jsonSchema) {
       throw new Error(`Tool "${args.name}" must provide inputSchema or jsonSchema`);
     }
@@ -209,7 +258,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     const displayManager = this.displayManager;
     const self = this;
 
-    const tool: Tool<I> = {
+    return {
       name: args.name,
       description: args.description,
       input_schema: args.inputSchema,
@@ -223,8 +272,22 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       },
       generateSummary: args.generateToolSummary
     }
+  }
 
-    this.executor.registerTool(tool)
+  fold<I>(args: GloveFoldArgs<I>) {
+    this.executor.registerTool(this.buildTool(args))
+    return this
+  }
+
+  replaceTools(
+    previousNames: Iterable<string>,
+    nextTools: ReadonlyArray<GloveFoldArgs<unknown>>,
+  ) {
+    // Build and validate the entire next set before touching the live
+    // registry. A wrapper/schema failure therefore leaves the old surface in
+    // place rather than exposing a partially refreshed agent.
+    const built = nextTools.map((tool) => this.buildTool(tool))
+    this.executor.replaceTools(previousNames, built)
     return this
   }
 
@@ -353,7 +416,9 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       // Preserve tools registered before build — recreating Executor would
       // otherwise drop them silently (including the auto-registered
       // skill/subagent dispatch tools).
-      const previousTools = this.executor.tools;
+      // The built-in task tool closes over Context, so recreate it for the
+      // new store instead of retaining the constructor's temporary store.
+      const previousTools = this.executor.tools.filter((tool) => tool !== this.taskTool);
       const maxRetries = this.executor.MAX_RETRIES;
       const model = this.promptMachine.model;
       const systemPrompt = this.promptMachine.systemPrompt;
@@ -363,6 +428,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       this.context = new Context(this.store)
       this.promptMachine = new PromptMachine(model, this.context, systemPrompt, enableToolResultSummary)
       this.executor = new Executor(maxRetries, this.store)
+      this.registerTaskTool()
 
       this.observer = new Observer(
         this.store,
@@ -378,7 +444,8 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
         this.executor,
         this.context,
         this.observer,
-        this.promptMachine
+        this.promptMachine,
+        (signal) => this.getRuntimeContext(signal)
       )
 
       for (const tool of previousTools) this.executor.registerTool(tool)
@@ -545,9 +612,6 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   
   
 }
-
-
-
 
 
 

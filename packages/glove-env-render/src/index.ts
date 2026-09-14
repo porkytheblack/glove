@@ -13,6 +13,7 @@
  *
  * Paths in, paths out — the bytes never enter the context window.
  */
+import { createUnlockBinding, UNLOCK_TYPES, UNLOCK_DOCS } from "glove-env-unlock";
 import { defineAdapter, type EnvFsHandle } from "glove-working-environment";
 import { LibreOfficeError, ProfilePool, officeToPdf, rasterizeImage, rasterizePdf } from "./raster";
 import { readLayout } from "./pptx-layout";
@@ -148,8 +149,8 @@ export function render(options: RenderAdapterOptions = {}) {
     name: "render",
     description:
       "Rasterize a PDF, deck, Word file or image to page PNGs in the filesystem — so you can LOOK at what you produced, not just read its text.",
-    types: RENDER_TYPES,
-    docs: RENDER_DOCS,
+    types: RENDER_TYPES + UNLOCK_TYPES,
+    docs: RENDER_DOCS + UNLOCK_DOCS,
     skills: [
       {
         name: "verifying-output",
@@ -177,6 +178,7 @@ export function render(options: RenderAdapterOptions = {}) {
     },
     create(vfs: EnvFsHandle) {
       return {
+        unlock: createUnlockBinding(vfs),
         async render(input: string, outDir: string, opts: RenderOptions = {}): Promise<RenderResult> {
           if (typeof input !== "string" || typeof outDir !== "string") {
             throw new Error("render(input, outDir, opts?) needs two paths");

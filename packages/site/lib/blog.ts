@@ -20,6 +20,42 @@ export interface BlogPost {
 
 export const posts: BlogPost[] = [
   {
+    slug: "conversations-that-keep-their-purpose",
+    title: "Conversations that keep their purpose",
+    summary:
+      "Goals, forms, and shared facts help conversational agents keep their objectives while people interrupt, answer early, and change their minds.",
+    date: "2026-09-11",
+    readingTime: 5,
+    tags: ["memory", "goals", "forms", "realtime"],
+  },
+  {
+    slug: "fresh-context-in-the-agent-loop",
+    title: "Fresh context belongs inside the agent loop",
+    summary:
+      "How reusable context providers inject current application state before each model iteration, and why moving memory out of system prompts matters for caching.",
+    date: "2026-09-11",
+    readingTime: 4,
+    tags: ["core", "context", "architecture"],
+  },
+  {
+    slug: "building-video-workflows-with-glove",
+    title: "Building video workflows with Glove",
+    summary:
+      "Use glove-video for reusable creative direction, resumable shot flows, actual-video review, and gated delivery.",
+    date: "2026-09-11",
+    readingTime: 5,
+    tags: ["video", "glove-video", "workflows"],
+  },
+  {
+    slug: "introducing-glove-foundry",
+    title: "The workflow is no longer the product",
+    summary:
+      "Introducing Glove Foundry: a file-routed, Effect-native application framework where agent systems are assembled from definitions and live instance data—and the work can be imagined at runtime.",
+    date: "2026-08-29",
+    readingTime: 14,
+    tags: ["foundry", "release", "agents", "architecture"],
+  },
+  {
     slug: "silent-failures",
     title: "Every failure in this one was silent",
     summary:

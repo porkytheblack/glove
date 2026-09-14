@@ -33,6 +33,7 @@
  * lucky, a mangled number if you are not — so the result says which pages
  * those were and points at `documents.extractText`.
  */
+import { createUnlockBinding, UNLOCK_TYPES, UNLOCK_DOCS } from "glove-env-unlock";
 import { defineAdapter, type EnvFsHandle } from "glove-working-environment";
 import { rasterizeImage, rasterizePdf } from "glove-env-render/raster";
 import { Engine, OcrLanguageError, availableLanguages, round } from "./engine";
@@ -166,8 +167,8 @@ export function ocr(options: OcrAdapterOptions = {}) {
     name: "ocr",
     description:
       "Read text off a scanned PDF or a photo of a document with bundled Tesseract — offline, per-page confidence, no host wiring.",
-    types: OCR_TYPES,
-    docs: OCR_DOCS,
+    types: OCR_TYPES + UNLOCK_TYPES,
+    docs: OCR_DOCS + UNLOCK_DOCS,
     skills: [
       {
         name: "reading-a-scan",
@@ -199,6 +200,7 @@ export function ocr(options: OcrAdapterOptions = {}) {
       };
 
       return {
+        unlock: createUnlockBinding(vfs),
         /**
          * Should this be OCR'd at all, and can it be? Cheap: no recognition
          * runs, so this is the call to make before spending pages.

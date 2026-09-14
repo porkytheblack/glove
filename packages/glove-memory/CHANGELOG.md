@@ -1,5 +1,68 @@
 # glove-memory
 
+## 2.1.0
+
+### Minor Changes
+
+- [#176](https://github.com/porkytheblack/glove/pull/176) [`8c36feb`](https://github.com/porkytheblack/glove/commit/8c36feb1139966bcdac8525e79db1714c13c5b6b) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Integrate Foundry's production application controls with the current core runtime-context and multimodal contracts. Add durable single-host Foundry data, authoritative conversation transcripts, adapter-owned HTTP authorization, expiring tool approvals, interrupt-and-restart steering, and bounded programmatic tool composition. Preserve message-aware assembly, schedules, sleep, native working environments, and voice host boundaries.
+
+  Add first-class lazy goals, facts, forms and native context-provider fields with typed execution handles, conversation/instance scoping, opt-in shared preparation, and metadata-only inspector progress. Extend the SQLite bundle with durable native goal/form adapters and independently committed fact saves protected by process-death-safe SQLite locks. Add guided-intake documentation and restart/concurrency tests.
+
+  Require Station 2.3.0 or newer for completed-worker drain and cancellation escalation fixes. Add a real-process regression for leaked handles and cancellation.
+
+  Add a Clack-based interactive project initializer with target, starter and package-manager choices, a review before writing files, cancellation and optional dependency installation. Preserve non-interactive automation with explicit flags. Require Node 20.12+ for the initializer (Node 22.13+ recommended for SQLite memory). Resolve scaffold versions against the installed workspace instead of obsolete fallback majors. Expand the package and starter READMEs and the documentation site's setup wizard and CLI reference.
+
+  Add opt-in `glove-memory/sqlite` durable entity, episodic, resource and pinned-context adapters for Node 22.13+ with isolated namespaces, transactional writes, cross-process reads and corruption checks. Existing browser-safe entry points remain unchanged.
+
+  Add MCP stdio transport, tool allowlists, sanitized resources and prompts, bounded timeouts, lease-safe child recycling, live tool refresh and deactivation cleanup. Core tool-registry updates are atomic; Gemini compatibility retains provider thought signatures across tool turns. REPL workflow frames remain bounded and capability-selected.
+
+### Patch Changes
+
+- Updated dependencies [[`8c36feb`](https://github.com/porkytheblack/glove/commit/8c36feb1139966bcdac8525e79db1714c13c5b6b)]:
+  - glove-core@4.1.0
+  - glove-facts@0.1.2
+
+## 2.0.0
+
+### Major Changes
+
+- **Breaking:** default goals, forms, and pinned-context mounting requires the native runtime-context API from glove-core 4. Upgrade core and memory together. Runnable proxies must forward `addContextProvider` (and `getRuntimeContext` for external runtimes). Forms/goals can use `injectStatus: false` with a custom renderer. Stored adapter data needs no migration; dynamic snapshots no longer appear in `getSystemPrompt()`.
+
+- Keep changing memory state out of system prompts. Core now resolves live context providers at the model-input tail before each iteration and exposes their snapshots to tracing. Goals, forms, and pinned context use these transient snapshots without changing saved conversation history. Realtime voice injects changed snapshots silently at startup and after tools, with explicit refresh for external changes.
+
+- Updated dependencies []:
+  - glove-core@4.0.0
+  - glove-facts@0.1.1
+
+## 1.2.0
+
+### Minor Changes
+
+- Run shared fact preparation through a caller-supplied Glove agent with normal message persistence, tool execution, usage accounting and subscriber tracing. Agent presence enables preparation; remove the direct model helper and separate enable flag.
+
+- [#171](https://github.com/porkytheblack/glove/pull/171) [`13c6385`](https://github.com/porkytheblack/glove/commit/13c6385497322e1c1f3d504ff7ef95b1c5eced79) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Add a standalone dynamic goals subsystem with persisted definitions and checklist progress, versioned revisions, protected obligations, deferred follow-ups, a CAS storage contract and in-memory adapter, and model tools through useGoalRunner. Compose goal, form, and context prompt sections without overwriting each other. Include durable progression hooks with leased replay and idempotency keys, plus per-runnable configuration from current goal state.
+
+- [#171](https://github.com/porkytheblack/glove/pull/171) [`5e7a590`](https://github.com/porkytheblack/glove/commit/5e7a590a2efca6de39f876c57535e075e813e132) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Add glove-facts as a shared, scoped and revisioned evidence layer with explicit capture, reusable consumer links, urgency delivery and model-backed preparation. Integrate opt-in preparation into goal and form commits with authoritative validation, source revision checks, action/approval policies and explicit correction review. Persist prepared form effects for restart recovery and expose full prepared context in status and tool responses.
+
+### Patch Changes
+
+- Updated dependencies [[`5e7a590`](https://github.com/porkytheblack/glove/commit/5e7a590a2efca6de39f876c57535e075e813e132)]:
+  - glove-facts@0.1.0
+
+## 1.1.2
+
+### Patch Changes
+
+- Updated dependencies [e6210d0]
+  - glove-core@3.7.1
+
+## 1.1.1
+
+### Patch Changes
+
+- Updated dependencies [[`3dad3ab`](https://github.com/porkytheblack/glove/commit/3dad3ab965ef4dff1973fa7339a60ae8f24b90e8), [`ee591da`](https://github.com/porkytheblack/glove/commit/ee591da42305661339913bca8f967a9f8c0fecbf)]:
+  - glove-core@3.7.0
+
 ## 1.1.0
 
 ### Minor Changes

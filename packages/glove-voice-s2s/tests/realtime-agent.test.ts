@@ -33,6 +33,49 @@ class FakeAdapter extends EventEmitter<S2SEvents> implements S2SAdapter {
   interrupt() {}
 }
 
+test("a tool finishing after restart cannot inject context or results into the new session", async () => {
+  const adapter = new FakeAdapter();
+  let finish!: (value: unknown) => void;
+  const toolResult = new Promise(resolve => { finish = resolve; });
+  const agent = fakeAgent([{ ...okTool, run: () => toolResult }]);
+  agent.getRuntimeContext = async () => [{ text: "Current context" }];
+  const rt = new RealtimeAgent({ agent, adapter });
+  await rt.start();
+  adapter.emit("tool_call", { callId: "old", name: "check_warranty", arguments: '{"hull":"x"}' });
+  await rt.stop();
+  await rt.start();
+  const injections = adapter.injected.length;
+  finish({ status: "success", data: "old session result" });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(adapter.results, []);
+  assert.equal(adapter.injected.length, injections);
+  await rt.stop();
+});
+
+test("failed finalization cleans listeners and permits a later start", async () => {
+  const adapter = new FakeAdapter();
+  let finish!: () => void;
+  adapter.disconnect = async () => {
+    await new Promise<void>(resolve => { finish = resolve; });
+    adapter.connected = false;
+    throw new Error("finalization failed");
+  };
+  const rt = new RealtimeAgent({ agent: fakeAgent([]), adapter });
+  await rt.start();
+  const stop = rt.stop();
+  assert.equal(rt.stop(), stop);
+  const failure = assert.rejects(stop, /finalization failed/);
+  await new Promise(resolve => setImmediate(resolve));
+  finish();
+  await failure;
+  assert.equal(adapter.listenerCount("usage"), 0);
+  assert.equal(adapter.listenerCount("error"), 0);
+  adapter.disconnect = async () => { adapter.connected = false; };
+  await rt.start();
+  assert.equal(adapter.listenerCount("tool_call"), 1);
+  await rt.stop();
+});
+
 /** Minimal IGloveRunnable — only what RealtimeAgent actually reads. */
 function fakeAgent(tools: any[], systemPrompt = "You are Nova.") {
   return {
@@ -261,4 +304,69 @@ test("refreshSession re-sends tools folded after start", async () => {
   tools.push({ ...okTool, name: "book_service" });
   rt.refreshSession();
   assert.equal(adapter.session?.tools?.length, 2);
+});
+
+test("runtime context is injected silently at start and after tools without rewriting instructions", async () => {
+  const adapter = new FakeAdapter();
+  let text = "GOALS: collect email";
+  const agent = {
+    tools: [{ name: "advance", description: "Advance", input_schema: z.object({}), run: async () => { text = "GOALS: complete"; return { status: "success", data: "done" }; } }],
+    getSystemPrompt: () => "Stable voice instructions",
+    getRuntimeContext: async () => [{ sender: "user", text }],
+  };
+  const rt = new RealtimeAgent({ agent: agent as never, adapter });
+  await rt.start();
+  assert.equal(adapter.session!.instructions, "Stable voice instructions");
+  assert.equal(adapter.injected[0].respond, false);
+  assert.match(adapter.injected[0].text, /collect email/);
+  adapter.emit("tool_call", { callId: "advance", name: "advance", arguments: "{}" });
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(adapter.results.length, 1);
+  assert.match(adapter.injected.at(-1)!.text, /GOALS: complete/);
+  assert.equal(adapter.injected.at(-1)!.respond, false);
+  assert.equal(adapter.session!.instructions, "Stable voice instructions");
+  const count = adapter.injected.length; await rt.refreshContext(); assert.equal(adapter.injected.length, count);
+  text = ""; await rt.refreshContext(); assert.match(adapter.injected.at(-1)!.text, /No active runtime context/);
+  await rt.stop();
+});
+
+test("a failed initial context read cleans up and allows a fresh start", async () => {
+  const adapter = new FakeAdapter();
+  let fail = true;
+  const agent = { ...fakeAgent([]), getRuntimeContext: async () => {
+    if (fail) throw new Error("context unavailable");
+    return [{ sender: "user", text: "Current goals" }];
+  } };
+  const rt = new RealtimeAgent({ agent, adapter });
+  await assert.rejects(rt.start(), /context unavailable/);
+  assert.equal(adapter.connected, false);
+  assert.equal(adapter.listenerCount("tool_call"), 0);
+  fail = false;
+  await rt.start();
+  assert.equal(adapter.connected, true);
+  assert.equal(adapter.listenerCount("tool_call"), 1);
+  assert.match(adapter.injected.at(-1)!.text, /Current goals/);
+  await rt.stop();
+});
+
+test("context read failure after a committed tool preserves the successful result", async () => {
+  const adapter = new FakeAdapter();
+  let fail = false;
+  const agent = { ...fakeAgent([{ ...okTool, run: async () => {
+    fail = true;
+    return { status: "success", data: "committed" };
+  } }]), getRuntimeContext: async () => {
+    if (fail) throw new Error("context unavailable");
+    return [];
+  } };
+  const rt = new RealtimeAgent({ agent, adapter });
+  const errors: Error[] = [];
+  rt.on("error", error => errors.push(error));
+  await rt.start();
+  adapter.emit("tool_call", { callId: "committed", name: "check_warranty", arguments: '{"hull":"test"}' });
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].message, /context unavailable/);
+  assert.deepEqual(adapter.results, [{ callId: "committed", output: { status: "success", data: "committed" } }]);
+  await rt.stop();
 });

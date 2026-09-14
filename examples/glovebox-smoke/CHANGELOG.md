@@ -1,5 +1,32 @@
 # glovebox-smoke
 
+## 0.0.5
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glovebox-core@0.6.4
+
+## 0.0.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glovebox-core@0.6.3
+
+## 0.0.3
+
+### Patch Changes
+
+- glovebox-core@0.6.2
+
+## 0.0.2
+
+### Patch Changes
+
+- Updated dependencies [[`3dad3ab`](https://github.com/porkytheblack/glove/commit/3dad3ab965ef4dff1973fa7339a60ae8f24b90e8)]:
+  - glovebox-core@0.6.1
+
 ## 0.0.1
 
 ### Patch Changes

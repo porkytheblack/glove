@@ -28,6 +28,7 @@ import {
 } from "../entity/query";
 
 interface InMemoryEpisodicOpts {
+  state?: EpisodicMemoryState;
   schema: MemorySchema;
   identifier?: string;
   /**
@@ -43,6 +44,12 @@ interface InMemoryEpisodicOpts {
    * is set (vector search takes precedence).
    */
   fuzzySearch?: boolean;
+}
+
+export interface EpisodicMemoryState {
+  episodes: Episode[];
+  embeddings: Array<[string, number[]]>;
+  nextId: number;
 }
 
 /**
@@ -94,6 +101,17 @@ export class InMemoryEpisodicAdapter implements EpisodicMemoryAdapter {
     // `searchEpisodes` callable and registers the search reader tool.
     this.fuzzy = !opts.embedder && Boolean(opts.fuzzySearch);
     this.supportsSemanticSearch = Boolean(opts.embedder) || this.fuzzy;
+    if (opts.state) {
+      const state = structuredClone(opts.state);
+      this.nextId = state.nextId;
+      for (const episode of state.episodes) this.episodes.set(episode.id, episode);
+      for (const [id, vector] of state.embeddings) this.embeddings.set(id, vector);
+    }
+  }
+
+  /** Detached data for storage adapters; includes index state and provenance. */
+  snapshot(): EpisodicMemoryState {
+    return structuredClone({ episodes: [...this.episodes.values()], embeddings: [...this.embeddings], nextId: this.nextId });
   }
 
   // ─── Write ──────────────────────────────────────────────────────────────

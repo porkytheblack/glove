@@ -269,7 +269,7 @@ async function openDocx(vfs: EnvFsHandle, path: string) {
   try {
     entries = readZip(bytes);
   } catch (e) {
-    throw new Error(`${path} could not be read as a .docx: ${e instanceof Error ? e.message : String(e)}`);
+    throw new Error(`${path} could not be read as a .docx: ${e instanceof Error ? e.message : String(e)}. If password-protected, call unlock(input, output, { password }) first`);
   }
   if (!entries.has(DOCUMENT_PART)) {
     throw new Error(

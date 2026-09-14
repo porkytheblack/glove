@@ -40,6 +40,21 @@ attachRealtime(rt, transport);       // mics → model, model → track, interru
 await rt.start();
 ```
 
+## GPT-Live hosts
+
+`createS2SAdapter({ provider: "openai-live" })` uses the same transport contract,
+so `attachRealtime` can relay PCM and flush playback on interruption. Its bridge
+resamples inbound audio, but does not fill silence gaps, segment utterances, or
+forward captions. A Live host must supply continuous, paced input including
+silence, consume `rt.on("transcript", ...)` for timestamped fragments, and feed
+actual playback state into `rt.adapter.notifyPlaybackState?.(speaking)`.
+
+Live has no final transcript or provider audio-done event. Avatar hosts must own
+utterance boundaries for `attachAvatar`; existing room examples need these host
+changes before switching providers. Manual interruption mutes output until
+`resumeOutput?.()`. Await `rt.stop()` before tearing down the session so final
+usage can arrive. See the [GPT-Live guide](../glove-voice-s2s/README.md#gpt-live).
+
 ## With a face
 
 ```ts

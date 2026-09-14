@@ -17,7 +17,7 @@ const SetInputSchema = z.object({
     .boolean()
     .default(true)
     .describe(
-      "When true (the default), the entry is auto-injected into the system prompt every turn. When false, it's only fetched on demand via glove_context_get.",
+      "When true (the default), the entry is appended as transient runtime context before each model iteration. When false, it's only fetched on demand via glove_context_get.",
     ),
   expiresAt: z
     .string()
@@ -34,7 +34,7 @@ export function buildContextSetTool(adapter: ContextAdapter): GloveFoldArgs<SetC
     name: "glove_context_set",
     description:
       `Add or update a user context entry. Use this when the user instructs the agent to remember something — "remember that I prefer X" — or when the agent learns a stable fact about the user that should be available across turns.\n\n` +
-      `Pinned entries (the default) are auto-injected into the system prompt every turn. Set pinned=false for occasional context that should only be fetched on demand.`,
+      `Pinned entries (the default) are appended as transient runtime context before each model iteration. Set pinned=false for occasional context that should only be fetched on demand.`,
     inputSchema: SetInputSchema,
     async do(input) {
       try {

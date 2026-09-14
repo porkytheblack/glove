@@ -6,6 +6,7 @@
  * same spec that produces a PDF produces a DOCX, so choosing a format is a
  * change of output path rather than a change of API.
  */
+import { createUnlockBinding, UNLOCK_TYPES, UNLOCK_DOCS } from "glove-env-unlock";
 import { defineAdapter, type EnvFsHandle } from "glove-working-environment";
 import { createPdfBindings, type PdfSummary } from "./pdf";
 import { createDocxBindings, type DocxSummary } from "./docx";
@@ -53,8 +54,8 @@ export const documents = () =>
   defineAdapter({
     name: "documents",
     description: "Compose, inspect and rearrange PDF and DOCX documents; extract their text.",
-    types: DOCUMENTS_TYPES,
-    docs: DOCUMENTS_DOCS,
+    types: DOCUMENTS_TYPES + UNLOCK_TYPES,
+    docs: DOCUMENTS_DOCS + UNLOCK_DOCS,
     skills: DOCUMENTS_SKILLS,
     // Only PDF gets a magic claim. DOCX is a ZIP, and so is XLSX — a `PK`
     // signature cannot tell them apart, so the ZIP-based formats are claimed
@@ -67,6 +68,7 @@ export const documents = () =>
       const pdf = createPdfBindings(vfs);
       const docx = createDocxBindings(vfs);
       return {
+        unlock: createUnlockBinding(vfs),
         /** Summarise a PDF or DOCX, whichever it turns out to be. */
         async describe(path: string): Promise<DocumentSummary> {
           return (await detect(vfs, path)) === "pdf" ? pdf.describe(path) : docx.describe(path);

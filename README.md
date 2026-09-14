@@ -11,6 +11,7 @@
 
 <p align="center">
   <a href="https://glove.dterminal.net/docs/getting-started">Docs</a> &middot;
+  <a href="https://glove.dterminal.net/foundry">Foundry</a> &middot;
   <a href="https://glove.dterminal.net">Website</a> &middot;
   <a href="#examples">Examples</a>
 </p>
@@ -30,6 +31,19 @@ User: "Add the Nike ones to my cart and check out"
 
 Works with OpenAI, Anthropic, Google Gemini, OpenRouter, and more. Bridge external tool servers (Notion, Linear, Gmail, ...) via [MCP](#mcp-integration), or add real-time voice with [glove-voice](#voice).
 
+## Glove Foundry
+
+Glove Foundry is the file-routed, Effect-native application framework for complete agent systems. Definitions live in TypeScript; persisted instances select applications, playbooks, schedules, conversations, workspaces, and context at runtime. Every major surface can assemble lazily from the current message, and the built-in workbench correlates runs, model passes, tools, transmissions, handoffs, and artifacts.
+
+```bash
+npx glove-foundry init my-agent-system
+cd my-agent-system
+pnpm install
+pnpm dev
+```
+
+Read the [Foundry handbook](https://glove.dterminal.net/foundry/docs) or run the [`foundry-agent`](examples/foundry-agent) reference application.
+
 ## Packages
 
 | Package | Description | npm |
@@ -39,17 +53,20 @@ Works with OpenAI, Anthropic, Google Gemini, OpenRouter, and more. Bridge extern
 | [`glove-next`](packages/next) | Next.js API route handlers (SSE streaming) | [![npm](https://img.shields.io/npm/v/glove-next)](https://www.npmjs.com/package/glove-next) |
 | [`glove-voice`](packages/glove-voice) | Voice pipeline — STT/TTS/VAD adapters, ElevenLabs integration, speech-gated noise robustness | [![npm](https://img.shields.io/npm/v/glove-voice)](https://www.npmjs.com/package/glove-voice) |
 | [`glove-voice-native`](packages/glove-voice-native) | React Native / Expo audio backends — on-device mic capture, PCM playback, Silero VAD (onnxruntime-react-native) | [![npm](https://img.shields.io/npm/v/glove-voice-native)](https://www.npmjs.com/package/glove-voice-native) |
-| [`glove-voice-s2s`](packages/glove-voice-s2s) | Speech-to-speech — run a Glove agent on realtime S2S models (OpenAI Realtime / Gemini Live): `RealtimeAgent`, config-carrying `s2sDrivenModel`, typed turn-taking knobs, barge-in with truncation sync | — |
+| [`glove-voice-s2s`](packages/glove-voice-s2s) | Speech-to-speech — run a Glove agent on realtime S2S models (OpenAI Realtime / Gemini Live / GPT-Live): `RealtimeAgent`, config-carrying `s2sDrivenModel`, provider-specific turn-taking and continuous audio | — |
 | [`glove-voice-avatar`](packages/glove-voice-avatar) | Live avatars — a face over the S2S stack: `AvatarAdapter` contract + conformance suite, Tavus echo and Anam audio-passthrough adapters, `attachAvatar` bridge | — |
 | [`glove-voice-livekit`](packages/glove-voice-livekit) | LiveKit as an adapter — `LiveKitTransport` room leg for realtime agents, plus Tavus/Anam avatars that join your LiveKit room via the avatar datastream protocol | — |
 | [`glove-mcp`](packages/glove-mcp) | Model Context Protocol integration — bridge MCP servers' tools, on-demand discovery, opt-in OAuth runner | [![npm](https://img.shields.io/npm/v/glove-mcp)](https://www.npmjs.com/package/glove-mcp) |
 | [`glove-image`](packages/glove-image) | Agentic image generation — prompt pipelines with enhancer inbetweens, durable characters and scenes, reference images, editing, deterministic assembly, vision review, per-call cost tracking; BYO image-model adapter | [![npm](https://img.shields.io/npm/v/glove-image)](https://www.npmjs.com/package/glove-image) |
+| [`glove-video`](packages/glove-video) | Agentic video production — OpenRouter and custom adapters, temporal prompt pipelines, actual-video review/revision/delivery gates, durable continuity libraries, generation/extension/transformation, resumable multi-shot flows, progress and cost tracking | — |
 | [`glove-memory`](packages/glove-memory) | Memory layer — entity / episodic / resources / context primitives, schema-first, BYO storage | [![npm](https://img.shields.io/npm/v/glove-memory)](https://www.npmjs.com/package/glove-memory) |
+| [`glove-facts`](packages/glove-facts) | Shared evidence, revisioned facts and model preparation for goals and forms | [![npm](https://img.shields.io/npm/v/glove-facts)](https://www.npmjs.com/package/glove-facts) |
 | [`glove-mesh`](packages/glove-mesh) | Inter-agent mesh networking — direct/broadcast/ack messaging on top of the inbox primitive, BYO transport | [![npm](https://img.shields.io/npm/v/glove-mesh)](https://www.npmjs.com/package/glove-mesh) |
+| [`glove-foundry`](packages/glove-foundry) | Effect-native agent application framework — filename-owned, agent-colocated headless composition; separate runtime identities and multi-conversation state; message-aware lazy Glove assembly; application-owned transmissions and instance-owned playbooks/installations; installable tools, applications, and MCP plus definition-owned lazy memory and inboxes; native mesh; shared workspace/inbox/tasks/environment primitives; schedules, ingress connections, core orchestration tools, ESLint guardrails, and a correlated observability workbench | — |
 | [`glove-scratchpad`](packages/glove-scratchpad) | A database emulator for LLM tool use — expose an agent's capabilities as a relational database it queries with one `execute_sql` tool. Resources become tables, `WHERE` pushes arguments down, `information_schema` is discovery, transactions stage outbound effects, and every statement is parsed before any tool runs; default backend is `glove-sql` | [![npm](https://img.shields.io/npm/v/glove-scratchpad)](https://www.npmjs.com/package/glove-scratchpad) |
 | [`glove-sql`](packages/glove-sql) | Zero-dependency, pure-JS Postgres-subset SQL engine — runtime-built tables, joins/CTEs/set-ops/subqueries/window functions, serialises to bytes; the default backend for `glove-scratchpad` | [![npm](https://img.shields.io/npm/v/glove-sql)](https://www.npmjs.com/package/glove-sql) |
 | [`glove-vfs`](packages/glove-vfs) | One virtual filesystem for a whole agent — a zero-dependency `Vfs` contract plus backends (in-memory, host-directory copy-on-write, object storage), a mount table that composes them into a single tree, path-scoped access policies, an optional metadata/provenance/search layer, and a conformance suite. Working environments, `glove-memory` resource stores and the sandboxed REPLs all plug into the same tree instead of each keeping a private one, so a file the agent made is a note it can file and a script can read | [![npm](https://img.shields.io/npm/v/glove-vfs)](https://www.npmjs.com/package/glove-vfs) |
-| [`glove-working-environment`](packages/glove-working-environment) | A persistent, sandboxed working environment for LLM agents — a virtual filesystem where state accumulates across tool calls: write and persist scripts, run them, inspect intermediates, iterate. Scripts see only injected capabilities (`env:fs`, `env:std`, stdlib adapters) — no network, no host fs, no process. Zero-dep core | [![npm](https://img.shields.io/npm/v/glove-working-environment)](https://www.npmjs.com/package/glove-working-environment) |
+| [`glove-working-environment`](packages/glove-working-environment) | A persistent, sandboxed working environment for LLM agents — a virtual filesystem where state accumulates across tool calls: write and persist scripts, run them, inspect intermediates, iterate. Scripts see only injected capabilities (`env:fs`, `env:std`, stdlib adapters) — no ambient network, host fs or process access; external capabilities require explicit host adapters. Zero-dep core | [![npm](https://img.shields.io/npm/v/glove-working-environment)](https://www.npmjs.com/package/glove-working-environment) |
 | [`glove-env-documents`](packages/glove-env-documents) | Document stdlib adapter for `glove-working-environment` — `env:documents`: compose PDFs and DOCX from one document spec, describe/merge/split/stamp, extract text (PDF text needs the optional `pdfjs-dist` peer). Extraction reports `kind`, so a scanned PDF or a .docx that is really a pasted picture says so instead of coming back empty, and `docx.extractImages` gets the pixels out for OCR. Exports `docx`'s own `Document`/`Packer`/`Paragraph` for anything the spec cannot express | [![npm](https://img.shields.io/npm/v/glove-env-documents)](https://www.npmjs.com/package/glove-env-documents) |
 | [`glove-env-spreadsheets`](packages/glove-env-spreadsheets) | Spreadsheet stdlib adapter for `glove-working-environment` — `env:spreadsheets`: describe a workbook, read sheets as plain-JSON records (formulas, rich text and dates flattened), write/append, bridge to and from CSV. Exports exceljs's own `Workbook` for styling, number formats and formulas | [![npm](https://img.shields.io/npm/v/glove-env-spreadsheets)](https://www.npmjs.com/package/glove-env-spreadsheets) |
 | [`glove-env-images`](packages/glove-env-images) | Image stdlib adapter for `glove-working-environment` — `env:images`: describe an image without decoding it into context, resize/convert/crop/rotate/composite, contact sheets | [![npm](https://img.shields.io/npm/v/glove-env-images)](https://www.npmjs.com/package/glove-env-images) |
@@ -58,11 +75,14 @@ Works with OpenAI, Anthropic, Google Gemini, OpenRouter, and more. Bridge extern
 | [`glove-env-media`](packages/glove-env-media) | Media stdlib adapter for `glove-working-environment` — `env:media`: video and audio via ffmpeg — describe, thumbnail, frames, clip, concat, transcode, slideshow | [![npm](https://img.shields.io/npm/v/glove-env-media)](https://www.npmjs.com/package/glove-env-media) |
 | [`glove-env-render`](packages/glove-env-render) | Rendering stdlib adapter for `glove-working-environment` — `env:render`: rasterize a PDF, deck or Word file to page PNGs so the agent can *look* at what it produced. PDFs and images need nothing installed; a `.pptx` falls back to a layout schematic drawn from its own OOXML geometry; the legacy `.doc`/`.xls`/`.ppt`/`.rtf` go through the same LibreOffice path, which is how those attachments become readable at all | [![npm](https://img.shields.io/npm/v/glove-env-render)](https://www.npmjs.com/package/glove-env-render) |
 | [`glove-env-motion`](packages/glove-env-motion) | Motion stdlib adapter for `glove-working-environment` — `env:motion`: the agent writes a React component and gets an mp4, an animated GIF, PNG frames or a still. Time is replaced rather than measured, so two runs of the same scene are byte-identical; React Native Reanimated scenes render unchanged | [![npm](https://img.shields.io/npm/v/glove-env-motion)](https://www.npmjs.com/package/glove-env-motion) |
+| [`glove-env-base`](packages/glove-env-base) | Knowledge-base stdlib adapter for `glove-working-environment` — `env:base`: pages, blocks and collections from inside a script. Pages read as markdown, rows as flat records (every property type flattened, pagination exhausted, filters the backend cannot apply finished in memory), files pulled into the tree as ordinary paths. Bring a provider — two methods required, the rest are capabilities base reports rather than crashes into; ships a conformance checker and an optional HTTP toolkit for writing one. No dependencies | [![npm](https://img.shields.io/npm/v/glove-env-base)](https://www.npmjs.com/package/glove-env-base) |
+| [`glove-env-fetch`](packages/glove-env-fetch) | `env:fetch`: HTTP requests, downloads and uploads using VFS files, with host-controlled domain/origin policy and credential aliases | [![npm](https://img.shields.io/npm/v/glove-env-fetch)](https://www.npmjs.com/package/glove-env-fetch) |
+| [`glove-env-secret`](packages/glove-env-secret) | `env:secret`: host-backed keystore with scoped keys, references, optional plaintext access and pluggable storage outside VFS snapshots | [![npm](https://img.shields.io/npm/v/glove-env-secret)](https://www.npmjs.com/package/glove-env-secret) |
 | [`glove-lisp`](packages/glove-lisp) | A Lisp REPL for LLM tool use — the same resource catalog as `glove-scratchpad`, exposed as functions in a tiny sandboxed Clojure-flavored Lisp behind one `execute_lisp` tool. Branch (decide-and-act) in one call, `def` keeps intermediates out of context, effects are exactly-once by construction (exploration) | [![npm](https://img.shields.io/npm/v/glove-lisp)](https://www.npmjs.com/package/glove-lisp) |
 | [`glove-continuum-signal`](packages/glove-continuum-signal) | Subprocess-based runtime for triggered (async) and concurrent (warm) agents — discovery, supervision, observability, IPC | [![npm](https://img.shields.io/npm/v/glove-continuum-signal)](https://www.npmjs.com/package/glove-continuum-signal) |
-| [`glovebox-core`](packages/glovebox) | Authoring kit + `glovebox build` CLI for shipping a Glove agent as a sandboxed container | [![npm](https://img.shields.io/npm/v/glovebox-core)](https://www.npmjs.com/package/glovebox-core) |
-| [`glovebox-kit`](packages/glovebox-kit) | In-container runtime — WebSocket server, storage adapters, auto-injected skills/hooks | [![npm](https://img.shields.io/npm/v/glovebox-kit)](https://www.npmjs.com/package/glovebox-kit) |
-| [`glovebox-client`](packages/glovebox-client) | Client SDK for talking to a deployed Glovebox server | [![npm](https://img.shields.io/npm/v/glovebox-client)](https://www.npmjs.com/package/glovebox-client) |
+| [`glovebox-core`](packages/glovebox) | **Deprecated:** legacy container authoring kit; use `glove-foundry` for new runtimes | [![npm](https://img.shields.io/npm/v/glovebox-core)](https://www.npmjs.com/package/glovebox-core) |
+| [`glovebox-kit`](packages/glovebox-kit) | **Deprecated:** legacy Glovebox container runtime | [![npm](https://img.shields.io/npm/v/glovebox-kit)](https://www.npmjs.com/package/glovebox-kit) |
+| [`glovebox-client`](packages/glovebox-client) | **Deprecated:** compatibility client for existing Glovebox deployments | [![npm](https://img.shields.io/npm/v/glovebox-client)](https://www.npmjs.com/package/glovebox-client) |
 
 ## Quick Start
 
@@ -422,7 +442,7 @@ await vad.init();
 const voice = useGloveVoice({ runnable, voice: withNativeAudio({ stt, createTTS, vad }) });
 ```
 
-**Speech-to-speech, avatars, and LiveKit** — beyond the cascade pipeline, a Glove agent can run directly on realtime S2S models (gpt-realtime / Gemini Live) with [`glove-voice-s2s`](packages/glove-voice-s2s)'s `RealtimeAgent`; wear a live face with [`glove-voice-avatar`](packages/glove-voice-avatar) (Tavus echo, Anam audio-passthrough — `attachAvatar(rt, avatar)`); and ride LiveKit as the room transport with [`glove-voice-livekit`](packages/glove-voice-livekit), where avatars join your LiveKit room as participants. The whole progression is preserved as runnable examples: `examples/layered-voice` → `server-voice` → `s2s-rooms` → `avatar-rooms` → `livekit-rooms`.
+**Speech-to-speech, avatars, and LiveKit** — beyond the cascade pipeline, a Glove agent can run directly on realtime S2S models (gpt-realtime / Gemini Live / GPT-Live) with [`glove-voice-s2s`](packages/glove-voice-s2s)'s `RealtimeAgent`; wear a live face with [`glove-voice-avatar`](packages/glove-voice-avatar) (Tavus echo, Anam audio-passthrough — `attachAvatar(rt, avatar)`); and ride LiveKit as the room transport with [`glove-voice-livekit`](packages/glove-voice-livekit), where avatars join your LiveKit room as participants. The whole progression is preserved as runnable examples: `examples/layered-voice` → `server-voice` → `s2s-rooms` → `avatar-rooms` → `livekit-rooms`. GPT-Live uses `provider: "openai-live"` with server PCM and Responses delegation; hosts must adapt continuous captions, input pacing, playback and avatar boundaries. See the [GPT-Live guide](packages/glove-voice-s2s/README.md#gpt-live) before switching an existing example.
 
 ### MCP Integration
 
@@ -454,6 +474,8 @@ The framework's only auth seam is `McpAdapter.getAccessToken(id)` — return a b
 See the [glove-mcp README](packages/glove-mcp/README.md) and [`examples/mcp-cli`](examples/mcp-cli) for the full picture.
 
 ## Glovebox
+
+> **Deprecated:** Glovebox is retained for existing container deployments, but Glove Foundry is now the supported path for new agent runtimes, working environments, observability, and deployment composition. Start with the [Foundry documentation](https://glove.dterminal.net/foundry/docs).
 
 Glovebox packages a Glove agent as an isolated, network-addressable service. Wrap a built runnable with `glovebox.wrap(runnable, config)`, run `glovebox build`, ship the generated `dist/` (Dockerfile + nixpacks alternative + esbuild server bundle + manifest + bearer key) to any container host. The deployed server exposes one authenticated WebSocket endpoint per session; `glovebox-client` speaks to it. Files cross the wire as `FileRef` (`inline | url | server | s3 | gcs`), never raw bytes.
 
@@ -515,7 +537,7 @@ Reference:
 - [Core API](https://glove.dterminal.net/docs/core) · [React](https://glove.dterminal.net/docs/react) · [Next.js](https://glove.dterminal.net/docs/next)
 - [Display Stack](https://glove.dterminal.net/docs/display-stack) · [Server-Side Agents](https://glove.dterminal.net/docs/server-side) · [Memory](https://glove.dterminal.net/docs/memory)
 - [Working Environment](https://glove.dterminal.net/docs/working-environment) · [Code Execution](https://glove.dterminal.net/docs/code-execution) · [Egress Control](https://glove.dterminal.net/docs/egress)
-- [Voice](https://glove.dterminal.net/docs/voice) · [Realtime Voice & Avatars](https://glove.dterminal.net/docs/realtime-voice) · [MCP](https://glove.dterminal.net/docs/mcp) · [Glovebox](https://glove.dterminal.net/docs/glovebox)
+- [Voice](https://glove.dterminal.net/docs/voice) · [Realtime Voice & Avatars](https://glove.dterminal.net/docs/realtime-voice) · [MCP](https://glove.dterminal.net/docs/mcp) · [Glovebox (deprecated)](https://glove.dterminal.net/docs/glovebox)
 
 For language models:
 
@@ -525,7 +547,46 @@ For language models:
 
 ## Examples
 
-The repo includes six example agents:
+The repo includes runnable example agents for the core framework and its application runtimes:
+
+### Foundry Agent
+
+A fully typed, file-routed agent application with an Effect architecture verifier, Station topology, correlated traces, a deterministic local model, and an automatic OpenRouter path when `OPENROUTER_API_KEY` is set.
+
+[Build guide](packages/glove-foundry/docs/building-with-foundry.md) ·
+[Architecture](packages/glove-foundry/docs/architecture.md) ·
+[Evaluation checklist](packages/glove-foundry/docs/evaluation-checklist.md) ·
+[Reference project](examples/foundry-agent/README.md)
+
+```bash
+pnpm --filter glove-foundry-example verify       # offline, deterministic
+pnpm --filter glove-foundry-example verify:architecture
+pnpm --filter glove-foundry-example verify:live  # OpenRouter
+pnpm --filter glove-foundry-example dev          # runtime + DevTools
+```
+
+### Foundry Gemini Live Drag Racers
+
+A complete speech-to-speech Foundry product example with three file-routed, message-aware agents, persistent instances and conversations, native Glove tools exposed through Gemini Live, authenticated per-call rooms, correlated observability, and original generated racer portraits.
+
+```bash
+cd examples/foundry-drag-racers
+cp .env.example .env             # add GEMINI_API_KEY
+pnpm verify                      # offline architecture/assets check
+pnpm dev                         # Foundry + web app at localhost:3002
+pnpm verify:live                 # key/model/WebSocket smoke check
+```
+
+### Braind Storm
+
+An agentic brand workforce with one public lead, four Glove Mesh peers, context-lazy skill packs, shared working environments, path-based document handoffs, Gemini-backed Glove Image generation and visual review, and a responsive “weather room” UI.
+
+```bash
+export GEMINI_API_KEY=your_key
+pnpm --filter glove-foundry-braind-storm verify
+pnpm --filter glove-foundry-braind-storm dev      # Foundry + web app at localhost:3003
+pnpm --filter glove-foundry-braind-storm verify:live
+```
 
 ### Weather Agent
 
@@ -615,6 +676,8 @@ Or install globally (available in all projects):
 npx skills add porkytheblack/glove -a claude-code -g
 ```
 
+The skill includes dynamic goals (`glove-memory/goals`), shared evidence (`glove-facts`), and form preparation through a supplied Glove agent. Updating npm packages does not update installed skill copies; re-run the skill installation to refresh them.
+
 Once installed, Claude Code automatically uses the skill when you work with Glove code. You can also invoke it directly with `/glove`.
 
 ### Manual install
@@ -648,13 +711,13 @@ Versioning is automated with [Changesets](https://github.com/changesets/changese
 
 2. On merge to `main`, CI opens (or updates) a **"Version Packages"** PR that applies the bumps and writes each package's `CHANGELOG.md`. Review and merge it — the new versions land on `main`. Dependents of a bumped package are re-versioned for you.
 
-3. **A maintainer publishes manually** from a clean `main`, logged in to npm with 2FA:
+3. **A maintainer publishes manually** from the repository root on a clean `main`, logged in to npm with 2FA:
 
    ```bash
-   pnpm release
+   npx release
    ```
 
-   This builds the packages and `changeset publish`es everything whose version isn't yet on npm (`workspace:*` deps are resolved to concrete versions automatically). CI does not publish — npm is deprecating the 2FA-bypassing tokens that automated publishing would require.
+   `release` is a repository-local executable, not the similarly named public npm package. It runs the registry preflight, rebuilds every publishable package, and `changeset publish`es everything whose version isn't yet on npm (`workspace:*` deps are resolved to concrete versions automatically). `pnpm release` remains an equivalent maintainer command. CI does not publish — npm is deprecating the 2FA-bypassing tokens that automated publishing would require.
 
 No changeset? Then the change ships nothing — pure refactors, docs, and tests don't need a release. Versioning runs in `.github/workflows/release.yml`.
 

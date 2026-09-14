@@ -61,6 +61,19 @@ Barge-in follows the voice automatically: the S2S side's `interrupted`
 drops the buffered tail and frames the provider interrupt — the face stops
 with the voice, and the next utterance starts a fresh inference.
 
+### GPT-Live hosts
+
+`OpenAILiveAdapter` supplies compatible 16/24 kHz PCM but no provider speech-stop
+event. `attachAvatar` forwards `agent_speech_stopped` to `endUtterance`; the host
+must supply playback state with `rt.adapter.notifyPlaybackState?.(speaking)` and
+own utterance segmentation. Neither a missing packet nor a backend response
+completion establishes a voice turn boundary. Existing avatar examples therefore
+need host changes before selecting `openai-live`.
+
+Manual `interrupt()` flushes the avatar and mutes Live output until the host calls
+`resumeOutput?.()`. See the [GPT-Live guide](../glove-voice-s2s/README.md#gpt-live)
+for continuous captions, input pacing, and awaited session shutdown.
+
 ### Anam (audio passthrough)
 
 ```ts

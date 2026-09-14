@@ -39,6 +39,8 @@ jobs:
       - name: Build shared deps
         run: >-
           pnpm
+          --filter "glove-memory..."
+          --filter "glove-foundry..."
           --filter "glove-voice-livekit..."
           --filter "glove-scratchpad..."
           --filter "glove-env-documents..."
@@ -50,10 +52,16 @@ jobs:
           --filter "glove-env-render..."
           --filter "glove-env-ocr..."
           --filter "glove-env-email..."
+          --filter "glove-env-base..."
+          --filter "glove-env-fetch..."
+          --filter "glove-env-secret..."
           --filter "glove-env-motion..."
           --filter "glove-image..."
           --filter "glove-analyst-desk..."
           build
+
+      - name: Voice package consumer types (Node ESM)
+        run: pnpm --filter glove-voice-s2s test:types
 
       # glovebox-core and glovebox-kit each declare the other as a dependency:
       # the `glovebox build` CLI resolves and bundles the in-container runtime,
@@ -81,9 +89,12 @@ jobs:
         run: >-
           pnpm
           --filter glove-core
+          --filter glove-foundry
+          --filter glove-foundry-example
           --filter glove-voice-s2s
           --filter glove-voice-avatar
           --filter glove-voice-livekit
+          --filter glove-facts
           --filter glove-memory
           --filter glove-scratchpad
           --filter glove-egress
@@ -93,6 +104,7 @@ jobs:
           --filter glove-vfs
           --filter glove-working-environment
           --filter glove-env-documents
+          --filter glove-env-unlock
           --filter glove-env-spreadsheets
           --filter glove-env-images
           --filter glove-env-zip
@@ -104,6 +116,9 @@ jobs:
           --filter glove-env-render
           --filter glove-env-ocr
           --filter glove-env-email
+          --filter glove-env-base
+          --filter glove-env-fetch
+          --filter glove-env-secret
           --filter glove-env-motion
           --filter glove-image
           --filter glove-analyst-desk
@@ -120,9 +135,13 @@ jobs:
       - name: Test
         run: >-
           pnpm
+          --filter glove-core
+          --filter glove-foundry
+          --filter glove-mcp
           --filter glove-voice-s2s
           --filter glove-voice-avatar
           --filter glove-voice-livekit
+          --filter glove-facts
           --filter glove-memory
           --filter glove-scratchpad
           --filter glove-egress
@@ -132,6 +151,7 @@ jobs:
           --filter glove-vfs
           --filter glove-working-environment
           --filter glove-env-documents
+          --filter glove-env-unlock
           --filter glove-env-spreadsheets
           --filter glove-env-images
           --filter glove-env-zip
@@ -140,9 +160,18 @@ jobs:
           --filter glove-env-render
           --filter glove-env-ocr
           --filter glove-env-email
+          --filter glove-env-base
+          --filter glove-env-fetch
+          --filter glove-env-secret
           --filter glove-env-motion
           --filter glove-image
           test
+
+      - name: Integration — Foundry architecture and runtime
+        run: |
+          pnpm --filter glove-foundry-example verify:architecture
+          pnpm --filter glove-foundry-example verify
+          pnpm --filter glove-foundry-example verify:guidance
 
       # The analyst-desk selfcheck solves every eval scenario with a reference
       # script and runs the real graders over the result. No API key, no cost,

@@ -1,5 +1,59 @@
 # glove-voice-s2s
 
+## 0.4.0
+
+### Minor Changes
+
+- [#178](https://github.com/porkytheblack/glove/pull/178) [`d9c745a`](https://github.com/porkytheblack/glove/commit/d9c745afe08cbc01a9f136d26c6ca07a335d6fd6) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Add an `openai-live` server WebSocket adapter for GPT-Live, selectable through
+  `createS2SAdapter` and `s2sDrivenModel`. Responses delegation exposes existing
+  Glove tools, with batched results and graceful session finalization. Add
+  continuous transcript capabilities, timestamped fragments, duration usage,
+  and host-controlled playback recovery without changing existing providers.
+
+  Keep final usage events observable during `RealtimeAgent.stop()` and prevent
+  tools from a stopped session from injecting results into a restarted session.
+  Fix the published event emitter declarations for NodeNext TypeScript consumers.
+
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [[`8c36feb`](https://github.com/porkytheblack/glove/commit/8c36feb1139966bcdac8525e79db1714c13c5b6b)]:
+  - glove-core@4.1.0
+
+## 0.3.0
+
+### Minor Changes
+
+- **Breaking in this pre-1.0 release:** `refreshSession()` now returns `Promise<void>`. Await it and handle context-read errors. `refreshContext()` refreshes silent memory snapshots after external changes. Startup can reject on a context-read failure and cleans up its session.
+
+- Keep changing memory state out of system prompts. Core now resolves live context providers at the model-input tail before each iteration and exposes their snapshots to tracing. Goals, forms, and pinned context use these transient snapshots without changing saved conversation history. Realtime voice injects changed snapshots silently at startup and after tools, with explicit refresh for external changes.
+
+- Updated dependencies []:
+  - glove-core@4.0.0
+
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [e6210d0]
+  - glove-core@3.7.1
+
+## 0.2.1
+
+### Patch Changes
+
+- [#157](https://github.com/porkytheblack/glove/pull/157) [`3dad3ab`](https://github.com/porkytheblack/glove/commit/3dad3ab965ef4dff1973fa7339a60ae8f24b90e8) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Introduce Glove Foundry, the Effect-native, file-routed framework for typed and observable agent applications.
+
+  - Publish the first `glove-foundry` release with composable code definitions, persisted instances, context-aware lazy assembly, applications and transmissions, dynamic playbooks and schedules, conversations, agent working environments, multi-agent composition, and the Foundry inspection workbench.
+  - Add Gemini native image generation and editing to `glove-image`.
+  - Refresh the Gemini model catalogue in `glove-core`.
+  - Move Gemini Live runtime text onto the realtime input protocol and update its default live model.
+  - Deprecate the Glovebox package family in favor of Glove Foundry. Existing Glovebox deployments remain supported as a legacy compatibility surface, while new agent runtimes should use Foundry.
+
+- Updated dependencies [[`3dad3ab`](https://github.com/porkytheblack/glove/commit/3dad3ab965ef4dff1973fa7339a60ae8f24b90e8), [`ee591da`](https://github.com/porkytheblack/glove/commit/ee591da42305661339913bca8f967a9f8c0fecbf)]:
+  - glove-core@3.7.0
+
 ## 0.2.0
 
 ### Minor Changes

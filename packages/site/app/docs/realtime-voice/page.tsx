@@ -107,6 +107,15 @@ export default function RealtimeVoicePage() {
           </tr>
           <tr>
             <td>
+              <code>OpenAILiveAdapter</code>
+            </td>
+            <td>
+              <strong>Server transport</strong> for GPT-Live: continuous 16/24
+              kHz PCM with Responses delegation to Glove tools
+            </td>
+          </tr>
+          <tr>
+            <td>
               <code>GeminiLiveAdapter</code>
             </td>
             <td>
@@ -254,7 +263,8 @@ rt.inject("the lookup finished: covered until 2031", { respond: true });`}
             </td>
             <td>
               <code>openai</code> (WS transport) | <code>openai-webrtc</code>{" "}
-              (browser device) | <code>gemini</code>. Unset: whichever key
+              (browser device) | <code>openai-live</code> (server WS) |{" "}
+              <code>gemini</code>. Unset: whichever key
               exists, OpenAI first
             </td>
           </tr>
@@ -278,16 +288,20 @@ rt.inject("the lookup finished: covered until 2031", { respond: true });`}
               <code>S2S_TURN_DETECTION</code>
             </td>
             <td>
-              OpenAI: <code>semantic_vad</code> (default) |{" "}
+              OpenAI Realtime: <code>semantic_vad</code> (default) |{" "}
               <code>server_vad</code> (snappier barge-in)
             </td>
+          </tr>
+          <tr>
+            <td><code>S2S_BACKEND_MODEL</code></td>
+            <td>GPT-Live Responses backend; default <code>gpt-5.6-luna</code></td>
           </tr>
         </tbody>
       </table>
 
       <p>
         A missing credential fails at <strong>construction</strong> with the env
-        var name, not at <code>connect()</code> with a 401. Both providers
+        var name, not at <code>connect()</code> with a 401. Realtime and Gemini
         expose their full turn-taking surface as typed config, so a mistyped
         field fails at compile time instead of being silently ignored:
       </p>
@@ -322,7 +336,101 @@ createS2SAdapter({ provider: "gemini", realtimeInput: {
 }});`}
       />
 
-      <h3 id="browser-tokens">Browser sessions</h3>
+      <h3 id="gpt-live">GPT-Live</h3>
+
+      <p>
+        Available in <code>glove-voice-s2s</code> 0.4.0. Select{" "}
+        <code>openai-live</code> through the same factory or agent model slot.
+        The voice model delegates reasoning and tool selection to a Responses
+        backend; <code>RealtimeAgent</code> executes the agent&apos;s existing
+        tools. Selecting <code>gpt-live-1</code> on the <code>openai</code>
+        adapter uses the wrong protocol.
+      </p>
+
+      <CodeBlock
+        filename="live-agent.ts"
+        language="typescript"
+        code={`import { RealtimeAgent, s2sDrivenModel } from "glove-voice-s2s";
+
+// Use this model in your existing Glove agent definition.
+const model = s2sDrivenModel({
+  provider: "openai-live",
+  model: "gpt-live-1",             // default voice model
+  backendModel: "gpt-5.6-luna",     // independent Responses model
+  voice: "marin",
+  sampleRate: 24000,               // or 16000, in both directions
+  instructions: "Speak briefly. Delegate lookups before answering.",
+});
+// Build agent with this model, your tools, and your system prompt.
+const rt = new RealtimeAgent({ agent });
+rt.on("transcript", ({ role, delta, startMs, endMs }) => {
+  // Preserve timed fragments and allow overlapping speakers.
+});
+rt.on("usage", ({ seconds, final }) => {
+  // Cumulative duration: replace the previous snapshot, do not sum it.
+});
+await rt.start();
+// Host supplies continuous paced PCM, including silence, and plays audio events.
+// On teardown, await rt.stop() before releasing the host resources.`}
+      />
+
+      <p>
+        <code>OPENAI_API_KEY</code> authenticates the server WebSocket. Browser
+        apps need a server relay or LiveKit; the Realtime token helper below
+        does not create a Live session. <code>instructions</code> sets the voice
+        persona; <code>backendInstructions</code> can override the backend&apos;s
+        agent prompt. Parallel tool calls are off by default; when enabled,
+        all tool results are collected before the backend continues once.
+      </p>
+
+      <ul>
+        <li>
+          <strong>Continuous captions:</strong> consume <code>transcript</code>
+          fragments. Live emits no final <code>user_said</code> or{" "}
+          <code>agent_said</code> turns. <code>capabilities.transcripts</code>
+          is <code>continuous</code>.
+        </li>
+        <li>
+          <strong>Host playback:</strong> <code>capabilities.speechLifecycle</code>
+          is <code>host</code>. Feed actual playback state into{" "}
+          <code>rt.adapter.notifyPlaybackState?.(speaking)</code>. Avatar hosts
+          must supply utterance boundaries; missing packets and backend response
+          completion do not establish a voice turn ending. Existing room examples
+          need host changes. <code>attachRealtime</code> relays PCM but does not
+          fill input silence gaps or forward captions.
+        </li>
+        <li>
+          <strong>Interruption:</strong> manual <code>interrupt()</code> flushes
+          and mutes output until the host calls <code>resumeOutput?.()</code>.
+          Tool work continues. Do not add Realtime VAD cancellation, audio
+          commits, or <code>response.cancel</code>.
+        </li>
+        <li>
+          <strong>Context:</strong> <code>respond: false</code> injects thinking;
+          <code>respond: true</code> injects commentary that Live may paraphrase.
+          Updates are split into bounded appends and are non-atomic. Instruction
+          refreshes append; voice changes require a new session.
+        </li>
+        <li>
+          <strong>Shutdown:</strong> await <code>rt.stop()</code> for final usage.
+          Timeout or transport loss rejects with finalization unconfirmed.
+          Voice duration and the Responses backend incur separate charges.
+        </li>
+      </ul>
+
+      <p>
+        Live client delegation is not implemented. The existing voice
+        permission/display limitations still apply, and this session does not
+        run Foundry&apos;s durable lifecycle. Expose a tool backed by the Foundry
+        client for work that needs an instance, conversation, and observable run.
+        Protocol and local transport tests do not establish live account access
+        or audible behavior. See the{" "}
+        <a href="https://github.com/porkytheblack/glove/blob/main/packages/glove-voice-s2s/README.md#gpt-live">
+          package guide
+        </a> for the full contract.
+      </p>
+
+      <h3 id="browser-tokens">Browser Realtime sessions</h3>
 
       <p>API keys never reach the browser. Mint an ephemeral token server-side:</p>
 

@@ -1,5 +1,12 @@
 # glove-env-email
 
+## 1.0.1
+
+### Patch Changes
+
+- Updated dependencies [[`6a2980c`](https://github.com/porkytheblack/glove/commit/6a2980c368b2d6351310444d676c50553e148553)]:
+  - glove-working-environment@0.6.1
+
 ## 1.0.0
 
 ### Minor Changes

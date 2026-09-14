@@ -1,9 +1,11 @@
 import type { ContentPart, GloveFoldArgs, Message, ModelPromptResult } from "glove-core";
+import { assertRuntimeContext, attachRuntimeContext, type RuntimeContextTarget } from "../runtime-context";
 import type { DisplayManagerAdapter } from "glove-core";
 import type { FormAdapter } from "../../forms/adapter";
 import type { FormMemoryAdapters } from "../../forms/bridge";
 import type { FormRegistry } from "../../forms/registry";
 import { selectFoldArgs, type ToolSelection } from "../selection";
+import type { FormPreparationConfig } from "../../forms/preparation";
 import { FormRunner } from "../../forms/runner";
 import { buildFormAbandonTool } from "./abandon";
 import { buildFormFillTool } from "./fill";
@@ -46,12 +48,8 @@ export function buildFormReaderTools(
   return [buildFormHistoryTool(adapter, options)];
 }
 
-/**
- * Minimal interface `useFormRunner` relies on — `fold` for tool registration
- * plus the system-prompt accessors, so `processRequest` can be wrapped to
- * inject the tier-0 line on every turn. Same shape as `ContextEnableTarget`.
- */
-export interface FormEnableTarget {
+/** Tool mounting and runtime context injection. Proxies forward addContextProvider to Glove. */
+export interface FormEnableTarget extends RuntimeContextTarget {
   fold: <I>(args: GloveFoldArgs<I>) => unknown;
   getSystemPrompt(): string;
   setSystemPrompt(prompt: string): void;
@@ -62,6 +60,7 @@ export interface FormEnableTarget {
 }
 
 export interface UseFormRunnerConfig {
+  preparation?: FormPreparationConfig;
   registry: FormRegistry;
   /** Conversation id / user id / matter id. A thunk when it varies per turn. */
   subject: string | (() => string);
@@ -70,7 +69,7 @@ export interface UseFormRunnerConfig {
   display?: DisplayManagerAdapter;
   actor?: string;
   source?: string;
-  /** Skip the tier-0 system-prompt injection and drive it yourself. */
+  /** Skip transient tier-0 runtime context and drive it yourself. */
   injectStatus?: boolean;
   /**
    * Narrow the folded surface. `{ deny: ["abandon"] }` leaves the agent
@@ -81,33 +80,22 @@ export interface UseFormRunnerConfig {
 }
 
 /**
- * Attach the form tool surface to a Glove and wire tier-0 injection.
- *
- * 1. Folds `glove_form_list`, `_start`, `_status`, `_inspect`, `_fill`,
- *    `_revise`, `_abandon`.
- *
- * 2. Wraps `processRequest` so each turn appends one standing line to the
- *    system prompt — the open step, its pending field labels, and a one-line
- *    preview of each step still to come. Modelled on the inbox: a cheap
- *    notification, detail pulled on demand.
- *
- *    The line is re-rendered every turn from stored state, so a fill that
- *    happened mid-turn is reflected on the next one, and a form the host
- *    started out of band shows up without the agent being told.
- *
- *    Injection goes *after* the developer's system prompt, for the same
- *    reason `useContext`'s does: the developer prompt sets character and
- *    guardrails, and per-conversation state modifies engagement within them.
- *
- * Returns the runner alongside the glove so hosts can start instances,
- * resolve checkpoints, and read tier 0 without going through the model.
+ * Mount form tools and an optional transient tier-0 snapshot before every model
+ * iteration. Preparation/recovery run before requests; tool commits prepare
+ * subsequent steps. System instructions and persisted history are unchanged.
  */
 export function useFormRunner<G extends FormEnableTarget>(
   glove: G,
   adapter: FormAdapter,
   config: UseFormRunnerConfig,
 ): { glove: G; runner: FormRunner } {
+  const assertPreparationAgent = () => {
+    if (Object.is(config.preparation?.preparer.config.agent, glove)) throw new Error("Preparation requires a dedicated Glove agent, separate from the workflow agent");
+  };
+  assertPreparationAgent();
+  if (config.injectStatus !== false) assertRuntimeContext(glove);
   const runner = new FormRunner(adapter, {
+    preparation: config.preparation,
     registry: config.registry,
     subject: config.subject,
     memory: config.memory,
@@ -120,26 +108,22 @@ export function useFormRunner<G extends FormEnableTarget>(
     glove.fold(tool);
   }
 
-  if (config.injectStatus !== false) {
-    // Snapshot the developer prompt once — `setSystemPrompt` overwrites the
-    // live one, so re-deriving from it would compound last turn's injection.
-    const basePrompt = glove.getSystemPrompt();
+  const synchronize = async () => {
+    assertPreparationAgent();
+    if (config.preparation) {
+      const instance = await runner.activeInstance();
+      if (instance) await runner.prepare({ instanceId: instance.id });
+      return runner.tier0();
+    }
+    try { return await runner.tier0(); } catch { return ""; }
+  };
+  if (config.injectStatus !== false) attachRuntimeContext(glove, async () => {
+    if (config.preparation) return runner.tier0();
+    try { return await runner.tier0(); } catch { return ""; }
+  });
+  if (config.preparation) {
     const original = glove.processRequest.bind(glove);
-
-    glove.processRequest = async function wrappedProcessRequest(
-      request: string | ContentPart[],
-      signal?: AbortSignal,
-    ): Promise<ModelPromptResult | Message> {
-      let line = "";
-      try {
-        line = await runner.tier0();
-      } catch {
-        // A form that can't be read must not take the turn down with it.
-        line = "";
-      }
-      glove.setSystemPrompt(line ? `${basePrompt}\n\n${line}` : basePrompt);
-      return original(request, signal);
-    };
+    glove.processRequest = async (request, signal) => { await synchronize(); return original(request, signal); };
   }
 
   return { glove, runner };

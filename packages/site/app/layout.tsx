@@ -21,7 +21,7 @@ const jetbrainsMono = JetBrains_Mono({
 
 const siteUrl = "https://glove.dterminal.net";
 const description =
-  "Your open-source TypeScript toolkit for multi-agent orchestration systems — tools and UI, memory, a mailbox, a mesh of agents, and a way to ship them.";
+  "The open-source TypeScript stack for agent systems — Glove capabilities plus Foundry's file-routed runtime, dynamic instances, and inspection workbench.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),

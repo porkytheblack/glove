@@ -1,6 +1,6 @@
 {
   "name": "glove-env-render",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Rendering stdlib adapter for glove-working-environment. Rasterizes PDFs, slide decks, Word files and images to page PNGs inside the agent's virtual filesystem as env:render — so an agent can look at what it produced instead of only reading its text back.",
   "type": "module",
   "license": "MIT",
@@ -36,7 +36,8 @@
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.3",
-    "pdfjs-dist": "^6.2.0"
+    "pdfjs-dist": "^6.2.0",
+    "glove-env-unlock": "workspace:^"
   },
   "peerDependencies": {
     "glove-working-environment": "workspace:^"

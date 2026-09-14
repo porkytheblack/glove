@@ -559,7 +559,7 @@ test("an encrypted deck is refused by name, not misread as 'not a deck'", async 
   );
   assert.equal(run.ok, false);
   assert.match(String(run.error), /encrypted ZIP entries are not supported/);
-  assert.match(String(run.error), /without a password/);
+  assert.match(String(run.error), /call unlock\(input, output, \{ password \}\) first/);
 });
 
 /**

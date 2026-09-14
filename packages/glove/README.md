@@ -100,7 +100,7 @@ const model = createAdapter({
 | `openai` | `OPENAI_API_KEY` | `gpt-4.1` |
 | `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
 | `openrouter` | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4` |
-| `gemini` | `GEMINI_API_KEY` | `gemini-2.5-flash` |
+| `gemini` | `GEMINI_API_KEY` | `gemini-3.6-flash` |
 | `minimax` | `MINIMAX_API_KEY` | `MiniMax-M2.5` |
 | `kimi` | `MOONSHOT_API_KEY` | `kimi-k2.5` |
 | `glm` | `ZHIPUAI_API_KEY` | `glm-4-plus` |
@@ -123,6 +123,12 @@ The main `glove-core` barrel includes native dependencies (better-sqlite3). For 
 | `glove-core/models/openai-compat` | OpenAICompatAdapter | No |
 | `glove-core/models/providers` | Provider factory | No |
 
+OpenAI-compatible adapters persist opaque `provider_options` on messages and
+tool calls and return them only to the provider that produced them. This makes
+Gemini 3 multi-step function calling work automatically: encrypted thought
+signatures survive durable conversation storage without being interpreted or
+sent to fallback providers.
+
 ## Key exports
 
 - **`Glove`** — Builder class. Chain `.fold()` to register tools, `.addSubscriber()` for events, `.build()` to get a runnable agent.
@@ -132,6 +138,24 @@ The main `glove-core` barrel includes native dependencies (better-sqlite3). For 
 - **`AnthropicAdapter`** / **`OpenAICompatAdapter`** — Direct model adapter classes.
 - **`createTaskTool`** — Auto-registered task management tool when the store supports tasks.
 - **`AbortError`** — Error class thrown when a request is cancelled via AbortSignal.
+
+## Built-in tasks
+
+`Glove` automatically exposes `glove_update_tasks` to the model and through
+`glove.tools`. The default `MemoryStore` supports it out of the box; custom
+stores must implement both `getTasks()` and `addTasks(tasks)` (which replaces
+the full task list). Stores without both methods do not expose the tool.
+The tool also binds to a store supplied through `.build(store)`.
+
+Agents call it with `{ todos: [{ content: "Run tests", activeForm: "Running tests",
+status: "in_progress" }] }`, sending the full updated list each time. Status is
+`pending`, `in_progress`, or `completed`; an empty list clears the tasks.
+Applications can read the saved list with `await glove.store.getTasks?.()`.
+
+For integrations that use `Context` and `Executor` directly, import
+`createTaskTool` from `glove-core` or `glove-core/tools/task-tool` and register
+`createTaskTool(context)` with the executor. Regular `Glove` agents need no
+manual registration.
 
 ## Adapter interfaces
 
@@ -152,3 +176,21 @@ The core defines four pluggable adapter interfaces:
 ## License
 
 MIT
+
+## Live runtime context
+
+Register changing external state with `glove.addContextProvider(async signal => renderCurrentState(signal))`. The method returns an unregister function and works before or after `build()`. Before each model iteration (including after tools), Glove appends nonempty provider output as transient user-role messages after saved history. Providers compose in registration order; failures stop the model call. System instructions and stored conversation messages remain unchanged, preserving the stable prefix for provider caching.
+
+`await glove.getRuntimeContext(signal?)` resolves the same snapshots for external runtimes. Subscribers receive a `runtime_context` event containing detached `messages`. Runnable wrappers must forward both APIs. Registration remains local to the runnable; adapters own durable state. This API requires glove-core 4.0 or newer.
+
+### Migrating to core 4
+
+See the [copyable runtime migration guide](MIGRATION-4.md) for wrappers, custom loops, tracing, and realtime voice.
+
+Standard `Glove` users keep the same mounting calls and upgrade core together with glove-memory 2. Custom runnable implementations must implement `addContextProvider` and `getRuntimeContext`; custom builders must implement `addContextProvider`. Transparent wrappers forward these methods to the underlying Glove instance. Custom execution loops resolve and append runtime context before each model iteration. Exhaustive subscriber-event handlers must accept `runtime_context`.
+
+No model/storage adapter or saved-data migration is required. Code that previously read dynamic goals/forms/context from `getSystemPrompt()` must use `getRuntimeContext()` instead. Voice users upgrading to glove-voice-s2s 0.3 must await `refreshSession()` and handle its errors.
+
+### Framework context and turn boundaries
+
+Runtime snapshots carry `Message.framework_context: "runtime"`; synthetic inbox entries use `"inbox"`. This optional provenance field does not change provider roles. Tool-result summarization ignores these entries and existing skill/compaction markers when locating the last real user turn. Pending inbox reminders follow complete tool-result bundles. Preserve the marker in custom message processing and preserve structured media when merging adjacent user content.

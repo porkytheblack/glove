@@ -43,6 +43,8 @@ import { splitAtLastCompaction, abortablePromise } from "./utils";
  * of the run).
  */
 export type SubscriberEvent =
+  /** Resolved runtime snapshots, outside persisted history (also used by external runtimes). */
+  | { type: "runtime_context"; messages: Array<Message> }
   | { type: "text_delta"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "model_response"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
@@ -257,12 +259,20 @@ export interface ToolCall {
   tool_name: string;
   input_args: unknown;
   id?: string;
+  /**
+   * Opaque, provider-scoped state that an adapter must return unchanged on a
+   * later turn. This is transport metadata, not model-visible reasoning.
+   * Adapters only read their own key so fallback providers never receive it.
+   */
+  provider_options?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 }
 
 export interface ContentPart {
   type: "text" | "image" | "video" | "document";
   /** For text parts */
   text?: string;
+  /** Optional human-facing file name. Model adapters may ignore it. */
+  name?: string;
   /** For media parts (image, video, document) */
   source?: {
     type: "base64" | "url";
@@ -287,6 +297,8 @@ export interface InboxItem {
 
 export interface Message {
   sender: "user" | "agent";
+  /** Framework-supplied state, not a human turn. Wire roles remain adapter-compatible. */
+  framework_context?: "runtime" | "inbox";
   id?: string;
   text: string;
   // in cases where a user is using a hook that will rewrite the existing text, we wanna be able to still know the original message, especially in instances where we need to display it to the user
@@ -305,6 +317,11 @@ export interface Message {
    * made tool calls. Adapters that don't recognise the field ignore it.
    */
   reasoning_content?: string
+  /**
+   * Opaque, provider-scoped response state that must survive conversation
+   * persistence and be echoed only by the adapter that produced it.
+   */
+  provider_options?: Readonly<Record<string, Readonly<Record<string, unknown>>>>
 }
 
 export interface PromptRequest {
@@ -550,7 +567,9 @@ export class PromptMachine {
 
     for (let i = messages.length - 1; i >= 0; i--){
       const message = messages[i]
-      if (message.sender == "user" && !message.tool_results) {
+      if (message.sender == "user" && !message.tool_results &&
+          !message.framework_context && !message.is_skill_injection &&
+          !message.is_compaction && !message.is_compaction_request) {
         lastUserMessageIdx = i
         break;
       }
@@ -644,6 +663,43 @@ export class Executor {
 
   registerTool(tool: Tool<any>) {
     this.tools.push(tool);
+  }
+
+  /**
+   * Atomically replace a caller-owned set of tools.
+   *
+   * The array reference is swapped instead of mutated so a model request that
+   * already captured the previous registry can finish against a stable tool
+   * surface while the next request sees the refreshed one.
+   */
+  replaceTools(previousNames: Iterable<string>, nextTools: ReadonlyArray<Tool<any>>) {
+    const removed = new Set([...previousNames].map((name) => name.toLowerCase()));
+    const nextNames = new Set<string>();
+    for (const tool of nextTools) {
+      const name = tool.name.toLowerCase();
+      if (nextNames.has(name)) {
+        throw new Error(`Cannot register duplicate tool "${tool.name}".`);
+      }
+      nextNames.add(name);
+    }
+
+    const firstRemoved = this.tools.findIndex((tool) => removed.has(tool.name.toLowerCase()));
+    const retained = this.tools.filter((tool) => !removed.has(tool.name.toLowerCase()));
+    const collision = retained.find((tool) => nextNames.has(tool.name.toLowerCase()));
+    if (collision) {
+      throw new Error(`Cannot replace tool "${collision.name}" because it is owned by another registry.`);
+    }
+
+    const insertionIndex = firstRemoved < 0
+      ? retained.length
+      : this.tools
+          .slice(0, firstRemoved)
+          .filter((tool) => !removed.has(tool.name.toLowerCase())).length;
+    this.tools = [
+      ...retained.slice(0, insertionIndex),
+      ...nextTools,
+      ...retained.slice(insertionIndex),
+    ];
   }
 
   addSubscriber(subscriber: SubscriberAdapter) {
@@ -1080,6 +1136,7 @@ export class Agent {
     context: Context,
     observer: Observer,
     prompt_machine: PromptMachine,
+    private runtimeContext?: (signal?: AbortSignal) => Promise<Array<Message>>,
   ) {
     this.store = store;
     this.executor = executor;
@@ -1106,10 +1163,10 @@ export class Agent {
       let messages = await this.context.getMessages();
       messages = [...messages]
 
-      // Append transient blocking reminder (not persisted) so the model
-      // is aware of pending items without bloating conversation history.
+      // Keep framework reminders after complete tool call/result bundles.
+      // They do not establish a conversational turn boundary or enter history.
       if (pendingBlockingMessage) {
-        messages.splice(messages.length - 1, 0, pendingBlockingMessage)
+        messages.push(pendingBlockingMessage)
       }
 
       if (requestTurns >= this.observer.MAX_TURNS) {
@@ -1120,6 +1177,11 @@ export class Agent {
         await this.context.appendMessages([errorMsg]);
         return { messages: [errorMsg], tokens_in: 0, tokens_out: 0 } as ModelPromptResult;
       }
+
+      // Dynamic state belongs at the tail, leaving the system prompt and
+      // persisted conversation prefix unchanged. Refresh between tool steps.
+      if (this.runtimeContext) messages.push(...await this.runtimeContext(signal));
+      if (signal?.aborted) throw new AbortError();
 
       let results = await this.prompt_machine.run(
         messages,
@@ -1193,6 +1255,7 @@ export class Agent {
 
     const inboxMessage: Message = {
       sender: "user",
+      framework_context: "inbox",
       text: `[Inbox: ${resolved.length} item(s) resolved]\n` +
         resolved.map((item) =>
           `- [${item.tag}] Request: "${item.request}" -> Response: "${item.response}" (resolved ${item.resolved_at})`
@@ -1216,6 +1279,7 @@ export class Agent {
 
     return {
       sender: "user",
+      framework_context: "inbox",
       text: `[Inbox: ${pendingBlocking.length} blocking item(s) still pending — ` +
         `you cannot proceed with actions that depend on these results]\n` +
         pendingBlocking.map((item) =>

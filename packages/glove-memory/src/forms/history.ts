@@ -94,5 +94,5 @@ export function applyEntryCommit(
 }
 
 export function cloneHistory(history: FieldHistory): FieldHistory {
-  return { revisions: [...history.revisions], cursor: history.cursor };
+  return structuredClone(history);
 }

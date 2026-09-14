@@ -76,6 +76,14 @@ test("program framing renames the tool and calls it a program, not a REPL", () =
   assert.doesNotMatch(pg, /persistent JavaScript REPL/);
 });
 
+test("mixed-surface framing does not claim the workflow is the agent's only tool", () => {
+  const wf = buildJsPreambleBody("workflow", false);
+  assert.match(wf, /normal direct tools may also be available/);
+  assert.match(wf, /Other tools listed separately by the agent remain directly callable/);
+  assert.doesNotMatch(wf, /EXACTLY ONE tool/);
+  assert.doesNotMatch(wf, /the ONLY tool is/);
+});
+
 test("mounting a frame folds exactly that tool name and primes with its framing", () => {
   const { g, folded } = fakeRunnable();
   mountJs(g as never, { session: session(), frame: "workflow", discovery: "full" });
