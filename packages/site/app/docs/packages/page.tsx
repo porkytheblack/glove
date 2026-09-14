@@ -595,6 +595,48 @@ const bytes = await be.dump();   // serialise the whole database`}
       {/* ============================================================ */}
       <h2 id="sandboxes">Sandboxes</h2>
 
+      <Pkg name="glove-vfs" tag="the shared tree">
+        <p>
+          One virtual filesystem for a whole agent. The working environment, a{" "}
+          <code>glove-memory</code> resource store and the REPLs mount the{" "}
+          <em>same</em> tree instead of each keeping a private one, so a file the
+          agent made can be filed and read by a script with no copy and no export
+          step. <code>Vfs</code> is nine methods over bytes and paths; summaries,
+          tags, links, provenance and search are optional capabilities detected
+          with <code>hasMeta</code> / <code>hasSearch</code>. Zero dependencies.
+        </p>
+        <CodeBlock filename="terminal" language="bash" code={`pnpm add glove-vfs`} />
+        <CodeBlock
+          filename="fs.ts"
+          language="typescript"
+          code={`import { mountFs, inMemoryFs, hostDirectory, withAccess, withMeta } from "glove-vfs";
+import { fsFns } from "glove-vfs/fns";
+import { vfsResources } from "glove-vfs/resources";
+
+const fs = withAccess(
+  withMeta(mountFs([
+    { at: "/",       fs: inMemoryFs() },
+    { at: "/corpus", fs: hostDirectory("./docs", { mode: "readonly" }) },
+  ]), { lexical: true }),
+  { rules: [{ path: "/corpus", access: "read", note: "curated upstream" }] },
+);
+
+createWorkingEnvironment({ filesystem: fs });                              // scripts and verbs
+useResourcesCurator(glove, vfsResources(fs, { schema, root: "/memory" })); // memory tools
+session.registerFns(fsFns(fs));                                           // execute_js / _lisp`}
+        />
+        <p>
+          Compose with <code>mountFs</code> (several backends, one namespace),{" "}
+          <code>withAccess</code> (path-scoped read/write/none, enforced on the
+          filesystem so it binds every surface at once) and <code>withMeta</code>{" "}
+          (metadata and opt-in search in one hidden sidecar). Check a backend of
+          your own against <code>runVfsConformance()</code>.
+        </p>
+        <p>
+          → <a href="/docs/vfs">Virtual filesystem guide</a>
+        </p>
+      </Pkg>
+
       <Pkg name="glove-working-environment" tag="persistent VFS">
         <p>
           A small, fast, in-memory sandboxed working environment: a virtual

@@ -28,7 +28,7 @@
  * the functions arrive as `fs.read(...)` in JS and Python and `(fs__read …)`
  * in Lisp without any per-REPL wiring.
  */
-import { basename, normalizePath } from "./paths";
+import { normalizePath } from "./paths";
 import { glob as globFiles, grep as grepFiles } from "./search";
 import {
   hasMeta,
@@ -384,6 +384,6 @@ async function copyPath(vfs: Vfs, from: string, to: string): Promise<void> {
 /** The one-line orientation a host can paste into a system prompt. */
 export function describeFsFns(vfs: Vfs, options: FsFnsOptions = {}): string {
   const ns = options.namespace ?? "fs";
-  const names = fsFns(vfs, options).map((f) => `${ns}.${basename(f.name.replace(`${ns}__`, ""))}`);
+  const names = fsFns(vfs, options).map((f) => `${ns}.${f.name.slice(ns.length + 2)}`);
   return `A shared filesystem is callable as ${names.join(", ")}. Paths are absolute. State written there outlives this call.`;
 }

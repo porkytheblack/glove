@@ -230,6 +230,7 @@ provider prompt caching. Cache usage is reported on every response as
 | glove-facts | scoped evidence, revisions and reusable links; preparation through a supplied Glove agent |
 | glove-scratchpad | expose tools as a relational database driven by one execute_sql tool |
 | glove-sql | zero-dependency Postgres-subset SQL engine (scratchpad's default backend) |
+| glove-vfs | one Vfs the working environment, memory resources and the REPLs share: backends, mounts, access policy, metadata, search |
 | glove-working-environment | persistent sandboxed VFS: scripts, runs, artifacts |
 | glove-env-fetch | HTTP requests, VFS downloads/uploads, host network policy and credential aliases |
 | glove-env-secret | host keystore, scoped references and pluggable persistence outside VFS snapshots |
@@ -562,6 +563,65 @@ from \`glove-scratchpad\`. A \`__\` in a name is a namespace:
 \`github__list_pull_requests\` also binds as \`github.list_pull_requests\`. Calling an
 effectful function fires it immediately — there is no staging on the JS/Python
 surfaces.
+
+### glove-vfs
+
+\`\`\`ts
+import { mountFs, inMemoryFs, hostDirectory, cachedRemote, withAccess, withMeta, hasMeta, hasSearch } from "glove-vfs";
+import { fsFns } from "glove-vfs/fns";
+import { vfsResources } from "glove-vfs/resources";
+
+const fs = withAccess(
+  withMeta(mountFs([
+    { at: "/",       fs: inMemoryFs() },
+    { at: "/corpus", fs: hostDirectory("./docs", { mode: "readonly" }) },
+    { at: "/memory", fs: await cachedRemote(store, { prefix: \`sessions/\${id}/\` }) },
+  ]), { lexical: true }),
+  { rules: [{ path: "/corpus", access: "read", note: "curated upstream" }] },
+);
+
+createWorkingEnvironment({ filesystem: fs });                              // scripts and verbs
+useResourcesCurator(glove, vfsResources(fs, { schema, root: "/memory" })); // memory tools
+session.registerFns(fsFns(fs));                                           // execute_js / _lisp / _python
+\`\`\`
+
+One tree, three consumers: what a script writes to \`/memory/notes/x.md\` is what
+\`glove_resources_read\` reads, at that path, with no copy or export step.
+
+\`Vfs\` is nine methods over bytes and absolute paths — \`read\`, \`write\` (creates
+parents), \`rm\` (recursive), \`mkdir\`, \`exists\`, \`stat\`, \`list\`, \`files\`,
+\`totalSize\`. Summaries, tags, links, provenance and search are OPTIONAL
+capabilities detected with \`hasMeta(fs)\` / \`hasSearch(fs)\`, never required by the
+base type. Ask the tree what it can do; never ask which tree it is.
+
+Backends: \`inMemoryFs()\` (default), \`hostDirectory(dir, { mode })\` (copy-on-write;
+nothing on the host changes until \`commit()\`), \`cachedRemote(store, { prefix })\`
+(object storage, BYO \`get\`/\`put\`/\`delete\`/\`list\`, structural index kept in memory).
+
+Layers each return a \`Vfs\` and compose outside-in — \`withAccess\` wraps \`withMeta\`
+wraps \`mountFs\`, so a policy governs the metadata surface rather than being
+bypassed by it. \`mountFs\` routes by longest prefix; ancestor dirs stay listable but
+not writable; \`rooted: false\` when stored paths must stay absolute. \`withAccess\`
+cascades last-match-wins: a listing FILTERS, a named path REFUSES, \`exists\` returns
+false rather than throwing, a recursive \`rm\` reaching a fenced path is refused
+whole, and \`totalSize\` reports the entire tree so hiding a subtree buys no budget.
+It applies to metadata too: \`getMeta\` on an unreadable path is refused, and
+searches and link lookups filter to visible paths. \`withMeta\` keeps ONE sidecar at
+\`/.vfs/meta.json\`, hidden from \`files()\`/\`list()\` and excluded from \`totalSize()\`;
+search is opt-in (\`embedder\` or \`lexical: true\`) and advertised only when real.
+Writes never index on the hot path — drain \`findNeedingEmbedding()\` →
+\`setEmbedding()\` out of band.
+
+\`snapshot\`/\`restore\`/\`copyTree\` call \`unwrap()\` first, so they serialize what the
+backend STORES rather than what the outer layer SHOWS — a snapshot exists to be
+restored, so anything it omits is data the restore destroys.
+
+\`fsFns(fs)\` emits \`fs__read\`/\`ls\`/\`stat\`/\`glob\`/\`grep\`, plus
+\`write\`/\`mkdir\`/\`rm\`/\`mv\`/\`cp\` unless \`readOnly\`, plus \`meta\`/\`links_for\`/\`set_meta\`
+when \`hasMeta\` and \`search\` when \`hasSearch\` — never a call the tree cannot make.
+\`vfsResources(fs, { schema, root })\` SCOPES to a subtree without rewriting paths;
+translation would invalidate stored link targets. \`runVfsConformance()\` from
+\`glove-vfs/testing\` is the backend contract test. Zero dependencies.
 
 ### glove-working-environment
 

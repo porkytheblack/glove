@@ -3725,3 +3725,216 @@ interface DefaultClientStorageOptions { inlineMaxBytes?: number }
 ### Framework context and turn boundaries
 
 Runtime snapshots carry `Message.framework_context: "runtime"`; synthetic inbox entries use `"inbox"`. This optional provenance field does not change provider roles. Tool-result summarization ignores these entries and existing skill/compaction markers when locating the last real user turn. Pending inbox reminders follow complete tool-result bundles. Preserve the marker in custom message processing and preserve structured media when merging adjacent user content.
+
+## glove-vfs
+
+One virtual filesystem for a whole agent. Zero dependencies. Ships from `glove-vfs` (barrel) with subpath exports `glove-vfs/fns`, `glove-vfs/resources` and `glove-vfs/testing`. `glove-working-environment` re-exports the contract, the path helpers and all three backends, so code importing them from there is unchanged.
+
+### The `Vfs` contract
+
+```ts
+import type { Vfs, VfsEntry, VfsStat } from "glove-vfs";
+
+interface Vfs {
+  read(path: string): Promise<Uint8Array>;
+  write(path: string, data: Uint8Array): Promise<void>;  // creates parent directories
+  rm(path: string): Promise<void>;                       // recursive for directories
+  mkdir(path: string): Promise<void>;
+  exists(path: string): Promise<boolean>;
+  stat(path: string): Promise<VfsStat | null>;
+  list(path: string): Promise<VfsEntry[]>;               // immediate children
+  files(): Promise<string[]>;                            // every file path, sorted, no dirs
+  totalSize(): Promise<number>;
+}
+
+interface VfsEntry { name: string; kind: "file" | "dir"; size: number }   // note: no mtime
+interface VfsStat  { kind: "file" | "dir"; size: number; mtime: number }
+```
+
+Paths are absolute, `/`-separated and normalised. Helpers: `normalizePath`, `dirname`, `basename`, `extname`, `ancestors`, `isUnder`, `resolveRelative`, `matchGlob`, `globToRegExp`, `PathError`. Byte helpers: `toBytes`, `toText`, `looksBinary`.
+
+### Optional capabilities
+
+Detected, never required. `hasMeta(fs)` narrows to `MetaVfs` (`Vfs & VfsMeta`), `hasSearch(fs)` to `SearchVfs` (`Vfs & VfsSearch`). They are **two separate capabilities** — a tree can have metadata without search.
+
+```ts
+import { hasMeta, hasSearch } from "glove-vfs";
+import type { VfsMeta, VfsSearch, VfsMetadata, VfsRecord, VfsLink, VfsProvenance } from "glove-vfs";
+
+interface VfsMeta {
+  getMeta(path: string): Promise<VfsRecord | null>;
+  /** Merges a patch: `undefined` deletes a key; `tags`/`links` replace wholesale; provenance appends. */
+  setMeta(path: string, patch: Partial<VfsMetadata>, provenance?: VfsProvenance): Promise<void>;
+  linksFor(kind: VfsLink["kind"], id: string): Promise<Array<{ path: string; relation?: string }>>;
+  /** Repoint every link at `from` to `to` — entity merges, resource moves. */
+  replaceLinkTarget(kind: VfsLink["kind"], from: string, to: string, provenance?: VfsProvenance): Promise<number>;
+}
+
+interface VfsSearch {
+  searchSemantic(query: string, opts?: SemanticSearchOpts): Promise<SemanticMatch[]>;
+  findNeedingEmbedding(opts?: { limit?: number }): Promise<string[]>;
+  setEmbedding(path: string, vector: number[]): Promise<void>;
+}
+
+interface VfsRecord {
+  path: string;
+  metadata: VfsMetadata;                              // { summary?, tags, links, [key: string]: unknown }
+  provenance: VfsProvenance[];                        // append-only
+  embeddingStatus: "missing" | "fresh" | "stale";
+  createdAt: string; updatedAt: string;               // ISO 8601
+}
+
+interface VfsLink { kind: "entity" | "episode" | "resource"; id: string; relation?: string }
+interface VfsProvenance { source: string; actor: string; timestamp: string; note?: string }
+```
+
+The index lifecycle is deliberately out-of-band — `setEmbedding` means "the index now covers this path", and `vector` is only meaningful when the index is a vector one (it may equally be an FTS document or BM25 postings). Writes never index on the hot path:
+
+```ts
+const pending = await fs.findNeedingEmbedding({ limit: 50 });
+const vectors = await embedder.embed(await Promise.all(pending.map(readText)));
+for (const [i, path] of pending.entries()) await fs.setEmbedding(path, vectors[i]);
+```
+
+**`grep` and `glob` are not on the interface** — they are standalone helpers that work over any `Vfs`:
+
+```ts
+import { glob, grep, cosine, lexicalScore, recencyScore } from "glove-vfs";
+
+function glob(vfs: Vfs, pattern: string, opts?: { path?: string }): Promise<string[]>;
+function grep(vfs: Vfs, spec: GrepSpec): Promise<GrepMatch[]>;
+
+interface GrepSpec {
+  query: string; regex?: boolean; caseSensitive?: boolean;
+  path?: string; glob?: string; contextLines?: number; limit?: number;   // contextLines default 2
+}
+```
+
+### Backends
+
+```ts
+import { inMemoryFs, fromSnapshot, hostDirectory, cachedRemote } from "glove-vfs";
+
+function inMemoryFs(): InMemoryFs;                     // SnapshotableVfs — serializes itself
+function fromSnapshot(snap: VfsSnapshot): InMemoryFs;
+function hostDirectory(dir: string, opts?: HostDirectoryOptions): HostDirectoryFs;
+function cachedRemote(store: ObjectStore, opts?: CachedRemoteOptions): Promise<CachedRemoteFs>;
+
+interface HostDirectoryOptions { mode?: "cow" | "readonly" }   // "cow" is the default
+interface CachedRemoteOptions { prefix?: string; cacheContent?: boolean; /* … */ }
+
+interface ObjectStore {
+  get(key: string): Promise<Uint8Array>;   // REJECTS if the key is absent — it does not resolve null
+  put(key: string, data: Uint8Array): Promise<void>;
+  delete(key: string): Promise<void>;      // deleting an absent key must SUCCEED, not throw
+  list(prefix: string): Promise<RemoteObject[]>;  // MUST paginate internally and return the complete set
+}
+```
+
+`hostDirectory` in `"cow"` mode: reads fall through to disk, writes land in an in-memory overlay, nothing on the host changes until `commit()`. `cachedRemote` keeps the structural index (paths, sizes, dirs) in memory — `totalSize()` runs on every write and `files()` backs glob/grep/`rm -r` — so only content crosses the network. A truncated `list` silently becomes a truncated filesystem. No distributed locking: one prefix per session.
+
+### mountFs
+
+```ts
+import { mountFs, type Mount } from "glove-vfs";
+
+interface Mount {
+  at: string;                          // absolute directory; "/" mounts as root
+  fs: Vfs;
+  access?: "write" | "read";           // "write" default; "read" refuses every mutation below
+  rooted?: boolean;                    // default true
+}
+function mountFs(mounts: Mount[]): Vfs;
+```
+
+Longest prefix wins regardless of array order. Ancestor directories on the way to a mount stay listable but are not writable; a write there is refused and names the real mounts. A mount point cannot be `rm`'d from inside. `rooted: true` means a backend mounted at `/memory` is called with `/notes/x.md` — which is what lets an existing tree be grafted anywhere. Pass `rooted: false` when stored paths must stay absolute: memory resource `metadata.links` are unvalidated absolute paths and break silently otherwise.
+
+### withAccess
+
+```ts
+import { withAccess, accessFor, describeAccess, AccessError } from "glove-vfs";
+import type { Access, AccessPolicy, AccessRule } from "glove-vfs";
+
+type Access = "write" | "read" | "none";
+interface AccessRule { path: string; access: Access; note?: string }   // path may be a glob
+interface AccessPolicy { default?: Access; rules?: AccessRule[] }      // default: "write"
+
+function withAccess(vfs: Vfs, policy: AccessPolicy): Vfs;
+function accessFor(policy: AccessPolicy, path: string): Access;
+function describeAccess(policy: AccessPolicy): string;
+```
+
+Rules cascade **last-match-wins**. A listing **filters**; a named path **refuses** with `AccessError` — but `exists` returns `false` rather than throwing, because that is the question you ask *before* you know. Traversal is not read access: directories on the way to a granted subtree stay listable, which says nothing about their own contents. A recursive `rm` reaching a protected path is refused whole rather than partially applied. `totalSize` reports the **entire** tree: the number enforces a budget, and hiding a subtree must not buy room to write past one.
+
+### withMeta
+
+```ts
+import { withMeta, META_INDEX_PATH } from "glove-vfs";
+import type { Embedder, WithMetaOptions } from "glove-vfs";
+
+interface Embedder { dimensions: number; embed(texts: string[]): Promise<number[][]> }
+interface WithMetaOptions {
+  indexPath?: string;                        // default META_INDEX_PATH = "/.vfs/meta.json"
+  embedder?: Embedder;                       // vector search
+  lexical?: boolean;                         // in-process token-overlap search, no service
+  defaultProvenance?: () => VfsProvenance;   // stamped on writes that supply none
+}
+
+function withMeta(vfs: Vfs, options?: WithMetaOptions): MetaVfs & Partial<VfsSearch>;
+```
+
+One sidecar index per tree, hidden from `files()`/`list()` **and** excluded from `totalSize()` so the listing and the byte count agree. A corrupt sidecar loses metadata, never content. With neither `embedder` nor `lexical`, the three `VfsSearch` methods are hidden behind a Proxy so `hasSearch()` reports the truth.
+
+### Serialization
+
+```ts
+import { snapshot, restore, copyTree, unwrap, isWrapping, invalidateChain, isSnapshotable } from "glove-vfs";
+
+function snapshot(vfs: Vfs): Promise<VfsSnapshot>;
+function restore(vfs: Vfs, snap: VfsSnapshot, opts?: { clear?: boolean }): Promise<void>;
+function copyTree(from: Vfs, to: Vfs): Promise<number>;
+
+interface WrappingVfs extends Vfs { readonly inner: Vfs; invalidate?(): void }
+```
+
+All three call `unwrap()` first, so they operate on what the backend **stores** rather than what the outermost layer **shows** — capturing the metadata sidecar and access-fenced paths. A snapshot exists to be restored, so anything it omits is data the restore destroys. `restore` is additive unless `{ clear: true }`, refuses an unknown `version` rather than half-applying, and calls `invalidateChain(vfs)` so a layer holding a cached index re-reads it. A custom wrapper implements `WrappingVfs` to participate.
+
+### Bridges
+
+```ts
+import { fsFns, describeFsFns, type FsFn, type FsFnsOptions } from "glove-vfs/fns";
+import { vfsResources, type VfsResourceAdapter, type VfsResourcesOptions } from "glove-vfs/resources";
+import { runVfsConformance } from "glove-vfs/testing";
+
+interface FsFnsOptions {
+  namespace?: string;        // default "fs" → fs.read(...)
+  maxReadBytes?: number;     // default 2 MiB; refusal names fs.grep and limit/offset
+  readOnly?: boolean;
+  provenance?: (ctx?: FsFnContext) => VfsProvenance;
+}
+function fsFns(vfs: Vfs, options?: FsFnsOptions): FsFn[];
+function describeFsFns(vfs: Vfs, options?: FsFnsOptions): string;
+
+interface VfsResourcesOptions<TSchema> { schema: TSchema; root?: string; identifier?: string }
+function vfsResources<TSchema>(vfs: Vfs, options: VfsResourcesOptions<TSchema>): VfsResourceAdapter<TSchema>;
+```
+
+`fsFns` emits exactly what the tree supports:
+
+| Tree | Functions |
+|---|---|
+| any `Vfs` | `fs__read` `fs__ls` `fs__stat` `fs__glob` `fs__grep` |
+| + writable (default) | `fs__write` `fs__mkdir` `fs__rm` `fs__mv` `fs__cp` |
+| + `hasMeta` | `fs__meta` `fs__links_for` `fs__set_meta` |
+| + `hasSearch` | `fs__search` |
+
+`readOnly: true` drops the mutating five. The model never sees a call it cannot make. Names arrive as `fs.read(...)` in JS/Python and `(fs__read …)` in Lisp — `FsFn` is a structural mirror of `glove-scratchpad/fns`' `ToolFn`, so no dependency is created.
+
+`vfsResources` returns a structurally-declared `VfsResourceAdapter<TSchema>` (the `ResourceFsAdapter` shape `glove-memory` expects): `list`, `read`, `stat`, `exists`, `grep`, `glob`, optional `searchSemantic`, `write`, `edit`, `mkdir`, `move`, `remove`, `setMetadata`, `linksFor`, `replaceLinkTarget`. Two decisions worth knowing:
+
+- **`root` scopes, it does not rewrite.** Translating paths would silently invalidate every stored `metadata.links` target — unvalidated absolute-path data the package does not own.
+- **A file nobody wrote through the adapter is still a resource**, read back as `text` (or `markdown` for `.md`) with empty metadata. Refusing to show a file that plainly exists is how you end up back with two filesystems.
+
+Over a tree without `hasMeta` the adapter still reads, lists, greps and writes; metadata comes back empty rather than throwing, and `supportsSemanticSearch` reports `hasSearch` honestly.
+
+`runVfsConformance(() => myBackend())` is the backend contract test. Nine methods sounds too small to get wrong and isn't: it covers writing through a path whose parent is a file, listing a directory that exists only because something below it does, `rm` of a subtree, and the byte accounting a storage budget depends on. Every layer in the package runs it against itself, because a wrapper is a `Vfs` too and a stack of them is where a contract quietly stops holding.
