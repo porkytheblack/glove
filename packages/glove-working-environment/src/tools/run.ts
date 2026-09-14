@@ -8,7 +8,7 @@ import type { RunLog } from "../history/runlog";
 import type { WorkerPool } from "../executor/pool";
 import { serializeResult, withSpillover } from "./format";
 import { argMismatch, declaredArgs } from "../pipeline/args";
-import { normalizePath } from "../paths";
+import { normalizePath } from "glove-vfs";
 
 export interface RunDeps {
   core: EnvCore;

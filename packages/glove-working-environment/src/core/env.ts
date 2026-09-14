@@ -25,7 +25,7 @@
  */
 import type { EnvCounters, EnvLimits, FileVersionInfo, VfsEntry, VfsStat, Vfs } from "../types";
 import { EnvLimitError, looksBinary, toBytes, toText } from "../types";
-import { basename, dirname, globToRegExp, isUnder, normalizePath } from "../paths";
+import { basename, dirname, globToRegExp, isUnder, normalizePath } from "glove-vfs";
 import { defaultExportError } from "../pipeline/contract";
 import { generateDts } from "../pipeline/dts";
 import { scriptOneLiner } from "../pipeline/jsdoc";
@@ -34,7 +34,7 @@ import { HandlerRegistry, HEAD_BYTES, type Claim } from "../adapters/handles";
 import { envImportsOf } from "../pipeline/imports";
 import { buildOrientation, ORIENTATION_PATH } from "../tools/orientation";
 import { readBranchSnapshot } from "../tools/branches";
-import { base64ToBytes } from "../vfs/memory";
+import { base64ToBytes } from "glove-vfs";
 import type { VersionStore } from "../history/versions";
 import type { RunLog } from "../history/runlog";
 import { runContext } from "./run-context";

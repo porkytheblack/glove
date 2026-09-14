@@ -6,7 +6,7 @@ A small, fast, in-memory, sandboxed **persistent working environment** for LLM a
 pnpm add glove-working-environment
 ```
 
-Zero-dependency core (Node builtins only). Heavy format libraries (pdf, xlsx, images, …) live in separate adapter packages.
+Zero-dependency core beyond [`glove-vfs`](../glove-vfs) (Node builtins only). Heavy format libraries (pdf, xlsx, images, …) live in separate adapter packages.
 
 ## Positioning
 
@@ -108,6 +108,37 @@ The index is updated only *after* the store confirms a write, so a failed put le
 **Prefer a snapshot if you only want persistence.** Writing `env.snapshot()` to one object is one round trip per session instead of one per file, and it is atomic. Reach for `cachedRemote` when the tree genuinely outgrows the heap, or when other systems need to read the files directly.
 
 There is **no distributed locking**. The environment serializes its own mutations within a process; two hosts on one prefix would race on version rings and run history. Give every session its own prefix — which also makes cleanup a single delete-by-prefix.
+
+### Sharing the tree with memory and the REPLs
+
+The filesystem is [`glove-vfs`](../glove-vfs) — the same `Vfs` a `glove-memory`
+resource store and a sandboxed REPL session mount. `filesystem` therefore does
+not have to be a tree only this environment can see:
+
+```ts
+import { mountFs, inMemoryFs, withMeta } from "glove-working-environment";
+import { vfsResources } from "glove-vfs/resources";
+import { fsFns } from "glove-vfs/fns";
+
+const shared = withMeta(
+  mountFs([
+    { at: "/", fs: inMemoryFs() },
+    { at: "/memory", fs: inMemoryFs() },
+  ]),
+  { lexical: true },
+);
+
+const env = await createWorkingEnvironment({ filesystem: shared });
+useResourcesCurator(glove, vfsResources(shared, { schema, root: "/memory" }));
+jsSession.registerFns(fsFns(shared));
+```
+
+A file a script writes to `/memory/notes/findings.md` is what
+`glove_resources_read` reads, at that same path — no copy, no export step, and
+no second place for the agent's own output to live. `withAccess` fences
+subtrees at the filesystem rather than at the tool list, so a read-only zone
+holds against a model verb, a script's `env:fs` call and a REPL function
+alike. `readOnlyPaths` remains the shorthand for the common case.
 
 `mountWorkingEnvironment` takes any object with `fold()` (structurally — `IGloveRunnable` and `IGloveBuilder` both qualify), so the package does not depend on `glove-core`.
 

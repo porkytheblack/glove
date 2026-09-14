@@ -6,7 +6,7 @@
  * are snapshotted with everything else and count against the size cap.
  */
 import type { EnvLimits, FileVersionInfo, Vfs } from "../types";
-import { normalizePath } from "../paths";
+import { normalizePath } from "glove-vfs";
 
 const INDEX_PATH = "/.env/versions/index.json";
 const BLOB_DIR = "/.env/versions/blobs";

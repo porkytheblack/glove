@@ -1587,21 +1587,6 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  packages/glove-env-notion:
-    devDependencies:
-      '@types/node':
-        specifier: ^25.2.3
-        version: 25.2.3
-      glove-working-environment:
-        specifier: workspace:*
-        version: link:../glove-working-environment
-      tsx:
-        specifier: ^4.19.0
-        version: 4.21.0
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-
   packages/glove-env-ocr:
     dependencies:
       '@tesseract.js-data/eng':
@@ -2080,6 +2065,18 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  packages/glove-vfs:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/glove-video:
     dependencies:
       glove-core:
@@ -2228,6 +2225,10 @@ importers:
         version: 4.3.6
 
   packages/glove-working-environment:
+    dependencies:
+      glove-vfs:
+        specifier: workspace:*
+        version: link:../glove-vfs
     devDependencies:
       '@types/node':
         specifier: ^25.2.3
@@ -2396,21 +2397,6 @@ importers:
         version: 5.9.3
 
 packages:
-  fast-string-truncated-width@3.0.2:
-    resolution: {integrity: sha512-zvCUvwL+gbq0DcV7IG9YzKIemRUuebAjt/aLjl33jmrbpA1kiy36txXLNEaXGJiljxQPZnwQqDqNuLZJuac7LA==}
-  '@clack/prompts@1.8.0':
-    resolution: {integrity: sha512-PXzLZ8N34rxmuo4dJg3xtOXhcBse94qGjDqsteoEYrFrrZ5FSjIGwMAuOcv64ln8rHVBBD06XeVGr+/JX+plcA==}
-    engines: {node: '>=20.12.0'}
-
-  '@clack/core@1.5.0':
-    resolution: {integrity: sha512-zNikCcd8BbcEvzzG1sbXFrRHFk5kHPrpwZwksPvf9qyQO1Teb7JaXaOAxXZei9nZLDW0gaZawiuTCji88bTBhw==}
-    engines: {node: '>=20.12.0'}
-
-  fast-wrap-ansi@0.2.0:
-    resolution: {integrity: sha512-rLV8JHxTyhVmFYhBJuMujcrHqOT2cnO5Zxj37qROj23CP39GXubJRBUFF0z8KFK77Uc0SukZUf7JZhsVEQ6n8w==}
-
-  fast-string-width@3.0.2:
-    resolution: {integrity: sha512-gX8LrtNEI5hq8DVUfRQMbr5lpaS4nMIWV+7XEbXk2b8kiQIizgnlr12B4dA3ZEx3308ze0O4Q1R+cHts8kyUJg==}
 
   '@alcalzone/ansi-tokenize@0.2.5':
     resolution: {integrity: sha512-3NX/MpTdroi0aKz134A6RC2Gb2iXVECN4QaAXnvCIxxIm3C3AVB1mkUe8NaaiyvOpDfsrqWhYtj+Q6a62RrTsw==}
@@ -3036,6 +3022,14 @@ packages:
 
   '@changesets/write@0.4.0':
     resolution: {integrity: sha512-CdTLvIOPiCNuH71pyDu3rA+Q0n65cmAbXnwWH84rKGiFumFzkmHNT8KHTMEchcxN+Kl8I54xGUhJ7l3E7X396Q==}
+
+  '@clack/core@1.5.0':
+    resolution: {integrity: sha512-zNikCcd8BbcEvzzG1sbXFrRHFk5kHPrpwZwksPvf9qyQO1Teb7JaXaOAxXZei9nZLDW0gaZawiuTCji88bTBhw==}
+    engines: {node: '>= 20.12.0'}
+
+  '@clack/prompts@1.8.0':
+    resolution: {integrity: sha512-PXzLZ8N34rxmuo4dJg3xtOXhcBse94qGjDqsteoEYrFrrZ5FSjIGwMAuOcv64ln8rHVBBD06XeVGr+/JX+plcA==}
+    engines: {node: '>= 20.12.0'}
 
   '@daily-co/daily-js@0.85.0':
     resolution: {integrity: sha512-lpl111ZWNTUWDnwYcPuNi9PGJPbLCeCw6LzmEY40nG0hv1jg5JLVW8Rq3Cj/+lOCP6W6h4PXm211ss0FFnxITQ==}
@@ -6102,8 +6096,17 @@ packages:
   fast-safe-stringify@2.1.1:
     resolution: {integrity: sha512-W+KJc2dmILlPplD/H4K9l9LcAHAfPtP6BY84uVLXQ6Evcz9Lcg33Y2z1IVblT6xdY54PXYVHEv+0Wpq8Io6zkA==}
 
+  fast-string-truncated-width@3.0.2:
+    resolution: {integrity: sha512-zvCUvwL+gbq0DcV7IG9YzKIemRUuebAjt/aLjl33jmrbpA1kiy36txXLNEaXGJiljxQPZnwQqDqNuLZJuac7LA==}
+
+  fast-string-width@3.0.2:
+    resolution: {integrity: sha512-gX8LrtNEI5hq8DVUfRQMbr5lpaS4nMIWV+7XEbXk2b8kiQIizgnlr12B4dA3ZEx3308ze0O4Q1R+cHts8kyUJg==}
+
   fast-uri@3.1.0:
     resolution: {integrity: sha512-iPeeDKJSWf4IEOasVVrknXpaBV0IApz/gp7S2bb7Z4Lljbl2MGJRqInZiUrQwV16cpzw/D3S5j5Julj/gT52AA==}
+
+  fast-wrap-ansi@0.2.0:
+    resolution: {integrity: sha512-rLV8JHxTyhVmFYhBJuMujcrHqOT2cnO5Zxj37qROj23CP39GXubJRBUFF0z8KFK77Uc0SukZUf7JZhsVEQ6n8w==}
 
   fast-xml-parser@5.3.6:
     resolution: {integrity: sha512-QNI3sAvSvaOiaMl8FYU4trnEzCwiRr8XMWgAHzlrWpTSj+QaCSvOf1h82OEP1s4hiAXhnbXSyFWCf4ldZzZRVA==}
@@ -8264,16 +8267,12 @@ packages:
     peerDependencies:
       station-signal: 2.2.0
 
-  station-env@2.3.0:
-    resolution: {integrity: sha512-8pm1zHhrz6qgZG6spQbqhHOpTgJrm9yuGDBdw9kPuM/UlZFQhcZkpmtNKdRqfhRc4FSzGEBwI8ZZn4IJ/d+meg==}
-    engines: {node: '>=18'}
-
   station-env@2.0.0:
     resolution: {integrity: sha512-PfIwyJ+V3fMg5HQOB70mSfyWREV9/UdCytD0fV5hAr4LDuuUrXn2Mn28NuGSonLD+w0VCYAYAMvK1aCA7jlGVg==}
     engines: {node: '>=18'}
 
-  station-env@2.2.0:
-    resolution: {integrity: sha512-bUmJ9Q9K7pZ1sm8GVqzIBK9crRV3+3pvVrr84C7TG4e0zEJLm4BWRhrEZ0yrqpwojNMJ9oYbm/j5w4nrlYK+tA==}
+  station-env@2.3.0:
+    resolution: {integrity: sha512-8pm1zHhrz6qgZG6spQbqhHOpTgJrm9yuGDBdw9kPuM/UlZFQhcZkpmtNKdRqfhRc4FSzGEBwI8ZZn4IJ/d+meg==}
     engines: {node: '>=18'}
 
   station-expressions@2.0.0:
@@ -8293,28 +8292,20 @@ packages:
       station-broadcast: 2.0.0
       station-signal: 2.0.0
 
-  station-schedules@2.3.0:
-    resolution: {integrity: sha512-VsOlAA2daGP9lHNOtkoaCtgR7eaxwQMW++DY8wJvCNgYmpTnvpI2sBcB+yf/ZHzN4y7XFjL0bReADB5tR6cxtw==}
-    engines: {node: '>=18'}
-
   station-schedules@2.0.0:
     resolution: {integrity: sha512-CGGDFb9TpeGU9BvGdjTUjPgUP8gyRIUsZKD5OXEMFUk837fizd1ds2ZPd7gMbLaELQOj0qzBcduXztQXkowqUA==}
     engines: {node: '>=18'}
 
-  station-schedules@2.2.0:
-    resolution: {integrity: sha512-5eLw/56GsvO3cG5ucPX0NtcZpCr/Z6Th125mX7MEvwY5YhuECgNF1sT+CcYKyH3DFQOfFylUij8yE4n4JQbqdQ==}
-    engines: {node: '>=18'}
-
-  station-signal@2.3.0:
-    resolution: {integrity: sha512-jr8w465WlzBJBno4aoZGS5bxQEDB8gAUL52vKw8T4VUBcspcgxmrGDqFV4tZQ8qU+IKQNy/dXrH2B+SVeU3G4g==}
+  station-schedules@2.3.0:
+    resolution: {integrity: sha512-VsOlAA2daGP9lHNOtkoaCtgR7eaxwQMW++DY8wJvCNgYmpTnvpI2sBcB+yf/ZHzN4y7XFjL0bReADB5tR6cxtw==}
     engines: {node: '>=18'}
 
   station-signal@2.0.0:
     resolution: {integrity: sha512-D1c0wxITx4cyXuW4Ryxj5iUu4H6MS3EF3x9QQcDL2xMFZzD48MZkkTdPnWz+5dARmY5u4/4UQCSQXD90wZy6GQ==}
     engines: {node: '>=18'}
 
-  station-signal@2.2.0:
-    resolution: {integrity: sha512-mn8TwU+HVJRXHFSSzFULS5vkHa6d67FOCyqI8HN5RDohhfa2PeVUYtyqsBvNnPXS3sMEjTnCjX0cF0c1vEpBRQ==}
+  station-signal@2.3.0:
+    resolution: {integrity: sha512-jr8w465WlzBJBno4aoZGS5bxQEDB8gAUL52vKw8T4VUBcspcgxmrGDqFV4tZQ8qU+IKQNy/dXrH2B+SVeU3G4g==}
     engines: {node: '>=18'}
 
   statuses@1.5.0:
@@ -8927,26 +8918,6 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
-  fast-string-truncated-width@3.0.2: {}
-  '@clack/prompts@1.8.0':
-    dependencies:
-      '@clack/core': 1.5.0
-      fast-string-width: 3.0.2
-      fast-wrap-ansi: 0.2.0
-      sisteransi: 1.0.5
-
-  '@clack/core@1.5.0':
-    dependencies:
-      fast-wrap-ansi: 0.2.0
-      sisteransi: 1.0.5
-
-  fast-wrap-ansi@0.2.0:
-    dependencies:
-      fast-string-width: 3.0.2
-
-  fast-string-width@3.0.2:
-    dependencies:
-      fast-string-truncated-width: 3.0.2
 
   '@alcalzone/ansi-tokenize@0.2.5':
     dependencies:
@@ -10108,6 +10079,18 @@ snapshots:
       fs-extra: 7.0.1
       human-id: 4.2.0
       prettier: 2.8.8
+
+  '@clack/core@1.5.0':
+    dependencies:
+      fast-wrap-ansi: 0.2.0
+      sisteransi: 1.0.5
+
+  '@clack/prompts@1.8.0':
+    dependencies:
+      '@clack/core': 1.5.0
+      fast-string-width: 3.0.2
+      fast-wrap-ansi: 0.2.0
+      sisteransi: 1.0.5
 
   '@daily-co/daily-js@0.85.0':
     dependencies:
@@ -13289,7 +13272,17 @@ snapshots:
 
   fast-safe-stringify@2.1.1: {}
 
+  fast-string-truncated-width@3.0.2: {}
+
+  fast-string-width@3.0.2:
+    dependencies:
+      fast-string-truncated-width: 3.0.2
+
   fast-uri@3.1.0: {}
+
+  fast-wrap-ansi@0.2.0:
+    dependencies:
+      fast-string-width: 3.0.2
 
   fast-xml-parser@5.3.6:
     dependencies:
@@ -15967,8 +15960,6 @@ snapshots:
 
   station-env@2.3.0: {}
 
-  station-env@2.2.0: {}
-
   station-expressions@2.0.0: {}
 
   station-expressions@2.2.0: {}
@@ -16029,17 +16020,11 @@ snapshots:
 
   station-schedules@2.3.0: {}
 
-  station-schedules@2.2.0: {}
-
-  station-signal@2.3.0:
-    dependencies:
-      zod: 4.3.6
-
   station-signal@2.0.0:
     dependencies:
       zod: 4.3.6
 
-  station-signal@2.2.0:
+  station-signal@2.3.0:
     dependencies:
       zod: 4.3.6
 

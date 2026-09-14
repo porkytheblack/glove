@@ -27,8 +27,8 @@
  * only reading that lets an agent see what it just undid.
  */
 import type { EnvSnapshot, Vfs } from "../types";
-import { base64ToBytes, bytesToBase64 } from "../vfs/memory";
-import { isUnder, normalizePath } from "../paths";
+import { base64ToBytes, bytesToBase64 } from "glove-vfs";
+import { invalidateChain, isUnder, normalizePath, unwrap } from "glove-vfs";
 
 export const BRANCH_DIR = "/.env/branches";
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
@@ -67,7 +67,12 @@ export function validateBranchName(name: unknown): string {
  * lock: interleaved with a mutation it captures a tree that never existed —
  * half of one write and half of the next.
  */
-async function captureTree(vfs: Vfs): Promise<EnvSnapshot> {
+async function captureTree(wrapped: Vfs): Promise<EnvSnapshot> {
+  // A checkpoint must reconstruct the tree, so it captures what is STORED,
+  // not what the outermost layer shows: a metadata layer hides its sidecar
+  // from `list()`, and a fork that drops it restores the files without the
+  // summaries, tags and links that were filed against them.
+  const vfs = unwrap(wrapped);
   const files: EnvSnapshot["files"] = [];
   const dirs: string[] = [];
   const walk = async (dir: string): Promise<void> => {
@@ -163,7 +168,9 @@ export async function restoreBranch(
 }
 
 /** Make the tree outside `/.env` match `snapshot`. Not atomic on its own. */
-async function applyTree(vfs: Vfs, snapshot: EnvSnapshot): Promise<{ restored: number; removed: number; touched: string[] }> {
+async function applyTree(wrapped: Vfs, snapshot: EnvSnapshot): Promise<{ restored: number; removed: number; touched: string[] }> {
+  // Symmetric with captureTree — restore into the same tree it read from.
+  const vfs = unwrap(wrapped);
   const wanted = new Set(snapshot.files.map((f) => normalizePath(f.path)));
   const touched: string[] = [];
   let removed = 0;
@@ -186,6 +193,8 @@ async function applyTree(vfs: Vfs, snapshot: EnvSnapshot): Promise<{ restored: n
     await vfs.write(p, base64ToBytes(file.data));
     touched.push(p);
   }
+  // The bytes moved by a route the layers above did not see.
+  invalidateChain(wrapped);
   return { restored: snapshot.files.length, removed, touched };
 }
 

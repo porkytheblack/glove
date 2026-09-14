@@ -9,54 +9,17 @@ import type { HandlesSpec } from "./adapters/handles";
 
 export type { HandlesSpec };
 
-/** A single entry returned by {@link Vfs.list}. */
-export interface VfsEntry {
-  name: string;
-  kind: "file" | "dir";
-  /** Byte size for files, 0 for directories. */
-  size: number;
-}
-
-export interface VfsStat {
-  kind: "file" | "dir";
-  size: number;
-  /** ms since epoch of the last mutation. */
-  mtime: number;
-}
-
 /**
- * The pluggable filesystem contract. Paths are absolute, `/`-separated
- * virtual paths. The default implementation is {@link inMemoryFs}; alternate
- * backends (e.g. a copy-on-write overlay) implement the same surface.
- *
- * The raw Vfs knows nothing about scripts, zones, versions, or limits —
- * those live in the environment layer above it.
+ * The filesystem contract now lives in `glove-vfs`, so the working
+ * environment, the memory resource store and the sandboxed REPLs all mount
+ * the SAME tree rather than each keeping a private one. These re-exports keep
+ * the surface identical for anyone importing them from here.
  */
-export interface Vfs {
-  read(path: string): Promise<Uint8Array>;
-  /** Writes a file, creating parent directories as needed. */
-  write(path: string, data: Uint8Array): Promise<void>;
-  /** Removes a file, or a directory and everything under it. */
-  rm(path: string): Promise<void>;
-  mkdir(path: string): Promise<void>;
-  exists(path: string): Promise<boolean>;
-  stat(path: string): Promise<VfsStat | null>;
-  /** Lists the immediate children of a directory. */
-  list(path: string): Promise<VfsEntry[]>;
-  /** Every file path in the tree (no directories), sorted. */
-  files(): Promise<string[]>;
-  /** Total bytes of file content currently stored. */
-  totalSize(): Promise<number>;
-}
+import type { Vfs, VfsEntry, VfsSnapshot, VfsStat } from "glove-vfs";
 
-/** Serializable snapshot of an entire environment tree. */
-export interface EnvSnapshot {
-  version: 1;
-  /** Directories that exist (including empty ones). */
-  dirs: string[];
-  /** File contents, base64-encoded. */
-  files: Array<{ path: string; data: string; mtime: number }>;
-}
+export type { Vfs, VfsEntry, VfsStat };
+export type { VfsSnapshot as EnvSnapshot };
+
 
 /**
  * A stdlib adapter bridges a real host-side library into the environment.
