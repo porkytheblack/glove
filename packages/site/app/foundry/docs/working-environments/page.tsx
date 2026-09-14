@@ -38,6 +38,50 @@ export default function WorkingEnvironmentsPage() {
         correlation, persistence boundaries, and inspection.
       </p>
 
+      <h2 id="shared-tree">One tree, several consumers</h2>
+      <p>
+        <code>filesystem</code> takes any <a href="/docs/vfs"><code>glove-vfs</code></a>{" "}
+        tree, and the same tree can back a <code>glove-memory</code> resource store
+        and a REPL session at the same time. That matters most in Foundry, where an
+        instance already owns memory, an environment and often a REPL: without a
+        shared tree each one keeps its own copy and the agent cannot file what it
+        just made.
+      </p>
+      <CodeBlock filename="agents/maker/workbench.ts" language="typescript" code={`import { mountFs, inMemoryFs, cachedRemote, withAccess, withMeta } from "glove-vfs";
+import { vfsResources } from "glove-vfs/resources";
+import { fsFns } from "glove-vfs/fns";
+
+export function makerTree(instanceId: string) {
+  return withAccess(
+    withMeta(mountFs([
+      { at: "/",       fs: inMemoryFs() },
+      { at: "/memory", fs: await cachedRemote(store, { prefix: \`instances/\${instanceId}/\` }) },
+    ]), { lexical: true }),
+    { rules: [{ path: "/corpus", access: "read", note: "curated upstream" }] },
+  );
+}`} />
+      <p>
+        Pass it as the working environment&apos;s <code>filesystem</code>, hand{" "}
+        <code>vfsResources(tree, {"{ schema, root: \"/memory\" }"})</code> to the
+        instance&apos;s resource curator, and <code>fsFns(tree)</code> to the REPL
+        session. A script&apos;s output is a memory resource at the same path,
+        immediately.
+      </p>
+      <p>
+        Access policy is enforced on the <strong>filesystem</strong>, not per
+        surface, so one rule binds the model&apos;s verbs, a script&apos;s{" "}
+        <code>env:fs</code> calls, REPL functions and host handles alike — and it
+        governs metadata too, so a fenced subtree does not leak through a summary
+        or a semantic hit. Mount only the per-instance prefix: the tree is the
+        tenancy boundary, and a shared prefix is a cross-instance read.
+      </p>
+      <p>
+        Foundry closes the environment after each run, so persist with{" "}
+        <code>snapshot()</code> and restore with <code>fromSnapshot()</code>. Both
+        unwrap the layer stack first, so the metadata index survives the round
+        trip rather than coming back empty with the bytes intact.
+      </p>
+
       <h2 id="http-secrets">HTTP and credentials</h2>
       <p>
         Put <code>fetchFiles()</code> and <code>secret()</code> in the working

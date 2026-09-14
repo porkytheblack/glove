@@ -245,6 +245,14 @@ export const docsSections: DocsNavSection[] = [
       "Give the model a place to compute instead of a wall of tool definitions.",
     items: [
       {
+        label: "Virtual Filesystem",
+        href: "/docs/vfs",
+        badge: "new",
+        summary:
+          "One tree the working environment, memory resources and the REPLs all share — mounts, access policies, metadata and search.",
+        packages: ["glove-vfs"],
+      },
+      {
         label: "Working Environment",
         href: "/docs/working-environment",
         badge: "new",
@@ -252,6 +260,7 @@ export const docsSections: DocsNavSection[] = [
           "A persistent sandboxed virtual filesystem — write scripts, run them, iterate, export artifacts.",
         packages: [
           "glove-working-environment",
+          "glove-vfs",
           "glove-env-documents",
           "glove-env-spreadsheets",
           "glove-env-images",

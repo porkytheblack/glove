@@ -152,6 +152,14 @@ Enforcement is on the filesystem, not on a tool list, so a write into a
 read-only folder is refused whichever surface asks: a model verb, a script's
 `env:fs` call, a REPL function, or a host handle.
 
+The policy governs the **metadata** surface too, rather than being bypassed by
+it. `getMeta` on an unreadable path is refused like a `read` — a summary is a
+description of bytes you were not granted. `linksFor`, `searchSemantic` and
+`findNeedingEmbedding` filter to visible paths, because a hit is an existence
+proof for a name that is meant to be invisible. `setMeta` and `setEmbedding`
+follow the write rule, and `replaceLinkTarget` is refused whole if any file
+holding the link is fenced, the way a recursive `rm` is.
+
 ### `withMeta(fs, opts)` — summaries, tags, links, provenance, search
 
 Gives a plain tree the metadata capability, kept in one sidecar index inside

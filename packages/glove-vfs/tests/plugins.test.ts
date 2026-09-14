@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { inMemoryFs, mountFs, toBytes, toText, withAccess, withMeta } from "../src/index";
-import { fsFns } from "../src/fns";
+import { describeFsFns, fsFns } from "../src/fns";
 import { vfsResources } from "../src/resources";
 import type { Vfs } from "../src/types";
 
@@ -203,4 +203,24 @@ test("the embedding queue hands back content, not paths", async () => {
   assert.deepEqual(pending, [{ path: "/a.md", content: "body text" }]);
   await resources.setEmbedding!("/a.md", [1]);
   assert.deepEqual(await resources.findFilesNeedingEmbedding!(), []);
+});
+
+// `describeFsFns` is the one-liner a host pastes into a system prompt, and it
+// threw a PathError for EVERY tree — it ran `basename` over a bare function
+// name, which has no leading slash. Nothing called it, so nothing caught it.
+test("the orientation line renders for every shape of tree", async () => {
+  const plain = describeFsFns(inMemoryFs());
+  assert.match(plain, /fs\.read/);
+  assert.match(plain, /fs\.write/);
+  assert.ok(!plain.includes("fs__"), "names are shown in call form, not wire form");
+
+  const readOnly = describeFsFns(inMemoryFs(), { readOnly: true });
+  assert.match(readOnly, /fs\.read/);
+  assert.ok(!readOnly.includes("fs.write"), "a read-only tree must not advertise writes");
+
+  // Capability functions appear, and a custom namespace is honoured throughout.
+  const rich = describeFsFns(withMeta(inMemoryFs(), { lexical: true }), { namespace: "tree" });
+  assert.match(rich, /tree\.meta/);
+  assert.match(rich, /tree\.search/);
+  assert.ok(!rich.includes("fs."), "the namespace applies to every name");
 });

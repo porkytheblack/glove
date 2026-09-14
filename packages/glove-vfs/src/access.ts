@@ -32,9 +32,34 @@
  * - **Traversal is not read access.** Directories on the way down to a
  *   granted subtree stay listable so the grant is reachable, but that says
  *   nothing about their own contents.
+ *
+ * ## Metadata is governed, not bypassed
+ *
+ * A guard that implemented only the nine base methods would silently strip
+ * {@link VfsMeta} and {@link VfsSearch} off the tree it wraps — and since
+ * `withAccess(withMeta(...))` is the layering every example shows, that turned
+ * a metadata-bearing tree into a plain one with nothing thrown. So the
+ * capabilities are forwarded when the inner tree has them, and forwarded
+ * policy-aware rather than as a passthrough: a summary is a description of
+ * bytes, and a search hit is an existence proof for a name meant to be
+ * invisible. Reads of metadata follow the read rule, writes follow the write
+ * rule, and listings (`linksFor`, `searchSemantic`, `findNeedingEmbedding`)
+ * filter like `ls` does.
  */
 import { globToRegExp, isUnder, normalizePath, PathError } from "./paths";
-import type { Vfs, VfsEntry, VfsStat } from "./types";
+import {
+  hasMeta,
+  hasSearch,
+  type SemanticMatch,
+  type SemanticSearchOpts,
+  type Vfs,
+  type VfsEntry,
+  type VfsLink,
+  type VfsMetadata,
+  type VfsProvenance,
+  type VfsRecord,
+  type VfsStat,
+} from "./types";
 
 export type Access = "write" | "read" | "none";
 
@@ -108,6 +133,31 @@ class GuardedFs implements Vfs {
     policy: AccessPolicy,
   ) {
     this.compiled = compile(policy);
+  }
+
+  /** @internal — used by the capability forwarders in `withAccess`. */
+  accessOf(path: string): Access {
+    return this.access(path);
+  }
+
+  /** @internal */
+  refuseRead(path: string, op: string): never {
+    return this.refuse(path, op, "read");
+  }
+
+  /** @internal */
+  refuseWrite(path: string, op: string): never {
+    return this.refuse(path, op, "write");
+  }
+
+  /** @internal */
+  requireWrite(path: string, op: string): void {
+    this.needWrite(path, op);
+  }
+
+  /** @internal — a path whose bytes this policy allows reading. */
+  visible(path: string): boolean {
+    return this.access(path) !== "none";
   }
 
   private access(path: string): Access {
@@ -235,7 +285,82 @@ function stripGlob(pattern: string): string {
  * refused whichever surface asks.
  */
 export function withAccess(vfs: Vfs, policy: AccessPolicy): Vfs {
-  return new GuardedFs(vfs, policy);
+  const guarded = new GuardedFs(vfs, policy);
+  const readable = (path: string) => guarded.visible(path);
+
+  // The optional capabilities are forwarded only when the inner tree actually
+  // has them, so `hasMeta`/`hasSearch` keep reporting the truth through the
+  // wrapper. Forwarding is POLICY-AWARE, never a passthrough: a summary is a
+  // description of bytes you may not read, and a semantic hit is an existence
+  // proof for a path that is meant to be invisible.
+  if (hasMeta(vfs)) {
+    const inner = vfs;
+    Object.assign(guarded, {
+      async getMeta(path: string): Promise<VfsRecord | null> {
+        if (!readable(path)) guarded.refuseRead(path, "getMeta");
+        return inner.getMeta(path);
+      },
+      async setMeta(path: string, patch: Partial<VfsMetadata>, provenance?: VfsProvenance): Promise<void> {
+        guarded.requireWrite(path, "setMeta");
+        return inner.setMeta(path, patch, provenance);
+      },
+      async linksFor(kind: VfsLink["kind"], id: string) {
+        const hits = await inner.linksFor(kind, id);
+        return hits.filter((h) => readable(h.path));
+      },
+      async replaceLinkTarget(
+        kind: VfsLink["kind"],
+        from: string,
+        to: string,
+        provenance?: VfsProvenance,
+      ): Promise<number> {
+        // Rewriting a link is a write to the file that holds it, so a fenced
+        // subtree must not be edited on a caller's behalf. Refuse whole rather
+        // than partially applying, as the recursive `rm` does.
+        //
+        // The refusal must not become the leak the filtering above prevents:
+        // the caller named an id, not a path, so naming an unreadable holder
+        // would hand them a filename they cannot otherwise see. A read-only
+        // holder is already visible, so naming it is the useful answer; an
+        // invisible one is refused without being identified. That a refusal
+        // happened at all is inherent to refusing whole.
+        const holders = await inner.linksFor(kind, from);
+        let hidden = false;
+        for (const h of holders) {
+          const access = guarded.accessOf(h.path);
+          if (access === "write") continue;
+          if (access === "read") guarded.refuseWrite(h.path, "replaceLinkTarget");
+          hidden = true;
+        }
+        if (hidden) {
+          throw new AccessError(
+            `cannot replaceLinkTarget ${kind}:${from}: a file outside this filesystem's readable scope holds this link, and rewriting it whole is not permitted`,
+          );
+        }
+        return inner.replaceLinkTarget(kind, from, to, provenance);
+      },
+    });
+  }
+
+  if (hasSearch(vfs)) {
+    const inner = vfs;
+    Object.assign(guarded, {
+      async searchSemantic(query: string, opts?: SemanticSearchOpts): Promise<SemanticMatch[]> {
+        const hits = await inner.searchSemantic(query, opts);
+        return hits.filter((h) => readable(h.path));
+      },
+      async findNeedingEmbedding(opts?: { limit?: number }): Promise<string[]> {
+        const pending = await inner.findNeedingEmbedding(opts);
+        return pending.filter((path) => readable(path));
+      },
+      async setEmbedding(path: string, vector: number[]): Promise<void> {
+        guarded.requireWrite(path, "setEmbedding");
+        return inner.setEmbedding(path, vector);
+      },
+    });
+  }
+
+  return guarded;
 }
 
 /** Render a policy for a prompt or an orientation file. */
