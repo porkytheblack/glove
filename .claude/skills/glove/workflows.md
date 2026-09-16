@@ -16,6 +16,32 @@ Use glove-core >=4.0.0 with glove-memory >=2.0.0. Goals, forms, and pinned conte
 
 Runnable proxies must forward `addContextProvider` and `getRuntimeContext`. Forms/goals can opt out with `injectStatus: false` and a custom renderer. Preparation and lifecycle synchronization still run before mounted requests; reading a snapshot does not run inference. Realtime voice silently injects changed snapshots at start and after tools; call `await realtime.refreshContext()` after external changes. Voice providers retain earlier injected snapshots in their session, superseded by the latest one.
 
+## Skipping a field without inventing a value
+
+Set `skippable: true` on fields that may be resolved without a value. It defaults to `false`, including on optional fields. Optionality still comes from Zod; skipping is a separate, explicit decision with a non-empty reason.
+
+```ts
+.field("website", {
+  label: "Website",
+  schema: z.url(),
+  skippable: true,
+  async onSkip(ctx) {
+    // notifyIntakeTeam is supplied by your application.
+    await notifyIntakeTeam({ reason: ctx.reason, idempotencyKey: ctx.idempotencyKey });
+  },
+})
+
+await runner.skip("website", "User has no website");
+// Agent tool: glove_form_revise({ action: "skip", field: "website",
+//   reason: "User has no website" })
+```
+
+An applicable skipped field has `status: "skipped"`, `ask: false`, and `skipReason` (`skip_reason` in tool output). It counts as resolved for step/form completion, but contributes nothing to `values` or `held` and never fires `onFill`. The builder types skippable values as possibly `undefined`, even in completion hooks. Outline summaries count `filled` and `skipped` separately. While collecting, runtime context carries skip reasons so the agent does not ask again; a finished form remains available through inspect/history.
+
+`onSkip` receives the normal executor context plus `reason`. It fires when the field enters an applicable skipped state. A repeated skip or reason change does not fire it again; undo followed by redo, or leaving and re-entering an applicable branch, can create a new occurrence. It supports the same effects as other hooks: `patch`, `fail`, `jump`, `complete`, `terminate`, or an array. Dispatch order is `onFill` → `onSkip` → step completion → checkpoints → form completion. External side effects must deduplicate `ctx.idempotencyKey`. Skip-triggered hook batches persist before execution; call `runner.resumeHooks()` after an interruption. A recorded hook failure is surfaced without rolling back the skip or automatically retrying the failed hook.
+
+Skips are append-only revisions (`FormEntry.skipped: { reason }`), so undo/redo preserve both prior answers and reasons. `fill` or `revise` replaces a skip with an answer; `retract` reopens it. Automatic fact preparation never overwrites an active skip, even if new evidence arrives. If the field is inapplicable, the skip remains held with its reason and takes effect, including `onSkip`, when it becomes applicable. A revisit does not ask skipped fields again. Custom adapters must preserve skip metadata and pending hook batches. Do not record silence as a skip or use `"N/A"` as a placeholder value.
+
 ## Agent-backed preparation
 
 The caller supplies a dedicated, built `IGloveRunnable` with its model, store and tracing subscribers already configured. The library manages preparation through that agent's normal `processRequest` path. It appends `submit_preparation` once, on the first preparation run, preserving existing tools and the system prompt. Model events, usage, tool execution/results and conversation history remain observable through the supplied agent.

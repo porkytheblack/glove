@@ -29,8 +29,8 @@ export async function prepareFormCommit<T>(config: FormPreparationConfig | undef
     rules.set(field.id, rule);
     const entry = inForce(projected.entries[field.id]);
     requirements.push({ ...rule, schema: field.schema, criteria: `${rule.criteria}\n${compiled.id}@${compiled.version}: ${field.label} ${field.description ?? ""} (${field.type})`, id: field.id,
-      eligible: projected.status !== "awaiting" && !projected.blockedOn && evaluation.fields.get(field.id)!.applicable && evaluation.stepOpen[field.stepId] && (config.eligible?.(field, projected) ?? true),
-      ...(entry ? { current: { value: entry.value, claimId: entry.claimId } }
+      eligible: !entry?.skipped && projected.status !== "awaiting" && !projected.blockedOn && evaluation.fields.get(field.id)!.applicable && evaluation.stepOpen[field.stepId] && (config.eligible?.(field, projected) ?? true),
+      ...(entry ? { current: { value: entry.skipped ? null : entry.value, claimId: entry.claimId } }
         : projected.entries[field.id]?.revisions.length ? { current: { value: null } } : {}),
     });
   }

@@ -56,7 +56,7 @@ export type FormEffect<V> =
   | { terminate: string };
 
 export interface FormExecutorContext<V> {
-  /** Live, valid values only. Held entries are never visible here. */
+  /** Live, valid values only. Held and skipped entries supply no values. */
   values: V;
   /**
    * The same view of the instance a gate closure gets — step completion,
@@ -94,6 +94,10 @@ export type FormExecutor<V> = (
   ctx: FormExecutorContext<V>,
 ) => Promise<FormExecutorResult<V>> | FormExecutorResult<V>;
 
+export type FormSkipExecutor<V> = (
+  ctx: FormExecutorContext<V> & { reason: string },
+) => Promise<FormExecutorResult<V>> | FormExecutorResult<V>;
+
 // ─── Definition ───────────────────────────────────────────────────────────
 
 export interface FieldConfig<T extends z.ZodTypeAny, V> {
@@ -105,6 +109,8 @@ export interface FieldConfig<T extends z.ZodTypeAny, V> {
    */
   schema: T;
   label: string;
+  /** Allow an explicit, reasoned skip to settle this field. Defaults to false. */
+  skippable?: boolean;
   /** What a good answer looks like. Surfaced to the agent as `description`. */
   ask?: string;
   /** Extra constraint note, appended to `ask` in the projection. */
@@ -113,6 +119,8 @@ export interface FieldConfig<T extends z.ZodTypeAny, V> {
   when?: FormWhen<V>;
   /** Fires when this field's entry crosses into the live set. */
   onFill?: FormExecutor<V>;
+  /** Fires on entry into an applicable skipped state, never alongside onFill. */
+  onSkip?: FormSkipExecutor<V>;
 }
 
 export interface StepConfig<V, S extends string = string> {
@@ -142,10 +150,12 @@ export interface FieldDef<V = any> {
   id: string;
   schema: z.ZodTypeAny;
   label: string;
+  skippable?: boolean;
   ask?: string;
   hint?: string;
   when?: FormWhen<V>;
   onFill?: FormExecutor<V>;
+  onSkip?: FormSkipExecutor<V>;
 }
 
 export interface StepDef<V = any> {
@@ -208,6 +218,8 @@ export interface FormEntry {
   error?: string;
   /** This revision withdraws the answer rather than supplying one. */
   retracted?: boolean;
+  /** A resolution without a value. Retained in history and through undo/redo. */
+  skipped?: { reason: string };
   /** Instance-wide monotonic order, so "undo the last thing" is unambiguous. */
   seq: number;
 }
@@ -250,11 +262,11 @@ export type FormInstanceStatus =
   | "abandoned"
   | "stale";
 
-/** Outbox for effects of a prepared commit. Persist alongside answer history. */
+/** Outbox for effects of a prepared or skip-triggered commit. Persist with history. */
 export interface FormHookBatch {
   id: string;
   defVersion: number;
-  hooks: Array<{ hookId: string; kind: "field" | "step" | "checkpoint" | "form"; id: string; blocking: boolean; occurrence: number }>;
+  hooks: Array<{ hookId: string; kind: "field" | "skip" | "step" | "checkpoint" | "form"; id: string; blocking: boolean; occurrence: number; skipReason?: string }>;
   values: Record<string, unknown>;
   live: string[];
   stepComplete: Record<string, boolean>;
@@ -356,7 +368,10 @@ export interface FormFieldView {
   /** Derived from the zod schema — "email address", "one of: a | b", "integer >= 1". */
   type: string;
   required: boolean;
-  status: "empty" | "filled" | "invalid" | "held";
+  skippable: boolean;
+  status: "empty" | "filled" | "invalid" | "held" | "skipped";
+  /** Present for a skipped revision, including while held. */
+  skipReason?: string;
   /** Present when filled or held. */
   value?: unknown;
   /** Present when invalid. */
@@ -375,6 +390,8 @@ export interface FormStepSummary {
   required: number;
   /** Applicable required fields that are valid. */
   filled: number;
+  /** Applicable required fields resolved by an allowed skip, not a value. */
+  skipped: number;
   complete: boolean;
   /** False when the step's ask-order gate doesn't hold yet. */
   open: boolean;
@@ -433,6 +450,8 @@ export interface FormUndoTarget {
   label: string;
   /** What the field would read after the move. Absent when it would go empty. */
   becomes?: unknown;
+  /** Present when the target revision is a skip instead of a value. */
+  skipReason?: string;
 }
 
 /** One field's answer history, oldest first, as the agent sees it. */
@@ -443,6 +462,7 @@ export interface FormFieldHistoryView {
     value?: unknown;
     at: string;
     retracted?: boolean;
+    skipReason?: string;
     invalid?: boolean;
     /** True for the revision currently in force. */
     inForce: boolean;

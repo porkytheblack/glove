@@ -14,11 +14,12 @@ export interface FieldEvaluation {
   /** As stored. Present whenever an entry exists. */
   raw?: unknown;
   error?: string;
+  skipReason?: string;
   status: FormFieldView["status"];
 }
 
 export interface FormEvaluation<V = any> {
-  /** Live entries that parse — what counts for completion and what executors see. */
+  /** Live entries that parse — what executors see. Skips resolve without a value. */
   values: Partial<V>;
   /** Entries whose field isn't applicable right now. Kept, doesn't count. */
   held: Record<string, unknown>;
@@ -76,7 +77,7 @@ export function evaluateForm<V extends Record<string, unknown>>(
     // Only the revision in force is parsed. Superseded and retracted answers
     // stay in the log untouched — they are history, not input.
     const entry = inForce(instance.entries[field.id]);
-    if (entry === undefined) continue;
+    if (entry === undefined || entry.skipped) continue;
     const result = field.schema.safeParse(entry.value);
     parsed.set(
       field.id,
@@ -128,13 +129,14 @@ export function evaluateForm<V extends Record<string, unknown>>(
     let status: FormFieldView["status"];
     if (!hasEntry) status = "empty";
     else if (!applicable) status = "held";
+    else if (entry.skipped) status = field.skippable ? "skipped" : "invalid";
     else if (!p?.ok) status = "invalid";
     else status = "filled";
 
     if (valid) {
       values[field.id] = p!.value;
       live.add(field.id);
-    } else if (hasEntry && !applicable) {
+    } else if (hasEntry && !applicable && !entry.skipped) {
       held[field.id] = entry!.value;
     }
 
@@ -145,7 +147,8 @@ export function evaluateForm<V extends Record<string, unknown>>(
       valid,
       value: p?.ok ? p.value : undefined,
       raw: hasEntry ? entry!.value : undefined,
-      error: p && !p.ok ? p.error : undefined,
+      error: entry?.skipped && !field.skippable ? "This field no longer allows skipping." : p && !p.ok ? p.error : undefined,
+      skipReason: entry?.skipped?.reason,
       status,
     });
   }
@@ -254,6 +257,11 @@ function runPass(
   const isValid = (fieldId: string): boolean =>
     !excluded.has(fieldId) && parsed.get(fieldId)?.ok === true;
 
+  const isResolved = (fieldId: string): boolean => isValid(fieldId) || (
+    !excluded.has(fieldId) && compiled.fieldById.get(fieldId)?.skippable === true &&
+    Boolean(inForce(instance.entries[fieldId])?.skipped)
+  );
+
   function guard<T>(key: string, fallback: T, compute: () => T): T {
     // A gate that reads `stepComplete`, which reads applicability, which
     // reads the same gate. Not a definition error — the optimistic answer is
@@ -311,7 +319,7 @@ function runPass(
           const field = compiled.fieldById.get(fieldId);
           if (!field?.required) continue;
           if (!pass.isApplicable(fieldId)) continue;
-          if (!isValid(fieldId)) return false;
+          if (!isResolved(fieldId)) return false;
         }
         return true;
       });
@@ -331,7 +339,7 @@ function runPass(
         for (const field of compiled.fields) {
           if (!field.required) continue;
           if (!pass.isApplicable(field.id)) continue;
-          if (!isValid(field.id)) return false;
+          if (!isResolved(field.id)) return false;
         }
         return true;
       });

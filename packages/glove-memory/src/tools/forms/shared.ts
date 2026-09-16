@@ -39,12 +39,14 @@ export function renderView(view: FormView): Record<string, unknown> {
         label: f.label,
         type: f.type,
         required: f.required,
+        skippable: f.skippable,
         status: f.status,
         ask: f.ask,
       };
       if (f.description) row.description = f.description;
       if (f.value !== undefined) row.value = f.value;
       if (f.error) row.error = f.error;
+      if (f.skipReason) row.skip_reason = f.skipReason;
       return row;
     }),
   };
@@ -63,7 +65,8 @@ export function renderView(view: FormView): Record<string, unknown> {
       title: s.title,
       position: `${s.index}/${view.steps!.length}`,
       ...(s.preview ? { collects: s.preview } : {}),
-      progress: `${s.filled}/${s.required}`,
+      progress: `${s.filled + s.skipped}/${s.required}`,
+      ...(s.skipped ? { skipped: s.skipped } : {}),
       complete: s.complete,
       open: s.open,
     }));
@@ -77,12 +80,12 @@ export function renderView(view: FormView): Record<string, unknown> {
   }
   if (view.undo) {
     out.undo_would = `${view.undo.field}${
-      view.undo.becomes === undefined ? " → empty" : ` → ${JSON.stringify(view.undo.becomes)}`
+      view.undo.skipReason ? ` → skipped (${view.undo.skipReason})` : view.undo.becomes === undefined ? " → empty" : ` → ${JSON.stringify(view.undo.becomes)}`
     }`;
   }
   if (view.redo) {
     out.redo_would = `${view.redo.field}${
-      view.redo.becomes === undefined ? " → empty" : ` → ${JSON.stringify(view.redo.becomes)}`
+      view.redo.skipReason ? ` → skipped (${view.redo.skipReason})` : view.redo.becomes === undefined ? " → empty" : ` → ${JSON.stringify(view.redo.becomes)}`
     }`;
   }
   if (view.closedReason) {
@@ -97,6 +100,7 @@ export function renderView(view: FormView): Record<string, unknown> {
 export function renderFillResult(result: FormFillResult): Record<string, unknown> {
   const out = renderView(result.view);
   if (result.captured.length > 0) out.captured = result.captured;
+  if (result.skipped?.length) out.skipped = result.skipped;
   if (result.held.length > 0) {
     out.held = result.held;
     out.held_note =

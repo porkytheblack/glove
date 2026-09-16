@@ -10,17 +10,17 @@ import {
 
 const ReviseInputSchema = z.object({
   action: z
-    .enum(["set", "retract", "undo", "redo"])
+    .enum(["set", "skip", "retract", "undo", "redo"])
     .default("set")
     .describe(
-      '"set" replaces an answer. "retract" withdraws one the user took back. ' +
+      '"set" replaces an answer. "skip" resolves a skippable field without a value, with a reason. "retract" withdraws an answer or skip. ' +
         '"undo" steps the last answer back; "redo" puts it forward again.',
     ),
   field: z
     .string()
     .optional()
     .describe(
-      "Field id. Required for set and retract. For undo and redo, omit it to act on the most recent answer anywhere on the form.",
+      "Field id. Required for set, skip and retract. For undo and redo, omit it to act on the most recent answer anywhere on the form.",
     ),
   value: z
     .unknown()
@@ -29,14 +29,14 @@ const ReviseInputSchema = z.object({
   reason: z
     .string()
     .optional()
-    .describe("Why it changed, in a few words. Recorded with the answer."),
+    .describe("Why it changed, in a few words. Required and non-empty for skip; e.g. 'User has no website'."),
   instance_id: z.string().optional().describe(INSTANCE_ID_DESCRIPTION),
 });
 
 export type FormReviseInput = z.infer<typeof ReviseInputSchema>;
 
 /**
- * All four reversal moves behind one verb.
+ * Answer changes and skipping behind one verb.
  *
  * They could each be their own tool, but tool schemas are re-sent on every
  * completion call and an eval put them at three quarters of this surface's
@@ -50,7 +50,10 @@ export function buildFormReviseTool(
   return {
     name: "glove_form_revise",
     description:
-      "Change an answer the user already gave.\n\n" +
+      "Change an answer or record an explicit skip.\n\n" +
+      "Use action=skip with a reason when the user has no answer or asks to skip a field marked skippable. " +
+      "A skip resolves the field without a value; do not invent N/A or keep asking. Silence alone is not a skip. " +
+      "Use action=set to replace a skip with a real answer, or retract to reopen it.\n\n" +
       "Use action=set when they correct themselves, action=retract when they take something back " +
       '("actually, forget the ticket reference"), and action=undo when they want the last thing ' +
       "reversed. action=redo puts back what undo took away.\n\n" +
@@ -64,6 +67,12 @@ export function buildFormReviseTool(
         const opts = { instanceId: input.instance_id };
 
         switch (input.action) {
+          case "skip": {
+            if (!input.field || !input.reason?.trim()) {
+              return { status: "error", message: "action=skip needs a field and a non-empty reason.", data: null };
+            }
+            return { status: "success", data: renderFillResult(await r.skip(input.field, input.reason, opts)) };
+          }
           case "undo":
             return { status: "success", data: renderFillResult(await r.undo(input.field, opts)) };
           case "redo":

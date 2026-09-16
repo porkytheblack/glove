@@ -69,6 +69,8 @@ export function projectView<V extends Record<string, unknown>>(
       field: undoField,
       label: compiled.fieldById.get(undoField)?.label ?? undoField,
       becomes: undoTarget(instance.entries[undoField])?.value,
+      ...(undoTarget(instance.entries[undoField])?.skipped
+        ? { skipReason: undoTarget(instance.entries[undoField])!.skipped!.reason } : {}),
     };
   }
   const redoField = nextRedoField(instance);
@@ -77,6 +79,8 @@ export function projectView<V extends Record<string, unknown>>(
       field: redoField,
       label: compiled.fieldById.get(redoField)?.label ?? redoField,
       becomes: redoTarget(instance.entries[redoField])?.value,
+      ...(redoTarget(instance.entries[redoField])?.skipped
+        ? { skipReason: redoTarget(instance.entries[redoField])!.skipped!.reason } : {}),
     };
   }
 
@@ -143,13 +147,14 @@ function fieldView(
   // On a revisit an answered field is still worth asking about — that is the
   // whole point of having been sent back to it. Everywhere else, `filled`
   // means done.
-  const answered = status === "filled" && !ev.revisiting;
+  const answered = status === "skipped" || (status === "filled" && !ev.revisiting);
   const view: FormFieldView = {
     id: field.id,
     label: field.label,
     description: field.description,
     type: field.type,
     required: field.required,
+    skippable: field.skippable,
     status,
     // A closed form asks for nothing — leaving `ask` set on an abandoned
     // instance invites the agent to keep collecting for a form that stopped.
@@ -160,7 +165,8 @@ function fieldView(
       field.stepId === ev.openStepId,
   };
   if (status === "filled") view.value = fe?.value;
-  else if (status === "held") view.value = fe?.raw;
+  else if (status === "held" && !fe?.skipReason) view.value = fe?.raw;
+  if (fe?.skipReason) view.skipReason = fe.skipReason;
   if (status === "invalid") view.error = fe?.error;
   return view;
 }
@@ -173,12 +179,14 @@ export function stepSummary(
   const step = compiled.stepById.get(stepId)!;
   let required = 0;
   let filled = 0;
+  let skipped = 0;
   for (const fieldId of step.fieldIds) {
     const field = compiled.fieldById.get(fieldId);
     const fe = ev.fields.get(fieldId);
     if (!field?.required || !fe?.applicable) continue;
     required++;
     if (fe.valid) filled++;
+    if (fe.status === "skipped") skipped++;
   }
   return {
     id: step.id,
@@ -187,6 +195,7 @@ export function stepSummary(
     preview: step.preview,
     required,
     filled,
+    skipped,
     complete: ev.stepComplete[step.id] ?? false,
     open: ev.stepOpen[step.id] ?? false,
   };
@@ -239,7 +248,7 @@ export function renderTier0<V extends Record<string, unknown>>(
       .filter((f): f is CompiledField<V> => {
         if (!f) return false;
         const fe = ev.fields.get(f.id);
-        return Boolean(fe?.applicable) && fe?.status !== "filled";
+        return Boolean(fe?.applicable) && fe?.status !== "filled" && fe?.status !== "skipped";
       })
       .map((f) => f.label);
     const head = ev.revisiting
@@ -254,6 +263,13 @@ export function renderTier0<V extends Record<string, unknown>>(
     .filter((s) => (!open || s.index > open.index) && !ev.stepComplete[s.id])
     .map((s) => (s.preview ? `${s.title} (${s.preview})` : s.title));
   if (later.length > 0) lines.push(`later: ${later.join(" · ")}`);
+
+  const skipped = compiled.fields.flatMap(field => {
+    const fe = ev.fields.get(field.id);
+    return fe?.skipReason && (fe.status === "skipped" || fe.status === "held")
+      ? [`${field.label} (${fe.skipReason})`] : [];
+  });
+  if (skipped.length) lines.push(`skipped (do not ask again): ${skipped.join(" · ")}`);
 
   const failures = openFailures(instance);
   for (const failure of failures) {
