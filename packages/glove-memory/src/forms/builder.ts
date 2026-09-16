@@ -40,23 +40,25 @@ export class StepBuilder<V extends Record<string, unknown> = {}, F extends strin
   /** Phantom — carries the field-id union. Never assigned. */
   declare readonly __fieldIds?: F;
 
-  field<K extends string, T extends z.ZodTypeAny>(
+  field<K extends string, T extends z.ZodTypeAny, Skip extends boolean | undefined = undefined>(
     id: K,
-    config: FieldConfig<T, V>,
-  ): StepBuilder<V & { [P in K]: z.infer<T> }, F | K> {
+    config: FieldConfig<T, V> & { skippable?: Skip },
+  ): StepBuilder<V & { [P in K]: z.infer<T> | (true extends Skip ? undefined : never) }, F | K> {
     this.__fields.push({
       id,
       schema: config.schema,
       label: config.label,
+      skippable: config.skippable,
       ask: config.ask,
       hint: config.hint,
       when: config.when as FieldDef<any>["when"],
       onFill: config.onFill as FormExecutor<any> | undefined,
+      onSkip: config.onSkip,
     });
-    return this as unknown as StepBuilder<V & { [P in K]: z.infer<T> }, F | K>;
+    return this as unknown as StepBuilder<V & { [P in K]: z.infer<T> | (true extends Skip ? undefined : never) }, F | K>;
   }
 
-  /** Runs when this step's applicable required fields are all valid. */
+  /** Runs when applicable required fields are valid or permissibly skipped. */
   onComplete(run: FormExecutor<V>): StepBuilder<V, F> {
     this.__onComplete = run as FormExecutor<any>;
     return this;
@@ -125,7 +127,7 @@ export class FormBuilder<
     return this;
   }
 
-  /** Runs when every applicable required field in the form is valid. */
+  /** Runs when every applicable required field is valid or permissibly skipped. */
   onComplete(run: FormExecutor<V>): FormBuilder<V, S> {
     this.formOnComplete = run as FormExecutor<any>;
     return this;

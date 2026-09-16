@@ -10,7 +10,7 @@ import type { FieldHistory, FormEntry, FormInstance } from "./types";
 
 export const EMPTY_HISTORY: FieldHistory = { revisions: [], cursor: -1 };
 
-/** The revision in force, or undefined when the field currently has no answer. */
+/** The revision in force (including a skip), or undefined when empty/retracted. */
 export function inForce(history: FieldHistory | undefined): FormEntry | undefined {
   if (!history) return undefined;
   if (history.cursor < 0 || history.cursor >= history.revisions.length) return undefined;

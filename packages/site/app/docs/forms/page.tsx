@@ -157,6 +157,89 @@ export const travelClaim = defineForm({
         </li>
       </ul>
 
+      <h2 id="skipping">Skipping a field</h2>
+
+      <p>
+        When a user says &ldquo;I don&apos;t have a website,&rdquo; record that
+        decision with a skip. Set <code>skippable: true</code> on the field to
+        allow it. The default is <code>false</code>, including for optional
+        fields: Zod optionality and permission to skip are separate choices.
+      </p>
+
+      <CodeBlock
+        filename="field definition"
+        language="typescript"
+        code={`.field("website", {
+  label: "Website",
+  schema: z.url(),
+  skippable: true,
+  async onSkip(ctx) {
+    // Your application supplies notifyIntakeTeam.
+    await notifyIntakeTeam({
+      reason: ctx.reason,
+      idempotencyKey: ctx.idempotencyKey,
+    });
+  },
+})`}
+      />
+
+      <CodeBlock
+        filename="host or agent"
+        language="typescript"
+        code={`await runner.skip("website", "User has no website");
+
+// The agent uses the existing revise tool:
+glove_form_revise({
+  action: "skip",
+  field: "website",
+  reason: "User has no website",
+});`}
+      />
+
+      <p>
+        A non-empty reason is required. An applicable skipped field has{" "}
+        <code>status: &quot;skipped&quot;</code>, <code>ask: false</code>, and{" "}
+        <code>skipReason</code> (<code>skip_reason</code> in tool results).
+        It resolves step and form completion without contributing a value or
+        firing <code>onFill</code>. Completion hooks must handle skippable values
+        as possibly <code>undefined</code>; the builder infers that type.
+        Outline summaries count filled and skipped fields separately.
+      </p>
+
+      <p>
+        <code>onSkip</code> receives the normal executor context plus{" "}
+        <code>reason</code> and supports the same effects: patch, fail, jump,
+        complete, terminate, or an array. It fires when the field enters an
+        applicable skipped state. Repeating a skip or changing its reason does
+        not fire it again. Undo followed by redo, or leaving and re-entering an
+        applicable branch, can create a new occurrence. Deduplicate external
+        effects with <code>ctx.idempotencyKey</code>.
+      </p>
+
+      <p>
+        Skip-triggered hook batches persist before execution. Call{" "}
+        <code>runner.resumeHooks()</code> after an interruption to finish them.
+        A recorded hook failure is surfaced without rolling back the skip or
+        automatically retrying the failed hook.
+      </p>
+
+      <p>
+        Skips are revisions, so undo and redo preserve their reasons and any
+        earlier answers. Fill or revise supplies a real answer later; retract
+        reopens the field. Automatic fact preparation leaves an active skip
+        alone, even when new evidence arrives. An inapplicable skip stays held
+        with its reason, contributes no held value, and takes effect when the
+        field becomes applicable. Revisiting a step does not re-ask skipped fields.
+      </p>
+
+      <p>
+        While collecting, runtime context includes skip reasons so the agent
+        remembers the decision. Completed forms remain available through inspect
+        and history. Custom adapters must preserve <code>FormEntry.skipped</code>
+        {" "}as <code>{"{ reason }"}</code> along with pending hook batches.
+        Silence is not a skip, and &ldquo;N/A&rdquo; is not a substitute value.
+      </p>
+
       <h2 id="entries">Entries, liveness and held values</h2>
 
       <p>
@@ -180,9 +263,9 @@ await runner.history("mileage");         // every answer ever given`}
       />
 
       <p>
-        The agent reaches all four through <code>glove_form_revise</code>&apos;s{" "}
-        <code>action</code> parameter — <code>set</code>, <code>retract</code>,{" "}
-        <code>undo</code>, <code>redo</code> — rather than four separate verbs.
+        The agent reaches answer changes and skips through <code>glove_form_revise</code>&apos;s{" "}
+        <code>action</code> parameter — <code>set</code>, <code>skip</code>, <code>retract</code>,{" "}
+        <code>undo</code>, <code>redo</code> — through a single tool.
         Tool schemas are re-sent on every model call, and an agentic evaluation
         measured them at roughly three quarters of this surface&apos;s whole
         context cost; an enum on a verb the model already has is far cheaper than
@@ -253,7 +336,7 @@ await runner.history("mileage");         // every answer ever given`}
 
       <h2 id="executors">Executors</h2>
 
-      <p>Four colocation points behind one signature:</p>
+      <p>Five hook locations; <code>onSkip</code> also receives the skip reason:</p>
 
       <table>
         <thead>
@@ -270,10 +353,14 @@ await runner.history("mileage");         // every answer ever given`}
             <td>That field&apos;s entry crosses into the live set</td>
           </tr>
           <tr>
+            <td><code>field.onSkip</code></td>
+            <td>The field enters an applicable skipped state</td>
+          </tr>
+          <tr>
             <td>
               <code>step.onComplete</code>
             </td>
-            <td>Every applicable required field in the step is valid</td>
+            <td>Every applicable required field in the step is valid or permissibly skipped</td>
           </tr>
           <tr>
             <td>
@@ -287,7 +374,7 @@ await runner.history("mileage");         // every answer ever given`}
             <td>
               <code>form.onComplete</code>
             </td>
-            <td>Every applicable required field is valid</td>
+            <td>Every applicable required field is valid or permissibly skipped</td>
           </tr>
         </tbody>
       </table>
@@ -502,7 +589,7 @@ later: Travel (how they travelled, mileage or ticket) · Approval (cost centre, 
               <code>glove_form_revise</code>
             </td>
             <td>
-              Amend an earlier answer — <code>set</code> / <code>retract</code> /{" "}
+              Change an answer or skip — <code>set</code> / <code>skip</code> / <code>retract</code> /{" "}
               <code>undo</code> / <code>redo</code>
             </td>
           </tr>
@@ -569,7 +656,7 @@ useFormReader(auditor, adapter, { registry });`}
       <ul>
         <li>
           <strong>Hook order within one commit is fixed:</strong>{" "}
-          <code>field.onFill</code> → <code>step.onComplete</code> →{" "}
+          <code>field.onFill</code> → <code>field.onSkip</code> → <code>step.onComplete</code> →{" "}
           <code>checkpoint.run</code> → <code>form.onComplete</code>.
         </li>
         <li>

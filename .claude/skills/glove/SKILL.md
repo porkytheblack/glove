@@ -1121,7 +1121,7 @@ Details that bite if you don't know them: multi-path reads *filter* rather than 
 | `glove_form_status` | The open step in full *(tier 1)* |
 | `glove_form_inspect` | Any step, single field, or whole outline *(tier 2)* |
 | `glove_form_fill` | Patch of many field ids at once; returns re-evaluated state |
-| `glove_form_revise` | `action`: `set` / `retract` / `undo` / `redo` |
+| `glove_form_revise` | `action`: `set` / `skip` / `retract` / `undo` / `redo` |
 | `glove_form_abandon` | Close out with a reason |
 | `glove_form_history` | Read past fills *(reader registration)* |
 
@@ -1319,6 +1319,8 @@ Each `.field()` widens the accumulated values type, so `ctx.values.mode` narrows
 
 Sequence splits into two unrelated things: `when` decides whether a field *means anything* given current answers; steps decide what to *steer toward*.
 
+**Skipping is an explicit resolution without a value.** Set `skippable: true` (default false, independent of Zod optionality), then call `runner.skip("website", "User has no website")` or `glove_form_revise({ action: "skip", field: "website", reason: "User has no website" })`. Require a non-empty reason. The field becomes `skipped`, stops being asked, and counts toward completion without a value or `onFill`. `onSkip(ctx)` receives `ctx.reason` plus normal executor context and supports all effects. It fires on entry into the applicable skipped state, not on repeated skips; use `ctx.idempotencyKey` for external effects and `runner.resumeHooks()` for interrupted batches. Undo/redo and held branches preserve reasons; retract reopens; fill/revise can supply a real answer. Preparation never replaces an active skip. Skippable values are typed as possibly undefined. See [workflows.md](workflows.md#skipping-a-field-without-inventing-a-value) for the full contract.
+
 **Nothing is ever lost.** `entries` maps each field to an append-only log of revisions plus a cursor naming the one in force. A correction appends rather than overwrites. A retraction is itself a revision, which makes `retract` / `undo` / `redo` pure cursor moves over a log that cannot lose an answer — and every one of them reversible.
 
 ```ts
@@ -1328,9 +1330,9 @@ await runner.redo("mileage");            // or on one field
 await runner.history("mileage");         // every answer ever given
 ```
 
-The agent reaches all four through `glove_form_revise`'s `action` (`set` / `retract` / `undo` / `redo`) rather than four verbs — tool schemas are re-sent on every model call, and an agentic eval put them at ~75% of this surface's whole context cost.
+The agent reaches answer changes and skips through `glove_form_revise`'s `action` (`set` / `skip` / `retract` / `undo` / `redo`) rather than separate verbs — tool schemas are re-sent on every model call, and an agentic eval put them at ~75% of this surface's whole context cost.
 
-**Executors** colocate at four points behind one signature — `field.onFill`, `step.onComplete`, `checkpoint.run`, `form.onComplete` — dispatched commit-then-run on **rising edges only**, with a per-occurrence idempotency key. Verified firing order within one commit: `field` → `step` → `checkpoint` → `form`. An executor returns `{ patch }`, `{ fail }`, `{ jump }` or `{ complete }`; `ctx.memory` bridges to the other four subsystems with engine-supplied provenance.
+**Executors** colocate at five points — `field.onFill`, `field.onSkip`, `step.onComplete`, `checkpoint.run`, `form.onComplete` — dispatched commit-then-run on **rising edges only**, with a per-occurrence idempotency key. Verified firing order within one commit: `field.onFill` → `field.onSkip` → `step` → `checkpoint` → `form`. An executor returns `{ patch }`, `{ fail }`, `{ jump }` or `{ complete }`; `ctx.memory` bridges to the other four subsystems with engine-supplied provenance.
 
 **Triggers steer the conversation.** A checkpoint is a trigger — a condition over values, fired on its rising edge. Returning `{ jump }` moves the open step, forward *or back to a step that already finished*:
 

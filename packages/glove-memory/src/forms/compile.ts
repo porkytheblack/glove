@@ -5,6 +5,7 @@ import type {
   CheckpointDef,
   FormDef,
   FormExecutor,
+  FormSkipExecutor,
   FormWhen,
 } from "./types";
 
@@ -18,9 +19,11 @@ export interface CompiledField<V = any> {
   type: string;
   /** Derived: false iff the schema accepts `undefined`. Never declared. */
   required: boolean;
+  skippable: boolean;
   schema: z.ZodTypeAny;
   when?: FormWhen<V>;
   onFill?: FormExecutor<V>;
+  onSkip?: FormSkipExecutor<V>;
   /** Position across the whole form, not within the step. */
   order: number;
 }
@@ -118,9 +121,11 @@ export function compileForm<V extends Record<string, unknown>>(
         description: joinDescription(field.ask, field.hint),
         type: safeDescribe(field.schema),
         required: !acceptsUndefined(field.schema),
+        skippable: field.skippable === true,
         schema: field.schema,
         when: field.when as FormWhen<V> | undefined,
         onFill: field.onFill as FormExecutor<V> | undefined,
+        onSkip: field.onSkip as FormSkipExecutor<V> | undefined,
         order: fields.length,
       };
       fields.push(compiled);

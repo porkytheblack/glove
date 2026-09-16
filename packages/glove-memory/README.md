@@ -401,7 +401,7 @@ Why this beats one Glove with everything attached:
 | `glove_form_status` | The open step in full *(tier 1)* |
 | `glove_form_inspect` | Any step, field, or the whole outline *(tier 2)* |
 | `glove_form_fill` | Patch of many fields at once; returns re-evaluated state |
-| `glove_form_revise` | Amend an earlier answer |
+| `glove_form_revise` | Set, skip with a reason, retract, undo, or redo |
 | `glove_form_abandon` | Close out with a reason |
 | `glove_form_history` | Read past fills *(reader registration)* |
 
@@ -715,6 +715,32 @@ Sequence is advisory, and splits into two unrelated things:
 - **`when` — applicability.** Whether a field *means anything* given current answers. `vehicleCount` is meaningless on a slip-and-fall. Inapplicable fields don't count toward completion and aren't asked about — but a value supplied for one is kept.
 - **Steps — ask order.** A conversational grouping and a checkpoint boundary. `ask: true` means "steer toward this now"; the agent stays free to follow the user elsewhere and come back.
 
+### Skipping a field without inventing a value
+
+Set `skippable: true` on fields that may be resolved without a value. It defaults to `false`, including on optional fields. Optionality still comes from Zod; skipping is a separate, explicit decision with a non-empty reason.
+
+```ts
+.field("website", {
+  label: "Website",
+  schema: z.url(),
+  skippable: true,
+  async onSkip(ctx) {
+    // notifyIntakeTeam is supplied by your application.
+    await notifyIntakeTeam({ reason: ctx.reason, idempotencyKey: ctx.idempotencyKey });
+  },
+})
+
+await runner.skip("website", "User has no website");
+// Agent tool: glove_form_revise({ action: "skip", field: "website",
+//   reason: "User has no website" })
+```
+
+An applicable skipped field has `status: "skipped"`, `ask: false`, and `skipReason` (`skip_reason` in tool output). It counts as resolved for step/form completion, but contributes nothing to `values` or `held` and never fires `onFill`. The builder types skippable values as possibly `undefined`, even in completion hooks. Outline summaries count `filled` and `skipped` separately. While collecting, runtime context carries skip reasons so the agent does not ask again; a finished form remains available through inspect/history.
+
+`onSkip` receives the normal executor context plus `reason`. It fires when the field enters an applicable skipped state. A repeated skip or reason change does not fire it again; undo followed by redo, or leaving and re-entering an applicable branch, can create a new occurrence. It supports the same effects as other hooks: `patch`, `fail`, `jump`, `complete`, `terminate`, or an array. Dispatch order is `onFill` → `onSkip` → step completion → checkpoints → form completion. External side effects must deduplicate `ctx.idempotencyKey`. Skip-triggered hook batches persist before execution; call `runner.resumeHooks()` after an interruption. A recorded hook failure is surfaced without rolling back the skip or automatically retrying the failed hook.
+
+Skips are append-only revisions (`FormEntry.skipped: { reason }`), so undo/redo preserve both prior answers and reasons. `fill` or `revise` replaces a skip with an answer; `retract` reopens it. Automatic fact preparation never overwrites an active skip, even if new evidence arrives. If the field is inapplicable, the skip remains held with its reason and takes effect, including `onSkip`, when it becomes applicable. A revisit does not ask skipped fields again. Custom adapters must preserve skip metadata and pending hook batches. Do not record silence as a skip or use `"N/A"` as a placeholder value.
+
 ### Entries, liveness, and held values
 
 `entries` maps each field to an append-only log of revisions plus a cursor naming the one in force. Nothing is ever removed or rewritten — a correction appends, it does not overwrite — so any earlier answer stays readable and any change stays reversible. A retraction is a revision too, which is what makes `retract`, `undo` and `redo` pure cursor moves:
@@ -727,7 +753,7 @@ await runner.redo("mileage");
 await runner.history("mileage");           // every answer ever given
 ```
 
-The agent reaches all four through `glove_form_revise`'s `action` parameter — `set`, `retract`, `undo`, `redo` — rather than four separate verbs, because tool schemas are re-sent on every model call and measured out at roughly three quarters of the surface's context cost.
+The agent reaches these changes and skips through `glove_form_revise`'s `action` parameter — `set`, `skip`, `retract`, `undo`, `redo` — rather than separate verbs, because tool schemas are re-sent on every model call and measured out at roughly three quarters of the surface's context cost.
 
 On top of that log, what changes is which entries are **live**:
 
@@ -747,14 +773,15 @@ Completion counts applicable required fields only. A form with a held `vehicleCo
 
 ### Executors
 
-Four colocation points, one signature:
+Five hook locations; `onSkip` also receives a reason:
 
 | Hook | Fires |
 |---|---|
 | `field.onFill` | that field's entry crosses into the live set |
-| `step.onComplete` | every applicable required field in the step is valid |
+| `field.onSkip` | the field enters an applicable skipped state |
+| `step.onComplete` | every applicable required field in the step is valid or permissibly skipped |
 | `checkpoint.run` | the checkpoint's `when` first holds |
-| `form.onComplete` | every applicable required field is valid |
+| `form.onComplete` | every applicable required field is valid or permissibly skipped |
 
 Dispatch is commit-then-run: values and the rising-edge log commit in one atomic write, then executors run. At-least-once with a per-occurrence `idempotencyKey` (`${instanceId}:${hookId}:${occurrence}`) — a retry reuses the key, a genuine second crossing gets a fresh one, and whether a repeat is real work is the executor's call. An executor can hand back `{ patch }` (derived values, committed like any other write), `{ fail }` (a blocking checkpoint rejecting — recorded and surfaced to the agent), `{ jump }`, or `{ complete: true }`.
 
@@ -873,7 +900,7 @@ useFormReader(otherGlove, formAdapter, { registry }); // read past fills, no wri
 
 Verified by probe, and worth knowing before you wire this to anything real:
 
-- **Hook order within one commit is fixed**: `field.onFill` → `step.onComplete` → `checkpoint.run` → `form.onComplete`.
+- **Hook order within one commit is fixed**: `field.onFill` → `field.onSkip` → `step.onComplete` → `checkpoint.run` → `form.onComplete`.
 - **Only rising edges fire.** A step that becomes incomplete fires nothing; completing again is a fresh occurrence with a new idempotency key.
 - **A step with no applicable required fields is complete** — including an all-optional step, whose `onComplete` therefore fires the moment the form starts.
 - **A throwing executor does not roll back the write.** Dispatch is commit-then-run, so the answer is durable; the failure is recorded and surfaced to the agent.

@@ -6,6 +6,7 @@
   "include": [
     "src",
     "tests/forms-types.ts",
+    "tests/forms-skip.test.ts",
     "tests/goals-types.ts",
     "tests/sqlite.test.ts",
     "tests/fixtures/sqlite-worker.ts",

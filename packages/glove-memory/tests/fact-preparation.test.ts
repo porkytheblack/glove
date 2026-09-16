@@ -35,11 +35,11 @@ async function setup() {
   const preparer = new FactPreparation(facts, { agent });
   return { facts, add, preparer, agent, events, calls: () => calls };
 }
-function forms(preparer: FactPreparation, options: { rule?: any; onEmail?: () => void; onStep?: () => void; checkpoint?: () => void; conditional?: boolean } = {}) {
+function forms(preparer: FactPreparation, options: { rule?: any; onEmail?: () => void; onStep?: () => void; checkpoint?: () => void; conditional?: boolean; skippableEmail?: boolean } = {}) {
   const def = defineForm({ id: "intake", version: 1, name: "Intake", description: "Contact details" })
     .step("identity", { title: "Identity" }, s => s.field("name", { label: "Name", schema: z.string().min(1) }))
     .step("contact", { title: "Contact", ...(options.conditional ? { when: (v: any) => !!v.name } : {}), onComplete: options.onStep }, s => s
-      .field("email", { label: "Email", schema: z.email(), onFill: options.onEmail })
+      .field("email", { label: "Email", schema: z.email(), skippable: options.skippableEmail, onFill: options.onEmail })
       .field("phone", { label: "Phone", schema: z.string().min(3).optional() }));
   if (options.checkpoint) def.checkpoint("approval", { when: (v: any) => !!v.email, blocking: true, run: options.checkpoint });
   const registry = new FormRegistry().register("intake", { name: "Intake", description: "Contact", load: async () => def.build() });
@@ -235,4 +235,28 @@ test("mounted workflows reject their own agent as preparation agent, including l
   useFormRunner(host, adapter, config);
   preparer.config.agent = host;
   await assert.rejects(host.processRequest("Continue"), /dedicated Glove agent/);
+});
+
+test("preparation never overwrites an explicit skip, including after new evidence and a restart", async () => {
+  const { preparer, add } = await setup();
+  const agent = preparer.config.agent;
+  preparer.config.agent = undefined;
+  await add("email", "old@example.com");
+  let hooks = 0;
+  const { runner, adapter, config } = forms(preparer, { skippableEmail: true, onEmail: () => { hooks++; } });
+  await runner.start("intake");
+  await runner.skip("email", "User does not use email");
+  preparer.config.agent = agent;
+  const restarted = new FormRunner(adapter, config);
+  await restarted.prepare();
+  await add("email", "new@example.com");
+  await restarted.fill({ name: "Ada" });
+  await restarted.prepare();
+  const { instance } = await restarted.resolve();
+  assert.equal(instance.entries.email.revisions.length, 1);
+  assert.equal(inForce(instance.entries.email)!.skipped!.reason, "User does not use email");
+  assert.equal(hooks, 0);
+  await restarted.revise("email", "confirmed@example.com");
+  assert.equal(inForce((await restarted.resolve()).instance.entries.email)!.value, "confirmed@example.com");
+  assert.equal(hooks, 1);
 });

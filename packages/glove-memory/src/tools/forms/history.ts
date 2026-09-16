@@ -110,15 +110,18 @@ async function renderInstance(
   // No registry wired: hand back what was stored, unprojected. Better than
   // refusing — the answers are the point, and the labels are a nicety.
   const values: Record<string, unknown> = {};
+  const skipped: Record<string, string> = {};
   for (const [id, log] of Object.entries(instance.entries)) {
     const entry = inForce(log);
-    if (entry) values[id] = entry.value;
+    if (entry?.skipped) skipped[id] = entry.skipped.reason;
+    else if (entry) values[id] = entry.value;
   }
   return {
     instance_id: instance.id,
     form: instance.defId,
     status: instance.status,
     values,
+    ...(Object.keys(skipped).length ? { skipped } : {}),
     updated_at: instance.updatedAt,
   };
 }

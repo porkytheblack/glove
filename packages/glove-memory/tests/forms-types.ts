@@ -107,3 +107,24 @@ export const piIntake = defineForm({
     expectType<boolean>(ctx.values.treated);
   })
   .build();
+
+// Skippable fields may be absent even when the form is complete.
+export const skippableContact = defineForm({ id: "contact", version: 1, name: "Contact", description: "Contact" })
+  .step("contact", { title: "Contact" }, s => s
+    .field("website", { label: "Website", schema: z.url(), skippable: true,
+      onSkip(ctx) { expectType<string>(ctx.reason); expectType<string>(ctx.idempotencyKey); } })
+    .field("name", { label: "Name", schema: z.string(), skippable: false })
+    .field("maybe", { label: "Maybe", schema: z.string(), skippable: true as boolean })
+    .onComplete(ctx => {
+      expectType<string | undefined>(ctx.values.website);
+      // @ts-expect-error A skipped website supplies no string.
+      expectType<string>(ctx.values.website);
+      // @ts-expect-error A runtime boolean can enable skipping too.
+      expectType<string>(ctx.values.maybe);
+      expectType<string>(ctx.values.name);
+    }))
+  .onComplete(ctx => {
+    expectType<string | undefined>(ctx.values.website);
+    // @ts-expect-error Form completion does not turn a skip into a value.
+    expectType<string>(ctx.values.website);
+  }).build();

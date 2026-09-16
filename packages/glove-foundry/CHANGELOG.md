@@ -1,5 +1,11 @@
 # glove-foundry
 
+## 0.4.1
+
+### Patch Changes
+
+- Update `glove-memory` to 2.2.0 so Foundry form installations support opt-in skips and `onSkip` effects.
+
 ## 0.4.0
 
 ### Minor Changes

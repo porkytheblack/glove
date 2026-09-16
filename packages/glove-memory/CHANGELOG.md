@@ -1,5 +1,12 @@
 # glove-memory
 
+## 2.2.0
+
+### Minor Changes
+
+- [#183](https://github.com/porkytheblack/glove/pull/183) Add opt-in `skippable` form fields, `runner.skip(field, reason)`, and `glove_form_revise` action `skip`. Skips resolve completion without fabricated values, survive history, undo/redo and SQLite restarts, and are protected from automatic fact preparation.
+- Add durable `onSkip` side effects with the skip reason, the normal executor context, and per-occurrence idempotency keys. Expose skip policy and reasons in form views, history, and runtime context; infer skippable values as possibly undefined.
+
 ## 2.1.0
 
 ### Minor Changes

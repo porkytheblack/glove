@@ -35,7 +35,7 @@ export const formState = preserving<FormMemoryState>(z.object({ nextId: version.
   dispatches: z.record(z.string(), z.object({ hookId: key, status: z.enum(["running", "ok", "failed"]), attempts: version, at: z.string(), effects: z.array(record).optional() }).passthrough()),
   version: version.min(1), createdAt: z.string(), updatedAt: z.string(),
   pendingHooks: z.record(z.string(), z.object({ id: key, defVersion: version.min(1),
-    hooks: z.array(z.object({ hookId: key, kind: z.enum(["field", "step", "checkpoint", "form"]), id: key, blocking: z.boolean(), occurrence: version })),
+    hooks: z.array(z.object({ hookId: key, kind: z.enum(["field", "skip", "step", "checkpoint", "form"]), id: key, blocking: z.boolean(), occurrence: version, skipReason: z.string().optional() })),
     values: record, live: z.array(z.string()), stepComplete: z.record(z.string(), z.boolean()), complete: z.boolean(),
     priorOccurrences: z.record(z.string(), version), newFields: z.array(z.string()), provenance: ProvenanceSchema,
   }).passthrough()).optional(),

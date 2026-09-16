@@ -35,6 +35,7 @@ export function buildLlmsTxt(): string {
   out.push("Goals are exported by glove-memory/goals (glove-memory 1.2.0+), not a standalone glove-goals package. Shared evidence is glove-facts (0.1.0+). Supplying a dedicated Glove preparation agent enables traced preparation for goals and forms.");
   out.push("");
   out.push("With glove-core 4.0+, goals, forms, and pinned context use live runtime snapshots at the model-input tail, preserving system instructions and saved history. Runnable proxies forward addContextProvider and getRuntimeContext.");
+  out.push("Forms support opt-in skippable: true and runner.skip(field, reason), exposed as glove_form_revise action=skip. Skips resolve fields without values; onSkip handles side effects. See /docs/forms#skipping and /llms-full.txt.");
   out.push("- Workflow agent skill: https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/workflows.md");
   out.push("- Repository: https://github.com/porkytheblack/glove");
   out.push(`- Full condensed reference: ${SITE_URL}/llms-full.txt`);
@@ -353,7 +354,25 @@ Rules that decide whether generated code is correct:
 - **\`entries\` is an append-only log per field plus a cursor.** Corrections
   append. \`retract\` / \`undo\` / \`redo\` are cursor moves, reached by the model
   through \`glove_form_revise\`'s \`action\` param, not separate tools.
-- **Executors** — \`field.onFill\`, \`step.onComplete\`, \`checkpoint.run\`,
+- **Explicit skips:** fields opt in with \`skippable: true\` (default false even
+  for optional schemas). Call \`runner.skip("website", "User has no website")\`
+  or \`glove_form_revise({ action: "skip", field: "website", reason: "User has no website" })\`.
+  A non-empty reason is required. \`skipped\` resolves completion, has \`ask: false\`
+  and \`skipReason\` (tool \`skip_reason\`), supplies no value, and never fires
+  \`onFill\`. The builder types skippable values as possibly undefined. Outline
+  summaries separate \`filled\` and \`skipped\`. Skips persist in revision history
+  as \`FormEntry.skipped: { reason }\`; undo/redo restore them, retract reopens,
+  fill/revise replaces them. Fact preparation never overwrites an active skip.
+  Held skips retain their reason and take effect when applicable. Revisited
+  steps do not re-ask skips. Do not use silence or a fake "N/A" value as a skip.
+- **Skip side effects:** \`field.onSkip(ctx)\` receives normal executor context
+  plus \`ctx.reason\`, supports all effects, and fires on entry into an applicable
+  skipped state. Repeating a skip or changing its reason does not fire it again;
+  undo/redo or applicability changes can create a new occurrence. Use
+  \`ctx.idempotencyKey\` for external effects; pending skip hook batches persist
+  before execution and \`runner.resumeHooks()\` recovers interruptions. Failures
+  are recorded without rolling back the skip or automatically retrying.
+- **Executors** — \`field.onFill\`, \`field.onSkip\`, \`step.onComplete\`, \`checkpoint.run\`,
   \`form.onComplete\` — fire on RISING EDGES only, in that order, commit-then-run,
   at-least-once with a per-occurrence \`idempotencyKey\`. They return
   \`{ patch } | { fail } | { jump } | { complete } | { terminate }\`, or an array.

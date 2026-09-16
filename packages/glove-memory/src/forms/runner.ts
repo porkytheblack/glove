@@ -78,6 +78,8 @@ export interface FormFillResult {
   captured: string[];
   /** Field ids written but not applicable right now — kept, don't count. */
   held: string[];
+  /** Explicit skip revisions written by this call, including held skips. */
+  skipped?: Array<{ field: string; reason: string }>;
   /**
    * Ids the def doesn't declare, each with the closest real fields. Nothing
    * was stored for these — the suggestions are what let the model land it on
@@ -97,11 +99,12 @@ export interface FormFillResult {
 
 interface Hook {
   hookId: string;
-  kind: "field" | "step" | "checkpoint" | "form";
+  kind: "field" | "skip" | "step" | "checkpoint" | "form";
   id: string;
   blocking: boolean;
   run: FormExecutor<any>;
   occurrence: number;
+  skipReason?: string;
 }
 
 /**
@@ -169,7 +172,7 @@ export class FormRunner {
     return projectView(compiled, settled.instance);
   }
 
-  /** Finish prepared commits whose effects were interrupted. Effects use the
+  /** Finish persisted hook batches whose effects were interrupted. Effects use the
    * original idempotency key; external services must deduplicate that key. */
   async resumeHooks(opts: FormCallOpts = {}): Promise<void> {
     const { compiled } = await this.resolve(opts);
@@ -180,6 +183,7 @@ export class FormRunner {
       if (batch.defVersion !== compiled.version) throw new FormStaleError(batch.defVersion, compiled.version);
       const hooks: Hook[] = batch.hooks.map(hook => {
         const run = hook.kind === "field" ? compiled.fieldById.get(hook.id)?.onFill
+          : hook.kind === "skip" ? skipExecutor(compiled, hook.id, hook.skipReason!)
           : hook.kind === "step" ? compiled.stepById.get(hook.id)?.onComplete
           : hook.kind === "checkpoint" ? compiled.checkpointById.get(hook.id)?.run : compiled.onComplete;
         if (!run) throw new FormDefinitionError(`Cannot resume missing effect ${hook.hookId}`);
@@ -335,6 +339,32 @@ export class FormRunner {
     );
   }
 
+  /** Resolve a skippable field without supplying a value. */
+  async skip(field: string, reason: string, opts: FormCallOpts = {}): Promise<FormFillResult> {
+    const { compiled, instance } = await this.resolve(opts);
+    this.assertWritable(instance);
+    const resolved = this.resolveFieldId(compiled, field);
+    if (!resolved) return this.rejectUnknownField(compiled, instance, field);
+    if (!compiled.fieldById.get(resolved)!.skippable) {
+      throw new FormError("form_validation_failed", `Field "${resolved}" does not allow skipping.`);
+    }
+    if (typeof reason !== "string" || !reason.trim()) {
+      throw new FormError("form_validation_failed", "Skipping a field needs a non-empty reason.");
+    }
+    const provenance = this.provenance(opts.provenance, `skipped: ${reason.trim()}`);
+    const seq = instance.revisionSeq + 1;
+    const entry: FormEntry = {
+      value: undefined, at: provenance.timestamp, provenance, seq,
+      skipped: { reason: reason.trim() },
+    };
+    const settled = await this.applyEntries(compiled, instance, { [resolved]: entry }, provenance,
+      { signal: opts.signal, nextSeq: seq });
+    return this.fillResult(compiled, settled.instance, {
+      entries: { [resolved]: entry }, issues: [], unknown: [],
+      aliased: resolved === field ? [] : [{ sent: field, resolved }],
+    }, settled.failures);
+  }
+
   /**
    * Step one revision back. With no field, takes back the most recent answer
    * anywhere on the instance — which is what "undo that" means in a
@@ -409,9 +439,10 @@ export class FormRunner {
       field: id,
       label: compiledField.label,
       revisions: (log?.revisions ?? []).map((r, i) => ({
-        value: r.retracted ? undefined : r.value,
+        value: r.retracted || r.skipped ? undefined : r.value,
         at: r.at,
         retracted: r.retracted,
+        skipReason: r.skipped?.reason,
         invalid: r.error !== undefined,
         inForce: i === log!.cursor,
       })),
@@ -613,7 +644,10 @@ export class FormRunner {
           const edges = risingEdges(compiled, before, after, current.occurrences);
           hooks = edges.hooks;
 
-          batchId = this.options.preparation && hooks.length ? crypto.randomUUID() : undefined;
+          const skipTransition = compiled.fields.some(field =>
+            after!.fields.get(field.id)?.status === "skipped" && before.fields.get(field.id)?.status !== "skipped");
+          batchId = hooks.length && (this.options.preparation || skipTransition)
+            ? crypto.randomUUID() : undefined;
           const blocking = hooks.find((h) => h.kind === "checkpoint" && h.blocking);
           const commit: FormInstanceCommit = {
             ...(batchId ? { pendingHooks: { [batchId]: { id: batchId, defVersion: compiled.version,
@@ -987,6 +1021,8 @@ export class FormRunner {
     const ev = evaluateForm(compiled, instance);
     const captured: string[] = [];
     const held: string[] = [];
+    const skipped = Object.entries(staged.entries).flatMap(([field, entry]) =>
+      entry.skipped ? [{ field, reason: entry.skipped.reason }] : []);
     for (const id of Object.keys(staged.entries)) {
       const fe = ev.fields.get(id);
       if (!fe) continue;
@@ -1007,6 +1043,7 @@ export class FormRunner {
       view: projectView(compiled, instance, scope, ev),
       captured,
       held,
+      ...(skipped.length ? { skipped } : {}),
       unknown: staged.unknown,
       aliased: staged.aliased,
       issues: staged.issues,
@@ -1083,6 +1120,17 @@ function risingEdges(
     }
   }
 
+  for (const field of compiled.fields) {
+    const nextField = after.fields.get(field.id);
+    if (nextField?.status !== "skipped" || before.fields.get(field.id)?.status === "skipped") continue;
+    const occurrence = bump(`skip:${field.id}`);
+    const run = skipExecutor(compiled, field.id, nextField.skipReason!);
+    if (run) hooks.push({
+      hookId: `skip:${field.id}`, kind: "skip", id: field.id, blocking: false,
+      run, occurrence, skipReason: nextField.skipReason,
+    });
+  }
+
   for (const step of compiled.steps) {
     if (!after.stepComplete[step.id] || before.stepComplete[step.id]) continue;
     const occurrence = bump(`step:${step.id}`);
@@ -1143,6 +1191,12 @@ function emptyEvaluation(): FormEvaluation<any> {
     passes: 0,
     defects: [],
   };
+}
+
+/** Capture the reason that caused this occurrence, including after a restart. */
+function skipExecutor(compiled: CompiledForm<any>, id: string, reason: string): FormExecutor<any> | undefined {
+  const run = compiled.fieldById.get(id)?.onSkip;
+  return run ? ctx => run({ ...ctx, reason }) : undefined;
 }
 
 function assertNoDefects(compiled: CompiledForm<any>, ev: FormEvaluation<any>): void {
@@ -1219,7 +1273,7 @@ function rawValues(instance: FormInstance): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [id, history] of Object.entries(instance.entries)) {
     const entry = inForce(history);
-    if (entry) out[id] = entry.value;
+    if (entry && !entry.skipped) out[id] = entry.value;
   }
   return out;
 }
