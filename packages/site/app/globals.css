@@ -128,7 +128,7 @@ section { padding: 6rem clamp(1.25rem, 4vw, 2rem); max-width: var(--maxw); margi
 }
 .hero::after {
   content: ''; position: absolute; top: -60px; left: 50%; transform: translateX(-50%);
-  width: 760px; height: 760px; max-width: 120vw; z-index: -1; pointer-events: none;
+  width: 760px; height: 760px; max-width: 100%; z-index: -1; pointer-events: none;
   background: radial-gradient(ellipse, rgba(158, 212, 184, 0.07) 0%, transparent 62%);
 }
 .hero-badge {
@@ -177,7 +177,7 @@ section { padding: 6rem clamp(1.25rem, 4vw, 2rem); max-width: var(--maxw); margi
 #platform { border-top: 1px solid var(--border-subtle); overflow: hidden; }
 .platform-deco { position: absolute; top: 3rem; right: -4rem; width: 340px; height: 340px; opacity: 0.5; pointer-events: none; color: var(--accent); z-index: 0; -webkit-mask-image: radial-gradient(circle at 60% 40%, #000, transparent 70%); mask-image: radial-gradient(circle at 60% 40%, #000, transparent 70%); }
 .platform > * { position: relative; z-index: 1; }
-.cap-group { margin-top: 3.5rem; }
+.cap-group { margin-top: 3.5rem; scroll-margin-top: calc(var(--nav-h) + 1rem); }
 .cap-group:first-of-type { margin-top: 3rem; }
 .cap-group-head { display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
 .cap-group-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cat, var(--accent)); box-shadow: 0 0 10px var(--cat, var(--accent)); flex-shrink: 0; align-self: center; }
