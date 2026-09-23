@@ -1,6 +1,6 @@
 # Station 3 and execution mounts — release handoff
 
-Verified on 23 September 2026 with Node 22.18 and pnpm 10.28.2. This is a source release candidate; package versions, npm publication and production documentation deployment have not been performed.
+Verified on 23 September 2026 with Node 22.18 and pnpm 10.28.2. The complete pending Changesets plan has been applied, including package versions and changelogs. npm publication and production documentation deployment have not been performed.
 
 ## What ships
 
@@ -10,7 +10,7 @@ Verified on 23 September 2026 with Node 22.18 and pnpm 10.28.2. This is a source
 - Foundry Operator: a general-purpose example with Steel proxy sessions, Docker sandboxes and server previews, native per-conversation memory, application-owned continuity/compaction prompts, and native Foundry sleep. Telegram is a user request, not a preloaded workflow.
 - Existing Station room examples use Station 3's daemon and separate dashboard rather than the retired `station-kit` entrypoint.
 
-The execution changeset proposes `glove-core` 4.2.0, `glove-foundry` 0.5.0 and the initial `glove-execution` 0.2.0 publication. Other pending changesets and dependent-package version bumps remain part of the repository's release plan. Inspect Changesets' complete plan before publishing; do not publish the current pre-versioning tarballs over existing registry versions.
+The versioned candidate contains `glove-core` 4.2.0, `glove-foundry` 0.5.0 and the initial `glove-execution` 0.2.0 publication. It also applies the existing VFS changesets and the dependency-driven version bumps computed by Changesets. The pending notes have been consumed into package changelogs; no second Version Packages PR is needed for this candidate. The workspace lockfile was validated after versioning.
 
 ## Documentation and illustrations
 
@@ -31,7 +31,7 @@ The repository's complete publish build graph (legacy dependency first), package
 
 Additional checks cover:
 
-- Registry version preflight and the complete Changesets version plan.
+- Registry version preflight and the complete Changesets version plan. After applying that plan, all planned publishable releases are ahead of npm or first publications; the frozen lockfile check and full publish build passed again. Versioned tarballs have valid exports and reference the new dependency versions.
 - Tarball contents, declared export/type targets, daemon/loader entrypoints, packaged imports and CLI scaffolding using the tested workspace dependency closure. This is not a fresh registry install of unpublished versions.
 - Desktop and mobile views of both guides, the blog, package catalog, Foundry landing page and blog index: no JavaScript errors, horizontal overflow or broken images.
 - HTTP 200 responses and new API coverage in all four LLM reference endpoints.
@@ -50,8 +50,8 @@ The private `onReady` connection has Station 3 operator/admin authority. Keep it
 
 ## Release procedure
 
-1. Review and merge the implementation, docs and changesets together.
-2. Use the repository's Version Packages workflow/PR to apply the complete version plan and refresh the lockfile. Review dependent-package bumps and first-publication metadata.
-3. Run release preflight and affected validation on that versioned candidate. The locally inspected pre-versioning tarballs are verification artifacts only.
-4. Publish through the repository's maintainer release workflow, then verify the published exports and a clean consumer installation.
+1. Review and merge the versioned PR, including generated changelogs and dependent-package bumps.
+2. Pull the merged `main` and run `pnpm install --frozen-lockfile`.
+3. With maintainer npm authentication available, run `pnpm release` from the repository root. This runs the registry preflight, builds the publishable packages and invokes Changesets publication. Version application is already complete.
+4. Verify the published exports and a clean consumer installation.
 5. Deploy the site and verify the new guide, blog, diagrams and four LLM endpoints at their production URLs.

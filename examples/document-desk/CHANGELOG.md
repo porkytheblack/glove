@@ -1,5 +1,20 @@
 # glove-document-desk
 
+## 1.0.6
+
+### Patch Changes
+
+- Updated dependencies [[`0fb8e0b`](https://github.com/porkytheblack/glove/commit/0fb8e0b8725cbf09e283c00438f2b35dc5faab5b), [`653c3f5`](https://github.com/porkytheblack/glove/commit/653c3f54c231675da30afe62725d53e2855261a9), [`331ce80`](https://github.com/porkytheblack/glove/commit/331ce80da3eb0a4b313311d6628a87299b209cc4)]:
+  - glove-core@4.2.0
+  - glove-working-environment@0.7.0
+  - glove-env-documents@2.0.0
+  - glove-env-images@2.0.0
+  - glove-env-motion@2.0.0
+  - glove-env-render@2.0.0
+  - glove-env-slides@2.0.0
+  - glove-env-spreadsheets@2.0.0
+  - glove-env-zip@2.0.0
+
 ## 1.0.5
 
 ### Patch Changes

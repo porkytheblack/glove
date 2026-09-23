@@ -1,5 +1,12 @@
 # glove-site
 
+## 3.0.6
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-react@4.0.5
+
 ## 3.0.5
 
 ### Patch Changes
