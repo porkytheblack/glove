@@ -20,6 +20,14 @@ export interface BlogPost {
 
 export const posts: BlogPost[] = [
   {
+    slug: "agents-with-browsers-and-sandboxes",
+    title: "Agents with browsers, sandboxes, and one managed daemon",
+    summary: "How glove-execution extends the Glove family through capability mounts, and how Foundry hosts jobs and resource adapters on one Station.",
+    date: "2026-09-23",
+    readingTime: 7,
+    tags: ["glove-execution", "foundry", "browsers", "sandboxes", "architecture"],
+  },
+  {
     slug: "conversations-that-keep-their-purpose",
     title: "Conversations that keep their purpose",
     summary:

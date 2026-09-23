@@ -1,0 +1,39 @@
+{
+  "name": "glove-foundry-operator",
+  "version": "0.1.1",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --import tsx scripts/start.ts",
+    "dev": "node --import tsx scripts/start.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts",
+    "verify": "node --import tsx scripts/verify.ts",
+    "ask": "node --import tsx scripts/ask.ts",
+    "verify:memory": "node --import tsx scripts/verify-memory.ts"
+  },
+  "dependencies": {
+    "effect": "^3.22.1",
+    "glove-core": "workspace:*",
+    "glove-foundry": "workspace:*",
+    "glove-execution": "workspace:*",
+    "station-daemon": "^3.0.0",
+    "station-client": "^3.0.0",
+    "station-browser-use": "^3.0.0",
+    "station-sandbox": "^3.0.0",
+    "station-beacon": "^3.0.0",
+    "station-broadcast": "^3.0.0",
+    "station-signal": "^3.0.0",
+    "playwright": "^1.62.1",
+    "glove-memory": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

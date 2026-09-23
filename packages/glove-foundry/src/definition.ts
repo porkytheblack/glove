@@ -155,6 +155,8 @@ export function defineCall<
 export interface FoundryExecutionContext<TInput = unknown>
   extends FoundrySurfaceContext<TInput>, FoundryGuidanceHandles {
   readonly installations: ReadonlyArray<AgentInstallation>;
+  /** Register run-scoped teardown for an explicitly mounted capability. Runs in reverse order, even if assembly fails. */
+  readonly onCleanup: (cleanup: () => void | Promise<void>) => void;
   /** Native persistent environment mounted for this run, when configured. */
   readonly workingEnvironment?: WorkingEnvironment;
   /** Guarded VFS handle for host-side handlers and layers. */

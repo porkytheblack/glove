@@ -290,6 +290,7 @@ export async function scaffoldFoundryProject(
           // Foundry and the Glove packages are ESM. This scopes that to the
           // agents, so the surrounding app keeps its own module system.
           type: "module",
+          engines: { node: ">=22" },
         },
         null,
         2,
@@ -310,6 +311,7 @@ export async function scaffoldFoundryProject(
           version: "0.1.0",
           private: true,
           type: "module",
+          engines: { node: ">=22" },
           scripts: {
             dev: "glove foundry dev",
             start: "glove foundry start",

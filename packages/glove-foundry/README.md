@@ -19,7 +19,7 @@ for it to finish before showing next steps. In non-interactive commands, add
 `--install` to install automatically; use `--no-install` to defer it explicitly.
 
 Use Node.js 22.13+ (recommended, including SQLite memory support); the CLI requires
-at least Node 20.12. Run this in a terminal:
+at least Node 22. Run this in a terminal:
 
 ```bash
 npx glove-foundry init
@@ -409,3 +409,19 @@ POST /v1/chat/completions
 The `/v1/chat/completions` endpoint accepts an agent instance id as `model`, supports SSE streaming, and returns `x-foundry-conversation-id`. Reuse `user`, `conversation_id`, or that header to continue the same durable Foundry conversation from an OpenAI-compatible client.
 
 See [Building with Foundry](./docs/building-with-foundry.md), [Architecture](./docs/architecture.md), the compact [`examples/foundry-agent`](../../examples/foundry-agent), and the [Braind Storm workforce](../../examples/foundry-braind-storm).
+
+## Browser, sandbox and daemon execution
+
+Foundry runs agent jobs in a separate managed Station 3 daemon. Applications can
+opt into `glove-execution` and call `mountBrowser` / `mountSandbox` in `configure`,
+using the same mount approach as other capabilities. Browser workflows run as
+scripts through `execute_browser`, with native screenshot observations. See the
+[execution guide](docs/execution.md) for setup, ownership and lifecycle limits.
+
+The [Operator example](../../examples/foundry-operator) combines these mounts into a general-purpose browser and coding agent with a local console, persistent sign-in, container services and a documented live verification.
+
+### Optional resources on the managed Station
+
+Use `daemon: stationDaemon({ stationId, resources, onReady })` in your application definition (`stationDaemon` is exported from `glove-foundry/station`). Foundry then runs agent jobs and the application-supplied browser/sandbox adapters on one managed Station. Resource factories run once inside the daemon; agents still receive capabilities through explicit mounts. Omit this option for jobs only. See [setup, ownership and private connections](./docs/execution.md#one-station-for-jobs-and-resources).
+
+See the [execution release handoff](./docs/execution-release.md) for verification, operational limits and publication steps.

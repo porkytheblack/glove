@@ -184,14 +184,20 @@ importers:
         specifier: workspace:*
         version: link:../../packages/glove-voice-s2s
       station-adapter-sqlite:
-        specifier: ^2.0.0
-        version: 2.1.0(station-beacon@2.2.0(station-signal@2.0.0))(station-broadcast@2.2.0(station-signal@2.0.0))(station-env@2.0.0)(station-schedules@2.0.0)(station-signal@2.0.0)
-      station-kit:
-        specifier: ^2.0.0
-        version: 2.1.0(babel-plugin-react-compiler@1.0.0)(station-beacon@2.2.0(station-signal@2.0.0))(station-broadcast@2.2.0(station-signal@2.0.0))(station-signal@2.0.0)
+        specifier: ^3.0.0
+        version: 3.0.0(station-beacon@3.0.0(station-signal@3.0.0))(station-broadcast@3.0.0(station-signal@3.0.0))(station-env@3.0.0)(station-network@3.0.0)(station-schedules@3.0.0)(station-signal@3.0.0)
+      station-beacon:
+        specifier: ^3.0.0
+        version: 3.0.0(station-signal@3.0.0)
+      station-broadcast:
+        specifier: ^3.0.0
+        version: 3.0.0(station-signal@3.0.0)
+      station-daemon:
+        specifier: ^3.0.0
+        version: 3.0.0(playwright@1.62.1)(station-beacon@3.0.0(station-signal@3.0.0))(station-broadcast@3.0.0(station-signal@3.0.0))(station-signal@3.0.0)
       station-signal:
-        specifier: ^2.0.0
-        version: 2.0.0
+        specifier: ^3.0.0
+        version: 3.0.0
       ws:
         specifier: ^8.18.0
         version: 8.19.0
@@ -660,6 +666,61 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  examples/foundry-operator:
+    dependencies:
+      effect:
+        specifier: ^3.22.1
+        version: 3.22.1
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-execution:
+        specifier: workspace:*
+        version: link:../../packages/glove-execution
+      glove-foundry:
+        specifier: workspace:*
+        version: link:../../packages/glove-foundry
+      glove-memory:
+        specifier: workspace:*
+        version: link:../../packages/glove-memory
+      playwright:
+        specifier: ^1.62.1
+        version: 1.62.1
+      station-beacon:
+        specifier: ^3.0.0
+        version: 3.0.0(station-signal@3.0.0)
+      station-broadcast:
+        specifier: ^3.0.0
+        version: 3.0.0(station-signal@3.0.0)
+      station-browser-use:
+        specifier: ^3.0.0
+        version: 3.0.0(playwright@1.62.1)
+      station-client:
+        specifier: ^3.0.0
+        version: 3.0.0
+      station-daemon:
+        specifier: ^3.0.0
+        version: 3.0.0(playwright@1.62.1)(station-beacon@3.0.0(station-signal@3.0.0))(station-broadcast@3.0.0(station-signal@3.0.0))(station-signal@3.0.0)
+      station-sandbox:
+        specifier: ^3.0.0
+        version: 3.0.0
+      station-signal:
+        specifier: ^3.0.0
+        version: 3.0.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   examples/foundry-tests:
     dependencies:
       effect:
@@ -860,14 +921,20 @@ importers:
         specifier: ^2.9.0
         version: 2.17.0
       station-adapter-sqlite:
-        specifier: ^2.0.0
-        version: 2.1.0(station-beacon@2.2.0(station-signal@2.0.0))(station-broadcast@2.2.0(station-signal@2.0.0))(station-env@2.0.0)(station-schedules@2.0.0)(station-signal@2.0.0)
-      station-kit:
-        specifier: ^2.0.0
-        version: 2.1.0(babel-plugin-react-compiler@1.0.0)(station-beacon@2.2.0(station-signal@2.0.0))(station-broadcast@2.2.0(station-signal@2.0.0))(station-signal@2.0.0)
+        specifier: ^3.0.0
+        version: 3.0.0(station-beacon@3.0.0(station-signal@3.0.0))(station-broadcast@3.0.0(station-signal@3.0.0))(station-env@3.0.0)(station-network@3.0.0)(station-schedules@3.0.0)(station-signal@3.0.0)
+      station-beacon:
+        specifier: ^3.0.0
+        version: 3.0.0(station-signal@3.0.0)
+      station-broadcast:
+        specifier: ^3.0.0
+        version: 3.0.0(station-signal@3.0.0)
+      station-daemon:
+        specifier: ^3.0.0
+        version: 3.0.0(playwright@1.62.1)(station-beacon@3.0.0(station-signal@3.0.0))(station-broadcast@3.0.0(station-signal@3.0.0))(station-signal@3.0.0)
       station-signal:
-        specifier: ^2.0.0
-        version: 2.0.0
+        specifier: ^3.0.0
+        version: 3.0.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -1076,14 +1143,20 @@ importers:
         specifier: workspace:*
         version: link:../../packages/glove-voice-s2s
       station-adapter-sqlite:
-        specifier: ^2.0.0
-        version: 2.1.0(station-beacon@2.2.0(station-signal@2.0.0))(station-broadcast@2.2.0(station-signal@2.0.0))(station-env@2.0.0)(station-schedules@2.0.0)(station-signal@2.0.0)
-      station-kit:
-        specifier: ^2.0.0
-        version: 2.1.0(babel-plugin-react-compiler@1.0.0)(station-beacon@2.2.0(station-signal@2.0.0))(station-broadcast@2.2.0(station-signal@2.0.0))(station-signal@2.0.0)
+        specifier: ^3.0.0
+        version: 3.0.0(station-beacon@3.0.0(station-signal@3.0.0))(station-broadcast@3.0.0(station-signal@3.0.0))(station-env@3.0.0)(station-network@3.0.0)(station-schedules@3.0.0)(station-signal@3.0.0)
+      station-beacon:
+        specifier: ^3.0.0
+        version: 3.0.0(station-signal@3.0.0)
+      station-broadcast:
+        specifier: ^3.0.0
+        version: 3.0.0(station-signal@3.0.0)
+      station-daemon:
+        specifier: ^3.0.0
+        version: 3.0.0(playwright@1.62.1)(station-beacon@3.0.0(station-signal@3.0.0))(station-broadcast@3.0.0(station-signal@3.0.0))(station-signal@3.0.0)
       station-signal:
-        specifier: ^2.0.0
-        version: 2.0.0
+        specifier: ^3.0.0
+        version: 3.0.0
       ws:
         specifier: ^8.18.0
         version: 8.19.0
@@ -1190,17 +1263,20 @@ importers:
         specifier: ^1.22.0
         version: 1.27.0
       station-adapter-sqlite:
-        specifier: ^2.0.0
-        version: 2.1.0(station-beacon@2.1.0(station-signal@2.0.0))(station-broadcast@2.2.0(station-signal@2.0.0))(station-env@2.0.0)(station-schedules@2.0.0)(station-signal@2.0.0)
+        specifier: ^3.0.0
+        version: 3.0.0(station-beacon@3.0.0(station-signal@3.0.0))(station-broadcast@3.0.0(station-signal@3.0.0))(station-env@3.0.0)(station-network@3.0.0)(station-schedules@3.0.0)(station-signal@3.0.0)
       station-beacon:
-        specifier: ^2.0.0
-        version: 2.1.0(station-signal@2.0.0)
-      station-kit:
-        specifier: ^2.0.0
-        version: 2.1.0(babel-plugin-react-compiler@1.0.0)(station-beacon@2.1.0(station-signal@2.0.0))(station-broadcast@2.2.0(station-signal@2.0.0))(station-signal@2.0.0)
+        specifier: ^3.0.0
+        version: 3.0.0(station-signal@3.0.0)
+      station-broadcast:
+        specifier: ^3.0.0
+        version: 3.0.0(station-signal@3.0.0)
+      station-daemon:
+        specifier: ^3.0.0
+        version: 3.0.0(playwright@1.62.1)(station-beacon@3.0.0(station-signal@3.0.0))(station-broadcast@3.0.0(station-signal@3.0.0))(station-signal@3.0.0)
       station-signal:
-        specifier: ^2.0.0
-        version: 2.0.0
+        specifier: ^3.0.0
+        version: 3.0.0
       ws:
         specifier: ^8.18.0
         version: 8.19.0
@@ -1761,6 +1837,40 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  packages/glove-execution:
+    dependencies:
+      glove-core:
+        specifier: workspace:*
+        version: link:../glove
+      glove-js:
+        specifier: workspace:*
+        version: link:../glove-js
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      esbuild:
+        specifier: ^0.27.3
+        version: 0.27.3
+      station-browser-use:
+        specifier: ^3.0.0
+        version: 3.0.0(playwright@1.62.1)
+      station-client:
+        specifier: ^3.0.0
+        version: 3.0.0
+      station-sandbox:
+        specifier: ^3.0.0
+        version: 3.0.0
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/glove-facts:
     dependencies:
       glove-core:
@@ -1818,15 +1928,27 @@ importers:
       glove-working-environment:
         specifier: workspace:*
         version: link:../glove-working-environment
+      station-beacon:
+        specifier: ^3.0.0
+        version: 3.0.0(station-signal@3.0.0)
+      station-broadcast:
+        specifier: ^3.0.0
+        version: 3.0.0(station-signal@3.0.0)
+      station-client:
+        specifier: ^3.0.0
+        version: 3.0.0
+      station-daemon:
+        specifier: ^3.0.0
+        version: 3.0.0(playwright@1.62.1)(station-beacon@3.0.0(station-signal@3.0.0))(station-broadcast@3.0.0(station-signal@3.0.0))(station-signal@3.0.0)
       station-env:
-        specifier: ^2.3.0
-        version: 2.3.0
+        specifier: ^3.0.0
+        version: 3.0.0
       station-schedules:
-        specifier: ^2.3.0
-        version: 2.3.0
+        specifier: ^3.0.0
+        version: 3.0.0
       station-signal:
-        specifier: ^2.3.0
-        version: 2.3.0
+        specifier: ^3.0.0
+        version: 3.0.0
       tsx:
         specifier: ^4.21.0
         version: 4.21.0
@@ -8232,80 +8354,92 @@ packages:
     resolution: {integrity: sha512-WjlahMgHmCJpqzU8bIBy4qtsZdU9lRlcZE3Lvyej6t4tuOuv1vk57OW3MBrj6hXBFx/nNoC9MPMTcr5YA7NQbg==}
     engines: {node: '>=6'}
 
-  station-adapter-sqlite@2.1.0:
-    resolution: {integrity: sha512-xL6N6rbb3jlJVawlsW35izp0gFL4nH/GWrsQJoCLnJ4UYVnDyZOLi18tDitAbyRQx3tPhTf8QVBn8nwZhQi5EA==}
+  station-adapter-sqlite@3.0.0:
+    resolution: {integrity: sha512-hg/PM3hJ4lYpfQljwAlJQ3iPDQAZ7fzNwJLaQtuighp4/Fai7LLo1ji5Y/CrFbdlOqWzv73OZy9QZmR36lFneg==}
     engines: {node: '>=18'}
     peerDependencies:
-      station-beacon: 2.1.0
-      station-broadcast: 2.0.0
-      station-env: 2.0.0
-      station-schedules: 2.0.0
-      station-signal: 2.0.0
+      station-beacon: 3.0.0
+      station-broadcast: 3.0.0
+      station-env: 3.0.0
+      station-network: 3.0.0
+      station-schedules: 3.0.0
+      station-signal: 3.0.0
     peerDependenciesMeta:
       station-beacon:
         optional: true
       station-env:
         optional: true
+      station-network:
+        optional: true
       station-schedules:
         optional: true
 
-  station-beacon@2.1.0:
-    resolution: {integrity: sha512-TF7A7ByG3C8GDLRQY3zCV6uchYb+6AtsHr4Q9LN/5HoMB+Dr5bf2EPMxPOaX5ichM5yCEM4T4GcruwsA0H303Q==}
+  station-beacon@3.0.0:
+    resolution: {integrity: sha512-/TtGF0cIVwcRL4N8Ke3vsC5GZF/Fi2x0sANDElZ5iKJlikqSTgau1+O4UIxJh8xOwxQZS+K1PMs1/Az/r/Ndsw==}
     engines: {node: '>=18'}
     peerDependencies:
-      station-signal: 2.0.0
+      station-signal: 3.0.0
 
-  station-beacon@2.2.0:
-    resolution: {integrity: sha512-CQ6lQKJzxIv4JU+cDv2NIyha7HhGz/SvnqcIH0vMaOoFk/qe/PN4xHqefWYnKxRwXQ+9DVy2XHckABlfqweNIg==}
+  station-broadcast@3.0.0:
+    resolution: {integrity: sha512-qtS2vFy+GJm9h4pEHreIuuA2D0lhzLCqLRknsW/DPTHryfStq1IwLgYqX51JSP/Hck6GjqWG7q646cKnGNA4QA==}
     engines: {node: '>=18'}
     peerDependencies:
-      station-signal: 2.2.0
+      station-signal: 3.0.0
 
-  station-broadcast@2.2.0:
-    resolution: {integrity: sha512-/ZdJZmV/D265HuNdOJocpIouKwFHmanPQ6I3dUuFQudgPHWcO5qwk/C2uj4ZZwLTZdi57XPdGTmYnu57LVvVPg==}
-    engines: {node: '>=18'}
+  station-browser-use@3.0.0:
+    resolution: {integrity: sha512-yFXyaB7VLF7D/IrpW+rc8Fc0DS8q/1AkftJNJ2P1SC19u+60bIcJi3MMOea6OqU+Nyc17EW/lYDoyFx7JXNMgw==}
+    engines: {node: '>=20'}
     peerDependencies:
-      station-signal: 2.2.0
+      playwright: ^1.63.0
+    peerDependenciesMeta:
+      playwright:
+        optional: true
 
-  station-env@2.0.0:
-    resolution: {integrity: sha512-PfIwyJ+V3fMg5HQOB70mSfyWREV9/UdCytD0fV5hAr4LDuuUrXn2Mn28NuGSonLD+w0VCYAYAMvK1aCA7jlGVg==}
-    engines: {node: '>=18'}
+  station-client@3.0.0:
+    resolution: {integrity: sha512-nsIks4aETyGsM0CElAiZxY2RTyps/xWToESDXP+4VRjqmtvMvNdExTcizRlcUzL5N/51ocQJDWS2QEgGa60BZg==}
+    engines: {node: '>=22'}
 
-  station-env@2.3.0:
-    resolution: {integrity: sha512-8pm1zHhrz6qgZG6spQbqhHOpTgJrm9yuGDBdw9kPuM/UlZFQhcZkpmtNKdRqfhRc4FSzGEBwI8ZZn4IJ/d+meg==}
-    engines: {node: '>=18'}
-
-  station-expressions@2.0.0:
-    resolution: {integrity: sha512-1/nkFbJfJ31j6kEVqW15xBeN1CO3YOXvA5g0n/7PREw+Sb2OkeIho946Wnz1i3Ho/a/NFdS5JlndkGdZDDu/1g==}
-    engines: {node: '>=18'}
-
-  station-expressions@2.2.0:
-    resolution: {integrity: sha512-ySTSqXfvmOaMUe/0v+U0NEFLd3TPN5S0BnRZTGsl+35o/eLR1Fy7JXOk5WuDZ4deaaVKCz7qdG4DsxdQe/A7yg==}
-    engines: {node: '>=18'}
-
-  station-kit@2.1.0:
-    resolution: {integrity: sha512-NF8+leZTmAnc49ELtuwy6eJ7t6QnOvaZxMvA2DmMGwLB7JxmPSk6Ad2456rOE0zvDDGYLuejFmU2SufvUeYtog==}
-    engines: {node: '>=18'}
+  station-daemon@3.0.0:
+    resolution: {integrity: sha512-QqdG3c98+SvZ7NmxATGoZGAEhjA+pmfIxAvWzYk6y1LyGojBC3nxXV6XyHfMBgSdC8Asw033M9Q529QdSMnrHA==}
+    engines: {node: '>=22'}
     hasBin: true
     peerDependencies:
-      station-beacon: 2.1.0
-      station-broadcast: 2.0.0
-      station-signal: 2.0.0
+      station-beacon: 3.0.0
+      station-broadcast: 3.0.0
+      station-signal: 3.0.0
 
-  station-schedules@2.0.0:
-    resolution: {integrity: sha512-CGGDFb9TpeGU9BvGdjTUjPgUP8gyRIUsZKD5OXEMFUk837fizd1ds2ZPd7gMbLaELQOj0qzBcduXztQXkowqUA==}
+  station-env@3.0.0:
+    resolution: {integrity: sha512-X3u8NGnhDLKKovrpZzURzIAcUDH/kMq2wPi+5OIRmHdlRzx8bNX542ZhPto8DIrRkRWGYAnz79k2MmJ3qRgXWw==}
     engines: {node: '>=18'}
 
-  station-schedules@2.3.0:
-    resolution: {integrity: sha512-VsOlAA2daGP9lHNOtkoaCtgR7eaxwQMW++DY8wJvCNgYmpTnvpI2sBcB+yf/ZHzN4y7XFjL0bReADB5tR6cxtw==}
+  station-expressions@3.0.0:
+    resolution: {integrity: sha512-4ZVgdbhOhEsqisRGhi6Xp8iHiDz3oPZNUhd11FEbKuwvjQB393Cw3kejuYr6B5KM/gDteRa/fwLo1oRWhvmZ4w==}
     engines: {node: '>=18'}
 
-  station-signal@2.0.0:
-    resolution: {integrity: sha512-D1c0wxITx4cyXuW4Ryxj5iUu4H6MS3EF3x9QQcDL2xMFZzD48MZkkTdPnWz+5dARmY5u4/4UQCSQXD90wZy6GQ==}
+  station-images@3.0.0:
+    resolution: {integrity: sha512-22j0QLV0zrDKJDCrr4fU9wJMuQ0nH8jKpJWsYWiNt5Otvy1k9+HI4gur7368jbIrzjOZPuCcY0mByA3+1XlRlg==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  station-network@3.0.0:
+    resolution: {integrity: sha512-5xi8gh8DZ2obvuvJ7Kf/Jqp7bW0k1Lwv9luYYL6ivP5V4/vCM4Ei0WHpaJ5T063pnmr0jNdWL2sABvz7a181Jg==}
     engines: {node: '>=18'}
 
-  station-signal@2.3.0:
-    resolution: {integrity: sha512-jr8w465WlzBJBno4aoZGS5bxQEDB8gAUL52vKw8T4VUBcspcgxmrGDqFV4tZQ8qU+IKQNy/dXrH2B+SVeU3G4g==}
+  station-sandbox@3.0.0:
+    resolution: {integrity: sha512-FfnOOy4BZG+7o9UEaNYAGtCL33cvqDvmHNCpcAHsnIfQv8XuIesX7B5Bj9r52m9pnXY/nteRbHXQY0azluuygw==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      node-pty: ^1.1.0
+    peerDependenciesMeta:
+      node-pty:
+        optional: true
+
+  station-schedules@3.0.0:
+    resolution: {integrity: sha512-WlkixB2K497yVWcns0YI/qJYytW4aUbtzwhwcMsHd9LADjr8atW+5bddXbgGRJPLBNq7eD6vxIWq/dSwWX+ZsA==}
+    engines: {node: '>=18'}
+
+  station-signal@3.0.0:
+    resolution: {integrity: sha512-oK8a41iLJZN+IqKuL68uf+lSmJNnZV+A7/nwhHlHVVXl3Kl5qfASTxZW6/pjI/73V/K54Wc58I+Xb0iq0/Oyzg==}
     engines: {node: '>=18'}
 
   statuses@1.5.0:
@@ -11375,9 +11509,7 @@ snapshots:
       metro-runtime: 0.84.4
     transitivePeerDependencies:
       - '@babel/core'
-      - bufferutil
       - supports-color
-      - utf-8-validate
 
   '@react-native/normalize-colors@0.74.89': {}
 
@@ -15923,108 +16055,70 @@ snapshots:
     dependencies:
       type-fest: 0.7.1
 
-  station-adapter-sqlite@2.1.0(station-beacon@2.1.0(station-signal@2.0.0))(station-broadcast@2.2.0(station-signal@2.0.0))(station-env@2.0.0)(station-schedules@2.0.0)(station-signal@2.0.0):
+  station-adapter-sqlite@3.0.0(station-beacon@3.0.0(station-signal@3.0.0))(station-broadcast@3.0.0(station-signal@3.0.0))(station-env@3.0.0)(station-network@3.0.0)(station-schedules@3.0.0)(station-signal@3.0.0):
     dependencies:
       better-sqlite3: 11.10.0
-      station-broadcast: 2.2.0(station-signal@2.0.0)
-      station-signal: 2.0.0
+      station-broadcast: 3.0.0(station-signal@3.0.0)
+      station-signal: 3.0.0
     optionalDependencies:
-      station-beacon: 2.1.0(station-signal@2.0.0)
-      station-env: 2.0.0
-      station-schedules: 2.0.0
+      station-beacon: 3.0.0(station-signal@3.0.0)
+      station-env: 3.0.0
+      station-network: 3.0.0
+      station-schedules: 3.0.0
 
-  station-adapter-sqlite@2.1.0(station-beacon@2.2.0(station-signal@2.0.0))(station-broadcast@2.2.0(station-signal@2.0.0))(station-env@2.0.0)(station-schedules@2.0.0)(station-signal@2.0.0):
+  station-beacon@3.0.0(station-signal@3.0.0):
     dependencies:
-      better-sqlite3: 11.10.0
-      station-broadcast: 2.2.0(station-signal@2.0.0)
-      station-signal: 2.0.0
+      station-signal: 3.0.0
+
+  station-broadcast@3.0.0(station-signal@3.0.0):
+    dependencies:
+      station-expressions: 3.0.0
+      station-signal: 3.0.0
+
+  station-browser-use@3.0.0(playwright@1.62.1):
     optionalDependencies:
-      station-beacon: 2.2.0(station-signal@2.0.0)
-      station-env: 2.0.0
-      station-schedules: 2.0.0
+      playwright: 1.62.1
 
-  station-beacon@2.1.0(station-signal@2.0.0):
-    dependencies:
-      station-signal: 2.0.0
+  station-client@3.0.0: {}
 
-  station-beacon@2.2.0(station-signal@2.0.0):
-    dependencies:
-      station-signal: 2.0.0
-
-  station-broadcast@2.2.0(station-signal@2.0.0):
-    dependencies:
-      station-expressions: 2.2.0
-      station-signal: 2.0.0
-
-  station-env@2.0.0: {}
-
-  station-env@2.3.0: {}
-
-  station-expressions@2.0.0: {}
-
-  station-expressions@2.2.0: {}
-
-  station-kit@2.1.0(babel-plugin-react-compiler@1.0.0)(station-beacon@2.1.0(station-signal@2.0.0))(station-broadcast@2.2.0(station-signal@2.0.0))(station-signal@2.0.0):
+  station-daemon@3.0.0(playwright@1.62.1)(station-beacon@3.0.0(station-signal@3.0.0))(station-broadcast@3.0.0(station-signal@3.0.0))(station-signal@3.0.0):
     dependencies:
       '@hono/node-server': 1.19.14(hono@4.12.15)
       esbuild: 0.25.12
       hono: 4.12.15
-      next: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
-      react: 19.2.4
-      react-dom: 19.2.4(react@19.2.4)
-      station-beacon: 2.1.0(station-signal@2.0.0)
-      station-broadcast: 2.2.0(station-signal@2.0.0)
-      station-env: 2.0.0
-      station-expressions: 2.0.0
-      station-schedules: 2.0.0
-      station-signal: 2.0.0
+      station-beacon: 3.0.0(station-signal@3.0.0)
+      station-broadcast: 3.0.0(station-signal@3.0.0)
+      station-browser-use: 3.0.0(playwright@1.62.1)
+      station-env: 3.0.0
+      station-expressions: 3.0.0
+      station-images: 3.0.0
+      station-network: 3.0.0
+      station-sandbox: 3.0.0
+      station-schedules: 3.0.0
+      station-signal: 3.0.0
       tsx: 4.21.0
       ws: 8.19.0
     transitivePeerDependencies:
-      - '@babel/core'
-      - '@opentelemetry/api'
-      - '@playwright/test'
-      - babel-plugin-macros
-      - babel-plugin-react-compiler
       - bufferutil
-      - sass
+      - node-pty
+      - playwright
       - utf-8-validate
 
-  station-kit@2.1.0(babel-plugin-react-compiler@1.0.0)(station-beacon@2.2.0(station-signal@2.0.0))(station-broadcast@2.2.0(station-signal@2.0.0))(station-signal@2.0.0):
+  station-env@3.0.0: {}
+
+  station-expressions@3.0.0: {}
+
+  station-images@3.0.0:
     dependencies:
-      '@hono/node-server': 1.19.14(hono@4.12.15)
-      esbuild: 0.25.12
-      hono: 4.12.15
-      next: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
-      react: 19.2.4
-      react-dom: 19.2.4(react@19.2.4)
-      station-beacon: 2.2.0(station-signal@2.0.0)
-      station-broadcast: 2.2.0(station-signal@2.0.0)
-      station-env: 2.0.0
-      station-expressions: 2.0.0
-      station-schedules: 2.0.0
-      station-signal: 2.0.0
-      tsx: 4.21.0
-      ws: 8.19.0
-    transitivePeerDependencies:
-      - '@babel/core'
-      - '@opentelemetry/api'
-      - '@playwright/test'
-      - babel-plugin-macros
-      - babel-plugin-react-compiler
-      - bufferutil
-      - sass
-      - utf-8-validate
+      station-env: 3.0.0
 
-  station-schedules@2.0.0: {}
+  station-network@3.0.0: {}
 
-  station-schedules@2.3.0: {}
+  station-sandbox@3.0.0: {}
 
-  station-signal@2.0.0:
-    dependencies:
-      zod: 4.3.6
+  station-schedules@3.0.0: {}
 
-  station-signal@2.3.0:
+  station-signal@3.0.0:
     dependencies:
       zod: 4.3.6
 

@@ -58,7 +58,7 @@ cp .env.example .env.local     # OPENAI_API_KEY (or GEMINI_API_KEY),
                                # STATION_USERNAME / STATION_PASSWORD
 
 pnpm install                   # from the repo root
-pnpm start                     # station: runner + dashboard on :4410
+pnpm start                     # station: daemon API on :4410
 pnpm key "web app" trigger read cancel   # → STATION_API_KEY into .env.local
 
 cd web && pnpm dev             # the app on :3001
@@ -66,7 +66,7 @@ cd web && pnpm dev             # the app on :3001
 
 Open http://localhost:3001, Connect, allow the mic, and talk to Nova. Ask
 for a price or a ship and watch the delegation run appear in the station
-dashboard (http://localhost:4410/signals) and the answer come back over the
+dashboard (http://localhost:4411/signals) and the answer come back over the
 mesh into the live call.
 
 Ports are shifted so this runs SIDE BY SIDE with `server-voice`: station
@@ -91,10 +91,16 @@ Node 22+ (global WebSocket).
 
 | | |
 | --- | --- |
-| `station.config.ts` | the whole deployment: signals dir, adapters, dashboard on :4410 |
+| `station.config.ts` | the whole deployment: signals dir, adapters, daemon API on :4410 |
 | `signals/s2s-room.ts` | a room — audio duct, RealtimeAgent, `/mesh` inbound |
 | `signals/research.ts` | the delegation job, replying over the mesh (as in server-voice) |
 | `lib/s2s-front-agent.ts` | Nova, minus the audio-channel machinery |
 | `lib/worker-agent.ts` | the capable worker (as in server-voice) |
 | `lib/mesh-transport.ts` | the two mesh adapters spanning the process boundary |
 | `web/` | the audio-duct client (as in server-voice, s2s-only) |
+
+### Station 3 dashboard
+
+The daemon and dashboard run separately. With the daemon running, start
+`STATION_DAEMON_URL=http://localhost:4410 PORT=4411 npx station-dashboard@3`.
+The web application continues to call the daemon API on port 4410. Node 22+ is required.

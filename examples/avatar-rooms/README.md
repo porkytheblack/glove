@@ -48,7 +48,7 @@ cp .env.example .env.local
 # STATION_USERNAME / STATION_PASSWORD
 
 pnpm install                   # from the repo root
-pnpm start                     # station: runner + dashboard on :4420
+pnpm start                     # station: daemon API on :4420
 pnpm key "web app" trigger read cancel   # → STATION_API_KEY into .env.local
 
 cd web && pnpm dev             # the app on :3002
@@ -60,7 +60,7 @@ voice; YOUR mic flows through this page's duct) and doubles as the event
 courier: Tavus interactions only travel over the Daily data channel, so the
 room sends them down the WS and the browser relays them via sendAppMessage.
 Ask for a price and watch the delegation run in the station dashboard
-(:4420/signals) while the avatar holds the floor.
+(:4421/signals) while the avatar holds the floor.
 
 Ports are shifted so this runs side by side with the whole series: station
 :4420, rooms :4701+, web :3002.
@@ -104,3 +104,9 @@ The LiveKit transport variant
 ([#72](https://github.com/porkytheblack/glove/issues/72)) lives in
 [`examples/livekit-rooms`](../livekit-rooms) with both providers as LiveKit
 avatars.
+
+### Station 3 dashboard
+
+The daemon and dashboard run separately. With the daemon running, start
+`STATION_DAEMON_URL=http://localhost:4420 PORT=4421 npx station-dashboard@3`.
+The web application continues to call the daemon API on port 4420. Node 22+ is required.

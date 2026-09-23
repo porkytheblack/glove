@@ -1,4 +1,6 @@
-# Foundry production integration — release handoff
+# Historical Foundry production integration — release handoff
+
+> This is the September 9 snapshot. See [the execution release handoff](./execution-release.md) for the current Station 3, browser/sandbox and shared-daemon candidate.
 
 Verified on 9 September 2026 with Node 22.18. This is a **tested release candidate, not a published release or a guarantee for an untested production application**.
 

@@ -68,6 +68,11 @@ export const foundrySections: FoundryNavSection[] = [
         summary: "Mount a VFS, REPL, skills, and document or media adapters for artifact-producing agents.",
       },
       {
+        label: "Browser & sandbox agent",
+        href: "/foundry/docs/browser-and-sandbox",
+        summary: "A runnable personal agent with mounted browser scripts, Telegram sign-in, persistent code and managed servers.",
+      },
+      {
         label: "Multi-agent systems",
         href: "/foundry/docs/multi-agent",
         summary: "Layered agents, subagents, S2S and S2V calls, fan-out, handoffs, and shared work.",

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="610" viewBox="0 0 1200 610" role="img" aria-labelledby="title desc">
+<title id="title">Where glove-execution fits</title><desc id="desc">A portable Glove agent mounts independent scripting, execution and memory or workspace capabilities. Optional Foundry hosting runs jobs and resource providers on one managed Station.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 8 4 0 8" fill="none" stroke="#0b6d70" stroke-width="1.5"/></marker></defs>
+<rect width="1200" height="610" rx="18" fill="#edf4fa"/>
+<g font-family="Arial,sans-serif" fill="#142a42">
+<text x="40" y="43" font-size="14" letter-spacing="2">THE GLOVE FAMILY · INDEPENDENT CAPABILITIES</text>
+<rect x="40" y="75" width="1120" height="105" rx="12" fill="#fff" stroke="#cad9e6"/>
+<text x="65" y="114" font-size="24">glove-core</text><text x="65" y="149" font-size="16" fill="#65788a">Portable agent loop · model · tools · store · transient context</text>
+<text x="917" y="114" font-size="16" fill="#0b6d70">The agent owns its model</text>
+<g fill="#fff" stroke="#cad9e6"><rect x="40" y="240" width="345" height="160" rx="12"/><rect x="425" y="240" width="345" height="160" rx="12" fill="#e7f5f1" stroke="#0b6d70"/><rect x="810" y="240" width="350" height="160" rx="12"/></g>
+<text x="65" y="281" font-size="23">glove-js</text><text x="65" y="318" font-size="16" fill="#65788a">Bounded scripting interpreter</text><text x="65" y="348" font-size="16" fill="#65788a">Registered functions + local state</text><text x="65" y="378" font-size="15" fill="#0b6d70">Used by execution's script tools</text>
+<text x="450" y="281" font-size="23">glove-execution</text><text x="450" y="318" font-size="16" fill="#65788a">Browser + sandbox mounts</text><text x="450" y="348" font-size="16" fill="#65788a">Resource access through adapters</text><text x="450" y="378" font-size="15" fill="#0b6d70">Station first; other backends possible</text>
+<text x="835" y="281" font-size="22">Memory + workspaces</text><text x="835" y="318" font-size="16" fill="#65788a">glove-memory · glove-vfs</text><text x="835" y="348" font-size="16" fill="#65788a">glove-working-environment</text><text x="835" y="378" font-size="15" fill="#0b6d70">Application chooses scope + storage</text>
+<rect x="40" y="465" width="1120" height="105" rx="12" fill="#fff" stroke="#cad9e6"/>
+<text x="65" y="505" font-size="24">glove-foundry</text><text x="65" y="540" font-size="16" fill="#65788a">Optional application hosting · one managed Station for jobs and configured resource providers</text>
+<text x="868" y="505" font-size="16" fill="#0b6d70">Applications choose adapters</text>
+<text x="480" y="215" font-size="14" fill="#65788a">Mount only the capabilities you need</text>
+<text x="440" y="440" font-size="14" fill="#65788a">Hosting and resource lifecycle are separate choices</text>
+</g><g fill="none" stroke="#0b6d70" stroke-width="2" marker-end="url(#arrow)"><path d="M210 180V230"/><path d="M990 180V230"/></g></svg>

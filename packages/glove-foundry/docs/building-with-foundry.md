@@ -4,7 +4,7 @@ Foundry uses the filesystem for code identity and imported values for code relat
 
 ## Create and run
 
-Use Node 20.12 or newer; Node 22.13+ is recommended and required by optional SQLite memory adapters. In a terminal, `init` opens a guided wizard: choose a directory, standalone or Next.js integration, guided or minimal starter, package manager, and dependency installation. Review the plan before any files are written. Arrow keys select, Enter confirms, and Ctrl+C cancels without creating the project. The wizard never requests credentials.
+Use Node 22 or newer; Node 22.13+ is recommended and required by optional SQLite memory adapters. In a terminal, `init` opens a guided wizard: choose a directory, standalone or Next.js integration, guided or minimal starter, package manager, and dependency installation. Review the plan before any files are written. Arrow keys select, Enter confirms, and Ctrl+C cancels without creating the project. The wizard never requests credentials.
 
 For CI or repeatable setup, use explicit choices:
 
@@ -260,6 +260,12 @@ the same safe capability set. Finite connection and request timeouts keep broken
 servers from stalling a run indefinitely.
 Stdio-only idle and lifetime limits can recycle memory-heavy children without
 interrupting in-flight calls; adapter environment values are resolved again on reopen.
+
+## Mount optional capabilities
+
+Use `configure(agent, context)` to call capability packages' mount functions on the assembled agent. Register resource teardown with `context.onCleanup(() => handle.close())`; callbacks run in reverse order after execution, including failed setup or cancellation. Register cleanup as soon as you acquire a resource, before any later setup can fail.
+
+Browser and persistent sandbox capabilities follow this pattern through the optional `glove-execution` package and its `mountBrowser` / `mountSandbox` functions. See the [execution guide](./execution.md#optional-capability-mounts) for Station adapter examples. These capabilities add no browser or sandbox API to `glove-core` or Foundry agent definitions.
 
 ## Mount a working environment, VFS, and REPL
 

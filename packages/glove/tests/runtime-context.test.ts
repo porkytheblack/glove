@@ -65,3 +65,30 @@ test("failed or aborted providers prevent a model call and receive cancellation"
   await assert.rejects(agent.processRequest("Read", controller.signal), /cancelled/); assert.equal(calls, 0);
   assert.equal(agent.getSystemPrompt(), "Stable instructions");
 });
+
+
+test("native content context is transient and telemetry omits media payloads", async () => {
+  const snapshots: Message[][] = [];
+  const traces: Message[][] = [];
+  const agent = make({ name: "media", setSystemPrompt() {}, async prompt(request) {
+    snapshots.push(structuredClone(request.messages));
+    return { messages: [{ sender: "agent", text: "Observed" }], tokens_in: 1, tokens_out: 1 };
+  } }).build();
+  agent.addContextProvider(() => "Pinned task");
+  const remove = agent.addContextProvider(() => [
+    { type: "text", text: "External observation" },
+    { type: "image", source: { type: "base64", media_type: "image/png", data: "private-image-bytes" } },
+    { type: "image", source: { type: "url", url: "https://example.com/private-signed-image" } },
+  ]);
+  agent.addSubscriber({ async record(type, data) {
+    if (type === "runtime_context") traces.push((data as { messages: Message[] }).messages);
+  } });
+  await agent.processRequest("Observe");
+  assert.equal(snapshots[0].at(-1)?.content?.[1].source?.data, "private-image-bytes");
+  assert.equal(snapshots[0].at(-2)?.text, "Pinned task");
+  assert.equal(traces[0].at(-1)?.content?.[1].text, "[image observation]");
+  assert.ok(!JSON.stringify(traces).includes("private-"));
+  assert.ok(!JSON.stringify(await agent.store.getMessages()).includes("External observation"));
+  remove();
+  assert.equal((await agent.getRuntimeContext()).length, 1);
+});

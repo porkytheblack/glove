@@ -36,6 +36,10 @@ export function buildLlmsTxt(): string {
   out.push("");
   out.push("With glove-core 4.0+, goals, forms, and pinned context use live runtime snapshots at the model-input tail, preserving system instructions and saved history. Runnable proxies forward addContextProvider and getRuntimeContext.");
   out.push("Forms support opt-in skippable: true and runner.skip(field, reason), exposed as glove_form_revise action=skip. Skips resolve fields without values; onSkip handles side effects. See /docs/forms#skipping and /llms-full.txt.");
+  out.push("Optional glove-execution mounts attach browser scripts and persistent coding sandboxes to existing agents without accepting or replacing their model. Station 3 is the first backend; core remains portable.");
+  out.push(`- Browser/sandbox guide and package family diagram: ${SITE_URL}/docs/execution`);
+  out.push(`- Design story: ${SITE_URL}/blog/agents-with-browsers-and-sandboxes`);
+  out.push("Foundry can host resource providers and agent jobs on one managed Station through application.daemon = stationDaemon(...), imported from glove-foundry/station. Providers and agent grants remain optional and application-owned.");
   out.push("- Workflow agent skill: https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/workflows.md");
   out.push("- Repository: https://github.com/porkytheblack/glove");
   out.push(`- Full condensed reference: ${SITE_URL}/llms-full.txt`);
@@ -219,6 +223,7 @@ provider prompt caching. Cache usage is reported on every response as
 | package | purpose |
 | --- | --- |
 | glove-core | runtime: agent loop, tools, models, display manager, stores, hooks/skills/subagents |
+| glove-execution | portable browser/sandbox mounts; Station backends in glove-execution/station; model stays on the agent |
 | glove-foundry | file-routed application framework: definitions, instances, apps, transmissions, playbooks, schedules, conversations, runtime and inspector |
 | glove-react | GloveClient, GloveProvider, useGlove, <Render>, defineTool, createRemoteStore |
 | glove-next | createChatHandler — SSE streaming route handler |
@@ -442,7 +447,9 @@ prompt or saved history. External writes appear next iteration. refresh() runs
 preparation, transition recovery, and host configuration. injectStatus:false
 permits a custom renderer. Requires glove-core >=4.0.0; runnable proxies forward
 addContextProvider and getRuntimeContext. Subscribers receive runtime_context
-snapshots. Message.framework_context marks runtime/inbox provenance without a new
+snapshots. Context providers accept text or native ContentPart[]; media is transient
+and runtime_context telemetry replaces media payloads with placeholders.
+Message.framework_context marks runtime/inbox provenance without a new
 provider role. These entries and skill/compaction markers do not count as real
 user turns for tool-result summarization. Inbox reminders follow complete tool
 results; adjacent-user merging preserves structured media. Realtime voice

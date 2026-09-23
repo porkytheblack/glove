@@ -1,5 +1,13 @@
 # glove-mcp-cli
 
+## 1.0.6
+
+### Patch Changes
+
+- Updated dependencies [[`0fb8e0b`](https://github.com/porkytheblack/glove/commit/0fb8e0b8725cbf09e283c00438f2b35dc5faab5b)]:
+  - glove-core@4.2.0
+  - glove-mcp@1.2.1
+
 ## 1.0.5
 
 ### Patch Changes

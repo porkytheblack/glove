@@ -1,5 +1,50 @@
 # glove-working-environment
 
+## 0.7.0
+
+### Minor Changes
+
+- [#156](https://github.com/porkytheblack/glove/pull/156) [`331ce80`](https://github.com/porkytheblack/glove/commit/331ce80da3eb0a4b313311d6628a87299b209cc4) Thanks [@porkytheblack](https://github.com/porkytheblack)! - The filesystem now comes from `glove-vfs`.
+
+  `Vfs`, `VfsEntry`, `VfsStat`, `EnvSnapshot` (as `VfsSnapshot`), the path
+  helpers and the three backends (`inMemoryFs`, `hostDirectory`, `cachedRemote`)
+  moved into the new `glove-vfs` package and are re-exported from here, so every
+  existing import keeps working unchanged.
+
+  What this buys: `filesystem` can now be a tree the memory resource store and
+  the sandboxed REPLs are also mounted on, so a file a script writes is a note
+  `glove_resources_read` can read at the same path, with no copy and no export
+  step. The composition helpers are re-exported for that purpose — `mountFs`,
+  `withAccess`, `withMeta`, `hasMeta`, `hasSearch`.
+
+### Patch Changes
+
+- [#156](https://github.com/porkytheblack/glove/pull/156) [`653c3f5`](https://github.com/porkytheblack/glove/commit/653c3f54c231675da30afe62725d53e2855261a9) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Fix: a snapshot no longer silently drops the metadata index.
+
+  `withMeta` hides its sidecar from `files()` and `list()` — correct, it is
+  bookkeeping rather than content — but `snapshot()`, `restore()` and
+  `copyTree()` walked the tree _through_ those methods, so the sidecar was never
+  captured. A snapshot/restore round trip returned the file bytes intact and lost
+  every summary, tag, link, provenance entry and embedding status, which looked
+  like it had worked. The same shape affected `glove-working-environment`'s own
+  `env.snapshot()` and its `checkpoint` fork/restore — the documented "close on
+  idle, resume from a snapshot" lifecycle.
+
+  Serialization now unwraps the layer stack first (`unwrap`, `isWrapping`,
+  `WrappingVfs` and `invalidateChain` are exported for hosts doing the same). It
+  captures what the backend **stores**, not what the outermost layer **shows**:
+  a snapshot exists to be restored, so anything it omits is data the restore
+  destroys. Access-fenced paths are captured for the same reason. These are host
+  doors, not a surface an agent reaches, so the narrowing that layers exist to
+  provide is unaffected everywhere else.
+
+  `restore()` and a checkpoint restore now also invalidate any cached index over
+  the tree, so a layer that had already read the old sidecar does not keep
+  serving it.
+
+- Updated dependencies [[`653c3f5`](https://github.com/porkytheblack/glove/commit/653c3f54c231675da30afe62725d53e2855261a9), [`a01c6f7`](https://github.com/porkytheblack/glove/commit/a01c6f7917a2194279b195f7706bb6b7bd18bebd), [`331ce80`](https://github.com/porkytheblack/glove/commit/331ce80da3eb0a4b313311d6628a87299b209cc4)]:
+  - glove-vfs@0.1.0
+
 ## 0.6.1
 
 ### Patch Changes

@@ -60,7 +60,7 @@ glove foundry start --host 0.0.0.0 --port 4141`} />
         Foundry’s public contract is intentionally deployment-neutral. A future managed
         control plane can discover projects, provision adapters, deploy workers, and
         aggregate inspection without changing definitions or leaking infrastructure
-        primitives into application code. Today, deploy it wherever Node 20 and your
+        primitives into application code. Today, deploy it wherever Node 22 and your
         selected adapters can run.
       </p>
     </article>

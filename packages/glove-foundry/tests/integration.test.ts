@@ -137,7 +137,8 @@ test("Foundry serves a typed run and a complete observable trace", async () => {
     const conversation = await control.createConversation(agent.id, { id: "conversation-test" });
     const handle = await control.send(agent.id, conversation.id, "hello");
     const accepted = handle.initial;
-    assert.equal(accepted.status, "pending");
+    // The independent daemon can start a job before its receipt reaches the caller.
+    assert.ok(["pending", "running", "completed"].includes(accepted.status));
 
     const completed = await runtime.waitForRun<{ value: string }>(accepted.id, {
       pollMs: 25,
@@ -267,7 +268,7 @@ test("Foundry serves a typed run and a complete observable trace", async () => {
     assert.equal(controlRunResponse.status, 202);
     assert.match(controlRunResponse.headers.get("x-foundry-conversation-id") ?? "", /^control-/);
     const controlRun = (await controlRunResponse.json()) as { id: string; status: string };
-    assert.equal(controlRun.status, "pending");
+    assert.ok(["pending", "running", "completed"].includes(controlRun.status));
     const completedControlRun = await runtime.waitForRun<{ value: string }>(controlRun.id, {
       pollMs: 25,
       timeoutMs: 20_000,

@@ -61,7 +61,7 @@ cp .env.example .env.local
 #   (or AVATAR_PROVIDER=anam + ANAM_API_KEY/ANAM_AVATAR_ID)
 
 pnpm install                   # from the repo root
-pnpm start                     # station: runner + dashboard on :4430
+pnpm start                     # station: daemon API on :4430
 pnpm key "web app" trigger read cancel   # → STATION_API_KEY into .env.local
 
 cd web && pnpm dev             # the app on :3003
@@ -71,7 +71,7 @@ Open http://localhost:3003, Connect, and allow the mic. The app triggers a
 `livekit-room` signal run, mints a caller token server-side (the browser never
 sees the API secret), and joins the LiveKit room the agent is already sitting
 in. Ask for a price and watch the delegation run in the station dashboard
-(:4430/signals) while the conversation keeps flowing.
+(:4431/signals) while the conversation keeps flowing.
 
 Ports are shifted so this runs side by side with the whole series: station
 :4430, room signal ports :4801+ (health + mesh only), web :3003.
@@ -90,3 +90,9 @@ adapters) are both here. The transport path is live-verified; the avatar path
 is conformance-tested against the published LiveKit avatar protocol — live
 verification with a Tavus key is the next step (Anam pending a key,
 [#71](https://github.com/porkytheblack/glove/issues/71)).
+
+### Station 3 dashboard
+
+The daemon and dashboard run separately. With the daemon running, start
+`STATION_DAEMON_URL=http://localhost:4430 PORT=4431 npx station-dashboard@3`.
+The web application continues to call the daemon API on port 4430. Node 22+ is required.
