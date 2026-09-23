@@ -281,7 +281,7 @@ The appendix maps every concept in this document to the file that implements it.
 | `eventemitter3` | ^5.0 | Adapter event plumbing |
 | `zod` | ^4.3 | Room input validation |
 
-**Process supervision** — `station-kit`, `station-signal`, `station-adapter-sqlite`
+**Process supervision** — `station-daemon`, `station-signal`, `station-adapter-sqlite`
 (^2.0). Substitutable: any supervisor that gives you a process per call with a
 lifecycle API, a timeout, and SIGTERM on cancel will do. What the room needs from
 it is exactly that and nothing more.

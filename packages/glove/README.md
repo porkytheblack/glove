@@ -181,7 +181,9 @@ MIT
 
 Register changing external state with `glove.addContextProvider(async signal => renderCurrentState(signal))`. The method returns an unregister function and works before or after `build()`. Before each model iteration (including after tools), Glove appends nonempty provider output as transient user-role messages after saved history. Providers compose in registration order; failures stop the model call. System instructions and stored conversation messages remain unchanged, preserving the stable prefix for provider caching.
 
-`await glove.getRuntimeContext(signal?)` resolves the same snapshots for external runtimes. Subscribers receive a `runtime_context` event containing detached `messages`. Runnable wrappers must forward both APIs. Registration remains local to the runnable; adapters own durable state. This API requires glove-core 4.0 or newer.
+Providers may return text or native `ContentPart[]` (for example, an image observation from an optional mount). Content parts use the same portable representation as user messages; core does not acquire media or depend on a browser/backend. Empty strings and arrays are omitted.
+
+`await glove.getRuntimeContext(signal?)` resolves the same snapshots for external runtimes. Subscribers receive a `runtime_context` event containing detached `messages`; media parts become text placeholders so raw bytes and signed URLs do not enter telemetry. Runnable wrappers must forward both APIs. Registration remains local to the runnable; adapters own durable state. This API requires glove-core 4.0 or newer.
 
 ### Migrating to core 4
 

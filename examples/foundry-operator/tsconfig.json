@@ -1,0 +1,1 @@
+{ "extends": "../../tsconfig.base.json", "compilerOptions": { "noEmit": true }, "include": ["agents", "lib", "scripts", "tests", "foundry.application.ts", "foundry.config.ts"] }

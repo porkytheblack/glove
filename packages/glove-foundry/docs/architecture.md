@@ -2,7 +2,7 @@
 
 ## Boundary rule
 
-Foundry exposes concepts that belong to an agentic application. Its execution engine is private and replaceable.
+Foundry exposes concepts that belong to an agentic application. Its execution engine is private and replaceable. Agent jobs run in a separate managed Station 3 daemon process; the Foundry control process does not construct a runner. See [execution](execution.md) for the process boundary and lifecycle.
 
 ```text
 file-routed code definitions           durable data

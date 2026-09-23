@@ -245,6 +245,13 @@ export const docsSections: DocsNavSection[] = [
       "Give the model a place to compute instead of a wall of tool definitions.",
     items: [
       {
+        label: "Browsers & Sandboxes",
+        href: "/docs/execution",
+        badge: "new",
+        summary: "Mounted browser workflows, persistent coding sandboxes, and optional shared Station hosting in Foundry.",
+        packages: ["glove-execution", "glove-foundry"],
+      },
+      {
         label: "Virtual Filesystem",
         href: "/docs/vfs",
         badge: "new",

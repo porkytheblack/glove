@@ -206,7 +206,7 @@ cp .env.example .env.local     # provider keys + STATION_USERNAME / STATION_PASS
 pnpm install
 pnpm rebuild onnxruntime-node  # the neural VAD's native binary — see below
 
-pnpm start                     # 1. the backend → `station`
+pnpm start                     # 1. the backend → `stationd`
 pnpm key "web app" trigger read cancel      # 2. mint the app's only credential
 #    → paste the key into .env.local as STATION_API_KEY
 pnpm --filter glove-server-voice-web dev    # 3. the app you test in
@@ -237,13 +237,14 @@ boot without them, with no default. Its API can start and stop processes on the
 host, so an unauthenticated one is a remote-execution endpoint and a built-in
 default password is the same thing with extra steps.
 
-`station` reads `station.config.ts`, builds the signal runner from `signals/`,
-runs rooms and research jobs, and serves the dashboard. Nothing starts until the
+`stationd` reads `station.config.ts` and runs rooms and research jobs from
+`signals/`. Station 3 serves its dashboard as a separate process. Run
+`STATION_DAEMON_URL=http://localhost:4400 PORT=4401 npx station-dashboard@3`. Nothing starts until the
 app triggers a room.
 
 - **http://localhost:3000** — the app. Hit Connect: it claims a room, waits for
   it to come up, then streams your microphone to it.
-- **http://localhost:4400** — the dashboard. `/signals` and `/runs` carry both
+- **http://localhost:4401** — the dashboard (the daemon API remains on 4400). `/signals` and `/runs` carry both
   kinds of work: every call is a room run with a duration, an outcome and its
   logs, and every delegation shows its input, answer and attempts. `/env`
   manages the provider keys injected into runs.

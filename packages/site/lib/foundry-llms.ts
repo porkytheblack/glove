@@ -11,6 +11,10 @@ export function buildFoundryLlmsTxt(): string {
     `- Product: ${SITE_URL}/foundry`,
     `- Condensed reference: ${SITE_URL}/foundry/llms-full.txt`,
     "- Package: glove-foundry",
+    "- Optional glove-execution mounts add browser scripts and persistent sandboxes; the agent retains model ownership.",
+    "- Application daemon: stationDaemon from glove-foundry/station can host resources and jobs on one managed Station.",
+    `- Execution package and family map: ${SITE_URL}/docs/execution`,
+    `- Design story: ${SITE_URL}/blog/agents-with-browsers-and-sandboxes`,
     "- Live memory: glove-core 4.0+ appends goals/forms/context as runtime snapshots at the model-input tail; system instructions and saved history remain unchanged.",
     `- Dynamic goals (glove-memory/goals): ${SITE_URL}/docs/goals`,
     `- Shared facts and traced preparation (glove-facts): ${SITE_URL}/docs/facts`,
@@ -27,7 +31,7 @@ export function buildFoundryLlmsTxt(): string {
   return lines.join("\n");
 }
 
-export const FOUNDRY_LLMS_FULL = `# Glove Foundry — condensed reference
+const FOUNDRY_BASE_REFERENCE = `# Glove Foundry — condensed reference
 
 Glove Foundry is an Effect-native, file-routed TypeScript application framework
 for Glove agent systems. It provides discovery, typed composition, persisted agent
@@ -48,7 +52,7 @@ pnpm dev
 \`\`\`
 
 After the package is installed, \`glove foundry dev\` and
-\`glove foundry start\` are available. Node.js 20.12+ is required; 22.13+ is recommended for SQLite memory. Development mode
+\`glove foundry start\` are available. Node.js 22+ is required; 22.13+ is required for SQLite memory. Development mode
 generates \`.foundry/routes.d.ts\`, starts the runtime and inspector, and watches
 definitions. Configuration is typed with \`defineConfig\`.
 
@@ -260,7 +264,53 @@ does not trigger all workflows; preparation runs on starts/relevant commits,
 before mounted turns, or explicit runner.prepare(). Production adapters must
 preserve evidence receipts and prepared-form recovery state.
 
-Use existing build/assembly extension points; these packages do not introduce
-new Foundry goals/facts definition fields. Detailed workflow skill:
+Use Foundry’s lazy goals, facts, forms and contextProviders fields for native
+guidance assembly. Browser/sandbox capabilities use explicit configure mounts;
+they do not add browser or sandbox fields to agent definitions. Detailed workflow skill:
 https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/workflows.md
 `;
+
+export const OPERATOR_REFERENCE = `
+## Browser and sandbox mounts
+
+The optional glove-execution package provides mountBrowser(agent, { adapter })
+and mountSandbox(agent, { adapter }). glove-core has no browser/sandbox dependency.
+Station adapters live in glove-execution/station. Mount explicitly in configure;
+register generic context.onCleanup teardown immediately after acquiring resources.
+Browser scripts use execute_browser and sandbox scripts use execute_sandbox.
+Page evaluation is separate from workflow scripting. Screenshots reach the model
+as native images after tool results. Retained scopes grant resource IDs across runs;
+script variables are run-scoped.
+
+Runnable example: https://github.com/porkytheblack/glove/tree/main/examples/foundry-operator
+Guide: ${SITE_URL}/foundry/docs/browser-and-sandbox
+
+Operator runs locally on port 4243 with OpenRouter, Station, Steel profiles and a Docker
+workspace. Human sign-in belongs to the user; Telegram sign-in has not been verified
+end to end. Messaging actions require user direction in the application prompt. Port 3000 sandbox services preview through a separate-origin GET bridge.
+No host keys, folders or Docker socket are mounted into the sandbox.
+Foundry owns one managed local Station daemon for agent jobs and optional resources.
+Configure application.daemon with stationDaemon({ stationId, resources, onReady })
+from glove-foundry/station. The resource factory runs once inside that daemon and
+returns optional browser and sandbox adapters. Agent capabilities still use mounts.
+The private onReady connection is { url, stationId, token }; Station 3 requires
+operator/admin scope for this resource API. Never expose it in prompts, manifests,
+telemetry or frontend code. Programmatic setup with a daemon adapter supplies
+applicationFilePath so the managed process can load the resource factory.
+Factories release partially acquired resources if they throw before returning;
+Foundry owns successfully returned providers through shutdown and startup failure.
+Omit daemon for jobs only, or return only browser or sandbox. Each runtime owns
+one local Station. Memory defaults to the agent conversation; cross-scope recall,
+checkpoint policy and eager/lazy resource acquisition belong to the application.
+Operator selects a native defineMemory profile with SQLite context, episodic, entity
+and resource adapters, scoped per workspace/instance/conversation. Pinned unfinished
+tasks and preferences refresh before each model iteration. Exact current requests
+are re-injected independently of compaction; summaries preserve outcomes, constraints,
+uncertainty and next actions. The store persists native tasks and inbox items and
+measures current context pressure separately from cumulative usage. verify:memory
+tests real-model memory writes and recall after forced compaction in an isolated
+conversation, without modifying the user's pinned memory.
+`;
+
+// Keep both full-reference routes on the same complete source.
+export const FOUNDRY_LLMS_FULL = `${FOUNDRY_BASE_REFERENCE}\n\n${OPERATOR_REFERENCE}`;

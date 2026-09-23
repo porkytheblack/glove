@@ -21,7 +21,7 @@ export default function FoundryPage() {
     <main className="foundry-page">
       <section className="foundry-hero">
         <div className="foundry-hero-copy">
-          <div className="foundry-eyebrow"><GloveLogo /> Glove Foundry <span>0.1</span></div>
+          <div className="foundry-eyebrow"><GloveLogo /> Glove Foundry</div>
           <h1>The application framework for <em>agent systems.</em></h1>
           <p>
             Define the possible. Persist the chosen. Assemble each agent from the
@@ -103,8 +103,19 @@ export default defineAgent({
         />
       </section>
 
+      <section className="foundry-code-section">
+        <div>
+          <span className="section-label">Browser + sandbox capabilities</span>
+          <h2>One managed Station. The providers you choose.</h2>
+          <p>Mount browser workflows and persistent coding sandboxes with glove-execution. Foundry can run their provider adapters alongside agent jobs on the Station it already owns.</p>
+          <Link href="/foundry/docs/browser-and-sandbox">Run the illustrated Operator example →</Link>
+          <p><Link href="/blog/agents-with-browsers-and-sandboxes">Read the design story →</Link></p>
+        </div>
+        <img src="/foundry/operator/architecture.svg" alt="Foundry owns one Station with agent jobs and optional browser and sandbox adapters." width={1200} height={530} style={{ width: "100%", height: "auto" }} />
+      </section>
+
       <section className="foundry-spectrum">
-        <div><span>Glove capabilities</span><strong>models · memory · inboxes · voice · images · mesh · MCP · working environments</strong></div>
+        <div><span>Glove capabilities</span><strong>models · memory · inboxes · voice · images · mesh · MCP · browsers · sandboxes · working environments</strong></div>
         <div><span>Foundry framework</span><strong>routes · instances · installations · playbooks · schedules · conversations · inspection</strong></div>
         <div><span>Your adapters</span><strong>identity · persistence · credentials · transport · deployment</strong></div>
       </section>

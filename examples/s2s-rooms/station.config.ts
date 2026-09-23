@@ -1,16 +1,6 @@
-// The whole deployment, declared once.
-//
-//   pnpm start   →   `station`
-//
-// That single command IS the system: station-kit builds the SignalRunner from
-// the directory below, runs rooms and research jobs, and serves the dashboard —
-// all in one process, with the runner's events wired straight into the live UI.
-//
-//   http://localhost:4410/signals   rooms and delegations alike — every call is
-//                                   a run with a duration, an outcome and its
-//                                   logs; every delegation shows its input,
-//                                   answer and attempts
-//   http://localhost:4410/env       runtime env vars injected into runs
+// Station 3: `pnpm start` runs the headless daemon (stationd).
+// Start the independent dashboard with STATION_DAEMON_URL pointing at this API.
+// Browser/sandbox workers and agent jobs have daemon-owned lifecycles.
 //
 // Each room listens on its own port (:4601+), assigned by the app when it
 // triggers the run — that is what callers connect to.
@@ -19,7 +9,7 @@
 // and research run station spawns as a child process.
 import "./lib/load-env";
 
-import { defineConfig } from "station-kit";
+import { defineConfig } from "station-daemon";
 import { SqliteAdapter } from "station-adapter-sqlite";
 import { EnvSqliteAdapter } from "station-adapter-sqlite/env";
 
@@ -44,7 +34,7 @@ if (!username || !password) {
 export default defineConfig({
   port: 4410,
 
-  // Gates the dashboard AND the API the web app drives. Once this is set,
+  // Gates the API used by the web app and the separate dashboard. Once this is set,
   // /api/* requires a session cookie and /api/v1/* accepts either a session or
   // an `Authorization: Bearer sk_live_…` API key.
   auth: { username, password },

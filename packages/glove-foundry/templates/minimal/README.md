@@ -4,7 +4,7 @@ A [Glove Foundry](https://github.com/porkytheblack/glove/tree/main/packages/glov
 
 ## First run
 
-Use Node.js 22.13+ (recommended; minimum 20.12). This minimal starter needs an
+Use Node.js 22.13+ (recommended; minimum 22). This minimal starter needs an
 OpenRouter key. For a keyless first look, choose the guided travel-concierge
 template instead. Run these commands from this project's directory; skip
 installation if you already accepted it in the setup wizard.

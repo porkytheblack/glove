@@ -573,6 +573,7 @@ async function runDefinition(
       ...surfaceContext,
       ...guidance.handles,
       installations: effectiveInstallations,
+      onCleanup: (cleanup) => { cleanups.push(cleanup); },
       invoke,
     };
     for (const call of calls) {

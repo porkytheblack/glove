@@ -1,9 +1,7 @@
-import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   Effect,
   Layer,
@@ -11,21 +9,11 @@ import {
   Schema,
 } from "effect";
 import type { Message, TokenConsumptionCounter } from "glove-core";
-import { EnvStore, MemoryEnvStorage } from "station-env";
+import type { Run } from "station-signal";
+import { FoundryExecutionBackend } from "./execution-backend.js";
 import {
-  MemoryAdapter,
-  parseInterval,
-  SignalRunner,
-  type AnySignal,
-  type EnvProvider,
-  type Run,
-} from "station-signal";
-import {
-  ScheduleMemoryAdapter,
-  ScheduleReconciler,
   nextCronOccurrence,
   type Schedule,
-  type ScheduleAdapter,
 } from "station-schedules";
 import {
   EMPTY_FOUNDRY_APPLICATION,
@@ -35,12 +23,8 @@ import type { FoundryConfig } from "./config.js";
 import { DEFAULT_FOUNDRY_CONFIG } from "./config.js";
 import {
   FOUNDRY_APPLICATION_ENV,
-  FOUNDRY_AGENT_FILE_ENV,
-  FOUNDRY_AGENT_ROUTE_ENV,
   FOUNDRY_EXECUTION_MARKER,
-  routeFromInternalAgentName,
 } from "./definition.js";
-import { compileAgentDefinition } from "./agent-runtime.js";
 import type {
   AgentInstallation,
   FoundryCapabilityRegistry,
@@ -247,12 +231,6 @@ function promiseEffect<A>(
   }).pipe(Effect.withSpan(`foundry.${operation}`));
 }
 
-function executionAgentEntrypoint(): string {
-  const built = fileURLToPath(new URL("./execution-agent.js", import.meta.url));
-  if (existsSync(built)) return built;
-  return fileURLToPath(new URL("./execution-agent.ts", import.meta.url));
-}
-
 export class FoundryRuntime {
   readonly rootDir: string;
   readonly agents: readonly DiscoveredAgent[];
@@ -276,16 +254,17 @@ export class FoundryRuntime {
   private readonly connectionSupervisor: ApplicationConnectionSupervisor;
   private readonly execution: ResolvedExecutionConfig;
   private readonly observer: FoundryObserver;
-  private readonly signalRunner: SignalRunner;
-  private readonly envStore: EnvStore;
-  private readonly envProvider: EnvProvider;
-  private readonly scheduleAdapter: ScheduleAdapter;
+  private readonly signalRunner: FoundryExecutionBackend;
+  private readonly scheduleAdapter: FoundryExecutionBackend["schedules"];
   private readonly services: EffectManagedRuntime.ManagedRuntime<
     AccountDirectory | TopologyStore | EventStore | GrantResolver,
     unknown
   >;
   private readonly runnerLoops: Promise<void>[] = [];
   private readonly materializedActivations = new Set<string>();
+  // Serialize host-owned activation transitions across asynchronous adapters and daemon IPC.
+  private readonly activationTransitions = Effect.unsafeMakeSemaphore(1);
+  private readonly activationDispatches = new Map<string, object>();
   private readonly activationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly approvalDirectory = join(
     tmpdir(),
@@ -430,69 +409,21 @@ export class FoundryRuntime {
         configured?.idlePollIntervalMs ?? defaults.idlePollIntervalMs,
     };
 
-    this.envStore = new EnvStore(new MemoryEnvStorage());
-    this.envProvider = {
-      resolveFor: async (target) => {
-        const resolvedEnvironment = await this.envStore.resolveFor(target);
-        if (target.kind === "signal") {
-          const route = routeFromInternalAgentName(target.name);
-          resolvedEnvironment[FOUNDRY_AGENT_ROUTE_ENV] = route;
-          const discovered = this.byRoute.get(route);
-          if (discovered) {
-            resolvedEnvironment[FOUNDRY_AGENT_FILE_ENV] = discovered.filePath;
-          }
-          resolvedEnvironment[FOUNDRY_APPROVAL_DIRECTORY_ENV] =
-            this.approvalDirectory;
-          resolvedEnvironment[FOUNDRY_CORE_COMMAND_DIRECTORY_ENV] =
-            this.coreCommandDirectory;
-        }
-        if (this.applicationFilePath) {
-          resolvedEnvironment[FOUNDRY_APPLICATION_ENV] =
-            this.applicationFilePath;
-        }
-        return resolvedEnvironment;
-      },
-    };
-    this.scheduleAdapter = new ScheduleMemoryAdapter();
-    const signalAdapter = new MemoryAdapter();
-    const signalScheduleReconciler = new ScheduleReconciler({
-      adapter: this.scheduleAdapter,
-      kinds: ["signal"],
-      triggerFn: (schedule, scheduledFor) =>
-        this.signalRunner.triggerSignal(
-          schedule.target,
-          schedule.input,
-          { id: schedule.id, scheduledFor },
-        ),
-      hasPendingOrRunning: (schedule) =>
-        this.signalRunner.hasPendingOrRunningForSignal(schedule.target),
-      parseInterval,
-      onError: (error, schedule) =>
-        this.observability.append({
-          type: "schedule.error",
-          category: "activation",
-          data: { scheduleId: schedule?.id, error: error.message },
-        }),
-    });
-    this.signalRunner = new SignalRunner({
-      adapter: signalAdapter,
-      pollIntervalMs: this.execution.pollIntervalMs,
-      idlePollIntervalMs: this.execution.idlePollIntervalMs,
-      maxConcurrent: this.execution.maxConcurrent,
-      maxAttempts: this.execution.maxAttempts,
-      retryBackoffMs: this.execution.retryBackoffMs,
-      subscribers: [this.observer],
-      scheduleReconciler: signalScheduleReconciler,
-      envProvider: this.envProvider,
-      stationId: "foundry-local",
-      failUnknownSignals: true,
-    });
-    for (const discovered of this.agents) {
-      this.signalRunner.registerSignal(
-        this.executionSignal(discovered),
-        executionAgentEntrypoint(),
-      );
+    if (this.application.daemon && !this.applicationFilePath) {
+      throw new Error("A daemon adapter requires applicationFilePath so Foundry can load it in the managed process.");
     }
+    this.signalRunner = new FoundryExecutionBackend({
+      rootDir: this.rootDir,
+      agents: this.agents.map(agent => ({ route: agent.route, filePath: agent.filePath })),
+      runner: this.execution,
+      observer: this.observer,
+      env: {
+        [FOUNDRY_APPROVAL_DIRECTORY_ENV]: this.approvalDirectory,
+        [FOUNDRY_CORE_COMMAND_DIRECTORY_ENV]: this.coreCommandDirectory,
+        ...(this.applicationFilePath ? { [FOUNDRY_APPLICATION_ENV]: this.applicationFilePath } : {}),
+      },
+    });
+    this.scheduleAdapter = this.signalRunner.schedules;
 
     const topologyLayer = memoryTopologyStore;
     const defaultServices = Layer.mergeAll(
@@ -607,14 +538,13 @@ export class FoundryRuntime {
       }
       for (const timer of this.activationTimers.values()) clearTimeout(timer);
       this.activationTimers.clear();
+      this.activationDispatches.clear();
       await this.connectionSupervisor.stopAll();
       this.observability.append({ type: "runtime.stop.signals", category: "system", data: {} });
       await this.signalRunner.stop({ graceful: true, timeoutMs: 10_000 });
       this.observability.append({ type: "runtime.stop.loops", category: "system", data: {} });
       await this.settleRunnerLoops(1_000);
       this.runnerLoops.length = 0;
-      await this.envStore.close();
-      await this.scheduleAdapter.close?.();
       await this.services.dispose();
       await Promise.all([
         rm(this.approvalDirectory, { recursive: true, force: true }),
@@ -1642,7 +1572,7 @@ export class FoundryRuntime {
   async health(): Promise<Record<string, unknown>> {
     const [execution, environment, activations] = await Promise.all([
       this.signalRunner.getAdapter().ping(),
-      this.envStore.ping(),
+      this.signalRunner.ping(),
       this.scheduleAdapter.ping(),
     ]);
     return {
@@ -2170,13 +2100,6 @@ export class FoundryRuntime {
     }
   }
 
-  private executionSignal(discovered: DiscoveredAgent): AnySignal {
-    return compileAgentDefinition(
-      discovered.definition,
-      discovered.route,
-    );
-  }
-
   private async seedTopology(): Promise<void> {
     for (const route of this.application.routes ?? []) {
       await this.putRoute(route);
@@ -2231,7 +2154,21 @@ export class FoundryRuntime {
     );
   }
 
+  private withActivationTransition<T>(work: () => Promise<T>): Promise<T> {
+    return Effect.runPromise(this.activationTransitions.withPermits(1)(Effect.tryPromise({
+      try: work,
+      catch: (cause) => cause,
+    })));
+  }
+
   private async executeCoreCommand(command: FoundryCoreCommand, parentRunId: string): Promise<void> {
+    if (command.type === "sleep" || command.type === "schedule" || command.type.startsWith("schedule.")) {
+      return this.withActivationTransition(() => this.executeCoreCommandUnlocked(command, parentRunId));
+    }
+    return this.executeCoreCommandUnlocked(command, parentRunId);
+  }
+
+  private async executeCoreCommandUnlocked(command: FoundryCoreCommand, parentRunId: string): Promise<void> {
     if (command.type === "transmit") {
       const request = await getFoundryCoreCommandRequest(
         this.coreCommandDirectory,
@@ -2477,6 +2414,7 @@ export class FoundryRuntime {
   }
 
   private async disarmActivation(activation: FoundryActivationRecord): Promise<void> {
+    this.activationDispatches.delete(activation.id);
     const timer = this.activationTimers.get(activation.id);
     if (timer) {
       clearTimeout(timer);
@@ -2654,11 +2592,13 @@ export class FoundryRuntime {
     });
   }
 
-  private async reconstructActivations(): Promise<void> {
-    for (const activation of await Effect.runPromise(this.data.listActivations())) {
-      if (activation.status === "paused" || activation.status === "completed" || activation.status === "cancelled") continue;
-      await this.materializeActivation(activation);
-    }
+  private reconstructActivations(): Promise<void> {
+    return this.withActivationTransition(async () => {
+      for (const activation of await Effect.runPromise(this.data.listActivations())) {
+        if (activation.status === "paused" || activation.status === "completed" || activation.status === "cancelled") continue;
+        await this.materializeActivation(activation);
+      }
+    });
   }
 
   private async materializeActivation(activation: FoundryActivationRecord): Promise<void> {
@@ -2764,7 +2704,12 @@ export class FoundryRuntime {
     };
     await Effect.runPromise(this.data.putActivation(active));
 
-    const dispatch = async (): Promise<void> => {
+    const generation = {};
+    this.activationDispatches.set(activation.id, generation);
+    const dispatch = (): Promise<void> => this.withActivationTransition(async () => {
+      // A timer may already be waiting for the lock when an update or pause disarms it.
+      if (this.activationDispatches.get(activation.id) !== generation) return;
+      this.activationDispatches.delete(activation.id);
       this.activationTimers.delete(activation.id);
       if (this.disposed || !this.started) return;
       const current = await Effect.runPromise(this.data.getActivation(activation.id));
@@ -2784,7 +2729,7 @@ export class FoundryRuntime {
         runId: activation.createdByRunId,
         data: { commandId: activation.id, childRunId: runId, type: activation.kind },
       });
-      void this.waitForRun(runId).then(async (run) => {
+      void this.waitForRun(runId).then((run) => this.withActivationTransition(async () => {
         if (!run || (run.status !== "completed" && run.status !== "failed" && run.status !== "cancelled")) return;
         const latest = await Effect.runPromise(this.data.getActivation(activation.id));
         if (!latest || latest.status !== "active" || latest.lastRunId !== runId) return;
@@ -2793,7 +2738,7 @@ export class FoundryRuntime {
           status: run.status === "cancelled" ? "cancelled" : "completed",
           updatedAt: new Date().toISOString(),
         }));
-      }).catch((cause) => {
+      })).catch((cause) => {
         this.observability.append({
           type: "activation.persistence.error",
           category: "activation",
@@ -2802,7 +2747,7 @@ export class FoundryRuntime {
           data: { error: cause instanceof Error ? cause.message : String(cause) },
         });
       });
-    };
+    });
 
     const arm = (): void => {
       const remaining = target - Date.now();
@@ -2830,8 +2775,8 @@ export class FoundryRuntime {
       runId: activation.createdByRunId,
       data: { commandId: activation.id, recurring: false, nextRunAt: activation.timing.at },
     });
-    if (target <= Date.now()) await dispatch();
-    else arm();
+    // Dispatch acquires the transition lock after materialization releases it, even when overdue.
+    arm();
   }
 
   private async deliverOutbound(

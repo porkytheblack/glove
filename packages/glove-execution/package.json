@@ -1,0 +1,21 @@
+{
+  "name": "glove-execution",
+  "version": "0.1.0",
+  "description": "Mounted browser scripting and persistent sandbox capabilities for Glove agents, with Station backends",
+  "type": "module",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/porkytheblack/glove.git", "directory": "packages/glove-execution" },
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./station": { "types": "./dist/station.d.ts", "import": "./dist/station.js" }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": { "build": "tsup", "typecheck": "tsc --noEmit", "test": "node --test --import tsx tests/*.test.ts" },
+  "dependencies": { "glove-core": "workspace:*", "glove-js": "workspace:*", "zod": "^4.3.6" },
+  "peerDependencies": { "station-browser-use": "^3.0.0", "station-client": "^3.0.0", "station-sandbox": "^3.0.0" },
+  "peerDependenciesMeta": { "station-browser-use": { "optional": true }, "station-client": { "optional": true }, "station-sandbox": { "optional": true } },
+  "devDependencies": { "esbuild": "^0.27.3", "@types/node": "^25.2.3", "station-browser-use": "^3.0.0", "station-client": "^3.0.0", "station-sandbox": "^3.0.0", "tsx": "^4.19.0", "typescript": "^5.9.3" }
+}

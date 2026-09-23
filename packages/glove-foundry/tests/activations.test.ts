@@ -155,55 +155,77 @@ test("one-shot schedules can move and cancel without leaking an old timer", asyn
   }
 });
 
-test("pausing a dispatched one-shot cannot be overwritten by its cancelled run", async () => {
-  const runtime = await FoundryRuntime.discover({
-    rootDir,
-    agentsDir,
-    config: { execution: { pollIntervalMs: 10, idlePollIntervalMs: 10 } },
-  });
-  await runtime.start();
-  try {
-    const agent = await runtime.createAgent("assistant", {
-      id: "in-flight-pause-agent",
-      workspaceId: "activation-test",
+for (const action of ["pause", "cancel"] as const) {
+  test(`${action} during a delayed daemon acknowledgement cannot be overwritten by dispatch or completion`, { timeout: 30_000 }, async () => {
+    const runtime = await FoundryRuntime.discover({
+      rootDir,
+      agentsDir,
+      config: { execution: { pollIntervalMs: 10, idlePollIntervalMs: 10 } },
     });
-    const conversation = await runtime.createConversation(agent.id, {
-      id: "in-flight-pause-conversation",
-    });
-    const scheduled: FoundryCoreCommand = {
-      id: "command_in_flight_pause",
-      type: "schedule",
-      definitionId: "assistant",
-      agentId: agent.id,
-      conversationId: conversation.id,
-      workspaceId: agent.workspaceId,
-      message: "This run should be interrupted without unpausing its trigger.",
-      timing: { kind: "at", at: new Date(Date.now() + 50).toISOString() },
+    await runtime.start();
+    const internals = runtime as unknown as {
+      enqueueCoreRequest(...args: unknown[]): Promise<string>;
     };
-    const execute = (command: FoundryCoreCommand) =>
-      (runtime as unknown as {
-        executeCoreCommand(command: FoundryCoreCommand, parentRunId: string): Promise<void>;
-      }).executeCoreCommand(command, "parent-in-flight-pause");
-    await execute(scheduled);
-    const dispatched = await waitForActivation(runtime, scheduled.id);
-    await execute({
-      id: "pause_in_flight",
-      type: "schedule.pause",
-      definitionId: "assistant",
-      agentId: agent.id,
-      conversationId: conversation.id,
-      workspaceId: agent.workspaceId,
-      activationId: scheduled.id,
-    });
-    await runtime.waitForRun(dispatched.id, { pollMs: 10, timeoutMs: 15_000 });
-    assert.equal(
-      (await Effect.runPromise(runtime.data.getActivation(scheduled.id)))?.status,
-      "paused",
-    );
-  } finally {
-    await runtime.stop();
-  }
-});
+    const enqueue = internals.enqueueCoreRequest.bind(runtime);
+    let acknowledge!: () => void;
+    const acknowledgement = new Promise<void>((resolve) => { acknowledge = resolve; });
+    let enqueued!: (runId: string) => void;
+    const dispatchedRun = new Promise<string>((resolve) => { enqueued = resolve; });
+    internals.enqueueCoreRequest = async (...args) => {
+      const runId = await enqueue(...args);
+      enqueued(runId);
+      await acknowledgement;
+      return runId;
+    };
+    try {
+      const agent = await runtime.createAgent("assistant", {
+        id: "in-flight-pause-agent",
+        workspaceId: "activation-test",
+      });
+      const conversation = await runtime.createConversation(agent.id, {
+        id: "in-flight-pause-conversation",
+      });
+      const scheduled: FoundryCoreCommand = {
+        id: "command_in_flight_pause",
+        type: "schedule",
+        definitionId: "assistant",
+        agentId: agent.id,
+        conversationId: conversation.id,
+        workspaceId: agent.workspaceId,
+        message: "This run should be interrupted without unpausing its trigger.",
+        timing: { kind: "at", at: new Date(Date.now() + 50).toISOString() },
+      };
+      const execute = (command: FoundryCoreCommand) =>
+        (runtime as unknown as {
+          executeCoreCommand(command: FoundryCoreCommand, parentRunId: string): Promise<void>;
+        }).executeCoreCommand(command, "parent-in-flight-pause");
+      await execute(scheduled);
+      const dispatchedId = await dispatchedRun;
+      const transition = execute({
+        id: `${action}_in_flight`,
+        type: `schedule.${action}`,
+        definitionId: "assistant",
+        agentId: agent.id,
+        conversationId: conversation.id,
+        workspaceId: agent.workspaceId,
+        activationId: scheduled.id,
+      });
+      // Keep the IPC response in flight while the control command attempts to persist its state.
+      await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+      acknowledge();
+      await transition;
+      const run = await runtime.waitForRun(dispatchedId, { pollMs: 10, timeoutMs: 15_000 });
+      assert.equal(run?.status, "cancelled");
+      assert.equal(
+        (await Effect.runPromise(runtime.data.getActivation(scheduled.id)))?.status,
+        action === "pause" ? "paused" : "cancelled",
+      );
+    } finally {
+      acknowledge();
+      await runtime.stop();
+    }
+  });
+}
 
 test("recurring work can only enter the runtime through a core schedule command", async () => {
   const runtime = await FoundryRuntime.discover({

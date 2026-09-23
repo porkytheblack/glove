@@ -1,3 +1,4 @@
+import type { FoundryStationDaemonAdapter } from "./station.js";
 import type { Effect, Layer } from "effect";
 import type { StoreAdapter } from "glove-core";
 import type { AccountReference, AgentBinding, Route } from "./domain.js";
@@ -41,6 +42,8 @@ export interface FoundryRequestAuthorizationAdapter<
 /** Process infrastructure only; agent files own runtime capabilities. */
 export interface FoundryApplicationOptions {
   readonly name: string;
+  /** Optional configuration of the managed daemon; loaded from the application file in its process. */
+  readonly daemon?: FoundryStationDaemonAdapter;
   readonly accounts?: ReadonlyArray<AccountReference>;
   readonly routes?: ReadonlyArray<Route>;
   readonly bindings?: ReadonlyArray<AgentBinding>;

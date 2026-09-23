@@ -1,6 +1,7 @@
 /** Framework-level execution policy. The underlying runner is deliberately private. */
 export interface FoundryExecutionConfig {
   readonly pollIntervalMs?: number;
+  /** @deprecated Station 3 daemon owns idle backoff; retained for source compatibility. */
   readonly idlePollIntervalMs?: number;
   readonly maxConcurrent?: number;
   readonly maxAttempts?: number;

@@ -6,7 +6,7 @@ It runs before you configure anything — there is a built-in demo model, so you
 
 ## First run, step by step
 
-Use Node.js 22.13+ (recommended); the CLI requires Node 20.12 or newer. Open a
+Use Node.js 22.13+ (recommended); the CLI requires Node 22 or newer. Open a
 terminal in this project's directory. If the setup wizard already installed
 dependencies, you can skip the install command below.
 

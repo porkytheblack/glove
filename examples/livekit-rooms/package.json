@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "prestart": "pnpm --filter glove-voice build && pnpm --filter \"glove-voice-livekit...\" build",
-    "start": "station",
+    "start": "stationd",
     "typecheck": "tsc --noEmit",
     "key": "tsx scripts/provision-key.ts"
   },
@@ -16,16 +16,21 @@
     "glove-voice-avatar": "workspace:*",
     "glove-voice-livekit": "workspace:*",
     "glove-voice-s2s": "workspace:*",
-    "station-adapter-sqlite": "^2.0.0",
-    "station-kit": "^2.0.0",
-    "station-signal": "^2.0.0",
+    "station-adapter-sqlite": "^3.0.0",
+    "station-signal": "^3.0.0",
     "zod": "^4.3.6",
     "@livekit/rtc-node": "^0.13.33",
-    "livekit-server-sdk": "^2.9.0"
+    "livekit-server-sdk": "^2.9.0",
+    "station-daemon": "^3.0.0",
+    "station-beacon": "^3.0.0",
+    "station-broadcast": "^3.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

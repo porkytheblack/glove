@@ -108,6 +108,7 @@ export default function PackagesPage() {
               media.
             </td>
           </tr>
+          <tr><td>Browsers &amp; coding sandboxes</td><td><code>glove-execution</code></td><td>The agent needs a live browser, commands, persistent files or a managed server through resource adapters.</td></tr>
           <tr>
             <td>Code execution</td>
             <td>
@@ -815,6 +816,15 @@ const env = await createWorkingEnvironment({ stdlib: [documents(), images()] });
         set of functions mounts on any of them unchanged. Pick the language your
         models are most fluent in.
       </p>
+
+      <Pkg name="glove-execution" tag="browsers and coding sandboxes">
+        <p>Mount browser workflows and persistent sandbox operations on an existing agent. The default scripting surface uses <code>glove-js</code>; direct tools are optional. Station 3 is the first backend, isolated in its own package entrypoint. Mounting never supplies or replaces the agent model.</p>
+        <CodeBlock language="typescript" code={`import { mountBrowser, mountSandbox } from "glove-execution";
+const browser = mountBrowser(agent, { adapter: browserAdapter });
+const sandbox = mountSandbox(agent, { adapter: sandboxAdapter });`} />
+        <p>Foundry can host providers on its existing managed Station with an optional application-level <code>stationDaemon</code> adapter. Core stays portable; applications choose resource grants and persistence.</p>
+        <p>→ <a href="/docs/execution">Package guide and family diagram</a> · <a href="/foundry/docs/browser-and-sandbox">Runnable Operator walkthrough</a></p>
+      </Pkg>
 
       <Pkg name="glove-js" tag="one execute_js tool">
         <p>

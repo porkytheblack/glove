@@ -13,7 +13,7 @@ export default function FoundryGettingStartedPage() {
       </p>
 
       <h2 id="requirements">Requirements</h2>
-      <ul><li>Node.js 22.13+ recommended; CLI minimum 20.12</li><li>pnpm, npm, yarn, or bun</li><li>No API key needed for the guided demo; the minimal starter and live runs need a provider key</li></ul>
+      <ul><li>Node.js 22+; use 22.13+ for SQLite memory</li><li>pnpm, npm, yarn, or bun</li><li>No API key needed for the guided demo; the minimal starter and live runs need a provider key</li></ul>
 
       <h2 id="scaffold">1. Follow the setup wizard</h2>
       <CodeBlock filename="terminal" language="bash" code={`npx glove-foundry init`} />

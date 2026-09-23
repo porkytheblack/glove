@@ -69,7 +69,8 @@ export interface GloveFoldArgs<I> {
 }
 
 /** Read current external state before each model iteration. Not persisted as chat history. */
-export type RuntimeContextProvider = (signal?: AbortSignal) => string | null | undefined | Promise<string | null | undefined>;
+export type RuntimeContextValue = string | ContentPart[] | null | undefined;
+export type RuntimeContextProvider = (signal?: AbortSignal) => RuntimeContextValue | Promise<RuntimeContextValue>;
 
 export interface IGloveRunnable {
   /** Append transient context at the model-input tail; returns an unregister function. */
@@ -232,12 +233,23 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     const messages: Array<Message> = []
     for (const provider of this.contextProviders) {
       signal?.throwIfAborted()
-      const text = await provider(signal)
+      const value = await provider(signal)
       signal?.throwIfAborted()
-      if (text) messages.push({ sender: "user", text, framework_context: "runtime" })
+      if (typeof value === "string" && value) {
+        messages.push({ sender: "user", text: value, framework_context: "runtime" })
+      } else if (Array.isArray(value) && value.length) {
+        const content = structuredClone(value)
+        const text = content.filter(part => part.type === "text").map(part => part.text ?? "").join("\n")
+        messages.push({ sender: "user", text, content, framework_context: "runtime" })
+      }
     }
     if (this.contextProviders.size) {
-      await this.notifyExtensionEvent("runtime_context", { messages: structuredClone(messages) })
+      // Media is transient model input, not a telemetry payload. Keep text
+      // and media kinds observable without persisting bytes or signed URLs.
+      const trace = messages.map(message => ({ ...message, ...(message.content ? {
+        content: message.content.map(part => part.type === "text" ? part : { type: "text" as const, text: `[${part.type} observation]` }),
+      } : {}) }))
+      await this.notifyExtensionEvent("runtime_context", { messages: structuredClone(trace) })
     }
     return messages
   }

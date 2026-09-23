@@ -72,7 +72,7 @@ Common lazy fields include model, system prompt, tools, memory, inboxes, layers,
 
 An application may own multiple inbound and outbound transmissions. Outbound transmissions become validated tools only when the application is installed. Transmission definitions own authentication, normalization, classification, predicates, serialization, and delivery behavior; playbooks remain data-oriented policy.
 
-Connections are colocated with their application and receive the narrow Foundry connection context. Keep backend concepts such as Station networks, beacons, signals, or worker topology out of public Foundry definitions, client types, manifests, and inspector language. Expose only purpose-built agent-system concepts such as inbound connections, activations, scheduled work, and runs.
+Connections are colocated with their application and receive the narrow Foundry connection context. Keep backend concepts such as Station networks, beacons, signals, or worker topology out of public agent definitions, client types, manifests, and inspector language. Expose only purpose-built agent-system concepts such as inbound connections, activations, scheduled work, and runs.
 
 Foundry never acquires, refreshes, or stores credential material. Account records contain safe metadata and opaque access references. The consumer's account-session/provider adapter owns credential lookup and refresh. Never copy secrets into instance data, manifests, prompts, telemetry, or inspector payloads.
 
@@ -95,6 +95,14 @@ Schedules are agent-local definition values that reconcile into persisted activa
 - Pending and recurring activations must reconstruct from a durable `FoundryDataAdapter` on restart.
 
 Do not expose the private execution backend as the authoring model for schedules or sleep.
+
+## Managed execution and optional browser/sandbox resources
+
+Foundry owns a local Station 3 daemon for agent jobs. Applications can opt into `daemon: stationDaemon({ stationId, resources, onReady })`, importing `stationDaemon` from `glove-foundry/station`, to host browser and/or sandbox provider adapters on that same instance. The resource factory runs once in the managed process. Keep provider acquisition and private connection storage in application infrastructure; programmatic runtime setup supplies `applicationFilePath`. Foundry owns successful startup/shutdown and failed-startup cleanup. A factory that fails before returning releases its partial acquisitions.
+
+Mount capabilities with `mountBrowser(agent, { adapter })` and `mountSandbox(agent, { adapter })` from optional `glove-execution`, inside `configure`. Register `context.onCleanup` immediately after acquisition. Mounts never accept or replace the agent model. Default scripts use `glove-js`; Station transport is isolated in `glove-execution/station`. Core remains portable and has no native browser/sandbox backend. Screenshots use transient native content after tool results; media bytes are omitted from runtime-context telemetry. Do not automatically replay scripts after a mutation with an unknown outcome.
+
+Memory defaults to an agent conversation. Broader recall, task checkpoints, prompts and eager/lazy capability acquisition are application decisions. Separate browser session/profile, sandbox file/service, script binding and memory lifetimes. See [execution ownership and setup](../../../packages/glove-foundry/docs/execution.md) and [Operator](../../../examples/foundry-operator/README.md). Node 22+ is required for Foundry; SQLite memory requires 22.13+.
 
 ## Working environment, VFS, REPL, and media
 
