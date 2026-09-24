@@ -193,7 +193,7 @@ import { z } from "zod";
 
 export const agent = new Glove({
   store: new MemoryStore("session-1"),
-  model: createAdapter({ provider: "anthropic", model: "claude-sonnet-4-20250514" }),
+  model: createAdapter({ provider: "anthropic", model: "claude-sonnet-5" }),
   displayManager: new Displaymanager(),
   systemPrompt: "You are a helpful assistant.",
   compaction_config: { compaction_instructions: "Summarize the conversation so far." },
@@ -264,7 +264,7 @@ export function Chat() {
 
 export const POST = createChatHandler({
   provider: "anthropic",
-  model: "claude-sonnet-4-20250514",
+  model: "claude-sonnet-5",
   cache: true,
 });`}
         />

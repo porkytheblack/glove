@@ -106,7 +106,7 @@ export default function NextPage() {
 
 export const POST = createChatHandler({
   provider: "anthropic",
-  model: "claude-sonnet-4-20250514",
+  model: "claude-sonnet-5",
   maxTokens: 4096,
 });`}
         language="typescript"
@@ -143,7 +143,7 @@ export const POST = createChatHandler({
           [
             "model?",
             "string",
-            "The model name to use. Defaults to the provider's default model (e.g., \"gpt-4o\" for openai, \"claude-sonnet-4-20250514\" for anthropic).",
+            "The model name to use. Defaults to the provider's default model (e.g., \"gpt-4o\" for openai, \"claude-sonnet-5\" for anthropic).",
           ],
           [
             "apiKey?",
@@ -193,7 +193,7 @@ export const POST = createChatHandler({
         headers={["Provider", "SDK Format", "Default Model"]}
         rows={[
           ["openai", "openai", "gpt-4o"],
-          ["anthropic", "anthropic", "claude-sonnet-4-20250514"],
+          ["anthropic", "anthropic", "claude-sonnet-5"],
           ["openrouter", "openai", "openai/gpt-4o"],
           ["gemini", "openai", "gemini-2.0-flash"],
           ["minimax", "openai", "MiniMax-Text-01"],

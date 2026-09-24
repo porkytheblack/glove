@@ -49,7 +49,7 @@ const exec = promisify(execFile)
 
 const agent = new Glove({
   store: new SqliteStore({ dbPath: "/work/glove.db", sessionId: "trim" }),
-  model: createAdapter({ provider: "anthropic", model: "claude-sonnet-4-20250514" }),
+  model: createAdapter({ provider: "anthropic", model: "claude-sonnet-5" }),
   displayManager: new Displaymanager(),
   systemPrompt:
     "You trim media files. Inputs land in /input, write trimmed files to /output.",
