@@ -7,5 +7,10 @@ New package: `glove-classifier` adds structured-decision (classifier) models to 
 - `jev()` / `typesafe()`: TypeSafe's System One API (Jev) over `fetch`, with the official SDK's env vars, per-attempt timeouts and retries on 408, 429 and 5xx that honour `Retry-After`.
 - `llmClassifier()`: any Glove `ModelAdapter` answering the same typed questions.
 - `cascade()`: re-asks only the low-confidence answers of a stronger fallback.
-- `classifierTool()` and `defineClassifierTool()`: tools that let an agent use a classifier.
-- `gate()` / `answerConfidence()`: confidence-gated routing.
+- `mountClassifier()`: folds `glove_classify`, `_batch`, `_source` and `_catalog`. Sources are host data the agent classifies without reading. Presets and sources can change at runtime.
+- `classifierTool()` and `defineClassifierTool()`: single-tool variants.
+- `classifierFns()`: `classifier.classify/many/is/pick/rate` for the glove-js, glove-python and glove-lisp REPLs. `many` runs a batch in parallel in one call.
+- `classifierEnv()` (`glove-classifier/env`): `env:classifier` for working environments.
+- `withClassifier()`: adds a `judge` operation to glove-execution browser adapters.
+- `classifierPredicate()` / `classifyInbound()` (`glove-classifier/foundry`): triage for Foundry inbound transmissions.
+- `classifyMany()`, `answersMatch()`, `gate()`, `answerConfidence()`: batch and routing helpers.

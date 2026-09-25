@@ -8,6 +8,11 @@ export default defineConfig({
     "src/llm.ts",
     "src/cascade.ts",
     "src/tools.ts",
+    "src/mount.ts",
+    "src/fns.ts",
+    "src/browser.ts",
+    "src/env.ts",
+    "src/foundry.ts",
   ],
   format: ["esm"],
   dts: true,
@@ -15,5 +20,5 @@ export default defineConfig({
   clean: true,
   splitting: true,
   outDir: "dist",
-  external: ["glove-core", "zod"],
+  external: ["glove-core", "zod", "effect", "glove-working-environment"],
 });

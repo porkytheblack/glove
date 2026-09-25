@@ -201,6 +201,11 @@ simulateExtraction({ N: 1024, secret: 733, strategy: "binary", budgetBits: 4 });
 
       <ul>
         <li>
+          <a href="/docs/classifier">Classifier Models</a> — calibrated typed
+          judgements (yes/no, label, level) that fit inside an assertion-only
+          boundary
+        </li>
+        <li>
           <a href="/docs/code-execution">Code Execution</a> — the surface these
           combinators mount on
         </li>

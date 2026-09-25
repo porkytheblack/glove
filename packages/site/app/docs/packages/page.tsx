@@ -1046,7 +1046,9 @@ await mountVideo(glove, {
           <code>score</code> — and return typed answers with probabilities and
           confidence. Ships TypeSafe&apos;s Jev, an LLM-backed classifier over
           any <code>ModelAdapter</code>, a confidence-gated cascade between the
-          two, and tools that put them in an agent&apos;s hands.
+          two, agent tools, and integrations for the REPLs, working
+          environments, browsers and Foundry transmissions, so agents can
+          triage data without reading it.
         </p>
         <CodeBlock
           filename="terminal"
@@ -1056,7 +1058,7 @@ await mountVideo(glove, {
         <CodeBlock
           filename="classify.ts"
           language="typescript"
-          code={`import { jev, choice, noul, gate, classifierTool } from "glove-classifier";
+          code={`import { jev, choice, noul, gate, mountClassifier, classifierFns } from "glove-classifier";
 
 const model = jev();                          // TYPESAFE_API_KEY, jev-latest
 
@@ -1069,7 +1071,11 @@ const { answers } = await model.classify({
 });
 if (gate(answers.team) === "act") route(answers.team.choice);
 
-glove.fold(classifierTool({ classifier: model })); // glove_classify`}
+// The full toolset: classify, batch, sources the agent never reads, presets, catalog
+mountClassifier(glove, { classifier: model, sources: { inbox: { description: "Unread mail", load } } });
+
+// In code: classifier.many({ items, questions, where }) in the REPLs, env:classifier in scripts
+session.registerAll(classifierFns(model));`}
         />
         <p>
           → <a href="/docs/classifier">Classifier models guide</a>

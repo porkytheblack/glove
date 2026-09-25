@@ -1,7 +1,7 @@
 {
   "name": "glove-classifier",
   "version": "0.0.0",
-  "description": "Structured-decision (classifier) models for the Glove agent framework — TypeSafe's Jev and any System One-style classifier behind one adapter, with an LLM fallback, confidence-gated cascades, and agent tools.",
+  "description": "Structured-decision (classifier) models for the Glove agent framework \u2014 TypeSafe's Jev and any System One-style classifier behind one adapter, with an LLM fallback, confidence-gated cascades, and agent tools.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -18,7 +18,10 @@
     "jev",
     "system-one",
     "llm",
-    "agents"
+    "agents",
+    "scratchpad",
+    "repl",
+    "foundry"
   ],
   "sideEffects": false,
   "main": "./dist/index.js",
@@ -43,6 +46,26 @@
     "./tools": {
       "types": "./dist/tools.d.ts",
       "import": "./dist/tools.js"
+    },
+    "./mount": {
+      "types": "./dist/mount.d.ts",
+      "import": "./dist/mount.js"
+    },
+    "./fns": {
+      "types": "./dist/fns.d.ts",
+      "import": "./dist/fns.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
+    },
+    "./env": {
+      "types": "./dist/env.d.ts",
+      "import": "./dist/env.js"
+    },
+    "./foundry": {
+      "types": "./dist/foundry.d.ts",
+      "import": "./dist/foundry.js"
     }
   },
   "files": [
@@ -55,11 +78,23 @@
   },
   "dependencies": {
     "glove-core": "workspace:*",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "effect": "^3.19.16"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
+    "glove-foundry": "workspace:*",
+    "glove-js": "workspace:*",
+    "glove-working-environment": "workspace:*",
     "tsx": "^4.19.0",
     "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "glove-working-environment": ">=0.7.0"
+  },
+  "peerDependenciesMeta": {
+    "glove-working-environment": {
+      "optional": true
+    }
   }
 }

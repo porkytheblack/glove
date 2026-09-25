@@ -157,33 +157,194 @@ const result = await model.classify({ state, questions });
 result.escalated; // ids the fallback answered`}
       />
 
-      <h2 id="tools">In an agent</h2>
+      <h2 id="mount">In an agent: mountClassifier</h2>
+      <p>
+        <code>mountClassifier</code> gives an agent classifier models it can use
+        whenever a judgement is cheaper than reading. The host registers{" "}
+        <strong>presets</strong> (named question sets) and <strong>sources</strong>{" "}
+        (data streams such as an inbox or a ticket queue), and can add or remove
+        them at any time.
+      </p>
       <CodeBlock
         filename="agent.ts"
         language="typescript"
-        code={`import { classifierTool, defineClassifierTool, jev, choice, noul } from "glove-classifier";
+        code={`import { mountClassifier, jev, llmClassifier, noul, choice } from "glove-classifier";
 
-const model = jev();
-
-// Open: the agent writes the state and questions (glove_classify).
-glove.fold(classifierTool({ classifier: model }));
-
-// Fixed: you write the questions; the agent passes { text }.
-glove.fold(defineClassifierTool({
-  name: "triage_ticket",
-  description: "Route a support ticket to a team.",
-  classifier: model,
-  questions: {
-    team: choice("Which team should handle this?", ["billing", "technical", "sales"]),
-    urgent: noul("Does this convey urgency?"),
+const classifiers = mountClassifier(glove, {
+  classifier: jev(),
+  classifiers: { careful: llmClassifier({ model: reasoningModel }) },
+  presets: {
+    triage: {
+      description: "Support triage",
+      questions: {
+        team: choice("Which team should handle this?", ["billing", "technical", "sales"]),
+        urgent: noul("Does the sender need help today?"),
+      },
+    },
   },
-  format: (a) => ({ team: a.team.choice, urgent: a.urgent.noul > 0.5 }),
-}));`}
+  sources: {
+    inbox: {
+      description: "Unread support email",
+      load: async () => (await mail.unread()).map((m) => ({ id: m.id, label: m.subject, state: m.body })),
+    },
+  },
+});
+
+classifiers.addSource("crm", { description: "Open CRM notes", load: loadNotes }); // any time`}
+      />
+      <table>
+        <thead>
+          <tr>
+            <th>Tool</th>
+            <th>What it does</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>glove_classify</code></td>
+            <td>Judges one state, with its own questions and/or a preset.</td>
+          </tr>
+          <tr>
+            <td><code>glove_classify_batch</code></td>
+            <td>Judges many items the agent already holds. <code>where</code> keeps only the matches.</td>
+          </tr>
+          <tr>
+            <td><code>glove_classify_source</code></td>
+            <td>Judges every item in a host source and returns only ids, labels and answers. The content never enters the agent&apos;s context.</td>
+          </tr>
+          <tr>
+            <td><code>glove_classify_catalog</code></td>
+            <td>Lists presets, sources and named classifiers.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        A <code>where</code> condition is{" "}
+        <code>&#123; question, choice?, min?, max? &#125;</code>, and a list of
+        conditions must all hold. A noul matches when its yes-probability is at
+        least <code>min</code> (default 0.5). A choice matches when{" "}
+        <code>choice</code> is the chosen label, or, with <code>min</code>, when
+        that label&apos;s probability is at least <code>min</code>. A score
+        matches when it falls within <code>min</code> and <code>max</code>. For a
+        single fixed judgement, use <code>defineClassifierTool()</code> instead,
+        which asks your questions over the agent&apos;s input.
+      </p>
+
+      <h2 id="code">In code: REPLs and working environments</h2>
+      <p>
+        An agent that writes code can move data around without reading it,
+        because only the program&apos;s return value enters its context. A
+        classifier supplies the judgement that step needs, such as &ldquo;which of
+        these 400 emails ask for a refund?&rdquo;, and the program returns three
+        ids instead of 400 messages.
+      </p>
+      <CodeBlock
+        filename="repl.ts"
+        language="typescript"
+        code={`import { JsSession, mountJs } from "glove-js";
+import { classifierFns, jev } from "glove-classifier";
+
+const session = JsSession.create();
+session.registerAll(classifierFns(jev())); // classifier.classify / many / is / pick / rate
+mountJs(glove, { session });
+
+// what the agent writes:
+const hits = classifier.many({
+  items: emails.map(e => ({ id: e.id, label: e.subject, state: e.body })),
+  questions: { refund: { type: "noul", instructions: "Does the sender ask for a refund?" } },
+  where: { question: "refund", min: 0.7 },
+});
+hits.map(h => h.id)`}
       />
       <p>
-        Tool results carry compact answers, rounded and without the score legend.
-        The full result is kept in <code>renderData</code>, and classifier
-        failures come back as tool errors.
+        REPL programs call host functions one at a time, so <code>many</code>{" "}
+        runs a whole batch in parallel inside a single call. The same functions
+        work in <code>glove-python</code> and <code>glove-lisp</code>, and in a
+        working environment as <code>env:classifier</code>. That module ships a
+        README and a <code>classifier-triage</code> skill:
+      </p>
+      <CodeBlock
+        filename="env.ts"
+        language="typescript"
+        code={`import { classifierEnv } from "glove-classifier/env";
+
+createWorkingEnvironment({ stdlib: [email(), classifierEnv(jev())] });
+
+// a script:
+import { glob, readFile } from 'env:fs';
+import { many } from 'env:classifier';
+
+export default async function () {
+  const items = [];
+  for (const path of await glob('/inbox/*.eml')) items.push({ id: path, state: (await readFile(path)).slice(0, 20000) });
+  const hits = await many({ items, questions: { refund: { type: 'noul', instructions: 'Does the sender ask for a refund?' } }, where: { question: 'refund' } });
+  return hits.map(h => h.id);
+}`}
+      />
+
+      <h2 id="browser">Browsers</h2>
+      <p>
+        <code>withClassifier</code> adds a <code>judge</code> operation to a{" "}
+        <a href="/docs/execution">glove-execution</a> browser adapter. It observes
+        the page, classifies what it sees, and returns only the answers. Questions
+        like &ldquo;is this a login wall?&rdquo; or &ldquo;did the order go
+        through?&rdquo; get answered without the DOM entering the agent&apos;s
+        context.
+      </p>
+      <CodeBlock
+        filename="browser.ts"
+        language="typescript"
+        code={`import { withClassifier } from "glove-classifier";
+
+mountBrowser(glove, { adapter: withClassifier(stationBrowser({ client }), { classifier: jev() }) });
+
+// in a browser workflow:
+const { answers } = await browser.judge({
+  sessionId,
+  questions: { done: { type: "noul", instructions: "Did the order go through?" } },
+});`}
+      />
+
+      <h2 id="foundry">Foundry transmissions</h2>
+      <p>
+        Every inbound event passes through its transmission&apos;s{" "}
+        <code>classify</code> step and each playbook&apos;s predicates before any
+        agent runs. With a classifier there, agents start only for the events
+        that need them.
+      </p>
+      <CodeBlock
+        filename="predicates/urgent.predicate.ts"
+        language="typescript"
+        code={`import { defineTransmissionPredicate } from "glove-foundry";
+import { classifierPredicate, classifyInbound } from "glove-classifier/foundry";
+
+export default defineTransmissionPredicate(classifierPredicate({
+  classifier: jev(),
+  questions: { urgent: noul("Does the sender need help today?") },
+  where: { question: "urgent", min: 0.7 },   // playbook parameters may override: { min: 0.9 }
+  state: (event: Ticket) => ({ subject: event.subject, body: event.body }),
+}));
+
+// in the transmission's inbound contract:
+classify: classifyInbound({
+  classifier: jev(),
+  question: choice("What is this message?", ["refund", "bug", "other"]),
+  events: { refund: refundRequested, bug: bugReported },
+  fallback: generalInquiry,
+  minConfidence: 0.6,
+  state: (event: Ticket) => event.body,
+}),`}
+      />
+
+      <h2 id="privacy">Context, speed and privacy</h2>
+      <p>
+        A classifier answer is small by construction: a probability, a label, or
+        a level. When code or a tool asks the question, the content stays where
+        it is and only the answer reaches the agent. This is the same boundary{" "}
+        <a href="/docs/egress">glove-egress</a> enforces with assertions:
+        decisions leave the sandbox, records do not. See{" "}
+        <a href="/blog/classifier-models">Classifier models in Glove</a> for the
+        reasoning behind the design.
       </p>
 
       <h2 id="custom">Bring your own classifier</h2>

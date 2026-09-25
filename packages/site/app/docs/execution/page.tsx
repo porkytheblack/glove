@@ -41,6 +41,7 @@ browser.screenshot({ sessionId: page.id });
 observation;`} />
     <p>Registered functions resolve automatically; <code>await</code> is optional. Use <code>fns(&quot;browser&quot;)</code> and <code>describe(&quot;browser__interact&quot;)</code> to discover schemas. Branch, inspect and act in the same program. The interpreter has no ambient host filesystem, imports or network access. Page evaluation is a separate adapter grant.</p>
     <p>The newest screenshot reaches the next model iteration as native image content after the tool results. It is transient and bounded; image bytes stay out of script output, saved conversation history and runtime-context telemetry. Visual reasoning still requires a model turn. A failed script may already have changed the external resource, so it is not automatically replayed.</p>
+    <p>To judge a page without reading it, wrap the adapter with <code>withClassifier(adapter, &#123; classifier: jev() &#125;)</code> from <a href="/docs/classifier#browser">glove-classifier</a>. The added <code>browser.judge(&#123; sessionId, questions &#125;)</code> observes the page and returns only typed answers. Questions like &ldquo;is this a login wall?&rdquo; or &ldquo;did checkout succeed?&rdquo; get answered without the DOM entering context.</p>
     <h2 id="foundry">Let Foundry own one Station</h2>
     <CodeBlock language="typescript" filename="foundry.application.ts" code={`import { defineApplication } from "glove-foundry";
 import { stationDaemon } from "glove-foundry/station";

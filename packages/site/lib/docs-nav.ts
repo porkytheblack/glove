@@ -38,7 +38,6 @@ export const docsSections: DocsNavSection[] = [
       {
         label: "Glove Foundry",
         href: "/foundry",
-        badge: "new",
         summary:
           "The file-routed, Effect-native framework for assembling, running, and inspecting complete agent systems.",
         packages: ["glove-foundry"],
@@ -148,7 +147,6 @@ export const docsSections: DocsNavSection[] = [
       {
         label: "Realtime Voice & Avatars",
         href: "/docs/realtime-voice",
-        badge: "new",
         summary:
           "Speech-to-speech models, live avatars, and LiveKit as the room transport.",
         packages: ["glove-voice-s2s", "glove-voice-avatar", "glove-voice-livekit"],
@@ -162,7 +160,6 @@ export const docsSections: DocsNavSection[] = [
       {
         label: "Image Workflows",
         href: "/docs/image",
-        badge: "new",
         summary:
           "Prompt pipelines with enhancer inbetweens, durable characters and scenes, reference images, editing, assembly, vision review and per-call cost tracking.",
         packages: ["glove-image"],
@@ -170,7 +167,6 @@ export const docsSections: DocsNavSection[] = [
       {
         label: "Image Gallery",
         href: "/docs/image/gallery",
-        badge: "new",
         summary:
           "A worked SS26 campaign — every image with its real prompt, pipeline trace and cost, plus a provenance canvas showing how one was made.",
         packages: ["glove-image"],
@@ -178,7 +174,6 @@ export const docsSections: DocsNavSection[] = [
       {
         label: "Video Workflows",
         href: "/docs/video",
-        badge: "new",
         summary:
           "Temporal prompt pipelines, continuity libraries, image references, actual-video review, delivery gates, resumable flows and spend tracking.",
         packages: ["glove-video", "glove-image"],
@@ -186,7 +181,6 @@ export const docsSections: DocsNavSection[] = [
       {
         label: "Video Gallery",
         href: "/docs/video/gallery",
-        badge: "new",
         summary:
           "An agent-directed case study exposing the keyframe, timed recipe, every reviewed take, revision evidence, delivery decision and real spend.",
         packages: ["glove-video", "glove-image"],
@@ -207,7 +201,6 @@ export const docsSections: DocsNavSection[] = [
       {
         label: "Forms",
         href: "/docs/forms",
-        badge: "new",
         summary:
           "Structured collection over a conversation — Zod-authored definitions, lazily loaded, with colocated executors.",
         packages: ["glove-memory"],
@@ -215,14 +208,12 @@ export const docsSections: DocsNavSection[] = [
       {
         label: "Dynamic goals",
         href: "/docs/goals",
-        badge: "new",
         summary: "Context-sensitive goal programs, checklist progress, revision history, and deferred follow-ups — BYO storage.",
         packages: ["glove-memory"],
       },
       {
         label: "Shared facts",
         href: "/docs/facts",
-        badge: "new",
         summary: "Scoped evidence and preparation through a supplied Glove agent, shared by goals and forms.",
         packages: ["glove-facts", "glove-memory"],
       },
@@ -270,7 +261,6 @@ export const docsSections: DocsNavSection[] = [
       {
         label: "Working Environment",
         href: "/docs/working-environment",
-        badge: "new",
         summary:
           "A persistent sandboxed virtual filesystem — write scripts, run them, iterate, export artifacts.",
         packages: [
@@ -289,7 +279,6 @@ export const docsSections: DocsNavSection[] = [
       {
         label: "Code Execution",
         href: "/docs/code-execution",
-        badge: "new",
         summary:
           "One eval tool instead of fifty tool definitions — JavaScript, Python and Lisp REPLs.",
         packages: ["glove-js", "glove-python", "glove-lisp"],
@@ -366,7 +355,6 @@ export const docsSections: DocsNavSection[] = [
       {
         label: "Glove for LLMs",
         href: "/docs/llms",
-        badge: "new",
         summary: "llms.txt, llms-full.txt and the Claude Code agent skill.",
       },
       { label: "Agent Skill", href: "/docs/agent-skill" },

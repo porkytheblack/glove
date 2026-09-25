@@ -21,6 +21,12 @@ contract, `ClassifierAdapter`, and ships:
 | `defineClassifierTool()` | A fixed-question tool: you write the questions, the agent supplies the input. |
 | `noul` / `choice` / `score` | Question builders with typed answers. |
 | `gate()` / `answerConfidence()` | Confidence-gated routing: act, review or escalate. |
+| `mountClassifier()` | The full agent toolset: classify, batch, **sources** (data the agent classifies without reading), presets and a catalog. |
+| `classifierFns()` | Functions for the REPLs (`glove-js` / `-python` / `-lisp` via the scratchpad catalog). |
+| `classifierEnv()` | `env:classifier` for a working environment (`glove-classifier/env`). |
+| `withClassifier()` | Adds a `judge` operation to a glove-execution browser adapter. |
+| `classifierPredicate()` / `classifyInbound()` | Foundry inbound-transmission triage (`glove-classifier/foundry`). |
+| `classifyMany()` / `answersMatch()` | Classify many items in parallel; filter results with `where`. |
 
 ```bash
 pnpm add glove-classifier
@@ -130,33 +136,154 @@ const result = await model.classify({ state, questions });
 result.escalated; // ids the fallback answered
 ```
 
-## In an agent
+## In an agent: `mountClassifier`
 
 ```ts
-import { classifierTool, defineClassifierTool, jev, choice, noul } from "glove-classifier";
+import { mountClassifier, jev, llmClassifier, noul, choice } from "glove-classifier";
 
-const model = jev();
+const classifiers = mountClassifier(glove, {
+  classifier: jev(),
+  classifiers: { careful: llmClassifier({ model: reasoningModel }) }, // the agent can pick by name
+  presets: {
+    triage: {
+      description: "Support triage",
+      questions: {
+        team: choice("Which team should handle this?", ["billing", "technical", "sales"]),
+        urgent: noul("Does the sender need help today?"),
+      },
+    },
+  },
+  sources: {
+    inbox: {
+      description: "Unread support email",
+      load: async () => (await mail.unread()).map((m) => ({ id: m.id, label: m.subject, state: m.body })),
+    },
+  },
+});
 
-// Open: the agent writes the state and questions. Use it to fan a fast
-// judgement out over many items instead of reasoning through each one in context.
-glove.fold(classifierTool({ classifier: model }));
+// Presets and sources can change at any time. The agent finds them through the catalog tool.
+classifiers.addSource("crm", { description: "Open CRM notes", load: loadNotes });
+```
 
-// Fixed: the questions are yours, and the agent passes { text }.
+| Tool | What it does |
+| --- | --- |
+| `glove_classify` | Judges one state, with its own questions and/or a `preset`. |
+| `glove_classify_batch` | Judges many items the agent already holds. `where` keeps only the matches. |
+| `glove_classify_source` | Judges every item in a host **source** and returns only ids, labels and answers. The content never enters the agent's context. |
+| `glove_classify_catalog` | Lists presets, sources and named classifiers. |
+
+A `where` condition is `{ question, choice?, min?, max? }`, and a list of conditions must all hold:
+
+- **noul:** matches when the yes-probability is at least `min` (default 0.5).
+- **choice:** matches when `choice` is the chosen label. With `min`/`max`, it tests that label's probability instead.
+- **score:** matches when the score is within `min` and `max`.
+
+Results are capped by `limit` (`resultLimit`, default 50). `usage()` returns the running totals.
+
+For a single fixed judgement, fold one tool yourself. `classifierTool()` is the open tool alone, and `defineClassifierTool()` asks your questions over the agent's input:
+
+```ts
 glove.fold(defineClassifierTool({
   name: "triage_ticket",
   description: "Route a support ticket to a team.",
-  classifier: model,
-  questions: {
-    team: choice("Which team should handle this?", ["billing", "technical", "sales"]),
-    urgent: noul("Does this convey urgency?"),
-  },
-  format: (a) => ({ team: a.team.choice, urgent: a.urgent.noul > 0.5 }),
+  classifier: jev(),
+  questions: { team: choice("Which team?", ["billing", "technical", "sales"]) },
+  format: (a) => ({ team: a.team.choice }),
 }));
 ```
 
-Tool results carry compact answers, rounded and without the score legend, so
-they stay small in the model's context. The full result is kept in
-`renderData`. Classifier failures come back as tool errors.
+## In code: REPLs, working environments and browsers
+
+An agent that writes code can move data around without reading it. Only the program's return value enters its context. A classifier supplies the judgement that step needs, such as "which of these 400 emails ask for a refund?", and the program returns three ids.
+
+**REPLs** (`glove-js`, `glove-python`, `glove-lisp`, over the scratchpad catalog):
+
+```ts
+import { JsSession, mountJs } from "glove-js";
+import { classifierFns, jev } from "glove-classifier";
+
+const session = JsSession.create();
+session.registerAll(classifierFns(jev()));   // classifier.classify / many / is / pick / rate
+mountJs(glove, { session });
+```
+
+```js
+// what the agent writes
+const hits = classifier.many({
+  items: emails.map(e => ({ id: e.id, label: e.subject, state: e.body })),
+  questions: { refund: { type: "noul", instructions: "Does the sender ask for a refund?" } },
+  where: { question: "refund", min: 0.7 },
+});
+hits.map(h => h.id)
+```
+
+REPL programs call host functions one at a time, so `many` runs a whole batch in parallel inside a single call. The five functions are:
+
+| Function | Returns |
+| --- | --- |
+| `classify({ state, questions })` | The answers. |
+| `many({ items, questions, where? })` | Per-item answers. Items that fail carry an `error`. |
+| `is({ state, question })` | The yes-probability. |
+| `pick({ state, question, labels })` | `{ choice, confidence, probabilities }` |
+| `rate({ state, question, levels })` | `{ score, confidence }` |
+
+**Working environment:**
+
+```ts
+import { createWorkingEnvironment } from "glove-working-environment";
+import { email } from "glove-env-email";
+import { classifierEnv } from "glove-classifier/env";
+
+createWorkingEnvironment({ stdlib: [email(), classifierEnv(jev())] });
+// scripts:  import { many, is, pick } from 'env:classifier'
+```
+
+The module ships a README and a `classifier-triage` skill under `/skills`.
+
+**Browser** (glove-execution):
+
+```ts
+import { mountBrowser } from "glove-execution";
+import { stationBrowser } from "glove-execution/station";
+import { withClassifier } from "glove-classifier";
+
+mountBrowser(glove, { adapter: withClassifier(stationBrowser({ client }), { classifier: jev() }) });
+// in a workflow:  const { answers } = await browser.judge({ sessionId, questions: { done: { type: "noul", instructions: "Did the order go through?" } } })
+```
+
+`judge` observes the page, classifies what it sees, and returns only the answers. The DOM never comes back. Use `state` to trim the observation first, and `maxStateChars` (default 100 000) to cap it.
+
+## Foundry: triaging inbound transmissions
+
+Each inbound event passes through its transmission's `classify` step and then each playbook's predicates, all before any agent starts. Putting a classifier there means agents start only for events that need them.
+
+```ts
+import { defineTransmissionPredicate } from "glove-foundry";
+import { classifierPredicate, classifyInbound } from "glove-classifier/foundry";
+
+// predicates/urgent.predicate.ts: the playbook wakes only for urgent tickets
+export default defineTransmissionPredicate(classifierPredicate({
+  classifier: jev(),
+  questions: { urgent: noul("Does the sender need help today?") },
+  where: { question: "urgent", min: 0.7 },   // a playbook may override: predicate parameters { min: 0.9 }
+  state: (event: Ticket) => ({ subject: event.subject, body: event.body }),
+}));
+
+// in the transmission: resolve which event an inbound message is
+inbound: {
+  // ...config, event, adapter
+  classify: classifyInbound({
+    classifier: jev(),
+    question: choice("What is this message?", ["refund", "bug", "other"]),
+    events: { refund: refundRequested, bug: bugReported },
+    fallback: generalInquiry,
+    minConfidence: 0.6,
+    state: (event: Ticket) => event.body,
+  }),
+},
+```
+
+Both helpers return Effects that fail with `ClassifierError`. Neither needs anything from `glove-foundry` at runtime.
 
 ## Bring your own classifier
 

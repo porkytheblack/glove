@@ -124,6 +124,13 @@ classification, executable predicates, outbound delivery, and schemas. Playbooks
 serializable runtime data that match classified events, serialize them into a
 conversation, provide directives, and declare optional outbound routing.
 
+A classifier model can triage inbound events before any agent runs. Import these from
+"glove-classifier/foundry". classifyInbound({ classifier, question, events, fallback,
+minConfidence, state }) plugs in as inbound.classify.
+defineTransmissionPredicate(classifierPredicate({ classifier, questions, where, state }))
+lets a playbook wake only when the answers match. Playbook predicate parameters { min, max,
+choice, where } override the thresholds.
+
 Foundry never acquires, stores, selects, or refreshes credentials. Supply a user-owned
 adapter. Accounts contain metadata and identity, not secret material. Do not place
 secrets in instances, manifests, or telemetry.

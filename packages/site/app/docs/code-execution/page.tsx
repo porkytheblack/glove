@@ -334,9 +334,29 @@ mountJs(agent, { session, frame: "workflow" });  // execute_js_workflow`}
         Lisp (95%) and SQL (92%), for a modest peak-context increase.
       </p>
 
+      <h2 id="classifiers">Judging data without reading it</h2>
+      <p>
+        Some steps in a program need judgement, not computation, such as
+        &ldquo;which of these emails asks for a refund?&rdquo;.
+        Register <code>classifierFns()</code> from{" "}
+        <a href="/docs/classifier">glove-classifier</a> and the program can ask a
+        classifier model. <code>classifier.many(&#123; items, questions, where
+        &#125;)</code> judges a whole batch in parallel in one call and returns
+        only the matches. The items never enter the agent&apos;s context.
+      </p>
+      <CodeBlock
+        filename="setup.ts"
+        language="typescript"
+        code={`session.registerAll(classifierFns(jev())); // classifier.classify / many / is / pick / rate`}
+      />
+
       <h2 id="related">Related</h2>
 
       <ul>
+        <li>
+          <a href="/docs/classifier">Classifier Models</a> — typed judgements a
+          program can make over data the agent never reads
+        </li>
         <li>
           <a href="/docs/scratchpad">Scratchpad</a> — the SQL surface over the
           same idea, with typed resources and staged writes

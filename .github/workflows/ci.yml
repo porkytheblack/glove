@@ -57,6 +57,7 @@ jobs:
           --filter "glove-env-secret..."
           --filter "glove-env-motion..."
           --filter "glove-image..."
+          --filter "glove-classifier^..."
           --filter "glove-analyst-desk..."
           build
 
@@ -121,6 +122,7 @@ jobs:
           --filter glove-env-secret
           --filter glove-env-motion
           --filter glove-image
+          --filter glove-classifier
           --filter glove-analyst-desk
           --filter glove-document-desk
           --filter glovebox-env-example
@@ -165,6 +167,7 @@ jobs:
           --filter glove-env-secret
           --filter glove-env-motion
           --filter glove-image
+          --filter glove-classifier
           test
 
       - name: Integration — Foundry architecture and runtime

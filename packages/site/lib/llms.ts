@@ -39,6 +39,10 @@ export function buildLlmsTxt(): string {
   out.push("Optional glove-execution mounts attach browser scripts and persistent coding sandboxes to existing agents without accepting or replacing their model. Station 3 is the first backend; core remains portable.");
   out.push(`- Browser/sandbox guide and package family diagram: ${SITE_URL}/docs/execution`);
   out.push(`- Design story: ${SITE_URL}/blog/agents-with-browsers-and-sandboxes`);
+  out.push("glove-classifier adds structured-decision (classifier) models such as TypeSafe's Jev: state plus typed noul/choice/score questions in, typed answers with probabilities and confidence out. mountClassifier folds glove_classify / _batch / _source / _catalog. classifierFns serve the REPLs, glove-classifier/env serves working environments, withClassifier adds browser.judge, and glove-classifier/foundry triages inbound transmissions. Jev is not a chat model; never pass it to createAdapter.");
+  out.push(`- Classifier guide: ${SITE_URL}/docs/classifier`);
+  out.push(`- Design story: ${SITE_URL}/blog/classifier-models`);
+  out.push("glove-core ships a vercel provider (Vercel AI Gateway, OpenAI-compatible) that reads AI_GATEWAY_API_KEY, falling back to VERCEL_OIDC_TOKEN.");
   out.push("Foundry can host resource providers and agent jobs on one managed Station through application.daemon = stationDaemon(...), imported from glove-foundry/station. Providers and agent grants remain optional and application-owned.");
   out.push("- Workflow agent skill: https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/workflows.md");
   out.push("- Repository: https://github.com/porkytheblack/glove");
@@ -204,6 +208,7 @@ async do(input, display) {
 | openai | OPENAI_API_KEY | gpt-4.1 |
 | anthropic | ANTHROPIC_API_KEY | claude-sonnet-4-20250514 |
 | openrouter | OPENROUTER_API_KEY | anthropic/claude-sonnet-4 |
+| vercel | AI_GATEWAY_API_KEY (or VERCEL_OIDC_TOKEN) | anthropic/claude-sonnet-4 |
 | gemini | GEMINI_API_KEY | gemini-2.5-flash |
 | minimax | MINIMAX_API_KEY | MiniMax-M2.5 |
 | kimi | MOONSHOT_API_KEY | kimi-k2.5 |
@@ -233,6 +238,7 @@ provider prompt caching. Cache usage is reported on every response as
 | glove-voice-avatar | live avatars over the S2S audio (Tavus echo, Anam passthrough) |
 | glove-voice-livekit | LiveKit room transport + LiveKit-native avatars |
 | glove-memory | entity graph, episodic timeline, resource filesystem, standing context, forms, dynamic goals (glove-memory/goals; no separate glove-goals package) |
+| glove-classifier | classifier models (TypeSafe Jev, LLM-backed, cascades): typed noul/choice/score answers, agent tools, REPL/env/browser/Foundry integrations |
 | glove-facts | scoped evidence, revisions and reusable links; preparation through a supplied Glove agent |
 | glove-scratchpad | expose tools as a relational database driven by one execute_sql tool |
 | glove-sql | zero-dependency Postgres-subset SQL engine (scratchpad's default backend) |
@@ -736,6 +742,33 @@ const guarded = guardEffectFns(catalog, DEFAULT_EGRESS_POLICY, onBlock);
 
 Programs must end in a bounded decision; a per-session min-entropy bit budget
 caps cumulative disclosure.
+
+### glove-classifier — structured-decision models
+
+A classifier model does not generate text. It judges a state against typed questions:
+noul (yes/no → { noul: p }), choice (label → { choice, confidence, probabilities }),
+score (ordered rubric → { score, confidence, probabilities }). Adapter contract:
+ClassifierAdapter.classify({ state, questions }, { signal }) → { model, answers, usage }.
+
+import { jev, llmClassifier, cascade, noul, choice, score, gate } from "glove-classifier";
+jev() / typesafe(): TypeSafe System One. Reads TYPESAFE_API_KEY, defaults to model jev-latest,
+retries 408/429/5xx. llmClassifier({ model }) lets any ModelAdapter answer the same questions.
+cascade({ primary, fallback, threshold }) re-asks low-confidence answers. gate(answer, { act, review }) returns "act" | "review" | "escalate".
+
+Agents:
+- mountClassifier(glove, { classifier, classifiers?, presets?, sources?, prefix?, concurrency?, resultLimit? })
+  folds glove_classify, glove_classify_batch, glove_classify_source (host data the agent never reads;
+  only ids/labels/answers return) and glove_classify_catalog. It returns { addPreset, addSource, removePreset, removeSource, usage }.
+- where: { question, choice?, min?, max? }. noul matches when p ≥ min (default 0.5), choice when the label is chosen, score when within min/max.
+
+Code:
+- REPL: session.registerAll(classifierFns(jev())) exposes classifier.classify / many / is / pick / rate.
+  many({ items, questions, where }) runs a whole batch in parallel in one call.
+- Working environment: classifierEnv(jev()) from "glove-classifier/env" gives import { many } from 'env:classifier'.
+- Browser: withClassifier(browserAdapter, { classifier }) adds browser.judge({ sessionId, questions }).
+- Foundry: from "glove-classifier/foundry": classifierPredicate({ classifier, questions, where, state })
+  goes into defineTransmissionPredicate, and classifyInbound({ classifier, question, events, fallback, minConfidence })
+  is used as inbound.classify.
 
 ### glove-image
 

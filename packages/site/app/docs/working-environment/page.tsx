@@ -956,6 +956,17 @@ const nextConfig: NextConfig = {
       {/* ================================================================== */}
       {/* RELATED                                                            */}
       {/* ================================================================== */}
+      <h2 id="classifier">Classifiers in scripts</h2>
+      <p>
+        Add <code>classifierEnv(jev())</code> from{" "}
+        <code>glove-classifier/env</code> to <code>stdlib</code> and scripts can{" "}
+        <code>import &#123; many, is, pick &#125; from &apos;env:classifier&apos;</code>.
+        A script can judge every email in <code>/inbox</code> in one parallel call
+        and return the few that matter, so the agent reads three messages instead
+        of four hundred. The module ships a <code>classifier-triage</code> skill.
+        See <a href="/docs/classifier#code">Classifier Models</a>.
+      </p>
+
       <h2 id="related">Related</h2>
       <p>
         For a stateless-per-call surface over a fixed set of capabilities, see{" "}

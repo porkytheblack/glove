@@ -66,6 +66,15 @@ export default helpdesk;`} />
   },
 });`} />
 
+      <p>
+        To triage inbound events before any agent runs, use a classifier model.{" "}
+        <code>classifyInbound()</code> from <code>glove-classifier/foundry</code>{" "}
+        resolves which event an inbound message is, and{" "}
+        <code>classifierPredicate()</code> lets a playbook wake only when the
+        answers match (for example &ldquo;urgent with confidence 0.7&rdquo;).
+        See <a href="/docs/classifier#foundry">Classifier Models</a>.
+      </p>
+
       <h2 id="credentials">Credentials stay yours</h2>
       <div className="docs-note"><span className="docs-note-icon">◆</span><p>
         Foundry never performs OAuth, captures passwords, refreshes tokens, or chooses

@@ -20,6 +20,15 @@ export interface BlogPost {
 
 export const posts: BlogPost[] = [
   {
+    slug: "classifier-models",
+    title: "Classifier models in Glove: decide what matters without reading it",
+    summary:
+      "glove-classifier brings System One models like TypeSafe's Jev to agents, REPLs, working environments, browsers and Foundry. Typed judgements cut context use, run in parallel, and keep content behind an assertion-only boundary.",
+    date: "2026-09-25",
+    readingTime: 7,
+    tags: ["glove-classifier", "context", "privacy", "egress", "foundry"],
+  },
+  {
     slug: "agents-with-browsers-and-sandboxes",
     title: "Agents with browsers, sandboxes, and one managed daemon",
     summary: "How glove-execution extends the Glove family through capability mounts, and how Foundry hosts jobs and resource adapters on one Station.",

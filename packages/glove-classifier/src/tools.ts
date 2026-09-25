@@ -25,14 +25,15 @@ import type {
 
 type AnyZodObject = z.ZodObject<any, any>;
 
-const entrySchema = z.union([
+export const classifierEntrySchema = z.union([
   z.string(),
   z.record(z.string(), z.unknown()),
   z.array(z.unknown()),
 ]);
+const entrySchema = classifierEntrySchema;
 const descriptionSchema = entrySchema.nullable();
 
-const questionSchema = z.discriminatedUnion("type", [
+export const classifierQuestionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("noul"),
     instructions: descriptionSchema.describe("The yes/no question."),
@@ -64,7 +65,7 @@ export const classifyToolInputSchema = z.object({
     "The content every question is judged against: text, or a JSON object/array with named fields.",
   ),
   questions: z
-    .record(z.string(), questionSchema)
+    .record(z.string(), classifierQuestionSchema)
     .describe("Questions keyed by an id you choose; answers come back under the same ids."),
 });
 
@@ -148,7 +149,7 @@ export function defineClassifierTool<
   };
 }
 
-async function runClassify<Q extends Questions>(
+export async function runClassify<Q extends Questions>(
   classifier: ClassifierAdapter,
   state: Entry,
   questions: Q,
