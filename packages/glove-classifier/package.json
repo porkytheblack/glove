@@ -1,7 +1,7 @@
 {
   "name": "glove-classifier",
-  "version": "0.0.0",
-  "description": "Structured-decision (classifier) models for the Glove agent framework \u2014 TypeSafe's Jev, open System One models (Kev, Laya, Von, Rizzo, Decider), zero-shot label scorers, an LLM fallback, confidence-gated cascades, and agent/REPL/browser/Foundry integrations.",
+  "version": "0.1.0",
+  "description": "Structured-decision (classifier) models for the Glove agent framework — TypeSafe's Jev, open System One models (Kev, Laya, Von, Rizzo, Decider), zero-shot label scorers, an LLM fallback, confidence-gated cascades, and agent/REPL/browser/Foundry integrations.",
   "type": "module",
   "license": "MIT",
   "repository": {

@@ -1,5 +1,13 @@
 # glove-core
 
+## 4.3.0
+
+### Minor Changes
+
+- [#186](https://github.com/porkytheblack/glove/pull/186) [`109e40d`](https://github.com/porkytheblack/glove/commit/109e40dddafe3bfe1ac2dd113ca325f440613ad8) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Add the Vercel AI Gateway as a built-in provider. `createAdapter({ provider: "vercel", model: "anthropic/claude-sonnet-4" })` and `createChatHandler({ provider: "vercel" })` route through `https://ai-gateway.vercel.sh/v1` using `AI_GATEWAY_API_KEY`. Inside a Vercel deployment they fall back to the `VERCEL_OIDC_TOKEN` that Vercel injects. With `cache` enabled, `cache_control` breakpoints are placed at the message level, the shape the gateway documents, so they reach Anthropic models upstream.
+
+  `ProviderDef` gains an optional `fallbackEnvVars` list, and the new `resolveProviderApiKey(def)` helper reads `envVar` first, then each fallback in order.
+
 ## 4.2.0
 
 ### Minor Changes

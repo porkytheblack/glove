@@ -1,5 +1,14 @@
 # glove-server-voice
 
+## 1.0.7
+
+### Patch Changes
+
+- Updated dependencies [[`109e40d`](https://github.com/porkytheblack/glove/commit/109e40dddafe3bfe1ac2dd113ca325f440613ad8)]:
+  - glove-core@4.3.0
+  - glove-mesh@0.1.7
+  - glove-voice@3.6.6
+
 ## 1.0.6
 
 ### Patch Changes

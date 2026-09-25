@@ -1,5 +1,14 @@
 # glove-video-studio
 
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [[`109e40d`](https://github.com/porkytheblack/glove/commit/109e40dddafe3bfe1ac2dd113ca325f440613ad8)]:
+  - glove-core@4.3.0
+  - glove-image@0.2.5
+  - glove-video@0.1.6
+
 ## 0.1.5
 
 ### Patch Changes
