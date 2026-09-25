@@ -131,6 +131,20 @@ const icons: Record<string, ReactNode> = {
       <path d="M2.8 7.5v-2a2 2 0 0 1 2-2h2M21.2 7.5v-2a2 2 0 0 0-2-2h-2" opacity=".6" />
     </svg>
   ),
+  browser: (
+    <svg {...iconProps}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 8.5h18M6.5 6.3h.01M9.5 6.3h.01" opacity=".65" />
+      <path d="m10 11 6 3-2.5 1-1 2.5z" />
+    </svg>
+  ),
+  daemon: (
+    <svg {...iconProps}>
+      <rect x="4" y="3" width="16" height="7" rx="2" />
+      <rect x="4" y="14" width="16" height="7" rx="2" />
+      <path d="M8 6.5h.01M8 17.5h.01M12 6.5h4M12 17.5h4M12 10v4" />
+    </svg>
+  ),
   sandbox: (
     <svg {...iconProps}>
       <path d="M3.5 7.5a2 2 0 0 1 2-2h3.2l1.6 2h8.2a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />
@@ -173,6 +187,7 @@ type Cap = {
 };
 
 type CapGroup = {
+  id?: string;
   cat: string;
   name: string;
   line: string;
@@ -224,6 +239,62 @@ const capabilityGroups: CapGroup[] = [
             outcomes without exposing private chain-of-thought.
           </>
         ),
+      },
+    ],
+  },
+  {
+    id: "browsers-and-sandboxes",
+    cat: "var(--accent)",
+    name: "Browsers & Sandboxes",
+    line: "Mount the ability to browse, build, and run",
+    caps: [
+      {
+        icon: "browser",
+        kicker: "glove-execution · mountBrowser",
+        name: "Browser Use",
+        href: "/docs/execution#workflow",
+        badge: "new",
+        desc: (
+          <>
+            Open websites, inspect pages, click, type, and take screenshots.
+            Compose browser actions and page evaluation in one script through{" "}
+            <code>mountBrowser</code>. Keep the agent&apos;s model and choose
+            the backend through an adapter.
+          </>
+        ),
+        meta: "Station backend · native screenshots · scoped sessions",
+      },
+      {
+        icon: "ship",
+        kicker: "glove-execution · mountSandbox",
+        name: "Sandboxes",
+        href: "/docs/execution#mount",
+        badge: "new",
+        desc: (
+          <>
+            Give an agent a place to write code, execute commands, and start
+            servers. <code>mountSandbox</code> exposes files, processes, and
+            services through a scriptable adapter. Choose which workspaces
+            and services persist across runs.
+          </>
+        ),
+        meta: "Files · commands · long-running services",
+      },
+      {
+        icon: "daemon",
+        kicker: "Foundry · Station 3",
+        name: "Managed Execution",
+        href: "/docs/execution#foundry",
+        badge: "new",
+        desc: (
+          <>
+            Start Foundry and it starts its Station daemon. Run agent jobs and
+            optional browser and sandbox providers on that same instance.
+            Foundry owns startup and shutdown; each agent receives access
+            through explicit mounts.
+          </>
+        ),
+        meta: "One managed daemon · optional resource adapters",
       },
     ],
   },
@@ -568,8 +639,8 @@ export default function LandingPage() {
         <p className="hero-sub">
           Glove is the open-source TypeScript stack for{" "}
           <strong>AI-powered applications</strong>: models, tools, memory, voice,
-          media, UI, and working environments. Foundry composes those
-          capabilities into typed, observable systems that respond to events,
+          media, UI, browser use, sandboxes, and working environments. Foundry
+          composes those capabilities into typed, observable systems that respond to events,
           work together, and keep going.
         </p>
         <div className="hero-pills">
@@ -579,6 +650,7 @@ export default function LandingPage() {
             "Memory",
             "Inbox",
             "Scratchpad",
+            "Browser Use",
             "Sandboxes",
             "Code Execution",
             "Classifiers",
@@ -692,14 +764,14 @@ export default function LandingPage() {
         </h2>
         <p className="section-desc">
           Glove provides the capabilities agents need to do real work: interfaces,
-          memory, media, computation, integrations, and coordination. Adopt any
-          package on its own, or use Foundry to compose them into a complete,
+          memory, media, browser use, sandboxes, computation, integrations, and
+          coordination. Adopt any package on its own, or use Foundry to compose them into a complete,
           persistent application.
         </p>
 
         {capabilityGroups.map((group) => (
           <RevealOnScroll key={group.name}>
-            <div className="cap-group" style={{ ["--cat" as string]: group.cat } as CSSProperties}>
+            <div id={group.id} className="cap-group" style={{ ["--cat" as string]: group.cat } as CSSProperties}>
               <div className="cap-group-head">
                 <span className="cap-group-dot" />
                 <span className="cap-group-name">{group.name}</span>
