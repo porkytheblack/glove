@@ -1,6 +1,6 @@
 {
   "name": "glove-classifier-inbox-example",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "Classifier models on a labelled support inbox: Jev vs an LLM, and agents that read vs classify.",

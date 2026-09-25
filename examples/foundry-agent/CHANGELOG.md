@@ -1,5 +1,16 @@
 # glove-foundry-example
 
+## 1.0.7
+
+### Patch Changes
+
+- Updated dependencies [[`109e40d`](https://github.com/porkytheblack/glove/commit/109e40dddafe3bfe1ac2dd113ca325f440613ad8)]:
+  - glove-core@4.3.0
+  - glove-foundry@0.5.1
+  - glove-js@0.5.2
+  - glove-memory@2.2.2
+  - glove-working-environment@0.7.0
+
 ## 1.0.6
 
 ### Patch Changes

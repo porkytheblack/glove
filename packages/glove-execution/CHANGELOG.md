@@ -1,5 +1,13 @@
 # glove-execution
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [[`109e40d`](https://github.com/porkytheblack/glove/commit/109e40dddafe3bfe1ac2dd113ca325f440613ad8)]:
+  - glove-core@4.3.0
+  - glove-js@0.5.2
+
 ## 0.2.0
 
 ### Minor Changes
