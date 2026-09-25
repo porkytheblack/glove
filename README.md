@@ -61,6 +61,7 @@ Read the [Foundry handbook](https://glove.dterminal.net/foundry/docs) or run the
 | [`glove-video`](packages/glove-video) | Agentic video production — OpenRouter and custom adapters, temporal prompt pipelines, actual-video review/revision/delivery gates, durable continuity libraries, generation/extension/transformation, resumable multi-shot flows, progress and cost tracking | — |
 | [`glove-memory`](packages/glove-memory) | Memory layer — entity / episodic / resources / context primitives, schema-first, BYO storage | [![npm](https://img.shields.io/npm/v/glove-memory)](https://www.npmjs.com/package/glove-memory) |
 | [`glove-facts`](packages/glove-facts) | Shared evidence, revisioned facts and model preparation for goals and forms | [![npm](https://img.shields.io/npm/v/glove-facts)](https://www.npmjs.com/package/glove-facts) |
+| [`glove-classifier`](packages/glove-classifier) | Structured-decision (classifier) models: TypeSafe's Jev or any classifier behind one adapter, with typed noul/choice/score answers, an LLM fallback, confidence-gated cascades and agent tools | [![npm](https://img.shields.io/npm/v/glove-classifier)](https://www.npmjs.com/package/glove-classifier) |
 | [`glove-mesh`](packages/glove-mesh) | Inter-agent mesh networking — direct/broadcast/ack messaging on top of the inbox primitive, BYO transport | [![npm](https://img.shields.io/npm/v/glove-mesh)](https://www.npmjs.com/package/glove-mesh) |
 | [`glove-foundry`](packages/glove-foundry) | Effect-native agent application framework — filename-owned, agent-colocated headless composition; separate runtime identities and multi-conversation state; message-aware lazy Glove assembly; application-owned transmissions and instance-owned playbooks/installations; installable tools, applications, and MCP plus definition-owned lazy memory and inboxes; native mesh; shared workspace/inbox/tasks/environment primitives; schedules, ingress connections, core orchestration tools, ESLint guardrails, and a correlated observability workbench | — |
 | [`glove-scratchpad`](packages/glove-scratchpad) | A database emulator for LLM tool use — expose an agent's capabilities as a relational database it queries with one `execute_sql` tool. Resources become tables, `WHERE` pushes arguments down, `information_schema` is discovery, transactions stage outbound effects, and every statement is parsed before any tool runs; default backend is `glove-sql` | [![npm](https://img.shields.io/npm/v/glove-scratchpad)](https://www.npmjs.com/package/glove-scratchpad) |
@@ -258,6 +259,7 @@ Glove supports multiple providers through a unified adapter interface:
 | `openai` | `OPENAI_API_KEY` | `gpt-4.1` |
 | `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
 | `openrouter` | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4` |
+| `vercel` | `AI_GATEWAY_API_KEY` (or `VERCEL_OIDC_TOKEN`) | `anthropic/claude-sonnet-4` |
 | `gemini` | `GEMINI_API_KEY` | `gemini-2.5-flash` |
 | `minimax` | `MINIMAX_API_KEY` | `MiniMax-M2.5` |
 | `kimi` | `MOONSHOT_API_KEY` | `kimi-k2.5` |

@@ -148,6 +148,12 @@ const icons: Record<string, ReactNode> = {
       <path d="M9.3 12.2l1.9 1.9 3.6-3.7" opacity=".75" />
     </svg>
   ),
+  classifier: (
+    <svg {...iconProps}>
+      <path d="M4 5h16l-6 7v6.5l-4 1.5V12z" />
+      <path d="M17.5 16.5l1.5 1.5 2.5-3" opacity=".75" />
+    </svg>
+  ),
   ship: (
     <svg {...iconProps}>
       <path d="M12 3 20.5 7.5v9L12 21l-8.5-4.5v-9z" />
@@ -184,7 +190,6 @@ const capabilityGroups: CapGroup[] = [
         kicker: "Framework for agent systems",
         name: "Glove Foundry",
         href: "/foundry",
-        badge: "new",
         desc: (
           <>
             Define what an agent can be in file-routed TypeScript. Foundry
@@ -259,7 +264,6 @@ const capabilityGroups: CapGroup[] = [
         kicker: "Realtime & avatars",
         name: "Speech-to-Speech",
         href: "/docs/realtime-voice",
-        badge: "new",
         desc: (
           <>
             Run the same agent on a realtime model — 500–800ms voice-to-voice,
@@ -280,7 +284,6 @@ const capabilityGroups: CapGroup[] = [
         kicker: "Agentic image generation",
         name: "Image Workflows",
         href: "/docs/image",
-        badge: "new",
         desc: (
           <>
             Prompts are <em>built</em> by a pipeline, not typed — durable
@@ -296,7 +299,6 @@ const capabilityGroups: CapGroup[] = [
         kicker: "Worked examples",
         name: "Image Gallery",
         href: "/docs/image/gallery",
-        badge: "new",
         desc: (
           <>
             A campaign shot in one scripted run: one model and one product held
@@ -312,7 +314,6 @@ const capabilityGroups: CapGroup[] = [
         kicker: "Agentic video direction",
         name: "Video Workflows",
         href: "/docs/video",
-        badge: "new",
         desc: (
           <>
             Give the agent continuity libraries, timed beats, first-frame
@@ -327,7 +328,6 @@ const capabilityGroups: CapGroup[] = [
         kicker: "Recorded production run",
         name: "Video Gallery",
         href: "/docs/video/gallery",
-        badge: "new",
         desc: (
           <>
             One brief becomes a keyframe, continuity definitions, a timed
@@ -396,7 +396,6 @@ const capabilityGroups: CapGroup[] = [
         kicker: "Sandboxed filesystem",
         name: "Working Environment",
         href: "/docs/working-environment",
-        badge: "new",
         desc: (
           <>
             A persistent virtual filesystem the agent works in — writes scripts,
@@ -411,7 +410,6 @@ const capabilityGroups: CapGroup[] = [
         kicker: "One eval tool",
         name: "Code Execution",
         href: "/docs/code-execution",
-        badge: "new",
         desc: (
           <>
             Fifty tool definitions become one sandboxed REPL — JavaScript,
@@ -433,6 +431,22 @@ const capabilityGroups: CapGroup[] = [
             meter reports exactly what crossed.
           </>
         ),
+      },
+      {
+        icon: "classifier",
+        kicker: "Judge, don't read",
+        name: "Classifier Models",
+        href: "/docs/classifier",
+        badge: "new",
+        desc: (
+          <>
+            Typed yes/no, choice and score answers from TypeSafe&apos;s Jev
+            or open models you host (Kev, Laya, Von…), with confidence. Triage an inbox, a
+            page or an inbound event in one parallel pass, and only the answers
+            reach the agent.
+          </>
+        ),
+        meta: "Tools, REPLs, working environments, browsers, Foundry",
       },
     ],
   },
@@ -541,10 +555,10 @@ export default function LandingPage() {
     <main>
       {/* ── Hero ────────────────────────────────────────────────── */}
       <section className="hero">
-        <a className="hero-badge" href="/foundry">
+        <a className="hero-badge" href="/blog/classifier-models">
           <span className="dot" />
           <span>
-            <strong>Introducing Glove Foundry</strong> — the application framework for agent systems
+            <strong>New: classifier models</strong> — decide what matters without reading it
           </span>
         </a>
         <GloveLogo className="hero-icon" />
@@ -567,6 +581,7 @@ export default function LandingPage() {
             "Scratchpad",
             "Sandboxes",
             "Code Execution",
+            "Classifiers",
             "Mesh",
             "Voice",
             "Avatars",

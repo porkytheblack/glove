@@ -131,6 +131,16 @@ export default function PackagesPage() {
             </td>
           </tr>
           <tr>
+            <td>Decisions</td>
+            <td>
+              <code>glove-classifier</code>
+            </td>
+            <td>
+              Code or the agent needs fast, calibrated, typed judgements —
+              routing, triage, scoring, guardrails — rather than generated text.
+            </td>
+          </tr>
+          <tr>
             <td>Coordination</td>
             <td>
               <code>glove-mesh</code>, <code>glove-continuum-signal</code>
@@ -1023,6 +1033,52 @@ await mountVideo(glove, {
         <p>
           → <a href="/docs/video">Video workflows guide</a> ·{" "}
           <a href="/docs/video/gallery">agent-directed case study</a>
+        </p>
+      </Pkg>
+
+      {/* ============================================================ */}
+      <h2 id="decisions">Decisions</h2>
+
+      <Pkg name="glove-classifier" tag="structured-decision models">
+        <p>
+          Classifier models don&apos;t write text: they take a state and typed
+          questions — <code>noul</code> (yes/no), <code>choice</code>,{" "}
+          <code>score</code> — and return typed answers with probabilities and
+          confidence. Ships TypeSafe&apos;s Jev, an LLM-backed classifier over
+          any <code>ModelAdapter</code>, a confidence-gated cascade between the
+          two, agent tools, and integrations for the REPLs, working
+          environments, browsers and Foundry transmissions, so agents can
+          triage data without reading it.
+        </p>
+        <CodeBlock
+          filename="terminal"
+          language="bash"
+          code={`pnpm add glove-classifier`}
+        />
+        <CodeBlock
+          filename="classify.ts"
+          language="typescript"
+          code={`import { jev, choice, noul, gate, mountClassifier, classifierFns } from "glove-classifier";
+
+const model = jev();                          // TYPESAFE_API_KEY, jev-latest
+
+const { answers } = await model.classify({
+  state: ticket,
+  questions: {
+    team: choice("Which team should handle this?", ["billing", "technical", "sales"]),
+    urgent: noul("Does this convey urgency?"),
+  },
+});
+if (gate(answers.team) === "act") route(answers.team.choice);
+
+// The full toolset: classify, batch, sources the agent never reads, presets, catalog
+mountClassifier(glove, { classifier: model, sources: { inbox: { description: "Unread mail", load } } });
+
+// In code: classifier.many({ items, questions, where }) in the REPLs, env:classifier in scripts
+session.registerAll(classifierFns(model));`}
+        />
+        <p>
+          → <a href="/docs/classifier">Classifier models guide</a>
         </p>
       </Pkg>
 

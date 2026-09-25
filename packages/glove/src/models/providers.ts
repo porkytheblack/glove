@@ -15,6 +15,12 @@ export interface ProviderDef {
   name: string;
   baseURL: string;
   envVar: string;
+  /**
+   * Env vars consulted, in order, when `envVar` is unset. Used for credentials
+   * a platform injects under its own name (e.g. Vercel's `VERCEL_OIDC_TOKEN`,
+   * which authenticates the AI Gateway from inside a Vercel deployment).
+   */
+  fallbackEnvVars?: string[];
   defaultModel: string;
   models: string[];
   /** "anthropic" uses the Anthropic SDK; "openai" uses the OpenAI-compat adapter; "bedrock" uses the AWS Bedrock adapter; "mimo" uses the Xiaomi MiMo adapter (OpenAI-compat wire format + reasoning_content round-trip). */
@@ -41,6 +47,29 @@ export const providers: Record<string, ProviderDef> = {
       "minimax/minimax-m2.5",
       "moonshotai/kimi-k2.5",
       "z-ai/glm-5",
+    ],
+    format: "openai",
+    defaultMaxTokens: 8192,
+  },
+  vercel: {
+    id: "vercel",
+    name: "Vercel AI Gateway",
+    baseURL: "https://ai-gateway.vercel.sh/v1",
+    envVar: "AI_GATEWAY_API_KEY",
+    fallbackEnvVars: ["VERCEL_OIDC_TOKEN"],
+    defaultModel: "anthropic/claude-sonnet-4",
+    models: [
+      "anthropic/claude-sonnet-4",
+      "anthropic/claude-sonnet-5",
+      "anthropic/claude-opus-5",
+      "openai/gpt-5.6-sol",
+      "openai/gpt-4.1",
+      "openai/gpt-4.1-mini",
+      "google/gemini-3.6-flash",
+      "google/gemini-2.5-pro",
+      "minimax/minimax-m2.5",
+      "moonshotai/kimi-k2.5",
+      "zai/glm-5",
     ],
     format: "openai",
     defaultMaxTokens: 8192,
@@ -260,8 +289,8 @@ export interface CreateAdapterOptions {
    * - **bedrock**: `cachePoint` checkpoints after the tools, after the system
    *   prompt, and on the latest turn (cache-capable models only; `ttl` maps
    *   onto Bedrock's `CacheTTL`).
-   * - **openrouter**: `cache_control` breakpoints forwarded to the upstream
-   *   Anthropic / Gemini model.
+   * - **openrouter** / **vercel**: `cache_control` breakpoints forwarded to the
+   *   upstream Anthropic / Gemini model.
    * - **openai / gemini / minimax / kimi / glm / mimo / …**: these providers
    *   cache automatically; enabling has no request-side effect, but the
    *   adapters always report any provider `cached_tokens` on
@@ -285,9 +314,7 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
     );
   }
 
-  const apiKey =
-    opts.apiKey ??
-    (providerDef.envVar ? process.env[providerDef.envVar] : undefined);
+  const apiKey = opts.apiKey ?? resolveProviderApiKey(providerDef);
   const maxTokens = opts.maxTokens ?? providerDef.defaultMaxTokens;
   const stream = opts.stream ?? true;
 
@@ -387,6 +414,20 @@ export function createAdapter(opts: CreateAdapterOptions): ModelAdapter {
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
+/**
+ * Read a provider's API key from the environment: `envVar` first, then each of
+ * `fallbackEnvVars` in order. Returns undefined when none is set.
+ */
+export function resolveProviderApiKey(
+  providerDef: Pick<ProviderDef, "envVar" | "fallbackEnvVars">,
+): string | undefined {
+  for (const name of [providerDef.envVar, ...(providerDef.fallbackEnvVars ?? [])]) {
+    const value = name ? process.env[name] : undefined;
+    if (value) return value;
+  }
+  return undefined;
+}
+
 /** List providers with available API keys (based on env vars) */
 export function getAvailableProviders(): Array<{
   id: string;
@@ -398,7 +439,7 @@ export function getAvailableProviders(): Array<{
   return Object.values(providers).map((p) => ({
     id: p.id,
     name: p.name,
-    available: p.requiresApiKey === false || !!process.env[p.envVar],
+    available: p.requiresApiKey === false || !!resolveProviderApiKey(p),
     models: p.models,
     defaultModel: p.defaultModel,
   }));

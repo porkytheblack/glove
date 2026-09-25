@@ -138,7 +138,7 @@ export const POST = createChatHandler({
           [
             "provider",
             "string",
-            'The provider ID. Required. One of: "openai", "anthropic", "openrouter", "gemini", "minimax", "kimi", "glm", "mimo", "ollama", "lmstudio", "bedrock".',
+            'The provider ID. Required. One of: "openai", "anthropic", "openrouter", "vercel", "gemini", "minimax", "kimi", "glm", "mimo", "ollama", "lmstudio", "bedrock".',
           ],
           [
             "model?",
@@ -195,6 +195,7 @@ export const POST = createChatHandler({
           ["openai", "openai", "gpt-4o"],
           ["anthropic", "anthropic", "claude-sonnet-4-20250514"],
           ["openrouter", "openai", "openai/gpt-4o"],
+          ["vercel", "openai", "anthropic/claude-sonnet-4"],
           ["gemini", "openai", "gemini-2.0-flash"],
           ["minimax", "openai", "MiniMax-Text-01"],
           ["kimi", "openai", "moonshot-v1-auto"],
@@ -229,6 +230,7 @@ export const POST = createChatHandler({
           ["openai", "OPENAI_API_KEY", "OpenAI API key."],
           ["anthropic", "ANTHROPIC_API_KEY", "Anthropic API key."],
           ["openrouter", "OPENROUTER_API_KEY", "OpenRouter API key."],
+          ["vercel", "AI_GATEWAY_API_KEY", "Vercel AI Gateway API key. Falls back to VERCEL_OIDC_TOKEN, which Vercel injects into deployments."],
           ["gemini", "GEMINI_API_KEY", "Google Gemini API key."],
           ["minimax", "MINIMAX_API_KEY", "MiniMax API key."],
           ["kimi", "MOONSHOT_API_KEY", "Moonshot (Kimi) API key."],

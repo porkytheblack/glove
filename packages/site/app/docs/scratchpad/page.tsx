@@ -620,6 +620,14 @@ mountDatabase(glove, { db, prime?, explain?, allowWrites? });`}
         The query engine lives in <code>glove-sql</code> — a standalone,
         zero-dependency Postgres-subset engine you can use on its own.
       </p>
+      <p>
+        For judgements over the rows a program pulls, such as whether a ticket
+        is urgent or which team should take it, register{" "}
+        <code>classifierFns()</code> from{" "}
+        <a href="/docs/classifier">glove-classifier</a> in the catalog. A
+        classifier answers inside the program, and only the answers reach the
+        planner. <code>defineModelFn</code> still covers free-text delegates.
+      </p>
     </div>
   );
 }

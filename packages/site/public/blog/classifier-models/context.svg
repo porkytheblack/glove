@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="t d">
+<title id="t">Read the inbox, or classify it where it lives</title>
+<desc id="d">Left: the agent reads 80 emails, 24,455 tokens enter its context, including a customer's account number. Right: a classifier judges the 80 emails where they live and the agent receives ids, subjects and answers: 3,705 tokens, no customer data.</desc>
+<defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 8 4 0 8" fill="none" stroke="#0b6d70" stroke-width="1.5"/></marker>
+<marker id="g" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 8 4 0 8" fill="none" stroke="#8a9aab" stroke-width="1.5"/></marker></defs>
+<rect width="1200" height="560" rx="18" fill="#edf4fa"/>
+<g font-family="Arial,sans-serif" fill="#142a42">
+<text x="40" y="44" font-size="14" letter-spacing="2">SAME QUESTION · "WHICH MESSAGES ASK FOR A REFUND? HOW MANY ARE URGENT?"</text>
+<!-- left -->
+<rect x="40" y="70" width="545" height="450" rx="14" fill="#fff" stroke="#cad9e6"/>
+<text x="68" y="110" font-size="22">Read the inbox</text>
+<text x="68" y="136" font-size="15" fill="#65788a">read_inbox() → every message into the agent's context</text>
+<g><rect x="68" y="165" width="150" height="190" rx="10" fill="#f4f7fa" stroke="#cad9e6"/>
+<text x="143" y="200" font-size="15" text-anchor="middle">Inbox</text>
+<g fill="#cad9e6"><rect x="88" y="215" width="110" height="8" rx="2"/><rect x="88" y="231" width="110" height="8" rx="2"/><rect x="88" y="247" width="110" height="8" rx="2"/><rect x="88" y="263" width="110" height="8" rx="2"/><rect x="88" y="279" width="110" height="8" rx="2"/><rect x="88" y="295" width="110" height="8" rx="2"/></g>
+<text x="143" y="335" font-size="13" text-anchor="middle" fill="#65788a">80 emails</text></g>
+<path d="M226 260H330" stroke="#8a9aab" stroke-width="2" marker-end="url(#g)"/>
+<text x="278" y="248" font-size="13" text-anchor="middle" fill="#65788a">everything</text>
+<rect x="338" y="165" width="220" height="190" rx="10" fill="#fff" stroke="#142a42" stroke-width="1.5"/>
+<text x="448" y="200" font-size="15" text-anchor="middle">Agent context</text>
+<g fill="#b9c7d4"><rect x="358" y="215" width="180" height="8" rx="2"/><rect x="358" y="229" width="180" height="8" rx="2"/><rect x="358" y="243" width="180" height="8" rx="2"/><rect x="358" y="257" width="180" height="8" rx="2"/><rect x="358" y="271" width="180" height="8" rx="2"/><rect x="358" y="285" width="180" height="8" rx="2"/><rect x="358" y="299" width="180" height="8" rx="2"/></g>
+<text x="448" y="335" font-size="13" text-anchor="middle" fill="#65788a">signatures, quoted threads, footers…</text>
+<text x="68" y="400" font-size="30">24,455 tokens</text>
+<text x="68" y="428" font-size="15" fill="#65788a">in the agent's context, every run</text>
+<text x="68" y="470" font-size="15">Refund F1 0.93 · urgent count off by 3.7</text>
+<text x="68" y="496" font-size="15">✕ customer account number seen in 3 of 3 runs</text>
+<!-- right -->
+<rect x="615" y="70" width="545" height="450" rx="14" fill="#e7f5f1" stroke="#0b6d70"/>
+<text x="643" y="110" font-size="22">Classify where it lives</text>
+<text x="643" y="136" font-size="15" fill="#65788a">glove_classify_source → only ids, subjects, answers</text>
+<rect x="643" y="165" width="130" height="190" rx="10" fill="#fff" stroke="#cad9e6"/>
+<text x="708" y="200" font-size="15" text-anchor="middle">Inbox</text>
+<g fill="#cad9e6"><rect x="660" y="215" width="96" height="8" rx="2"/><rect x="660" y="231" width="96" height="8" rx="2"/><rect x="660" y="247" width="96" height="8" rx="2"/><rect x="660" y="263" width="96" height="8" rx="2"/><rect x="660" y="279" width="96" height="8" rx="2"/><rect x="660" y="295" width="96" height="8" rx="2"/></g>
+<text x="708" y="335" font-size="13" text-anchor="middle" fill="#65788a">stays with the host</text>
+<path d="M781 260H812" stroke="#0b6d70" stroke-width="2" marker-end="url(#a)"/>
+<rect x="818" y="205" width="118" height="110" rx="10" fill="#fff" stroke="#0b6d70" stroke-width="1.5"/>
+<text x="877" y="245" font-size="15" text-anchor="middle">Classifier</text>
+<text x="877" y="268" font-size="13" text-anchor="middle" fill="#65788a">Jev · 80 judged</text>
+<text x="877" y="290" font-size="13" text-anchor="middle" fill="#65788a">in parallel</text>
+<path d="M944 260H975" stroke="#0b6d70" stroke-width="2" marker-end="url(#a)"/>
+<rect x="981" y="205" width="152" height="110" rx="10" fill="#fff" stroke="#142a42" stroke-width="1.5"/>
+<text x="1057" y="237" font-size="15" text-anchor="middle">Agent context</text>
+<text x="1057" y="262" font-size="12" text-anchor="middle" font-family="Menlo,monospace" fill="#0b6d70">em-002 refund ✓</text>
+<text x="1057" y="280" font-size="12" text-anchor="middle" font-family="Menlo,monospace" fill="#0b6d70">       urgent ✓</text>
+<text x="1057" y="298" font-size="12" text-anchor="middle" font-family="Menlo,monospace" fill="#65788a">… 24 rows</text>
+<text x="643" y="400" font-size="30">3,705 tokens</text>
+<text x="643" y="428" font-size="15" fill="#65788a">in the agent's context (−85%)</text>
+<text x="643" y="470" font-size="15">Refund F1 1.00 · urgent count exact</text>
+<text x="643" y="496" font-size="15">✓ customer data never reached the agent (0 of 3)</text>
+</g>
+<text x="40" y="548" font-family="Arial,sans-serif" font-size="12" fill="#65788a">gpt-4.1-mini agent, 3 runs per arm, labelled 80-message inbox. examples/classifier-inbox.</text>
+</svg>

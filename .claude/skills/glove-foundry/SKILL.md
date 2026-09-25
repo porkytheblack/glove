@@ -72,6 +72,8 @@ Common lazy fields include model, system prompt, tools, memory, inboxes, layers,
 
 An application may own multiple inbound and outbound transmissions. Outbound transmissions become validated tools only when the application is installed. Transmission definitions own authentication, normalization, classification, predicates, serialization, and delivery behavior; playbooks remain data-oriented policy.
 
+To triage inbound events with a classifier model (TypeSafe Jev, or any `ClassifierAdapter`) before an agent starts, use `glove-classifier/foundry`. `classifyInbound({ classifier, question: choice(...), events, fallback, minConfidence, state })` is the transmission's `inbound.classify`. `defineTransmissionPredicate(classifierPredicate({ classifier, questions, where, state }))` lets a playbook match only when the answers satisfy `where`; playbook predicate parameters `{ min, max, choice, where }` override the thresholds. Both return Effects that fail with `ClassifierError`.
+
 Connections are colocated with their application and receive the narrow Foundry connection context. Keep backend concepts such as Station networks, beacons, signals, or worker topology out of public agent definitions, client types, manifests, and inspector language. Expose only purpose-built agent-system concepts such as inbound connections, activations, scheduled work, and runs.
 
 Foundry never acquires, refreshes, or stores credential material. Account records contain safe metadata and opaque access references. The consumer's account-session/provider adapter owns credential lookup and refresh. Never copy secrets into instance data, manifests, prompts, telemetry, or inspector payloads.
