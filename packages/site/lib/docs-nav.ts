@@ -97,6 +97,14 @@ export const docsSections: DocsNavSection[] = [
         packages: ["glove-core"],
       },
       {
+        label: "Classifier Models",
+        href: "/docs/classifier",
+        badge: "new",
+        summary:
+          "Fast, calibrated typed decisions — TypeSafe's Jev or any classifier — as agent tools, with an LLM fallback and confidence-gated cascades.",
+        packages: ["glove-classifier"],
+      },
+      {
         label: "Server-Side Agents",
         href: "/docs/server-side",
         summary:

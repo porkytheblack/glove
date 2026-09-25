@@ -1,0 +1,65 @@
+{
+  "name": "glove-classifier",
+  "version": "0.0.0",
+  "description": "Structured-decision (classifier) models for the Glove agent framework — TypeSafe's Jev and any System One-style classifier behind one adapter, with an LLM fallback, confidence-gated cascades, and agent tools.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-classifier"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "keywords": [
+    "glove",
+    "classifier",
+    "typesafe",
+    "jev",
+    "system-one",
+    "llm",
+    "agents"
+  ],
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./typesafe": {
+      "types": "./dist/typesafe.d.ts",
+      "import": "./dist/typesafe.js"
+    },
+    "./llm": {
+      "types": "./dist/llm.d.ts",
+      "import": "./dist/llm.js"
+    },
+    "./cascade": {
+      "types": "./dist/cascade.d.ts",
+      "import": "./dist/cascade.js"
+    },
+    "./tools": {
+      "types": "./dist/tools.d.ts",
+      "import": "./dist/tools.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "dependencies": {
+    "glove-core": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}

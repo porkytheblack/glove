@@ -2268,7 +2268,7 @@ const available = getAvailableProviders();
           [
             "provider",
             "string",
-            "Provider ID. One of: openai, anthropic, openrouter, gemini, minimax, kimi, glm, mimo, ollama, lmstudio, bedrock.",
+            "Provider ID. One of: openai, anthropic, openrouter, vercel, gemini, minimax, kimi, glm, mimo, ollama, lmstudio, bedrock.",
           ],
           [
             "model?",
@@ -2318,7 +2318,7 @@ const available = getAvailableProviders();
           [
             "cache?",
             "boolean | PromptCacheOptions",
-            'Prompt caching. Pass true for sensible defaults or { ttl: "5m" | "1h" } to tune the lifetime. Anthropic / anthropic-compat place cache_control breakpoints on the tools + system prefix and the latest turn; Bedrock inserts cachePoint checkpoints; OpenRouter forwards cache_control upstream. openai/gemini/minimax/kimi/glm/mimo/ollama/lmstudio cache automatically (no request-side effect). Defaults to off.',
+            'Prompt caching. Pass true for sensible defaults or { ttl: "5m" | "1h" } to tune the lifetime. Anthropic / anthropic-compat place cache_control breakpoints on the tools + system prefix and the latest turn; Bedrock inserts cachePoint checkpoints; OpenRouter and the Vercel AI Gateway forward cache_control upstream. openai/gemini/minimax/kimi/glm/mimo/ollama/lmstudio cache automatically (no request-side effect). Defaults to off.',
           ],
         ]}
       />
@@ -2424,8 +2424,9 @@ createAdapter({ provider: "anthropic", cache: { ttl: "1h" } });`}
           Bedrock&apos;s <code>CacheTTL</code>.
         </li>
         <li>
-          <strong>openrouter</strong> — <code>cache_control</code> breakpoints
-          forwarded to the upstream Anthropic / Gemini model.
+          <strong>openrouter</strong> / <strong>vercel</strong> —{" "}
+          <code>cache_control</code> breakpoints forwarded to the upstream
+          Anthropic / Gemini model.
         </li>
         <li>
           <strong>openai / gemini / minimax / kimi / glm / mimo / ollama /
@@ -2540,6 +2541,7 @@ const total = await store.getTokenConsumption?.();`}
           ["openai", "OPENAI_API_KEY", "gpt-4.1"],
           ["anthropic", "ANTHROPIC_API_KEY", "claude-sonnet-4-20250514"],
           ["openrouter", "OPENROUTER_API_KEY", "anthropic/claude-sonnet-4"],
+          ["vercel", "AI_GATEWAY_API_KEY (or VERCEL_OIDC_TOKEN)", "anthropic/claude-sonnet-4"],
           ["gemini", "GEMINI_API_KEY", "gemini-2.5-flash"],
           ["minimax", "MINIMAX_API_KEY", "MiniMax-M2.5"],
           ["kimi", "MOONSHOT_API_KEY", "kimi-k2.5"],

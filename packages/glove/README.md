@@ -100,6 +100,7 @@ const model = createAdapter({
 | `openai` | `OPENAI_API_KEY` | `gpt-4.1` |
 | `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
 | `openrouter` | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4` |
+| `vercel` | `AI_GATEWAY_API_KEY` (or `VERCEL_OIDC_TOKEN`) | `anthropic/claude-sonnet-4` |
 | `gemini` | `GEMINI_API_KEY` | `gemini-3.6-flash` |
 | `minimax` | `MINIMAX_API_KEY` | `MiniMax-M2.5` |
 | `kimi` | `MOONSHOT_API_KEY` | `kimi-k2.5` |

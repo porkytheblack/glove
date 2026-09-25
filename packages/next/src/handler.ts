@@ -1,4 +1,4 @@
-import { providers, type ProviderDef } from "glove-core/models/providers";
+import { providers, resolveProviderApiKey, type ProviderDef } from "glove-core/models/providers";
 import {
   formatMessages,
   applyOpenAICacheControl,
@@ -49,7 +49,7 @@ function toAnthropicTools(tools?: SerializedTool[]) {
  * ```
  *
  * Supports all providers from `glove-core/models/providers`:
- * openai, anthropic, openrouter, gemini, minimax, kimi, glm, mimo, ollama, lmstudio, bedrock.
+ * openai, anthropic, openrouter, vercel, gemini, minimax, kimi, glm, mimo, ollama, lmstudio, bedrock.
  *
  * The handler receives `RemotePromptRequest` and streams `RemoteStreamEvent`s
  * compatible with `glove-react`'s `useGlove({ endpoint })` mode.
@@ -83,7 +83,7 @@ export function createChatHandler(
   return createOpenAIHandler(providerDef, model, maxTokens, config);
 }
 
-// ─── OpenAI-compat handler (openai, openrouter, gemini, minimax, kimi, glm, ollama, lmstudio)
+// ─── OpenAI-compat handler (openai, openrouter, vercel, gemini, minimax, kimi, glm, ollama, lmstudio)
 
 /** Normalise the handler-side reasoning config the same way the adapter does. */
 function resolveHandlerReasoning(
@@ -154,9 +154,7 @@ function createOpenAIHandler(
     if (!clientPromise) {
       clientPromise = import("openai").then((mod) => {
         const OpenAI = mod.default;
-        const apiKey =
-          config.apiKey ??
-          (providerDef.envVar ? process.env[providerDef.envVar] : undefined);
+        const apiKey = config.apiKey ?? resolveProviderApiKey(providerDef);
         if (providerDef.requiresApiKey !== false && !apiKey) {
           throw new Error(
             `No API key for ${providerDef.name}. Set ${providerDef.envVar} env var or pass apiKey.`,

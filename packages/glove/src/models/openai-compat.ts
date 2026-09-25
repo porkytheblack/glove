@@ -160,9 +160,10 @@ export interface OpenAICompatAdapterConfig {
    * `ModelPromptResult.cache_read_input_tokens` regardless of this setting.
    *
    * When `cache` is enabled **and** the provider routes to Anthropic models via
-   * OpenRouter (`provider: "openrouter"`), the adapter additionally places
-   * `cache_control` breakpoints on the system prompt and the latest turn —
-   * OpenRouter forwards these to Anthropic. Pass `true` for defaults or an
+   * OpenRouter (`provider: "openrouter"`) or the Vercel AI Gateway
+   * (`provider: "vercel"`), the adapter additionally places `cache_control`
+   * breakpoints on the system prompt and the latest turn — both gateways
+   * forward these to Anthropic. Pass `true` for defaults or an
    * object to set the TTL. Defaults to off.
    */
   cache?: PromptCacheConfig;
@@ -170,39 +171,54 @@ export interface OpenAICompatAdapterConfig {
 
 // ─── Prompt cache helpers ──────────────────────────────────────────────────────
 
-/** Providers that forward OpenAI-style `cache_control` breakpoints upstream. */
-const CACHE_CONTROL_PROVIDERS = new Set(["openrouter"]);
+/**
+ * Providers that forward OpenAI-style `cache_control` breakpoints upstream,
+ * keyed by where the breakpoint goes:
+ *
+ * - `"part"` — on the last content part (OpenRouter's documented shape).
+ * - `"message"` — on the message object itself (Vercel AI Gateway's
+ *   documented shape for its Chat Completions endpoint).
+ */
+const CACHE_CONTROL_PROVIDERS: ReadonlyMap<string, "part" | "message"> = new Map([
+  ["openrouter", "part"],
+  ["vercel", "message"],
+]);
 
 /**
  * Place OpenAI-style `cache_control` breakpoints on the system message and the
  * latest turn. Only used for providers that forward them to a caching upstream
- * (OpenRouter → Anthropic). Other providers cache automatically and ignore the
- * field, so we don't risk a 400 by only emitting it for known-good providers.
+ * (OpenRouter / Vercel AI Gateway → Anthropic). Other providers cache
+ * automatically and ignore the field, so we don't risk a 400 by only emitting
+ * it for known-good providers.
  */
 export function applyOpenAICacheControl(
   messages: Array<OpenAIMessage>,
   cache: ResolvedPromptCache,
   provider: string,
 ): Array<OpenAIMessage> {
-  if (!cache.enabled || !CACHE_CONTROL_PROVIDERS.has(provider)) return messages;
+  const placement = CACHE_CONTROL_PROVIDERS.get(provider);
+  if (!cache.enabled || !placement) return messages;
 
   const cache_control = { type: "ephemeral" as const, ttl: cache.ttl };
 
   const withBreakpoint = (msg: OpenAIMessage): OpenAIMessage => {
     const content = (msg as { content?: unknown }).content;
+    const empty =
+      (typeof content === "string" && content.length === 0) ||
+      (Array.isArray(content) && content.length === 0);
+    if (empty || (typeof content !== "string" && !Array.isArray(content))) return msg;
+    if (placement === "message") {
+      return { ...msg, cache_control } as unknown as OpenAIMessage;
+    }
     if (typeof content === "string") {
-      if (content.length === 0) return msg;
       return {
         ...msg,
         content: [{ type: "text", text: content, cache_control }],
       } as unknown as OpenAIMessage;
     }
-    if (Array.isArray(content) && content.length > 0) {
-      const parts = [...content];
-      parts[parts.length - 1] = { ...parts[parts.length - 1], cache_control };
-      return { ...msg, content: parts } as unknown as OpenAIMessage;
-    }
-    return msg;
+    const parts = [...(content as unknown[])] as Array<Record<string, unknown>>;
+    parts[parts.length - 1] = { ...parts[parts.length - 1], cache_control };
+    return { ...msg, content: parts } as unknown as OpenAIMessage;
   };
 
   const out = [...messages];

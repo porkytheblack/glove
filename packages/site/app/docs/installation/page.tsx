@@ -304,6 +304,17 @@ export const model = createAdapter({
           </tr>
           <tr>
             <td>
+              <code>vercel</code>
+            </td>
+            <td>
+              <code>AI_GATEWAY_API_KEY</code>
+            </td>
+            <td>
+              <code>anthropic/claude-sonnet-4</code>
+            </td>
+          </tr>
+          <tr>
+            <td>
               <code>gemini</code>
             </td>
             <td>

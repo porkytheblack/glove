@@ -20,7 +20,7 @@ export interface RemotePromptRequest {
 
 /** Configuration for createChatHandler */
 export interface ChatHandlerConfig {
-  /** Provider name from the registry (e.g. "openai", "anthropic", "openrouter", "mimo", "ollama", "lmstudio") */
+  /** Provider name from the registry (e.g. "openai", "anthropic", "openrouter", "vercel", "mimo", "ollama", "lmstudio") */
   provider: string;
   /** Model name. Defaults to the provider's defaultModel. */
   model?: string;
@@ -67,8 +67,8 @@ export interface ChatHandlerConfig {
    *
    * - **anthropic** handler: places `cache_control` breakpoints on the tool +
    *   system prefix and the latest turn (TTL honoured).
-   * - **openrouter** (OpenAI-compat handler): forwards `cache_control`
-   *   breakpoints to the upstream model.
+   * - **openrouter** / **vercel** (OpenAI-compat handler): forward
+   *   `cache_control` breakpoints to the upstream model.
    * - other OpenAI-compatible providers cache automatically — enabling has no
    *   request-side effect.
    */

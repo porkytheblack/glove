@@ -205,7 +205,7 @@ interface ModelAdapter {
 import { createAdapter, getAvailableProviders } from "glove-core/models/providers";
 
 const model = createAdapter({
-  provider: "anthropic",         // openai | anthropic | openrouter | gemini | minimax | kimi | glm | mimo | ollama | lmstudio | bedrock
+  provider: "anthropic",         // openai | anthropic | openrouter | vercel | gemini | minimax | kimi | glm | mimo | ollama | lmstudio | bedrock
   model?: "claude-sonnet-4-20250514",
   apiKey?: string,               // Defaults to env var
   maxTokens?: number,
@@ -990,7 +990,7 @@ for await (const event of parseSSEStream(response)) { /* RemoteStreamEvent */ }
 import { createChatHandler } from "glove-next";
 
 export const POST = createChatHandler({
-  provider: string,    // "openai" | "anthropic" | "openrouter" | "gemini" | "minimax" | "kimi" | "glm"
+  provider: string,    // "openai" | "anthropic" | "openrouter" | "vercel" | "gemini" | "minimax" | "kimi" | "glm"
   model?: string,      // Defaults to provider default
   apiKey?: string,     // Defaults to env var
   maxTokens?: number,
