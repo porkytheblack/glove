@@ -8,7 +8,7 @@
     "typecheck": "pnpm -r --filter './packages/*' typecheck",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "node scripts/check-release-versions.mjs && pnpm --filter glovebox-core build && pnpm -r --filter './packages/*' --filter '!glove-site' --filter '!glovebox-core' build && changeset publish",
+    "release": "node scripts/check-release-versions.mjs && pnpm --filter glove-core build && pnpm --filter glovebox-core build && pnpm -r --filter './packages/*' --filter '!glove-site' --filter '!glovebox-core' build && changeset publish",
     "scratchpad:db": "tsx examples/scratchpad-agent/database.ts",
     "weather:agent": "tsx examples/weather-agent/index.tsx",
     "coding:agent": "tsx examples/coding-agent/index.tsx",
