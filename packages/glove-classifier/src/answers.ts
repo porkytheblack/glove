@@ -34,6 +34,15 @@ export function answerConfidence(answer: Answer): number {
   return answer.type === "noul" ? Math.abs(2 * answer.noul - 1) : answer.confidence;
 }
 
+/**
+ * An answer as one plain value: a noul's probability of yes, a choice's
+ * label, a score's level. The shape code (and models writing code) reach for
+ * first — `answers.refund > 0.5`, `answers.team === "billing"`.
+ */
+export function answerValue(answer: Answer): number | string {
+  return answer.type === "noul" ? answer.noul : answer.type === "choice" ? answer.choice : answer.score;
+}
+
 export type Gate = "act" | "review" | "escalate";
 
 export interface GateThresholds {

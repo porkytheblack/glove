@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" role="img" aria-labelledby="t d">
+<title id="t">Confidence decides what happens next</title>
+<desc id="d">A fast classifier answers every question. Confident answers are acted on. Uncertain ones go to review or to a stronger model through a cascade, and low-confidence ones escalate to a person.</desc>
+<defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 8 4 0 8" fill="none" stroke="#0b6d70" stroke-width="1.5"/></marker></defs>
+<rect width="1200" height="440" rx="18" fill="#edf4fa"/>
+<g font-family="Arial,sans-serif" fill="#142a42">
+<text x="40" y="44" font-size="14" letter-spacing="2">CONFIDENCE ROUTING · gate() AND cascade()</text>
+<rect x="40" y="150" width="200" height="120" rx="12" fill="#fff" stroke="#cad9e6"/>
+<text x="140" y="195" font-size="18" text-anchor="middle">Question</text>
+<text x="140" y="222" font-size="13" text-anchor="middle" fill="#65788a">"Which team owns</text>
+<text x="140" y="240" font-size="13" text-anchor="middle" fill="#65788a">this ticket?"</text>
+<path d="M244 210H290" stroke="#0b6d70" stroke-width="2" marker-end="url(#a)"/>
+<rect x="296" y="140" width="230" height="140" rx="12" fill="#e7f5f1" stroke="#0b6d70"/>
+<text x="411" y="182" font-size="18" text-anchor="middle">Fast classifier</text>
+<text x="411" y="208" font-size="13" text-anchor="middle" fill="#65788a">Jev · one parallel pass</text>
+<text x="411" y="236" font-size="13" text-anchor="middle" font-family="Menlo,monospace" fill="#0b6d70">billing 0.91 · tech 0.09</text>
+<text x="411" y="258" font-size="13" text-anchor="middle" font-family="Menlo,monospace" fill="#0b6d70">confidence 0.86</text>
+<path d="M530 180C600 180 600 105 660 105" fill="none" stroke="#0b6d70" stroke-width="2" marker-end="url(#a)"/>
+<path d="M530 210H660" stroke="#0b6d70" stroke-width="2" marker-end="url(#a)"/>
+<path d="M530 240C600 240 600 318 660 318" fill="none" stroke="#0b6d70" stroke-width="2" marker-end="url(#a)"/>
+<text x="596" y="125" font-size="12.5" fill="#65788a" text-anchor="middle">≥ act</text>
+<text x="596" y="203" font-size="12.5" fill="#65788a" text-anchor="middle">≥ review</text>
+<text x="552" y="272" font-size="12.5" fill="#65788a">below</text>
+<rect x="666" y="70" width="230" height="70" rx="12" fill="#fff" stroke="#142a42" stroke-width="1.5"/>
+<text x="686" y="100" font-size="17">"act"</text><text x="686" y="124" font-size="13" fill="#65788a">route the ticket automatically</text>
+<rect x="666" y="175" width="230" height="70" rx="12" fill="#fff" stroke="#cad9e6"/>
+<text x="686" y="205" font-size="17">"review"</text><text x="686" y="229" font-size="13" fill="#65788a">confirm with the user first</text>
+<rect x="666" y="283" width="230" height="70" rx="12" fill="#fff" stroke="#cad9e6"/>
+<text x="686" y="313" font-size="17">"escalate"</text><text x="686" y="337" font-size="13" fill="#65788a">a person decides</text>
+<path d="M900 318H948" stroke="#0b6d70" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#a)"/>
+<rect x="954" y="263" width="206" height="110" rx="12" fill="#fff" stroke="#cad9e6"/>
+<text x="1057" y="296" font-size="16" text-anchor="middle">…or cascade()</text>
+<text x="1057" y="320" font-size="13" text-anchor="middle" fill="#65788a">re-ask only the uncertain</text>
+<text x="1057" y="338" font-size="13" text-anchor="middle" fill="#65788a">answers of a stronger model</text>
+<text x="1057" y="358" font-size="12" text-anchor="middle" fill="#65788a">12 of 240 in the benchmark</text>
+<text x="40" y="410" font-size="13" fill="#65788a">Thresholds are per action: approving a transfer needs more certainty than tagging a ticket. A yes/no answer's certainty is its distance from 0.5.</text>
+</g>
+</svg>

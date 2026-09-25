@@ -16,6 +16,7 @@ import {
   jev,
   llmClassifier,
   noul,
+  normalizeQuestions,
   parseAnswers,
   score,
   typesafe,
@@ -414,6 +415,37 @@ describe("cascade", () => {
   });
 });
 
+// ─── Normalization ──────────────────────────────────────────────────────────
+
+describe("normalizeQuestions", () => {
+  it("accepts the shapes models write", () => {
+    assert.deepEqual(
+      normalizeQuestions({
+        a: "Does it ask for a refund?",
+        b: { type: "yes_no", question: "Urgent?" },
+        c: { type: "classification", instructions: "Which team?", options: ["billing", { label: "sales", description: "Pricing" }] },
+        d: { type: "rating", instructions: "How angry?", levels: { "1": "angry", "0": "calm" } },
+        e: { instructions: "Which?", criteria: { x: null, y: null } },
+        f: { type: "noul", instructions: "Spam?", criteria: { yes: "marketing", no: "real person" } },
+      }),
+      {
+        a: { type: "noul", instructions: "Does it ask for a refund?" },
+        b: { type: "noul", instructions: "Urgent?" },
+        c: { type: "choice", instructions: "Which team?", criteria: { billing: null, sales: "Pricing" } },
+        d: { type: "score", instructions: "How angry?", criteria: ["calm", "angry"] },
+        e: { type: "choice", instructions: "Which?", criteria: { x: null, y: null } },
+        f: { type: "noul", instructions: "Spam?", criteria: { true: "marketing", false: "real person" } },
+      },
+    );
+  });
+
+  it("explains what is wrong when it cannot read a question", () => {
+    assert.throws(() => normalizeQuestions({ q: { type: "maybe" } }), /unknown type "maybe"/);
+    assert.throws(() => normalizeQuestions({ q: 42 }), /expected an object/);
+    assert.throws(() => normalizeQuestions({ q: { type: "choice", instructions: "?" } }), /a choice needs `criteria`/);
+  });
+});
+
 // ─── Tools ───────────────────────────────────────────────────────────────────
 
 describe("tools", () => {
@@ -436,7 +468,13 @@ describe("tools", () => {
     assert.equal((result.renderData as any).model, "jev-1.13.0");
     assert.deepEqual(calls[0]!.body.questions, questions);
 
-    assert.throws(() => tool.inputSchema!.parse({ state: ticket, questions: { q: { type: "score", instructions: "?", criteria: ["one"] } } }));
+    const bad = await tool.do(
+      tool.inputSchema!.parse({ state: ticket, questions: { q: { type: "score", instructions: "?", criteria: ["one"] } } }),
+      display,
+      glove,
+    );
+    assert.equal(bad.status, "error");
+    assert.match(bad.message!, /at least two levels/);
     // The schema must serialize for model adapters.
     assert.equal((z.toJSONSchema(tool.inputSchema!) as any).type, "object");
   });

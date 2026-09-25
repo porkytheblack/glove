@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="502" viewBox="0 0 1200 502" role="img" aria-labelledby="t d">
+<title id="t">Tokens that reached the agent, by approach</title>
+<desc id="d">Mean tokens in the agent context over three runs. gpt-4.1-mini: read the inbox 24,455; classifier source 3,705; REPL with classifier.many 5,064. gpt-4.1: 24,455; 3,703; 5,088. Refund F1, whether customer data reached the agent, and agent cost are listed beside each bar.</desc>
+<rect width="1200" height="502" rx="18" fill="#edf4fa"/>
+<g font-family="Arial,sans-serif" fill="#142a42">
+<text x="40" y="44" font-size="14" letter-spacing="2">MEASURED · TOKENS IN THE AGENT'S CONTEXT (MEAN OF 3 RUNS)</text>
+<g font-size="12" fill="#65788a" letter-spacing="1" text-anchor="middle"><text x="920" y="96">REFUND F1</text><text x="1015" y="96">DATA SEEN</text><text x="1110" y="96">AGENT COST</text></g>
+<line x1="360.0" y1="112" x2="360.0" y2="394" stroke="#d6e1ea" stroke-width="1"/>
+<text x="360.0" y="414" font-size="12" fill="#65788a" text-anchor="middle">0k</text>
+<line x1="452.0" y1="112" x2="452.0" y2="394" stroke="#d6e1ea" stroke-width="1"/>
+<text x="452.0" y="414" font-size="12" fill="#65788a" text-anchor="middle">5k</text>
+<line x1="544.0" y1="112" x2="544.0" y2="394" stroke="#d6e1ea" stroke-width="1"/>
+<text x="544.0" y="414" font-size="12" fill="#65788a" text-anchor="middle">10k</text>
+<line x1="636.0" y1="112" x2="636.0" y2="394" stroke="#d6e1ea" stroke-width="1"/>
+<text x="636.0" y="414" font-size="12" fill="#65788a" text-anchor="middle">15k</text>
+<line x1="728.0" y1="112" x2="728.0" y2="394" stroke="#d6e1ea" stroke-width="1"/>
+<text x="728.0" y="414" font-size="12" fill="#65788a" text-anchor="middle">20k</text>
+<line x1="820.0" y1="112" x2="820.0" y2="394" stroke="#d6e1ea" stroke-width="1"/>
+<text x="820.0" y="414" font-size="12" fill="#65788a" text-anchor="middle">25k</text>
+<text x="40" y="140" font-size="15" font-weight="bold">gpt-4.1-mini</text>
+<text x="346" y="140" font-size="15" text-anchor="end">Read the inbox</text>
+<path d="M360 126H806.0a4 4 0 0 1 4 4v12a4 4 0 0 1 -4 4H360z" fill="#0b6d70"/>
+<text x="818.0" y="141" font-size="14">24,455</text>
+<text x="920" y="141" font-size="14" text-anchor="middle">0.93</text>
+<text x="1015" y="141" font-size="14" text-anchor="middle">✕ 3/3</text>
+<text x="1110" y="141" font-size="14" text-anchor="middle">$0.0102</text>
+<text x="346" y="184" font-size="15" text-anchor="end">Classifier source</text>
+<path d="M360 170H424.2a4 4 0 0 1 4 4v12a4 4 0 0 1 -4 4H360z" fill="#0b6d70"/>
+<text x="436.2" y="185" font-size="14">3,705</text>
+<text x="920" y="185" font-size="14" text-anchor="middle">1.00</text>
+<text x="1015" y="185" font-size="14" text-anchor="middle">✓ 0/3</text>
+<text x="1110" y="185" font-size="14" text-anchor="middle">$0.0018</text>
+<text x="346" y="228" font-size="15" text-anchor="end">REPL + classifier.many</text>
+<path d="M360 214H449.2a4 4 0 0 1 4 4v12a4 4 0 0 1 -4 4H360z" fill="#0b6d70"/>
+<text x="461.2" y="229" font-size="14">5,064</text>
+<text x="920" y="229" font-size="14" text-anchor="middle">0.97</text>
+<text x="1015" y="229" font-size="14" text-anchor="middle">✓ 0/3</text>
+<text x="1110" y="229" font-size="14" text-anchor="middle">$0.0026</text>
+<text x="40" y="290" font-size="15" font-weight="bold">gpt-4.1</text>
+<text x="346" y="290" font-size="15" text-anchor="end">Read the inbox</text>
+<path d="M360 276H806.0a4 4 0 0 1 4 4v12a4 4 0 0 1 -4 4H360z" fill="#0b6d70"/>
+<text x="818.0" y="291" font-size="14">24,455</text>
+<text x="920" y="291" font-size="14" text-anchor="middle">1.00</text>
+<text x="1015" y="291" font-size="14" text-anchor="middle">✕ 3/3</text>
+<text x="1110" y="291" font-size="14" text-anchor="middle">$0.0505</text>
+<text x="346" y="334" font-size="15" text-anchor="end">Classifier source</text>
+<path d="M360 320H424.1a4 4 0 0 1 4 4v12a4 4 0 0 1 -4 4H360z" fill="#0b6d70"/>
+<text x="436.1" y="335" font-size="14">3,703</text>
+<text x="920" y="335" font-size="14" text-anchor="middle">1.00</text>
+<text x="1015" y="335" font-size="14" text-anchor="middle">✓ 0/3</text>
+<text x="1110" y="335" font-size="14" text-anchor="middle">$0.0091</text>
+<text x="346" y="378" font-size="15" text-anchor="end">REPL + classifier.many</text>
+<path d="M360 364H449.6a4 4 0 0 1 4 4v12a4 4 0 0 1 -4 4H360z" fill="#0b6d70"/>
+<text x="461.6" y="379" font-size="14">5,088</text>
+<text x="920" y="379" font-size="14" text-anchor="middle">0.93</text>
+<text x="1015" y="379" font-size="14" text-anchor="middle">✓ 0/3</text>
+<text x="1110" y="379" font-size="14" text-anchor="middle">$0.0126</text>
+<text x="40" y="460" font-size="12" fill="#65788a">Task: "Which of 80 support emails ask for a refund? How many are urgent?" Data seen = runs where a planted customer account number</text>
+<text x="40" y="478" font-size="12" fill="#65788a">entered the agent's context. Agent cost excludes ≈$0.002 of Jev per classifier run. Source: examples/classifier-inbox/results.</text>
+</g></svg>

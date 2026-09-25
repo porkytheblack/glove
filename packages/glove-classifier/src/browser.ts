@@ -16,7 +16,7 @@
  * The types here are structural copies of glove-execution's, so this module
  * adds no dependency.
  */
-import { assertValidRequest } from "./questions";
+import { normalizeQuestions } from "./normalize";
 import { compactAnswers } from "./tools";
 import type { Answer, ClassifierAdapter, Entry, Questions } from "./types";
 
@@ -90,9 +90,10 @@ export function withClassifier<A extends BrowserAdapterLike>(adapter: A, options
       additionalProperties: true,
     },
     async execute(input, control) {
-      const { questions, ...observeInput } = (input ?? {}) as Record<string, unknown> & { questions?: Questions };
+      const { questions: rawQuestions, ...observeInput } = (input ?? {}) as Record<string, unknown>;
+      let questions: Questions;
       try {
-        assertValidRequest({ state: "", questions: questions as Questions });
+        questions = normalizeQuestions(rawQuestions);
       } catch (err) {
         return { status: "error", error: { code: "invalid_input", message: (err as Error).message } };
       }
@@ -102,7 +103,7 @@ export function withClassifier<A extends BrowserAdapterLike>(adapter: A, options
       const state = truncate(raw ?? "", maxChars);
       try {
         const res = await options.classifier.classify(
-          { state, questions: questions as Questions },
+          { state, questions },
           { signal: control?.signal },
         );
         return {

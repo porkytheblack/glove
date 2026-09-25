@@ -14,6 +14,7 @@ import { AbortError } from "glove-core/core";
 import type { GloveFoldArgs } from "glove-core/glove";
 import { z } from "zod";
 import { ClassifierError } from "./errors";
+import { normalizeQuestions } from "./normalize";
 import type {
   Answer,
   Answers,
@@ -33,30 +34,25 @@ export const classifierEntrySchema = z.union([
 const entrySchema = classifierEntrySchema;
 const descriptionSchema = entrySchema.nullable();
 
-export const classifierQuestionSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("noul"),
-    instructions: descriptionSchema.describe("The yes/no question."),
+/**
+ * Deliberately lenient: models write questions as bare strings, omit
+ * `instructions`, and use `yes_no` or `options`. Tool handlers pass what they
+ * receive through {@link normalizeQuestions}, which maps those shapes to the
+ * canonical ones and validates the result with a readable error.
+ */
+export const classifierQuestionSchema = z.union([
+  z.string().describe('A yes/no question. Shorthand for { type: "noul", instructions: <this text> }.'),
+  z.looseObject({
+    type: z
+      .string()
+      .describe('"noul" (yes/no → probability of yes), "choice" (pick one label), or "score" (rate on an ordered rubric).'),
+    instructions: descriptionSchema.optional().describe("The question itself."),
     criteria: z
-      .object({ true: descriptionSchema.optional(), false: descriptionSchema.optional() })
+      .unknown()
       .optional()
-      .describe("Optional descriptions of what yes and no mean."),
-  }),
-  z.object({
-    type: z.literal("choice"),
-    instructions: descriptionSchema.describe("What to decide."),
-    criteria: z
-      .record(z.string(), descriptionSchema)
-      .describe("Each label mapped to a description of when it applies (or null). 2–255 labels."),
-  }),
-  z.object({
-    type: z.literal("score"),
-    instructions: descriptionSchema.describe("What to rate."),
-    criteria: z
-      .array(descriptionSchema)
-      .min(2)
-      .max(10)
-      .describe("Ordered rubric levels, lowest first. 2–10 levels."),
+      .describe(
+        "choice: the labels, as a list or { label: description }. score: ordered levels, lowest first (2–10). noul: optional { true, false } descriptions.",
+      ),
   }),
 ]);
 
@@ -78,6 +74,8 @@ Question types:
 - choice — pick one label from \`criteria\` (label → description). Returns \`choice\`, per-label \`probabilities\`, and \`confidence\`.
 - score — rate on ordered rubric levels in \`criteria\` (lowest first). Returns \`score\` (can land between levels), per-level \`probabilities\`, and \`confidence\`.
 
+Example: { "state": "...", "questions": { "refund": "Does the sender ask for a refund?", "team": { "type": "choice", "instructions": "Which team?", "criteria": ["billing", "technical", "sales"] } } }
+
 Ask atomic questions — each one a judgement an expert could make in seconds. Break a broad judgement into several questions and combine the answers yourself. Asking more questions in the same call is nearly free. Low confidence means the state is ambiguous or lacks what the question needs: don't act on it blindly. This tool classifies, routes, scores and verifies; it does not write text.`;
 
 export interface ClassifierToolOptions {
@@ -96,12 +94,13 @@ export function classifierTool(options: ClassifierToolOptions): GloveFoldArgs<Cl
     inputSchema: classifyToolInputSchema,
     ...(options.requiresPermission !== undefined && { requiresPermission: options.requiresPermission }),
     async do(input, _display, _glove, signal) {
-      return runClassify(
-        options.classifier,
-        input.state as Entry,
-        input.questions as Questions,
-        signal,
-      );
+      let questions: Questions;
+      try {
+        questions = normalizeQuestions(input.questions);
+      } catch (err) {
+        return { status: "error" as const, data: null, message: (err as Error).message };
+      }
+      return runClassify(options.classifier, input.state as Entry, questions, signal);
     },
   };
 }

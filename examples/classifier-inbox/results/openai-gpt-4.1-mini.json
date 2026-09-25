@@ -1,0 +1,249 @@
+{
+  "date": "2026-09-25T14:07:49.054Z",
+  "agentModel": "openai/gpt-4.1-mini",
+  "inbox": {
+    "messages": 80,
+    "refundRequests": 24,
+    "urgentRefunds": 8
+  },
+  "classifiers": [
+    {
+      "classifier": "jev-latest",
+      "answered": 80,
+      "refundAcc": 100,
+      "urgentAcc": 97.5,
+      "kindAcc": 100,
+      "wallMs": 1351,
+      "msPerMessage": 17,
+      "inputTokens": 58186,
+      "costUsd": 0.00244
+    },
+    {
+      "classifier": "llm (openai/gpt-4.1-mini)",
+      "answered": 80,
+      "refundAcc": 95,
+      "urgentAcc": 96.3,
+      "kindAcc": 95,
+      "wallMs": 16316,
+      "msPerMessage": 204,
+      "inputTokens": 51383,
+      "costUsd": 0.02772
+    },
+    {
+      "classifier": "cascade (jev → llm below 0.6)",
+      "answered": 80,
+      "refundAcc": 95,
+      "urgentAcc": 100,
+      "kindAcc": 100,
+      "wallMs": 3337,
+      "msPerMessage": 42,
+      "inputTokens": 64766,
+      "costUsd": 0.00544,
+      "escalatedAnswers": 12
+    }
+  ],
+  "agents": [
+    {
+      "arm": "read",
+      "runs": 3,
+      "meanF1": 0.93,
+      "meanUrgentAbsError": 3.67,
+      "meanAgentTokensIn": 24455,
+      "meanTurns": 2,
+      "canaryInContext": "3/3",
+      "meanMs": 4094,
+      "meanAgentUsd": 0.01017,
+      "detail": [
+        {
+          "arm": "read",
+          "run": 1,
+          "f1": 0.93,
+          "idsReported": 21,
+          "urgentClaimed": 4,
+          "urgentAbsError": 4,
+          "agentTokensIn": 24455,
+          "turns": 2,
+          "toolCalls": 1,
+          "canaryInContext": true,
+          "ms": 5533,
+          "agentUsd": 0.0103,
+          "answer": "Messages asking for a refund or money back are:\n\n- em-001\n- em-002\n- em-003\n- em-004\n- em-006\n- em-021\n- em-022\n- em-023\n- em-024\n- em-025\n- em-026\n- em-041\n- em-042\n- em-043\n- em-044\n- em-045\n- em-046\n- em-063\n- em-064\n- em-065\n- em-066\n\nAmong these, the ones marked URGENT with \"URGENT:\" in the subject or body are:\n\n- em-002 (urgent for refund duplicate charge)\n- em-025 (URGENT: unauthorized charge, asks to reverse charge)\n- em-045 (URGENT: unauthorized charge, asks to reverse charge)\n- em-065 (URGENT: unauthorized charge, asks to reverse charge)\n\nTotal urgent messages about refund or money back: 4\n\nSummary:\nRefund or money back message IDs:\nem-001, em-002, em-003, em-004, em-006, em-021, em-022, em-023, em-024, em-025, em-026, em-041, em-042, em-043, em-044, em-045, em-046, em-063, em-064, em-065, em-066\n\nNumber of urgent: 4\n\nURGENT: 4",
+          "calls": [
+            "read_inbox {}"
+          ]
+        },
+        {
+          "arm": "read",
+          "run": 2,
+          "f1": 0.93,
+          "idsReported": 21,
+          "urgentClaimed": 5,
+          "urgentAbsError": 3,
+          "agentTokensIn": 24455,
+          "turns": 2,
+          "toolCalls": 1,
+          "canaryInContext": true,
+          "ms": 2927,
+          "agentUsd": 0.01008,
+          "answer": "Messages asking for a refund or their money back are:\n\n- em-001\n- em-002\n- em-003\n- em-004\n- em-006\n- em-021\n- em-022\n- em-023\n- em-024\n- em-025\n- em-026\n- em-041\n- em-042\n- em-043\n- em-044\n- em-045\n- em-046\n- em-063\n- em-064\n- em-065\n- em-066\n\nUrgent among these (marked \"URGENT\" in subject or clearly stated urgency):\n- em-002\n- em-022\n- em-025\n- em-045\n- em-065\n\nCount of urgent refund requests: 5\n\nURGENT: 5",
+          "calls": [
+            "read_inbox {}"
+          ]
+        },
+        {
+          "arm": "read",
+          "run": 3,
+          "f1": 0.92,
+          "idsReported": 24,
+          "urgentClaimed": 4,
+          "urgentAbsError": 4,
+          "agentTokensIn": 24455,
+          "turns": 2,
+          "toolCalls": 1,
+          "canaryInContext": true,
+          "ms": 3821,
+          "agentUsd": 0.01013,
+          "answer": "The messages in the support inbox that ask for a refund or their money back are:\n\n- em-001\n- em-002\n- em-003\n- em-004\n- em-006\n- em-021\n- em-022\n- em-023\n- em-024\n- em-025\n- em-026\n- em-041\n- em-042\n- em-043\n- em-044\n- em-045\n- em-046\n- em-051\n- em-062\n- em-063\n- em-064\n- em-065\n- em-066\n- em-079\n\nNumber of these messages that are marked urgent:\n- em-002 (urgent in subject)\n- em-025 (subject: URGENT)\n- em-045 (subject: URGENT)\n- em-065 (subject: URGENT)\n\nThere are 4 urgent refund-related messages.\n\nURGENT: 4",
+          "calls": [
+            "read_inbox {}"
+          ]
+        }
+      ]
+    },
+    {
+      "arm": "source",
+      "runs": 3,
+      "meanF1": 1,
+      "meanUrgentAbsError": 0,
+      "meanAgentTokensIn": 3705,
+      "meanTurns": 2,
+      "canaryInContext": "0/3",
+      "meanMs": 5248,
+      "meanAgentUsd": 0.00183,
+      "detail": [
+        {
+          "arm": "source",
+          "run": 1,
+          "f1": 1,
+          "idsReported": 24,
+          "urgentClaimed": 8,
+          "urgentAbsError": 0,
+          "agentTokensIn": 3704,
+          "turns": 2,
+          "toolCalls": 1,
+          "canaryInContext": false,
+          "ms": 5157,
+          "agentUsd": 0.00184,
+          "answer": "The messages in the support inbox that ask for a refund or their money back are:\n\nem-001, em-002, em-003, em-004, em-005, em-006,\nem-021, em-022, em-023, em-024, em-025, em-026,\nem-041, em-042, em-043, em-044, em-045, em-046,\nem-061, em-062, em-063, em-064, em-065, em-066.\n\nAmong these, the urgent ones are: em-002, em-005, em-022, em-025, em-042, em-045, em-062, em-065.\n\nThere are 8 urgent messages.\n\nURGENT: 8",
+          "calls": [
+            "glove_classify_source {\"source\":\"inbox\",\"questions\":{\"refund\":\"Does the sender ask for a refund or their money back?\",\"urgent\":\"Is the message urgent?\"},\"where\":[{\"question\":\"refund\",\"min\":0.5}]}"
+          ]
+        },
+        {
+          "arm": "source",
+          "run": 2,
+          "f1": 1,
+          "idsReported": 24,
+          "urgentClaimed": 8,
+          "urgentAbsError": 0,
+          "agentTokensIn": 3704,
+          "turns": 2,
+          "toolCalls": 1,
+          "canaryInContext": false,
+          "ms": 5445,
+          "agentUsd": 0.0018,
+          "answer": "The messages in the support inbox that ask for a refund or their money back have the following IDs:\nem-001, em-002, em-003, em-004, em-005, em-006,\nem-021, em-022, em-023, em-024, em-025, em-026,\nem-041, em-042, em-043, em-044, em-045, em-046,\nem-061, em-062, em-063, em-064, em-065, em-066.\n\nOf these, 8 messages are urgent (have a high urgency score).\n\nURGENT: 8",
+          "calls": [
+            "glove_classify_source {\"source\":\"inbox\",\"questions\":{\"refund\":\"Does the sender ask for a refund or their money back?\",\"urgent\":\"Is this message urgent?\"},\"where\":[{\"question\":\"refund\",\"min\":0.5}]}"
+          ]
+        },
+        {
+          "arm": "source",
+          "run": 3,
+          "f1": 1,
+          "idsReported": 24,
+          "urgentClaimed": 8,
+          "urgentAbsError": 0,
+          "agentTokensIn": 3706,
+          "turns": 2,
+          "toolCalls": 1,
+          "canaryInContext": false,
+          "ms": 5141,
+          "agentUsd": 0.00185,
+          "answer": "The messages in the support inbox that ask for a refund or their money back are:\n\nem-001, em-002, em-003, em-004, em-005, em-006, em-021, em-022, em-023, em-024, em-025, em-026, em-041, em-042, em-043, em-044, em-045, em-046, em-061, em-062, em-063, em-064, em-065, em-066.\n\nAmong these, 8 messages are urgent (with urgent probability around 0.95): em-002, em-005, em-022, em-025, em-042, em-045, em-062, em-065.\n\nURGENT: 8",
+          "calls": [
+            "glove_classify_source {\"source\":\"inbox\",\"questions\":{\"refund\":\"Does the sender ask for a refund or their money back?\",\"urgent\":\"Is the sender's message urgent?\"},\"where\":[{\"question\":\"refund\",\"min\":0.5}]}"
+          ]
+        }
+      ]
+    },
+    {
+      "arm": "repl",
+      "runs": 3,
+      "meanF1": 0.97,
+      "meanUrgentAbsError": 1.33,
+      "meanAgentTokensIn": 5064,
+      "meanTurns": 2,
+      "canaryInContext": "0/3",
+      "meanMs": 7972,
+      "meanAgentUsd": 0.00255,
+      "detail": [
+        {
+          "arm": "repl",
+          "run": 1,
+          "f1": 0.9,
+          "idsReported": 25,
+          "urgentClaimed": 12,
+          "urgentAbsError": 4,
+          "agentTokensIn": 5047,
+          "turns": 2,
+          "toolCalls": 1,
+          "canaryInContext": false,
+          "ms": 10000,
+          "agentUsd": 0.00251,
+          "answer": "The messages in the support inbox that ask for a refund or their money back have the following IDs: em-001, em-002, em-003, em-004, em-005, em-006, em-016, em-021, em-022, em-023, em-024, em-025, em-026, em-036, em-041, em-042, em-043, em-044, em-045, em-046, em-056, em-061, em-062, em-063, em-064, and more, totaling 28 messages.\n\nOut of these, 12 are marked as urgent.\n\nURGENT: 12",
+          "calls": [
+            "execute_js {\"code\":\"const messages = inbox__list();\\nconst questions = { refund: \\\"Does this message ask for a refund or their money back?\\\" };\\nconst classification = classifier__many({ items: messages.map(m => ({ id: m.id, state: m })), questions });\\n\\nconst refundMessages = classification.filter(c => c.answers.refund > 0.5).map(c => c.id);\\nconst urgentMessages = messages.filter(m => refundMessages.includes(m.id) && (classifier__is({ state: m, question: \\\"Is this message urgent?\\\" }) > 0.5)).map(m => m.id);\\n\\n({ refundMessages, urgentCount: urgentMessages.length })\"}"
+          ]
+        },
+        {
+          "arm": "repl",
+          "run": 2,
+          "f1": 1,
+          "idsReported": 24,
+          "urgentClaimed": 8,
+          "urgentAbsError": 0,
+          "agentTokensIn": 5061,
+          "turns": 2,
+          "toolCalls": 1,
+          "canaryInContext": false,
+          "ms": 7684,
+          "agentUsd": 0.00255,
+          "answer": "The messages in the support inbox that ask for a refund or their money back have the following ids:\nem-001, em-002, em-003, em-004, em-005, em-006, em-021, em-022, em-023, em-024, em-025, em-026, em-041, em-042, em-043, em-044, em-045, em-046, em-061, em-062, em-063, em-064, em-065, em-066.\n\nAmong them, 8 messages are classified as urgent.\n\nURGENT: 8",
+          "calls": [
+            "execute_js {\"code\":\"const messages = inbox__list();\\nconst refundQuestions = { refund: \\\"Do you want a refund or your money back?\\\" };\\nconst refundResults = classifier__many({ items: messages.map(m => ({ id: m.id, state: m })), questions: refundQuestions });\\nconst refundMessages = refundResults.filter(r => r.answers.refund > 0.5).map(r => r.id);\\n\\nconst urgencyQuestions = { urgent: \\\"Is this message urgent?\\\" };\\nconst urgencyResults = classifier__many({ items: messages.filter(m => refundMessages.includes(m.id)).map(m => ({ id: m.id, state: m })), questions: urgencyQuestions });\\nconst urgentCount = urgencyResults.filter(r => r.answers.urgent > 0.5).length;\\n\\n({ refundMessages, urgentCount })\"}"
+          ]
+        },
+        {
+          "arm": "repl",
+          "run": 3,
+          "f1": 1,
+          "idsReported": 24,
+          "urgentClaimed": 8,
+          "urgentAbsError": 0,
+          "agentTokensIn": 5083,
+          "turns": 2,
+          "toolCalls": 1,
+          "canaryInContext": false,
+          "ms": 6233,
+          "agentUsd": 0.00258,
+          "answer": "The messages in the support inbox that ask for a refund or their money back have the following ids:\nem-001, em-002, em-003, em-004, em-005, em-006, em-021, em-022, em-023, em-024, em-025, em-026, em-041, em-042, em-043, em-044, em-045, em-046, em-061, em-062, em-063, em-064, em-065, em-066.\n\nOut of these, 8 messages are urgent.\n\nURGENT: 8",
+          "calls": [
+            "execute_js {\"code\":\"const messages = inbox__list();\\n\\nconst refundQuestions = {\\n  refund: \\\"Do you want a refund or your money back?\\\"\\n};\\n\\nconst refundMessages = classifier__many({ items: messages.map(m => ({ id: m.id, state: m })), questions: refundQuestions });\\n\\nconst messagesAskingRefund = refundMessages.filter(m => m.answers.refund > 0.5).map(m => m.id);\\n\\nconst urgentQuestions = {\\n  urgent: \\\"Is this issue urgent?\\\"\\n};\\n\\nconst urgencyResults = classifier__many({ items: messages.filter(m => messagesAskingRefund.includes(m.id)).map(m => ({ id: m.id, state: m })), questions: urgentQuestions });\\n\\nconst urgentCount = urgencyResults.filter(r => r.answers.urgent > 0.5).length;\\n\\n({ messagesAskingRefund, urgentCount });\"}"
+          ]
+        }
+      ]
+    }
+  ],
+  "totalSpendUsd": 0.0792
+}

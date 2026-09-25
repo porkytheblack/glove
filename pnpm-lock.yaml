@@ -264,6 +264,31 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  examples/classifier-inbox:
+    dependencies:
+      glove-classifier:
+        specifier: workspace:*
+        version: link:../../packages/glove-classifier
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-js:
+        specifier: workspace:*
+        version: link:../../packages/glove-js
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   examples/coding-agent:
     dependencies:
       '@types/node':
@@ -11540,9 +11565,7 @@ snapshots:
       metro-runtime: 0.84.4
     transitivePeerDependencies:
       - '@babel/core'
-      - bufferutil
       - supports-color
-      - utf-8-validate
 
   '@react-native/normalize-colors@0.74.89': {}
 

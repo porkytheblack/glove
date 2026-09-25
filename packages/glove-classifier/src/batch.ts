@@ -100,6 +100,7 @@ export async function classifyMany<Q extends Questions>(
  * A condition on one answer.
  *
  * - noul: matches when `noul >= min` (default 0.5) and `<= max` (default 1).
+ *   `choice: "yes"` / `"no"` is accepted as shorthand for yes (≥ 0.5) / no (< 0.5).
  * - choice: matches when the chosen label is `choice`; with `min`/`max`, when
  *   the probability of `choice` is in range instead (e.g. "billing ≥ 0.3").
  * - score: matches when `score` is within `min`/`max`.
@@ -117,6 +118,9 @@ export function answerMatches(answer: Answer | undefined, where: Where): boolean
   const max = where.max ?? Number.POSITIVE_INFINITY;
   switch (answer.type) {
     case "noul": {
+      // Models naturally write `choice: "yes"` for a yes/no question; honour it.
+      const said = where.choice?.trim().toLowerCase();
+      if (said === "no" || said === "false") return answer.noul < (where.max ?? 0.5);
       const min = where.min ?? 0.5;
       return answer.noul >= min && answer.noul <= max;
     }

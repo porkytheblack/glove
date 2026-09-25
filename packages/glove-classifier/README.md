@@ -178,7 +178,7 @@ A `where` condition is `{ question, choice?, min?, max? }`, and a list of condit
 - **choice:** matches when `choice` is the chosen label. With `min`/`max`, it tests that label's probability instead.
 - **score:** matches when the score is within `min` and `max`.
 
-Results are capped by `limit` (`resultLimit`, default 50). `usage()` returns the running totals.
+Results are capped by `limit` (`resultLimit`, default 100); a truncated result carries a `note` telling the agent how to narrow or widen it. `usage()` returns the running totals.
 
 For a single fixed judgement, fold one tool yourself. `classifierTool()` is the open tool alone, and `defineClassifierTool()` asks your questions over the agent's input:
 
@@ -217,12 +217,12 @@ const hits = classifier.many({
 hits.map(h => h.id)
 ```
 
-REPL programs call host functions one at a time, so `many` runs a whole batch in parallel inside a single call. The five functions are:
+REPL programs call host functions one at a time, so `many` runs a whole batch in parallel inside a single call. Programs get plain values: `answers.refund` is the yes-probability, `answers.team` is the chosen label, and `answers.urgency` is the level, so `hits.filter(h => h.answers.refund > 0.5)` works as written. The full typed answers are under `details`. Questions can be plain strings, which become yes/no questions. The five functions are:
 
 | Function | Returns |
 | --- | --- |
-| `classify({ state, questions })` | The answers. |
-| `many({ items, questions, where? })` | Per-item answers. Items that fail carry an `error`. |
+| `classify({ state, questions })` | `{ answers, confidence, details }`. |
+| `many({ items, questions, where? })` | `{ id, label, answers, confidence, details }` per item. Items that fail carry an `error`. |
 | `is({ state, question })` | The yes-probability. |
 | `pick({ state, question, labels })` | `{ choice, confidence, probabilities }` |
 | `rate({ state, question, levels })` | `{ score, confidence }` |
@@ -284,6 +284,10 @@ inbound: {
 ```
 
 Both helpers return Effects that fail with `ClassifierError`. Neither needs anything from `glove-foundry` at runtime.
+
+## Measured
+
+[`examples/classifier-inbox`](../../examples/classifier-inbox) benchmarks all of this on a labelled 80-message inbox. With `gpt-4.1-mini` as the agent, classifying the inbox as a source left 3,705 tokens in the agent's context, against 24,455 for reading it. Refund F1 went from 0.93 to 1.00, and the planted customer data reached the agent in 0 of 3 runs instead of 3 of 3. Jev judged 80 messages × 3 questions in 1.35 s for $0.0024, against 16.3 s and $0.028 for an LLM.
 
 ## Bring your own classifier
 

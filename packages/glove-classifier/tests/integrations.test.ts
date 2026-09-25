@@ -122,6 +122,9 @@ describe("mountClassifier", () => {
     // The agent-facing data carries ids, labels and answers — never the states.
     assert.ok(!JSON.stringify(res.data).includes("duplicate charge"));
     assert.deepEqual(mount.usage(), { calls: 3, input_tokens: 30, output_tokens: 3 });
+    assert.match(glove.tools.get("glove_classify_source").description, /Sources: "inbox"|glove_classify_catalog/);
+    const no = await run(glove.tools.get("glove_classify_source"), { source: "inbox", preset: "refunds", where: { question: "refund", choice: "no" } });
+    assert.deepEqual(no.data.results.map((r: any) => r.id), ["m2"]);
   });
 
   it("batches agent-held items, merges preset + extra questions, and caps results", async () => {
@@ -138,6 +141,7 @@ describe("mountClassifier", () => {
     });
     assert.equal(res.data.matched, 3);
     assert.equal(res.data.truncated, true);
+    assert.match(res.data.note, /Showing 1 of 3 matching items/);
     assert.deepEqual(Object.keys(res.data.results[0].answers), ["refund", "hi"]);
   });
 
@@ -187,8 +191,10 @@ describe("classifierFns in a REPL", () => {
       ({ ids: hits.map(h => h.id), p, team: team.choice })
     `);
     assert.deepEqual(result.value, { ids: ["m1", "m3"], p: 0.9, team: "billing" });
-    assert.equal(seen.length, 5);
-    assert.equal(usage.calls, 5);
+    const one = await session.execute(`classifier.classify({ state: "refund please", questions: { refund: "Does it mention refund?", team: { type: "choice", instructions: "Which?", criteria: ["refund", "sales"] } } })`);
+    assert.deepEqual((one.value as any).answers, { refund: 0.9, team: "refund" });
+    assert.equal(seen.length, 6);
+    assert.equal(usage.calls, 6);
   });
 
   it("validates arguments before calling the classifier", async () => {

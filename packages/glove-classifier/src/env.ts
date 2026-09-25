@@ -27,7 +27,7 @@ Question types (the \`questions\` map in \`classify\` and \`many\`):
 - \`{ type: "choice", instructions: "Which team?", criteria: { billing: "…", technical: null } }\` → \`{ choice, confidence, probabilities }\`
 - \`{ type: "score", instructions: "How urgent?", criteria: ["not", "somewhat", "very"] }\` → \`{ score, confidence, probabilities }\`
 
-\`many({ items, questions, where })\` judges every item in parallel in one call; \`where\` keeps only matches (noul: yes-probability ≥ \`min\`, default 0.5; choice: \`choice\` label chosen; score: within \`min\`/\`max\`). Prefer it to looping \`classify\`. Keep each question atomic, and treat low confidence as "look closer", not as an answer.`;
+\`many({ items, questions, where })\` judges every item in parallel in one call and returns \`{ id, label, answers, confidence }\` per item, where \`answers.refund\` is the yes-probability, \`answers.team\` the chosen label, \`answers.urgency\` the level; \`where\` keeps only matches (noul: yes-probability ≥ \`min\`, default 0.5; choice: \`choice\` label chosen; score: within \`min\`/\`max\`). Prefer it to looping \`classify\`. Keep each question atomic, and treat low confidence as "look closer", not as an answer.`;
 
 const TRIAGE_SKILL = `# Triage many files with a classifier
 
@@ -52,7 +52,7 @@ export default async function () {
     questions: { refund: { type: 'noul', instructions: 'Does the sender ask for a refund?' } },
     where: { question: 'refund', min: 0.7 },
   });
-  return hits.map(h => ({ path: h.id, subject: h.label, p: h.answers.refund.noul }));
+  return hits.map(h => ({ path: h.id, subject: h.label, p: h.answers.refund }));
 }
 \`\`\`
 `;

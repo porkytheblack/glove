@@ -19,6 +19,7 @@ import type { GloveFoldArgs } from "glove-core/glove";
 import { z } from "zod";
 import { answersMatch, classifyMany, type ClassifyItem, type Where } from "./batch";
 import { ClassifierError } from "./errors";
+import { normalizeQuestions } from "./normalize";
 import { classifierEntrySchema, classifierQuestionSchema, compactAnswers } from "./tools";
 import { AbortError } from "glove-core/core";
 import type { Answer, ClassifierAdapter, ClassifierUsage, Questions } from "./types";
@@ -53,7 +54,7 @@ export interface MountClassifierOptions {
   concurrency?: number;
   /** Most items one batch/source call may classify. Default 1000. */
   maxItems?: number;
-  /** Most matched items a batch/source call returns. Default 50 (the agent can raise it per call). */
+  /** Most matched items a batch/source call returns. Default 100 (the agent can raise it per call). */
   resultLimit?: number;
   requiresPermission?: boolean;
   /** Called after every classifier call with its usage. */
@@ -80,7 +81,7 @@ const whereSchema = z.object({
 const questionsField = z
   .record(z.string(), classifierQuestionSchema)
   .optional()
-  .describe("Questions keyed by an id you choose. Combine with `preset` to add questions to it.");
+  .describe('Questions keyed by an id you choose, e.g. { "refund": "Does the sender ask for a refund?", "team": { "type": "choice", "instructions": "Which team?", "criteria": ["billing", "sales"] } }. Combine with `preset` to add to it.');
 const presetField = z.string().optional().describe("Name of a preset question set (see the catalog tool).");
 const classifierField = z.string().optional().describe("Named classifier to use instead of the default.");
 const whereField = z
@@ -96,7 +97,7 @@ export function mountClassifier(glove: ClassifierMountTarget, options: MountClas
   const classifiers = new Map(Object.entries(options.classifiers ?? {}));
   const concurrency = options.concurrency ?? 8;
   const maxItems = options.maxItems ?? 1000;
-  const resultLimit = options.resultLimit ?? 50;
+  const resultLimit = options.resultLimit ?? 100;
   const total = { calls: 0, input_tokens: 0, output_tokens: 0 };
 
   const record = (usage: ClassifierUsage, calls: number, name: string) => {
@@ -118,7 +119,9 @@ export function mountClassifier(glove: ClassifierMountTarget, options: MountClas
     return found;
   };
 
-  const resolveQuestions = (preset: string | undefined, questions: Questions | undefined): Questions => {
+  const resolveQuestions = (preset: string | undefined, raw: unknown): Questions => {
+    const empty = raw === undefined || (typeof raw === "object" && raw !== null && Object.keys(raw).length === 0);
+    const questions = empty ? undefined : normalizeQuestions(raw);
     let merged: Questions = {};
     if (preset !== undefined) {
       const p = presets.get(preset);
@@ -154,7 +157,7 @@ export function mountClassifier(glove: ClassifierMountTarget, options: MountClas
     async do(input, _d, _g, signal) {
       return guard(signal, async () => {
         const clf = pick(input.classifier);
-        const questions = resolveQuestions(input.preset, input.questions as Questions | undefined);
+        const questions = resolveQuestions(input.preset, input.questions);
         const res = await clf.classify({ state: input.state as ClassifyItem["state"], questions }, { signal });
         record(res.usage, 1, clf.name);
         return { status: "success" as const, data: { model: res.model, answers: compactAnswers(res.answers) }, renderData: res };
@@ -182,7 +185,7 @@ export function mountClassifier(glove: ClassifierMountTarget, options: MountClas
     async do(input, _d, _g, signal) {
       return guard(signal, async () => {
         const clf = pick(input.classifier);
-        const questions = resolveQuestions(input.preset, input.questions as Questions | undefined);
+        const questions = resolveQuestions(input.preset, input.questions);
         const items = input.items as ClassifyItem[];
         return runMany(clf, items, questions, input.where as Where | Where[] | undefined, input.limit, signal);
       });
@@ -200,7 +203,11 @@ export function mountClassifier(glove: ClassifierMountTarget, options: MountClas
   });
   const sourceTool: GloveFoldArgs<z.infer<typeof source>> = {
     name: `${prefix}_source`,
-    description: `Judge every item in a host-provided source (an inbox, a queue, a result set) without reading it. You get back ids, labels and answers — never the content — so use this to find the few items worth opening. Filter with \`where\`; results are capped by \`limit\`.`,
+    description: `Judge every item in a host-provided source (an inbox, a queue, a result set) without reading it. You get back ids, labels and answers — never the content — so use this to find the few items worth opening. Ask every question you need in the same call (e.g. { "refund": "...?", "urgent": "...?" }): extra questions are nearly free and each answer comes back per item. Filter with \`where\`; results are capped by \`limit\`.${
+      sources.size > 0
+        ? ` Sources: ${[...sources].map(([n, src]) => `"${n}" (${src.description})`).join("; ")}. More may be added later — see ${prefix}_catalog.`
+        : ` See ${prefix}_catalog for the available sources.`
+    }`,
     inputSchema: source,
     ...perms,
     async do(input, _d, _g, signal) {
@@ -213,7 +220,7 @@ export function mountClassifier(glove: ClassifierMountTarget, options: MountClas
           );
         }
         const clf = pick(input.classifier);
-        const questions = resolveQuestions(input.preset, input.questions as Questions | undefined);
+        const questions = resolveQuestions(input.preset, input.questions);
         const items = await src.load(signal);
         const result = await runMany(clf, items, questions, input.where as Where | Where[] | undefined, input.limit, signal);
         return { ...result, data: { source: input.source, ...(result.data as object) } };
@@ -265,7 +272,10 @@ export function mountClassifier(glove: ClassifierMountTarget, options: MountClas
       data: {
         total: items.length,
         matched: matched.length,
-        ...(matched.length > cap && { truncated: true }),
+        ...(matched.length > cap && {
+          truncated: true,
+          note: `Showing ${cap} of ${matched.length} matching items. Pass \`where\` to keep only the items you need, or a higher \`limit\` to see more.`,
+        }),
         results: matched.slice(0, cap).map((i) => ({
           id: i.id,
           ...(i.label !== undefined && { label: i.label }),

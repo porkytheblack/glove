@@ -258,7 +258,11 @@ hits.map(h => h.id)`}
       />
       <p>
         REPL programs call host functions one at a time, so <code>many</code>{" "}
-        runs a whole batch in parallel inside a single call. The same functions
+        runs a whole batch in parallel inside a single call. Programs get plain
+        values: <code>answers.refund</code> is the yes-probability,{" "}
+        <code>answers.team</code> is the label, and <code>answers.urgency</code>{" "}
+        is the level. The full typed answers are under <code>details</code>, and
+        a question can be a plain string. The same functions
         work in <code>glove-python</code> and <code>glove-lisp</code>, and in a
         working environment as <code>env:classifier</code>. That module ships a
         README and a <code>classifier-triage</code> skill:
@@ -335,6 +339,18 @@ classify: classifyInbound({
   state: (event: Ticket) => event.body,
 }),`}
       />
+
+      <h2 id="measured">Measured</h2>
+      <p>
+        On a labelled 80-message inbox (
+        <a href="https://github.com/porkytheblack/glove/tree/main/examples/classifier-inbox">examples/classifier-inbox</a>),
+        a <code>gpt-4.1-mini</code> agent that classified the inbox as a source
+        held 3,705 tokens in context, against 24,455 when it read the inbox.
+        Its refund F1 rose from 0.93 to 1.00, and the planted customer data
+        reached it in 0 of 3 runs instead of 3 of 3. Jev judged 80 messages × 3
+        questions in 1.35&nbsp;s for $0.0024, against 16.3&nbsp;s and $0.028 for
+        an LLM.
+      </p>
 
       <h2 id="privacy">Context, speed and privacy</h2>
       <p>

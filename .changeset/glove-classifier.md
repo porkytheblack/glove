@@ -14,3 +14,6 @@ New package: `glove-classifier` adds structured-decision (classifier) models to 
 - `withClassifier()`: adds a `judge` operation to glove-execution browser adapters.
 - `classifierPredicate()` / `classifyInbound()` (`glove-classifier/foundry`): triage for Foundry inbound transmissions.
 - `classifyMany()`, `answersMatch()`, `gate()`, `answerConfidence()`: batch and routing helpers.
+- `normalizeQuestions()`: tool surfaces accept the question shapes models actually write, such as bare strings (a yes/no question), `type: "yes_no"` and `options`/`labels`/`levels`. The result is validated with a readable error. REPL and env functions return plain values (`answers.refund > 0.5`, `answers.team === "billing"`) alongside the full `details`.
+
+A live benchmark and demo are in `examples/classifier-inbox`.

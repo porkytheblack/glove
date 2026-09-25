@@ -1,6 +1,7 @@
 export * from "./types";
 export * from "./errors";
 export * from "./questions";
+export * from "./normalize";
 export * from "./answers";
 export * from "./batch";
 export * from "./typesafe";
