@@ -1,5 +1,16 @@
 # glove-layered-voice
 
+## 1.0.8
+
+### Patch Changes
+
+- Updated dependencies [[`109e40d`](https://github.com/porkytheblack/glove/commit/109e40dddafe3bfe1ac2dd113ca325f440613ad8)]:
+  - glove-core@4.3.0
+  - glove-next@3.2.0
+  - glove-mesh@0.1.7
+  - glove-voice@3.6.6
+  - glove-voice-s2s@0.4.2
+
 ## 1.0.7
 
 ### Patch Changes

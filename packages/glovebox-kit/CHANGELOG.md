@@ -1,5 +1,13 @@
 # glovebox-kit
 
+## 0.5.7
+
+### Patch Changes
+
+- Updated dependencies [[`109e40d`](https://github.com/porkytheblack/glove/commit/109e40dddafe3bfe1ac2dd113ca325f440613ad8)]:
+  - glove-core@4.3.0
+  - glovebox-core@0.6.6
+
 ## 0.5.6
 
 ### Patch Changes
