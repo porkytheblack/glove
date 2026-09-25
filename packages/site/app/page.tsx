@@ -440,8 +440,8 @@ const capabilityGroups: CapGroup[] = [
         badge: "new",
         desc: (
           <>
-            Typed yes/no, choice and score answers from models like
-            TypeSafe&apos;s Jev, with calibrated confidence. Triage an inbox, a
+            Typed yes/no, choice and score answers from TypeSafe&apos;s Jev
+            or open models you host (Kev, Laya, Von…), with confidence. Triage an inbox, a
             page or an inbound event in one parallel pass, and only the answers
             reach the agent.
           </>

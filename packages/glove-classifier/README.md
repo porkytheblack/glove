@@ -15,6 +15,9 @@ contract, `ClassifierAdapter`, and ships:
 | Export | What it is |
 | --- | --- |
 | `jev()` / `typesafe()` | TypeSafe System One over `fetch`. No SDK dependency. |
+| `kev()` · `laya()` · `von()` · `rizzo()` · `decider()` | Open typed-decision models you host, all serving the same `/v1/systemone` API. |
+| `systemOne({ baseURL, model })` | Any other `/v1/systemone`-compatible server. |
+| `huggingfaceZeroShot()` · `gliclass()` · `labelScorer()` | Zero-shot "text + labels → scores" classifiers (NLI models, GLiClass, your own). |
 | `llmClassifier()` | Any Glove `ModelAdapter` answering the same typed questions. |
 | `cascade()` | Asks a fast classifier first and re-asks only its low-confidence questions of a stronger one. |
 | `classifierTool()` | A `glove_classify` tool: the agent writes its own questions. |
@@ -87,6 +90,63 @@ State can be a string, or an object or array that names its parts. Keep each
 question atomic: split a broad judgement into several questions and combine
 the answers in code. All the questions are evaluated in parallel in one call,
 so adding more costs almost nothing.
+
+## Other classifier models
+
+Jev defined the `POST /v1/systemone` contract, and open models now serve it on your own hardware. The presets below are the same client (`SystemOneClassifier`) with each project's documented defaults. Start the server as its README describes, then:
+
+```ts
+import { kev, laya, von, rizzo, decider, systemOne } from "glove-classifier";
+
+const local = laya();                                       // http://127.0.0.1:8000
+const gpu = kev({ baseURL: "http://gpu-box:8009" });        // any address
+const other = systemOne({ baseURL: "https://decisions.internal", model: "my-model", apiKey });
+```
+
+| Preset | Model | Default address | Notes |
+| --- | --- | --- | --- |
+| `jev()` | TypeSafe Jev (hosted) | https://api.typesafe.ai | Calibrated. Needs `TYPESAFE_API_KEY`. |
+| `kev()` | [Kev](https://github.com/jaredpalmer/kev): Qwen3.5 + LoRA, 0.8B–27B | http://127.0.0.1:8009 | `KEV_API_KEY` if the server sets one. |
+| `laya()` | [Laya](https://github.com/NandhaKishorM/laya): ModernBERT / mmBERT encoders, ~400M | http://127.0.0.1:8000 | Runs on CPU. Score levels need descriptions. `model`: `english`, `multilingual`, `typed-decisions`, or `auto`. |
+| `von()` | [Von](https://github.com/wfzyx/von): ModernBERT-large, 395M | http://localhost:8000 | |
+| `rizzo()` | [Rizzo Flow](https://github.com/Rizzo-AI-Academy/rizzo-flow): Spark-X2.5, 1.7B/4B | http://127.0.0.1:8017 | At most 26 choice labels. Uncalibrated by default. |
+| `decider()` | [Decider](https://github.com/Mapika/decider): Qwen-based, 0.8B–35B | http://127.0.0.1:8000 | English only, 32k context. |
+
+Each preset reads `<NAME>_BASE_URL` and `<NAME>_API_KEY` (for example `LAYA_BASE_URL`), and every option can be overridden. The client tolerates the ways these servers differ:
+
+- A missing `confidence` is computed from the probabilities.
+- A missing `legend`, `usage` or `model` is filled in.
+- Extra fields are ignored.
+- Each server's option limits are checked locally, so an oversized question fails with a clear message instead of a server error.
+
+The defaults follow each project's README as of September 2026. Pin the address and model in production.
+
+**Zero-shot label scorers.** Older classifier models take a text and candidate labels and return a score per label. `labelScorer()` maps the three question types onto that:
+
+- **Yes/no:** the question becomes the hypothesis.
+- **Choice:** each label is scored as `label: description`.
+- **Score:** each level's description is scored.
+
+These models don't read instructions, so put the meaning in the labels.
+
+```ts
+import { huggingfaceZeroShot, gliclass, labelScorer } from "glove-classifier";
+
+huggingfaceZeroShot({ model: "facebook/bart-large-mnli" });  // HF Inference API, HF_TOKEN
+gliclass({ baseURL: "http://localhost:8000" });             // python -m gliclass.serve
+labelScorer({ name: "my-setfit", score: async ({ text, labels }) => myModel(text, labels) });
+```
+
+Every one of these is a `ClassifierAdapter`, so tools, REPL functions, cascades and Foundry predicates work with them unchanged. A common setup is a self-hosted model as the `primary` of a `cascade()` with Jev or an LLM as the `fallback`.
+
+**Measured.** On the labelled inbox in [`examples/classifier-inbox`](../../examples/classifier-inbox) (80 messages × 3 questions):
+
+| Classifier | Refund | Urgent | Kind | Time per message |
+| --- | --: | --: | --: | --: |
+| Jev (hosted) | 100% | 97.5% | 100% | 18 ms |
+| Laya (self-hosted, 4 vCPU, no GPU) | 75% | 88.8% | 81.3% | 2.85 s |
+
+Laya's English checkpoint reads 512 tokens, so these long emails are truncated. Its authors report about 40 ms per question on a T4 GPU.
 
 ## Acting on confidence
 
@@ -291,13 +351,7 @@ Both helpers return Effects that fail with `ClassifierError`. Neither needs anyt
 
 ## Bring your own classifier
 
-Implement `ClassifierAdapter`, which has a `name` and a
-`classify({ state, questions }, { signal })` method. It must return one answer
-per question id, with the same `type` as the question.
-`answerFromDistribution(question, { label: p, … })` builds a well-formed answer
-from any probability distribution, so wrapping a fine-tuned model or a hosted
-classification endpoint takes a few lines. Everything above, including
-cascades, tools and gating, then works with it.
+A server that speaks `/v1/systemone` needs no code: use `systemOne({ baseURL, model })`. A model that scores labels needs one function: `labelScorer({ name, score })`. Anything else implements `ClassifierAdapter`, which has a `name` and a `classify({ state, questions }, { signal })` method returning one answer per question id, with the same `type` as the question. `answerFromDistribution(question, { label: p, … })` builds a well-formed answer from any probability distribution. Tools, cascades and gating then work with it unchanged.
 
 ## License
 

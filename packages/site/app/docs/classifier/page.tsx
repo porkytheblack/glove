@@ -104,6 +104,66 @@ served;                        // "jev-1.13.0" — the versioned model that answ
         because aliases move when a new version ships.
       </p>
 
+      <h2 id="models">Other classifier models</h2>
+      <p>
+        Jev defined the <code>POST /v1/systemone</code> contract, and open
+        typed-decision models now serve it on your own hardware. The presets are
+        the same client (<code>SystemOneClassifier</code>) with each
+        project&apos;s documented defaults. Start the server as its README
+        describes, then point Glove at it:
+      </p>
+      <CodeBlock
+        filename="models.ts"
+        language="typescript"
+        code={`import { kev, laya, von, rizzo, decider, systemOne } from "glove-classifier";
+
+const local = laya();                                  // http://127.0.0.1:8000
+const gpu = kev({ baseURL: "http://gpu-box:8009" });   // any address
+const other = systemOne({ baseURL: "https://decisions.internal", model: "my-model", apiKey });`}
+      />
+      <table>
+        <thead>
+          <tr>
+            <th>Preset</th>
+            <th>Model</th>
+            <th>Default address</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><code>jev()</code></td><td>TypeSafe Jev (hosted)</td><td>api.typesafe.ai</td><td>Calibrated. Needs <code>TYPESAFE_API_KEY</code>.</td></tr>
+          <tr><td><code>kev()</code></td><td><a href="https://github.com/jaredpalmer/kev">Kev</a>: Qwen3.5 + LoRA, 0.8B–27B</td><td>127.0.0.1:8009</td><td><code>KEV_API_KEY</code> if the server sets one.</td></tr>
+          <tr><td><code>laya()</code></td><td><a href="https://github.com/NandhaKishorM/laya">Laya</a>: ModernBERT / mmBERT, ~400M</td><td>127.0.0.1:8000</td><td>Runs on CPU. Score levels need descriptions.</td></tr>
+          <tr><td><code>von()</code></td><td><a href="https://github.com/wfzyx/von">Von</a>: ModernBERT-large, 395M</td><td>localhost:8000</td><td></td></tr>
+          <tr><td><code>rizzo()</code></td><td><a href="https://github.com/Rizzo-AI-Academy/rizzo-flow">Rizzo Flow</a>: Spark-X2.5, 1.7B/4B</td><td>127.0.0.1:8017</td><td>At most 26 choice labels. Uncalibrated by default.</td></tr>
+          <tr><td><code>decider()</code></td><td><a href="https://github.com/Mapika/decider">Decider</a>: Qwen-based, 0.8B–35B</td><td>127.0.0.1:8000</td><td>English only, 32k context.</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Each preset reads <code>&lt;NAME&gt;_BASE_URL</code> and{" "}
+        <code>&lt;NAME&gt;_API_KEY</code>. The client absorbs the ways these
+        servers differ. It computes missing confidence from the probabilities,
+        fills in a missing legend, usage or model, ignores extra fields, and
+        checks each server&apos;s option limits locally. Pin the address and model
+        in production, because the defaults follow each project&apos;s README as
+        of September 2026.
+      </p>
+      <p>
+        <strong>Zero-shot label scorers.</strong> <code>huggingfaceZeroShot()</code>{" "}
+        (NLI models over the Hugging Face Inference API), <code>gliclass()</code>{" "}
+        and <code>labelScorer()</code> for your own model all map the three
+        question types onto &ldquo;score these labels&rdquo;. They don&apos;t read
+        instructions, so put the meaning in the labels.
+      </p>
+      <p>
+        On the labelled inbox (80 messages × 3 questions), hosted Jev scored
+        100% / 97.5% / 100% at 18&nbsp;ms per message. Laya, self-hosted on 4 CPU
+        cores with no GPU, scored 75% / 88.8% / 81.3% at 2.85&nbsp;s per message.
+        Its English checkpoint reads only 512 tokens of these long emails. A
+        common setup is a self-hosted model as the <code>primary</code> of a{" "}
+        <code>cascade()</code> with Jev or an LLM as the fallback.
+      </p>
+
       <h2 id="confidence">Acting on confidence</h2>
       <CodeBlock
         filename="route.ts"

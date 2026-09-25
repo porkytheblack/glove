@@ -5,6 +5,9 @@ export default defineConfig({
   entry: [
     "src/index.ts",
     "src/typesafe.ts",
+    "src/systemone.ts",
+    "src/open-models.ts",
+    "src/label-scorer.ts",
     "src/llm.ts",
     "src/cascade.ts",
     "src/tools.ts",

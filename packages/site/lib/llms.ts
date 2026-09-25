@@ -39,7 +39,7 @@ export function buildLlmsTxt(): string {
   out.push("Optional glove-execution mounts attach browser scripts and persistent coding sandboxes to existing agents without accepting or replacing their model. Station 3 is the first backend; core remains portable.");
   out.push(`- Browser/sandbox guide and package family diagram: ${SITE_URL}/docs/execution`);
   out.push(`- Design story: ${SITE_URL}/blog/agents-with-browsers-and-sandboxes`);
-  out.push("glove-classifier adds structured-decision (classifier) models such as TypeSafe's Jev: state plus typed noul/choice/score questions in, typed answers with probabilities and confidence out. mountClassifier folds glove_classify / _batch / _source / _catalog. classifierFns serve the REPLs, glove-classifier/env serves working environments, withClassifier adds browser.judge, and glove-classifier/foundry triages inbound transmissions. Jev is not a chat model; never pass it to createAdapter.");
+  out.push("glove-classifier adds structured-decision (classifier) models such as TypeSafe's Jev and open System One models (Kev, Laya, Von, Rizzo Flow, Decider) plus zero-shot label scorers (Hugging Face NLI, GLiClass): state plus typed noul/choice/score questions in, typed answers with probabilities and confidence out. mountClassifier folds glove_classify / _batch / _source / _catalog. classifierFns serve the REPLs, glove-classifier/env serves working environments, withClassifier adds browser.judge, and glove-classifier/foundry triages inbound transmissions. Jev is not a chat model; never pass it to createAdapter.");
   out.push(`- Classifier guide: ${SITE_URL}/docs/classifier`);
   out.push(`- Design story: ${SITE_URL}/blog/classifier-models`);
   out.push("glove-core ships a vercel provider (Vercel AI Gateway, OpenAI-compatible) that reads AI_GATEWAY_API_KEY, falling back to VERCEL_OIDC_TOKEN.");
@@ -752,7 +752,11 @@ ClassifierAdapter.classify({ state, questions }, { signal }) → { model, answer
 
 import { jev, llmClassifier, cascade, noul, choice, score, gate } from "glove-classifier";
 jev() / typesafe(): TypeSafe System One. Reads TYPESAFE_API_KEY, defaults to model jev-latest,
-retries 408/429/5xx. llmClassifier({ model }) lets any ModelAdapter answer the same questions.
+retries 408/429/5xx. Open models on the same /v1/systemone API: kev() (127.0.0.1:8009), laya()
+(127.0.0.1:8000), von() (localhost:8000), rizzo() (127.0.0.1:8017) and decider() (127.0.0.1:8000). Each reads
+<NAME>_BASE_URL and <NAME>_API_KEY. systemOne({ baseURL, model, apiKey? }) covers any other compatible
+server. Zero-shot label scorers: huggingfaceZeroShot({ model }) (HF_TOKEN), gliclass({ baseURL }),
+labelScorer({ name, score }). llmClassifier({ model }) lets any ModelAdapter answer the same questions.
 cascade({ primary, fallback, threshold }) re-asks low-confidence answers. gate(answer, { act, review }) returns "act" | "review" | "escalate".
 
 Agents:

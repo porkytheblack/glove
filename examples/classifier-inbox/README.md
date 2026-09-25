@@ -9,6 +9,7 @@ The inbox (`src/inbox.ts`) is deterministic. It has 80 messages, about 24k token
 pnpm --filter glove-classifier-inbox-example repl    # the program an agent would write (Jev only, no LLM)
 pnpm --filter glove-classifier-inbox-example agent   # an agent with mountClassifier + an inbox source
 pnpm --filter glove-classifier-inbox-example bench   # the benchmark below (spend-capped, ~$0.08 per run)
+pnpm --filter glove-classifier-inbox-example compare # classifiers alone: Jev, self-hosted open models, zero-shot scorers
 ```
 
 `BENCH_MODEL` picks the agent and LLM-classifier model (default `openai/gpt-4.1-mini`, via OpenRouter). `BENCH_RUNS` sets the runs per agent arm, and `BENCH_CAP_USD` sets the hard spend cap.
@@ -26,6 +27,17 @@ The runs are from 2026-09-25 and cost about $0.30 in total. The full per-run ans
 | Cascade (Jev → LLM below 0.6 confidence) | 95% | **100%** | **100%** | 3.3 s | $0.0054 |
 
 The cascade escalated 12 of 240 answers.
+
+### Hosted and self-hosted classifiers
+
+`compare` runs every classifier whose environment is configured: `TYPESAFE_API_KEY` for Jev; `LAYA_BASE_URL`, `KEV_BASE_URL`, `VON_BASE_URL`, `RIZZO_BASE_URL` or `DECIDER_BASE_URL` for the open System One models; `HF_TOKEN` for a Hugging Face zero-shot model; and `GLICLASS_BASE_URL` for GLiClass. Results go to [`results/classifiers.json`](results/classifiers.json).
+
+| Classifier | Refund | Urgent | Kind | Time per message |
+| --- | --: | --: | --: | --: |
+| Jev (hosted, `jev-1.13.0`) | 100% | 97.5% | 100% | 18 ms |
+| Laya (self-hosted with `laya-serve`, English checkpoint, 4 vCPU, no GPU) | 75% | 88.8% | 81.3% | 2.85 s |
+
+Laya's English checkpoint reads 512 tokens, so these ~300-token emails plus their questions get truncated. On a GPU its authors report about 40 ms per question.
 
 ### Agents: "Which messages ask for a refund? How many are urgent?"
 

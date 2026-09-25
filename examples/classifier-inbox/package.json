@@ -8,7 +8,8 @@
     "bench": "tsx --env-file-if-exists=../../.env src/bench.ts",
     "agent": "tsx --env-file-if-exists=../../.env src/agent.ts",
     "repl": "tsx --env-file-if-exists=../../.env src/repl.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "compare": "tsx --env-file-if-exists=../../.env src/compare.ts"
   },
   "dependencies": {
     "glove-classifier": "workspace:*",

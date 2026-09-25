@@ -16,4 +16,9 @@ New package: `glove-classifier` adds structured-decision (classifier) models to 
 - `classifyMany()`, `answersMatch()`, `gate()`, `answerConfidence()`: batch and routing helpers.
 - `normalizeQuestions()`: tool surfaces accept the question shapes models actually write, such as bare strings (a yes/no question), `type: "yes_no"` and `options`/`labels`/`levels`. The result is validated with a readable error. REPL and env functions return plain values (`answers.refund > 0.5`, `answers.team === "billing"`) alongside the full `details`.
 
+- Other models in Jev's category:
+  - `systemOne({ baseURL, model, apiKey? })` works with any `/v1/systemone`-compatible server. It fills in missing confidence, legend, usage and model, ignores extra fields, and checks per-server limits.
+  - Presets for the open models that serve that API: `kev()`, `laya()`, `von()`, `rizzo()` and `decider()`.
+  - `labelScorer()`, `huggingfaceZeroShot()` and `gliclass()` handle zero-shot "text + labels → scores" classifiers.
+
 A live benchmark and demo are in `examples/classifier-inbox`.

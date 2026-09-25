@@ -1,7 +1,7 @@
 {
   "name": "glove-classifier",
   "version": "0.0.0",
-  "description": "Structured-decision (classifier) models for the Glove agent framework \u2014 TypeSafe's Jev and any System One-style classifier behind one adapter, with an LLM fallback, confidence-gated cascades, and agent tools.",
+  "description": "Structured-decision (classifier) models for the Glove agent framework \u2014 TypeSafe's Jev, open System One models (Kev, Laya, Von, Rizzo, Decider), zero-shot label scorers, an LLM fallback, confidence-gated cascades, and agent/REPL/browser/Foundry integrations.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -21,7 +21,11 @@
     "agents",
     "scratchpad",
     "repl",
-    "foundry"
+    "foundry",
+    "laya",
+    "kev",
+    "gliclass",
+    "zero-shot"
   ],
   "sideEffects": false,
   "main": "./dist/index.js",
@@ -34,6 +38,18 @@
     "./typesafe": {
       "types": "./dist/typesafe.d.ts",
       "import": "./dist/typesafe.js"
+    },
+    "./systemone": {
+      "types": "./dist/systemone.d.ts",
+      "import": "./dist/systemone.js"
+    },
+    "./open-models": {
+      "types": "./dist/open-models.d.ts",
+      "import": "./dist/open-models.js"
+    },
+    "./label-scorer": {
+      "types": "./dist/label-scorer.d.ts",
+      "import": "./dist/label-scorer.js"
     },
     "./llm": {
       "types": "./dist/llm.d.ts",

@@ -81,6 +81,19 @@ model;                      // "jev-1.13.0", answered in 227 ms`}
         existing <code>ModelAdapter</code>, so the same questions run on the model
         you already use. <code>cascade()</code> composes the two.
       </p>
+      <p>
+        Jev is not the only model of its kind. Within weeks, open models appeared
+        that serve the same <code>/v1/systemone</code> API on your own hardware:
+        Kev, Laya, Von, Rizzo Flow and Decider. Glove has a preset for each
+        (<code>kev()</code>, <code>laya()</code>, and so on), and{" "}
+        <code>systemOne()</code> covers any other compatible server. Older
+        zero-shot classifiers such as NLI models and GLiClass plug in through{" "}
+        <code>labelScorer()</code>. On our inbox, Laya running on four CPU cores
+        with no GPU scored 75–89% at 2.85&nbsp;s per message, against Jev&apos;s
+        97.5–100% at 18&nbsp;ms. A self-hosted model is a fair choice when data
+        can&apos;t leave your network, and a cascade can send its uncertain
+        answers onward.
+      </p>
 
       <h2 id="context">Less context: judge the data where it lives</h2>
       <p>
