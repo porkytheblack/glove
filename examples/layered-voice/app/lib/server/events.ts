@@ -7,10 +7,9 @@
 // audio-channel realities as tagged EVENT notices appended to her history, so
 // the model knows what actually happened:
 //
-//   <user-interruption> … </user-interruption>  someone talked over you; shows
+//   <user-interruption> … </user-interruption>  someone talked over you; quotes
 //                                               exactly how much was heard,
-//                                               with the cut-off <speech> tag
-//                                               synthetically closed
+//                                               as plain text
 //   <speech-failure> … </speech-failure>        your line never played at all
 //
 // The prompt (front-agent.ts) teaches Nova to treat any <tag>-wrapped notice
@@ -42,9 +41,7 @@ export function frameTranscriptCorrection(sent: string, actual: string): string 
 
 /**
  * Frame a barge-in for the front agent's history. `heard` is the estimated
- * prefix of the last spoken line that actually played before the cut — embedded
- * inside a synthetically CLOSED <speech> tag so the transcript stays
- * well-formed even though the real speech was cut mid-tag.
+ * prefix of the last spoken line that actually played before the cut.
  */
 export function frameInterruption(heard: string): string {
   // The heard prefix is quoted PLAINLY — earlier versions wrapped it in literal

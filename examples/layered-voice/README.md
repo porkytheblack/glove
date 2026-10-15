@@ -93,10 +93,10 @@ the audio channel. Her history always contains her full intended line (the
 framework persists the whole model turn), but the room may have heard less:
 
 - **`<user-interruption>…</user-interruption>`** — a barge-in cut her audio.
-  The notice quotes the estimated prefix that actually played, embedded in a
-  **synthetically closed** `<speech>` tag (the real speech was cut mid-tag, so
-  the client estimates the heard prefix from playback time and the transcript
-  fragment is re-closed to stay well-formed). Her prompt tells her: the history
+  The notice quotes, as plain text, the prefix that actually played (the client
+  estimates it from playback time). Earlier versions wrapped it in a
+  synthetically closed `<speech>` tag, and models started echoing tag
+  fragments into their next spoken turn. Her prompt tells her: the history
   shows what you *meant* to say, the notice is the truth about what was
   *heard* — respond to the person first, don't re-deliver the remainder
   wholesale.
@@ -202,7 +202,7 @@ Defaults are affordable open models on **OpenRouter** (one `OPENROUTER_API_KEY`)
 
 | Role | Model | Why |
 | --- | --- | --- |
-| front (Nova) | `openai/gpt-oss-120b` | the spoken final answer; reasoning off, `<speech>` spans stream straight into TTS |
+| front (Nova) | `moonshotai/kimi-k2-0905` | the spoken final answer; low reasoning, `<speech>` spans stream straight into TTS. Measured 263ms TTFT via Groq (gpt-oss-120b: 310ms) with better addressing judgment |
 | worker | `minimax/minimax-m2.5` | heavy lifting + a ton of tool calls over the DB (the only reasoning model) |
 
 Override with `FRONT_MODEL` / `WORKER_MODEL`, or switch providers with

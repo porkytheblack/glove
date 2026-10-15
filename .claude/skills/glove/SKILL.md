@@ -1383,7 +1383,7 @@ const { runner } = useFormRunner(glove, new InMemoryFormAdapter({ schema }), {
 });
 ```
 
-`useFormRunner` folds the seven tools and wraps `processRequest` for tier-0 injection, then returns the runner so a host can start instances and resolve checkpoints without going through the model. `useFormReader` gives another agent read-only access to past fills.
+`useFormRunner` folds the seven tools and registers a runtime context provider (`addContextProvider`) that appends the tier-0 line at the model-input tail before every model call (`injectStatus: false` turns it off). It wraps `processRequest` only when `preparation` is configured, to reconcile evidence before each request. It returns the runner so a host can start instances and resolve checkpoints without going through the model. `useFormReader` gives another agent read-only access to past fills.
 
 **Writing a `FormAdapter`** — storage and retrieval only; the engine holds every semantic. Four invariants:
 

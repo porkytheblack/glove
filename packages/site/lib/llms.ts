@@ -36,6 +36,8 @@ export function buildLlmsTxt(): string {
   out.push(`- [Foundry tutorial](${SITE_URL}/foundry/docs/tutorial): a complete multi-tenant support agent, step by step.`);
   out.push(`- [Glove quickstart](${SITE_URL}/docs/getting-started): an agent inside a Next.js or Node app.`);
   out.push(`- [All packages](${SITE_URL}/docs/packages): every package and its smallest snippet.`);
+  out.push(`- [Goal-oriented agents](${SITE_URL}/docs/goal-oriented-agents): when to use tools, context, facts, forms, goals or a UI form to collect information, with a worked booking agent.`);
+  out.push(`- [Voice agent architectures](${SITE_URL}/docs/voice-architectures): single-agent vs layered voice, realtime vs pipeline fronts, <speech> tags and fast front models.`);
   out.push(`- [Foundry index](${SITE_URL}/foundry/llms.txt) and [Foundry full reference](${SITE_URL}/foundry/llms-full.txt)`);
   out.push(`- [Glove full reference](${SITE_URL}/llms-full.txt)`);
   out.push("- Agent skills for coding agents: https://github.com/porkytheblack/glove/tree/main/.claude/skills");
@@ -52,6 +54,8 @@ export function buildLlmsTxt(): string {
     "Dynamic goals are exported by glove-memory/goals (glove-memory 1.2.0+); there is no glove-goals package. Shared evidence is glove-facts (0.1.0+).",
     "With glove-core 4.0+, goals, forms and pinned context are live runtime snapshots appended at the model-input tail; system instructions and saved history are not rewritten. Runnable proxies forward addContextProvider and getRuntimeContext.",
     "Forms support opt-in skippable: true and runner.skip(field, reason), exposed as glove_form_revise action=skip.",
+    "Forms do not settle goals: call goals.update from a form step or checkpoint executor. record_fact only records unverified text; actions and outcomes need verified evidence recorded by host code.",
+    "GloveVoice speaks every text_delta sentence by sentence; <speech> tag filtering is an example-level parser (examples/layered-voice speech-parser.ts), not a glove-voice option. Layered voice puts a fast front model on every turn and delegates tool work to a heavy worker over glove-mesh.",
     "glove-execution mounts browser scripts (execute_browser) and persistent sandboxes (execute_sandbox) onto existing agents without replacing their model. Station 3 is the first backend; Foundry can host providers via stationDaemon from glove-foundry/station.",
     "glove-classifier adds structured-decision models (TypeSafe's Jev, open System One models, zero-shot scorers). Jev is not a chat model; never pass it to createAdapter.",
     "glove-core ships a vercel provider (Vercel AI Gateway) that reads AI_GATEWAY_API_KEY, falling back to VERCEL_OIDC_TOKEN.",

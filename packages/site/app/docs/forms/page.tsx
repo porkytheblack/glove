@@ -11,6 +11,17 @@ export default function FormsPage() {
     <div className="docs-content">
       <h1>Forms</h1>
 
+      <div className="docs-note">
+        <span className="docs-note-icon">◆</span>
+        <p>
+          <strong>Start here:</strong> choosing between a form, goals, facts and a
+          UI form, or wiring them into one agent? See{" "}
+          <a href="/docs/goal-oriented-agents">Goal-oriented agents &amp;
+          collecting information</a> for a decision guide and a complete worked
+          example.
+        </p>
+      </div>
+
       <p>
         The fifth subsystem in <code>glove-memory</code>:{" "}
         <strong>structured collection over a conversation</strong>. You need
@@ -637,12 +648,15 @@ useFormReader(auditor, adapter, { registry });`}
       />
 
       <p>
-        <code>useFormRunner</code> folds the tools and wraps{" "}
-        <code>processRequest</code> for tier-0 injection (
-        <code>injectStatus: false</code> turns that off), then hands back the
-        runner so a host can start instances and resolve checkpoints{" "}
-        <em>without going through the model</em> — which is how a blocking
-        checkpoint gets its answer from your backend rather than from the
+        <code>useFormRunner</code> folds the tools and registers a runtime
+        context provider (<code>addContextProvider</code>) that appends the tier-0
+        line at the model-input tail before every model call.{" "}
+        <code>injectStatus: false</code> turns that off. It wraps{" "}
+        <code>processRequest</code> only when <code>preparation</code> is
+        configured, to reconcile captured evidence before each request. It then
+        hands back the runner so a host can start instances and resolve
+        checkpoints <em>without going through the model</em>. That is how a
+        blocking checkpoint gets its answer from your backend rather than from the
         conversation.
       </p>
 

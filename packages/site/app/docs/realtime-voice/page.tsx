@@ -21,6 +21,18 @@ export default function RealtimeVoicePage() {
         <strong>500–800ms</strong>.
       </p>
 
+      <div className="docs-note">
+        <span className="docs-note-icon">◆</span>
+        <p>
+          <strong>Choosing an architecture.</strong> A realtime model can run
+          the agent&apos;s tools itself, or stay a thin front that delegates
+          slow work to a text worker and relays the result with{" "}
+          <code>rt.inject(…, &#123; respond: true &#125;)</code>.{" "}
+          <a href="/docs/voice-architectures">Voice agent architectures</a>{" "}
+          compares both with the pipeline shapes and shows the wiring.
+        </p>
+      </div>
+
       <p>Three packages layer on top of each other:</p>
 
       <table>
@@ -245,6 +257,107 @@ rt.inject("the lookup finished: covered until 2031", { respond: true });`}
         prompt, and the <code>renderData</code>-stays-client-side contract — the
         bridge strips <code>renderData</code> and <code>summary</code> before
         anything reaches the provider, exactly like the model adapters do.
+      </p>
+
+      <h3 id="live-context">Keeping a live session current</h3>
+
+      <p>
+        The provider holds the conversation, so changes on your side have to be
+        pushed into it. <code>RealtimeAgent</code> has three methods for that:
+      </p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Method</th>
+            <th>What it does</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <code>inject(text, &#123; respond &#125;)</code>
+            </td>
+            <td>
+              Pushes text into the live conversation.{" "}
+              <code>respond: true</code> asks the model to say something about
+              it (an async result has landed); <code>respond: false</code> is
+              silent context (a correction, an overheard fact).
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <code>await refreshContext()</code>
+            </td>
+            <td>
+              Reads the agent&apos;s <code>getRuntimeContext()</code> (its{" "}
+              <code>addContextProvider</code> providers) and, if the snapshot
+              changed, injects it silently, prefixed &ldquo;Current runtime
+              context (supersedes earlier runtime snapshots)&rdquo;. Runs
+              automatically after <code>start()</code> connects and after each
+              successful tool call, before the result is sent. It does not
+              poll: call it after goal, form or memory changes.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <code>await refreshSession()</code>
+            </td>
+            <td>
+              Re-sends the instructions (<code>instructions</code> or the
+              agent&apos;s system prompt) and the exposed tools through{" "}
+              <code>adapter.updateSession</code>, then calls{" "}
+              <code>refreshContext()</code>. Use it after folding a tool or
+              changing the prompt mid-call.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <CodeBlock
+        filename="live-context.ts"
+        language="typescript"
+        code={`import { Glove, Displaymanager, MemoryStore } from "glove-core";
+import { RealtimeAgent, s2sDrivenModel } from "glove-voice-s2s";
+import { z } from "zod";
+
+const agent = new Glove({
+  store: new MemoryStore("voice"),
+  model: s2sDrivenModel({ label: "s2s-front", provider: "openai", voice: "marin" }),
+  displayManager: new Displaymanager(),
+  systemPrompt: "You are a delivery desk assistant.",
+  serverMode: true,
+  compaction_config: { compaction_instructions: "Summarize briefly." },
+}).build();
+
+// App-owned state the voice model should know about, without replying to it.
+const order = { status: "packing" };
+agent.addContextProvider(() => \`Order status: \${order.status}\`);
+
+const rt = new RealtimeAgent({ agent });
+await rt.start();                // first snapshot is injected silently
+
+order.status = "shipped";
+await rt.refreshContext();       // changed snapshot → injected silently, no reply
+
+agent.fold({                     // a tool added mid-call
+  name: "track_parcel",
+  description: "Get the parcel's delivery window.",
+  inputSchema: z.object({}),
+  async do() {
+    return { status: "success", data: { window: "2pm to 4pm" } };
+  },
+});
+await rt.refreshSession();       // re-sends instructions + tools, then refreshes context
+
+rt.inject("The courier confirmed delivery before 4pm.", { respond: true }); // spoken`}
+      />
+
+      <p>
+        A context failure during <code>start()</code> rejects and disconnects;
+        a failure after a successful tool emits <code>error</code> and still
+        sends the tool result. On GPT-Live, instruction refreshes append rather
+        than replace, and a voice change needs a new session.
       </p>
 
       <h3 id="configuration">Configuration</h3>

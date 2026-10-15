@@ -18,6 +18,7 @@ const tasks: { want: string; href: string; page: string; pkg: string }[] = [
   { want: "Run an agent in a script, CLI or backend service", href: "/docs/server-side", page: "Server-side agents", pkg: "glove-core" },
   { want: "Let tools render UI and wait for the user mid-conversation", href: "/docs/display-stack", page: "Display stack", pkg: "glove-core · glove-react" },
   { want: "Remember people, facts and past sessions", href: "/docs/memory", page: "Memory", pkg: "glove-memory" },
+  { want: "Build an agent that pursues an objective and collects what it is missing", href: "/docs/goal-oriented-agents", page: "Goal-oriented agents", pkg: "glove-memory · glove-facts" },
   { want: "Collect structured information over a conversation", href: "/docs/forms", page: "Forms", pkg: "glove-memory" },
   { want: "Produce PDFs, spreadsheets, slides and images as files", href: "/docs/working-environment", page: "Working environment", pkg: "glove-working-environment" },
   { want: "Replace 50 tool definitions with one code-eval tool", href: "/docs/code-execution", page: "Code execution", pkg: "glove-js · glove-python · glove-lisp" },
@@ -26,6 +27,7 @@ const tasks: { want: string; href: string; page: string; pkg: string }[] = [
   { want: "Make cheap, fast typed decisions (triage, routing, filtering)", href: "/docs/classifier", page: "Classifier models", pkg: "glove-classifier" },
   { want: "Build a voice agent (STT → agent → TTS)", href: "/docs/voice", page: "Voice pipeline", pkg: "glove-voice" },
   { want: "Use realtime speech-to-speech models or a live avatar", href: "/docs/realtime-voice", page: "Realtime voice & avatars", pkg: "glove-voice-s2s" },
+  { want: "Keep a voice agent fast while a heavier model does the tool work", href: "/docs/voice-architectures", page: "Voice agent architectures", pkg: "glove-voice · glove-voice-s2s · glove-mesh" },
   { want: "Generate and review images or video as a directed workflow", href: "/docs/image", page: "Image workflows", pkg: "glove-image · glove-video" },
   { want: "Have agents message and delegate to each other", href: "/docs/mesh", page: "Mesh", pkg: "glove-mesh" },
 ];
