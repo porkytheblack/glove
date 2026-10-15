@@ -1,4 +1,7 @@
 import { CodeBlock } from "@/components/code-block";
+import { docsMetadata } from "@/lib/docs-nav";
+
+export const metadata = docsMetadata("/docs/showcase/glovebox");
 
 export default async function GloveboxShowcasePage() {
   return (

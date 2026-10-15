@@ -72,6 +72,8 @@ Common lazy fields include model, system prompt, tools, memory, inboxes, layers,
 
 An application may own multiple inbound and outbound transmissions. Outbound transmissions become validated tools only when the application is installed. Transmission definitions own authentication, normalization, classification, predicates, serialization, and delivery behavior; playbooks remain data-oriented policy.
 
+To triage inbound events with a classifier model (TypeSafe Jev, or any `ClassifierAdapter`) before an agent starts, use `glove-classifier/foundry`. `classifyInbound({ classifier, question: choice(...), events, fallback, minConfidence, state })` is the transmission's `inbound.classify`. `defineTransmissionPredicate(classifierPredicate({ classifier, questions, where, state }))` lets a playbook match only when the answers satisfy `where`; playbook predicate parameters `{ min, max, choice, where }` override the thresholds. Both return Effects that fail with `ClassifierError`.
+
 Connections are colocated with their application and receive the narrow Foundry connection context. Keep backend concepts such as Station networks, beacons, signals, or worker topology out of public agent definitions, client types, manifests, and inspector language. Expose only purpose-built agent-system concepts such as inbound connections, activations, scheduled work, and runs.
 
 Foundry never acquires, refreshes, or stores credential material. Account records contain safe metadata and opaque access references. The consumer's account-session/provider adapter owns credential lookup and refresh. Never copy secrets into instance data, manifests, prompts, telemetry, or inspector payloads.
@@ -152,6 +154,20 @@ Choose the smallest correct composition surface:
 - Workspaces, conversations, inbox items, tasks, and artifacts for durable coordination.
 
 Keep agent definition identity separate from agent instance identity in traces and APIs. Make concurrent campaigns distinct instances/conversations/runs so orchestration and progress remain legible.
+
+## Calling and operating agents
+
+Foundry already provides these surfaces; do not rebuild them in application code.
+
+- Typed client: `createFoundryClient<FoundryRoutes>({ baseUrl })` from `glove-foundry/client` — `agent(route).create`, `createConversation`, `send` → `FoundryRunHandle` (`wait`, `cancel`, `steer`, `events`), `conversationTranscript`, `install`/`uninstall`, workspace/inbox/tasks, approvals.
+- Native REST under `/api/*` (instances, conversations, messages, runs, events with SSE, installations, approvals, workspaces, playbook subscriptions, activations, transmissions, topology) and an automation API under `/v1/runs`.
+- OpenAI-compatible `GET /v1/models`, `POST /v1/chat/completions` and `POST /v1/responses`. `model` is an instance id, or a definition route with exactly one instance; instances are never created implicitly. Reuse `user`, `conversation_id`, or the returned `x-foundry-conversation-id` header to continue a durable conversation.
+- Approvals: a tool with `requiresPermission` (or an outbound transmission with `requiresPermission`) pauses the run on an expiring approval record (default 5 minutes, fail-closed). Resolve with `client.approvals(...)` + `client.resolveApproval(id, "approve" | "deny")` or the inspector.
+- Steering is interrupt-and-restart: `handle.steer(message)` cancels at a safe boundary and starts a replacement run in the same conversation.
+- Built-in agent tools on every Foundry agent: `glove_foundry_spawn`, `glove_foundry_schedule`, `glove_foundry_schedules`, `glove_foundry_sleep`, `glove_foundry_background`, `glove_foundry_transmit`, `glove_foundry_conversations`, `glove_foundry_workspace`, `glove_foundry_shared_inbox`, `glove_foundry_tasks`, `glove_foundry_environment`.
+- Persistence has four independent boundaries: `FoundryDataAdapter` (`FileFoundryDataAdapter` for one host), the conversation `store`/`conversationStore`, native memory adapters, and working-environment VFS persistence.
+
+Handbook: https://glove.dterminal.net/foundry/docs · condensed reference: https://glove.dterminal.net/foundry/llms-full.txt
 
 ## Effect and error handling
 

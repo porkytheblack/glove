@@ -1,11 +1,16 @@
+import Link from "next/link";
 import { CodeBlock } from "@/components/code-block";
 
-export const metadata = { title: "Setup wizard and CLI" };
+export const metadata = {
+  title: "Install & CLI",
+  description:
+    "Create a Foundry project with the setup wizard, choose a starter template, run the dev server and inspector, and use every CLI command and flag.",
+};
 
 export default function FoundryGettingStartedPage() {
   return (
     <article className="docs-content">
-      <span className="foundry-doc-kicker">Start / 01</span>
+      <span className="foundry-doc-kicker">Start / Install &amp; CLI</span>
       <h1>Install Glove Foundry</h1>
       <p className="blog-lede">
         Let the setup wizard guide you from an empty folder to your first agent run.
@@ -49,9 +54,13 @@ OPENROUTER_MODEL=openai/gpt-4.1-mini`} />
 
       <h2 id="run">3. Run</h2>
       <CodeBlock filename="terminal" language="bash" code={`pnpm dev
-# Glove Foundry
-# Local:   http://127.0.0.1:4141
-# Types:   .foundry/routes.d.ts`} />
+
+  Glove Foundry
+
+  Local:    http://127.0.0.1:4141
+  Agents:   1
+  Runtime:  ready
+  Types:    .foundry/routes.d.ts`} />
       <p>
         Development mode discovers <code>agents/</code>, generates route types,
         starts the Effect runtime and HTTP API, opens the inspection surface, and
@@ -60,38 +69,63 @@ OPENROUTER_MODEL=openai/gpt-4.1-mini`} />
       <p>Open <code>http://127.0.0.1:4141</code>, choose <strong>Start a run</strong>, select <strong>concierge</strong>, and ask “Find a flight to Nairobi.” Open the run to follow its tool calls and result. Edit <code>agents/concierge/agent.ts</code> and save to try a change.</p>
 
       <h2 id="tree">What was created</h2>
-      <CodeBlock filename="project" language="text" code={`agents/
-  concierge/
-    agent.ts                 # the definition
-    composition.ts           # imported, composable pieces
-    tools/                   # shared or colocated tools
-    apps/                    # installable application definitions
-    memory/  inboxes/  mcp/  # lazily mounted capabilities
-    layers/  subscribers/    # assembly and observation
-    workbench.ts             # VFS + REPL
-foundry.application.ts       # runtime adapters and services
-foundry.config.ts            # fully typed framework config`} />
+      <p>The guided <code>travel-concierge</code> template contains one example of every convention:</p>
+      <CodeBlock filename="project (travel-concierge)" language="text" code={`agents/concierge/
+  agent.ts                                 the definition — start here
+  composition.ts                           composeAgent(...): the installable catalogue
+  tools/find-flights.tool.ts               a shared tool (defineSharedTool)
+  apps/calendar.app.ts                     an installable application (defineApp)
+  transmissions/messaging.transmission.ts  a chat transport (defineTransmission)
+  events/message-received.event.ts         inbound event
+  events/message-sent.event.ts             outbound event
+  predicates/mentions-trip.predicate.ts    inbound match rule
+  actions/reply.action.ts                  playbook action
+  memory/traveller.memory.ts               memory profile (defineMemory)
+  layers/trip-context.layer.ts             native Glove setup (defineLayer)
+  subscribers/usage.subscriber.ts          observer (defineSubscriber)
+  schedules/trip-countdown.ts              a schedule value (imported, not discovered)
+  workbench.ts                             VFS + JavaScript REPL
+  topology.ts                              accounts and routes (runtime data)
+foundry.application.ts                     data adapter, accounts, routes
+foundry.config.ts                          port and execution policy
+lib/demo-model.ts                          keyless demo model
+src/client.ts                              a runnable typed client
+.foundry/routes.d.ts                       generated — do not edit`} />
+      <p>
+        The <code>minimal</code> template is just <code>agents/assistant/agent.ts</code>,
+        one tool, and the two root files. <Link href="/foundry/docs/project-structure">Project structure</Link>{" "}
+        explains every convention.
+      </p>
+      <div className="docs-note"><span className="docs-note-icon">!</span><p>
+        <strong>Composed is not installed.</strong> Tools, apps and MCP servers listed in{" "}
+        <code>composeAgent(...)</code> are a catalogue. They mount only on an instance that
+        installs them — from the instance page in the inspector, with{" "}
+        <code>client.install(...)</code>, or with <code>install(...)</code> when the instance
+        is created. Put tools every instance should always have in the agent&apos;s{" "}
+        <code>tools</code> field. See <Link href="/foundry/docs/capabilities">Tools, MCP &amp; memory</Link>.
+      </p></div>
 
       <h2 id="call">4. Create an instance and send a message</h2>
-      <CodeBlock filename="call-foundry.ts" language="typescript" code={`import { createFoundryClient } from "glove-foundry/client";
-import type { FoundryRoutes } from "./.foundry/routes.js";
+      <CodeBlock filename="src/client.ts" language="typescript" code={`import { createFoundryClient } from "glove-foundry/client";
+import type { FoundryRoutes } from "../.foundry/routes.js";
 
-const foundry = createFoundryClient<FoundryRoutes>({
-  baseUrl: "http://127.0.0.1:4141",
+const foundry = createFoundryClient<FoundryRoutes>({ baseUrl: "http://127.0.0.1:4141" });
+
+// "concierge" is checked against the files in agents/.
+const agent = await foundry.agent("concierge").create({
+  workspaceId: "demo",
+  context: { budgetUsd: 2_500 },
 });
-const instance = await foundry.agent("concierge").create({
-  context: { team: "brand" },
-});
-const conversation = await foundry.createConversation(instance.id);
-const run = await foundry.send(
-  instance.id,
-  conversation.id,
-  "Build three launch territories and review the strongest one.",
-);
-const result = await run.wait();`} />
+const conversation = await foundry.createConversation(agent.id);
+const run = await foundry.send(agent.id, conversation.id, "I want to fly from Lisbon to Nairobi in April.");
+
+console.log(\`run \${run.id} -> http://127.0.0.1:4141/runs/\${run.id}\`);
+const completed = await run.wait();
+console.log(completed.output);`} />
       <p>
-        In static code, import the definition. Serializable instance and
-        conversation identifiers appear only where data crosses the runtime boundary.
+        Run it with <code>npx tsx src/client.ts</code> while <code>pnpm dev</code> is running.
+        The same calls are available over plain HTTP and through the{" "}
+        <Link href="/foundry/docs/openai-compatible">OpenAI-compatible API</Link>.
       </p>
 
       <h2 id="commands">CLI command reference</h2>
@@ -124,7 +158,8 @@ glove foundry help`} />
       <h2 id="verify">5. Verify and prepare for deployment</h2>
       <CodeBlock filename="your generated project" language="bash" code={`pnpm typecheck
 pnpm lint`} />
-      <p>Starter storage is disposable. Persist Foundry instance/activation data, Glove conversation history, structured memory, and VFS files with their respective adapters. A durable runtime-data adapter alone does not persist all of them. Read the deployment guide before retaining user work or exposing the server.</p>
+      <p>Starter storage is disposable. Persist Foundry instance/activation data, Glove conversation history, structured memory, and VFS files with their respective adapters. A durable runtime-data adapter alone does not persist all of them. Read <Link href="/foundry/docs/persistence">Persistence</Link> before retaining user work, and <Link href="/foundry/docs/deploy">Deploy &amp; security</Link> before exposing the server.</p>
+      <p><strong>Next:</strong> the <Link href="/foundry/docs/tutorial">tutorial</Link> builds a multi-tenant support agent with installed tools, schedules, approvals and an OpenAI SDK client.</p>
       <p>If setup fails, check your Node version and package-manager installation. Choose another port if 4141 is occupied. For provider errors, inspect the failed run’s events. Restart after changing environment values.</p>
       <h3>For contributors working in the Glove repository</h3>
       <CodeBlock filename="repository root" language="bash" code={`pnpm --filter glove-foundry-example typecheck

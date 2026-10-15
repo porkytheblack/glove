@@ -1,7 +1,12 @@
+// Single source of truth for the Foundry handbook. The sidebar, breadcrumb,
+// pager, docs search, sitemap and /foundry/llms.txt all derive from this list,
+// so adding a page only touches this file.
+
 export interface FoundryNavItem {
   label: string;
   href: string;
   summary: string;
+  badge?: "new";
 }
 export interface FoundryNavSection {
   title: string;
@@ -13,44 +18,67 @@ export const foundrySections: FoundryNavSection[] = [
     title: "Start",
     items: [
       {
-        label: "Foundry overview",
+        label: "Overview",
         href: "/foundry/docs",
-        summary: "The framework, its boundaries, and the definition → instance → run model.",
+        summary: "What Foundry gives you out of the box, when to use it instead of plain Glove, and the definition → instance → run model.",
       },
       {
-        label: "Setup wizard & CLI",
+        label: "Install & CLI",
         href: "/foundry/docs/getting-started",
-        summary: "Interactive setup, templates, command and flag reference, and your first agent run.",
+        summary: "The setup wizard, both starter templates, every CLI command and flag, and your first run in the inspector.",
+      },
+      {
+        label: "Tutorial: first agent system",
+        href: "/foundry/docs/tutorial",
+        badge: "new",
+        summary: "Build a support agent step by step: a tool, an installed app, instances, conversations, a schedule, an approval, and an OpenAI SDK client.",
+      },
+      {
+        label: "Project structure",
+        href: "/foundry/docs/project-structure",
+        badge: "new",
+        summary: "Every file convention, how filenames become ids, foundry.application.ts vs foundry.config.ts, generated route types and the ESLint preset.",
       },
     ],
   },
   {
-    title: "Model the system",
+    title: "Build agents",
     items: [
       {
         label: "Definitions & instances",
         href: "/foundry/docs/definitions-and-instances",
-        summary: "What belongs in code, what belongs in data, and how persisted instances are reconstructed.",
+        summary: "What belongs in code, what belongs in data, how instances are created, updated and reconstructed, and where string ids are correct.",
       },
       {
-        label: "Agent composition",
+        label: "defineAgent & assembly",
         href: "/foundry/docs/composition",
-        summary: "Message-aware lazy assembly, shared tools, models, memory, inboxes, layers, MCP, and mesh calls.",
+        summary: "Every defineAgent field, the value-or-resolver rule, the assembly context, and configure/build/run lifecycle hooks.",
+      },
+      {
+        label: "Tools, MCP & memory",
+        href: "/foundry/docs/capabilities",
+        badge: "new",
+        summary: "Always-on tools vs installable shared tools, MCP servers over HTTP or stdio, memory profiles, layers, subscribers, and typed calls.",
       },
       {
         label: "Goals, facts & forms",
         href: "/foundry/docs/guidance",
         summary: "Guided conversations, durable evidence and answers, native preparation, and live context providers.",
       },
+    ],
+  },
+  {
+    title: "Connect & automate",
+    items: [
       {
         label: "Apps & transmissions",
         href: "/foundry/docs/applications",
-        summary: "Dynamically installed capabilities, inbound and outbound routes, accounts, and credential adapters.",
+        summary: "Installable capability bundles, inbound and outbound transports, accounts, routes, connections, and the credential boundary.",
       },
       {
-        label: "Playbooks & schedules",
+        label: "Playbooks, schedules & sleep",
         href: "/foundry/docs/automation",
-        summary: "Runtime playbooks, event subscriptions, instance provisioning, future triggers, sleep, wake, and cancellation.",
+        summary: "Event-driven playbooks, subscriptions that provision agents, cron and interval schedules, sleep, spawn and the built-in agent tools.",
       },
     ],
   },
@@ -58,24 +86,24 @@ export const foundrySections: FoundryNavSection[] = [
     title: "Give agents a world",
     items: [
       {
-        label: "Conversations & work",
+        label: "Conversations & shared work",
         href: "/foundry/docs/conversations",
-        summary: "Multiple conversations per instance, inboxes, shared workspaces, tasks, artifacts, and background work.",
+        summary: "Many conversations per instance, transcripts, workspace entries, the shared inbox, tasks, and scoped environment values.",
       },
       {
         label: "Working environments",
         href: "/foundry/docs/working-environments",
-        summary: "Mount a VFS, REPL, skills, and document or media adapters for artifact-producing agents.",
+        summary: "Mount a VFS, a REPL, programmatic tool calling, skills, and document or media adapters for artifact-producing agents.",
       },
       {
         label: "Browser & sandbox agent",
         href: "/foundry/docs/browser-and-sandbox",
-        summary: "A runnable personal agent with mounted browser scripts, Telegram sign-in, persistent code and managed servers.",
+        summary: "A runnable personal agent with mounted browser scripts, persistent code sandboxes and managed servers on one Station.",
       },
       {
         label: "Multi-agent systems",
         href: "/foundry/docs/multi-agent",
-        summary: "Layered agents, subagents, S2S and S2V calls, fan-out, handoffs, and shared work.",
+        summary: "Subagents with least-privilege tools, typed calls, spawn, mesh, voice hosts, and coordination through shared work.",
       },
     ],
   },
@@ -83,19 +111,60 @@ export const foundrySections: FoundryNavSection[] = [
     title: "Operate",
     items: [
       {
-        label: "Runtime & HTTP API",
+        label: "Client & HTTP API",
         href: "/foundry/docs/runtime",
-        summary: "Typed clients, handlers, activation endpoints, Effect services, and adapter boundaries.",
+        summary: "The typed client, every native /api endpoint, the /v1/runs automation API, live event streams and health checks.",
       },
       {
-        label: "Inspector & observability",
+        label: "OpenAI-compatible API",
+        href: "/foundry/docs/openai-compatible",
+        badge: "new",
+        summary: "Point any OpenAI SDK at Foundry: /v1/chat/completions and /v1/responses backed by durable instances and conversations.",
+      },
+      {
+        label: "Approvals & steering",
+        href: "/foundry/docs/approvals",
+        badge: "new",
+        summary: "Human-in-the-loop: permission-gated tools become expiring approval records; redirect active work with interrupt-and-restart steering.",
+      },
+      {
+        label: "Inspector & WebChat",
         href: "/foundry/docs/observability",
-        summary: "Follow runs, model passes, tool calls, messages, retries, artifacts, and safe working notes.",
+        summary: "The built-in inspector, WebChat, run traces, keyboard shortcuts, the event envelope, and custom subscribers.",
       },
       {
-        label: "Deploy",
+        label: "Persistence",
+        href: "/foundry/docs/persistence",
+        badge: "new",
+        summary: "The four things to persist separately — runtime data, transcripts, memory and the VFS — with file, SQLite and custom adapters.",
+      },
+      {
+        label: "Next.js integration",
+        href: "/foundry/docs/nextjs",
+        badge: "new",
+        summary: "Add Foundry to an existing Next.js app: the generated layout, the typed client, route handlers and FOUNDRY_URL.",
+      },
+      {
+        label: "Deploy & security",
         href: "/foundry/docs/deploy",
-        summary: "Production adapters, durable state, Foundry workers, and the path from local Foundry to cloud agents.",
+        summary: "Production checklist, request authorization, health checks, the managed execution daemon and scaling by role.",
+      },
+    ],
+  },
+  {
+    title: "Reference",
+    items: [
+      {
+        label: "API reference",
+        href: "/foundry/docs/reference",
+        badge: "new",
+        summary: "Every export of glove-foundry and its subpaths, the built-in agent tools, HTTP endpoints, CLI flags and config keys in one place.",
+      },
+      {
+        label: "FAQ & troubleshooting",
+        href: "/foundry/docs/faq",
+        badge: "new",
+        summary: "Why a tool is missing, why state reset, why the server refuses to bind, and other questions people ask in their first week.",
       },
     ],
   },

@@ -30,6 +30,12 @@ export const docsSections: DocsNavSection[] = [
     blurb: "What Glove is, how to install it, and a tour of every package.",
     items: [
       {
+        label: "Choose your path",
+        href: "/docs",
+        summary:
+          "Start here: Foundry for complete agent systems, glove-core for an agent inside your app, or one capability package — plus an I-want-to index.",
+      },
+      {
         label: "What is Glove?",
         href: "/docs/intro",
         summary:
@@ -339,13 +345,64 @@ export const docsSections: DocsNavSection[] = [
     title: "Showcase",
     blurb: "Complete applications, read end to end.",
     items: [
-      { label: "Travel Planner", href: "/docs/showcase/travel-planner" },
-      { label: "Coding Agent", href: "/docs/showcase/coding-agent" },
-      { label: "Coffee Shop", href: "/docs/showcase/coffee-shop", badge: "voice" },
-      { label: "Lola", href: "/docs/showcase/lola", badge: "voice" },
-      { label: "Ecommerce Store", href: "/docs/showcase/ecommerce-store" },
-      { label: "Terminal Agent", href: "/docs/showcase/terminal-agent" },
-      { label: "Glovebox", href: "/docs/showcase/glovebox", badge: "beta" },
+      {
+        label: "All examples",
+        href: "/docs/showcase",
+        summary:
+          "Every runnable example and walkthrough — Foundry systems, display-stack apps, voice agents, sandboxes and media studios.",
+      },
+      {
+        label: "Travel Planner",
+        href: "/docs/showcase/travel-planner",
+        summary:
+          "Build a trip planner whose tools render option pickers, itinerary cards and confirmations with the display stack.",
+        packages: ["glove-react", "glove-next"],
+      },
+      {
+        label: "Coding Agent",
+        href: "/docs/showcase/coding-agent",
+        summary:
+          "A coding agent with file tools, a WebSocket server, a React client and permission prompts before writes.",
+        packages: ["glove-core", "glove-react"],
+      },
+      {
+        label: "Coffee Shop",
+        href: "/docs/showcase/coffee-shop",
+        badge: "voice",
+        summary:
+          "A voice-first barista: product cards, a live shopping bag and checkout, ordered by speaking.",
+        packages: ["glove-react", "glove-voice"],
+      },
+      {
+        label: "Lola",
+        href: "/docs/showcase/lola",
+        badge: "voice",
+        summary:
+          "A voice movie companion that searches films and narrates while it renders poster grids.",
+        packages: ["glove-react", "glove-voice"],
+      },
+      {
+        label: "Ecommerce Store",
+        href: "/docs/showcase/ecommerce-store",
+        summary:
+          "A shopping assistant with product grids, size and colour pickers, a cart and checkout as tool-rendered UI.",
+        packages: ["glove-react", "glove-next"],
+      },
+      {
+        label: "Terminal Agent",
+        href: "/docs/showcase/terminal-agent",
+        summary:
+          "A server-only agent in the terminal with filesystem and shell tools and no React.",
+        packages: ["glove-core"],
+      },
+      {
+        label: "Glovebox",
+        href: "/docs/showcase/glovebox",
+        badge: "deprecated",
+        summary:
+          "A PDF extraction agent packaged as a Glovebox container (legacy — new deployments use Foundry).",
+        packages: ["glovebox-core"],
+      },
     ],
   },
   {
@@ -357,8 +414,16 @@ export const docsSections: DocsNavSection[] = [
         href: "/docs/llms",
         summary: "llms.txt, llms-full.txt and the Claude Code agent skill.",
       },
-      { label: "Agent Skill", href: "/docs/agent-skill" },
-      { label: "v3.0.0 Release Notes", href: "/docs/v3" },
+      {
+        label: "Agent Skill",
+        href: "/docs/agent-skill",
+        summary: "Install the Glove and Foundry skills so Claude Code and other coding agents write correct Glove code.",
+      },
+      {
+        label: "v3.0.0 Release Notes",
+        href: "/docs/v3",
+        summary: "What changed in Glove v3 and how to upgrade.",
+      },
     ],
   },
 ];
@@ -381,4 +446,16 @@ export const docsOrder: DocsOrderEntry[] = docsSections.flatMap((section) =>
 /** Look up the section a page belongs to. */
 export function sectionFor(href: string): DocsNavSection | undefined {
   return docsSections.find((s) => s.items.some((i) => i.href === href));
+}
+
+/**
+ * Page metadata from the nav entry, so a page's title and description match
+ * what the sidebar, search and llms.txt already say about it.
+ */
+export function docsMetadata(href: string): { title: string; description?: string } {
+  for (const section of docsSections) {
+    const item = section.items.find((entry) => entry.href === href);
+    if (item) return { title: item.label, ...(item.summary ? { description: item.summary } : {}) };
+  }
+  throw new Error(`docsMetadata: ${href} is not registered in lib/docs-nav.ts`);
 }

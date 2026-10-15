@@ -207,12 +207,12 @@ const capabilityGroups: CapGroup[] = [
         href: "/foundry",
         desc: (
           <>
-            Define what an agent can be in file-routed TypeScript. Foundry
-            persists what each live agent has installed, assembles it for the
-            current message, and runs the whole system with end-to-end types.
+            Write each agent as a TypeScript file. Foundry runs the folder as a
+            service — persisted agents, conversations, a run queue and a typed
+            client — with end-to-end types from file route to API call.
           </>
         ),
-        meta: "Definitions in code · instances as data",
+        meta: "npx glove-foundry init",
       },
       {
         icon: "instances",
@@ -221,22 +221,63 @@ const capabilityGroups: CapGroup[] = [
         href: "/foundry/docs/definitions-and-instances",
         desc: (
           <>
-            Create many live agents from one definition. Each instance can have
-            its own applications, playbooks, schedules, workspace, context, and
-            multiple conversations—and be reconstructed after a restart.
+            Create many live agents from one definition. Each instance has its
+            own context, installed apps, tools and MCP servers, schedules, and
+            any number of conversations — rebuilt from data on every run.
+          </>
+        ),
+      },
+      {
+        icon: "mcp",
+        kicker: "/v1/chat/completions · /v1/responses",
+        name: "OpenAI-compatible API",
+        href: "/foundry/docs/openai-compatible",
+        badge: "new",
+        desc: (
+          <>
+            Point any OpenAI SDK, chat UI or eval harness at a Foundry agent.
+            Requests land in durable conversations, with tools, memory and
+            approvals running server-side.
+          </>
+        ),
+      },
+      {
+        icon: "continuum",
+        kicker: "Schedules · sleep · webhooks",
+        name: "Agents that act later",
+        href: "/foundry/docs/automation",
+        desc: (
+          <>
+            Agents schedule their own follow-ups, sleep and resume the same
+            conversation, and wake when a chat message or webhook arrives —
+            even provisioning a fresh agent per thread.
+          </>
+        ),
+      },
+      {
+        icon: "shield",
+        kicker: "Human in the loop",
+        name: "Approvals & Steering",
+        href: "/foundry/docs/approvals",
+        badge: "new",
+        desc: (
+          <>
+            Permission-gated tools pause on an approval record until someone
+            approves or denies it. Redirect a busy agent and it restarts with
+            the new instruction in the same conversation.
           </>
         ),
       },
       {
         icon: "observe",
-        kicker: "Causal observability",
-        name: "Foundry Workbench",
+        kicker: "Inspector · WebChat",
+        name: "See every run",
         href: "/foundry/docs/observability",
         desc: (
           <>
-            Follow an inbound event through its matching playbook, provisioned
-            agents, conversations, handoffs, tool calls, artifacts, and final
-            outcomes without exposing private chain-of-thought.
+            localhost:4141 shows definitions, instances, runs, schedules and
+            integrations, with a causal trace of each model pass and tool call —
+            and a chat window for any instance.
           </>
         ),
       },
@@ -681,8 +722,8 @@ export default function LandingPage() {
               <path d="M5 12h14M13 6l6 6-6 6" />
             </svg>
           </a>
-          <a href="#platform" className="btn-secondary">
-            Explore the platform
+          <a href="/docs" className="btn-secondary">
+            Choose your path
           </a>
         </div>
       </section>
@@ -692,14 +733,15 @@ export default function LandingPage() {
           <span className="section-label">Introducing / Glove Foundry</span>
           <h2>The application framework for agents.</h2>
           <p>
-            Define what an agent can be in code. Configure what each live agent
-            can use as data. Foundry assembles the right model, tools,
-            applications, memory, workspace, and collaborators for every
-            message—then shows you how the work happened.
+            Define what an agent can be in code. Store what each live agent has
+            as data. Foundry assembles the right model, tools, apps, memory and
+            workspace for every message — and gives you the backend around it:
+            a typed and OpenAI-compatible API, schedules, webhooks, approvals,
+            and an inspector that shows how the work happened.
           </p>
           <div className="home-foundry-actions">
-            <a href="/foundry" className="btn-primary">Explore Foundry →</a>
-            <a href="/blog/introducing-glove-foundry" className="btn-secondary">Why we built it</a>
+            <a href="/foundry/docs/tutorial" className="btn-primary">Build your first agent system →</a>
+            <a href="/foundry" className="btn-secondary">What you get</a>
           </div>
         </div>
         <div className="home-foundry-rail" aria-label="Foundry architecture">
@@ -1010,7 +1052,7 @@ await agent.processRequest("Running shoes under $100");`}
           >
             View on GitHub
           </a>
-          <a href="/docs/getting-started" className="btn-secondary">
+          <a href="/docs" className="btn-secondary">
             Read the Docs
           </a>
         </div>

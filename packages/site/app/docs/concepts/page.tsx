@@ -1,3 +1,7 @@
+import { docsMetadata } from "@/lib/docs-nav";
+
+export const metadata = docsMetadata("/docs/concepts");
+
 export default function ConceptsPage() {
   return (
     <div className="docs-content">

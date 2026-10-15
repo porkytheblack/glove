@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { DocsToc } from "@/components/docs-toc";
 import { FoundryDocsSidebar } from "@/components/foundry-docs-sidebar";
 import { FoundryBreadcrumb, FoundryPager } from "@/components/foundry-docs-chrome";
+import { PageActions } from "@/components/page-actions";
 
 export const metadata: Metadata = {
   title: { default: "Foundry docs", template: "%s | Glove Foundry" },
@@ -16,6 +17,7 @@ export default function FoundryDocsLayout({ children }: { children: React.ReactN
         <FoundryBreadcrumb />
         {children}
         <FoundryPager />
+        <PageActions />
       </div>
       <DocsToc />
     </div>

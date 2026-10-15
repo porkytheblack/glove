@@ -23,17 +23,19 @@ export default function IntroPage() {
       <p>
         It is not a chatbot SDK. The runtime ships a display stack, a persistent
         inbox, a memory layer, a mesh for agents to talk over, sandboxes for the
-        model to compute in, and a packaging story for deployment. Every piece
-        is a separate package you can adopt on its own.
+        model to compute in, browsers, voice and media workflows. Every piece is
+        a separate package you can adopt on its own — and{" "}
+        <a href="/foundry">Glove Foundry</a> runs them as a complete service.
       </p>
 
       <div className="docs-note">
         <span className="docs-note-icon">◆</span>
         <p>
           Building a complete agent system? <a href="/foundry">Glove Foundry</a>{" "}
-          adds file routing, typed composition, mutable agent instances,
-          dynamically installed apps, transmissions, playbooks, schedules,
-          conversations, workspaces, and a live inspector over these capabilities.
+          adds file-routed agents, persisted instances and conversations, a typed
+          client, OpenAI-compatible endpoints, schedules, inbound integrations,
+          approvals, and a live inspector over these capabilities.{" "}
+          <a href="/docs">Not sure which you need?</a>
         </p>
       </div>
 

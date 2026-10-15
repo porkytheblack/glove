@@ -169,17 +169,19 @@ export default function PackagesPage() {
 
       <Pkg name="glove-foundry" tag="agent application framework">
         <p>
-          The Effect-native, file-routed framework for complete Glove agent systems:
-          typed definitions, mutable instances, lazy composition, dynamically installed
-          applications, inbound and outbound transmissions, runtime playbooks,
-          schedules, conversations, shared workspaces, core orchestration tools, and a
-          correlated inspection workbench.
+          The application framework that runs Glove agents as a service. Agents
+          are files (<code>agents/support/agent.ts</code>); Foundry adds persisted
+          instances and conversations, a run queue, a typed client, REST and
+          OpenAI-compatible endpoints, schedules, sleep and spawn, inbound
+          integrations with playbooks, per-instance installed tools/apps/MCP,
+          approvals, steering, and an inspector with WebChat at{" "}
+          <code>localhost:4141</code>.
         </p>
         <CodeBlock filename="terminal" language="bash" code={`npx glove-foundry init my-agent-system
 cd my-agent-system
 pnpm install
 pnpm dev`} />
-        <p>→ <a href="/foundry">Foundry</a> · <a href="/foundry/docs">Framework handbook</a></p>
+        <p>→ <a href="/foundry">Foundry</a> · <a href="/foundry/docs/tutorial">Tutorial</a> · <a href="/foundry/docs">Handbook</a> · <a href="/foundry/docs/reference">API reference</a></p>
       </Pkg>
 
       <h2 id="runtime">Runtime</h2>
@@ -528,6 +530,25 @@ const { runner } = useFormRunner(agent, new InMemoryFormAdapter({ schema }), {
         </p>
       </Pkg>
 
+      <Pkg name="glove-facts" tag="shared evidence">
+        <p>
+          Scoped, revisioned evidence shared by goals, forms, text and voice
+          agents. Capture information when it arrives with{" "}
+          <code>useFacts</code> (it registers <code>record_fact</code>); prepare
+          workflow requirements from that evidence later with a dedicated
+          preparation agent. Capturing a fact never completes a workflow by itself.
+        </p>
+        <CodeBlock
+          filename="terminal"
+          language="bash"
+          code={`pnpm add glove-facts glove-memory`}
+        />
+        <p>
+          → <a href="/docs/facts">Shared facts</a> · <a href="/docs/goals">Dynamic goals</a> ·{" "}
+          <a href="/foundry/docs/guidance">In Foundry</a>
+        </p>
+      </Pkg>
+
       <Pkg name="glove-scratchpad" tag="tools as a database">
         <p>
           A database emulator for LLM tool use. Resources become tables and the
@@ -801,6 +822,78 @@ const deliverables = await env.export("/out/**"); // → [{ path, bytes }]`}
               <td>
                 A React scene → mp4, GIF, PNG frames or a still, rendered
                 deterministically. Reanimated scenes work unchanged
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>glove-env-ocr</code>
+              </td>
+              <td>
+                <code>env:ocr</code>
+              </td>
+              <td>
+                Scanned PDFs and photos of documents to text — bundled Tesseract
+                WASM and English data, no network
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>glove-env-email</code>
+              </td>
+              <td>
+                <code>env:email</code>
+              </td>
+              <td>
+                Open .eml and Outlook .msg files — headers, body and attachments
+                written into the tree
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>glove-env-fetch</code>
+              </td>
+              <td>
+                <code>env:fetch</code>
+              </td>
+              <td>
+                HTTP requests, downloads and uploads under host-owned network
+                policy; non-public addresses blocked by default
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>glove-env-secret</code>
+              </td>
+              <td>
+                <code>env:secret</code>
+              </td>
+              <td>
+                Host-backed keystore: scripts see key names and references, not
+                values, unless the host opts in
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>glove-env-unlock</code>
+              </td>
+              <td>
+                <code>env:unlock</code>
+              </td>
+              <td>
+                Password-protected PDF, Office and ZIP files unlocked for the
+                other adapters
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>glove-env-base</code>
+              </td>
+              <td>
+                <code>env:base</code>
+              </td>
+              <td>
+                Mount a knowledge base (pages, blocks, collections) as markdown
+                and records — bring a provider
               </td>
             </tr>
           </tbody>

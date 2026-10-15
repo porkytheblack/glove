@@ -1,4 +1,7 @@
 import { CodeBlock } from "@/components/code-block";
+import { docsMetadata } from "@/lib/docs-nav";
+
+export const metadata = docsMetadata("/docs/agent-skill");
 
 export default async function AgentSkillPage() {
   return (
@@ -19,6 +22,28 @@ export default async function AgentSkillPage() {
         Once installed, your coding assistant automatically knows how to use
         Glove correctly &mdash; the right import paths, the right class names,
         the right patterns. No more guessing or hallucinating APIs.
+      </p>
+
+      <p>The repository ships two skills:</p>
+      <table>
+        <thead><tr><th>Skill</th><th>Use it for</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>glove</code></td>
+            <td>glove-core and every capability package: tools, display stack, memory, forms, goals, facts, voice, image, REPLs, working environments.</td>
+            <td><a href="https://github.com/porkytheblack/glove/tree/main/.claude/skills/glove"><code>.claude/skills/glove</code></a></td>
+          </tr>
+          <tr>
+            <td><code>glove-foundry</code></td>
+            <td>Foundry applications: file routes, definitions and instances, installations, transmissions, playbooks, schedules, the client and HTTP/OpenAI APIs, approvals, the inspector.</td>
+            <td><a href="https://github.com/porkytheblack/glove/tree/main/.claude/skills/glove-foundry"><code>.claude/skills/glove-foundry</code></a></td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        Agents that read plain text instead of skills can use{" "}
+        <a href="/llms-full.txt"><code>/llms-full.txt</code></a> and{" "}
+        <a href="/foundry/llms-full.txt"><code>/foundry/llms-full.txt</code></a>.
       </p>
 
       {/* ------------------------------------------------------------------ */}
@@ -88,8 +113,9 @@ export default async function AgentSkillPage() {
           </a>
         </li>
         <li>
-          Copy the <code>.claude/skills/glove/</code> directory into your
-          project&apos;s <code>.claude/skills/</code> folder
+          Copy the <code>.claude/skills/glove/</code> directory — and{" "}
+          <code>.claude/skills/glove-foundry/</code> if you use Foundry — into
+          your project&apos;s <code>.claude/skills/</code> folder
         </li>
       </ol>
 

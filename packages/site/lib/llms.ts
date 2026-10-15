@@ -5,7 +5,9 @@
 // `/llms-full.txt` is the hand-written condensed reference: enough for a model
 // to write correct Glove code without fetching anything else.
 
+import { posts } from "./blog";
 import { docsSections } from "./docs-nav";
+import { foundrySections } from "./foundry-nav";
 import { FOUNDRY_LLMS_FULL } from "./foundry-llms";
 
 export const SITE_URL = "https://glove.dterminal.net";
@@ -17,37 +19,45 @@ export function buildLlmsTxt(): string {
   out.push("# Glove");
   out.push("");
   out.push(
-    "> Glove is an open-source TypeScript framework for AI-powered applications. " +
-      "You define capabilities as tools; an agent decides when to call them. " +
-      "Beyond the agent loop it ships a display stack (tools render UI mid-conversation), " +
-      "a persistent inbox, a memory layer, sandboxes the model can compute in, " +
-      "a mesh for agents to coordinate over, voice (cascade and realtime speech-to-speech), " +
-      "MCP integration, container packaging, and Glove Foundry: a file-routed application " +
-      "framework for complete, observable agent systems.",
+    "> Glove is an open-source TypeScript stack for software that an AI agent operates. " +
+      "glove-core is the agent loop (tools with Zod schemas, a display stack that renders UI " +
+      "mid-conversation, stores, model adapters). Independent capability packages add memory, " +
+      "forms, goals, working environments, JS/Python/Lisp REPLs, browsers and sandboxes, MCP, " +
+      "voice, realtime speech-to-speech, image and video workflows, classifiers and agent mesh. " +
+      "Glove Foundry (glove-foundry) is the application framework that runs agents as a service: " +
+      "file-routed definitions, persisted instances and conversations, a typed client, REST and " +
+      "OpenAI-compatible APIs, schedules, inbound integrations, approvals and an inspector.",
   );
   out.push("");
-  out.push(
-    "Packages are independent: install the runtime plus only what you need. " +
-      "Everything is TypeScript + ESM, tool inputs are Zod schemas, and every layer " +
-      "(model, store, display, subscriber, voice) is an adapter interface you can replace.",
-  );
+  out.push("## Start here");
   out.push("");
-  out.push("Goals are exported by glove-memory/goals (glove-memory 1.2.0+), not a standalone glove-goals package. Shared evidence is glove-facts (0.1.0+). Supplying a dedicated Glove preparation agent enables traced preparation for goals and forms.");
-  out.push("");
-  out.push("With glove-core 4.0+, goals, forms, and pinned context use live runtime snapshots at the model-input tail, preserving system instructions and saved history. Runnable proxies forward addContextProvider and getRuntimeContext.");
-  out.push("Forms support opt-in skippable: true and runner.skip(field, reason), exposed as glove_form_revise action=skip. Skips resolve fields without values; onSkip handles side effects. See /docs/forms#skipping and /llms-full.txt.");
-  out.push("Optional glove-execution mounts attach browser scripts and persistent coding sandboxes to existing agents without accepting or replacing their model. Station 3 is the first backend; core remains portable.");
-  out.push(`- Browser/sandbox guide and package family diagram: ${SITE_URL}/docs/execution`);
-  out.push(`- Design story: ${SITE_URL}/blog/agents-with-browsers-and-sandboxes`);
-  out.push("glove-classifier adds structured-decision (classifier) models such as TypeSafe's Jev and open System One models (Kev, Laya, Von, Rizzo Flow, Decider) plus zero-shot label scorers (Hugging Face NLI, GLiClass): state plus typed noul/choice/score questions in, typed answers with probabilities and confidence out. mountClassifier folds glove_classify / _batch / _source / _catalog. classifierFns serve the REPLs, glove-classifier/env serves working environments, withClassifier adds browser.judge, and glove-classifier/foundry triages inbound transmissions. Jev is not a chat model; never pass it to createAdapter.");
-  out.push(`- Classifier guide: ${SITE_URL}/docs/classifier`);
-  out.push(`- Design story: ${SITE_URL}/blog/classifier-models`);
-  out.push("glove-core ships a vercel provider (Vercel AI Gateway, OpenAI-compatible) that reads AI_GATEWAY_API_KEY, falling back to VERCEL_OIDC_TOKEN.");
-  out.push("Foundry can host resource providers and agent jobs on one managed Station through application.daemon = stationDaemon(...), imported from glove-foundry/station. Providers and agent grants remain optional and application-owned.");
-  out.push("- Workflow agent skill: https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/workflows.md");
+  out.push(`- [Choose your path](${SITE_URL}/docs): Foundry vs glove-core vs a single package, plus an I-want-to index.`);
+  out.push(`- [Glove Foundry overview](${SITE_URL}/foundry/docs): what Foundry provides out of the box.`);
+  out.push(`- [Foundry tutorial](${SITE_URL}/foundry/docs/tutorial): a complete multi-tenant support agent, step by step.`);
+  out.push(`- [Glove quickstart](${SITE_URL}/docs/getting-started): an agent inside a Next.js or Node app.`);
+  out.push(`- [All packages](${SITE_URL}/docs/packages): every package and its smallest snippet.`);
+  out.push(`- [Foundry index](${SITE_URL}/foundry/llms.txt) and [Foundry full reference](${SITE_URL}/foundry/llms-full.txt)`);
+  out.push(`- [Glove full reference](${SITE_URL}/llms-full.txt)`);
+  out.push("- Agent skills for coding agents: https://github.com/porkytheblack/glove/tree/main/.claude/skills");
   out.push("- Repository: https://github.com/porkytheblack/glove");
-  out.push(`- Full condensed reference: ${SITE_URL}/llms-full.txt`);
-  out.push(`- Foundry agent-system reference: ${SITE_URL}/foundry/llms-full.txt`);
+  out.push("");
+  out.push("## Key facts");
+  out.push("");
+  for (const fact of [
+    "Everything is TypeScript + ESM. Tool inputs are Zod schemas. Every layer (model, store, display, subscriber, voice) is an adapter interface.",
+    "Packages are independent: install glove-core plus only what you need. Foundry is optional and builds on the same agents and tools.",
+    "In Foundry, composeAgent(...) only makes shared tools, apps and MCP servers available; an instance must install() them before they mount. Always-on tools go in defineAgent's tools field.",
+    "Foundry's /v1/chat/completions and /v1/responses accept an agent instance id (or a definition route with exactly one instance) as `model` and keep conversations durable.",
+    "Dynamic goals are exported by glove-memory/goals (glove-memory 1.2.0+); there is no glove-goals package. Shared evidence is glove-facts (0.1.0+).",
+    "With glove-core 4.0+, goals, forms and pinned context are live runtime snapshots appended at the model-input tail; system instructions and saved history are not rewritten. Runnable proxies forward addContextProvider and getRuntimeContext.",
+    "Forms support opt-in skippable: true and runner.skip(field, reason), exposed as glove_form_revise action=skip.",
+    "glove-execution mounts browser scripts (execute_browser) and persistent sandboxes (execute_sandbox) onto existing agents without replacing their model. Station 3 is the first backend; Foundry can host providers via stationDaemon from glove-foundry/station.",
+    "glove-classifier adds structured-decision models (TypeSafe's Jev, open System One models, zero-shot scorers). Jev is not a chat model; never pass it to createAdapter.",
+    "glove-core ships a vercel provider (Vercel AI Gateway) that reads AI_GATEWAY_API_KEY, falling back to VERCEL_OIDC_TOKEN.",
+    "Glovebox is deprecated; build new deployments with Foundry.",
+  ]) {
+    out.push(`- ${fact}`);
+  }
   out.push("");
 
   for (const section of docsSections) {
@@ -64,6 +74,22 @@ export function buildLlmsTxt(): string {
     }
     out.push("");
   }
+
+  out.push("## Glove Foundry handbook");
+  out.push("");
+  for (const section of foundrySections) {
+    for (const item of section.items) {
+      out.push(`- [${item.label}](${SITE_URL}${item.href}): ${item.summary}`);
+    }
+  }
+  out.push("");
+
+  out.push("## Blog");
+  out.push("");
+  for (const post of [...posts].sort((a, b) => b.date.localeCompare(a.date))) {
+    out.push(`- [${post.title}](${SITE_URL}/blog/${post.slug}): ${post.summary}`);
+  }
+  out.push("");
 
   return out.join("\n");
 }

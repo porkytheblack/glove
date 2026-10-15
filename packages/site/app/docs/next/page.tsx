@@ -1,4 +1,7 @@
 import { CodeBlock } from "@/components/code-block";
+import { docsMetadata } from "@/lib/docs-nav";
+
+export const metadata = docsMetadata("/docs/next");
 
 const tableWrapStyle = {
   overflowX: "auto" as const,
