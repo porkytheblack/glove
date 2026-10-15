@@ -1,5 +1,12 @@
 # glove-foundry-drag-racers
 
+## 1.0.9
+
+### Patch Changes
+
+- Updated dependencies [[`e91723c`](https://github.com/porkytheblack/glove/commit/e91723c002f4cd870135f2858586afe5c368bdb5)]:
+  - glove-foundry@0.5.2
+
 ## 1.0.8
 
 ### Patch Changes
