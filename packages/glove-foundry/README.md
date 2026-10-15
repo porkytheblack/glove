@@ -319,21 +319,31 @@ projection is resolved only when the subagent is called, after instance
 installations and message-dependent assembly have completed.
 
 ```ts
+import { getToolJsonSchema } from "glove-core"
+
+// Names of tools the parent has mounted that the delegate may use.
+const READ_ONLY = new Set(["web_search", "web_read", "workspace_read_file"])
+
 defineSubagent({
   name: "researcher",
   description: "Research one bounded question",
   systemPrompt: "Return evidence, uncertainty, and a concise conclusion.",
-  tools: ({ parent }) => projectTools(parent, [
-    webSearchToolName,
-    webReadToolName,
-    "workspace_read_file",
-  ]),
+  tools: ({ parent }) =>
+    parent.tools
+      .filter((tool) => READ_ONLY.has(tool.name))
+      .map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        jsonSchema: getToolJsonSchema(tool),
+        do: (input, _display, _agent, signal) => tool.run(input, undefined, signal),
+      })),
 })
 ```
 
-The child keeps its isolated store, compaction policy, model, prompt, skills,
-layers, and subscribers. Parent subscribers still receive the subagent lifecycle
-bracket, so delegation remains visible in the same run trace.
+The child keeps its isolated store, compaction policy, model, prompt and skills.
+Its `layers` and `subscribers` mount when the subagent is invoked and are
+disposed when its request ends. Parent subscribers still receive the subagent
+lifecycle bracket, so delegation remains visible in the same run trace.
 
 ## Programmatic tool workflows
 

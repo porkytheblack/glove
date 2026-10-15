@@ -24,12 +24,13 @@ import type {
   McpAdapterFactory,
 } from "./capabilities.js";
 import type { FoundryAgentComposition } from "./composition.js";
-import type {
-  FoundryLayer,
-  FoundryLayerSelection,
-  FoundrySubscriber,
-  FoundrySubscriberSelection,
-  FoundrySurfaceContext,
+import {
+  isFoundrySubscriber,
+  mountFoundrySurfaces,
+  type FoundryLayerSelection,
+  type FoundrySubscriber,
+  type FoundrySubscriberSelection,
+  type FoundrySurfaceContext,
 } from "./surfaces.js";
 import type { FoundryCoreCommand } from "./core-tools.js";
 import type { FoundryScheduleDefinition } from "./schedule.js";
@@ -459,7 +460,8 @@ export interface DefineFoundrySubagentOptions {
   readonly hooks?: ReadonlyArray<FoundryHookDefinition>;
   readonly skills?: ReadonlyArray<DefineSkillArgs>;
   readonly subagents?: ReadonlyArray<DefineSubAgentArgs>;
-  readonly layers?: ReadonlyArray<FoundryLayer<any>>;
+  /** Mounted on each invocation and disposed when the subagent's request ends. */
+  readonly layers?: ReadonlyArray<FoundryLayerSelection>;
   readonly subscribers?: ReadonlyArray<FoundrySubscriber | SubscriberAdapter>;
   readonly configure?: (context: FoundrySurfaceContext<string>) => Resolvable<void>;
 }
@@ -503,36 +505,69 @@ export function defineSubagent(options: DefineFoundrySubagentOptions): DefineSub
       for (const hook of options.hooks ?? []) glove.defineHook(hook.name, hook.handler);
       for (const skill of options.skills ?? []) glove.defineSkill(skill);
       for (const subagent of options.subagents ?? []) glove.defineSubAgent(subagent);
-      if (options.configure) {
-        const message: Message = { sender: "user", text: prompt };
-        const request: FoundryRequest = {
-          agentId: options.name,
-          conversationId: `subagent:${options.name}`,
-          workspaceId: "subagent",
-          message: prompt,
-          source: { kind: "spawn" },
-        };
-        await resolveResolvable(options.configure({
-          definitionId: options.name,
-          agentId: options.name,
-          conversationId: request.conversationId,
-          workspaceId: request.workspaceId,
-          runId: `subagent:${options.name}`,
-          input: prompt,
-          request,
-          message,
-          messageInput: prompt,
-          messageText: prompt,
-          history: [],
-          messages: [message],
-          glove,
-          signal: new AbortController().signal,
-          emit: () => undefined,
-        }));
+      const message: Message = { sender: "user", text: prompt };
+      const request: FoundryRequest = {
+        agentId: options.name,
+        conversationId: `subagent:${options.name}`,
+        workspaceId: "subagent",
+        message: prompt,
+        source: { kind: "spawn" },
+      };
+      const context: FoundrySurfaceContext<string> = {
+        definitionId: options.name,
+        agentId: options.name,
+        conversationId: request.conversationId,
+        workspaceId: request.workspaceId,
+        runId: `subagent:${options.name}`,
+        input: prompt,
+        request,
+        message,
+        messageInput: prompt,
+        messageText: prompt,
+        history: [],
+        messages: [message],
+        glove,
+        signal: new AbortController().signal,
+        emit: () => undefined,
+      };
+      // The subagent's own surfaces, resolved from its selections the same way
+      // the parent's are resolved from the discovered registry.
+      const disposeSurfaces = await mountFoundrySurfaces({
+        registry: {
+          layers: uniqueById((options.layers ?? []).map((selected) => "layer" in selected ? selected.layer : selected)),
+          subscribers: uniqueById((options.subscribers ?? []).filter(isFoundrySubscriber)),
+        },
+        layers: options.layers ?? [],
+        subscribers: options.subscribers ?? [],
+        context,
+      });
+      try {
+        if (options.configure) await resolveResolvable(options.configure(context));
+      } catch (cause) {
+        await disposeSurfaces();
+        throw cause;
       }
+      // glove_invoke_subagent builds a child per invocation and runs one
+      // request on it, so the surfaces live exactly as long as that request.
+      const processRequest = glove.processRequest.bind(glove);
+      let disposed = false;
+      glove.processRequest = async (...args: Parameters<IGloveRunnable["processRequest"]>) => {
+        try {
+          return await processRequest(...args);
+        } finally {
+          if (!disposed) {
+            disposed = true;
+            await disposeSurfaces();
+          }
+        }
+      };
       return glove;
     },
   });
+}
+
+function uniqueById<T extends { readonly id: string }>(values: ReadonlyArray<T>): ReadonlyArray<T> {
+  return [...new Map(values.map((value) => [value.id, value])).values()];
 }
 
 export async function resolveResolvable<T>(value: Resolvable<T>): Promise<T> {

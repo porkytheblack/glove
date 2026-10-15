@@ -173,11 +173,15 @@ function installationFrom(value: unknown): {
   if (typeof body.id !== "string" || !body.id) {
     throw new RequestError(400, "id is required.");
   }
+  if (body.accountId !== undefined && (typeof body.accountId !== "string" || !body.accountId)) {
+    throw new RequestError(400, "accountId must be a non-empty string.");
+  }
   return {
     agentId: body.agentId,
     installation: {
       kind: body.kind as AgentInstallationKind,
       id: body.id,
+      ...(body.accountId !== undefined ? { accountId: body.accountId as string } : {}),
       ...(body.config !== undefined ? { config: body.config } : {}),
     },
   };
@@ -619,13 +623,16 @@ export class FoundryServer {
         response.end(renderDashboard(this.options.branding));
         return;
       }
+      // Load balancers and orchestrators read the status code, so a failed
+      // subsystem answers 503 with the same body.
       if (method === "GET" && url.pathname === "/health") {
-        json(response, 200, await this.runtime.health());
+        const health = await this.runtime.health();
+        json(response, health.ok ? 200 : 503, health);
         return;
       }
       if (method === "GET" && url.pathname === "/health/detailed") {
         const health = await this.runtime.health();
-        json(response, 200, {
+        json(response, health.ok ? 200 : 503, {
           ...health,
           connections: this.runtime.listApplicationConnections(),
           runs: await this.runtime.listRuns(),

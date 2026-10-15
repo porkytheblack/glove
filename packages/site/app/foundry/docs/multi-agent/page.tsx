@@ -93,8 +93,8 @@ export default defineAgent({
           <tr><td><code>compactionInstructions</code></td><td>&ldquo;Preserve the &lt;name&gt; subagent&apos;s findings and unresolved work.&rdquo;</td></tr>
           <tr><td><code>maxRetries</code>, <code>maxConsecutiveErrors</code>, <code>compactionLimit</code>, <code>maxTurns</code>, <code>enableToolResultSummary</code></td><td>Glove defaults.</td></tr>
           <tr><td><code>hooks</code>, <code>skills</code>, <code>subagents</code></td><td>Mounted on the child.</td></tr>
-          <tr><td><code>configure(context)</code></td><td>Runs after the child is built. Its context is synthetic: <code>conversationId</code> and <code>runId</code> are <code>subagent:&lt;name&gt;</code>, <code>workspaceId</code> is <code>&quot;subagent&quot;</code>, <code>emit</code> is a no-op.</td></tr>
-          <tr><td><code>layers</code>, <code>subscribers</code></td><td>Accepted by the type but not mounted by the current implementation; use <code>configure</code>.</td></tr>
+          <tr><td><code>layers</code>, <code>subscribers</code></td><td>Mounted on the child when it is invoked (layers accept <code>configureLayer(layer, config)</code>) and disposed when its request ends. They get the same synthetic context as <code>configure</code>.</td></tr>
+          <tr><td><code>configure(context)</code></td><td>Runs after the child is built and its layers and subscribers are mounted. Its context is synthetic: <code>conversationId</code> and <code>runId</code> are <code>subagent:&lt;name&gt;</code>, <code>workspaceId</code> is <code>&quot;subagent&quot;</code>, <code>emit</code> is a no-op.</td></tr>
         </tbody>
       </table>
       <p>

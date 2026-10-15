@@ -114,7 +114,8 @@ function skeleton(rows){
 async function api(url,options){
   const response=await fetch(url,options);let body;
   try{body=await response.json()}catch{body={error:"The runtime returned an unreadable response."}}
-  if(!response.ok)throw new Error(body.error||("Request failed ("+response.status+")"));return body;
+  /* /health answers 503 with the same body when a subsystem is down; the header shows it. */
+  if(!response.ok&&!(url==="/health"&&response.status===503))throw new Error(body.error||("Request failed ("+response.status+")"));return body;
 }
 function toast(message){const node=$("toast");node.textContent=message;node.classList.add("show");setTimeout(()=>node.classList.remove("show"),2400)}
 function route(){const parts=location.pathname.split("/").filter(Boolean).map(decodeURIComponent);return{parts,section:parts[0]||"overview",id:parts.slice(1).join("/")}}

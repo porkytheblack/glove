@@ -7,7 +7,10 @@ import {
   type AgentControls,
   type ModelAdapter,
 } from "glove-core";
+import { Effect } from "effect";
+import { z } from "zod";
 import { defineSubagent } from "../src/definition.js";
+import { configureLayer, defineLayer, defineSubscriber } from "../src/surfaces.js";
 
 const model: ModelAdapter = {
   name: "subagent-test-model",
@@ -89,4 +92,68 @@ test("subagents resolve a least-privilege tool projection from the assembled par
     status: "success",
     data: { path: "/out/report.md" },
   });
+});
+
+test("subagents mount their own layers and subscribers for one invocation", async () => {
+  const displayManager = new Displaymanager();
+  const parent = new Glove({
+    model,
+    displayManager,
+    systemPrompt: "Parent",
+    compaction_config: { compaction_instructions: "Preserve test state." },
+  }).build();
+  const lifecycle: string[] = [];
+  const events: string[] = [];
+  const layer = defineLayer({
+    id: "subagent-notes",
+    description: "Mount a tool and record the context the layer saw",
+    config: z.object({ label: z.string() }),
+    setup: ({ glove, agentId, messageText, config }) => Effect.sync(() => {
+      lifecycle.push(`layer:${agentId}:${config.label}:${messageText}`);
+      glove.fold({
+        name: "layer_tool",
+        description: "Mounted by a subagent layer",
+        inputSchema: z.object({}),
+        async do() { return { status: "success" as const, data: null }; },
+      });
+      return () => { lifecycle.push("layer:disposed"); };
+    }),
+  });
+  const subscriber = defineSubscriber({
+    id: "subagent-audit",
+    description: "Record the subagent's events",
+    create: () => ({ async record(type: string) { events.push(type); } }),
+  });
+
+  const delegated = defineSubagent({
+    name: "noted",
+    description: "Delegate with its own surfaces",
+    systemPrompt: "Take notes.",
+    model,
+    layers: [configureLayer(layer, { label: "research" })],
+    subscribers: [subscriber],
+  });
+  const parentControls = {
+    glove: parent,
+    store: parent.store,
+    displayManager,
+    forceCompaction: async () => undefined,
+  } as unknown as AgentControls;
+  const child = await delegated.factory({
+    name: "noted",
+    prompt: "Summarise the brief",
+    parentStore: parent.store,
+    parentControls,
+  });
+
+  assert.deepEqual(lifecycle, ["layer:noted:research:Summarise the brief"]);
+  assert.ok(child.tools.some((tool) => tool.name === "layer_tool"), "the layer mounted onto the child");
+  await child.processRequest("Summarise the brief");
+  assert.ok(events.length > 0, "the subscriber saw the child's events");
+  assert.deepEqual(lifecycle, ["layer:noted:research:Summarise the brief", "layer:disposed"], "surfaces are disposed when the request ends");
+
+  const seen = events.length;
+  await child.processRequest("again");
+  assert.equal(events.length, seen, "the subscriber is detached after the invocation");
+  assert.equal(lifecycle.filter((entry) => entry === "layer:disposed").length, 1, "disposal runs once");
 });
