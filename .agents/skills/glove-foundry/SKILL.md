@@ -1,11 +1,11 @@
 ---
 name: glove-foundry
-description: Build, extend, debug, or review typed agent applications with Glove Foundry. Use for Foundry file routes, definitions and instances, lazy assembly, applications and transmissions, playbooks, schedules, conversations, working environments, multi-agent composition, observability, the inspector, or migration from Glovebox.
+description: Build, extend, debug, or review typed agent applications with Glove Foundry. Use for Foundry file routes, definitions and instances, lazy assembly, applications and transmissions, playbooks, schedules, conversations, working environments, multi-agent composition, observability, or the inspector.
 ---
 
 # Glove Foundry
 
-Build Foundry projects as cohesive agent applications: typed code definitions, durable runtime data, message-aware assembly, and observable execution. Foundry is the preferred Glove application/runtime framework. Glovebox is deprecated and should only be maintained when a task explicitly targets a legacy Glovebox deployment.
+Build Foundry projects as cohesive agent applications: typed code definitions, durable runtime data, message-aware assembly, and observable execution. Foundry is the preferred Glove application/runtime framework.
 
 ## Start with the repository
 
@@ -147,7 +147,7 @@ adapting an existing room example.
 
 Choose the smallest correct composition surface:
 
-- `defineSubagent` for an isolated nested task under a parent run.
+- `defineSubagent` for an isolated nested task under a parent run. Its `tools` can project a least-privilege subset of `parent.tools`; its `layers` (including `configureLayer(layer, config)`) and `subscribers` mount on each invocation, before `configure`, and are disposed when the subagent's request ends.
 - Foundry calls for typed agent-to-agent or agent-to-service invocation.
 - Mesh for peer messaging and acknowledgements.
 - Playbook subscriptions for inbound events that can provision a workforce.
@@ -163,10 +163,12 @@ Foundry already provides these surfaces; do not rebuild them in application code
 - Native REST under `/api/*` (instances, conversations, messages, runs, events with SSE, installations, approvals, workspaces, playbook subscriptions, activations, transmissions, topology) and an automation API under `/v1/runs`.
 - OpenAI-compatible `GET /v1/models`, `POST /v1/chat/completions` and `POST /v1/responses`. `model` is an instance id, or a definition route with exactly one instance; instances are never created implicitly. Reuse `user`, `conversation_id`, or the returned `x-foundry-conversation-id` header to continue a durable conversation.
 - Approvals: a tool with `requiresPermission` (or an outbound transmission with `requiresPermission`) pauses the run on an expiring approval record (default 5 minutes, fail-closed). Resolve with `client.approvals(...)` + `client.resolveApproval(id, "approve" | "deny")` or the inspector.
-- Steering is interrupt-and-restart: `handle.steer(message)` cancels at a safe boundary and starts a replacement run in the same conversation.
+- Steering is interrupt-and-restart: `handle.steer(message)` cancels the active run, waits (at most 10 s) for its process to finish `unAbortable` tools and cleanup, then starts a replacement run in the same conversation, so the replacement never reads history the old process is still writing.
 - Built-in agent tools on every Foundry agent: `glove_foundry_spawn`, `glove_foundry_schedule`, `glove_foundry_schedules`, `glove_foundry_sleep`, `glove_foundry_background`, `glove_foundry_transmit`, `glove_foundry_conversations`, `glove_foundry_workspace`, `glove_foundry_shared_inbox`, `glove_foundry_tasks`, `glove_foundry_environment`.
 - Every run executes in a fresh child process. `new MemoryStore(...)`, in-memory memory adapters and `MemoryFoundryDataAdapter` writes made inside a run do not survive to the next message, so an agent whose `store` returns a plain `MemoryStore` forgets earlier turns. The starter templates keep everything under `.data/` (`FileFoundryDataAdapter`, `lib/file-store.ts`; the concierge also `lib/file-context.ts` and VFS persistence). Persistence has four independent boundaries: `FoundryDataAdapter` (`FileFoundryDataAdapter` for one host), a durable conversation `store`/`conversationStore`, native memory adapters, and working-environment VFS persistence.
-- Install capabilities with `install(...)` on the instance, `client.install`, or `PUT /api/installations`; the inspector displays installations but cannot change them. Outbound delivery needs an enabled `defineBinding` for the instance.
+- Install capabilities with `install(...)` on the instance, `client.install`, or `PUT /api/installations` (`{ agentId, kind, id, accountId?, config? }`; `accountId` selects a persisted account and must not go inside `config`); the inspector displays installations but cannot change them. Outbound delivery needs an enabled `defineBinding` for the instance.
+- Health: `GET /health` (and `/health/detailed`) answer 200 when `ok` is true and 503 with the same body when a subsystem is down; `client.health()` returns the body either way.
+- One runtime per data store: every runtime arms the schedules it finds, so replicas sharing a store would each fire them.
 
 Handbook: https://glove.dterminal.net/foundry/docs · condensed reference: https://glove.dterminal.net/foundry/llms-full.txt
 

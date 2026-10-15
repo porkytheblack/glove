@@ -315,7 +315,7 @@ GET /api/installations?agent=support-acme`} />
         <li>Config is decoded against the zod schema when a run assembles, not at install time. Invalid persisted config fails the next run (&ldquo;Invalid config for tool …&rdquo;).</li>
         <li>One installation per <code>kind</code> + <code>id</code>: installing again replaces the earlier config.</li>
         <li>Installation changes apply from the next run. Uninstalling an app that one of the instance&apos;s playbooks needs is rejected.</li>
-        <li>Select an account with <code>install(def, config, {"{ account }"})</code> in code or an <code>accountId</code> in <code>PATCH /api/agent-instances/:id</code> installations. <code>PUT /api/installations</code> ignores <code>accountId</code>, and config may not contain an <code>accountId</code> key.</li>
+        <li>Select an account with <code>install(def, config, {"{ account }"})</code> in code, or an <code>accountId</code> in the <code>PUT /api/installations</code> body or in <code>PATCH /api/agent-instances/:id</code> installations. Config may not contain an <code>accountId</code> key.</li>
         <li>The inspector shows a definition&apos;s catalogue and an instance&apos;s installations, read-only. Install through code, the client or HTTP.</li>
       </ul>
 

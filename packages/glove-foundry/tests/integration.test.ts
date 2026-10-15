@@ -89,6 +89,31 @@ test("Foundry delegates HTTP authorization without retaining credentials", async
   }
 });
 
+test("Foundry health answers 503 when a subsystem is down", async () => {
+  const runtime = await FoundryRuntime.discover({ rootDir, agentsDir });
+  const server = new FoundryServer(runtime, { port: 0 });
+  await runtime.start();
+  const healthy = runtime.health.bind(runtime);
+  try {
+    const listening = await server.listen();
+    assert.equal((await fetch(`${listening.url}/health`)).status, 200);
+
+    runtime.health = async () => ({ ...(await healthy()), ok: false, activations: false });
+    const down = await fetch(`${listening.url}/health`);
+    assert.equal(down.status, 503);
+    assert.equal(((await down.json()) as { ok: boolean }).ok, false);
+    assert.equal((await fetch(`${listening.url}/health/detailed`)).status, 503);
+    // The typed client still returns the body instead of throwing.
+    const health = await createFoundryClient({ baseUrl: listening.url }).health();
+    assert.equal(health.ok, false);
+    assert.equal(health.activations, false);
+  } finally {
+    runtime.health = healthy;
+    await server.close();
+    await runtime.stop();
+  }
+});
+
 test("Foundry serves a typed run and a complete observable trace", async () => {
   const runtime = await FoundryRuntime.discover({
     rootDir,
@@ -653,6 +678,24 @@ test("Foundry serves validated topology without exposing account access referenc
     assert.equal(health.agents, 1);
     assert.equal(health.capabilities, 1);
     assert.equal(health.surfaces, 0);
+
+    // The HTTP installation surface keeps the account selection.
+    const reinstalled = await client.install(assistantInstance.id, {
+      kind: "application",
+      id: transportApp.id,
+      accountId: account.id,
+    });
+    assert.equal(reinstalled.installations.find((entry) => entry.id === transportApp.id)?.accountId, account.id);
+    assert.equal(
+      (await client.installations(assistantInstance.id)).find((entry) => entry.id === transportApp.id)?.accountId,
+      account.id,
+    );
+    const badAccount = await fetch(`${listening.url}/api/installations`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agentId: assistantInstance.id, kind: "application", id: transportApp.id, accountId: 42 }),
+    });
+    assert.equal(badAccount.status, 400);
 
     const grant = await client.resolveGrant({
       runId: Schema.decodeUnknownSync(

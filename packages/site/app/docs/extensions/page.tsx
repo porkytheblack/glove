@@ -397,7 +397,7 @@ interface DefineSkillArgs extends SkillOptions {
 
       <p>
         Built for agents that may not have filesystem access (web,
-        glovebox, embedded). Skills are loaded lazily through a single{" "}
+        serverless, embedded). Skills are loaded lazily through a single{" "}
         <code>glove_read_skill</code> tool whose description embeds a token-
         budgeted XML listing of every registered skill. The model picks one
         by name, calls the tool, and the content lands as a tool result.
@@ -613,7 +613,7 @@ useReadSkill(agent, skills);`}
             <td>Either works; <code>ContentSkill</code> if it&apos;s purely static</td>
           </tr>
           <tr>
-            <td>Bundled skill ships to multiple runtimes (web + glovebox + CLI)</td>
+            <td>Bundled skill ships to multiple runtimes (web + server + CLI)</td>
             <td><code>ContentSkill</code> — same bundle, no filesystem assumed</td>
           </tr>
         </tbody>

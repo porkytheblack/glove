@@ -56,7 +56,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
     title: "Community",
     links: [
       { label: "GitHub", href: "https://github.com/porkytheblack/glove", external: true },
-      { label: "v3 Release Notes", href: "/docs/v3" },
+      { label: "v4 Release Notes", href: "/docs/v4" },
       { label: "Used by Proxima", href: "https://proximadroids.com", external: true },
     ],
   },

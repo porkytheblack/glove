@@ -200,7 +200,7 @@ await summary.wait();`} />
           <tr><td><code>capabilities(definitionId)</code></td><td><code>FoundryCapabilityManifest</code></td><td><code>GET /api/capabilities?definition=</code></td></tr>
           <tr><td><code>surfaces(definitionId)</code></td><td><code>FoundryNativeManifest</code></td><td><code>GET /api/surfaces?definition=</code></td></tr>
           <tr><td><code>installations(agentId)</code></td><td><code>AgentInstallation[]</code></td><td><code>GET /api/installations?agent=</code></td></tr>
-          <tr><td><code>install(agentId, {"{ kind, id, config? }"})</code> / <code>uninstall(agentId, …)</code></td><td><code>AgentInstance</code></td><td><code>PUT</code> / <code>DELETE /api/installations</code></td></tr>
+          <tr><td><code>install(agentId, {"{ kind, id, accountId?, config? }"})</code> / <code>uninstall(agentId, …)</code></td><td><code>AgentInstance</code></td><td><code>PUT</code> / <code>DELETE /api/installations</code></td></tr>
           <tr><td colSpan={3}><strong>Topology &amp; grants</strong></td></tr>
           <tr><td><code>accounts()</code></td><td><code>AccountSummary[]</code></td><td><code>GET /api/accounts</code></td></tr>
           <tr><td><code>routes()</code> / <code>putRoute(route)</code> / <code>removeRoute(id)</code></td><td><code>Route[]</code> / <code>Route</code> / <code>void</code></td><td><code>GET</code> / <code>PUT /api/routes</code>, <code>DELETE /api/routes/:id</code></td></tr>
@@ -242,7 +242,7 @@ await summary.wait();`} />
           <tr><td><code>PATCH /api/agent-instances/:id</code></td><td><code>context?</code>, <code>installations?</code>, <code>playbooks?</code> — each given field is replaced whole</td><td><code>AgentInstance</code></td></tr>
           <tr><td><code>PUT /api/agent-instances/:id/playbooks</code></td><td><code>playbooks</code></td><td><code>AgentInstance</code></td></tr>
           <tr><td><code>GET /api/installations</code></td><td><code>?agent=</code> (required)</td><td><code>AgentInstallation[]</code></td></tr>
-          <tr><td><code>PUT /api/installations</code></td><td><code>agentId</code>, <code>kind</code> (<code>tool</code> | <code>application</code> | <code>mcp</code>), <code>id</code>, <code>config?</code></td><td>Installs; returns <code>AgentInstance</code>.</td></tr>
+          <tr><td><code>PUT /api/installations</code></td><td><code>agentId</code>, <code>kind</code> (<code>tool</code> | <code>application</code> | <code>mcp</code>), <code>id</code>, <code>accountId?</code>, <code>config?</code></td><td>Installs; returns <code>AgentInstance</code>.</td></tr>
           <tr><td><code>DELETE /api/installations</code></td><td>same body</td><td>Uninstalls; returns <code>AgentInstance</code>.</td></tr>
           <tr><td colSpan={3}><strong>Conversations &amp; runs</strong></td></tr>
           <tr><td><code>GET /api/conversations</code></td><td><code>?agent=</code> (required)</td><td><code>Conversation[]</code></td></tr>
@@ -282,12 +282,10 @@ await summary.wait();`} />
           <tr><td><code>POST /api/grants/resolve</code></td><td><code>runId</code>, <code>agentId</code>, <code>originRouteId?</code></td><td><code>RunGrant</code></td></tr>
         </tbody>
       </table>
-      <div className="docs-note"><span className="docs-note-icon">!</span><p>
-        <code>PUT /api/installations</code> reads only <code>agentId</code>, <code>kind</code>,{" "}
-        <code>id</code> and <code>config</code>; an <code>accountId</code> in the body is dropped.
-        To install an application bound to an account over HTTP, send the full list with{" "}
-        <code>PATCH /api/agent-instances/:id</code> (<code>configureAgent</code>), which keeps{" "}
-        <code>accountId</code>.
+      <div className="docs-note"><span className="docs-note-icon">◆</span><p>
+        To install an application bound to an account over HTTP, add{" "}
+        <code>accountId</code> to the <code>PUT /api/installations</code> body.{" "}
+        With the client: <code>client.install(agentId, {"{ kind: \"application\", id, accountId }"})</code>.
       </p></div>
 
       <h3 id="events">Live event streams</h3>
@@ -317,7 +315,9 @@ data: {"id":"…","sequence":412,"timestamp":"…","type":"agent.text_delta","ca
         <code>ok</code> is true when the execution daemon, its environment and the activation
         scheduler all answer a ping; the last three fields are counts.{" "}
         <code>GET /health/detailed</code> adds <code>connections</code> and the full retained{" "}
-        <code>runs</code> list, so keep it off public load-balancer probes. Both pass through{" "}
+        <code>runs</code> list, so keep it off public load-balancer probes. Both answer{" "}
+        <code>200</code> when <code>ok</code> is true and <code>503</code> with the same body when it
+        is false; <code>client.health()</code> returns the body either way. Both pass through{" "}
         <code>requestAuthorization</code> when it is configured.
       </p>
 

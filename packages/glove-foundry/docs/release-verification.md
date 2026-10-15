@@ -38,7 +38,7 @@ The Glove Foundry and Glove skills guided integration against native primitives 
 
 | Surface | Result |
 | --- | --- |
-| Entire publish build graph | Passed, including ordered legacy Glovebox dependencies; no publishing command run |
+| Entire publish build graph | Passed; no publishing command run |
 | Foundry runtime suite | 80 passed, including real completed/cancelled worker process cleanup |
 | New initializer and existing scaffold tests | 11 passed; terminal policy, flags, piped setup, invalid options, Next.js preservation, versions, and all four package-manager dispatch paths |
 | Interactive terminal | Selected minimal starter and npm; confirmed generation; separately cancelled with Ctrl+C and verified no output directory |

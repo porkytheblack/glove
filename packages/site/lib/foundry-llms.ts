@@ -165,7 +165,7 @@ composeAgent(...) + components only makes shared tools, apps and MCP servers
 AVAILABLE. They mount only on instances that install them:
 - install(def, config?, { account? }) in defineAgentInstance / createAgent({ installations })
 - client.install(agentId, { kind, id, config }) / client.uninstall(...)
-- PUT /api/installations  {"agentId","kind":"tool"|"application"|"mcp","id","config"}
+- PUT /api/installations  {"agentId","kind":"tool"|"application"|"mcp","id","accountId?","config?"}
   (DELETE with the same body uninstalls). The inspector displays installations but
   cannot change them. install(def) only works inside the Foundry process (file ids
   are bound by discovery); remote clients send plain { kind, id, config } records.
@@ -299,8 +299,9 @@ glove-execution inside configure, with ctx.onCleanup.
 ## 11. Multi-agent
 
 defineSubagent (isolated child; tools can be a least-privilege projection of the
-parent built from parent.tools — there is no projectTools export; layers and
-subscribers on a subagent are not mounted), defineCall (typed function), glove_foundry_spawn (separate run),
+parent built from parent.tools — there is no projectTools export; a subagent's
+layers and subscribers mount per invocation and are disposed when its request
+ends), defineCall (typed function), glove_foundry_spawn (separate run),
 glove_foundry_background (reconvene via inbox), mesh field (glove-mesh),
 playbook subscriptions (provision a workforce), workspace/inbox/tasks for
 coordination. Voice hosts (glove-voice-s2s) delegate durable work to an
@@ -338,8 +339,9 @@ POST /v1/runs/:id/stop, POST /v1/runs/:id/steer, GET /v1/capabilities,
 GET /v1/approvals, POST /v1/approvals/:id.
 JSON bodies are limited to 1 MB by default (413 when exceeded); raise
 server.messageBodyBytes for media. Runs, events and pending approvals are held in
-the Foundry process's memory and are lost on restart; /health returns 200 with an
-ok flag — check ok, not the status code. Activations are read-only over HTTP.
+the Foundry process's memory and are lost on restart; /health and /health/detailed
+return 200 when ok is true and 503 with the same body when it is false
+(client.health() returns the body either way). Activations are read-only over HTTP.
 Installing an unknown id returns 400.
 
 ## 13. OpenAI-compatible endpoints
@@ -368,8 +370,10 @@ the mechanism does not engage if defineAgent supplies its own displayManager. Re
 client.approvals({ runId, status: "pending" }) and client.resolveApproval(id,
 "approve" | "deny"), the /api/approvals or /v1/approvals routes, or the inspector.
 Steering (handle.steer(message), /api/runs/:id/steer, /v1/runs/:id/steer, WebChat
-Redirect) is interrupt-and-restart: cooperative cancel, then a replacement run in
-the same conversation with lineage. It never injects text mid side effect.
+Redirect) is interrupt-and-restart: cooperative cancel, a wait (at most 10 s) for
+the cancelled run's process to finish unAbortable tools and cleanup, then a
+replacement run in the same conversation with lineage. It never injects text mid
+side effect.
 
 ## 15. Inspector and observability
 
@@ -439,7 +443,7 @@ same store arm every schedule twice. Foundry binds to loopback by default and re
 host unless requestAuthorization ({ identifier, challenge, authorize(request) =>
 Effect<boolean> }) is supplied; the typed client sends matching headers via
 authorization: { identifier, headers }. Put TLS and rate limits in front.
-glove foundry start runs without watching. Glovebox is deprecated; deploy Foundry.
+glove foundry start runs without watching.
 
 ## Goals, facts, and form preparation
 

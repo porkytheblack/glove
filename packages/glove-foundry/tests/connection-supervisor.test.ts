@@ -89,3 +89,56 @@ test("completion-aware receives keep the connection effect open until delivery s
     await supervisor.stopAll();
   }
 });
+
+test("a reconcile that lands after stopAll starts nothing that would outlive the runtime", async () => {
+  const transmission = defineTransmission({
+    id: "late-messages",
+    name: "Late messages",
+    description: "Late reconcile fixture",
+    inbound: {
+      config: Schema.Struct({}),
+      event: Schema.Struct({ text: Schema.String }),
+    },
+  });
+  let connects = 0;
+  const connection = defineConnection({
+    id: "late-listener",
+    description: "Runs until interrupted, like a provider connection",
+    transmissions: [transmission],
+    connect: () => Effect.gen(function* () {
+      connects += 1;
+      yield* Effect.never;
+    }),
+  });
+  const application = defineAgentApplication({
+    id: "late-messaging",
+    description: "Late reconcile fixture",
+    inbound: [transmission],
+    connections: [connection],
+  });
+  const route = defineInboundRoute({
+    id: "late-inbound",
+    transmission,
+    visibility: "private",
+    enabled: true,
+    config: {},
+  });
+  const supervisor = new ApplicationConnectionSupervisor({
+    receive: async () => undefined,
+    emit: () => undefined,
+  });
+
+  // The runtime is stopping; a run's playbook sync reconciles afterwards.
+  await supervisor.stopAll();
+  await supervisor.reconcile([{
+    id: "late-listener",
+    application,
+    connection,
+    definitionId: "assistant",
+    workspaceId: "workspace-1",
+    routes: [route],
+  }]);
+  await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+  assert.equal(connects, 0);
+  assert.deepEqual(supervisor.list(), []);
+});

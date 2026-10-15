@@ -1,5 +1,11 @@
 # glove-memory
 
+## 2.2.3
+
+### Patch Changes
+
+- [#190](https://github.com/porkytheblack/glove/pull/190) [`cddf7fd`](https://github.com/porkytheblack/glove/commit/cddf7fd1f21379fb7b1b842dc7b0d65aeb65c50f) Thanks [@porkytheblack](https://github.com/porkytheblack)! - README corrections. `glove-memory`: `useFormRunner` registers a runtime context provider that appends the form's status line at the model-input tail before every model call (`injectStatus: false` turns it off), and wraps `processRequest` only when `preparation` is configured. `glove-image`: remove references to the retired Glovebox runtime.
+
 ## 2.2.2
 
 ### Patch Changes

@@ -66,7 +66,7 @@ glove foundry start --host 0.0.0.0 --port 4141`} />
           <tr><td>Authorization</td><td><code>defineApplication({"{ requestAuthorization }"})</code></td><td>Required to bind a non-loopback address; gates every route.</td></tr>
           <tr><td>Client credentials</td><td><code>createFoundryClient({"{ authorization: { identifier, headers } }"})</code></td><td>Headers are resolved per request, outside Foundry data.</td></tr>
           <tr><td>TLS</td><td>A reverse proxy in front of Foundry</td><td>Foundry serves plain HTTP.</td></tr>
-          <tr><td>Readiness</td><td><code>GET /health</code> → check <code>ok</code></td><td>The HTTP status alone is 200 even when a subsystem is down.</td></tr>
+          <tr><td>Readiness</td><td><code>GET /health</code> → check <code>ok</code></td><td>Answers 503 (with the same body) when a subsystem is down, so a status-code probe works.</td></tr>
           <tr><td>Body limits</td><td><code>server.messageBodyBytes</code></td><td>1 MB default for message endpoints; raise only for trusted multimodal clients.</td></tr>
           <tr><td>Concurrency and retries</td><td><code>execution.maxConcurrent</code>, <code>maxAttempts</code>, <code>retryBackoffMs</code></td><td>Each running turn is a Node process; retries re-run whole turns.</td></tr>
           <tr><td>Event retention and export</td><td><code>observability.maxEvents</code>; a custom <code>FoundryObservabilityAdapter</code></td><td>Events are kept in memory only (<Link href="/foundry/docs/observability#export">export them</Link>).</td></tr>
@@ -223,9 +223,9 @@ export const foundry = createFoundryClient({
         </tbody>
       </table>
       <p>
-        A healthy check returns <code>200</code> with <code>{"\"ok\": true"}</code>. Gate traffic on
-        the <code>ok</code> field: the status is <code>200</code> even when it is{" "}
-        <code>false</code>, and becomes an error status when the daemon cannot be reached at all.
+        A healthy check returns <code>200</code> with <code>{"\"ok\": true"}</code>. When a
+        subsystem is down it returns <code>503</code> with the same body and{" "}
+        <code>{"\"ok\": false"}</code>, so a load balancer can gate on the status code alone.
         Both endpoints pass through <code>requestAuthorization</code>, so a probe must send
         credentials unless your adapter exempts <code>GET /health</code> as above. The typed
         client exposes the same check as <code>await foundry.health()</code>.
@@ -387,15 +387,6 @@ docker run --init -p 4141:4141 \\
         <li>Exclude <code>node_modules</code>, <code>.data</code> and <code>.env*</code> in <code>.dockerignore</code>; pass secrets as environment variables.</li>
         <li>With pnpm, replace the install step with <code>corepack enable &amp;&amp; pnpm install --frozen-lockfile --prod</code> and copy <code>pnpm-lock.yaml</code>.</li>
       </ul>
-
-      <h2 id="glovebox">Migrating from Glovebox</h2>
-      <p>
-        Glovebox is deprecated in favor of Foundry. Existing Glovebox deployments remain supported
-        for compatibility, but build new runtimes and deployments with Foundry. The{" "}
-        <code>glove-foundry</code> <Link href="/docs/agent-skill">agent skill</Link> is meant for
-        Glovebox migrations, and the legacy reference stays at{" "}
-        <Link href="/docs/glovebox">/docs/glovebox</Link>.
-      </p>
     </article>
   );
 }

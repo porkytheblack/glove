@@ -9,6 +9,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@paper-design/shaders-react": "0.0.81",
     "glove-react": "workspace:*",
     "next": "^15.3.3",
     "react": "^19.0.0",

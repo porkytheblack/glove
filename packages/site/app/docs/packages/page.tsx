@@ -49,9 +49,8 @@ export default function PackagesPage() {
         <p>
           Everything below assumes you already have an agent — either a{" "}
           <code>Glove</code> builder or a built runnable. If not, start with the{" "}
-          <a href="/docs/getting-started">Quickstart</a>. Deployment (
-          <code>glovebox-*</code>) has its own guide and is only summarised
-          here.
+          <a href="/docs/getting-started">Quickstart</a>. Deployment is covered
+          by the <a href="/foundry/docs/deploy">Foundry deploy guide</a>.
         </p>
       </div>
 
@@ -153,13 +152,6 @@ export default function PackagesPage() {
               <code>glove-mcp</code>
             </td>
             <td>You want tools you did not write.</td>
-          </tr>
-          <tr>
-            <td>Deployment</td>
-            <td>
-              <code>glovebox-core</code>, <code>-kit</code>, <code>-client</code>
-            </td>
-            <td>Ship the agent as an isolated, addressable service.</td>
           </tr>
         </tbody>
       </table>
@@ -1289,31 +1281,6 @@ await mountMcp(runnable, {
           → <a href="/docs/mcp">MCP guide</a>
         </p>
       </Pkg>
-
-      {/* ============================================================ */}
-      <h2 id="deployment">Deployment</h2>
-
-      <p>
-        <strong>Deprecated:</strong> Glovebox is retained for existing
-        deployments. Use <a href="/foundry/docs">Glove Foundry</a> for new
-        agent runtimes, working environments, and deployment composition.
-      </p>
-
-      <p>
-        <code>glovebox-core</code> (authoring kit + <code>glovebox build</code>{" "}
-        CLI), <code>glovebox-kit</code> (the in-container runtime) and{" "}
-        <code>glovebox-client</code> (the client SDK) package an agent as an
-        isolated, network-addressable service: one authenticated WebSocket
-        endpoint per session, files crossing the wire as <code>FileRef</code>{" "}
-        rather than raw bytes, and a storage policy DSL that routes payloads by
-        size.
-      </p>
-
-      <p>
-        It is a bigger surface than the rest of this page and has a guide of its
-        own → <a href="/docs/glovebox">Glovebox</a>, with a worked example in
-        the <a href="/docs/showcase/glovebox">showcase</a>.
-      </p>
 
       {/* ============================================================ */}
       <h2 id="deprecated">Deprecated</h2>

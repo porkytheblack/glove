@@ -193,8 +193,11 @@ export class FoundryClient<TRoutes extends FoundryRouteMap> {
       : fetcher;
   }
 
+  /** Resolves with `ok: false` when a subsystem is down (the server answers 503). */
   async health(): Promise<FoundryHealth> {
-    return readResponse(await this.fetcher(`${this.baseUrl}/health`));
+    const response = await this.fetcher(`${this.baseUrl}/health`);
+    if (response.status === 503) return (await response.json()) as FoundryHealth;
+    return readResponse(response);
   }
 
   agent<TRoute extends Extract<keyof TRoutes, string>>(route: TRoute): {

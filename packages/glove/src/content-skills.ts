@@ -6,7 +6,7 @@ import type { IGloveBuilder, IGloveRunnable } from "./glove";
  * A static, content-shaped skill. The full text ships with the Glove
  * configuration — no filesystem required at runtime. Designed for coding
  * agents that may be running in sandboxed / filesystem-less environments
- * (e.g. browser, glovebox, embedded agents) where Claude Code's
+ * (e.g. browser, embedded agents) where Claude Code's
  * filesystem-backed skill layout is not available.
  *
  * Skills are pure data — there are no handlers. To register them on a
