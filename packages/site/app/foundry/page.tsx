@@ -137,10 +137,10 @@ export default function FoundryPage() {
             <CodeBlock
               filename="agents/support/agent.ts"
               language="typescript"
-              code={`import { MemoryStore } from "glove-core";
-import { createAdapter } from "glove-core/models/providers";
+              code={`import { createAdapter } from "glove-core/models/providers";
 import { defineAgent } from "glove-foundry";
 import { z } from "zod";
+import { FileStore } from "../../lib/file-store.js"; // 25 lines, see Persistence
 
 export default defineAgent({
   description: "Answers questions about orders",
@@ -149,8 +149,8 @@ export default defineAgent({
     model: "openai/gpt-4.1-mini",
     stream: true,
   }),
-  store: ({ conversationId }) =>
-    new MemoryStore(\`support:\${conversationId}\`),
+  // Each run is its own process: keep the transcript somewhere durable.
+  store: ({ conversationId }) => FileStore.open(conversationId),
   // Resolved per run, from the instance's own data.
   systemPrompt: (_agent, ctx) =>
     \`You are support for \${ctx.agentInstance.context.company}.\`,

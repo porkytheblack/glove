@@ -15,8 +15,8 @@ export default function ApplicationsPage() {
       <p className="blog-lede">
         Connect an agent to Telegram, Slack, a ticket system or any webhook. Inbound
         messages arrive as runs in a durable conversation per thread; replies go out
-        through a schema-validated tool the agent calls. Your code owns every
-        credential. Foundry never sees one.
+        through a schema-validated tool the agent calls. Credentials stay in your
+        code; Foundry never stores or logs them.
       </p>
 
       <h2 id="what-you-get">What you get</h2>
@@ -32,26 +32,16 @@ export default function ApplicationsPage() {
         <code>agents/support</code> agent and replies flowing back out. The same shape
         works for chat apps, email or any provider with a webhook or an API you can poll.
       </p>
-      <CodeBlock filename="agents/support" language="text" code={`agent.ts                          defineAgent: components, accountSessions, playbooks
-topology.ts                       accounts and routes (runtime data, explicit ids)
-instances.ts                      the support-desk instance that installs helpdesk
-actions/triage.action.ts          what a playbook asks the agent to do
-events/ticket-created.event.ts    inbound event
-events/ticket-replied.event.ts    outbound event
-predicates/priority-at-least.predicate.ts
-transmissions/tickets.transmission.ts
-connections/tickets-poller.connection.ts   optional long-lived listener
-apps/helpdesk.app.ts              the installable bundle`} />
       <table>
-        <thead><tr><th>Piece</th><th>Helper</th><th>Identity</th><th>Role</th></tr></thead>
+        <thead><tr><th>Piece</th><th>File in <code>agents/support/</code> → id</th><th>Role</th></tr></thead>
         <tbody>
-          <tr><td>Event</td><td><code>defineTransmissionEvent</code></td><td>filename</td><td>A named kind of message, <code>inbound</code> or <code>outbound</code>.</td></tr>
-          <tr><td>Predicate</td><td><code>defineTransmissionPredicate</code></td><td>filename</td><td>A parameterized yes/no check that playbooks reference.</td></tr>
-          <tr><td>Transmission</td><td><code>defineTransmission</code></td><td>filename</td><td>The transport contract: schemas, ingress and delivery adapters.</td></tr>
-          <tr><td>Connection</td><td><code>defineConnection</code></td><td>filename</td><td>A supervised listener (socket, long poll) that emits inbound events.</td></tr>
-          <tr><td>App</td><td><code>defineApp</code></td><td>filename</td><td>Bundles transmissions, connections and extra tools. Instances install it.</td></tr>
-          <tr><td>Account, routes, binding</td><td><code>defineAccount</code>, <code>defineInboundRoute</code>, <code>defineOutboundRoute</code>, <code>defineBinding</code></td><td>explicit <code>id</code></td><td>Runtime topology: which external account, which queue, who may send.</td></tr>
-          <tr><td>Playbook</td><td><code>composePlaybook</code></td><td>derived</td><td>Which events wake this instance and what it should do. See <Link href="/foundry/docs/automation#playbooks">Playbooks</Link>.</td></tr>
+          <tr><td><code>defineTransmissionEvent</code></td><td><code>events/ticket-created.event.ts</code> → <code>ticket-created</code></td><td>A named kind of message, <code>inbound</code> or <code>outbound</code>.</td></tr>
+          <tr><td><code>defineTransmissionPredicate</code></td><td><code>predicates/priority-at-least.predicate.ts</code></td><td>A parameterized yes/no check that playbooks reference.</td></tr>
+          <tr><td><code>defineTransmission</code></td><td><code>transmissions/tickets.transmission.ts</code> → <code>tickets</code></td><td>The transport contract: schemas, ingress and delivery adapters.</td></tr>
+          <tr><td><code>defineConnection</code></td><td><code>connections/tickets-poller.connection.ts</code></td><td>Optional supervised listener (socket, long poll) that emits inbound events.</td></tr>
+          <tr><td><code>defineApp</code></td><td><code>apps/helpdesk.app.ts</code> → <code>helpdesk</code></td><td>Bundles transmissions, connections and extra tools. Instances install it.</td></tr>
+          <tr><td><code>definePlaybookAction</code>, <code>composePlaybook</code></td><td><code>actions/triage.action.ts</code>, <code>agent.ts</code></td><td>Which events wake an instance and what it should do. See <Link href="/foundry/docs/automation#playbooks">Playbooks</Link>.</td></tr>
+          <tr><td><code>defineAccount</code>, <code>defineInboundRoute</code>, <code>defineOutboundRoute</code>, <code>defineBinding</code></td><td><code>topology.ts</code> (and the root <code>foundry.application.ts</code>); explicit <code>id</code>s</td><td>Runtime data: which external account, which queue, who may send.</td></tr>
         </tbody>
       </table>
 
@@ -446,7 +436,7 @@ export default defineAgent({
         <li><code>authenticate</code> runs; <code>false</code> rejects the event (HTTP 400) and releases the claim so the provider can retry.</li>
         <li><code>normalize</code> runs (or <code>raw</code> is decoded against <code>inbound.event</code>), then <code>classify</code>.</li>
         <li>Candidates are instances that installed an app owning this transmission as inbound. Each candidate’s playbooks are matched on transmission, route, event and predicate. Enabled <Link href="/foundry/docs/automation#subscriptions">subscriptions</Link> are matched too and may provision new instances.</li>
-        <li>For each matched instance Foundry reuses or creates the conversation <code>{"transmission:<routeId>:<agentId>:<threadKey>"}</code> and enqueues one run whose message is the serialized event plus every matched playbook’s directives. The run’s <code>source</code> is <code>{"{ kind: \"transmission\", id: routeId, eventId, threadKey }"}</code>.</li>
+        <li>For each matched instance Foundry reuses or creates the conversation <code>{"transmission:<routeId>:<agentId>:<threadKey>"}</code> and enqueues one run whose message is the serialized event plus every matched playbook’s directives. The run’s <code>source</code> is <code>{"{ kind: \"transmission\", id: <routeId>, provider: <transmissionId>, eventId, threadKey }"}</code>, its <code>payload</code> is the normalized event, and its <code>context</code> carries the matched <code>playbookIds</code> and <code>outbound</code> entries.</li>
         <li>The call returns the started runs. No match returns <code>[]</code> and nothing runs.</li>
       </ol>
       <p>Without <code>inbound.serialize</code>, the agent receives deterministic XML (JSON is XML-escaped):</p>
@@ -638,15 +628,13 @@ support-desk + email/replies    -> glove_app_support_desk__email__replies_send`}
       <h2 id="credentials">The credential boundary</h2>
       <p>
         Foundry never runs OAuth, never refreshes a token and never chooses where
-        secrets live. You give it one adapter on the agent definition:
+        secrets live. You give it one adapter, <code>accountSessions</code> on{" "}
+        <code>defineAgent</code> (shown <a href="#agent">above</a>):{" "}
+        <code>{"{ identifier, withSession(request, use) }"}</code>, where{" "}
+        <code>request</code> is <code>{"{ accountId, operation, agentId, conversationId, workspaceId }"}</code>{" "}
+        and you call <code>use(session)</code> with whatever your provider code needs.
+        Foundry exposes it as <code>withAccountSession(operation, use)</code>:
       </p>
-      <CodeBlock filename="FoundryAccountSessionAdapter" language="typescript" code={`interface FoundryAccountSessionAdapter {
-  readonly identifier: string;
-  withSession<A>(
-    request: { accountId: string; operation: string; agentId: string; conversationId: string; workspaceId: string },
-    use: (session: unknown) => Effect.Effect<A, unknown, never>,
-  ): Effect.Effect<A, unknown, never>;
-}`} />
       <table>
         <thead><tr><th>Where</th><th>What you get</th></tr></thead>
         <tbody>

@@ -28,6 +28,10 @@ the local `glove foundry dev --port 4142` command.
 
 ## Before using real data
 
+Each run executes in its own process, so the starter's in-memory `MemoryStore`
+forgets earlier turns of a conversation. Give the agent a durable `store` before you
+rely on multi-turn chat — see https://glove.dterminal.net/foundry/docs/persistence.
+
 The starter uses disposable in-memory storage. Configure durable Foundry runtime
 data, a durable Glove conversation store, native memory adapters, and VFS
 persistence independently. For a single host, Foundry includes
@@ -58,7 +62,11 @@ Any file matching these names under an agent folder is discovered automatically.
 | `layers/*.layer.ts` | Native Glove setup | `defineLayer` |
 | `subscribers/*.subscriber.ts` | An observer | `defineSubscriber` |
 
-Create the file, add it to `composeAgent(...)`, and the dev server picks it up and regenerates types.
+Create the file and add it to `composeAgent(...)`. That makes it *available*, not
+mounted: tools, apps and MCP servers in the catalogue mount only on an instance that
+installs them — `install(...)` when the instance is created, `client.install(...)`, or
+`PUT /api/installations`. The inspector shows installations but does not change them.
+Put a tool every instance should always have in the agent's `tools` field instead.
 
 Schedules are data, not auto-discovered file routes. You may keep a `defineSchedule`
 value in an ordinary colocated module and import it into the agent's lazy

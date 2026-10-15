@@ -99,9 +99,9 @@ src/client.ts                              a runnable typed client
       <div className="docs-note"><span className="docs-note-icon">!</span><p>
         <strong>Composed is not installed.</strong> Tools, apps and MCP servers listed in{" "}
         <code>composeAgent(...)</code> are a catalogue. They mount only on an instance that
-        installs them — from the instance page in the inspector, with{" "}
-        <code>client.install(...)</code>, or with <code>install(...)</code> when the instance
-        is created. Put tools every instance should always have in the agent&apos;s{" "}
+        installs them — with <code>install(...)</code> when the instance is created,{" "}
+        <code>client.install(...)</code>, or <code>PUT /api/installations</code>. The
+        inspector shows installations but cannot change them. Put tools every instance should always have in the agent&apos;s{" "}
         <code>tools</code> field. See <Link href="/foundry/docs/capabilities">Tools, MCP &amp; memory</Link>.
       </p></div>
 
@@ -158,6 +158,7 @@ glove foundry help`} />
       <h2 id="verify">5. Verify and prepare for deployment</h2>
       <CodeBlock filename="your generated project" language="bash" code={`pnpm typecheck
 pnpm lint`} />
+      <p><strong>The starters forget between messages.</strong> Each run executes in its own process and both templates use an in-memory <code>MemoryStore</code>, so an agent does not see earlier turns of a conversation until you give it a durable store — see <Link href="/foundry/docs/persistence">Persistence</Link>.</p>
       <p>Starter storage is disposable. Persist Foundry instance/activation data, Glove conversation history, structured memory, and VFS files with their respective adapters. A durable runtime-data adapter alone does not persist all of them. Read <Link href="/foundry/docs/persistence">Persistence</Link> before retaining user work, and <Link href="/foundry/docs/deploy">Deploy &amp; security</Link> before exposing the server.</p>
       <p><strong>Next:</strong> the <Link href="/foundry/docs/tutorial">tutorial</Link> builds a multi-tenant support agent with installed tools, schedules, approvals and an OpenAI SDK client.</p>
       <p>If setup fails, check your Node version and package-manager installation. Choose another port if 4141 is occupied. For provider errors, inspect the failed run’s events. Restart after changing environment values.</p>

@@ -165,7 +165,8 @@ Foundry already provides these surfaces; do not rebuild them in application code
 - Approvals: a tool with `requiresPermission` (or an outbound transmission with `requiresPermission`) pauses the run on an expiring approval record (default 5 minutes, fail-closed). Resolve with `client.approvals(...)` + `client.resolveApproval(id, "approve" | "deny")` or the inspector.
 - Steering is interrupt-and-restart: `handle.steer(message)` cancels at a safe boundary and starts a replacement run in the same conversation.
 - Built-in agent tools on every Foundry agent: `glove_foundry_spawn`, `glove_foundry_schedule`, `glove_foundry_schedules`, `glove_foundry_sleep`, `glove_foundry_background`, `glove_foundry_transmit`, `glove_foundry_conversations`, `glove_foundry_workspace`, `glove_foundry_shared_inbox`, `glove_foundry_tasks`, `glove_foundry_environment`.
-- Persistence has four independent boundaries: `FoundryDataAdapter` (`FileFoundryDataAdapter` for one host), the conversation `store`/`conversationStore`, native memory adapters, and working-environment VFS persistence.
+- Every run executes in a fresh child process. `new MemoryStore(...)`, in-memory memory adapters and `MemoryFoundryDataAdapter` writes made inside a run do not survive to the next message, so a template agent using `MemoryStore` forgets earlier turns. Persistence has four independent boundaries: `FoundryDataAdapter` (`FileFoundryDataAdapter` for one host), a durable conversation `store`/`conversationStore`, native memory adapters, and working-environment VFS persistence.
+- Install capabilities with `install(...)` on the instance, `client.install`, or `PUT /api/installations`; the inspector displays installations but cannot change them. Outbound delivery needs an enabled `defineBinding` for the instance.
 
 Handbook: https://glove.dterminal.net/foundry/docs · condensed reference: https://glove.dterminal.net/foundry/llms-full.txt
 

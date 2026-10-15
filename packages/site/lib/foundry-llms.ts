@@ -12,7 +12,8 @@ export function buildFoundryLlmsTxt(): string {
     "- Install: npx glove-foundry init my-agents; run: pnpm dev (http://127.0.0.1:4141). Node 22+; 22.13+ for SQLite memory.",
     "- composeAgent(...) only makes shared tools, apps and MCP servers available; an instance must install() them. Always-on tools go in defineAgent's tools field.",
     "- Instances are data (FoundryDataAdapter); every run reloads the instance and conversation and re-resolves the definition against the new message.",
-    "- Persist four things separately: runtime data, transcripts (store), memory, and working-environment files.",
+    "- Each run executes in a fresh child process: a plain MemoryStore and other in-memory state reset on every message. Persist four things separately: runtime data, transcripts (store), memory, and working-environment files.",
+    "- Install capabilities with install() at creation, client.install, or PUT /api/installations; the inspector only displays installations.",
     "- Foundry never acquires, stores or refreshes credentials; accounts carry an opaque accessRef resolved by your adapter.",
     "- A non-loopback bind requires a requestAuthorization adapter.",
     "",
@@ -106,19 +107,24 @@ foundry.config.ts                    defineConfig (from glove-foundry/config) �
 - Run: one message processed by a freshly assembled agent. Every run reloads the
   instance + conversation and resolves every definition field again, so instance
   edits apply on the next message without a deploy.
+- Every run executes in a fresh child process of the managed execution daemon.
+  Anything held only in memory — new MemoryStore(...), in-memory memory adapters,
+  MemoryFoundryDataAdapter writes made by agent tools, module-level variables —
+  does not survive to the next message. Durable state must live outside the process.
+- There is no API to delete an instance.
 
 ## 4. defineAgent
 
 \`\`\`ts
-import { MemoryStore } from "glove-core";
 import { createAdapter } from "glove-core/models/providers";
 import { defineAgent } from "glove-foundry";
 import { z } from "zod";
+import { FileStore } from "../../lib/file-store.js";   // durable transcript, see section 16
 
 export default defineAgent({
   description: "Answers questions about orders",
   model: () => createAdapter({ provider: "openrouter", model: "openai/gpt-4.1-mini", stream: true }),
-  store: ({ conversationId }) => new MemoryStore(\`support:\${conversationId}\`),
+  store: ({ conversationId }) => FileStore.open(conversationId),
   systemPrompt: (_agent, ctx) => \`You are support for \${ctx.agentInstance.context.company}.\`,
   tools: [{                                   // always-on tools: plain Glove tools
     name: "lookup_order",
@@ -144,20 +150,30 @@ AgentAssemblyContext: definitionId, agentId (instance id), conversationId,
 workspaceId, runId, request, agentInstance, conversation, activations, data,
 message (native Glove Message), messageInput, messageText, history, messages,
 installations, store, subscriber, controls { signal, emit, commands }.
-configure/run handlers additionally get onCleanup, invoke(callName, input),
-workingEnvironment, vfs, repl and goals/facts/forms handles.
+configure, run, spawn and call handlers get a different execution context:
+identity ids, request, message, history, glove, emit, signal, installations,
+onCleanup, invoke(callName, input), workingEnvironment, vfs, repl and
+goals/facts/forms handles — but not agentInstance, conversation, data, store or
+controls (use ctx.emit instead of controls.emit there). A run handler executes
+after assembly and receives the assembled runnable; call ctx.defaultRun() for the
+normal loop.
 
 ## 5. Catalogue vs installation (most common mistake)
 
 composeAgent(...) + components only makes shared tools, apps and MCP servers
 AVAILABLE. They mount only on instances that install them:
 - install(def, config?, { account? }) in defineAgentInstance / createAgent({ installations })
-- client.install(agentId, installation) / client.uninstall(...)
+- client.install(agentId, { kind, id, config }) / client.uninstall(...)
 - PUT /api/installations  {"agentId","kind":"tool"|"application"|"mcp","id","config"}
-- the instance page in the inspector
+  (DELETE with the same body uninstalls). The inspector displays installations but
+  cannot change them. install(def) only works inside the Foundry process (file ids
+  are bound by discovery); remote clients send plain { kind, id, config } records.
 Tools every instance should have go in defineAgent's tools field. Memory profiles,
-layers and subscribers are definition surfaces (memory/layers/subscribers fields),
-not installations. Config is typed by the definition's zod schema:
+layers and subscribers are definition surfaces, not installations: list them in
+components AND select them in the memory/layers/subscribers field, or the run fails
+with "unknown ...". Installation config is validated when a run assembles, so an
+invalid config fails the next run, not the install call. Installing an MCP server
+requires the agent definition to set mcpAdapter. Config is typed by the definition's zod schema:
 install(helpdesk, { queue: 42 }) is a TypeScript error and is re-validated at runtime.
 
 \`\`\`ts
@@ -210,6 +226,9 @@ exposeToAgent? }) (exposed as a tool by default; callable via ctx.invoke).
   accessRef, metadata }), defineInboundRoute / defineOutboundRoute({ id,
   transmission, account, visibility, enabled, config }), defineBinding; register
   them in defineApplication({ accounts, routes, bindings }).
+- Outbound delivery requires an enabled defineBinding for the instance (registered in
+  defineApplication bindings); without one delivery fails with "agent has no enabled
+  bindings". Transmission ids are global across agents.
 - Fire inbound events: POST /api/transmissions/:routeId/fire or client.dispatchInbound.
   Delivery is claimed idempotently by routeId:eventId.
 - Credentials: Foundry never does OAuth, stores secrets, refreshes tokens or picks
@@ -230,6 +249,9 @@ Playbook subscriptions (runtime.putPlaybookSubscription / client.putPlaybookSubs
 PUT /api/playbook-subscriptions) are evaluated even when no instance exists and can
 provision agents: singleton, per-thread, per-event, existing, or custom (the
 application's provisioner). provisioningKey makes provisioning atomic.
+Playbooks and schedules returned by a definition's resolvers are written onto an
+instance during its first run, so a brand-new instance ignores inbound events until
+it has run once; subscriptions and client.setAgentPlaybooks apply immediately.
 
 ## 8. Built-in agent tools (mounted on every Foundry agent)
 
@@ -237,8 +259,8 @@ application's provisioner). provisioningKey makes provisioning atomic.
 | glove_foundry_spawn | Invoke an agent now ({ definitionId?, agentId?, conversationId?, message, payload? }) |
 | glove_foundry_schedule | Create a future/recurring activation; timing { kind: "at", at } / { kind: "after", duration } / { kind: "every", interval } / { kind: "cron", expression, timezone? } |
 | glove_foundry_schedules | list / update / pause / resume / cancel this instance's activations |
-| glove_foundry_sleep | Suspend this run; wake the same instance + conversation ({ kind: "for", duration } or { kind: "until", at }) |
-| glove_foundry_background | Start background work; reconvene (default true) posts the result to this conversation's shared inbox |
+| glove_foundry_sleep | Record a wake-up for the same instance + conversation ({ kind: "for", duration } or { kind: "until", at } in UTC ISO with Z); the current run ends and a new run starts at wake time |
+| glove_foundry_background | Queue a run on the same instance + conversation; with reconvene (default true) it waits up to 60 s and posts a resolved background.reconvene item to the shared inbox (it does not wake the conversation) |
 | glove_foundry_transmit | Deliver an outbound event through a route declared by this instance's playbook |
 | glove_foundry_conversations | List this instance's conversations |
 | glove_foundry_workspace | Read or write a shared workspace value |
@@ -292,8 +314,12 @@ const foundry = createFoundryClient<FoundryRoutes>({ baseUrl: "http://127.0.0.1:
 const agent = await foundry.agent("support").create({ workspaceId: "acme", context: { company: "Acme" } });
 const conversation = await foundry.createConversation(agent.id);
 const run = await foundry.send(agent.id, conversation.id, "Where is order 1042?");
-const done = await run.wait();            // also run.cancel(), run.steer(text), run.events()
+const done = await run.wait({ timeoutMs: 120_000 }); // wait() gives up after 60 s by default
+// also run.cancel(), run.steer(text), run.events()
 \`\`\`
+
+agent(route).request(...) posts to /api/agents/:route/runs and needs agentId,
+conversationId and workspaceId as well as a string message; prefer send().
 
 Native endpoints (selection): GET /health, /health/detailed, /api/manifest,
 GET|POST /api/agent-instances, PATCH /api/agent-instances/:id,
@@ -319,16 +345,20 @@ created implicitly. Continue a conversation by sending the same user,
 conversation_id, or x-foundry-conversation-id header (returned on every response);
 without one, each request starts a new conversation. On a new conversation the
 prior messages in the request are folded into the first turn; on an existing one
-only the latest user message is sent because Foundry holds the history. Tools run
-server-side inside Foundry.
+only the latest user message is sent because Foundry holds the history (so the
+agent needs a durable store). Tools run server-side inside Foundry; client-sent
+tools, sampling parameters and previous_response_id are ignored, and the developer
+role is rejected.
 
 ## 14. Approvals and steering
 
 A Glove tool with requiresPermission: true (or a function of its input), or an
 outbound transmission with requiresPermission, pauses the run on an approval
 record: status pending | approved | denied | expired | cancelled; identity = instance
-+ conversation + run + tool + serialized input; default expiry 5 minutes; fails
-closed (deny) on expiry, cancellation or channel loss. Resolve with
++ conversation + run + tool + serialized input; expires after 5 minutes; fails
+closed (deny) on expiry, cancellation or channel loss. Approval records live in a
+private temp directory of the Foundry process: they do not survive a restart, and
+the mechanism does not engage if defineAgent supplies its own displayManager. Resolve with
 client.approvals({ runId, status: "pending" }) and client.resolveApproval(id,
 "approve" | "deny"), the /api/approvals or /v1/approvals routes, or the inspector.
 Steering (handle.steer(message), /api/runs/:id/steer, /v1/runs/:id/steer, WebChat
@@ -351,8 +381,35 @@ reasoning.
 1. Foundry runtime data: FoundryDataAdapter (MemoryFoundryDataAdapter in dev;
    FileFoundryDataAdapter({ file, agents?, conversations?, subscriptions? }) for one
    host — advisory lock + atomic rename; a transactional adapter for many hosts).
-2. Conversation transcripts: the agent store / application conversationStore
-   (MemoryStore is in-memory).
+2. Conversation transcripts: the agent store / application conversationStore.
+   A plain MemoryStore starts empty on every run (each run is a new process), and
+   GET /api/conversations/:id/messages then reports persisted: true with no
+   messages — persisted only means a store factory exists. Minimal durable store
+   for one host:
+
+\`\`\`ts
+// lib/file-store.ts
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { MemoryStore, type Message } from "glove-core";
+
+export class FileStore extends MemoryStore {
+  private constructor(id: string, private readonly file: string) { super(id); }
+  static async open(id: string, directory = ".data/transcripts"): Promise<FileStore> {
+    await mkdir(directory, { recursive: true });
+    const store = new FileStore(id, join(directory, \`\${encodeURIComponent(id)}.json\`));
+    const saved = await readFile(store.file, "utf8").then(JSON.parse, () => [] as Message[]);
+    await MemoryStore.prototype.appendMessages.call(store, saved); // restore without re-saving
+    return store;
+  }
+  override async appendMessages(messages: Message[]): Promise<void> {
+    await super.appendMessages(messages);
+    await writeFile(\`\${this.file}.tmp\`, JSON.stringify(await this.getMessages()));
+    await rename(\`\${this.file}.tmp\`, this.file);
+  }
+}
+\`\`\`
+   Use a database-backed StoreAdapter for several hosts. (glove-sqlite is deprecated.)
 3. Structured memory: glove-memory adapters, e.g. createSqliteMemoryAdapters({ file,
    namespace, schema }) from glove-memory/sqlite (Node 22.13+).
 4. Working-environment files: foundryDataEnvironmentPersistence or a persistent Vfs.

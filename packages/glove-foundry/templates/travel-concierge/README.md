@@ -105,7 +105,7 @@ Assembly fields such as tools, memory, and schedules accept **a value or a funct
 
 ### Add a tool
 
-Create `agents/concierge/tools/weather.tool.ts`, default-export `defineSharedTool({...})`, then add it to `composition.ts`. That is the whole loop — the dev server picks it up and regenerates types.
+Create `agents/concierge/tools/weather.tool.ts`, default-export `defineSharedTool({...})`, then add it to `composition.ts`. That makes it available to install; it mounts only on instances that install it (see below). For a tool every instance should always have, put a plain tool object in the agent's `tools` field instead.
 
 ### Add a second agent
 
@@ -113,7 +113,7 @@ Create `agents/<name>/agent.ts`. It is immediately routable, appears in the insp
 
 ### Give an instance a capability
 
-Applications and MCP servers stay inert until an instance installs one. From the inspector, open the instance and install `calendar`; or over the API:
+Shared tools, applications and MCP servers stay inert until an instance installs them — including `find-flights` and `calendar` in this template. Install over the API (the inspector shows installations but does not change them):
 
 ```bash
 curl -X PUT http://127.0.0.1:4141/api/installations \
@@ -190,7 +190,7 @@ Filters live in the URL, so `/runs?status=failed` is a link you can send. Press 
 
 ## Going to production
 
-1. **Persist each store.** `MemoryFoundryDataAdapter` in `foundry.application.ts` is disposable. Use `FileFoundryDataAdapter` for single-host runtime data or a transactional database adapter for multiple hosts. Also replace the agent's `MemoryStore` with a durable conversation store, provide durable native memory adapters (such as `glove-memory/sqlite` on Node 22.13+), and persist the working-environment VFS. Persisting one does not persist the others.
+1. **Persist each store.** Each run executes in its own process, so the template's `MemoryStore` forgets earlier turns; give the agent a durable `store` first ([Persistence](https://glove.dterminal.net/foundry/docs/persistence)). `MemoryFoundryDataAdapter` in `foundry.application.ts` is disposable. Use `FileFoundryDataAdapter` for single-host runtime data or a transactional database adapter for multiple hosts. Also replace the agent's `MemoryStore` with a durable conversation store, provide durable native memory adapters (such as `glove-memory/sqlite` on Node 22.13+), and persist the working-environment VFS. Persisting one does not persist the others.
 2. **Delete `lib/demo-model.ts`** and the fallback in `agent.ts` once `OPENROUTER_API_KEY` is set.
 3. **Own your credentials.** Foundry stores account *references*, never secrets. Keep tokens in your own adapter or secret manager.
 4. **Run `{{startCommand}}`** rather than `dev` — no file watching, no restart-on-change.

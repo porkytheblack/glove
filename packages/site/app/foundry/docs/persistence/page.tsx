@@ -72,6 +72,10 @@ export default function PersistencePage() {
           them. Instances and conversations created through the API live in the control
           process and survive until it stops.
         </li>
+        <li>
+          Development memory adapters such as <code>InMemoryContextAdapter</code> are recreated
+          in every job process, so they do not carry anything from one run to the next.
+        </li>
       </ul>
       <div className="docs-note">
         <span className="docs-note-icon">!</span>
@@ -450,6 +454,11 @@ export function claimTicket(ctx: AgentAssemblyContext): GloveFoldArgs<z.infer<ty
           <code>persisted: false</code>. Foundry never rebuilds history from run output or events.
         </li>
         <li>
+          <code>persisted: true</code> only means a store factory is configured. With a{" "}
+          <code>MemoryStore</code> factory the transcript reads back empty while still reporting{" "}
+          <code>persisted: true</code>.
+        </li>
+        <li>
           <code>glove-core</code> ships only <code>MemoryStore</code>. The deprecated{" "}
           <code>glove-sqlite</code> package has <code>new SqliteStore({"{ dbPath, sessionId }"})</code>{" "}
           (better-sqlite3); it does not implement newer optional capabilities such as{" "}
@@ -527,7 +536,7 @@ export function claimTicket(ctx: AgentAssemblyContext): GloveFoldArgs<z.infer<ty
           <tr><td>Runs that were executing</td><td>Not resumed. The live job process is gone; send the work again.</td></tr>
           <tr><td>Run list and status (<code>/api/runs</code>)</td><td>Lost. The execution queue lives in memory in the managed daemon.</td></tr>
           <tr><td>Event history (<code>/api/events</code>)</td><td>Lost by default: the built-in buffer keeps the last <code>observability.maxEvents</code> (10,000) in memory.</td></tr>
-          <tr><td>Pending approvals</td><td>Lost: approval records are files in a per-runtime temporary directory.</td></tr>
+          <tr><td>Pending approvals</td><td>Lost: approval records are files in a per-runtime temporary directory (and expire after 5 minutes by default anyway).</td></tr>
           <tr><td>Accounts, routes, bindings</td><td>Re-created from <code>foundry.application.ts</code>. Routes and bindings added at runtime through the API live in an in-memory store unless you supply a durable <code>services</code> layer.</td></tr>
         </tbody>
       </table>

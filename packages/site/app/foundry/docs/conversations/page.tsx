@@ -75,7 +75,8 @@ export default function ConversationsPage() {
           <code>context</code> is yours. Foundry writes its own keys only on
           conversations it creates (<code>routeId</code>, <code>threadKey</code>,{" "}
           <code>conversationKey</code>, <code>conversationScope</code> for transmissions;{" "}
-          <code>spawnedByRunId</code> for spawned work).
+          <code>spawnedByRunId</code> for spawned work; <code>protocol</code> for{" "}
+          <code>/v1</code> sessions).
         </li>
       </ul>
 

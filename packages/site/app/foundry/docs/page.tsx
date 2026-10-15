@@ -85,10 +85,10 @@ export default function FoundryOverviewPage() {
       <h2 id="lifecycle">What happens when a message arrives</h2>
       <ol>
         <li>A message reaches an instance and conversation — from the typed client, <code>/api</code>, <code>/v1/chat/completions</code>, a schedule, or an inbound transmission.</li>
-        <li>Foundry persists the run and queues it on its managed execution daemon (a separate local process it starts and stops for you).</li>
+        <li>Foundry persists the run and queues it on its managed execution daemon, which executes it in a fresh child process.</li>
         <li>The job reloads the instance and conversation from the data adapter and loads the definition from its file.</li>
         <li>Each definition field is resolved for this run — literals as-is, functions called with the assembly context (instance, conversation, message, history, installations).</li>
-        <li>Built-in Foundry tools, installed apps, shared tools and MCP servers, memory, layers, subscribers, the working environment and REPL are mounted.</li>
+        <li>Built-in Foundry tools, the definition&apos;s own tools, and the apps, shared tools and MCP servers <em>this instance installed</em> are mounted, along with memory, layers, subscribers, the working environment and REPL.</li>
         <li>The normal Glove agent loop runs; every model pass, tool call and custom event is recorded against the run.</li>
         <li>The result and transcript are stored; the inspector, event stream and any waiting client see the outcome.</li>
       </ol>
@@ -101,9 +101,9 @@ export default function FoundryOverviewPage() {
       <CodeBlock
         filename="agents/assistant/agent.ts"
         language="typescript"
-        code={`import { MemoryStore } from "glove-core";
-import { createAdapter } from "glove-core/models/providers";
+        code={`import { createAdapter } from "glove-core/models/providers";
 import { defineAgent } from "glove-foundry";
+import { FileStore } from "../../lib/file-store.js";
 
 export default defineAgent({
   description: "A general-purpose assistant",
@@ -112,10 +112,21 @@ export default defineAgent({
     model: process.env.OPENROUTER_MODEL ?? "openai/gpt-4.1-mini",
     stream: true,
   }),
-  store: ({ conversationId }) => new MemoryStore(\`assistant:\${conversationId}\`),
+  // Where this conversation's transcript lives between messages.
+  store: ({ conversationId }) => FileStore.open(conversationId),
   systemPrompt: "You are a precise, practical assistant.",
 });`}
       />
+      <div className="docs-note"><span className="docs-note-icon">!</span><p>
+        <strong>Every run is a separate process.</strong> Foundry executes each message
+        in a fresh child process, so anything held only in memory —{" "}
+        <code>new MemoryStore(...)</code>, in-memory memory adapters, module-level
+        variables — starts empty on the next message. The starter templates use{" "}
+        <code>MemoryStore</code>, which means their agents do not remember earlier
+        turns. Use a store that reads and writes outside the process: the 25-line{" "}
+        <code>FileStore</code> on the <Link href="/foundry/docs/persistence">Persistence</Link>{" "}
+        page for one host, or your database.
+      </p></div>
       <p>
         Run <code>pnpm dev</code>, open <code>http://127.0.0.1:4141</code>, and choose
         <strong> Start a run</strong>. The <Link href="/foundry/docs/tutorial">tutorial</Link>{" "}
