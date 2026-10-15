@@ -51,9 +51,10 @@ export default function MultiAgentPage() {
         built-in projection helper; <code>parent.tools</code> exposes the registered
         tools, so a five-line function does it:
       </p>
-      <CodeBlock filename="agents/billing/agent.ts" language="typescript" code={`import { MemoryStore, getToolJsonSchema, type GloveFoldArgs, type IGloveRunnable } from "glove-core";
+      <CodeBlock filename="agents/billing/agent.ts" language="typescript" code={`import { getToolJsonSchema, type GloveFoldArgs, type IGloveRunnable } from "glove-core";
 import { createAdapter } from "glove-core/models/providers";
 import { defineAgent, defineSubagent } from "glove-foundry";
+import { FileStore } from "../../lib/file-store.js"; // durable transcript — see Persistence
 
 // Re-expose selected tools of the assembled parent, by name.
 function projectTools(parent: IGloveRunnable, names: ReadonlyArray<string>): ReadonlyArray<GloveFoldArgs<unknown>> {
@@ -71,7 +72,7 @@ export default defineAgent({
   description: "Handles refunds and billing questions",
   model: () => createAdapter({ provider: "openrouter", model: "openai/gpt-4.1-mini", stream: true }),
   systemPrompt: "You handle billing. Ask @order-researcher to gather facts before deciding.",
-  store: ({ conversationId }) => new MemoryStore(\`billing:\${conversationId}\`),
+  store: ({ conversationId }) => FileStore.open(conversationId),
   subagents: [
     defineSubagent({
       name: "order-researcher",
@@ -189,10 +190,10 @@ run: async (_glove, ctx) => {
         its own conversation on the support instance, so histories stay separate and the
         runs execute in parallel.
       </p>
-      <CodeBlock filename="agents/triage/agent.ts" language="typescript" code={`import { MemoryStore } from "glove-core";
-import { createAdapter } from "glove-core/models/providers";
+      <CodeBlock filename="agents/triage/agent.ts" language="typescript" code={`import { createAdapter } from "glove-core/models/providers";
 import { defineAgent } from "glove-foundry";
 import { createFoundryClient } from "glove-foundry/client";
+import { FileStore } from "../../lib/file-store.js"; // durable transcript — see Persistence
 
 const foundry = createFoundryClient({ baseUrl: process.env.FOUNDRY_URL ?? "http://127.0.0.1:4141" });
 
@@ -202,7 +203,7 @@ export default defineAgent({
   description: "Fans a batch of tickets out to the support agent, one conversation each",
   model: () => createAdapter({ provider: "openrouter", model: "openai/gpt-4.1-mini", stream: true }),
   systemPrompt: "Coordinate ticket batches.",
-  store: ({ conversationId }) => new MemoryStore(\`triage:\${conversationId}\`),
+  store: ({ conversationId }) => FileStore.open(conversationId),
   run: async (_glove, ctx) => {
     const tickets = (ctx.request.payload as { tickets?: Ticket[] } | undefined)?.tickets ?? [];
     const results = await Promise.all(tickets.map(async (ticket) => {

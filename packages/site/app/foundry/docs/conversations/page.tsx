@@ -307,17 +307,17 @@ const values = await foundry.dataEnvironment("acme", { agentId: support.id, conv
         returns <code>false</code> when someone else won. Both built-in adapters
         implement it.
       </p>
-      <CodeBlock filename="agents/support/agent.ts" language="typescript" code={`import { MemoryStore } from "glove-core";
-import { createAdapter } from "glove-core/models/providers";
+      <CodeBlock filename="agents/support/agent.ts" language="typescript" code={`import { createAdapter } from "glove-core/models/providers";
 import { defineAgent } from "glove-foundry";
 import { Effect } from "effect";
 import { z } from "zod";
+import { FileStore } from "../../lib/file-store.js"; // durable transcript — see Persistence
 
 export default defineAgent({
   description: "Answers customer support tickets",
   model: () => createAdapter({ provider: "openrouter", model: "openai/gpt-4.1-mini", stream: true }),
   systemPrompt: "You resolve support tickets. Claim a ticket before you work on it.",
-  store: ({ conversationId }) => new MemoryStore(\`support:\${conversationId}\`),
+  store: ({ conversationId }) => FileStore.open(conversationId),
   tools: (_agent, ctx) => [
     {
       name: "claim_ticket",

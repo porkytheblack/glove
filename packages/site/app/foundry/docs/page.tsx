@@ -124,8 +124,9 @@ export default defineAgent({
         variables — starts empty on the next message. The starter templates use{" "}
         <code>MemoryStore</code>, which means their agents do not remember earlier
         turns. Use a store that reads and writes outside the process: the 25-line{" "}
-        <code>FileStore</code> on the <Link href="/foundry/docs/persistence">Persistence</Link>{" "}
-        page for one host, or your database.
+        <code>FileStore</code> from the <Link href="/foundry/docs/tutorial#step-2-agent">tutorial</Link>,
+        the fuller <code>FileConversationStore</code> on the{" "}
+        <Link href="/foundry/docs/persistence">Persistence</Link> page, or your database.
       </p></div>
       <p>
         Run <code>pnpm dev</code>, open <code>http://127.0.0.1:4141</code>, and choose

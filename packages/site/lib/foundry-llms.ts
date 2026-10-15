@@ -88,7 +88,8 @@ foundry.config.ts                    defineConfig (from glove-foundry/config) �
 \`\`\`
 
 - Each convention file default-exports one definition; its filename is its id.
-  Nested paths nest ids: tools/calendar/today.tool.ts -> "calendar/today".
+  Nested paths nest ids: tools/calendar/today.tool.ts -> "calendar/today" (a bare
+  tool body there is exposed to the model as calendar__today).
 - Never add an id to a file-routed definition (the glove-foundry/eslint preset rejects it).
   In code, pass imported values (install(helpdesk)), not strings.
 - Schedules are NOT auto-discovered: keep defineSchedule values in ordinary modules
@@ -298,7 +299,8 @@ glove-execution inside configure, with ctx.onCleanup.
 ## 11. Multi-agent
 
 defineSubagent (isolated child; tools can be a least-privilege projection of the
-parent), defineCall (typed function), glove_foundry_spawn (separate run),
+parent built from parent.tools — there is no projectTools export; layers and
+subscribers on a subagent are not mounted), defineCall (typed function), glove_foundry_spawn (separate run),
 glove_foundry_background (reconvene via inbox), mesh field (glove-mesh),
 playbook subscriptions (provision a workforce), workspace/inbox/tasks for
 coordination. Voice hosts (glove-voice-s2s) delegate durable work to an
@@ -334,7 +336,11 @@ POST /api/transmissions/:routeId/fire, /api/accounts, /api/routes, /api/bindings
 Automation API: POST /v1/runs, GET /v1/runs/:id, GET /v1/runs/:id/events,
 POST /v1/runs/:id/stop, POST /v1/runs/:id/steer, GET /v1/capabilities,
 GET /v1/approvals, POST /v1/approvals/:id.
-JSON bodies are limited to 1 MB by default; raise server.messageBodyBytes for media.
+JSON bodies are limited to 1 MB by default (413 when exceeded); raise
+server.messageBodyBytes for media. Runs, events and pending approvals are held in
+the Foundry process's memory and are lost on restart; /health returns 200 with an
+ok flag — check ok, not the status code. Activations are read-only over HTTP.
+Installing an unknown id returns 400.
 
 ## 13. OpenAI-compatible endpoints
 
@@ -346,7 +352,7 @@ conversation_id, or x-foundry-conversation-id header (returned on every response
 without one, each request starts a new conversation. On a new conversation the
 prior messages in the request are folded into the first turn; on an existing one
 only the latest user message is sent because Foundry holds the history (so the
-agent needs a durable store). Tools run server-side inside Foundry; client-sent
+agent needs a durable store). Responses carry no usage block. Tools run server-side inside Foundry; client-sent
 tools, sampling parameters and previous_response_id are ignored, and the developer
 role is rejected.
 
@@ -374,7 +380,11 @@ run detail (phase spine + event trace), Automations, Integrations, Workspaces.
 ⌘K search, j/k navigation, c to start a run. Events stream from /api/events;
 custom sinks use defineSubscriber or a FoundryObservabilityAdapter. Use
 controls.emit({ type, data }) for safe work notes; never emit secrets or hidden
-reasoning.
+reasoning. The event envelope carries the definition id and run id (not instance,
+conversation or workspace ids). Only outbound transmission payloads are redacted by
+default — tool results and model text are stored as-is. A custom
+FoundryObservabilityAdapter can be supplied only when hosting FoundryRuntime in code;
+the CLI uses the in-memory adapter.
 
 ## 16. Persistence — four separate boundaries
 
@@ -421,8 +431,11 @@ activations are reconstructed on startup but interrupted live runs are not resum
 defineApplication({ name, data, conversationStore, accounts, routes, bindings,
 requestAuthorization, provisioner, services, daemon }).
 defineConfig({ agentsDir, applicationFile, server: { host, port, messageBodyBytes },
-execution, observability: { maxEvents }, branding, strictFileRoutes }) — unknown
-keys are rejected. Foundry binds to loopback by default and refuses a non-loopback
+execution: { pollIntervalMs, maxConcurrent, maxAttempts, retryBackoffMs },
+observability: { maxEvents }, branding, strictFileRoutes }) — unknown keys are
+rejected. Environment files: .env is loaded before .env.local and an already-set
+variable is never overwritten. Run one runtime per data store: two runtimes on the
+same store arm every schedule twice. Foundry binds to loopback by default and refuses a non-loopback
 host unless requestAuthorization ({ identifier, challenge, authorize(request) =>
 Effect<boolean> }) is supplied; the typed client sends matching headers via
 authorization: { identifier, headers }. Put TLS and rate limits in front.

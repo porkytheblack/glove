@@ -140,7 +140,7 @@ export default function FoundryPage() {
               code={`import { createAdapter } from "glove-core/models/providers";
 import { defineAgent } from "glove-foundry";
 import { z } from "zod";
-import { FileStore } from "../../lib/file-store.js"; // 25 lines, see Persistence
+import { FileStore } from "../../lib/file-store.js"; // 25 lines, from the tutorial
 
 export default defineAgent({
   description: "Answers questions about orders",

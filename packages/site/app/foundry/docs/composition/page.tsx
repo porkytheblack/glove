@@ -115,14 +115,14 @@ export default function CompositionPage() {
         Save this as <code>agents/support/agent.ts</code> and the route <code>support</code>{" "}
         exists. Every instance of it gets the <code>lookup_order</code> tool.
       </p>
-      <CodeBlock filename="agents/support/agent.ts" language="typescript" code={`import { MemoryStore } from "glove-core";
-import { createAdapter } from "glove-core/models/providers";
+      <CodeBlock filename="agents/support/agent.ts" language="typescript" code={`import { createAdapter } from "glove-core/models/providers";
 import { defineAgent } from "glove-foundry";
 import { z } from "zod";
+import { FileStore } from "../../lib/file-store.js"; // durable transcript — see Persistence
 
 export default defineAgent({
   description: "Answers customer questions about orders",
-  store: ({ conversationId }) => new MemoryStore(\`support:\${conversationId}\`),
+  store: ({ conversationId }) => FileStore.open(conversationId),
   model: () =>
     createAdapter({
       provider: "openrouter",
@@ -276,11 +276,12 @@ type FoundryResolver<T, TInput> =
         its prompt from instance data, and exposes a refund tool only to instances whose
         context allows it — and only on turns that mention refunds.
       </p>
-      <CodeBlock filename="agents/support/agent.ts" language="typescript" code={`import { MemoryStore, type GloveFoldArgs } from "glove-core";
+      <CodeBlock filename="agents/support/agent.ts" language="typescript" code={`import { type GloveFoldArgs } from "glove-core";
 import { createAdapter } from "glove-core/models/providers";
 import { Effect } from "effect";
 import { defineAgent } from "glove-foundry";
 import { z } from "zod";
+import { FileStore } from "../../lib/file-store.js"; // durable transcript — see Persistence
 
 const lookupOrder: GloveFoldArgs<{ orderId: string }> = {
   name: "lookup_order",
@@ -303,7 +304,7 @@ const issueRefund: GloveFoldArgs<{ orderId: string; amountCents: number }> = {
 
 export default defineAgent({
   description: "Answers customer questions about orders",
-  store: ({ conversationId }) => new MemoryStore(\`support:\${conversationId}\`),
+  store: ({ conversationId }) => FileStore.open(conversationId),
 
   model: (_agent, { message }) => {
     const hasImage = message.content?.some((part) => part.type === "image") ?? false;
@@ -350,10 +351,10 @@ export default defineAgent({
         deterministic fast path with no model call, and everything else goes through the
         normal loop with an enriched user turn.
       </p>
-      <CodeBlock filename="agents/support/agent.ts" language="typescript" code={`import { MemoryStore } from "glove-core";
-import { createAdapter } from "glove-core/models/providers";
+      <CodeBlock filename="agents/support/agent.ts" language="typescript" code={`import { createAdapter } from "glove-core/models/providers";
 import { defineAgent, defineCall } from "glove-foundry";
 import { z } from "zod";
+import { FileStore } from "../../lib/file-store.js"; // durable transcript — see Persistence
 
 // your code: a client that holds a connection open for one run
 function connectCrm(workspaceId: string) {
@@ -367,7 +368,7 @@ const statusRequest = z.object({ kind: z.literal("order-status"), orderId: z.str
 
 export default defineAgent({
   description: "Support agent with a deterministic fast path",
-  store: ({ conversationId }) => new MemoryStore(\`support:\${conversationId}\`),
+  store: ({ conversationId }) => FileStore.open(conversationId),
   model: () => createAdapter({ provider: "openrouter", model: "openai/gpt-4.1-mini", stream: true }),
   systemPrompt: "You are a concise customer-support agent.",
 

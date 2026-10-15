@@ -38,8 +38,7 @@ export const intakeForms = new FormRegistry().register(intakeForm.id, {
   description: intakeForm.description,
   load: () => intakeForm,
 });`} />
-    <CodeBlock filename="agents/guided-intake/agent.ts" language="typescript" code={`import { MemoryStore } from "glove-core";
-import { createAdapter } from "glove-core/models/providers";
+    <CodeBlock filename="agents/guided-intake/agent.ts" language="typescript" code={`import { createAdapter } from "glove-core/models/providers";
 import { MemorySchema } from "glove-memory/core";
 import { createSqliteMemoryAdapters } from "glove-memory/sqlite";
 import {
@@ -47,6 +46,7 @@ import {
   foundryGuidanceSubject, type AgentAssemblyContext,
 } from "glove-foundry";
 import { intakeForms, intakeGoals } from "./workflow.js";
+import { FileStore } from "../../lib/file-store.js"; // durable transcript — see Persistence
 
 // Durable goal, fact and form state, namespaced by trusted instance identity.
 const memory = (ctx: AgentAssemblyContext) => createSqliteMemoryAdapters({
@@ -58,7 +58,7 @@ const memory = (ctx: AgentAssemblyContext) => createSqliteMemoryAdapters({
 export default defineAgent({
   description: "Conversational intake",
   model: () => createAdapter({ provider: "openrouter", model: "openai/gpt-4.1-mini" }),
-  store: ({ conversationId }) => new MemoryStore(conversationId),
+  store: ({ conversationId }) => FileStore.open(conversationId),
   systemPrompt: "Collect a preferred name conversationally using the workflow tools.",
   facts: (_agent, ctx) => defineFacts({ adapter: memory(ctx).facts }),
   goals: (_agent, ctx) => defineGoals({ adapter: memory(ctx).goals, program: intakeGoals }),

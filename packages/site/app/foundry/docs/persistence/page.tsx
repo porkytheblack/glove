@@ -92,6 +92,12 @@ export default function PersistencePage() {
         against a real runtime: history, workspace entries and VFS files carry across turns
         and across a full restart.
       </p>
+      <div className="docs-note"><span className="docs-note-icon">◆</span><p>
+        The <Link href="/foundry/docs/tutorial">tutorial</Link> uses a 25-line{" "}
+        <code>FileStore</code> that saves messages only. <code>FileConversationStore</code>{" "}
+        below is the fuller drop-in: it also persists turn and token counters, tasks and
+        inbox items, so WebChat&apos;s counters and Glove&apos;s task tool survive between runs.
+      </p></div>
       <CodeBlock filename="lib/data-dir.ts" language="typescript" code={`import { resolve } from "node:path";
 
 /** Use an absolute path on a persistent volume in production. */

@@ -419,18 +419,18 @@ const audit = defineSubscriber({
 export default audit;`} />
 
       <h3 id="selecting">Selecting them on the definition</h3>
-      <CodeBlock filename="agents/support/agent.ts" language="typescript" code={`import { MemoryStore } from "glove-core";
-import { createAdapter } from "glove-core/models/providers";
+      <CodeBlock filename="agents/support/agent.ts" language="typescript" code={`import { createAdapter } from "glove-core/models/providers";
 import { configureLayer, defineAgent } from "glove-foundry";
 import { components } from "./composition.js";
 import tenantContext from "./layers/tenant.layer.js";
 import customerMemory from "./memory/customer.memory.js";
 import audit from "./subscribers/audit.subscriber.js";
+import { FileStore } from "../../lib/file-store.js"; // durable transcript — see Persistence
 
 export default defineAgent({
   description: "Answers customer questions about orders",
   components,
-  store: ({ conversationId }) => new MemoryStore(\`support:\${conversationId}\`),
+  store: ({ conversationId }) => FileStore.open(conversationId),
   model: () => createAdapter({ provider: "openrouter", model: "openai/gpt-4.1-mini", stream: true }),
   systemPrompt: (_agent, { installations }) =>
     \`You are a support agent. Installed: \${installations.map((i) => \`\${i.kind}:\${i.id}\`).join(", ") || "nothing"}.\`,
