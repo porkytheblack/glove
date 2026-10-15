@@ -143,6 +143,14 @@ export const docsSections: DocsNavSection[] = [
         packages: ["glove-next"],
       },
       {
+        label: "Voice Agent Architectures",
+        href: "/docs/voice-architectures",
+        badge: "new",
+        summary:
+          "Pipeline vs realtime, single vs layered: a fast front agent that talks while a worker thinks, and <speech> tags for streaming only what should be said.",
+        packages: ["glove-voice", "glove-voice-s2s", "glove-mesh"],
+      },
+      {
         label: "Voice Pipeline",
         href: "/docs/voice",
         badge: "voice",
@@ -203,6 +211,14 @@ export const docsSections: DocsNavSection[] = [
         summary:
           "Entity graph, episodic timeline, resource filesystem and ambient context — BYO storage.",
         packages: ["glove-memory"],
+      },
+      {
+        label: "Goal-Oriented Agents",
+        href: "/docs/goal-oriented-agents",
+        badge: "new",
+        summary:
+          "When to use goals, forms, facts, memory context or a UI form to collect information — and a complete agent that pursues an objective, gathers what is missing, then acts.",
+        packages: ["glove-memory", "glove-facts"],
       },
       {
         label: "Forms",
