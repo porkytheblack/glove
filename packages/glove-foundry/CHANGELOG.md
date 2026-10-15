@@ -1,5 +1,30 @@
 # glove-foundry
 
+## 0.5.2
+
+### Patch Changes
+
+- [#190](https://github.com/porkytheblack/glove/pull/190) [`7cddd00`](https://github.com/porkytheblack/glove/commit/7cddd00e06d559f31908a9d5081577e711623f95) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Runtime fixes:
+
+  - **`PUT /api/installations` keeps `accountId`.** The HTTP installation surface (and `client.install` / `client.uninstall`) dropped the account selection, so an application installed over HTTP lost its account. A non-string `accountId` is now rejected with 400.
+  - **`/health` and `/health/detailed` answer 503 when `ok` is false.** They returned 200 even when the execution daemon or scheduler failed its ping, so status-code probes never saw an outage. The body is unchanged, `client.health()` still resolves with `ok: false` instead of throwing, and the inspector keeps showing "Runtime needs attention".
+  - **Subagent `layers` and `subscribers` are mounted.** `defineSubagent` accepted both but never mounted them. They now mount on each invocation (layers accept `configureLayer(layer, config)`), before `configure`, and are disposed when the subagent's request ends.
+  - **Steering no longer overlaps the interrupted run.** Station marks a cancelled run `cancelled` before its process exits, and the process keeps running `unAbortable` tools and cleanup after SIGTERM, so `steer()` started the replacement while the old process could still change the conversation. Each run's process now reports when it lets go of the conversation, and `steer()` waits for that (at most 10 s; the daemon kills the process 5 s after the stop) before it starts the replacement.
+  - **`runtime.stop()` no longer leaves a provider connection running.** A reconcile that landed during shutdown (for example a run's playbook sync, handled in the background) could start an application connection after `stop()` had stopped them all. Connections run until interrupted, so the process could not exit. The connection supervisor now refuses new connections once it is stopped.
+
+- [#189](https://github.com/porkytheblack/glove/pull/189) [`e91723c`](https://github.com/porkytheblack/glove/commit/e91723c002f4cd870135f2858586afe5c368bdb5) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Starter templates now work end to end on their first run:
+
+  - **Conversation history survives between messages.** Every run executes in its own process, so the templates' `new MemoryStore(...)` forgot earlier turns. Both templates now ship `lib/file-store.ts`, a file-backed transcript store, and use `FileFoundryDataAdapter`, so instances, conversations and schedules also survive the restart `dev` performs on every save. State lives under `.data/` (git-ignored; `foundry/.data/` with a nested `.gitignore` for the Next.js target).
+  - **The demo's tools are actually mounted.** `find_flights` (concierge) and `current_time` (minimal) were composed but never installed, so the model could not call them on a new instance. They are now always-on tools; the concierge keeps an installable shared-tool example (`convert-currency`).
+  - **The concierge can reply over its chat transport.** A seeded `concierge-demo` instance installs the calendar app and has the binding outbound delivery requires (previously `bindings: []`, so replies failed with "agent has no enabled bindings"). The keyless demo model now replies through the generated messaging tool when a chat message arrives.
+  - **Traveller memory and the working environment persist.** Memory uses a small file-backed context adapter (`lib/file-context.ts`) per instance, and the VFS uses `foundryDataEnvironmentPersistence`.
+  - The demo model reasons per turn, so it keeps calling tools after the first message.
+  - The minimal template no longer depends on `effect`; the Next.js README names `foundry.config.mts`.
+  - READMEs explain composing vs installing, where state lives, and how to send the demo a chat message.
+
+- Updated dependencies [[`cddf7fd`](https://github.com/porkytheblack/glove/commit/cddf7fd1f21379fb7b1b842dc7b0d65aeb65c50f)]:
+  - glove-memory@2.2.3
+
 ## 0.5.1
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # glove-image-studio
 
+## 1.0.8
+
+### Patch Changes
+
+- Updated dependencies [[`cddf7fd`](https://github.com/porkytheblack/glove/commit/cddf7fd1f21379fb7b1b842dc7b0d65aeb65c50f)]:
+  - glove-image@0.2.6
+
 ## 1.0.7
 
 ### Patch Changes
