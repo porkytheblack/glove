@@ -56,7 +56,7 @@ const TEMPLATE_IMPORTS: Readonly<Record<FoundryTemplateName, ReadonlyArray<Templ
       "glove-working-environment",
       "zod",
     ],
-    minimal: ["effect", "glove-core", "zod"],
+    minimal: ["glove-core", "zod"],
   });
 
 const TEMPLATE_AGENT_ROUTE: Readonly<Record<FoundryTemplateName, string>> = Object.freeze({
@@ -281,6 +281,9 @@ export async function scaffoldFoundryProject(
         "  execution: { pollIntervalMs: 100, maxConcurrent: 4 },\n" +
         "});\n",
     );
+    // Runtime data, transcripts and memory are written under foundry/.data.
+    // The app's own .gitignore is left alone, so ignore it from here.
+    files.set(`${foundryDir}/.gitignore`, ".data\n");
     files.set(
       `${foundryDir}/package.json`,
       `${JSON.stringify(
@@ -469,7 +472,8 @@ function nextReadme(
     "| --- | --- |",
     `| \`foundry/agents/${route}/agent.ts\` | The agent. The file path is its id. |`,
     "| `foundry/foundry.application.ts` | Data adapter, accounts, routes |",
-    "| `foundry.config.ts` | Points the runtime at `foundry/agents` |",
+    "| `foundry.config.mts` | Points the runtime at `foundry/agents` |",
+    "| `foundry/.data/` | Runtime data, transcripts and memory. Ignored by git; delete it to start fresh |",
     "| `lib/foundry.ts` | Typed HTTP client for your app to import |",
     `| \`app/api/${route}/route.ts\` | An example Next.js route handler |`,
     "| `.foundry/routes.d.ts` | Generated. Do not edit |",

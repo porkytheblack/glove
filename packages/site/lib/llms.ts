@@ -48,7 +48,7 @@ export function buildLlmsTxt(): string {
     "Packages are independent: install glove-core plus only what you need. Foundry is optional and builds on the same agents and tools.",
     "In Foundry, composeAgent(...) only makes shared tools, apps and MCP servers available; an instance must install() them before they mount. Always-on tools go in defineAgent's tools field.",
     "Foundry's /v1/chat/completions and /v1/responses accept an agent instance id (or a definition route with exactly one instance) as `model`; reuse `user`, `conversation_id` or the x-foundry-conversation-id header to continue a conversation.",
-    "Each Foundry run executes in its own process: a plain MemoryStore (used by the starter templates) forgets earlier turns. Give agents a durable store — see /foundry/docs/persistence.",
+    "Each Foundry run executes in its own process: a store that returns a plain MemoryStore forgets earlier turns. Give agents a durable store (the starter templates ship lib/file-store.ts) — see /foundry/docs/persistence.",
     "Dynamic goals are exported by glove-memory/goals (glove-memory 1.2.0+); there is no glove-goals package. Shared evidence is glove-facts (0.1.0+).",
     "With glove-core 4.0+, goals, forms and pinned context are live runtime snapshots appended at the model-input tail; system instructions and saved history are not rewritten. Runnable proxies forward addContextProvider and getRuntimeContext.",
     "Forms support opt-in skippable: true and runner.skip(field, reason), exposed as glove_form_revise action=skip.",

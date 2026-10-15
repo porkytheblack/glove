@@ -56,34 +56,37 @@ pnpm dev`} />
 
       <h2 id="step-2-agent">2. Define the support agent</h2>
       <p>
-        First, make state survive. The starter keeps everything in memory, and that bites twice
-        during development:
+        First, notice what the starter already did to make state survive. Two facts about
+        Foundry make it necessary:
       </p>
       <ul>
         <li>
-          <code>MemoryFoundryDataAdapter</code> loses every instance, conversation and schedule
-          when the runtime restarts, which <code>pnpm dev</code> does on every save.
+          <code>pnpm dev</code> restarts the runtime on every save, so runtime data kept only in
+          memory (<code>MemoryFoundryDataAdapter</code>) would lose every instance, conversation
+          and schedule each time.
         </li>
         <li>
-          Every run executes in its own worker process. A <code>store</code> that returns{" "}
-          <code>new MemoryStore(...)</code> therefore starts each turn with an empty history, and
-          the WebChat has nothing to show.
+          Every run executes in its own worker process. A <code>store</code> that returned{" "}
+          <code>new MemoryStore(...)</code> would start each turn with an empty history, and the
+          WebChat would have nothing to show.
         </li>
       </ul>
       <p>
-        Switch runtime data to the bundled file adapter, and add a small file-backed transcript
-        store:
+        So <code>foundry.application.ts</code> uses the bundled file adapter, and{" "}
+        <code>lib/file-store.ts</code> is a file-backed transcript store. Both write under{" "}
+        <code>.data/</code>, which the starter already git-ignores. You don&apos;t need to change
+        either; this is the essence of what they do:
       </p>
-      <CodeBlock filename="foundry.application.ts" language="typescript" code={`import { FileFoundryDataAdapter, defineApplication } from "glove-foundry";
+      <CodeBlock filename="foundry.application.ts (already in your project)" language="typescript" code={`import { FileFoundryDataAdapter, defineApplication } from "glove-foundry";
+import { fileURLToPath } from "node:url";
 
 // Instances, conversations, installations and schedules, in one JSON file.
-export const data = new FileFoundryDataAdapter({ file: ".data/foundry.json" });
+export const data = new FileFoundryDataAdapter({
+  file: fileURLToPath(new URL("./.data/foundry.json", import.meta.url)),
+});
 
-export default defineApplication({
-  name: "support-desk",
-  data,
-});`} />
-      <CodeBlock filename="lib/file-store.ts" language="typescript" code={`import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+export default defineApplication({ name: "support-desk", data });`} />
+      <CodeBlock filename="lib/file-store.ts (simplified)" language="typescript" code={`import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { MemoryStore, type Message } from "glove-core";
 
@@ -91,7 +94,7 @@ import { MemoryStore, type Message } from "glove-core";
  * A MemoryStore that saves the transcript to a JSON file after every append.
  * Each Foundry run executes in its own process, so a plain MemoryStore starts
  * empty on every message; this one reloads the conversation first.
- * Single host, one active run per conversation. Use a database for more.
+ * The starter's version also saves turn and token counters, tasks and inbox items.
  */
 export class FileStore extends MemoryStore {
   private constructor(id: string, private readonly file: string) {
@@ -114,8 +117,8 @@ export class FileStore extends MemoryStore {
   }
 }`} />
       <p>
-        Add <code>.data/</code> to <code>.gitignore</code>. Now the agent. Its file path is its
-        id: <code>agents/support/agent.ts</code> is the definition <code>support</code>.
+        Now the agent. Its file path is its id: <code>agents/support/agent.ts</code> is the
+        definition <code>support</code>.
       </p>
       <CodeBlock filename="agents/support/agent.ts" language="typescript" code={`import { createAdapter } from "glove-core/models/providers";
 import { defineAgent } from "glove-foundry";

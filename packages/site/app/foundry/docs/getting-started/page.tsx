@@ -73,8 +73,10 @@ OPENROUTER_MODEL=openai/gpt-4.1-mini`} />
       <CodeBlock filename="project (travel-concierge)" language="text" code={`agents/concierge/
   agent.ts                                 the definition — start here
   composition.ts                           composeAgent(...): the installable catalogue
-  tools/find-flights.tool.ts               a shared tool (defineSharedTool)
+  flights.ts                               find_flights: an always-on tool
+  tools/convert-currency.tool.ts           an installable shared tool (defineSharedTool)
   apps/calendar.app.ts                     an installable application (defineApp)
+  instances.ts                             the seeded concierge-demo instance and its binding
   transmissions/messaging.transmission.ts  a chat transport (defineTransmission)
   events/message-received.event.ts         inbound event
   events/message-sent.event.ts             outbound event
@@ -86,14 +88,16 @@ OPENROUTER_MODEL=openai/gpt-4.1-mini`} />
   schedules/trip-countdown.ts              a schedule value (imported, not discovered)
   workbench.ts                             VFS + JavaScript REPL
   topology.ts                              accounts and routes (runtime data)
-foundry.application.ts                     data adapter, accounts, routes
+foundry.application.ts                     file data adapter, accounts, routes, bindings
 foundry.config.ts                          port and execution policy
 lib/demo-model.ts                          keyless demo model
+lib/file-store.ts, lib/file-context.ts     durable transcripts and traveller memory
+.data/                                     runtime state on disk (git-ignored)
 src/client.ts                              a runnable typed client
 .foundry/routes.d.ts                       generated — do not edit`} />
       <p>
-        The <code>minimal</code> template is just <code>agents/assistant/agent.ts</code>,
-        one tool, and the two root files. <Link href="/foundry/docs/project-structure">Project structure</Link>{" "}
+        The <code>minimal</code> template is <code>agents/assistant/agent.ts</code> with one
+        always-on tool, <code>lib/file-store.ts</code>, and the two root files. <Link href="/foundry/docs/project-structure">Project structure</Link>{" "}
         explains every convention.
       </p>
       <div className="docs-note"><span className="docs-note-icon">!</span><p>
@@ -158,7 +162,7 @@ glove foundry help`} />
       <h2 id="verify">5. Verify and prepare for deployment</h2>
       <CodeBlock filename="your generated project" language="bash" code={`pnpm typecheck
 pnpm lint`} />
-      <p><strong>The starters forget between messages.</strong> Each run executes in its own process and both templates use an in-memory <code>MemoryStore</code>, so an agent does not see earlier turns of a conversation until you give it a durable store — see <Link href="/foundry/docs/persistence">Persistence</Link>.</p>
+      <p><strong>State lives on disk from the first run.</strong> Each run executes in its own process, so both starters keep instances, conversations, transcripts (and in the concierge, traveller memory and VFS files) under <code>.data/</code>. They survive the restart <code>pnpm dev</code> performs on every save; delete <code>.data/</code> to start fresh. These are single-host adapters — see <Link href="/foundry/docs/persistence">Persistence</Link> before deploying.</p>
       <p>Starter storage is disposable. Persist Foundry instance/activation data, Glove conversation history, structured memory, and VFS files with their respective adapters. A durable runtime-data adapter alone does not persist all of them. Read <Link href="/foundry/docs/persistence">Persistence</Link> before retaining user work, and <Link href="/foundry/docs/deploy">Deploy &amp; security</Link> before exposing the server.</p>
       <p><strong>Next:</strong> the <Link href="/foundry/docs/tutorial">tutorial</Link> builds a multi-tenant support agent with installed tools, schedules, approvals and an OpenAI SDK client.</p>
       <p>If setup fails, check your Node version and package-manager installation. Choose another port if 4141 is occupied. For provider errors, inspect the failed run’s events. Restart after changing environment values.</p>

@@ -121,9 +121,8 @@ export default defineAgent({
         <strong>Every run is a separate process.</strong> Foundry executes each message
         in a fresh child process, so anything held only in memory —{" "}
         <code>new MemoryStore(...)</code>, in-memory memory adapters, module-level
-        variables — starts empty on the next message. The starter templates use{" "}
-        <code>MemoryStore</code>, which means their agents do not remember earlier
-        turns. Use a store that reads and writes outside the process: the 25-line{" "}
+        variables — starts empty on the next message. Use a store that reads and writes
+        outside the process (both starter templates already do): the 25-line{" "}
         <code>FileStore</code> from the <Link href="/foundry/docs/tutorial#step-2-agent">tutorial</Link>,
         the fuller <code>FileConversationStore</code> on the{" "}
         <Link href="/foundry/docs/persistence">Persistence</Link> page, or your database.

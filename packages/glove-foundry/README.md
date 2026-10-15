@@ -71,13 +71,15 @@ If installation fails, your generated project remains available with retry steps
 
 ### Before deploying
 
-Persist **three separate things**: Foundry instance/activation data, Glove
-conversation history, and structured memory/VFS state. The demo's in-memory
-adapters intentionally reset and must not be mistaken for production persistence.
-Use `FileFoundryDataAdapter` for single-host runtime data, a durable conversation
-store, and `glove-memory/sqlite` or your own native memory adapters. Add VFS
-persistence when agents work on documents. Multi-host deployments need shared,
-transactional adapters. See [Building with Foundry](./docs/building-with-foundry.md).
+Every run executes in its own process, so nothing the next message needs can live
+only in memory. Persist **four separate things**: Foundry runtime data
+(instances, conversations, activations, workspace), Glove conversation
+transcripts, structured memory, and working-environment files. Persisting one does
+not persist the others. The starters keep all of them on disk under `.data/` with
+single-host adapters (`FileFoundryDataAdapter`, a file-backed transcript store in
+`lib/file-store.ts`, and — in the concierge — file-backed memory and VFS
+persistence). Multi-host deployments need shared, transactional adapters. See
+[Persistence](https://glove.dterminal.net/foundry/docs/persistence).
 
 **Troubleshooting:** check `node --version` for engine errors, add a provider key
 for the minimal starter, choose another `--port` if 4141 is occupied, and inspect a

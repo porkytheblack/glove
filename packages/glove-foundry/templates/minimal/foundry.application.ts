@@ -1,7 +1,15 @@
-import { MemoryFoundryDataAdapter, defineApplication } from "glove-foundry";
+import { FileFoundryDataAdapter, defineApplication } from "glove-foundry";
+import { fileURLToPath } from "node:url";
 
-/** Swap this adapter for your own to persist instances across restarts. */
-export const data = new MemoryFoundryDataAdapter();
+/**
+ * Instances, conversations, schedules and workspace data are saved to
+ * `.data/foundry.json`, so they survive restarts — including the restart
+ * `dev` performs every time you save a file. Delete `.data/` to start fresh.
+ * Use a database-backed adapter when several hosts share one runtime.
+ */
+export const data = new FileFoundryDataAdapter({
+  file: fileURLToPath(new URL("./.data/foundry.json", import.meta.url)),
+});
 
 export default defineApplication({
   name: "{{projectName}}",

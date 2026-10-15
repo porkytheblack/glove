@@ -93,10 +93,13 @@ export default function PersistencePage() {
         and across a full restart.
       </p>
       <div className="docs-note"><span className="docs-note-icon">◆</span><p>
-        The <Link href="/foundry/docs/tutorial">tutorial</Link> uses a 25-line{" "}
-        <code>FileStore</code> that saves messages only. <code>FileConversationStore</code>{" "}
-        below is the fuller drop-in: it also persists turn and token counters, tasks and
-        inbox items, so WebChat&apos;s counters and Glove&apos;s task tool survive between runs.
+        Projects created by <code>glove-foundry init</code> already ship{" "}
+        <code>lib/file-store.ts</code> — a <code>FileStore</code> equivalent to{" "}
+        <code>FileConversationStore</code> below — plus <code>FileFoundryDataAdapter</code>{" "}
+        under <code>.data/</code>. The <Link href="/foundry/docs/tutorial">tutorial</Link> shows a
+        simplified 25-line version that saves messages only; the full one also persists turn and
+        token counters, tasks and inbox items, so WebChat&apos;s counters and Glove&apos;s task
+        tool survive between runs.
       </p></div>
       <CodeBlock filename="lib/data-dir.ts" language="typescript" code={`import { resolve } from "node:path";
 

@@ -102,10 +102,12 @@ export default function FoundryFaqPage() {
 
       <h3 id="data-disappears">My instances and conversations disappear on restart</h3>
       <p>
-        The starters use <code>MemoryFoundryDataAdapter</code>, which lives in the runtime
-        process. <code>glove foundry dev</code> restarts that process whenever you save a file in{" "}
-        <code>agents/</code>, <code>.env*</code> or a root config file, so instances,
-        conversations, installations and schedules vanish. Persist four things, separately:
+        Your application uses <code>MemoryFoundryDataAdapter</code> (or no <code>data</code> at
+        all), which lives in the runtime process. <code>glove foundry dev</code> restarts that
+        process whenever you save a file in <code>agents/</code>, <code>.env*</code> or a root
+        config file, so instances, conversations, installations and schedules vanish. Projects
+        created by <code>glove-foundry init</code> avoid this with file-backed adapters under{" "}
+        <code>.data/</code>. Persist four things, separately:
       </p>
       <table>
         <thead><tr><th>What</th><th>Configured by</th><th>Single-host option</th></tr></thead>

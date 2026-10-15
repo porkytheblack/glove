@@ -1,5 +1,5 @@
 import { JsSession, defineFn } from "glove-js";
-import { defineRepl, defineWorkingEnvironment } from "glove-foundry";
+import { defineRepl, defineWorkingEnvironment, foundryDataEnvironmentPersistence } from "glove-foundry";
 import { z } from "zod";
 
 /**
@@ -11,6 +11,9 @@ import { z } from "zod";
  */
 export const conciergeWorkspace = defineWorkingEnvironment({
   options: { limits: { maxVfsBytes: 16 * 1024 * 1024 } },
+  // The environment closes after every run; this snapshots its files into the
+  // data adapter and restores them on the next run of the same instance.
+  persistence: foundryDataEnvironmentPersistence({ scope: "agent" }),
 });
 
 export function conciergeRepl(actor: string, budgetUsd: number) {

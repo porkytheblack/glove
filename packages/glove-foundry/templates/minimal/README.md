@@ -17,7 +17,9 @@ cp .env.example .env.local     # add your OPENROUTER_API_KEY
 
 Then open **http://127.0.0.1:4141** and press **Start a run**.
 
-Choose **assistant**, send a short request, and open the run to inspect its events.
+Choose **assistant**, ask "What time is it?", and open the run to inspect its events —
+including the `current_time` tool call. Send a follow-up in the same conversation
+(the **Chat** page is easiest): the assistant remembers the earlier turn.
 Edit `agents/assistant/agent.ts`, save, and run again. The dev server reloads your
 definition. Run `{{typecheckCommand}}` and `{{lintCommand}}` after changes.
 
@@ -26,18 +28,22 @@ yourself and restart the dev server. Do not commit the key. If a run fails, chec
 the trace for authentication or rate-limit errors. If port 4141 is occupied, use
 the local `glove foundry dev --port 4142` command.
 
-## Before using real data
+## Where state lives
 
-Each run executes in its own process, so the starter's in-memory `MemoryStore`
-forgets earlier turns of a conversation. Give the agent a durable `store` before you
-rely on multi-turn chat — see https://glove.dterminal.net/foundry/docs/persistence.
+Foundry runs every message in a fresh process, so nothing an agent needs on the
+next message can live only in memory. The starter keeps it on disk under `.data/`
+(git-ignored):
 
-The starter uses disposable in-memory storage. Configure durable Foundry runtime
-data, a durable Glove conversation store, native memory adapters, and VFS
-persistence independently. For a single host, Foundry includes
-`FileFoundryDataAdapter`; `glove-memory/sqlite` supports Node 22.13+. Use your own
-transactional adapters across hosts. A non-loopback listener requires an
+| What | Where | Wired in |
+| --- | --- | --- |
+| Instances, conversations, schedules, workspace data | `.data/foundry.json` | `foundry.application.ts` (`FileFoundryDataAdapter`) |
+| Conversation transcripts | `.data/transcripts/` | `agents/assistant/agent.ts` (`store`, using `lib/file-store.ts`) |
+
+State therefore survives the restart `{{devCommand}}` performs on every save. Delete
+`.data/` to start fresh. Both adapters are single-host: use database-backed
+adapters when several hosts share one runtime. A non-loopback listener requires an
 application-owned `requestAuthorization` adapter and a deliberate network boundary.
+See https://glove.dterminal.net/foundry/docs/persistence.
 
 ## The one idea to understand first
 
@@ -62,11 +68,23 @@ Any file matching these names under an agent folder is discovered automatically.
 | `layers/*.layer.ts` | Native Glove setup | `defineLayer` |
 | `subscribers/*.subscriber.ts` | An observer | `defineSubscriber` |
 
-Create the file and add it to `composeAgent(...)`. That makes it *available*, not
-mounted: tools, apps and MCP servers in the catalogue mount only on an instance that
-installs them — `install(...)` when the instance is created, `client.install(...)`, or
-`PUT /api/installations`. The inspector shows installations but does not change them.
-Put a tool every instance should always have in the agent's `tools` field instead.
+### Two ways to add a tool
+
+- **Every instance has it:** add a tool object to the agent's `tools` array, like
+  `current_time` in `agents/assistant/agent.ts`. Save, and the next run has it.
+- **Instances opt in:** create `agents/assistant/tools/<name>.tool.ts` with
+  `defineSharedTool`, list it in the agent's `components: composeAgent(...)`, then
+  install it on an instance. Composing makes it *available*, not mounted:
+
+  ```bash
+  curl -X PUT http://127.0.0.1:4141/api/installations \
+    -H 'content-type: application/json' \
+    -d '{"agentId":"<instance-id>","kind":"tool","id":"<name>"}'
+  ```
+
+  You can also install with `install(...)` when creating an instance in code, or
+  `client.install(...)`. The inspector shows installations but does not change them.
+  Apps and MCP servers work the same way.
 
 Schedules are data, not auto-discovered file routes. You may keep a `defineSchedule`
 value in an ordinary colocated module and import it into the agent's lazy
