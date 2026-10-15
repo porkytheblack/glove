@@ -22,10 +22,8 @@ export default function V3ReleaseNotesPage() {
       </p>
 
       <p>
-        Alongside core, four packages ship at <strong>0.5.0</strong> as
-        early-access:{" "}
-        <code>glove-mcp</code>, <code>glovebox-core</code>,{" "}
-        <code>glovebox-kit</code>, <code>glovebox-client</code>.
+        Alongside core, <code>glove-mcp</code> ships at <strong>0.5.0</strong>{" "}
+        as early-access.
       </p>
 
       <h2>Highlights</h2>
@@ -82,12 +80,12 @@ export default function V3ReleaseNotesPage() {
         </tbody>
       </table>
 
-      <h2>New / promoted packages (early-access at 0.5.0)</h2>
+      <h2>Promoted package (early-access at 0.5.0)</h2>
 
       <p>
-        Four packages ship as <strong>0.5.0</strong>. They&apos;re production-grade
-        but the surface is still solidifying — semver-minor bumps may land
-        in 0.6.x.
+        <code>glove-mcp</code> ships as <strong>0.5.0</strong>. It&apos;s
+        production-grade but the surface is still solidifying — semver-minor
+        bumps may land in 0.6.x.
       </p>
 
       <table>
@@ -106,36 +104,6 @@ export default function V3ReleaseNotesPage() {
               <code>discovermcp</code> discovery subagent. Promoted from
               internal use to a stable surface.{" "}
               <a href="/docs/mcp">MCP guide →</a>
-            </td>
-          </tr>
-          <tr>
-            <td><code>glovebox-core</code></td>
-            <td>
-              Authoring kit and <code>glovebox</code> build CLI. Wrap a built
-              <code> Glove</code> runnable, run{" "}
-              <code>glovebox build</code>, ship the resulting Dockerfile or
-              nixpacks bundle to any container host.{" "}
-              <a href="/docs/glovebox">Glovebox guide →</a>
-            </td>
-          </tr>
-          <tr>
-            <td><code>glovebox-kit</code></td>
-            <td>
-              In-container runtime. Hosts a Glove agent behind a single
-              authenticated WebSocket plus an HTTP <code>/files</code> route
-              for outputs. Most consumers don&apos;t import this directly —{" "}
-              <code>glovebox build</code> generates a server entry that uses
-              it.
-            </td>
-          </tr>
-          <tr>
-            <td><code>glovebox-client</code></td>
-            <td>
-              Client SDK for talking to a deployed Glovebox server. One
-              WebSocket per session, multiple prompts multiplexed. Streams
-              subscriber events and display slot pushes; resolves with the
-              final assistant message and an outputs map of{" "}
-              <code>FileRef</code>s.
             </td>
           </tr>
         </tbody>
@@ -500,10 +468,6 @@ const agent = new Glove({
         <li>
           <a href="/docs/mcp">MCP integration</a> — discovery subagent and
           server bridging.
-        </li>
-        <li>
-          <a href="/docs/glovebox">Glovebox</a> — sandboxed runtime for
-          deploying built <code>Glove</code> agents.
         </li>
         <li>
           <a

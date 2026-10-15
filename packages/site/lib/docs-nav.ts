@@ -337,8 +337,8 @@ export const docsSections: DocsNavSection[] = [
     ],
   },
   {
-    title: "Integrate & Deploy",
-    blurb: "Reach the outside world, then ship.",
+    title: "Integrate",
+    blurb: "Reach the outside world. To deploy, see the Foundry deploy guide.",
     items: [
       {
         label: "MCP",
@@ -346,14 +346,6 @@ export const docsSections: DocsNavSection[] = [
         summary:
           "Bridge Model Context Protocol servers in as first-class tools, with a discovery subagent.",
         packages: ["glove-mcp"],
-      },
-      {
-        label: "Glovebox",
-        href: "/docs/glovebox",
-        badge: "beta",
-        summary:
-          "Package an agent as a sandboxed container with one authenticated WebSocket endpoint.",
-        packages: ["glovebox-core", "glovebox-kit", "glovebox-client"],
       },
     ],
   },
@@ -411,14 +403,6 @@ export const docsSections: DocsNavSection[] = [
           "A server-only agent in the terminal with filesystem and shell tools and no React.",
         packages: ["glove-core"],
       },
-      {
-        label: "Glovebox",
-        href: "/docs/showcase/glovebox",
-        badge: "deprecated",
-        summary:
-          "A PDF extraction agent packaged as a Glovebox container (legacy — new deployments use Foundry).",
-        packages: ["glovebox-core"],
-      },
     ],
   },
   {
@@ -434,6 +418,13 @@ export const docsSections: DocsNavSection[] = [
         label: "Agent Skill",
         href: "/docs/agent-skill",
         summary: "Install the Glove and Foundry skills so Claude Code and other coding agents write correct Glove code.",
+      },
+      {
+        label: "v4 Release Notes",
+        href: "/docs/v4",
+        summary:
+          "What changed in glove-core 4.0 through 4.3: live runtime context, the 4.0 migration, and the 4.1–4.3 highlights.",
+        packages: ["glove-core"],
       },
       {
         label: "v3.0.0 Release Notes",

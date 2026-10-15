@@ -1253,43 +1253,28 @@ const detach = await attachAvatar(rt, avatar);
       <h2 id="shipping">Z. Shipping it</h2>
 
       <p>
-        Eventually the agent needs ffmpeg, or LibreOffice, or headless Chromium,
-        and you do not want those on every machine that runs your app.{" "}
-        <a href="/docs/glovebox">Glovebox</a> packages a built agent as a
-        sandboxed container with one authenticated WebSocket endpoint.
+        Eventually the agent has to run somewhere other than your laptop, for
+        more than one person, with state that survives a restart. That is what{" "}
+        <a href="/foundry">Glove Foundry</a> is for. A Foundry agent is still a
+        Glove agent — its tools are Glove tools and its store is a Glove{" "}
+        <code>StoreAdapter</code> — so everything above carries over. What
+        Foundry adds is the part around the loop: persisted instances, durable
+        conversations, schedules, approvals, an HTTP API and an inspector, with
+        a managed daemon that runs each agent turn in its own job process.
       </p>
-
-      <CodeBlock
-        filename="glovebox.ts"
-        language="typescript"
-        code={`export default glovebox.wrap(agent, {
-  name: "parcel-desk",
-  base: "glovebox/docs",                     // pandoc, qpdf, ghostscript, libreoffice
-  packages: { apt: ["poppler-utils"] },
-  storage: {
-    outputs: composite([
-      rule.inline({ below: "1MB" }),         // small files ride the wire
-      rule.localServer({ ttl: "1h" }),       // big ones get a URL
-    ]),
-  },
-  env: { ANTHROPIC_API_KEY: { required: true, secret: true } },
-  limits: { memory: "2GB", timeout: "10m" },
-});`}
-      />
 
       <CodeBlock
         filename="terminal"
         language="bash"
-        code={`npx glovebox build ./glovebox.ts --out ./dist`}
+        code={`glove foundry start --host 0.0.0.0 --port 4141`}
       />
 
       <p>
-        Out comes a Dockerfile, a nixpacks recipe, a bundled server, a manifest
-        and an auth key. Clients send a prompt and files and get back a message
-        and output files; they never learn which tools fired. The agent, inside,
-        gains a couple of things it did not have to be told about — a{" "}
-        <code>workspace</code> skill that lists its mounts, and an{" "}
-        <code>/output</code> hook for delivering files it wrote somewhere else.
+        There is no build step; TypeScript runs directly. Foundry refuses to
+        bind anything but loopback until you give it a request-authorization
+        boundary, and the{" "}
+        <a href="/foundry/docs/deploy">deploy guide</a> covers that, TLS, health
+        checks and a container recipe.
       </p>
 
       {/* ---------------------------------------------------------------- */}

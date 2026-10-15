@@ -1,7 +1,15 @@
-import { RevealOnScroll } from "@/components/reveal";
 import { GloveLogo } from "@/components/glove-logo";
 import { CodeBlock } from "@/components/code-block";
+import { CopyButton } from "@/components/copy-button";
+import { RevealOnScroll } from "@/components/reveal";
+import {
+  CardBloom,
+  ClosingGrain,
+  FoundryDither,
+  HeroGrain,
+} from "@/components/landing-shaders";
 import type { CSSProperties, ReactNode } from "react";
+import "./landing.css";
 
 /* ── Capability icons — minimal 24px line glyphs ───────────────────── */
 const iconProps = {
@@ -176,473 +184,158 @@ const icons: Record<string, ReactNode> = {
   ),
 };
 
-type Cap = {
-  icon: keyof typeof icons;
-  kicker: string;
-  name: string;
+/* ── Content ───────────────────────────────────────────────────────── */
+
+type Path = {
+  label: string;
+  title: string;
+  desc: string;
   href: string;
-  badge?: "beta" | "new" | "deprecated";
-  desc: ReactNode;
-  meta?: string;
+  cta: string;
+  hue: string;
+  code: string;
 };
 
-type CapGroup = {
-  id?: string;
-  cat: string;
+const paths: Path[] = [
+  {
+    label: "Run agents as a service",
+    title: "Glove Foundry",
+    desc: "One TypeScript file per agent. Foundry adds persisted instances and conversations, an HTTP and OpenAI-compatible API, schedules, webhooks, approvals and an inspector.",
+    href: "/foundry/docs/getting-started",
+    cta: "Start with Foundry",
+    hue: "#2f6b55",
+    code: "npx glove-foundry init",
+  },
+  {
+    label: "Put an agent in your app",
+    title: "glove-core",
+    desc: "The agent loop, any model, Zod-validated tools and a display stack that renders React UI mid-conversation, in your Next.js or Node app.",
+    href: "/docs/getting-started",
+    cta: "Quickstart",
+    hue: "#5c4a2a",
+    code: "pnpm add glove-core glove-react",
+  },
+  {
+    label: "Add one capability",
+    title: "A single package",
+    desc: "Memory, voice, browsers, sandboxes, MCP, image and video workflows. Each package mounts onto an agent you already have.",
+    href: "/docs/packages",
+    cta: "Browse packages",
+    hue: "#3b3566",
+    code: "pnpm add glove-memory",
+  },
+];
+
+type Link = { name: string; href: string; badge?: "new" | "beta" };
+type Group = {
   name: string;
   line: string;
-  caps: Cap[];
+  icon: keyof typeof icons;
+  tint: string;
+  links: Link[];
 };
 
-const capabilityGroups: CapGroup[] = [
+const groups: Group[] = [
   {
-    cat: "var(--accent)",
-    name: "Application framework",
-    line: "How capabilities become a running agent system",
-    caps: [
-      {
-        icon: "foundry",
-        kicker: "Framework for agent systems",
-        name: "Glove Foundry",
-        href: "/foundry",
-        desc: (
-          <>
-            Write each agent as a TypeScript file. Foundry runs the folder as a
-            service — persisted agents, conversations, a run queue and a typed
-            client — with end-to-end types from file route to API call.
-          </>
-        ),
-        meta: "npx glove-foundry init",
-      },
-      {
-        icon: "instances",
-        kicker: "Durable runtime data",
-        name: "Instances & Conversations",
-        href: "/foundry/docs/definitions-and-instances",
-        desc: (
-          <>
-            Create many live agents from one definition. Each instance has its
-            own context, installed apps, tools and MCP servers, schedules, and
-            any number of conversations — rebuilt from data on every run.
-          </>
-        ),
-      },
-      {
-        icon: "mcp",
-        kicker: "/v1/chat/completions · /v1/responses",
-        name: "OpenAI-compatible API",
-        href: "/foundry/docs/openai-compatible",
-        badge: "new",
-        desc: (
-          <>
-            Point any OpenAI SDK, chat UI or eval harness at a Foundry agent.
-            Requests land in durable conversations, with tools, memory and
-            approvals running server-side.
-          </>
-        ),
-      },
-      {
-        icon: "continuum",
-        kicker: "Schedules · sleep · webhooks",
-        name: "Agents that act later",
-        href: "/foundry/docs/automation",
-        desc: (
-          <>
-            Agents schedule their own follow-ups, sleep and resume the same
-            conversation, and wake when a chat message or webhook arrives —
-            even provisioning a fresh agent per thread.
-          </>
-        ),
-      },
-      {
-        icon: "shield",
-        kicker: "Human in the loop",
-        name: "Approvals & Steering",
-        href: "/foundry/docs/approvals",
-        badge: "new",
-        desc: (
-          <>
-            Permission-gated tools pause on an approval record until someone
-            approves or denies it. Redirect a busy agent and it restarts with
-            the new instruction in the same conversation.
-          </>
-        ),
-      },
-      {
-        icon: "observe",
-        kicker: "Inspector · WebChat",
-        name: "See every run",
-        href: "/foundry/docs/observability",
-        desc: (
-          <>
-            localhost:4141 shows definitions, instances, runs, schedules and
-            integrations, with a causal trace of each model pass and tool call —
-            and a chat window for any instance.
-          </>
-        ),
-      },
+    name: "Foundry",
+    line: "Agent systems as a running service",
+    icon: "foundry",
+    tint: "var(--accent)",
+    links: [
+      { name: "Instances & conversations", href: "/foundry/docs/definitions-and-instances" },
+      { name: "OpenAI-compatible API", href: "/foundry/docs/openai-compatible" },
+      { name: "Schedules, sleep & webhooks", href: "/foundry/docs/automation" },
+      { name: "Approvals & steering", href: "/foundry/docs/approvals" },
+      { name: "Inspector & WebChat", href: "/foundry/docs/observability" },
     ],
   },
   {
-    id: "browsers-and-sandboxes",
-    cat: "var(--accent)",
-    name: "Browsers & Sandboxes",
-    line: "Mount the ability to browse, build, and run",
-    caps: [
-      {
-        icon: "browser",
-        kicker: "glove-execution · mountBrowser",
-        name: "Browser Use",
-        href: "/docs/execution#workflow",
-        badge: "new",
-        desc: (
-          <>
-            Open websites, inspect pages, click, type, and take screenshots.
-            Compose browser actions and page evaluation in one script through{" "}
-            <code>mountBrowser</code>. Keep the agent&apos;s model and choose
-            the backend through an adapter.
-          </>
-        ),
-        meta: "Station backend · native screenshots · scoped sessions",
-      },
-      {
-        icon: "ship",
-        kicker: "glove-execution · mountSandbox",
-        name: "Sandboxes",
-        href: "/docs/execution#mount",
-        badge: "new",
-        desc: (
-          <>
-            Give an agent a place to write code, execute commands, and start
-            servers. <code>mountSandbox</code> exposes files, processes, and
-            services through a scriptable adapter. Choose which workspaces
-            and services persist across runs.
-          </>
-        ),
-        meta: "Files · commands · long-running services",
-      },
-      {
-        icon: "daemon",
-        kicker: "Foundry · Station 3",
-        name: "Managed Execution",
-        href: "/docs/execution#foundry",
-        badge: "new",
-        desc: (
-          <>
-            Start Foundry and it starts its Station daemon. Run agent jobs and
-            optional browser and sandbox providers on that same instance.
-            Foundry owns startup and shutdown; each agent receives access
-            through explicit mounts.
-          </>
-        ),
-        meta: "One managed daemon · optional resource adapters",
-      },
+    name: "Browsers & sandboxes",
+    line: "Browse, build and run",
+    icon: "browser",
+    tint: "var(--accent)",
+    links: [
+      { name: "Browser use", href: "/docs/execution#workflow" },
+      { name: "Sandboxes", href: "/docs/execution#mount" },
+      { name: "Managed execution", href: "/docs/execution#foundry" },
     ],
   },
   {
-    cat: "var(--c-interface)",
     name: "Interfaces",
-    line: "How people interact with the agent",
-    caps: [
-      {
-        icon: "display",
-        kicker: "Rendered UI",
-        name: "Display Stack",
-        href: "/docs/display-stack",
-        desc: (
-          <>
-            Tools push React components onto a stack — product grids, forms,
-            confirmations — rendered inline, mid-conversation. Pause for input
-            with <code>pushAndWait</code> or stream results with{" "}
-            <code>pushAndForget</code>.
-          </>
-        ),
-      },
-      {
-        icon: "voice",
-        kicker: "Full-duplex speech",
-        name: "Voice",
-        href: "/docs/voice",
-        desc: (
-          <>
-            A complete voice pipeline — STT → agent → TTS — with barge-in,
-            push-to-talk, and narration. Every tool and display slot keeps
-            working, spoken instead of typed.
-          </>
-        ),
-      },
-      {
-        icon: "avatar",
-        kicker: "Realtime & avatars",
-        name: "Speech-to-Speech",
-        href: "/docs/realtime-voice",
-        desc: (
-          <>
-            Run the same agent on a realtime model — 500–800ms voice-to-voice,
-            turn-taking decided by the model listening. Then give it a face, and
-            put it in a LiveKit room.
-          </>
-        ),
-      },
+    line: "How people reach the agent",
+    icon: "display",
+    tint: "var(--c-interface)",
+    links: [
+      { name: "Display stack", href: "/docs/display-stack" },
+      { name: "Voice pipeline", href: "/docs/voice" },
+      { name: "Realtime voice & avatars", href: "/docs/realtime-voice" },
+      { name: "Voice architectures", href: "/docs/voice-architectures", badge: "new" },
     ],
   },
   {
-    cat: "var(--c-media)",
-    name: "Generative Media",
-    line: "Images and video as directed, inspectable workflows",
-    caps: [
-      {
-        icon: "image",
-        kicker: "Agentic image generation",
-        name: "Image Workflows",
-        href: "/docs/image",
-        desc: (
-          <>
-            Prompts are <em>built</em> by a pipeline, not typed — durable
-            characters and scenes splice in verbatim, reference images carry
-            roles, and every degradation the model forces is written into the
-            trace. Edit, re-run a recipe, or composite a contact sheet.
-          </>
-        ),
-        meta: "Per-call cost tracking, in real dollars",
-      },
-      {
-        icon: "gallery",
-        kicker: "Worked examples",
-        name: "Image Gallery",
-        href: "/docs/image/gallery",
-        desc: (
-          <>
-            A campaign shot in one scripted run: one model and one product held
-            across five locations, a catalog matrix, recipe replay and a style
-            swap — each frame shown with the prompt that made it and what it
-            cost.
-          </>
-        ),
-        meta: "19 images · $0.78 · one run, no retries",
-      },
-      {
-        icon: "video",
-        kicker: "Agentic video direction",
-        name: "Video Workflows",
-        href: "/docs/video",
-        desc: (
-          <>
-            Give the agent continuity libraries, timed beats, first-frame
-            references, provider-neutral jobs, resumable multi-shot flows, and
-            a reviewer that watches the actual result before anything ships.
-          </>
-        ),
-        meta: "Generate → watch → revise → gated delivery",
-      },
-      {
-        icon: "play",
-        kicker: "Recorded production run",
-        name: "Video Gallery",
-        href: "/docs/video/gallery",
-        desc: (
-          <>
-            One brief becomes a keyframe, continuity definitions, a timed
-            recipe, provider jobs, review evidence, and one approved cut. See
-            the rejected work and the gate that keeps it off the page.
-          </>
-        ),
-        meta: "Every take, verdict, trace, and dollar accounted for",
-      },
+    name: "Memory & state",
+    line: "What it knows and carries forward",
+    icon: "memory",
+    tint: "var(--c-state)",
+    links: [
+      { name: "Memory", href: "/docs/memory" },
+      { name: "Goals, forms & facts", href: "/docs/goal-oriented-agents", badge: "new" },
+      { name: "Scratchpad", href: "/docs/scratchpad" },
+      { name: "Inbox", href: "/docs/inbox" },
     ],
   },
   {
-    cat: "var(--c-state)",
-    name: "Memory & State",
-    line: "What the agent knows and carries forward",
-    caps: [
-      {
-        icon: "memory",
-        kicker: "Long-term recall",
-        name: "Memory",
-        href: "/docs/memory",
-        desc: (
-          <>
-            Five sibling subsystems — an entity graph, episodic timeline,
-            resource filesystem, ambient context, and conversational forms —
-            each with a focused tool surface and bring-your-own storage.
-          </>
-        ),
-      },
-      {
-        icon: "scratchpad",
-        kicker: "Tools as SQL",
-        name: "Scratchpad",
-        href: "/docs/scratchpad",
-        desc: (
-          <>
-            Expose capabilities as a relational database. The model discovers,
-            invokes, and composes tools by writing SQL through a single{" "}
-            <code>execute_sql</code> tool — with transactions as a real dry-run.
-          </>
-        ),
-        meta: "Benchmarked — up to 35× less context, higher accuracy",
-      },
-      {
-        icon: "inbox",
-        kicker: "Async mailbox",
-        name: "Inbox",
-        href: "/docs/inbox",
-        desc: (
-          <>
-            A persistent mailbox for what can&apos;t resolve now. The agent
-            posts a request; a webhook, cron, or human resolves it later — and
-            it&apos;s injected on the next turn, across restarts.
-          </>
-        ),
-      },
-    ],
-  },
-  {
-    cat: "var(--c-deploy)",
     name: "Compute",
-    line: "Somewhere for the model to do the work",
-    caps: [
-      {
-        icon: "sandbox",
-        kicker: "Sandboxed filesystem",
-        name: "Working Environment",
-        href: "/docs/working-environment",
-        desc: (
-          <>
-            A persistent virtual filesystem the agent works in — writes scripts,
-            runs them, inspects intermediates, iterates. No network, no host fs,
-            no process; only the capabilities you inject.
-          </>
-        ),
-        meta: "PDF, xlsx, slides, images, media adapters",
-      },
-      {
-        icon: "code",
-        kicker: "One eval tool",
-        name: "Code Execution",
-        href: "/docs/code-execution",
-        desc: (
-          <>
-            Fifty tool definitions become one sandboxed REPL — JavaScript,
-            Python or Lisp over the same catalog. The model composes and
-            branches in a single call, and only the answer enters its context.
-          </>
-        ),
-      },
-      {
-        icon: "shield",
-        kicker: "Enforced boundary",
-        name: "Egress Control",
-        href: "/docs/egress",
-        badge: "beta",
-        desc: (
-          <>
-            Make that boundary a privacy boundary: programs must end in a
-            bounded decision, a bit budget caps cumulative disclosure, and a
-            meter reports exactly what crossed.
-          </>
-        ),
-      },
-      {
-        icon: "classifier",
-        kicker: "Judge, don't read",
-        name: "Classifier Models",
-        href: "/docs/classifier",
-        badge: "new",
-        desc: (
-          <>
-            Typed yes/no, choice and score answers from TypeSafe&apos;s Jev
-            or open models you host (Kev, Laya, Von…), with confidence. Triage an inbox, a
-            page or an inbound event in one parallel pass, and only the answers
-            reach the agent.
-          </>
-        ),
-        meta: "Tools, REPLs, working environments, browsers, Foundry",
-      },
+    line: "Somewhere to do the work",
+    icon: "code",
+    tint: "var(--c-deploy)",
+    links: [
+      { name: "Working environment", href: "/docs/working-environment" },
+      { name: "Code execution", href: "/docs/code-execution" },
+      { name: "Classifier models", href: "/docs/classifier" },
+      { name: "Egress control", href: "/docs/egress", badge: "beta" },
     ],
   },
   {
-    cat: "var(--c-network)",
+    name: "Generative media",
+    line: "Images and video you can inspect",
+    icon: "image",
+    tint: "var(--c-media)",
+    links: [
+      { name: "Image workflows", href: "/docs/image" },
+      { name: "Image gallery", href: "/docs/image/gallery" },
+      { name: "Video workflows", href: "/docs/video" },
+      { name: "Video gallery", href: "/docs/video/gallery" },
+    ],
+  },
+  {
     name: "Coordination",
-    line: "How agents work together",
-    caps: [
-      {
-        icon: "mesh",
-        kicker: "Multi-agent",
-        name: "Mesh",
-        href: "/docs/mesh",
-        desc: (
-          <>
-            Agents message each other — direct, broadcast, acknowledge — over a
-            pluggable transport, riding the same inbox primitive. A planner and
-            its workers, or a swarm of specialists.
-          </>
-        ),
-      },
-      {
-        icon: "continuum",
-        kicker: "Subprocess runtime",
-        name: "Continuum",
-        href: "/docs/continuum",
-        badge: "beta",
-        desc: (
-          <>
-            Supervise agents as subprocesses. Triggered agents wake cold per
-            event and resume a persistent store; concurrent agents stay warm and
-            are notified inline.
-          </>
-        ),
-      },
+    line: "Agents working together",
+    icon: "mesh",
+    tint: "var(--c-network)",
+    links: [
+      { name: "Mesh", href: "/docs/mesh" },
+      { name: "Continuum", href: "/docs/continuum", badge: "beta" },
     ],
   },
   {
-    cat: "var(--c-deploy)",
-    name: "Extend & Integrate",
-    line: "Shape the agent, reach the world",
-    caps: [
-      {
-        icon: "extensions",
-        kicker: "Hooks · Skills · Subagents",
-        name: "Extensions",
-        href: "/docs/extensions",
-        desc: (
-          <>
-            Hooks mutate agent state before a turn, skills inject context, and
-            subagents route self-contained work to isolated children — the{" "}
-            <code>/command</code> and <code>@mention</code> surface.
-          </>
-        ),
-      },
-      {
-        icon: "mcp",
-        kicker: "Integrations",
-        name: "MCP",
-        href: "/docs/mcp",
-        desc: (
-          <>
-            Bridge Model Context Protocol servers — Notion, Gmail, Linear — in as
-            first-class tools. A discovery subagent finds and activates them
-            mid-conversation.
-          </>
-        ),
-      },
-      {
-        icon: "ship",
-        kicker: "Legacy deployment runtime",
-        name: "Glovebox",
-        href: "/docs/glovebox",
-        badge: "deprecated",
-        desc: (
-          <>
-            Maintain an existing sandboxed container deployment while you
-            migrate. Glovebox is deprecated; build new agent applications,
-            working environments, and deployment systems with Foundry.
-          </>
-        ),
-      },
+    name: "Extend & integrate",
+    line: "Shape it, connect it",
+    icon: "extensions",
+    tint: "var(--c-network)",
+    links: [
+      { name: "Hooks, skills & subagents", href: "/docs/extensions" },
+      { name: "MCP servers", href: "/docs/mcp" },
     ],
   },
+];
+
+const layers = [
+  { name: "Agent", desc: "The loop: prompt, call tools, feed results back." },
+  { name: "Prompt machine", desc: "Wraps the model behind a ModelAdapter." },
+  { name: "Executor", desc: "Validates, retries and permission-checks tools." },
+  { name: "Observer", desc: "Tracks turns and tokens; compacts long sessions." },
+  { name: "Display manager", desc: "The UI stack your tools render into." },
 ];
 
 const usedBy: {
@@ -662,231 +355,214 @@ const usedBy: {
   },
 ];
 
+const arrow = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </svg>
+);
+
+/* ── Page ──────────────────────────────────────────────────────────── */
+
 export default function LandingPage() {
   return (
-    <main>
-      {/* ── Hero ────────────────────────────────────────────────── */}
-      <section className="hero">
-        <a className="hero-badge" href="/blog/classifier-models">
-          <span className="dot" />
-          <span>
-            <strong>New: classifier models</strong> — decide what matters without reading it
-          </span>
-        </a>
-        <GloveLogo className="hero-icon" />
-        <h1>
-          Build agent systems that <strong>do the work.</strong>
-        </h1>
-        <p className="hero-sub">
-          Glove is the open-source TypeScript stack for{" "}
-          <strong>AI-powered applications</strong>: models, tools, memory, voice,
-          media, UI, browser use, sandboxes, and working environments. Foundry
-          composes those capabilities into typed, observable systems that respond to events,
-          work together, and keep going.
-        </p>
-        <div className="hero-pills">
-          {[
-            "Foundry",
-            "Display Stack",
-            "Memory",
-            "Inbox",
-            "Scratchpad",
-            "Browser Use",
-            "Sandboxes",
-            "Code Execution",
-            "Classifiers",
-            "Mesh",
-            "Voice",
-            "Avatars",
-            "Images",
-            "MCP",
-          ].map((p) => (
-            <span key={p} className="hero-pill">
-              {p}
-            </span>
-          ))}
+    <main className="lp">
+      {/* Hero */}
+      <section className="lp-hero" aria-labelledby="lp-hero-title">
+        <div className="lp-hero-canvas">
+          <HeroGrain />
+          <div className="lp-hero-scrim" />
         </div>
-        <div className="hero-actions">
-          <a href="/foundry/docs/getting-started" className="btn-primary">
-            Start with Foundry
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M5 12h14M13 6l6 6-6 6" />
-            </svg>
+        <div className="lp-hero-inner">
+          <a className="lp-announce" href="/docs/v4">
+            <span className="lp-announce-tag">v4</span>
+            <span>Live context, Foundry &amp; new guides</span>
+            {arrow}
           </a>
-          <a href="/docs" className="btn-secondary">
-            Choose your path
-          </a>
-        </div>
-      </section>
-
-      <section className="home-foundry-release">
-        <div className="home-foundry-copy">
-          <span className="section-label">Introducing / Glove Foundry</span>
-          <h2>The application framework for agents.</h2>
-          <p>
-            Define what an agent can be in code. Store what each live agent has
-            as data. Foundry assembles the right model, tools, apps, memory and
-            workspace for every message — and gives you the backend around it:
-            a typed and OpenAI-compatible API, schedules, webhooks, approvals,
-            and an inspector that shows how the work happened.
+          <GloveLogo className="lp-hero-logo" />
+          <h1 id="lp-hero-title">
+            Agents that <em>do the work.</em>
+          </h1>
+          <p className="lp-hero-sub">
+            Glove is the open-source TypeScript stack for building AI agents:
+            tools, memory, voice, UI, browsers and sandboxes. Foundry runs them
+            as typed, observable services.
           </p>
-          <div className="home-foundry-actions">
-            <a href="/foundry/docs/tutorial" className="btn-primary">Build your first agent system →</a>
-            <a href="/foundry" className="btn-secondary">What you get</a>
+          <div className="lp-hero-actions">
+            <a href="/foundry/docs/getting-started" className="btn-primary">
+              Start building {arrow}
+            </a>
+            <a href="/docs" className="btn-secondary">
+              Read the docs
+            </a>
+          </div>
+          <div className="lp-install">
+            <span className="lp-install-prompt" aria-hidden="true">$</span>
+            <code>npx glove-foundry init</code>
+            <CopyButton text="npx glove-foundry init" />
           </div>
         </div>
-        <div className="home-foundry-rail" aria-label="Foundry architecture">
-          <div><span>CODE</span><strong>definition</strong><i>file-routed</i></div>
-          <b>+</b>
-          <div><span>DATA</span><strong>instance</strong><i>live choices</i></div>
-          <b>→</b>
-          <div className="active"><span>RUN</span><strong>assembly</strong><i>observable</i></div>
-        </div>
       </section>
 
-      {/* ── Used by ─────────────────────────────────────────────── */}
-      <section className="usedby" aria-label="Used in production by">
-        <span className="usedby-label">Used in production by</span>
-        <div className="usedby-row">
-          {usedBy.map((c) => (
-            <a
-              key={c.name}
-              className="usedby-logo"
-              href={c.href}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <span
-                className="usedby-badge"
-                style={c.tile ? { background: c.tile } : undefined}
-              >
-                <img
-                  src={c.icon}
-                  alt={c.name}
-                  width={32}
-                  height={32}
-                  className={c.pad ? "pad" : undefined}
-                />
-              </span>
-              <span className="usedby-name">{c.name}</span>
+      {/* Used by */}
+      <section className="lp-usedby" aria-label="Used in production by">
+        <span>Used in production by</span>
+        {usedBy.map((c) => (
+          <a key={c.name} href={c.href} target="_blank" rel="noopener noreferrer">
+            <span className="lp-usedby-badge" style={c.tile ? { background: c.tile } : undefined}>
+              <img src={c.icon} alt="" width={28} height={28} className={c.pad ? "pad" : undefined} />
+            </span>
+            {c.name}
+          </a>
+        ))}
+      </section>
+
+      {/* Paths */}
+      <section className="lp-section" aria-labelledby="lp-paths-title">
+        <h2 id="lp-paths-title" className="lp-title">
+          Three ways in.
+        </h2>
+        <p className="lp-lede">
+          Every package works on its own. Start where your project is.
+        </p>
+        <div className="lp-paths">
+          {paths.map((path) => (
+            <a key={path.title} href={path.href} className="lp-path">
+              <CardBloom hue={path.hue} />
+              <div className="lp-path-body">
+                <span className="lp-path-label">{path.label}</span>
+                <h3>{path.title}</h3>
+                <p>{path.desc}</p>
+                <code className="lp-path-code">{path.code}</code>
+                <span className="lp-path-cta">
+                  {path.cta} {arrow}
+                </span>
+              </div>
             </a>
           ))}
         </div>
       </section>
 
-      {/* ── Platform / Capabilities ─────────────────────────────── */}
-      <section id="platform" className="platform">
-        <svg
-          className="platform-deco"
-          viewBox="0 0 200 200"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="0.7"
-          aria-hidden="true"
-        >
-          <circle cx="40" cy="40" r="3" fill="currentColor" stroke="none" />
-          <circle cx="150" cy="30" r="3" fill="currentColor" stroke="none" />
-          <circle cx="100" cy="90" r="3.5" fill="currentColor" stroke="none" />
-          <circle cx="30" cy="140" r="3" fill="currentColor" stroke="none" />
-          <circle cx="160" cy="150" r="3" fill="currentColor" stroke="none" />
-          <circle cx="70" cy="175" r="2.5" fill="currentColor" stroke="none" />
-          <path d="M40 40 100 90M150 30 100 90M100 90 30 140M100 90 160 150M30 140 70 175M160 150 70 175M40 40 150 30" opacity=".45" />
-        </svg>
-        <h2 className="section-title">
-          An agent is more than <strong>a model with tools.</strong>
-        </h2>
-        <p className="section-desc">
-          Glove provides the capabilities agents need to do real work: interfaces,
-          memory, media, browser use, sandboxes, computation, integrations, and
-          coordination. Adopt any package on its own, or use Foundry to compose them into a complete,
-          persistent application.
-        </p>
-
-        {capabilityGroups.map((group) => (
-          <RevealOnScroll key={group.name}>
-            <div id={group.id} className="cap-group" style={{ ["--cat" as string]: group.cat } as CSSProperties}>
-              <div className="cap-group-head">
-                <span className="cap-group-dot" />
-                <span className="cap-group-name">{group.name}</span>
-                <span className="cap-group-line">{group.line}</span>
-              </div>
-              <div className="cap-grid">
-                {group.caps.map((cap) => (
-                  <a
-                    key={cap.name}
-                    className="cap-card"
-                    href={cap.href}
-                    style={{ ["--cat" as string]: group.cat } as CSSProperties}
-                  >
-                    <div className="cap-card-top">
-                      <span className="cap-icon">{icons[cap.icon]}</span>
-                      <svg
-                        className="cap-arrow"
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M7 17 17 7M8 7h9v9" />
-                      </svg>
-                    </div>
-                    <div>
-                      <div className="cap-kicker">{cap.kicker}</div>
-                      <div className="cap-name">
-                        {cap.name}
-                        {cap.badge && (
-                          <span className={`docs-badge ${cap.badge}`}>{cap.badge}</span>
-                        )}
-                      </div>
-                    </div>
-                    <p className="cap-desc">{cap.desc}</p>
-                    {cap.meta && <div className="cap-meta">{cap.meta}</div>}
-                  </a>
-                ))}
-              </div>
+      {/* Foundry */}
+      <section className="lp-section" aria-labelledby="lp-foundry-title">
+        <div className="lp-foundry">
+          <FoundryDither />
+          <div className="lp-foundry-scrim" />
+          <div className="lp-foundry-copy">
+            <span className="lp-kicker">Glove Foundry</span>
+            <h2 id="lp-foundry-title">Define it in code. Run it as data.</h2>
+            <p>
+              A definition says what an agent can be. Each instance stores what
+              one live agent has: its context, installed apps and schedules.
+              Foundry assembles the right model, tools and memory for every
+              message, and shows you how the work happened.
+            </p>
+            <div className="lp-foundry-actions">
+              <a href="/foundry/docs/tutorial" className="btn-primary">
+                Build your first agent system {arrow}
+              </a>
+              <a href="/foundry" className="btn-secondary">
+                What you get
+              </a>
             </div>
-          </RevealOnScroll>
-        ))}
+          </div>
+          <ol className="lp-flow" aria-label="How Foundry runs an agent">
+            <li>
+              <span>Code</span>
+              <strong>agents/support/agent.ts</strong>
+              <i>a file-routed definition</i>
+            </li>
+            <li>
+              <span>Data</span>
+              <strong>support-acme</strong>
+              <i>an instance with its own installs</i>
+            </li>
+            <li>
+              <span>Run</span>
+              <strong>POST /v1/chat/completions</strong>
+              <i>assembled per message, traced</i>
+            </li>
+          </ol>
+        </div>
       </section>
 
-      {/* ── Start ───────────────────────────────────────────────── */}
-      <section id="start">
-        <span className="section-label">Start</span>
-        <h2 className="section-title">
-          A tool, a model, and <strong>you&apos;re running.</strong>
+      {/* Capabilities */}
+      <section className="lp-section" id="platform" aria-labelledby="lp-caps-title">
+        <h2 id="lp-caps-title" className="lp-title">
+          Everything an agent needs to finish the job.
         </h2>
-        <p className="section-desc">
-          Everything else is opt-in. Install the runtime, describe what your app
-          can do, and let the agent sequence it.
+        <p className="lp-lede">
+          Interfaces, memory, compute, media and coordination, as packages that
+          mount onto the same runtime.
         </p>
         <RevealOnScroll>
-          <div className="start-grid">
-            <CodeBlock
-              filename="agent.ts"
-              language="typescript"
-              code={`import {
-  Glove, MemoryStore, Displaymanager, createAdapter,
-} from "glove-core";
+          <div className="lp-groups">
+            {groups.map((group) => (
+              <div
+                key={group.name}
+                className="lp-group"
+                style={{ ["--tint" as string]: group.tint } as CSSProperties}
+              >
+                <div className="lp-group-head">
+                  <span className="lp-group-icon">{icons[group.icon]}</span>
+                  <div>
+                    <h3>{group.name}</h3>
+                    <p>{group.line}</p>
+                  </div>
+                </div>
+                <ul>
+                  {group.links.map((link) => (
+                    <li key={link.name}>
+                      <a href={link.href}>
+                        {link.name}
+                        {link.badge && <span className={`docs-badge ${link.badge}`}>{link.badge}</span>}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </RevealOnScroll>
+      </section>
+
+      {/* Code */}
+      <section className="lp-section" aria-labelledby="lp-code-title">
+        <div className="lp-code">
+          <div className="lp-code-copy">
+            <span className="lp-kicker">In your app</span>
+            <h2 id="lp-code-title" className="lp-title">
+              A model, a tool, and you&apos;re running.
+            </h2>
+            <p className="lp-lede">
+              Tools are Zod-validated functions. They can render UI in the
+              middle of a conversation and wait for the person to answer.
+            </p>
+            <ul className="lp-points">
+              <li>
+                <strong>Any model.</strong> Anthropic, OpenAI, Gemini,
+                OpenRouter, Bedrock, Vercel AI Gateway, Ollama.
+              </li>
+              <li>
+                <strong>Any store.</strong> A small adapter interface over
+                whatever you already run.
+              </li>
+              <li>
+                <strong>Tools that render.</strong> <code>pushAndForget</code>{" "}
+                shows UI; <code>pushAndWait</code> pauses until it&apos;s answered.
+              </li>
+            </ul>
+          </div>
+          <CodeBlock
+            filename="agent.ts"
+            language="typescript"
+            code={`import { Glove, Displaymanager, createAdapter } from "glove-core";
 import { z } from "zod";
 
 const agent = new Glove({
-  store: new MemoryStore("session-1"),
   model: createAdapter({ provider: "anthropic" }),
   displayManager: new Displaymanager(),
-  systemPrompt: "You are a helpful assistant.",
+  systemPrompt: "You help people find running shoes.",
+  compaction_config: { compaction_instructions: "Keep the shopper's preferences." },
 })
   .fold({
     name: "search_products",
@@ -894,183 +570,71 @@ const agent = new Glove({
     inputSchema: z.object({ query: z.string() }),
     async do(input, display) {
       const hits = await catalog.search(input.query);
-
-      // Render a grid mid-conversation, keep going.
-      await display.pushAndForget({
-        renderer: "product_grid",
-        input: hits,
-      });
-
-      return hits;
+      await display.pushAndForget({ renderer: "product_grid", input: hits });
+      return { status: "success", data: hits };
     },
   })
   .build();
 
 await agent.processRequest("Running shoes under $100");`}
-            />
-            <div className="start-notes">
-              <div className="start-note">
-                <span className="start-note-k">One install per capability</span>
-                <p>
-                  <code>glove-core</code> is the runtime. Memory, sandboxes,
-                  voice, mesh and MCP are separate packages that mount onto it —
-                  nothing you skip costs you anything.
-                </p>
-              </div>
-              <div className="start-note">
-                <span className="start-note-k">Tools render, and can wait</span>
-                <p>
-                  <code>pushAndForget</code> shows UI mid-run;{" "}
-                  <code>pushAndWait</code> suspends the tool until the user
-                  answers, then resumes with their value.
-                </p>
-              </div>
-              <div className="start-note">
-                <span className="start-note-k">Any model, any store</span>
-                <p>
-                  Anthropic, OpenAI, Gemini, OpenRouter, Bedrock, Ollama and LM
-                  Studio behind one factory — and a store interface small enough
-                  to implement over whatever you already run.
-                </p>
-              </div>
-              <a href="/docs/packages" className="btn-secondary">
-                Browse all packages
+          />
+        </div>
+      </section>
+
+      {/* Under the hood */}
+      <section className="lp-section" aria-labelledby="lp-arch-title">
+        <h2 id="lp-arch-title" className="lp-title">
+          Five parts. Every one swappable.
+        </h2>
+        <p className="lp-lede">
+          The runtime talks to models, stores, displays and subscribers through
+          adapters, so you can change any of them without touching your agent.
+        </p>
+        <RevealOnScroll>
+          <ol className="lp-layers">
+            {layers.map((layer, index) => (
+              <li key={layer.name}>
+                <span className="lp-layer-n">{String(index + 1).padStart(2, "0")}</span>
+                <strong>{layer.name}</strong>
+                <p>{layer.desc}</p>
+              </li>
+            ))}
+          </ol>
+        </RevealOnScroll>
+        <a href="/docs/concepts" className="lp-more">
+          How the runtime fits together {arrow}
+        </a>
+      </section>
+
+      {/* Closing */}
+      <section className="lp-section">
+        <div className="lp-closing">
+          <ClosingGrain />
+          <div className="lp-closing-scrim" />
+          <div className="lp-closing-body">
+            <h2>Build something that works while you don&apos;t.</h2>
+            <p>Open source, MIT licensed, ready to build on.</p>
+            <div className="lp-hero-actions">
+              <a href="https://github.com/porkytheblack/glove" target="_blank" rel="noopener noreferrer" className="btn-primary">
+                Star on GitHub
+              </a>
+              <a href="/docs" className="btn-secondary">
+                Read the docs
               </a>
             </div>
           </div>
-        </RevealOnScroll>
-      </section>
-
-      {/* ── Architecture ────────────────────────────────────────── */}
-      <section id="architecture">
-        <h2 className="section-title">Five components. One runtime.</h2>
-        <p className="section-desc">
-          Built on adapters — interfaces that decouple the runtime from specific
-          implementations. Swap models, stores, or UI frameworks without
-          changing application logic.
-        </p>
-        <RevealOnScroll>
-          <div className="arch-stack">
-            <div className="arch-layer">
-              <span className="arch-layer-name">Agent</span>
-              <span className="arch-layer-desc">
-                <strong>The agentic loop.</strong> Takes a message, prompts the
-                model, executes tool calls, feeds results back, repeats until
-                the model responds with text.
-              </span>
-            </div>
-            <div className="arch-layer">
-              <span className="arch-layer-name">Prompt Machine</span>
-              <span className="arch-layer-desc">
-                <strong>The model wrapper.</strong> Manages system prompts,
-                dispatches requests, notifies subscribers. The model itself is
-                swappable via the ModelAdapter interface.
-              </span>
-            </div>
-            <div className="arch-layer">
-              <span className="arch-layer-name">Executor</span>
-              <span className="arch-layer-desc">
-                <strong>The tool runner.</strong> Validates inputs with Zod,
-                retries with Effect, manages permissions through the tool permission
-                system. Tools are registered at build time.
-              </span>
-            </div>
-            <div className="arch-layer">
-              <span className="arch-layer-name">Observer</span>
-              <span className="arch-layer-desc">
-                <strong>The session watcher.</strong> Tracks turns, token
-                consumption, and triggers context compaction when conversations
-                get too long. Sessions run indefinitely.
-              </span>
-            </div>
-            <div className="arch-layer">
-              <span className="arch-layer-name">Display Manager</span>
-              <span className="arch-layer-desc">
-                <strong>The UI state machine.</strong> Manages the display
-                stack — what the user sees. Framework-agnostic. This is what
-                makes Glove an application runtime, not a chatbot backend.
-              </span>
-            </div>
-          </div>
-        </RevealOnScroll>
-      </section>
-
-      {/* ── Adapters ────────────────────────────────────────────── */}
-      <section id="adapters">
-        <h2 className="section-title">Swap anything. Change nothing.</h2>
-        <p className="section-desc">
-          Every layer is an interface. The runtime doesn&#39;t care what&#39;s
-          behind it.
-        </p>
-        <RevealOnScroll>
-          <div className="adapter-grid">
-            <div className="adapter-card">
-              <h3>ModelAdapter</h3>
-              <p>
-                The AI provider. Anthropic, OpenAI, local models, or mocks for
-                testing. Anything that takes messages and returns responses.
-              </p>
-            </div>
-            <div className="adapter-card">
-              <h3>StoreAdapter</h3>
-              <p>
-                The persistence layer. Messages, tokens, turns, inbox. In-memory,
-                SQLite, Postgres — wherever your state lives.
-              </p>
-            </div>
-            <div className="adapter-card">
-              <h3>DisplayManagerAdapter</h3>
-              <p>
-                The UI state layer. Manages the display stack.
-                Framework-agnostic — React, Vue, Svelte, terminal UI. Bind
-                however you want.
-              </p>
-            </div>
-            <div className="adapter-card">
-              <h3>SubscriberAdapter</h3>
-              <p>
-                The event bus. Logging, analytics, real-time streaming,
-                debugging. Plug in whatever you need to observe.
-              </p>
-            </div>
-          </div>
-        </RevealOnScroll>
-      </section>
-
-      {/* ── CTA ─────────────────────────────────────────────────── */}
-      <div className="cta-section">
-        <h2>
-          Build something <strong>cool.</strong>
-        </h2>
-        <p>Glove is open source and ready to build on.</p>
-        <div className="cta-actions">
-          <a
-            href="https://github.com/porkytheblack/glove"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-primary"
-          >
-            View on GitHub
-          </a>
-          <a href="/docs" className="btn-secondary">
-            Read the Docs
-          </a>
         </div>
-        <div className="grant-badge">
-          <a
-            href="https://elevenlabs.io/startup-grants"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+        <div className="lp-grant">
+          <a href="https://elevenlabs.io/startup-grants" target="_blank" rel="noopener noreferrer">
             <img
               src="https://eleven-public-cdn.elevenlabs.io/payloadcms/cy7rxce8uki-IIElevenLabsGrants%201.webp"
               alt="ElevenLabs Startup Grant"
-              width={250}
-              height={56}
+              width={200}
+              height={45}
             />
           </a>
         </div>
-      </div>
+      </section>
     </main>
   );
 }

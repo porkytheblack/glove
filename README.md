@@ -82,9 +82,6 @@ Read the [Foundry handbook](https://glove.dterminal.net/foundry/docs) or run the
 | [`glove-env-secret`](packages/glove-env-secret) | `env:secret`: host-backed keystore with scoped keys, references, optional plaintext access and pluggable storage outside VFS snapshots | [![npm](https://img.shields.io/npm/v/glove-env-secret)](https://www.npmjs.com/package/glove-env-secret) |
 | [`glove-lisp`](packages/glove-lisp) | A Lisp REPL for LLM tool use — the same resource catalog as `glove-scratchpad`, exposed as functions in a tiny sandboxed Clojure-flavored Lisp behind one `execute_lisp` tool. Branch (decide-and-act) in one call, `def` keeps intermediates out of context, effects are exactly-once by construction (exploration) | [![npm](https://img.shields.io/npm/v/glove-lisp)](https://www.npmjs.com/package/glove-lisp) |
 | [`glove-continuum-signal`](packages/glove-continuum-signal) | Subprocess-based runtime for triggered (async) and concurrent (warm) agents — discovery, supervision, observability, IPC | [![npm](https://img.shields.io/npm/v/glove-continuum-signal)](https://www.npmjs.com/package/glove-continuum-signal) |
-| [`glovebox-core`](packages/glovebox) | **Deprecated:** legacy container authoring kit; use `glove-foundry` for new runtimes | [![npm](https://img.shields.io/npm/v/glovebox-core)](https://www.npmjs.com/package/glovebox-core) |
-| [`glovebox-kit`](packages/glovebox-kit) | **Deprecated:** legacy Glovebox container runtime | [![npm](https://img.shields.io/npm/v/glovebox-kit)](https://www.npmjs.com/package/glovebox-kit) |
-| [`glovebox-client`](packages/glovebox-client) | **Deprecated:** compatibility client for existing Glovebox deployments | [![npm](https://img.shields.io/npm/v/glovebox-client)](https://www.npmjs.com/package/glovebox-client) |
 
 ## Quick Start
 
@@ -476,37 +473,6 @@ The framework's only auth seam is `McpAdapter.getAccessToken(id)` — return a b
 
 See the [glove-mcp README](packages/glove-mcp/README.md) and [`examples/mcp-cli`](examples/mcp-cli) for the full picture.
 
-## Glovebox
-
-> **Deprecated:** Glovebox is retained for existing container deployments, but Glove Foundry is now the supported path for new agent runtimes, working environments, observability, and deployment composition. Start with the [Foundry documentation](https://glove.dterminal.net/foundry/docs).
-
-Glovebox packages a Glove agent as an isolated, network-addressable service. Wrap a built runnable with `glovebox.wrap(runnable, config)`, run `glovebox build`, ship the generated `dist/` (Dockerfile + nixpacks alternative + esbuild server bundle + manifest + bearer key) to any container host. The deployed server exposes one authenticated WebSocket endpoint per session; `glovebox-client` speaks to it. Files cross the wire as `FileRef` (`inline | url | server | s3 | gcs`), never raw bytes.
-
-Five base images cover the common toolsets (`glovebox/base`, `glovebox/media`, `glovebox/docs`, `glovebox/python`, `glovebox/browser`). A storage policy DSL routes inputs and outputs by size — small payloads go inline, larger ones park on the server (or S3) and the client pulls them through the same SDK call. The kit auto-injects an `environment` skill, `workspace` skill, `/output` hook, and `/clear-workspace` hook, and prepends an environment preamble to the agent's system prompt at boot.
-
-```ts
-import { glovebox, rule, composite } from "glovebox-core"
-import { agent } from "./my-agent"
-
-export default glovebox.wrap(agent, {
-  base: "glovebox/media",
-  packages: { apt: ["ffmpeg"] },
-  storage: {
-    outputs: composite([
-      rule.inline({ below: "1MB" }),
-      rule.localServer({ ttl: "1h" }),
-    ]),
-  },
-})
-```
-
-```sh
-glovebox build ./glovebox.ts
-docker run -p 8080:8080 -e GLOVEBOX_KEY="$(cat dist/glovebox.key)" my-app
-```
-
-See the [Glovebox Guide](https://glove.dterminal.net/docs/glovebox) and the per-package READMEs for the full picture: [`glovebox-core`](packages/glovebox/README.md), [`glovebox-kit`](packages/glovebox-kit/README.md), [`glovebox-client`](packages/glovebox-client/README.md).
-
 ## Architecture
 
 Glove is built on five adapter interfaces. Swap any layer without changing application logic.
@@ -540,7 +506,7 @@ Reference:
 - [Core API](https://glove.dterminal.net/docs/core) · [React](https://glove.dterminal.net/docs/react) · [Next.js](https://glove.dterminal.net/docs/next)
 - [Display Stack](https://glove.dterminal.net/docs/display-stack) · [Server-Side Agents](https://glove.dterminal.net/docs/server-side) · [Memory](https://glove.dterminal.net/docs/memory)
 - [Working Environment](https://glove.dterminal.net/docs/working-environment) · [Code Execution](https://glove.dterminal.net/docs/code-execution) · [Egress Control](https://glove.dterminal.net/docs/egress)
-- [Voice](https://glove.dterminal.net/docs/voice) · [Realtime Voice & Avatars](https://glove.dterminal.net/docs/realtime-voice) · [MCP](https://glove.dterminal.net/docs/mcp) · [Glovebox (deprecated)](https://glove.dterminal.net/docs/glovebox)
+- [Voice](https://glove.dterminal.net/docs/voice) · [Realtime Voice & Avatars](https://glove.dterminal.net/docs/realtime-voice) · [MCP](https://glove.dterminal.net/docs/mcp)
 
 For language models:
 

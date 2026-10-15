@@ -1194,8 +1194,7 @@ interface ImageLibraryAdapter extends ImageLibraryReader {
         <a href="/docs/working-environment">Working Environment</a> for pixel-level
         batch work (<code>env:images</code>) and video rendering (
         <code>env:motion</code>) · <a href="/docs/core">Core API</a> for the
-        tool and permission model · <a href="/docs/glovebox">Glovebox</a> for
-        shipping an image agent as a sandboxed service.
+        tool and permission model.
       </p>
     </div>
   );

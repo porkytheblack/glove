@@ -330,14 +330,6 @@ export default defineConfig({
         are Glove tools and its <code>store</code> is a Glove <code>StoreAdapter</code> — so you
         can start with <code>glove-core</code> and move later.
       </p>
-
-      <h3 id="glovebox">Is Glovebox still supported?</h3>
-      <p>
-        Glovebox is deprecated in favor of Foundry. Existing Glovebox deployments remain supported
-        for compatibility, but build new agent runtimes and deployments with Foundry. The{" "}
-        <Link href="/docs/glovebox">Glovebox docs</Link> remain for maintaining existing
-        deployments.
-      </p>
     </article>
   );
 }

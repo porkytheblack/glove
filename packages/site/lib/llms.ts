@@ -59,7 +59,6 @@ export function buildLlmsTxt(): string {
     "glove-execution mounts browser scripts (execute_browser) and persistent sandboxes (execute_sandbox) onto existing agents without replacing their model. Station 3 is the first backend; Foundry can host providers via stationDaemon from glove-foundry/station.",
     "glove-classifier adds structured-decision models (TypeSafe's Jev, open System One models, zero-shot scorers). Jev is not a chat model; never pass it to createAdapter.",
     "glove-core ships a vercel provider (Vercel AI Gateway) that reads AI_GATEWAY_API_KEY, falling back to VERCEL_OIDC_TOKEN.",
-    "Glovebox is deprecated; build new deployments with Foundry.",
   ]) {
     out.push(`- ${fact}`);
   }
@@ -285,7 +284,6 @@ provider prompt caching. Cache usage is reported on every response as
 | glove-mesh | direct/broadcast/ack messaging between agents |
 | glove-continuum-signal | subprocess runtime: triggered (cold) and concurrent (warm) agents |
 | glove-mcp | bridge Model Context Protocol servers in as tools |
-| glovebox-core / -kit / -client | DEPRECATED legacy container service; use glove-foundry for new runtimes |
 | glove-sqlite | DEPRECATED SQLite store; bring your own StoreAdapter instead |
 
 ## 8. Capability packages — minimal correct usage
@@ -983,32 +981,7 @@ Avatars: \`attachAvatar(rt, avatar)\` with \`TavusEchoAdapter\` or
 set \`publishAgentAudio: false\` and \`{ agentAudio: false }\` so the voice is not
 published twice.
 
-## 10. Legacy deployment (Glovebox — deprecated)
-
-Glovebox is retained for existing deployments. Build new agent runtimes,
-working environments, and deployment systems with Glove Foundry.
-
-\`\`\`ts
-import { glovebox, rule, composite } from "glovebox-core";
-import { agent } from "./my-agent";
-
-export default glovebox.wrap(agent, {
-  base: "glovebox/media",                  // base | media | docs | python | browser
-  packages: { apt: ["ffmpeg"] },
-  storage: { outputs: composite([rule.inline({ below: "1MB" }), rule.localServer({ ttl: "1h" })]) },
-});
-\`\`\`
-
-\`\`\`bash
-glovebox build ./glovebox.ts
-docker run -p 8080:8080 -e GLOVEBOX_KEY="$(cat dist/glovebox.key)" my-app
-\`\`\`
-
-The deployed server exposes one authenticated WebSocket endpoint per session;
-\`glovebox-client\` speaks to it. Files cross the wire as \`FileRef\`
-(\`inline | url | server | s3 | gcs\`), never raw bytes.
-
-## 11. Gotchas
+## 10. Gotchas
 
 - Tool \`description\` is the interface the model sees — write it for the model,
   not for a teammate.
@@ -1022,7 +995,7 @@ The deployed server exposes one authenticated WebSocket endpoint per session;
 - Prefer one \`execute_sql\` / \`execute_js\` surface over dozens of folded tools
   once a catalog gets large — it measurably improves accuracy and cost.
 
-## 12. Where to read more
+## 11. Where to read more
 
 - Docs index: ${SITE_URL}/docs/intro
 - Quickstart: ${SITE_URL}/docs/getting-started

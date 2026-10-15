@@ -228,16 +228,6 @@ npm install glove-react glove-next zod`}
               <a href="/docs/realtime-voice">Realtime Voice</a>
             </td>
           </tr>
-          <tr>
-            <td>Maintain a legacy Glovebox container</td>
-            <td>
-              <code>glovebox-core</code>, <code>glovebox-kit</code>,{" "}
-              <code>glovebox-client</code>
-            </td>
-            <td>
-              <a href="/docs/glovebox">Glovebox (deprecated)</a>
-            </td>
-          </tr>
         </tbody>
       </table>
 

@@ -158,7 +158,7 @@ interface ImageAssetStore {
 
 `InMemoryImageAssetStore` ships as the reference (process-local, lost on
 restart). Production stores back onto S3/GCS/disk — the contract is five
-methods and stays SDK-free, same posture as glovebox's storage adapters.
+methods and stays SDK-free.
 
 ### Recipe — lineage on every derived asset
 
@@ -531,9 +531,6 @@ click surface) — `glove_image_describe` narrates results instead.
   `imageAssets()` stdlib adapter (planned, this package) mounts the asset
   store read-only into the environment tree so scripts can post-process
   generations at scale.
-- **Glovebox** — pairs with the `glovebox/media` base. Assets export
-  through the standard `/output` path as `FileRef`s; a
-  `glovebox-image-studio` example is planned.
 - **`glove-scratchpad`** — the store surfaces naturally as tables:
   `image_assets` (stable select), `image_characters` / `image_scenes`
   (select + insert), `images` (volatile select = generation). An

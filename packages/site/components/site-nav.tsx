@@ -38,7 +38,7 @@ export function SiteNav() {
       <Link href="/" className="nav-brand">
         <GloveLogo className="nav-logo" />
         <span className="nav-wordmark">Glove</span>
-        <span className="nav-pill">v3</span>
+        <span className="nav-pill">v4</span>
       </Link>
       <div className="nav-links">
         {links.map((link) => (

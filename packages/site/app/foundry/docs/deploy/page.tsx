@@ -387,15 +387,6 @@ docker run --init -p 4141:4141 \\
         <li>Exclude <code>node_modules</code>, <code>.data</code> and <code>.env*</code> in <code>.dockerignore</code>; pass secrets as environment variables.</li>
         <li>With pnpm, replace the install step with <code>corepack enable &amp;&amp; pnpm install --frozen-lockfile --prod</code> and copy <code>pnpm-lock.yaml</code>.</li>
       </ul>
-
-      <h2 id="glovebox">Migrating from Glovebox</h2>
-      <p>
-        Glovebox is deprecated in favor of Foundry. Existing Glovebox deployments remain supported
-        for compatibility, but build new runtimes and deployments with Foundry. The{" "}
-        <code>glove-foundry</code> <Link href="/docs/agent-skill">agent skill</Link> is meant for
-        Glovebox migrations, and the legacy reference stays at{" "}
-        <Link href="/docs/glovebox">/docs/glovebox</Link>.
-      </p>
     </article>
   );
 }

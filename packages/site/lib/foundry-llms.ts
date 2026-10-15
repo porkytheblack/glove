@@ -443,7 +443,7 @@ same store arm every schedule twice. Foundry binds to loopback by default and re
 host unless requestAuthorization ({ identifier, challenge, authorize(request) =>
 Effect<boolean> }) is supplied; the typed client sends matching headers via
 authorization: { identifier, headers }. Put TLS and rate limits in front.
-glove foundry start runs without watching. Glovebox is deprecated; deploy Foundry.
+glove foundry start runs without watching.
 
 ## Goals, facts, and form preparation
 
