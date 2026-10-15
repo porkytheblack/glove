@@ -62,6 +62,8 @@ export const FOUNDRY_AGENT_DEFINITION_BRAND = Symbol.for(
 /** @deprecated Agent modules are definitions; execution contracts are internal. */
 export const FOUNDRY_AGENT_BRAND = FOUNDRY_AGENT_DEFINITION_BRAND;
 export const FOUNDRY_EVENT_PREFIX = "__GLOVE_FOUNDRY_EVENT__";
+/** @internal A run's child process reports when it takes and lets go of its conversation. */
+export const FOUNDRY_RUN_PROCESS_EVENT = "foundry.run.process";
 export const FOUNDRY_APPLICATION_ENV = "GLOVE_FOUNDRY_APPLICATION_FILE";
 export const FOUNDRY_AGENT_ROUTE_ENV = "GLOVE_FOUNDRY_AGENT_ROUTE";
 export const FOUNDRY_AGENT_FILE_ENV = "GLOVE_FOUNDRY_AGENT_FILE";

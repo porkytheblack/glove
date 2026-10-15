@@ -24,6 +24,7 @@ import { DEFAULT_FOUNDRY_CONFIG } from "./config.js";
 import {
   FOUNDRY_APPLICATION_ENV,
   FOUNDRY_EXECUTION_MARKER,
+  FOUNDRY_RUN_PROCESS_EVENT,
 } from "./definition.js";
 import type {
   AgentInstallation,
@@ -231,6 +232,15 @@ function promiseEffect<A>(
   }).pipe(Effect.withSpan(`foundry.${operation}`));
 }
 
+// A cancelled run's process reports "released" when it has let go of its
+// conversation. Station SIGKILLs it 5 s after the cancel's SIGTERM, so a steer
+// never needs to wait longer than that plus margin.
+const RUN_PROCESS_RELEASE_TIMEOUT_MS = 10_000;
+// A started run whose process has not reported "acquired" by now died on the
+// SIGTERM before it ran any agent code.
+const RUN_PROCESS_REPORT_GRACE_MS = 1_000;
+const RUN_PROCESS_RETENTION_MS = 60_000;
+
 export class FoundryRuntime {
   readonly rootDir: string;
   readonly agents: readonly DiscoveredAgent[];
@@ -266,6 +276,8 @@ export class FoundryRuntime {
   private readonly activationTransitions = Effect.unsafeMakeSemaphore(1);
   private readonly activationDispatches = new Map<string, object>();
   private readonly activationTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Whether each run's child process still holds its conversation, from FOUNDRY_RUN_PROCESS_EVENT. */
+  private readonly runProcesses = new Map<string, "acquired" | "released">();
   private readonly approvalDirectory = join(
     tmpdir(),
     "glove-foundry-approvals",
@@ -351,6 +363,11 @@ export class FoundryRuntime {
       this.observability,
       (name) => this.routeBySignalName.get(name) ?? name,
       (event) => {
+        if (event.type === FOUNDRY_RUN_PROCESS_EVENT) {
+          const state = (event.data as { state?: unknown } | null)?.state;
+          if (state === "acquired" || state === "released") this.trackRunProcess(event.run.id, state);
+          return;
+        }
         if (event.type === FOUNDRY_CORE_COMMAND_EVENT) {
           void this.executeCoreCommand(event.data as FoundryCoreCommand, event.run.id).catch((cause) => {
             this.observability.append({
@@ -967,6 +984,45 @@ export class FoundryRuntime {
     return this.signalRunner.cancel(runId);
   }
 
+  private trackRunProcess(runId: string, state: "acquired" | "released"): void {
+    this.runProcesses.set(runId, state);
+    if (state !== "released") return;
+    // Long enough for a steer that is already waiting; a retry reuses the run id.
+    const forget = setTimeout(() => {
+      if (this.runProcesses.get(runId) === "released") this.runProcesses.delete(runId);
+    }, RUN_PROCESS_RETENTION_MS);
+    forget.unref?.();
+  }
+
+  /**
+   * Wait until a cancelled run's process has let go of its conversation. A run
+   * that never started has no process. A process that dies before it reports
+   * (SIGTERM during startup, or Station's SIGKILL five seconds after the
+   * cancel) cannot report, so the wait is bounded by that kill.
+   */
+  private async waitForRunProcessRelease(run: FoundryRun, agent: string): Promise<void> {
+    if (!run.startedAt) return;
+    const started = Date.now();
+    for (;;) {
+      const state = this.runProcesses.get(run.id);
+      const waited = Date.now() - started;
+      if (state === "released") return;
+      if (state === undefined && waited >= RUN_PROCESS_REPORT_GRACE_MS) return;
+      if (waited >= RUN_PROCESS_RELEASE_TIMEOUT_MS) {
+        this.runProcesses.delete(run.id);
+        this.observability.append({
+          type: "run.steer.release-timeout",
+          category: "system",
+          agent,
+          runId: run.id,
+          data: { waitedMs: waited },
+        });
+        return;
+      }
+      await new Promise<void>((resolveWait) => setTimeout(resolveWait, 25));
+    }
+  }
+
   /**
    * Change course at a run boundary.
    *
@@ -994,6 +1050,9 @@ export class FoundryRuntime {
       if (!terminal || (terminal.status === "pending" || terminal.status === "running")) {
         throw new Error(`Foundry could not reach a safe steering boundary for run "${runId}".`);
       }
+      // Station marks the run cancelled before its process exits, so the
+      // replacement must also wait for that process to let go of the conversation.
+      await this.waitForRunProcessRelease(terminal, source.agent);
     }
     const run = await this.send(source.agentId, source.conversationId, message, {
       context: {

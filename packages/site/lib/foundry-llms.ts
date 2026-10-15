@@ -370,8 +370,10 @@ the mechanism does not engage if defineAgent supplies its own displayManager. Re
 client.approvals({ runId, status: "pending" }) and client.resolveApproval(id,
 "approve" | "deny"), the /api/approvals or /v1/approvals routes, or the inspector.
 Steering (handle.steer(message), /api/runs/:id/steer, /v1/runs/:id/steer, WebChat
-Redirect) is interrupt-and-restart: cooperative cancel, then a replacement run in
-the same conversation with lineage. It never injects text mid side effect.
+Redirect) is interrupt-and-restart: cooperative cancel, a wait (at most 10 s) for
+the cancelled run's process to finish unAbortable tools and cleanup, then a
+replacement run in the same conversation with lineage. It never injects text mid
+side effect.
 
 ## 15. Inspector and observability
 

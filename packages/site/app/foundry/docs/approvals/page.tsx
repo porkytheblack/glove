@@ -289,14 +289,16 @@ setInterval(async () => {
       <ol>
         <li>If the source run is <code>pending</code> or <code>running</code>, Foundry cancels it through the execution daemon: the run is marked <code>cancelled</code> and its agent process is told to stop, which fires the run&apos;s abort signal — a pending approval resolves as <code>cancelled</code> (denied).</li>
         <li>It waits for the run to reach a terminal status, for at most the run&apos;s <code>timeoutMs</code> clamped to 1–30 s. If it does not get there, steering fails with <code>Foundry could not reach a safe steering boundary for run &quot;…&quot;.</code> and no new run starts.</li>
+        <li>It waits for the cancelled run&apos;s process to let go of the conversation. The run reads <code>cancelled</code> as soon as the stop is sent, but its process finishes an <code>unAbortable</code> tool and its cleanup before exiting. Foundry waits for that, for at most 10 s (the execution daemon kills the process 5 s after the stop), so the replacement never reads history while the old process is still writing it.</li>
         <li>It sends your message as a new run on the same instance and conversation, with <code>request.context</code> containing <code>protocol: &quot;foundry-control&quot;</code>, <code>steeredFromRunId</code> and <code>steeringMode: &quot;interrupt-and-restart&quot;</code>.</li>
         <li>It records a <code>run.steered</code> event on the new run with <code>fromRunId</code>, <code>toRunId</code> and <code>interrupted</code>.</li>
       </ol>
       <p>
         Foundry never injects text into an in-flight model call or tool. If the source run had
         already finished, nothing is cancelled (<code>interrupted: false</code>) and the message
-        is simply the next turn. The replacement run loads whatever history the conversation
-        store holds at that moment.
+        is simply the next turn. The replacement run loads the history the conversation store
+        holds once the interrupted process has finished, including the result of a tool that
+        could not be interrupted.
       </p>
       <CodeBlock filename="scripts/steer.ts" language="typescript" code={`import { createFoundryClient } from "glove-foundry/client";
 

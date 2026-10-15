@@ -31,6 +31,7 @@ import {
   FOUNDRY_APPLICATION_ENV,
   FOUNDRY_EVENT_PREFIX,
   FOUNDRY_EXECUTION_MARKER,
+  FOUNDRY_RUN_PROCESS_EVENT,
   defineAgentFromModule,
   internalAgentName,
   resolveResolvable,
@@ -274,7 +275,27 @@ async function executeSpawned(
   return spawned;
 }
 
+/**
+ * Bracket the run so the runtime knows when this process has let go of the
+ * conversation. A cancel only sends SIGTERM, which this process handles by
+ * aborting cooperatively, so it can keep running (an unAbortable tool, async
+ * cleanup) after Station already reports the run cancelled. Steering waits
+ * for "released" before it starts the replacement turn.
+ */
 async function runDefinition(
+  definition: FoundryAgentDefinition,
+  id: string,
+  runtimeValue: unknown,
+): Promise<FoundryResult> {
+  await writeAgentEvent(FOUNDRY_RUN_PROCESS_EVENT, { state: "acquired" }).catch(() => undefined);
+  try {
+    return await executeDefinition(definition, id, runtimeValue);
+  } finally {
+    await writeAgentEvent(FOUNDRY_RUN_PROCESS_EVENT, { state: "released" }).catch(() => undefined);
+  }
+}
+
+async function executeDefinition(
   definition: FoundryAgentDefinition,
   id: string,
   runtimeValue: unknown,
