@@ -245,7 +245,9 @@ section { padding: 6rem clamp(1.25rem, 4vw, 2rem); max-width: var(--maxw); margi
 .code-block-content { overflow: hidden; }
 .code-block-content pre.shiki { margin: 0; padding: 1rem 1.25rem; overflow-x: auto; font-family: var(--mono); font-size: 0.8rem; line-height: 1.6; background: transparent !important; }
 .code-block-content pre.shiki code { font-family: var(--mono); background: none; }
-.code-block-content pre.shiki .line { display: block; }
+/* Lines stay inline: shiki already separates them with "\n" inside <pre>, so
+   display:block here would render every line twice as tall. */
+.code-block-content pre.shiki .line { display: inline; }
 
 /* ─── Start (landing quick-look) ─── */
 #start { border-top: 1px solid var(--border-subtle); }
@@ -1086,3 +1088,168 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
   .foundry-final-cta { align-items: flex-start; flex-direction: column; }
   .foundry-docs-layout .docs-sidebar { padding-top: 4.5rem; }
 }
+
+/* ─── Nav: active section, search trigger, mobile menu ─── */
+.nav-links a.active { color: var(--text-primary); }
+.nav-links a.nav-foundry.active { color: var(--accent-strong) !important; }
+.nav-menu-btn { display: none; }
+.nav-sheet { display: none; }
+
+.search-trigger {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  height: 34px; padding: 0 0.55rem 0 0.7rem;
+  background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 7px;
+  color: var(--text-tertiary); font: inherit; font-size: 0.8rem; cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+.search-trigger:hover { border-color: var(--border-strong); color: var(--text-secondary); }
+.search-trigger-label { min-width: 4.5rem; text-align: left; }
+.search-kbd, .search-footer kbd {
+  font-family: var(--mono); font-size: 0.62rem; color: var(--text-tertiary);
+  border: 1px solid var(--border); border-radius: 4px; padding: 0.05rem 0.3rem; background: var(--bg);
+}
+
+.search-overlay {
+  position: fixed; inset: 0; z-index: 200; display: flex; justify-content: center; align-items: flex-start;
+  padding: 12vh 1rem 1rem; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(3px);
+}
+.search-dialog {
+  width: 100%; max-width: 640px; max-height: 72vh; display: flex; flex-direction: column;
+  background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: 12px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55); overflow: hidden;
+}
+.search-input-row { display: flex; align-items: center; gap: 0.7rem; padding: 0 1rem; border-bottom: 1px solid var(--border); color: var(--text-tertiary); }
+.search-input {
+  flex: 1; height: 54px; background: transparent; border: 0; outline: 0;
+  color: var(--text-primary); font: inherit; font-size: 1rem;
+}
+.search-input::-webkit-search-cancel-button { display: none; }
+.search-esc { font-family: var(--mono); font-size: 0.62rem; color: var(--text-tertiary); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.4rem; cursor: pointer; }
+.search-results { list-style: none; overflow-y: auto; padding: 0.4rem; margin: 0; }
+.search-result { display: flex; gap: 0.8rem; align-items: flex-start; padding: 0.7rem 0.75rem; border-radius: 8px; cursor: pointer; }
+.search-result.active { background: var(--accent-dim); }
+.search-result-kind {
+  flex-shrink: 0; margin-top: 0.15rem; width: 4.4rem; text-align: center;
+  font-family: var(--mono); font-size: 0.58rem; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 0.12rem 0; border-radius: 4px; border: 1px solid var(--border); color: var(--text-tertiary);
+}
+.search-result-kind.foundry { color: var(--accent); border-color: var(--accent-line); }
+.search-result-kind.blog { color: var(--c-network); }
+.search-result-body { display: grid; gap: 0.15rem; min-width: 0; }
+.search-result-title { color: var(--text-primary); font-size: 0.92rem; font-weight: 500; }
+.search-result-summary { color: var(--text-secondary); font-size: 0.8rem; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.search-result-group { color: var(--text-tertiary); font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.04em; }
+.search-empty { padding: 1.25rem 1.25rem 1.5rem; color: var(--text-secondary); font-size: 0.88rem; }
+.search-empty-label { display: block; margin-bottom: 0.7rem; font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-tertiary); }
+.search-suggestions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.search-suggestions button {
+  font: inherit; font-size: 0.8rem; color: var(--text-secondary); cursor: pointer;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 0.3rem 0.75rem;
+}
+.search-suggestions button:hover { color: var(--text-primary); border-color: var(--accent-line); }
+.search-footer {
+  display: flex; gap: 1rem; align-items: center; padding: 0.6rem 1rem; border-top: 1px solid var(--border);
+  font-size: 0.7rem; color: var(--text-tertiary);
+}
+.search-footer kbd { margin-right: 0.2rem; }
+.search-footer a { margin-left: auto; color: var(--accent-soft); font-family: var(--mono); text-decoration: none; }
+
+@media (max-width: 1024px) {
+  .nav-links { gap: 1.2rem; }
+  .search-trigger-label, .search-kbd { display: none; }
+  .search-trigger { padding: 0 0.6rem; }
+}
+
+@media (max-width: 768px) {
+  .nav-links .nav-cta { display: none; }
+  .search-trigger { width: 40px; height: 40px; justify-content: center; padding: 0; }
+  .nav-menu-btn {
+    display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px;
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-secondary); cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .nav-sheet {
+    display: grid; position: absolute; top: 100%; left: 0; right: 0;
+    padding: 0.5rem 1.1rem 1rem; background: var(--bg);
+    border-bottom: 1px solid var(--border); box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  }
+  .nav-sheet a {
+    display: flex; align-items: center; min-height: 46px; color: var(--text-secondary);
+    text-decoration: none; font-size: 0.95rem; border-bottom: 1px solid var(--border-subtle);
+  }
+  .nav-sheet a:last-child { border-bottom: 0; }
+  .nav-sheet a.active { color: var(--accent); }
+  .search-overlay { padding-top: 4.5rem; }
+  .search-footer span { display: none; }
+
+  /* The docs section menu becomes a floating pill so it never fights the top nav. */
+  .docs-sidebar-toggle {
+    top: auto; bottom: 1.1rem; left: 1.1rem; right: auto; width: auto; height: 42px;
+    padding: 0 1rem; gap: 0.45rem; border-radius: 999px; font-size: 0.85rem;
+    color: var(--text-primary); border-color: var(--border-strong);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  }
+}
+@media (max-width: 480px) {
+  .docs-sidebar-toggle { right: auto; width: auto; height: 42px; font-size: 0.85rem; }
+}
+.docs-sidebar-toggle-label { font-family: var(--sans); }
+
+/* Foundry sidebar badge */
+.foundry-sidebar .docs-sidebar-link .docs-badge { margin-left: auto; }
+
+/* ─── 404 ─── */
+.not-found { max-width: 860px; margin: 0 auto; padding: calc(var(--nav-h) + 5rem) clamp(1.25rem, 4vw, 2rem) 6rem; }
+.not-found h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 400; letter-spacing: -0.03em; margin-bottom: 1rem; }
+.not-found > p { color: var(--text-secondary); max-width: 560px; margin-bottom: 2rem; }
+
+/* ─── Foundry landing: steps, features, comparison ─── */
+.foundry-steps h2, .foundry-features h2, .foundry-compare h2, .foundry-examples h2 {
+  font-size: clamp(1.9rem, 3.6vw, 2.9rem); font-weight: 400; letter-spacing: -0.035em; line-height: 1.1; max-width: 860px; margin-bottom: 1.1rem;
+}
+.foundry-steps-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 1.25rem 1.5rem; margin-top: 2.25rem; align-items: start; }
+.foundry-steps-grid > div:first-child { grid-row: span 2; }
+.foundry-steps-grid > div { min-width: 0; }
+.foundry-steps-grid .code-block { margin: 0; }
+.foundry-step-n { display: block; margin-bottom: 0.6rem; font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.foundry-step-note { margin-top: 0.8rem; font-size: 0.85rem; line-height: 1.6; color: var(--text-secondary); }
+.foundry-step-note code, .foundry-features .section-desc code { font-family: var(--mono); font-size: 0.85em; color: var(--accent-soft); }
+
+.foundry-feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-top: 2.25rem; background: var(--border-subtle); border: 1px solid var(--border-subtle); border-radius: 14px; overflow: hidden; }
+.foundry-feature { display: flex; flex-direction: column; gap: 0.55rem; padding: 1.5rem 1.5rem 1.35rem; background: var(--bg-elevated); text-decoration: none; color: inherit; transition: background 0.2s; }
+.foundry-feature:hover { background: var(--bg-surface); }
+.foundry-feature h3 { font-size: 1.02rem; font-weight: 500; color: var(--text-primary); }
+.foundry-feature p { font-size: 0.88rem; line-height: 1.6; color: var(--text-secondary); flex: 1; }
+.foundry-feature code { font-family: var(--mono); font-size: 0.68rem; color: var(--accent-soft); }
+
+.foundry-compare-table { margin-top: 2rem; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.foundry-compare-head, .foundry-compare-row { display: grid; grid-template-columns: 1fr 1fr; }
+.foundry-compare-head span { padding: 0.8rem 1.25rem; font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-tertiary); background: var(--bg-elevated); border-bottom: 1px solid var(--border); }
+.foundry-compare-head span + span { color: var(--accent); }
+.foundry-compare-row span { padding: 1rem 1.25rem; font-size: 0.92rem; line-height: 1.55; border-bottom: 1px solid var(--border-subtle); }
+.foundry-compare-row:last-child span { border-bottom: 0; }
+.foundry-compare-row span:first-child { color: var(--text-tertiary); text-decoration: line-through; text-decoration-color: rgba(147, 163, 153, 0.35); }
+.foundry-compare-row span + span { color: var(--text-primary); border-left: 1px solid var(--border-subtle); }
+.foundry-compare-note { margin-top: 1.25rem; color: var(--text-secondary); font-size: 0.92rem; }
+.foundry-compare-note a, .foundry-examples a.doc-card { color: inherit; }
+.foundry-compare-note a { color: var(--accent); text-decoration: none; }
+.foundry-examples .doc-cards { margin-top: 2rem; }
+.foundry-final-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+
+@media (max-width: 1100px) {
+  .foundry-steps-grid { grid-template-columns: minmax(0, 1fr); }
+  .foundry-steps-grid > div:first-child { grid-row: auto; }
+  .foundry-feature-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 768px) {
+  .foundry-feature-grid { grid-template-columns: 1fr; }
+  .foundry-compare-head, .foundry-compare-row { grid-template-columns: 1fr; }
+  .foundry-compare-head span + span { display: none; }
+  .foundry-compare-row span + span { border-left: 0; padding-top: 0; }
+  .foundry-compare-row span:first-child { border-bottom: 0; padding-bottom: 0.35rem; font-size: 0.82rem; }
+}
+
+/* ─── Docs page actions ─── */
+.page-actions { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin-top: 1.75rem; padding-top: 1.25rem; border-top: 1px solid var(--border-subtle); }
+.page-actions a { font-size: 0.8rem; color: var(--text-tertiary); text-decoration: none; }
+.page-actions a:hover { color: var(--accent-soft); }

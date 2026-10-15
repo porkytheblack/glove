@@ -6,13 +6,24 @@ const columns: { title: string; links: { label: string; href: string; external?:
   {
     title: "Learn",
     links: [
-      { label: "Glove Foundry", href: "/foundry" },
-      { label: "Foundry handbook", href: "/foundry/docs" },
+      { label: "Choose your path", href: "/docs" },
       { label: "What is Glove?", href: "/docs/intro" },
-      { label: "Installation", href: "/docs/installation" },
       { label: "Quickstart", href: "/docs/getting-started" },
       { label: "Core Concepts", href: "/docs/concepts" },
       { label: "All Packages", href: "/docs/packages" },
+      { label: "Showcase", href: "/docs/showcase" },
+    ],
+  },
+  {
+    title: "Foundry",
+    links: [
+      { label: "Overview", href: "/foundry" },
+      { label: "Handbook", href: "/foundry/docs" },
+      { label: "Tutorial", href: "/foundry/docs/tutorial" },
+      { label: "OpenAI-compatible API", href: "/foundry/docs/openai-compatible" },
+      { label: "Inspector & WebChat", href: "/foundry/docs/observability" },
+      { label: "API reference", href: "/foundry/docs/reference" },
+      { label: "FAQ", href: "/foundry/docs/faq" },
     ],
   },
   {
@@ -26,17 +37,9 @@ const columns: { title: string; links: { label: string; href: string; external?:
       { label: "Realtime Voice", href: "/docs/realtime-voice" },
       { label: "Image Workflows", href: "/docs/image" },
       { label: "Video Workflows", href: "/docs/video" },
-      { label: "Video Gallery", href: "/docs/video/gallery" },
-      { label: "Mesh", href: "/docs/mesh" },
-    ],
-  },
-  {
-    title: "Ship",
-    links: [
-      { label: "Server-Side Agents", href: "/docs/server-side" },
+      { label: "Browsers & Sandboxes", href: "/docs/execution" },
       { label: "MCP", href: "/docs/mcp" },
-      { label: "Glovebox (legacy)", href: "/docs/glovebox" },
-      { label: "Showcase", href: "/docs/showcase/travel-planner" },
+      { label: "Mesh", href: "/docs/mesh" },
     ],
   },
   {

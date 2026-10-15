@@ -1,3 +1,7 @@
+import { docsMetadata } from "@/lib/docs-nav";
+
+export const metadata = docsMetadata("/docs/memory/why");
+
 export default async function WhyMemoryPage() {
   return (
     <div className="docs-content">

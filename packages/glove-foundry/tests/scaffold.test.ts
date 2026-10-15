@@ -24,7 +24,9 @@ test("the default template is a worked example that uses every convention", asyn
     for (const file of [
       "agents/concierge/agent.ts",
       "agents/concierge/composition.ts",
-      "agents/concierge/tools/find-flights.tool.ts",
+      "agents/concierge/flights.ts",
+      "agents/concierge/tools/convert-currency.tool.ts",
+      "agents/concierge/instances.ts",
       "agents/concierge/apps/calendar.app.ts",
       "agents/concierge/transmissions/messaging.transmission.ts",
       "agents/concierge/events/message-received.event.ts",
@@ -36,6 +38,8 @@ test("the default template is a worked example that uses every convention", asyn
       "agents/concierge/actions/reply.action.ts",
       "agents/concierge/topology.ts",
       "agents/concierge/workbench.ts",
+      "lib/file-store.ts",
+      "lib/file-context.ts",
       "foundry.application.ts",
       "foundry.config.ts",
       "package.json",
@@ -56,6 +60,19 @@ test("the default template is a worked example that uses every convention", asyn
     // A fresh project runs before a provider is configured.
     assert.match(agent, /new DemoModel\(\)/);
     assert.match(agent, /provider: "openrouter"/);
+    // Every run is a fresh process: history must come from disk, and the
+    // demo's core tool must be mounted without an installation step.
+    assert.doesNotMatch(agent, /new MemoryStore/);
+    assert.match(agent, /FileStore\.open\(conversationId\)/);
+    assert.match(agent, /tools: \[findFlights\]/);
+
+    // Outbound replies need an installed app and a binding for the instance.
+    const application = await readFile(join(directory, "foundry.application.ts"), "utf8");
+    assert.match(application, /FileFoundryDataAdapter/);
+    assert.match(application, /bindings: \[conciergeDemoReplies\]/);
+    const instances = await readFile(join(directory, "agents/concierge/instances.ts"), "utf8");
+    assert.match(instances, /install\(calendar,/);
+    assert.match(instances, /defineBinding\(/);
 
     // The generated declaration has to point at where the agents were written.
     const routes = await readFile(join(directory, ".foundry/routes.d.ts"), "utf8");
@@ -120,7 +137,11 @@ test("the minimal template is one agent and one tool", async () => {
     const result = await scaffoldFoundryProject({ directory, template: "minimal" });
     assert.equal(result.agentRoute, "assistant");
     assert.ok(result.files.includes("agents/assistant/agent.ts"));
-    assert.ok(result.files.includes("agents/assistant/tools/current-time.tool.ts"));
+    assert.ok(result.files.includes("lib/file-store.ts"), "durable transcripts out of the box");
+    const agent = await readFile(join(directory, "agents/assistant/agent.ts"), "utf8");
+    // The one tool is always on: a composed-but-uninstalled tool would be invisible to the model.
+    assert.match(agent, /tools: \[\{\s*name: "current_time"/);
+    assert.doesNotMatch(agent, /new MemoryStore/, "a per-run MemoryStore forgets earlier turns");
     assert.equal(
       result.files.some((file) => file.includes("transmissions/")),
       false,
@@ -131,6 +152,8 @@ test("the minimal template is one agent and one tool", async () => {
     ) as { dependencies: Record<string, string> };
     // No REPL in this template, so no REPL package.
     assert.equal(manifest.dependencies["glove-js"], undefined);
+    assert.equal(manifest.dependencies.effect, undefined, "the minimal template does not import effect");
+    assert.match(await readFile(join(directory, ".gitignore"), "utf8"), /^\.data$/m);
   } finally {
     await rm(parent, { recursive: true, force: true });
   }
@@ -201,6 +224,12 @@ test("Foundry joins an existing Next.js app without disturbing it", async () => 
 
     const routes = await readFile(join(directory, ".foundry/routes.d.ts"), "utf8");
     assert.match(routes, /import\("\.\.\/foundry\/agents\/concierge\/agent\.js"\)/);
+
+    // Durable data lands in foundry/.data; ignored without touching the app's .gitignore.
+    assert.ok(result.files.includes("foundry/lib/file-store.ts"));
+    assert.equal(await readFile(join(directory, "foundry/.gitignore"), "utf8"), ".data\n");
+    const readme = await readFile(join(directory, "foundry/README.md"), "utf8");
+    assert.match(readme, /`foundry\.config\.mts`/, "the README names the config file that exists");
 
     // The app's own manifest keeps everything it had.
     const manifest = JSON.parse(

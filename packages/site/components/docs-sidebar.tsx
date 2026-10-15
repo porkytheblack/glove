@@ -52,7 +52,8 @@ export function DocsSidebar() {
         aria-label="Toggle navigation"
         aria-expanded={isOpen}
       >
-        {isOpen ? "✕" : "☰"}
+        <span aria-hidden="true">{isOpen ? "✕" : "☰"}</span>
+        <span className="docs-sidebar-toggle-label">{isOpen ? "Close" : "Docs menu"}</span>
       </button>
       {isOpen && (
         <div

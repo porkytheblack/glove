@@ -19,9 +19,15 @@ cp .env.example .env.local     # optional: add OPENROUTER_API_KEY for real answe
 Then open **http://127.0.0.1:4141** and press **Start a run**.
 
 Choose **concierge** and send “Find a flight to Nairobi.” Open the resulting run
-to follow its model calls, tool calls and result. This is a deterministic demo:
-flights, calendar and messaging are examples, not live provider integrations.
-Change `agents/concierge/agent.ts`, save, and try another run to see the reload.
+to follow its model calls, the `find_flights` tool call and the result. Send a
+follow-up in the same conversation (the **Chat** page is easiest): the concierge
+remembers the earlier turn. This is a deterministic demo: flights, calendar and
+messaging are examples, not live provider integrations. Change
+`agents/concierge/agent.ts`, save, and try another run to see the reload.
+
+The run drawer creates a new instance by default. Pick **concierge-demo** instead
+to use the seeded instance that has the calendar app and currency tool installed
+and may reply over chat — see [Send it a chat message](#send-it-a-chat-message).
 
 To get live model answers, put your own `OPENROUTER_API_KEY` in `.env.local`, then
 restart the dev server. Never commit that file. The wizard does not collect keys.
@@ -33,7 +39,7 @@ Setting a model key does not connect a real calendar or messenger by itself.
 - Run `{{installCommand}}` again if installation was interrupted; project files are retained.
 - If port 4141 is occupied, run the local `glove foundry dev --port 4142` command and open that address.
 - If a run fails, open its event trace; a provider rate limit is different from a typecheck failure.
-- In-memory demo state resets across workers/restarts. Read **Going to production** before storing real user work.
+- State lives in `.data/` and survives restarts. Delete `.data/` to start fresh (for example after renaming an installed tool). Read **Going to production** before storing real user work.
 
 ---
 
@@ -57,23 +63,28 @@ One definition serves many instances. Two travellers can run the same concierge 
 ```
 agents/concierge/
   agent.ts                              the agent. start here
-  composition.ts                        composeAgent(...) — what it is built from
-  tools/find-flights.tool.ts            a shared tool
+  composition.ts                        composeAgent(...) — the installable catalogue
+  flights.ts                            find_flights: always on, every instance
+  tools/convert-currency.tool.ts        a shared tool an instance installs
   apps/calendar.app.ts                  an application an instance installs
+  instances.ts                          the seeded concierge-demo instance + its binding
   transmissions/messaging.transmission.ts   Telegram/WhatsApp-shaped transport
   events/message-received.event.ts      an inbound event
   events/message-sent.event.ts          an outbound event
   predicates/mentions-trip.predicate.ts routing logic, kept out of the agent
-  memory/traveller.memory.ts            ambient context across conversations
+  memory/traveller.memory.ts            ambient context, saved per instance
   schedules/trip-countdown.ts           recurring work
   layers/trip-context.layer.ts          direct access to the native Glove runtime
   subscribers/usage.subscriber.ts       observation without behaviour change
-  workbench.ts                          the agent's VFS + JavaScript REPL
+  workbench.ts                          the agent's VFS (persisted) + JavaScript REPL
   topology.ts                           accounts and routes (runtime data)
 
-foundry.application.ts                  data adapter, accounts, routes
+foundry.application.ts                  data adapter, accounts, routes, bindings
 foundry.config.ts                       port, execution policy
 lib/demo-model.ts                       keyless model — delete once you have a key
+lib/file-store.ts                       durable conversation transcripts
+lib/file-context.ts                     durable traveller memory
+.data/                                  runtime state (git-ignored). delete to reset
 src/client.ts                           a typed client for these agents
 .foundry/routes.d.ts                    generated. do not edit
 ```
@@ -105,7 +116,10 @@ Assembly fields such as tools, memory, and schedules accept **a value or a funct
 
 ### Add a tool
 
-Create `agents/concierge/tools/weather.tool.ts`, default-export `defineSharedTool({...})`, then add it to `composition.ts`. That is the whole loop — the dev server picks it up and regenerates types.
+Two ways, depending on who should have it:
+
+- **Every instance:** export a plain tool object and add it to the agent's `tools` field, like `find_flights` in `flights.ts`.
+- **Instances that opt in:** create `agents/concierge/tools/weather.tool.ts`, default-export `defineSharedTool({...})`, add it to `composition.ts`, and install it on an instance (below), like `convert-currency`. Composing makes it available; installing mounts it.
 
 ### Add a second agent
 
@@ -113,13 +127,33 @@ Create `agents/<name>/agent.ts`. It is immediately routable, appears in the insp
 
 ### Give an instance a capability
 
-Applications and MCP servers stay inert until an instance installs one. From the inspector, open the instance and install `calendar`; or over the API:
+Shared tools, applications and MCP servers stay inert until an instance installs them. `instances.ts` seeds `concierge-demo` with `convert-currency` and `calendar` installed. To install on another instance, use the API (the inspector shows installations but does not change them):
 
 ```bash
 curl -X PUT http://127.0.0.1:4141/api/installations \
   -H 'content-type: application/json' \
   -d '{"agentId":"<instance-id>","kind":"application","id":"calendar","config":{"calendarId":"primary"}}'
 ```
+
+### Send it a chat message
+
+The calendar app owns the messaging transmission, and `concierge-demo` has both the
+app installed and a **binding** (in `instances.ts`) that lets it reply on the
+outbound route. Its `traveller-chat` playbook is written onto the instance during
+its first run, so send it one message first (Chat page, or **Start a run** with
+`concierge-demo` selected). Then deliver an inbound chat message:
+
+```bash
+curl -X POST http://127.0.0.1:4141/api/transmissions/traveller-inbound/fire \
+  -H 'content-type: application/json' \
+  -d '{"eventId":"evt-1","threadKey":"thread-42","raw":{"threadId":"thread-42","text":"Any flight to Nairobi in April?"}}'
+```
+
+The message mentions a flight, so the playbook matches and starts a run. The agent
+searches flights and replies through the generated `glove_app_calendar__messaging_send`
+tool; the demo transport prints `[telegram] -> thread-42: …` in the terminal running
+`{{devCommand}}`. An instance without the binding cannot send: delivery fails with
+"agent has no enabled bindings".
 
 ### Connect a real chat app
 
@@ -190,7 +224,7 @@ Filters live in the URL, so `/runs?status=failed` is a link you can send. Press 
 
 ## Going to production
 
-1. **Persist each store.** `MemoryFoundryDataAdapter` in `foundry.application.ts` is disposable. Use `FileFoundryDataAdapter` for single-host runtime data or a transactional database adapter for multiple hosts. Also replace the agent's `MemoryStore` with a durable conversation store, provide durable native memory adapters (such as `glove-memory/sqlite` on Node 22.13+), and persist the working-environment VFS. Persisting one does not persist the others.
+1. **Choose where state lives.** Each run executes in its own process, so everything the next message needs is on disk under `.data/`: runtime data (`FileFoundryDataAdapter`), transcripts (`lib/file-store.ts`), traveller memory (`lib/file-context.ts`) and the VFS (`foundryDataEnvironmentPersistence`). These are single-host. For several hosts, replace each with a database-backed adapter — persisting one does not persist the others. See [Persistence](https://glove.dterminal.net/foundry/docs/persistence).
 2. **Delete `lib/demo-model.ts`** and the fallback in `agent.ts` once `OPENROUTER_API_KEY` is set.
 3. **Own your credentials.** Foundry stores account *references*, never secrets. Keep tokens in your own adapter or secret manager.
 4. **Run `{{startCommand}}`** rather than `dev` — no file watching, no restart-on-change.

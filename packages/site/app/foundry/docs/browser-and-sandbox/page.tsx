@@ -1,12 +1,16 @@
 import { CodeBlock } from "@/components/code-block";
 
-export const metadata = { title: "Browser & sandbox agent" };
+export const metadata = {
+  title: "Browser & sandbox agent",
+  description:
+    "Operator, a runnable Foundry agent that browses websites, writes code and keeps a server running in a persistent container on one managed Station.",
+};
 const source = "https://github.com/porkytheblack/glove/tree/main/examples/foundry-operator";
 
 export default function BrowserAndSandboxPage() {
   return (
     <article className="docs-content">
-      <span className="foundry-doc-kicker">Give agents a world</span>
+      <span className="foundry-doc-kicker">Give agents a world / Browser &amp; sandbox</span>
       <h1>A browser, a workspace,<br />and your next direction.</h1>
       <p className="blog-lede">Operator is a runnable Foundry agent that browses websites, uses Telegram Web after you sign in, writes code, and runs a server in a persistent container. Give it a direction and watch the work in one local console.</p>
       <figure><img src="/foundry/operator/browser.png" alt="Operator showing a public browser session beside the agent conversation" width={1440} height={960} /><figcaption>A real Foundry run against a public page. Personal browser sessions never become documentation assets.</figcaption></figure>

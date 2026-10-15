@@ -1,28 +1,71 @@
 import Link from "next/link";
 import { CodeBlock } from "@/components/code-block";
 
-export const metadata = { title: "Goals, facts, forms & live context" };
+export const metadata = {
+  title: "Goals, facts, forms & live context",
+  description:
+    "Mount goal programs, durable facts, multi-step forms and live context providers as lazy defineAgent fields, backed by durable SQLite adapters.",
+};
 export default function GuidancePage() {
   return <article className="docs-content">
-    <span className="foundry-doc-kicker">Model the system / Guided conversations</span>
+    <span className="foundry-doc-kicker">Build agents / Goals, facts &amp; forms</span>
     <h1>Guide the conversation. Preserve what it learns.</h1>
     <p className="blog-lede">Goals describe the obligations. Facts retain evidence. Forms collect validated answers and drive effects. Context providers keep the model informed as the world changes.</p>
     <p>All four are typed, lazy agent-definition fields. Foundry mounts the existing Glove implementations; it does not introduce another workflow engine or memory system.</p>
     <h2 id="mount">Mount what this conversation needs</h2>
-    <CodeBlock filename="agents/intake/agent.ts" language="typescript" code={`export default defineAgent({
+    <CodeBlock filename="agents/guided-intake/workflow.ts" language="typescript" code={`import { z } from "zod";
+import { defineGoalProgram } from "glove-memory/goals";
+import { defineForm, FormRegistry } from "glove-memory/forms";
+
+export const nameRequirement = { key: "name", label: "Record the user's name" };
+export const identityGoal = {
+  key: "identity",
+  title: "Get acquainted",
+  objective: "Learn how to address the user",
+  items: [nameRequirement],
+};
+export const intakeGoals = defineGoalProgram({ key: "intake", goals: [identityGoal] });
+
+export const intakeForm = defineForm({
+  id: "intake", version: 1, name: "Introduction",
+  description: "Collect the name the user wants us to use.",
+}).step("identity", { title: "Introduction" }, (step) =>
+  step.field("name", { schema: z.string().min(1), label: "Preferred name" }),
+).build();
+
+export const intakeForms = new FormRegistry().register(intakeForm.id, {
+  name: intakeForm.name,
+  description: intakeForm.description,
+  load: () => intakeForm,
+});`} />
+    <CodeBlock filename="agents/guided-intake/agent.ts" language="typescript" code={`import { createAdapter } from "glove-core/models/providers";
+import { MemorySchema } from "glove-memory/core";
+import { createSqliteMemoryAdapters } from "glove-memory/sqlite";
+import {
+  defineAgent, defineFacts, defineForms, defineGoals,
+  foundryGuidanceSubject, type AgentAssemblyContext,
+} from "glove-foundry";
+import { intakeForms, intakeGoals } from "./workflow.js";
+import { FileStore } from "../../lib/file-store.js"; // durable transcript — see Persistence
+
+// Durable goal, fact and form state, namespaced by trusted instance identity.
+const memory = (ctx: AgentAssemblyContext) => createSqliteMemoryAdapters({
+  file: ".foundry/guidance.sqlite",
+  namespace: foundryGuidanceSubject(ctx, "instance"),
+  schema: new MemorySchema(),
+});
+
+export default defineAgent({
   description: "Conversational intake",
-  model,
-  systemPrompt: "Collect information conversationally using workflow tools.",
+  model: () => createAdapter({ provider: "openrouter", model: "openai/gpt-4.1-mini" }),
+  store: ({ conversationId }) => FileStore.open(conversationId),
+  systemPrompt: "Collect a preferred name conversationally using the workflow tools.",
   facts: (_agent, ctx) => defineFacts({ adapter: memory(ctx).facts }),
-  goals: (_agent, ctx) => defineGoals({
-    adapter: memory(ctx).goals, program: intakeGoals,
-  }),
-  forms: (_agent, ctx) => defineForms({
-    adapter: memory(ctx).forms, registry: intakeForms,
-  }),
-  contextProviders: (_agent, ctx) => [async signal => {
+  goals: (_agent, ctx) => defineGoals({ adapter: memory(ctx).goals, program: intakeGoals }),
+  forms: (_agent, ctx) => defineForms({ adapter: memory(ctx).forms, registry: intakeForms }),
+  contextProviders: (_agent, ctx) => [async (signal) => {
     signal?.throwIfAborted();
-    return await loadCurrentPolicy(ctx.agentId, signal);
+    return \`Reply style: \${ctx.agentInstance.context.concise === false ? "detailed" : "concise"}.\`;
   }],
 });`} />
     <p>Import the helpers from <code>glove-foundry</code>. Return literal values, Promises, or Effects, or use named exports in <code>agent.ts</code>. Return undefined to leave a surface unmounted for this run without deleting its state. One goal program can contain many goals; one registry can expose many forms.</p>

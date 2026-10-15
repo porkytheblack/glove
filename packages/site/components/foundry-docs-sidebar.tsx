@@ -17,7 +17,8 @@ export function FoundryDocsSidebar() {
         aria-label="Toggle Foundry navigation"
         aria-expanded={open}
       >
-        {open ? "✕" : "☰"}
+        <span aria-hidden="true">{open ? "✕" : "☰"}</span>
+        <span className="docs-sidebar-toggle-label">{open ? "Close" : "Foundry menu"}</span>
       </button>
       {open && <div className="docs-sidebar-backdrop" onClick={() => setOpen(false)} />}
       <aside className={`docs-sidebar foundry-sidebar${open ? " open" : ""}`}>
@@ -39,6 +40,7 @@ export function FoundryDocsSidebar() {
                 onClick={() => setOpen(false)}
               >
                 <span className="docs-sidebar-link-label">{item.label}</span>
+                {item.badge && <span className={`docs-badge ${item.badge}`}>{item.badge}</span>}
               </Link>
             ))}
           </div>

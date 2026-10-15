@@ -1,11 +1,15 @@
 import { CodeBlock } from "@/components/code-block";
 
-export const metadata = { title: "Working environments" };
+export const metadata = {
+  title: "Working environments",
+  description:
+    "Give Foundry agents a persistent virtual filesystem, a JavaScript, Python or Lisp REPL, programmatic tool calling, and document and media adapters.",
+};
 
 export default function WorkingEnvironmentsPage() {
   return (
     <article className="docs-content">
-      <span className="foundry-doc-kicker">Give agents a world / 07</span>
+      <span className="foundry-doc-kicker">Give agents a world / Working environments</span>
       <h1>Working environments</h1>
       <p className="blog-lede">
         Mount a durable virtual filesystem and a request-scoped REPL when an agent needs

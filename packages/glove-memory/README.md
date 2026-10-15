@@ -894,7 +894,7 @@ const { runner } = useFormRunner(glove, formAdapter, {
 useFormReader(otherGlove, formAdapter, { registry }); // read past fills, no writes
 ```
 
-`useFormRunner` folds the tools and wraps `processRequest` for tier-0 injection, then hands back the runner so hosts can start instances and resolve checkpoints without going through the model.
+`useFormRunner` folds the tools and registers a runtime context provider (`addContextProvider`) that appends the tier-0 line at the model-input tail before every model call (`injectStatus: false` turns it off). It wraps `processRequest` only when `preparation` is configured, to reconcile evidence before each request. It hands back the runner so hosts can start instances and resolve checkpoints without going through the model.
 
 ### Operational notes
 

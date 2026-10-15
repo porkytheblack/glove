@@ -1,12 +1,13 @@
-import { MemoryStore } from "glove-core";
 import { createAdapter } from "glove-core/models/providers";
 import { composePlaybook, defineAgent } from "glove-foundry";
 import { DemoModel } from "../../lib/demo-model.js";
+import { FileStore } from "../../lib/file-store.js";
 import reply from "./actions/reply.action.js";
 import calendar from "./apps/calendar.app.js";
 import { conciergeComponents } from "./composition.js";
 import messageReceived from "./events/message-received.event.js";
 import messageSent from "./events/message-sent.event.js";
+import { findFlights } from "./flights.js";
 import tripContext from "./layers/trip-context.layer.js";
 import travellerMemory from "./memory/traveller.memory.js";
 import mentionsTrip from "./predicates/mentions-trip.predicate.js";
@@ -67,15 +68,20 @@ export default defineAgent({
   tags: ["travel", "example"],
   components: conciergeComponents,
 
-  // Persisted context, per conversation.
+  // Each run executes in its own process, so anything that must outlive one
+  // message lives on disk: the transcript here, traveller memory in memory/.
   memory: [travellerMemory],
-  store: ({ conversationId }) => new MemoryStore(`concierge:${conversationId}`),
+  store: ({ conversationId }) => FileStore.open(conversationId),
   model,
+
+  // Always on: every instance can search flights. Installable capabilities
+  // (calendar, convert-currency) mount only where an instance installed them.
+  tools: [findFlights],
 
   // The prompt is built per run, so it can name what is actually mounted.
   systemPrompt: (_agent, { message, history, installations }) => [
     "You are a travel concierge. You are practical and you never invent bookings.",
-    "Use find_flights for availability, and the calendar tools before proposing dates.",
+    "Use find_flights for availability, and the calendar tools (when installed) before proposing dates.",
     `Traveller asked: ${message.text}`,
     `Prior messages: ${history.length}.`,
     `Installed for this instance: ${installations.map((item) => `${item.kind}:${item.id}`).join(", ") || "nothing yet"}.`,

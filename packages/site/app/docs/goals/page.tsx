@@ -9,6 +9,16 @@ export default function GoalsPage() {
   return (
     <div className="docs-content">
       <h1>Dynamic goals</h1>
+      <div className="docs-note">
+        <span className="docs-note-icon">◆</span>
+        <p>
+          <strong>Start here:</strong> building an agent that pursues an objective
+          and collects what is missing? See{" "}
+          <a href="/docs/goal-oriented-agents">Goal-oriented agents &amp;
+          collecting information</a> for when to use goals, forms or facts, and a
+          complete agent that combines them.
+        </p>
+      </div>
       <p>
         Goals in <code>glove-memory</code> describe what the agent is working
         toward. Each program contains ordered goals with stable keys,

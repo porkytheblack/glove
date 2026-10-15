@@ -1,4 +1,7 @@
 import { CodeBlock } from "@/components/code-block";
+import { docsMetadata } from "@/lib/docs-nav";
+
+export const metadata = docsMetadata("/docs/voice");
 
 const tableWrapStyle: React.CSSProperties = {
   overflowX: "auto",
@@ -106,6 +109,19 @@ export default function VoicePage() {
         text-to-speech playback &mdash; while all your existing tools, display
         stack, and context management continue to work unchanged.
       </p>
+
+      <div className="docs-note">
+        <span className="docs-note-icon">◆</span>
+        <p>
+          <strong>Choosing an architecture.</strong> This page covers one agent
+          behind a pipeline, where <code>GloveVoice</code> speaks everything the
+          model writes. For a fast front agent that keeps talking while a heavy
+          worker does tool work, a speech-to-speech front, or{" "}
+          <code>&lt;speech&gt;</code> tags that stream only what should be
+          said, see{" "}
+          <a href="/docs/voice-architectures">Voice agent architectures</a>.
+        </p>
+      </div>
 
       {/* ------------------------------------------------------------------ */}
       <h2 id="overview">Overview</h2>
@@ -1805,7 +1821,7 @@ function VoiceScreen() {
         abort signals. For mutation-critical tools, always set{" "}
         <code>unAbortable: true</code> alongside <code>pushAndWait</code> to
         guarantee the tool runs to completion. See the{" "}
-        <a href="#voice-first-tools">pushAndWait and unAbortable</a> section
+        <a href="#voice-first-tool-design">Voice-First Tool Design</a> section
         above for the full two-layer explanation.
       </p>
 

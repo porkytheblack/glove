@@ -38,7 +38,7 @@ Native Glove media parts may include a human-facing `name`. A custom `run` handl
 persist or normalize those parts and then call `context.defaultRun(enrichedMessage)`
 to keep the standard Glove loop and conversation semantics.
 
-The generated project depends on the exact Glove versions the `glove-foundry` that created it was built against. That is not tidiness: a narrower range makes the package manager install a second copy of `glove-js`, and the two `JsSession` classes then fail to type-match.
+The generated project depends on caret ranges of the Glove versions the `glove-foundry` that created it was built against (for example `^0.4.2` when it was built with `glove-js@0.4.2`). That is not tidiness: an older range makes the package manager install a second copy of `glove-js`, and the two `JsSession` classes then fail to type-match.
 
 ### Templates
 
@@ -63,11 +63,13 @@ A directory holding a Next.js app is detected, so `--target` is usually unnecess
 | `foundry/agents/**` | The agents |
 | `foundry/foundry.application.ts` | Data adapter, accounts, routes |
 | `foundry/package.json` | `{"type":"module"}`, scoping ESM to the agents |
+| `foundry/lib/**` | The template's helpers, such as the durable transcript store |
+| `foundry/.gitignore` | Ignores `foundry/.data/`, where runtime data, transcripts and memory are written |
 | `foundry.config.mts` | Points the runtime at `foundry/agents` |
 | `lib/foundry.ts` | A typed client your app imports |
 | `app/api/<agent>/route.ts` | An example route handler |
 
-Your `package.json` keeps its name, scripts, and dependencies; it gains `foundry:dev`, `foundry:start`, and the Glove packages. Nothing it already owns is overwritten.
+Your `package.json` keeps its name, scripts, and unrelated dependencies; it gains `foundry:dev` and `foundry:start`. The Glove packages, `effect` and `zod` are set to the ranges this Foundry requires, replacing any version the app already declared (an app on `zod@3` is moved to `zod@4`). Every other file the app owns is left untouched; Foundry's runtime data goes to `foundry/.data/`, ignored by `foundry/.gitignore`.
 
 The runtime is a separate process from `next dev`, deliberately — it holds durable state and should not restart when a component changes. The app reaches it over HTTP through `lib/foundry.ts`, so no part of the agent graph is bundled into your app, and `FoundryRoutes` stays a type-only import.
 
