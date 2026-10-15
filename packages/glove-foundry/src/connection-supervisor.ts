@@ -56,6 +56,7 @@ function routeSignature(routes: ReadonlyArray<InboundRoute>): string {
 export class ApplicationConnectionSupervisor {
   private readonly running = new Map<string, RunningConnection>();
   private readonly states = new Map<string, ApplicationConnectionState>();
+  private closed = false;
 
   constructor(private readonly options: ApplicationConnectionSupervisorOptions) {}
 
@@ -90,11 +91,19 @@ export class ApplicationConnectionSupervisor {
     this.start(current);
   }
 
+  /**
+   * Stop every connection for good. A reconcile still in flight (a run's
+   * playbook sync, an installation change) must not start a connection after
+   * this: nothing would stop it, and a provider connection runs until it is
+   * interrupted, so the process could never exit.
+   */
   async stopAll(): Promise<void> {
+    this.closed = true;
     await Promise.all([...this.running.keys()].map((id) => this.stop(id)));
   }
 
   private start(desired: DesiredApplicationConnection): void {
+    if (this.closed) return;
     const controller = new AbortController();
     const task = this.run(desired, controller.signal).finally(() => {
       const current = this.running.get(desired.id);
