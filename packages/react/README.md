@@ -20,7 +20,7 @@ import { createChatHandler } from "glove-next";
 
 export const POST = createChatHandler({
   provider: "anthropic",
-  model: "claude-sonnet-4-20250514",
+  model: "claude-sonnet-5",
 });
 ```
 
