@@ -1,0 +1,67 @@
+{
+  "name": "glove-miniapps",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Durable mini apps that agents build for themselves: a typed schema, methods that become tools, checked migrations, an event log and scheduled outputs. Runs fully in memory on glove-sql and glove-js, or on SQLite or Postgres through a backend adapter, and serves the same API over HTTP so a host such as Kuiper can run the apps for a Foundry instance.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-miniapps"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./sqlite": {
+      "types": "./dist/sqlite.d.ts",
+      "import": "./dist/sqlite.js"
+    },
+    "./postgres": {
+      "types": "./dist/postgres.d.ts",
+      "import": "./dist/postgres.js"
+    },
+    "./foundry": {
+      "types": "./dist/foundry.d.ts",
+      "import": "./dist/foundry.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --no-warnings=ExperimentalWarning --import tsx tests/*.test.ts"
+  },
+  "dependencies": {
+    "glove-js": "workspace:*",
+    "glove-sql": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/pg": "^8.11.10",
+    "effect": "^3.22.1",
+    "glove-core": "workspace:*",
+    "glove-foundry": "workspace:*",
+    "glove-working-environment": "workspace:*",
+    "pg": "^8.13.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "effect": ">=3.19.0"
+  },
+  "peerDependenciesMeta": {
+    "effect": {
+      "optional": true
+    }
+  }
+}
