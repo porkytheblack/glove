@@ -83,7 +83,7 @@ export const providers: Record<string, ProviderDef> = {
     models: [
       "claude-sonnet-4-20250514",
       "claude-opus-4-20250514",
-      "claude-haiku-3-5-20241022",
+      "claude-3-5-haiku-20241022",
     ],
     format: "anthropic",
     defaultMaxTokens: 8192,

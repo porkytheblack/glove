@@ -1,6 +1,6 @@
 # Glove API Reference
 
-For dynamic goals, shared facts and agent-backed form preparation, read [workflows.md](workflows.md). Goals are in `glove-memory/goals`; evidence is in `glove-facts`.
+For dynamic goals, shared facts and agent-backed form preparation, read [memory-and-workflows.md](memory-and-workflows.md#goals-facts-and-form-preparation). Goals are in `glove-memory/goals`; evidence is in `glove-facts`.
 
 ## HTTP files and host keystore
 
@@ -10,10 +10,10 @@ Mount `fetchFiles(options)` from `glove-env-fetch` and `secret(options)` from
 `get`, `set`, `remove` from `env:secret`. Request bodies support text, JSON,
 VFS files, forms and multipart; responses are VFS paths plus status/metadata.
 
-Read the [host setup and lifecycle guide](../../../packages/glove-working-environment/HTTP-AND-SECRETS.md)
-and the [fetch options/security reference](../../../packages/glove-env-fetch/README.md)
+Read the [host setup and lifecycle guide](https://github.com/porkytheblack/glove/blob/main/packages/glove-working-environment/HTTP-AND-SECRETS.md)
+and the [fetch options/security reference](https://github.com/porkytheblack/glove/blob/main/packages/glove-env-fetch/README.md)
 before configuring network grants or credential aliases. Read the
-[keystore contract](../../../packages/glove-env-secret/README.md) before implementing
+[keystore contract](https://github.com/porkytheblack/glove/blob/main/packages/glove-env-secret/README.md) before implementing
 persistence. Reveal/writes default off; references grant no access. Full script
 signatures are mounted at `/std/fetch/index.d.ts` and `/std/secret/index.d.ts`,
 with executable examples in `/skills/http-files.md` and `/skills/secret-references.md`.

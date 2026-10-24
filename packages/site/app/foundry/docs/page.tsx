@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { CodeBlock } from "@/components/code-block";
+import { LayerStack } from "@/components/diagrams";
 import { foundrySections } from "@/lib/foundry-nav";
+import { partsOf, primitivesOf } from "@/lib/primitives";
 
 export const metadata = {
   title: "Overview",
@@ -59,6 +61,36 @@ export default function FoundryOverviewPage() {
           ))}
         </tbody>
       </table>
+
+      <h2 id="the-system-layer">The system layer</h2>
+      <p>
+        A Glove harness is a loop with tools, context, state, a workspace and a
+        surface. Foundry is the layer above it: it answers the five questions a
+        harness can&apos;t answer alone, so you don&apos;t build them yourself. Kuiper,
+        below, is where the system runs in production. The{" "}
+        <Link href="/docs/first-principles">first principles</Link> page explains the
+        layers; the <Link href="/docs/primitives#layer-system">primitives map</Link>{" "}
+        lists everything in each.
+      </p>
+      <LayerStack caption="Foundry is the system layer: it wraps Glove harnesses and runs inside Kuiper in production." />
+      <table>
+        <thead><tr><th>Part</th><th>The question</th><th>Foundry&apos;s primitives</th></tr></thead>
+        <tbody>
+          {partsOf("system").map((part) => (
+            <tr key={part.id}>
+              <td><Link href={`/docs/primitives#${part.id}`}>{part.name}</Link></td>
+              <td>{part.question}</td>
+              <td>{primitivesOf(part.id).map((primitive, index) => (
+                <span key={primitive.name}>{index > 0 && " · "}<Link href={primitive.href}>{primitive.name}</Link></span>
+              ))}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p>
+        Production is one more step: <Link href="/foundry/docs/kuiper">deploy the folder on Kuiper</Link>{" "}
+        and the disk, the gateway, the domain and the dashboard are there.
+      </p>
 
       <h2 id="when-to-use">When to use Foundry</h2>
       <p>Use Foundry when the agent is the backend of a product:</p>

@@ -9,8 +9,49 @@ import { posts } from "./blog";
 import { docsSections } from "./docs-nav";
 import { foundrySections } from "./foundry-nav";
 import { FOUNDRY_LLMS_FULL } from "./foundry-llms";
+import { absolute, layers, partsOf, primitivesOf } from "./primitives";
 
 export const SITE_URL = "https://glove.dterminal.net";
+
+/**
+ * The three layers and sixteen parts, then every primitive as
+ * "about to build X → use Y", from lib/primitives.ts. Shared by /llms.txt and
+ * /llms-full.txt so a model reads the same map a person sees at /docs/primitives.
+ */
+export function primitivesMarkdown(heading = "##"): string {
+  const out: string[] = [];
+  out.push(`${heading} The model: three layers, sixteen parts`);
+  out.push("");
+  out.push(
+    "Every agent harness (coding agent, personal assistant, support desk, voice agent, research tool) " +
+      "answers the same questions. Glove has a primitive for each; Glove Foundry adds the system layer; " +
+      "Kuiper adds production. Before writing infrastructure for an agent, find the part it belongs to " +
+      "and use the primitive below.",
+  );
+  out.push("");
+  for (const layer of layers) {
+    const names = partsOf(layer.id).map((part) => `${part.name} (${part.question})`).join("; ");
+    out.push(`- **${layer.name}: ${layer.owner}.** ${layer.claim} Parts: ${names}.`);
+  }
+  out.push("");
+  out.push(`${heading} Before you build it, use the primitive`);
+  out.push("");
+  out.push("Format: instead of building X → use this primitive (package): smallest call. What you get. Docs link.");
+  for (const layer of layers) {
+    for (const part of partsOf(layer.id)) {
+      out.push("");
+      out.push(`${heading}# ${part.name} (${layer.owner}): ${part.question}`);
+      out.push("");
+      for (const primitive of primitivesOf(part.id)) {
+        out.push(
+          `- Instead of ${primitive.insteadOf} → **${primitive.name}** (${primitive.pkg}): ` +
+            `\`${primitive.api}\`. ${primitive.gives} ${absolute(primitive.href, SITE_URL)}`,
+        );
+      }
+    }
+  }
+  return out.join("\n");
+}
 
 /** llms.txt — the index, per the llmstxt.org convention. */
 export function buildLlmsTxt(): string {
@@ -19,29 +60,37 @@ export function buildLlmsTxt(): string {
   out.push("# Glove");
   out.push("");
   out.push(
-    "> Glove is an open-source TypeScript stack for software that an AI agent operates. " +
-      "glove-core is the agent loop (tools with Zod schemas, a display stack that renders UI " +
-      "mid-conversation, stores, model adapters). Independent capability packages add memory, " +
-      "forms, goals, working environments, JS/Python/Lisp REPLs, browsers and sandboxes, MCP, " +
-      "voice, realtime speech-to-speech, image and video workflows, classifiers and agent mesh. " +
-      "Glove Foundry (glove-foundry) is the application framework that runs agents as a service: " +
-      "file-routed definitions, persisted instances and conversations, a typed client, REST and " +
-      "OpenAI-compatible APIs, schedules, inbound integrations, approvals and an inspector.",
+    "> Glove is an open-source TypeScript stack of primitives for building agent harnesses: coding agents, " +
+      "personal assistants, support desks, voice agents, research tools and multi-agent workforces. " +
+      "glove-core is the harness itself (the agent loop, Zod-validated tools, runtime context, stores, a display " +
+      "stack that renders UI and waits for people, model adapters for every major provider). Capability packages " +
+      "add memory, forms, goals, facts, working environments, JS/Python/Lisp REPLs, browsers and sandboxes, MCP, " +
+      "voice, realtime speech, image and video workflows, classifiers and agent mesh. Glove Foundry (glove-foundry) " +
+      "turns harnesses into a running system: file-routed definitions, persisted instances and conversations, " +
+      "schedules and sleep, inbound channels, approvals, a typed client, REST and OpenAI-compatible APIs and an " +
+      "inspector. Kuiper (https://kuiper.sh) deploys a Foundry folder to production with no Dockerfile.",
+  );
+  out.push("");
+  out.push(
+    "Most of what an agent needs already exists as a primitive. Read the map below before writing a job queue, " +
+      "an approvals table, a conversations table, a summariser, a webhook dispatcher, browser click tools or a " +
+      "pause-and-ask-the-user protocol: each one is already built.",
   );
   out.push("");
   out.push("## Start here");
   out.push("");
-  out.push(`- [Choose your path](${SITE_URL}/docs): Foundry vs glove-core vs a single package, plus an I-want-to index.`);
-  out.push(`- [Glove Foundry overview](${SITE_URL}/foundry/docs): what Foundry provides out of the box.`);
+  out.push(`- [First principles](${SITE_URL}/docs/first-principles): the parts every harness is made of, how they connect, and the rules Glove's primitives follow.`);
+  out.push(`- [Primitives map](${SITE_URL}/docs/primitives): every primitive, grouped by part, with what it replaces.`);
+  out.push(`- [Build it up](${SITE_URL}/docs/build/loop): eight steps from one tool to a deployed Foundry system on Kuiper.`);
+  out.push(`- [Harness blueprints](${SITE_URL}/docs/harnesses): coding, personal, support, voice, research and multi-agent harnesses as bills of primitives.`);
   out.push(`- [Foundry tutorial](${SITE_URL}/foundry/docs/tutorial): a complete multi-tenant support agent, step by step.`);
-  out.push(`- [Glove quickstart](${SITE_URL}/docs/getting-started): an agent inside a Next.js or Node app.`);
-  out.push(`- [All packages](${SITE_URL}/docs/packages): every package and its smallest snippet.`);
-  out.push(`- [Goal-oriented agents](${SITE_URL}/docs/goal-oriented-agents): when to use tools, context, facts, forms, goals or a UI form to collect information, with a worked booking agent.`);
-  out.push(`- [Voice agent architectures](${SITE_URL}/docs/voice-architectures): single-agent vs layered voice, realtime vs pipeline fronts, <speech> tags and fast front models.`);
-  out.push(`- [Foundry index](${SITE_URL}/foundry/llms.txt) and [Foundry full reference](${SITE_URL}/foundry/llms-full.txt)`);
-  out.push(`- [Glove full reference](${SITE_URL}/llms-full.txt)`);
-  out.push("- Agent skills for coding agents: https://github.com/porkytheblack/glove/tree/main/.claude/skills");
+  out.push(`- [Deploy on Kuiper](${SITE_URL}/foundry/docs/kuiper): state on /data, an authorizer, the model gateway, email, browsers and sandboxes.`);
+  out.push(`- [Glove full reference](${SITE_URL}/llms-full.txt), [Foundry index](${SITE_URL}/foundry/llms.txt) and [Foundry full reference](${SITE_URL}/foundry/llms-full.txt)`);
+  out.push("- [Kuiper for models](https://kuiper.sh/llms.txt): deploying and operating what you build.");
+  out.push("- Agent skills for coding agents (glove, glove-foundry, kuiper): `npx skills add porkytheblack/glove`, or https://github.com/porkytheblack/glove/tree/main/.claude/skills");
   out.push("- Repository: https://github.com/porkytheblack/glove");
+  out.push("");
+  out.push(primitivesMarkdown());
   out.push("");
   out.push("## Key facts");
   out.push("");
@@ -59,6 +108,10 @@ export function buildLlmsTxt(): string {
     "glove-execution mounts browser scripts (execute_browser) and persistent sandboxes (execute_sandbox) onto existing agents without replacing their model. Station 3 is the first backend; Foundry can host providers via stationDaemon from glove-foundry/station.",
     "glove-classifier adds structured-decision models (TypeSafe's Jev, open System One models, zero-shot scorers). Jev is not a chat model; never pass it to createAdapter.",
     "glove-core ships a vercel provider (Vercel AI Gateway) that reads AI_GATEWAY_API_KEY, falling back to VERCEL_OIDC_TOKEN.",
+    "Live state belongs in glove.addContextProvider(() => text), appended before every model call and never saved; do not rebuild the system prompt each turn.",
+    "Capability packages mount onto an existing agent (mountX(glove, …) / useX(glove, …)) and never replace its model or loop, so they compose.",
+    "A subagent is a tool: glove.defineSubAgent({ name, description, factory }) registers glove_invoke_subagent. In Foundry, use defineSubagent, calls or glove_foundry_spawn.",
+    "On Kuiper: point FileFoundryDataAdapter, transcripts and SQLite memory at /data; define requestAuthorization (Foundry refuses a public bind without it); call models with createAdapter({ provider, model, ...kuiper.models.glove(provider) }) from @kuiper-sh/sdk. A unit with a disk runs one copy, so schedules fire once.",
   ]) {
     out.push(`- ${fact}`);
   }
@@ -101,13 +154,17 @@ export function buildLlmsTxt(): string {
 /** llms-full.txt — the condensed reference a coding model can work from. */
 const CORE_LLMS_FULL = `# Glove — condensed reference for language models
 
-Glove is an open-source TypeScript framework for building applications driven by
-an AI agent. You define capabilities as **tools**; the agent decides which to
-call and in what order. Docs: ${SITE_URL}. Source:
-https://github.com/porkytheblack/glove.
+Glove is an open-source TypeScript stack of primitives for building agent
+harnesses: coding agents, personal assistants, support desks, voice agents and
+more. You define capabilities as **tools**; the agent decides which to call and
+in what order; Glove supplies everything around that loop. Docs: ${SITE_URL}.
+Source: https://github.com/porkytheblack/glove.
 
 This file is the whole framework in one place. Everything is TypeScript + ESM.
-Tool input schemas are Zod schemas.
+Tool input schemas are Zod schemas. It opens with the primitives map, so check
+it before writing infrastructure an agent needs: it probably exists.
+
+${"$"}{PRIMITIVES}
 
 ## 1. Mental model
 
@@ -539,7 +596,7 @@ No additional user-facing conversation turn is required. Capture alone does not
 fan out reconciliation. Starts, relevant commits, mounted turns, or an explicit
 runner.prepare() trigger preparation; status/inspect reads do not.
 Updating npm packages does not refresh installed coding-agent skills; reinstall
-the skill to pick up its workflows.md reference.
+the skill to pick up its references/memory-and-workflows.md file.
 Disabled skips automatic inference/claims/prefill without removing captured facts,
 accepted links, answers or goal progress. Use runner.prepare() to reconcile now.
 
@@ -985,8 +1042,11 @@ published twice.
 
 - Tool \`description\` is the interface the model sees — write it for the model,
   not for a teammate.
-- Whatever \`do()\` returns costs context on every later turn. Return small,
-  structured data; put bulk in the display payload or a sandbox file.
+- \`do()\` returns \`{ status, data, message?, renderData? }\`; only \`data\` (and
+  \`message\` on errors) reaches the model. A raw object or string is not wrapped
+  (only glove-react's \`defineTool\` wraps), so the model would see nothing.
+- What \`data\` holds costs context on every later turn. Return small,
+  structured data; put bulk in \`renderData\`, the display payload or a file.
 - \`MemoryStore\` is in-process and disappears on restart. Implement
   \`StoreAdapter\` for durable sessions.
 - \`pushAndWait\` suspends the tool. It needs a client that can resolve the slot
@@ -997,11 +1057,16 @@ published twice.
 
 ## 11. Where to read more
 
-- Docs index: ${SITE_URL}/docs/intro
+- Docs overview: ${SITE_URL}/docs
+- First principles: ${SITE_URL}/docs/first-principles
+- Primitives map: ${SITE_URL}/docs/primitives
+- Build it up, step by step: ${SITE_URL}/docs/build/loop
+- Harness blueprints: ${SITE_URL}/docs/harnesses
+- Deploy on Kuiper: ${SITE_URL}/foundry/docs/kuiper
 - Quickstart: ${SITE_URL}/docs/getting-started
 - All packages: ${SITE_URL}/docs/packages
 - Core API: ${SITE_URL}/docs/core
 - Machine index: ${SITE_URL}/llms.txt
 `;
 
-export const LLMS_FULL = `${CORE_LLMS_FULL}\n\n${FOUNDRY_LLMS_FULL}`;
+export const LLMS_FULL = `${CORE_LLMS_FULL.replace("${PRIMITIVES}", primitivesMarkdown())}\n\n${FOUNDRY_LLMS_FULL}`;

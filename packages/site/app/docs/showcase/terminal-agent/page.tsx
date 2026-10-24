@@ -189,7 +189,7 @@ export const readFileDef = {
     const numbered = lines
       .map((line, i) => \`\${i + 1} | \${line}\`)
       .join("\\n");
-    return \`\${input.path} (\${lines.length} lines)\\n\${numbered}\`;
+    return { status: "success" as const, data: \`\${input.path} (\${lines.length} lines)\\n\${numbered}\` };
   },
 };
 
@@ -214,7 +214,7 @@ export const editFileDef = {
 
     const updated = content.replace(input.old_string, input.new_string);
     await writeFile(input.path, updated, "utf-8");
-    return \`Edited \${input.path}\`;
+    return { status: "success" as const, data: \`Edited \${input.path}\` };
   },
 };
 
@@ -235,7 +235,7 @@ export const bashDef = {
   requiresPermission: true,
   async do(input: { command: string; timeout?: number }) {
     const timeout = (input.timeout ?? 30) * 1000;
-    return new Promise<string>((resolve) => {
+    const output = await new Promise<string>((resolve) => {
       exec(
         input.command,
         { timeout, maxBuffer: 1024 * 1024 * 5, shell: "/bin/bash" },
@@ -248,6 +248,7 @@ export const bashDef = {
         },
       );
     });
+    return { status: "success" as const, data: output };
   },
 };
 
@@ -274,7 +275,7 @@ export const planDef = {
       renderer: "plan_approval",
       input: { title: input.title, steps: input.steps },
     });
-    return JSON.stringify(result);
+    return { status: "success" as const, data: result };
   },
 };`}
       />

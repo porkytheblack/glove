@@ -5,12 +5,13 @@
 <h3 align="center">Build agents that do cool things.</h3>
 
 <p align="center">
-  An open-source TypeScript framework for AI-powered apps.<br/>
-  You define tools — things your app can do. An AI agent decides when to use them.
+  Open-source TypeScript primitives for building agent harnesses:<br/>
+  coding agents, personal assistants, support desks, voice agents and more.
 </p>
 
 <p align="center">
-  <a href="https://glove.dterminal.net/docs/getting-started">Docs</a> &middot;
+  <a href="https://glove.dterminal.net/docs">Docs</a> &middot;
+  <a href="https://glove.dterminal.net/docs/primitives">Primitives map</a> &middot;
   <a href="https://glove.dterminal.net/foundry">Foundry</a> &middot;
   <a href="https://glove.dterminal.net">Website</a> &middot;
   <a href="#examples">Examples</a>
@@ -19,6 +20,16 @@
 ---
 
 ## What is Glove?
+
+An agent is a model inside a harness. Every harness answers the same questions: how it acts (**loop**), what it can do (**tools**), what it sees (**context**), what it remembers (**state**), where it works (**workspace**), how people reach it (**surface**) and who it works with (**team**). Glove has a primitive for each, so you assemble a harness instead of rebuilding one.
+
+| Layer | Product | Adds |
+| --- | --- | --- |
+| Harness | Glove (`glove-core` + capability packages) | Loop, tools, context, state, workspace, surface, team |
+| System | [Glove Foundry](https://glove.dterminal.net/foundry/docs) | Instances per user, conversations, schedules and sleep, inbound channels, approvals, APIs, an inspector |
+| Production | [Kuiper](https://kuiper.sh) | Deploy the Foundry folder with no Dockerfile: a disk for state, a model gateway, browsers, sandboxes, email and the agent's runs in a dashboard |
+
+Before you build something for an agent, check the [primitives map](https://glove.dterminal.net/docs/primitives): job queues, approval flows, conversation tables, summarisers, webhook dispatchers and "ask the user and wait" protocols all exist already. [First principles](https://glove.dterminal.net/docs/first-principles) explains the parts; [Build it up](https://glove.dterminal.net/docs/build/loop) adds them one step at a time; the [harness blueprints](https://glove.dterminal.net/docs/harnesses) assemble whole harnesses.
 
 Traditional apps encode user flows in UI — pages, routes, navigation hierarchies. Glove replaces that wiring with an agent. You define capabilities as **tools**. The agent orchestrates when to call them based on what users ask for.
 
@@ -495,7 +506,11 @@ Glove is built on five adapter interfaces. Swap any layer without changing appli
 
 Start here:
 
-- [What is Glove?](https://glove.dterminal.net/docs/intro) — the idea in five minutes
+- [First principles](https://glove.dterminal.net/docs/first-principles) — the parts every harness is made of
+- [Primitives map](https://glove.dterminal.net/docs/primitives) — everything that already exists, and what it replaces
+- [Build it up](https://glove.dterminal.net/docs/build/loop) — one agent, eight steps, from a single tool to a deployed Foundry system
+- [Harness blueprints](https://glove.dterminal.net/docs/harnesses) — coding, personal, support, voice, research and multi-agent harnesses
+- [Deploy on Kuiper](https://glove.dterminal.net/foundry/docs/kuiper) — a Foundry folder in production with no Dockerfile
 - [Installation](https://glove.dterminal.net/docs/installation) — packages, providers, environment variables
 - [Quickstart](https://glove.dterminal.net/docs/getting-started) — a working agent in 15 minutes, full-stack or server-only
 - [Core Concepts](https://glove.dterminal.net/docs/concepts) — the agent loop, tools, adapters, compaction
@@ -510,9 +525,9 @@ Reference:
 
 For language models:
 
-- [llms.txt](https://glove.dterminal.net/llms.txt) — the docs index, machine-readable
+- [llms.txt](https://glove.dterminal.net/llms.txt) — the mental model, the primitives map and the docs index, machine-readable
 - [llms-full.txt](https://glove.dterminal.net/llms-full.txt) — the whole framework condensed into one file a coding model can work from
-- [Agent Skill](https://glove.dterminal.net/docs/agent-skill) — `npx skills add porkytheblack/glove -a claude-code`
+- [Agent Skills](https://glove.dterminal.net/docs/agent-skill) — `glove`, `glove-foundry` and `kuiper` skills: `npx skills add porkytheblack/glove -a claude-code`
 
 ## Examples
 

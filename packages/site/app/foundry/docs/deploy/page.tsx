@@ -19,6 +19,15 @@ export default function DeployPage() {
         authorization boundary and a health check.
       </p>
 
+      <div className="docs-note"><span className="docs-note-icon">◆</span><p>
+        <strong>The short way.</strong> <a href="https://kuiper.sh">Kuiper</a> deploys a
+        Foundry folder as it is: no Dockerfile, a persistent disk for state, the model
+        gateway, and the agent&apos;s runs in its dashboard. Follow{" "}
+        <Link href="/foundry/docs/kuiper">Deploy on Kuiper</Link>. This page is for
+        running <code>glove foundry start</code> anywhere else, and explains what both
+        rely on.
+      </p></div>
+
       <h2 id="start">glove foundry start</h2>
       <CodeBlock filename="terminal" language="bash" code={`# from the project root (the directory holding foundry.config.ts)
 glove foundry start --host 0.0.0.0 --port 4141`} />

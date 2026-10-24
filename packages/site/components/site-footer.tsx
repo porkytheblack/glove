@@ -6,11 +6,12 @@ const columns: { title: string; links: { label: string; href: string; external?:
   {
     title: "Learn",
     links: [
-      { label: "Choose your path", href: "/docs" },
-      { label: "What is Glove?", href: "/docs/intro" },
+      { label: "Overview", href: "/docs" },
+      { label: "First principles", href: "/docs/first-principles" },
+      { label: "Primitives map", href: "/docs/primitives" },
+      { label: "Build it up", href: "/docs/build/loop" },
+      { label: "Harness blueprints", href: "/docs/harnesses" },
       { label: "Quickstart", href: "/docs/getting-started" },
-      { label: "Core Concepts", href: "/docs/concepts" },
-      { label: "All Packages", href: "/docs/packages" },
       { label: "Showcase", href: "/docs/showcase" },
     ],
   },
@@ -22,6 +23,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
       { label: "Tutorial", href: "/foundry/docs/tutorial" },
       { label: "OpenAI-compatible API", href: "/foundry/docs/openai-compatible" },
       { label: "Inspector & WebChat", href: "/foundry/docs/observability" },
+      { label: "Deploy on Kuiper", href: "/foundry/docs/kuiper" },
       { label: "API reference", href: "/foundry/docs/reference" },
       { label: "FAQ", href: "/foundry/docs/faq" },
     ],
@@ -56,6 +58,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
     title: "Community",
     links: [
       { label: "GitHub", href: "https://github.com/porkytheblack/glove", external: true },
+      { label: "Kuiper", href: "https://kuiper.sh", external: true },
       { label: "v4 Release Notes", href: "/docs/v4" },
       { label: "Used by Proxima", href: "https://proximadroids.com", external: true },
     ],

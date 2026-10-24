@@ -1,206 +1,171 @@
 ---
 name: glove-foundry
-description: Build, extend, debug, or review typed agent applications with Glove Foundry. Use for Foundry file routes, definitions and instances, lazy assembly, applications and transmissions, playbooks, schedules, conversations, working environments, multi-agent composition, observability, or the inspector.
+description: Build agent systems with Glove Foundry instead of hand-rolling the infrastructure around agents — persisted agent instances per user or tenant, conversations, installable tools/apps/MCP, schedules, sleep and spawn, inbound channels (Slack, email, tickets, webhooks) with transmissions and playbooks, approvals and steering, a typed client, REST and OpenAI-compatible APIs, working environments, multi-agent composition and the inspector. Use when a project has foundry.config.ts, foundry.application.ts or agents/**/agent.ts, imports glove-foundry, or needs many agents, background work, inbound events or an agent API. Pair with the glove skill for harness primitives and the kuiper skill to deploy.
 ---
 
 # Glove Foundry
 
-Build Foundry projects as cohesive agent applications: typed code definitions, durable runtime data, message-aware assembly, and observable execution. Foundry is the preferred Glove application/runtime framework.
+Glove gives you the primitives of one **harness** (loop, tools, context, state, workspace, surface, team). Foundry turns harnesses into a running **system**: many agents from one definition, acting on their own time, woken by the outside world, overseen by people and callable by other software. Kuiper then runs that system in **production** (see the `kuiper` skill).
 
-## Start with the repository
+Every agent Foundry runs is still a normal glove-core agent: tools, memory, MCP, REPLs, voice and every other Glove package mount the same way inside Foundry as outside it (see the `glove` skill).
 
-Before changing Foundry, inspect the current public surface and the closest executable example. Do not rely on remembered APIs.
+Docs: https://glove.dterminal.net/foundry/docs · Tutorial: https://glove.dterminal.net/foundry/docs/tutorial · Condensed reference: https://glove.dterminal.net/foundry/llms-full.txt · Canonical example: https://github.com/porkytheblack/glove/tree/main/examples/foundry-agent
 
-- Read [`packages/glove-foundry/docs/building-with-foundry.md`](../../../packages/glove-foundry/docs/building-with-foundry.md) for authoring conventions.
-- Read [`packages/glove-foundry/docs/architecture.md`](../../../packages/glove-foundry/docs/architecture.md) when changing definitions, instances, activation, persistence, credentials, or runtime boundaries.
-- Read [`packages/glove-foundry/docs/inspector.md`](../../../packages/glove-foundry/docs/inspector.md) for observability and workbench changes.
-- Use [`examples/foundry-agent`](../../../examples/foundry-agent) as the canonical small application. Use the Braind Storm and voice examples only when their specialized behavior is relevant.
-- Inspect exports in [`packages/glove-foundry/src/index.ts`](../../../packages/glove-foundry/src/index.ts) and tests beside the affected module before inventing a helper.
+## The mental model
 
-## Preserve the mental model
+| | Lives in | What it is |
+| --- | --- | --- |
+| **Definition** | code: `agents/<route>/agent.ts` | What an agent of this kind *can* assemble: model, prompt, tools, catalogue, memory, schedules. The file path is the id. |
+| **Instance** | data: `FoundryDataAdapter` | One persisted agent: `{ id, definitionId, workspaceId, context, installations, playbooks }`. Created by your app, the API, a seed, or a subscription when an event arrives. |
+| **Conversation** | data | A durable thread owned by one instance. An instance can own many. |
+| **Run** | a fresh child process | One message processed by a Glove assembled **from scratch** out of the definition, the instance and the message. Instance edits apply on the next message without a deploy. |
 
-Foundry separates immutable code definitions from mutable runtime data.
+Consequences you must design for:
 
-- `agents/<route>/agent.ts` defines reusable behavior and lazy assembly. It is not a running agent and never declares request input or result output.
-- Agent instances are persisted data with their own ids, workspace, context, installations, and playbooks. They can be provisioned, updated, removed, and reconstructed without changing the definition.
-- Conversations are first-class instance-owned records. One instance may own many conversations.
-- Applications, transmissions, predicates, actions, shared tools, MCP definitions, memory profiles, layers, subscribers, and schedules are composable code values colocated with the owning agent.
-- Installations, selected accounts/routes, playbooks, subscriptions, scheduled activations, workspace state, and conversations are runtime data.
+- **Anything held only in memory dies with the run.** `new MemoryStore(...)` as a `store`, in-memory memory adapters, module-level variables and `MemoryFoundryDataAdapter` writes made by tools do not survive to the next message. Persist the four boundaries below.
+- **Code identity comes from filenames; runtime identity is data.** Never add an `id` to a file-routed definition and never repeat string ids for code relationships; pass imported values (`install(helpdesk)`). String ids belong to instances, conversations, runs, accounts, routes, bindings and HTTP/database boundaries.
+- **Composition makes things available; installation mounts them.** `composeAgent(...)` lists shared tools, apps and MCP servers an instance *may* install. Tools every instance needs go in `defineAgent`'s `tools`.
 
-Filenames own static identity. Convention files default-export one definition, and static code references imported values. Do not repeat string ids for code-owned relationships or add an `id` to a file-routed definition. String ids are appropriate only after serialization or at database, HTTP, frontend, and other data boundaries.
+## The five parts Foundry adds
 
-## Author colocated, composable definitions
+| Part | Question | Foundry's answer |
+| --- | --- | --- |
+| **Identity** | Whose agent is this? | One definition in code, many instances in data, each with its own conversations, context, installed capabilities and workspace. |
+| **Time** | When does it act? | Schedules, sleep, spawn and background work are built-in agent tools backed by durable activations. |
+| **Arrival** | What wakes it up? | Transmissions turn Slack, email, tickets or webhooks into typed events; playbooks route them; subscriptions create the instance if none exists. |
+| **Oversight** | Who keeps it in check? | Permission-gated tools become expiring approval records, running work can be steered, the inspector shows every run, model call and tool call. |
+| **Access** | How does other software call it? | A typed client, REST, an async run API and OpenAI-compatible endpoints, all writing into durable conversations. |
 
-Use the conventional project shape and keep pieces atomic:
+## Before you build it, use this
 
-```text
-agents/<agent>/
-  agent.ts
-  composition.ts
-  apps/*.app.ts
-  transmissions/*.transmission.ts
-  events/*.event.ts
-  predicates/*.predicate.ts
-  actions/*.action.ts
-  connections/*.connection.ts
-  tools/*.tool.ts
-  mcp/*.mcp.ts
-  memory/*.memory.ts
-  inboxes/*.inbox.ts
-  layers/*.layer.ts
-  subscribers/*.subscriber.ts
-  schedules/*.ts
-```
+| If you're about to write… | Use | API |
+| --- | --- | --- |
+| a factory that rebuilds the agent per request from a switch over tenants | Definitions with resolvers | `export default defineAgent({ model: () => …, systemPrompt: (_agent, ctx) => …, tools: (_agent, ctx) => … })` |
+| an agents-per-customer table and lookup | Instances | `client.agent(route).create({ workspaceId, context })` · `defineAgentInstance(definition, { … })` |
+| thread tables and message routing | Conversations | `client.createConversation(agentId)` · `client.send(agentId, conversationId, text)` · `client.conversationTranscript(…)` |
+| per-customer feature flags around tool lists | Installable capabilities | `defineSharedTool` · `defineApp` · `defineMcp` + `install(definition, config)` / `client.install` / `PUT /api/installations` |
+| coordination tables between agents | Shared work | `glove_foundry_workspace` · `glove_foundry_tasks` · `glove_foundry_shared_inbox` · `glove_foundry_environment`; `compareAndSetWorkspaceEntry` for optimistic writes |
+| serialising runtime state yourself | Data adapters | `new FileFoundryDataAdapter({ file })` (one host) · a transactional `FoundryDataAdapter` (many hosts) |
+| cron jobs and a job queue that call your agent | Schedules | `defineSchedule({ name, timing: { kind: "cron", expression, timezone? }, message })` returned from `schedules`; agents use `glove_foundry_schedule` |
+| "check back later" state and a timer | Sleep | `glove_foundry_sleep({ kind: "for", duration: "20m", message })` — never `setTimeout` |
+| fire-and-forget promises that die with the request | Spawn and background | `glove_foundry_spawn` · `glove_foundry_background` |
+| a reminders CRUD API for the agent | Schedule management | `glove_foundry_schedules({ action: "list" \| "update" \| "pause" \| "resume" \| "cancel" })` |
+| a webhook handler and an API client per channel | Transmissions | `defineTransmission({ account, inbound, outbound })` (Effect Schema types) |
+| polling loops and socket clients you keep alive | Applications and connections | `defineApp({ inbound, outbound, connections })` · `defineConnection(…)` |
+| a dispatcher deciding which agent handles which event | Playbooks | `composePlaybook({ transmission, match, directives })` returned from `playbooks` |
+| onboarding code that creates an agent before its first message | Subscriptions | `client.putPlaybookSubscription(…)` / `PUT /api/playbook-subscriptions` (singleton, per-thread, per-event, existing, custom provisioning) |
+| waking an LLM agent to read every event | Inbound triage | `classifyInbound(…)` · `classifierPredicate(…)` from `glove-classifier/foundry` |
+| an approvals table and a pause/resume flow | Approvals | `requiresPermission` on a tool or outbound transmission → `client.approvals({ status: "pending" })` + `client.resolveApproval(id, "approve" \| "deny")` |
+| cancel-and-resend logic that races the old run | Steering | `handle.steer(message)` · `POST /v1/runs/:id/steer` |
+| an admin dashboard and a debug chat | Inspector and WebChat | `glove foundry dev` → http://127.0.0.1:4141 |
+| log scraping to reconstruct what an agent did | Event stream | `GET /api/events` (SSE) · `defineSubscriber(…)` · `ctx.emit({ type, data })` |
+| a hand-written HTTP client for your agent service | Typed client | `createFoundryClient<FoundryRoutes>({ baseUrl })` from `glove-foundry/client` |
+| an adapter so chat UIs can reach your agent | OpenAI-compatible API | `POST /v1/chat/completions` · `POST /v1/responses` (`model` = instance id) |
+| a job-status API around your agent | Run API and REST | `POST /v1/runs` · `GET /v1/runs/:id/events` · `/api/*` |
+| auth middleware in front of every route | Request authorization | `defineApplication({ requestAuthorization: { identifier, challenge, authorize } })` |
+| typed agent-to-agent calls, a subagent router | Calls and subagents | `defineCall({ name, input, output, handler })` · `defineSubagent(…)` |
+| a sandbox runner, file store or REPL wiring | Working environment, REPL | `workingEnvironment: defineWorkingEnvironment({ options, persistence })` · `repl: defineRepl({ language, session, programmaticTools })` |
+| goal/form/fact plumbing per conversation | Guidance fields | lazy `goals`, `facts`, `forms`, `contextProviders` fields (`defineGoals`, `defineFacts`, `defineForms`) |
 
-Use `composeAgent(...)` to assemble the agent-local catalogue. Composition makes definitions available; it does not install applications, MCPs, or shared tools. An instance chooses those surfaces dynamically with typed `install(...)` records.
-
-Prefer the definition helper that owns the contract (`defineAgent`, `defineApp`, `defineTransmission`, `defineSharedTool`, `defineMcp`, `defineMemory`, `defineLayer`, `defineSchedule`, and related helpers). Let the definition's Zod or Effect schema carry config types through installation and runtime decoding. Do not add parallel handwritten config types or cast away inference.
-
-## Resolve behavior lazily
-
-Agent assembly is contextual. Use a direct value for fixed behavior and a resolver when the result can depend on the instance, conversation, workspace, installation state, current Glove message, prior messages, or request.
-
-Common lazy fields include model, system prompt, tools, memory, inboxes, layers, subscribers, calls, subagents, mesh, playbooks, schedules, working environment, REPL, build, and run.
-
-- Inboxes must be lazy; do not model an inbox as a static singleton.
-- Applications, MCPs, and shared tools are available through composition but mounted only when installed on the current instance.
-- Memory belongs to the agent definition and may be selected lazily for the current context.
-- A custom `build` augments assembly; a custom `run` controls execution. Prefer the default path unless a real lifecycle requirement needs an override.
-- Use the native Glove `Message` shape. Do not invent a Foundry-specific input/output contract inside `defineAgent`.
-
-## Applications, transmissions, and credentials
-
-An application may own multiple inbound and outbound transmissions. Outbound transmissions become validated tools only when the application is installed. Transmission definitions own authentication, normalization, classification, predicates, serialization, and delivery behavior; playbooks remain data-oriented policy.
-
-To triage inbound events with a classifier model (TypeSafe Jev, or any `ClassifierAdapter`) before an agent starts, use `glove-classifier/foundry`. `classifyInbound({ classifier, question: choice(...), events, fallback, minConfidence, state })` is the transmission's `inbound.classify`. `defineTransmissionPredicate(classifierPredicate({ classifier, questions, where, state }))` lets a playbook match only when the answers satisfy `where`; playbook predicate parameters `{ min, max, choice, where }` override the thresholds. Both return Effects that fail with `ClassifierError`.
-
-Connections are colocated with their application and receive the narrow Foundry connection context. Keep backend concepts such as Station networks, beacons, signals, or worker topology out of public agent definitions, client types, manifests, and inspector language. Expose only purpose-built agent-system concepts such as inbound connections, activations, scheduled work, and runs.
-
-Foundry never acquires, refreshes, or stores credential material. Account records contain safe metadata and opaque access references. The consumer's account-session/provider adapter owns credential lookup and refresh. Never copy secrets into instance data, manifests, prompts, telemetry, or inspector payloads.
-
-## Playbooks, inbound activation, and provisioning
-
-Playbooks are serializable instance policy composed at runtime from imported transmission primitives. They match inbound events, supply directives and serialization, and describe any outbound response route. They are not a global file-routed registry.
-
-Agent definitions may lazily return desired playbooks, and persisted instances may carry frontend-authored playbooks. Durable playbook subscriptions are evaluated even when no instance exists and may provision zero, one, or many subscribed agents before delivering the event into a conversation.
-
-When changing inbound behavior, preserve idempotency: claim delivery by route and event before provisioning or enqueueing runs. Provision through the data adapter so `provisioningKey` remains atomic.
-
-## Schedules, sleep, and future work
-
-Schedules are agent-local definition values that reconcile into persisted activations. They are not a system-wide static registry.
-
-- A lazy `schedules` resolver may load predefined desired schedules for an agent instance.
-- Agents create future or recurring work with Foundry's schedule tool.
-- Agents must be able to list, update, and cancel their own scheduled triggers.
-- Sleep suspends the logical run and wakes the same instance and conversation later with a resolution message.
-- Pending and recurring activations must reconstruct from a durable `FoundryDataAdapter` on restart.
-
-Do not expose the private execution backend as the authoring model for schedules or sleep.
-
-## Managed execution and optional browser/sandbox resources
-
-Foundry owns a local Station 3 daemon for agent jobs. Applications can opt into `daemon: stationDaemon({ stationId, resources, onReady })`, importing `stationDaemon` from `glove-foundry/station`, to host browser and/or sandbox provider adapters on that same instance. The resource factory runs once in the managed process. Keep provider acquisition and private connection storage in application infrastructure; programmatic runtime setup supplies `applicationFilePath`. Foundry owns successful startup/shutdown and failed-startup cleanup. A factory that fails before returning releases its partial acquisitions.
-
-Mount capabilities with `mountBrowser(agent, { adapter })` and `mountSandbox(agent, { adapter })` from optional `glove-execution`, inside `configure`. Register `context.onCleanup` immediately after acquisition. Mounts never accept or replace the agent model. Default scripts use `glove-js`; Station transport is isolated in `glove-execution/station`. Core remains portable and has no native browser/sandbox backend. Screenshots use transient native content after tool results; media bytes are omitted from runtime-context telemetry. Do not automatically replay scripts after a mutation with an unknown outcome.
-
-Memory defaults to an agent conversation. Broader recall, task checkpoints, prompts and eager/lazy capability acquisition are application decisions. Separate browser session/profile, sandbox file/service, script binding and memory lifetimes. See [execution ownership and setup](../../../packages/glove-foundry/docs/execution.md) and [Operator](../../../examples/foundry-operator/README.md). Node 22+ is required for Foundry; SQLite memory requires 22.13+.
-
-## Working environment, VFS, REPL, and media
-
-Foundry mounts native Glove surfaces instead of reimplementing them.
-
-- Use `defineWorkingEnvironment(...)` for a guarded VFS, scripts, history, checkpoints, and artifact export.
-- Add a persistence adapter when work must survive across runs. Treat the VFS as the durable boundary; REPL bindings are run-scoped.
-- Use `defineRepl(...)` with `glove-js`, `glove-python`, or `glove-lisp` for computation over explicitly registered functions.
-- Use `glove-image` and the working-environment format adapters for image, document, slide, spreadsheet, archive, audio, or video work.
-- Pass artifacts between agents by durable workspace/VFS references rather than copying large document bodies into prompts.
-- For HTTP calls/downloads/uploads and host keystores, read [HTTP files and host secrets](../../../packages/glove-working-environment/HTTP-AND-SECRETS.md). Mount `fetchFiles()` and `secret()` in the environment options; scope the host store to the owning instance and re-supply it after restore. Snapshots do not persist secrets or network grants.
-- Native fetch blocks non-public DNS/IP destinations; private services require exact host opt-ins. Keep credentials in host aliases, not scripts or manifests. Custom transports own equivalent network/TLS safety. In adapter bindings, read `ctx.signal` at call time so run termination aborts host I/O.
-
-## Goals, facts, and prepared workflows
-
-Goals, forms, and pinned context require glove-core >=4.0.0 for live runtime snapshots. They append transient user-role messages at the model-input tail before each model iteration without rewriting system instructions or saved history. Runnable proxies forward `addContextProvider` and `getRuntimeContext`; subscribers receive `runtime_context` snapshots. Realtime voice refreshes silently at start and after tools; call `await realtime.refreshContext()` after external changes.
-
-Use `glove-memory/goals` for dynamic goals and `glove-facts` for reusable scoped evidence; there is no standalone `glove-goals` package. Mount `useGoalRunner` or `useFormRunner` from `glove-memory/tools` on the conversational runnable, and `useFacts` from `glove-facts` for capture.
-
-Enable shared preparation with `new FactPreparation(facts, { agent: preparationAgent })`. Supply a dedicated, built Glove runnable and separate store per fact scope, with the application's tracing subscribers attached. The library mounts `submit_preparation` and calls `processRequest`; do not bypass Glove with a direct model invocation or substitute the conversational agent. No agent means automatic preparation is off while capture/manual progression remain available. Host rules allowlist fields/items; workflow commits retain authority over values, progress and effects.
-
-Use the first-class lazy `goals`, `facts`, `forms`, and `contextProviders` fields. Read [Foundry guidance](../../../packages/glove-foundry/docs/guidance.md) for mounting, typed execution handles, conversation-default scope, instance sharing, native preparation, and durable SQLite adapters. A definition-provided program seeds absent goals; later revisions require native CAS and a reason. Context providers are read-only transient snapshots, never a second inference loop. Keep the [shared workflow guide](https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/workflows.md) and [facts adapter contracts](../../../packages/glove-facts/README.md) authoritative for evidence, correction, tracing and recovery.
-
-## Realtime voice hosts
-
-Use `glove-voice-s2s` with `RealtimeAgent` for OpenAI Realtime, Gemini Live, or
-GPT-Live (`provider: "openai-live"`, available in 0.4.0). A voice session does not
-run Foundry's durable lifecycle: expose a delegation tool backed by the native
-client and an instance/conversation when work needs persistence and observability.
-GPT-Live uses a Responses backend for the same Glove tools; Live client delegation
-is not implemented. The host owns server credentials, continuous PCM pacing
-including silence, timestamped transcript fragments, and playback/avatar utterance
-boundaries. Do not reuse Realtime VAD or final-turn assumptions. Await `stop()`
-in scoped cleanup so final usage can arrive. Read the
-[voice host guide](../../../packages/glove-foundry/docs/building-with-foundry.md#voice-hosts)
-and [GPT-Live contract](../../../packages/glove-voice-s2s/README.md#gpt-live) before
-adapting an existing room example.
-
-## Multi-agent systems
-
-Choose the smallest correct composition surface:
-
-- `defineSubagent` for an isolated nested task under a parent run. Its `tools` can project a least-privilege subset of `parent.tools`; its `layers` (including `configureLayer(layer, config)`) and `subscribers` mount on each invocation, before `configure`, and are disposed when the subagent's request ends.
-- Foundry calls for typed agent-to-agent or agent-to-service invocation.
-- Mesh for peer messaging and acknowledgements.
-- Playbook subscriptions for inbound events that can provision a workforce.
-- Workspaces, conversations, inbox items, tasks, and artifacts for durable coordination.
-
-Keep agent definition identity separate from agent instance identity in traces and APIs. Make concurrent campaigns distinct instances/conversations/runs so orchestration and progress remain legible.
-
-## Calling and operating agents
-
-Foundry already provides these surfaces; do not rebuild them in application code.
-
-- Typed client: `createFoundryClient<FoundryRoutes>({ baseUrl })` from `glove-foundry/client` — `agent(route).create`, `createConversation`, `send` → `FoundryRunHandle` (`wait`, `cancel`, `steer`, `events`), `conversationTranscript`, `install`/`uninstall`, workspace/inbox/tasks, approvals.
-- Native REST under `/api/*` (instances, conversations, messages, runs, events with SSE, installations, approvals, workspaces, playbook subscriptions, activations, transmissions, topology) and an automation API under `/v1/runs`.
-- OpenAI-compatible `GET /v1/models`, `POST /v1/chat/completions` and `POST /v1/responses`. `model` is an instance id, or a definition route with exactly one instance; instances are never created implicitly. Reuse `user`, `conversation_id`, or the returned `x-foundry-conversation-id` header to continue a durable conversation.
-- Approvals: a tool with `requiresPermission` (or an outbound transmission with `requiresPermission`) pauses the run on an expiring approval record (default 5 minutes, fail-closed). Resolve with `client.approvals(...)` + `client.resolveApproval(id, "approve" | "deny")` or the inspector.
-- Steering is interrupt-and-restart: `handle.steer(message)` cancels the active run, waits (at most 10 s) for its process to finish `unAbortable` tools and cleanup, then starts a replacement run in the same conversation, so the replacement never reads history the old process is still writing.
-- Built-in agent tools on every Foundry agent: `glove_foundry_spawn`, `glove_foundry_schedule`, `glove_foundry_schedules`, `glove_foundry_sleep`, `glove_foundry_background`, `glove_foundry_transmit`, `glove_foundry_conversations`, `glove_foundry_workspace`, `glove_foundry_shared_inbox`, `glove_foundry_tasks`, `glove_foundry_environment`.
-- Every run executes in a fresh child process. `new MemoryStore(...)`, in-memory memory adapters and `MemoryFoundryDataAdapter` writes made inside a run do not survive to the next message, so an agent whose `store` returns a plain `MemoryStore` forgets earlier turns. The starter templates keep everything under `.data/` (`FileFoundryDataAdapter`, `lib/file-store.ts`; the concierge also `lib/file-context.ts` and VFS persistence). Persistence has four independent boundaries: `FoundryDataAdapter` (`FileFoundryDataAdapter` for one host), a durable conversation `store`/`conversationStore`, native memory adapters, and working-environment VFS persistence.
-- Install capabilities with `install(...)` on the instance, `client.install`, or `PUT /api/installations` (`{ agentId, kind, id, accountId?, config? }`; `accountId` selects a persisted account and must not go inside `config`); the inspector displays installations but cannot change them. Outbound delivery needs an enabled `defineBinding` for the instance.
-- Health: `GET /health` (and `/health/detailed`) answer 200 when `ok` is true and 503 with the same body when a subsystem is down; `client.health()` returns the body either way.
-- One runtime per data store: every runtime arms the schedules it finds, so replicas sharing a store would each fire them.
-
-Handbook: https://glove.dterminal.net/foundry/docs · condensed reference: https://glove.dterminal.net/foundry/llms-full.txt
-
-## Effect and error handling
-
-Foundry's service, persistence, transmission, and orchestration internals are Effect-native. Preserve typed errors, resource scopes, cancellation, and service boundaries. Use `Effect.gen`, schemas, layers, and scoped finalizers where they clarify lifecycle or failure semantics. Do not wrap Effect code in ad-hoc promises merely to suppress its error channel.
-
-User-provided Glove callbacks may return promises where the public type permits it. Keep adapters replaceable and avoid coupling domain definitions to the in-memory implementation.
-
-## Observability and inspector language
-
-Emit safe, correlated events using Foundry concepts: definition, instance, conversation, activation, run, model, tool, application, transmission, inbox, memory, MCP, workspace, artifact, and system. Show work intent, action, handoff, status, and result—not private hidden reasoning or raw secrets.
-
-The inspector should make the causal path obvious:
+## Project layout
 
 ```text
-arrival -> matched playbook -> provisioned instance(s) -> conversations -> runs -> artifacts/outcomes
+agents/<route>/agent.ts                 defineAgent (route id = folder path; nested folders nest ids)
+agents/<route>/composition.ts           composeAgent(...) catalogue
+agents/<route>/tools/*.tool.ts          defineSharedTool
+agents/<route>/apps/*.app.ts            defineApp
+agents/<route>/transmissions/*.transmission.ts   defineTransmission
+agents/<route>/events/*.event.ts        defineTransmissionEvent
+agents/<route>/predicates/*.predicate.ts         defineTransmissionPredicate
+agents/<route>/actions/*.action.ts      definePlaybookAction
+agents/<route>/connections/*.connection.ts       defineConnection
+agents/<route>/mcp/*.mcp.ts             defineMcp
+agents/<route>/memory/*.memory.ts       defineMemory
+agents/<route>/layers/*.layer.ts        defineLayer
+agents/<route>/subscribers/*.subscriber.ts       defineSubscriber
+foundry.application.ts                  defineApplication: data adapter, conversation store, accounts, routes, bindings, auth, daemon
+foundry.config.ts                       defineConfig (from glove-foundry/config): server, execution, observability
+.foundry/routes.d.ts                    generated FoundryRoutes type — never edit
 ```
 
-Avoid provider/backend error jargon in primary UI copy. Put detailed raw events behind diagnostics while presenting a plain-language current state and next action.
+Each convention file default-exports one definition. Schedules are **not** auto-discovered: keep `defineSchedule` values in ordinary modules and return them from the agent's `schedules` field. Memory profiles, layers and subscribers are definition surfaces: list them in `components` **and** select them in `memory` / `layers` / `subscribers`.
 
-## Verification
+## defineAgent
 
-Run checks proportional to the change. For framework work, the normal floor is:
+Every assembly field is a literal or a resolver `(agent, ctx) => value | Promise<value>`, re-resolved on every run against the instance, conversation and current message. Fields: `description`, `tags`, `components`, `store`, `model`, `systemPrompt`, `displayManager`, `serverMode`, `maxRetries`, `maxConsecutiveErrors`, `compactionLimit`, `compactionInstructions`, `maxTurns`, `enableToolResultSummary`, `tools`, `hooks`, `skills`, `subagents`, `memory`, `goals`, `facts`, `forms`, `contextProviders`, `inboxes` (always a function), `subscribers`, `layers`, `calls`, `schedules`, `playbooks`, `mesh`, `workingEnvironment`, `repl`, `configure(agent, ctx)`, `build(agent, ctx)`, `spawn(agent, ctx, message)`, `run(agent, ctx)`, `mcpAdapter`, `accountSessions`.
+
+```ts
+import { createAdapter } from "glove-core/models/providers";
+import { defineAgent } from "glove-foundry";
+import { z } from "zod";
+import { FileStore } from "../../lib/file-store.js"; // durable transcripts; the starter templates ship one
+
+export default defineAgent({
+  description: "Answers questions about orders",
+  model: () => createAdapter({ provider: "openrouter", model: "openai/gpt-4.1-mini" }),
+  store: ({ conversationId }) => FileStore.open(conversationId),
+  systemPrompt: (_agent, ctx) => `You are support for ${ctx.agentInstance.context.company}.`,
+  tools: [{
+    name: "lookup_order",
+    description: "Find an order by id",
+    inputSchema: z.object({ orderId: z.string() }),
+    async do({ orderId }) { return { status: "success", data: { orderId, state: "shipped" } }; },
+  }],
+});
+```
+
+A definition never declares request input/output (Foundry owns them) and is never an instance. `configure(agent, ctx)` is where you call capability mounts (`mountBrowser`, `mountMcp`, …) and register `ctx.onCleanup` immediately after acquiring a resource. A custom `run` should end in `ctx.defaultRun()` unless it truly replaces the loop.
+
+## Persistence: four separate boundaries
+
+1. **Runtime data** (instances, conversations, activations, workspace, VFS snapshots): `FileFoundryDataAdapter({ file })` for one host; a transactional adapter for several.
+2. **Transcripts**: the agent `store` / application `conversationStore`. A plain `MemoryStore` starts empty on every run.
+3. **Structured memory**: glove-memory adapters, e.g. `createSqliteMemoryAdapters({ file, namespace, schema })` from `glove-memory/sqlite` (Node 22.13+), scoped by trusted instance identity.
+4. **Working-environment files**: `foundryDataEnvironmentPersistence({ scope })` or a persistent `Vfs`.
+
+Persisting one does not persist the others. Run **one runtime per data store** (every runtime arms the schedules it finds). Runs, events and pending approvals live in the Foundry process and are lost on restart; activations are rebuilt from the data adapter.
+
+## Calling and operating
+
+```ts
+import { createFoundryClient } from "glove-foundry/client";
+import type { FoundryRoutes } from "./.foundry/routes.js";
+
+const foundry = createFoundryClient<FoundryRoutes>({ baseUrl: process.env.FOUNDRY_URL! });
+const agent = await foundry.agent("support").create({ workspaceId: "acme", context: { company: "Acme" } });
+const conversation = await foundry.createConversation(agent.id);
+const run = await foundry.send(agent.id, conversation.id, "Where is order 1042?");
+const done = await run.wait({ timeoutMs: 120_000 }); // also run.cancel(), run.steer(text), run.events()
+```
+
+- **OpenAI SDKs**: `model` is an instance id (or a route with exactly one instance); instances are never created implicitly. Reuse `user`, `conversation_id` or the returned `x-foundry-conversation-id` header to continue a conversation.
+- **Approvals** expire after 5 minutes and fail closed; they do not engage if `defineAgent` supplies its own `displayManager`.
+- **Steering** is interrupt-and-restart in the same conversation; it never injects text mid side effect.
+- **Health**: `GET /health` and `/health/detailed` answer 200 when `ok` is true, 503 with the same body otherwise.
+- **Security**: Foundry binds loopback by default and refuses a public interface without `requestAuthorization`. Foundry never acquires, stores or refreshes credentials; accounts carry an opaque `accessRef` your adapter resolves.
+
+## Built-in agent tools (on every Foundry agent)
+
+`glove_foundry_spawn`, `glove_foundry_schedule`, `glove_foundry_schedules`, `glove_foundry_sleep`, `glove_foundry_background`, `glove_foundry_transmit`, `glove_foundry_conversations`, `glove_foundry_workspace`, `glove_foundry_shared_inbox`, `glove_foundry_tasks`, `glove_foundry_environment`. Inputs are in [references/condensed-reference.md](references/condensed-reference.md#8-built-in-agent-tools-mounted-on-every-foundry-agent).
+
+## Create, run and check a project
 
 ```bash
-pnpm --filter glove-foundry typecheck
-pnpm --filter glove-foundry test
-pnpm --filter glove-foundry build
-pnpm --filter glove-foundry-example typecheck
-pnpm --filter glove-foundry-example verify:architecture
-pnpm --filter glove-foundry-example verify
+npx glove-foundry init my-agents          # wizard; --template travel-concierge|minimal, --target standalone|nextjs
+cd my-agents && pnpm dev                    # runtime + inspector on http://127.0.0.1:4141
+pnpm typecheck && pnpm lint                 # generated scripts: tsc --noEmit, eslint with the glove-foundry preset
 ```
 
-For scaffold or public API changes, also generate a temporary project and verify its typecheck. For inspector/site changes, build the site and exercise the affected UI. Assert behavioral invariants rather than snapshots of prose. Finish with `git diff --check` and check that no credential value entered generated files, events, or manifests.
+Node 22+ (22.13+ for SQLite memory). In an existing Next.js app `init .` adds `foundry/`, `lib/foundry.ts` and `foundry:dev` / `foundry:start` scripts; the runtime stays a separate process reached over HTTP.
+
+## Deploy
+
+Kuiper deploys a Foundry folder with no Dockerfile (`glove foundry start --host 0.0.0.0 --port 4141`, a `/data` disk, one replica), wires secrets and the model gateway through variables, and reads runs into its dashboard. Before deploying: add `requestAuthorization`, persist all four boundaries under `/data`, and read the `kuiper` skill. Guide: https://glove.dterminal.net/foundry/docs/kuiper · elsewhere: https://glove.dterminal.net/foundry/docs/deploy
+
+## Reference files
+
+| File | Read when |
+| --- | --- |
+| [references/condensed-reference.md](references/condensed-reference.md) | Exact fields, endpoints, CLI flags, built-in tool inputs, the durable `FileStore`, application/config keys |
+| [references/building.md](references/building.md) | Authoring rules for definitions, applications, transmissions, credentials, playbooks, schedules, managed execution, working environments, guidance, voice hosts, multi-agent systems |
+| [references/contributing.md](references/contributing.md) | Only when changing the glove-foundry package, its inspector or its examples |

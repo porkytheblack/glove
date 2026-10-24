@@ -1,6 +1,6 @@
 # Glove Example Patterns
 
-For dynamic goals, shared facts and agent-backed form preparation, read [workflows.md](workflows.md). Goals are in `glove-memory/goals`; evidence is in `glove-facts`.
+For dynamic goals, shared facts and agent-backed form preparation, read [memory-and-workflows.md](memory-and-workflows.md#goals-facts-and-form-preparation). Goals are in `glove-memory/goals`; evidence is in `glove-facts`.
 
 Real patterns drawn from the example implementations in `examples/`.
 
@@ -507,7 +507,7 @@ function createSession(sessionId: string, cwd: string) {
 ## Pattern: Server-Side Working Environment in Next.js (document-desk)
 
 For HTTP calls, downloads/uploads or a keystore, follow the
-[HTTP files and host secrets recipe](../../../packages/glove-working-environment/HTTP-AND-SECRETS.md).
+[HTTP files and host secrets recipe](https://github.com/porkytheblack/glove/blob/main/packages/glove-working-environment/HTTP-AND-SECRETS.md).
 Keep its `SecretStore` and credential aliases on the server, scoped to the owning
 tenant. Add `glove-env-fetch` and `glove-env-secret` to `serverExternalPackages`
 when mounting them, and re-supply the host store and policy on restore. Mounted

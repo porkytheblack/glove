@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
     return [
       { source: "/docs/glovebox", destination: "/foundry/docs/deploy", permanent: true },
       { source: "/docs/showcase/glovebox", destination: "/foundry/docs/deploy", permanent: true },
+      { source: "/docs/intro", destination: "/docs/first-principles", permanent: true },
     ];
   },
 };

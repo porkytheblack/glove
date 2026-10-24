@@ -71,7 +71,7 @@ describe("built-in task tool", () => {
     glove.fold({ name: "custom", description: "Custom", jsonSchema: { type: "object" }, async do() { return { status: "success", data: {} }; } });
     const store = new MemoryStore("build");
     glove.build(store).rebuild();
-    assert.deepEqual(glove.tools.map((tool) => tool.name), ["glove_update_tasks", "custom"]);
+    assert.deepEqual(glove.tools.map((tool) => tool.name), ["glove_update_tasks", "glove_post_to_inbox", "custom"]);
     await glove.tools[0].run({ todos: [todo] });
     assert.equal((await store.getTasks()).length, 1);
     assert.deepEqual(await initialStore.getTasks!(), []);

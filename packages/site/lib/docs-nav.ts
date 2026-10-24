@@ -2,8 +2,10 @@
 // sections directly; the breadcrumb + prev/next pager derive their linear
 // reading order from the same list, so adding a page only touches this file.
 //
-// Section order is the reading order: start here → build → interfaces →
-// state → sandboxes → multi-agent → ship → showcase → resources.
+// Section order is the reading order: start here → build it up (the layered
+// guide) → harness blueprints → reference grouped by the part of a harness it
+// serves (loop & tools, context & state, workspace, surface, team, media) →
+// showcase → resources. lib/primitives.ts names those parts.
 
 export type DocsBadge = "voice" | "beta" | "new" | "deprecated";
 
@@ -27,33 +29,28 @@ export interface DocsNavSection {
 export const docsSections: DocsNavSection[] = [
   {
     title: "Start Here",
-    blurb: "What Glove is, how to install it, and a tour of every package.",
+    blurb:
+      "What Glove is, the parts every harness is made of, and every primitive that already exists.",
     items: [
       {
-        label: "Choose your path",
+        label: "Overview",
         href: "/docs",
         summary:
-          "Start here: Foundry for complete agent systems, glove-core for an agent inside your app, or one capability package — plus an I-want-to index.",
+          "Glove is a set of primitives for building agent harnesses. Foundry turns harnesses into a running system; Kuiper runs it in production. Start here.",
       },
       {
-        label: "What is Glove?",
-        href: "/docs/intro",
+        label: "First principles",
+        href: "/docs/first-principles",
+        badge: "new",
         summary:
-          "The idea behind Glove: define capabilities as tools, let an agent orchestrate them.",
+          "Every harness is a loop with tools, context, state, a workspace, a surface and sometimes a team. What each part is for, how they connect, and the rules Glove's primitives follow.",
       },
       {
-        label: "Glove Foundry",
-        href: "/foundry",
+        label: "Primitives map",
+        href: "/docs/primitives",
+        badge: "new",
         summary:
-          "The file-routed, Effect-native framework for assembling, running, and inspecting complete agent systems.",
-        packages: ["glove-foundry"],
-      },
-      {
-        label: "Installation",
-        href: "/docs/installation",
-        summary:
-          "Which packages to install for which shape of app, model providers, and environment variables.",
-        packages: ["glove-core", "glove-react", "glove-next"],
+          "Every primitive Glove, Foundry and Kuiper give you, grouped by the part of a harness it serves, with what people hand-build when they don't know it exists. Check here before you build.",
       },
       {
         label: "Quickstart",
@@ -63,10 +60,18 @@ export const docsSections: DocsNavSection[] = [
         packages: ["glove-core", "glove-react", "glove-next"],
       },
       {
-        label: "Core Concepts",
-        href: "/docs/concepts",
+        label: "Installation",
+        href: "/docs/installation",
         summary:
-          "The agent loop, tools, the display stack, stores, adapters and context compaction.",
+          "Which packages to install for which shape of app, model providers, and environment variables.",
+        packages: ["glove-core", "glove-react", "glove-next"],
+      },
+      {
+        label: "Glove Foundry",
+        href: "/foundry",
+        summary:
+          "The file-routed, Effect-native framework for assembling, running, and inspecting complete agent systems.",
+        packages: ["glove-foundry"],
       },
       {
         label: "All Packages",
@@ -77,37 +82,141 @@ export const docsSections: DocsNavSection[] = [
     ],
   },
   {
-    title: "Building Agents",
-    blurb: "The runtime surface you write against every day.",
+    title: "Build It Up",
+    blurb:
+      "One agent, built up a layer at a time: from a single tool to a deployed Foundry system on Kuiper.",
     items: [
       {
-        label: "The Display Stack",
-        href: "/docs/display-stack",
+        label: "1 · A loop and a tool",
+        href: "/docs/build/loop",
         summary:
-          "Tools push UI mid-conversation — pushAndWait, pushAndForget, display strategies.",
-        packages: ["glove-core", "glove-react"],
-      },
-      {
-        label: "Hooks, Skills & Subagents",
-        href: "/docs/extensions",
-        summary:
-          "Mutate state before a turn, inject context on demand, and route work to isolated children.",
+          "The smallest harness: a model, a tool, and the loop that connects them. What the loop already handles so you don't.",
         packages: ["glove-core"],
       },
       {
-        label: "The Inbox",
-        href: "/docs/inbox",
+        label: "2 · Show your work",
+        href: "/docs/build/surface",
         summary:
-          "A persistent mailbox for work that cannot resolve now — resolved later, injected next turn.",
-        packages: ["glove-core"],
+          "Stream text, render UI from tools, and wait for a person's answer mid-run with the display stack.",
+        packages: ["glove-core", "glove-react", "glove-next"],
       },
       {
-        label: "Classifier Models",
-        href: "/docs/classifier",
+        label: "3 · Control what it sees",
+        href: "/docs/build/context",
+        summary:
+          "A stable prompt, live state at the tail of every call, skills loaded on demand, and compaction for long sessions.",
+        packages: ["glove-core", "glove-memory"],
+      },
+      {
+        label: "4 · Make it remember",
+        href: "/docs/build/state",
+        summary:
+          "Durable conversations, an inbox for work that finishes later, memory, facts, forms and goals.",
+        packages: ["glove-core", "glove-memory", "glove-facts"],
+      },
+      {
+        label: "5 · Give it a workspace",
+        href: "/docs/build/workspace",
+        summary:
+          "Files, scripts and code instead of a wall of tools: the working environment, REPLs, MCP, browsers and sandboxes.",
+        packages: ["glove-working-environment", "glove-js", "glove-mcp", "glove-execution"],
+      },
+      {
+        label: "6 · Split the work",
+        href: "/docs/build/team",
+        summary:
+          "Subagents with their own tools and context, and agents that message each other over mesh.",
+        packages: ["glove-core", "glove-mesh"],
+      },
+      {
+        label: "7 · Make it a system",
+        href: "/docs/build/system",
+        summary:
+          "Move the agent into Foundry: instances per user, conversations, schedules, inbound channels, approvals and an API.",
+        packages: ["glove-foundry"],
+      },
+      {
+        label: "8 · Put it in production",
+        href: "/docs/build/production",
+        summary:
+          "Deploy the Foundry folder on Kuiper: a disk for state, the model gateway, secrets, a domain, and the agent's runs in the dashboard.",
+        packages: ["glove-foundry"],
+      },
+    ],
+  },
+  {
+    title: "Harness Blueprints",
+    blurb:
+      "Whole harnesses, assembled from primitives: what each uses, what you write, and how it deploys.",
+    items: [
+      {
+        label: "All blueprints",
+        href: "/docs/harnesses",
         badge: "new",
         summary:
-          "Fast, calibrated typed decisions — TypeSafe's Jev or any classifier — as agent tools, with an LLM fallback and confidence-gated cascades.",
-        packages: ["glove-classifier"],
+          "Coding agents, personal assistants, support desks, voice agents, research and document agents, and multi-agent workforces, each as a bill of primitives.",
+      },
+      {
+        label: "Coding agent",
+        href: "/docs/harnesses/coding",
+        summary:
+          "A coding harness: a sandboxed workspace, file and shell tools behind permission gates, a task list, skills, subagents and a terminal or web surface.",
+        packages: ["glove-core", "glove-execution", "glove-working-environment"],
+      },
+      {
+        label: "Personal agent",
+        href: "/docs/harnesses/personal",
+        summary:
+          "An assistant that works while you don't: a chat channel, memory, reminders, a browser and email, running on Foundry and Kuiper.",
+        packages: ["glove-foundry", "glove-memory", "glove-execution"],
+      },
+      {
+        label: "Support desk",
+        href: "/docs/harnesses/support",
+        summary:
+          "Agents per customer that wake on tickets and messages, triage with classifiers, collect details with forms and ask before acting.",
+        packages: ["glove-foundry", "glove-classifier", "glove-memory"],
+      },
+      {
+        label: "Voice agent",
+        href: "/docs/harnesses/voice",
+        summary:
+          "A voice front that talks while a worker thinks: pipelines or realtime speech, forms over speech, and durable work delegated to Foundry.",
+        packages: ["glove-voice", "glove-voice-s2s", "glove-foundry"],
+      },
+      {
+        label: "Research & documents",
+        href: "/docs/harnesses/research",
+        summary:
+          "An analyst that reads, computes and produces reports, decks and spreadsheets as files, and looks at its own output before delivering it.",
+        packages: ["glove-working-environment", "glove-env-documents", "glove-js"],
+      },
+      {
+        label: "Multi-agent workforce",
+        href: "/docs/harnesses/workforce",
+        summary:
+          "Many agents provisioned by events, coordinating through workspace entries, tasks and mesh, with one inspector over all of it.",
+        packages: ["glove-foundry", "glove-mesh"],
+      },
+    ],
+  },
+  {
+    title: "Loop & Tools",
+    blurb:
+      "Reference: the agent loop, models, tools and the tool surfaces built on them.",
+    items: [
+      {
+        label: "Core Concepts",
+        href: "/docs/concepts",
+        summary:
+          "The agent loop, tools, the display stack, stores, adapters and context compaction.",
+      },
+      {
+        label: "Core API Reference",
+        href: "/docs/core",
+        summary:
+          "Glove, Agent, PromptMachine, Executor, Observer, DisplayManager and every adapter contract.",
+        packages: ["glove-core"],
       },
       {
         label: "Server-Side Agents",
@@ -117,94 +226,62 @@ export const docsSections: DocsNavSection[] = [
         packages: ["glove-core"],
       },
       {
-        label: "Core API Reference",
-        href: "/docs/core",
+        label: "Hooks, Skills & Subagents",
+        href: "/docs/extensions",
         summary:
-          "Glove, Agent, PromptMachine, Executor, Observer, DisplayManager and every adapter contract.",
+          "Mutate state before a turn, inject context on demand, and route work to isolated children.",
         packages: ["glove-core"],
       },
-    ],
-  },
-  {
-    title: "Interfaces",
-    blurb: "How people reach the agent — rendered UI, speech, and a live face.",
-    items: [
       {
-        label: "React",
-        href: "/docs/react",
+        label: "MCP",
+        href: "/docs/mcp",
         summary:
-          "GloveClient, GloveProvider, useGlove, <Render>, defineTool and the client bindings.",
-        packages: ["glove-react"],
+          "Bridge Model Context Protocol servers in as first-class tools, with a discovery subagent.",
+        packages: ["glove-mcp"],
       },
       {
-        label: "Next.js",
-        href: "/docs/next",
-        summary: "createChatHandler — SSE streaming route handlers for the App Router.",
-        packages: ["glove-next"],
+        label: "Code Execution",
+        href: "/docs/code-execution",
+        summary:
+          "One eval tool instead of fifty tool definitions — JavaScript, Python and Lisp REPLs.",
+        packages: ["glove-js", "glove-python", "glove-lisp"],
       },
       {
-        label: "Voice Agent Architectures",
-        href: "/docs/voice-architectures",
+        label: "Scratchpad",
+        href: "/docs/scratchpad",
+        summary:
+          "Expose tools as a relational database the model queries with one execute_sql tool.",
+        packages: ["glove-scratchpad"],
+      },
+      {
+        label: "SQL Engine",
+        href: "/docs/sql",
+        summary:
+          "The zero-dependency Postgres-subset engine behind the scratchpad.",
+        packages: ["glove-sql"],
+      },
+      {
+        label: "Classifier Models",
+        href: "/docs/classifier",
         badge: "new",
         summary:
-          "Pipeline vs realtime, single vs layered: a fast front agent that talks while a worker thinks, and <speech> tags for streaming only what should be said.",
-        packages: ["glove-voice", "glove-voice-s2s", "glove-mesh"],
-      },
-      {
-        label: "Voice Pipeline",
-        href: "/docs/voice",
-        badge: "voice",
-        summary:
-          "The cascade — VAD → STT → agent → TTS — with barge-in, push-to-talk and React Native.",
-        packages: ["glove-voice", "glove-voice-native"],
-      },
-      {
-        label: "Realtime Voice & Avatars",
-        href: "/docs/realtime-voice",
-        summary:
-          "Speech-to-speech models, live avatars, and LiveKit as the room transport.",
-        packages: ["glove-voice-s2s", "glove-voice-avatar", "glove-voice-livekit"],
+          "Fast, calibrated typed decisions — TypeSafe's Jev or any classifier — as agent tools, with an LLM fallback and confidence-gated cascades.",
+        packages: ["glove-classifier"],
       },
     ],
   },
   {
-    title: "Generative Media",
-    blurb: "Agentic image and video generation — workflows, not one-off calls.",
+    title: "Context & State",
+    blurb:
+      "Reference: what the agent sees on every call and what it carries between them.",
     items: [
       {
-        label: "Image Workflows",
-        href: "/docs/image",
+        label: "The Inbox",
+        href: "/docs/inbox",
         summary:
-          "Prompt pipelines with enhancer inbetweens, durable characters and scenes, reference images, editing, assembly, vision review and per-call cost tracking.",
-        packages: ["glove-image"],
+          "A persistent mailbox for work that cannot resolve now — resolved later, injected next turn.",
+        packages: ["glove-core"],
       },
-      {
-        label: "Image Gallery",
-        href: "/docs/image/gallery",
-        summary:
-          "A worked SS26 campaign — every image with its real prompt, pipeline trace and cost, plus a provenance canvas showing how one was made.",
-        packages: ["glove-image"],
-      },
-      {
-        label: "Video Workflows",
-        href: "/docs/video",
-        summary:
-          "Temporal prompt pipelines, continuity libraries, image references, actual-video review, delivery gates, resumable flows and spend tracking.",
-        packages: ["glove-video", "glove-image"],
-      },
-      {
-        label: "Video Gallery",
-        href: "/docs/video/gallery",
-        summary:
-          "An agent-directed case study exposing the keyframe, timed recipe, every reviewed take, revision evidence, delivery decision and real spend.",
-        packages: ["glove-video", "glove-image"],
-      },
-    ],
-  },
-  {
-    title: "Memory & State",
-    blurb: "What the agent knows, and what it carries between turns.",
-    items: [
       {
         label: "Memory",
         href: "/docs/memory",
@@ -244,42 +321,13 @@ export const docsSections: DocsNavSection[] = [
         href: "/docs/memory/why",
         summary: "The design story behind the four-primitive split.",
       },
-      {
-        label: "Scratchpad",
-        href: "/docs/scratchpad",
-        summary:
-          "Expose tools as a relational database the model queries with one execute_sql tool.",
-        packages: ["glove-scratchpad"],
-      },
-      {
-        label: "SQL Engine",
-        href: "/docs/sql",
-        summary:
-          "The zero-dependency Postgres-subset engine behind the scratchpad.",
-        packages: ["glove-sql"],
-      },
     ],
   },
   {
-    title: "Sandboxes & Execution",
+    title: "Workspace",
     blurb:
-      "Give the model a place to compute instead of a wall of tool definitions.",
+      "Reference: give the model a place to compute instead of a wall of tool definitions.",
     items: [
-      {
-        label: "Browsers & Sandboxes",
-        href: "/docs/execution",
-        badge: "new",
-        summary: "Mounted browser workflows, persistent coding sandboxes, and optional shared Station hosting in Foundry.",
-        packages: ["glove-execution", "glove-foundry"],
-      },
-      {
-        label: "Virtual Filesystem",
-        href: "/docs/vfs",
-        badge: "new",
-        summary:
-          "One tree the working environment, memory resources and the REPLs all share — mounts, access policies, metadata and search.",
-        packages: ["glove-vfs"],
-      },
       {
         label: "Working Environment",
         href: "/docs/working-environment",
@@ -299,11 +347,19 @@ export const docsSections: DocsNavSection[] = [
         ],
       },
       {
-        label: "Code Execution",
-        href: "/docs/code-execution",
+        label: "Virtual Filesystem",
+        href: "/docs/vfs",
+        badge: "new",
         summary:
-          "One eval tool instead of fifty tool definitions — JavaScript, Python and Lisp REPLs.",
-        packages: ["glove-js", "glove-python", "glove-lisp"],
+          "One tree the working environment, memory resources and the REPLs all share — mounts, access policies, metadata and search.",
+        packages: ["glove-vfs"],
+      },
+      {
+        label: "Browsers & Sandboxes",
+        href: "/docs/execution",
+        badge: "new",
+        summary: "Mounted browser workflows, persistent coding sandboxes, and optional shared Station hosting in Foundry.",
+        packages: ["glove-execution", "glove-foundry"],
       },
       {
         label: "Egress Control",
@@ -316,8 +372,59 @@ export const docsSections: DocsNavSection[] = [
     ],
   },
   {
-    title: "Multi-Agent",
-    blurb: "Many agents, coordinated.",
+    title: "Surface",
+    blurb:
+      "Reference: how people reach the agent \u2014 rendered UI, speech and a live face.",
+    items: [
+      {
+        label: "The Display Stack",
+        href: "/docs/display-stack",
+        summary:
+          "Tools push UI mid-conversation — pushAndWait, pushAndForget, display strategies.",
+        packages: ["glove-core", "glove-react"],
+      },
+      {
+        label: "React",
+        href: "/docs/react",
+        summary:
+          "GloveClient, GloveProvider, useGlove, <Render>, defineTool and the client bindings.",
+        packages: ["glove-react"],
+      },
+      {
+        label: "Next.js",
+        href: "/docs/next",
+        summary: "createChatHandler — SSE streaming route handlers for the App Router.",
+        packages: ["glove-next"],
+      },
+      {
+        label: "Voice Agent Architectures",
+        href: "/docs/voice-architectures",
+        badge: "new",
+        summary:
+          "Pipeline vs realtime, single vs layered: a fast front agent that talks while a worker thinks, and <speech> tags for streaming only what should be said.",
+        packages: ["glove-voice", "glove-voice-s2s", "glove-mesh"],
+      },
+      {
+        label: "Voice Pipeline",
+        href: "/docs/voice",
+        badge: "voice",
+        summary:
+          "The cascade — VAD → STT → agent → TTS — with barge-in, push-to-talk and React Native.",
+        packages: ["glove-voice", "glove-voice-native"],
+      },
+      {
+        label: "Realtime Voice & Avatars",
+        href: "/docs/realtime-voice",
+        summary:
+          "Speech-to-speech models, live avatars, and LiveKit as the room transport.",
+        packages: ["glove-voice-s2s", "glove-voice-avatar", "glove-voice-livekit"],
+      },
+    ],
+  },
+  {
+    title: "Team",
+    blurb:
+      "Reference: many agents, coordinated.",
     items: [
       {
         label: "Mesh",
@@ -337,15 +444,37 @@ export const docsSections: DocsNavSection[] = [
     ],
   },
   {
-    title: "Integrate",
-    blurb: "Reach the outside world. To deploy, see the Foundry deploy guide.",
+    title: "Generative Media",
+    blurb:
+      "Reference: agentic image and video generation \u2014 workflows, not one-off calls.",
     items: [
       {
-        label: "MCP",
-        href: "/docs/mcp",
+        label: "Image Workflows",
+        href: "/docs/image",
         summary:
-          "Bridge Model Context Protocol servers in as first-class tools, with a discovery subagent.",
-        packages: ["glove-mcp"],
+          "Prompt pipelines with enhancer inbetweens, durable characters and scenes, reference images, editing, assembly, vision review and per-call cost tracking.",
+        packages: ["glove-image"],
+      },
+      {
+        label: "Image Gallery",
+        href: "/docs/image/gallery",
+        summary:
+          "A worked SS26 campaign — every image with its real prompt, pipeline trace and cost, plus a provenance canvas showing how one was made.",
+        packages: ["glove-image"],
+      },
+      {
+        label: "Video Workflows",
+        href: "/docs/video",
+        summary:
+          "Temporal prompt pipelines, continuity libraries, image references, actual-video review, delivery gates, resumable flows and spend tracking.",
+        packages: ["glove-video", "glove-image"],
+      },
+      {
+        label: "Video Gallery",
+        href: "/docs/video/gallery",
+        summary:
+          "An agent-directed case study exposing the keyframe, timed recipe, every reviewed take, revision evidence, delivery decision and real spend.",
+        packages: ["glove-video", "glove-image"],
       },
     ],
   },
@@ -404,8 +533,7 @@ export const docsSections: DocsNavSection[] = [
         packages: ["glove-core"],
       },
     ],
-  },
-  {
+  },  {
     title: "Resources",
     blurb: "Everything else.",
     items: [
@@ -415,9 +543,9 @@ export const docsSections: DocsNavSection[] = [
         summary: "llms.txt, llms-full.txt and the Claude Code agent skill.",
       },
       {
-        label: "Agent Skill",
+        label: "Agent Skills",
         href: "/docs/agent-skill",
-        summary: "Install the Glove and Foundry skills so Claude Code and other coding agents write correct Glove code.",
+        summary: "Install the glove, glove-foundry and kuiper skills so Claude Code and other coding agents reach for Glove's primitives, build Foundry systems and deploy them on Kuiper.",
       },
       {
         label: "v4 Release Notes",
@@ -432,8 +560,7 @@ export const docsSections: DocsNavSection[] = [
         summary: "What changed in Glove v3 and how to upgrade.",
       },
     ],
-  },
-];
+  },];
 
 export interface DocsOrderEntry {
   href: string;

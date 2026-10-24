@@ -396,7 +396,7 @@ export const gloveClient = new GloveClient({
       }),
       async do(input) {
         const res = await fetch(\`/api/docs/search?q=\${encodeURIComponent(input.query)}\`);
-        return res.json();
+        return { status: "success", data: await res.json() };
       },
     },
   ],

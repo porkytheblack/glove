@@ -648,7 +648,7 @@ const weatherTool: ToolConfig<{ city: string }> = {
   inputSchema: z.object({ city: z.string() }),
   async do(input) {
     const res = await fetch(\`https://api.weather.example/v1?city=\${input.city}\`);
-    return res.json();
+    return { status: "success", data: await res.json() };
   },
 };`}
         language="typescript"
@@ -823,7 +823,7 @@ const askPreference = defineTool({
     const confirmed = await display.pushAndWait<{ message: string }, boolean>({
       input,
     });
-    return confirmed ? "User confirmed." : "User declined.";
+    return { status: "success", data: confirmed ? "User confirmed." : "User declined." };
   },
   render({ data, resolve }) {
     return (

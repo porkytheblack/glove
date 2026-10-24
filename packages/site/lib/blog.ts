@@ -20,6 +20,33 @@ export interface BlogPost {
 
 export const posts: BlogPost[] = [
   {
+    slug: "every-harness-is-the-same-seven-parts",
+    title: "Every agent harness is the same seven parts",
+    summary:
+      "A coding agent, a personal assistant and a support desk are the same seven parts in different proportions: loop, tools, context, state, workspace, surface and team. Foundry adds what a system needs, Kuiper what production needs.",
+    date: "2026-10-24",
+    readingTime: 7,
+    tags: ["first-principles", "architecture", "foundry", "kuiper"],
+  },
+  {
+    slug: "before-you-build-it",
+    title: "Before you build it",
+    summary:
+      "Fourteen things teams and coding agents keep hand-building on top of Glove, from reminder queues and approval tables to Playwright wrappers and prompt rebuilds, and the primitive that already does each one.",
+    date: "2026-10-24",
+    readingTime: 10,
+    tags: ["primitives", "foundry", "guide"],
+  },
+  {
+    slug: "from-foundry-dev-to-production",
+    title: "From glove foundry dev to production",
+    summary:
+      "Take the minimal Foundry starter to production on Kuiper: state on a persistent disk, a bearer-token authorizer, models through Kuiper's gateway, and the agent's runs in the dashboard. No Dockerfile.",
+    date: "2026-10-24",
+    readingTime: 8,
+    tags: ["foundry", "kuiper", "deploy", "guide"],
+  },
+  {
     slug: "classifier-models",
     title: "Classifier models in Glove: decide what matters without reading it",
     summary:

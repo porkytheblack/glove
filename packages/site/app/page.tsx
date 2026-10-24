@@ -9,6 +9,7 @@ import {
   HeroGrain,
 } from "@/components/landing-shaders";
 import type { CSSProperties, ReactNode } from "react";
+import { partsOf } from "@/lib/primitives";
 import "./landing.css";
 
 /* ── Capability icons — minimal 24px line glyphs ───────────────────── */
@@ -330,12 +331,12 @@ const groups: Group[] = [
   },
 ];
 
+// The parts every harness is made of, from lib/primitives.ts, plus the two
+// layers above the harness.
 const layers = [
-  { name: "Agent", desc: "The loop: prompt, call tools, feed results back." },
-  { name: "Prompt machine", desc: "Wraps the model behind a ModelAdapter." },
-  { name: "Executor", desc: "Validates, retries and permission-checks tools." },
-  { name: "Observer", desc: "Tracks turns and tokens; compacts long sessions." },
-  { name: "Display manager", desc: "The UI stack your tools render into." },
+  ...partsOf("harness").map((part) => ({ name: part.name, desc: part.question, href: `/docs/primitives#${part.id}` })),
+  { name: "System", desc: "Identity, time, arrival, oversight, access: Glove Foundry.", href: "/docs/primitives#layer-system" },
+  { name: "Production", desc: "Run, keep, reach, watch: Kuiper.", href: "/docs/primitives#layer-production" },
 ];
 
 const usedBy: {
@@ -380,12 +381,13 @@ export default function LandingPage() {
           </a>
           <GloveLogo className="lp-hero-logo" />
           <h1 id="lp-hero-title">
-            Agents that <em>do the work.</em>
+            Agents that <em>do cool things.</em>
           </h1>
           <p className="lp-hero-sub">
-            Glove is the open-source TypeScript stack for building AI agents:
-            tools, memory, voice, UI, browsers and sandboxes. Foundry runs them
-            as typed, observable services.
+            Glove is the open-source TypeScript stack for building agent
+            harnesses: coding agents, personal assistants, support desks, voice
+            agents. A primitive for every part of a harness, Foundry to run them
+            as a system, and Kuiper to put that system in production.
           </p>
           <div className="lp-hero-actions">
             <a href="/foundry/docs/getting-started" className="btn-primary">
@@ -584,25 +586,26 @@ await agent.processRequest("Running shoes under $100");`}
       {/* Under the hood */}
       <section className="lp-section" aria-labelledby="lp-arch-title">
         <h2 id="lp-arch-title" className="lp-title">
-          Five parts. Every one swappable.
+          Every harness is the same seven parts.
         </h2>
         <p className="lp-lede">
-          The runtime talks to models, stores, displays and subscribers through
-          adapters, so you can change any of them without touching your agent.
+          A coding agent and a support desk differ in shape, not in parts. Glove
+          has a primitive for each part, so you assemble a harness instead of
+          rebuilding one. Foundry and Kuiper add the two layers above it.
         </p>
         <RevealOnScroll>
           <ol className="lp-layers">
             {layers.map((layer, index) => (
               <li key={layer.name}>
                 <span className="lp-layer-n">{String(index + 1).padStart(2, "0")}</span>
-                <strong>{layer.name}</strong>
+                <strong><a href={layer.href}>{layer.name}</a></strong>
                 <p>{layer.desc}</p>
               </li>
             ))}
           </ol>
         </RevealOnScroll>
-        <a href="/docs/concepts" className="lp-more">
-          How the runtime fits together {arrow}
+        <a href="/docs/first-principles" className="lp-more">
+          First principles: how the parts fit together {arrow}
         </a>
       </section>
 
@@ -626,11 +629,13 @@ await agent.processRequest("Running shoes under $100");`}
         </div>
         <div className="lp-grant">
           <a href="https://elevenlabs.io/startup-grants" target="_blank" rel="noopener noreferrer">
+            <span className="lp-grant-label">Supported by</span>
+            {/* The wordmark is 1496×132; keep that ratio or it stretches. */}
             <img
               src="https://eleven-public-cdn.elevenlabs.io/payloadcms/cy7rxce8uki-IIElevenLabsGrants%201.webp"
-              alt="ElevenLabs Startup Grant"
-              width={200}
-              height={45}
+              alt="ElevenLabs Grants"
+              width={204}
+              height={18}
             />
           </a>
         </div>
