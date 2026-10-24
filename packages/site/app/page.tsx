@@ -381,7 +381,7 @@ export default function LandingPage() {
           </a>
           <GloveLogo className="lp-hero-logo" />
           <h1 id="lp-hero-title">
-            Agents that <em>do the work.</em>
+            Agents that <em>do cool things.</em>
           </h1>
           <p className="lp-hero-sub">
             Glove is the open-source TypeScript stack for building agent
@@ -629,11 +629,13 @@ await agent.processRequest("Running shoes under $100");`}
         </div>
         <div className="lp-grant">
           <a href="https://elevenlabs.io/startup-grants" target="_blank" rel="noopener noreferrer">
+            <span className="lp-grant-label">Supported by</span>
+            {/* The wordmark is 1496×132; keep that ratio or it stretches. */}
             <img
               src="https://eleven-public-cdn.elevenlabs.io/payloadcms/cy7rxce8uki-IIElevenLabsGrants%201.webp"
-              alt="ElevenLabs Startup Grant"
-              width={200}
-              height={45}
+              alt="ElevenLabs Grants"
+              width={204}
+              height={18}
             />
           </a>
         </div>
