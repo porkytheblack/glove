@@ -39,6 +39,11 @@ agents/<agent>/
   schedules/*.ts
 ```
 
+Keep `agent.ts` to assembly: imports and one `defineAgent` whose fields are values,
+imported definitions or one-line resolvers. Put prompts (`prompt.ts`, a function),
+always-on tools (`tools.ts`), payload parsing and calls (`call.ts`), workspaces
+(`workspace.ts`) and per-layer model choices (`lib/models.ts`) in their own modules.
+
 Use `composeAgent(...)` to assemble the agent-local catalogue. Composition makes definitions available; it does not install applications, MCPs, or shared tools. An instance chooses those surfaces dynamically with typed `install(...)` records.
 
 Prefer the definition helper that owns the contract (`defineAgent`, `defineApp`, `defineTransmission`, `defineSharedTool`, `defineMcp`, `defineMemory`, `defineLayer`, `defineSchedule`, and related helpers). Let the definition's Zod or Effect schema carry config types through installation and runtime decoding. Do not add parallel handwritten config types or cast away inference.
@@ -115,25 +120,54 @@ Enable shared preparation with `new FactPreparation(facts, { agent: preparationA
 
 Use the first-class lazy `goals`, `facts`, `forms`, and `contextProviders` fields. Read [Foundry guidance](https://github.com/porkytheblack/glove/blob/main/packages/glove-foundry/docs/guidance.md) for mounting, typed execution handles, conversation-default scope, instance sharing, native preparation, and durable SQLite adapters. A definition-provided program seeds absent goals; later revisions require native CAS and a reason. Context providers are read-only transient snapshots, never a second inference loop. Keep the [shared workflow guide](https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/references/memory-and-workflows.md#goals-facts-and-form-preparation) and [facts adapter contracts](https://github.com/porkytheblack/glove/blob/main/packages/glove-facts/README.md) authoritative for evidence, correction, tracing and recovery.
 
-## Realtime voice hosts
+## Layered agents and voice
 
-Use `glove-voice-s2s` with `RealtimeAgent` for OpenAI Realtime, Gemini Live, or
-GPT-Live (`provider: "openai-live"`, available in 0.4.0). A voice session does not
-run Foundry's durable lifecycle: expose a delegation tool backed by the native
-client and an instance/conversation when work needs persistence and observability.
-GPT-Live uses a Responses backend for the same Glove tools; Live client delegation
-is not implemented. The host owns server credentials, continuous PCM pacing
-including silence, timestamped transcript fragments, and playback/avatar utterance
-boundaries. Do not reuse Realtime VAD or final-turn assumptions. Await `stop()`
-in scoped cleanup so final usage can arrive. Read the
-[voice host guide](https://github.com/porkytheblack/glove/blob/main/packages/glove-foundry/docs/building-with-foundry.md#voice-hosts)
-and [GPT-Live contract](https://github.com/porkytheblack/glove/blob/main/packages/glove-voice-s2s/README.md#gpt-live) before
-adapting an existing room example.
+Decide layers by three questions: how fast must it reply, what context must it
+keep, how long does it run. Then give each agent only the access its job needs.
+
+- Interactor (layer 1): fast model or `s2sDrivenModel`, personal memory
+  (`*.memory.ts` with glove-memory, one namespace per instance), talks to the
+  person, lists workers in `delegates: [{ agent: "<route>", description }]`.
+  Write descriptions for the model that has to choose.
+- Workers (layer 2): ordinary definitions with their own model, tools,
+  `workingEnvironment`, browser or sandbox mounts, and a durable `store`. No
+  personal memory; no tool that reaches the person. Set `answerWaitMs` when a
+  worker holds live state worth keeping while it waits for an answer.
+- Name delegates by route; never import another agent's `agent.ts` (its
+  dependencies would load in every run of the importer).
+- Foundry creates one worker instance per interactor instance and route
+  (`<agentId>.<route>`, context copied from the interactor instance plus
+  `delegatedBy`) and one conversation per delegation (id = delegation id).
+  Keep secrets out of instance context.
+- Results, questions and failures arrive in the delegating conversation as
+  `<delegation id agent status>` messages: into a run that listens via
+  `ctx.onDelegationUpdate(handler)`, else as one new run (`source.kind`
+  `"delegation"`) once no run holds the conversation. Open delegations appear in
+  runtime context. `runtime.listDelegations(filter)` lists them; trace events are
+  `delegation.started|question|replied|completed|failed|cancelled|delivered`.
+- Voice: `run: voiceCall({ room, greeting?, idleMs?, maxDurationMs?, openDelayMs?,
+  realtime?, announce?, offCall? })` from `glove-foundry/voice`. It hosts
+  `RealtimeAgent` over the assembled agent, saves both sides to the store, speaks
+  delegation updates at the next pause (8 s max hold), and keeps Foundry's
+  bookkeeping tools and every `requiresPermission` tool off the call (the
+  realtime path has no approval step). A delegation run with no live call is
+  saved to the conversation unless `offCall` handles it; or route
+  `source.kind === "delegation"` runs to `ctx.defaultRun()` with a text model.
+- Rooms are `{ open(call), close() }` calling `call.joined()` / `call.left()`.
+  `webSocketRoom({ port, token })` serves PCM16 + JSON on its own port (put it
+  behind a proxy on single-port hosts such as Kuiper); a LiveKit room wraps
+  `LiveKitTransport` + `attachRealtime` from glove-voice-livekit and connects
+  outward. Gemini Live: `openDelayMs: 500`.
+- GPT-Live (`provider: "openai-live"`): the host owns continuous PCM pacing
+  including silence, timestamped transcript fragments, and playback/avatar
+  utterance boundaries; Realtime VAD and final-turn assumptions do not apply.
+  Read the [GPT-Live contract](https://github.com/porkytheblack/glove/blob/main/packages/glove-voice-s2s/README.md#gpt-live).
 
 ## Multi-agent systems
 
 Choose the smallest correct composition surface:
 
+- `delegates` for a fast agent that hands slow or tool-heavy work to siblings and hears back (see above).
 - `defineSubagent` for an isolated nested task under a parent run. Its `tools` can project a least-privilege subset of `parent.tools`; its `layers` (including `configureLayer(layer, config)`) and `subscribers` mount on each invocation, before `configure`, and are disposed when the subagent's request ends.
 - Foundry calls for typed agent-to-agent or agent-to-service invocation.
 - Mesh for peer messaging and acknowledgements.

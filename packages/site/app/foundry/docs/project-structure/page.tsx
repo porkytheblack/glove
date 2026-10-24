@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CodeBlock } from "@/components/code-block";
+import { AssemblyDiagram } from "@/components/diagrams";
 
 export const metadata = {
   title: "Project structure & conventions",
@@ -208,6 +209,38 @@ export default {
           <code>{"{"} account: supportAccount {"}"}</code>), never by copying the string.
         </li>
       </ul>
+
+      <h2 id="assembly">agent.ts assembles; the parts live beside it</h2>
+      <p>
+        <code>agent.ts</code> is the first file a person or a coding agent opens to learn what an
+        agent is, so keep it to that: imports and one <code>defineAgent</code> call whose fields
+        are values, imported definitions, or one-line resolvers. Write what the agent is made
+        of in modules beside it. Each part can then be read, tested and reused on its own, and
+        the definition stays a page you can take in at a glance.
+      </p>
+      <AssemblyDiagram />
+      <CodeBlock
+        filename="agents/assistant/"
+        language="text"
+        code={`agent.ts              imports the parts and wires them into fields
+prompt.ts             interactorPrompt(onCall): the instructions, as a function
+personal.memory.ts    defineMemory(...): a convention file, so it owns its id
+call.ts               the call: payload schema, isCall(), voiceCall({ room, greeting })
+tools.ts              always-on tools as plain Glove tool objects
+tools/*.tool.ts       tools an instance installs`}
+      />
+      <ul>
+        <li><strong>Prompts are functions.</strong> <code>prompt.ts</code> exports a function that takes what changes the prompt (the surface, the instance) and returns a string. The field is <code>systemPrompt: (_agent, ctx) =&gt; interactorPrompt(isCall(ctx))</code>.</li>
+        <li><strong>Tools live in tools files.</strong> Always-on tools go in a plain <code>tools.ts</code>; tools an instance installs go in <code>tools/*.tool.ts</code>. Tool bodies call your services from <code>lib/</code>.</li>
+        <li><strong>Pieces with an identity use their convention file.</strong> Memory, apps, MCP servers, layers and subscribers are <code>*.memory.ts</code>, <code>*.app.ts</code> and so on, so the file owns the id.</li>
+        <li><strong>Choices shared by several agents go in <code>lib/</code>.</strong> The model for each layer, the conversation store, workspace persistence.</li>
+        <li><strong>Parse a request once.</strong> If the payload decides behaviour (a call, a campaign), a module exports the schema and a predicate, and every field uses them.</li>
+        <li><strong>Agents refer to each other by route.</strong> List siblings in <Link href="/foundry/docs/layered-agents"><code>delegates</code></Link>; never import another agent&apos;s <code>agent.ts</code>, or its dependencies load in every one of your runs.</li>
+      </ul>
+      <p>
+        <code>examples/foundry-layered-assistant</code> follows these rules end to end; its{" "}
+        <code>agent.ts</code> files are under 40 lines each.
+      </p>
 
       <h2 id="application">foundry.application.ts</h2>
       <p>

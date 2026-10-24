@@ -185,7 +185,22 @@ export class FoundryObserver implements SignalSubscriber {
       readonly type: string;
       readonly data: unknown;
     }) => void,
+    private readonly onRunSettled?: (event: {
+      readonly route: string;
+      readonly run: Run;
+      readonly status: "completed" | "failed" | "cancelled";
+      readonly output?: string;
+      readonly error?: string;
+    }) => void,
   ) {}
+
+  private settled(
+    run: Run,
+    status: "completed" | "failed" | "cancelled",
+    detail: { readonly output?: string; readonly error?: string } = {},
+  ): void {
+    this.onRunSettled?.({ route: this.route(run.signalName), run, status, ...detail });
+  }
 
   private route(name: string): string {
     return this.routeForSignalName(name);
@@ -221,6 +236,7 @@ export class FoundryObserver implements SignalSubscriber {
   onRunCompleted(event: { run: Run; output?: string }): void {
     this.flushRunLogs(event.run);
     this.runEvent("run.completed", event.run, { output: event.output });
+    this.settled(event.run, "completed", event.output !== undefined ? { output: event.output } : {});
   }
 
   onRunTimeout({ run }: { run: Run }): void {
@@ -241,11 +257,13 @@ export class FoundryObserver implements SignalSubscriber {
   onRunFailed(event: { run: Run; error?: string }): void {
     this.flushRunLogs(event.run);
     this.runEvent("run.failed", event.run, { error: event.error });
+    this.settled(event.run, "failed", event.error !== undefined ? { error: event.error } : {});
   }
 
   onRunCancelled({ run }: { run: Run }): void {
     this.flushRunLogs(run);
     this.runEvent("run.cancelled", run);
+    this.settled(run, "cancelled");
   }
 
   onRunSkipped(event: { run: Run; reason: string }): void {

@@ -170,7 +170,7 @@ export interface FoundryRequest {
   readonly payload?: unknown;
   readonly context?: Readonly<Record<string, unknown>>;
   readonly source?: {
-    readonly kind: "direct" | "transmission" | "activation" | "spawn" | "background";
+    readonly kind: "direct" | "transmission" | "activation" | "spawn" | "background" | "delegation";
     readonly id?: string;
     readonly provider?: string;
     readonly eventId?: string;
@@ -234,8 +234,18 @@ export interface FoundryResult {
   readonly agentId: string;
   readonly conversationId: string;
   readonly workspaceId: string;
-  readonly suspension?: { readonly commandId: string; readonly wakeAt: string };
+  readonly suspension?: FoundrySuspension;
 }
+
+/** Why a run ended without finishing: it went to sleep, or it asked a question. */
+export type FoundrySuspension =
+  | { readonly kind?: "sleep"; readonly commandId: string; readonly wakeAt: string }
+  | {
+      readonly kind: "question";
+      readonly commandId: string;
+      readonly delegationId: string;
+      readonly question: string;
+    };
 
 export interface CreateAgentInstanceOptions {
   readonly id?: string;

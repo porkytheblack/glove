@@ -93,6 +93,27 @@ import {
   FoundryApprovalDisplayManager,
   withFoundryPermissions,
 } from "./approval.js";
+import {
+  FOUNDRY_CONVERSATION_LISTEN_EVENT,
+  FOUNDRY_MAILBOX_DIRECTORY_ENV,
+  createDelegatorTools,
+  createWorkerTools,
+  delegationFromContext,
+  isOpenDelegation,
+  listenToConversation,
+  normalizeDelegates,
+  renderOpenDelegations,
+  writeMailboxDelivery,
+  type FoundryConversationDelivery,
+  type FoundryDelegate,
+  type FoundryDelegation,
+  type FoundryDelegationCommand,
+  type FoundryDelegationReply,
+  type FoundryDelegationUpdate,
+  type PendingQuestion,
+} from "./delegation.js";
+
+const DEFAULT_ANSWER_WAIT_MS = 90_000;
 
 const INBOX_ITEMS_SCHEMA = z.array(z.object({
   id: z.string().min(1),
@@ -305,6 +326,7 @@ async function executeDefinition(
     readonly agent: AgentInstance;
     readonly conversation: Conversation;
     readonly activations?: ReadonlyArray<FoundryActivationRecord>;
+    readonly delegations?: ReadonlyArray<FoundryDelegation>;
   };
   const request = envelope.request;
   const input = request;
@@ -362,6 +384,10 @@ async function executeDefinition(
       agentInstance: envelope.agent,
       conversation: envelope.conversation,
       activations: Object.freeze([...(envelope.activations ?? [])]),
+      delegations: Object.freeze([...(envelope.delegations ?? [])]),
+      ...(delegationFromContext(envelope.conversation.context)
+        ? { delegation: delegationFromContext(envelope.conversation.context)! }
+        : {}),
       data,
       input,
       message,
@@ -430,12 +456,13 @@ async function executeDefinition(
     }).build();
     base.addSubscriber(subscriber);
 
-    const [tools, hooks, skills, subagents, memory, inboxItems, layers, subscribers, calls, playbooks, schedules, mesh, workingEnvironment, repl] =
+    const [tools, hooks, skills, subagents, delegates, memory, inboxItems, layers, subscribers, calls, playbooks, schedules, mesh, workingEnvironment, repl] =
       await Promise.all([
         resolveOptional<ReadonlyArray<GloveFoldArgs<any>>>("tools", definition.tools, []),
         resolveOptional<ReadonlyArray<FoundryHookDefinition>>("hooks", definition.hooks, []),
         resolveOptional<ReadonlyArray<DefineSkillArgs>>("skills", definition.skills, []),
         resolveOptional<ReadonlyArray<DefineSubAgentArgs>>("subagents", definition.subagents, []),
+        resolveOptional<ReadonlyArray<FoundryDelegate>>("delegates", definition.delegates, []),
         resolveOptional<ReadonlyArray<FoundryMemorySelection>>("memory", definition.memory, []),
         definition.inboxes
           ? resolveAgentValue<ReadonlyArray<InboxItem>, FoundryRequest>(
@@ -545,6 +572,108 @@ async function executeDefinition(
     for (const skill of skills) base.defineSkill(skill);
     for (const subagent of subagents) base.defineSubAgent(subagent);
 
+    // Delegation: hand work to sibling agents, and hear back.
+    const mailboxDirectory = process.env[FOUNDRY_MAILBOX_DIRECTORY_ENV];
+    const emitDelegationCommand = (command: FoundryDelegationCommand): void => {
+      controls.commands.push(command);
+      controls.emit({ type: FOUNDRY_CORE_COMMAND_EVENT, data: command });
+    };
+    const listen = (
+      handler: (deliveries: ReadonlyArray<FoundryConversationDelivery>) => void | Promise<void>,
+    ) => {
+      if (!mailboxDirectory) {
+        throw new Error("Foundry cannot deliver to this run without its parent runtime.");
+      }
+      return listenToConversation({
+        directory: mailboxDirectory,
+        conversationId: request.conversationId,
+        report: (state) =>
+          writeAgentEvent(FOUNDRY_CONVERSATION_LISTEN_EVENT, { state }).catch(() => undefined),
+        handler,
+      });
+    };
+    const delegationTarget = {
+      definitionId: id,
+      agentId: request.agentId,
+      conversationId: request.conversationId,
+      workspaceId: request.workspaceId,
+      emit: emitDelegationCommand,
+    };
+    const startedHere: FoundryDelegation[] = [];
+    const normalizedDelegates = normalizeDelegates(delegates);
+    for (const tool of createDelegatorTools(delegationTarget, normalizedDelegates, (started) => {
+      const now = new Date().toISOString();
+      startedHere.push({
+        id: started.id,
+        to: started.to,
+        workerAgentId: "",
+        workspaceId: request.workspaceId,
+        from: { definitionId: id, agentId: request.agentId, conversationId: request.conversationId, runId },
+        task: started.task,
+        status: "working",
+        createdAt: now,
+        updatedAt: now,
+      });
+    })) base.fold(tool);
+    if (normalizedDelegates.length > 0 || assemblyContext.delegations.length > 0) {
+      base.addContextProvider(() =>
+        renderOpenDelegations([
+          ...assemblyContext.delegations.filter(isOpenDelegation),
+          ...startedHere,
+        ]),
+      );
+      controls.emit({
+        type: "foundry.definition.delegates.loaded",
+        data: { delegates: normalizedDelegates.map((delegate) => delegate.agent), open: assemblyContext.delegations.length },
+      });
+    }
+    const pendingQuestion: PendingQuestion = {};
+    const ownDelegation = assemblyContext.delegation;
+    if (ownDelegation && ownDelegation.workerAgentId === request.agentId) {
+      const answerWaitMs = definition.answerWaitMs ?? DEFAULT_ANSWER_WAIT_MS;
+      const waitForReply = (timeoutMs: number): Promise<FoundryDelegationReply | null> =>
+        new Promise((resolveReply) => {
+          if (!mailboxDirectory || timeoutMs <= 0) {
+            resolveReply(null);
+            return;
+          }
+          let settled = false;
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const finish = (reply: FoundryDelegationReply | null): void => {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            abortController.signal.removeEventListener("abort", onAbort);
+            resolveReply(reply);
+            void listener.stop();
+          };
+          const onAbort = (): void => finish(null);
+          const listener = listen(async (deliveries) => {
+            if (settled) {
+              // Too late for this run: hand them back so the runtime redelivers.
+              for (const delivery of deliveries) {
+                await writeMailboxDelivery(mailboxDirectory, request.conversationId, delivery);
+              }
+              return;
+            }
+            const replies = deliveries.filter(
+              (delivery): delivery is FoundryDelegationReply =>
+                delivery.kind === "reply" && delivery.delegationId === ownDelegation.id,
+            );
+            if (replies.length === 0) return;
+            finish({ ...replies[0]!, message: replies.map((reply) => reply.message).join("\n\n") });
+          });
+          timer = setTimeout(() => finish(null), timeoutMs);
+          abortController.signal.addEventListener("abort", onAbort, { once: true });
+          if (abortController.signal.aborted) finish(null);
+        });
+      for (const tool of createWorkerTools(delegationTarget, ownDelegation, {
+        answerWaitMs,
+        pending: pendingQuestion,
+        waitForReply,
+      })) base.fold(tool);
+    }
+
     const workbench = await mountFoundryWorkbench({
       glove: base,
       context: assemblyContext,
@@ -596,6 +725,22 @@ async function executeDefinition(
       installations: effectiveInstallations,
       onCleanup: (cleanup) => { cleanups.push(cleanup); },
       invoke,
+      onDelegationUpdate: (handler: (updates: ReadonlyArray<FoundryDelegationUpdate>) => void | Promise<void>) => {
+        const listener = listen(async (deliveries) => {
+          const updates = deliveries.filter(
+            (delivery): delivery is FoundryDelegationUpdate => delivery.kind !== "reply",
+          );
+          if (updates.length > 0) await handler(updates);
+        });
+        let stopped = false;
+        const stop = async (): Promise<void> => {
+          if (stopped) return;
+          stopped = true;
+          await listener.stop();
+        };
+        cleanups.push(stop);
+        return stop;
+      },
     };
     for (const call of calls) {
       if (callByName.has(call.name)) throw new Error(`Duplicate Foundry call "${call.name}".`);
@@ -742,15 +887,18 @@ async function executeDefinition(
     const sleep = [...controls.commands].reverse().find(
       (command: FoundryCoreCommand) => command.type === "sleep",
     );
+    const question = pendingQuestion.current;
     return {
-      status: sleep ? "suspended" : "completed",
+      status: sleep || question ? "suspended" : "completed",
       value: serializable(result),
       agentId: request.agentId,
       conversationId: request.conversationId,
       workspaceId: request.workspaceId,
-      ...(sleep && sleep.type === "sleep"
-        ? { suspension: { commandId: sleep.id, wakeAt: sleep.wakeAt } }
-        : {}),
+      ...(question
+        ? { suspension: { kind: "question" as const, ...question } }
+        : sleep && sleep.type === "sleep"
+          ? { suspension: { commandId: sleep.id, wakeAt: sleep.wakeAt } }
+          : {}),
     };
   } finally {
     const failures: unknown[] = [];
@@ -787,7 +935,7 @@ export function compileAgentDefinition(
     payload: z.unknown().optional(),
     context: z.record(z.string(), z.unknown()).optional(),
     source: z.object({
-      kind: z.enum(["direct", "transmission", "activation", "spawn", "background"]),
+      kind: z.enum(["direct", "transmission", "activation", "spawn", "background", "delegation"]),
       id: z.string().optional(),
       provider: z.string().optional(),
       eventId: z.string().optional(),
@@ -849,6 +997,16 @@ export function compileAgentDefinition(
       createdByRunId: z.string(), lastRunId: z.string().optional(),
       createdAt: z.string(), updatedAt: z.string(),
     })).default([]),
+    delegations: z.array(z.object({
+      id: z.string(), to: z.string(), workerAgentId: z.string(), workspaceId: z.string(),
+      from: z.object({
+        definitionId: z.string(), agentId: z.string(), conversationId: z.string(), runId: z.string(),
+      }),
+      task: z.string(),
+      status: z.enum(["working", "waiting", "completed", "failed", "cancelled"]),
+      question: z.string().optional(), result: z.string().optional(), error: z.string().optional(),
+      createdAt: z.string(), updatedAt: z.string(),
+    })).default([]),
   });
   let builder = signal(internalAgentName(route))
     .input(executionEnvelope)
@@ -858,7 +1016,15 @@ export function compileAgentDefinition(
       agentId: z.string(),
       conversationId: z.string(),
       workspaceId: z.string(),
-      suspension: z.object({ commandId: z.string(), wakeAt: z.string() }).optional(),
+      suspension: z.union([
+        z.object({ kind: z.literal("sleep").optional(), commandId: z.string(), wakeAt: z.string() }),
+        z.object({
+          kind: z.literal("question"),
+          commandId: z.string(),
+          delegationId: z.string(),
+          question: z.string(),
+        }),
+      ]).optional(),
     }));
   const built = builder.run((value) =>
     runDefinition(definition, route, value),

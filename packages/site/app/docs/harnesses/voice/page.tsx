@@ -33,13 +33,14 @@ export default function VoiceHarnessPage() {
           "Mesh",
           "Instances",
           "Conversations",
-          "Typed client",
+          "Voice calls",
+          "Delegates",
           "Inspector and WebChat",
         ]}
         write={[
           "The front agent's spoken persona (short, plain sentences, no markdown)",
           "The worker's tools over your data",
-          "The host that wakes the worker when a delegation lands in its inbox",
+          "Plain Glove only: the host that wakes the worker when a delegation lands in its inbox",
           "Audio plumbing your platform needs: a browser page, a LiveKit room or a phone bridge",
         ]}
       />
@@ -135,57 +136,48 @@ export async function onUtterance(text: string) {
 }`}
       />
 
-      <h2 id="skeleton-realtime">Skeleton: a realtime front that hands work to Foundry</h2>
+      <h2 id="skeleton-realtime">Skeleton: a voice agent in Foundry</h2>
       <p>
-        A voice session is not a durable run. When the caller asks for something that should
-        outlive the call, a tool sends it to a Foundry instance and returns at once; the host
-        speaks the result when the run finishes.
+        In Foundry the call is a run. <code>voiceCall</code> hosts the realtime session over
+        the assembled agent, saves the transcript, and speaks{" "}
+        <Link href="/foundry/docs/layered-agents">delegates</Link>&apos; results at the next
+        pause. The front stays a fast talker; the work goes to sibling agents that can take
+        their time, ask a question back, and use tools a call should not.
       </p>
       <CodeBlock
-        filename="call.ts"
+        filename="agents/concierge/agent.ts"
         language="typescript"
-        code={`import { Displaymanager, Glove, MemoryStore } from "glove-core";
-import { RealtimeAgent, s2sDrivenModel } from "glove-voice-s2s";
-import { createFoundryClient } from "glove-foundry/client";
-import { z } from "zod";
+        code={`import { defineAgent } from "glove-foundry";
+import { voiceCall, webSocketRoom } from "glove-foundry/voice";
+import { s2sDrivenModel } from "glove-voice-s2s";
+import { FileStore } from "../../lib/file-store.js";
+import { conciergePrompt } from "./prompt.js";
+import { roomFor } from "./room.js";
 
-const foundry = createFoundryClient({ baseUrl: process.env.FOUNDRY_URL });
-
-export async function startCall(caller: { agentId: string; conversationId: string }) {
-  let rt: RealtimeAgent | undefined;
-
-  const agent = new Glove({
-    store: new MemoryStore(\`call:\${caller.conversationId}\`),
-    model: s2sDrivenModel({ label: "concierge", provider: "openai", voice: "marin" }),
-    displayManager: new Displaymanager(),
-    systemPrompt: "You are the concierge on a phone line. Keep answers to a breath or two.",
-    serverMode: true,
-    compaction_config: { compaction_instructions: "Summarise the call so far." },
-  })
-    .fold({
-      name: "start_task",
-      description: "Hand longer work (research, bookings, documents) to the back office. Returns at once.",
-      inputSchema: z.object({ request: z.string() }),
-      async do({ request }) {
-        const handle = await foundry.send(caller.agentId, caller.conversationId, request);
-        void handle.wait({ timeoutMs: 10 * 60_000 }).then((run) => {
-          if (run.status === "completed") rt?.inject(\`The back office finished: \${String(run.output?.value)}\`, { respond: true });
-        });
-        return { status: "success", data: { started: handle.id } };
-      },
-    })
-    .build();
-
-  rt = new RealtimeAgent({ agent });
-  await rt.start(); // the provider session gets the prompt and the tools
-  return rt; // await rt.stop() when the call ends, so final usage arrives
-}`}
+export default defineAgent({
+  description: "Answers the phone and hands longer work to the back office",
+  model: () => s2sDrivenModel({ label: "concierge", provider: "openai", voice: "marin" }),
+  systemPrompt: conciergePrompt,
+  store: ({ conversationId }) => FileStore.open(conversationId),
+  delegates: [
+    { agent: "bookings", description: "Books tables and travel. Takes a few minutes." },
+    { agent: "research", description: "Looks things up on the web and cites sources." },
+  ],
+  run: voiceCall({
+    room: (context) => webSocketRoom(roomFor(context)),   // { port, token } from the request
+    greeting: "Greet the caller in one short sentence.",
+  }),
+});`}
       />
       <p>
-        The durable run is ordinary Foundry: it shows up in the inspector, can be approved or
-        steered, and its conversation is the same one your chat UI reads. LiveKit rooms and live
-        avatars attach to the same <code>RealtimeAgent</code> through{" "}
-        <code>glove-voice-livekit</code> and <code>glove-voice-avatar</code>.
+        The bookings agent is an ordinary definition. If it needs to know something (indoors
+        or outside?), <code>glove_foundry_ask</code> brings the question back into the call,
+        where the concierge answers from what it knows or asks the caller. Its runs show up in
+        the inspector and can be approved or steered, and a result that lands after the caller
+        hangs up waits in the conversation. LiveKit rooms and phone bridges plug in as{" "}
+        <Link href="/foundry/docs/voice#rooms">rooms</Link>. The full version, with personal
+        memory and a text chat on the same agent, is{" "}
+        <code>examples/foundry-layered-assistant</code>.
       </p>
 
       <h2 id="dont-build">What not to build</h2>

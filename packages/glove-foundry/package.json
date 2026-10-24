@@ -39,6 +39,10 @@
     "./station": {
       "types": "./dist/station.d.ts",
       "import": "./dist/station.js"
+    },
+    "./voice": {
+      "types": "./dist/voice.d.ts",
+      "import": "./dist/voice.js"
     }
   },
   "files": [
@@ -76,11 +80,13 @@
     "glove-memory": "workspace:*",
     "glove-mesh": "workspace:*",
     "glove-python": "workspace:*",
+    "glove-voice-s2s": "workspace:*",
     "glove-working-environment": "workspace:*",
     "station-env": "^3.0.0",
     "station-signal": "^3.0.0",
     "station-schedules": "^3.0.0",
     "tsx": "^4.21.0",
+    "ws": "8.19.0",
     "zod": "^4.3.6",
     "station-daemon": "^3.0.0",
     "station-client": "^3.0.0",
@@ -89,6 +95,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
+    "@types/ws": "8.18.1",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3"
   },

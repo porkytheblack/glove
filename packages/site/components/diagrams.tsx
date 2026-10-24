@@ -277,6 +277,99 @@ export function ProductionDiagram({ caption }: { caption?: ReactNode }) {
   );
 }
 
+// ─── Foundry: agent.ts assembles, other modules hold the parts ─────────────
+
+const ASSEMBLY_PARTS: ReadonlyArray<{ file: string; role: string }> = [
+  { file: "prompt.ts", role: "who it is, how it talks" },
+  { file: "tools.ts", role: "what it can do" },
+  { file: "personal.memory.ts", role: "what it remembers" },
+  { file: "workspace.ts", role: "where it works" },
+  { file: "call.ts", role: "how it takes calls" },
+  { file: "lib/models.ts", role: "which model, per layer" },
+];
+
+/**
+ * agent.ts is where a definition is put together, not where its parts live.
+ * Each part is its own module; Foundry assembles the result per run.
+ */
+export function AssemblyDiagram({ caption }: { caption?: ReactNode }) {
+  const top = 22;
+  const gap = 52;
+  const bus = 236;
+  const mid = top + (gap * (ASSEMBLY_PARTS.length - 1)) / 2 + 20;
+  return (
+    <Figure
+      wide
+      caption={
+        caption ??
+        "agent.ts imports the parts and wires them into fields. The parts are plain modules you can read, test and reuse on their own; a function in a field runs per run, with that run's instance and message. Foundry then assembles a fresh Glove for each run."
+      }
+    >
+      <div className="dg-scroll">
+        <svg viewBox="0 0 880 340" role="img" aria-label="Six modules (prompt, tools, memory, workspace, call, models) feed agent.ts, which Foundry assembles into a fresh Glove for each run" className="dg-svg">
+          <ArrowDefs m="dga" />
+          {ASSEMBLY_PARTS.map((part, index) => (
+            <g key={part.file}>
+              <Box x={16} y={top + index * gap} w={180} h={40} title={part.file} sub={part.role} />
+              <g className="dg-edge">
+                <path d={`M196,${top + index * gap + 20} L${bus},${top + index * gap + 20} L${bus},${mid}`} fill="none" />
+              </g>
+            </g>
+          ))}
+          <Edge m="dga" d={`M${bus},${mid} L316,${mid}`} label="imports" lx={276} ly={mid - 8} />
+          <Box x={320} y={mid - 45} w={170} h={90} title="agent.ts" sub="defineAgent: assembly only" tone="system" on />
+          <Edge m="dga" d={`M490,${mid} L566,${mid}`} label="per run" lx={528} ly={mid - 8} />
+          <Box x={570} y={mid - 45} w={170} h={90} title="Foundry" sub="+ instance + message" tone="system" />
+          <Edge m="dga" d={`M740,${mid} L766,${mid}`} />
+          <Box x={770} y={mid - 45} w={100} h={90} title="a Glove" sub="for this run" tone="harness" />
+        </svg>
+      </div>
+    </Figure>
+  );
+}
+
+// ─── Foundry: what an application bundles, and who installs it ─────────────
+
+export function AppAnatomy({ caption }: { caption?: ReactNode }) {
+  return (
+    <Figure
+      wide
+      caption={
+        caption ??
+        "An application is code: transmissions (how events arrive and replies leave), optional connections (a socket or poller Foundry supervises) and extra tools. Instances install it, and only installed instances get its tools. Accounts, routes and bindings are data: which external account, which queue, and who may send."
+      }
+    >
+      <div className="dg-scroll">
+        <svg viewBox="0 0 880 330" role="img" aria-label="An application bundles transmissions, connections and tools; instances install it; topology data says which accounts and routes it may use" className="dg-svg">
+          <ArrowDefs m="dgapp" />
+          <g className="dg-group tone-system">
+            <rect x={16} y={18} width={460} height={190} rx={12} />
+            <text x={32} y={40} className="dg-group-label">apps/helpdesk.app.ts · code</text>
+          </g>
+          <Box x={36} y={56} w={200} h={64} title="Transmission" sub="events · schemas · adapters" tone="system" />
+          <Box x={256} y={56} w={200} h={64} title="Connection" sub="socket or poller (optional)" tone="system" />
+          <Box x={36} y={132} w={420} h={56} title="Tools" sub="one outbound tool per transmission, plus your own" tone="system" />
+
+          <Box x={600} y={30} w={260} h={50} title="Instance: acme-support" sub="installed" tone="system" on />
+          <Box x={600} y={92} w={260} h={50} title="Instance: globex-support" sub="installed" tone="system" on />
+          <Box x={600} y={154} w={260} h={50} title="Instance: internal-ops" sub="not installed: no tools" tone="system" dim />
+          <Edge m="dgapp" d="M476,90 L596,55" label="installs" lx={530} ly={62} />
+          <Edge m="dgapp" d="M476,110 L596,117" />
+
+          <g className="dg-group tone-neutral">
+            <rect x={16} y={238} width={844} height={76} rx={12} />
+            <text x={32} y={258} className="dg-group-label">topology · data with ids</text>
+          </g>
+          <Box x={150} y={266} w={180} h={40} title="Accounts" sub="credential refs" />
+          <Box x={350} y={266} w={180} h={40} title="Routes" sub="inbound · outbound" />
+          <Box x={550} y={266} w={180} h={40} title="Bindings" sub="who may use which route" />
+          <Edge m="dgapp" d="M440,264 L440,212" label="authorise" lx={448} ly={244} anchor="start" dashed />
+        </svg>
+      </div>
+    </Figure>
+  );
+}
+
 // ─── blueprint: which primitives a harness uses ────────────────────────────
 
 /**

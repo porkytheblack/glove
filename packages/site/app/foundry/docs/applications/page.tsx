@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { CodeBlock } from "@/components/code-block";
+import { AppAnatomy } from "@/components/diagrams";
+import { MessageJourneyStory } from "@/components/foundry-stories";
 
 export const metadata = {
   title: "Apps & transmissions",
@@ -27,6 +29,21 @@ export default function ApplicationsPage() {
         <li>Duplicate deliveries of the same event are ignored. Retries are safe.</li>
         <li>OAuth, token refresh and secret storage stay in an adapter you write. Foundry stores only an opaque <code>accessRef</code>.</li>
       </ul>
+      <h2 id="anatomy">What an app is made of</h2>
+      <p>
+        An app is code you write once and instances install. The topology (which account,
+        which queue, who may send) is data, because people and adapters create it.
+      </p>
+      <AppAnatomy />
+
+      <h2 id="journey">How a message travels</h2>
+      <p>
+        Follow one help-desk ticket from the provider&apos;s webhook to the agent&apos;s reply.
+        Each step names the piece this page builds.
+      </p>
+      <MessageJourneyStory />
+
+      <h2 id="build">Build one</h2>
       <p>
         This page builds one complete integration: help-desk tickets flowing into the{" "}
         <code>agents/support</code> agent and replies flowing back out. The same shape

@@ -8,6 +8,7 @@ export default defineConfig({
     "src/config.ts",
     "src/station.ts",
     "src/eslint.ts",
+    "src/voice.ts",
     "src/cli.ts",
     "src/execution-agent.ts",
     "src/execution-loader.ts",
@@ -28,6 +29,7 @@ export default defineConfig({
     "glove-memory",
     "glove-mesh",
     "glove-python",
+    "glove-voice-s2s",
     "glove-working-environment",
     "station-env",
     "station-daemon",
@@ -35,6 +37,7 @@ export default defineConfig({
     "station-signal",
     "station-schedules",
     "tsx",
+    "ws",
     "zod",
   ],
 });

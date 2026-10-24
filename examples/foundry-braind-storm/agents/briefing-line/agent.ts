@@ -1,8 +1,8 @@
 import { MemoryStore, type GloveFoldArgs } from "glove-core";
 import { defineAgent, type AgentAssemblyContext } from "glove-foundry";
+import { voiceCall, webSocketRoom } from "glove-foundry/voice";
 import { s2sDrivenModel } from "glove-voice-s2s";
 import { briefingInputSchema } from "./briefing-input.js";
-import { runBriefingRoom } from "./briefing-room.js";
 import { briefingTools } from "./briefing.tools.js";
 
 function callOptions(context: AgentAssemblyContext) {
@@ -52,5 +52,16 @@ export default defineAgent({
     const options = callOptions(context);
     return options ? briefingTools(options.stormId) : [];
   },
-  run: (agent, context) => runBriefingRoom(agent, context),
+  // The call itself: Foundry hosts the realtime session, saves the transcript
+  // and serves the WebSocket room the page joins with its one-time token.
+  run: voiceCall({
+    room: (context) => {
+      if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is required for Mara's live briefing line.");
+      const input = briefingInputSchema.parse(context.request.payload);
+      return webSocketRoom({ port: input.port, token: input.token, agentName: "Mara Vale" });
+    },
+    greeting: "The caller has just joined the briefing line. Greet them in one short sentence and ask whether they want the latest briefing or want to leave direction for the team.",
+    // Gemini confirms its setup just after the socket opens.
+    openDelayMs: 500,
+  }),
 });
