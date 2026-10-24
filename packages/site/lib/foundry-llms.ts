@@ -495,7 +495,7 @@ preserve evidence receipts and prepared-form recovery state.
 Use Foundry’s lazy goals, facts, forms and contextProviders fields for native
 guidance assembly. Browser/sandbox capabilities use explicit configure mounts;
 they do not add browser or sandbox fields to agent definitions. Detailed workflow skill:
-https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/workflows.md
+https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/references/memory-and-workflows.md#goals-facts-and-form-preparation
 `;
 
 export const OPERATOR_REFERENCE = `

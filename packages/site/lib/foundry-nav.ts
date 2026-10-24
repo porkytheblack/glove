@@ -145,6 +145,12 @@ export const foundrySections: FoundryNavSection[] = [
         summary: "Add Foundry to an existing Next.js app: the generated layout, the typed client, route handlers and FOUNDRY_URL.",
       },
       {
+        label: "Deploy on Kuiper",
+        href: "/foundry/docs/kuiper",
+        badge: "new",
+        summary: "Deploy a Foundry folder with no Dockerfile: the /data disk, secrets, the model gateway, browsers, sandboxes, email, and the agent's runs in the Kuiper dashboard.",
+      },
+      {
         label: "Deploy & security",
         href: "/foundry/docs/deploy",
         summary: "Production checklist, request authorization, health checks, the managed execution daemon and scaling by role.",

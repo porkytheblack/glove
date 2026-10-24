@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { CodeBlock } from "@/components/code-block";
 import { docsMetadata } from "@/lib/docs-nav";
 
@@ -6,64 +7,84 @@ export const metadata = docsMetadata("/docs/agent-skill");
 export default async function AgentSkillPage() {
   return (
     <div className="docs-content">
-      <h1>Agent Skill</h1>
+      <h1>Agent Skills</h1>
 
       <p>
-        Glove ships with an{" "}
+        Glove ships{" "}
         <a href="https://agentskills.io" target="_blank" rel="noopener">
-          Agent Skill
+          Agent Skills
         </a>{" "}
-        that gives AI coding assistants deep knowledge of the framework &mdash;
-        architecture, API reference, real patterns from the examples, and common
-        gotchas.
+        that teach coding agents to build with Glove the way the framework is
+        designed: from its primitives. The most common mistake agents make with
+        Glove is rebuilding something it already provides, such as a job queue
+        instead of a schedule, an approval table instead of{" "}
+        <code>requiresPermission</code>, or a summariser instead of compaction.
+        Each skill leads with the parts of an agent harness and a{" "}
+        <em>before you build X, use Y</em> table, then points to detailed
+        references only when the task needs them.
       </p>
+
+      <h2 id="the-skills">The three skills</h2>
 
       <p>
-        Once installed, your coding assistant automatically knows how to use
-        Glove correctly &mdash; the right import paths, the right class names,
-        the right patterns. No more guessing or hallucinating APIs.
+        They follow the same three layers as the docs:{" "}
+        <Link href="/docs/first-principles">harness, system and production</Link>.
       </p>
 
-      <p>The repository ships two skills:</p>
       <table>
-        <thead><tr><th>Skill</th><th>Use it for</th><th>Source</th></tr></thead>
+        <thead>
+          <tr><th>Skill</th><th>Layer</th><th>Use it for</th><th>Source</th></tr>
+        </thead>
         <tbody>
           <tr>
             <td><code>glove</code></td>
-            <td>glove-core and every capability package: tools, display stack, memory, forms, goals, facts, voice, image, REPLs, working environments.</td>
+            <td>Harness</td>
+            <td>
+              <code>glove-core</code> and every capability package: the loop,
+              tools, models, stores, runtime context, skills, hooks, subagents,
+              the display stack, memory, forms, goals, facts, MCP, REPLs,
+              scratchpad, VFS, working environments, browsers and sandboxes,
+              classifiers, voice, image and video, mesh and continuum.
+            </td>
             <td><a href="https://github.com/porkytheblack/glove/tree/main/.claude/skills/glove"><code>.claude/skills/glove</code></a></td>
           </tr>
           <tr>
             <td><code>glove-foundry</code></td>
-            <td>Foundry applications: file routes, definitions and instances, installations, transmissions, playbooks, schedules, the client and HTTP/OpenAI APIs, approvals, the inspector.</td>
+            <td>System</td>
+            <td>
+              Foundry applications: definitions and instances, conversations,
+              installable capabilities, schedules, sleep and spawn,
+              transmissions and playbooks, approvals and steering, the client,
+              REST and OpenAI-compatible APIs, persistence and the inspector.
+            </td>
             <td><a href="https://github.com/porkytheblack/glove/tree/main/.claude/skills/glove-foundry"><code>.claude/skills/glove-foundry</code></a></td>
+          </tr>
+          <tr>
+            <td><code>kuiper</code></td>
+            <td>Production</td>
+            <td>
+              Deploying a Foundry app on <a href="https://kuiper.sh">Kuiper</a>:
+              the CLI, what the builder infers, request authorization, the{" "}
+              <code>/data</code> disk, secrets and variable templates, the model
+              gateway, browsers, sandboxes, the inbox, logs and the Inspect card.
+            </td>
+            <td><a href="https://github.com/porkytheblack/glove/tree/main/.claude/skills/kuiper"><code>.claude/skills/kuiper</code></a></td>
           </tr>
         </tbody>
       </table>
+
       <p>
         Agents that read plain text instead of skills can use{" "}
+        <a href="/llms.txt"><code>/llms.txt</code></a>,{" "}
         <a href="/llms-full.txt"><code>/llms-full.txt</code></a> and{" "}
-        <a href="/foundry/llms-full.txt"><code>/foundry/llms-full.txt</code></a>.
+        <a href="/foundry/llms-full.txt"><code>/foundry/llms-full.txt</code></a>,
+        and Kuiper&apos;s <a href="https://kuiper.sh/llms.txt"><code>kuiper.sh/llms.txt</code></a>.
       </p>
 
-      {/* ------------------------------------------------------------------ */}
-      <h2>Supported agents</h2>
-
-      <p>The skill works with any agent that supports the skills format:</p>
-
-      <ul>
-        <li>
-          <strong>Claude Code</strong> &mdash; Anthropic&apos;s CLI agent.
-          Automatically uses the skill when working with Glove code. You can
-          also invoke it directly with <code>/glove</code>.
-        </li>
-      </ul>
-
-      {/* ------------------------------------------------------------------ */}
-      <h2>Install with npx</h2>
+      <h2 id="install">Install with npx</h2>
 
       <p>
-        The fastest way to install the skill is with the{" "}
+        The fastest way to install the skills is with the{" "}
         <a href="https://skills.sh" target="_blank" rel="noopener">
           skills CLI
         </a>
@@ -76,16 +97,9 @@ export default async function AgentSkillPage() {
       />
 
       <p>
-        This installs the skill into your project&apos;s{" "}
-        <code>.claude/skills/glove/</code> directory. The agent picks it up
-        automatically.
-      </p>
-
-      <h3>Global install</h3>
-
-      <p>
-        To make the skill available in all your projects (not just the current
-        one), add the <code>-g</code> flag:
+        This installs the skills into your project&apos;s{" "}
+        <code>.claude/skills/</code> directory and the agent picks them up
+        automatically. Add <code>-g</code> to install them for every project:
       </p>
 
       <CodeBlock
@@ -93,185 +107,121 @@ export default async function AgentSkillPage() {
         code={`npx skills add porkytheblack/glove -a claude-code -g`}
       />
 
-      {/* ------------------------------------------------------------------ */}
-      <h2>Manual install</h2>
+      <h3 id="manual-install">Manual install</h3>
 
       <p>
-        If you prefer not to use the CLI, copy the skill files directly from the
-        Glove repository:
+        Copy the skill folders you need from the{" "}
+        <a href="https://github.com/porkytheblack/glove/tree/main/.claude/skills" target="_blank" rel="noopener">
+          repository
+        </a>{" "}
+        into your project&apos;s <code>.claude/skills/</code>. Every link inside
+        a skill is either relative to that skill&apos;s folder or an absolute URL,
+        so a copied skill works outside the Glove repository.
       </p>
-
-      <ol>
-        <li>
-          Clone or download the{" "}
-          <a
-            href="https://github.com/porkytheblack/glove"
-            target="_blank"
-            rel="noopener"
-          >
-            Glove repo
-          </a>
-        </li>
-        <li>
-          Copy the <code>.claude/skills/glove/</code> directory — and{" "}
-          <code>.claude/skills/glove-foundry/</code> if you use Foundry — into
-          your project&apos;s <code>.claude/skills/</code> folder
-        </li>
-      </ol>
-
-      <p>Your project structure should look like:</p>
 
       <CodeBlock
-        language="bash"
+        language="text"
         code={`your-project/
-├── .claude/
-│   └── skills/
-│       └── glove/
-│           ├── SKILL.md           # Main skill file
-│           ├── api-reference.md   # Full API reference
-│           └── examples.md        # Real patterns from examples
-├── src/
-└── ...`}
+└── .claude/
+    └── skills/
+        ├── glove/
+        │   ├── SKILL.md                       # the parts of a harness, the primitives table, rules, decision guide
+        │   └── references/
+        │       ├── core.md                    # the loop, stores, subscribers, providers, server-side, inbox
+        │       ├── tools-and-display.md       # tools, ToolResultData, summaries, the display stack
+        │       ├── react-next.md              # GloveClient, useGlove, <Render>, createChatHandler
+        │       ├── extensions.md              # hooks, skills, subagents
+        │       ├── memory-and-workflows.md    # memory, forms, goals, facts, preparation
+        │       ├── mcp.md                     # glove-mcp
+        │       ├── execution-and-workspace.md # scratchpad, REPLs, VFS, working environment, browsers, sandboxes
+        │       ├── classifier.md              # glove-classifier
+        │       ├── voice.md                   # pipelines, realtime speech, avatars, LiveKit
+        │       ├── media.md                   # image and video workflows
+        │       ├── multi-agent.md             # mesh and continuum
+        │       ├── packages.md                # every package in one table
+        │       ├── api-reference.md           # exact signatures
+        │       ├── examples.md                # patterns from the example apps
+        │       └── gotchas.md                 # the full list of pitfalls
+        ├── glove-foundry/
+        │   ├── SKILL.md                       # definition / instance / run, the system primitives table, layout, persistence
+        │   └── references/
+        │       ├── condensed-reference.md     # fields, endpoints, CLI flags, built-in tool inputs
+        │       ├── building.md                # authoring rules for apps, playbooks, schedules, guidance, voice, multi-agent
+        │       └── contributing.md            # only for changing glove-foundry itself
+        └── kuiper/
+            ├── SKILL.md                       # deploy, production-ready Foundry, variables, models, inbox, sandboxes, operate
+            └── references/
+                └── cli.md                     # every kuiper command and flag`}
       />
 
-      {/* ------------------------------------------------------------------ */}
-      <h2>What the skill knows</h2>
-
-      <p>The skill gives your coding agent knowledge of:</p>
+      <h2 id="what-the-skills-know">What the skills teach</h2>
 
       <ul>
         <li>
-          <strong>Core packages</strong> &mdash;{" "}
-          <code>glove-core</code>, <code>glove-react</code>, and{" "}
-          <code>glove-next</code>. Correct import paths, class names, method
-          signatures.
+          <strong>The parts of a harness.</strong> Loop, tools, context, state,
+          workspace, surface and team for <code>glove</code>; identity, time,
+          arrival, oversight and access for <code>glove-foundry</code>; run,
+          keep, reach and watch for <code>kuiper</code>. Each part comes with
+          the question it answers, so an agent can place a request before it
+          writes code.
         </li>
         <li>
-          <strong>Goals, facts, and forms</strong> &mdash; dynamic goals in{" "}
-          <code>glove-memory/goals</code>, reusable evidence in{" "}
-          <code>glove-facts</code>, tool mounting, and preparation through a
-          supplied Glove agent with tracing preserved. The bundled{" "}
-          <code>workflows.md</code> reference includes a shared-workflow example.
+          <strong>Before you build X, use Y.</strong> Every primitive from the{" "}
+          <Link href="/docs/primitives">primitives map</Link>, phrased as the
+          thing an agent is about to hand-build, with the API and package that
+          already does it.
         </li>
         <li>
-          <strong>The display stack</strong> &mdash; when to use{" "}
-          <code>pushAndWait</code> vs <code>pushAndForget</code>, how{" "}
-          <code>SlotRenderProps</code> work, how to wire up{" "}
-          <code>renderSlot</code>.
+          <strong>The rules the primitives follow.</strong> Everything the model
+          does is a tool; adapters at every boundary; mount, don&apos;t wrap; live
+          state at the tail of the prompt; work in files and code; people in the
+          loop through primitives; credentials never in the model.
         </li>
         <li>
-          <strong>Model providers</strong> &mdash; all 7 supported providers,
-          their env variables, default models, and the{" "}
-          <code>createAdapter</code> factory.
+          <strong>Decision guides.</strong> glove-core or Foundry; plain tools,
+          a REPL, the scratchpad or a working environment; which way to collect
+          information; which surface.
         </li>
         <li>
-          <strong>Real example patterns</strong> &mdash; tool factories with
-          shared state, WebSocket bridges, subscriber adapters, permission
-          gating, terminal UIs with Ink.
+          <strong>The rules that prevent silent bugs.</strong> Such as the{" "}
+          <code>Displaymanager</code> casing, event key differences, permissions
+          keyed on tool and input, goals living in{" "}
+          <code>glove-memory/goals</code>, and every Foundry run being a fresh
+          process that forgets an in-memory store.
         </li>
         <li>
-          <strong>Common gotchas</strong> &mdash; like the{" "}
-          <code>Displaymanager</code> casing (lowercase &apos;m&apos;), the{" "}
-          <code>stream: true</code> default, browser-safe import paths, and
-          handling both <code>model_response</code> and{" "}
-          <code>model_response_complete</code> events.
+          <strong>Deep references on demand.</strong> Full API signatures, worked
+          patterns from the examples, and per-package guides, read only when the
+          task needs them.
         </li>
       </ul>
 
-      {/* ------------------------------------------------------------------ */}
-      <h2>Using the skill</h2>
+      <h2 id="using">Using the skills</h2>
 
       <p>
-        Once installed, the skill activates automatically when your coding
-        assistant detects you&apos;re working with Glove code. You don&apos;t
-        need to do anything special &mdash; just write code as normal and the
-        agent will reference the skill for accurate guidance.
+        Once installed, the skills activate when your coding assistant sees
+        Glove, Foundry or Kuiper code, or when you ask it to build an agent. You
+        can also load one explicitly in Claude Code:
       </p>
 
-      <p>You can also invoke it directly in Claude Code:</p>
+      <CodeBlock language="bash" code={`/glove
+/glove-foundry
+/kuiper`} />
 
-      <CodeBlock language="bash" code={`/glove`} />
-
-      <p>
-        This explicitly loads the skill context, which is useful when you want
-        to ask the agent Glove-specific questions or have it scaffold a new
-        tool, set up a provider, or debug a display stack issue.
-      </p>
-
-      <h3>Example prompts</h3>
-
-      <p>With the skill installed, your agent can handle prompts like:</p>
+      <h3 id="example-prompts">Example prompts</h3>
 
       <ul>
-        <li>
-          &ldquo;Add a confirmation dialog tool that asks the user before
-          deleting&rdquo;
-        </li>
-        <li>
-          &ldquo;Set up the server route with Anthropic and connect the React
-          client&rdquo;
-        </li>
-        <li>
-          &ldquo;Create a tool factory for my inventory management
-          system&rdquo;
-        </li>
-        <li>
-          &ldquo;Why isn&apos;t my pushAndWait slot resolving?&rdquo;
-        </li>
-        <li>
-          &ldquo;Add a subscriber that logs token usage to the console&rdquo;
-        </li>
+        <li>&ldquo;Build a coding agent that works in a sandbox and asks before it writes files&rdquo;</li>
+        <li>&ldquo;Give this agent a reminder it can set for itself every weekday morning&rdquo;</li>
+        <li>&ldquo;Wake an agent per customer when a ticket arrives, and have a person approve refunds&rdquo;</li>
+        <li>&ldquo;Keep the user&apos;s preferences in front of the model on every turn without touching the system prompt&rdquo;</li>
+        <li>&ldquo;Deploy this Foundry folder on Kuiper with its state on the disk and models through the gateway&rdquo;</li>
       </ul>
 
-      {/* ------------------------------------------------------------------ */}
-      <h2>Skill structure</h2>
-
-      <p>The skill is composed of three files:</p>
-
-      <table>
-        <thead>
-          <tr>
-            <th>File</th>
-            <th>Purpose</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>
-              <code>SKILL.md</code>
-            </td>
-            <td>
-              Main skill file. Architecture overview, quick start, display stack
-              patterns, <code>ToolConfig</code> reference, provider table,
-              common gotchas.
-            </td>
-          </tr>
-          <tr>
-            <td>
-              <code>api-reference.md</code>
-            </td>
-            <td>
-              Full API reference for all three packages &mdash; every class,
-              interface, method, type, and event.
-            </td>
-          </tr>
-          <tr>
-            <td>
-              <code>examples.md</code>
-            </td>
-            <td>
-              Real patterns drawn from the four example implementations
-              (weather-agent, coding-agent, nextjs-agent, coffee).
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      {/* ------------------------------------------------------------------ */}
-      <h2>How user-invoked skills land in history</h2>
+      <h2 id="skills-in-history">How user-invoked skills land in history</h2>
 
       <p>
-        The skill above is the install-time Claude Code skill bundle. The
+        The skills above are install-time bundles for your coding agent. The
         runtime <code>defineSkill</code> system inside <code>glove-core</code>{" "}
         — the <code>/skill-name</code> directives users type into chat — has
         a behavior worth highlighting because it shows up in your stored
@@ -319,30 +269,23 @@ Skill handler receives:
         Synthetic user messages that the skill itself injects (the handler&apos;s
         return value) are persisted with{" "}
         <code>is_skill_injection: true</code> so transcript renderers can
-        style them differently from real user turns. See the{" "}
-        <a href="/docs/extensions">Hooks, Skills &amp; Mentions</a> guide
+        style them differently from real user turns. See{" "}
+        <Link href="/docs/extensions">Hooks, Skills &amp; Subagents</Link>{" "}
         for the full <code>defineSkill</code> /{" "}
         <code>defineHook</code> / <code>defineSubAgent</code> surface.
       </p>
 
-      {/* ------------------------------------------------------------------ */}
-      <h2>Updating the skill</h2>
+      <h2 id="updating">Updating the skills</h2>
 
       <p>
-        Installing or releasing npm packages does not update installed skill copies.
-        To update to the latest version of the skill, re-run the install
-        command:
+        Installing or releasing npm packages does not update installed skill
+        copies. Re-run the install command to fetch the latest versions:
       </p>
 
       <CodeBlock
         language="bash"
         code={`npx skills add porkytheblack/glove -a claude-code`}
       />
-
-      <p>
-        This overwrites the existing skill files with the latest versions from
-        the repository.
-      </p>
     </div>
   );
 }

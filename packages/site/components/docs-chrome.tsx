@@ -21,7 +21,7 @@ export function DocsBreadcrumb() {
     <nav className="docs-breadcrumb" aria-label="Breadcrumb">
       <Link href="/">Glove</Link>
       <span className="sep">/</span>
-      <Link href="/docs/intro">Docs</Link>
+      <Link href="/docs">Docs</Link>
       {entry && (
         <>
           <span className="sep">/</span>

@@ -419,7 +419,7 @@
 .lp-layers {
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem;
   margin-top: 2.25rem;
 }
@@ -434,6 +434,9 @@
 }
 .lp-layer-n { font-family: var(--mono); font-size: 0.72rem; color: var(--accent); }
 .lp-layers strong { font-weight: 500; font-size: 0.98rem; }
+.lp-layers strong a { color: inherit; text-decoration: none; }
+.lp-layers strong a:hover { color: var(--accent); }
+.lp-layers li:nth-last-child(-n + 2) { border-style: dashed; }
 .lp-layers p { font-size: 0.85rem; color: var(--text-tertiary); line-height: 1.5; }
 .lp-more {
   display: inline-flex;
