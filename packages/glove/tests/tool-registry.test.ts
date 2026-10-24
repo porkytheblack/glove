@@ -43,9 +43,10 @@ test("replaceTools swaps a dynamic tool set without disturbing registration orde
   const previousArray = runtime.tools;
   runtime.replaceTools(["remote_old"], [tool("remote_new"), tool("remote_extra")]);
 
-  assert.deepEqual(previousArray.map((entry) => entry.name), ["glove_update_tasks", "before", "remote_old", "after"]);
+  assert.deepEqual(previousArray.map((entry) => entry.name), ["glove_update_tasks", "glove_post_to_inbox", "before", "remote_old", "after"]);
   assert.deepEqual(runtime.tools.map((entry) => entry.name), [
     "glove_update_tasks",
+    "glove_post_to_inbox",
     "before",
     "remote_new",
     "remote_extra",
@@ -60,11 +61,11 @@ test("replaceTools is fail-closed for duplicate or foreign names", () => {
     () => runtime.replaceTools(["owned"], [tool("duplicate"), tool("DUPLICATE")]),
     /duplicate tool/i,
   );
-  assert.deepEqual(runtime.tools.map((entry) => entry.name), ["glove_update_tasks", "owned", "foreign"]);
+  assert.deepEqual(runtime.tools.map((entry) => entry.name), ["glove_update_tasks", "glove_post_to_inbox", "owned", "foreign"]);
 
   assert.throws(
     () => runtime.replaceTools(["owned"], [tool("FOREIGN")]),
     /owned by another registry/i,
   );
-  assert.deepEqual(runtime.tools.map((entry) => entry.name), ["glove_update_tasks", "owned", "foreign"]);
+  assert.deepEqual(runtime.tools.map((entry) => entry.name), ["glove_update_tasks", "glove_post_to_inbox", "owned", "foreign"]);
 });
