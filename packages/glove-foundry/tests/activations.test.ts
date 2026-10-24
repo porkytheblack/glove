@@ -485,3 +485,36 @@ test("paused activations remain disarmed when a runtime restarts", async () => {
     await runtime.stop();
   }
 });
+
+test("one agent's busy run does not make another agent of the same definition skip its schedule", async () => {
+  const { mkdtemp, readFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const directory = await mkdtemp(join(tmpdir(), "glove-foundry-overlap-"));
+  const log = join(directory, "ticks.log");
+  process.env.FOUNDRY_TEST_OVERLAP_LOG = log;
+  const runtime = await FoundryRuntime.discover({
+    rootDir,
+    agentsDir: resolve(rootDir, "overlap-agents"),
+    config: { execution: { pollIntervalMs: 25, idlePollIntervalMs: 25, maxConcurrent: 4 } },
+  });
+  await runtime.start();
+  try {
+    const busy = await runtime.createAgent("ticker", { id: "busy" });
+    const idle = await runtime.createAgent("ticker", { id: "idle" });
+    const idleChat = await runtime.createConversation(idle.id, { id: "idle-chat" });
+    await runtime.waitForRun((await runtime.send(idle.id, idleChat.id, "hello")).id, { timeoutMs: 15_000 });
+    const busyChat = await runtime.createConversation(busy.id, { id: "busy-chat" });
+    const held = await runtime.send(busy.id, busyChat.id, "hold");
+    const startedAt = Date.now();
+    await runtime.waitForRun(held.id, { timeoutMs: 20_000 });
+    const ticks = (await readFile(log, "utf8").catch(() => "")).trim().split("\n").filter(Boolean)
+      .map((line) => JSON.parse(line) as { agentId: string; t: number })
+      .filter((tick) => tick.agentId === "idle" && tick.t >= startedAt);
+    assert.ok(ticks.length >= 2, `the idle agent kept ticking while the other was busy (${ticks.length} ticks)`);
+  } finally {
+    await runtime.stop();
+    delete process.env.FOUNDRY_TEST_OVERLAP_LOG;
+    await rm(directory, { recursive: true, force: true });
+  }
+});

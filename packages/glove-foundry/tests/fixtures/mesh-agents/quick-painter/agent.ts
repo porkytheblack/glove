@@ -1,17 +1,17 @@
 import { MemoryStore } from "glove-core";
 import { defineAgent } from "../../../../src/index.js";
-import { ScriptedModel, log } from "../../delegation-scripted.js";
+import { ScriptedModel, log, meshAttribute } from "../../mesh-scripted.js";
 
 // Asks and waits in the same run for the answer.
 export default defineAgent({
   description: "Paints quickly",
-  answerWaitMs: 30_000,
+  mesh: { waitMs: 30_000 },
   store: ({ conversationId }) => new MemoryStore(conversationId),
-  model: () => new ScriptedModel(() => {
+  model: () => new ScriptedModel((last) => {
     log("quick-painter-asked");
-    return { call: "glove_foundry_ask", input: { question: "Red or blue?" } };
+    return { call: "glove_mesh_send_message", input: { to: meshAttribute(last, "from"), content: "Red or blue?", blocking: true } };
   }, (result) => {
-    const answer = /"answer":"([^"]*)"/.exec(result)?.[1] ?? "none";
+    const answer = /"reply":"([^"]*)"/.exec(result)?.[1] ?? "none";
     log("quick-painter-answered", { answer });
     return `painted ${answer}`;
   }),

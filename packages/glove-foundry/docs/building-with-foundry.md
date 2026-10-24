@@ -190,6 +190,21 @@ export default defineAgent({
 
 An agent definition describes lazy assembly. It never declares request input or result output; those are Foundry contracts. An agent definition is also not an instance. Instances are durable data and may be created, updated, removed, or reconstructed independently.
 
+### Agents are data
+
+A definition is everything a kind of agent can be, like a server-rendered page
+that renders any props. Each agent is an instance, and who it is lives on the
+instance: `name`, `description`, `context`, `installations` and `workspaceId`.
+Write one definition per kind of agent, never one per agent. A person making a
+bot, renaming it or giving it an app is a write (`createAgent`,
+`configureAgent`, `install`), not a deploy. Read names, jobs and per-user
+settings from the instance in resolvers, branch on its data (`context.role`)
+rather than its id, and let agents change their own data with tools, such as a
+`take_job` tool that writes `name` and `description` with `ctx.data.putAgent`.
+A workspace is a tenant: its agents are mesh peers and share workspace entries.
+Add a definition only when a kind of agent runs differently, loads different
+dependencies, or must never have another kind's tools.
+
 ## Define and compose colocated pieces
 
 ```ts
@@ -737,14 +752,16 @@ conversation store and ends when the room closes, nobody is connected for
 other transports (LiveKit, a phone bridge) report `call.joined()` and
 `call.left()` the same way.
 
-Keep the call thin. Durable, slow or approval-gated work belongs to a delegate:
-list workers in `delegates`, and the call speaks their results and questions at
-the next pause in speech. `voiceCall` keeps Foundry's bookkeeping tools and any
-tool with `requiresPermission` off the call, because a realtime session runs
-tools directly and would skip the approval. A delegation result that arrives
-after the caller hangs up runs as an ordinary turn (`source.kind` is
-`"delegation"`); by default `voiceCall` saves it to the conversation, or pass
-`offCall` to handle it, for instance with a text model.
+Keep the call thin. Durable, slow or approval-gated work belongs to other
+agents: put the call's agent on the mesh (`mesh: true`), send work to workers
+in the same workspace with `glove_mesh_send_message`, and the call speaks their
+replies and questions at the next pause in speech (`announceMeshMessage`, or
+your own `announce`). `voiceCall` keeps Foundry's bookkeeping tools and any tool
+with `requiresPermission` off the call, because a realtime session runs tools
+directly and would skip the approval. A reply that arrives after the caller
+hangs up runs as an ordinary turn (`source.kind` is `"mesh"`); by default
+`voiceCall` saves it to the conversation, or pass `offCall` to handle it, for
+instance with a text model.
 
 Use `glove-voice-s2s` for Gemini Live, OpenAI Realtime, or GPT-Live and `glove-voice` for a
 speech-to-text / Glove / text-to-speech pipeline.
@@ -758,7 +775,8 @@ before adapting an existing room example; Realtime VAD and final-turn assumption
 do not apply.
 
 `examples/foundry-layered-assistant` is a fast interactor with personal memory
-that takes text or calls and delegates to a coder and a researcher.
+that takes text or calls and sends work to a coder and a researcher over the
+mesh.
 `examples/foundry-braind-storm` runs its briefing line on `voiceCall`. Phone bridges, LiveKit rooms and native audio hosts can use the
 same instance/conversation boundary. Messenger-specific voice gateways and codecs
 are consumer adapters, not built-in Foundry telephony services.
@@ -799,4 +817,5 @@ run cleanup. See the [document adapter](../../glove-env-documents/README.md).
 - Transmissions own executable integration logic; playbooks remain serializable policy.
 - Provider adapters own credential acquisition and refresh.
 - Voice rooms own audio transport; `voiceCall` owns the session and the transcript; Foundry owns the durable run.
-- Interactors keep the person's context; workers keep one task's. Delegation results and questions come back to the conversation that delegated.
+- A definition is what a kind of agent can be; each agent, its name and its job are instance data.
+- Interactors keep the person's context; workers keep one task's. Mesh replies and questions come back to the conversation that sent the message.

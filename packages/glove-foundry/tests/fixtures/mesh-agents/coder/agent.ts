@@ -1,7 +1,8 @@
 import { MemoryStore } from "glove-core";
 import { defineAgent } from "../../../../src/index.js";
-import { ScriptedModel, log } from "../../delegation-scripted.js";
+import { ScriptedModel, log } from "../../mesh-scripted.js";
 
+// Not on the mesh itself: its final reply still goes back to whoever asked.
 export default defineAgent({
   description: "Writes code",
   store: ({ conversationId }) => new MemoryStore(conversationId),

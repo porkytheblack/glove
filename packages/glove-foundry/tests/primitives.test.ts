@@ -74,7 +74,7 @@ test("framework core tools emit identity-scoped orchestration commands", async (
     agentInstance: agent,
     conversation,
     activations: [],
-    delegations: [],
+    threads: [],
     data,
     input: {},
     message: { sender: "user", text: "test" },

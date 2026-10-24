@@ -18,6 +18,14 @@ export interface AgentInstance {
   readonly id: string;
   readonly definitionId: string;
   readonly workspaceId: string;
+  /**
+   * Who this agent is, to people and to its peers on the mesh: "Sales
+   * Outbound", "Maya's assistant". Data like the rest of the instance, so it
+   * can change at any time without touching code. Defaults to the id.
+   */
+  readonly name?: string;
+  /** What this agent does, in a sentence its peers can read to choose it. */
+  readonly description?: string;
   /** Stable adapter-enforced key used by lazy subscription provisioning. */
   readonly provisioningKey?: string;
   readonly context: Readonly<Record<string, unknown>>;
@@ -170,7 +178,7 @@ export interface FoundryRequest {
   readonly payload?: unknown;
   readonly context?: Readonly<Record<string, unknown>>;
   readonly source?: {
-    readonly kind: "direct" | "transmission" | "activation" | "spawn" | "background" | "delegation";
+    readonly kind: "direct" | "transmission" | "activation" | "spawn" | "background" | "mesh";
     readonly id?: string;
     readonly provider?: string;
     readonly eventId?: string;
@@ -237,19 +245,21 @@ export interface FoundryResult {
   readonly suspension?: FoundrySuspension;
 }
 
-/** Why a run ended without finishing: it went to sleep, or it asked a question. */
+/** Why a run ended without finishing: it went to sleep, or it is waiting for another agent's reply. */
 export type FoundrySuspension =
   | { readonly kind?: "sleep"; readonly commandId: string; readonly wakeAt: string }
   | {
-      readonly kind: "question";
+      readonly kind: "mesh";
       readonly commandId: string;
-      readonly delegationId: string;
-      readonly question: string;
+      readonly threadId: string;
+      readonly messageId: string;
     };
 
 export interface CreateAgentInstanceOptions {
   readonly id?: string;
   readonly workspaceId?: string;
+  readonly name?: string;
+  readonly description?: string;
   readonly context?: Readonly<Record<string, unknown>>;
   readonly installations?: ReadonlyArray<AgentInstallation>;
   readonly playbooks?: ReadonlyArray<AgentPlaybook>;
@@ -261,6 +271,8 @@ export interface ProvisionAgentOptions extends CreateAgentInstanceOptions {
 }
 
 export interface UpdateAgentInstanceOptions {
+  readonly name?: string;
+  readonly description?: string;
   readonly context?: Readonly<Record<string, unknown>>;
   readonly installations?: ReadonlyArray<AgentInstallation>;
   readonly playbooks?: ReadonlyArray<AgentPlaybook>;
@@ -490,6 +502,8 @@ export function createAgentInstance(
     definitionId,
     workspaceId: options.workspaceId ?? "default",
     ...(provisioningKey ? { provisioningKey } : {}),
+    ...(options.name !== undefined ? { name: options.name } : {}),
+    ...(options.description !== undefined ? { description: options.description } : {}),
     context: options.context ?? {},
     installations: options.installations ?? [],
     playbooks: options.playbooks ?? [],
@@ -507,6 +521,8 @@ export function defineAgentInstance(
   const seed = {
     id: options.id ?? `agent_${randomUUID()}`,
     workspaceId: options.workspaceId ?? "default",
+    ...(options.name !== undefined ? { name: options.name } : {}),
+    ...(options.description !== undefined ? { description: options.description } : {}),
     context: options.context ?? {},
     installations: options.installations ?? [],
     playbooks: options.playbooks ?? [],

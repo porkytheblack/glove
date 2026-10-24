@@ -11,7 +11,7 @@ import type {
 } from "./capabilities.js";
 import type { AnyFoundryTransmission } from "./integration.js";
 import type { AgentPlaybook } from "./playbook.js";
-import type { FoundryDelegationCommand } from "./delegation.js";
+import type { FoundryMeshCommand } from "./mesh.js";
 import {
   durationMillis,
   normalizeScheduleTiming,
@@ -152,7 +152,7 @@ export type FoundryCoreCommand =
       readonly applicationId?: string;
       readonly transmissionId?: string;
     }
-  | FoundryDelegationCommand;
+  | FoundryMeshCommand;
 
 function commandId(): string {
   return `command_${randomUUID()}`;

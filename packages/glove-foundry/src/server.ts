@@ -775,6 +775,8 @@ export class FoundryServer {
         json(response, 201, await this.runtime.createAgent(body.definitionId, {
           ...(typeof body.id === "string" ? { id: body.id } : {}),
           ...(typeof body.workspaceId === "string" ? { workspaceId: body.workspaceId } : {}),
+          ...(typeof body.name === "string" ? { name: body.name } : {}),
+          ...(typeof body.description === "string" ? { description: body.description } : {}),
           ...(body.context && typeof body.context === "object" ? { context: body.context as Record<string, unknown> } : {}),
           ...(Array.isArray(body.installations) ? { installations: body.installations as CreateAgentInstanceOptions["installations"] } : {}),
           ...(Array.isArray(body.playbooks) ? { playbooks: body.playbooks as CreateAgentInstanceOptions["playbooks"] } : {}),
@@ -787,6 +789,8 @@ export class FoundryServer {
         json(response, 200, await this.runtime.configureAgent(
           decodeURIComponent(instanceConfiguration[1]!),
           {
+            ...(typeof body.name === "string" ? { name: body.name } : {}),
+            ...(typeof body.description === "string" ? { description: body.description } : {}),
             ...(body.context && typeof body.context === "object" ? { context: body.context as Record<string, unknown> } : {}),
             ...(Array.isArray(body.installations) ? { installations: body.installations as NonNullable<CreateAgentInstanceOptions["installations"]> } : {}),
             ...(Array.isArray(body.playbooks) ? { playbooks: body.playbooks as NonNullable<CreateAgentInstanceOptions["playbooks"]> } : {}),

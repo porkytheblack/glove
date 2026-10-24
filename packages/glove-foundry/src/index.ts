@@ -65,7 +65,6 @@ export {
   type FoundryCallContext,
   type FoundryCallOptions,
   type FoundryExecutionContext,
-  type FoundryMeshConfig,
   type FoundryResolver,
   type FoundryListResolver,
   type FoundryAgentConventionModule,
@@ -107,13 +106,13 @@ export {
   type FileFoundryDataAdapterOptions,
 } from "./file-data.js";
 export {
-  type FoundryDelegate,
-  type FoundryDelegateOptions,
-  type FoundryDelegation,
-  type FoundryDelegationReply,
-  type FoundryDelegationStatus,
-  type FoundryDelegationUpdate,
-} from "./delegation.js";
+  meshIdentity,
+  type FoundryMeshMessage,
+  type FoundryMeshOptions,
+  type FoundryMeshParty,
+  type FoundryMeshThread,
+  type FoundryMeshThreadStatus,
+} from "./mesh.js";
 export {
   FOUNDRY_PLAYBOOK_ACTION_BRAND,
   FOUNDRY_COMPOSED_PLAYBOOK_BRAND,
