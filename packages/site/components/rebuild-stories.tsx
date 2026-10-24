@@ -428,7 +428,7 @@ export function RebuildShapes() {
             </marker>
           </defs>
 
-          <g className="tone-harness"><text x={156} y={22} textAnchor="middle" className="dg-group-label">Grok Bot · a crew</text></g>
+          <g className="tone-harness"><text x={156} y={22} textAnchor="middle" className="dg-group-label">Grok Bot · teammates</text></g>
           <Mini x={16} y={40} w={280} h={44} title="You" sub="app · @-mention on X" />
           <Arrow d="M156,84 L156,110" />
           <Mini x={76} y={112} w={160} h={50} title="Chief" sub="a bot with role: chief" tone="harness" />
@@ -439,9 +439,9 @@ export function RebuildShapes() {
           <g className="tone-harness"><text x={466} y={22} textAnchor="middle" className="dg-group-label">Claude Duet · a partner</text></g>
           <Mini x={326} y={40} w={280} h={44} title="You" sub="one thread · chat or call" />
           <Arrow d="M466,84 L466,110" />
-          <Mini x={386} y={112} w={160} h={50} title="partner" sub="decides what matters" tone="harness" />
+          <Mini x={386} y={112} w={160} h={50} title="Partner" sub="decides what matters" tone="harness" />
           <Mini x={326} y={202} w={130} h={50} title="Schedules" sub="brief · check-ins" tone="system" />
-          <Mini x={476} y={202} w={130} h={50} title="computer" sub="long jobs" tone="harness" />
+          <Mini x={476} y={202} w={130} h={50} title="Computer" sub="long jobs" tone="harness" />
           <Arrow d="M391,202 L420,166" label="wakes" lx={398} ly={180} anchor="end" />
           <Arrow d="M512,166 L541,198" label="mesh" lx={534} ly={180} anchor="start" />
           <text x={466} y={284} textAnchor="middle" className="dg-sub">one agent that reaches out first</text>
