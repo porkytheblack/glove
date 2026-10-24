@@ -117,8 +117,11 @@ const files = await env.export("/out/**");`}
         <code>execute_sandbox</code>: the same script-the-whole-step idea, over a
         browser session or a persistent container. Screenshots reach the model as
         images on its next call. Station is the first backend; in Foundry, one
-        managed Station can host both. On Kuiper, browsers and sandboxes are services
-        your unit already has a key for. See{" "}
+        managed Station can host both. On Kuiper, use Station&apos;s containers on the
+        unit, or call Kuiper&apos;s browsers and sandboxes through{" "}
+        <code>@kuiper-sh/sdk</code> from your own tools once the unit references{" "}
+        <code>{"${{browsers.…}}"}</code> or <code>{"${{sandboxes.…}}"}</code>; there is no{" "}
+        <code>glove-execution</code> adapter for Kuiper&apos;s gateway yet. See{" "}
         <Link href="/docs/execution">browsers and sandboxes</Link> and the{" "}
         <Link href="/docs/harnesses/coding">coding agent blueprint</Link>.
       </p>

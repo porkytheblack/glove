@@ -60,8 +60,8 @@ stop();`}
       <p>
         A provider returns a string, content parts (an image of a dashboard, say) or{" "}
         <code>null</code>. The text arrives as a transient user-role message at the
-        tail. Subscribers get a <code>runtime_context</code> event with exactly what
-        was sent, so you can trace it. glove-memory&apos;s pinned context, forms and
+        tail. Subscribers get a <code>runtime_context</code> event with what was sent
+        (the text exactly, media as a placeholder), so you can trace it. glove-memory&apos;s pinned context, forms and
         goals all use this same seam; so does <code>mountBrowser</code> to show the
         model its latest screenshot.
       </p>
@@ -118,13 +118,15 @@ useReadSkill(agent, [
           <code>compaction_context_limit</code>, using your{" "}
           <code>compaction_instructions</code>. The model continues from the summary;
           the store still has every message, so your UI shows the whole thread.
-          Resolved inbox items and tasks carry across.
+          Pending inbox items are carried into the summary, and tasks live in the
+          store, so neither is lost.
         </li>
         <li>
-          <strong>Tool result summaries</strong>: give a tool{" "}
-          <code>generateToolSummary</code> and turn on{" "}
-          <code>enableToolResultSummary</code>, and a large result is replaced by its
-          summary in later turns.
+          <strong>Tool result summaries</strong>: turn on{" "}
+          <code>enableToolResultSummary</code>, give the tool{" "}
+          <code>generateToolSummary</code>, and return{" "}
+          <code>generateSummaryArgs</code> from its <code>do()</code>. A large
+          result is then replaced by its summary in later requests.
         </li>
         <li>
           <strong>Keep big data out entirely.</strong> A 5,000-row result belongs in a

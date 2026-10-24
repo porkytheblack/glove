@@ -183,10 +183,14 @@ export const gloveClient = new GloveClient({
         );
         const data = await res.json();
         const now = data.current_condition[0];
+        // A tool returns ToolResultData: \`data\` is what the model reads.
         return {
-          city: input.city,
-          temperature: \`\${now.temp_C}°C\`,
-          condition: now.weatherDesc[0].value,
+          status: "success",
+          data: {
+            city: input.city,
+            temperature: \`\${now.temp_C}°C\`,
+            condition: now.weatherDesc[0].value,
+          },
         };
       },
     },
@@ -195,9 +199,10 @@ export const gloveClient = new GloveClient({
       />
 
       <p>
-        Whatever <code>do()</code> returns is fed back to the model as the tool
-        result. Keep it small and structured — it costs context on every
-        subsequent turn.
+        <code>do()</code> returns <code>{"{ status, data }"}</code>; <code>data</code>{" "}
+        is fed back to the model as the tool result. Keep it small and structured,
+        because it costs context on every subsequent turn. (Tools built with{" "}
+        <code>defineTool</code> may return a raw value; it is wrapped for you.)
       </p>
 
       <h3 id="4-provider">4. Add the provider</h3>
@@ -312,8 +317,8 @@ export default function Chat() {
       input,
     });
 
-    if (!confirmed.ok) return { status: "cancelled" };
-    return await bookings.create(input);
+    if (!confirmed.ok) return { status: "error", data: null, message: "The user cancelled." };
+    return { status: "success", data: await bookings.create(input) };
   },
 }`}
       />

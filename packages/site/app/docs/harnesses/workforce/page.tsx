@@ -90,7 +90,7 @@ export default function WorkforceHarnessPage() {
         The researcher saves its findings to a file and posts a shared inbox item addressed to
         the lead&apos;s conversation with the path, not the body. When the lead runs next (on the
         writer&apos;s report, or on a schedule that checks progress), its <code>inboxes</code>{" "}
-        resolver loads the resolved items and Glove injects them into that turn. Tasks move from{" "}
+        resolver loads the items posted to it and Glove injects them into that turn. Tasks move from{" "}
         <code>open</code> to <code>completed</code> as each part lands. Anything that publishes
         is permission-gated, so the final step waits on an approval. The inspector shows the
         whole tree: the arrival, the provisioned lead, every spawned run, each model and tool
@@ -128,10 +128,11 @@ export default defineAgent({
    "writer" for drafts. Give each the conversation id above so it can report back.
 3. Specialists post results to the shared inbox as file paths. Never paste documents.
 4. When every task is completed, assemble and call publish.\`,
-  // Hand each resolved shared-inbox item addressed to this conversation to the model, once.
+  // Hand each shared-inbox item posted to this conversation to the model, once.
+  // glove_foundry_shared_inbox "post" creates items as "pending".
   inboxes: async (_agent, ctx) => {
     const items = await Effect.runPromise(ctx.data.listInboxItems(ctx.workspaceId));
-    const ready = items.filter((item) => item.conversationId === ctx.conversationId && item.status === "resolved");
+    const ready = items.filter((item) => item.conversationId === ctx.conversationId && item.status === "pending");
     for (const item of ready) {
       await Effect.runPromise(ctx.data.putInboxItem({ ...item, status: "dismissed", updatedAt: new Date().toISOString() }));
     }

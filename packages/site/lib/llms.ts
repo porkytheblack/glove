@@ -1042,8 +1042,11 @@ published twice.
 
 - Tool \`description\` is the interface the model sees — write it for the model,
   not for a teammate.
-- Whatever \`do()\` returns costs context on every later turn. Return small,
-  structured data; put bulk in the display payload or a sandbox file.
+- \`do()\` returns \`{ status, data, message?, renderData? }\`; only \`data\` (and
+  \`message\` on errors) reaches the model. A raw object or string is not wrapped
+  (only glove-react's \`defineTool\` wraps), so the model would see nothing.
+- What \`data\` holds costs context on every later turn. Return small,
+  structured data; put bulk in \`renderData\`, the display payload or a file.
 - \`MemoryStore\` is in-process and disappears on restart. Implement
   \`StoreAdapter\` for durable sessions.
 - \`pushAndWait\` suspends the tool. It needs a client that can resolve the slot

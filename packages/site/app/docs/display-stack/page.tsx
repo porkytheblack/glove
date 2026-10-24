@@ -85,7 +85,7 @@ export const weatherTool: ToolConfig = {
     // Show a weather card — tool keeps running
     await display.pushAndForget({ input: weather });
 
-    return weather;
+    return { status: "success", data: weather };
   },
 
   // The React component that renders the card
@@ -338,9 +338,10 @@ export const confirmAction: ToolConfig = {
     const confirmed = await display.pushAndWait({ input });
 
     // Execution resumes here after the user responds
-    return confirmed
-      ? "User confirmed the action."
-      : "User cancelled the action.";
+    return {
+      status: "success",
+      data: confirmed ? "User confirmed the action." : "User cancelled the action.",
+    };
   },
 
   render({ data, resolve }: SlotRenderProps) {
@@ -462,7 +463,7 @@ export const searchProducts: ToolConfig = {
   });
 
   // Both pushes happened, user submitted payment — create the order
-  return await createOrder(cart, paymentDetails);
+  return { status: "success", data: await createOrder(cart, paymentDetails) };
 },`}
       />
 

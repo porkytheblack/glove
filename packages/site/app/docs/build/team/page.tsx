@@ -30,7 +30,8 @@ export default function BuildTeamPage() {
       <CodeBlock
         filename="release.ts"
         language="typescript"
-        code={`import { Glove, Displaymanager, type GloveFoldArgs } from "glove-core";
+        code={`// release.ts, continued: Glove, Displaymanager and createAdapter are imported in step 1.
+import type { GloveFoldArgs } from "glove-core";
 
 // Defined once, given to both agents: least privilege by construction.
 const listMergedChanges: GloveFoldArgs<{ since: string }> = { /* the tool from step 1 */ };
@@ -42,7 +43,7 @@ agent.defineSubAgent({
     const store = await parentStore.createSubAgentStore!("reviewer");
     return new Glove({
       store,
-      model: createAdapter({ provider: "anthropic", model: "claude-haiku-3-5-20241022" }),
+      model: createAdapter({ provider: "anthropic", model: "claude-haiku-4-5" }),
       displayManager: new Displaymanager(),
       systemPrompt:
         "You review release notes. Every line must match a merged pull request. " +
@@ -62,7 +63,8 @@ agent.defineSubAgent({
         answer comes back as the tool result. The parent&apos;s subscribers see the
         child&apos;s events between <code>subagent_invoked</code> and{" "}
         <code>subagent_completed</code>, so a UI can show the review happening. Pass{" "}
-        <code>durable: true</code> to <code>createSubAgentStore</code> and the child
+        <code>true</code> as <code>createSubAgentStore</code>&apos;s second argument,{" "}
+        <code>createSubAgentStore(&quot;reviewer&quot;, true)</code>, and the child
         keeps its history across calls.
       </p>
       <p>Common subagents worth splitting out:</p>

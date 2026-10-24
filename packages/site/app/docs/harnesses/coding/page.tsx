@@ -170,13 +170,17 @@ display.subscribe(async (stack) => {
   for (const slot of stack) {
     if (answered.has(slot.id)) continue;
     answered.add(slot.id);
-    if (slot.renderer === "permission_request") {
-      const { toolName, toolInput } = slot.input as { toolName: string; toolInput: unknown };
-      display.resolve(slot.id, await confirm(\`Allow \${toolName}? \${JSON.stringify(toolInput)}\`)); // your prompt
-    }
-    if (slot.renderer === "plan_approval") {
-      display.resolve(slot.id, await reviewPlan(slot.input)); // your prompt
-    }
+    // Don't await inside the listener: pushAndWait registers its resolver only
+    // after every listener returns. Ask on the next tick, then resolve.
+    setImmediate(async () => {
+      if (slot.renderer === "permission_request") {
+        const { toolName, toolInput } = slot.input as { toolName: string; toolInput: unknown };
+        display.resolve(slot.id, await confirm(\`Allow \${toolName}? \${JSON.stringify(toolInput)}\`)); // your prompt
+      }
+      if (slot.renderer === "plan_approval") {
+        display.resolve(slot.id, await reviewPlan(slot.input)); // your prompt
+      }
+    });
   }
 });
 

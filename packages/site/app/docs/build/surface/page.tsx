@@ -25,12 +25,14 @@ export default function BuildSurfacePage() {
       <h2 id="display-stack">The display stack in one paragraph</h2>
       <p>
         Every tool receives <code>display</code> as its second argument.{" "}
-        <code>display.pushAndForget(props)</code> renders something and lets the tool
-        continue: a card, a table, progress. <code>await display.pushAndWait(props)</code>{" "}
-        renders something and suspends the tool until the person resolves it, then
-        returns their answer to the tool, not to the model. Nothing about this is
-        tied to chat: the same stack drives a web UI, a terminal prompt, or a
-        permission dialog in an IDE.
+        <code>display.pushAndForget({"{ renderer, input }"})</code> renders something
+        and lets the tool continue: a card, a table, progress.{" "}
+        <code>await display.pushAndWait({"{ renderer, input }"})</code> renders
+        something and suspends the tool until the person resolves it, then returns
+        their answer to the tool, not to the model. (With glove-react&apos;s{" "}
+        <code>defineTool</code>, below, the renderer is the tool itself, so you pass
+        just the props.) Nothing about this is tied to chat: the same stack drives a
+        web UI, a terminal prompt, or a permission dialog in an IDE.
       </p>
 
       <h2 id="web">Put the release assistant on the web</h2>
@@ -114,7 +116,8 @@ export const gloveClient = new GloveClient({
       description: "List pull requests merged on or after a date, newest first.",
       inputSchema: z.object({ since: z.string() }),
       async do({ since }) {
-        return (await fetch(\`/api/changes?since=\${since}\`)).json();
+        const changes = await (await fetch(\`/api/changes?since=\${since}\`)).json();
+        return { status: "success", data: changes }; // plain tools return ToolResultData
       },
     },
     showNotes,

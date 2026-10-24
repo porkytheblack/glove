@@ -65,14 +65,17 @@ const agent = new Glove({
   .build();
 
 const result = await agent.processRequest("What has shipped since the 19th?");
-console.log(result.messages[0]?.text);`}
+// A hook can answer with a single Message; normally it is the model's result.
+console.log("messages" in result ? result.messages[0]?.text : result.text);`}
       />
       <p>
-        Four things make a Glove: a <strong>store</strong> (where the conversation
-        lives), a <strong>model</strong>, a <strong>display manager</strong> (the
-        surface tools can render to; empty for now), and a <strong>system
-        prompt</strong>. <code>fold</code> adds a tool; <code>build</code> freezes the
-        configuration; <code>processRequest</code> runs the loop until the model
+        A Glove needs a <strong>model</strong>, a <strong>display manager</strong>{" "}
+        (the surface tools can render to; empty for now), a <strong>system
+        prompt</strong> and <strong>compaction instructions</strong>. The{" "}
+        <strong>store</strong>, where the conversation lives, is optional and
+        defaults to a fresh <code>MemoryStore</code>. <code>fold</code> adds a tool
+        (before or after build); <code>build</code> binds the store and makes the
+        agent runnable; <code>processRequest</code> runs the loop until the model
         answers without asking for a tool.
       </p>
 
@@ -100,11 +103,16 @@ console.log(result.messages[0]?.text);`}
       <CodeBlock
         filename="release.ts"
         language="typescript"
-        code={`agent.addSubscriber({
+        code={`import type { SubscriberEventDataMap as Events } from "glove-core";
+
+agent.addSubscriber({
   async record(type, data) {
-    if (type === "text_delta") process.stdout.write(data.text);
-    if (type === "tool_use") console.error(\`\\n→ \${data.name}\`, data.input);
-    if (type === "token_consumption") console.error("tokens", data.consumption);
+    if (type === "text_delta") process.stdout.write((data as Events["text_delta"]).text);
+    if (type === "tool_use") {
+      const call = data as Events["tool_use"];
+      console.error(\`\\n→ \${call.name}\`, call.input);
+    }
+    if (type === "token_consumption") console.error("tokens", (data as Events["token_consumption"]).consumption);
   },
 });
 

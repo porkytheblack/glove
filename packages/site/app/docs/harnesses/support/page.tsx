@@ -228,7 +228,14 @@ export default definePlaybookSubscription({
         language="typescript"
         code={`import { createFoundryClient } from "glove-foundry/client";
 
-const foundry = createFoundryClient({ baseUrl: process.env.FOUNDRY_URL });
+const foundry = createFoundryClient({
+  baseUrl: process.env.FOUNDRY_URL,
+  // The same bearer token your requestAuthorization adapter accepts.
+  authorization: {
+    identifier: "support-console",
+    headers: () => ({ authorization: \`Bearer \${process.env.FOUNDRY_TOKEN}\` }),
+  },
+});
 for (const approval of await foundry.approvals({ status: "pending" })) {
   // show approval.toolName and approval.toolInput to a person, then:
   await foundry.resolveApproval(approval.id, "approve"); // or "deny"

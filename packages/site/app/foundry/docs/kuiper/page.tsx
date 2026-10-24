@@ -205,7 +205,9 @@ kuiper logs -u concierge -f`}
 import { inboxTools } from "@kuiper-sh/inbox/glove";
 import { defineSchedule } from "glove-foundry";
 
-const inbox = new Inbox(); // reads KUIPER_GATEWAY_KEY, like the SDK
+// The key is KUIPER_GATEWAY_KEY, as for models. The unit's key only opens the
+// services its variables reference, so the unit must also reference the inbox.
+const inbox = new Inbox({ gatewayUrl: process.env.INBOX_URL });
 
 const checkMail = defineSchedule({
   name: "check-mail",
@@ -218,6 +220,8 @@ const checkMail = defineSchedule({
 //   schedules: [checkMail],`}
       />
       <p>
+        Bind the inbox once, so the unit&apos;s gateway key opens it:{" "}
+        <code>kuiper env set -u concierge &apos;INBOX_URL={"${{inbox.BASE_URL}}"}&apos;</code>.{" "}
         <code>kuiper inbox create concierge</code> prints the address. The tools are{" "}
         <code>check_email</code>, <code>read_email</code>,{" "}
         <code>get_email_attachment</code>, <code>send_email</code> and{" "}

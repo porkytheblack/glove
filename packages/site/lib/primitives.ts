@@ -301,9 +301,9 @@ export const primitives: Primitive[] = [
   {
     name: "Tool result summaries",
     part: "tools",
-    api: "fold({ ..., generateToolSummary }) · enableToolResultSummary: true",
+    api: "enableToolResultSummary: true · fold({ ..., generateToolSummary }) · do() returns generateSummaryArgs",
     pkg: "glove-core",
-    gives: "Large results replaced by a short summary in later turns.",
+    gives: "Large results replaced by a short summary in later requests.",
     insteadOf: "truncating big tool results by hand",
     href: "/docs/core#tool-result-summaries",
   },
@@ -440,7 +440,7 @@ export const primitives: Primitive[] = [
   {
     name: "Forms",
     part: "state",
-    api: "defineForm(…) · useFormRunner(glove, adapter, { registry })",
+    api: "defineForm(…) · useFormRunner(glove, adapter, { registry, subject })",
     pkg: "glove-memory",
     gives: "Validated answers collected over a conversation: steps, branches, skips, undo and executors that act on completion.",
     insteadOf: "a slot-filling state machine",
@@ -516,7 +516,7 @@ export const primitives: Primitive[] = [
   {
     name: "Display stack",
     part: "surface",
-    api: "display.pushAndForget({ input }) · await display.pushAndWait({ input })",
+    api: "display.pushAndForget({ renderer, input }) · await display.pushAndWait({ renderer, input })",
     pkg: "glove-core",
     gives: "Tools render UI mid-conversation; pushAndWait suspends the tool until the person answers.",
     insteadOf: "a side channel from tools to the UI and a pause/resume protocol",

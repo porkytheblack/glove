@@ -155,7 +155,7 @@ const result = await agent.processRequest("What shipped since Monday?");
 The full list (74 items) is in [references/gotchas.md](references/gotchas.md). These are the ones that cost the most when missed:
 
 - **The class is `Displaymanager`** (lowercase m). `createAdapter` streams by default (`stream: true`).
-- **`do()` returns `ToolResultData`**: `{ status: "success" | "error" | "aborted", data, message?, renderData? }`. `data` reaches the model; `renderData` never does.
+- **`do()` returns `ToolResultData`**: `{ status: "success" | "error" | "aborted", data, message?, renderData? }`. `data` reaches the model; `renderData` never does. A raw object or string is NOT wrapped (only glove-react's `defineTool` wraps), so the model receives nothing.
 - **Event keys differ**: `tool_use` carries `{ id, name, input }`; `tool_use_result` carries `call_id`/`tool_name` (with `id`/`name` aliases on newer cores). Streaming adapters emit `model_response_complete`, not `model_response`; handle both.
 - **Permissions are keyed on (tool, input).** `requiresPermission` may be a function of the input. Without a UI, set `serverMode: true` (MCP then auto-picks and skips permission gating) or resolve permissions in your store.
 - **Runtime context needs glove-core ≥ 4.** Goals, forms, pinned context and screenshots are transient tail messages. Any wrapper that proxies a runnable must forward `addContextProvider` and `getRuntimeContext`.

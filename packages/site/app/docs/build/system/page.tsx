@@ -37,7 +37,7 @@ cd release-desk && pnpm install && pnpm dev     # inspector and WebChat at http:
         code={`import { createAdapter } from "glove-core/models/providers";
 import { defineAgent, defineSchedule } from "glove-foundry";
 import { FileStore } from "../../lib/file-store.js";
-import { listMergedChanges, tagRelease } from "./tools.js";   // the tools from steps 1 and 2
+import { listMergedChanges, tagRelease } from "./tools.js";   // server-side versions of the step 1 and 2 tools
 
 const mondayCheck = defineSchedule({
   name: "monday-release-check",
@@ -56,7 +56,9 @@ export default defineAgent({
   // One durable store per conversation (step 4): each run is a fresh process.
   store: ({ conversationId }) => FileStore.open(conversationId),
 
-  // Always-on tools. tag_release keeps requiresPermission: true.
+  // Always-on tools. On the server, tag_release drops its pushAndWait confirm and
+  // calls your release API directly with requiresPermission: true, which Foundry
+  // turns into an approval record (below).
   tools: [listMergedChanges, tagRelease],
 
   // Desired recurring work, per instance; a team can opt out in its context.
@@ -66,9 +68,12 @@ export default defineAgent({
 });`}
       />
       <p>
-        Context providers, skills, memory, the working environment, a REPL and
-        subagents have fields of their own (<code>contextProviders</code>,{" "}
-        <code>workingEnvironment</code>, <code>repl</code>, <code>memory</code>,{" "}
+        The tools move to the server: <code>tag_release</code> calls your release API
+        directly instead of <code>fetch(&quot;/api/releases&quot;)</code>, and its browser
+        confirm becomes <code>requiresPermission: true</code>. Context providers,
+        skills, memory, the working environment, a REPL and subagents have fields of
+        their own (<code>contextProviders</code>, <code>skills</code>,{" "}
+        <code>memory</code>, <code>workingEnvironment</code>, <code>repl</code>,{" "}
         <code>subagents</code>) or mount in <code>configure(agent, ctx)</code>. See{" "}
         <Link href="/foundry/docs/composition">defineAgent &amp; assembly</Link>.
       </p>
