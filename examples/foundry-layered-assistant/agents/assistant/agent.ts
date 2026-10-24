@@ -7,7 +7,7 @@ import { interactorPrompt } from "./prompt.js";
 
 /**
  * Layer 1, the interactor. It talks with the person by text or on a call,
- * remembers them, and turns what they want into tasks for the workers.
+ * remembers them, and turns what they want into messages for the workers.
  *
  * This file only assembles. The prompt, memory and call live beside it.
  */
@@ -20,12 +20,10 @@ export default defineAgent({
   store: ({ conversationId }) => FileStore.open(conversationId),
   memory: [personal],
 
-  // Siblings, by route. Each delegation runs in its own conversation on a
-  // worker instance; results and questions come back here.
-  delegates: [
-    { agent: "coder", description: "Writes and runs code in its own workspace. Takes minutes. Give it the whole task." },
-    { agent: "researcher", description: "Reads the web and reports back with sources. Takes a minute or two." },
-  ],
+  // Glove Mesh, hosted by Foundry: it messages the person's other agents by
+  // id. Who they are is data (lib/team.ts); the coder's reply, or a question
+  // it needs answered, comes back to this conversation.
+  mesh: true,
 
   run: (agent, context) => (isCall(context) ? call(agent, context) : context.defaultRun()),
 });

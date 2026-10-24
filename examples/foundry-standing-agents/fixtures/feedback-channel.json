@@ -1,0 +1,9 @@
+{
+  "channel": "feedback",
+  "messages": [
+    { "ts": "1761123600.000100", "user": "Lena (sales)", "text": "Acme says CSV export times out on reports over 10k rows." },
+    { "ts": "1761127200.000200", "user": "Omar (support)", "text": "Second one today: CSV export spins forever for Globex." },
+    { "ts": "1761134400.000300", "user": "Lena (sales)", "text": "Two prospects asked about dark mode on the dashboard." },
+    { "ts": "1761141600.000400", "user": "Kai (eng)", "text": "Someone on social says login loops in Safari. I can't reproduce it yet." }
+  ]
+}

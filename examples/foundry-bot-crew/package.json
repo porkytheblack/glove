@@ -1,0 +1,27 @@
+{
+  "name": "glove-foundry-bot-crew",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "glove foundry dev",
+    "start": "glove foundry start",
+    "x-webhook": "node --experimental-strip-types scripts/x-webhook.ts",
+    "verify": "node --env-file-if-exists=.env --import tsx scripts/verify.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "effect": "^3.22.1",
+    "glove-core": "workspace:*",
+    "glove-env-fetch": "workspace:*",
+    "glove-foundry": "workspace:*",
+    "glove-memory": "workspace:*",
+    "glove-working-environment": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

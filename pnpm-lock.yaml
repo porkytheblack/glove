@@ -575,6 +575,40 @@ importers:
         specifier: ^8.54.0
         version: 8.67.0(eslint@9.39.5)(typescript@5.9.3)
 
+  examples/foundry-bot-crew:
+    dependencies:
+      effect:
+        specifier: ^3.22.1
+        version: 3.22.1
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-env-fetch:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-fetch
+      glove-foundry:
+        specifier: workspace:*
+        version: link:../../packages/glove-foundry
+      glove-memory:
+        specifier: workspace:*
+        version: link:../../packages/glove-memory
+      glove-working-environment:
+        specifier: workspace:*
+        version: link:../../packages/glove-working-environment
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   examples/foundry-braind-storm:
     dependencies:
       effect:
@@ -769,6 +803,80 @@ importers:
       station-signal:
         specifier: ^3.0.0
         version: 3.0.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  examples/foundry-proactive-partner:
+    dependencies:
+      effect:
+        specifier: ^3.22.1
+        version: 3.22.1
+      glove-classifier:
+        specifier: workspace:*
+        version: link:../../packages/glove-classifier
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-env-fetch:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-fetch
+      glove-foundry:
+        specifier: workspace:*
+        version: link:../../packages/glove-foundry
+      glove-memory:
+        specifier: workspace:*
+        version: link:../../packages/glove-memory
+      glove-voice-s2s:
+        specifier: workspace:*
+        version: link:../../packages/glove-voice-s2s
+      glove-working-environment:
+        specifier: workspace:*
+        version: link:../../packages/glove-working-environment
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  examples/foundry-standing-agents:
+    dependencies:
+      effect:
+        specifier: ^3.22.1
+        version: 3.22.1
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-env-fetch:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-fetch
+      glove-foundry:
+        specifier: workspace:*
+        version: link:../../packages/glove-foundry
+      glove-memory:
+        specifier: workspace:*
+        version: link:../../packages/glove-memory
+      glove-working-environment:
+        specifier: workspace:*
+        version: link:../../packages/glove-working-environment
       zod:
         specifier: ^4.3.6
         version: 4.3.6

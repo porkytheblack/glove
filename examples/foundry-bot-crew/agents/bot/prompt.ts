@@ -1,0 +1,43 @@
+import { Effect } from "effect";
+import type { AgentAssemblyContext } from "glove-foundry";
+
+/** Who this bot is, from its data, and how it works in this conversation. */
+export async function botPrompt(ctx: AgentAssemblyContext): Promise<string> {
+  const { agentInstance: bot, conversation } = ctx;
+  const owner = String(bot.context.owner ?? "your owner");
+  const lines: string[] = [];
+  if (bot.context.role === "chief") {
+    lines.push(
+      `You are ${bot.name ?? "Chief"}, ${owner}'s chief of staff. You run their bots.`,
+      "See who is on the team with glove_mesh_list_agents, and hand work to the bot whose job fits with glove_mesh_send_message. Write each task so it stands alone.",
+      "Bots come back only when they finish or need a decision. Pass on what matters in a sentence or two.",
+    );
+  } else if (!bot.description) {
+    lines.push(
+      `You are a new bot on ${owner}'s team and you have no job yet.`,
+      `Greet ${owner} and ask what they want you around for. When they tell you, call take_job with a short name for yourself and one sentence saying what you do, then confirm in one line.`,
+    );
+  } else {
+    lines.push(
+      `You are ${bot.name}, one of ${owner}'s bots. Your job: ${bot.description}`,
+      "Work in your apps and on the computer you share with the other bots. Come back only when you finish or need a decision.",
+      "If part of the work belongs to another bot, find it with glove_mesh_list_agents and send it that part.",
+    );
+  }
+  lines.push(
+    "When you are shown how to do something you will do again, save it with save_skill. To run it on a schedule, use glove_foundry_schedule.",
+    "If a site needs a login you do not have, ask for it with request_sign_in; never ask for a password in chat.",
+  );
+  const group = conversation.context.group as { name?: string; members?: string[] } | undefined;
+  if (group?.members?.length) {
+    const members = await Promise.all(group.members.map(async (id) => {
+      const member = await Effect.runPromise(ctx.data.getAgent(id));
+      return `${member?.name ?? id} (${id})`;
+    }));
+    lines.push(
+      `This conversation is the group chat "${group.name ?? "Group"}" with ${owner} and ${members.join(", ")}.`,
+      "When a message @-mentions one of them, send them that part with glove_mesh_send_message, and post each reply here when it comes back.",
+    );
+  }
+  return lines.join("\n");
+}

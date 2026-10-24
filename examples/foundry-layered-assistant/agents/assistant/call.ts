@@ -16,7 +16,7 @@ export function isCall(context: Pick<AgentAssemblyContext, "request">): boolean 
 
 /**
  * A live call. Foundry runs the speech session over the assembled agent, so
- * the call has the same memory and delegates as the chat. Results that land
+ * the call has the same memory and teammates as the chat. Replies that land
  * mid-call are spoken at the next pause.
  */
 export const call = voiceCall({

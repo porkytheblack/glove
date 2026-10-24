@@ -1,0 +1,23 @@
+[
+  {
+    "id": "m-101",
+    "from": "Priya Shah <priya@northwind.example>",
+    "subject": "Contract redlines are back",
+    "body": "Legal accepted all but clause 7. Can you sign the revised version by Friday? It's in DocuSign as NW-2026-114.",
+    "receivedAt": "2026-10-24T06:12:00Z"
+  },
+  {
+    "id": "m-102",
+    "from": "Leo Martin <leo@example.com>",
+    "subject": "Lunch moved?",
+    "body": "Can we push lunch to 1:30? Same place.",
+    "receivedAt": "2026-10-24T06:40:00Z"
+  },
+  {
+    "id": "m-103",
+    "from": "The Weekly Tab <news@weeklytab.example>",
+    "subject": "This week in design systems",
+    "body": "Five links you might have missed.",
+    "receivedAt": "2026-10-24T05:00:00Z"
+  }
+]

@@ -8,9 +8,9 @@ import { dataPath } from "./paths.js";
 const WORKSPACES = dataPath("workspaces");
 
 /**
- * Saves a worker's files between runs. Each delegation is its own
+ * Saves a worker's files between runs. Each mesh thread is its own
  * conversation, so each task gets its own workspace, and a follow-up on the
- * same delegation finds the files it left.
+ * same thread finds the files it left.
  */
 export const fileWorkspaces: FoundryWorkingEnvironmentPersistenceAdapter = {
   identifier: "layered-assistant-workspaces",
