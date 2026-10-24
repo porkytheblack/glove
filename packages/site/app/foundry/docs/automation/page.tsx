@@ -397,10 +397,11 @@ export default defineSchedule({
         </tbody>
       </table>
       <p>
-        Two more sets appear only where they apply. An agent with{" "}
-        <code>delegates</code> gets <code>glove_foundry_delegate</code> and{" "}
-        <code>glove_foundry_reply</code>, and a run working on a delegated task gets{" "}
-        <code>glove_foundry_ask</code>; see <Link href="/foundry/docs/layered-agents">Layered agents</Link>.
+        Two more sets appear only where they apply. An agent with <code>mesh</code> set gets{" "}
+        <code>glove_mesh_list_agents</code>, <code>glove_mesh_send_message</code>,{" "}
+        <code>glove_mesh_broadcast</code> and <code>glove_mesh_acknowledge</code>, to message the
+        other agents in its workspace by instance id; see{" "}
+        <Link href="/foundry/docs/multi-agent#mesh">the mesh</Link>.
         Installed apps add one <code>glove_app_&lt;app&gt;__&lt;transmission&gt;_send</code> tool
         per outbound transmission. Workspace, inbox and tasks are described in{" "}
         <Link href="/foundry/docs/conversations">Conversations &amp; shared work</Link>.

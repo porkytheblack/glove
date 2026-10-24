@@ -3,27 +3,27 @@
 
 import { FlowStory } from "./flow-story";
 
-// ─── Delegation: an interactor hands work to a worker and hears back ─────────
+// ─── Mesh: an interactor hands work to a worker and hears back ───────────────
 
-export function DelegationStory() {
+export function MeshStory() {
   return (
     <FlowStory
       id="fsd"
       viewBox="0 0 932 250"
-      label="An interactor agent delegates a task to a worker agent through Foundry, answers the worker's question from memory, and relays the result to the person"
+      label="An interactor agent messages a worker agent over the mesh Foundry hosts, answers the worker's question from memory, and relays the worker's reply to the person"
       boxes={[
         { id: "person", x: 16, y: 60, w: 120, h: 60, title: "Person", sub: "chat or call" },
-        { id: "interactor", x: 206, y: 40, w: 190, h: 100, title: "assistant", sub: "layer 1 · fast · knows them", tone: "harness" },
+        { id: "interactor", x: 206, y: 40, w: 190, h: 100, title: "Iris (maya)", sub: "layer 1 · fast · knows them", tone: "harness" },
         { id: "memory", x: 231, y: 184, w: 140, h: 52, title: "Personal memory", sub: "glove-memory", tone: "harness", dashed: true },
-        { id: "foundry", x: 506, y: 60, w: 160, h: 60, title: "Foundry", sub: "one conversation per task", tone: "system" },
-        { id: "worker", x: 776, y: 40, w: 140, h: 100, title: "coder", sub: "layer 2 · sandbox", tone: "harness" },
+        { id: "foundry", x: 506, y: 60, w: 160, h: 60, title: "Foundry mesh", sub: "one thread per job", tone: "system" },
+        { id: "worker", x: 776, y: 40, w: 140, h: 100, title: "Coder", sub: "maya-coder · sandbox", tone: "harness" },
       ]}
       edges={[
         { id: "ask", d: "M136,77 L202,77", label: "asks", lx: 169, ly: 69 },
         { id: "tell", d: "M202,105 L140,105", label: "tells", lx: 171, ly: 121 },
-        { id: "delegate", d: "M396,77 L502,77", label: "delegate", lx: 449, ly: 69 },
-        { id: "start", d: "M666,77 L772,77", label: "task", lx: 719, ly: 69 },
-        { id: "question", d: "M772,105 L670,105", label: "ask · result", lx: 721, ly: 121 },
+        { id: "send", d: "M396,77 L502,77", label: "send", lx: 449, ly: 69 },
+        { id: "start", d: "M666,77 L772,77", label: "message", lx: 719, ly: 69 },
+        { id: "question", d: "M772,105 L670,105", label: "ask · reply", lx: 721, ly: 121 },
         { id: "back", d: "M502,105 L400,105", label: "delivered", lx: 451, ly: 121 },
         { id: "recall", d: "M301,180 L301,144", label: "recalls", lx: 309, ly: 166, anchor: "start" },
       ]}
@@ -40,13 +40,14 @@ export function DelegationStory() {
           ),
         },
         {
-          lit: ["interactor", "foundry", "worker", "delegate", "start"],
-          packet: { edge: "delegate", label: "task" },
-          title: "It hands the work off",
+          lit: ["interactor", "foundry", "worker", "send", "start"],
+          packet: { edge: "send", label: "write slugify" },
+          title: "It messages a teammate",
           text: (
             <>
-              <code>glove_foundry_delegate</code> returns at once. Foundry opens a conversation for
-              this task on the person&apos;s own <code>coder</code> instance and starts a run there.
+              <code>glove_mesh_list_agents</code> shows the other agents in Maya&apos;s workspace.
+              <code> glove_mesh_send_message</code> to <code>maya-coder</code> returns at once. Foundry
+              opens a thread, a conversation on the coder, and starts a run there.
             </>
           ),
         },
@@ -62,34 +63,34 @@ export function DelegationStory() {
           title: "The worker needs something",
           text: (
             <>
-              The coder cannot tell which language the person wants, so it calls{" "}
-              <code>glove_foundry_ask</code>. The question goes to the conversation that delegated.
-              The coder&apos;s run waits up to <code>answerWaitMs</code>, keeping its sandbox.
+              The coder cannot tell which language Maya wants, so it messages whoever sent the
+              work, with <code>blocking: true</code>. Its run waits up to <code>waitMs</code>,
+              keeping its sandbox.
             </>
           ),
         },
         {
-          lit: ["memory", "interactor", "recall", "delegate", "foundry", "start", "worker"],
-          packet: { edge: "delegate", label: "reply: TypeScript" },
+          lit: ["memory", "interactor", "recall", "send", "foundry", "start", "worker"],
+          packet: { edge: "send", label: "TypeScript" },
           title: "The interactor answers from what it knows",
           text: (
             <>
-              The question arrives as a <code>&lt;delegation status=&quot;question&quot;&gt;</code>{" "}
-              message. Memory already has the answer, so the interactor calls{" "}
-              <code>glove_foundry_reply</code> without bothering the person. If it did not know, it
-              would ask them first. The answer lands in the waiting run as the tool&apos;s result.
+              The question arrives as a <code>&lt;mesh-message&gt;</code>. Memory already has the
+              answer, so the interactor replies with <code>in_reply_to</code> without bothering
+              Maya. If it did not know, it would ask her first. The answer lands in the waiting run
+              as the tool&apos;s result.
             </>
           ),
         },
         {
           lit: ["worker", "foundry", "interactor", "question", "back"],
-          packet: { edge: "back", label: "result" },
-          title: "The result comes back",
+          packet: { edge: "back", label: "reply" },
+          title: "The reply comes back",
           text: (
             <>
-              The coder&apos;s final reply is the result. Foundry delivers it to the interactor&apos;s
-              conversation: straight into a run that is listening, such as a call, or as a new turn
-              once the conversation is free.
+              The coder&apos;s final answer is sent back on its own. Foundry delivers it to the
+              conversation that asked: straight into a run that is listening, such as a call, or as
+              a new turn once the conversation is free.
             </>
           ),
         },
@@ -99,7 +100,7 @@ export function DelegationStory() {
           title: "The person hears it",
           text: (
             <>
-              The interactor passes on what matters. Open delegations sit in its runtime context the
+              The interactor passes on what matters. Open threads sit in its runtime context the
               whole time, so &ldquo;how is that going?&rdquo; needs no tool call.
             </>
           ),
@@ -109,30 +110,30 @@ export function DelegationStory() {
   );
 }
 
-// ─── A voice call that delegates ─────────────────────────────────────────────
+// ─── A voice call that hands work off ────────────────────────────────────────
 
 export function VoiceCallStory() {
   return (
     <FlowStory
       id="fsv"
       viewBox="0 0 932 150"
-      label="A voice call: the caller's audio reaches a speech session over the agent through a room; slow work goes to a delegate, and its result is spoken at the next pause"
+      label="A voice call: the caller's audio reaches a speech session over the agent through a room; slow work goes to another agent over the mesh, and its reply is spoken at the next pause"
       boxes={[
         { id: "caller", x: 16, y: 40, w: 110, h: 64, title: "Caller", sub: "browser · phone" },
         { id: "room", x: 186, y: 40, w: 130, h: 64, title: "Room", sub: "WebSocket · LiveKit" },
         { id: "session", x: 376, y: 22, w: 180, h: 100, title: "voiceCall", sub: "speech session over the agent", tone: "harness" },
-        { id: "foundry", x: 636, y: 40, w: 120, h: 64, title: "Foundry", sub: "delivers updates", tone: "system" },
-        { id: "worker", x: 806, y: 40, w: 110, h: 64, title: "Worker", sub: "a delegate", tone: "harness" },
+        { id: "foundry", x: 636, y: 40, w: 120, h: 64, title: "Foundry", sub: "hosts the mesh", tone: "system" },
+        { id: "worker", x: 806, y: 40, w: 110, h: 64, title: "Worker", sub: "a teammate", tone: "harness" },
       ]}
       edges={[
         { id: "in", d: "M126,60 L182,60", label: "audio", lx: 154, ly: 52 },
         { id: "out", d: "M182,86 L130,86", label: "speech", lx: 156, ly: 102 },
         { id: "up", d: "M316,60 L372,60" },
         { id: "down", d: "M372,86 L320,86" },
-        { id: "delegate", d: "M556,60 L632,60", label: "delegate", lx: 594, ly: 52 },
+        { id: "send", d: "M556,60 L632,60", label: "send", lx: 594, ly: 52 },
         { id: "task", d: "M756,60 L802,60" },
         { id: "result", d: "M802,86 L760,86" },
-        { id: "update", d: "M632,86 L560,86", label: "update", lx: 596, ly: 102 },
+        { id: "update", d: "M632,86 L560,86", label: "reply", lx: 596, ly: 102 },
       ]}
       steps={[
         {
@@ -148,13 +149,14 @@ export function VoiceCallStory() {
           ),
         },
         {
-          lit: ["session", "foundry", "worker", "delegate", "task"],
-          packet: { edge: "delegate", label: "book a table" },
-          title: "Slow work goes to a delegate",
+          lit: ["session", "foundry", "worker", "send", "task"],
+          packet: { edge: "send", label: "book a table" },
+          title: "Slow work goes to a teammate",
           text: (
             <>
-              The call stays thin. Tools that need an approval, and Foundry&apos;s bookkeeping tools,
-              are kept off the call; that work belongs to a delegate.
+              The call stays thin. It sends the work to another agent with{" "}
+              <code>glove_mesh_send_message</code>. Tools that need an approval, and Foundry&apos;s
+              bookkeeping tools, are kept off the call.
             </>
           ),
         },
@@ -166,11 +168,11 @@ export function VoiceCallStory() {
         },
         {
           lit: ["worker", "foundry", "session", "result", "update"],
-          packet: { edge: "update", label: "result" },
-          title: "The result arrives mid-call",
+          packet: { edge: "update", label: "reply" },
+          title: "The reply arrives mid-call",
           text: (
             <>
-              The call listens on its conversation, so Foundry hands the result straight to it
+              The call listens on its conversation, so Foundry hands the reply straight to it
               instead of starting a new run.
             </>
           ),
@@ -182,7 +184,7 @@ export function VoiceCallStory() {
           text: (
             <>
               <code>voiceCall</code> waits until nobody is speaking (at most eight seconds), then tells
-              the model, which tells the caller. If they have hung up, the update is saved for the
+              the model, which tells the caller. If they have hung up, the message is saved for the
               next turn instead.
             </>
           ),

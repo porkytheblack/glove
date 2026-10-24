@@ -5,7 +5,7 @@ import { VoiceCallStory } from "@/components/foundry-stories";
 export const metadata = {
   title: "Voice agents",
   description:
-    "Run a Foundry agent as a live voice call with voiceCall: the same prompt, tools and memory as its text turns, a room for the audio, and delegation results spoken at the next pause.",
+    "Run a Foundry agent as a live voice call with voiceCall: the same prompt, tools and memory as its text turns, a room for the audio, and replies from other agents on the mesh spoken at the next pause.",
 };
 
 export default function VoicePage() {
@@ -17,8 +17,8 @@ export default function VoicePage() {
         A voice agent is an ordinary definition with a speech model and{" "}
         <code>run: voiceCall(...)</code>. The call uses the same prompt, tools, memory and
         context as the agent&apos;s text turns, saves what both sides say, and stays quick
-        because anything slow goes to a <Link href="/foundry/docs/layered-agents">delegate</Link>.
-        When a delegate finishes mid-call, the result is spoken at the next pause.
+        because anything slow goes to <Link href="/foundry/docs/layered-agents">another agent</Link>{" "}
+        over the mesh. When that agent replies mid-call, the reply is spoken at the next pause.
       </p>
 
       <VoiceCallStory />
@@ -86,7 +86,7 @@ return Response.json({ url: \`ws://127.0.0.1:\${port}/call?token=\${token}\` });
 
       <h2 id="what-runs">What the call runs</h2>
       <ul>
-        <li>A <code>RealtimeAgent</code> over the assembled agent: its system prompt, its tools and its runtime context (memory, goals, open delegations), refreshed after every tool call.</li>
+        <li>A <code>RealtimeAgent</code> over the assembled agent: its system prompt, its tools and its runtime context (memory, goals, open mesh threads), refreshed after every tool call.</li>
         <li>What the caller says and what the agent says are appended to the conversation&apos;s store, so the next text turn or call has the history.</li>
         <li>The greeting is sent once, when the first caller joins. Leave it out to wait for the caller to speak.</li>
         <li>The call ends when the room calls <code>end()</code>, nobody is connected for <code>idleMs</code> (2 minutes), <code>maxDurationMs</code> passes (30 minutes), or the run is cancelled.</li>
@@ -98,30 +98,31 @@ return Response.json({ url: \`ws://127.0.0.1:\${port}/call?token=\${token}\` });
         there, so <code>voiceCall</code> keeps them off:
       </p>
       <ul>
-        <li><strong>Foundry&apos;s bookkeeping tools</strong>: spawn, sleep, background, the workspace, shared inbox, tasks and environment tools. <code>glove_foundry_schedule</code>, <code>glove_foundry_delegate</code> and <code>glove_foundry_reply</code> stay.</li>
-        <li><strong>Any tool with <code>requiresPermission</code></strong>. The realtime path has no approval step, so the tool would run ungated. Delegate that work to a worker, where it pauses on an <Link href="/foundry/docs/approvals">approval</Link> as usual.</li>
+        <li><strong>Foundry&apos;s bookkeeping tools</strong>: spawn, sleep, background, the workspace, shared inbox, tasks and environment tools. <code>glove_foundry_schedule</code> and the <code>glove_mesh_*</code> tools stay.</li>
+        <li><strong>Any tool with <code>requiresPermission</code></strong>. The realtime path has no approval step, so the tool would run ungated. Send that work to another agent on the mesh, where it pauses on an <Link href="/foundry/docs/approvals">approval</Link> as usual.</li>
       </ul>
       <p>
         Add more with <code>realtime: {"{ excludeTools: [...] }"}</code>: anything that takes
         long enough to leave the caller in silence.
       </p>
 
-      <h2 id="updates">Results during and after the call</h2>
+      <h2 id="updates">Replies during and after the call</h2>
       <p>
-        The call listens on its conversation, so delegation results and questions reach it
-        directly instead of starting a new run. It holds each one until neither side is
-        speaking (eight seconds at most), then tells the model, which tells the caller. A
+        The call listens on its conversation, so replies and questions from other agents
+        reach it directly instead of starting a new run. It holds each one until neither side
+        is speaking (eight seconds at most), then tells the model, which tells the caller. A
         question is put the same way: the model answers from what it knows with{" "}
-        <code>glove_foundry_reply</code>, or asks the caller first. The full update is also
-        saved to the conversation. Change the wording with{" "}
-        <code>announce: (update) =&gt; string | null</code>.
+        <code>glove_mesh_send_message</code> and <code>in_reply_to</code>, or asks the caller
+        first. The full message is also saved to the conversation. Change the wording with{" "}
+        <code>announce: (message) =&gt; string | null</code>; the default is{" "}
+        <code>announceMeshMessage</code>.
       </p>
       <p>
-        When the caller has hung up, an update starts an ordinary run in that conversation
-        with <code>source.kind</code> <code>&quot;delegation&quot;</code>. If your <code>run</code>{" "}
-        sends it to <code>voiceCall</code>, the update is saved for the next turn; pass{" "}
+        When the caller has hung up, a message starts an ordinary run in that conversation
+        with <code>source.kind</code> <code>&quot;mesh&quot;</code>. If your <code>run</code>{" "}
+        sends it to <code>voiceCall</code>, the message is saved for the next turn; pass{" "}
         <code>offCall</code> to handle it another way. The layered assistant routes it to a
-        text turn instead, so the result is waiting in the chat.
+        text turn instead, so the reply is waiting in the chat.
       </p>
 
       <h2 id="rooms">Rooms</h2>
@@ -201,8 +202,8 @@ export const call = voiceCall({ room: (context) => liveKitRoom(roomNameFor(conte
           <tr><td><code>openDelayMs</code></td><td>0. Wait after the session connects before opening the room; Gemini Live confirms its setup just after the socket opens, so 500 helps there.</td></tr>
           <tr><td><code>transcript</code></td><td><code>true</code>. Save both sides to the conversation&apos;s store.</td></tr>
           <tr><td><code>realtime</code></td><td>Passed to <code>RealtimeAgent</code>: <code>adapter</code>, <code>voice</code>, <code>instructions</code>, <code>excludeTools</code> (added to the defaults), <code>onToolCall</code>.</td></tr>
-          <tr><td><code>announce</code></td><td>How a delegation update is put to the model. Return <code>null</code> to keep it silent.</td></tr>
-          <tr><td><code>offCall</code></td><td>Handles a delegation update that arrives when no call is live. Default: save it to the conversation.</td></tr>
+          <tr><td><code>announce</code></td><td>How a mesh message is put to the model. Return <code>null</code> to keep it silent.</td></tr>
+          <tr><td><code>offCall</code></td><td>Handles a mesh message that arrives when no call is live. Default: save it to the conversation.</td></tr>
         </tbody>
       </table>
       <p>

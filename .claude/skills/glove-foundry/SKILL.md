@@ -16,7 +16,7 @@ Docs: https://glove.dterminal.net/foundry/docs · Tutorial: https://glove.dtermi
 | | Lives in | What it is |
 | --- | --- | --- |
 | **Definition** | code: `agents/<route>/agent.ts` | What an agent of this kind *can* assemble: model, prompt, tools, catalogue, memory, schedules. The file path is the id. |
-| **Instance** | data: `FoundryDataAdapter` | One persisted agent: `{ id, definitionId, workspaceId, context, installations, playbooks }`. Created by your app, the API, a seed, or a subscription when an event arrives. |
+| **Instance** | data: `FoundryDataAdapter` | One persisted agent: `{ id, definitionId, workspaceId, name?, description?, context, installations, playbooks }`. Created by your app, the API, a seed, or a subscription when an event arrives. |
 | **Conversation** | data | A durable thread owned by one instance. An instance can own many. |
 | **Run** | a fresh child process | One message processed by a Glove assembled **from scratch** out of the definition, the instance and the message. Instance edits apply on the next message without a deploy. |
 
@@ -25,6 +25,19 @@ Consequences you must design for:
 - **Anything held only in memory dies with the run.** `new MemoryStore(...)` as a `store`, in-memory memory adapters, module-level variables and `MemoryFoundryDataAdapter` writes made by tools do not survive to the next message. Persist the four boundaries below.
 - **Code identity comes from filenames; runtime identity is data.** Never add an `id` to a file-routed definition and never repeat string ids for code relationships; pass imported values (`install(helpdesk)`). String ids belong to instances, conversations, runs, accounts, routes, bindings and HTTP/database boundaries.
 - **Composition makes things available; installation mounts them.** `composeAgent(...)` lists shared tools, apps and MCP servers an instance *may* install. Tools every instance needs go in `defineAgent`'s `tools`.
+
+## Agents are data
+
+A definition is not an agent. It is everything a kind of agent *can* be, like a server-rendered page that renders whatever props it gets. The agents are instances, and who each one is lives in data: `name`, `description`, `context`, `installations` and `workspaceId`. Adding an agent, renaming it or giving it an app is a write, never a deploy.
+
+- **Never one definition per agent.** `agents/sales-outbound/` next to `agents/inbox-manager/` means nobody can make a new one without a deploy. Write one `bot` definition; each bot is an instance.
+- **Never put names, jobs or per-user settings in code** (a prompt that says "You are Sales Outbound", a constant, an env var per customer). Put them on the instance and read them in resolvers.
+- **Branch on instance data, not ids**: `ctx.agentInstance.context.role === "chief"`, never `ctx.agentId === "maya-chief"`.
+- **Agents can change their own data with a tool.** A `take_job` tool writes `name` and `description` with `ctx.data.putAgent(...)`; your app does the same with `configureAgent(id, { name })`.
+- **A workspace is a tenant** (a person, a team, a company). Agents in one are mesh peers and share workspace entries. A conversation carries data too (`conversation.context`, such as the members of a group chat).
+- **Split definitions only by what an agent can do or must load**: a voice front with its own `run`, a worker that loads a sandbox SDK, a read-only agent whose tools must never mix with acting ones. Even then, every agent of that kind is an instance.
+
+Docs: https://glove.dterminal.net/foundry/docs/agents-are-data
 
 ## The five parts Foundry adds
 
@@ -41,6 +54,7 @@ Consequences you must design for:
 | If you're about to write… | Use | API |
 | --- | --- | --- |
 | a factory that rebuilds the agent per request from a switch over tenants | Definitions with resolvers | `export default defineAgent({ model: () => …, systemPrompt: (_agent, ctx) => …, tools: (_agent, ctx) => … })` |
+| a definition per agent, or an agent's name in its prompt | Instances as data | `createAgent(route, { workspaceId, name, description, context, installations })` · `configureAgent(id, { name })` |
 | an agents-per-customer table and lookup | Instances | `client.agent(route).create({ workspaceId, context })` · `defineAgentInstance(definition, { … })` |
 | thread tables and message routing | Conversations | `client.createConversation(agentId)` · `client.send(agentId, conversationId, text)` · `client.conversationTranscript(…)` |
 | per-customer feature flags around tool lists | Installable capabilities | `defineSharedTool` · `defineApp` · `defineMcp` + `install(definition, config)` / `client.install` / `PUT /api/installations` |
@@ -63,7 +77,7 @@ Consequences you must design for:
 | an adapter so chat UIs can reach your agent | OpenAI-compatible API | `POST /v1/chat/completions` · `POST /v1/responses` (`model` = instance id) |
 | a job-status API around your agent | Run API and REST | `POST /v1/runs` · `GET /v1/runs/:id/events` · `/api/*` |
 | auth middleware in front of every route | Request authorization | `defineApplication({ requestAuthorization: { identifier, challenge, authorize } })` |
-| a chat agent that queues jobs for worker agents and polls for results | Delegates (layered agents) | `delegates: [{ agent: "coder", description }]` → `glove_foundry_delegate` / `glove_foundry_reply`; workers get `glove_foundry_ask`; results come back to the conversation |
+| a chat agent that queues jobs for worker agents and polls for results | Glove Mesh, hosted by Foundry | `mesh: true` (or `{ peers, waitMs, mount }`) → `glove_mesh_list_agents` / `glove_mesh_send_message({ to: instanceId, content })`; the recipient's final reply comes back to the conversation as a `<mesh-message status="replied">` |
 | a WebSocket call server around `RealtimeAgent` | Voice calls | `run: voiceCall({ room: (ctx) => webSocketRoom({ port, token }), greeting })` from `glove-foundry/voice`, `model: s2sDrivenModel(…)` |
 | typed agent-to-agent calls, a subagent router | Calls and subagents | `defineCall({ name, input, output, handler })` · `defineSubagent(…)` |
 | a sandbox runner, file store or REPL wiring | Working environment, REPL | `workingEnvironment: defineWorkingEnvironment({ options, persistence })` · `repl: defineRepl({ language, session, programmaticTools })` |
@@ -90,13 +104,13 @@ foundry.config.ts                       defineConfig (from glove-foundry/config)
 .foundry/routes.d.ts                    generated FoundryRoutes type — never edit
 ```
 
-**Keep `agent.ts` for assembly.** It holds imports and one `defineAgent` call whose fields are values, imported definitions or one-line resolvers. Write the parts beside it: `prompt.ts` (a function that returns the prompt), `tools.ts` (always-on tools), `call.ts` (payload schema + `voiceCall`), `workspace.ts`, `*.memory.ts`; shared choices (the model per layer, the store, workspace persistence) in `lib/`. Agents refer to each other by route (`delegates`), never by importing another `agent.ts`.
+**Keep `agent.ts` for assembly.** It holds imports and one `defineAgent` call whose fields are values, imported definitions or one-line resolvers. Write the parts beside it: `prompt.ts` (a function that returns the prompt), `tools.ts` (always-on tools), `call.ts` (payload schema + `voiceCall`), `workspace.ts`, `*.memory.ts`; shared choices (the model per layer, the store, workspace persistence) in `lib/`. Agents reach each other by instance id over the mesh, never by importing another `agent.ts`.
 
 Each convention file default-exports one definition. Schedules are **not** auto-discovered: keep `defineSchedule` values in ordinary modules and return them from the agent's `schedules` field. Memory profiles, layers and subscribers are definition surfaces: list them in `components` **and** select them in `memory` / `layers` / `subscribers`.
 
 ## defineAgent
 
-Every assembly field is a literal or a resolver `(agent, ctx) => value | Promise<value>`, re-resolved on every run against the instance, conversation and current message. Fields: `description`, `tags`, `components`, `store`, `model`, `systemPrompt`, `displayManager`, `serverMode`, `maxRetries`, `maxConsecutiveErrors`, `compactionLimit`, `compactionInstructions`, `maxTurns`, `enableToolResultSummary`, `tools`, `hooks`, `skills`, `subagents`, `memory`, `goals`, `facts`, `forms`, `contextProviders`, `inboxes` (always a function), `subscribers`, `layers`, `calls`, `schedules`, `playbooks`, `mesh`, `workingEnvironment`, `repl`, `configure(agent, ctx)`, `build(agent, ctx)`, `spawn(agent, ctx, message)`, `run(agent, ctx)`, `delegates`, `answerWaitMs`, `mcpAdapter`, `accountSessions`.
+Every assembly field is a literal or a resolver `(agent, ctx) => value | Promise<value>`, re-resolved on every run against the instance, conversation and current message. Fields: `description`, `tags`, `components`, `store`, `model`, `systemPrompt`, `displayManager`, `serverMode`, `maxRetries`, `maxConsecutiveErrors`, `compactionLimit`, `compactionInstructions`, `maxTurns`, `enableToolResultSummary`, `tools`, `hooks`, `skills`, `subagents`, `memory`, `goals`, `facts`, `forms`, `contextProviders`, `inboxes` (always a function), `subscribers`, `layers`, `calls`, `schedules`, `playbooks`, `mesh`, `workingEnvironment`, `repl`, `configure(agent, ctx)`, `build(agent, ctx)`, `spawn(agent, ctx, message)`, `run(agent, ctx)`, `mcpAdapter`, `accountSessions`.
 
 ```ts
 import { createAdapter } from "glove-core/models/providers";
@@ -148,9 +162,21 @@ const done = await run.wait({ timeoutMs: 120_000 }); // also run.cancel(), run.s
 - **Health**: `GET /health` and `/health/detailed` answer 200 when `ok` is true, 503 with the same body otherwise.
 - **Security**: Foundry binds loopback by default and refuses a public interface without `requestAuthorization`. Foundry never acquires, stores or refreshes credentials; accounts carry an opaque `accessRef` your adapter resolves.
 
-## Layered agents and voice
+## Agents talking to agents: the mesh
 
-Split an assistant by how fast each part must reply, what context it keeps and how long it runs. The **interactor** (fast model, personal memory, the person's chat or call) lists sibling **workers** in `delegates`; workers get their own tools (sandbox, browser, APIs) and no memory of the person. `glove_foundry_delegate({ to, task })` returns at once; the worker's final reply comes back to the delegating conversation as a `<delegation status="completed">` message, into a listening run or as a new run once the conversation is free. A worker asks with `glove_foundry_ask` (waits `answerWaitMs`, default 90 s, in-run, then suspends); the interactor answers with `glove_foundry_reply`, from memory or after asking the person. For calls, `run: voiceCall(...)` speaks delegation updates at the next pause and keeps approval-gated tools off the line. Details: [references/building.md](references/building.md#layered-agents-and-voice); runnable: `examples/foundry-layered-assistant`.
+`mesh: true` (or `{ peers, waitMs, mount }`) puts an agent on Glove Mesh, hosted by Foundry. It gets `glove_mesh_list_agents`, `glove_mesh_send_message`, `glove_mesh_broadcast` and `glove_mesh_acknowledge` (the same names and inputs as glove-mesh) and addresses other agents by **instance id**. Its peers are the other instances in its workspace that pass `peers(self, peer)`; their names and descriptions come from the instances. An agent can always answer whoever messaged it.
+
+A new message starts a **thread**, a conversation on the recipient. The recipient's final non-empty reply goes back on its own as a `<mesh-message status="replied">` message: into a run that is listening (a call), or as one new run (`request.source.kind === "mesh"`) once the conversation is free. A failed or cancelled run sends `status="failed"`. The recipient can ask back with `glove_mesh_send_message` to the sender, who answers with `in_reply_to`. `blocking: true` waits up to `waitMs` (default 90 s) in the same run; after that the run suspends (`suspension.kind === "mesh"`) and the reply arrives as the next run. `mount(ctx)` decides per run whether the tools are mounted at all, such as none on scheduled research. `runtime.listThreads({ agentId?, conversationId?, to?, status? })` lists threads.
+
+**Layered agents.** Split an assistant by how fast each part must reply, what context it keeps and how long it runs. The **interactor** (fast model, personal memory, the person's chat or call) and its **workers** (their own tools, sandbox or browser, no memory of the person) are instances in the person's workspace and reach each other over the mesh. For calls, `run: voiceCall(...)` speaks mesh messages at the next pause and keeps approval-gated tools off the line. Details: [references/building.md](references/building.md#layered-agents-and-voice); runnable: `examples/foundry-layered-assistant`.
+
+## Whole products to copy from
+
+Three always-on products rebuilt from these primitives, each runnable offline with `pnpm verify` and deployable on Kuiper:
+
+- `examples/foundry-bot-crew` (like Grok Bot): one `bot` definition. Every bot is an instance in its owner's workspace, and its name, job and apps are data; a new bot names itself with a `take_job` tool. The Chief is a bot whose `context.role` is `"chief"`, a group chat is a conversation whose context lists its members, and bots hand work to each other over the mesh. Also: one computer per workspace, skills in workspace entries run as schedules, tasks from X through a transmission and a per-owner playbook, approvals.
+- `examples/foundry-proactive-partner` (like Claude Duet): one partner instance and one conversation per person, cron schedules built from the person's preferences in their time zone, a notify tool used only when needed, approval-gated actions with the function form of `requiresPermission`, a guard on outbound text, its own computer reached over the mesh, `voiceCall`.
+- `examples/foundry-standing-agents` (like OpenAI Dots): one `dot` definition; each dot is an instance with its responsibility and rules in context. Runs it starts itself get read-only tools and no mesh (`mesh.mount`), an auto-review wrapper gates every action (act, on request, ask, hand off), one conversation per channel shares memory, and heavy jobs go to the person's builder over the mesh.
 
 ## Built-in agent tools (on every Foundry agent)
 

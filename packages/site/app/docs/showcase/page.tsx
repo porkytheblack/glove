@@ -7,10 +7,28 @@ const repo = "https://github.com/porkytheblack/glove/tree/main/examples";
 
 const foundryExamples = [
   {
+    href: "/foundry/docs/rebuilds/grok-bot",
+    kicker: "Rebuild · Grok Bot · Foundry · Kuiper",
+    title: "Bot Crew",
+    desc: "One bot definition; every bot a person makes is data, with its own name, job, apps and memory. A new bot names itself when told its job. Bots message each other over the mesh, share group chats and one computer, learn skills that run as routines, and wait for approval before sending. Tag the bot on X and the Chief takes it.",
+  },
+  {
+    href: "/foundry/docs/rebuilds/claude-duet",
+    kicker: "Rebuild · Claude Duet · Foundry · Kuiper",
+    title: "Proactive Partner",
+    desc: "One partner in one thread: a morning brief and quiet check-ins in the person's time zone, approvals before it sends, pays, signs or deletes, a guard that never lets a card number out, voice, and its own computer.",
+  },
+  {
+    href: "/foundry/docs/rebuilds/openai-dots",
+    kicker: "Rebuild · OpenAI Dots · Foundry · Kuiper",
+    title: "Standing Agents",
+    desc: "An agent per standing job: read-only research on a schedule, an auto-review with custom rules (act, on request, ask, hand off) in front of every action, the same agent in the app and Slack, and a builder for heavy jobs, reached over the mesh.",
+  },
+  {
     href: `${repo}/foundry-layered-assistant`,
-    kicker: "Foundry · delegates · voice",
+    kicker: "Foundry · mesh · voice",
     title: "Layered Assistant",
-    desc: "A fast interactor with personal memory takes chat or calls and hands work to a coder and a researcher. Workers ask back when they need something; results return to the chat or are spoken mid-call.",
+    desc: "A fast interactor with personal memory takes chat or calls and messages a coder and a researcher over the mesh. Workers ask back when they need something; replies return to the chat or are spoken mid-call.",
   },
   {
     href: "/foundry/docs/browser-and-sandbox",

@@ -565,11 +565,25 @@ pnpm verify:live                 # key/model/WebSocket smoke check
 
 ### Layered Assistant
 
-A personal assistant built as layers of Foundry agents: a fast interactor with personal memory that takes chat or voice calls, and a coder and a researcher it delegates to. Workers ask the interactor when they are missing something; results come back to the conversation, or are spoken mid-call.
+A personal assistant built as layers of Foundry agents: a fast interactor with personal memory that takes chat or voice calls, and a coder and a researcher it messages over the mesh. Each person's three agents are instances in their own workspace. Workers ask the interactor when they are missing something; replies come back to the conversation, or are spoken mid-call.
 
 ```bash
 pnpm --filter glove-foundry-layered-assistant verify   # the whole exchange, offline
 pnpm --filter glove-foundry-layered-assistant dev      # add ANTHROPIC_API_KEY first
+```
+
+### Rebuilds: Bot Crew, Proactive Partner, Standing Agents
+
+Three always-on agent products rebuilt from Foundry primitives, each with an illustrated build on the site and the Kuiper commands in its README. In each one the definition says what an agent can be and every agent is data, so adding or renaming one needs no deploy. They are independent examples, not affiliated with xAI, Anthropic or OpenAI.
+
+- **Bot Crew** (like xAI's Grok Bot): one bot definition; every bot, its name, job, apps and group chats are data. A new bot names itself when told its job, a Chief runs the rest, and bots pass work over the mesh. They share a computer and a skill library; tasks come from @-mentions on X; approvals. [Build](https://glove.dterminal.net/foundry/docs/rebuilds/grok-bot)
+- **Proactive Partner** (like Anthropic's Claude Duet): one partner per person in one thread, a morning brief and check-ins scheduled from their preferences, approvals before it sends, pays, signs or deletes, a guard on everything outbound, and its own computer over the mesh. [Build](https://glove.dterminal.net/foundry/docs/rebuilds/claude-duet)
+- **Standing Agents** (like OpenAI's Dots): one dot definition, each dot's responsibility and rules as data, read-only research with no way to act or message, an auto-review with custom rules, the app and Slack, and a builder per person over the mesh. [Build](https://glove.dterminal.net/foundry/docs/rebuilds/openai-dots)
+
+```bash
+pnpm --filter glove-foundry-bot-crew verify            # each runs offline
+pnpm --filter glove-foundry-proactive-partner verify
+pnpm --filter glove-foundry-standing-agents verify
 ```
 
 ### Braind Storm

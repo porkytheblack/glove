@@ -9,12 +9,36 @@
 Foundry separates immutable code definitions from mutable runtime data.
 
 - `agents/<route>/agent.ts` defines reusable behavior and lazy assembly. It is not a running agent and never declares request input or result output.
-- Agent instances are persisted data with their own ids, workspace, context, installations, and playbooks. They can be provisioned, updated, removed, and reconstructed without changing the definition.
+- Agent instances are persisted data with their own ids, workspace, name, description, context, installations, and playbooks. They can be provisioned, updated, removed, and reconstructed without changing the definition.
 - Conversations are first-class instance-owned records. One instance may own many conversations.
 - Applications, transmissions, predicates, actions, shared tools, MCP definitions, memory profiles, layers, subscribers, and schedules are composable code values colocated with the owning agent.
 - Installations, selected accounts/routes, playbooks, subscriptions, scheduled activations, workspace state, and conversations are runtime data.
 
 Filenames own static identity. Convention files default-export one definition, and static code references imported values. Do not repeat string ids for code-owned relationships or add an `id` to a file-routed definition. String ids are appropriate only after serialization or at database, HTTP, frontend, and other data boundaries.
+
+## Agents are data
+
+A definition is the realm of what a kind of agent can be, like a server-rendered page that renders any props. Each agent is an instance, and who it is lives on the instance: `name`, `description`, `context`, `installations` and `workspaceId`. The definition reads them in resolvers and assembles the right agent for every run.
+
+- One definition per kind of agent, never one per agent. A person making a bot, renaming it or giving it Gmail is a write (`createAgent`, `configureAgent`, `install`), not a deploy.
+- No names, jobs or per-user settings in code: the prompt reads `ctx.agentInstance.name`, `.description` and `.context`.
+- Branch on data the instance carries (`context.role === "chief"`), never on its id.
+- Agents can change their own data with a tool. A bot told its job names itself:
+
+  ```ts
+  {
+    name: "take_job",
+    inputSchema: z.object({ name: z.string(), description: z.string() }),
+    async do(job) {
+      const current = await Effect.runPromise(ctx.data.getAgent(ctx.agentId));
+      await Effect.runPromise(ctx.data.putAgent({ ...current!, ...job, updatedAt: new Date().toISOString() }));
+      return { status: "success", data: { renamed: job.name } };
+    },
+  }
+  ```
+
+- A workspace is a tenant (a person, a team): its agents are mesh peers and share workspace entries. Conversations carry data too, such as the members of a group chat in `conversation.context`.
+- Add a definition only when a kind of agent runs differently, loads different things, or must never have another kind's tools (a voice front, a sandboxed worker, a read-only researcher). Its agents are still instances.
 
 ## Author colocated, composable definitions
 
@@ -124,35 +148,44 @@ Use the first-class lazy `goals`, `facts`, `forms`, and `contextProviders` field
 
 Decide layers by three questions: how fast must it reply, what context must it
 keep, how long does it run. Then give each agent only the access its job needs.
+The layers talk over Glove Mesh, which Foundry hosts.
 
 - Interactor (layer 1): fast model or `s2sDrivenModel`, personal memory
   (`*.memory.ts` with glove-memory, one namespace per instance), talks to the
-  person, lists workers in `delegates: [{ agent: "<route>", description }]`.
-  Write descriptions for the model that has to choose.
+  person, `mesh: true`.
 - Workers (layer 2): ordinary definitions with their own model, tools,
   `workingEnvironment`, browser or sandbox mounts, and a durable `store`. No
-  personal memory; no tool that reaches the person. Set `answerWaitMs` when a
-  worker holds live state worth keeping while it waits for an answer.
-- Name delegates by route; never import another agent's `agent.ts` (its
-  dependencies would load in every run of the importer).
-- Foundry creates one worker instance per interactor instance and route
-  (`<agentId>.<route>`, context copied from the interactor instance plus
-  `delegatedBy`) and one conversation per delegation (id = delegation id).
-  Keep secrets out of instance context.
-- Results, questions and failures arrive in the delegating conversation as
-  `<delegation id agent status>` messages: into a run that listens via
-  `ctx.onDelegationUpdate(handler)`, else as one new run (`source.kind`
-  `"delegation"`) once no run holds the conversation. Open delegations appear in
-  runtime context. `runtime.listDelegations(filter)` lists them; trace events are
-  `delegation.started|question|replied|completed|failed|cancelled|delivered`.
+  personal memory; no tool that reaches the person. `mesh: true` so they can ask
+  back; a larger `waitMs` when a worker holds live state worth keeping while it
+  waits for an answer.
+- Your application creates the agents as instances in one workspace (the
+  person's), each with a `name` and a `description` written for the model that
+  has to choose. Never import another agent's `agent.ts` (its dependencies would
+  load in every run of the importer).
+- `mesh: true | { peers?, waitMs?, mount? }` mounts `glove_mesh_list_agents`,
+  `glove_mesh_send_message({ to, content, in_reply_to?, blocking? })`,
+  `glove_mesh_broadcast` and `glove_mesh_acknowledge`. Agents are addressed by
+  instance id. Peers are the other instances in the workspace that pass
+  `peers(self, peer)` (default: all); an agent can always answer whoever
+  messaged it. `mount(ctx)` decides per run whether the tools are there.
+- A new message starts a thread: a conversation on the recipient, id = thread
+  id, record on `context.meshThread`. The recipient's final non-empty reply goes
+  back on its own; a failed or cancelled run sends a failure. Messages arrive as
+  `<mesh-message id thread from name status?>`: into a run that listens via
+  `ctx.onMeshMessage(handler)`, else as one new run (`source.kind` `"mesh"`) once
+  no run holds the conversation. A blocking send waits `waitMs` (default 90 s)
+  in-run, then the run suspends (`suspension.kind` `"mesh"`). Open threads appear
+  in runtime context. `runtime.listThreads(filter)` lists them; trace events are
+  `mesh.thread.started|replied|failed|cancelled`, `mesh.message.sent`,
+  `mesh.delivered`, `mesh.refused`.
 - Voice: `run: voiceCall({ room, greeting?, idleMs?, maxDurationMs?, openDelayMs?,
   realtime?, announce?, offCall? })` from `glove-foundry/voice`. It hosts
   `RealtimeAgent` over the assembled agent, saves both sides to the store, speaks
-  delegation updates at the next pause (8 s max hold), and keeps Foundry's
-  bookkeeping tools and every `requiresPermission` tool off the call (the
-  realtime path has no approval step). A delegation run with no live call is
-  saved to the conversation unless `offCall` handles it; or route
-  `source.kind === "delegation"` runs to `ctx.defaultRun()` with a text model.
+  mesh messages at the next pause (8 s max hold; `announceMeshMessage` by
+  default), and keeps Foundry's bookkeeping tools and every `requiresPermission`
+  tool off the call (the realtime path has no approval step). A mesh run with no
+  live call is saved to the conversation unless `offCall` handles it; or route
+  `source.kind === "mesh"` runs to `ctx.defaultRun()` with a text model.
 - Rooms are `{ open(call), close() }` calling `call.joined()` / `call.left()`.
   `webSocketRoom({ port, token })` serves PCM16 + JSON on its own port (put it
   behind a proxy on single-port hosts such as Kuiper); a LiveKit room wraps
@@ -167,10 +200,9 @@ keep, how long does it run. Then give each agent only the access its job needs.
 
 Choose the smallest correct composition surface:
 
-- `delegates` for a fast agent that hands slow or tool-heavy work to siblings and hears back (see above).
+- The mesh (`mesh: true`) for agents that message each other by instance id and hear back: a fast agent handing slow work to workers, bots passing work around a team (see above).
 - `defineSubagent` for an isolated nested task under a parent run. Its `tools` can project a least-privilege subset of `parent.tools`; its `layers` (including `configureLayer(layer, config)`) and `subscribers` mount on each invocation, before `configure`, and are disposed when the subagent's request ends.
 - Foundry calls for typed agent-to-agent or agent-to-service invocation.
-- Mesh for peer messaging and acknowledgements.
 - Playbook subscriptions for inbound events that can provision a workforce.
 - Workspaces, conversations, inbox items, tasks, and artifacts for durable coordination.
 
