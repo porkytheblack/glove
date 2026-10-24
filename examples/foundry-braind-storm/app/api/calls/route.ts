@@ -42,7 +42,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       BRIEFING_AGENT_ID,
       BRIEFING_CONVERSATION_ID,
       `Open Mara's live briefing line for storm ${stormId}.`,
-      { payload: { port, token, stormId, idleMs: 120_000 } },
+      { payload: { port, token, stormId } },
     );
     runPorts.set(handle.id, port);
     return NextResponse.json({

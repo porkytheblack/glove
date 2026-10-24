@@ -94,6 +94,7 @@ export {
   type ProvisionAgentOptions,
   type FoundryRequest,
   type FoundryResult,
+  type FoundrySuspension,
   type FoundryTask,
   type FoundryWorkingEnvironmentSnapshotOwner,
   type SharedInboxItem,
@@ -105,6 +106,14 @@ export {
   FileFoundryDataAdapter,
   type FileFoundryDataAdapterOptions,
 } from "./file-data.js";
+export {
+  type FoundryDelegate,
+  type FoundryDelegateOptions,
+  type FoundryDelegation,
+  type FoundryDelegationReply,
+  type FoundryDelegationStatus,
+  type FoundryDelegationUpdate,
+} from "./delegation.js";
 export {
   FOUNDRY_PLAYBOOK_ACTION_BRAND,
   FOUNDRY_COMPOSED_PLAYBOOK_BRAND,

@@ -33,6 +33,11 @@ import {
   type FoundrySurfaceContext,
 } from "./surfaces.js";
 import type { FoundryCoreCommand } from "./core-tools.js";
+import type {
+  FoundryDelegate,
+  FoundryDelegation,
+  FoundryDelegationUpdate,
+} from "./delegation.js";
 import type { FoundryScheduleDefinition } from "./schedule.js";
 import type { ComposedAgentPlaybook } from "./playbook.js";
 import type {
@@ -92,6 +97,10 @@ export interface AgentAssemblyContext<TInput = unknown> {
   readonly conversation: Conversation;
   /** Parent-runtime snapshot used by agent schedule management tools. */
   readonly activations: ReadonlyArray<FoundryActivationRecord>;
+  /** Delegations this conversation started that were still open when the run began. */
+  readonly delegations: ReadonlyArray<FoundryDelegation>;
+  /** The task this run works on, when another agent delegated it. */
+  readonly delegation?: FoundryDelegation;
   readonly data: FoundryDataAdapter;
   readonly input: TInput;
   /** Native Glove representation of the current inbound user turn. */
@@ -167,6 +176,15 @@ export interface FoundryExecutionContext<TInput = unknown>
   /** Native Glove REPL session mounted for this run, when configured. */
   readonly repl?: FoundryMountedRepl;
   readonly invoke: (name: string, input: unknown) => Promise<unknown>;
+  /**
+   * Receive delegation results and questions inside this run while it stays
+   * live, such as a voice call, instead of Foundry starting a new run for each.
+   * Returns a function that stops listening; anything that arrives after it
+   * is delivered as a new run.
+   */
+  readonly onDelegationUpdate: (
+    handler: (updates: ReadonlyArray<FoundryDelegationUpdate>) => void | Promise<void>,
+  ) => () => Promise<void>;
 }
 export interface AgentHandlerContext<TInput = unknown>
   extends FoundryExecutionContext<TInput> {
@@ -201,6 +219,18 @@ export interface AgentAssemblyOptions<TInput = unknown> {
   readonly hooks?: FoundryListResolver<FoundryHookDefinition, TInput>;
   readonly skills?: FoundryListResolver<DefineSkillArgs, TInput>;
   readonly subagents?: FoundryListResolver<DefineSubAgentArgs, TInput>;
+  /**
+   * Sibling agents this one may hand work to, by route. Adds
+   * glove_foundry_delegate and glove_foundry_reply. Each delegation runs as
+   * its own conversation on a worker instance; its result, or a question it
+   * needs answered, comes back to this conversation.
+   */
+  readonly delegates?: FoundryListResolver<FoundryDelegate, TInput>;
+  /**
+   * When this agent works on a delegated task, how long glove_foundry_ask
+   * waits in the same run for an answer before the run suspends. Default 90s.
+   */
+  readonly answerWaitMs?: number;
   /** Definition-owned Glove memory surfaces; may resolve lazily from run context. */
   readonly memory?: FoundryListResolver<FoundryMemorySelection, TInput>;
   readonly goals?: FoundryResolver<FoundryGoalsOptions | undefined, TInput>;
@@ -314,6 +344,8 @@ export interface FoundryAgentConventionModule {
   readonly hooks?: AgentAssemblyOptions["hooks"];
   readonly skills?: AgentAssemblyOptions["skills"];
   readonly subagents?: AgentAssemblyOptions["subagents"];
+  readonly delegates?: AgentAssemblyOptions["delegates"];
+  readonly answerWaitMs?: number;
   readonly memory?: AgentAssemblyOptions["memory"];
   readonly goals?: AgentAssemblyOptions["goals"];
   readonly facts?: AgentAssemblyOptions["facts"];
@@ -381,6 +413,12 @@ function validateDefinition(options: DefineAgentOptions, route?: string): void {
   if (options.model && options.systemPrompt === undefined) {
     throw new Error(`Foundry agent "${id ?? "<file route>"}" must define systemPrompt when it defines a model.`);
   }
+  if (
+    options.answerWaitMs !== undefined &&
+    (!Number.isFinite(options.answerWaitMs) || options.answerWaitMs < 0)
+  ) {
+    throw new Error(`Foundry agent "${id ?? "<file route>"}" answerWaitMs must be a non-negative number.`);
+  }
   if (options.inboxes !== undefined && typeof options.inboxes !== "function") {
     throw new Error(
       `Foundry agent "${id ?? "<file route>"}" inboxes must be a lazy resolver function.`,
@@ -411,7 +449,7 @@ const CONVENTION_EXPORTS = [
   "displayManager", "serverMode", "maxRetries", "maxConsecutiveErrors",
   "compactionLimit", "compactionInstructions", "maxTurns",
   "enableToolResultSummary", "tools", "hooks", "skills", "subagents",
-  "memory", "goals", "facts", "forms", "contextProviders", "inboxes", "subscribers", "layers", "calls", "schedules", "playbooks", "mesh",
+  "delegates", "answerWaitMs", "memory", "goals", "facts", "forms", "contextProviders", "inboxes", "subscribers", "layers", "calls", "schedules", "playbooks", "mesh",
   "workingEnvironment", "repl", "configure", "build",
   "spawn", "run", "handler",
 ] as const;

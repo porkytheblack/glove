@@ -68,6 +68,28 @@ export const foundrySections: FoundryNavSection[] = [
     ],
   },
   {
+    title: "Design your system",
+    items: [
+      {
+        label: "Layered agents",
+        href: "/foundry/docs/layered-agents",
+        badge: "new",
+        summary: "Split an assistant by speed, context and duration: an interactor that talks and remembers, workers that do the work, delegates that hand off and hear back.",
+      },
+      {
+        label: "Voice agents",
+        href: "/foundry/docs/voice",
+        badge: "new",
+        summary: "Run an agent as a live call with voiceCall: rooms, the tools a call may use, and delegation results spoken at the next pause.",
+      },
+      {
+        label: "Multi-agent systems",
+        href: "/foundry/docs/multi-agent",
+        summary: "Every way agents work together: delegates, subagents, typed calls, spawn, mesh, client fan-out and coordination through shared work.",
+      },
+    ],
+  },
+  {
     title: "Connect & automate",
     items: [
       {
@@ -99,11 +121,6 @@ export const foundrySections: FoundryNavSection[] = [
         label: "Browser & sandbox agent",
         href: "/foundry/docs/browser-and-sandbox",
         summary: "A runnable personal agent with mounted browser scripts, persistent code sandboxes and managed servers on one Station.",
-      },
-      {
-        label: "Multi-agent systems",
-        href: "/foundry/docs/multi-agent",
-        summary: "Subagents with least-privilege tools, typed calls, spawn, mesh, voice hosts, and coordination through shared work.",
       },
     ],
   },

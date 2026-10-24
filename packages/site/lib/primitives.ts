@@ -558,6 +558,15 @@ export const primitives: Primitive[] = [
     insteadOf: "a second tool implementation for the realtime provider",
     href: "/docs/realtime-voice",
   },
+  {
+    name: "Voice calls",
+    part: "surface",
+    api: "run: voiceCall({ room, greeting }) · webSocketRoom({ port, token })",
+    pkg: "glove-foundry/voice",
+    gives: "A Foundry agent as a live call: same prompt, tools and memory, transcript saved, delegation results spoken at the next pause.",
+    insteadOf: "a hand-written call server around RealtimeAgent",
+    href: "/foundry/docs/voice",
+  },
 
   // ── Team ─────────────────────────────────────────────────────────────────
   {
@@ -568,6 +577,15 @@ export const primitives: Primitive[] = [
     gives: "glove_invoke_subagent routes work to an isolated child with its own tools and store; events bracket the child's run.",
     insteadOf: "a router that calls other agents by hand",
     href: "/docs/extensions",
+  },
+  {
+    name: "Delegates",
+    part: "team",
+    api: 'defineAgent({ delegates: [{ agent: "coder", description }] })',
+    pkg: "glove-foundry",
+    gives: "A fast agent hands work to sibling agents and keeps talking; results and the workers' questions come back to its conversation.",
+    insteadOf: "a job queue and callback plumbing between a chat agent and its workers",
+    href: "/foundry/docs/layered-agents",
   },
   {
     name: "Mesh",

@@ -345,6 +345,75 @@ Its `layers` and `subscribers` mount when the subagent is invoked and are
 disposed when its request ends. Parent subscribers still receive the subagent
 lifecycle bracket, so delegation remains visible in the same run trace.
 
+## Layered agents: delegates
+
+Split an assistant by how fast each part must answer, what it must remember,
+and how long it runs. The agent that talks to the person stays fast and keeps
+their context; sibling agents do the slow, tool-heavy work in their own
+processes and conversations, and report back.
+
+```ts
+// agents/assistant/agent.ts — the interactor
+export default defineAgent({
+  description: "Talks with the person and hands work to the others",
+  model: fastModel,
+  systemPrompt: interactorPrompt,
+  memory: [personal],
+  delegates: [
+    { agent: "coder", description: "Writes and runs code. Takes minutes." },
+    { agent: "researcher", description: "Reads the web and cites sources." },
+  ],
+})
+
+// agents/coder/agent.ts — a worker
+export default defineAgent({
+  description: "Writes and runs code in a sandbox",
+  model: strongModel,
+  systemPrompt: coderPrompt,
+  workingEnvironment: coderWorkspace,
+  answerWaitMs: 120_000,
+})
+```
+
+`delegates` names siblings by route and adds two tools to the interactor:
+`glove_foundry_delegate` hands off a task and returns at once, and
+`glove_foundry_reply` answers a worker's question or sends more instructions.
+Each delegation runs as its own conversation on a worker instance (one per
+interactor instance and worker), which carries the interactor instance's
+context. The worker gets `glove_foundry_ask`; its final reply is the result.
+
+Results and questions come back to the conversation that delegated. If a run
+there is listening (`ctx.onDelegationUpdate`, used by `voiceCall`), they reach
+it directly. Otherwise they wait until the conversation is free and start one
+run carrying everything that arrived, as `<delegation>` messages. A worker's
+question waits up to `answerWaitMs` (default 90 s) inside the same run, so a
+worker holding a browser or sandbox session keeps it; after that the run
+suspends and the answer starts a new run in the same conversation. Open
+delegations appear in the interactor's runtime context, and
+`runtime.listDelegations()` lists them all. See
+[`examples/foundry-layered-assistant`](../../examples/foundry-layered-assistant).
+
+## Voice calls
+
+`glove-foundry/voice` runs an agent as a live call. Use it as the definition's
+`run`; the agent's model must be `s2sDrivenModel(...)`.
+
+```ts
+import { voiceCall, webSocketRoom } from "glove-foundry/voice"
+
+run: voiceCall({
+  room: (ctx) => webSocketRoom({ port: callPort(ctx), token: callToken(ctx) }),
+  greeting: "Greet the caller in one short sentence.",
+})
+```
+
+The call uses the assembled agent's prompt, tools and runtime context, saves
+what both sides say to the conversation store, and speaks delegation results
+and questions at the next pause. Foundry's bookkeeping tools and any tool that
+needs an approval stay off the call; delegate that work instead. A room is any
+`{ open(call), close() }`: `webSocketRoom` serves PCM16 over one WebSocket, and
+a LiveKit or phone room calls `call.joined()` and `call.left()` the same way.
+
 ## Programmatic tool workflows
 
 `defineRepl` can expose an explicit projection of the fully assembled agent as

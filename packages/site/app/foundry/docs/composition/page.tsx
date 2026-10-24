@@ -35,7 +35,9 @@ const surfaceFields: Field[] = [
   { name: "tools", type: "GloveFoldArgs[]", lazy: "yes", purpose: "Always-on tools for every instance." },
   { name: "hooks", type: "{ name, handler: HookHandler }[]", lazy: "yes", purpose: "Glove hooks triggered by /name directives." },
   { name: "skills", type: "DefineSkillArgs[]", lazy: "yes", purpose: "Glove skills." },
-  { name: "subagents", type: "DefineSubAgentArgs[] (defineSubagent)", lazy: "yes", purpose: "Nested delegates; see Multi-agent." },
+  { name: "subagents", type: "DefineSubAgentArgs[] (defineSubagent)", lazy: "yes", purpose: "Child agents that run inside this run's tool call; see Multi-agent." },
+  { name: "delegates", type: "(string | { agent, description? })[]", lazy: "yes", purpose: "Sibling agents, by route, that this one hands work to and hears back from. Adds glove_foundry_delegate and glove_foundry_reply; see Layered agents." },
+  { name: "answerWaitMs", type: "number", lazy: "no", purpose: "When working on a delegated task, how long glove_foundry_ask waits in the same run before it suspends. Default 90 000." },
   { name: "memory", type: "(defineMemory | configureMemory(...))[]", lazy: "yes", purpose: "Memory profiles to mount. Each must also be in components." },
   { name: "goals / facts / forms", type: "defineGoals / defineFacts / defineForms", lazy: "yes", purpose: "Guidance runners; handles appear on the execution context." },
   { name: "contextProviders", type: "RuntimeContextProvider[]", lazy: "yes", purpose: "Transient context re-read before each model iteration." },
@@ -68,6 +70,8 @@ const contextFields: { name: string; type: string; notes: string }[] = [
   { name: "agentInstance", type: "AgentInstance", notes: "Persisted record: context, installations, playbooks…" },
   { name: "conversation", type: "Conversation", notes: "Persisted record: title, context…" },
   { name: "activations", type: "FoundryActivationRecord[]", notes: "This instance's schedules and sleeps" },
+  { name: "delegations", type: "FoundryDelegation[]", notes: "Delegations this conversation started that are still open" },
+  { name: "delegation", type: "FoundryDelegation | undefined", notes: "Set when this run works on a task another agent delegated" },
   { name: "data", type: "FoundryDataAdapter", notes: "The application's adapter, constructed inside the run process" },
   { name: "message", type: "Message", notes: "Native Glove user message for this turn, including media parts" },
   { name: "messageInput", type: "string | ContentPart[]", notes: "Exactly what processRequest will receive" },
@@ -228,6 +232,7 @@ type FoundryResolver<T, TInput> =
           <tr><td><code>signal</code>, <code>emit</code></td><td>Run abort signal and custom-event emitter</td></tr>
           <tr><td><code>onCleanup(fn)</code></td><td>Register run-scoped teardown; runs in reverse order even if assembly fails</td></tr>
           <tr><td><code>invoke(name, input)</code></td><td>Call one of this run&apos;s <code>calls</code>; input and output are validated</td></tr>
+          <tr><td><code>onDelegationUpdate(handler)</code></td><td>Take delegation results and questions inside this run while it stays live, instead of Foundry starting a new run for each. Returns <code>stop()</code>. <Link href="/foundry/docs/voice"><code>voiceCall</code></Link> uses it.</td></tr>
           <tr><td><code>workingEnvironment</code>, <code>vfs</code>, <code>repl</code></td><td>Present when those fields are configured</td></tr>
           <tr><td><code>goals</code>, <code>facts</code>, <code>forms</code></td><td>Runner handles when guidance is configured</td></tr>
           <tr><td><code>defaultRun(message?)</code>, <code>spawn(message?)</code></td><td><code>run</code> only: the standard loop, or your <code>spawn</code> path</td></tr>

@@ -117,6 +117,7 @@ await mountMesh(oncall, {
           <tr><td>To delegate a task and use the answer in this turn</td><td>A subagent</td></tr>
           <tr><td>To tell another agent something, or ask without waiting</td><td>Mesh</td></tr>
           <tr><td>Agents that run as separate, supervised processes</td><td>Continuum (+ mesh)</td></tr>
+          <tr><td>A fast agent that hands slow work to siblings and hears back, questions included</td><td>Foundry <Link href="/foundry/docs/layered-agents"><code>delegates</code></Link>, in <Link href="/docs/build/system">step 7</Link></td></tr>
           <tr><td>A durable agent per customer to start another&apos;s run, or a schedule</td><td>Foundry: spawn, calls and shared work, in <Link href="/docs/build/system">step 7</Link></td></tr>
         </tbody>
       </table>

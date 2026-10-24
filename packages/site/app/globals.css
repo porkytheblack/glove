@@ -1364,3 +1364,28 @@ footer { padding: 3.5rem clamp(1.25rem, 4vw, 2rem); border-top: 1px solid var(--
   .docs-content table.prim-table td:last-child::before { content: "Instead of: "; font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; }
   .docs-content table.prim-table .prim-api { overflow-x: auto; }
 }
+
+/* ─── Step-through diagrams (components/flow-story.tsx) ─────────────────── */
+.fs-box rect, .fs-box text { transition: opacity 0.35s ease, stroke 0.35s ease, fill 0.35s ease; }
+.fs-box.rest { opacity: 0.55; }
+.fs-edge path { transition: stroke 0.35s ease, stroke-width 0.35s ease; }
+.fs-edge:not(.on) { opacity: 0.55; }
+.fs-packet rect { fill: var(--bg); stroke: var(--accent); stroke-width: 1.5; }
+.fs-packet text { fill: var(--accent); font-family: var(--mono); font-size: 11px; }
+.fs-controls { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.75rem; }
+.fs-button { font: inherit; font-size: 0.8rem; color: var(--text-secondary); background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.3rem 0.65rem; cursor: pointer; transition: border-color 0.2s, color 0.2s; }
+.fs-button:hover, .fs-button:focus-visible { color: var(--text-primary); border-color: var(--accent); outline: none; }
+.fs-play { min-width: 4.5rem; }
+.fs-count { margin-left: 0.4rem; font-family: var(--mono); font-size: 0.75rem; color: var(--text-tertiary); }
+.docs-content ol.fs-steps, ol.fs-steps { list-style: none; counter-reset: fs; margin: 0.75rem 0 0; padding: 0; display: grid; gap: 0.25rem; }
+.docs-content .fs-steps li { margin: 0; counter-increment: fs; border-left: 2px solid var(--border-subtle); padding: 0.3rem 0 0.3rem 0.8rem; }
+.fs-steps li.on { border-left-color: var(--accent); }
+.fs-steps button { font: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; color: var(--text-tertiary); font-size: 0.86rem; }
+.fs-steps button::before { content: counter(fs) ". "; font-family: var(--mono); font-size: 0.75rem; }
+.fs-steps li.on button { color: var(--text-primary); font-weight: 500; }
+.fs-step-text { display: none; margin-top: 0.3rem; font-size: 0.86rem; line-height: 1.6; color: var(--text-secondary); }
+.fs-steps li.on .fs-step-text { display: block; }
+.docs-content .fs-step-text code { font-size: 0.8rem; }
+@media (prefers-reduced-motion: reduce) {
+  .fs-box rect, .fs-box text, .fs-edge path { transition: none; }
+}

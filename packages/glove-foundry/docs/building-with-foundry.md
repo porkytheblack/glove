@@ -727,31 +727,39 @@ For typed `goals`, `facts`, `forms`, and `contextProviders` fields, see
 [Guided conversations](./guidance.md). They mount native runners and providers
 and expose typed execution handles; no custom layer is required.
 
-Voice is a host adapter, not a second agent-definition vocabulary. Keep realtime
-audio, provider turn detection, interruption, telephony, and device access in the
-host. Delegate substantive work to a persisted Foundry instance and conversation
-through the native client or `/v1/responses`; the resulting run stays durable and
-observable.
+A voice agent is an ordinary definition whose model is `s2sDrivenModel(...)`
+and whose `run` is `voiceCall(...)` from `glove-foundry/voice`. The call hosts
+`RealtimeAgent` over the assembled Glove, so the session gets the definition's
+prompt, tools, memory and runtime context. It saves what both sides say to the
+conversation store and ends when the room closes, nobody is connected for
+`idleMs`, the run is cancelled, or `maxDurationMs` passes. A room is any
+`{ open(call), close() }`; `webSocketRoom` serves PCM16 over one WebSocket and
+other transports (LiveKit, a phone bridge) report `call.joined()` and
+`call.left()` the same way.
+
+Keep the call thin. Durable, slow or approval-gated work belongs to a delegate:
+list workers in `delegates`, and the call speaks their results and questions at
+the next pause in speech. `voiceCall` keeps Foundry's bookkeeping tools and any
+tool with `requiresPermission` off the call, because a realtime session runs
+tools directly and would skip the approval. A delegation result that arrives
+after the caller hangs up runs as an ordinary turn (`source.kind` is
+`"delegation"`); by default `voiceCall` saves it to the conversation, or pass
+`offCall` to handle it, for instance with a text model.
 
 Use `glove-voice-s2s` for Gemini Live, OpenAI Realtime, or GPT-Live and `glove-voice` for a
-speech-to-text / Glove / text-to-speech pipeline. A realtime host can expose a
-delegation tool backed by the typed Foundry client, or mount `RealtimeAgent` against
-the assembled Glove in a scoped layer. Stop the voice session in the layer's
-cleanup. Keep provider credentials and audio device access in the host adapter.
+speech-to-text / Glove / text-to-speech pipeline.
 
 GPT-Live selects `provider: "openai-live"` in `s2sDrivenModel` or
-`createS2SAdapter`. Its Responses backend chooses the exposed Glove tools; this
-does not turn a voice session into a durable Foundry run. For durable work, expose
-a delegation tool that calls the target instance/conversation through the Foundry
-client. The host owns continuous PCM pacing (including silence), timestamped
-transcript fragments, playback and avatar utterance boundaries, and awaited
-shutdown for final usage. The adapter does not implement Live client delegation
-or browser WebRTC. Read the [GPT-Live guide](../../glove-voice-s2s/README.md#gpt-live)
+`createS2SAdapter`. The host owns continuous PCM pacing (including silence),
+timestamped transcript fragments, playback and avatar utterance boundaries, and
+awaited shutdown for final usage. The adapter does not implement Live client
+delegation or browser WebRTC. Read the [GPT-Live guide](../../glove-voice-s2s/README.md#gpt-live)
 before adapting an existing room example; Realtime VAD and final-turn assumptions
 do not apply.
 
-`examples/foundry-braind-storm` demonstrates a voice lead delegating durable work
-to Foundry agents. Phone bridges, LiveKit rooms and native audio hosts can use the
+`examples/foundry-layered-assistant` is a fast interactor with personal memory
+that takes text or calls and delegates to a coder and a researcher.
+`examples/foundry-braind-storm` runs its briefing line on `voiceCall`. Phone bridges, LiveKit rooms and native audio hosts can use the
 same instance/conversation boundary. Messenger-specific voice gateways and codecs
 are consumer adapters, not built-in Foundry telephony services.
 
@@ -790,4 +798,5 @@ run cleanup. See the [document adapter](../../glove-env-documents/README.md).
 - VFS persistence, remote storage, and locking remain adapter-owned.
 - Transmissions own executable integration logic; playbooks remain serializable policy.
 - Provider adapters own credential acquisition and refresh.
-- Voice and device hosts own audio transport while Foundry owns the durable agent run.
+- Voice rooms own audio transport; `voiceCall` owns the session and the transcript; Foundry owns the durable run.
+- Interactors keep the person's context; workers keep one task's. Delegation results and questions come back to the conversation that delegated.

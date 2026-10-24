@@ -4,18 +4,18 @@ import { CodeBlock } from "@/components/code-block";
 export const metadata = {
   title: "Multi-agent systems",
   description:
-    "Subagents with least-privilege tools, typed calls, spawn and background runs, client-driven fan-out, mesh peers, voice hosts and visible orchestration.",
+    "Delegates, subagents with least-privilege tools, typed calls, spawn and background runs, client-driven fan-out, mesh peers, voice calls and visible orchestration.",
 };
 
 export default function MultiAgentPage() {
   return (
     <article className="docs-content">
-      <span className="foundry-doc-kicker">Give agents a world / Multi-agent systems</span>
+      <span className="foundry-doc-kicker">Design your system / Multi-agent systems</span>
       <h1>Multi-agent systems</h1>
       <p className="blog-lede">
-        Foundry does not impose one orchestration pattern. A support agent can ask a
-        read-only researcher for facts, hand a refund to a billing agent, fan a batch of
-        tickets out to parallel conversations, or sit behind a live voice line — and
+        Foundry does not impose one orchestration pattern. An assistant can hand slow work
+        to a sibling and hear back, ask a read-only researcher for facts inside its turn,
+        fan a batch of tickets out to parallel conversations, or take a live call, and
         every hop shows up in the same event trace.
       </p>
 
@@ -23,6 +23,7 @@ export default function MultiAgentPage() {
       <table>
         <thead><tr><th>Mechanism</th><th>Runs where</th><th>Result comes back</th><th>Use when</th></tr></thead>
         <tbody>
+          <tr><td><Link href="/foundry/docs/layered-agents"><code>delegates</code></Link></td><td>A new run on a sibling definition, in a conversation per task on a worker instance</td><td>Back in the delegating conversation: into a listening run, or as a new turn. The worker can ask questions too.</td><td>A fast agent hands off slow or tool-heavy work and keeps talking.</td></tr>
           <tr><td><a href="#subagents"><code>defineSubagent</code></a></td><td>Inside the parent&apos;s run and process, with its own Glove, prompt and store</td><td>As the parent&apos;s tool result</td><td>A bounded sub-task needs a different prompt or fewer tools, and the parent waits for the answer.</td></tr>
           <tr><td><a href="#calls"><code>defineCall</code></a></td><td>Inside the run; a plain function</td><td>Return value, validated by Zod</td><td>A deterministic step with a known output shape. No model involved.</td></tr>
           <tr><td><a href="#spawn"><code>glove_foundry_spawn</code></a></td><td>A new queued run, new or existing instance and conversation</td><td>Not returned (command id only)</td><td>The model decides to start separate durable work now.</td></tr>
@@ -31,9 +32,23 @@ export default function MultiAgentPage() {
           <tr><td><a href="#mesh"><code>mesh</code></a></td><td>Between runs that are live at the same time, over your transport</td><td>Messages land in the receiver&apos;s inbox</td><td>Peers that must talk while both are working.</td></tr>
           <tr><td><a href="#shared-work">Workspace, inbox, tasks</a></td><td>Durable data</td><td>Whenever someone reads it</td><td>Handoffs that may outlive any single run.</td></tr>
           <tr><td><Link href="/foundry/docs/automation">Playbook subscriptions</Link></td><td>The runtime, on inbound events</td><td>—</td><td>An inbound event should provision or wake a workforce.</td></tr>
-          <tr><td><a href="#voice">Voice host</a></td><td>A realtime session that delegates to Foundry instances</td><td>The delegation tool&apos;s result</td><td>A speaking agent must stay responsive while durable work runs elsewhere.</td></tr>
+          <tr><td><Link href="/foundry/docs/voice"><code>voiceCall</code></Link></td><td>A live call in a run, over the assembled agent</td><td>Delegation results are spoken at the next pause</td><td>A speaking agent must stay responsive while durable work runs elsewhere.</td></tr>
         </tbody>
       </table>
+
+      <h2 id="delegates">Delegates: hand off and hear back</h2>
+      <p>
+        Most assistants want one agent that talks and remembers, and siblings that do the
+        work. List the siblings in <code>delegates</code>; the agent gets{" "}
+        <code>glove_foundry_delegate</code> and <code>glove_foundry_reply</code>, the worker
+        gets <code>glove_foundry_ask</code>, and results and questions come back to the
+        conversation that delegated. The full pattern, with a runnable example, is on{" "}
+        <Link href="/foundry/docs/layered-agents">Layered agents</Link>.
+      </p>
+      <CodeBlock filename="agents/assistant/agent.ts" language="typescript" code={`delegates: [
+  { agent: "coder", description: "Writes and runs code in its own workspace. Takes minutes." },
+  { agent: "researcher", description: "Reads the web and reports back with sources." },
+],`} />
 
       <h2 id="subagents">Subagents with least-privilege tools</h2>
       <p>
@@ -278,44 +293,23 @@ mesh: (_agent, ctx) => ({
         </tbody>
       </table>
 
-      <h2 id="voice">Voice hosts delegate durable work</h2>
+      <h2 id="voice">Voice calls</h2>
       <p>
-        A realtime voice session owns turn-taking, interruption and audio; it is not a
-        durable Foundry run. Keep it thin and give it a delegation tool that sends work
-        to a persisted instance and conversation through the typed client. The work then
-        has a run id, a trace, approvals and a transcript. Use{" "}
-        <code>glove-voice-s2s</code> (<code>RealtimeAgent</code>, Gemini Live, OpenAI
-        Realtime, GPT-Live) for speech-to-speech or <code>glove-voice</code> for an
-        STT → Glove → TTS pipeline; see <Link href="/docs/realtime-voice">Realtime voice</Link>.
+        A live call is a run: <code>run: voiceCall(...)</code> from{" "}
+        <code>glove-foundry/voice</code> hosts a realtime speech session over the assembled
+        agent. Keep the call thin and give it <code>delegates</code>; their results and
+        questions are spoken at the next pause. See{" "}
+        <Link href="/foundry/docs/voice">Voice agents</Link>.
       </p>
-      <CodeBlock filename="agents/phone-line/delegate.ts" language="typescript" code={`import type { GloveFoldArgs } from "glove-core";
-import { createFoundryClient } from "glove-foundry/client";
-import { z } from "zod";
-
-const foundry = createFoundryClient({ baseUrl: process.env.FOUNDRY_URL ?? "http://127.0.0.1:4141" });
-
-export const delegateToSupport: GloveFoldArgs<{ request: string }> = {
-  name: "delegate_to_support",
-  description: "Hand a customer request to the support team. Returns a run id to read back.",
-  inputSchema: z.object({ request: z.string().min(3) }),
-  async do({ request }) {
-    const handle = await foundry.send("support-desk", "support-voice", request, {
-      context: { channel: "voice" },
-    });
-    return { status: "success", data: { accepted: true, runId: handle.id } };
-  },
-};`} />
       <p>
-        <strong>Reference implementation: <code>examples/foundry-braind-storm</code>.</strong>{" "}
-        A brand workforce where you talk to Mara, the lead:
+        <strong>Reference implementations.</strong>{" "}
+        <code>examples/foundry-layered-assistant</code> is an assistant that takes chat or
+        calls, keeps personal memory, and delegates to a coder and a researcher.{" "}
+        <code>examples/foundry-braind-storm</code> is a brand workforce: its briefing line is a{" "}
+        <code>voiceCall</code> with Gemini Live, its lead convenes four specialists over an
+        in-process mesh with one shared working environment, and its campaign orchestrator
+        fans campaigns out through the typed client.
       </p>
-      <ul>
-        <li><code>agents/briefing-line</code> — a Foundry agent whose model is <code>s2sDrivenModel({"{ provider: \"gemini\" }"})</code> and whose <code>run</code> wraps the assembled Glove in <code>RealtimeAgent</code> and serves a local WebSocket call room. Its tools: <code>get_storm_briefing</code> (read the latest work), <code>record_direction</code> (persist spoken direction), <code>launch_campaign_workforce</code> (start real work).</li>
-        <li><code>launch_campaign_workforce</code> calls <code>client.send</code> on the <code>campaign-orchestrator</code> instance and returns the batch run id at once, so the call never blocks on the work.</li>
-        <li><code>agents/campaign-orchestrator</code> — a headless <code>run</code> that plans waves and gives each campaign its own conversation on the lead instance (<code>createConversation</code> → <code>send</code> → <code>wait</code>), emitting <code>braind.campaign.*</code> events.</li>
-        <li><code>agents/lead</code> — Mara&apos;s <code>run</code> convenes four specialists (scout, strategist, maker, critic) over an in-process Glove Mesh with one shared working environment, passing <code>/out/...</code> paths instead of document bodies.</li>
-        <li>All instances and conversations are seeded in <code>foundry.application.ts</code> in one workspace. Run it with <code>GEMINI_API_KEY</code> set and <code>pnpm --filter glove-foundry-braind-storm dev</code>.</li>
-      </ul>
 
       <h2 id="visible">Make orchestration visible</h2>
       <p>

@@ -63,6 +63,8 @@ Consequences you must design for:
 | an adapter so chat UIs can reach your agent | OpenAI-compatible API | `POST /v1/chat/completions` · `POST /v1/responses` (`model` = instance id) |
 | a job-status API around your agent | Run API and REST | `POST /v1/runs` · `GET /v1/runs/:id/events` · `/api/*` |
 | auth middleware in front of every route | Request authorization | `defineApplication({ requestAuthorization: { identifier, challenge, authorize } })` |
+| a chat agent that queues jobs for worker agents and polls for results | Delegates (layered agents) | `delegates: [{ agent: "coder", description }]` → `glove_foundry_delegate` / `glove_foundry_reply`; workers get `glove_foundry_ask`; results come back to the conversation |
+| a WebSocket call server around `RealtimeAgent` | Voice calls | `run: voiceCall({ room: (ctx) => webSocketRoom({ port, token }), greeting })` from `glove-foundry/voice`, `model: s2sDrivenModel(…)` |
 | typed agent-to-agent calls, a subagent router | Calls and subagents | `defineCall({ name, input, output, handler })` · `defineSubagent(…)` |
 | a sandbox runner, file store or REPL wiring | Working environment, REPL | `workingEnvironment: defineWorkingEnvironment({ options, persistence })` · `repl: defineRepl({ language, session, programmaticTools })` |
 | goal/form/fact plumbing per conversation | Guidance fields | lazy `goals`, `facts`, `forms`, `contextProviders` fields (`defineGoals`, `defineFacts`, `defineForms`) |
@@ -88,11 +90,13 @@ foundry.config.ts                       defineConfig (from glove-foundry/config)
 .foundry/routes.d.ts                    generated FoundryRoutes type — never edit
 ```
 
+**Keep `agent.ts` for assembly.** It holds imports and one `defineAgent` call whose fields are values, imported definitions or one-line resolvers. Write the parts beside it: `prompt.ts` (a function that returns the prompt), `tools.ts` (always-on tools), `call.ts` (payload schema + `voiceCall`), `workspace.ts`, `*.memory.ts`; shared choices (the model per layer, the store, workspace persistence) in `lib/`. Agents refer to each other by route (`delegates`), never by importing another `agent.ts`.
+
 Each convention file default-exports one definition. Schedules are **not** auto-discovered: keep `defineSchedule` values in ordinary modules and return them from the agent's `schedules` field. Memory profiles, layers and subscribers are definition surfaces: list them in `components` **and** select them in `memory` / `layers` / `subscribers`.
 
 ## defineAgent
 
-Every assembly field is a literal or a resolver `(agent, ctx) => value | Promise<value>`, re-resolved on every run against the instance, conversation and current message. Fields: `description`, `tags`, `components`, `store`, `model`, `systemPrompt`, `displayManager`, `serverMode`, `maxRetries`, `maxConsecutiveErrors`, `compactionLimit`, `compactionInstructions`, `maxTurns`, `enableToolResultSummary`, `tools`, `hooks`, `skills`, `subagents`, `memory`, `goals`, `facts`, `forms`, `contextProviders`, `inboxes` (always a function), `subscribers`, `layers`, `calls`, `schedules`, `playbooks`, `mesh`, `workingEnvironment`, `repl`, `configure(agent, ctx)`, `build(agent, ctx)`, `spawn(agent, ctx, message)`, `run(agent, ctx)`, `mcpAdapter`, `accountSessions`.
+Every assembly field is a literal or a resolver `(agent, ctx) => value | Promise<value>`, re-resolved on every run against the instance, conversation and current message. Fields: `description`, `tags`, `components`, `store`, `model`, `systemPrompt`, `displayManager`, `serverMode`, `maxRetries`, `maxConsecutiveErrors`, `compactionLimit`, `compactionInstructions`, `maxTurns`, `enableToolResultSummary`, `tools`, `hooks`, `skills`, `subagents`, `memory`, `goals`, `facts`, `forms`, `contextProviders`, `inboxes` (always a function), `subscribers`, `layers`, `calls`, `schedules`, `playbooks`, `mesh`, `workingEnvironment`, `repl`, `configure(agent, ctx)`, `build(agent, ctx)`, `spawn(agent, ctx, message)`, `run(agent, ctx)`, `delegates`, `answerWaitMs`, `mcpAdapter`, `accountSessions`.
 
 ```ts
 import { createAdapter } from "glove-core/models/providers";
@@ -144,6 +148,10 @@ const done = await run.wait({ timeoutMs: 120_000 }); // also run.cancel(), run.s
 - **Health**: `GET /health` and `/health/detailed` answer 200 when `ok` is true, 503 with the same body otherwise.
 - **Security**: Foundry binds loopback by default and refuses a public interface without `requestAuthorization`. Foundry never acquires, stores or refreshes credentials; accounts carry an opaque `accessRef` your adapter resolves.
 
+## Layered agents and voice
+
+Split an assistant by how fast each part must reply, what context it keeps and how long it runs. The **interactor** (fast model, personal memory, the person's chat or call) lists sibling **workers** in `delegates`; workers get their own tools (sandbox, browser, APIs) and no memory of the person. `glove_foundry_delegate({ to, task })` returns at once; the worker's final reply comes back to the delegating conversation as a `<delegation status="completed">` message, into a listening run or as a new run once the conversation is free. A worker asks with `glove_foundry_ask` (waits `answerWaitMs`, default 90 s, in-run, then suspends); the interactor answers with `glove_foundry_reply`, from memory or after asking the person. For calls, `run: voiceCall(...)` speaks delegation updates at the next pause and keeps approval-gated tools off the line. Details: [references/building.md](references/building.md#layered-agents-and-voice); runnable: `examples/foundry-layered-assistant`.
+
 ## Built-in agent tools (on every Foundry agent)
 
 `glove_foundry_spawn`, `glove_foundry_schedule`, `glove_foundry_schedules`, `glove_foundry_sleep`, `glove_foundry_background`, `glove_foundry_transmit`, `glove_foundry_conversations`, `glove_foundry_workspace`, `glove_foundry_shared_inbox`, `glove_foundry_tasks`, `glove_foundry_environment`. Inputs are in [references/condensed-reference.md](references/condensed-reference.md#8-built-in-agent-tools-mounted-on-every-foundry-agent).
@@ -167,5 +175,5 @@ Kuiper deploys a Foundry folder with no Dockerfile (`glove foundry start --host 
 | File | Read when |
 | --- | --- |
 | [references/condensed-reference.md](references/condensed-reference.md) | Exact fields, endpoints, CLI flags, built-in tool inputs, the durable `FileStore`, application/config keys |
-| [references/building.md](references/building.md) | Authoring rules for definitions, applications, transmissions, credentials, playbooks, schedules, managed execution, working environments, guidance, voice hosts, multi-agent systems |
+| [references/building.md](references/building.md) | Authoring rules for definitions, applications, transmissions, credentials, playbooks, schedules, managed execution, working environments, guidance, layered agents and voice calls, multi-agent systems |
 | [references/contributing.md](references/contributing.md) | Only when changing the glove-foundry package, its inspector or its examples |

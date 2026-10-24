@@ -563,6 +563,15 @@ pnpm dev                         # Foundry + web app at localhost:3002
 pnpm verify:live                 # key/model/WebSocket smoke check
 ```
 
+### Layered Assistant
+
+A personal assistant built as layers of Foundry agents: a fast interactor with personal memory that takes chat or voice calls, and a coder and a researcher it delegates to. Workers ask the interactor when they are missing something; results come back to the conversation, or are spoken mid-call.
+
+```bash
+pnpm --filter glove-foundry-layered-assistant verify   # the whole exchange, offline
+pnpm --filter glove-foundry-layered-assistant dev      # add ANTHROPIC_API_KEY first
+```
+
 ### Braind Storm
 
 An agentic brand workforce with one public lead, four Glove Mesh peers, context-lazy skill packs, shared working environments, path-based document handoffs, Gemini-backed Glove Image generation and visual review, and a responsive “weather room” UI.

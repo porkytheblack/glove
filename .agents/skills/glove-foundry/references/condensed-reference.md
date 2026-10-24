@@ -61,6 +61,11 @@ foundry.config.ts                    defineConfig (from glove-foundry/config) �
   In code, pass imported values (install(helpdesk)), not strings.
 - Schedules are NOT auto-discovered: keep defineSchedule values in ordinary modules
   and return them from the agent's schedules field.
+- Keep agent.ts to imports plus one defineAgent call. Write the parts in modules
+  beside it: prompt.ts (a function returning the prompt), tools.ts (always-on
+  tools), call.ts (payload schema + voiceCall), workspace.ts, *.memory.ts; shared
+  choices (model per layer, store, workspace persistence) in lib/. Fields are
+  values, imported definitions or one-line resolvers calling those modules.
 - String ids are correct only for runtime data: instances, conversations, runs,
   accounts, routes, bindings, and at HTTP/database boundaries.
 
@@ -265,14 +270,58 @@ glove-execution inside configure, with ctx.onCleanup.
 
 ## 11. Multi-agent
 
-defineSubagent (isolated child; tools can be a least-privilege projection of the
-parent built from parent.tools — there is no projectTools export; a subagent's
-layers and subscribers mount per invocation and are disposed when its request
-ends), defineCall (typed function), glove_foundry_spawn (separate run),
-glove_foundry_background (reconvene via inbox), mesh field (glove-mesh),
-playbook subscriptions (provision a workforce), workspace/inbox/tasks for
-coordination. Voice hosts (glove-voice-s2s) delegate durable work to an
-instance via the typed client.
+Layered agents (delegates). Split by how fast a part must reply, what context it
+keeps and how long it runs. The interactor (fast model, personal memory, talks to
+the person) names sibling workers by route:
+
+```ts
+delegates: [
+  { agent: "coder", description: "Writes and runs code. Takes minutes." },
+  { agent: "researcher", description: "Reads the web and cites sources." },
+],
+```
+
+- glove_foundry_delegate({ to, task }) returns { delegationId } at once. Foundry
+  creates one worker instance per interactor instance and route (id
+  "<agentId>.<route>", context copied from the interactor instance plus
+  delegatedBy) and one conversation per delegation (id = delegationId), then
+  queues the worker run with the task in <delegated-task> tags.
+- The worker's final reply is the result. glove_foundry_ask({ question }) on the
+  worker sends a question back; it waits answerWaitMs (default 90 000) in the same
+  run, then the run ends suspended (suspension.kind "question") and the answer
+  starts a new run in the same conversation. Workers need a durable store.
+- glove_foundry_reply({ delegationId, message }) answers a question or sends a
+  follow-up (reopens a finished delegation).
+- Results, questions and failures return to the delegating conversation as
+  <delegation id agent status="completed|question|failed"> messages: into a run
+  that listens (ctx.onDelegationUpdate; voiceCall does), otherwise as one new run
+  once the conversation is free (source.kind "delegation"). Open delegations are
+  in the interactor's runtime context. Updates and replies not yet handed over
+  are kept on the record (undelivered, pendingReplies) and handed over again
+  when the runtime starts. runtime.listDelegations({ agentId?,
+  conversationId?, status? }). Events: delegation.started, .question, .replied,
+  .completed, .failed, .cancelled, .delivered.
+- Do not import another agent's agent.ts; delegates are routes so the interactor
+  never loads a worker's dependencies.
+
+Voice calls: import { voiceCall, webSocketRoom } from "glove-foundry/voice";
+run: voiceCall({ room: (ctx) => webSocketRoom({ port, token }), greeting? }) with
+model: s2sDrivenModel(...). Saves both sides to the store, speaks delegation
+updates at the next pause (max 8 s hold), keeps glove_foundry_spawn/sleep/
+background/schedules/conversations/workspace/shared_inbox/tasks/environment and
+every requiresPermission tool off the call, ends on room end, idleMs (120 000),
+maxDurationMs (1 800 000) or cancel. A delegation run with no call live is saved
+to the conversation by default (offCall to override). A room is
+{ open(call), close() } calling call.joined()/left(); LiveKit via
+glove-voice-livekit's LiveKitTransport + attachRealtime.
+
+Other mechanisms: defineSubagent (isolated child inside the parent's tool call;
+tools can be a least-privilege projection of the parent built from parent.tools
+— there is no projectTools export; a subagent's layers and subscribers mount per
+invocation and are disposed when its request ends), defineCall (typed function),
+glove_foundry_spawn (separate run, no result back), glove_foundry_background
+(reconvene via inbox), mesh field (glove-mesh), playbook subscriptions (provision
+a workforce), workspace/inbox/tasks for coordination.
 
 ## 12. Client and HTTP API
 
@@ -463,6 +512,7 @@ Use Foundry’s lazy goals, facts, forms and contextProviders fields for native
 guidance assembly. Browser/sandbox capabilities use explicit configure mounts;
 they do not add browser or sandbox fields to agent definitions. Detailed workflow skill:
 https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove/references/memory-and-workflows.md#goals-facts-and-form-preparation
+
 
 
 ## Browser and sandbox mounts

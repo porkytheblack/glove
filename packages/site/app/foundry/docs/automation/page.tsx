@@ -397,6 +397,10 @@ export default defineSchedule({
         </tbody>
       </table>
       <p>
+        Two more sets appear only where they apply. An agent with{" "}
+        <code>delegates</code> gets <code>glove_foundry_delegate</code> and{" "}
+        <code>glove_foundry_reply</code>, and a run working on a delegated task gets{" "}
+        <code>glove_foundry_ask</code>; see <Link href="/foundry/docs/layered-agents">Layered agents</Link>.
         Installed apps add one <code>glove_app_&lt;app&gt;__&lt;transmission&gt;_send</code> tool
         per outbound transmission. Workspace, inbox and tasks are described in{" "}
         <Link href="/foundry/docs/conversations">Conversations &amp; shared work</Link>.

@@ -2,6 +2,8 @@
 
 > Read when agents must message each other (glove-mesh) or run as supervised subprocesses (glove-continuum-signal). For subagents, read [extensions.md](extensions.md#subagents); for durable multi-agent systems, use the `glove-foundry` skill.
 >
+> Building a fast agent that talks to a person and hands slow work to workers? In Foundry that is `delegates` (results and the workers' questions come back to the conversation, and a `voiceCall` speaks them mid-call); see the `glove-foundry` skill's "Layered agents and voice". Use mesh only when you are not on Foundry or when peers must talk while both are running.
+>
 > Part of the `glove` skill. Start from [SKILL.md](../SKILL.md) for the mental model and the primitives map.
 
 ## Mesh Network (`glove-mesh`)

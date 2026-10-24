@@ -7,6 +7,12 @@ const repo = "https://github.com/porkytheblack/glove/tree/main/examples";
 
 const foundryExamples = [
   {
+    href: `${repo}/foundry-layered-assistant`,
+    kicker: "Foundry · delegates · voice",
+    title: "Layered Assistant",
+    desc: "A fast interactor with personal memory takes chat or calls and hands work to a coder and a researcher. Workers ask back when they need something; results return to the chat or are spoken mid-call.",
+  },
+  {
     href: "/foundry/docs/browser-and-sandbox",
     kicker: "Foundry · glove-execution",
     title: "Operator",

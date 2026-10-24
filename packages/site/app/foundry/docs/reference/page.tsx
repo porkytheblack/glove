@@ -39,7 +39,7 @@ const groups: ReadonlyArray<Group> = [
       ["isFoundryAgentDefinition", "function", "Type guard for values created by `defineAgent`."],
       ["isFoundryAgent", "function", "Alias of `isFoundryAgentDefinition`."],
     ],
-    types: ["AnyFoundryAgent", "AgentAssemblyContext", "AgentAssemblyOptions", "AgentFactoryContext (deprecated)", "AgentHandlerContext", "AgentRuntimeControls", "DefineAgentOptions", "FoundryAgent", "FoundryAgentDefinition", "DefineFoundrySubagentOptions", "FoundrySubagentToolContext", "FoundryHookDefinition", "FoundryCall", "FoundryCallContext", "FoundryCallOptions", "FoundryExecutionContext", "FoundryMeshConfig", "FoundryResolver", "FoundryListResolver", "FoundryAgentConventionModule", "FoundryAgentMode", "FoundryRouteMap", "InferAgentInput", "InferAgentOutput"],
+    types: ["AnyFoundryAgent", "AgentAssemblyContext", "AgentAssemblyOptions", "AgentFactoryContext (deprecated)", "AgentHandlerContext", "AgentRuntimeControls", "DefineAgentOptions", "FoundryAgent", "FoundryAgentDefinition", "DefineFoundrySubagentOptions", "FoundrySubagentToolContext", "FoundryHookDefinition", "FoundryCall", "FoundryCallContext", "FoundryCallOptions", "FoundryExecutionContext", "FoundryMeshConfig", "FoundryResolver", "FoundryListResolver", "FoundryAgentConventionModule", "FoundryAgentMode", "FoundryRouteMap", "InferAgentInput", "InferAgentOutput", "FoundryDelegate", "FoundryDelegateOptions", "FoundryDelegation", "FoundryDelegationStatus", "FoundryDelegationUpdate", "FoundryDelegationReply", "FoundrySuspension"],
   },
   {
     id: "data",
@@ -163,7 +163,7 @@ const groups: ReadonlyArray<Group> = [
       ["defineApplication", "function", "Default export of `foundry.application.ts`: `name` plus optional `data`, `conversationStore`, `accounts`, `routes`, `bindings`, `requestAuthorization`, `provisioner`, `services`, `daemon`."],
       ["isFoundryApplication", "function", "Brand guard."],
       ["EMPTY_FOUNDRY_APPLICATION", "const", "`defineApplication({ name: \"Glove Foundry\" })`, used when there is no application file."],
-      ["FoundryRuntime", "class", "The control process: `FoundryRuntime.discover({ rootDir, agentsDir, application?, applicationFilePath?, config? })`, then `start()` / `stop()`. Owns data, activations, approvals and the execution daemon; every HTTP endpoint calls one of its methods."],
+      ["FoundryRuntime", "class", "The control process: `FoundryRuntime.discover({ rootDir, agentsDir, application?, applicationFilePath?, config? })`, then `start()` / `stop()`. Owns data, activations, approvals, delegations and the execution daemon; every HTTP endpoint calls one of its methods. `listDelegations({ agentId?, conversationId?, status? })` lists delegations, newest first."],
       ["FoundryRuntimeError", "tagged error class", "Error of the runtime's Effect APIs (`operation`, `message`)."],
       ["FoundryServer", "class", "HTTP server for the inspector, `/api`, `/v1` and `/health`: `new FoundryServer(runtime, { host?, port?, branding?, messageBodyBytes? })`, `listen()` → `{ host, port, url }`, `close()`."],
       ["createFoundryClient", "function", "Typed HTTP client; also exported by `glove-foundry/client`. Options: `baseUrl` (default `http://127.0.0.1:4141`), `fetch`, `authorization`."],
@@ -245,6 +245,9 @@ const coreTools: ReadonlyArray<Row> = [
   ["glove_foundry_shared_inbox", "{ action: \"list\" | \"post\" | \"update\", … }", "List, post (`topic`, `payload`, `agentId?`, `conversationId?`) or set `status`."],
   ["glove_foundry_tasks", "{ action: \"list\" | \"create\" | \"update\", … }", "List, create (`title`, `detail?`) or set `status`."],
   ["glove_foundry_environment", "{}", "List non-secret environment values for this workspace, instance and conversation."],
+  ["glove_foundry_delegate", "{ to, task }", "Only with `delegates`. Hand a task to a sibling agent; returns `{ delegationId, to, status }` at once. The result or a question comes back as a `<delegation>` message."],
+  ["glove_foundry_reply", "{ delegationId, message }", "Only with `delegates`. Answer a delegate's question, or send more instructions about a delegation this conversation started."],
+  ["glove_foundry_ask", "{ question }", "Only on a run working on a delegated task. Ask the delegating agent; waits up to `answerWaitMs` for the answer, then suspends the run."],
   ["glove_app_<app>__<transmission>_send", "{ routeId, payload }", "Generated per outbound transmission of each installed application."],
 ];
 
@@ -313,6 +316,7 @@ export default function ReferencePage() {
           <tr><td><code>glove-foundry/client</code></td><td><code>createFoundryClient</code>, <code>FoundryClient</code>, <code>FoundryRunHandle</code>; types <code>FoundryClientOptions</code>, <code>FoundryClientAuthorizationAdapter</code>, <code>FoundryHealth</code>, <code>FoundrySteerHandleResult</code>, <code>WaitOptions</code></td><td>No runtime imports: safe in browsers, route handlers and voice hosts.</td></tr>
           <tr><td><code>glove-foundry/config</code></td><td><code>defineConfig</code>, <code>DEFAULT_FOUNDRY_CONFIG</code>; types <code>FoundryConfig</code>, <code>FoundryExecutionConfig</code>, <code>FoundryBrandingConfig</code></td><td><code>DEFAULT_FOUNDRY_CONFIG</code> is only exported here.</td></tr>
           <tr><td><code>glove-foundry/station</code></td><td><code>stationDaemon</code>; types <code>FoundryStationDaemonOptions</code>, <code>FoundryStationDaemonAdapter</code>, <code>FoundryStationConnection</code>, <code>FoundryStationResources</code></td><td>Only exported here.</td></tr>
+          <tr><td><code>glove-foundry/voice</code></td><td><code>voiceCall</code>, <code>webSocketRoom</code>, <code>announceDelegationUpdate</code>, <code>VOICE_EXCLUDED_FOUNDRY_TOOLS</code>; types <code>VoiceCallOptions</code>, <code>VoiceCallResult</code>, <code>FoundryVoiceRoom</code>, <code>FoundryVoiceCall</code>, <code>WebSocketRoomOptions</code>, <code>VoiceRoomClientMessage</code>, <code>VoiceRoomServerMessage</code></td><td>Only exported here. See <Link href="/foundry/docs/voice">Voice agents</Link>.</td></tr>
           <tr><td><code>glove-foundry/eslint</code></td><td><code>foundryEslintConfig</code> (also the default export), <code>foundryEslintPlugin</code></td><td>Requires <code>eslint</code> 9+ (optional peer dependency).</td></tr>
           <tr><td>bin <code>glove</code>, <code>glove-foundry</code></td><td>The CLI</td><td>See <a href="#cli">CLI</a>.</td></tr>
         </tbody>
@@ -368,6 +372,17 @@ export default function ReferencePage() {
               <code>onReady?(connection)</code> with <code>{"{ url, stationId, token }"}</code>.
             </td>
           </tr>
+        </tbody>
+      </table>
+
+      <h2 id="voice">Voice (<code>glove-foundry/voice</code>)</h2>
+      <table>
+        <thead><tr><th>Export</th><th>Kind</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>voiceCall</code></td><td>function</td><td>Returns a <code>run</code> that hosts a live call over the assembled agent: <code>{"{ room, greeting?, idleMs?, maxDurationMs?, openDelayMs?, transcript?, realtime?, announce?, offCall? }"}</code>. The agent&apos;s model must be <code>s2sDrivenModel(...)</code>, or pass <code>realtime.adapter</code>.</td></tr>
+          <tr><td><code>webSocketRoom</code></td><td>function</td><td>A room served by the run on its own port: <code>{"{ port, token, host?, path?, sampleRate?, agentName?, model? }"}</code>. PCM16 both ways plus JSON captions and state.</td></tr>
+          <tr><td><code>announceDelegationUpdate</code></td><td>function</td><td>The default wording for a delegation update put to the model mid-call.</td></tr>
+          <tr><td><code>VOICE_EXCLUDED_FOUNDRY_TOOLS</code></td><td>const</td><td>Foundry tools kept off every call. Tools with <code>requiresPermission</code> are kept off too.</td></tr>
         </tbody>
       </table>
 
