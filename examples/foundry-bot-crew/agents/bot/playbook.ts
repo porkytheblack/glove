@@ -6,7 +6,7 @@ import takeTask from "./actions/take-task.action.js";
 import { xMentionsIn } from "./topology.js";
 import xMentions from "./transmissions/x-mentions.transmission.js";
 
-/** When this person tags the bot on X, the post is a task for their chief. */
+/** When this person tags the bot on X, the post is a task for their main bot. */
 export function mentionsFrom(authorId: string) {
   return composePlaybook({
     name: "x-mentions",

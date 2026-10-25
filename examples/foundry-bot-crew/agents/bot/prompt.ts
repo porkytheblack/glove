@@ -6,11 +6,11 @@ export async function botPrompt(ctx: AgentAssemblyContext): Promise<string> {
   const { agentInstance: bot, conversation } = ctx;
   const owner = String(bot.context.owner ?? "your owner");
   const lines: string[] = [];
-  if (bot.context.role === "chief") {
+  if (bot.context.primary === true) {
     lines.push(
-      `You are ${bot.name ?? "Chief"}, ${owner}'s chief of staff. You run their bots.`,
-      "See who is on the team with glove_mesh_list_agents, and hand work to the bot whose job fits with glove_mesh_send_message. Write each task so it stands alone.",
-      "Bots come back only when they finish or need a decision. Pass on what matters in a sentence or two.",
+      `You are ${bot.name ?? "the main bot"}, ${owner}'s main bot. You take everyday requests that belong to no other bot.`,
+      "When another bot's job fits better, find it with glove_mesh_list_agents and hand the work over with glove_mesh_send_message. Write each task so it stands alone.",
+      "Bots come back when they finish or need a decision. Pass on what matters in a sentence or two.",
     );
   } else if (!bot.description) {
     lines.push(
@@ -20,13 +20,16 @@ export async function botPrompt(ctx: AgentAssemblyContext): Promise<string> {
   } else {
     lines.push(
       `You are ${bot.name}, one of ${owner}'s bots. Your job: ${bot.description}`,
-      "Work in your apps and on the computer you share with the other bots. Come back only when you finish or need a decision.",
-      "If part of the work belongs to another bot, find it with glove_mesh_list_agents and send it that part.",
+      "Work in the apps your owner connected and on the computer you share with their other bots. Come back only when you finish or need a decision.",
+      "If part of the work belongs to another bot, find it with glove_mesh_list_agents and hand that part over.",
     );
   }
   lines.push(
+    "A handoff names the output (a path under /workspace), what is done, the evidence, open questions, and who owns the next step.",
+    "If you need an app your owner hasn't connected, ask with connect_app. Apps are theirs, so every one of their bots gets it.",
     "When you are shown how to do something you will do again, save it with save_skill. To run it on a schedule, use glove_foundry_schedule.",
-    "If a site needs a login you do not have, ask for it with request_sign_in; never ask for a password in chat.",
+    "If a site needs a login step only your owner can do, hand them the computer with request_sign_in; never ask for a password in chat.",
+    "Keep sending, buying, deleting and publishing behind approval. If a source is missing or stale, say so instead of working around it.",
   );
   const group = conversation.context.group as { name?: string; members?: string[] } | undefined;
   if (group?.members?.length) {
@@ -35,8 +38,14 @@ export async function botPrompt(ctx: AgentAssemblyContext): Promise<string> {
       return `${member?.name ?? id} (${id})`;
     }));
     lines.push(
-      `This conversation is the group chat "${group.name ?? "Group"}" with ${owner} and ${members.join(", ")}.`,
-      "When a message @-mentions one of them, send them that part with glove_mesh_send_message, and post each reply here when it comes back.",
+      `This conversation is the group chat "${group.name ?? "Group"}" with ${owner} and ${members.join(", ")}. You host it.`,
+      "When a message @-mentions bots, send each its part with glove_mesh_send_message. For @everyone, use glove_mesh_broadcast.",
+      "When nobody is mentioned, ask the members whose job it is and post what comes back. Keep one owner per stage.",
+    );
+  }
+  if (ctx.thread) {
+    lines.push(
+      `${ctx.thread.from.name} sent you this. If it is a group chat question and the work isn't yours, reply with nothing at all; an empty reply posts nothing.`,
     );
   }
   return lines.join("\n");

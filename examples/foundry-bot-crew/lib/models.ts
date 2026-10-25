@@ -3,9 +3,9 @@ import { createAdapter } from "glove-core/models/providers";
 import type { AgentAssemblyContext, AgentInstance } from "glove-foundry";
 import { DemoModel, meshAttribute, meshBody, type DemoStep, type DemoTurn } from "./demo-model.js";
 
-// The model comes from the bot's data, like everything else: the Chief talks
-// to people and routes work, so it stays quick; the bots do the work and can
-// be slower and stronger. Without ANTHROPIC_API_KEY every bot runs a short
+// The model comes from the bot's data, like everything else: the main bot
+// takes everyday requests and routes work, so it stays quick; the other bots
+// do the work and can be slower and stronger. Without ANTHROPIC_API_KEY every bot runs a short
 // script, so `pnpm verify` and `pnpm dev` work offline. On Kuiper,
 // ANTHROPIC_BASE_URL points the same adapter at the model gateway.
 
@@ -14,10 +14,10 @@ function scripted(): boolean {
 }
 
 export function botModel(_agent: unknown, { agentInstance: bot }: AgentAssemblyContext): ModelAdapter {
-  const chief = bot.context.role === "chief";
+  const main = bot.context.primary === true;
   if (scripted()) return new DemoModel(bot.id, scriptFor(bot));
-  const model = chief
-    ? process.env.CHIEF_MODEL ?? "claude-haiku-5-5"
+  const model = main
+    ? process.env.MAIN_BOT_MODEL ?? "claude-haiku-5-5"
     : process.env.BOT_MODEL ?? "claude-sonnet-5-5";
   const baseURL = process.env.ANTHROPIC_BASE_URL;
   return createAdapter({ provider: "anthropic", model, stream: true, ...(baseURL ? { baseURL } : {}) });
@@ -41,19 +41,23 @@ function idOf(results: ReadonlyArray<string>, name: string): string | undefined 
 }
 
 function scriptFor(bot: AgentInstance): (turn: DemoTurn) => DemoStep {
-  if (bot.context.role === "chief") return chiefScript;
+  if (bot.context.primary === true) return mainScript;
   if (!bot.description) return newBotScript;
   if (bot.name === "Sales Outbound") return salesScript;
   if (bot.name === "Bug Triage") return bugTriageScript;
   return () => say("Patched on branch fix/empty-export: export returns an empty file for an empty report. Added a test.");
 }
 
-function chiefScript({ text, called, results }: DemoTurn): DemoStep {
+function mainScript({ text, called, results }: DemoTurn): DemoStep {
   if (text.startsWith("<mesh-message")) {
     if (/status="(replied|failed)"/.test(text)) return say(`${meshAttribute(text, "name")}: ${meshBody(text)}`);
     return call("glove_mesh_send_message", { to: meshAttribute(text, "from"), in_reply_to: meshAttribute(text, "id"), content: "Use the main branch." });
   }
-  // A group chat: send each @-mentioned bot its part.
+  // A group chat it hosts: everyone, or each @-mentioned bot its part.
+  if (/@everyone\b/.test(text)) {
+    if (!called.includes("glove_mesh_broadcast")) return call("glove_mesh_broadcast", { content: text.replace(/@everyone\s*/, "") });
+    return say("Asked everyone. Answers will land here.");
+  }
   const mentions = [...text.matchAll(/@([A-Z][a-z]+(?: [A-Z][a-z]+)*)\s+([^@]+)/g)].map((match) => ({ name: match[1]!, ask: match[2]!.trim() }));
   if (mentions.length > 0) {
     if (!called.includes("glove_mesh_list_agents")) return call("glove_mesh_list_agents", {});
@@ -65,7 +69,7 @@ function chiefScript({ text, called, results }: DemoTurn): DemoStep {
   if (fromX || /crash|bug|broken/i.test(text)) {
     const tweetId = /tweetId&quot;:&quot;([^&]+)&quot;/.exec(text)?.[1];
     if (fromX && !called.includes("reply_on_x")) {
-      return call("reply_on_x", { inReplyTo: tweetId ?? "", text: "On it. Bug Triage has this; results will be in your Chief thread." });
+      return call("reply_on_x", { inReplyTo: tweetId ?? "", text: "On it. Bug Triage has this; results will be in your main thread." });
     }
     if (!called.includes("glove_mesh_list_agents")) return call("glove_mesh_list_agents", {});
     if (!called.includes("glove_mesh_send_message")) {
@@ -121,6 +125,10 @@ function salesScript({ text, called, lastResult }: DemoTurn): DemoStep {
 }
 
 function bugTriageScript({ text, called, results, lastResult }: DemoTurn): DemoStep {
+  if (/connect|tracker/i.test(text) && !text.startsWith("<mesh-message")) {
+    if (!called.includes("connect_app")) return call("connect_app", { app: "tickets", why: "To file and track the bugs I triage." });
+    return say(/"connected":"tickets"/.test(lastResult) ? "The ticket tracker is connected for all your bots." : "Not connected, so I'll keep bugs in notes for now.");
+  }
   if (!/crash/i.test(text)) return say("Nothing blocking. One bug this week, T-1, and Engineer has fixed it.");
   if (!called.includes("file_ticket")) {
     return call("file_ticket", {
