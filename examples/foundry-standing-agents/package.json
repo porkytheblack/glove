@@ -16,6 +16,7 @@
     "glove-env-fetch": "workspace:*",
     "glove-foundry": "workspace:*",
     "glove-memory": "workspace:*",
+    "glove-voice-s2s": "workspace:*",
     "glove-working-environment": "workspace:*",
     "zod": "^4.3.6"
   },

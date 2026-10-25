@@ -1,81 +1,99 @@
-# Standing agents
+# Dots
 
-Agents that keep working on a responsibility between conversations, built with
-Glove Foundry. It follows the shape of OpenAI's Dots. A dot has a job, the
-sources it reads, what deserves your attention and what it must not do yet. It
-does research on its own time with tools that can only read. Every action it
-takes is checked against your rules first. You talk to the same dot in the app
-and in Slack, and for heavy jobs it messages a builder that has a computer.
+Always-on agents that work on your behalf, built with Glove Foundry. It
+follows the shape of OpenAI's dots: you start with your own dot and give it a
+name. It holds the responsibilities you hand it and researches them in the
+background with tools that can only read. Before it acts, an auto-review
+checks the action against your Custom Rules and built-in safety. You reach the
+same dot in the app, in Slack and on a call. It has its own computer, and it
+starts coding jobs on a builder.
 
 This is an independent example. It is not affiliated with or endorsed by OpenAI.
 
 ```
-   you, in the app                     you, in Slack (DM, or @mention in a thread)
-        │                                     │  Events API → scripts/slack-events.ts
-        │                                     ▼  → transmission "slack-messages"
-   ┌────▼─────────────────────────────────────────────┐
-   │ dot · one instance per responsibility             │  context: job, sources,
-   │   "app" conversation      "slack" conversation    │  attention, mustNot,
-   │          └──── one memory for both ────┘          │  rules, routing
-   └────┬──────────────────┬──────────────────┬───────┘
-        │ every 2h         │ acting tools     │ mesh message
-   ┌────▼───────────┐ ┌────▼─────────────┐ ┌──▼──────────────────┐
-   │ research run   │ │ auto-review      │ │ builder             │
-   │ read_channel   │ │ act · on-request │ │ its own computer,   │
-   │ read_email     │ │ ask → approval   │ │ env:fetch           │
-   │ keep_note      │ │ hand-off         │ │ result goes back to │
-   │ suggest        │ │ change_password: │ │ the dot that asked  │
-   │ nothing acts   │ │ always yours     │ └─────────────────────┘
-   └────────────────┘ └──────────────────┘
+   you: the app · Slack (DM or @mention) · a call
+        │                     Slack Events API → scripts/slack-events.ts → transmission
+   ┌────▼──────────────────────────────────────────────────┐
+   │ Pip · Sam's dot · one instance                         │  data: name, responsibilities,
+   │   "app"   "slack"   a call   — one memory, notes       │  Custom Rules, routing
+   │   its own computer (files, web)                        │
+   └────┬──────────────────┬───────────────────┬───────────┘
+        │ every 2h         │ acting tools      │ mesh message
+   ┌────▼───────────┐ ┌────▼──────────────┐ ┌──▼───────────────────┐
+   │ research run   │ │ auto-review       │ │ Builder (Sam's)      │
+   │ read_channel   │ │ allow · ask ·     │ │ coding jobs on its   │
+   │ read_email     │ │ block             │ │ own computer; reply  │
+   │ keep_note      │ │ change_password:  │ │ goes back to Pip     │
+   │ suggest        │ │ always yours      │ └──────────────────────┘
+   │ nothing acts,  │ └───────────────────┘
+   │ no computer    │
+   └────────────────┘
 ```
+
+## A dot is data
+
+There is one `dot` definition (`agents/dot/agent.ts`). It says what a dot can
+be. Each dot is an instance, and what makes it yours is its data
+(`lib/dot.ts`): the name you gave it, its responsibilities, your Custom Rules
+and where updates go. Sam's dot, Pip, and his builder are seeded in
+`foundry.application.ts` with `defineAgentInstance`, so `pnpm dev` opens with
+them in place; everyone else's dot is created at runtime (`scripts/onboard.ts`).
+Renaming a dot, giving it a new responsibility or changing a rule is a write
+(`configureAgent`), not a deploy.
 
 | Dots | Here |
 | --- | --- |
-| A dot with a responsibility | One `dot` definition. Each dot is an instance whose context holds `responsibility` (`job`, `sources`, `attention`, `mustNot`), `rules` and `routing` (`lib/dot.ts`) |
-| Keeps working between conversations | The `research` schedule, every 2 hours (`agents/dot/research.ts`) |
-| Research tools only read | On runs the dot starts itself (schedule, wake-up, spawn), the `tools` resolver returns only `read_channel`, `read_email`, `read_notes`, `keep_note` and `suggest`. The Slack app mounts no post tool and the mesh is not mounted (`mount`). The acting tools are not there at all |
-| Private notes | `keep_note` and `read_notes`, one file per instance |
-| Brings a suggestion or question | `suggest`, at most once per run. The reply lands in the app conversation |
-| Auto-review before actions | `reviewed()` in `lib/auto-review.ts` wraps every acting tool before it is mounted. There is no way to mount one without it |
-| Custom Rules, four levels | `act` runs. `on-request` runs only when the person started the run. `ask` sets `requiresPermission`, so Foundry holds an approval. `hand-off` never runs and tells the dot what to hand over |
-| Rules can't override safety | `change_password` is always a hand-off, whatever `rules` says |
-| Checks against your instructions | `send_email` or `reply_to_customer` to an address that never wrote in asks, even on `act` (the function form of `requiresPermission`) |
-| The same dot in the app and Slack | Two conversations on one instance, keyed `app` and `slack`. Slack messages join with `conversationKey: "slack"` |
+| Your primary dot, with a name you give it | `primaryDot(ownerId, { name, … })`: an instance in the person's workspace, named by them |
+| Ongoing responsibilities, several at once | `responsibilities: [{ job, sources, attention, mustNot }]` on the instance. One research run covers them all |
+| Proactive research with read-only tools | The `research` schedule, every 2 hours. On runs the dot starts itself (schedule, wake-up, spawn), the `tools` resolver returns only `read_channel`, `read_email`, `read_notes`, `keep_note` and `suggest`. The Slack post tool, the mesh (`mount`) and the computer (`workingEnvironment`) are not there at all |
+| Notes to itself | `keep_note` and `read_notes`, one file per dot |
+| Learns your preferences | One `defineMemory` namespace per instance, shared by every channel (`glove_context_set`) |
+| Custom Rules: allow, require approval, or block | `rules: { action: "allow" \| "ask" \| "block" }`. `ask` sets `requiresPermission`, so Foundry holds an approval. `block` never runs; the dot hands the action to you. No rule → ask |
+| Built-in safety always applies; some tasks stay with you | `change_password` is always yours, whatever `rules` says |
+| Auto-review checks actions against your instructions | `reviewed()` in `lib/auto-review.ts` wraps every acting tool. Email to an address that never wrote in asks, even on `allow` (the function form of `requiresPermission`) |
+| Its own cloud computer and browser | `workingEnvironment` with files and the public web (`env:fetch`), saved per dot by Foundry's data adapter (`foundryDataEnvironmentPersistence({ scope: "agent" })`) |
+| Starts and manages tasks elsewhere (Codex, ChatGPT Work) | The person's `Builder`, reached over the mesh with `glove_mesh_send_message`; its reply comes back to the conversation that asked |
+| ChatGPT, Slack and Teams, with context in every channel | Conversations on one instance, keyed `app` and `slack`. Slack messages join with `conversationKey: "slack"`. Teams is one more transmission |
+| Hop on a call | `voiceCall` over the same assembled dot (`agents/dot/call.ts`) |
 | Only answers its owner in Slack | The `from-owner` predicate on `slackUserId`, in the playbook |
-| Each channel has its history; learning carries over | One transcript per conversation (`lib/file-store.ts`), one `defineMemory` namespace per instance (`lib/memory.ts`) |
-| Updates routed by channel | `routing`. With decisions → Slack, a hand-off reaches the person as a Slack DM |
-| Hands heavy work to a worker | Each person has one builder, an instance in the same workspace (`builderFor` in `lib/dot.ts`). The dot finds it with `glove_mesh_list_agents` and sends the job with `glove_mesh_send_message`; the builder's final reply comes back to the conversation that asked. A `peers` rule lets dots reach only the builder, and the builder can only answer. The builder has a working environment with `env:fetch` |
+| Updates and decisions routed by channel | `routing`. With decisions → Slack, a hand-off reaches the person as a Slack DM |
+| Activity View: ongoing and delegated work, stop or redirect | The inspector's runs and mesh threads (`runtime.listThreads()`); steering and cancel on any run |
+| Saved passwords used without the model seeing them | Account sessions: the Slack token is read only by `accountSessions`, never by the dot |
+| Specialist dots with their own identity and credentials | `specialistFor(org, { name, responsibilities, rules, account })`: the same definition, an instance in the organisation's workspace with its own name and its own account installation |
 
 ## Files
 
-Each `agent.ts` only assembles. What the dot is made of lives beside it, and
+Each `agent.ts` only assembles. What a dot is made of lives beside it, and
 the review, the actions and the sources live in `lib/`.
 
 ```
 agents/
   dot/
-    agent.ts                     assembly: model, memory, tools, schedule, playbook, mesh, account session
-    prompt.ts                    the prompt, built from the responsibility and rules
+    agent.ts                     what a dot can be: model, memory, tools, schedule, playbook, computer, mesh, call
+    prompt.ts                    the prompt, built from the dot's data
     tools.ts                     read-only tools on the dot's own time; reviewed actions otherwise
     research.ts                  the research schedule; which runs may act
+    workspace.ts                 the dot's own computer
+    call.ts                      a call with your dot
     person.memory.ts             one memory for every channel
     apps/slack.app.ts            post_to_slack, and the inbound messages
     transmissions/slack-messages.transmission.ts   Slack's event_callback → a message event
     predicates/from-owner.predicate.ts             only the owner's messages
     playbook.ts  topology.ts  events/  actions/
-  builder/  agent.ts prompt.ts workspace.ts        the worker each person has, with env:fetch
+  builder/  agent.ts prompt.ts workspace.ts        where a person's dot starts coding jobs
 lib/
-  dot.ts           the dot's shape, dotFor(), builderFor(), channels, the instance read fresh
-  auto-review.ts   reviewed(): safety, rules, the recipient check
+  dot.ts           a dot as data: primaryDot(), specialistFor(), builderFor(), Sam, channels
+  auto-review.ts   reviewed(): built-in safety, Custom Rules, the recipient check
   actions.ts       reply_to_customer, send_email, open_draft_pr, merge_pr, change_password
   sources.ts       read_channel, read_email, notes, suggest, known contacts
   slack-api.ts     chat.postMessage as the bot
   models.ts  demo-model.ts  demo-scripts.ts       real models with a key, scripted without
-  memory.ts  file-store.ts  computers.ts  paths.ts  authorization.ts
+  memory.ts  file-store.ts  paths.ts  authorization.ts
+foundry.application.ts   Sam's dot, builder and app conversation, seeded with defineAgentInstance
 fixtures/          the #feedback channel and the support inbox the demo reads
 scripts/
   verify.ts        the whole example, offline
-  onboard.ts       create a dot on a running Foundry
+  onboard.ts       give a person their dot on a running Foundry
   slack-events.ts  Slack's challenge and signature, then forward to Foundry
 ```
 
@@ -86,25 +104,40 @@ pnpm install
 pnpm --filter glove-foundry-standing-agents verify   # offline, no keys
 cp .env.example .env                                 # add ANTHROPIC_API_KEY
 pnpm --filter glove-foundry-standing-agents dev      # inspector at http://localhost:4145
-pnpm tsx scripts/onboard.ts sam "Sam" U0123456789
+pnpm tsx scripts/onboard.ts ada "Ada" Juniper U0123456789
 ```
 
-`verify` runs seven steps on the real runtime with scripted models:
+`verify` runs eight steps on the real runtime with scripted models:
 
-1. Sam creates a feedback dot. Its research schedule (every 2 hours) joins the app conversation.
-2. A research run reads #feedback and the support inbox, keeps a note and suggests one thing. The
-   scripted model also tries `reply_to_customer`, and the tool is not there. No acting tool is mounted.
-3. Sam asks for a reply to a customer. It waits for approval, then sends.
-4. "Merge the fix PR" is handed off: no approval, no merge, and a Slack DM tells Sam what to do.
-   `change_password` is handed off too, even after its rule is set to `act`.
-5. "Open a draft PR" runs with no approval because Sam asked. On a run Sam didn't start, it doesn't.
-6. Sam DMs the bot in Slack. The message joins the dot's Slack conversation, and the answer uses
-   what Sam told the dot in the app. A stranger's mention starts nothing.
-7. Sam asks for a weekly report. The dot messages his builder on the mesh, and the builder's reply comes
-   back to the app.
+1. Sam's dot, Pip, his builder and their app conversation are seeded data. Pip's research
+   schedule (every 2 hours) joins the app conversation.
+2. A research run reads the sources of both of Pip's responsibilities, keeps a note and suggests
+   one thing. The scripted model also tries `reply_to_customer`, and the tool is not there. No
+   acting tool, no mesh and no computer is mounted.
+3. "Ask": a reply to a customer waits for approval, then sends.
+4. "Block": "Merge the fix PR" is not run; a Slack DM tells Sam what to do. `change_password` is
+   his too, even after its rule is set to `allow`.
+5. "Allow": "Open a draft PR" runs with no approval. Email to an address that never wrote in
+   still asks.
+6. Sam DMs Pip in Slack. The message joins Pip's Slack conversation, and the answer uses what
+   Sam told Pip in the app. A stranger's mention starts nothing.
+7. Pip saves a file on its own computer.
+8. Sam asks for a weekly report. Pip starts it on his builder over the mesh, and the builder's
+   reply comes back to the app.
 
 Without `SLACK_BOT_TOKEN`, posts to Slack are written to `.data/slack-outbox.jsonl`.
 Actions that really ran are listed in `.data/actions.jsonl`.
+
+## Where it differs
+
+- The auto-review here is code over rules and recipients. Dots use a separate review model;
+  you could put a [classifier](https://glove.dterminal.net/docs/classifier) or a second model call
+  inside `reviewed()`.
+- The computer is a Glove working environment (files, scripts, the public web) until you swap in
+  a Kuiper sandbox and browser. You can't connect your own laptop here.
+- There is no monitor that pauses a dot on its own; stop or redirect a run from the inspector.
+- Dots connect to thousands of apps through plugins. Here the sources and actions are stand-ins
+  in `lib/`; add yours as apps, shared tools or MCP servers.
 
 ## Connect Slack
 
@@ -117,6 +150,9 @@ Actions that really ran are listed in `.data/actions.jsonl`.
 3. Under Event Subscriptions, set its URL as the request URL and subscribe the
    bot to `message.im` and `app_mention`.
 4. Create each person's dot with their Slack user id (`scripts/onboard.ts`).
+
+Teams works the same way: a transmission for its events, a forwarder that
+checks its signature, and a `teams` conversation on the same instance.
 
 The forwarder answers Slack's `url_verification` challenge. It checks
 `x-slack-signature` on every request (`v0=` HMAC-SHA256 of
@@ -161,8 +197,9 @@ kuiper logs -u dots -f
 ```
 
 Model calls go through Kuiper's model gateway, so the Anthropic key stays with
-the organisation and every call is counted. Transcripts, memory, notes and the
-builder's computer sit on the `/data` disk.
+the organisation and every call is counted. Dots, transcripts, memory, notes
+and both computers sit on the `/data` disk. For calls, also set
+`OPENAI_API_KEY` for the speech-to-speech session.
 
 The Slack forwarder runs as a second unit from the same source. It is the only
 public way in for Slack, and it reaches Foundry over the private address. Its
@@ -179,8 +216,10 @@ kuiper env set -u dots 'FOUNDRY_TOKEN=${{secrets.FOUNDRY_TOKEN}}'
 kuiper deploy --source . -u slack-events --wait
 ```
 
-For a builder that runs real code, swap `lib/computers.ts` for a Kuiper sandbox
-(`kuiper.sandboxes.create({ image: "kuiper/coding" })` from `@kuiper-sh/sdk`).
+For a computer with a real browser, swap the working environments in
+`agents/dot/workspace.ts` and `agents/builder/workspace.ts` for a Kuiper
+sandbox and browser per dot (`kuiper.sandboxes.create({ image: "kuiper/coding" })`
+from `@kuiper-sh/sdk`).
 For email, replace the stand-ins in `lib/actions.ts` and `lib/sources.ts` with
 an inbox and `inboxTools` from `@kuiper-sh/inbox/glove`.
 
@@ -189,8 +228,15 @@ an inbox and `inboxTools` from `@kuiper-sh/inbox/glove`.
 - A recurring schedule fires with the instance as it was when the schedule was
   armed (porkytheblack/glove#199). The dot's resolvers read the
   instance fresh (`storedInstance` in `lib/dot.ts`), so a change to the rules
-  or the responsibility reaches the next research run.
+  or the responsibilities reaches the next research run.
 - Foundry's own tools stay mounted on research runs. They act on the dot itself
   (its schedules, workspace and tasks), not on the outside world.
   `glove_foundry_transmit` only reaches outbound routes a playbook declares, and
   the dot declares none. Work the dot spawns is read-only too.
+
+## Sources
+
+- [Introducing dots](https://openai.com/index/introducing-dots/), OpenAI
+- [Dots privacy, security and safety FAQs](https://help.openai.com/en/articles/20001529), OpenAI Help Center
+- [OpenAI Dots hands-on review: my first day with Herman](https://www.theneuron.ai/explainer-articles/openai-dots-hands-on-review-herman/), The Neuron
+- [A deep dive into OpenAI dots](https://flaviocopes.com/openai-dots/), Flavio Copes

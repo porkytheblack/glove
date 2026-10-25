@@ -5,9 +5,10 @@ import { builderPrompt } from "./prompt.js";
 import { builderComputer } from "./workspace.js";
 
 /**
- * The worker a person's dots hand heavy jobs to. It has a computer and no
- * access to the person, their channels or the dots' actions. Its final reply
- * goes back to the dot that asked.
+ * Where a person's dot starts coding and heavy build jobs, the way a dot starts
+ * a task in a coding agent. It has a computer and no access to the person,
+ * their channels or the dot's actions. Its final reply goes back to the dot
+ * that asked.
  */
 export default defineAgent({
   description: "Does heavy jobs for a dot on its own computer and reports back",

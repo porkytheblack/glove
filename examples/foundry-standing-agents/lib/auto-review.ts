@@ -1,15 +1,14 @@
 import type { GloveFoldArgs, ToolResultData } from "glove-core";
 import type { Level } from "./dot.js";
 
-/** Built-in safety: these stay with the person whatever the rules say. */
-export const ALWAYS_HANDED_OFF: ReadonlySet<string> = new Set(["change_password"]);
+/** Built-in safety: these stay with the person whatever the Custom Rules say. */
+export const ALWAYS_YOURS: ReadonlySet<string> = new Set(["change_password"]);
 
-/** The four Custom Rules levels, as the person sees them. */
+/** The Custom Rules settings, as the person sees them. */
 export const LEVEL_LABELS: Readonly<Record<Level, string>> = {
-  act: "Take action without asking",
-  "on-request": "Take action when you say so",
-  ask: "Ask before taking action",
-  "hand-off": "Hand off to you",
+  allow: "Take action on its own",
+  ask: "Ask for approval first",
+  block: "Don't take it; hand it to you",
 };
 
 /** An action the dot can take, before review. */
@@ -23,47 +22,44 @@ export interface Action<I = any> extends GloveFoldArgs<I> {
 export interface Review {
   readonly owner: string;
   readonly rules: Readonly<Record<string, Level>>;
-  /** True when the person started this run: in the app, or by messaging the dot. */
-  readonly personStarted: boolean;
   /** Addresses the dot may write to without asking. */
   readonly contacts: ReadonlyArray<string>;
   /** Where to tell the person about a hand-off, from the dot's routing. */
   readonly tellPerson: string;
 }
 
-/** The level an action runs at. Built-in safety comes first; no rule lifts it. */
+/** The rule an action runs under. Built-in safety comes first; no Custom Rule lifts it. */
 export function levelFor(name: string, rules: Readonly<Record<string, Level>>): Level {
-  if (ALWAYS_HANDED_OFF.has(name)) return "hand-off";
+  if (ALWAYS_YOURS.has(name)) return "block";
   return rules[name] ?? "ask";
+}
+
+/** How the rule reads in the prompt, naming built-in safety where it applies. */
+export function ruleLabel(name: string, rules: Readonly<Record<string, Level>>): string {
+  return ALWAYS_YOURS.has(name) ? "Always yours (built-in safety)" : LEVEL_LABELS[levelFor(name, rules)];
 }
 
 /**
  * Auto-review. Every acting tool is wrapped here before it is mounted:
- * - hand-off: it never runs; the dot is told what to hand the person.
- * - on-request: it runs only on a run the person started.
+ * - block, and built-in safety: it never runs; the dot is told what to hand
+ *   the person and where to tell them.
  * - ask: Foundry holds the call as an approval until the person decides.
- * - act: it runs, unless it writes to someone outside the known contacts;
- *   then it asks.
+ * - allow: it runs, unless it would share something with someone outside the
+ *   known contacts; then it asks, whatever the rule says.
  * It cannot be turned off: the dot only ever sees the reviewed tool.
  */
 export function reviewed<I>(action: Action<I>, review: Review): GloveFoldArgs<I> {
   const { recipient, handOff, ...tool } = action;
   const level = levelFor(action.name, review.rules);
-  const described = { ...tool, description: `${tool.description} Rule: ${LEVEL_LABELS[level]}.` };
+  const described = { ...tool, description: `${tool.description} Rule: ${ruleLabel(action.name, review.rules)}.` };
 
-  if (level === "hand-off") {
+  if (level === "block") {
     return {
       ...described,
-      do: async (input) => notRun(action.name, "hand-off", `It stays with ${review.owner}. ${handOff(input)} ${review.tellPerson}`),
+      do: async (input) => notRun(action.name, `It stays with ${review.owner}. ${handOff(input)} ${review.tellPerson}`),
     };
   }
-  if (level === "on-request" && !review.personStarted) {
-    return {
-      ...described,
-      do: async () => notRun(action.name, "on-request", `It runs only when ${review.owner} asks for it. Ask them first.`),
-    };
-  }
-  // The instruction check: writing to someone the dot doesn't know always asks.
+  // The instruction check: writing to someone the person never heard from always asks.
   const unknownRecipient = (input: I) =>
     recipient !== undefined && !review.contacts.includes(recipient(input).trim().toLowerCase());
   return {
@@ -72,6 +68,6 @@ export function reviewed<I>(action: Action<I>, review: Review): GloveFoldArgs<I>
   };
 }
 
-function notRun(name: string, review: Level, message: string): ToolResultData {
-  return { status: "error", data: { ran: false, review }, message: `Auto-review: ${name} did not run. ${message}` };
+function notRun(name: string, message: string): ToolResultData {
+  return { status: "error", data: { ran: false, review: "block" }, message: `Auto-review: ${name} did not run. ${message}` };
 }

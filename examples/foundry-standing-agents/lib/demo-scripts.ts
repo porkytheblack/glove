@@ -40,6 +40,17 @@ export function dotScript({ text, called, lastResult, results, context }: DemoTu
     const pr = /"pr":(\d+)/.exec(lastResult)?.[1];
     return say(pr ? `Opened draft PR #${pr}: Stream large CSV exports.` : `Not opened. ${resultMessage(lastResult)}`);
   }
+  if (/\bon your computer\b/i.test(text)) {
+    if (!called.includes("write_file")) {
+      return call("write_file", {
+        path: "/workspace/feedback-this-week.md",
+        content: "# Feedback this week\n\n- CSV export timeouts: 4\n- Dark mode: 2\n- Safari login loop: 1, unconfirmed\n",
+      });
+    }
+    return say(/"status":"success"/.test(lastResult)
+      ? "Saved /workspace/feedback-this-week.md on my computer."
+      : `I couldn't save it. ${resultMessage(lastResult)}`);
+  }
   if (/\b(build|report)\b/i.test(text)) {
     if (!called.includes("glove_mesh_list_agents")) return call("glove_mesh_list_agents", {});
     if (!called.includes("glove_mesh_send_message")) {

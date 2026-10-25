@@ -874,6 +874,9 @@ importers:
       glove-memory:
         specifier: workspace:*
         version: link:../../packages/glove-memory
+      glove-voice-s2s:
+        specifier: workspace:*
+        version: link:../../packages/glove-voice-s2s
       glove-working-environment:
         specifier: workspace:*
         version: link:../../packages/glove-working-environment

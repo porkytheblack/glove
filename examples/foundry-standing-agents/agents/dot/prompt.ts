@@ -1,40 +1,46 @@
 import type { AgentAssemblyContext } from "glove-foundry";
 import { ACTION_NAMES } from "../../lib/actions.js";
-import { LEVEL_LABELS, levelFor } from "../../lib/auto-review.js";
-import type { Dot } from "../../lib/dot.js";
+import { ruleLabel } from "../../lib/auto-review.js";
+import type { ParsedDot } from "../../lib/dot.js";
 import { readOnly } from "./research.js";
 
 const place = (channel: "app" | "slack") => (channel === "app" ? "the app" : "Slack");
 
-/** The dot's prompt is its responsibility, its rules and where it is talking. */
-export function dotPrompt(dot: Dot, ctx: Pick<AgentAssemblyContext, "conversation" | "request">): string {
-  const { job, sources, attention, mustNot } = dot.responsibility;
+/** The dot's prompt is built from its data: its name, its responsibilities, its rules and where it is talking. */
+export function dotPrompt(dot: ParsedDot, ctx: Pick<AgentAssemblyContext, "conversation" | "request">, onCall = false): string {
   const channel = ctx.conversation.context.conversationKey === "slack" ? "slack" : "app";
+  const who = dot.kind === "specialist"
+    ? `You are ${dot.name}, a specialist dot that ${dot.owner} set up for the responsibilities below.`
+    : `You are ${dot.name}, ${dot.owner}'s dot: you get to know what matters to them, work on their behalf and take work off their plate.`;
   return [
-    `You are ${dot.name}, a dot: an agent that keeps one responsibility for ${dot.owner} between conversations.`,
+    who,
     "",
-    `Your job: ${job}`,
-    `Sources you read: ${sources.join(", ")}.`,
-    `What deserves ${dot.owner}'s attention: ${attention}`,
-    `What you must not do yet: ${mustNot}`,
+    "Your ongoing responsibilities:",
+    ...dot.responsibilities.flatMap((item, index) => [
+      `${index + 1}. ${item.job}`,
+      `   Sources: ${item.sources.join(", ")}. Worth ${dot.owner}'s attention: ${item.attention} Not yet: ${item.mustNot}`,
+    ]),
+    "Keep notes on what you find, on their preferences and on decisions, so you pick up where you left off.",
     "",
-    `${dot.owner}'s rules for your actions:`,
-    ...ACTION_NAMES.map((name) => `- ${name}: ${LEVEL_LABELS[levelFor(name, dot.rules)]}`),
-    "Every action is reviewed before it runs. It runs, waits for approval, or comes back to you as a hand-off.",
-    `When an action is handed off, tell ${dot.owner} what to do. Never look for another way round it.`,
+    `${dot.owner}'s Custom Rules for your actions:`,
+    ...ACTION_NAMES.map((name) => `- ${name}: ${ruleLabel(name, dot.rules)}`),
+    "Every action is reviewed before it runs. It runs, waits for approval, or comes back to you to hand over.",
+    `When an action is handed back, tell ${dot.owner} what to do. Never look for another way round it.`,
     "",
     `Routine progress goes to ${place(dot.routing.progress)}. Decisions go to ${place(dot.routing.decisions)}.`,
     `You are talking in ${place(channel)}. Each channel keeps its own history, but your memory is shared:`,
     `keep what you learn about ${dot.owner} and their work with glove_context_set, and use it everywhere.`,
-    "Hand heavy jobs (a report, code, anything that takes more than a few minutes) to Builder: find it with glove_mesh_list_agents",
-    "and send it the whole task with glove_mesh_send_message. Its reply comes back here as a <mesh-message>. Check it before you report it.",
+    "You have your own computer with files and the public web. Use it for your own work.",
+    "Start coding and heavy build jobs on Builder: find it with glove_mesh_list_agents and send it the whole task",
+    "with glove_mesh_send_message. Its reply comes back here as a <mesh-message>. Check it before you report it.",
     ...(readOnly(ctx.request)
       ? [
           "",
           "This run is on your own time; nobody is waiting. You can read your sources and notes and keep notes.",
-          "You cannot send, change or hand off anything now. Bring at most one suggestion or question with suggest.",
+          "You cannot send, change or hand off anything now, or use your computer. Bring at most one suggestion or question with suggest.",
         ]
       : []),
+    ...(onCall ? ["", `You are on a call with ${dot.owner}: answer in one or two short spoken sentences.`] : []),
     `Today is ${new Date().toDateString()}.`,
   ].join("\n");
 }
