@@ -11,7 +11,7 @@ export function buildFoundryLlmsTxt(): string {
     "Key facts:",
     "- Install: npx glove-foundry init my-agents; run: pnpm dev (http://127.0.0.1:4141). Node 22+; 22.13+ for SQLite memory.",
     "- composeAgent(...) only makes shared tools, apps and MCP servers available; an instance must install() them. Always-on tools go in defineAgent's tools field.",
-    "- Agents are data. A definition (defineAgent) is everything a kind of agent can be, like a server-rendered page; each agent is an instance whose name, description, context, installations and workspaceId are data. Never write one definition per agent or put a name, job or per-user setting in code: a new agent is createAgent, a rename is configureAgent or a tool that writes the instance, and neither needs a deploy. Branch on instance data (context.primary), not on ids. Split definitions only by what an agent can do or must load. Seed known agents with defineAgentInstance(importedDefinition, data) in the data adapter; create the rest with createAgent(route, data) at runtime.",
+    "- Agents are data. A definition (defineAgent) is everything a kind of agent can be, like a server-rendered page; each agent is an instance whose name, description, context, installations and workspaceId are data. Never write one definition per agent or put a name, job or per-user setting in code: a new agent is createAgent, a rename is configureAgent or a tool that writes the instance, and neither needs a deploy. Branch on instance data (context.routines, context.kind), not on ids. Split definitions only by what an agent can do or must load. Seed known agents with defineAgentInstance(importedDefinition, data) in the data adapter; create the rest with createAgent(route, data) at runtime.",
     "- Instances are data (FoundryDataAdapter); every run reloads the instance and conversation and re-resolves the definition against the new message.",
     "- Each run executes in a fresh child process: a plain MemoryStore and other in-memory state reset on every message. Persist four things separately: runtime data, transcripts (store), memory, and working-environment files.",
     "- Install capabilities with install() at creation, client.install, or PUT /api/installations; the inspector only displays installations.",
@@ -615,14 +615,14 @@ tests real-model memory writes and recall after forced compaction in an isolated
 conversation, without modifying the user's pinned memory.
 `;
 
-const REBUILDS_REFERENCE = `## Rebuilds: three always-on agent products
+const REBUILDS_REFERENCE = `## Rebuilds: four always-on agent products
 
-Independent examples, not affiliated with xAI, Anthropic or OpenAI. Each runs
-offline with pnpm verify (scripted models) and deploys on Kuiper. All three
+Independent examples, not affiliated with xAI, Anthropic, OpenAI or Meta. Each
+runs offline with pnpm verify (scripted models) and deploys on Kuiper. All four
 follow "agents are data": definitions say what a kind of agent can be; every
 agent is an instance in its person's workspace.
 
-Connected apps work the same way in all three. Each provider (Gmail, Linear,
+Connected apps work the same way in all four. Each provider (Gmail, Linear,
 Google Calendar) is a Foundry app installed on the agent with the person's
 account (installation.accountId):
 - app mcp: { entry, auth, tools } opens the provider's MCP server (Google's
@@ -649,34 +649,40 @@ account (installation.accountId):
 
 Grok Bot → examples/foundry-bot-crew (${SITE_URL}/foundry/docs/rebuilds/grok-bot)
 Facts from Cursor's and xAI's Grok Bot docs: bots have a name, title and job;
-one is the person's main (primary) bot; all of a person's bots share one cloud
-computer and the person's connected apps (Gmail and others); bots hand work to
-each other and share group chats of 2-6 bots; skills are shared, routines run
-them on a schedule or event.
+all of a person's bots share one cloud computer and the person's connected
+apps (Gmail and others); bots hand work to each other and share group chats of
+2-6 bots; skills are shared; a routine assigns a workflow to one bot and runs on
+a schedule or after an event.
+- The bots are siblings: one definition, no bot above the others, nothing
+  routing between them. A bot runs when its person writes to it (its "chat"
+  conversation), when it is @-mentioned in a group chat (or nobody is), when a
+  sibling hands it work over the mesh, or when one of its routines fires.
 - One definition, agents/bot/agent.ts. Every bot is an instance in the person's
-  workspace: lib/people.ts mainBotFor (context.primary true, the person's app
-  installations),
-  botFor (name "New bot" until it has a job), groupChat (a conversation on the
-  hosting bot, context.group.members). foundry.application.ts seeds Maya's main
-  bot and thread with defineAgentInstance + createConversation.
-- Prompt, model and playbooks are built from instance data: the main bot takes
-  everyday requests and routes the rest; a bot without a description asks what
-  it is for and calls take_job, which writes name and description with
-  ctx.data.putAgent (no deploy).
+  workspace: lib/people.ts botFor({ id, name?, job?, routines?, installations? })
+  (name "New bot" until it has a job), chatWith(botId) (conversation key
+  "chat"). foundry.application.ts seeds Maya's first bot, Inbox Manager, with
+  her Gmail and a routine on new mail, plus its chat.
+- Prompt and playbooks are built from instance data; every bot uses the same
+  model. A bot without a description asks what it is for and calls take_job,
+  which writes name and description with ctx.data.putAgent (no deploy).
+- Routines: on a schedule, glove_foundry_schedule (owned by that bot); after an
+  event, add_routine writes context.routines ([{ on: "new-mail", skill?,
+  instruction }]) and the playbooks resolver builds newMailFor(accountId,
+  routine) from it. New mail reaches every bot whose routine asks, in its chat.
+- Group chats have no host (lib/groups.ts): openGroup creates a conversation per
+  member (key "group:<id>", context.group.members); postToGroup sends the
+  person's message to the bots it @-mentions, or to all members for @everyone
+  or no mention. A member with nothing to add replies empty (posts nothing).
 - Gmail and Linear apps (agents/bot/apps): every bot carries the person's
   installations; connect_app (requiresPermission) is the Connect button, and
   connectApp gives the account to every bot in the workspace. Bug triage files
   issues with linear__save_issue (asks first); reads run in code.
-- New mail: the playbook runs only on the main bot, in its "main" conversation.
-- mesh: { waitMs: 60_000 }: bots find each other with glove_mesh_list_agents and
-  pass work by id; replies come back on their own. Group chats: @name sends that
-  bot its part, @everyone is glove_mesh_broadcast, a member with nothing to add
-  replies empty (posts nothing). Handoffs name output path, done, evidence, open
-  questions, next owner.
+- mesh: { waitMs: 60_000 }: siblings find each other with glove_mesh_list_agents
+  and hand parts of their work over by id; answers come back on their own.
+  Handoffs name output path, done, evidence, open questions, next owner.
 - One computer per workspace: foundryDataEnvironmentPersistence({ scope:
   "workspace" }). Skills are workspace entries "skill:<name>" (save_skill has
-  requiresPermission), loaded in the tools resolver; routines are
-  glove_foundry_schedule.
+  requiresPermission), loaded in the tools resolver.
 - Gmail's send, save_skill and request_sign_in ask first (sign-in = the person
   does one step on the shared computer; the bot never sees the password).
 
@@ -743,6 +749,49 @@ dots with their own identity and credentials for organisations.
 - Resolvers read the instance fresh from ctx.data.getAgent, because recurring
   schedules fire with the envelope captured when armed
   (porkytheblack/glove#199).
+
+Meta Muse → examples/foundry-personal-agent (${SITE_URL}/foundry/docs/rebuilds/meta-muse)
+Facts from Meta's announcement and reviews: one personal agent per person that
+does the work (email, bookings, forms, purchases); the Muse app and WhatsApp;
+connectors where you choose what each may do (read mail only, or also send);
+Muse Secure VM with its own browser; a Sentinel agent on the same machine,
+isolated from Muse, without whose approval nothing reaches the internet, which
+asks you when it needs input; logins it uses but cannot read; purchases through
+Link with a one-time card; checks before sending or buying; keeps working after
+the app closes; remembers and forgets; a log of what it did and plans.
+- One instance per person (lib/people.ts museFor; context { name, phone,
+  sentinel { allowed, blocked } }), conversations "app" and "whatsapp", one
+  defineMemory profile. glove_context_unset is how it forgets.
+- WhatsApp is a Foundry app (transmission in and out). Inbound on one shared
+  route (Muse's business number, an app-owned account); each person's playbook
+  has a from-person predicate on their number. Outbound on a route per person
+  whose config.to fixes the recipient. scripts/whatsapp-webhook.ts answers
+  Meta's verify-token handshake, checks X-Hub-Signature-256 and forwards each
+  text message to /api/transmissions/whatsapp-in/fire.
+- Access per app is installation config { access: "read" | "act" }. The app's
+  mcp.tools policy hides writes under "read"; configure removes Gmail's
+  transmission send tool; the send binding is enabled only for "act".
+  setAccess and disconnect (lib/connect.ts) are writes.
+- The VM: defineWorkingEnvironment({ options: ({ assembly }) => … }) with
+  glove-env-secret secret({ store: vault }) (references, never values) and
+  glove-env-fetch fetchFiles({ authorize: sentinel.authorize, secretStore:
+  vault, credentials: { [name]: { origins: [login.origin], headers: {
+  Authorization: { ref: secretRef(name), prefix: "Bearer " } } } } }). Scripts
+  use credential: "<name>"; the value never enters the sandbox.
+- The Sentinel (agents/muse/sentinel.ts): authorize runs on every request and
+  redirect. Rules in code first (blocked host; personal data in a URL to a host
+  not allowed; allowed host), then its own model via glove-classifier
+  llmClassifier with one choice question (allow | ask | block); a doubtful allow
+  becomes ask. It sees only the request, the person's own words for this run
+  and their allowed sites, never Muse's conversation or pages. env:fetch hides
+  the reason, so request_access reads the run's decision: block stays blocked
+  with no approval; ask has requiresPermission and the person's yes adds the
+  host to context.sentinel.allowed.
+- buy (requiresPermission) pays with a one-time card inside the tool
+  (lib/payments.ts); Muse sees the last four digits.
+- The log (lib/activity.ts): a defineSubscriber in components records every
+  tool_use_result; the Sentinel records every decision; plans are Foundry's
+  activations and pending approvals (logFor).
 `;
 
 // Keep both full-reference routes on the same complete source.

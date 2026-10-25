@@ -20,10 +20,10 @@ export interface BlogPost {
 
 export const posts: BlogPost[] = [
   {
-    slug: "three-always-on-agents-rebuilt",
-    title: "Three always-on agents, rebuilt",
+    slug: "always-on-agents-rebuilt",
+    title: "Four always-on agents, rebuilt",
     summary:
-      "Grok Bot, Claude Duet and OpenAI Dots arrived within three months of each other. We rebuilt each one from Foundry primitives and deployed it on Kuiper. They share almost every part, and the first one taught us that agents are data.",
+      "Grok Bot, Claude Duet, OpenAI Dots and Meta Muse arrived within a few months of each other. We rebuilt each one from Foundry primitives and deployed it on Kuiper. They share almost every part, and the first one taught us that agents are data.",
     date: "2026-10-24",
     readingTime: 6,
     tags: ["foundry", "kuiper", "examples"],

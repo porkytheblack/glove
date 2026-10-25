@@ -6,7 +6,7 @@ import { ConnectedAppStory, CrewStory } from "@/components/rebuild-stories";
 export const metadata = {
   title: "Rebuild Grok Bot",
   description:
-    "Build AI teammates like xAI's Grok Bot with Glove Foundry and deploy them on Kuiper: one bot definition and every bot as data, a main bot, bots that name themselves from their job, apps connected once per person (Gmail, Linear, any MCP server) with reads in code, sends delivered by Foundry and new mail pushed in, group chats and handoffs over the mesh, one shared computer, skills and routines, and approvals.",
+    "Build AI teammates like xAI's Grok Bot with Glove Foundry and deploy them on Kuiper: one bot definition and every bot as data, sibling bots each started by their own requests, bots that name themselves from their job, apps connected once per person (Gmail, Linear, any MCP server) with reads in code, sends delivered by Foundry and new mail pushed in, group chats and handoffs over the mesh, one shared computer, skills and routines, and approvals.",
 };
 
 const EXAMPLE = "https://github.com/porkytheblack/glove/tree/main/examples/foundry-bot-crew";
@@ -38,12 +38,12 @@ export default function GrokBotRebuildPage() {
       <h2 id="what">What Grok Bot does</h2>
       <ul>
         <li><strong>Bots with a name and a job.</strong> Your first bot is made for you. A new one asks what you want it around for, or you give it a name, a title and a description. Each keeps its memory, files and preferences across sessions.</li>
-        <li><strong>A main bot.</strong> One bot is your primary: it takes everyday requests that belong to no specialist and routes the rest.</li>
+        <li><strong>Bots are siblings.</strong> No bot sits above the others. You write to the bot whose job it is, mention bots in a group chat, or a bot hands part of its work to another. Each bot&apos;s conversation is its own.</li>
         <li><strong>Apps belong to your account.</strong> Your bots work in the apps you connect: Gmail, your calendar, your tracker. A bot asks for access when it needs an app, and once you connect it, every bot can use it.</li>
         <li><strong>One computer for all your bots.</strong> A persistent cloud computer with a browser, filesystem and terminal. Your bots share its files, browser sessions and logins, each on its own screen. Between people, computers are strictly isolated.</li>
         <li><strong>Sign-ins stay with you.</strong> Saved logins are filled without the model seeing them. For single sign-on, passkeys or a CAPTCHA, the bot hands you the computer for that one step.</li>
         <li><strong>Bots work together.</strong> They message each other and pass ownership of a task. A group chat holds two to six bots: they decide who answers, an @-mention hands a bot a request, and @everyone reaches all of them.</li>
-        <li><strong>Skills and routines.</strong> A skill is reusable instructions shared by all your bots. You save one from chat or by showing the bot once (&ldquo;Teach a task&rdquo;). A routine runs a skill on a schedule or after an event.</li>
+        <li><strong>Skills and routines.</strong> A skill is reusable instructions shared by all your bots. You save one from chat or by showing the bot once (&ldquo;Teach a task&rdquo;). A routine assigns a workflow to one bot and runs it on a schedule or after an event.</li>
         <li><strong>Approvals.</strong> Sending, buying, deleting and publishing wait for you: allow once, always allow, or deny. An auto-review model checks risky actions against your &ldquo;Ask first&rdquo; and &ldquo;Allow automatically&rdquo; rules. A message from you takes priority and can redirect work in progress.</li>
       </ul>
 
@@ -62,19 +62,40 @@ export default function GrokBotRebuildPage() {
         <thead><tr><th>Grok Bot</th><th>In this build</th><th>Changed by</th></tr></thead>
         <tbody>
           <tr><td>A bot&apos;s name and job</td><td>The instance&apos;s <code>name</code> and <code>description</code></td><td>The bot itself with <code>take_job</code>, or your app with <code>configureAgent</code></td></tr>
-          <tr><td>Your main bot</td><td>A bot whose <code>context.primary</code> is <code>true</code></td><td>Onboarding</td></tr>
           <tr><td>Your bots</td><td>The instances in your workspace</td><td>Making or deleting a bot</td></tr>
           <tr><td>Connected apps</td><td>An account in your store, and on every bot of the person an installation with that account (plus Gmail&apos;s routes and a send binding)</td><td>Your Connect button: the provider&apos;s sign-in, then <code>connectApp</code></td></tr>
           <tr><td>&ldquo;Always allow&rdquo;</td><td>The installation&apos;s <code>config.alwaysAllow</code></td><td>Your app, when the person ticks it</td></tr>
-          <tr><td>A group chat and who is in it</td><td>A conversation on the bot that hosts it, with <code>context.group.members</code></td><td>Your app</td></tr>
+          <tr><td>A bot&apos;s chat with you</td><td>A conversation on that bot, key <code>chat</code></td><td>Your app, when the bot is made</td></tr>
+          <tr><td>A group chat and who is in it</td><td>A conversation per member, each with <code>context.group.members</code>; no host</td><td>Your app (<code>openGroup</code>)</td></tr>
           <tr><td>Skills</td><td>Workspace entries, <code>skill:&lt;name&gt;</code></td><td>A bot with <code>save_skill</code>, after you review it</td></tr>
-          <tr><td>Routines</td><td>Schedules on the bot that owns them</td><td>A bot with <code>glove_foundry_schedule</code></td></tr>
+          <tr><td>Routines on a schedule</td><td>Schedules on the bot that owns them</td><td>A bot with <code>glove_foundry_schedule</code></td></tr>
+          <tr><td>Routines after an event</td><td>The bot&apos;s <code>context.routines</code>, which builds its playbook</td><td>A bot with <code>add_routine</code></td></tr>
           <tr><td>The shared computer</td><td>One working environment per workspace</td><td>The bots, as they work</td></tr>
         </tbody>
       </table>
       <p>
         None of these needs a deploy. See <Link href="/foundry/docs/agents-are-data">Agents are
         data</Link> for the general rule.
+      </p>
+
+      <h2 id="siblings">Siblings, and what starts a bot</h2>
+      <p>
+        The bots are siblings: the same definition, different data, nothing routing between
+        them. What makes one of them run is the request that reaches it:
+      </p>
+      <table>
+        <thead><tr><th>What starts a bot</th><th>In Foundry</th><th>Where it lands</th></tr></thead>
+        <tbody>
+          <tr><td>The person writes to it</td><td><code>send(botId, …)</code></td><td>That bot&apos;s <code>chat</code></td></tr>
+          <tr><td>It is @-mentioned in a group chat, or nobody is</td><td><code>postToGroup</code> sends to the bots a message names, or to all members</td><td>Its side of the group</td></tr>
+          <tr><td>A sibling hands it work</td><td><code>glove_mesh_send_message</code> to its instance id</td><td>A thread on it; the answer goes back on its own</td></tr>
+          <tr><td>Its routine on a schedule</td><td>A schedule it set with <code>glove_foundry_schedule</code></td><td>Its own conversation</td></tr>
+          <tr><td>Its routine after an event, like new mail</td><td>A playbook built from its <code>context.routines</code></td><td>Its <code>chat</code></td></tr>
+        </tbody>
+      </table>
+      <p>
+        One event can wake more than one bot. New mail reaches every bot whose routine asks for
+        it: Inbox Manager answers it, Bug Triage files it if it reports a bug.
       </p>
 
       <Blueprint
@@ -101,7 +122,7 @@ export default function GrokBotRebuildPage() {
   store: ({ conversationId }) => FileStore.open(conversationId),
   memory: [memory],
 
-  tools: (_agent, ctx) => botTools(ctx),             // take_job, connect_app, save_skill, request_sign_in, skills
+  tools: (_agent, ctx) => botTools(ctx),             // take_job, connect_app, save_skill, add_routine, request_sign_in, skills
   workingEnvironment: computer,                      // one per workspace
   repl: () => defineRepl({                           // the apps' reads, as functions
     language: "javascript",
@@ -109,28 +130,30 @@ export default function GrokBotRebuildPage() {
     mount: { discovery: "auto" },
     programmaticTools: { select: ({ apps }) => apps.flatMap((app) => app.tools.filter((tool) => tool.readOnly)), keepDirect: false },
   }),
-  mesh: { waitMs: 60_000 },                          // bots message each other by id
+  mesh: { waitMs: 60_000 },                          // siblings message each other by id
 
-  // New mail goes to the main bot, once Gmail is connected.
+  // A routine after an event: new mail reaches the bots whose data asks for it.
   playbooks: (_agent, { agentInstance, installations }) => {
     const mail = installations.find((item) => item.kind === "application" && item.id === gmailApp.id);
-    return agentInstance.context.primary === true && mail?.accountId ? [newMailFor(mail.accountId)] : [];
+    const routine = (agentInstance.context.routines ?? []).find((item) => item.on === "new-mail");
+    return mail?.accountId && routine ? [newMailFor(mail.accountId, routine)] : [];
   },
 
   accountSessions,                                   // the credential boundary (lib/accounts.ts)
 });`}
       />
       <p>
-        The prompt reads the instance. The main bot is told to take everyday requests and route
-        the rest, a bot with no job is told to ask for one, and any other bot is told its own job,
+        The prompt reads the instance. A bot with no job is told to ask for one; any other bot
+        is told its own job, that its siblings are equals it can hand parts to, its routines,
         its owner&apos;s apps and how to send email from their address.
       </p>
 
       <h2 id="step-2">2. A person&apos;s bots are records</h2>
       <p>
         A person&apos;s workspace is their team. Their bots are plain data in{" "}
-        <code>lib/people.ts</code>. The example seeds Maya, her sample Gmail account, her main bot
-        and its thread; your app creates everyone else&apos;s when they sign up:
+        <code>lib/people.ts</code>. The example seeds Maya, her sample Gmail account and her
+        first bot, Inbox Manager, whose routine is on new mail; your app creates everyone
+        else&apos;s when they sign up:
       </p>
       <CodeBlock
         filename="foundry.application.ts (excerpt)"
@@ -138,14 +161,20 @@ export default function GrokBotRebuildPage() {
         code={`const mayaGmail = accountFor(MAYA, "gmail", sampleConnection(MAYA, "gmail").identity, true);
 if (!(await readAccount(mayaGmail.id))) await saveAccount(mayaGmail, sampleConnection(MAYA, "gmail").tokens);
 
-const mayaMain = defineAgentInstance(bot, mainBotFor(MAYA, { name: "Chief", installations: [installationFor(mayaGmail)] }));
+const mayaInbox = defineAgentInstance(bot, botFor(MAYA, {
+  id: "maya-inbox",
+  name: "Inbox Manager",
+  job: "Keeps Maya's inbox moving: answers what it can from her address and hands the rest to the bot whose job it is.",
+  routines: [{ on: "new-mail", instruction: "Read each new email. Answer the ones you can; hand the rest to a sibling." }],
+  installations: [installationFor(mayaGmail)],
+}));
 
 export default defineApplication({
   name: "Bot crew",
   data,                                      // seeds written only when the id is missing
   services,                                  // your accounts, plus routes and bindings in a file
   routes: [gmailRoutes(mayaGmail.id).in, gmailRoutes(mayaGmail.id).out],
-  bindings: [sendBinding(mayaMain.id, mayaGmail.id)],
+  bindings: [sendBinding(mayaInbox.id, mayaGmail.id)],
 });`}
       />
 
@@ -169,7 +198,7 @@ export default defineApplication({
 }`}
       />
       <p>
-        The bot&apos;s next run reads the new name and job, and the next time the main bot lists
+        The bot&apos;s next run reads the new name and job, and the next time a sibling lists
         the team it sees &ldquo;Sales Outbound&rdquo;. Your app can rename a bot the same way with{" "}
         <code>configureAgent</code>.
       </p>
@@ -259,25 +288,37 @@ export default defineApplication({
       <p>
         <code>mesh</code> gives every bot the <Link href="/foundry/docs/multi-agent#mesh">Glove
         Mesh tools</Link>, hosted by Foundry. Its peers are the other bots in its workspace, so
-        a bot only ever sees its owner&apos;s team. The main bot lists them, picks the one whose
-        job fits, and sends it the task by id. Bug Triage files the bug in Linear and passes the
-        fix to Engineer the same way. Each final answer comes back to the conversation that sent
-        the work, as a new turn.
+        a bot only ever sees its owner&apos;s team. When part of a task is a sibling&apos;s job,
+        a bot lists them, picks the one whose job fits, and sends it that part by id. Maya tells
+        Bug Triage about a crash; it files the bug in Linear and passes the fix to Engineer. The
+        final answer comes back to the conversation that sent the work, as a new turn.
       </p>
       <CodeBlock
-        filename="what the main bot receives"
+        filename="what Bug Triage receives"
         language="text"
-        code={`<mesh-message id="msg_…" thread="thread_…" from="maya-bot-2" name="Bug Triage" status="replied">
-Fixed: Patched on branch fix/empty-export: export returns an empty file for an empty report. Added a test.
+        code={`<mesh-message id="msg_…" thread="thread_…" from="maya-bot-3" name="Engineer" status="replied">
+Patched on branch fix/empty-export: export returns an empty file for an empty report. Added a test.
 </mesh-message>`}
       />
       <p>
-        A group chat is a conversation on the bot that hosts it, whose data lists its members.
-        An @-mention sends that bot its part, @everyone is <code>glove_mesh_broadcast</code>, and
-        with no mention the host asks the members whose job it is. A member with nothing to add
-        replies with nothing, and an empty reply posts nothing, which keeps the chat from
-        looping.
+        A group chat has no host. Each member keeps its own conversation for it, whose data
+        lists the members, and your app shows them merged. <code>postToGroup</code> sends the
+        person&apos;s message to the bots it @-mentions, or to every member for @everyone or no
+        mention. A member with nothing to add replies with nothing, which posts nothing. A bot
+        brings a sibling in the same way it hands off work, and the answer comes back to its
+        side of the group.
       </p>
+      <CodeBlock
+        filename="lib/groups.ts (excerpt)"
+        language="typescript"
+        code={`export async function postToGroup(foundry, chat, text) {
+  const team = await foundry.agents();
+  const members = chat.members.map((id) => team.find((agent) => agent.id === id) ?? { id });
+  for (const botId of addressed(text, members)) {               // the mentioned bots, or all of them
+    await foundry.send(botId, groupConversationId(botId, chat), text);
+  }
+}`}
+      />
 
       <h2 id="step-7">7. One computer, one skill library</h2>
       <p>
@@ -297,8 +338,10 @@ Fixed: Patched on branch fix/empty-export: export returns an empty file for an e
         bots that work side by side, use a <Link href="/foundry/docs/kuiper#services">Kuiper
         sandbox and browser</Link> per person: one live machine. Skills live in the workspace
         too, as <code>skill:&lt;name&gt;</code> entries. <code>save_skill</code> has{" "}
-        <code>requiresPermission</code>, so Maya reads the draft before any bot can use it, and
-        a routine is a schedule the bot sets with <code>glove_foundry_schedule</code>.
+        <code>requiresPermission</code>, so Maya reads the draft before any bot can use it. A
+        routine belongs to one bot: on a schedule it is a schedule the bot sets with{" "}
+        <code>glove_foundry_schedule</code>; after an event, <code>add_routine</code> writes it
+        to the bot&apos;s own data and its playbook is built from it on the next run.
       </p>
 
       <h2 id="step-8">8. Approvals and sign-ins</h2>
@@ -321,24 +364,25 @@ Fixed: Patched on branch fix/empty-export: export returns an empty file for an e
 await foundry.resolveApproval(pending.id, "approve");`}
       />
 
-      <h2 id="step-9">9. New mail reaches the main bot</h2>
+      <h2 id="step-9">9. New mail reaches the bots whose routine asks</h2>
       <p>
         The <code>gmail-watch</code> connection runs once per connected account, and only while a
         bot has Gmail installed and its playbook wants mail. It calls <code>users.watch</code>{" "}
         daily (Google requires it at least every 7 days), pulls the Pub/Sub subscription, reads{" "}
         <code>history.list</code> with Maya&apos;s token, and passes each message in, claimed once by
-        its Gmail id. The playbook puts it in the main bot&apos;s thread:
+        its Gmail id. Each bot with a routine on new mail has a playbook built from it, and the
+        mail lands in that bot&apos;s chat:
       </p>
       <CodeBlock
         filename="agents/bot/playbook.ts"
         language="typescript"
-        code={`export function newMailFor(accountId: string) {
+        code={`export function newMailFor(accountId: string, routine: EventRoutine) {
   const routes = gmailRoutes(accountId);
   return composePlaybook({
     name: "new-mail",
     transmission: gmail,
     match: { event: mailReceived, routes: [routes.in] },
-    directives: [{ action: readMail, instruction: "New mail. If it needs an answer, reply from your owner's address with the Gmail send tool …" }],
+    directives: [{ action: readMail, instruction: \`\${routine.instruction} To answer, reply from your owner's address …\` }],
     applications: [gmailApp],
     outbound: [{ route: routes.out, application: gmailApp, instruction: "Reply in the same Gmail thread." }],
   });
@@ -351,15 +395,15 @@ await foundry.resolveApproval(pending.id, "approve");`}
         language="bash"
         code={`pnpm --filter glove-foundry-bot-crew verify
 
-1. Chief (maya-main) is Maya's main bot, with gmail (maya-gmail); the Gmail watch is connected
+1. Inbox Manager (maya-inbox) has gmail (maya-gmail) and a routine on new mail; the Gmail watch is connected
 2. "New bot" became "Sales Outbound": Renamed to Sales Outbound. I'll start on tonight's batch.
 3. Bug Triage asked for Linear; once Maya signed in, all 4 of her bots have it
-4. in the main thread: Bug Triage: Fixed: Patched on branch fix/empty-export: …
+4. Bug Triage, after asking Engineer: Fixed: Patched on branch fix/empty-export: …
 5. after approval: Sent the intro to dana@example.com.
 6. after Maya signed in: Signed in to Salesforce. 12 open deals pulled.
-7. skill monday-signups saved for the team; routine every Monday at 09:00
-8. Offsite crew: both bots answered in the group chat
-9. new mail: Replied to Lena Park about pricing.`}
+7. skill monday-signups saved for the team; Sales Outbound runs it every Monday at 09:00; Bug Triage has a routine on new mail
+8. Offsite crew: Sales Outbound and Bug Triage answered; Inbox Manager wasn't mentioned and stayed quiet
+9. new mail woke Inbox Manager and Bug Triage. Bug Triage: not a bug. Inbox Manager: Replied to Lena Park about pricing.`}
       />
       <p>
         With no API key every bot runs a short script instead of a model, chosen from its data,
@@ -410,7 +454,7 @@ kuiper dashboard -u crew --enable                 # inspector login`}
       <h2 id="sources">Sources</h2>
       <ul>
         <li><a href="https://cursor.com/docs/grok-bot">Grok Bot</a>, <a href="https://cursor.com/docs/grok-bot/get-started">Get started</a>, <a href="https://cursor.com/docs/grok-bot/work">Work with Grok Bot</a>, <a href="https://cursor.com/docs/grok-bot/teams">Teams</a> and <a href="https://cursor.com/docs/grok-bot/security">Security</a>, Cursor docs</li>
-        <li><a href="https://docs.x.ai/grok-bot/skills-routines-and-automations">Skills and routines</a>, xAI docs</li>
+        <li><a href="https://docs.x.ai/grok-bot/skills-routines-and-automations">Skills and routines</a> and <a href="https://docs.x.ai/grok-bot/faq">FAQ</a>, xAI docs</li>
         <li><a href="https://x.ai/bot/guides/grok-bot-101">Grok Bot 101</a>, xAI</li>
         <li><a href="https://developers.google.com/workspace/gmail/api/guides/push">Push notifications</a>, <a href="https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list">history.list</a> and <a href="https://developers.google.com/workspace/gmail/api/reference/mcp">the Gmail MCP server</a>, Google</li>
         <li><a href="https://linear.app/docs/mcp">Linear MCP server</a>, Linear</li>

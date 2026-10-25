@@ -22,7 +22,7 @@ A definition is the realm of what a kind of agent can be, like a server-rendered
 
 - One definition per kind of agent, never one per agent. A person making a bot, renaming it or giving it Gmail is a write (`createAgent`, `configureAgent`, `install`), not a deploy.
 - No names, jobs or per-user settings in code: the prompt reads `ctx.agentInstance.name`, `.description` and `.context`.
-- Branch on data the instance carries (`context.primary === true`), never on its id.
+- Branch on data the instance carries (`context.routines`, `context.kind`), never on its id.
 - Agents can change their own data with a tool. A bot told its job names itself:
 
   ```ts
@@ -103,6 +103,14 @@ When people connect their own accounts (Gmail, Linear, Calendar), make each prov
 - Accounts are yours. Supply `AccountDirectory` through `defineApplication({ services })` (it replaces `accounts`), with `fileTopologyStore(file)` so routes and bindings written at runtime (`putRoute`, `putBinding`) survive restarts. Connections look accounts up in the directory, so an account added after startup works.
 - To add policy to a send (a guard, an auto-review), wrap the generated tool in `configure`: its `requiresPermission` replaces the inner one and its `do` calls `inner.run(input, signal)`, so the person approves once.
 - `glove_foundry_transmit` only sends on routes the agent's playbooks declare and asks when the route's transmission asks.
+
+### A computer of its own, behind a guard
+
+For an agent that browses or calls the web from its working environment (a personal agent like Muse), build the environment's options per run (`defineWorkingEnvironment({ options: ({ assembly }) => … })`):
+
+- `fetchFiles({ authorize })` from `glove-env-fetch` runs your host policy on every request and redirect, outside the sandbox. Put a guard there whose inputs are the request, the person's own words for the run and their allowed sites, never the agent's conversation or the pages it read, so a page cannot talk it round. A small model can decide through `glove-classifier`'s `llmClassifier` with one `choice` question. `env:fetch` hides why a request was refused, so give the agent a tool that reads the guard's decision for the run and, only when it said "ask", waits for the person's approval (`requiresPermission` as a function); their yes is a write to the instance.
+- Logins: `secret({ store })` from `glove-env-secret` gives scripts names and references only; `fetchFiles({ secretStore, credentials: { name: { origins, headers: { Authorization: { ref: secretRef(name), prefix } } } } })` adds the value on that origin. Scripts pass `credential: "name"`.
+- A log the model cannot edit: a `defineSubscriber` in the agent's `components` sees every `tool_use_result`.
 
 Foundry never acquires, refreshes, or stores credential material. Account records contain safe metadata and opaque access references. The consumer's account-session/provider adapter owns credential lookup and refresh. Never copy secrets into instance data, manifests, prompts, telemetry, or inspector payloads.
 

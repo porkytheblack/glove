@@ -4,23 +4,24 @@ import { CodeBlock } from "@/components/code-block";
 import { RebuildShapes } from "@/components/rebuild-stories";
 import { getPost, postMetadata } from "@/lib/blog";
 
-const post = getPost("three-always-on-agents-rebuilt")!;
+const post = getPost("always-on-agents-rebuilt")!;
 export const metadata = postMetadata(post);
 
-export default function ThreeAgentsRebuiltPost() {
+export default function AgentsRebuiltPost() {
   return (
     <article className="docs-content">
       <BlogPostHeader post={post} />
 
       <p className="blog-lede">
-        In three months, xAI shipped Grok Bot, OpenAI shipped Dots and Anthropic shipped Claude
-        Duet. All three are agents that keep working when you are not looking. We rebuilt each
-        one from Foundry primitives, ran it end to end, and wrote down how to deploy it on Kuiper.
+        Within a few months, xAI shipped Grok Bot, OpenAI shipped Dots, Anthropic shipped Claude
+        Duet and Meta shipped Muse. All four are agents that keep working when you are not looking.
+        We rebuilt each one from Foundry primitives, ran it end to end, and wrote down how to
+        deploy it on Kuiper.
       </p>
 
       <p>
         The rebuilds are independent examples built from public docs and launch coverage. They
-        are not affiliated with or endorsed by xAI, Anthropic or OpenAI, and they are not how those
+        are not affiliated with or endorsed by xAI, Anthropic, OpenAI or Meta, and they are not how those
         products work inside. What they show is how much of each product is the same set of parts.
       </p>
 
@@ -29,9 +30,10 @@ export default function ThreeAgentsRebuiltPost() {
       <h2 id="crew">Grok Bot: teammates you make</h2>
       <p>
         Grok Bot lets you make bots and tell each one its job. A new bot asks what you want it
-        around for, then names itself for the work: Sales Outbound, Inbox Manager. Your main bot
-        takes everyday requests, bots pass work to each other and share group chats, and they all
-        work on one cloud computer and in the apps you connect, like Gmail.
+        around for, then names itself for the work: Sales Outbound, Inbox Manager. The bots are
+        siblings: you write to the one whose job it is, mention them in a group chat, or one
+        hands another part of its work. They all work on one cloud computer and in the apps you
+        connect, like Gmail.
       </p>
       <p>
         Our first build got this wrong. It had a definition per bot (a chief, an outreach bot, a
@@ -43,9 +45,10 @@ export default function ThreeAgentsRebuiltPost() {
         The rebuild now has one <code>bot</code> definition that says what any bot can be. Each
         bot is an instance in the person&apos;s workspace. Its name and job are the
         instance&apos;s <code>name</code> and <code>description</code>, and a new bot sets them
-        itself with a <code>take_job</code> tool that writes its own record. The main bot is a
-        bot whose data says <code>primary: true</code>. A group chat is a conversation whose data
-        lists its members. Skills live in the workspace, so every bot reads the same library.
+        itself with a <code>take_job</code> tool that writes its own record. A routine belongs to
+        one bot, on a schedule or after an event like new mail, and is data on it too. A group
+        chat has no host: each member keeps its side, and a message goes to the bots it
+        mentions. Skills live in the workspace, so every bot reads the same library.
       </p>
       <p>
         That changed Foundry too. Foundry had a <code>delegates</code> field that named workers by
@@ -59,10 +62,10 @@ export default function ThreeAgentsRebuiltPost() {
         <Link href="/foundry/docs/agents-are-data">Agents are data</Link> for the rule.
       </p>
       <p>
-        We also first built from launch coverage and got details wrong. Grok Bot&apos;s own docs
-        (on cursor.com and docs.x.ai) have no &ldquo;chief&rdquo; role, only a main bot that a
-        person can name anything; apps belong to the account, not to a bot; and group chats let
-        the bots decide who answers. The rebuild follows the docs now.
+        We also first built from launch coverage and got details wrong. We gave the team a
+        chief, then a main bot that routed work. Grok Bot has neither: the bots are siblings,
+        and what starts one is the request that reaches it. Apps belong to the account, not to a
+        bot, and group chats let the bots decide who answers. The rebuild follows that now.
       </p>
       <p>
         Connecting apps took a second pass too. The quick way is to point the agent at each
@@ -74,7 +77,7 @@ export default function ThreeAgentsRebuiltPost() {
         rule per tool: allow, ask or hide. The reads become functions the bot calls in code,{" "}
         <code>gmail.search_threads(…)</code>, so a dozen lookups are one program instead of a
         dozen turns. Accounts and tokens stay in your own store; Foundry reads them through a
-        directory you supply. All three rebuilds now connect apps this way. Building it also
+        directory you supply. All four rebuilds connect apps this way. Building it also
         turned up a hole: an agent could send on a bound route through{" "}
         <code>glove_foundry_transmit</code> without the approval the app&apos;s send asks for.
         That tool now sends only on routes the agent&apos;s playbooks declare, and asks when the
@@ -123,6 +126,26 @@ export default function ThreeAgentsRebuiltPost() {
         <Link href="/foundry/docs/rebuilds/openai-dots">Read the build</Link>.
       </p>
 
+      <h2 id="muse">Meta Muse: an agent that does the work</h2>
+      <p>
+        Muse is one agent per person that sends the email, books the table and pays, on a
+        computer of its own. You reach it in its app or on WhatsApp, you choose what it may do
+        in each app, and a separate Sentinel decides what may leave its computer.
+      </p>
+      <p>
+        Most of it was already there. WhatsApp is a Foundry app with a transmission each way.
+        The access you choose is the installation&apos;s config: with read only, the app hides
+        every write and the send binding is off. The interesting part is the Sentinel. Glove&apos;s
+        fetch adapter already calls an <code>authorize</code> hook for every request and
+        redirect, outside the sandbox, so the Sentinel sits there with its own small model. It
+        never sees Muse&apos;s conversation or the pages it read, which is the point: a page that
+        tells Muse to send your email address somewhere cannot talk the Sentinel round. Logins
+        work the same way: a script names one, the adapter adds it on that site only, and the
+        value never enters the sandbox. The log of what Muse did is written by a subscriber from
+        Foundry&apos;s side of the run, so the model cannot leave anything out.{" "}
+        <Link href="/foundry/docs/rebuilds/meta-muse">Read the build</Link>.
+      </p>
+
       <h2 id="same">What they share</h2>
       <p>Line them up and the same parts keep appearing:</p>
       <ul>
@@ -135,8 +158,8 @@ export default function ThreeAgentsRebuiltPost() {
         <li>On Kuiper: the <code>/data</code> disk for all of it, the model gateway, and a lock on the API.</li>
       </ul>
       <p>
-        The differences are mostly policy: who you talk to, what wakes the agent, and what waits
-        for you. Those are the parts you write. The rest was already there.
+        The differences are mostly policy: who you talk to, what wakes the agent, what waits
+        for you, and what may leave its computer. Those are the parts you write. The rest was already there.
       </p>
 
       <h2 id="try">Try them</h2>
@@ -144,7 +167,8 @@ export default function ThreeAgentsRebuiltPost() {
         language="bash"
         code={`pnpm --filter glove-foundry-bot-crew verify
 pnpm --filter glove-foundry-proactive-partner verify
-pnpm --filter glove-foundry-standing-agents verify`}
+pnpm --filter glove-foundry-standing-agents verify
+pnpm --filter glove-foundry-personal-agent verify`}
       />
       <p>
         Each runs offline with scripted models, so it checks the wiring with no keys. Add{" "}

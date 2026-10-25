@@ -198,7 +198,7 @@ instance: `name`, `description`, `context`, `installations` and `workspaceId`.
 Write one definition per kind of agent, never one per agent. A person making a
 bot, renaming it or giving it an app is a write (`createAgent`,
 `configureAgent`, `install`), not a deploy. Read names, jobs and per-user
-settings from the instance in resolvers, branch on its data (`context.primary`)
+settings from the instance in resolvers, branch on its data (`context.routines`)
 rather than its id, and let agents change their own data with tools, such as a
 `take_job` tool that writes `name` and `description` with `ctx.data.putAgent`.
 A workspace is a tenant: its agents are mesh peers and share workspace entries.

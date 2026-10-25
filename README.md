@@ -572,18 +572,20 @@ pnpm --filter glove-foundry-layered-assistant verify   # the whole exchange, off
 pnpm --filter glove-foundry-layered-assistant dev      # add ANTHROPIC_API_KEY first
 ```
 
-### Rebuilds: Bot Crew, Proactive Partner, Standing Agents
+### Rebuilds: Bot Crew, Proactive Partner, Standing Agents, Personal Agent
 
-Three always-on agent products rebuilt from Foundry primitives, each with an illustrated build on the site and the Kuiper commands in its README. In each one the definition says what an agent can be and every agent is data, so adding or renaming one needs no deploy. All three connect apps the same way: a Foundry app per provider, installed with the person's account. They are independent examples, not affiliated with xAI, Anthropic or OpenAI.
+Four always-on agent products rebuilt from Foundry primitives, each with an illustrated build on the site and the Kuiper commands in its README. In each one the definition says what an agent can be and every agent is data, so adding or renaming one needs no deploy. All four connect apps the same way: a Foundry app per provider, installed with the person's account. They are independent examples, not affiliated with xAI, Anthropic, OpenAI or Meta.
 
-- **Bot Crew** (like xAI's Grok Bot): one bot definition; every bot, its name, job and group chats are data. A new bot names itself when told its job, a main bot takes everyday requests, and bots pass work over the mesh. They work in the apps the person connects (Gmail and Linear as Foundry apps with their accounts, read in code), share a computer and a skill library, and ask before sending; new mail reaches the main bot. [Build](https://glove.dterminal.net/foundry/docs/rebuilds/grok-bot)
+- **Bot Crew** (like xAI's Grok Bot): one bot definition; every bot, its name, job and group chats are data. A new bot names itself when told its job. The bots are siblings, each started by its own requests: a message, an @-mention in a group chat with no host, a sibling's handoff over the mesh, or its routine on a schedule or new mail. They work in the apps the person connects (Gmail and Linear as Foundry apps with their accounts, read in code), share a computer and a skill library, and ask before sending. [Build](https://glove.dterminal.net/foundry/docs/rebuilds/grok-bot)
 - **Proactive Partner** (like Anthropic's Claude Duet): one partner per person in one thread, working in their Gmail and Calendar, a morning brief and check-ins scheduled from their preferences, approvals before it sends, pays, signs or deletes, a guard on everything outbound, and its own computer over the mesh. [Build](https://glove.dterminal.net/foundry/docs/rebuilds/claude-duet)
 - **Standing Agents** (like OpenAI's dots): one dot definition; a dot you name, working from a connected mailbox, holding your ongoing responsibilities and Custom Rules (allow, ask, block) as data; read-only research with no way to act or message; an auto-review before every action; its own computer; the app, Slack and calls; specialist dots as instances with their own account. [Build](https://glove.dterminal.net/foundry/docs/rebuilds/openai-dots)
+- **Personal Agent** (like Meta's Muse): one agent per person, in the app and on WhatsApp, that does the work across the apps they connect at the access they choose; its own computer, where every request passes a separate Sentinel it can't talk round; logins it uses but never sees; one-time cards and approvals; long work it checks back on; forgetting; and a log of what it did and plans. [Build](https://glove.dterminal.net/foundry/docs/rebuilds/meta-muse)
 
 ```bash
 pnpm --filter glove-foundry-bot-crew verify            # each runs offline
 pnpm --filter glove-foundry-proactive-partner verify
 pnpm --filter glove-foundry-standing-agents verify
+pnpm --filter glove-foundry-personal-agent verify
 ```
 
 ### Braind Storm

@@ -11,32 +11,32 @@ export function CrewStory() {
   return (
     <FlowStory
       id="rgb"
-      viewBox="0 0 932 336"
-      label="Every bot is an instance of one definition in the person's workspace: a new bot names itself with take_job, a bot asks for an app and the person's account goes on every bot, the main bot passes a bug to Bug Triage over the mesh, which files it in Linear and passes the fix to Engineer, replies come back on their own, a group chat reaches two bots, skills are shared in the workspace, sending waits for approval, and new mail reaches the main bot"
+      viewBox="0 0 936 352"
+      label="Four sibling bots, all instances of one definition in Maya's workspace: a new bot names itself with take_job, a bot asks for an app and her account goes on every bot, Maya writes to Bug Triage directly, it hands the fix to Engineer over the mesh and the answer comes back, a group chat with no host reaches only the bots she mentions, skills are shared in the workspace, sending waits for approval, and new mail wakes each bot whose routine asks for it"
       boxes={[
-        { id: "maya", x: 16, y: 20, w: 110, h: 64, title: "Maya", sub: "the app" },
-        { id: "apps", x: 16, y: 256, w: 110, h: 64, title: "Her apps", sub: "Gmail · Linear" },
-        { id: "chief", x: 216, y: 110, w: 160, h: 110, title: "Chief", sub: "main bot · primary", tone: "harness" },
-        { id: "triage", x: 486, y: 20, w: 150, h: 80, title: "Bug Triage", sub: "files in Linear", tone: "harness" },
-        { id: "engineer", x: 766, y: 20, w: 150, h: 80, title: "Engineer", sub: "fixes on a branch", tone: "harness" },
-        { id: "workspace", x: 486, y: 138, w: 150, h: 70, title: "Workspace: maya", sub: "accounts · skills · computer", tone: "system", dashed: true },
-        { id: "sales", x: 486, y: 246, w: 150, h: 80, title: "Sales Outbound", sub: "was “New bot”", tone: "harness" },
-        { id: "approval", x: 766, y: 246, w: 150, h: 80, title: "Approval", sub: "Maya says yes", tone: "system" },
+        { id: "group", x: 16, y: 16, w: 170, h: 56, title: "Offsite crew", sub: "group chat · no host", tone: "system", dashed: true },
+        { id: "maya", x: 258, y: 16, w: 170, h: 56, title: "Maya", sub: "the app" },
+        { id: "sales", x: 16, y: 140, w: 170, h: 72, title: "Sales Outbound", sub: "was “New bot”", tone: "harness" },
+        { id: "triage", x: 258, y: 140, w: 170, h: 72, title: "Bug Triage", sub: "routine: new mail", tone: "harness" },
+        { id: "engineer", x: 500, y: 140, w: 170, h: 72, title: "Engineer", sub: "fixes on a branch", tone: "harness" },
+        { id: "inbox", x: 742, y: 140, w: 170, h: 72, title: "Inbox Manager", sub: "routine: new mail", tone: "harness" },
+        { id: "workspace", x: 16, y: 284, w: 400, h: 56, title: "Workspace: maya", sub: "accounts · skills · one computer", tone: "system", dashed: true },
+        { id: "approval", x: 500, y: 284, w: 170, h: 56, title: "Approval", sub: "Maya says yes", tone: "system" },
+        { id: "apps", x: 742, y: 284, w: 170, h: 56, title: "Her apps", sub: "Gmail · Linear" },
       ]}
       edges={[
-        { id: "ask", d: "M126,40 L256,40 L256,106", label: "asks", lx: 191, ly: 32 },
-        { id: "tell", d: "M236,106 L236,68 L130,68", label: "tells", lx: 183, ly: 84 },
-        { id: "mail", d: "M126,300 L256,300 L256,224", label: "new mail", lx: 191, ly: 314 },
-        { id: "read", d: "M236,224 L236,272 L130,272", label: "reads in code", lx: 183, ly: 266 },
-        { id: "send", d: "M376,125 L430,125 L430,50 L482,50", label: "mesh", lx: 403, ly: 118 },
-        { id: "reply", d: "M482,80 L446,80 L446,145 L380,145", label: "reply", lx: 413, ly: 160 },
-        { id: "group", d: "M376,185 L456,185 L456,276 L482,276", label: "@mention", lx: 416, ly: 178 },
-        { id: "answer", d: "M482,306 L440,306 L440,205 L380,205", label: "answers", lx: 410, ly: 221 },
-        { id: "fix", d: "M636,48 L762,48", label: "fix it", lx: 699, ly: 40 },
-        { id: "fixed", d: "M762,80 L640,80", label: "fixed", lx: 701, ly: 96 },
-        { id: "write", d: "M561,242 L561,212", label: "writes", lx: 569, ly: 230, anchor: "start" },
-        { id: "shared", d: "M561,134 L561,104", label: "reads", lx: 569, ly: 122, anchor: "start" },
-        { id: "gate", d: "M636,286 L762,286", label: "Gmail send", lx: 699, ly: 278 },
+        { id: "posts", d: "M258,44 L190,44", label: "posts", lx: 224, ly: 36 },
+        { id: "m-sales", d: "M101,72 L101,136", label: "@mention", lx: 109, ly: 108, anchor: "start" },
+        { id: "m-triage", d: "M186,60 L222,60 L222,118 L300,118 L300,136", label: "@mention", lx: 228, ly: 112, anchor: "start" },
+        { id: "direct", d: "M390,72 L390,136", label: "writes to", lx: 398, ly: 108, anchor: "start" },
+        { id: "tells", d: "M340,136 L340,76", label: "tells", lx: 334, ly: 92, anchor: "end" },
+        { id: "fix", d: "M428,164 L496,164", label: "fix it", lx: 462, ly: 156 },
+        { id: "fixed", d: "M496,196 L432,196", label: "fixed", lx: 464, ly: 212 },
+        { id: "write", d: "M101,212 L101,280", label: "writes", lx: 109, ly: 250, anchor: "start" },
+        { id: "connect", d: "M400,212 L400,240 L585,240 L585,280", label: "connect_app", lx: 492, ly: 234 },
+        { id: "gate", d: "M160,212 L160,258 L540,258 L540,280", label: "Gmail send", lx: 300, ly: 252 },
+        { id: "mail-inbox", d: "M827,284 L827,216", label: "new mail", lx: 835, ly: 254, anchor: "start" },
+        { id: "mail-triage", d: "M912,312 L926,312 L926,124 L410,124 L410,136", label: "new mail", lx: 668, ly: 118 },
       ]}
       steps={[
         {
@@ -53,7 +53,8 @@ export function CrewStory() {
           ),
         },
         {
-          lit: ["triage", "workspace", "approval", "shared"],
+          lit: ["triage", "workspace", "approval", "connect"],
+          packet: { edge: "connect", label: "Linear" },
           title: "Apps belong to Maya, not to a bot",
           text: (
             <>
@@ -64,74 +65,68 @@ export function CrewStory() {
           ),
         },
         {
-          lit: ["maya", "chief", "ask"],
-          packet: { edge: "ask", label: "export crashes" },
-          title: "Maya asks her main bot",
+          lit: ["maya", "triage", "direct"],
+          packet: { edge: "direct", label: "export crashes" },
+          title: "Maya writes to the bot whose job it is",
           text: (
             <>
-              Maya named her main bot &ldquo;Chief&rdquo;. It is a bot like the others, with{" "}
-              <code>primary: true</code> in its data, so its prompt tells it to take everyday
-              requests and route the rest.
-            </>
-          ),
-        },
-        {
-          lit: ["chief", "triage", "send"],
-          packet: { edge: "send", label: "the bug" },
-          title: "The main bot finds the right bot",
-          text: (
-            <>
-              <code>glove_mesh_list_agents</code> lists the bots in Maya&apos;s workspace, with the
-              names and jobs they gave themselves. The main bot picks the one whose job fits. <code>glove_mesh_send_message</code> to{" "}
-              <code>maya-bot-2</code> starts a thread there and returns at once.
+              The bots are siblings: one definition, different data, and nothing routing between
+              them. Maya writes to Bug Triage in its own chat. That message is what starts it.
             </>
           ),
         },
         {
           lit: ["triage", "engineer", "fix"],
           packet: { edge: "fix", label: "ENG-1" },
-          title: "Bots hand work to bots",
-          text: <>Bug Triage files the issue in Linear (Maya always allows that) and sends the fix to Engineer the same way. Any bot can message any other bot on the team.</>,
-        },
-        {
-          lit: ["engineer", "triage", "chief", "fixed", "reply"],
-          packet: { edge: "reply", label: "Fixed: …" },
-          title: "Replies come back on their own",
+          title: "Siblings hand work to each other",
           text: (
             <>
-              Each bot&apos;s final answer goes back to the conversation that sent it the work, as a
-              new turn. The chain unwinds without anyone checking in.
+              Bug Triage files the issue in Linear (Maya always allows that), finds Engineer with{" "}
+              <code>glove_mesh_list_agents</code> and hands it the fix with{" "}
+              <code>glove_mesh_send_message</code>. That handoff is what starts Engineer.
             </>
           ),
         },
         {
-          lit: ["chief", "maya", "tell"],
-          packet: { edge: "tell", label: "fixed" },
-          title: "Maya reads it in one thread",
-          text: <>The main bot passes on what matters in a sentence or two.</>,
-        },
-        {
-          lit: ["chief", "sales", "triage", "group", "answer", "send"],
-          packet: { edge: "group", label: "@Sales Outbound" },
-          title: "A group chat is data too",
+          lit: ["engineer", "triage", "fixed"],
+          packet: { edge: "fixed", label: "Patched" },
+          title: "Answers come back on their own",
           text: (
             <>
-              The Offsite crew chat is a conversation on the bot that hosts it, whose{" "}
-              <code>context</code> lists its members. Each @-mentioned bot gets its part over the
-              mesh, @everyone reaches all of them, and each answer is posted in the chat.
+              Engineer&apos;s final answer goes back to the conversation that sent it the work, as a
+              new turn. Nobody checks in.
             </>
           ),
         },
         {
-          lit: ["sales", "workspace", "triage", "write", "shared"],
+          lit: ["triage", "maya", "tells"],
+          packet: { edge: "tells", label: "fixed" },
+          title: "Bug Triage tells Maya",
+          text: <>In its own chat, in a sentence or two: filed as ENG-1, fixed on a branch, with a test.</>,
+        },
+        {
+          lit: ["maya", "group", "sales", "triage", "posts", "m-sales", "m-triage"],
+          packet: { edge: "m-sales", label: "@Sales Outbound" },
+          title: "A group chat has no host",
+          text: (
+            <>
+              Each member keeps its own conversation for the Offsite crew chat, and the app shows
+              them merged. Maya&apos;s message goes to the bots it @-mentions, so Sales Outbound and
+              Bug Triage answer and Inbox Manager, not mentioned, stays quiet. @everyone, or no
+              mention at all, reaches every member.
+            </>
+          ),
+        },
+        {
+          lit: ["sales", "workspace", "write"],
           packet: { edge: "write", label: "save_skill" },
-          title: "One skill library, one computer",
+          title: "One skill library, routines per bot",
           text: (
             <>
               Maya describes her Monday signup sweep. <code>save_skill</code> waits for her review,
-              then stores it in her workspace, where every bot can read it.{" "}
-              <code>glove_foundry_schedule</code> runs it every Monday. The bots share one computer
-              per workspace too.
+              then stores it in her workspace for every bot. The routine belongs to Sales Outbound:
+              a schedule it sets with <code>glove_foundry_schedule</code>. A routine after an event
+              is data on the bot, written by <code>add_routine</code>.
             </>
           ),
         },
@@ -150,14 +145,15 @@ export function CrewStory() {
           ),
         },
         {
-          lit: ["apps", "chief", "mail", "read"],
-          packet: { edge: "mail", label: "Lena: pricing?" },
-          title: "New mail reaches the main bot",
+          lit: ["apps", "inbox", "triage", "mail-inbox", "mail-triage"],
+          packet: { edge: "mail-inbox", label: "Lena: pricing?" },
+          title: "New mail wakes the bots whose routines ask",
           text: (
             <>
               The Gmail app&apos;s connection watches Maya&apos;s inbox and passes each new message in.
-              Her main bot&apos;s playbook takes it in her main thread; it reads the thread in code
-              and replies in Lena&apos;s thread once Maya approves.
+              Inbox Manager and Bug Triage each have a routine on new mail, so both wake, each in
+              its own chat: Bug Triage passes (not a bug), and Inbox Manager replies in Lena&apos;s
+              thread once Maya approves.
             </>
           ),
         },
@@ -490,7 +486,154 @@ export function StandingAgentStory() {
   );
 }
 
-// ─── three shapes, side by side ──────────────────────────────────────────────
+// ─── Meta Muse: one agent, two places, a computer behind a Sentinel ──────────
+
+export function MuseStory() {
+  return (
+    <FlowStory
+      id="rmm"
+      viewBox="0 0 936 344"
+      label="Rosa reaches one Muse in the app and on WhatsApp; it reads her apps in code at the access she chose; it runs scripts on its own computer, where every request passes the Sentinel, which allows reading a page, blocks a hidden instruction to send her email address elsewhere and asks her before booking; it uses her saved login by name without seeing it; sending and paying wait for her; and every tool call is written to its log"
+      boxes={[
+        { id: "app", x: 16, y: 16, w: 170, h: 56, title: "Rosa", sub: "the Muse app" },
+        { id: "whatsapp", x: 16, y: 136, w: 170, h: 56, title: "WhatsApp", sub: "her number only" },
+        { id: "log", x: 16, y: 272, w: 170, h: 56, title: "The log", sub: "done · planned", tone: "system", dashed: true },
+        { id: "muse", x: 268, y: 120, w: 180, h: 88, title: "Muse", sub: "one per person · one memory", tone: "harness" },
+        { id: "approval", x: 268, y: 272, w: 180, h: 56, title: "Approval", sub: "Rosa says yes", tone: "system" },
+        { id: "apps", x: 530, y: 16, w: 170, h: 56, title: "Her apps", sub: "read, or read and act" },
+        { id: "computer", x: 530, y: 136, w: 170, h: 56, title: "Its computer", sub: "files · scripts · env:fetch", tone: "harness" },
+        { id: "vault", x: 530, y: 272, w: 170, h: 56, title: "Her vault", sub: "logins, by name", dashed: true },
+        { id: "web", x: 762, y: 16, w: 158, h: 56, title: "The web", sub: "sites" },
+        { id: "sentinel", x: 762, y: 136, w: 158, h: 56, title: "Sentinel", sub: "allow · ask · block", tone: "system" },
+      ]}
+      edges={[
+        { id: "ask", d: "M186,44 L300,44 L300,116", label: "asks", lx: 243, ly: 36 },
+        { id: "wa-in", d: "M186,152 L264,152", label: "messages", lx: 225, ly: 144 },
+        { id: "wa-out", d: "M264,184 L190,184", label: "answers", lx: 227, ly: 200 },
+        { id: "read", d: "M420,116 L420,44 L526,44", label: "reads in code", lx: 473, ly: 36 },
+        { id: "run", d: "M448,164 L526,164", label: "scripts", lx: 487, ly: 156 },
+        { id: "request", d: "M700,164 L758,164", label: "request", lx: 731, ly: 156 },
+        { id: "out", d: "M841,136 L841,76", label: "allowed", lx: 849, ly: 110, anchor: "start" },
+        { id: "login", d: "M615,272 L615,196", label: "login by name", lx: 623, ly: 240, anchor: "start" },
+        { id: "gate", d: "M358,208 L358,268", label: "send · buy · ask", lx: 366, ly: 244, anchor: "start" },
+        { id: "logged", d: "M300,208 L300,240 L101,240 L101,268", label: "every tool call", lx: 200, ly: 234, dashed: true },
+      ]}
+      steps={[
+        {
+          lit: ["app", "whatsapp", "muse", "ask", "wa-in", "wa-out"],
+          packet: { edge: "wa-in", label: "Priya is vegetarian" },
+          title: "One Muse, two places",
+          text: (
+            <>
+              Rosa&apos;s Muse is one instance with two conversations, <code>app</code> and{" "}
+              <code>whatsapp</code>, and one memory. What she says on WhatsApp it knows in the app.
+              WhatsApp is a Foundry app: her messages come in on Muse&apos;s number, and answers go
+              out on a route that only reaches her.
+            </>
+          ),
+        },
+        {
+          lit: ["muse", "apps", "read"],
+          packet: { edge: "read", label: "calendar.list_events" },
+          title: "Her apps, at the access she chose",
+          text: (
+            <>
+              Gmail and Calendar are Foundry apps installed with her accounts. Muse reads them in
+              code, one program for both. Gmail is read only, so the app hides every write and Muse
+              has no send tool at all, until she gives it send access: one write to the
+              installation, no deploy.
+            </>
+          ),
+        },
+        {
+          lit: ["muse", "computer", "run"],
+          packet: { edge: "run", label: "web.js" },
+          title: "Its own computer",
+          text: (
+            <>
+              To book dinner it writes a script on its computer, a working environment saved per
+              instance, and runs it. The script reaches the web through <code>env:fetch</code>.
+            </>
+          ),
+        },
+        {
+          lit: ["computer", "sentinel", "web", "request", "out"],
+          packet: { edge: "request", label: "GET /menu" },
+          title: "Every request passes the Sentinel",
+          text: (
+            <>
+              <code>env:fetch</code> calls the Sentinel&apos;s <code>authorize</code> for every request
+              and redirect, outside the sandbox. Reading the restaurant&apos;s page plainly serves
+              what Rosa asked, so it goes out.
+            </>
+          ),
+        },
+        {
+          lit: ["computer", "sentinel", "request"],
+          packet: { edge: "request", label: "collect.example?email=…" },
+          title: "A page can't talk the Sentinel round",
+          text: (
+            <>
+              The page hides an instruction to send Rosa&apos;s email address to another site. Even
+              if Muse followed it, the Sentinel never read the page: it sees a request carrying an
+              email address to a site she never allowed, and blocks it.
+            </>
+          ),
+        },
+        {
+          lit: ["sentinel", "muse", "approval", "gate"],
+          packet: { edge: "gate", label: "request_access" },
+          title: "The Sentinel asks Rosa",
+          text: (
+            <>
+              Booking writes to a site she hasn&apos;t allowed, so the Sentinel says ask. Muse calls{" "}
+              <code>request_access</code>, which waits for Rosa only because the Sentinel asked. Her
+              yes adds the site to her list; nothing else can.
+            </>
+          ),
+        },
+        {
+          lit: ["vault", "computer", "web", "login", "request", "out"],
+          packet: { edge: "login", label: "bistro-luna" },
+          title: "Her login, never seen",
+          text: (
+            <>
+              The script names her saved login, <code>credential: &quot;bistro-luna&quot;</code>, and{" "}
+              <code>env:fetch</code> adds it on that site only. The value never enters the sandbox
+              or Muse&apos;s context.
+            </>
+          ),
+        },
+        {
+          lit: ["muse", "approval", "gate"],
+          packet: { edge: "gate", label: "buy $23.40" },
+          title: "Sending and paying wait for her",
+          text: (
+            <>
+              Gmail&apos;s send asks for each email; <code>buy</code> asks for each purchase and pays
+              with a one-time card made for that merchant and amount. Muse sees the last four
+              digits.
+            </>
+          ),
+        },
+        {
+          lit: ["muse", "log", "logged"],
+          packet: { edge: "logged", label: "buy · success" },
+          title: "A log it can't leave anything out of",
+          text: (
+            <>
+              A subscriber writes every tool call from Foundry&apos;s side of the run, and the
+              Sentinel writes every decision. What Muse plans comes from Foundry too: its schedules,
+              like the fare it checks every six hours, and the approvals waiting on Rosa.
+            </>
+          ),
+        },
+      ]}
+    />
+  );
+}
+
+// ─── four shapes, side by side ───────────────────────────────────────────────
 
 function Mini({ x, y, w, h, title, sub, tone = "neutral", dashed }: {
   x: number; y: number; w: number; h: number; title: string; sub?: string; tone?: "harness" | "system" | "neutral"; dashed?: boolean;
@@ -513,16 +656,16 @@ function Arrow({ d, label, lx, ly, anchor = "middle", dashed }: { d: string; lab
   );
 }
 
-/** The three rebuilds as shapes: who you talk to, who works, what wakes them. */
+/** The four rebuilds as shapes: who you talk to, who works, what wakes them. */
 export function RebuildShapes() {
   return (
     <figure className="dg-figure dg-wide">
       <div className="dg-scroll">
         <svg
-          viewBox="0 0 932 300"
+          viewBox="0 0 936 300"
           role="img"
           className="dg-svg"
-          aria-label="Three shapes. Grok Bot: you talk to your main bot or any other bot, and they pass work over the mesh; all are instances of one definition. Claude Duet: one partner per person with its own clock and a computer it messages. OpenAI Dots: one dot per person that they name, holding their responsibilities, reached from several channels, researching on a schedule, with an auto-review in front of every action."
+          aria-label="Four shapes. Grok Bot: sibling bots, all instances of one definition, each started by a message, a mention, a handoff over the mesh or its own routine. Claude Duet: one partner per person with its own clock and a computer it messages. OpenAI Dots: one dot per person that they name, reached from several channels, researching on a schedule, with an auto-review in front of every action. Meta Muse: one agent per person, in the app and on WhatsApp, with a computer of its own whose every request passes a separate Sentinel."
         >
           <defs>
             <marker id="rshape-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -530,41 +673,56 @@ export function RebuildShapes() {
             </marker>
           </defs>
 
-          <g className="tone-harness"><text x={156} y={22} textAnchor="middle" className="dg-group-label">Grok Bot · teammates</text></g>
-          <Mini x={16} y={40} w={280} h={44} title="You" sub="app · connected apps" />
-          <Arrow d="M156,84 L156,110" />
-          <Mini x={76} y={112} w={160} h={50} title="Main bot" sub="primary: true" tone="harness" />
-          <Arrow d="M156,162 L156,200" label="mesh" lx={164} ly={186} anchor="start" />
-          <Mini x={16} y={202} w={280} h={50} title="Bots, as data" sub="Sales Outbound · Bug Triage · Engineer" tone="harness" />
-          <text x={156} y={284} textAnchor="middle" className="dg-sub">one definition, every bot an instance</text>
+          <g className="tone-harness"><text x={120} y={22} textAnchor="middle" className="dg-group-label">Grok Bot · teammates</text></g>
+          <Mini x={16} y={40} w={208} h={44} title="You" sub="chat · group chat" />
+          <Arrow d="M120,84 L120,110" label="writes · @mentions" lx={128} ly={101} anchor="start" />
+          <Mini x={16} y={112} w={208} h={50} title="Sibling bots" sub="one definition, data each" tone="harness" />
+          <Mini x={16} y={202} w={100} h={50} title="Routines" sub="schedule, mail" tone="system" />
+          <Mini x={124} y={202} w={100} h={50} title="Handoffs" sub="over the mesh" tone="harness" />
+          <Arrow d="M66,202 L66,166" label="wakes" lx={58} ly={186} anchor="end" />
+          <Arrow d="M174,166 L174,198" />
+          <text x={120} y={284} textAnchor="middle" className="dg-sub">no bot above the others</text>
 
-          <g className="tone-harness"><text x={466} y={22} textAnchor="middle" className="dg-group-label">Claude Duet · a partner</text></g>
-          <Mini x={326} y={40} w={280} h={44} title="You" sub="one thread · chat or call" />
-          <Arrow d="M466,84 L466,110" />
-          <Mini x={386} y={112} w={160} h={50} title="Partner" sub="decides what matters" tone="harness" />
-          <Mini x={326} y={202} w={130} h={50} title="Schedules" sub="brief · check-ins" tone="system" />
-          <Mini x={476} y={202} w={130} h={50} title="Computer" sub="long jobs" tone="harness" />
-          <Arrow d="M391,202 L420,166" label="wakes" lx={398} ly={180} anchor="end" />
-          <Arrow d="M512,166 L541,198" label="mesh" lx={534} ly={180} anchor="start" />
-          <text x={466} y={284} textAnchor="middle" className="dg-sub">one agent that reaches out first</text>
+          <g className="tone-harness"><text x={352} y={22} textAnchor="middle" className="dg-group-label">Claude Duet · a partner</text></g>
+          <Mini x={248} y={40} w={208} h={44} title="You" sub="one thread · chat or call" />
+          <Arrow d="M352,84 L352,110" />
+          <Mini x={272} y={112} w={160} h={50} title="Partner" sub="decides what matters" tone="harness" />
+          <Mini x={248} y={202} w={100} h={50} title="Schedules" sub="brief, check-ins" tone="system" />
+          <Mini x={356} y={202} w={100} h={50} title="Computer" sub="long jobs" tone="harness" />
+          <Arrow d="M298,202 L318,166" label="wakes" lx={300} ly={182} anchor="end" />
+          <Arrow d="M386,166 L406,198" label="mesh" lx={402} ly={180} anchor="start" />
+          <text x={352} y={284} textAnchor="middle" className="dg-sub">reaches out first</text>
 
-          <g className="tone-harness"><text x={776} y={22} textAnchor="middle" className="dg-group-label">OpenAI Dots · your dot</text></g>
-          <Mini x={636} y={40} w={135} h={44} title="App" sub="thread" tone="system" />
-          <Mini x={781} y={40} w={135} h={44} title="Slack" sub="thread" tone="system" />
-          <Arrow d="M736,84 L756,110" />
-          <Arrow d="M816,84 L796,110" />
-          <Mini x={696} y={112} w={160} h={50} title="Pip" sub="named · responsibilities" tone="harness" />
-          <Mini x={636} y={202} w={135} h={50} title="Research" sub="read-only · scheduled" tone="system" />
-          <Mini x={781} y={202} w={135} h={50} title="Auto-review" sub="allow · ask · block" dashed />
-          <Arrow d="M703,202 L730,166" />
-          <Arrow d="M822,166 L849,198" />
-          <text x={776} y={284} textAnchor="middle" className="dg-sub">one dot you name, many channels</text>
+          <g className="tone-harness"><text x={584} y={22} textAnchor="middle" className="dg-group-label">OpenAI Dots · your dot</text></g>
+          <Mini x={480} y={40} w={100} h={44} title="App" sub="thread" tone="system" />
+          <Mini x={588} y={40} w={100} h={44} title="Slack" sub="thread" tone="system" />
+          <Arrow d="M550,84 L566,110" />
+          <Arrow d="M618,84 L602,110" />
+          <Mini x={504} y={112} w={160} h={50} title="Pip" sub="named · responsibilities" tone="harness" />
+          <Mini x={480} y={202} w={100} h={50} title="Research" sub="read-only" tone="system" />
+          <Mini x={588} y={202} w={100} h={50} title="Auto-review" sub="allow·ask·block" dashed />
+          <Arrow d="M530,202 L550,166" />
+          <Arrow d="M618,166 L638,198" />
+          <text x={584} y={284} textAnchor="middle" className="dg-sub">one dot you name</text>
+
+          <g className="tone-harness"><text x={816} y={22} textAnchor="middle" className="dg-group-label">Meta Muse · does the work</text></g>
+          <Mini x={712} y={40} w={100} h={44} title="App" sub="chat" tone="system" />
+          <Mini x={820} y={40} w={100} h={44} title="WhatsApp" sub="chat" tone="system" />
+          <Arrow d="M782,84 L798,110" />
+          <Arrow d="M850,84 L834,110" />
+          <Mini x={736} y={112} w={160} h={50} title="Muse" sub="your apps, your access" tone="harness" />
+          <Mini x={712} y={202} w={96} h={50} title="Computer" sub="its own VM" tone="harness" />
+          <Mini x={824} y={202} w={96} h={50} title="Sentinel" sub="what leaves" dashed />
+          <Arrow d="M776,166 L766,198" />
+          <Arrow d="M808,227 L821,227" />
+          <text x={816} y={284} textAnchor="middle" className="dg-sub">a guard it can&apos;t talk round</text>
         </svg>
       </div>
       <figcaption>
-        The same parts, arranged three ways. Grok Bot spreads work across bots a person makes as
-        data. Claude Duet keeps one partner with its own clock. A dot holds its person&apos;s
-        responsibilities and puts a review in front of every action.
+        The same parts, arranged four ways. Grok Bot spreads work across sibling bots a person
+        makes as data. Claude Duet keeps one partner with its own clock. A dot holds its
+        person&apos;s responsibilities and puts a review in front of every action. Muse does the
+        work on a computer of its own, behind a Sentinel that decides what leaves it.
       </figcaption>
     </figure>
   );

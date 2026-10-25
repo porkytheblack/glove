@@ -102,13 +102,13 @@ export const foundrySections: FoundryNavSection[] = [
         label: "Rebuilds",
         href: "/foundry/docs/rebuilds",
         badge: "new",
-        summary: "Grok Bot, Claude Duet and OpenAI Dots rebuilt from Foundry primitives and deployed on Kuiper: how the three shapes compare and what they share.",
+        summary: "Grok Bot, Claude Duet, OpenAI Dots and Meta Muse rebuilt from Foundry primitives and deployed on Kuiper: how the four shapes compare and what they share.",
       },
       {
         label: "Grok Bot",
         href: "/foundry/docs/rebuilds/grok-bot",
         badge: "new",
-        summary: "One bot definition and every bot as data: a main bot, bots that name themselves from their job, Gmail and Linear connected as Foundry apps with the person's accounts and read in code, new mail to the main bot, group chats and handoffs over the mesh, one shared computer, skills and routines.",
+        summary: "One bot definition and every bot as data: sibling bots each started by their own requests, bots that name themselves from their job, Gmail and Linear connected as Foundry apps with the person's accounts and read in code, routines on a schedule or on new mail, group chats with no host, handoffs over the mesh, one shared computer and skills.",
       },
       {
         label: "Claude Duet",
@@ -121,6 +121,12 @@ export const foundrySections: FoundryNavSection[] = [
         href: "/foundry/docs/rebuilds/openai-dots",
         badge: "new",
         summary: "A dot you name, holding your ongoing responsibilities: a connected mailbox, read-only proactive research, Custom Rules (allow, ask, block) and an auto-review before every action, its own computer, the app, Slack and calls, and specialist dots as instances.",
+      },
+      {
+        label: "Meta Muse",
+        href: "/foundry/docs/rebuilds/meta-muse",
+        badge: "new",
+        summary: "A personal agent in the app and on WhatsApp: connected apps at the access the person chooses, its own computer behind a separate Sentinel, logins it never sees, one-time cards, approvals, long work, forgetting, and a log of what it did and plans.",
       },
     ],
   },

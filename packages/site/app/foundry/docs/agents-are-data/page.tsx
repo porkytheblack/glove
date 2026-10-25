@@ -35,9 +35,9 @@ export default function AgentsAreDataPage() {
       </p>
       <p>
         Foundry works the same way. <code>agents/bot/agent.ts</code> is the page. Each bot a
-        person creates (&ldquo;Sales Outbound&rdquo;, &ldquo;Inbox Manager&rdquo;, the main
-        bot they named &ldquo;Chief&rdquo;) is an instance of it. The definition reads the instance and assembles the
-        right agent for every run.
+        person creates (&ldquo;Sales Outbound&rdquo;, &ldquo;Inbox Manager&rdquo;, &ldquo;Bug
+        Triage&rdquo;) is an instance of it, and none of them is above the others. The definition
+        reads the instance and assembles the right agent for every run.
       </p>
       <CodeBlock
         filename="agents/bot/agent.ts (excerpt)"
@@ -79,15 +79,18 @@ export function installationFor(account: ConnectedAccount): AgentInstallation {
         code={`import bot from "./agents/bot/agent.js";
 
 const mayaGmail = await readAccount("maya-gmail");             // from your account store
-const chief = defineAgentInstance(bot, mainBotFor(maya, {
-  name: "Chief",
+const inbox = defineAgentInstance(bot, botFor(maya, {
+  id: "maya-inbox",
+  name: "Inbox Manager",
+  job: "Keeps Maya's inbox moving.",
+  routines: [{ on: "new-mail", instruction: "Answer what you can; hand the rest on." }],
   installations: [installationFor(mayaGmail)],               // her Gmail, with her account
 }));                                                         // the definition is imported, not named
 
 export const data = new FileFoundryDataAdapter({
   file: ".data/foundry.json",
-  agents: [chief],                                           // written only if the id is missing
-  conversations: [createConversation(chief, { id: "maya-main", title: "Chief" })],
+  agents: [inbox],                                           // written only if the id is missing
+  conversations: [createConversation(inbox, chatWith(inbox.id))],
 });`}
       />
       <CodeBlock
@@ -148,9 +151,9 @@ await foundry.configureAgent("maya-bot-4", { name: "Inbox Zero" });`}
             <td>Agents message each other by instance id over the <Link href="/foundry/docs/multi-agent#mesh">mesh</Link>; who is on the team is data.</td>
           </tr>
           <tr>
-            <td>Branches on identity: <code>if (agentId === &quot;maya-chief&quot;)</code></td>
+            <td>Branches on identity: <code>if (agentId === &quot;maya-inbox&quot;)</code></td>
             <td>Behaviour depends on ids baked into code, and breaks for the next person.</td>
-            <td>Branch on data the instance carries: <code>context.primary === true</code>.</td>
+            <td>Branch on data the instance carries: <code>context.routines</code> includes new mail.</td>
           </tr>
           <tr>
             <td>Per-user settings in environment variables or constants</td>
