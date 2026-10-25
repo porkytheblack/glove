@@ -1,26 +1,23 @@
 import { composePlaybook } from "glove-foundry";
-import xApp from "./apps/x.app.js";
-import mention from "./events/mention.event.js";
-import fromOwner from "./predicates/from-owner.predicate.js";
-import takeTask from "./actions/take-task.action.js";
-import { xMentionsIn } from "./topology.js";
-import xMentions from "./transmissions/x-mentions.transmission.js";
+import { gmailRoutes } from "../../lib/connect.js";
+import readMail from "./actions/read-mail.action.js";
+import gmailApp from "./apps/gmail.app.js";
+import mailReceived from "./events/mail-received.event.js";
+import gmail from "./transmissions/gmail.transmission.js";
 
-/** When this person tags the bot on X, the post is a task for their main bot. */
-export function mentionsFrom(authorId: string) {
+/** New mail in this person's inbox goes to their main bot, which can reply from their address. */
+export function newMailFor(accountId: string) {
+  const routes = gmailRoutes(accountId);
   return composePlaybook({
-    name: "x-mentions",
-    transmission: xMentions,
-    match: {
-      event: mention,
-      routes: [xMentionsIn],
-      predicate: { definition: fromOwner, parameters: { authorId } },
-    },
+    name: "new-mail",
+    transmission: gmail,
+    match: { event: mailReceived, routes: [routes.in] },
     directives: [{
-      action: takeTask,
+      action: readMail,
       instruction:
-        "First reply on X with reply_on_x: one short sentence saying you are on it. Then do the work in this thread: hand it to the right bot.",
+        "New mail. If it needs an answer, reply from your owner's address with the Gmail send tool (they approve each email). If it belongs to another bot's job, hand it over. Otherwise say in one line what it is.",
     }],
-    applications: [xApp],
+    applications: [gmailApp],
+    outbound: [{ route: routes.out, application: gmailApp, instruction: "Reply in the same Gmail thread." }],
   });
 }

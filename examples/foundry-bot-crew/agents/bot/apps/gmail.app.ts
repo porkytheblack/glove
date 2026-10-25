@@ -1,45 +1,34 @@
-import { randomUUID } from "node:crypto";
-import { Effect } from "effect";
 import { defineApp } from "glove-foundry";
 import { z } from "zod";
-import { record } from "../../../lib/ledger.js";
-
-interface Draft { readonly to: string; readonly subject: string; readonly body: string }
+import { askUnlessAllowed, mcpCredentials, mcpServer } from "../../../lib/mcp-servers.js";
+import gmailWatch from "../connections/gmail-watch.connection.js";
+import gmail from "../transmissions/gmail.transmission.js";
 
 /**
- * Email, for the bots that need it. Installed per bot: a bot without it has
- * no mail tools at all. your code: Gmail, or a Kuiper inbox with inboxTools.
+ * Gmail, connected to a person's account. One app holds everything about it:
+ *
+ * - reading, searching and drafting come from Google's Gmail MCP server,
+ *   opened with the installation's account;
+ * - sending is the Gmail transmission's outbound side, delivered by Foundry
+ *   after the person approves the exact email (Google's server has no send);
+ * - new mail arrives through the gmail-watch connection.
+ *
+ * Install it with an account: `install(gmailApp, config, { account })`, or
+ * `{ kind: "application", id: "gmail", accountId }` over HTTP.
  */
 export default defineApp({
-  description: "Read mail, draft emails, and send them once the owner approves",
-  install: () => {
-    const drafts = new Map<string, Draft>();
-    return Effect.succeed({
-      tools: [
-        {
-          name: "draft_email",
-          description: "Draft an email. Nothing is sent.",
-          inputSchema: z.object({ to: z.string().email(), subject: z.string(), body: z.string() }),
-          async do(draft: Draft) {
-            const draftId = `draft_${randomUUID().slice(0, 8)}`;
-            drafts.set(draftId, draft);
-            return { status: "success" as const, data: { draftId, ...draft } };
-          },
-        },
-        {
-          name: "send_email",
-          description: "Send a draft. The owner approves every send first.",
-          inputSchema: z.object({ draftId: z.string() }),
-          // Foundry turns this into an approval with the exact input, and waits.
-          requiresPermission: true,
-          async do({ draftId }: { readonly draftId: string }) {
-            const draft = drafts.get(draftId);
-            if (!draft) return { status: "error" as const, data: null, message: `No draft ${draftId}.` };
-            await record({ kind: "email", ...draft });
-            return { status: "success" as const, data: { sent: true, to: draft.to } };
-          },
-        },
-      ],
-    });
+  description: "Gmail: search, read and draft mail, send with approval, and hear about new mail",
+  config: z.object({
+    /** Tools the person chose "Always allow" for. */
+    alwaysAllow: z.array(z.string()).default([]),
+  }),
+  inbound: [gmail],
+  outbound: [gmail],
+  connections: [gmailWatch],
+  mcp: {
+    entry: mcpServer("gmail"),
+    auth: mcpCredentials(),
+    // Drafting sends nothing, so it runs; label changes ask.
+    tools: askUnlessAllowed(["search_threads", "get_thread", "get_message", "list_drafts", "list_labels", "create_draft"]),
   },
 });

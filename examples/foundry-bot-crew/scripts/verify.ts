@@ -1,33 +1,36 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // Maya's bots, end to end on the real runtime. There is one bot definition;
-// every bot below is data. With no API key each bot runs a short script, so
-// this needs no network:
-//   1. Maya's account is seeded: her main bot, which she named Chief, and its thread.
-//   2. She makes a new bot and tells it its job; it names itself.
-//   3. Bug Triage asks to connect the ticket tracker; once she approves, every bot has it.
-//   4. Her main bot hands a bug to Bug Triage, which hands the fix to Engineer.
-//   5. An email waits for her approval.
+// every bot below is data, and so is every app she connects. With no API key
+// each bot runs a short script and her accounts are samples, so this needs no
+// network:
+//   1. Maya's account is seeded: her main bot, which she named Chief, with her Gmail.
+//   2. She makes a new bot and tells it its job; it names itself and gets her apps.
+//   3. Bug Triage asks for Linear; she signs in and always allows filing; every bot has it.
+//   4. Her main bot hands a bug to Bug Triage, which files it in Linear and hands the fix to Engineer.
+//   5. Sales Outbound reads her inbox in code and emails a signup, after she approves.
 //   6. A sign-in is handed back to her.
 //   7. A workflow she shows a bot becomes a skill (after her review) and a routine.
 //   8. A group chat: the host asks two bots, and both answer there.
-//   9. Tagging the bot on X reaches her main bot; a stranger's tag starts nothing.
+//   9. New mail reaches her main bot, which replies in the thread once she approves.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(here, "..");
 const dataDir = await mkdtemp(join(tmpdir(), "bot-crew-"));
 process.env.CREW_DATA_DIR = dataDir;
 process.env.CREW_DEMO = "1"; // the checks below follow the scripts
-delete process.env.X_BOT_TOKEN; // replies to X go to the offline outbox
 
-const { FoundryRuntime } = await import("glove-foundry");
+const { FoundryRuntime, installedApplicationTransmissionToolName } = await import("glove-foundry");
 const { default: application } = await import("../foundry.application.js");
 const { default: config } = await import("../foundry.config.js");
-const { MAIN_THREAD, MAYA, appsOf, botFor, groupChat } = await import("../lib/people.js");
+const { MAIN_THREAD, MAYA, botFor, groupChat } = await import("../lib/people.js");
+const { connectApp, giveAccounts, sampleConnection, writesVia } = await import("../lib/connect.js");
+const { default: gmailApp } = await import("../agents/bot/apps/gmail.app.js");
+const { default: gmail } = await import("../agents/bot/transmissions/gmail.transmission.js");
 const { entries } = await import("../lib/ledger.js");
 
 const runtime = await FoundryRuntime.discover({
@@ -38,6 +41,9 @@ const runtime = await FoundryRuntime.discover({
   config,
 });
 await runtime.start();
+const writes = writesVia.runtime(runtime);
+const appsOf = (bot: { installations: ReadonlyArray<{ kind: string; id: string; accountId?: string }> }) =>
+  bot.installations.filter((item) => item.kind === "application").map((item) => `${item.id} (${item.accountId})`);
 
 async function until<T>(read: () => Promise<T | undefined>, what: string, timeoutMs = 120_000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
@@ -63,60 +69,77 @@ const approve = async (tool: string) => {
 try {
   assert.deepEqual(runtime.agents.map((agent) => agent.route), ["bot"], "one definition");
   const maya = MAYA;
+  const sendTool = installedApplicationTransmissionToolName(gmailApp, gmail);
 
-  // 1. The seeded account: her main bot and its thread, instances of the one definition.
+  // 1. The seeded account: her main bot and its thread, with her Gmail.
   const instances = async () => runtime.listAgentInstances("bot");
   const mainBot = (await instances()).find((agent) => agent.context.primary === true && agent.workspaceId === maya.id);
   assert.ok(mainBot, "Maya's main bot is seeded");
   assert.equal(mainBot.name, "Chief");
+  assert.deepEqual(appsOf(mainBot), ["gmail (maya-gmail)"], "her Gmail, installed with her account");
   const [main] = (await runtime.listConversations(mainBot.id)).filter((item) => item.context.conversationKey === MAIN_THREAD.key);
   assert.ok(main, "its main thread is seeded");
   const hello = await runtime.send(mainBot.id, main.id, "Hi, I'm Maya.");
   assert.equal((await runtime.waitForRun(hello.id, { timeoutMs: 60_000 }))?.status, "completed");
-  console.log(`1. ${mainBot.name} (${mainBot.id}) is Maya's main bot, with ${appsOf(mainBot).join(" and ")} connected`);
+  const watching = await until(async () => runtime.listApplicationConnections().find((item) => item.accountId === "maya-gmail" && item.status === "connected"), "the Gmail watch");
+  console.log(`1. ${mainBot.name} (${mainBot.id}) is Maya's main bot, with ${appsOf(mainBot).join(", ")}; the Gmail watch is ${watching.status}`);
 
   // 2. A blank bot asks what it's for and names itself: a write to its own data.
-  const accountApps = appsOf(mainBot);
-  const fresh = await runtime.createAgent("bot", botFor(maya, { id: "maya-bot-1", apps: accountApps }));
+  const fresh = await runtime.createAgent("bot", botFor(maya, { id: "maya-bot-1" }));
+  await giveAccounts(writes, fresh.id, maya);
   const freshChat = await runtime.createConversation(fresh.id, { id: "maya-bot-1-chat", workspaceId: maya.id });
   const job = await runtime.send(fresh.id, freshChat.id,
-    "Overnight pipeline generation and outbound. Pick eligible prospects from the signups sheet, research them, and draft emails in my voice.");
+    "Overnight pipeline generation and outbound. Pick eligible prospects from the signup emails, research them, and draft emails in my voice.");
   const renamedRun = await runtime.waitForRun(job.id, { timeoutMs: 60_000 });
   const renamed = (await instances()).find((agent) => agent.id === fresh.id);
   assert.equal(renamed?.name, "Sales Outbound");
   assert.match(renamed?.description ?? "", /Overnight pipeline/);
+  assert.deepEqual(appsOf(renamed!), ["gmail (maya-gmail)"], "a new bot gets her apps");
   console.log(`2. "${fresh.name}" became "${renamed?.name}": ${reply(renamedRun)}`);
 
-  // Two more bots, created with their jobs already set and the account's apps.
-  await runtime.createAgent("bot", botFor(maya, { id: "maya-bot-2", name: "Bug Triage", job: "Reproduces bug reports and files tickets, then gets them fixed.", apps: accountApps }));
-  await runtime.createAgent("bot", botFor(maya, { id: "maya-bot-3", name: "Engineer", job: "Fixes filed bugs on a branch and adds a test.", apps: accountApps }));
+  // Two more bots, created with their jobs already set, and her apps.
+  for (const [id, name, job] of [
+    ["maya-bot-2", "Bug Triage", "Reproduces bug reports and files them in Linear, then gets them fixed."],
+    ["maya-bot-3", "Engineer", "Fixes filed bugs on a branch and adds a test."],
+  ] as const) {
+    await runtime.createAgent("bot", botFor(maya, { id, name, job }));
+    await giveAccounts(writes, id, maya);
+  }
 
-  // 3. Apps are the account's: one bot asks, Maya connects it, every bot has it.
+  // 3. Apps are the account's: one bot asks, Maya signs in, every bot has it.
   const triageChat = await runtime.createConversation("maya-bot-2", { id: "maya-bot-2-chat", workspaceId: maya.id });
-  await runtime.send("maya-bot-2", triageChat.id, "We track bugs in our ticket tracker. Connect it.");
-  await approve("connect_app");
-  await until(() => said(triageChat.id, /^The ticket tracker is connected/), "the tracker to connect");
+  await runtime.send("maya-bot-2", triageChat.id, "We track bugs in Linear. Connect it.");
+  const ask = await until(async () =>
+    (await runtime.listApprovals({ status: "pending" })).find((item) => item.toolName === "connect_app"), "connect_app to wait for approval");
+  // Your app's Connect button: the provider's sign-in, then the account is saved
+  // and given to every bot. Maya ticks "Always allow" for filing issues.
+  await connectApp(writes, maya, "linear", { ...sampleConnection(maya, "linear"), alwaysAllow: ["save_issue"] });
+  await runtime.resolveApproval(ask.id, "approve");
+  await until(() => said(triageChat.id, /^Linear is connected/), "Linear to connect");
   const team = (await instances()).filter((agent) => agent.workspaceId === maya.id);
   assert.equal(team.length, 4);
-  for (const member of team) assert.ok(appsOf(member).includes("tickets"), `${member.name} has the tracker`);
-  console.log(`3. Bug Triage asked for the ticket tracker; after Maya connected it, all ${team.length} of her bots have it`);
+  for (const member of team) assert.ok(appsOf(member).includes("linear (maya-linear)"), `${member.name} has Linear`);
+  console.log(`3. Bug Triage asked for Linear; once Maya signed in, all ${team.length} of her bots have it`);
 
-  // 4. Main bot → Bug Triage → Engineer, and back.
+  // 4. Main bot → Bug Triage → Engineer, and back. Filing runs in code: Maya always allows it.
   await runtime.send(mainBot.id, main.id, "The export button crashes on empty reports. Get it fixed.");
   const fixed = await until(() => said(main.id, /^Bug Triage: Fixed: Patched/), "the fix to reach the main bot");
   const [toTriage] = await runtime.listThreads({ conversationId: main.id });
   assert.equal(toTriage?.to.agentId, "maya-bot-2");
   const [toEngineer] = await runtime.listThreads({ agentId: "maya-bot-2" });
   assert.equal(toEngineer?.to.name, "Engineer", "bots message each other by id");
-  assert.deepEqual((await entries("ticket")).map((ticket) => ticket.id), ["T-1"]);
+  assert.deepEqual((await entries("ticket")).map((ticket) => ticket.id), ["ENG-1"]);
   console.log(`4. in the main thread: ${reply(fixed)}`);
 
-  // 5. Sending waits for her.
+  // 5. Reading her inbox happens in code; sending waits for her, and goes out from her address.
   const sales = await runtime.createConversation("maya-bot-1", { id: "maya-sales-chat", workspaceId: maya.id });
-  await runtime.send("maya-bot-1", sales.id, "Send Dana at example.com a short intro.");
-  await approve("send_email");
+  await runtime.send("maya-bot-1", sales.id, "Find this week's signups in my inbox and send Dana an intro.");
+  const approval = await approve(sendTool);
+  assert.match(JSON.stringify(approval), /dana@example\.com/, "she approves the exact email");
   const sent = await until(() => said(sales.id, /^Sent the intro/), "the email");
-  assert.equal((await entries("email")).length, 1);
+  const [email] = await entries("email");
+  assert.equal(email?.from, "maya@example.com");
+  assert.equal(email?.to, "dana@example.com");
   console.log(`5. after approval: ${reply(sent)}`);
 
   // 6. A login is handed back; the bot never sees the password.
@@ -144,31 +167,33 @@ try {
   assert.equal((await runtime.listThreads({ conversationId: offsite.id })).length, 2);
   console.log("8. Offsite crew: both bots answered in the group chat");
 
-  // 9. Tagged on X: her main bot answers there and takes the task; a stranger gets nothing.
-  const mention = (id: string, authorId: string, text: string) => ({
-    routeId: "x-mentions",
-    eventId: id,
-    threadKey: id,
-    conversationKey: MAIN_THREAD.key,
-    conversationScope: "agent" as const,
-    raw: { for_user_id: "1000", tweet: { id_str: id, text, user: { id_str: authorId, screen_name: authorId }, in_reply_to_status_id_str: null } },
+  // 9. New mail, the way the Gmail watch passes it in: her main bot answers in the thread.
+  const mail = {
+    messageId: "m-103",
+    threadId: "t-103",
+    from: "Lena Park <lena@northwind.example>",
+    subject: "Export API pricing?",
+    snippet: "Hi, what does the export API cost for a team of 40?",
+    receivedAt: "2026-10-24T08:05:00.000Z",
+    rfcMessageId: "<CAF-lena-103@mail.northwind.example>",
+  };
+  const runs = await runtime.dispatchInbound({
+    routeId: "maya-gmail-in", eventId: mail.messageId, threadKey: mail.threadId,
+    conversationKey: MAIN_THREAD.key, conversationScope: "agent", raw: mail,
   });
-  const runs = await runtime.dispatchInbound(mention("1849000000000000001", "42", "@crewbot the export crashes again on empty reports"));
   assert.equal(runs.length, 1);
-  assert.equal(runs[0]!.conversationId, main.id, "the mention joined her main bot's thread");
-  const ack = await until(async () => {
-    try {
-      const lines = (await readFile(join(dataDir, "x-outbox.jsonl"), "utf8")).trim().split("\n");
-      return lines.map((line) => JSON.parse(line) as { inReplyTo: string; text: string })
-        .find((item) => item.inReplyTo === "1849000000000000001");
-    } catch {
-      return undefined;
-    }
-  }, "the reply on X");
-  assert.deepEqual(await runtime.dispatchInbound(mention("1849000000000000002", "77", "@crewbot do my homework")), []);
-  console.log(`9. on X, as the bot: "${ack.text}"; a stranger's tag started nothing`);
+  assert.equal(runs[0]!.conversationId, main.id, "new mail joins her main bot's thread");
+  await approve(sendTool);
+  const answered = await until(() => said(main.id, /^Replied to Lena Park/), "the reply");
+  const replyEmail = (await entries("email")).find((item) => item.to === "lena@northwind.example");
+  assert.equal(replyEmail?.threadId, "t-103");
+  assert.equal(replyEmail?.inReplyTo, mail.rfcMessageId, "the reply lands in Lena's thread too");
+  assert.deepEqual(await runtime.dispatchInbound({
+    routeId: "maya-gmail-in", eventId: mail.messageId, threadKey: mail.threadId, raw: mail,
+  }).then((again) => again.map((run) => run.id)), runs.map((run) => run.id), "the same message is handled once");
+  console.log(`9. new mail: ${reply(answered)}`);
 
-  console.log("\nBots verified: one definition, every bot in data, account-wide apps, mesh between bots, approvals, sign-in, skills and routines, group chat, X.");
+  console.log("\nBots verified: one definition, every bot and every connected app in data, apps read in code, sends approved and delivered by Foundry, mesh between bots, sign-in, skills and routines, group chat, new mail.");
 } finally {
   await runtime.stop();
   await rm(dataDir, { recursive: true, force: true });

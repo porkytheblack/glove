@@ -1,26 +1,26 @@
-import { composeAgent, defineAgent } from "glove-foundry";
+import { composeAgent, defineAgent, defineRepl } from "glove-foundry";
+import { JsSession } from "glove-js";
+import { accountSessions } from "../../lib/accounts.js";
 import { FileStore } from "../../lib/file-store.js";
 import { botModel } from "../../lib/models.js";
-import { OFFLINE_X_TOKEN } from "../../lib/x-api.js";
-import gmail from "./apps/gmail.app.js";
-import sheets from "./apps/sheets.app.js";
-import tickets from "./apps/tickets.app.js";
-import xApp from "./apps/x.app.js";
+import gmailApp from "./apps/gmail.app.js";
+import linearApp from "./apps/linear.app.js";
 import memory from "./bot.memory.js";
 import { computer } from "./computer.js";
-import { mentionsFrom } from "./playbook.js";
+import { newMailFor } from "./playbook.js";
 import { botPrompt } from "./prompt.js";
 import { botTools } from "./tools.js";
 
 /**
  * Every bot, as one definition: what a bot can be. Which bot this is lives in
- * data: its name and job on the instance, the apps its owner connected, whether
- * it is its owner's main bot, and the conversation it is in. A person makes a
- * new bot by creating an instance, not by adding a file here.
+ * data: its name and job on the instance, the accounts its owner connected,
+ * whether it is its owner's main bot, and the conversation it is in. A person
+ * makes a new bot by creating an instance, not by adding a file here.
  */
 export default defineAgent({
-  description: "A bot: an AI teammate with its own job and memory, working on a computer it shares with its owner's other bots",
-  components: composeAgent(gmail, sheets, tickets, xApp, memory),
+  description: "A bot: an AI teammate with its own job and memory, working in its owner's apps and on a computer it shares with their other bots",
+  // The apps a bot may have. Each one is installed per bot with the owner's account.
+  components: composeAgent(gmailApp, linearApp, memory),
 
   model: botModel,
   systemPrompt: (_agent, ctx) => botPrompt(ctx),
@@ -31,21 +31,28 @@ export default defineAgent({
   tools: (_agent, ctx) => botTools(ctx),
   workingEnvironment: computer,
 
+  // The connected apps as functions, one group per app: gmail.search_threads,
+  // linear.list_issues. A bot reads across apps in one program instead of
+  // carrying every app's tools in context. Anything that asks the owner first
+  // stays a direct tool, so the approval is shown.
+  repl: () => defineRepl({
+    language: "javascript",
+    session: JsSession.create(),
+    mount: { discovery: "auto" },
+    programmaticTools: { select: ({ apps }) => apps.flatMap((app) => app.tools), keepDirect: false },
+  }),
+
   // Bots message each other by id over Glove Mesh. Their owner's workspace is
   // their team, so a bot only ever sees its owner's other bots.
   mesh: { waitMs: 60_000 },
 
-  // Only the main bot takes tasks from X, and only its owner's posts.
-  playbooks: (_agent, { agentInstance, installations }) =>
-    agentInstance.context.primary === true
-    && typeof agentInstance.context.xUserId === "string"
-    && installations.some((item) => item.kind === "application" && item.id === xApp.id)
-      ? [mentionsFrom(agentInstance.context.xUserId)]
-      : [],
-
-  // The credential boundary: Foundry asks for an operation, never sees the token.
-  accountSessions: {
-    identifier: "x-bot-token",
-    withSession: (_request, use) => use({ token: process.env.X_BOT_TOKEN || OFFLINE_X_TOKEN }),
+  // New mail goes to the main bot, once Gmail is connected.
+  playbooks: (_agent, { agentInstance, installations }) => {
+    const mail = installations.find((item) => item.kind === "application" && item.id === gmailApp.id);
+    return agentInstance.context.primary === true && mail?.accountId ? [newMailFor(mail.accountId)] : [];
   },
+
+  // The credential boundary: apps, the Gmail watch and every send ask for an
+  // operation on an account and never see its token.
+  accountSessions,
 });

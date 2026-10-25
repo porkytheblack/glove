@@ -1,6 +1,10 @@
 import type { ModelAdapter } from "glove-core";
 import { createAdapter } from "glove-core/models/providers";
 import type { AgentAssemblyContext, AgentInstance } from "glove-foundry";
+import gmailApp from "../agents/bot/apps/gmail.app.js";
+import gmail from "../agents/bot/transmissions/gmail.transmission.js";
+import { installedApplicationTransmissionToolName } from "glove-foundry";
+import { gmailRoutes } from "./connect.js";
 import { DemoModel, meshAttribute, meshBody, type DemoStep, type DemoTurn } from "./demo-model.js";
 
 // The model comes from the bot's data, like everything else: the main bot
@@ -40,18 +44,45 @@ function idOf(results: ReadonlyArray<string>, name: string): string | undefined 
   return undefined;
 }
 
+/** A field of the Gmail event in a serialized inbound transmission. */
+const mailField = (text: string, name: string) => (new RegExp(`${name}&quot;:&quot;(.*?)&quot;`).exec(text)?.[1] ?? "")
+  .replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+
+/** The Gmail send tool and the route it sends through, for this bot's owner. */
+function sendMail(bot: AgentInstance, payload: Record<string, string>): DemoStep {
+  return call(installedApplicationTransmissionToolName(gmailApp, gmail), {
+    routeId: gmailRoutes(`${bot.workspaceId}-gmail`).out.id,
+    payload,
+  });
+}
+const sendTool = () => installedApplicationTransmissionToolName(gmailApp, gmail);
+
 function scriptFor(bot: AgentInstance): (turn: DemoTurn) => DemoStep {
-  if (bot.context.primary === true) return mainScript;
+  if (bot.context.primary === true) return (turn) => mainScript(bot, turn);
   if (!bot.description) return newBotScript;
-  if (bot.name === "Sales Outbound") return salesScript;
+  if (bot.name === "Sales Outbound") return (turn) => salesScript(bot, turn);
   if (bot.name === "Bug Triage") return bugTriageScript;
   return () => say("Patched on branch fix/empty-export: export returns an empty file for an empty report. Added a test.");
 }
 
-function mainScript({ text, called, results }: DemoTurn): DemoStep {
+function mainScript(bot: AgentInstance, { text, called, results, lastResult }: DemoTurn): DemoStep {
   if (text.startsWith("<mesh-message")) {
     if (/status="(replied|failed)"/.test(text)) return say(`${meshAttribute(text, "name")}: ${meshBody(text)}`);
     return call("glove_mesh_send_message", { to: meshAttribute(text, "from"), in_reply_to: meshAttribute(text, "id"), content: "Use the main branch." });
+  }
+  // New mail from the Gmail connection: answer it from Maya's address.
+  if (text.includes('<transmission direction="inbound"')) {
+    const from = mailField(text, "from");
+    if (!called.includes(sendTool())) {
+      return sendMail(bot, {
+        to: /<([^>]+)>/.exec(from)?.[1] ?? from,
+        subject: `Re: ${mailField(text, "subject")}`,
+        body: "Hi Lena, for a team of 40 the export API is on the Team plan. I've asked for a quote to be sent today.",
+        threadId: mailField(text, "threadId"),
+        inReplyTo: mailField(text, "rfcMessageId"),
+      });
+    }
+    return say(/"messageId"/.test(lastResult) ? `Replied to ${from.replace(/\s*<.*/, "")} about pricing.` : "You didn't approve the reply, so nothing went out.");
   }
   // A group chat it hosts: everyone, or each @-mentioned bot its part.
   if (/@everyone\b/.test(text)) {
@@ -65,12 +96,7 @@ function mainScript({ text, called, results }: DemoTurn): DemoStep {
     if (next) return call("glove_mesh_send_message", { to: idOf(results, next.name) ?? next.name, content: next.ask });
     return say(`Asked ${mentions.map((mention) => mention.name).join(" and ")}. Their answers will land here.`);
   }
-  const fromX = text.includes('<transmission direction="inbound"');
-  if (fromX || /crash|bug|broken/i.test(text)) {
-    const tweetId = /tweetId&quot;:&quot;([^&]+)&quot;/.exec(text)?.[1];
-    if (fromX && !called.includes("reply_on_x")) {
-      return call("reply_on_x", { inReplyTo: tweetId ?? "", text: "On it. Bug Triage has this; results will be in your main thread." });
-    }
+  if (/crash|bug|broken/i.test(text)) {
     if (!called.includes("glove_mesh_list_agents")) return call("glove_mesh_list_agents", {});
     if (!called.includes("glove_mesh_send_message")) {
       return call("glove_mesh_send_message", {
@@ -87,20 +113,20 @@ function newBotScript({ called }: DemoTurn): DemoStep {
   if (!called.includes("take_job")) {
     return call("take_job", {
       name: "Sales Outbound",
-      description: "Overnight pipeline generation and outbound: picks prospects from the signups sheet, researches them and drafts emails in Maya's voice.",
+      description: "Overnight pipeline generation and outbound: picks prospects from the signup emails, researches them and drafts emails in Maya's voice.",
     });
   }
   return say("Renamed to Sales Outbound. I'll start on tonight's batch.");
 }
 
-function salesScript({ text, called, lastResult }: DemoTurn): DemoStep {
+function salesScript(bot: AgentInstance, { text, called, lastResult }: DemoTurn): DemoStep {
   if (text.startsWith("<mesh-message")) return say("14 new leads this week, 9 intros drafted and waiting for you.");
   if (/every monday/i.test(text)) {
     if (!called.includes("save_skill")) {
       return call("save_skill", {
         name: "monday-signups",
         description: "Sweep last week's signups and draft an intro for each.",
-        steps: "1. Read the signups sheet for the past 7 days.\n2. Skip anyone already emailed.\n3. Draft a two-line intro for each and queue it for approval.",
+        steps: "1. Search Gmail for signup emails from the past 7 days.\n2. Skip anyone already emailed.\n3. Draft a two-line intro for each and queue it for approval.",
       });
     }
     if (!called.includes("glove_foundry_schedule")) {
@@ -117,31 +143,37 @@ function salesScript({ text, called, lastResult }: DemoTurn): DemoStep {
     }
     return say(/"signedIn":true/.test(lastResult) ? "Signed in to Salesforce. 12 open deals pulled." : "No sign-in yet, so I left Salesforce alone.");
   }
-  if (!called.includes("draft_email")) {
-    return call("draft_email", { to: "dana@example.com", subject: "Quick intro", body: "Hi Dana, our export API could save your team a day a week. Fifteen minutes this week?" });
+  // Reads happen in code over the Gmail app; the send is a direct tool so Maya approves it.
+  if (!called.includes("execute_js")) {
+    return call("execute_js", {
+      code: 'const found = gmail.search_threads({ query: "subject:signup" }); found.threads.map((thread) => thread.latest.subject)',
+    });
   }
-  if (!called.includes("send_email")) return call("send_email", { draftId: /"draftId":"([^"]+)"/.exec(lastResult)?.[1] ?? "" });
-  return say(/"sent":true/.test(lastResult) ? "Sent the intro to dana@example.com." : "You didn't approve it, so nothing went out.");
+  if (!called.includes(sendTool())) {
+    if (!/Dana Lee/.test(lastResult)) return say("No signup from Dana in your inbox, so I sent nothing.");
+    return sendMail(bot, { to: "dana@example.com", subject: "Quick intro", body: "Hi Dana, our export API could save your team a day a week. Fifteen minutes this week?" });
+  }
+  return say(/"messageId"/.test(lastResult) ? "Sent the intro to dana@example.com." : "You didn't approve it, so nothing went out.");
 }
 
 function bugTriageScript({ text, called, results, lastResult }: DemoTurn): DemoStep {
-  if (/connect|tracker/i.test(text) && !text.startsWith("<mesh-message")) {
-    if (!called.includes("connect_app")) return call("connect_app", { app: "tickets", why: "To file and track the bugs I triage." });
-    return say(/"connected":"tickets"/.test(lastResult) ? "The ticket tracker is connected for all your bots." : "Not connected, so I'll keep bugs in notes for now.");
+  if (/connect|linear/i.test(text) && !text.startsWith("<mesh-message")) {
+    if (!called.includes("connect_app")) return call("connect_app", { app: "linear", why: "To file and track the bugs I triage." });
+    return say(/"connected":"linear"/.test(lastResult) ? "Linear is connected for all your bots." : "Not connected yet, so I'll keep bugs in notes for now.");
   }
-  if (!/crash/i.test(text)) return say("Nothing blocking. One bug this week, T-1, and Engineer has fixed it.");
-  if (!called.includes("file_ticket")) {
-    return call("file_ticket", {
-      title: "Export crashes on an empty report",
-      steps: ["Open an empty report", "Click Export", "The page throws: cannot read rows of undefined"],
+  if (!/crash/i.test(text)) return say("Nothing blocking. One bug this week, ENG-1, and Engineer has fixed it.");
+  // Maya always allows filing, so it runs in code with the other Linear calls.
+  if (!called.includes("execute_js")) {
+    return call("execute_js", {
+      code: 'linear.save_issue({ title: "Export crashes on an empty report", description: "1. Open an empty report\\n2. Click Export\\n3. The page throws: cannot read rows of undefined" }).issue.id',
     });
   }
   if (!called.includes("glove_mesh_list_agents")) return call("glove_mesh_list_agents", {});
   if (!called.includes("glove_mesh_send_message")) {
-    const ticket = /"ticket":"([^"]+)"/.exec(results.join(""))?.[1] ?? "the ticket";
+    const issue = /"value":"([A-Z]+-\d+)"/.exec(results.join(""))?.[1] ?? "the issue";
     return call("glove_mesh_send_message", {
       to: idOf(results, "Engineer") ?? "",
-      content: `Fix ${ticket}: export crashes on an empty report. Steps are on the ticket.`,
+      content: `Fix ${issue}: export crashes on an empty report. Steps are on the issue.`,
       blocking: true,
     });
   }

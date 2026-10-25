@@ -1,14 +1,15 @@
 import { Effect } from "effect";
 import { createMemorySkillReader, createReadSkillTool, type GloveFoldArgs } from "glove-core";
-import { install, type AgentAssemblyContext } from "glove-foundry";
+import type { AgentAssemblyContext } from "glove-foundry";
 import { z } from "zod";
-import { APP_NAMES, APPS, type AppName } from "../../lib/people.js";
+import { accountsOf } from "../../lib/accounts.js";
+import { APP_NAMES, type AppName } from "../../lib/connect.js";
 import { loadSkills, saveSkill } from "./skills.js";
 
 /**
  * What any bot can do to itself and its owner's account. Each one writes
  * data; none of it needs new code. A rename is a write to the instance, and
- * connecting an app is a write to every bot the owner has.
+ * connecting an app writes the account and gives it to every bot the owner has.
  */
 export async function botTools(ctx: AgentAssemblyContext): Promise<GloveFoldArgs<any>[]> {
   const tools: GloveFoldArgs<any>[] = [
@@ -28,22 +29,17 @@ export async function botTools(ctx: AgentAssemblyContext): Promise<GloveFoldArgs
     },
     {
       name: "connect_app",
-      description: `Ask your owner to connect an app you need (${APP_NAMES.join(", ")}). Apps belong to their account, so once connected every one of their bots can use it, from the next message on.`,
+      description: `Ask your owner to connect an app you need (${APP_NAMES.join(", ")}). They sign in with the provider, and the account is then theirs on every one of their bots, from the next message on.`,
       inputSchema: z.object({ app: z.enum(APP_NAMES as [AppName, ...AppName[]]), why: z.string().min(1) }),
-      // The approval is the owner finishing the provider's login.
+      // Your app shows this approval as a Connect button that runs the
+      // provider's sign-in (lib/oauth.ts) and saves the account (lib/connect.ts),
+      // then approves. The tool reports what got connected.
       requiresPermission: true,
       async do({ app }: { readonly app: AppName }) {
-        const installation = install(APPS[app]);
-        const team = (await Effect.runPromise(ctx.data.listAgents())).filter((bot) => bot.workspaceId === ctx.workspaceId);
-        for (const bot of team) {
-          if (bot.installations.some((item) => item.kind === installation.kind && item.id === installation.id)) continue;
-          await Effect.runPromise(ctx.data.putAgent({
-            ...bot,
-            installations: [...bot.installations, installation],
-            updatedAt: new Date().toISOString(),
-          }));
-        }
-        return { status: "success" as const, data: { connected: app, bots: team.length } };
+        const account = (await accountsOf(ctx.workspaceId)).find((item) => item.app === app);
+        return account
+          ? { status: "success" as const, data: { connected: app, account: account.label ?? account.externalAccountId } }
+          : { status: "success" as const, data: { connected: false, app, note: "Your owner hasn't finished signing in." } };
       },
     },
     {

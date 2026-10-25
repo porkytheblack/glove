@@ -1,5 +1,8 @@
 import { Effect } from "effect";
-import type { AgentAssemblyContext } from "glove-foundry";
+import { installedApplicationTransmissionToolName, type AgentAssemblyContext } from "glove-foundry";
+import { gmailRoutes } from "../../lib/connect.js";
+import gmailApp from "./apps/gmail.app.js";
+import gmail from "./transmissions/gmail.transmission.js";
 
 /** Who this bot is, from its data, and how it works in this conversation. */
 export async function botPrompt(ctx: AgentAssemblyContext): Promise<string> {
@@ -22,6 +25,19 @@ export async function botPrompt(ctx: AgentAssemblyContext): Promise<string> {
       `You are ${bot.name}, one of ${owner}'s bots. Your job: ${bot.description}`,
       "Work in the apps your owner connected and on the computer you share with their other bots. Come back only when you finish or need a decision.",
       "If part of the work belongs to another bot, find it with glove_mesh_list_agents and hand that part over.",
+    );
+  }
+  const apps = ctx.installations.filter((item) => item.kind === "application").map((item) => item.id);
+  if (apps.length > 0) {
+    lines.push(
+      `Your owner's connected apps (${apps.join(", ")}) are functions in execute_js, one group per app, like gmail.search_threads({ query }) or linear.list_issues({}). For several reads, write one program and return only what you need; use describe("name") when unsure of a function's inputs.`,
+      "A few app actions wait for your owner's approval; those are separate tools so they can see exactly what you will do.",
+    );
+  }
+  const mail = ctx.installations.find((item) => item.kind === "application" && item.id === gmailApp.id);
+  if (mail?.accountId) {
+    lines.push(
+      `To send email, call ${installedApplicationTransmissionToolName(gmailApp, gmail)} with routeId "${gmailRoutes(mail.accountId).out.id}". It sends from your owner's address once they approve. To answer an email, pass its threadId and its rfcMessageId as inReplyTo.`,
     );
   }
   lines.push(

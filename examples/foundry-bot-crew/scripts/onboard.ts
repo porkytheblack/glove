@@ -1,23 +1,25 @@
-import { createFoundryClient } from "glove-foundry/client";
-import { MAIN_THREAD, mainBotFor, type AppName } from "../lib/people.js";
+import { fileURLToPath } from "node:url";
+import { createFoundryClient, discoverAgents } from "glove-foundry";
+import bot from "../agents/bot/agent.js";
+import { giveAccounts, writesVia } from "../lib/connect.js";
+import { MAIN_THREAD, mainBotFor } from "../lib/people.js";
 
-// Set up a person's account on a running Foundry: their main bot and its
-// thread, with the apps they connected. Over HTTP, definitions and apps are
-// named by their routes ("bot", "gmail"), the ids Foundry derives from the
-// file names; inside the runtime, use the imported values instead.
-//   pnpm tsx scripts/onboard.ts ada "Ada" 1234567890
+// Sign a person up on a running Foundry: their main bot and its thread, with
+// any apps they already connected. Connect more with `pnpm connect`.
+//   pnpm onboard ada "Ada"
 
-const [id = "ada", name = "Ada", xUserId] = process.argv.slice(2);
-const person = { id, name, ...(xUserId ? { xUserId } : {}) };
-const apps: AppName[] = ["gmail", "sheets"];
-const foundry = createFoundryClient({ baseUrl: process.env.FOUNDRY_URL ?? "http://127.0.0.1:4143" });
+const [id = "ada", name = "Ada"] = process.argv.slice(2);
+const person = { id, name };
+// Bind the file-derived ids (bot, gmail…) so the imported values work here too.
+await discoverAgents({ agentsDir: fileURLToPath(new URL("../agents", import.meta.url)) });
+const foundry = createFoundryClient({
+  baseUrl: process.env.FOUNDRY_URL ?? "http://127.0.0.1:4143",
+  ...(process.env.FOUNDRY_TOKEN ? { authorization: { identifier: "onboard", headers: () => ({ authorization: `Bearer ${process.env.FOUNDRY_TOKEN}` }) } } : {}),
+});
 
-const { installations: _apps, ...mainBot } = mainBotFor(person, { name: "Main", apps: [] });
-const created = await foundry.createAgent("bot", mainBot);
-for (const app of apps) await foundry.install(created.id, { kind: "application", id: app });
-if (xUserId) await foundry.install(created.id, { kind: "application", id: "x", accountId: "x-bot" });
-
+const created = await foundry.createAgent(bot.id, mainBotFor(person, { name: "Main" }));
+await giveAccounts(writesVia.client(foundry), created.id, person);
 await foundry.createConversation(created.id, { id: `${id}-main-thread`, title: MAIN_THREAD.title, context: { conversationKey: MAIN_THREAD.key } });
 const hello = await foundry.send(created.id, `${id}-main-thread`, `Hi, I'm ${name}.`);
 await hello.wait({ timeoutMs: 120_000 });
-console.log(`Set up ${name}: main bot ${created.name} (${created.id}) with ${apps.join(", ")}${xUserId ? " and @bot on X" : ""}.`);
+console.log(`Set up ${name}: main bot ${created.name} (${created.id}). Connect apps with: pnpm connect ${id} gmail`);
