@@ -22,6 +22,7 @@ export {
   type FoundryMountedRepl,
   type FoundryProgrammaticToolContext,
   type FoundryProgrammaticToolSelection,
+  type FoundryReplApp,
   type FoundryProgrammaticTools,
   type FoundryPythonReplDefinition,
   type FoundryReplDefinition,
@@ -103,6 +104,7 @@ export {
 } from "./primitives.js";
 export {
   FileFoundryDataAdapter,
+  fileTopologyStore,
   type FileFoundryDataAdapterOptions,
 } from "./file-data.js";
 export {
@@ -199,6 +201,10 @@ export {
   type FoundryInstallable,
   type FoundryCapabilityKind,
   type FoundryAgentApplication,
+  type FoundryAppMcp,
+  type FoundryAppMcpTool,
+  type FoundryAppToolDecision,
+  type FoundryInstalledApp,
   type FoundryApp,
   type FoundryAccountSessionAdapter,
   type FoundryCapabilityRegistry,

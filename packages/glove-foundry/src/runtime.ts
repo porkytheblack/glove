@@ -2005,8 +2005,12 @@ export class FoundryRuntime {
               requirement.playbook.match.routeIds.includes(route.id))
           );
           for (const route of matchingRoutes) {
+            // The account directory is the source of accounts, so accounts an
+            // application adds at runtime get their connections too.
             const account = route.accountId
-              ? this.application.accounts?.find((candidate) => candidate.id === route.accountId)
+              ? await this.services.runPromise(Effect.gen(function* () {
+                  return yield* (yield* AccountDirectory).get(route.accountId!);
+                })).catch(() => undefined)
               : undefined;
             const id = [
               requirement.definitionId,

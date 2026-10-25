@@ -36,6 +36,7 @@ import {
   type AgentAssemblyContext,
   type Resolvable,
 } from "./definition.js";
+import type { FoundryInstalledApp } from "./capabilities.js";
 import type {
   FoundryDataAdapter,
   FoundryRequest,
@@ -227,11 +228,22 @@ export interface FoundryProgrammaticToolSelection {
   readonly resultShape?: string;
 }
 
+/** An installed app, with its live tools ready to select into the REPL. */
+export interface FoundryReplApp {
+  readonly id: string;
+  readonly description: string;
+  readonly accountId?: string;
+  /** Each tool grouped under the app, named for code, and marked when it only reads. */
+  readonly tools: ReadonlyArray<FoundryProgrammaticToolSelection>;
+}
+
 export interface FoundryProgrammaticToolContext {
   readonly assembly: AgentAssemblyContext<FoundryRequest>;
   readonly glove: IGloveRunnable;
   /** Snapshot of every tool mounted before the programmatic surface itself. */
   readonly tools: ReadonlyArray<Tool<unknown>>;
+  /** The apps installed on this agent, one group per app. */
+  readonly apps: ReadonlyArray<FoundryReplApp>;
   readonly workingEnvironment?: WorkingEnvironment;
   readonly vfs?: EnvFsHandle;
 }
@@ -246,6 +258,12 @@ export interface FoundryProgrammaticTools {
   ) => Resolvable<ReadonlyArray<Tool<unknown> | FoundryProgrammaticToolSelection>>;
   /** Total underlying calls permitted during this assembled run. Default 50. */
   readonly maxCalls?: number;
+  /**
+   * Keep selected tools in the model's direct tool list as well. Default true.
+   * Pass false to reach them only from code, which keeps a large app
+   * catalogue out of context. A tool that needs approval always stays direct.
+   */
+  readonly keepDirect?: boolean;
 }
 
 export type FoundryJavaScriptReplDefinition = FoundryReplBase &
@@ -446,10 +464,44 @@ function programmaticToolFunction(
   };
 }
 
+/** A function name JavaScript, Python and Lisp all accept. */
+function codeName(name: string): string {
+  const safe = name.replace(/[^A-Za-z0-9_]/g, "_");
+  return /^[A-Za-z_]/.test(safe) ? safe : `_${safe}`;
+}
+
+function replApps(
+  apps: ReadonlyArray<FoundryInstalledApp>,
+  tools: ReadonlyArray<Tool<unknown>>,
+): ReadonlyArray<FoundryReplApp> {
+  const byName = new Map(tools.map((tool) => [tool.name, tool]));
+  return Object.freeze(apps.map((app) => Object.freeze({
+    id: app.id,
+    description: app.description,
+    ...(app.accountId ? { accountId: app.accountId } : {}),
+    tools: Object.freeze(app.tools.flatMap(({ name, readOnly }) => {
+      const tool = byName.get(name);
+      if (!tool) return [];
+      return [Object.freeze({
+        tool,
+        name: codeName(name),
+        server: codeName(app.id),
+        serverDescription: app.description,
+        ...(readOnly !== undefined ? { readOnly } : {}),
+      })];
+    })),
+  })));
+}
+
+function needsApproval(tool: Tool<unknown>): boolean {
+  return typeof tool.requiresPermission === "function" || Boolean(tool.requiresPermission);
+}
+
 async function registerProgrammaticTools(options: {
   readonly repl: FoundryReplDefinition;
   readonly glove: IGloveRunnable;
   readonly context: AgentAssemblyContext<FoundryRequest>;
+  readonly apps: ReadonlyArray<FoundryInstalledApp>;
   readonly workingEnvironment?: WorkingEnvironment;
   readonly vfs?: EnvFsHandle;
 }): Promise<number> {
@@ -464,6 +516,7 @@ async function registerProgrammaticTools(options: {
     assembly: options.context,
     glove: options.glove,
     tools,
+    apps: replApps(options.apps, tools),
     ...(options.workingEnvironment ? { workingEnvironment: options.workingEnvironment } : {}),
     ...(options.vfs ? { vfs: options.vfs } : {}),
   }));
@@ -485,6 +538,13 @@ async function registerProgrammaticTools(options: {
     case "lisp":
       options.repl.session.registerFns(functions);
       break;
+  }
+  if (config.keepDirect === false) {
+    const codeOnly = selected
+      .map((selection) => isProgrammaticSelection(selection) ? selection.tool : selection)
+      .filter((tool) => !needsApproval(tool))
+      .map((tool) => tool.name);
+    if (codeOnly.length > 0) options.glove.replaceTools(codeOnly, []);
   }
   return functions.length;
 }
@@ -547,6 +607,8 @@ export async function mountFoundryWorkbench(options: {
   readonly repl?: FoundryReplDefinition;
   /** Internal assembly seam: delay priming until every install/configure surface exists. */
   readonly deferRepl?: boolean;
+  /** Internal assembly seam: the apps installed by the time the REPL mounts. */
+  readonly apps?: () => ReadonlyArray<FoundryInstalledApp>;
 }): Promise<FoundryMountedWorkbench> {
   let environment: WorkingEnvironment | undefined;
   let persistence: FoundryWorkingEnvironmentPersistenceContext | undefined;
@@ -600,6 +662,7 @@ export async function mountFoundryWorkbench(options: {
         repl,
         glove: options.glove,
         context: options.context,
+        apps: options.apps?.() ?? [],
         ...(environment ? { workingEnvironment: environment, vfs: environment.fs } : {}),
       });
       switch (repl.language) {

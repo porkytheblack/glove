@@ -22,6 +22,7 @@ import {
 import {
   EMPTY_CAPABILITY_REGISTRY,
   installRegistry,
+  type FoundryInstalledApp,
   isInboxCapableStore,
   mountAgentDefinitionMemory,
   type FoundryMemorySelection,
@@ -662,12 +663,14 @@ async function executeDefinition(
       ].filter(Boolean).join("\n\n") || null);
     }
 
+    const installedApps: FoundryInstalledApp[] = [];
     const workbench = await mountFoundryWorkbench({
       glove: base,
       context: assemblyContext,
       ...(workingEnvironment ? { workingEnvironment } : {}),
       ...(repl ? { repl } : {}),
       deferRepl: Boolean(repl?.programmaticTools),
+      apps: () => installedApps,
     });
     cleanups.push(workbench.dispose);
 
@@ -780,6 +783,8 @@ async function executeDefinition(
         },
         ...(definition.mcpAdapter ? { mcpAdapter: definition.mcpAdapter } : {}),
         ...(definition.accountSessions ? { accountSessions: definition.accountSessions } : {}),
+        onApp: (app) => { installedApps.push(app); },
+        onCleanup: (cleanup) => { cleanups.push(cleanup); },
       }),
     );
     await Effect.runPromise(
