@@ -42,8 +42,8 @@ test("routes and bindings written at runtime survive a restart", async () => {
     const restored = await run(Effect.gen(function* () {
       const topology = yield* TopologyStore;
       return {
-        routes: yield* topology.listRoutes({ accountId: "ada-gmail" }),
-        bindings: yield* topology.listBindings({ agentId: "ada-main" }),
+        routes: yield* topology.listRoutes({ accountId: route.accountId! }),
+        bindings: yield* topology.listBindings({ agentId: binding.agentId }),
       };
     }));
     assert.deepEqual(restored.routes, [route]);

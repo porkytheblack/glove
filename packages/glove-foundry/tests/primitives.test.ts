@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { Displaymanager, Glove, MemoryStore } from "glove-core";
 import { createFoundryCoreTools } from "../src/core-tools.js";
+import { defineAgentApplication } from "../src/capabilities.js";
+import { defineTransmission } from "../src/integration.js";
 import {
   MemoryFoundryDataAdapter,
   createAgentInstance,
@@ -48,7 +50,54 @@ test("agent instances reconstruct immutable installation desired state from data
 
 test("framework core tools emit identity-scoped orchestration commands", async () => {
   const data = new MemoryFoundryDataAdapter();
-  const agent = createAgentInstance("assistant", { id: "agent-1", workspaceId: "acme" });
+  const support = defineTransmission({
+    id: "support",
+    name: "Support",
+    description: "Replies to customers",
+    outbound: {
+      config: Schema.Struct({}),
+      input: Schema.Struct({ message: Schema.String }),
+      output: Schema.Struct({ sent: Schema.Boolean }),
+      requiresPermission: (input) => input.message !== "done",
+    },
+  });
+  const chat = defineTransmission({
+    id: "chat",
+    name: "Chat",
+    description: "Messages from the team chat",
+    inbound: { config: Schema.Struct({}), event: Schema.Struct({ text: Schema.String }) },
+  });
+  const mail = defineTransmission({
+    id: "mail",
+    name: "Mail",
+    description: "Email as the owner",
+    outbound: {
+      config: Schema.Struct({}),
+      input: Schema.Struct({ to: Schema.String }),
+      output: Schema.Struct({ sent: Schema.Boolean }),
+      requiresPermission: true,
+    },
+  });
+  const applications = [
+    defineAgentApplication({ id: "support-desk", description: "Support", outbound: [support] }),
+    defineAgentApplication({ id: "mailbox", description: "Mail", inbound: [chat], outbound: [mail] }),
+  ];
+  const agent = createAgentInstance("assistant", {
+    id: "agent-1",
+    workspaceId: "acme",
+    playbooks: [{
+      id: "support-reply",
+      transmissionId: "support",
+      directives: [{ action: "reply", instruction: "Reply to the customer." }],
+      outbound: [{ routeId: "support-replies", applicationId: "support-desk" }],
+    }, {
+      // A chat message answered by email: the route belongs to another transmission.
+      id: "chat-to-mail",
+      transmissionId: "chat",
+      directives: [{ action: "reply", instruction: "Answer by email." }],
+      outbound: [{ routeId: "mail-out", applicationId: "mailbox" }, { routeId: "any-out" }],
+    }],
+  });
   const conversation = createConversation(agent, { id: "conversation-1" });
   const glove = new Glove({
     model: new FoundryEchoModel(),
@@ -86,7 +135,7 @@ test("framework core tools emit identity-scoped orchestration commands", async (
     store: glove.store,
     subscriber: { record: async () => undefined },
     controls: { signal: new AbortController().signal, commands, emit: () => undefined },
-  });
+  }, [], { applications });
   const sleep = tools.find((tool) => tool.name === "glove_foundry_sleep")!;
   const beforeSleep = Date.now();
   const result = await (sleep.do as (input: unknown) => Promise<any>)({
@@ -137,11 +186,28 @@ test("framework core tools emit identity-scoped orchestration commands", async (
   assert.equal(commands[5].type, "schedule.cancel");
 
   const transmit = tools.find((tool) => tool.name === "glove_foundry_transmit")!;
+  // The route's transmission decides when a delivery asks first, as its application's tool would.
+  const asks = transmit.requiresPermission as (input: unknown) => boolean;
+  assert.equal(asks({ routeId: "support-replies", payload: { message: "done" } }), false);
+  assert.equal(asks({ routeId: "support-replies", payload: { message: "Your refund is on its way." } }), true);
+  // Not the chat playbook's transmission: the mailbox's send, which always asks.
+  assert.equal(asks({ routeId: "mail-out", payload: { to: "dana@example.com" } }), true);
+  // A route that names no application could be any application's send; one that always asks makes it ask.
+  assert.equal(asks({ routeId: "any-out", payload: { message: "done" } }), true);
+  // A payload a function rule's transmission cannot decode cannot be sent through it.
+  assert.equal(asks({ routeId: "support-replies", payload: { to: "dana@example.com" } }), false);
   await (transmit.do as (input: unknown) => Promise<any>)({
     routeId: "support-replies", payload: { message: "done" },
   });
   assert.equal(commands[6].type, "transmit");
   assert.equal(commands[6].routeId, "support-replies");
+  // Only routes the instance's playbooks declare; a granted route alone is not enough.
+  const undeclared = await (transmit.do as (input: unknown) => Promise<any>)({
+    routeId: "billing-replies", payload: { message: "done" },
+  });
+  assert.equal(undeclared.status, "error");
+  assert.match(undeclared.message, /not declared by this agent's playbooks/);
+  assert.equal(commands.length, 7, "nothing was sent");
 
   const inbox = tools.find((tool) => tool.name === "glove_foundry_shared_inbox")!;
   const posted = await (inbox.do as (input: unknown) => Promise<any>)({

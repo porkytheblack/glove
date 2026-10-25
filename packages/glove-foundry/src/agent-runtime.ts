@@ -548,7 +548,10 @@ async function executeDefinition(
       data: { count: desiredSchedules.length, names: desiredSchedules.map((item) => item.name) },
     });
     const effectiveInstallations = [...installations];
-    for (const tool of createFoundryCoreTools(assemblyContext, desiredSchedules)) base.fold(tool);
+    for (const tool of createFoundryCoreTools(assemblyContext, desiredSchedules, {
+      playbooks: desiredPlaybooks,
+      applications: registry.capabilities.applications,
+    })) base.fold(tool);
     const applicationTransmissionTools = createInstalledApplicationTransmissionTools(
       assemblyContext,
       registry.capabilities.applications,
@@ -713,6 +716,9 @@ async function executeDefinition(
     const callContext: FoundryExecutionContext<FoundryRequest> = {
       ...surfaceContext,
       ...guidance.handles,
+      agentInstance: assemblyContext.agentInstance,
+      conversation: assemblyContext.conversation,
+      data: assemblyContext.data,
       installations: effectiveInstallations,
       onCleanup: (cleanup) => { cleanups.push(cleanup); },
       invoke,

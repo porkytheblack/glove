@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { GloveFoldArgs } from "glove-core";
-import { Effect, JSONSchema, Schema } from "effect";
+import { Effect, Either, JSONSchema, ParseResult, Schema } from "effect";
 import { z } from "zod";
 import type { AgentAssemblyContext } from "./definition.js";
 import { id as foundryId } from "./primitives.js";
@@ -377,11 +377,67 @@ function success(command: FoundryCoreCommand) {
   };
 }
 
+/** An application as the transmit tool sees it: its id and the transmissions it owns. */
+interface OutboundOwner {
+  readonly id: string;
+  readonly transmissions?: ReadonlyArray<AnyFoundryTransmission>;
+}
+
+/**
+ * The outbound routes an instance's playbooks declare, each with the
+ * transmissions that could own it. A route may belong to a different
+ * transmission than the playbook that names it (a Slack message answered by
+ * email), and the route's own transmission is topology the agent never sees.
+ * So every outbound transmission of the directive's application, or of any
+ * application when it names none, is a candidate.
+ */
+function declaredOutbound(
+  playbooks: ReadonlyArray<AgentPlaybook>,
+  applications: ReadonlyArray<OutboundOwner>,
+): ReadonlyMap<string, ReadonlyArray<AnyFoundryTransmission>> {
+  const outboundOf = (owners: ReadonlyArray<OutboundOwner>) =>
+    owners.flatMap((application) => (application.transmissions ?? []).filter((transmission) => transmission.outbound));
+  const routes = new Map<string, Set<AnyFoundryTransmission>>();
+  for (const playbook of playbooks) {
+    if (playbook.enabled === false) continue;
+    for (const outbound of playbook.outbound ?? []) {
+      const owners = outbound.applicationId
+        ? applications.filter((application) => application.id === outbound.applicationId)
+        : applications;
+      const candidates = routes.get(outbound.routeId) ?? new Set<AnyFoundryTransmission>();
+      for (const transmission of outboundOf(owners)) candidates.add(transmission);
+      routes.set(outbound.routeId, candidates);
+    }
+  }
+  return new Map([...routes].map(([routeId, candidates]) => [routeId, [...candidates]]));
+}
+
+/** Whether a transmission asks before delivering this payload. */
+function asksFirst(transmission: AnyFoundryTransmission, payload: unknown): boolean {
+  const rule = transmission.outbound?.requiresPermission;
+  if (rule === undefined) return false;
+  if (typeof rule !== "function") return rule;
+  const decoded = Schema.decodeUnknownEither(transmission.outbound!.input)(payload);
+  if (Either.isRight(decoded)) return rule(decoded.right);
+  // Delivery decodes with the same schema, so a payload that fails here cannot
+  // be sent through this transmission. A schema that needs async work cannot be
+  // checked here, so it asks.
+  return ParseResult.ArrayFormatter.formatIssueSync(decoded.left.issue)
+    .some((issue) => issue._tag === "Forbidden");
+}
+
 /** Framework-owned orchestration tools. They emit commands for Foundry's runtime adapters. */
 export function createFoundryCoreTools(
   context: AgentAssemblyContext,
   desiredSchedules: Extract<FoundryCoreCommand, { readonly type: "schedule.sync" }>["schedules"] = [],
+  outbound: {
+    /** The playbooks resolved for this run. Default: the instance's stored ones. */
+    readonly playbooks?: ReadonlyArray<AgentPlaybook>;
+    /** The definition's applications, so the approval rule of a route's transmission applies. */
+    readonly applications?: ReadonlyArray<OutboundOwner>;
+  } = {},
 ): ReadonlyArray<GloveFoldArgs<any>> {
+  const routes = declaredOutbound(outbound.playbooks ?? context.agentInstance.playbooks, outbound.applications ?? []);
   const emit = (command: FoundryCoreCommand) => {
     context.controls.commands.push(command);
     context.controls.emit({ type: FOUNDRY_CORE_COMMAND_EVENT, data: command });
@@ -665,7 +721,18 @@ export function createFoundryCoreTools(
         routeId: z.string(),
         payload: z.unknown(),
       }),
+      // The route's transmission decides, as for its application's send tool. When
+      // more than one could own the route, any that would ask makes this ask.
+      requiresPermission: (input: { readonly routeId: string; readonly payload: unknown }) =>
+        (routes.get(input.routeId) ?? []).some((transmission) => asksFirst(transmission, input.payload)),
       async do(input) {
+        if (!routes.has(input.routeId)) {
+          return {
+            status: "error" as const,
+            data: null,
+            message: `Route "${input.routeId}" is not declared by this agent's playbooks.`,
+          };
+        }
         const command: Extract<FoundryCoreCommand, { readonly type: "transmit" }> = {
           id: commandId(),
           type: "transmit",

@@ -278,6 +278,65 @@ servers from stalling a run indefinitely.
 Stdio-only idle and lifetime limits can recycle memory-heavy children without
 interrupting in-flight calls; adapter environment values are resolved again on reopen.
 
+### Apps people connect
+
+When a person connects one of their own accounts (their Gmail, their Linear),
+connect it through an app, not a bare MCP definition. The app is the unit they
+connect, and it holds everything about that provider: the MCP server whose
+tools the agent uses, the account they open with, the transmissions that carry
+events in and deliveries out, and the connection that listens.
+
+```ts
+// agents/assistant/apps/gmail.app.ts
+export default defineApp({
+  description: "Gmail: search, read and draft, send with approval, hear about new mail",
+  config: z.object({ alwaysAllow: z.array(z.string()).default([]) }),
+  inbound: [gmail],             // new mail, as events
+  outbound: [gmail],            // sending, delivered by Foundry
+  connections: [gmailWatch],    // users.watch + Pub/Sub, one per account
+  mcp: {
+    entry: { name: "Gmail", url: "https://gmailmcp.googleapis.com/mcp/v1" },
+    // Runs inside the agent's accountSessions; Foundry never holds the token.
+    auth: (session) => ({ authorization: `Bearer ${(session as GoogleSession).accessToken}` }),
+    // "allow", "ask" or "hide" per tool. Default: read-only tools run, the rest ask.
+    tools: (tool, { config }) =>
+      tool.readOnly || config.alwaysAllow.includes(tool.name) ? "allow" : "ask",
+  },
+})
+```
+
+Install it with the person's account: `install(gmailApp, config, { account })`
+in code, or `{ kind: "application", id: "gmail", accountId }` over HTTP. The
+server's tools mount as `gmail__search_threads` and so on, opened with that
+account; a stdio server gets `auth`'s result as its environment instead. An app
+whose `mcp` has `auth` refuses an installation without an account, and its
+connection closes when the run ends.
+
+Splitting the work this way keeps each part where it is safest:
+
+- **Reads and drafts** come from the provider's MCP server, through the app's
+  tool policy.
+- **Sends** belong in an outbound transmission when the provider's server has
+  none or when the send should not run in the agent: Foundry delivers it in its
+  own process, with the route's account session, after the exact input is
+  approved, and only for a run whose bindings grant the route.
+- **Incoming events** (new mail, a webhook) are an inbound transmission. A
+  connection keeps the provider subscription alive per account; a playbook on
+  the instance decides which agent hears them.
+
+An app that is only an MCP server (Linear's, Google Calendar's) needs only
+`mcp`. Accounts belong to your application: your OAuth callback stores the
+account and its tokens, your `accountSessions` resolves and refreshes them,
+and Foundry reads accounts through your account directory (see "Runtime
+topology is data").
+
+An agent can put its own policy around an app's generated send in
+`configure(agent, ctx)`: replace the tool with one whose `requiresPermission`
+applies the person's rules and whose `do` calls the original tool's `run`.
+Glove asks for approval from the tool the model calls, so the wrapper's rule
+is the one that counts, and delivery still happens in Foundry's process.
+`configure` sees the instance, its conversation and the data adapter.
+
 ## Mount optional capabilities
 
 Use `configure(agent, context)` to call capability packages' mount functions on the assembled agent. Register resource teardown with `context.onCleanup(() => handle.close())`; callbacks run in reverse order after execution, including failed setup or cancellation. Register cleanup as soon as you acquire a resource, before any later setup can fail.
@@ -358,6 +417,21 @@ export default defineAgent({
 ```
 
 `workingEnvironment` and `repl` accept the same direct-value-or-lazy-resolver shape as the other assembly fields. JavaScript, Python, and Lisp sessions are supported through one discriminated `defineRepl` API. Foundry exposes the mounted `workingEnvironment`, its guarded `vfs` handle, and the native `repl` session to layers, `configure`, calls, and `run` handlers.
+
+Installed apps arrive grouped. `select` receives `apps`, one entry per
+installed app with its live tools already named for code, grouped under the
+app and marked read-only where the server says so. Selecting an app's reads
+gives the agent `gmail.search_threads(...)` and `linear.list_issues(...)` in one
+program. `keepDirect: false` takes the selected tools out of the model's direct
+tool list, so a large app catalogue stays out of context; a tool that needs
+approval always stays direct.
+
+```ts
+programmaticTools: {
+  select: ({ apps }) => apps.flatMap((app) => app.tools.filter((tool) => tool.readOnly)),
+  keepDirect: false,
+}
+```
 
 `programmaticTools` turns an explicit least-privilege projection of the live
 agent tool registry into functions inside that sandbox. The selector runs after
@@ -562,6 +636,28 @@ export const ticketInbound = defineInboundRoute({
 
 `accessRef` is opaque to Foundry. Credential acquisition and refresh belong to the user-owned account-session adapter.
 
+Foundry never creates accounts. When people connect accounts at runtime, keep
+them in your own store and give Foundry a read-only `AccountDirectory` over it.
+Supplying `services` replaces `defineApplication({ accounts })`, so list any
+code-defined accounts in your directory too. Routes and bindings you write when
+someone connects (`putRoute`, `putBinding`) live in the topology store; on a
+single host, `fileTopologyStore(file)` keeps them across restarts.
+
+```ts
+export default defineApplication({
+  name: "Assistants",
+  data,
+  services: Layer.mergeAll(
+    myAccountDirectory,                         // reads your accounts table
+    fileTopologyStore(join(dataDir, "topology.json")),
+    memoryEventStore,
+  ),
+})
+```
+
+Application connections find their account through that directory, so a newly
+connected account starts its connection on the next reconciliation.
+
 ## Runtime-composed playbooks and dynamic installations
 
 ```ts
@@ -643,6 +739,10 @@ glove_foundry_schedule({
   message: "Review open support work.",
   timing: { kind: "every", interval: "24h" },
 })
+
+// Deliver through an outbound route this instance's playbooks declare.
+// It asks for approval whenever the route's transmission requires it:
+glove_foundry_transmit({ routeId: "support-replies", payload: { message: "Done." } })
 
 // Suspend this conversation and wake the same instance later:
 glove_foundry_sleep({
@@ -811,6 +911,7 @@ run cleanup. See the [document adapter](../../glove-env-documents/README.md).
 - IDs appear when definitions are serialized into durable data.
 - Runtime data IDs remain explicit because users and adapters create those records.
 - Applications, shared tools, and MCPs mount only when an instance installs them.
+- A person's accounts connect through apps: MCP for tools, transmissions for sends and events, connections for subscriptions, your own account directory and `accountSessions` for credentials.
 - Memory and inboxes are agent-definition surfaces and may resolve from current context/message.
 - Working environments and one native REPL are agent-definition surfaces and may resolve from current context/message.
 - VFS persistence, remote storage, and locking remain adapter-owned.

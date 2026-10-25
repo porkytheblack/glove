@@ -271,6 +271,25 @@ export default defineAgent({
 
 Credential acquisition and refresh still belong to `mcpAdapterFor`; persisted installation config should contain only a reference such as an environment-variable or vault-record name.
 
+### Apps people connect
+
+When each person connects their own account (Gmail, Linear, a calendar), put the provider's MCP server on a Foundry app. The app opens it with the installation's account, decides per tool, and also owns the sends and incoming events:
+
+```ts
+export default defineApp({
+  description: "Gmail: read mail, send as the owner, new mail as it arrives",
+  outbound: [gmail],                       // glove_app_gmail__gmail_send, delivered by Foundry after approval
+  connections: [gmailWatch],               // new mail into a playbook
+  mcp: {
+    entry: { name: "gmail", description: "Read the owner's mail", url: "https://gmailmcp.googleapis.com/mcp/v1" },
+    auth: (session) => ({ authorization: `Bearer ${(session as GoogleSession).accessToken}` }),   // inside accountSessions.withSession
+    tools: (tool) => (tool.readOnly ? "allow" : "ask"),                         // or "hide"
+  },
+})
+```
+
+Install it with `accountId`. `defineRepl({ programmaticTools: { select: ({ apps }) => apps.flatMap((app) => app.tools.filter((tool) => tool.readOnly)), keepDirect: false } })` gives the reads to the program as `gmail.search_threads(...)` and takes them out of the direct tool list. Keep accounts in your own store and hand Foundry an `AccountDirectory` through `defineApplication({ services })`; `fileTopologyStore(file)` keeps the routes and bindings you write at runtime.
+
 ## Background playbooks and lazy provisioning
 
 A playbook is serializable runtime policy. It is composed by an agent resolver or frontend from transmission primitives, then persisted on the instance. Executable normalization, authentication, predicates, serialization, and delivery live on the transmission definition.

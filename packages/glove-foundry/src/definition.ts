@@ -165,6 +165,10 @@ export function defineCall<
 
 export interface FoundryExecutionContext<TInput = unknown>
   extends FoundrySurfaceContext<TInput>, FoundryGuidanceHandles {
+  /** The instance being run, as resolvers see it. */
+  readonly agentInstance: AgentInstance;
+  readonly conversation: Conversation;
+  readonly data: FoundryDataAdapter;
   readonly installations: ReadonlyArray<AgentInstallation>;
   /** Register run-scoped teardown for an explicitly mounted capability. Runs in reverse order, even if assembly fails. */
   readonly onCleanup: (cleanup: () => void | Promise<void>) => void;
