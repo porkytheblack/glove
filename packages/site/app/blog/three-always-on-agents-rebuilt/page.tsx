@@ -29,9 +29,9 @@ export default function ThreeAgentsRebuiltPost() {
       <h2 id="crew">Grok Bot: teammates you make</h2>
       <p>
         Grok Bot lets you make bots and tell each one its job. A new bot asks what you want it
-        around for, then names itself for the work: Sales Outbound, Inbox Manager. A Chief runs
-        the others, bots pass work to each other and share group chats, and they all work on one
-        cloud computer.
+        around for, then names itself for the work: Sales Outbound, Inbox Manager. Your main bot
+        takes everyday requests, bots pass work to each other and share group chats, and they all
+        work on one cloud computer with your account&apos;s apps.
       </p>
       <p>
         Our first build got this wrong. It had a definition per bot (a chief, an outreach bot, a
@@ -43,10 +43,9 @@ export default function ThreeAgentsRebuiltPost() {
         The rebuild now has one <code>bot</code> definition that says what any bot can be. Each
         bot is an instance in the person&apos;s workspace. Its name and job are the
         instance&apos;s <code>name</code> and <code>description</code>, and a new bot sets them
-        itself with a <code>take_job</code> tool that writes its own record. The Chief is a bot
-        whose data says <code>role: &quot;chief&quot;</code>. A group chat is a conversation whose
-        data lists its members. Skills live in the workspace, so every bot reads the same
-        library.
+        itself with a <code>take_job</code> tool that writes its own record. The main bot is a
+        bot whose data says <code>primary: true</code>. A group chat is a conversation whose data
+        lists its members. Skills live in the workspace, so every bot reads the same library.
       </p>
       <p>
         That changed Foundry too. Foundry had a <code>delegates</code> field that named workers by
@@ -58,6 +57,12 @@ export default function ThreeAgentsRebuiltPost() {
         bug, where one busy bot made the others skip their routines. That is fixed.{" "}
         <Link href="/foundry/docs/rebuilds/grok-bot">Read the build</Link>, and{" "}
         <Link href="/foundry/docs/agents-are-data">Agents are data</Link> for the rule.
+      </p>
+      <p>
+        We also first built from launch coverage and got details wrong. Grok Bot&apos;s own docs
+        (on cursor.com and docs.x.ai) have no &ldquo;chief&rdquo; role, only a main bot that a
+        person can name anything; apps belong to the account, not to a bot; and group chats let
+        the bots decide who answers. The rebuild follows the docs now.
       </p>
 
       <h2 id="partner">Claude Duet: a partner</h2>
@@ -83,14 +88,18 @@ export default function ThreeAgentsRebuiltPost() {
         the mesh. <Link href="/foundry/docs/rebuilds/claude-duet">Read the build</Link>.
       </p>
 
-      <h2 id="dots">OpenAI Dots: standing jobs</h2>
+      <h2 id="dots">OpenAI Dots: your dot</h2>
       <p>
-        A dot keeps working on a responsibility you give it. Between conversations it researches
-        with read-only tools. Before it acts, an auto-review checks your rules: act, act when you
-        say so, ask first, or hand it to you. You can reach the same dot in the app or in Slack.
+        You name your dot and make it your own. It keeps notes on your ongoing
+        responsibilities, researches in the background with read-only tools, and works on a
+        computer of its own. Before it acts, an auto-review checks your Custom Rules (allow,
+        ask, or block) and built-in safety. You reach the same dot in ChatGPT, Slack or on a
+        call.
       </p>
       <p>
-        In Foundry, a dot is an instance whose context holds the responsibility and the rules.
+        In Foundry, a dot is an instance whose data holds its name, your responsibilities and
+        your rules, and a specialist dot for an organisation is the same definition with its own
+        account.
         Read-only research is a tool list that depends on what started the run: a schedule gets
         only the read tools, so the acting tools are not there to misuse. The auto-review is a
         wrapper around each acting tool. Heavy jobs go to the person&apos;s builder over the

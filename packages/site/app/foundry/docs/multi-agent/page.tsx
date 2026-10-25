@@ -53,7 +53,7 @@ export default function MultiAgentPage() {
     mount: (ctx) => ctx.request.source?.kind !== "activation",         // optional: per run
   },
 });`} />
-      <CodeBlock filename="when a person makes their team" language="typescript" code={`await foundry.createAgent("bot", { id: "maya-chief", workspaceId: "maya", name: "Chief", context: { role: "chief" } });
+      <CodeBlock filename="when a person makes their team" language="typescript" code={`await foundry.createAgent("bot", { id: "maya-main", workspaceId: "maya", name: "Chief", context: { primary: true } });
 await foundry.createAgent("bot", { id: "maya-bot-2", workspaceId: "maya", name: "Bug Triage", description: "Files and sorts bug reports." });`} />
       <table>
         <thead><tr><th>Tool</th><th>What it does</th></tr></thead>

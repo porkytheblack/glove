@@ -58,14 +58,14 @@ export default function AgentsAreDataPage() {
       <CodeBlock
         filename="lib/people.ts"
         language="typescript"
-        code={`export function botFor(person: Person, bot: { id: string; name?: string; job?: string }) {
+        code={`export function botFor(person: Person, bot: { id: string; name?: string; job?: string; apps: AppName[] }) {
   return {
     id: bot.id,
     workspaceId: person.id,                 // her team
     name: bot.name ?? "New bot",            // who it is
     ...(bot.job ? { description: bot.job } : {}),
     context: { owner: person.name },
-    installations: connected(person),       // what it may use: the apps she connected
+    installations: bot.apps.map((app) => install(APPS[app])),   // the apps she connected
   };
 }`}
       />
@@ -74,7 +74,7 @@ export default function AgentsAreDataPage() {
         language="typescript"
         code={`import bot from "./agents/bot/agent.js";
 
-const chief = defineAgentInstance(bot, mainBotFor(maya));     // the definition is imported, not named
+const chief = defineAgentInstance(bot, mainBotFor(maya, { name: "Chief", apps: ["gmail", "sheets"] }));   // imported, not named
 
 export const data = new FileFoundryDataAdapter({
   file: ".data/foundry.json",
@@ -85,7 +85,7 @@ export const data = new FileFoundryDataAdapter({
       <CodeBlock
         filename="your app: when someone makes a bot"
         language="typescript"
-        code={`await foundry.createAgent("bot", botFor(maya, { id: "maya-bot-4", name: "Inbox Manager" }));
+        code={`await foundry.createAgent("bot", botFor(maya, { id: "maya-bot-4", name: "Inbox Manager", apps: ["gmail"] }));
 
 // Later, a rename is one more write. No deploy.
 await foundry.configureAgent("maya-bot-4", { name: "Inbox Zero" });`}

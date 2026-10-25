@@ -10,7 +10,7 @@ const foundryExamples = [
     href: "/foundry/docs/rebuilds/grok-bot",
     kicker: "Rebuild · Grok Bot · Foundry · Kuiper",
     title: "Bot Crew",
-    desc: "One bot definition; every bot a person makes is data, with its own name, job, apps and memory. A new bot names itself when told its job. Bots message each other over the mesh, share group chats and one computer, learn skills that run as routines, and wait for approval before sending. Tag the bot on X and the Chief takes it.",
+    desc: "One bot definition; every bot a person makes is data, with its own name, job, apps and memory. A new bot names itself when told its job. Bots message each other over the mesh, share group chats and one computer, learn skills that run as routines, and wait for approval before sending. Apps belong to the account, and tagging @bot on X reaches your main bot.",
   },
   {
     href: "/foundry/docs/rebuilds/claude-duet",
@@ -22,7 +22,7 @@ const foundryExamples = [
     href: "/foundry/docs/rebuilds/openai-dots",
     kicker: "Rebuild · OpenAI Dots · Foundry · Kuiper",
     title: "Standing Agents",
-    desc: "An agent per standing job: read-only research on a schedule, an auto-review with custom rules (act, on request, ask, hand off) in front of every action, the same agent in the app and Slack, and a builder for heavy jobs, reached over the mesh.",
+    desc: "A dot you name, holding your ongoing responsibilities: read-only research on a schedule, an auto-review with Custom Rules (allow, ask, block) in front of every action, its own computer, the same dot in the app, Slack and on a call, and specialist dots as instances with their own account.",
   },
   {
     href: `${repo}/foundry-layered-assistant`,

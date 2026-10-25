@@ -12,14 +12,14 @@ export function CrewStory() {
     <FlowStory
       id="rgb"
       viewBox="0 0 932 336"
-      label="Every bot is an instance of one definition in the person's workspace: a new bot names itself with take_job, the Chief passes a bug to Bug Triage over the mesh, which passes the fix to Engineer, replies come back on their own, a group chat reaches two bots, skills are shared in the workspace, sending waits for approval, and a mention on X reaches the Chief"
+      label="Every bot is an instance of one definition in the person's workspace: a new bot names itself with take_job, a bot asks to connect an app for the whole account, the main bot passes a bug to Bug Triage over the mesh, which passes the fix to Engineer, replies come back on their own, a group chat reaches two bots, skills are shared in the workspace, sending waits for approval, and a mention on X reaches the main bot"
       boxes={[
         { id: "maya", x: 16, y: 20, w: 110, h: 64, title: "Maya", sub: "the app" },
         { id: "x", x: 16, y: 256, w: 110, h: 64, title: "X", sub: "@crewbot …" },
-        { id: "chief", x: 216, y: 110, w: 160, h: 110, title: "Chief", sub: "role: chief", tone: "harness" },
+        { id: "chief", x: 216, y: 110, w: 160, h: 110, title: "Chief", sub: "main bot · primary", tone: "harness" },
         { id: "triage", x: 486, y: 20, w: 150, h: 80, title: "Bug Triage", sub: "tickets app", tone: "harness" },
         { id: "engineer", x: 766, y: 20, w: 150, h: 80, title: "Engineer", sub: "no apps", tone: "harness" },
-        { id: "workspace", x: 486, y: 138, w: 150, h: 70, title: "Workspace: maya", sub: "skills · one computer", tone: "system", dashed: true },
+        { id: "workspace", x: 486, y: 138, w: 150, h: 70, title: "Workspace: maya", sub: "apps · skills · computer", tone: "system", dashed: true },
         { id: "sales", x: 486, y: 246, w: 150, h: 80, title: "Sales Outbound", sub: "was “New bot”", tone: "harness" },
         { id: "approval", x: 766, y: 246, w: 150, h: 80, title: "Approval", sub: "Maya says yes", tone: "system" },
       ]}
@@ -53,24 +53,36 @@ export function CrewStory() {
           ),
         },
         {
-          lit: ["maya", "chief", "ask"],
-          packet: { edge: "ask", label: "export crashes" },
-          title: "Maya asks her Chief",
+          lit: ["triage", "workspace", "approval", "shared"],
+          title: "Apps belong to Maya, not to a bot",
           text: (
             <>
-              The Chief is a bot too: the same definition, with <code>role: &quot;chief&quot;</code>{" "}
-              in its data. Its prompt, built from that data, tells it to run the others.
+              Bug Triage needs the ticket tracker, so it asks with <code>connect_app</code>. Maya
+              approves by connecting it once, and the app is installed on every one of her
+              bots.
+            </>
+          ),
+        },
+        {
+          lit: ["maya", "chief", "ask"],
+          packet: { edge: "ask", label: "export crashes" },
+          title: "Maya asks her main bot",
+          text: (
+            <>
+              Maya named her main bot &ldquo;Chief&rdquo;. It is a bot like the others, with{" "}
+              <code>primary: true</code> in its data, so its prompt tells it to take everyday
+              requests and route the rest.
             </>
           ),
         },
         {
           lit: ["chief", "triage", "send"],
           packet: { edge: "send", label: "the bug" },
-          title: "The Chief finds the right bot",
+          title: "The main bot finds the right bot",
           text: (
             <>
               <code>glove_mesh_list_agents</code> lists the bots in Maya&apos;s workspace, with the
-              names and jobs they gave themselves. <code>glove_mesh_send_message</code> to{" "}
+              names and jobs they gave themselves. The main bot picks the one whose job fits. <code>glove_mesh_send_message</code> to{" "}
               <code>maya-bot-2</code> starts a thread there and returns at once.
             </>
           ),
@@ -96,7 +108,7 @@ export function CrewStory() {
           lit: ["chief", "maya", "tell"],
           packet: { edge: "tell", label: "fixed" },
           title: "Maya reads it in one thread",
-          text: <>The Chief passes on what matters in a sentence or two.</>,
+          text: <>The main bot passes on what matters in a sentence or two.</>,
         },
         {
           lit: ["chief", "sales", "triage", "group", "answer", "send"],
@@ -104,9 +116,9 @@ export function CrewStory() {
           title: "A group chat is data too",
           text: (
             <>
-              The Offsite crew chat is a conversation on the Chief whose <code>context</code> lists
-              its members. Each @-mentioned bot gets its part over the mesh, and each answer is
-              posted in the chat.
+              The Offsite crew chat is a conversation on the bot that hosts it, whose{" "}
+              <code>context</code> lists its members. Each @-mentioned bot gets its part over the
+              mesh, @everyone reaches all of them, and each answer is posted in the chat.
             </>
           ),
         },
@@ -141,9 +153,9 @@ export function CrewStory() {
           title: "Tag the bot on X",
           text: (
             <>
-              A transmission turns X&apos;s webhook into a typed mention. Only Chiefs get the
-              playbook, and Maya&apos;s matches only her X user id. Her Chief replies on X in one
-              line and does the work in her main thread.
+              A transmission turns X&apos;s webhook into a typed mention. Only main bots get the
+              playbook, and Maya&apos;s matches only her X user id. It replies on X in one line and
+              does the work in her main thread.
             </>
           ),
         },
@@ -280,16 +292,16 @@ export function StandingAgentStory() {
     <FlowStory
       id="rod"
       viewBox="0 0 932 290"
-      label="A dot is shaped by its responsibility and custom rules, researches on a schedule with read-only tools, talks in the app and in Slack with one memory, sends every action through an auto-review that runs it, asks, or hands it off, and sends heavy jobs to a builder over the mesh"
+      label="A dot the person names holds their responsibilities and Custom Rules, researches on a schedule with read-only tools, talks in the app, Slack or a call with one memory, works on its own computer, sends every action through an auto-review that allows it, asks, or hands it to the person, and starts coding jobs on a builder over the mesh"
       boxes={[
-        { id: "brief", x: 16, y: 16, w: 150, h: 64, title: "Responsibility", sub: "job · sources · must not" },
-        { id: "rules", x: 16, y: 113, w: 150, h: 64, title: "Custom rules", sub: "act · ask · hand off" },
+        { id: "brief", x: 16, y: 16, w: 150, h: 64, title: "Responsibilities", sub: "jobs · sources · must not" },
+        { id: "rules", x: 16, y: 113, w: 150, h: 64, title: "Custom Rules", sub: "allow · ask · block" },
         { id: "clock", x: 16, y: 210, w: 150, h: 64, title: "Schedule", sub: "research every 2h", tone: "system" },
-        { id: "dot", x: 256, y: 100, w: 180, h: 90, title: "dot", sub: "one per job · one memory", tone: "harness" },
-        { id: "channels", x: 526, y: 16, w: 150, h: 64, title: "App · Slack", sub: "a thread per channel", tone: "system" },
+        { id: "dot", x: 256, y: 100, w: 180, h: 90, title: "Pip", sub: "Sam's dot · its own computer", tone: "harness" },
+        { id: "channels", x: 526, y: 16, w: 150, h: 64, title: "App · Slack · call", sub: "a thread per channel", tone: "system" },
         { id: "review", x: 526, y: 113, w: 150, h: 64, title: "Auto-review", sub: "rules + safety", dashed: true },
-        { id: "builder", x: 526, y: 210, w: 150, h: 64, title: "Builder", sub: "heavy jobs", tone: "harness" },
-        { id: "person", x: 776, y: 16, w: 140, h: 64, title: "You", sub: "app or Slack" },
+        { id: "builder", x: 526, y: 210, w: 150, h: 64, title: "Builder", sub: "coding jobs", tone: "harness" },
+        { id: "person", x: 776, y: 16, w: 140, h: 64, title: "You", sub: "app · Slack · call" },
         { id: "outcome", x: 776, y: 113, w: 140, h: 64, title: "Outcome", sub: "runs · asks · yours", tone: "system" },
       ]}
       edges={[
@@ -308,12 +320,12 @@ export function StandingAgentStory() {
         {
           lit: ["brief", "dot", "shapes"],
           packet: { edge: "shapes", label: "track feedback" },
-          title: "You give it a job, not a request",
+          title: "You name it and give it responsibilities",
           text: (
             <>
-              A dot is an instance of one definition. Its responsibility (what to keep true, which
-              sources to read, what must not happen yet) is instance context, and its prompt is built
-              from it.
+              Sam&apos;s primary dot is an instance of one definition, and he named it Pip. Its
+              ongoing responsibilities (what to keep true, which sources to read, what must not
+              happen yet) are instance data, and its prompt is built from them.
             </>
           ),
         },
@@ -323,9 +335,9 @@ export function StandingAgentStory() {
           title: "Between conversations, it researches",
           text: (
             <>
-              A schedule wakes it. On these runs the tool list holds only read-only tools: it reads
-              its sources, keeps notes and may suggest one thing. Acting tools are not there to
-              misuse.
+              A schedule wakes it for proactive research. On these runs it gets only read-only
+              tools: it reads its sources, keeps notes and may suggest one thing. Acting tools,
+              the mesh and its computer are not there to misuse.
             </>
           ),
         },
@@ -335,9 +347,9 @@ export function StandingAgentStory() {
           title: "It talks where you are",
           text: (
             <>
-              The app and Slack are two conversations on the same instance, so each keeps its own
-              history while memory is shared. Slack messages arrive through a transmission that
-              only lets its owner in.
+              The app, Slack and a call are conversations on the same instance, so each keeps its
+              own history while memory is shared. Slack messages arrive through a transmission
+              that only lets its owner in.
             </>
           ),
         },
@@ -347,9 +359,9 @@ export function StandingAgentStory() {
           title: "Before it acts, a review",
           text: (
             <>
-              Every acting tool is wrapped. The wrapper reads your rule for that action, checks
-              built-in safety, and checks the input, such as an email to someone you have never
-              written to.
+              Every acting tool is wrapped. The auto-review reads your Custom Rule for that action,
+              checks built-in safety, and checks the input against your instructions, such as an
+              email to someone who never wrote in.
             </>
           ),
         },
@@ -359,9 +371,9 @@ export function StandingAgentStory() {
           title: "It runs, asks, or hands it to you",
           text: (
             <>
-              &ldquo;Act&rdquo; runs. &ldquo;Ask&rdquo; becomes a Foundry approval.
-              &ldquo;Hand off&rdquo; does not run and tells you what to do. Changing a password is
-              always yours, whatever the rules say.
+              &ldquo;Allow&rdquo; runs. &ldquo;Ask&rdquo; becomes a Foundry approval.
+              &ldquo;Block&rdquo; does not run and tells you what to do yourself. Changing a password
+              is always yours, whatever the rules say.
             </>
           ),
         },
@@ -374,12 +386,12 @@ export function StandingAgentStory() {
         {
           lit: ["dot", "builder", "handoff", "result"],
           packet: { edge: "handoff", label: "weekly report" },
-          title: "Heavy jobs go to the builder",
+          title: "Coding jobs start on the builder",
           text: (
             <>
-              The dot coordinates. It sends the build to the person&apos;s builder on the mesh,
-              checks the reply, and reports. The builder has its own files and the web. Research
-              runs get no mesh tools at all.
+              Pip works on its own computer, and starts bigger coding jobs on Sam&apos;s builder
+              over the mesh, the way a dot starts a task in Codex. It checks the reply and
+              reports. Research runs get no mesh tools at all.
             </>
           ),
         },
@@ -420,7 +432,7 @@ export function RebuildShapes() {
           viewBox="0 0 932 300"
           role="img"
           className="dg-svg"
-          aria-label="Three shapes. Grok Bot: you talk to a Chief, which passes work over the mesh to bots that are all instances of one definition. Claude Duet: one partner per person with its own clock and a computer it messages. OpenAI Dots: one agent per job, reached from several channels, researching on a schedule, with an auto-review in front of every action."
+          aria-label="Three shapes. Grok Bot: you talk to your main bot or any other bot, and they pass work over the mesh; all are instances of one definition. Claude Duet: one partner per person with its own clock and a computer it messages. OpenAI Dots: one dot per person that they name, holding their responsibilities, reached from several channels, researching on a schedule, with an auto-review in front of every action."
         >
           <defs>
             <marker id="rshape-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -431,7 +443,7 @@ export function RebuildShapes() {
           <g className="tone-harness"><text x={156} y={22} textAnchor="middle" className="dg-group-label">Grok Bot · teammates</text></g>
           <Mini x={16} y={40} w={280} h={44} title="You" sub="app · @-mention on X" />
           <Arrow d="M156,84 L156,110" />
-          <Mini x={76} y={112} w={160} h={50} title="Chief" sub="a bot with role: chief" tone="harness" />
+          <Mini x={76} y={112} w={160} h={50} title="Main bot" sub="primary: true" tone="harness" />
           <Arrow d="M156,162 L156,200" label="mesh" lx={164} ly={186} anchor="start" />
           <Mini x={16} y={202} w={280} h={50} title="Bots, as data" sub="Sales Outbound · Bug Triage · Engineer" tone="harness" />
           <text x={156} y={284} textAnchor="middle" className="dg-sub">one definition, every bot an instance</text>
@@ -446,23 +458,23 @@ export function RebuildShapes() {
           <Arrow d="M512,166 L541,198" label="mesh" lx={534} ly={180} anchor="start" />
           <text x={466} y={284} textAnchor="middle" className="dg-sub">one agent that reaches out first</text>
 
-          <g className="tone-harness"><text x={776} y={22} textAnchor="middle" className="dg-group-label">OpenAI Dots · standing jobs</text></g>
+          <g className="tone-harness"><text x={776} y={22} textAnchor="middle" className="dg-group-label">OpenAI Dots · your dot</text></g>
           <Mini x={636} y={40} w={135} h={44} title="App" sub="thread" tone="system" />
           <Mini x={781} y={40} w={135} h={44} title="Slack" sub="thread" tone="system" />
           <Arrow d="M736,84 L756,110" />
           <Arrow d="M816,84 L796,110" />
-          <Mini x={696} y={112} w={160} h={50} title="dot" sub="one responsibility" tone="harness" />
+          <Mini x={696} y={112} w={160} h={50} title="Pip" sub="named · responsibilities" tone="harness" />
           <Mini x={636} y={202} w={135} h={50} title="Research" sub="read-only · scheduled" tone="system" />
-          <Mini x={781} y={202} w={135} h={50} title="Auto-review" sub="act · ask · hand off" dashed />
+          <Mini x={781} y={202} w={135} h={50} title="Auto-review" sub="allow · ask · block" dashed />
           <Arrow d="M703,202 L730,166" />
           <Arrow d="M822,166 L849,198" />
-          <text x={776} y={284} textAnchor="middle" className="dg-sub">one agent per job, many channels</text>
+          <text x={776} y={284} textAnchor="middle" className="dg-sub">one dot you name, many channels</text>
         </svg>
       </div>
       <figcaption>
         The same parts, arranged three ways. Grok Bot spreads work across bots a person makes as
-        data. Claude Duet keeps one partner with its own clock. Dots give each job its own agent and
-        put a review in front of every action.
+        data. Claude Duet keeps one partner with its own clock. A dot holds its person&apos;s
+        responsibilities and puts a review in front of every action.
       </figcaption>
     </figure>
   );

@@ -5,7 +5,7 @@ import { RebuildShapes } from "@/components/rebuild-stories";
 export const metadata = {
   title: "Rebuilds",
   description:
-    "Three always-on agent products rebuilt with Glove Foundry and deployed on Kuiper: AI teammates like Grok Bot, a proactive partner like Claude Duet, and standing agents like OpenAI Dots. Each is a runnable example with an illustrated build.",
+    "Three always-on agent products rebuilt with Glove Foundry and deployed on Kuiper: AI teammates like Grok Bot, a proactive partner like Claude Duet, and a dot you name like OpenAI's dots. Each is a runnable example with an illustrated build.",
 };
 
 const pages = [
@@ -13,7 +13,7 @@ const pages = [
     href: "/foundry/docs/rebuilds/grok-bot",
     title: "Grok Bot",
     by: "xAI",
-    shape: "Bots a person makes and names, all instances of one definition. A Chief runs them, they pass work over the mesh and share group chats, one computer and a skill library.",
+    shape: "Bots a person makes and names, all instances of one definition. A main bot takes everyday requests; bots pass work over the mesh, share group chats, one computer, the account's apps and a skill library.",
     example: "foundry-bot-crew",
   },
   {
@@ -27,7 +27,7 @@ const pages = [
     href: "/foundry/docs/rebuilds/openai-dots",
     title: "OpenAI Dots",
     by: "OpenAI",
-    shape: "An agent per standing job. Read-only research between conversations, an auto-review with your rules in front of every action, and the same agent in the app and in Slack.",
+    shape: "A dot you name, holding your ongoing responsibilities. Read-only research between conversations, an auto-review with your Custom Rules before every action, its own computer, and the same dot in the app, Slack or a call.",
     example: "foundry-standing-agents",
   },
 ];
@@ -71,13 +71,13 @@ export default function RebuildsPage() {
           <tr><th></th><th>Grok Bot</th><th>Claude Duet</th><th>OpenAI Dots</th></tr>
         </thead>
         <tbody>
-          <tr><td><strong>Who you talk to</strong></td><td>Any bot, or the Chief, who routes to the others</td><td>One partner</td><td>Each dot, in the app or Slack</td></tr>
-          <tr><td><strong>Instances</strong></td><td>Every bot a person makes, all of one definition</td><td>A partner and a computer per person</td><td>One per standing job, and a builder per person</td></tr>
+          <tr><td><strong>Who you talk to</strong></td><td>Any bot, or your main bot, which routes to the others</td><td>One partner</td><td>Your dot, in the app, Slack or a call</td></tr>
+          <tr><td><strong>Instances</strong></td><td>Every bot a person makes, all of one definition</td><td>A partner and a computer per person</td><td>A dot and a builder per person; specialist dots per organisation</td></tr>
           <tr><td><strong>Conversations</strong></td><td>One per chat, group chats included; one per mesh thread</td><td>Exactly one</td><td>One per channel, sharing memory</td></tr>
           <tr><td><strong>What wakes it</strong></td><td>You, an @-mention on X, a routine&apos;s schedule</td><td>You, the morning brief, check-ins</td><td>You, a Slack message, the research schedule</td></tr>
           <tr><td><strong>Who does long work</strong></td><td>The bot whose job fits, over the mesh</td><td>Its computer, over the mesh</td><td>The builder, over the mesh</td></tr>
-          <tr><td><strong>What waits for you</strong></td><td>Sends, new skills and sign-ins</td><td>Send, pay, sign, delete</td><td>Whatever your rules say to ask about</td></tr>
-          <tr><td><strong>The safety idea</strong></td><td>Your bots only see your workspace; only your posts reach your Chief</td><td>A guard on everything outbound</td><td>Read-only research, and a review before acting</td></tr>
+          <tr><td><strong>What waits for you</strong></td><td>Sends, new skills, new apps and sign-ins</td><td>Send, pay, sign, delete</td><td>Whatever your Custom Rules say to ask about</td></tr>
+          <tr><td><strong>The safety idea</strong></td><td>Your bots only see your workspace; only your posts reach your main bot</td><td>A guard on everything outbound</td><td>Read-only research, and a review before acting</td></tr>
         </tbody>
       </table>
 

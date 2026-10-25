@@ -623,24 +623,36 @@ follow "agents are data": definitions say what a kind of agent can be; every
 agent is an instance in its person's workspace.
 
 Grok Bot → examples/foundry-bot-crew (${SITE_URL}/foundry/docs/rebuilds/grok-bot)
+Facts from Cursor's and xAI's Grok Bot docs: bots have a name, title and job;
+one is the person's main (primary) bot; all of a person's bots share one cloud
+computer and the account's connected apps; bots hand work to each other and
+share group chats of 2-6 bots; skills are shared, routines run them on a
+schedule or event; @bot on X hands a post to the main bot.
 - One definition, agents/bot/agent.ts. Every bot is an instance in the person's
-  workspace: lib/people.ts chiefFor (context.role "chief", X app if xUserId),
-  botFor (name "New bot" until it has a job; installations per app),
-  groupChat (a conversation on the Chief, context.group.members).
-- Prompt, model and playbooks are built from instance data: a Chief runs the
-  others; a bot without a description asks what it is for and calls take_job,
-  which writes name and description with ctx.data.putAgent (no deploy).
-- mesh: { waitMs: 60_000 }: bots find each other with glove_mesh_list_agents
-  and pass work by id (Chief → Bug Triage → Engineer); replies come back on
-  their own. Group chat: the Chief sends each @-mentioned member its part.
-- One computer per workspace (working environment persisted by workspaceId)
-  and one skill library: save_skill (requiresPermission) writes workspace
-  entries "skill:<name>"; configure loads them with useReadSkill; routines are
+  workspace: lib/people.ts mainBotFor (context.primary true, X app if xUserId),
+  botFor (name "New bot" until it has a job), groupChat (a conversation on the
+  hosting bot, context.group.members). foundry.application.ts seeds Maya's main
+  bot and thread with defineAgentInstance + createConversation.
+- Prompt, model and playbooks are built from instance data: the main bot takes
+  everyday requests and routes the rest; a bot without a description asks what
+  it is for and calls take_job, which writes name and description with
+  ctx.data.putAgent (no deploy).
+- Apps belong to the account: every bot carries the account's installations;
+  connect_app (requiresPermission) installs a new app on every bot in the
+  workspace.
+- mesh: { waitMs: 60_000 }: bots find each other with glove_mesh_list_agents and
+  pass work by id; replies come back on their own. Group chats: @name sends that
+  bot its part, @everyone is glove_mesh_broadcast, a member with nothing to add
+  replies empty (posts nothing). Handoffs name output path, done, evidence, open
+  questions, next owner.
+- One computer per workspace: foundryDataEnvironmentPersistence({ scope:
+  "workspace" }). Skills are workspace entries "skill:<name>" (save_skill has
+  requiresPermission), loaded in the tools resolver; routines are
   glove_foundry_schedule.
 - send_email and request_sign_in have requiresPermission (sign-in = the person
-  signs in on the shared browser; the bot never sees the password).
+  does one step on the shared computer; the bot never sees the password).
 - X: transmission (authenticate checks for_user_id === route.config.botUserId),
-  a predicate on the author id and a playbook only on Chiefs with xUserId;
+  a predicate on the author id and a playbook only on main bots with xUserId;
   reply_on_x uses withAccountSession. A forwarder answers X's CRC check,
   verifies the signature and POSTs /api/transmissions/x-mentions/fire with
   conversationKey "main", conversationScope "agent".
@@ -648,7 +660,9 @@ Grok Bot → examples/foundry-bot-crew (${SITE_URL}/foundry/docs/rebuilds/grok-b
 Claude Duet → examples/foundry-proactive-partner (${SITE_URL}/foundry/docs/rebuilds/claude-duet)
 - lib/onboarding.ts: partnerFor(person, preferences) (workspace = person id,
   context { name, timezone, preferences { briefAt, checkInHours, hearAbout } }),
-  computerFor(person) (a "Computer" instance), threadFor(person).
+  computerFor(person) (a "Computer" instance), threadFor(person);
+  foundry.application.ts seeds Ada's with defineAgentInstance. The computer
+  persists with foundryDataEnvironmentPersistence({ scope: "agent" }).
 - schedules resolve from instance data: morning-brief cron from briefAt and
   check-in cron from checkInHours, in context.timezone. Changing preferences with
   configureAgent moves the schedule on the next run. Definition schedules attach
@@ -666,25 +680,36 @@ Claude Duet → examples/foundry-proactive-partner (${SITE_URL}/foundry/docs/reb
   to the thread and the partner notifies the person. voiceCall for calls.
 
 OpenAI Dots → examples/foundry-standing-agents (${SITE_URL}/foundry/docs/rebuilds/openai-dots)
+Facts from OpenAI's announcement and help center: a primary dot you name, with
+its own cloud computer and browser, notes on preferences, decisions and ongoing
+responsibilities; proactive research with read-only tools; Custom Rules allow,
+require approval or block an action; auto-review checks actions against your
+instructions, rules and safety (proceed, approval, or yours to do); changing a
+password always stays with you; ChatGPT, Slack, Teams and voice; specialist
+dots with their own identity and credentials for organisations.
 - One dot definition; each dot is an instance (workspace = owner) whose context
-  holds responsibility { job, sources, attention, mustNot }, rules (action →
-  "act" | "on-request" | "ask" | "hand-off") and routing { progress, decisions }.
-  builderFor(owner) creates the person's Builder instance.
-- research schedule every 2h. The tools resolver returns only read tools unless
-  request.source.kind is "direct", "transmission" or "mesh" (so spawned and
-  background work is read-only too).
-- mesh: { peers: (_self, peer) => peer.definitionId === "builder", mount: (ctx)
-  => !readOnly(ctx.request) }; the builder has mesh: { peers: () => false }, so
-  it can only answer the dot that asked.
-- reviewed(action, review) wraps every acting tool: a built-in hand-off list
-  (change_password) beats the rules; hand-off never runs; on-request runs only
-  when the person started the run; ask → requiresPermission: true; act runs,
-  but an unknown recipient asks (function form of requiresPermission). No rule
-  → ask.
+  holds name, kind (primary | specialist), responsibilities [{ job, sources,
+  attention, mustNot }], rules (action → "allow" | "ask" | "block") and routing
+  { progress, decisions }. primaryDot(owner, dot), specialistFor(org, { …,
+  account }) and builderFor(owner) build the data; foundry.application.ts seeds
+  Sam's dot (Pip), builder and app conversation with defineAgentInstance.
+- research schedule every 2h. On runs not started by the person (source kind
+  other than "direct", "transmission" or "mesh"), the tools resolver returns
+  only read tools, workingEnvironment resolves to undefined and mesh.mount is
+  false.
+- reviewed(action, review) wraps every acting tool: built-in safety
+  (change_password) is always "block"; block never runs and hands it to the
+  person; ask → requiresPermission: true; allow runs, but an unknown recipient
+  asks (function form of requiresPermission). No rule → ask.
+- The dot's own computer: a working environment with
+  foundryDataEnvironmentPersistence({ scope: "agent" }). Coding jobs start on
+  the person's Builder over the mesh (peers: only the builder; the builder has
+  peers: () => false).
 - Channels are conversations on one instance (conversationKey "app" and
-  "slack"); one defineMemory namespace per instance shares learning. Slack
-  through a transmission, a predicate on the owner's Slack user id and a
-  playbook; a forwarder answers url_verification and checks x-slack-signature.
+  "slack"), plus voiceCall for calls; one defineMemory namespace per instance
+  shares learning. Slack through a transmission, a predicate on the owner's
+  Slack user id and a playbook; a forwarder answers url_verification and checks
+  x-slack-signature.
 - Resolvers read the instance fresh from ctx.data.getAgent, because recurring
   schedules fire with the envelope captured when armed
   (porkytheblack/glove#199).

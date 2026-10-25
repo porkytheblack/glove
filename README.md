@@ -576,9 +576,9 @@ pnpm --filter glove-foundry-layered-assistant dev      # add ANTHROPIC_API_KEY f
 
 Three always-on agent products rebuilt from Foundry primitives, each with an illustrated build on the site and the Kuiper commands in its README. In each one the definition says what an agent can be and every agent is data, so adding or renaming one needs no deploy. They are independent examples, not affiliated with xAI, Anthropic or OpenAI.
 
-- **Bot Crew** (like xAI's Grok Bot): one bot definition; every bot, its name, job, apps and group chats are data. A new bot names itself when told its job, a Chief runs the rest, and bots pass work over the mesh. They share a computer and a skill library; tasks come from @-mentions on X; approvals. [Build](https://glove.dterminal.net/foundry/docs/rebuilds/grok-bot)
+- **Bot Crew** (like xAI's Grok Bot): one bot definition; every bot, its name, job and group chats are data. A new bot names itself when told its job, a main bot takes everyday requests, and bots pass work over the mesh. They share a computer, the account's apps and a skill library; @bot on X reaches the main bot; approvals. [Build](https://glove.dterminal.net/foundry/docs/rebuilds/grok-bot)
 - **Proactive Partner** (like Anthropic's Claude Duet): one partner per person in one thread, a morning brief and check-ins scheduled from their preferences, approvals before it sends, pays, signs or deletes, a guard on everything outbound, and its own computer over the mesh. [Build](https://glove.dterminal.net/foundry/docs/rebuilds/claude-duet)
-- **Standing Agents** (like OpenAI's Dots): one dot definition, each dot's responsibility and rules as data, read-only research with no way to act or message, an auto-review with custom rules, the app and Slack, and a builder per person over the mesh. [Build](https://glove.dterminal.net/foundry/docs/rebuilds/openai-dots)
+- **Standing Agents** (like OpenAI's dots): one dot definition; a dot you name, holding your ongoing responsibilities and Custom Rules (allow, ask, block) as data; read-only research with no way to act or message; an auto-review before every action; its own computer; the app, Slack and calls; specialist dots as instances with their own account. [Build](https://glove.dterminal.net/foundry/docs/rebuilds/openai-dots)
 
 ```bash
 pnpm --filter glove-foundry-bot-crew verify            # each runs offline

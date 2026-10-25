@@ -108,7 +108,7 @@ export const foundrySections: FoundryNavSection[] = [
         label: "Grok Bot",
         href: "/foundry/docs/rebuilds/grok-bot",
         badge: "new",
-        summary: "One bot definition and every bot as data: a bot names itself from its job, a Chief, group chats, bots passing work over the mesh, one shared computer, skills and routines, sign-ins handed back, and @-mentions on X.",
+        summary: "One bot definition and every bot as data: a main bot, bots that name themselves from their job, apps connected once per account, group chats and handoffs over the mesh, one shared computer, skills and routines, sign-ins handed back, and @bot on X.",
       },
       {
         label: "Claude Duet",
@@ -120,7 +120,7 @@ export const foundrySections: FoundryNavSection[] = [
         label: "OpenAI Dots",
         href: "/foundry/docs/rebuilds/openai-dots",
         badge: "new",
-        summary: "Standing agents with a responsibility: read-only research on a schedule, an auto-review with custom rules before every action, the same agent in the app and Slack, and a builder reached over the mesh.",
+        summary: "A dot you name, holding your ongoing responsibilities: read-only proactive research, Custom Rules (allow, ask, block) and an auto-review before every action, its own computer, the app, Slack and calls, and specialist dots as instances.",
       },
     ],
   },
